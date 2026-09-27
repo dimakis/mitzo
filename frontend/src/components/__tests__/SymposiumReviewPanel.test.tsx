@@ -223,9 +223,9 @@ it('selects earlier workflows and starts a separate review for the current artif
   fireEvent.change(screen.getByLabelText('Acceptance criteria (one per line)'), {
     target: { value: 'Fresh criteria' },
   });
-  fireEvent.change(screen.getByLabelText('Token budget'), { target: { value: '1000' } });
-  fireEvent.change(screen.getByLabelText('Maximum review rounds'), { target: { value: '2' } });
-  fireEvent.change(screen.getByLabelText('Cost limit'), { target: { value: 'none' } });
+  fireEvent.change(screen.getByLabelText('Maximum host turns'), { target: { value: '1000' } });
+  fireEvent.change(screen.getByLabelText('Maximum review/fix cycles'), { target: { value: '2' } });
+  chooseDeadlineAndProgress();
   fireEvent.click(screen.getByRole('button', { name: 'Start review' }));
   await waitFor(() =>
     expect(apiFetch).toHaveBeenCalledWith(
@@ -242,9 +242,9 @@ it('selects earlier workflows and starts a separate review for the current artif
   );
   expect(screen.getByRole('option', { name: /old-commit/ })).toBeTruthy();
   fireEvent.click(screen.getByRole('button', { name: 'New review for current artifact' }));
-  expect((screen.getByLabelText('Token budget') as HTMLInputElement).value).toBe('');
-  expect((screen.getByLabelText('Maximum review rounds') as HTMLInputElement).value).toBe('');
-  expect((screen.getByLabelText('Cost limit') as HTMLSelectElement).value).toBe('');
+  expect((screen.getByLabelText('Maximum host turns') as HTMLInputElement).value).toBe('');
+  expect((screen.getByLabelText('Maximum review/fix cycles') as HTMLInputElement).value).toBe('');
+  expect((screen.getByLabelText('Deadline') as HTMLInputElement).value).toBe('');
   expect((screen.getByRole('button', { name: 'Start review' }) as HTMLButtonElement).disabled).toBe(
     true,
   );
@@ -331,9 +331,9 @@ it('starts a new workflow despite a stranded older reservation without settling 
   fireEvent.change(screen.getByLabelText('Acceptance criteria (one per line)'), {
     target: { value: 'Review new artifact' },
   });
-  fireEvent.change(screen.getByLabelText('Token budget'), { target: { value: '1000' } });
-  fireEvent.change(screen.getByLabelText('Maximum review rounds'), { target: { value: '2' } });
-  fireEvent.change(screen.getByLabelText('Cost limit'), { target: { value: 'none' } });
+  fireEvent.change(screen.getByLabelText('Maximum host turns'), { target: { value: '1000' } });
+  fireEvent.change(screen.getByLabelText('Maximum review/fix cycles'), { target: { value: '2' } });
+  chooseDeadlineAndProgress();
   fireEvent.click(screen.getByRole('button', { name: 'Start review' }));
   await waitFor(() =>
     expect((screen.getByLabelText('Review workflow') as HTMLSelectElement).value).toBe('current'),
@@ -351,7 +351,25 @@ it('starts a new workflow despite a stranded older reservation without settling 
   ]);
 });
 
-it('requires explicit token, round and cost choices before starting a review', async () => {
+const deadline = '2099-01-01T12:00';
+function chooseDeadlineAndProgress() {
+  fireEvent.change(screen.getByLabelText('Deadline'), { target: { value: deadline } });
+  fireEvent.change(screen.getByLabelText('Maximum unchanged cycles'), { target: { value: '2' } });
+}
+function chooseLimits() {
+  fireEvent.change(screen.getByLabelText('Maximum host turns'), { target: { value: '12' } });
+  fireEvent.change(screen.getByLabelText('Maximum review/fix cycles'), { target: { value: '2' } });
+  chooseDeadlineAndProgress();
+}
+const policy = {
+  version: 1,
+  mode: 'application',
+  maxHostTurns: 12,
+  maxReviewCycles: 2,
+  deadlineAt: new Date(deadline).getTime(),
+  noProgressLimit: 2,
+};
+it('requires every application limit explicitly and posts the selected policy', async () => {
   vi.mocked(apiFetch).mockResolvedValue(response({ available: true, workflows: [] }));
   render(<SymposiumReviewPanel sessionId="session" />);
   const start = await screen.findByRole('button', { name: 'Start review' });
@@ -359,48 +377,117 @@ it('requires explicit token, round and cost choices before starting a review', a
     target: { value: 'Correct behavior' },
   });
   expect((start as HTMLButtonElement).disabled).toBe(true);
-  expect((screen.getByLabelText('Token budget') as HTMLInputElement).value).toBe('');
-  fireEvent.change(screen.getByLabelText('Token budget'), { target: { value: '1200' } });
-  fireEvent.change(screen.getByLabelText('Maximum review rounds'), { target: { value: '3' } });
+  for (const label of [
+    'Maximum host turns',
+    'Maximum review/fix cycles',
+    'Deadline',
+    'Maximum unchanged cycles',
+  ])
+    expect((screen.getByLabelText(label) as HTMLInputElement).value).toBe('');
+  expect(screen.queryByLabelText('Token budget')).toBeNull();
+  chooseLimits();
+  fireEvent.change(screen.getByLabelText('Maximum host turns'), { target: { value: '1.5' } });
   expect((start as HTMLButtonElement).disabled).toBe(true);
-  fireEvent.change(screen.getByLabelText('Cost limit'), { target: { value: 'cap' } });
-  expect((start as HTMLButtonElement).disabled).toBe(true);
-  fireEvent.change(screen.getByLabelText('Maximum cost (USD)'), { target: { value: '0.75' } });
+  fireEvent.change(screen.getByLabelText('Maximum host turns'), { target: { value: '12' } });
   fireEvent.click(start);
   await waitFor(() =>
     expect(vi.mocked(apiFetch).mock.calls.some(([, init]) => init?.method === 'POST')).toBe(true),
   );
   const call = vi.mocked(apiFetch).mock.calls.find(([, init]) => init?.method === 'POST')!;
-  expect(JSON.parse(call[1]!.body as string).limits).toEqual({
-    maxTokens: 1200,
-    maxReviewRounds: 3,
-    maxCostUsd: 0.75,
+  expect(JSON.parse(call[1]!.body as string).limits).toEqual(policy);
+});
+it('shows selected policy and actual counters, binds stop and explicit continuation, and keeps unknown totals honest', async () => {
+  const { symposiumReviewPreviewResponses } =
+    await import('../../preview/symposium-review-fixtures');
+  let workflow = {
+    ...symposiumReviewPreviewResponses.findings.workflows[0],
+    limits: policy,
+    status: 'awaiting_review',
+    hostTurns: 3,
+    reviewCycles: 1,
+    applicationAttempts: [],
+    tokensUsed: 0,
+    costUsd: 0,
+    usageCompleteness: { tokens: 'partial', cost: 'partial' },
+    decisionCode: undefined as string | undefined,
+  };
+  vi.mocked(apiFetch).mockImplementation(async (_path, init) => {
+    if (init?.method === 'POST') {
+      workflow = { ...workflow, status: 'decision_required', decisionCode: 'user_stop' };
+      return response(workflow);
+    }
+    return response({ available: true, workflows: [workflow] });
   });
+  render(<SymposiumReviewPanel sessionId="session" />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Stop review' }));
+  await screen.findByText('Stopped: user_stop');
+  expect(screen.getByText(/3 of 12 host turns/)).toBeTruthy();
+  expect(screen.getByText(/1 of 2 review\/fix cycles/)).toBeTruthy();
+  expect(screen.getByText(/Token total unknown/)).toBeTruthy();
+  expect(screen.getByText(/Cost total unknown/)).toBeTruthy();
+  const resume = screen.getByRole('button', { name: 'Authorize continuation' });
+  expect((resume as HTMLButtonElement).disabled).toBe(true);
+  chooseLimits();
+  fireEvent.change(screen.getByLabelText('Reason for continuation'), {
+    target: { value: 'Finish remaining review' },
+  });
+  fireEvent.click(resume);
+  await waitFor(() =>
+    expect(
+      vi.mocked(apiFetch).mock.calls.filter(([, init]) => init?.method === 'POST'),
+    ).toHaveLength(2),
+  );
+  const bodies = vi
+    .mocked(apiFetch)
+    .mock.calls.filter(([, init]) => init?.method === 'POST')
+    .map(([, init]) => JSON.parse(init!.body as string));
+  expect(bodies).toEqual([
+    {
+      action: 'stop',
+      expectedArtifactRevision: workflow.artifactRevision,
+      expectedArtifactHash: workflow.artifactHash,
+    },
+    {
+      action: 'continue',
+      limits: policy,
+      reason: 'Finish remaining review',
+      expectedArtifactRevision: workflow.artifactRevision,
+      expectedArtifactHash: workflow.artifactHash,
+    },
+  ]);
 });
 
-it('requires explicit no-cost-limit choice and rejects fractional or missing integer budgets', async () => {
-  vi.mocked(apiFetch).mockResolvedValue(response({ available: true, workflows: [] }));
+it('blocks continuation for unresolved application attempts and clears choices when selecting another workflow', async () => {
+  const { symposiumReviewPreviewResponses } =
+    await import('../../preview/symposium-review-fixtures');
+  const base = {
+    ...symposiumReviewPreviewResponses.findings.workflows[0],
+    limits: policy,
+    status: 'decision_required',
+    decisionCode: 'user_stop',
+    hostTurns: 3,
+    reviewCycles: 1,
+  };
+  const workflows = [
+    { ...base, workflowId: 'old', applicationAttempts: [] },
+    {
+      ...base,
+      workflowId: 'pending',
+      applicationAttempts: [{ attemptId: 'unknown', kind: 'review', settled: false }],
+    },
+  ];
+  vi.mocked(apiFetch).mockResolvedValue(response({ available: true, workflows }));
   render(<SymposiumReviewPanel sessionId="session" />);
-  const start = await screen.findByRole('button', { name: 'Start review' });
-  fireEvent.change(screen.getByLabelText('Acceptance criteria (one per line)'), {
-    target: { value: 'Correct behavior' },
+  await screen.findByRole('button', { name: 'Authorize continuation' });
+  chooseLimits();
+  fireEvent.change(screen.getByLabelText('Reason for continuation'), {
+    target: { value: 'Continue' },
   });
-  fireEvent.change(screen.getByLabelText('Token budget'), { target: { value: '1.5' } });
-  fireEvent.change(screen.getByLabelText('Maximum review rounds'), { target: { value: '2' } });
-  fireEvent.change(screen.getByLabelText('Cost limit'), { target: { value: 'none' } });
-  expect((start as HTMLButtonElement).disabled).toBe(true);
-  fireEvent.change(screen.getByLabelText('Token budget'), { target: { value: '1000' } });
-  fireEvent.change(screen.getByLabelText('Maximum review rounds'), { target: { value: '' } });
-  expect((start as HTMLButtonElement).disabled).toBe(true);
-  fireEvent.change(screen.getByLabelText('Maximum review rounds'), { target: { value: '2' } });
-  fireEvent.click(start);
-  await waitFor(() =>
-    expect(vi.mocked(apiFetch).mock.calls.some(([, init]) => init?.method === 'POST')).toBe(true),
-  );
-  const call = vi.mocked(apiFetch).mock.calls.find(([, init]) => init?.method === 'POST')!;
-  expect(JSON.parse(call[1]!.body as string).limits).toEqual({
-    maxTokens: 1000,
-    maxReviewRounds: 2,
-    maxCostUsd: null,
-  });
+  expect(
+    (screen.getByRole('button', { name: 'Authorize continuation' }) as HTMLButtonElement).disabled,
+  ).toBe(true);
+  expect(screen.getByText(/Reconcile the unresolved attempt/)).toBeTruthy();
+  fireEvent.change(screen.getByLabelText('Review workflow'), { target: { value: 'old' } });
+  expect((screen.getByLabelText('Maximum host turns') as HTMLInputElement).value).toBe('');
+  expect((screen.getByLabelText('Reason for continuation') as HTMLInputElement).value).toBe('');
 });

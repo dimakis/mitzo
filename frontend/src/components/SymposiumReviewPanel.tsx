@@ -5,26 +5,7 @@ import './SymposiumReviewPanel.css';
 import { useCallback, useEffect, useState } from 'react';
 import { apiFetch } from '../lib/api-fetch';
 
-type Workflow = {
-  workflowId: string;
-  status: string;
-  artifactRevision: string;
-  artifactHash: string;
-  reviewRounds: number;
-  tokensUsed: number;
-  costUsd: number;
-  findings: Array<{
-    fingerprint: string;
-    severity?: 'critical' | 'high' | 'medium' | 'low';
-    summary: string;
-    location: string;
-    criterion: string;
-    evidenceRefs: string[];
-    status: string;
-  }>;
-  reviews: Array<{ reviewId: string; kind: string; artifactRevision: string }>;
-  reservations: Array<{ attemptId: string; kind: 'review' | 'fix'; settled: boolean }>;
-};
+import type { ApplicationPolicy, ReviewWorkflow as Workflow } from '../types/symposium-review';
 export function SymposiumReviewEntry({ sessionId }: { sessionId: string }) {
   const [open, setOpen] = useState(false);
   return (
@@ -54,10 +35,10 @@ function ReviewPanel({ sessionId }: { sessionId: string }) {
   const [reason, setReason] = useState('');
   const [dismissalEvidence, setDismissalEvidence] = useState('');
   const [criteria, setCriteria] = useState('');
-  const [tokens, setTokens] = useState('');
-  const [rounds, setRounds] = useState('');
-  const [costMode, setCostMode] = useState('');
-  const [cost, setCost] = useState('');
+  const [hostTurns, setHostTurns] = useState('');
+  const [cycles, setCycles] = useState('');
+  const [deadline, setDeadline] = useState('');
+  const [noProgress, setNoProgress] = useState('');
   const [record, setRecord] = useState('');
   const [savedRecordOpen, setSavedRecordOpen] = useState(false);
   const [recordReference, setRecordReference] = useState<{ id: string; hash: string } | null>(null);
@@ -133,19 +114,75 @@ function ReviewPanel({ sessionId }: { sessionId: string }) {
   const workflow = newReview
     ? undefined
     : (workflows.find((item) => item.workflowId === workflowId) ?? workflows.at(-1));
+  function resetLimits() {
+    setHostTurns('');
+    setCycles('');
+    setDeadline('');
+    setNoProgress('');
+  }
+  const positiveInteger = (value: string) =>
+    value.trim() !== '' && Number.isSafeInteger(Number(value)) && Number(value) > 0;
   const validLimits =
-    tokens.trim() !== '' &&
-    Number.isSafeInteger(Number(tokens)) &&
-    Number(tokens) > 0 &&
-    rounds.trim() !== '' &&
-    Number.isSafeInteger(Number(rounds)) &&
-    Number(rounds) > 0 &&
-    (costMode === 'none' ||
-      (costMode === 'cap' &&
-        cost.trim() !== '' &&
-        Number.isFinite(Number(cost)) &&
-        Number(cost) >= 0));
-  const pending = workflow?.reservations.find((attempt) => !attempt.settled);
+    positiveInteger(hostTurns) &&
+    positiveInteger(cycles) &&
+    positiveInteger(noProgress) &&
+    new Date(deadline).getTime() > Date.now();
+  const limits: ApplicationPolicy = {
+    version: 1,
+    mode: 'application',
+    maxHostTurns: Number(hostTurns),
+    maxReviewCycles: Number(cycles),
+    deadlineAt: new Date(deadline).getTime(),
+    noProgressLimit: Number(noProgress),
+  };
+  const application = workflow?.limits?.mode === 'application' ? workflow.limits : undefined;
+  const pending = (application ? workflow?.applicationAttempts : workflow?.reservations)?.find(
+    (attempt) => !attempt.settled,
+  );
+  const limitFields = (
+    <fieldset disabled={busy}>
+      <legend>{workflow ? 'Amend application limits' : 'Application limits'}</legend>
+      <label>
+        Maximum host turns
+        <input
+          type="number"
+          min="1"
+          value={hostTurns}
+          onChange={(event) => setHostTurns(event.target.value)}
+        />
+      </label>
+      <label>
+        Maximum review/fix cycles
+        <input
+          type="number"
+          min="1"
+          value={cycles}
+          onChange={(event) => setCycles(event.target.value)}
+        />
+      </label>
+      <label>
+        Deadline
+        <input
+          type="datetime-local"
+          value={deadline}
+          onChange={(event) => setDeadline(event.target.value)}
+        />
+      </label>
+      <label>
+        Maximum unchanged cycles
+        <input
+          type="number"
+          min="1"
+          value={noProgress}
+          onChange={(event) => setNoProgress(event.target.value)}
+        />
+      </label>
+      <p>
+        Limits fence new work and request cancellation. Accepted calls may still finish. Token and
+        spend caps are not guaranteed.
+      </p>
+    </fieldset>
+  );
   const endpoint = workflow ? `${base}/${encodeURIComponent(workflow.workflowId)}/actions` : base;
   return (
     <section aria-label="Review findings" className="symposium-review-panel">
@@ -167,6 +204,7 @@ function ReviewPanel({ sessionId }: { sessionId: string }) {
             disabled={busy}
             onChange={(event) => {
               setWorkflowId(event.target.value);
+              resetLimits();
               setNewReview(false);
               setSelected([]);
               setReason('');
@@ -187,10 +225,7 @@ function ReviewPanel({ sessionId }: { sessionId: string }) {
           disabled={busy}
           onClick={() => {
             setNewReview(true);
-            setTokens('');
-            setRounds('');
-            setCostMode('');
-            setCost('');
+            resetLimits();
             setSelected([]);
             setReason('');
             setRecord('');
@@ -204,10 +239,73 @@ function ReviewPanel({ sessionId }: { sessionId: string }) {
           <p>
             {workflow.status.replaceAll('_', ' ')} · {workflow.artifactRevision}
           </p>
+          {application ? (
+            <>
+              <p>
+                {workflow.hostTurns ?? 'Unknown'} of {application.maxHostTurns} host turns ·{' '}
+                {workflow.reviewCycles ?? 'Unknown'} of {application.maxReviewCycles} review/fix
+                cycles
+              </p>
+              <p>
+                Deadline: {new Date(application.deadlineAt).toLocaleString()} · Maximum unchanged
+                cycles: {application.noProgressLimit}
+              </p>
+              <p>Application limits; no guaranteed token or spend cap.</p>
+              {!workflow.decisionCode && (
+                <button
+                  disabled={busy || !available}
+                  onClick={() => void action(endpoint, { action: 'stop' })}
+                >
+                  Stop review
+                </button>
+              )}
+            </>
+          ) : (
+            <p>
+              {workflow.reviewRounds} review rounds · Historical review record; no current cap
+              enforcement claimed.
+            </p>
+          )}
           <p>
-            {workflow.reviewRounds} review rounds · {workflow.tokensUsed} tokens · $
-            {workflow.costUsd.toFixed(2)} recorded
+            {workflow.usageCompleteness?.tokens === 'complete' && workflow.tokensUsed != null
+              ? `${workflow.tokensUsed} tokens recorded`
+              : 'Token total unknown'}{' '}
+            ·{' '}
+            {workflow.usageCompleteness?.cost === 'complete' && workflow.costUsd != null
+              ? `$${workflow.costUsd.toFixed(2)} recorded`
+              : 'Cost total unknown'}
           </p>
+          {workflow.decisionCode && <p>Stopped: {workflow.decisionCode}</p>}
+          {application && workflow.decisionCode && (
+            <>
+              {limitFields}
+              <label>
+                Reason for continuation
+                <input value={reason} onChange={(event) => setReason(event.target.value)} />
+              </label>
+              <p>
+                Authorize amended cumulative limits for this workflow. Earlier attempts remain
+                counted.
+              </p>
+              <button
+                disabled={
+                  busy ||
+                  !available ||
+                  Boolean(pending) ||
+                  !validLimits ||
+                  !reason.trim() ||
+                  limits.maxHostTurns <= (workflow.hostTurns ?? 0) ||
+                  limits.maxReviewCycles < (workflow.reviewCycles ?? 0)
+                }
+                onClick={() =>
+                  void action(endpoint, { action: 'continue', limits, reason: reason.trim() })
+                }
+              >
+                Authorize continuation
+              </button>
+              {pending && <p>Reconcile the unresolved attempt before continuing.</p>}
+            </>
+          )}
           <ul>
             {workflow.findings.map((finding) => (
               <li key={finding.fingerprint}>
@@ -358,45 +456,7 @@ function ReviewPanel({ sessionId }: { sessionId: string }) {
             Acceptance criteria (one per line)
             <textarea value={criteria} onChange={(event) => setCriteria(event.target.value)} />
           </label>
-          <label>
-            Token budget
-            <input
-              type="number"
-              min="1"
-              value={tokens}
-              onChange={(event) => setTokens(event.target.value)}
-            />
-          </label>
-          <label>
-            Maximum review rounds
-            <input
-              type="number"
-              min="1"
-              value={rounds}
-              onChange={(event) => setRounds(event.target.value)}
-            />
-          </label>
-          <label>
-            Cost limit
-            <select value={costMode} onChange={(event) => setCostMode(event.target.value)}>
-              <option value="">Choose a cost limit</option>
-              <option value="cap">Set a maximum cost</option>
-              <option value="none">No dollar limit; keep token and round limits</option>
-            </select>
-          </label>
-          {costMode === 'cap' && (
-            <label>
-              Maximum cost (USD)
-              <input
-                type="number"
-                min="0"
-                step="any"
-                value={cost}
-                onChange={(event) => setCost(event.target.value)}
-              />
-            </label>
-          )}
-          <p>Choose limits for this review. It can run only when the workspace can enforce them.</p>
+          {limitFields}
           <button
             disabled={busy || !criteria.trim() || !validLimits}
             onClick={() =>
@@ -406,11 +466,7 @@ function ReviewPanel({ sessionId }: { sessionId: string }) {
                   .split('\n')
                   .map((line) => line.trim())
                   .filter(Boolean),
-                limits: {
-                  maxTokens: Number(tokens),
-                  maxReviewRounds: Number(rounds),
-                  maxCostUsd: costMode === 'cap' ? Number(cost) : null,
-                },
+                limits,
               })
             }
           >
