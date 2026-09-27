@@ -32,6 +32,15 @@ const physical = process.env.MITZO_SUCCESSOR_PHYSICAL_CONTRACT === '1';
 it.skipIf(!physical)(
   'copies a disposable sealed parent through production exporters and owned generation stores',
   async () => {
+    const sourceReceipt = () => {
+      execFileSync('git', ['diff', '--quiet', 'HEAD']);
+      return {
+        head: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(),
+        tree: execFileSync('git', ['rev-parse', 'HEAD^{tree}'], { encoding: 'utf8' }).trim(),
+        trackedClean: true,
+      };
+    };
+    const sourceBefore = sourceReceipt();
     const root = mkdtempSync(join(tmpdir(), 'mitzo-successor-contract-'));
     const sessionId = randomUUID(),
       workspace = 'successor-contract';
@@ -358,13 +367,15 @@ it.skipIf(!physical)(
         .get(copied.generationId);
       db.close();
       for (const volume of volumes) await command(['volume', 'rm', volume]);
+      expect(sourceReceipt()).toEqual(sourceBefore);
       completed = true;
       writeFileSync(
         join(root, 'evidence.json'),
         JSON.stringify(
           {
             completed,
-            source: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(),
+            sourceBefore,
+            sourceAfter: sourceReceipt(),
             image: runtime.build.image,
             parent: mapping,
             seal,
