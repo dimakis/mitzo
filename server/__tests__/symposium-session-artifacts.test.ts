@@ -392,6 +392,9 @@ it('exposes only retained initialized helper cleanup as initial generation proof
     contract: f.host.initializationContract,
     helper: { name: `${mapping.volumeName}-init`, id: 'a'.repeat(64), removed: true },
   });
+  const immutableReceipt = f.store.initializationReceipt('session');
+  await f.store.ensure('session');
+  expect(f.store.initializationReceipt('session')).toEqual(immutableReceipt);
   db.prepare('UPDATE symposium_session_artifacts SET initializer_removed=0').run();
   expect(f.store.initializationReceipt('session')).toBeNull();
   db.close();

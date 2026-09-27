@@ -29,7 +29,9 @@ success and exact helper removal. The copier verifies this retained job, not a
 caller hash or whichever export happened most recently.
 
 The initial generation binds the actual retained Git initialization and helper
-cleanup receipt. A copy intent binds parent seal/commit/tree/manifest, export,
+cleanup receipt. Routine preparation CAS revisions are excluded from this immutable
+identity, so read/revalidation activity cannot invalidate it. A copy intent binds
+parent seal/commit/tree/manifest, export,
 explicit fix scope and the reviewed copier contract. The ledger generates fresh
 child volume/generation/helper names. Parent rows and parent content never change.
 The copier does not mount the parent and never copies `.git/config`, credentials,

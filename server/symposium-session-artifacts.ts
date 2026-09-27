@@ -151,7 +151,6 @@ export class SymposiumSessionArtifacts {
       mapping,
       workspace: row.workspace,
       custody: row.custody,
-      revision: row.revision,
       contract: row.initialization_contract!,
       helper: { name: row.initializer_name, id: row.initializer_id, removed: true as const },
     };

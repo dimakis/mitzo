@@ -351,6 +351,7 @@ it.skipIf(!physical)(
         ),
       ).rejects.toThrow('revoked');
       currentAuthority = true;
+      expect(await sessionArtifacts.ensure(sessionId)).toEqual({ state: 'ready' });
       await withOwnedArtifactSuccessor(deps, request, exported.receipt, exported.bundle, (copier) =>
         copier.activate(request, copied.generationId, exported.receipt, exported.bundle, signal),
       );
