@@ -503,7 +503,20 @@ export async function createOwnedSymposiumHost(
             return subscription.captureAdmissionProvider(selected);
           },
           getReady: async (sessionId) => {
+            const assertDraft = () => {
+              const session = options.facts.getSession?.(sessionId);
+              const config = session?.symposiumConfig
+                ? SymposiumConfigSchema.safeParse(JSON.parse(session.symposiumConfig))
+                : null;
+              if (
+                session?.sessionType !== 'symposium' ||
+                !config?.success ||
+                config.data.state !== 'draft'
+              )
+                throw new Error('Current Symposium draft required for personal evidence');
+            };
             custody();
+            assertDraft();
             const mapping = sessionArtifacts!.getReady(sessionId);
             if (!mapping) return null;
             assertSessionArtifactVolume(
@@ -512,6 +525,7 @@ export async function createOwnedSymposiumHost(
               await leaseHost!.inspectVolume(mapping.volumeName, 'podman'),
             );
             custody();
+            assertDraft();
             return mapping;
           },
           collect: collectExplicitEvidence,

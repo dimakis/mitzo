@@ -316,6 +316,19 @@ it('provisions a new draft through owned argv and makes its checked mapping avai
     await expect(host.collectAdmissionEvidence(personalSelection)).rejects.toThrow();
     expect(collect).toHaveBeenCalledTimes(1);
     volume!.Labels['mitzo.symposium.session'] = 'new-session';
+    collect.mockImplementationOnce(async (selection) => {
+      vi.mocked(f.options.facts.getSession!).mockReturnValue({
+        sessionType: 'chat',
+        symposiumConfig: null,
+      } as never);
+      return selection as never;
+    });
+    await expect(host.collectAdmissionEvidence(personalSelection)).rejects.toThrow('draft');
+    vi.mocked(f.options.facts.getSession!).mockReturnValue({
+      sessionType: 'symposium',
+      symposiumConfig: JSON.stringify(config),
+    } as never);
+
     const request = host.artifactRequest('new-session', 'seat', 2);
     await host.artifactLeaseHost.reserve(request);
     vi.mocked(f.options.facts.getSymposiumSeatSandbox).mockReturnValue({

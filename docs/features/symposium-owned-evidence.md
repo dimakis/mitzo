@@ -25,6 +25,10 @@ session's owned ledger and verifies physical session/generation labels. Callers
 cannot supply a provider or volume override with this form. It permits only the
 `openai-codex` account provider. Requested roles remain explicit.
 
+The session must still be a Symposium draft; a retained volume ledger row alone
+cannot authorize evidence after deactivation. Draft state is checked around each
+physical read, before and after the worker returns.
+
 Slot revision/state, retained receipt identity, and gateway custody are checked
 before collection and again after asynchronous evidence collection and physical
 volume reads. The ready session-volume mapping must still match. A disconnect,
