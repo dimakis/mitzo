@@ -1,3 +1,4 @@
+import { createSessionMessagesHandler } from './session-messages-route.js';
 import { createSymposiumSourceRouter } from './symposium-source-routes.js';
 import { getConnectionRegistry } from './chat.js';
 import { publicationControllerApproval } from './symposium-publication-approval.js';
@@ -2116,27 +2117,10 @@ app.get('/api/sessions', async (req, res) => {
   }
 });
 
-app.get('/api/sessions/:id/messages', async (req, res) => {
-  if (req.query.transcript === '1') {
-    res.json(await getSessionTranscript(req.params.id as string));
-    return;
-  }
-  const rawCursor = req.query.throughSeq;
-  if (rawCursor !== undefined) {
-    if (typeof rawCursor !== 'string' || !/^(0|[1-9]\d*)$/.test(rawCursor)) {
-      res.status(400).json({ error: 'Invalid reconnect cursor' });
-      return;
-    }
-    const cursor = Number(rawCursor);
-    if (!Number.isSafeInteger(cursor)) {
-      res.status(400).json({ error: 'Invalid reconnect cursor' });
-      return;
-    }
-    res.json(getReconnectTranscript(req.params.id as string, cursor));
-    return;
-  }
-  res.json(await getMessages(req.params.id as string));
-});
+app.get(
+  '/api/sessions/:id/messages',
+  createSessionMessagesHandler({ getMessages, getSessionTranscript, getReconnectTranscript }),
+);
 
 app.delete('/api/sessions/:id', (req, res) => {
   hideSession(req.params.id as string);

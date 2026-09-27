@@ -3501,6 +3501,14 @@ export function replayEventsToTranscript(
   const completedTurns = new Set<string>();
   for (const event of events) {
     if (event.seatId === undefined && event.symposiumProvenance === undefined) {
+      // These host bookkeeping records name a recipient, not a transcript author.
+      // Never infer provenance from their payload or broaden this to arbitrary events.
+      if (
+        !('symposiumProvenance' in event.payload) &&
+        (event.type === 'symposium_delivery_dispatched' ||
+          event.type === 'symposium_thread_migrated')
+      )
+        continue;
       if ('seatId' in event.payload || 'symposiumProvenance' in event.payload)
         throw new Error('Stored event has unverifiable Symposium attribution');
       ordinary.push(event);

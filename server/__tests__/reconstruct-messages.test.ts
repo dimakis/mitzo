@@ -538,6 +538,59 @@ describe('replayEventsToTranscript — bounded in-flight restore', () => {
     expect(() => replayEventsToTranscript([bad])).toThrow(/seat/i);
   });
 
+  it('replays transcript alongside durable dispatch and thread-migration bookkeeping', () => {
+    const provenance = {
+      seatId: 'primary',
+      configRevision: 1,
+      accountProfileRevision: 'account-1',
+      seatProfileRevision: 'profile-1',
+      contextGrantRevision: 1,
+      authorityGrantRevision: 1,
+      isolationDomainId: 'domain-1',
+      isolationDomainRevision: 1,
+    };
+    const seat = (seq: number, type: string, payload: Record<string, unknown>) => ({
+      ...evt(seq, type, payload),
+      seatId: 'primary',
+      symposiumProvenance: provenance,
+    });
+    const bookkeeping = [
+      evt(1, 'symposium_delivery_dispatched', {
+        deliveryId: 'delivery',
+        seatId: 'primary',
+        claimToken: 'claim',
+      }),
+      evt(2, 'symposium_thread_migrated', {
+        deliveryId: 'delivery',
+        seatId: 'primary',
+        claimToken: 'claim',
+        previousThreadId: 'old',
+        providerThreadId: 'new',
+      }),
+    ];
+    const transcript = [
+      seat(3, 'message_start', { messageId: 'reply' }),
+      seat(4, 'block_start', { messageId: 'reply', blockId: 'text', blockType: 'text' }),
+      seat(5, 'block_delta', { messageId: 'reply', blockId: 'text', delta: 'accepted response' }),
+      seat(6, 'block_end', { messageId: 'reply', blockId: 'text' }),
+      seat(7, 'message_end', { messageId: 'reply' }),
+    ];
+    const restored = replayEventsToTranscript([...bookkeeping, ...transcript]);
+    expect(restored).toEqual(replayEventsToTranscript(transcript));
+    expect(restored.messages[0].symposiumProvenance).toEqual(provenance);
+    expect(restored.messages[0].blocks[0].content).toBe('accepted response');
+    for (const event of bookkeeping) {
+      expect(() =>
+        replayEventsToTranscript([
+          { ...event, payload: { ...event.payload, symposiumProvenance: provenance } },
+        ]),
+      ).toThrow(/unverifiable/);
+    }
+    expect(() =>
+      replayEventsToTranscript([evt(8, 'unknown_control', { seatId: 'primary' })]),
+    ).toThrow(/unverifiable/);
+  });
+
   it('refuses a payload-only seat claim without durable attribution', () => {
     const ordinary = evt(1, 'message_start', { messageId: 'ordinary' });
     expect(replayEventsToTranscript([ordinary]).current?.messageId).toBe('ordinary');

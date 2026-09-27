@@ -1,3 +1,6 @@
+import express from 'express';
+import request from 'supertest';
+import { createSessionMessagesHandler } from '../session-messages-route.js';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -602,6 +605,68 @@ describe('SymposiumOrchestrator', () => {
     });
     return delivery.deliveryId;
   }
+
+  it('serves real claimed v2 delivery history and contains malformed replay without stopping Express', async () => {
+    // chat's global store must not share another worker's default SQLite path.
+    const previousRepo = process.env.REPO_PATH;
+    process.env.REPO_PATH = dir;
+    const { replayEventsToTranscript, replayEventsToMessages, eventStore } =
+      await import('../chat.js');
+    eventStore.close();
+    if (previousRepo === undefined) delete process.env.REPO_PATH;
+    else process.env.REPO_PATH = previousRepo;
+    await prepareConcurrentSeats();
+    builder.execute = vi.fn(async (execution: SymposiumSeatExecution) => {
+      expect(
+        store.getSessionEvents('chat').some((e) => e.type === 'symposium_delivery_dispatched'),
+      ).toBe(true);
+      for (const [type, payload] of [
+        ['message_start', { messageId: 'reply' }],
+        ['block_start', { messageId: 'reply', blockId: 'text', blockType: 'text' }],
+        ['block_delta', { messageId: 'reply', blockId: 'text', delta: 'offline response' }],
+        ['block_end', { messageId: 'reply', blockId: 'text' }],
+        ['message_end', { messageId: 'reply' }],
+      ] as const)
+        store.appendSymposium('chat', type, payload, execution.provenance);
+      return { providerThreadId: 'offline-thread', content: 'offline response', costUsd: null };
+    });
+    expect(await orchestrator.deliver(readyFor(['builder'], 'real-replay'))).toMatchObject({
+      status: 'delivered',
+    });
+    const events = store.getSessionEvents('chat');
+    const cursor = events.at(-1)!.seq;
+    const app = express();
+    app.get(
+      '/api/sessions/:id/messages',
+      createSessionMessagesHandler({
+        getMessages: async (id) => replayEventsToMessages(store.getSessionEvents(id)),
+        getSessionTranscript: async (id) => ({
+          ...replayEventsToTranscript(store.getSessionEvents(id)),
+          cursor,
+        }),
+        getReconnectTranscript: (id, through) =>
+          replayEventsToTranscript(store.getSessionEventsThroughCursor(id, through)),
+      }),
+    );
+    for (const query of ['', '?transcript=1', '?throughSeq=' + cursor]) {
+      const result = await request(app)
+        .get('/api/sessions/chat/messages' + query)
+        .timeout(1000);
+      expect(result.status).toBe(200);
+      const messages = Array.isArray(result.body) ? result.body : result.body.messages;
+      expect(messages[0]).toMatchObject({
+        symposiumProvenance: { version: 2, seatId: 'builder', membershipGeneration: 1 },
+        blocks: [{ content: 'offline response' }],
+      });
+    }
+    store.append('chat', 'message_start', { messageId: 'invalid', seatId: 'builder' });
+    const failed = await request(app).get('/api/sessions/chat/messages?transcript=1').timeout(1000);
+    expect(failed.status).toBe(500);
+    expect(failed.body).toEqual({ error: 'Session transcript unavailable' });
+    const next = await request(app).get('/api/sessions/chat/messages?throughSeq=' + cursor);
+    expect(next.status).toBe(200);
+    expect(next.body.messages[0].symposiumProvenance.seatId).toBe('builder');
+  });
 
   it('fences an approved delivery before any executor call when sealing begins', async () => {
     await prepareConcurrentSeats();
