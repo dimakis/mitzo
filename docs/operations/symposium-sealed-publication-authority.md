@@ -133,4 +133,28 @@ The selected credential custodian must report HTTP failures using the sanitized
 publisher's missing-resource branch-rule check; raw stderr/error text is never
 retained or exposed; the custodian recognizes the fixed gh status diagnostic. Selected repository names are canonicalized before durable grant hashing.
 
-Publication requests bind to the current tab’s server-issued chat transport ID at dispatch. Reconnect updates only that transport binding; uncertain publication retries retain the original operation payload and idempotency key. Multiple authenticated watchers cannot redirect the initiating tab’s approval. Direct saved-record links require an explicit **Open session for approval** action, keep the immutable record visible, and render the existing permission banner without starting a model.
+Publication requests bind to the current tab’s server-issued chat transport ID at dispatch. Reconnect updates only that transport binding. Uncertain publication outcomes use the separate read-only recovery action, never another Create PR invocation. Multiple authenticated watchers cannot redirect the initiating tab’s approval. Direct saved-record links require an explicit **Open session for approval** action, keep the immutable record visible, and render the existing permission banner without starting a model.
+
+### Fresh app authentication and read-only recovery
+
+Within the original retained custodian, a newly authenticated app operator can select an exact
+`verification_pending` operation for the currently displayed immutable review record. The UI
+requires a separate recent passphrase check and CSRF capability, then calls the dedicated
+publication `/recovery` endpoint. This does not select or resolve a replacement credential,
+issue a grant, prompt for another write approval, export an artifact, or invoke publication.
+Only the original retained handle may perform GitHub GET and Git `ls-remote` observations.
+
+The retained service checks the original operation, approval hash, recovery intent, repository,
+review/seal, principal, credential revision/generation, sealed grant and capability grant. It
+checks fresh observer authorization and the original recent-passphrase expiry around awaited reads and synchronously revalidates original
+grant validity immediately before the existing SQLite terminal transition. Original JTI,
+grant, approval, operation and idempotency identity remain unchanged. The current sealed-grant
+schema has active/revoked state rather than an independent TTL; this path does not extend any
+authorization lifetime. Expired observer authorization, revocation, disconnect or uncertain
+reads preserve the pending operation. A changed handle or new custodian cannot reconstruct
+recovery authority. No automatic retry or cross-custody recovery is provided.
+
+Matching pending publications also fence new grants and new operation/idempotency namespaces.
+Invalid or unowned pending rows are reported as unavailable, never silently omitted as if no
+write were outstanding. An unrelated review record is allowed only when its separation is
+proven by the retained original grant; unknown historical owners keep the session fenced.

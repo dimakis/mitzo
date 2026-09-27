@@ -187,6 +187,14 @@ records exact image/artifact pins and the attended Luna two-turn stream, replay 
 cleanup evidence. Its pin update still requires all existing host, provider,
 policy and physical admission checks; full application acceptance remains pending.
 
+### Fresh owned-custodian release preparation
+
+The explicit [owned-custodian preparation command](docs/operations/symposium-owned-release-preparation.md)
+validates a fresh private configuration and reviewed runtime tuple without starting
+providers. It emits a manual-start plist with no parent auto-restart and a durable
+one-shot launch guard. Default ordinary deployment is unchanged. Existing production
+state migration, parent recovery and database rollback remain unsupported by this path.
+
 ### Symposium native execution contracts
 
 Native seat adapters route Codex and Claude through OpenShell and bind streamed
@@ -719,3 +727,8 @@ Supervised Symposium publication now retains configured publication credential r
 uses the current browser permission queue through the custodian channel. It still requires a
 trusted review record, completed seal and explicit per-operation approval; this does not enable
 native trusted review dispatch without its separate budget and final-usage guarantees.
+
+An uncertain sealed publication can be verified after fresh app authentication while its original
+custodian and credential handle remain retained. The explicit exact-operation action performs
+read-only reconciliation; it never reissues Create PR, replaces an approval, or reconstructs
+credentials after custodian loss. See [publication recovery](docs/operations/symposium-sealed-publication-authority.md#fresh-app-authentication-and-read-only-recovery).

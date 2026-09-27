@@ -72,6 +72,8 @@ function persistedApprovalProjection(
 
 export interface CapabilityServiceOptions {
   ownsOperation?(operation: CapabilityOperation): boolean;
+  /** Synchronous retained-owner fence immediately before recovery persistence. */
+  beforeRecoveryPersist?(operation: CapabilityOperation): void;
   store: CapabilityOperationStore;
   executorRegistry: CapabilityExecutorRegistry;
   getTemplate(id: string, version: number): CapabilityTemplate | undefined;
@@ -89,7 +91,7 @@ export interface CapabilityServiceOptions {
 /** Shared browser/direct-service pipeline: validate → authorize → idempotently execute → verify → audit. */
 export class CapabilityService {
   /** A live retry observes its active owner; a replay after a crash does not. */
-  private readonly inFlight = new Set<string>();
+  private readonly inFlight = new Map<string, Promise<CapabilityOperation> | null>();
   constructor(private readonly options: CapabilityServiceOptions) {}
   eligibleTools(
     accountId: string,
@@ -251,6 +253,35 @@ export class CapabilityService {
     }
     return recovered;
   }
+  /** Exact existing owner only; never starts, approves, cancels or dispatches an operation. */
+  async recoverExactOperation(
+    id: string,
+    signal: AbortSignal,
+    onClaim: () => void = () => {},
+  ): Promise<CapabilityOperation> {
+    return trackCapabilityOperation(this.options.store, async () => {
+      const operation = this.options.store.get(id);
+      if (
+        !operation ||
+        !this.options.ownsOperation?.(operation) ||
+        operation.status !== 'verification_pending' ||
+        this.inFlight.has(id)
+      )
+        throw Error('Exact pending recovery unavailable');
+      const template = this.options.getTemplate(
+        operation.capabilityId,
+        operation.capabilityVersion,
+      );
+      if (!template) throw Error('Recovery template unavailable');
+      this.inFlight.set(id, null);
+      try {
+        onClaim();
+        return await this.recoverOwned(template, operation, signal);
+      } finally {
+        this.inFlight.delete(id);
+      }
+    });
+  }
   /** Reconnect recovery is intentionally scoped to the bound live conversation. */
   async recoverPendingForConversation(
     accountId: string,
@@ -374,7 +405,7 @@ export class CapabilityService {
       return this.reconcile(template, begun.operation, signal);
     }
     let operation = begun.operation;
-    this.inFlight.add(operation.id);
+    this.inFlight.set(operation.id, null);
     try {
       const executor = this.options.executorRegistry.resolve(template);
       // An executor may turn the validated request into a narrower, reviewed
@@ -520,6 +551,24 @@ export class CapabilityService {
     operation: CapabilityOperation,
     signal: AbortSignal,
   ): Promise<CapabilityOperation> {
+    if (this.inFlight.has(operation.id)) {
+      const existing = this.inFlight.get(operation.id);
+      return existing ? await existing : (this.options.store.get(operation.id) ?? operation);
+    }
+    // Claim synchronously before any recovery executor can observe transient authority.
+    const work = Promise.resolve().then(() => this.recoverOwned(template, operation, signal));
+    this.inFlight.set(operation.id, work);
+    try {
+      return await work;
+    } finally {
+      this.inFlight.delete(operation.id);
+    }
+  }
+  private async recoverOwned(
+    template: CapabilityTemplate,
+    operation: CapabilityOperation,
+    signal: AbortSignal,
+  ): Promise<CapabilityOperation> {
     // A rollout can encounter records produced by a newer/older executable
     // registry. Leave them durable and ambiguous until a compatible executor
     // is installed; turning that into failed would lose the safe retry path.
@@ -529,6 +578,7 @@ export class CapabilityService {
       const executor = this.options.executorRegistry.resolve(template);
       const recovered = await executor.recover(operation, signal);
       signal.throwIfAborted();
+      this.options.beforeRecoveryPersist?.(operation);
       if (recovered?.outcome === 'definitively-not-applied') {
         try {
           return this.options.store.transition(operation.id, 'verification_pending', 'failed', {
