@@ -1,3 +1,5 @@
+import { artifactReaderReference } from './symposium-artifact-reader-proof.js';
+import { z } from 'zod';
 import {
   artifactAdmissionDigest,
   artifactAdmissionReference,
@@ -14,6 +16,14 @@ import {
   type ArtifactAdmissionReferenceV1,
   type ArtifactActivationReceiptV1,
 } from './symposium-artifact-admission.js';
+import {
+  ArtifactReaderAdmissionBindingV1Schema,
+  ArtifactReaderLeaseReceiptV1Schema,
+  ArtifactReaderReferenceV1Schema,
+  type ArtifactReaderAdmissionBindingV1,
+  type ArtifactReaderLeaseReceiptV1,
+  type ArtifactReaderReferenceV1,
+} from './symposium-artifact-reader.js';
 import Database from 'better-sqlite3';
 import { createHash, randomUUID } from 'node:crypto';
 import {
@@ -75,7 +85,7 @@ export type {
 };
 
 export interface SymposiumSeatSandboxRecord {
-  artifact?: ArtifactAdmissionReferenceV1;
+  artifact?: ArtifactAdmissionReferenceV1 | ArtifactReaderReferenceV1;
   sessionId: string;
   seatId: string;
   generation: number;
@@ -1095,6 +1105,10 @@ export class EventStore {
           INSERT INTO symposium_artifact_seal_intents SELECT session_id,json_extract(selection_json,'$.artifact.volumeGeneration'),fence_id,selection_json,intent_json FROM symposium_artifact_seal_intents_legacy;
           DROP TABLE symposium_artifact_seal_intents_legacy;`);
       }
+      db.exec(`CREATE TABLE IF NOT EXISTS symposium_artifact_reader_admissions (
+        reader_admission_id TEXT PRIMARY KEY, session_id TEXT NOT NULL,
+        binding_json TEXT NOT NULL, receipt_json TEXT,
+        UNIQUE(session_id,reader_admission_id));`);
       db.exec(`CREATE TABLE IF NOT EXISTS symposium_artifact_admissions (
         transition_id TEXT PRIMARY KEY, session_id TEXT NOT NULL, child_generation TEXT NOT NULL UNIQUE,
         binding_json TEXT NOT NULL, receipt_json TEXT, UNIQUE(session_id,transition_id));`);
@@ -2516,11 +2530,32 @@ export class EventStore {
           member.seatId,
           member.generation,
         );
-        if (member.action !== 'artifact_successor' || !reference)
+        if (!reference) throw new Error('Unproven activity after parent seal');
+        if (
+          member.action === 'sealed_reader' &&
+          ArtifactReaderReferenceV1Schema.safeParse(reference).success
+        ) {
+          const admitted = this.getSymposiumSealedReaderAdmission(
+            member.sessionId,
+            (reference as ArtifactReaderReferenceV1).readerAdmissionId,
+          )!;
+          if (
+            !admitted.receipt ||
+            admitted.binding.sealFenceId !== intent.fenceId ||
+            admitted.binding.artifactGenerationId !== intent.selection.artifact.volumeGeneration ||
+            admitted.binding.resultingConfigRevision !== member.configRevision
+          )
+            throw new Error('Historical reader receipt changed');
+          continue;
+        }
+        if (
+          member.action !== 'artifact_successor' ||
+          !ArtifactAdmissionReferenceV1Schema.safeParse(reference).success
+        )
           throw new Error('Unproven activity after parent seal');
         const admission = this.getSymposiumArtifactAdmission(
           member.sessionId,
-          reference.transitionId,
+          (reference as ArtifactAdmissionReferenceV1).transitionId,
         )!;
         if (
           !admission.receipt ||
@@ -2531,7 +2566,7 @@ export class EventStore {
       const revisions = history
         .filter(
           (member) =>
-            member.action === 'artifact_successor' &&
+            (member.action === 'artifact_successor' || member.action === 'sealed_reader') &&
             member.configRevision > intent.selection.expectedConfigRevision,
         )
         .map((member) => member.configRevision)
@@ -2562,6 +2597,12 @@ export class EventStore {
         return existing;
       }
       this.assertSymposiumArtifactPredecessor(binding);
+      if (
+        this.db!.prepare(
+          'SELECT 1 FROM symposium_artifact_reader_admissions WHERE session_id=? AND receipt_json IS NULL',
+        ).get(binding.sessionId)
+      )
+        throw new Error('Reader transition is pending');
       if (
         this.db!.prepare(
           'SELECT 1 FROM symposium_artifact_admissions WHERE session_id=? AND receipt_json IS NULL',
@@ -2707,7 +2748,18 @@ export class EventStore {
     sessionId: string,
     seatId: string,
     generation: number,
-  ): ArtifactAdmissionReferenceV1 | null {
+  ): ArtifactAdmissionReferenceV1 | ArtifactReaderReferenceV1 | null {
+    const readerRows = this.db!.prepare(
+      'SELECT reader_admission_id FROM symposium_artifact_reader_admissions WHERE session_id=? AND receipt_json IS NOT NULL',
+    ).all(sessionId) as Array<{ reader_admission_id: string }>;
+    for (const row of readerRows) {
+      const record = this.getSymposiumSealedReaderAdmission(sessionId, row.reader_admission_id)!;
+      if (
+        record.binding.seatId === seatId &&
+        record.binding.readerMembershipGeneration === generation
+      )
+        return record.reference;
+    }
     const rows = this.db!.prepare(
       'SELECT transition_id FROM symposium_artifact_admissions WHERE session_id=? AND receipt_json IS NOT NULL',
     ).all(sessionId) as Array<{ transition_id: string }>;
@@ -2745,10 +2797,207 @@ export class EventStore {
     return binding;
   }
 
+  beginSymposiumSealedReaderAdmission(
+    input: ArtifactReaderAdmissionBindingV1,
+    assertAuthority: (binding: ArtifactReaderAdmissionBindingV1) => true,
+  ) {
+    const binding = ArtifactReaderAdmissionBindingV1Schema.parse(input);
+    this.db!.pragma('synchronous = FULL');
+    return this.db!.transaction(() => {
+      if (assertAuthority(binding) !== true) throw new Error('Reader authority required');
+      const existing = this.getSymposiumSealedReaderAdmission(
+        binding.sessionId,
+        binding.readerAdmissionId,
+      );
+      if (existing) {
+        if (artifactAdmissionDigest(existing.binding) !== artifactAdmissionDigest(binding))
+          throw new Error('Reader intent identity conflict');
+        return existing;
+      }
+      this.assertSymposiumSealedReaderPredecessor(binding);
+      if (
+        this.db!.prepare(
+          'SELECT 1 FROM symposium_artifact_reader_admissions WHERE session_id=? AND receipt_json IS NULL',
+        ).get(binding.sessionId)
+      )
+        throw new Error('Reader transition is pending');
+      if (
+        this.db!.prepare(
+          'SELECT 1 FROM symposium_artifact_admissions WHERE session_id=? AND receipt_json IS NULL',
+        ).get(binding.sessionId)
+      )
+        throw new Error('Successor transition is pending');
+      this.db!.prepare('INSERT INTO symposium_artifact_reader_admissions VALUES(?,?,?,NULL)').run(
+        binding.readerAdmissionId,
+        binding.sessionId,
+        JSON.stringify(binding),
+      );
+      return this.getSymposiumSealedReaderAdmission(binding.sessionId, binding.readerAdmissionId)!;
+    }).immediate();
+  }
+
+  private assertSymposiumSealedReaderPredecessor(binding: ArtifactReaderAdmissionBindingV1): void {
+    const config = this.getActiveSymposiumConfig(binding.sessionId);
+    const seat = config.seats.find((s) => s.id === binding.seatId);
+    const member = this.getLatestSymposiumMembership(binding.sessionId, binding.seatId);
+    const seal = this.getSymposiumArtifactSealByFence(binding.sealFenceId);
+    const sandbox = this.getSymposiumSeatSandbox(
+      binding.sessionId,
+      binding.seatId,
+      binding.predecessorMembershipGeneration,
+    );
+    if (
+      config.version !== 2 ||
+      config.revision !== binding.expectedConfigRevision ||
+      !seat ||
+      seat.role !== 'reviewer' ||
+      seat.authorityGrant?.filesystem !== 'read' ||
+      seat.authorityGrant?.tools !== 'read' ||
+      !seal ||
+      seal.selection.sessionId !== binding.sessionId ||
+      seal.selection.custody.workspaceId !== binding.workspaceId ||
+      seal.selection.custody.gatewayLaunchDigest !== binding.custodyDigest ||
+      seal.selection.artifact.volumeGeneration !== binding.artifactGenerationId ||
+      seal.selection.artifact.volumeName !== binding.volumeName ||
+      createHash('sha256').update(JSON.stringify(seal)).digest('hex') !== binding.sealDigest ||
+      member?.generation !== binding.predecessorMembershipGeneration ||
+      member.state !== 'active' ||
+      member.reconciliation !== 'confirmed' ||
+      (sandbox && sandbox.state !== 'stopped') ||
+      this.listUnstoppedSymposiumSeatSandboxes(binding.sessionId, binding.seatId).length ||
+      this.getUnsettledSymposiumSeatExecutions(binding.sessionId, binding.seatId).length ||
+      artifactAdmissionDigest(seat.accountBinding) !==
+        artifactAdmissionDigest(binding.accountBinding) ||
+      artifactAdmissionDigest(seat.profileBinding) !==
+        artifactAdmissionDigest(binding.profileBinding) ||
+      seat.contextGrant?.grantId !== binding.contextGrant.grantId ||
+      seat.contextGrant?.revision !== binding.contextGrant.revision ||
+      seat.authorityGrant?.grantId !== binding.authorityGrant.grantId ||
+      seat.authorityGrant?.revision !== binding.authorityGrant.revision
+    )
+      throw new Error('Exact sealed reviewer predecessor required');
+    this.withSymposiumHistoricalArtifactSealSnapshot(seal, () => {});
+  }
+
+  confirmSymposiumSealedReaderAdmission(
+    input: ArtifactReaderAdmissionBindingV1,
+    value: ArtifactReaderLeaseReceiptV1,
+    assertPhysicalLease: (
+      binding: ArtifactReaderAdmissionBindingV1,
+      receipt: ArtifactReaderLeaseReceiptV1,
+    ) => true,
+  ) {
+    const binding = ArtifactReaderAdmissionBindingV1Schema.parse(input);
+    const receipt = ArtifactReaderLeaseReceiptV1Schema.parse(value);
+    return this.db!.transaction(() => {
+      if (assertPhysicalLease(binding, receipt) !== true)
+        throw new Error('Verified read-only lease required');
+      const existing = this.getSymposiumSealedReaderAdmission(
+        binding.sessionId,
+        binding.readerAdmissionId,
+      );
+      if (
+        !existing ||
+        artifactAdmissionDigest(existing.binding) !== artifactAdmissionDigest(binding) ||
+        receipt.readerAdmissionId !== binding.readerAdmissionId ||
+        receipt.bindingDigest !== artifactAdmissionDigest(binding) ||
+        receipt.sessionId !== binding.sessionId ||
+        receipt.artifactGenerationId !== binding.artifactGenerationId ||
+        receipt.volumeName !== binding.volumeName ||
+        receipt.seatId !== binding.seatId
+      )
+        throw new Error('Reader lease receipt mismatch');
+      if (existing.receipt) {
+        if (artifactAdmissionDigest(existing.receipt) !== artifactAdmissionDigest(receipt))
+          throw new Error('Reader receipt changed');
+        return existing;
+      }
+      this.assertSymposiumSealedReaderPredecessor(binding);
+      const config = this.getActiveSymposiumConfig(binding.sessionId);
+      const previous = this.getLatestSymposiumMembership(binding.sessionId, binding.seatId)!;
+      const changed = this.db!.prepare(
+        'UPDATE sessions SET symposium_config=?,symposium_revision=? WHERE session_id=? AND symposium_revision=?',
+      ).run(
+        JSON.stringify({ ...config, revision: binding.resultingConfigRevision }),
+        binding.resultingConfigRevision,
+        binding.sessionId,
+        binding.expectedConfigRevision,
+      );
+      if (changed.changes !== 1) throw new Error('Reader configuration CAS failed');
+      this.db!.prepare(
+        `INSERT INTO symposium_membership(session_id,seat_id,generation,state,action,config_revision,binding_key,actor,reason,idempotency_key,occurred_at,replaces_seat_id,replaced_by_seat_id)
+        VALUES(?,?,?,'active','sealed_reader',?,?,?,?,?,?,NULL,NULL)`,
+      ).run(
+        binding.sessionId,
+        binding.seatId,
+        binding.readerMembershipGeneration,
+        binding.resultingConfigRevision,
+        previous.bindingKey,
+        'user',
+        'Verified sealed reader',
+        binding.readerAdmissionId,
+        Date.now(),
+      );
+      this.db!.prepare('INSERT INTO symposium_membership_reconciliation VALUES(?,?,?,?)').run(
+        binding.sessionId,
+        binding.seatId,
+        binding.readerMembershipGeneration,
+        'confirmed',
+      );
+      this.db!.prepare(
+        'UPDATE symposium_artifact_reader_admissions SET receipt_json=? WHERE reader_admission_id=? AND receipt_json IS NULL',
+      ).run(JSON.stringify(receipt), binding.readerAdmissionId);
+      return this.getSymposiumSealedReaderAdmission(binding.sessionId, binding.readerAdmissionId)!;
+    }).immediate();
+  }
+
+  getSymposiumSealedReaderAdmission(sessionId: string, readerAdmissionId: string) {
+    const row = this.db!.prepare(
+      'SELECT binding_json,receipt_json FROM symposium_artifact_reader_admissions WHERE session_id=? AND reader_admission_id=?',
+    ).get(sessionId, readerAdmissionId) as
+      { binding_json: string; receipt_json: string | null } | undefined;
+    if (!row) return null;
+    const binding = ArtifactReaderAdmissionBindingV1Schema.parse(JSON.parse(row.binding_json));
+    return {
+      binding,
+      reference: artifactReaderReference(binding),
+      receipt: row.receipt_json
+        ? ArtifactReaderLeaseReceiptV1Schema.parse(JSON.parse(row.receipt_json))
+        : null,
+    };
+  }
+  assertSymposiumSealedReaderAdmissionCurrent(
+    sessionId: string,
+    value: ArtifactReaderReferenceV1,
+  ): ArtifactReaderAdmissionBindingV1 {
+    const reference = ArtifactReaderReferenceV1Schema.parse(value);
+    const admission = this.getSymposiumSealedReaderAdmission(
+      sessionId,
+      reference.readerAdmissionId,
+    );
+    if (
+      !admission?.receipt ||
+      artifactAdmissionDigest(admission.reference) !== artifactAdmissionDigest(reference)
+    )
+      throw new Error('Confirmed reader binding required');
+    const binding = admission.binding,
+      config = this.getActiveSymposiumConfig(sessionId),
+      member = this.getLatestSymposiumMembership(sessionId, binding.seatId);
+    if (
+      config.revision !== binding.resultingConfigRevision ||
+      member?.generation !== binding.readerMembershipGeneration ||
+      member.state !== 'active' ||
+      member.reconciliation !== 'confirmed' ||
+      member.action !== 'sealed_reader'
+    )
+      throw new Error('Reader current binding changed');
+    return binding;
+  }
+
   /** Session-wide denial includes readers until a later reviewed sealed-reader adapter exists. */
   assertSymposiumArtifactWorkAllowed(
     sessionId: string,
-    artifact?: ArtifactAdmissionReferenceV1 | null,
+    artifact?: ArtifactAdmissionReferenceV1 | ArtifactReaderReferenceV1 | null,
   ): void {
     if (
       this.db!.prepare(
@@ -2757,7 +3006,17 @@ export class EventStore {
     )
       throw new Error('Symposium creation cleanup is pending; new seat work is fenced');
     if (artifact) {
-      this.assertSymposiumArtifactAdmissionCurrent(sessionId, artifact);
+      if (ArtifactReaderReferenceV1Schema.safeParse(artifact).success) {
+        this.assertSymposiumSealedReaderAdmissionCurrent(
+          sessionId,
+          artifact as ArtifactReaderReferenceV1,
+        );
+        return;
+      }
+      this.assertSymposiumArtifactAdmissionCurrent(
+        sessionId,
+        artifact as ArtifactAdmissionReferenceV1,
+      );
       if (this.getSymposiumArtifactSealIntent(sessionId, artifact.artifactGenerationId))
         throw new Error('Symposium artifact seal is pending; new seat work is fenced');
       return;
@@ -2887,9 +3146,9 @@ export class EventStore {
     return {
       ...(row.artifact_json
         ? {
-            artifact: ArtifactAdmissionReferenceV1Schema.parse(
-              JSON.parse(row.artifact_json as string),
-            ),
+            artifact: z
+              .union([ArtifactAdmissionReferenceV1Schema, ArtifactReaderReferenceV1Schema])
+              .parse(JSON.parse(row.artifact_json as string)),
           }
         : {}),
       sessionId: row.session_id as string,
@@ -3525,7 +3784,7 @@ export class EventStore {
       const previous = this.getLatestSymposiumMembership(input.sessionId, input.seatId);
       if ((previous?.generation ?? 0) !== input.expectedGeneration)
         throw new Error('Symposium membership generation conflict');
-      if (input.action === 'artifact_successor')
+      if (input.action === 'artifact_successor' || input.action === 'sealed_reader')
         throw new Error('Artifact successor requires internal confirmed admission');
       const activating =
         input.action === 'admit' || input.action === 'restore' || input.action === 'replace';
@@ -5400,9 +5659,9 @@ function rowToSymposiumAdmission(row: Record<string, unknown>): SymposiumAdmissi
   return {
     ...(row.artifact_json
       ? {
-          artifact: ArtifactAdmissionReferenceV1Schema.parse(
-            JSON.parse(row.artifact_json as string),
-          ),
+          artifact: z
+            .union([ArtifactAdmissionReferenceV1Schema, ArtifactReaderReferenceV1Schema])
+            .parse(JSON.parse(row.artifact_json as string)),
         }
       : {}),
     admissionId: row.admission_id as string,
@@ -5451,9 +5710,9 @@ function rowToSymposiumRecipient(row: Record<string, unknown>): SymposiumDeliver
   return {
     ...(row.artifact_json
       ? {
-          artifact: ArtifactAdmissionReferenceV1Schema.parse(
-            JSON.parse(row.artifact_json as string),
-          ),
+          artifact: z
+            .union([ArtifactAdmissionReferenceV1Schema, ArtifactReaderReferenceV1Schema])
+            .parse(JSON.parse(row.artifact_json as string)),
         }
       : {}),
     deliveryId: row.delivery_id as string,

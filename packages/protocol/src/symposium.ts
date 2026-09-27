@@ -1,4 +1,8 @@
 import {
+  ArtifactReaderReferenceV1Schema,
+  type ArtifactReaderReferenceV1,
+} from './symposium-artifact-reader.js';
+import {
   ArtifactAdmissionReferenceV1Schema,
   type ArtifactAdmissionReferenceV1,
 } from './symposium-artifact-admission.js';
@@ -25,7 +29,7 @@ export type SymposiumRecipientStatus =
 export type SymposiumMembershipState = 'active' | 'suspended' | 'removed';
 export type SymposiumReconciliationStatus = 'pending' | 'confirmed' | 'recovery_required';
 export type SymposiumMembershipAction =
-  'admit' | 'suspend' | 'remove' | 'restore' | 'replace' | 'artifact_successor';
+  'admit' | 'suspend' | 'remove' | 'restore' | 'replace' | 'artifact_successor' | 'sealed_reader';
 
 /** Every transition is immutable; generation fences work already staged for this seat. */
 export interface SymposiumMembershipRecord {
@@ -152,7 +156,7 @@ export const SymposiumProvenanceV2Schema = LegacySymposiumProvenanceSchema.exten
 });
 export const SymposiumProvenanceV3Schema = SymposiumProvenanceV2Schema.extend({
   version: z.literal(3),
-  artifact: ArtifactAdmissionReferenceV1Schema,
+  artifact: z.union([ArtifactAdmissionReferenceV1Schema, ArtifactReaderReferenceV1Schema]),
 });
 export const SymposiumProvenanceSchema = z.union([
   SymposiumProvenanceV3Schema,
@@ -341,7 +345,7 @@ export type SymposiumConfig = z.infer<typeof SymposiumConfigSchema>;
 
 /** Durable decision to admit one configured provider into the shared Symposium boundary. */
 export interface SymposiumAdmissionRecord {
-  artifact?: ArtifactAdmissionReferenceV1;
+  artifact?: ArtifactAdmissionReferenceV1 | ArtifactReaderReferenceV1;
   admissionId: string;
   sessionId: string;
   seatId: string;
@@ -361,7 +365,7 @@ export interface SymposiumAdmissionRecord {
 
 /** Immutable target snapshot for one delivery attempt. */
 export interface SymposiumDeliveryRecipient {
-  artifact?: ArtifactAdmissionReferenceV1;
+  artifact?: ArtifactAdmissionReferenceV1 | ArtifactReaderReferenceV1;
   deliveryId: string;
   seatId: string;
   membershipGeneration?: number;

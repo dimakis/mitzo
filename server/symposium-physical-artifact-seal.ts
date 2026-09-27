@@ -1,4 +1,8 @@
-import type { ArtifactAdmissionReferenceV1 } from '@mitzo/protocol';
+import {
+  ArtifactReaderReferenceV1Schema,
+  type ArtifactReaderReferenceV1,
+  type ArtifactAdmissionReferenceV1,
+} from '@mitzo/protocol';
 import { canonicalReviewJson, reviewRecordHash } from './symposium-review-records.js';
 import {
   ARTIFACT_GIT_EXPORT,
@@ -155,6 +159,11 @@ export class PhysicalArtifactSealer {
       gateway: OwnedSymposiumGateway;
       attemptRegistry: SymposiumAttemptRegistry;
       runtimeConfig: OpenShellRuntimeConfig;
+      /** Requires matching activated generation ledger receipt, not EventStore alone. */
+      assertSuccessorAdmissionCurrent?: (
+        sessionId: string,
+        reference: ArtifactAdmissionReferenceV1,
+      ) => true;
     },
   ) {
     deps.leaseHost.requireSnapshotGateway(deps.gateway);
@@ -222,13 +231,16 @@ export class PhysicalArtifactSealer {
     }
     return result;
   }
-  private async noVolumeMounts(volume: string) {
+  private async noVolumeMounts(volume: string, allowedReadOnlyIds = new Set<string>()) {
     if (
       (await this.census()).some((row) =>
-        row.mounts.some((m) => m.Type === 'volume' && m.Name === volume),
+        row.mounts.some(
+          (m) =>
+            m.Type === 'volume' && m.Name === volume && (m.RW || !allowedReadOnlyIds.has(row.id)),
+        ),
       )
     )
-      throw new Error('Artifact volume still has physical mounts');
+      throw new Error('Artifact volume still has unauthorized physical mounts');
   }
   private async absent(records: SymposiumSeatSandboxRecord[], signal: AbortSignal) {
     for (const record of records) {
@@ -246,16 +258,27 @@ export class PhysicalArtifactSealer {
     }
   }
   private verifiedOtherGeneration(
-    reference: ArtifactAdmissionReferenceV1 | undefined,
+    reference: ArtifactAdmissionReferenceV1 | ArtifactReaderReferenceV1 | undefined,
     parent: SymposiumArtifactSealIntent,
   ): boolean {
-    if (!reference || reference.artifactGenerationId === parent.selection.artifact.volumeGeneration)
+    if (
+      !reference ||
+      ArtifactReaderReferenceV1Schema.safeParse(reference).success ||
+      reference.artifactGenerationId === parent.selection.artifact.volumeGeneration
+    )
       return false;
     try {
       const binding = this.deps.store.assertSymposiumArtifactAdmissionCurrent(
         parent.selection.sessionId,
-        reference,
+        reference as ArtifactAdmissionReferenceV1,
       );
+      if (
+        this.deps.assertSuccessorAdmissionCurrent?.(
+          parent.selection.sessionId,
+          reference as ArtifactAdmissionReferenceV1,
+        ) !== true
+      )
+        return false;
       return (
         binding.parentFenceId === parent.fenceId &&
         binding.parentGenerationId === parent.selection.artifact.volumeGeneration
@@ -263,6 +286,91 @@ export class PhysicalArtifactSealer {
     } catch {
       return false;
     }
+  }
+  private verifiedSealedReader(
+    reference: ArtifactAdmissionReferenceV1 | ArtifactReaderReferenceV1 | undefined,
+    parent: SymposiumArtifactSealIntent,
+  ): boolean {
+    if (!reference || !ArtifactReaderReferenceV1Schema.safeParse(reference).success) return false;
+    try {
+      const binding = this.deps.store.assertSymposiumSealedReaderAdmissionCurrent(
+        parent.selection.sessionId,
+        reference as ArtifactReaderReferenceV1,
+      );
+      const admission = this.deps.store.getSymposiumSealedReaderAdmission(
+        binding.sessionId,
+        binding.readerAdmissionId,
+      );
+      const lease = this.deps.leaseHost
+        .sealLeaseIdentities('podman', binding.volumeName)
+        .find((row) => row.request.readerAdmissionId === binding.readerAdmissionId);
+      return Boolean(
+        admission?.receipt &&
+        lease &&
+        binding.sealFenceId === parent.fenceId &&
+        binding.artifactGenerationId === parent.selection.artifact.volumeGeneration &&
+        admission.receipt.leaseTokenHash === lease.tokenHash &&
+        admission.receipt.leaseRevision === lease.revision &&
+        lease.request.access === 'reviewer',
+      );
+    } catch {
+      return false;
+    }
+  }
+  private allowedSealedReaderLeases(parent: SymposiumArtifactSealIntent): Set<string> {
+    const allowed = new Set<string>();
+    const leases = this.deps.leaseHost.sealLeaseIdentities(
+      'podman',
+      parent.selection.artifact.volumeName,
+    );
+    for (const lease of leases) {
+      if (lease.request.access !== 'reviewer' || !lease.request.readerAdmissionId)
+        throw new Error('Completed artifact has unauthorized lease');
+      const admission = this.deps.store.getSymposiumSealedReaderAdmission(
+        parent.selection.sessionId,
+        lease.request.readerAdmissionId,
+      );
+      if (
+        !admission ||
+        admission.binding.sealFenceId !== parent.fenceId ||
+        admission.binding.artifactGenerationId !== parent.selection.artifact.volumeGeneration ||
+        admission.binding.volumeName !== parent.selection.artifact.volumeName ||
+        lease.request.seatId !== admission.binding.seatId
+      )
+        throw new Error('Completed artifact reader lease changed');
+      if (!admission.receipt) {
+        if (lease.creationStarted || lease.sandboxId || lease.sandboxName)
+          throw new Error('Unconfirmed reader lease cannot create a sandbox');
+        continue;
+      }
+      if (
+        admission.receipt.leaseTokenHash !== lease.tokenHash ||
+        admission.receipt.leaseRevision !== lease.revision
+      )
+        throw new Error('Completed artifact reader lease receipt changed');
+      this.deps.store.assertSymposiumSealedReaderAdmissionCurrent(
+        parent.selection.sessionId,
+        admission.reference,
+      );
+      if (lease.creationStarted && !lease.sandboxId)
+        throw new Error('Reader sandbox creation unresolved');
+      if (lease.sandboxId) {
+        const current = this.deps.store.getSymposiumSeatSandbox(
+          parent.selection.sessionId,
+          admission.binding.seatId,
+          admission.binding.readerMembershipGeneration,
+        );
+        if (
+          !current ||
+          current.state !== 'ready' ||
+          current.physicalId !== lease.sandboxId ||
+          current.artifact?.bindingDigest !== admission.reference.bindingDigest
+        )
+          throw new Error('Reader runtime identity changed');
+        allowed.add(lease.sandboxId);
+      }
+    }
+    return allowed;
   }
   async requireCompleted(fenceId: string, signal: AbortSignal): Promise<CompletedArtifactSeal> {
     if (!/^[a-f0-9-]{36}$/.test(fenceId)) throw new Error('Artifact seal identity is invalid');
@@ -297,12 +405,9 @@ export class PhysicalArtifactSealer {
       'podman',
       intent.selection.artifact.volumeName,
     );
-    if (
-      !retention ||
-      receipt.retentionDigest !== hash(JSON.stringify(retention)) ||
-      this.deps.leaseHost.sealLeaseIdentities('podman', intent.selection.artifact.volumeName).length
-    )
+    if (!retention || receipt.retentionDigest !== hash(JSON.stringify(retention)))
       throw new Error('Completed artifact retention changed');
+    this.allowedSealedReaderLeases(intent);
     const records = JSON.parse(row.records_json) as SymposiumSeatSandboxRecord[];
     if (
       receipt.revocationDigest !== hash(JSON.stringify(records)) ||
@@ -312,7 +417,8 @@ export class PhysicalArtifactSealer {
       ].some(
         (row) =>
           row.sessionId === receipt.sessionId &&
-          !this.verifiedOtherGeneration(row.artifact, intent),
+          !this.verifiedOtherGeneration(row.artifact, intent) &&
+          !this.verifiedSealedReader(row.artifact, intent),
       )
     )
       throw new Error('Completed artifact revocation changed');
@@ -331,13 +437,19 @@ export class PhysicalArtifactSealer {
             const native = attempt.claimToken
               ? this.deps.attemptRegistry.get(attempt.claimToken)
               : undefined;
-            return !this.verifiedOtherGeneration(native?.artifact, intent);
+            return (
+              !this.verifiedOtherGeneration(native?.artifact, intent) &&
+              !this.verifiedSealedReader(native?.artifact, intent)
+            );
           })
       )
         throw new Error('Completed artifact terminal cleanup changed');
     }
     await this.absent(records, signal);
-    await this.noVolumeMounts(intent.selection.artifact.volumeName);
+    await this.noVolumeMounts(
+      intent.selection.artifact.volumeName,
+      this.allowedSealedReaderLeases(intent),
+    );
     if ((await this.census()).some((row) => row.id === receipt.verifier.id))
       throw new Error('Completed artifact verifier remains');
     await this.custody();

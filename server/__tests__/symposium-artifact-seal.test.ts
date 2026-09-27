@@ -284,3 +284,243 @@ it('admits only a confirmed exact successor and preserves parent seal history', 
   expect(() => first.getSymposiumArtifactSealIntent('symposium')).toThrow(/ambiguous/i);
   expect(() => first.assertSymposiumArtifactWorkAllowed('symposium', intent.reference)).toThrow();
 });
+
+it('admits only a reviewer-only new membership on the same retained sealed generation after exact lease proof', () => {
+  const { first, second } = fixture();
+  first.transitionSymposiumMembership({
+    sessionId: 'symposium',
+    seatId: 'reviewer',
+    action: 'admit',
+    expectedGeneration: 0,
+    configRevision: 4,
+    actor: 'owner',
+    reason: 'initial',
+    idempotencyKey: 'initial',
+    occurredAt: 1,
+  });
+  first.markSymposiumMembershipReconciled('symposium', 'reviewer', 1, 'confirmed');
+  const sandbox = {
+    sessionId: 'symposium',
+    seatId: 'reviewer',
+    generation: 1,
+    runtimeId: 'parent-runtime',
+    workspace: 'workspace',
+    providerName: 'provider',
+    providerId: 'provider-id',
+    providerType: 'openai',
+    model: seat.model,
+  };
+  first.reserveSymposiumSeatSandbox(sandbox);
+  first.confirmAbsentSymposiumSeatSandboxStopped(sandbox);
+  const intent = first.beginSymposiumArtifactSeal(selection);
+  const binding = {
+    version: 1 as const,
+    kind: 'sealed_reader' as const,
+    readerAdmissionId: 'reader-transition',
+    operationId: 'review-operation',
+    sessionId: 'symposium',
+    workspaceId: 'workspace',
+    custodyDigest: 'a'.repeat(64),
+    sealFenceId: intent.fenceId,
+    sealDigest: createHash('sha256').update(JSON.stringify(intent)).digest('hex'),
+    artifactGenerationId: 'generation-1',
+    volumeName: 'volume',
+    workflowId: 'workflow',
+    reviewAttemptId: 'review-attempt',
+    policyReservationId: 'reservation',
+    seatId: 'reviewer',
+    expectedConfigRevision: 4,
+    resultingConfigRevision: 5,
+    predecessorMembershipGeneration: 1,
+    readerMembershipGeneration: 2,
+    accountBinding: seat.accountBinding,
+    profileBinding: seat.profileBinding,
+    contextGrant: { grantId: 'context', revision: 1 },
+    authorityGrant: { grantId: 'authority', revision: 1 },
+  };
+  const prepared = first.beginSymposiumSealedReaderAdmission(binding, () => true);
+  expect(prepared.receipt).toBeNull();
+  expect(() =>
+    second.assertSymposiumArtifactWorkAllowed('symposium', prepared.reference),
+  ).toThrow();
+  const receipt = {
+    version: 1 as const,
+    readerAdmissionId: 'reader-transition',
+    bindingDigest: prepared.reference.bindingDigest,
+    sessionId: 'symposium',
+    artifactGenerationId: 'generation-1',
+    volumeName: 'volume',
+    seatId: 'reviewer',
+    access: 'reviewer' as const,
+    leaseTokenHash: 'b'.repeat(64),
+    leaseRevision: 'lease-reader',
+    confirmedAt: 1,
+  };
+  expect(() =>
+    second.confirmSymposiumSealedReaderAdmission(
+      binding,
+      { ...receipt, volumeName: 'wrong' },
+      () => true,
+    ),
+  ).toThrow(/receipt/);
+  const confirmed = second.confirmSymposiumSealedReaderAdmission(binding, receipt, () => true);
+  expect(confirmed.receipt).toEqual(receipt);
+  expect(first.getActiveSymposiumConfig('symposium')?.revision).toBe(5);
+  expect(first.getLatestSymposiumMembership('symposium', 'reviewer')).toMatchObject({
+    generation: 2,
+    action: 'sealed_reader',
+    state: 'active',
+    reconciliation: 'confirmed',
+  });
+  expect(
+    first.assertSymposiumArtifactWorkAllowed('symposium', confirmed.reference),
+  ).toBeUndefined();
+  expect(first.getSymposiumArtifactSealByFence(intent.fenceId)).toEqual(intent);
+  expect(() => first.withSymposiumHistoricalArtifactSealSnapshot(intent, () => {})).not.toThrow();
+  expect(first.confirmSymposiumSealedReaderAdmission(binding, receipt, () => true)).toEqual(
+    confirmed,
+  );
+  expect(() =>
+    first.beginSymposiumSealedReaderAdmission(
+      { ...binding, readerAdmissionId: 'other' },
+      () => true,
+    ),
+  ).toThrow();
+});
+import { createHash } from 'node:crypto';
+
+it('keeps generic artifact leasing fenced after seal; only an exact reader admission can reserve a distinct read-only lease', async () => {
+  const { first } = fixture();
+  first.transitionSymposiumMembership({
+    sessionId: 'symposium',
+    seatId: 'reviewer',
+    action: 'admit',
+    expectedGeneration: 0,
+    configRevision: 4,
+    actor: 'owner',
+    reason: 'initial',
+    idempotencyKey: 'initial',
+    occurredAt: 1,
+  });
+  first.markSymposiumMembershipReconciled('symposium', 'reviewer', 1, 'confirmed');
+  const sandbox = {
+    sessionId: 'symposium',
+    seatId: 'reviewer',
+    generation: 1,
+    runtimeId: 'parent-runtime',
+    workspace: 'workspace',
+    providerName: 'provider',
+    providerId: 'provider-id',
+    providerType: 'openai',
+    model: seat.model,
+  };
+  first.reserveSymposiumSeatSandbox(sandbox);
+  first.confirmAbsentSymposiumSeatSandboxStopped(sandbox);
+  const seal = first.beginSymposiumArtifactSeal(selection);
+  const binding = {
+    version: 1 as const,
+    kind: 'sealed_reader' as const,
+    readerAdmissionId: 'reader-lease',
+    operationId: 'review-operation',
+    sessionId: 'symposium',
+    workspaceId: 'workspace',
+    custodyDigest: 'a'.repeat(64),
+    sealFenceId: seal.fenceId,
+    sealDigest: createHash('sha256').update(JSON.stringify(seal)).digest('hex'),
+    artifactGenerationId: 'generation-1',
+    volumeName: 'volume',
+    workflowId: 'workflow',
+    reviewAttemptId: 'attempt',
+    policyReservationId: 'reservation',
+    seatId: 'reviewer',
+    expectedConfigRevision: 4,
+    resultingConfigRevision: 5,
+    predecessorMembershipGeneration: 1,
+    readerMembershipGeneration: 2,
+    accountBinding: seat.accountBinding,
+    profileBinding: seat.profileBinding,
+    contextGrant: { grantId: 'context', revision: 1 },
+    authorityGrant: { grantId: 'authority', revision: 1 },
+  };
+  first.beginSymposiumSealedReaderAdmission(binding, () => true);
+  const { SqliteArtifactLeaseHost } = await import('../symposium-artifact-host');
+  const volume = {
+    name: 'volume',
+    driver: 'local' as const,
+    options: {},
+    labels: {
+      'openshell.ai/sandbox-attachable': 'true',
+      'openshell.ai/sandbox-attachable-workspace': 'workspace',
+      'mitzo.symposium.purpose': 'artifacts',
+      'mitzo.symposium.session': 'symposium',
+      'mitzo.symposium.workspace': 'workspace',
+      'mitzo.symposium.generation': 'generation-1',
+    },
+  };
+  const leasePath = join(mkdtempSync(join(tmpdir(), 'reader-lease-')), 'leases.db');
+  const host = new SqliteArtifactLeaseHost(
+    leasePath,
+    { verifyGateway: async () => {}, verifyMount: async () => {} },
+    async () => ({ Name: 'volume', Driver: 'local', Labels: volume.labels, Options: {} }),
+  );
+  try {
+    // Simulates the retained seal intent and writer lease without native execution.
+    const { default: Database } = await import('better-sqlite3');
+    const db = new Database(leasePath);
+    const retention = {
+      kind: 'pending_artifact_retention',
+      status: 'pending_unsealed',
+      fenceId: seal.fenceId,
+      intent: seal,
+      writerSandboxName: 'writer',
+      writerSandboxId: 'writer-id',
+      retainedAt: 1,
+    };
+    db.prepare('INSERT INTO symposium_artifact_pending_retention VALUES(?,?,?,?)').run(
+      'podman',
+      'volume',
+      JSON.stringify(seal),
+      JSON.stringify(retention),
+    );
+    db.close();
+    await expect(
+      host.reserve({
+        sessionId: 'symposium',
+        workspaceId: 'workspace',
+        seatId: 'reviewer',
+        driver: 'podman',
+        volumeName: 'volume',
+        volumeGeneration: 'generation-1',
+        access: 'reviewer',
+      }),
+    ).rejects.toThrow(/retention/);
+    const lease = await host.reserveSealedReaderLease(first, binding, async () => true);
+    expect(lease.request).toMatchObject({ access: 'reviewer', readerAdmissionId: 'reader-lease' });
+    expect(await host.reserveSealedReaderLease(first, binding, async () => true)).toEqual(lease);
+    const { confirmOwnedSealedReader } = await import('../symposium-sealed-reader');
+    const confirmed = await confirmOwnedSealedReader(
+      {
+        store: first,
+        leaseHost: host,
+        assertPreparation: () => true,
+        requireCompletedSeal: async () => ({
+          fenceId: seal.fenceId,
+          intentDigest: binding.sealDigest,
+        }),
+      },
+      binding,
+    );
+    expect(confirmed.reference).toMatchObject({
+      kind: 'sealed_reader',
+      readerAdmissionId: 'reader-lease',
+    });
+    expect(confirmed.receipt?.leaseTokenHash).toBe(
+      createHash('sha256').update(lease.token).digest('hex'),
+    );
+    await expect(
+      host.reserveSealedReaderLease(first, { ...binding, volumeName: 'other' }, async () => true),
+    ).rejects.toThrow();
+  } finally {
+    host.close();
+  }
+});

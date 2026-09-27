@@ -27,6 +27,8 @@ export interface ArtifactLeaseRequest {
   volumeGeneration: string;
   driver: ArtifactDriver;
   access: ArtifactAccess;
+  /** Distinguishes one admitted read-only sealed reader from a prior reviewer lease. */
+  readerAdmissionId?: string;
 }
 
 export interface ArtifactLease {
@@ -66,6 +68,11 @@ function assertRequest(request: ArtifactLeaseRequest): void {
   if (!VOLUME.test(request.volumeName)) throw new Error('Invalid artifact volume name');
   if (request.driver !== 'docker' && request.driver !== 'podman')
     throw new Error('Unsupported artifact volume driver');
+  if (
+    request.readerAdmissionId &&
+    (request.access !== 'reviewer' || !ID.test(request.readerAdmissionId))
+  )
+    throw new Error('Invalid sealed reader lease identity');
   if (request.access !== 'writer' && request.access !== 'reviewer')
     throw new Error('Unsupported artifact access');
 }

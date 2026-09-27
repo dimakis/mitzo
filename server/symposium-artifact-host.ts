@@ -1,3 +1,6 @@
+import type { ArtifactReaderAdmissionBindingV1 } from '@mitzo/protocol';
+import { artifactAdmissionDigest } from '@mitzo/protocol/event-store';
+import { assertSessionArtifactVolume } from './symposium-session-artifacts.js';
 import { SYMPOSIUM_ARTIFACT_TARGET } from './symposium-artifact-lease.js';
 import Database from 'better-sqlite3';
 import { resolve } from 'node:path';
@@ -392,6 +395,97 @@ export class SqliteArtifactLeaseHost implements ArtifactLeaseHost {
         .get(driver, volumeName)
     )
       throw new Error('Artifact volume has pending retention; new leases are fenced');
+  }
+
+  /** Narrow retained-generation exception. Generic reserve remains fenced. */
+  async reserveSealedReaderLease(
+    store: Pick<
+      EventStore,
+      'getSymposiumSealedReaderAdmission' | 'getSymposiumArtifactSealByFence'
+    >,
+    binding: ArtifactReaderAdmissionBindingV1,
+    assertCompleted: (binding: ArtifactReaderAdmissionBindingV1) => Promise<true>,
+  ): Promise<ArtifactLease> {
+    const request: ArtifactLeaseRequest = {
+      sessionId: binding.sessionId,
+      workspaceId: binding.workspaceId,
+      seatId: binding.seatId,
+      volumeName: binding.volumeName,
+      volumeGeneration: binding.artifactGenerationId,
+      driver: 'podman',
+      access: 'reviewer',
+      readerAdmissionId: binding.readerAdmissionId,
+    };
+    if ((await assertCompleted(binding)) !== true)
+      throw new Error('Completed sealed artifact required');
+    const intent = store.getSymposiumSealedReaderAdmission(
+      binding.sessionId,
+      binding.readerAdmissionId,
+    );
+    const seal = store.getSymposiumArtifactSealByFence(binding.sealFenceId);
+    if (
+      !intent ||
+      intent.receipt ||
+      artifactAdmissionDigest(intent.binding) !== artifactAdmissionDigest(binding) ||
+      !seal ||
+      seal.selection.sessionId !== binding.sessionId ||
+      seal.selection.artifact.volumeGeneration !== binding.artifactGenerationId ||
+      seal.selection.artifact.volumeName !== binding.volumeName ||
+      createHash('sha256').update(JSON.stringify(seal)).digest('hex') !== binding.sealDigest
+    )
+      throw new Error('Exact pending sealed reader required');
+    const volume = await this.inspectVolume(binding.volumeName, 'podman');
+    assertSessionArtifactVolume(
+      binding.workspaceId,
+      {
+        sessionId: binding.sessionId,
+        volumeName: binding.volumeName,
+        volumeGeneration: binding.artifactGenerationId,
+      },
+      volume,
+    );
+    const retention = this.pendingArtifactRetention('podman', binding.volumeName);
+    if (
+      !retention ||
+      retention.fenceId !== binding.sealFenceId ||
+      JSON.stringify(retention.intent) !== JSON.stringify(seal)
+    )
+      throw new Error('Exact retained artifact fence required');
+    return this.db
+      .transaction(() => {
+        const latest = this.pendingArtifactRetention('podman', binding.volumeName);
+        const pending = store.getSymposiumSealedReaderAdmission(
+          binding.sessionId,
+          binding.readerAdmissionId,
+        );
+        if (
+          !latest ||
+          latest.fenceId !== binding.sealFenceId ||
+          !pending ||
+          pending.receipt ||
+          artifactAdmissionDigest(pending.binding) !== artifactAdmissionDigest(binding)
+        )
+          throw new Error('Reader admission changed before lease reservation');
+        const requestJson = JSON.stringify(request);
+        const existing = this.db
+          .prepare(
+            'SELECT * FROM symposium_artifact_leases WHERE driver=? AND volume_name=? AND request_json=?',
+          )
+          .all('podman', binding.volumeName, requestJson) as LeaseRow[];
+        if (existing.length > 1) throw new Error('Duplicate reader lease identity');
+        if (existing.length === 1)
+          return { token: existing[0].token, revision: existing[0].revision, request };
+        const token = randomUUID(),
+          revision = randomUUID();
+        this.db
+          .prepare(
+            `INSERT INTO symposium_artifact_leases(token,revision,driver,volume_name,access,request_json,creation_started,created_at)
+        VALUES(?,?,'podman',?,'reviewer',?,0,?)`,
+          )
+          .run(token, revision, binding.volumeName, requestJson, Date.now());
+        return { token, revision, request };
+      })
+      .immediate();
   }
 
   async reserve(request: ArtifactLeaseRequest): Promise<ArtifactLease> {
