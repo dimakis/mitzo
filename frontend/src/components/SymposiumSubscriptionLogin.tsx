@@ -41,6 +41,12 @@ export function SymposiumSubscriptionLogin({
   );
   const requestVersion = useRef(0);
   const [state, setState] = useState('idle');
+  const previousRecoveryOnly = useRef(recoveryOnly);
+  useEffect(() => {
+    if (previousRecoveryOnly.current && !recoveryOnly)
+      setState((current) => (current === 'device-pending' ? 'idle' : current));
+    previousRecoveryOnly.current = recoveryOnly;
+  }, [recoveryOnly]);
   const [error, setError] = useState('');
   const pendingChanged = useRef(onPendingChange);
   pendingChanged.current = onPendingChange;
