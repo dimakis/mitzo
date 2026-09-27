@@ -601,8 +601,8 @@ A final seat or custody rejection from the retained workspace fence may undo loc
 
 Native model-discovery failures retain [private staged diagnostics](docs/features/symposium-discovery-diagnostics.md) without changing conservative cleanup or recovery gates.
 
-Symposium director controls identify the current primary-seat lifecycle restriction;
-primary-writer removal remains unsupported. See [Symposium lifecycle](docs/features/symposium.md#durable-delivery-attribution-and-recovery).
+Symposium director controls support explicit primary routing transfer to an admitted seat
+without changing its permissions; original-writer cleanup and replacement still require live acceptance. See [Symposium lifecycle](docs/features/symposium.md#durable-delivery-attribution-and-recovery).
 
 Personal Connections offers explicit model-discovery cleanup only when the same
 running host retains an exact, known-sandbox recovery capability. Successful cleanup

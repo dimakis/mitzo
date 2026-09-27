@@ -8,7 +8,7 @@ import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import {
   runSymposiumModelDiscovery,
-  recoverSymposiumModelDiscovery,
+  createSymposiumModelDiscoveryRecovery,
   type DiscoveryReceipt,
 } from './symposium-model-discovery.js';
 import { guardDiscoveryOperations } from './symposium-discovery-custody.js';
@@ -375,7 +375,8 @@ export async function createOwnedSymposiumHost(
         let recover;
         if (result.status === 'reconciliation_required') {
           const receipt = structuredClone(await operations.readReceipt()) as DiscoveryReceipt;
-          if (receipt?.id)
+          if (receipt?.id) {
+            const recoverExact = createSymposiumModelDiscoveryRecovery(config, receipt);
             recover = (check: () => void) =>
               workspaceLifecycle.cleanup(async () => {
                 const cleanup = guardDiscoveryOperations(
@@ -386,8 +387,9 @@ export async function createOwnedSymposiumHost(
                   },
                   proof.account,
                 );
-                return recoverSymposiumModelDiscovery(config, cleanup, receipt);
+                return recoverExact(cleanup);
               });
+          }
         }
         return { result, models, recover };
       },

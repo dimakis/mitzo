@@ -4,6 +4,7 @@ import type {
   SymposiumConfig,
   SymposiumDeliveryRecord,
   SymposiumMembershipRecord,
+  SymposiumAdmissionRecord,
   ValidAccountBinding,
 } from '@mitzo/protocol';
 import { apiFetch } from '../lib/api-fetch';
@@ -15,6 +16,10 @@ interface DirectorSeat {
   seat: SeatConfig;
   membership: SymposiumMembershipRecord | null;
   admitted: boolean;
+  admission?: Pick<
+    SymposiumAdmissionRecord,
+    'configRevision' | 'membershipGeneration' | 'decision'
+  > | null;
 }
 interface DirectorStatus {
   sessionId: string;
@@ -218,6 +223,8 @@ function SessionDirectorPanel({
   const [selected, setSelected] = useState<string[]>([]);
   const [message, setMessage] = useState('');
   const [editContent, setEditContent] = useState('');
+  const [primarySelection, setPrimarySelection] = useState('');
+  const [primaryConfirmation, setPrimaryConfirmation] = useState('');
   const [newSeatId, setNewSeatId] = useState('');
   const [newSeatName, setNewSeatName] = useState('');
   const [newSeatRole, setNewSeatRole] = useState('implementer');
@@ -232,29 +239,41 @@ function SessionDirectorPanel({
   const refreshGeneration = useRef(0);
   const base = `/api/sessions/${encodeURIComponent(sessionId)}/symposium`;
 
-  const refresh = useCallback(async () => {
-    const generation = ++refreshGeneration.current;
-    setLoading(true);
-    try {
-      const next = await readJson<DirectorStatus>(base);
-      if (generation !== refreshGeneration.current) return;
-      setStatus(next);
-      setProfileSelections((current) => ({ ...next.initialProfileSelections, ...current }));
-      setSelected((current) =>
-        current.filter((id) => next.seats.some((seat) => seat.seatId === id && seat.admitted)),
-      );
-      setError('');
-    } catch (cause) {
-      if (generation === refreshGeneration.current)
-        setError(cause instanceof Error ? cause.message : 'Director status unavailable');
-    } finally {
-      if (generation === refreshGeneration.current) setLoading(false);
-    }
-  }, [base]);
+  const refresh = useCallback(
+    async (preservedError?: string) => {
+      const generation = ++refreshGeneration.current;
+      setLoading(true);
+      try {
+        const next = await readJson<DirectorStatus>(base);
+        if (generation !== refreshGeneration.current) return;
+        setStatus(next);
+        setProfileSelections((current) => ({ ...next.initialProfileSelections, ...current }));
+        setSelected((current) =>
+          current.filter((id) => next.seats.some((seat) => seat.seatId === id && seat.admitted)),
+        );
+        setError(preservedError ?? '');
+      } catch (cause) {
+        if (generation === refreshGeneration.current) {
+          const refreshError =
+            cause instanceof Error ? cause.message : 'Director status unavailable';
+          setError(
+            preservedError
+              ? `${preservedError}. Status refresh failed: ${refreshError}`
+              : refreshError,
+          );
+        }
+      } finally {
+        if (generation === refreshGeneration.current) setLoading(false);
+      }
+    },
+    [base],
+  );
 
   useEffect(() => {
     setStatus(null);
     setSelected([]);
+    setPrimarySelection('');
+    setPrimaryConfirmation('');
     setProfileSelections({});
     pendingKeys.current.clear();
     if (open) void refresh();
@@ -280,10 +299,37 @@ function SessionDirectorPanel({
         body: JSON.stringify({ ...payload, idempotencyKey }),
       });
       pendingKeys.current.delete(fingerprint);
+      if (path === '/primary/transfer') {
+        setPrimarySelection('');
+        setPrimaryConfirmation('');
+      }
       window.dispatchEvent(new Event('symposium-roster-changed'));
       await refresh();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Director action failed');
+      const message = cause instanceof Error ? cause.message : 'Director action failed';
+      setError(message);
+      // The durable transfer may have committed before retained admission failed.
+      // Read its current revision before offering admission repair, preserving the error.
+      if (path === '/primary/transfer') await refresh(message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function refreshAdmissions() {
+    if (busy || !status?.config) return;
+    setBusy(true);
+    setError('');
+    try {
+      await readJson(`${base}/admissions/refresh`, {
+        method: 'POST',
+        headers: jsonHeaders,
+        body: JSON.stringify({ expectedRevision: status.config.revision }),
+      });
+      window.dispatchEvent(new Event('symposium-roster-changed'));
+      await refresh();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Seat admissions require recovery');
     } finally {
       setBusy(false);
     }
@@ -568,6 +614,24 @@ function SessionDirectorPanel({
                   and cancellation stay available.
                 </p>
               )}
+              {status.config.state === 'active' &&
+                status.seats.some(
+                  (seat) =>
+                    seat.membership?.state === 'active' &&
+                    seat.membership.reconciliation === 'confirmed' &&
+                    !seat.admitted &&
+                    (!seat.admission ||
+                      seat.admission.configRevision !== status.config?.revision ||
+                      seat.admission.membershipGeneration !== seat.membership.generation),
+                ) && (
+                  <button
+                    type="button"
+                    disabled={busy || !status.runtimeAvailable}
+                    onClick={() => void refreshAdmissions()}
+                  >
+                    Recheck retained seat admissions
+                  </button>
+                )}
               <label>
                 <input
                   type="checkbox"
@@ -596,6 +660,71 @@ function SessionDirectorPanel({
                   Activate roster
                 </button>
               )}
+              {status.config.version === 2 && status.config.state === 'active' && (
+                <fieldset disabled={busy || !status.runtimeAvailable}>
+                  <legend>Transfer primary seat</legend>
+                  <p>
+                    Select an admitted seat to own conversation routing. Its permissions stay
+                    unchanged. Transfer first, then remove the old writer and wait for cleanup
+                    before adding a replacement writer.
+                  </p>
+                  <label>
+                    New primary seat
+                    <select
+                      value={primarySelection}
+                      onChange={(event) => setPrimarySelection(event.target.value)}
+                    >
+                      <option value="">Select a seat</option>
+                      {status.seats
+                        .filter(
+                          (seat) =>
+                            seat.seatId !==
+                              (status.config?.version === 2 ? status.config.anchorSeatId : '') &&
+                            seat.admitted &&
+                            seat.membership?.state === 'active' &&
+                            seat.membership.reconciliation === 'confirmed',
+                        )
+                        .map((seat) => (
+                          <option key={seat.seatId} value={seat.seatId}>
+                            {seat.seat.name} ({seat.seat.accountBinding?.accountLabel};{' '}
+                            {seat.seat.model})
+                          </option>
+                        ))}
+                    </select>
+                  </label>
+                  <label>
+                    Type TRANSFER PRIMARY SEAT to confirm
+                    <input
+                      value={primaryConfirmation}
+                      onChange={(event) => setPrimaryConfirmation(event.target.value)}
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    disabled={!primarySelection || primaryConfirmation !== 'TRANSFER PRIMARY SEAT'}
+                    onClick={() => {
+                      const target = status.seats.find((seat) => seat.seatId === primarySelection);
+                      if (
+                        status.config?.version !== 2 ||
+                        !target?.admitted ||
+                        target.membership?.state !== 'active' ||
+                        target.membership.reconciliation !== 'confirmed'
+                      )
+                        return;
+                      void mutate('/primary/transfer', {
+                        fromSeatId: status.config.anchorSeatId,
+                        toSeatId: target.seatId,
+                        expectedRevision: status.config.revision,
+                        expectedGeneration: target.membership.generation,
+                        reason: 'Explicit primary transfer by director',
+                        confirmation: primaryConfirmation,
+                      });
+                    }}
+                  >
+                    Transfer primary seat
+                  </button>
+                </fieldset>
+              )}
               <ul className="symposium-roster">
                 {status.seats.map((seat) => (
                   <li key={seat.seatId}>
@@ -615,7 +744,10 @@ function SessionDirectorPanel({
                     {status.config?.version === 2 &&
                     seat.seatId === status.config.anchorSeatId &&
                     seat.membership?.state === 'active' ? (
-                      <span>The primary seat cannot yet be suspended, removed, or rebound.</span>
+                      <span>
+                        Transfer primary ownership before suspending, removing, or rebinding this
+                        seat.
+                      </span>
                     ) : seat.membership?.state === 'active' ? (
                       <>
                         <button
