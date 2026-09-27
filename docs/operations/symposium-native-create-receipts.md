@@ -58,3 +58,9 @@ The cleanup fence reserves its operation key in the same SQLite transaction used
 membership transitions. Existing membership keys and other recovery keys are rejected
 before physical cleanup, and another seat cannot consume a pending recovery key.
 Exact retries reuse the original request and completed membership result.
+
+Delivery admission checks the session cleanup/seal fence in the same transaction as
+its ready-to-delivering transition. If a different SQLite connection establishes a
+fence before a recipient claim, finalization returns idle work to ready even when
+that claim throws. Existing executing recipients retain their claims and finish;
+failed, cancelled, and terminal deliveries are not revived by this requeue.
