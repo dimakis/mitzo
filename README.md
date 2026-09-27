@@ -555,3 +555,9 @@ selection; interrupted discovery retains host recovery state.
 Owned sandbox creation records uncertainty at the external dispatch boundary; read-only preflight failures do not strand credential cleanup or seat creation reservations.
 
 - [Owned Symposium evidence candidate collection](docs/features/symposium-owned-evidence.md)
+
+Native Codex acceptance and exact terminal notifications now persist as private
+[diagnostic observations](docs/operations/symposium-native-observations.md), independently
+of controller cleanup. Usage remains explicitly unknown; these records do not enable
+review admission or prove a hard token budget. Storage replay covers the same private
+registry file, not automatic history adoption after fresh gateway custody.
