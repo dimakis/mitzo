@@ -97,3 +97,27 @@ it('retains idempotency after uncertain failure and shows account/profile reject
   expect(bodies[1].idempotencyKey).toBe(bodies[0].idempotencyKey);
   expect(screen.getByLabelText('Location').textContent).toBe('/');
 });
+it('keeps a pending draft accessible and retries its shared files without creating another session', async () => {
+  vi.mocked(apiFetch)
+    .mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ sessionId: 'pending', artifacts: { state: 'recovery_required' } }),
+    } as Response)
+    .mockResolvedValueOnce({ ok: true, json: async () => ({ state: 'ready' }) } as Response);
+  render(
+    <MemoryRouter>
+      <NewSymposium />
+      <Location />
+    </MemoryRouter>,
+  );
+  await userEvent.click(screen.getByRole('button', { name: 'New Symposium' }));
+  await userEvent.click(screen.getByRole('button', { name: 'Select owned work Luna' }));
+  await userEvent.click(screen.getByRole('button', { name: 'Select saved builder' }));
+  await userEvent.click(screen.getByRole('button', { name: 'Create Symposium draft' }));
+  await screen.findByRole('button', { name: 'Open draft' });
+  expect(screen.getByLabelText('Location').textContent).toBe('/');
+  await userEvent.click(screen.getByRole('button', { name: 'Retry shared files' }));
+  await waitFor(() => expect(screen.getByLabelText('Location').textContent).toBe('/chat/pending'));
+  expect(vi.mocked(apiFetch).mock.calls[1][0]).toBe('/api/symposium/sessions/pending/artifacts');
+  expect(apiFetch).toHaveBeenCalledTimes(2);
+});
