@@ -4,6 +4,7 @@ import { resolveSymposiumSubscriptionRoute } from './symposium-subscription-nati
 import type {
   AccountBinding,
   ArtifactAdmissionReferenceV1,
+  ArtifactReaderReferenceV1,
   SeatConfig,
   SymposiumConfig,
   SymposiumMembershipRecord,
@@ -16,13 +17,13 @@ import type { SymposiumSeatExecution } from './symposium-orchestrator.js';
 export interface SymposiumDispatchFacts {
   assertSymposiumArtifactWorkAllowed(
     sessionId: string,
-    artifact?: ArtifactAdmissionReferenceV1 | null,
+    artifact?: ArtifactAdmissionReferenceV1 | ArtifactReaderReferenceV1 | null,
   ): void;
   getSymposiumArtifactReference?(
     sessionId: string,
     seatId: string,
     generation: number,
-  ): ArtifactAdmissionReferenceV1 | null;
+  ): ArtifactAdmissionReferenceV1 | ArtifactReaderReferenceV1 | null;
   getActiveSymposiumConfig(sessionId: string): SymposiumConfig;
   getLatestSymposiumMembership(
     sessionId: string,

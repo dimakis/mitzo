@@ -944,7 +944,9 @@ export interface SymposiumProductionHost {
   attemptRegistry: SymposiumAttemptRegistry;
   assertArtifactAdmissionCurrent?: (
     sessionId: string,
-    reference: import('@mitzo/protocol').ArtifactAdmissionReferenceV1,
+    reference:
+      | import('@mitzo/protocol').ArtifactAdmissionReferenceV1
+      | import('@mitzo/protocol').ArtifactReaderReferenceV1,
   ) => void;
   artifactLeaseHost: SqliteArtifactLeaseHost;
   artifactRequest(

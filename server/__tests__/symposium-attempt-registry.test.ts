@@ -174,3 +174,22 @@ it('retains exact successor binding across preparation and launch reservation wi
   expect(reopened.pending()[0]?.artifact).toEqual(artifact);
   reopened.close();
 });
+it('retains exact sealed reviewer binding across preparation and restart', () => {
+  const path = registryPath(),
+    registry = new SymposiumAttemptRegistry(path);
+  const artifact = {
+    version: 1 as const,
+    kind: 'sealed_reader' as const,
+    readerAdmissionId: 'reader-1',
+    artifactGenerationId: 'parent',
+    sealFenceId: 'fence-1',
+    bindingDigest: 'b'.repeat(64),
+  };
+  registry.prepare({ ...claim, artifact });
+  expect(registry.pendingPreparations()[0]?.artifact).toEqual(artifact);
+  registry.reserve({ ...claim, artifact });
+  registry.close();
+  const reopened = new SymposiumAttemptRegistry(path);
+  expect(reopened.pending()[0]?.artifact).toEqual(artifact);
+  reopened.close();
+});

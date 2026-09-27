@@ -46,7 +46,9 @@ export interface SymposiumOpenShellSeatExecutorDeps {
   applicationPolicy?: SymposiumApplicationDispatchPolicy;
   assertArtifactAdmissionCurrent?: (
     sessionId: string,
-    artifact: import('@mitzo/protocol').ArtifactAdmissionReferenceV1,
+    artifact:
+      | import('@mitzo/protocol').ArtifactAdmissionReferenceV1
+      | import('@mitzo/protocol').ArtifactReaderReferenceV1,
   ) => void;
   attemptRegistry?: SymposiumAttemptRegistry;
   profiles: AccountProfiles;
@@ -112,7 +114,9 @@ export class SymposiumOpenShellSeatExecutor implements SymposiumSeatExecutor {
   prepare(input: {
     sessionId: string;
     claimToken: string;
-    artifact?: import('@mitzo/protocol').ArtifactAdmissionReferenceV1;
+    artifact?:
+      | import('@mitzo/protocol').ArtifactAdmissionReferenceV1
+      | import('@mitzo/protocol').ArtifactReaderReferenceV1;
   }) {
     this.deps.attemptRegistry?.prepare({
       sessionId: input.sessionId,

@@ -1,4 +1,4 @@
-import type { ArtifactAdmissionReferenceV1 } from '@mitzo/protocol';
+import type { ArtifactAdmissionReferenceV1, ArtifactReaderReferenceV1 } from '@mitzo/protocol';
 import type {
   SeatConfig,
   SymposiumAdmissionDecision,
@@ -45,7 +45,7 @@ export interface SymposiumSeatExecutor {
   prepare?(input: {
     sessionId: string;
     claimToken: string;
-    artifact?: ArtifactAdmissionReferenceV1;
+    artifact?: ArtifactAdmissionReferenceV1 | ArtifactReaderReferenceV1;
   }): void;
   execute(input: SymposiumSeatExecution): Promise<SymposiumSeatExecutionResult>;
   /** Target the exact supplied attempt identity, never a newer retry on the same thread.
@@ -970,7 +970,7 @@ function provenanceFor(
   configRevision: number,
   membershipGeneration?: number,
   capturedAt?: number,
-  artifact?: ArtifactAdmissionReferenceV1 | null,
+  artifact?: ArtifactAdmissionReferenceV1 | ArtifactReaderReferenceV1 | null,
 ): SymposiumProvenance {
   const active = requireActiveSeat(seat);
   const legacy = {

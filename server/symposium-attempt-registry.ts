@@ -1,11 +1,18 @@
 import { artifactAdmissionDigest } from './event-store.js';
 import {
   ArtifactAdmissionReferenceV1Schema,
+  ArtifactReaderReferenceV1Schema,
   type ArtifactAdmissionReferenceV1,
+  type ArtifactReaderReferenceV1,
 } from '@mitzo/protocol';
 import { SymposiumCompletionCheckpoints } from './symposium-completion-checkpoints.js';
 import { SymposiumNativeObservations } from './symposium-native-observations.js';
 import Database from 'better-sqlite3';
+import { z } from 'zod';
+const ArtifactWorkReferenceSchema = z.union([
+  ArtifactAdmissionReferenceV1Schema,
+  ArtifactReaderReferenceV1Schema,
+]);
 import { dirname } from 'node:path';
 import { chmodSync, lstatSync, statSync } from 'node:fs';
 import {
@@ -21,7 +28,7 @@ type AttemptState = 'reserved' | 'uncertain' | 'confirmed';
 interface AttemptRow extends ControlledAttemptSandbox {
   claimToken: string;
   sessionId: string;
-  artifact?: ArtifactAdmissionReferenceV1;
+  artifact?: ArtifactAdmissionReferenceV1 | ArtifactReaderReferenceV1;
   state: AttemptState;
 }
 
@@ -104,7 +111,7 @@ export class SymposiumAttemptRegistry {
   prepare(input: {
     claimToken: string;
     sessionId: string;
-    artifact?: ArtifactAdmissionReferenceV1;
+    artifact?: ArtifactAdmissionReferenceV1 | ArtifactReaderReferenceV1;
   }) {
     if (!input.claimToken || !input.sessionId) throw new Error('Invalid native attempt identity');
     this.db.transaction(() => {
@@ -133,9 +140,7 @@ export class SymposiumAttemptRegistry {
         .run(
           input.claimToken,
           input.sessionId,
-          input.artifact
-            ? JSON.stringify(ArtifactAdmissionReferenceV1Schema.parse(input.artifact))
-            : null,
+          input.artifact ? JSON.stringify(ArtifactWorkReferenceSchema.parse(input.artifact)) : null,
         );
     })();
   }
@@ -144,7 +149,7 @@ export class SymposiumAttemptRegistry {
     claimToken: string;
     sessionId: string;
     sandbox: ControlledAttemptSandbox;
-    artifact?: ArtifactAdmissionReferenceV1;
+    artifact?: ArtifactAdmissionReferenceV1 | ArtifactReaderReferenceV1;
   }) {
     if (!input.claimToken || !input.sessionId || !input.sandbox.sandboxName)
       throw new Error('Invalid native attempt identity');
@@ -189,9 +194,7 @@ export class SymposiumAttemptRegistry {
           now,
           now,
           route,
-          input.artifact
-            ? JSON.stringify(ArtifactAdmissionReferenceV1Schema.parse(input.artifact))
-            : null,
+          input.artifact ? JSON.stringify(ArtifactWorkReferenceSchema.parse(input.artifact)) : null,
         );
       // Commit the unknown process state before any transport side effect.
       this.db
@@ -204,7 +207,7 @@ export class SymposiumAttemptRegistry {
     claimToken: string;
     sessionId: string;
     sandbox: ControlledAttemptSandbox;
-    artifact?: ArtifactAdmissionReferenceV1;
+    artifact?: ArtifactAdmissionReferenceV1 | ArtifactReaderReferenceV1;
     access: 'read' | 'write';
     command: readonly string[];
   }): ControlledAttemptProcess {
@@ -271,7 +274,7 @@ export class SymposiumAttemptRegistry {
     const row = {
       ...raw,
       ...(artifactJson
-        ? { artifact: ArtifactAdmissionReferenceV1Schema.parse(JSON.parse(artifactJson)) }
+        ? { artifact: ArtifactWorkReferenceSchema.parse(JSON.parse(artifactJson)) }
         : {}),
     };
     if (!transportRoute) return row;
@@ -285,7 +288,7 @@ export class SymposiumAttemptRegistry {
   pendingPreparations(): Array<{
     claimToken: string;
     sessionId: string;
-    artifact?: ArtifactAdmissionReferenceV1;
+    artifact?: ArtifactAdmissionReferenceV1 | ArtifactReaderReferenceV1;
   }> {
     const rows = this.db
       .prepare(
@@ -295,7 +298,7 @@ export class SymposiumAttemptRegistry {
     return rows.map(({ artifactJson, ...row }) => ({
       ...row,
       ...(artifactJson
-        ? { artifact: ArtifactAdmissionReferenceV1Schema.parse(JSON.parse(artifactJson)) }
+        ? { artifact: ArtifactWorkReferenceSchema.parse(JSON.parse(artifactJson)) }
         : {}),
     }));
   }

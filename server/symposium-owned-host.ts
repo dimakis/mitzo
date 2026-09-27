@@ -1,6 +1,10 @@
+import { assertOwnedSealedReaderCurrent } from './symposium-owned-reader-reference.js';
 import { artifactAdmissionDigest } from './event-store.js';
 import {
+  ArtifactAdmissionReferenceV1Schema,
   type ArtifactAdmissionReferenceV1,
+  type ArtifactReaderReferenceV1,
+  type ArtifactReaderAdmissionBindingV1,
   type ArtifactAdmissionBindingV1,
 } from '@mitzo/protocol';
 import { createOwnedSeatPolicySelector } from './symposium-owned-seat-policy.js';
@@ -104,6 +108,7 @@ export interface OwnedSymposiumHostOptions {
   hostGrants: SymposiumHostGrantVerifier;
   /** Trusted construction only; unavailable until a real current review/fix authority exists. */
   successorAuthority?: SuccessorFixAuthority;
+  readerAuthority?: { assertAdmissionCurrent(binding: ArtifactReaderAdmissionBindingV1): true };
   artifacts: readonly { sessionId: string; volumeName: string; volumeGeneration: string }[];
 }
 
@@ -479,12 +484,34 @@ export async function createOwnedSymposiumHost(
     );
     const assertArtifactAdmissionCurrent = (
       sessionId: string,
-      reference: ArtifactAdmissionReferenceV1,
+      reference: ArtifactAdmissionReferenceV1 | ArtifactReaderReferenceV1,
     ): void => {
       custody();
       if (!(options.facts instanceof EventStore))
-        throw new Error('Successor admission requires retained EventStore');
-      const binding = options.facts.assertSymposiumArtifactAdmissionCurrent(sessionId, reference);
+        throw new Error('Artifact admission requires retained EventStore');
+      if ('kind' in reference && reference.kind === 'sealed_reader') {
+        assertOwnedSealedReaderCurrent(
+          {
+            store: options.facts,
+            leaseHost: leaseHost!,
+            workspace: gateway.workspace,
+            custodyDigest: createHash('sha256').update(gateway.stateDirectory).digest('hex'),
+            assertAuthority(binding) {
+              if (options.readerAuthority?.assertAdmissionCurrent(binding) !== true)
+                throw new Error('Current reader policy authority required');
+              return true;
+            },
+          },
+          sessionId,
+          reference,
+        );
+        return;
+      }
+      const successorReference = ArtifactAdmissionReferenceV1Schema.parse(reference);
+      const binding = options.facts.assertSymposiumArtifactAdmissionCurrent(
+        sessionId,
+        successorReference,
+      );
       if (
         binding.workspaceId !== gateway.workspace ||
         binding.custodyDigest !== createHash('sha256').update(gateway.stateDirectory).digest('hex')
@@ -492,7 +519,7 @@ export async function createOwnedSymposiumHost(
         throw new Error('Successor custody changed');
       const retained = options.facts.getSymposiumArtifactAdmission(
         sessionId,
-        reference.transitionId,
+        successorReference.transitionId,
       );
       const receipt = readArtifactAdmissionReceipt(leaseHost!.snapshotDatabasePath(), binding);
       if (artifactAdmissionDigest(retained?.receipt) !== artifactAdmissionDigest(receipt))
@@ -514,22 +541,35 @@ export async function createOwnedSymposiumHost(
           ? options.facts.getSymposiumArtifactReference(sessionId, seatId, generation)
           : null;
       const successor =
-        reference && options.facts instanceof EventStore
+        reference && !('kind' in reference) && options.facts instanceof EventStore
           ? options.facts.getSymposiumArtifactAdmission(sessionId, reference.transitionId)
+          : null;
+      const reader =
+        reference &&
+        'kind' in reference &&
+        reference.kind === 'sealed_reader' &&
+        options.facts instanceof EventStore
+          ? options.facts.getSymposiumSealedReaderAdmission(sessionId, reference.readerAdmissionId)
           : null;
       if (purpose === 'admission' && reference)
         assertArtifactAdmissionCurrent(sessionId, reference);
-      const mapped = successor?.receipt
+      const mapped = reader?.receipt
         ? {
             sessionId,
-            volumeName: successor.binding.childVolumeName,
-            volumeGeneration: successor.binding.childGenerationId,
+            volumeName: reader.binding.volumeName,
+            volumeGeneration: reader.binding.artifactGenerationId,
           }
-        : purpose === 'cleanup'
-          ? (artifacts.get(sessionId) ?? sessionArtifacts!.getRetained(sessionId))
-          : artifacts.has(sessionId)
-            ? null
-            : sessionArtifacts!.claimAdmission(sessionId);
+        : successor?.receipt
+          ? {
+              sessionId,
+              volumeName: successor.binding.childVolumeName,
+              volumeGeneration: successor.binding.childGenerationId,
+            }
+          : purpose === 'cleanup'
+            ? (artifacts.get(sessionId) ?? sessionArtifacts!.getRetained(sessionId))
+            : artifacts.has(sessionId)
+              ? null
+              : sessionArtifacts!.claimAdmission(sessionId);
       if (purpose === 'cleanup') {
         const record = options.facts.getSymposiumSeatSandbox(sessionId, seatId, generation);
         if (
@@ -588,6 +628,9 @@ export async function createOwnedSymposiumHost(
         seatId,
         workspaceId: gateway.workspace,
         driver: 'podman',
+        ...(reader?.receipt && purpose === 'admission'
+          ? { readerAdmissionId: reader.binding.readerAdmissionId }
+          : {}),
         access:
           seat.role === 'reviewer' ||
           seat.authorityGrant.filesystem !== 'write' ||
