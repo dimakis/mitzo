@@ -74,8 +74,7 @@ The [durable child session allocation design](docs/design/session-service-core.m
 
 ### Symposium director and portable profiles
 
-The mobile and desktop ChatViews share **Add reviewer / Ask another agent** setup
-and include **Director controls** for the Symposium
+The mobile and desktop ChatViews include **Director controls** for the Symposium
 roster and directed-delivery approval. Use **Refresh director status** to load
 newly queued deliveries while the panel is open. The conversation view offers
 an all-seat audience, per-seat asides, and explicit excerpt sharing; queued
@@ -238,8 +237,10 @@ independent account authorization and all production evidence gates. See
 for the architecture and remaining gates. Installing this code does not upgrade
 or enable the active gateway.
 
-The [current implementation and acceptance record](docs/features/symposium.md)
-distinguishes mocked application coverage from the attended two-turn native
+The [feature-stack implementation and acceptance record](docs/features/symposium.md)
+identifies sibling PRs for Add reviewer/context UI, immutable review records,
+publication preflight, and session artifact preparation; these are not installed
+by this documentation change or all present in its PR #627 base checkout. It distinguishes mocked application coverage from the attended two-turn native
 `gpt-5.6-luna` smoke. The smoke verified streaming, replay, exact replies and
 probe cleanup; it did not establish full application or production admission.
 Multiple personal account slots and explicit supported-model refresh are

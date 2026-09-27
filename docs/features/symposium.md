@@ -6,14 +6,23 @@ Telos parent: `6403fb22f9bb743c`. Phase 2.5: `c10fc341b0533a54`.
 
 This page describes the implemented feature stack and its acceptance evidence.
 It does not assert that the branches are merged, deployed, or production-ready.
+This documentation branch is stacked on the personal-account/model-refresh UI
+(PR #627). Its checkout does **not** contain all sibling implementations below.
+Add-reviewer/context UI is in [PR #611](https://github.com/dimakis/mitzo/pull/611);
+mounted review UI/routes are in [PR #613](https://github.com/dimakis/mitzo/pull/613);
+immutable records are in [PR #615](https://github.com/dimakis/mitzo/pull/615);
+publication preflight is in [PR #620](https://github.com/dimakis/mitzo/pull/620);
+session artifact preparation is in [PR #624](https://github.com/dimakis/mitzo/pull/624).
+These are implemented sibling branches, not functionality installed by this
+documentation change. The combined acceptance checkout composes them separately.
 The canonical product contract is the
 [workspace redesign Symposium reconciliation](../design/workspace-redesign/mitzo-redesign-launch-plan.md#symposium-reconciliation).
 
-The director, durable membership and delivery records, shared reviewer setup,
-portable profiles, personal connection slots, and explicit model refresh have
-source implementations and mocked tests. Review workflows, immutable records,
-session artifact preparation, and publication preflight are separate guarded
-slices in the same feature stack. They do not install a native review host or
+The base checkout implements the director, durable membership and delivery
+records, portable profiles, personal connection slots, and explicit model refresh
+with mocked tests. The sibling PRs above implement shared reviewer setup, mounted
+review workflows, immutable records, session artifact preparation, and publication
+preflight as separate guarded slices. They do not install a native review host or
 publish a pull request.
 
 Phone device sign-in has been exercised against an isolated host. A separate
@@ -33,12 +42,12 @@ cannot satisfy these gates.
 
 ## One conversation, explicit reviewer setup
 
-The UI keeps one conversation stream. The implementation still has responsive
+The Add-reviewer implementation in PR #611 keeps one conversation stream and has responsive
 `ChatView` and `DesktopChatView` wrappers; they share the reviewer entry and
 conversation behavior. This is not a claim that they have been replaced by a
 single component.
 
-**Add reviewer / Ask another agent** uses a focused sheet with a saved profile
+In PR #611, **Add reviewer / Ask another agent** uses a focused sheet with a saved profile
 revision, connection, model, and explicit context choice. Profile creation/import
 is behind profile management. Independent context is the default: the operator
 supplies the task package and selected references. It does not automatically read
@@ -99,8 +108,9 @@ checks pass. Claude admission remains unavailable through these contracts.
 Shared artifacts use a separately admitted named volume: writer access is
 read-write and reviewer access is read-only. Host leases check the physical mount
 and retain writer reservations until exact stop/deletion evidence permits release.
-The session artifact service can prepare a bounded owned volume and durable
-mapping; it cannot mint runtime admission or replace a failed host attestation.
+PR #624's session artifact service can prepare a bounded owned volume and durable
+mapping; the base checkout only reads a configured mapping. The service cannot
+mint runtime admission or replace a failed host attestation.
 
 TLS setup requires the Podman guest hostname as well as loopback in the gateway
 certificate. The newer runtime image also carries the guest CA/launcher fixes
@@ -158,6 +168,10 @@ saved revision to a seat is a separate action with its own suspension/rebind and
 grant checks.
 
 ## Review records and publication boundary
+
+This section describes PRs #613, #615, and #620. The base checkout has standalone
+review persistence/coordinator services; it does not mount these routes or provide
+immutable export, snapshot retrieval, or publication preflight.
 
 The review workflow records structured findings, fix/dismissal decisions, exact
 artifact revisions, and delta-review history. The interactive panel reports an
