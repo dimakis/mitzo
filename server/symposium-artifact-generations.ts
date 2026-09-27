@@ -1,4 +1,11 @@
-import type Database from 'better-sqlite3';
+import { artifactAdmissionDigest } from './event-store.js';
+import {
+  ArtifactAdmissionBindingV1Schema,
+  ArtifactActivationReceiptV1Schema,
+  type ArtifactAdmissionBindingV1,
+  type ArtifactActivationReceiptV1,
+} from '@mitzo/protocol';
+import Database from 'better-sqlite3';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { canonicalReviewJson, reviewRecordHash } from './symposium-review-records.js';
@@ -139,6 +146,7 @@ export class SymposiumArtifactGenerations {
       state TEXT NOT NULL CHECK(state IN ('initial','reserved','copy_uncertain','quarantined','verified','active')));
       CREATE TABLE IF NOT EXISTS symposium_artifact_generation_heads (
       session_id TEXT PRIMARY KEY, generation_id TEXT NOT NULL UNIQUE, revision INTEGER NOT NULL);
+      CREATE TABLE IF NOT EXISTS symposium_generation_admissions (generation_id TEXT PRIMARY KEY, binding_json TEXT NOT NULL, receipt_json TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS symposium_artifact_copy_observations (generation_id TEXT PRIMARY KEY, receipt_json TEXT NOT NULL);
     `);
     if (
@@ -449,6 +457,96 @@ export class SymposiumArtifactGenerations {
       })
       .immediate();
   }
+  activateAdmission(
+    input: ArtifactAdmissionBindingV1,
+    assertIntent: (binding: ArtifactAdmissionBindingV1) => true,
+  ): ArtifactActivationReceiptV1 {
+    const binding = ArtifactAdmissionBindingV1Schema.parse(input);
+    return this.db
+      .transaction(() => {
+        if (assertIntent(binding) !== true)
+          throw new Error('Retained EventStore successor intent required');
+        const context = {
+          sessionId: binding.sessionId,
+          workspace: binding.workspaceId,
+          custodyDigest: binding.custodyDigest,
+        };
+        const row = this.get(context, binding.childGenerationId),
+          intent = this.intent(row),
+          request = intent.request;
+        if (
+          !row.receipt_json ||
+          artifactAdmissionDigest(JSON.parse(row.receipt_json)) !== binding.copyReceiptDigest ||
+          intent.volumeName !== binding.childVolumeName ||
+          request.operationId !== binding.operationId ||
+          request.parentGenerationId !== binding.parentGenerationId ||
+          request.parentSealDigest !== binding.parentSealDigest ||
+          request.expectedPointerRevision !== binding.expectedPointerRevision ||
+          request.workflowId !== binding.workflowId ||
+          request.fixAttemptId !== binding.fixAttemptId ||
+          request.actor !== binding.actor ||
+          request.seatId !== binding.seatId ||
+          request.membershipGeneration !== binding.predecessorMembershipGeneration ||
+          request.accountId !== binding.accountBinding.accountId ||
+          request.model !== binding.accountBinding.model ||
+          request.profileId !== binding.profileBinding.profileId ||
+          request.profileRevision !== binding.profileBinding.profileRevision ||
+          request.authorityGrantId !== binding.authorityGrant.grantId ||
+          request.authorityRevision !== binding.authorityGrant.revision ||
+          artifactAdmissionDigest(request.findingFingerprints) !==
+            artifactAdmissionDigest(binding.findingFingerprints)
+        )
+          throw new Error('Successor copy binding mismatch');
+        const prior = this.db
+          .prepare('SELECT binding_json FROM symposium_generation_admissions WHERE generation_id=?')
+          .get(binding.childGenerationId) as { binding_json: string } | undefined;
+        if (prior) return this.requireAdmission(binding);
+        if (row.state !== 'verified') throw new Error('Legacy pointer is not successor admission');
+        const pointer = this.activate(context, binding.childGenerationId);
+        const receipt: ArtifactActivationReceiptV1 = {
+          version: 1,
+          transitionId: binding.transitionId,
+          bindingDigest: artifactAdmissionDigest(binding),
+          sessionId: binding.sessionId,
+          parentGenerationId: binding.parentGenerationId,
+          childGenerationId: binding.childGenerationId,
+          childVolumeName: binding.childVolumeName,
+          expectedPointerRevision: binding.expectedPointerRevision,
+          pointerRevision: pointer.revision,
+          copyReceiptDigest: binding.copyReceiptDigest,
+        };
+        this.db
+          .prepare('INSERT INTO symposium_generation_admissions VALUES(?,?,?)')
+          .run(binding.childGenerationId, JSON.stringify(binding), JSON.stringify(receipt));
+        return receipt;
+      })
+      .immediate();
+  }
+  requireAdmission(input: ArtifactAdmissionBindingV1): ArtifactActivationReceiptV1 {
+    const binding = ArtifactAdmissionBindingV1Schema.parse(input);
+    const row = this.db
+      .prepare(
+        'SELECT binding_json,receipt_json FROM symposium_generation_admissions WHERE generation_id=?',
+      )
+      .get(binding.childGenerationId) as { binding_json: string; receipt_json: string } | undefined;
+    const context = {
+      sessionId: binding.sessionId,
+      workspace: binding.workspaceId,
+      custodyDigest: binding.custodyDigest,
+    };
+    const pointer = this.active(context);
+    if (
+      !row ||
+      artifactAdmissionDigest(JSON.parse(row.binding_json)) !== artifactAdmissionDigest(binding) ||
+      pointer.generationId !== binding.childGenerationId ||
+      pointer.revision !== binding.activatedPointerRevision
+    )
+      throw new Error('Exact current successor activation required');
+    const receipt = ArtifactActivationReceiptV1Schema.parse(JSON.parse(row.receipt_json));
+    if (receipt.bindingDigest !== artifactAdmissionDigest(binding))
+      throw new Error('Successor receipt identity changed');
+    return receipt;
+  }
   activate(context: Context, generationId: string): { generationId: string; revision: number } {
     return this.db
       .transaction(() => {
@@ -510,5 +608,51 @@ export class SymposiumArtifactGenerations {
       helperId: row.helper_id,
       receipt: row.receipt_json ? receiptSchema.parse(JSON.parse(row.receipt_json)) : null,
     };
+  }
+}
+
+/** Read current admission proof from the existing private ledger; does not initialize or migrate it. */
+export function readArtifactAdmissionReceipt(
+  path: string,
+  input: ArtifactAdmissionBindingV1,
+): ArtifactActivationReceiptV1 {
+  const binding = ArtifactAdmissionBindingV1Schema.parse(input);
+  const db = new Database(path, { readonly: true, fileMustExist: true });
+  try {
+    return db.transaction(() => {
+      const row = db
+        .prepare(
+          `SELECT a.binding_json,a.receipt_json,g.identity_json,h.generation_id,h.revision FROM symposium_generation_admissions a JOIN symposium_artifact_generations g ON g.generation_id=a.generation_id JOIN symposium_artifact_generation_heads h ON h.session_id=g.session_id WHERE a.generation_id=?`,
+        )
+        .get(binding.childGenerationId) as
+        | {
+            binding_json: string;
+            receipt_json: string;
+            identity_json: string;
+            generation_id: string;
+            revision: number;
+          }
+        | undefined;
+      if (
+        !row ||
+        artifactAdmissionDigest(JSON.parse(row.binding_json)) !==
+          artifactAdmissionDigest(binding) ||
+        artifactAdmissionDigest(JSON.parse(row.identity_json)) !==
+          artifactAdmissionDigest({
+            sessionId: binding.sessionId,
+            workspace: binding.workspaceId,
+            custodyDigest: binding.custodyDigest,
+          }) ||
+        row.generation_id !== binding.childGenerationId ||
+        row.revision !== binding.activatedPointerRevision
+      )
+        throw new Error('Exact current successor activation required');
+      const receipt = ArtifactActivationReceiptV1Schema.parse(JSON.parse(row.receipt_json));
+      if (receipt.bindingDigest !== artifactAdmissionDigest(binding))
+        throw new Error('Successor receipt identity changed');
+      return receipt;
+    })();
+  } finally {
+    db.close();
   }
 }

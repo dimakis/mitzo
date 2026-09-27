@@ -1,6 +1,10 @@
 import type Database from 'better-sqlite3';
 import { z } from 'zod';
-import { AccountBindingSchema, SymposiumProvenanceSchema } from '@mitzo/protocol';
+import {
+  AccountBindingSchema,
+  SymposiumProvenanceSchema,
+  type SymposiumProvenance,
+} from '@mitzo/protocol';
 const id = z.string().min(1);
 const identitySchema = z
   .strictObject({
@@ -41,7 +45,11 @@ export interface NativeTurnObservation {
 export class SymposiumNativeObservations {
   constructor(
     private readonly db: Database.Database,
-    private readonly reserved: (claim: string, session: string) => void,
+    private readonly reserved: (
+      claim: string,
+      session: string,
+      provenance: SymposiumProvenance,
+    ) => void,
   ) {
     db.exec(`CREATE TABLE IF NOT EXISTS symposium_native_observations (
       claim_token TEXT PRIMARY KEY,
@@ -60,7 +68,7 @@ export class SymposiumNativeObservations {
     const identity = identitySchema.parse(input);
     const encoded = JSON.stringify(identity);
     this.db.transaction(() => {
-      this.reserved(identity.claimToken, identity.sessionId);
+      this.reserved(identity.claimToken, identity.sessionId, identity.provenance);
       const previous = this.get(identity.claimToken);
       if (previous) {
         if (JSON.stringify(previous.identity) !== encoded)

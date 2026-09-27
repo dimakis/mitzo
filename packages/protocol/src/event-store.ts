@@ -1,9 +1,15 @@
 import {
+  artifactAdmissionDigest,
+  artifactAdmissionReference,
+} from './symposium-artifact-admission-proof.js';
+export {
+  artifactAdmissionDigest,
+  artifactAdmissionReference,
+} from './symposium-artifact-admission-proof.js';
+import {
   ArtifactAdmissionBindingV1Schema,
   ArtifactAdmissionReferenceV1Schema,
   ArtifactActivationReceiptV1Schema,
-  artifactAdmissionDigest,
-  artifactAdmissionReference,
   type ArtifactAdmissionBindingV1,
   type ArtifactAdmissionReferenceV1,
   type ArtifactActivationReceiptV1,
@@ -69,6 +75,7 @@ export type {
 };
 
 export interface SymposiumSeatSandboxRecord {
+  artifact?: ArtifactAdmissionReferenceV1;
   sessionId: string;
   seatId: string;
   generation: number;
@@ -1091,6 +1098,18 @@ export class EventStore {
       db.exec(`CREATE TABLE IF NOT EXISTS symposium_artifact_admissions (
         transition_id TEXT PRIMARY KEY, session_id TEXT NOT NULL, child_generation TEXT NOT NULL UNIQUE,
         binding_json TEXT NOT NULL, receipt_json TEXT, UNIQUE(session_id,transition_id));`);
+      for (const table of [
+        'symposium_seat_sandboxes',
+        'symposium_delivery_recipients',
+        'symposium_admissions',
+      ]) {
+        if (
+          !(db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>).some(
+            (column) => column.name === 'artifact_json',
+          )
+        )
+          db.exec(`ALTER TABLE ${table} ADD COLUMN artifact_json TEXT`);
+      }
       const recipientColumns = db
         .prepare("PRAGMA table_info('symposium_delivery_recipients')")
         .all() as Array<{ name: string }>;
@@ -2460,6 +2479,73 @@ export class EventStore {
     }).immediate();
   }
 
+  /** Historical parent validation allows only proven internal successor revision changes. */
+  withSymposiumHistoricalArtifactSealSnapshot(
+    intent: SymposiumArtifactSealIntent,
+    action: () => void,
+  ): void {
+    this.db!.transaction(() => {
+      const current = this.getSymposiumArtifactSealByFence(intent.fenceId);
+      const config = this.getActiveSymposiumConfig(intent.selection.sessionId);
+      const digest = (value: unknown) =>
+        createHash('sha256').update(JSON.stringify(value)).digest('hex');
+      if (
+        JSON.stringify(current) !== JSON.stringify(intent) ||
+        digest({ ...config, revision: intent.selection.expectedConfigRevision }) !==
+          intent.configDigest
+      )
+        throw new Error('Historical artifact configuration changed');
+      const history = this.getSymposiumMembershipHistory(intent.selection.sessionId);
+      for (const original of intent.memberships) {
+        const member = history.find(
+          (row) => row.seatId === original.seatId && row.generation === original.generation,
+        );
+        if (
+          !member ||
+          member.state !== original.state ||
+          member.reconciliation !== original.reconciliation ||
+          digest(member.bindingKey) !== original.bindingDigest
+        )
+          throw new Error('Historical artifact membership changed');
+      }
+      for (const member of history) {
+        const original = intent.memberships.find((row) => row.seatId === member.seatId);
+        if (original && member.generation <= original.generation) continue;
+        const reference = this.getSymposiumArtifactReference(
+          member.sessionId,
+          member.seatId,
+          member.generation,
+        );
+        if (member.action !== 'artifact_successor' || !reference)
+          throw new Error('Unproven activity after parent seal');
+        const admission = this.getSymposiumArtifactAdmission(
+          member.sessionId,
+          reference.transitionId,
+        )!;
+        if (
+          !admission.receipt ||
+          admission.binding.resultingConfigRevision !== member.configRevision
+        )
+          throw new Error('Historical successor receipt changed');
+      }
+      const revisions = history
+        .filter(
+          (member) =>
+            member.action === 'artifact_successor' &&
+            member.configRevision > intent.selection.expectedConfigRevision,
+        )
+        .map((member) => member.configRevision)
+        .sort((a, b) => a - b);
+      if (
+        revisions.length !== config.revision - intent.selection.expectedConfigRevision ||
+        revisions.some(
+          (value, index) => value !== intent.selection.expectedConfigRevision + index + 1,
+        )
+      )
+        throw new Error('Historical successor revision chain changed');
+      action();
+    }).immediate();
+  }
   /** Trusted host only. Proof must verify retained completed parent, copy and current policy authority. */
   beginSymposiumArtifactAdmission(
     input: ArtifactAdmissionBindingV1,
@@ -2522,13 +2608,15 @@ export class EventStore {
       seat.contextGrant.revision !== binding.contextGrant.revision ||
       seat.authorityGrant?.grantId !== binding.authorityGrant.grantId ||
       seat.authorityGrant.revision !== binding.authorityGrant.revision ||
-      this.listUnstoppedSymposiumSeatSandboxes(binding.sessionId).length ||
+      config.seats.some(
+        (value) => this.listUnstoppedSymposiumSeatSandboxes(binding.sessionId, value.id).length,
+      ) ||
       config.seats.some(
         (value) => this.getUnsettledSymposiumSeatExecutions(binding.sessionId, value.id).length,
       )
     )
       throw new Error('Exact retired successor predecessor required');
-    this.withSymposiumArtifactSealSnapshot(parent, () => {});
+    this.withSymposiumHistoricalArtifactSealSnapshot(parent, () => {});
   }
   confirmSymposiumArtifactAdmission(
     input: ArtifactAdmissionBindingV1,
@@ -2705,7 +2793,10 @@ export class EventStore {
     >,
   ): SymposiumSeatSandboxRecord {
     return this.db!.transaction(() => {
-      this.assertSymposiumArtifactWorkAllowed(input.sessionId);
+      this.assertSymposiumArtifactWorkAllowed(
+        input.sessionId,
+        this.getSymposiumArtifactReference(input.sessionId, input.seatId, input.generation),
+      );
       const existing = this.getSymposiumSeatSandbox(
         input.sessionId,
         input.seatId,
@@ -2745,6 +2836,19 @@ export class EventStore {
         input.providerType,
         input.model,
       );
+      const artifact = this.getSymposiumArtifactReference(
+        input.sessionId,
+        input.seatId,
+        input.generation,
+      );
+      this.db!.prepare(
+        'UPDATE symposium_seat_sandboxes SET artifact_json=? WHERE session_id=? AND seat_id=? AND generation=?',
+      ).run(
+        artifact ? JSON.stringify(artifact) : null,
+        input.sessionId,
+        input.seatId,
+        input.generation,
+      );
       return this.getSymposiumSeatSandbox(input.sessionId, input.seatId, input.generation)!;
     }).immediate();
   }
@@ -2781,6 +2885,13 @@ export class EventStore {
 
   private rowToSymposiumSeatSandbox(row: Record<string, unknown>): SymposiumSeatSandboxRecord {
     return {
+      ...(row.artifact_json
+        ? {
+            artifact: ArtifactAdmissionReferenceV1Schema.parse(
+              JSON.parse(row.artifact_json as string),
+            ),
+          }
+        : {}),
       sessionId: row.session_id as string,
       seatId: row.seat_id as string,
       generation: row.generation as number,
@@ -2808,7 +2919,10 @@ export class EventStore {
     runtimeId: string;
   }): void {
     this.db!.transaction(() => {
-      this.assertSymposiumArtifactWorkAllowed(input.sessionId);
+      this.assertSymposiumArtifactWorkAllowed(
+        input.sessionId,
+        this.getSymposiumArtifactReference(input.sessionId, input.seatId, input.generation),
+      );
       const result = this.db!.prepare(
         `UPDATE symposium_seat_sandboxes SET creation_started=1
        WHERE session_id=? AND seat_id=? AND generation=? AND runtime_id=?
@@ -3636,7 +3750,15 @@ export class EventStore {
 
   recordSymposiumAdmission(record: SymposiumAdmissionRecord): SymposiumAdmissionRecord {
     return this.db!.transaction(() => {
-      if (record.decision === 'admitted') this.assertSymposiumArtifactWorkAllowed(record.sessionId);
+      if (record.decision === 'admitted')
+        this.assertSymposiumArtifactWorkAllowed(
+          record.sessionId,
+          this.getSymposiumArtifactReference(
+            record.sessionId,
+            record.seatId,
+            record.membershipGeneration ?? 0,
+          ),
+        );
       const prior = this.db!.prepare(
         'SELECT * FROM symposium_admissions WHERE session_id = ? AND idempotency_key = ?',
       ).get(record.sessionId, record.idempotencyKey) as Record<string, unknown> | undefined;
@@ -3706,7 +3828,16 @@ export class EventStore {
         record.decidedAt,
         record.membershipGeneration ?? 0,
       );
-      return record;
+      const artifact = this.getSymposiumArtifactReference(
+        record.sessionId,
+        record.seatId,
+        record.membershipGeneration ?? 0,
+      );
+      this.db!.prepare('UPDATE symposium_admissions SET artifact_json=? WHERE admission_id=?').run(
+        artifact ? JSON.stringify(artifact) : null,
+        record.admissionId,
+      );
+      return { ...record, ...(artifact ? { artifact } : {}) };
     }).immediate();
   }
 
@@ -3918,6 +4049,16 @@ export class EventStore {
           recipient.costUsd === null ? 0 : 1,
         ),
       );
+      for (const recipient of record.recipients) {
+        const artifact = this.getSymposiumArtifactReference(
+          record.sessionId,
+          recipient.seatId,
+          recipient.membershipGeneration ?? 0,
+        );
+        this.db!.prepare(
+          'UPDATE symposium_delivery_recipients SET artifact_json=? WHERE delivery_id=? AND seat_id=?',
+        ).run(artifact ? JSON.stringify(artifact) : null, record.deliveryId, recipient.seatId);
+      }
       return this.getSymposiumDelivery(record.deliveryId)!;
     }).immediate();
   }
@@ -4079,7 +4220,8 @@ export class EventStore {
       const delivery = this.getSymposiumDelivery(deliveryId);
       if (!delivery) throw new Error('Unknown Symposium delivery');
       if (delivery.status !== 'ready') return false;
-      this.assertSymposiumArtifactWorkAllowed(delivery.sessionId);
+      for (const recipient of delivery.recipients)
+        this.assertSymposiumArtifactWorkAllowed(delivery.sessionId, recipient.artifact);
       if (maxTurns !== undefined) {
         const reserved = this.db!.prepare(
           `SELECT
@@ -4213,9 +4355,14 @@ export class EventStore {
     provenance: SymposiumProvenance;
   }): { claimToken: string; thread: SymposiumSeatThreadRecord | undefined } | undefined {
     return this.db!.transaction(() => {
-      this.assertSymposiumArtifactWorkAllowed(input.sessionId);
+      this.assertSymposiumArtifactWorkAllowed(
+        input.sessionId,
+        'version' in input.provenance && input.provenance.version === 3
+          ? input.provenance.artifact
+          : null,
+      );
       const recipient = this.db!.prepare(
-        `SELECT r.status AS recipient_status, r.idempotency_key, r.membership_generation,
+        `SELECT r.status AS recipient_status, r.idempotency_key, r.membership_generation, r.artifact_json,
           d.status AS delivery_status,
           d.session_id, d.delivered_content
          FROM symposium_delivery_recipients r
@@ -4224,6 +4371,7 @@ export class EventStore {
       ).get(input.deliveryId, input.seatId) as
         | {
             recipient_status: string;
+            artifact_json: string | null;
             idempotency_key: string;
             membership_generation: number;
             delivery_status: string;
@@ -4234,6 +4382,14 @@ export class EventStore {
       if (
         !recipient ||
         recipient.session_id !== input.sessionId ||
+        artifactAdmissionDigest(
+          recipient.artifact_json ? JSON.parse(recipient.artifact_json) : null,
+        ) !==
+          artifactAdmissionDigest(
+            'version' in input.provenance && input.provenance.version === 3
+              ? input.provenance.artifact
+              : null,
+          ) ||
         recipient.delivery_status !== 'delivering' ||
         recipient.recipient_status !== 'pending' ||
         recipient.delivered_content === null ||
@@ -5242,6 +5398,13 @@ export class EventStore {
 
 function rowToSymposiumAdmission(row: Record<string, unknown>): SymposiumAdmissionRecord {
   return {
+    ...(row.artifact_json
+      ? {
+          artifact: ArtifactAdmissionReferenceV1Schema.parse(
+            JSON.parse(row.artifact_json as string),
+          ),
+        }
+      : {}),
     admissionId: row.admission_id as string,
     sessionId: row.session_id as string,
     seatId: row.seat_id as string,
@@ -5286,6 +5449,13 @@ function rowToSymposiumMembership(row: Record<string, unknown>): SymposiumMember
 
 function rowToSymposiumRecipient(row: Record<string, unknown>): SymposiumDeliveryRecipient {
   return {
+    ...(row.artifact_json
+      ? {
+          artifact: ArtifactAdmissionReferenceV1Schema.parse(
+            JSON.parse(row.artifact_json as string),
+          ),
+        }
+      : {}),
     deliveryId: row.delivery_id as string,
     seatId: row.seat_id as string,
     ...(Number(row.membership_generation) > 0

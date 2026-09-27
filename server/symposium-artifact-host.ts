@@ -287,8 +287,9 @@ export class SqliteArtifactLeaseHost implements ArtifactLeaseHost {
   beginPendingArtifactRetention(
     store: Pick<EventStore, 'getSymposiumArtifactSealIntent'>,
     sessionId: string,
+    generation?: string,
   ): PendingArtifactRetention {
-    const intent = store.getSymposiumArtifactSealIntent(sessionId);
+    const intent = store.getSymposiumArtifactSealIntent(sessionId, generation);
     if (!intent || intent.status !== 'pending_unsealed' || intent.selection.sessionId !== sessionId)
       throw new Error('Pending artifact retention requires the durable session seal intent');
     const intentJson = JSON.stringify(intent);

@@ -1,3 +1,6 @@
+import { artifactAdmissionDigest } from './event-store.js';
+import { type ArtifactAdmissionBindingV1 } from '@mitzo/protocol';
+import type { EventStore } from './event-store.js';
 import Database from 'better-sqlite3';
 import { createHash } from 'node:crypto';
 import { canonicalReviewJson, reviewRecordHash } from './symposium-review-records.js';
@@ -31,7 +34,10 @@ export async function withOwnedArtifactSuccessor<T>(
   request: ArtifactGenerationRequest,
   exported: SuccessorArtifactExportReceipt,
   bundle: Buffer,
-  run: (copier: PhysicalArtifactSuccessorCopier) => Promise<T>,
+  run: (
+    copier: PhysicalArtifactSuccessorCopier,
+    ledger: SymposiumArtifactGenerations,
+  ) => Promise<T>,
 ): Promise<T> {
   assertSuccessorFixAuthority(deps.authority, request);
   deps.leaseHost.requireSnapshotGateway(deps.gateway);
@@ -87,8 +93,36 @@ export async function withOwnedArtifactSuccessor<T>(
       command: deps.leaseHost.snapshotCommand(),
       custody: () => deps.gateway.verifyCustodyAsync(),
     });
-    return await run(copier);
+    return await run(copier, ledger);
   } finally {
     db.close();
   }
+}
+
+/** Completes the existing two-owner handshake; an intent or pointer alone never admits. */
+export function confirmOwnedArtifactSuccessor(
+  store: EventStore,
+  ledger: SymposiumArtifactGenerations,
+  binding: ArtifactAdmissionBindingV1,
+  assertAuthority: (binding: ArtifactAdmissionBindingV1) => true,
+) {
+  const intent = store.beginSymposiumArtifactAdmission(binding, assertAuthority);
+  const receipt = ledger.activateAdmission(binding, (selected) => {
+    assertAuthority(selected);
+    const retained = store.getSymposiumArtifactAdmission(selected.sessionId, selected.transitionId);
+    if (
+      !retained ||
+      artifactAdmissionDigest(retained.binding) !== artifactAdmissionDigest(selected)
+    )
+      throw new Error('Retained successor intent changed');
+    return true;
+  });
+  return store.confirmSymposiumArtifactAdmission(intent.binding, receipt, (selected, value) => {
+    assertAuthority(selected);
+    if (
+      artifactAdmissionDigest(ledger.requireAdmission(selected)) !== artifactAdmissionDigest(value)
+    )
+      throw new Error('Successor activation changed');
+    return true;
+  });
 }

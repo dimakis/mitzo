@@ -1,4 +1,7 @@
-import { ArtifactAdmissionReferenceV1Schema } from './symposium-artifact-admission.js';
+import {
+  ArtifactAdmissionReferenceV1Schema,
+  type ArtifactAdmissionReferenceV1,
+} from './symposium-artifact-admission.js';
 import { z } from 'zod';
 import { AccountBindingSchema, AccountProviderSchema } from './account-binding.js';
 
@@ -338,6 +341,7 @@ export type SymposiumConfig = z.infer<typeof SymposiumConfigSchema>;
 
 /** Durable decision to admit one configured provider into the shared Symposium boundary. */
 export interface SymposiumAdmissionRecord {
+  artifact?: ArtifactAdmissionReferenceV1;
   admissionId: string;
   sessionId: string;
   seatId: string;
@@ -357,6 +361,7 @@ export interface SymposiumAdmissionRecord {
 
 /** Immutable target snapshot for one delivery attempt. */
 export interface SymposiumDeliveryRecipient {
+  artifact?: ArtifactAdmissionReferenceV1;
   deliveryId: string;
   seatId: string;
   membershipGeneration?: number;

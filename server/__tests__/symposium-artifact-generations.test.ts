@@ -481,3 +481,52 @@ it('retains ordered physical effects across reopen without granting retry or act
     }),
   ).toThrow();
 });
+it('retains an exact admission receipt with pointer CAS and rejects unconfirmed identity substitution', () => {
+  const f = copied();
+  const binding = {
+    version: 1 as const,
+    transitionId: 'transition',
+    operationId: request.operationId,
+    sessionId: request.sessionId,
+    workspaceId: request.workspace,
+    custodyDigest: request.custodyDigest,
+    parentGenerationId: request.parentGenerationId,
+    parentFenceId: 'fence',
+    parentSealDigest: request.parentSealDigest,
+    childGenerationId: f.intent.generationId,
+    childVolumeName: f.intent.volumeName,
+    copyReceiptDigest: reviewRecordHash(canonicalReviewJson(receipt(f.intent))),
+    expectedPointerRevision: 0,
+    activatedPointerRevision: 1,
+    workflowId: request.workflowId,
+    fixAttemptId: request.fixAttemptId,
+    policyReservationId: 'reservation',
+    seatId: request.seatId,
+    actor: request.actor,
+    expectedConfigRevision: 1,
+    resultingConfigRevision: 2,
+    predecessorMembershipGeneration: 1,
+    successorMembershipGeneration: 2,
+    accountBinding: {
+      accountId: 'personal',
+      accountLabel: 'Personal',
+      provider: 'openai-codex' as const,
+      model: 'luna-fixture',
+      profileRevision: '1',
+    },
+    profileBinding: { profileId: request.profileId, profileRevision: request.profileRevision },
+    contextGrant: { grantId: 'context', revision: 1 },
+    authorityGrant: { grantId: request.authorityGrantId, revision: 1 },
+    findingFingerprints: request.findingFingerprints,
+  };
+  expect(() =>
+    f.store.activateAdmission(binding, () => {
+      throw Error('intent absent');
+    }),
+  ).toThrow('intent absent');
+  expect(f.store.active(context).generationId).toBe('initial');
+  const activation = f.store.activateAdmission(binding, () => true);
+  expect(f.open().store.requireAdmission(binding)).toEqual(activation);
+  expect(f.store.activateAdmission(binding, () => true)).toEqual(activation);
+  expect(() => f.store.requireAdmission({ ...binding, policyReservationId: 'other' })).toThrow();
+});

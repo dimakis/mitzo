@@ -153,3 +153,24 @@ describe('durable native attempt registry', () => {
     reopened.close();
   });
 });
+it('retains exact successor binding across preparation and launch reservation without inheritance', () => {
+  const path = registryPath(),
+    registry = new SymposiumAttemptRegistry(path);
+  const artifact = {
+    version: 1 as const,
+    transitionId: 'transition',
+    artifactGenerationId: 'child',
+    pointerRevision: 1,
+    bindingDigest: 'a'.repeat(64),
+  };
+  registry.prepare({ ...claim, artifact });
+  expect(registry.pendingPreparations()[0]?.artifact).toEqual(artifact);
+  expect(() =>
+    registry.reserve({ ...claim, artifact: { ...artifact, artifactGenerationId: 'other' } }),
+  ).toThrow();
+  registry.reserve({ ...claim, artifact });
+  registry.close();
+  const reopened = new SymposiumAttemptRegistry(path);
+  expect(reopened.pending()[0]?.artifact).toEqual(artifact);
+  reopened.close();
+});

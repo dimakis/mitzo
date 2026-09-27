@@ -1,3 +1,4 @@
+import type { ArtifactAdmissionReferenceV1 } from '@mitzo/protocol';
 import { canonicalReviewJson, reviewRecordHash } from './symposium-review-records.js';
 import {
   ARTIFACT_GIT_EXPORT,
@@ -10,6 +11,9 @@ import Database from 'better-sqlite3';
 import { createHash, randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { EventStore } from './event-store.js';
+type SymposiumArtifactSealIntent = NonNullable<
+  ReturnType<EventStore['getSymposiumArtifactSealIntent']>
+>;
 import type { SymposiumSeatSandboxRecord } from '@mitzo/protocol/event-store';
 import {
   SqliteArtifactLeaseHost,
@@ -241,6 +245,25 @@ export class PhysicalArtifactSealer {
         throw new Error('Artifact writer gateway absence changed');
     }
   }
+  private verifiedOtherGeneration(
+    reference: ArtifactAdmissionReferenceV1 | undefined,
+    parent: SymposiumArtifactSealIntent,
+  ): boolean {
+    if (!reference || reference.artifactGenerationId === parent.selection.artifact.volumeGeneration)
+      return false;
+    try {
+      const binding = this.deps.store.assertSymposiumArtifactAdmissionCurrent(
+        parent.selection.sessionId,
+        reference,
+      );
+      return (
+        binding.parentFenceId === parent.fenceId &&
+        binding.parentGenerationId === parent.selection.artifact.volumeGeneration
+      );
+    } catch {
+      return false;
+    }
+  }
   async requireCompleted(fenceId: string, signal: AbortSignal): Promise<CompletedArtifactSeal> {
     if (!/^[a-f0-9-]{36}$/.test(fenceId)) throw new Error('Artifact seal identity is invalid');
     signal.throwIfAborted();
@@ -252,7 +275,7 @@ export class PhysicalArtifactSealer {
     if (!row || row.custody_digest !== hash(this.deps.gateway.stateDirectory))
       throw new Error('Completed artifact seal custody is unavailable');
     const receipt = JSON.parse(row.receipt_json) as CompletedArtifactSeal;
-    const intent = this.deps.store.getSymposiumArtifactSealIntent(receipt.sessionId);
+    const intent = this.deps.store.getSymposiumArtifactSealByFence(receipt.fenceId);
     if (
       !intent ||
       receipt.fenceId !== fenceId ||
@@ -283,7 +306,14 @@ export class PhysicalArtifactSealer {
     const records = JSON.parse(row.records_json) as SymposiumSeatSandboxRecord[];
     if (
       receipt.revocationDigest !== hash(JSON.stringify(records)) ||
-      this.deps.attemptRegistry.pending().some((row) => row.sessionId === receipt.sessionId)
+      [
+        ...this.deps.attemptRegistry.pending(),
+        ...this.deps.attemptRegistry.pendingPreparations(),
+      ].some(
+        (row) =>
+          row.sessionId === receipt.sessionId &&
+          !this.verifiedOtherGeneration(row.artifact, intent),
+      )
     )
       throw new Error('Completed artifact revocation changed');
     for (const record of records) {
@@ -295,7 +325,14 @@ export class PhysicalArtifactSealer {
       if (
         current?.state !== 'stopped' ||
         current.physicalId !== record.physicalId ||
-        this.deps.store.getUnsettledSymposiumSeatExecutions(record.sessionId, record.seatId).length
+        this.deps.store
+          .getUnsettledSymposiumSeatExecutions(record.sessionId, record.seatId)
+          .some((attempt) => {
+            const native = attempt.claimToken
+              ? this.deps.attemptRegistry.get(attempt.claimToken)
+              : undefined;
+            return !this.verifiedOtherGeneration(native?.artifact, intent);
+          })
       )
         throw new Error('Completed artifact terminal cleanup changed');
     }
@@ -305,7 +342,7 @@ export class PhysicalArtifactSealer {
       throw new Error('Completed artifact verifier remains');
     await this.custody();
     signal.throwIfAborted();
-    this.deps.store.withSymposiumArtifactSealSnapshot(intent, () => {});
+    this.deps.store.withSymposiumHistoricalArtifactSealSnapshot(intent, () => {});
     return structuredClone(receipt);
   }
 
@@ -420,7 +457,7 @@ export class PhysicalArtifactSealer {
     const receipt = await this.requireCompleted(input.fenceId, signal);
     if (input.sourceOid && input.sourceOid !== receipt.git.commit)
       throw new Error('Sealed bundle commit changed');
-    const intent = this.deps.store.getSymposiumArtifactSealIntent(receipt.sessionId)!;
+    const intent = this.deps.store.getSymposiumArtifactSealByFence(receipt.fenceId)!;
     const volume = intent.selection.artifact.volumeName;
     const jobId = randomUUID(),
       name = `mitzo-seal-export-${jobId}`;
@@ -680,7 +717,11 @@ export class PhysicalArtifactSealer {
     });
     if (intent.selection.custody.gatewayLaunchDigest !== custodyDigest)
       throw new Error('Artifact seal belongs to another gateway custody');
-    const retention = leaseHost.beginPendingArtifactRetention(store, input.sessionId);
+    const retention = leaseHost.beginPendingArtifactRetention(
+      store,
+      input.sessionId,
+      request.volumeGeneration,
+    );
     // All leases, including old generations/readers, must match a completed physical create.
     const leasedRecords = leases.map((lease) => {
       const matches = allRecords.filter(
@@ -764,8 +805,9 @@ export class PhysicalArtifactSealer {
         await leaseHost.inspectVolume(request.volumeName, 'podman'),
       );
       if (
-        JSON.stringify(store.getSymposiumArtifactSealIntent(input.sessionId)) !==
-          JSON.stringify(intent) ||
+        JSON.stringify(
+          store.getSymposiumArtifactSealIntent(input.sessionId, request.volumeGeneration),
+        ) !== JSON.stringify(intent) ||
         JSON.stringify(leaseHost.pendingArtifactRetention('podman', request.volumeName)) !==
           JSON.stringify(retention) ||
         hash(JSON.stringify(store.getActiveSymposiumConfig(input.sessionId))) !==

@@ -1,3 +1,4 @@
+import type { ArtifactAdmissionBindingV1 } from '@mitzo/protocol';
 import type { ArtifactGenerationRequest } from './symposium-artifact-generations.js';
 import type { SymposiumReviewStore } from './symposium-review-workflows.js';
 /** Host construction only: never accepted from a request or portable configuration.
@@ -6,6 +7,8 @@ import type { SymposiumReviewStore } from './symposium-review-workflows.js';
 export interface SuccessorFixAuthority {
   workflows: SymposiumReviewStore;
   assertCurrent(request: ArtifactGenerationRequest): true;
+  /** Checks the exact selected application reservation and before/after membership authority. */
+  assertAdmissionCurrent?(binding: ArtifactAdmissionBindingV1): true;
 }
 export function assertSuccessorFixAuthority(
   authority: SuccessorFixAuthority | undefined,

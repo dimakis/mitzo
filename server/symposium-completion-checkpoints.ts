@@ -4,6 +4,7 @@ import { z } from 'zod';
 import {
   AccountBindingSchema,
   SymposiumProvenanceV2Schema,
+  SymposiumProvenanceV3Schema,
   type SymposiumRecipientAttemptRecord,
 } from '@mitzo/protocol';
 import type { SymposiumSeatExecution } from './symposium-orchestrator.js';
@@ -27,7 +28,7 @@ const inputSchema = z
     dispatchSeq: z.number().int().nonnegative(),
     idempotencyKey: id,
     dispatchedContent: bytes,
-    provenance: SymposiumProvenanceV2Schema,
+    provenance: z.union([SymposiumProvenanceV2Schema, SymposiumProvenanceV3Schema]),
     accountBinding: AccountBindingSchema,
   })
   .refine(

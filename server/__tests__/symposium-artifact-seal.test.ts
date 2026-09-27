@@ -262,6 +262,14 @@ it('admits only a confirmed exact successor and preserves parent seal history', 
   expect(() => first.assertSymposiumArtifactWorkAllowed('symposium')).toThrow();
   expect(first.getSymposiumArtifactReference('symposium', seat.id, 1)).toBeNull();
   expect(first.getSymposiumArtifactReference('symposium', seat.id, 2)).toEqual(intent.reference);
+  expect(() => first.withSymposiumArtifactSealSnapshot(parent, () => {})).toThrow();
+  expect(() => first.withSymposiumHistoricalArtifactSealSnapshot(parent, () => {})).not.toThrow();
+  const childSandbox = first.reserveSymposiumSeatSandbox({
+    ...sandbox,
+    generation: 2,
+    runtimeId: 'child-runtime',
+  });
+  expect(childSandbox.artifact).toEqual(intent.reference);
   first.beginSymposiumArtifactSeal({
     ...selection,
     expectedConfigRevision: 5,

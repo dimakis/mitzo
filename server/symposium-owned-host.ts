@@ -1,3 +1,8 @@
+import { artifactAdmissionDigest } from './event-store.js';
+import {
+  type ArtifactAdmissionReferenceV1,
+  type ArtifactAdmissionBindingV1,
+} from '@mitzo/protocol';
 import { createOwnedSeatPolicySelector } from './symposium-owned-seat-policy.js';
 import {
   captureSymposiumWorkVertexProvider,
@@ -5,12 +10,18 @@ import {
 } from './symposium-work-vertex-provider.js';
 import { createSymposiumSourceHost } from './symposium-source-service.js';
 import type { PublicationCredentialRegistration } from './symposium-publication-registration.js';
-import { withOwnedArtifactSuccessor } from './symposium-owned-successor.js';
+import {
+  withOwnedArtifactSuccessor,
+  confirmOwnedArtifactSuccessor,
+} from './symposium-owned-successor.js';
 import {
   assertSuccessorFixAuthority,
   type SuccessorFixAuthority,
 } from './symposium-artifact-successor-authority.js';
-import type { ArtifactGenerationRequest } from './symposium-artifact-generations.js';
+import {
+  readArtifactAdmissionReceipt,
+  type ArtifactGenerationRequest,
+} from './symposium-artifact-generations.js';
 import type { SuccessorArtifactExportReceipt } from './symposium-physical-artifact-seal.js';
 import { REVIEWED_SYMPOSIUM_OWNED_RUNTIME } from './symposium-owned-runtime-contract.js';
 import { artifactGitContract, createArtifactGitVolume } from './symposium-artifact-initializer.js';
@@ -466,6 +477,29 @@ export async function createOwnedSymposiumHost(
         return { result, models, recover };
       },
     );
+    const assertArtifactAdmissionCurrent = (
+      sessionId: string,
+      reference: ArtifactAdmissionReferenceV1,
+    ): void => {
+      custody();
+      if (!(options.facts instanceof EventStore))
+        throw new Error('Successor admission requires retained EventStore');
+      const binding = options.facts.assertSymposiumArtifactAdmissionCurrent(sessionId, reference);
+      if (
+        binding.workspaceId !== gateway.workspace ||
+        binding.custodyDigest !== createHash('sha256').update(gateway.stateDirectory).digest('hex')
+      )
+        throw new Error('Successor custody changed');
+      const retained = options.facts.getSymposiumArtifactAdmission(
+        sessionId,
+        reference.transitionId,
+      );
+      const receipt = readArtifactAdmissionReceipt(leaseHost!.snapshotDatabasePath(), binding);
+      if (artifactAdmissionDigest(retained?.receipt) !== artifactAdmissionDigest(receipt))
+        throw new Error('Successor owner receipts differ');
+      if (options.successorAuthority?.assertAdmissionCurrent?.(binding) !== true)
+        throw new Error('Current successor policy authority required');
+    };
     const artifactRequest = (
       sessionId: string,
       seatId: string,
@@ -475,8 +509,23 @@ export async function createOwnedSymposiumHost(
       if (draining && purpose === 'admission')
         throw new Error('Owned Symposium host is shutting down');
       custody();
-      const mapped =
-        purpose === 'cleanup'
+      const reference =
+        options.facts instanceof EventStore
+          ? options.facts.getSymposiumArtifactReference(sessionId, seatId, generation)
+          : null;
+      const successor =
+        reference && options.facts instanceof EventStore
+          ? options.facts.getSymposiumArtifactAdmission(sessionId, reference.transitionId)
+          : null;
+      if (purpose === 'admission' && reference)
+        assertArtifactAdmissionCurrent(sessionId, reference);
+      const mapped = successor?.receipt
+        ? {
+            sessionId,
+            volumeName: successor.binding.childVolumeName,
+            volumeGeneration: successor.binding.childGenerationId,
+          }
+        : purpose === 'cleanup'
           ? (artifacts.get(sessionId) ?? sessionArtifacts!.getRetained(sessionId))
           : artifacts.has(sessionId)
             ? null
@@ -807,6 +856,29 @@ export async function createOwnedSymposiumHost(
           withSuccessor(request, exported, bundle, (copier) =>
             copier.activate(request, generationId, exported, bundle, signal),
           ),
+        );
+      },
+      assertArtifactAdmissionCurrent,
+      async admitSuccessorArtifact(
+        request: ArtifactGenerationRequest,
+        binding: ArtifactAdmissionBindingV1,
+        exported: SuccessorArtifactExportReceipt,
+        bundle: Buffer,
+        signal: AbortSignal,
+      ) {
+        return track(() =>
+          withSuccessor(request, exported, bundle, async (_copier, ledger) => {
+            signal.throwIfAborted();
+            if (!(options.facts instanceof EventStore))
+              throw new Error('Successor admission requires retained EventStore');
+            return confirmOwnedArtifactSuccessor(options.facts, ledger, binding, (selected) => {
+              custody();
+              signal.throwIfAborted();
+              if (options.successorAuthority?.assertAdmissionCurrent?.(selected) !== true)
+                throw new Error('Current successor policy authority required');
+              return true;
+            });
+          }),
         );
       },
       artifactLeaseHost: leaseHost,

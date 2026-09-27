@@ -1,3 +1,4 @@
+import type { ArtifactAdmissionReferenceV1 } from '@mitzo/protocol';
 import type {
   SeatConfig,
   SymposiumAdmissionDecision,
@@ -41,7 +42,11 @@ export interface SymposiumSeatExecutionResult {
 
 export interface SymposiumSeatExecutor {
   /** Persist exact prelaunch identity synchronously before the execution claim is committed. */
-  prepare?(input: { sessionId: string; claimToken: string }): void;
+  prepare?(input: {
+    sessionId: string;
+    claimToken: string;
+    artifact?: ArtifactAdmissionReferenceV1;
+  }): void;
   execute(input: SymposiumSeatExecution): Promise<SymposiumSeatExecutionResult>;
   /** Target the exact supplied attempt identity, never a newer retry on the same thread.
    * Resolve only after that attempt can no longer execute tools or native writes. */
@@ -812,6 +817,13 @@ export class SymposiumOrchestrator {
           ? this.store.getLatestSymposiumMembership(delivery.sessionId, seat.id)?.generation
           : undefined,
         this.now(),
+        membershipGeneration === undefined
+          ? null
+          : this.store.getSymposiumArtifactReference(
+              delivery.sessionId,
+              seat.id,
+              membershipGeneration,
+            ),
       );
       const claimToken = this.claimIdFactory({
         sessionId: delivery.sessionId,
@@ -819,7 +831,13 @@ export class SymposiumOrchestrator {
         seatId: seat.id,
       });
       try {
-        executor.prepare?.({ sessionId: delivery.sessionId, claimToken });
+        executor.prepare?.({
+          sessionId: delivery.sessionId,
+          claimToken,
+          ...('version' in provenance && provenance.version === 3
+            ? { artifact: provenance.artifact }
+            : {}),
+        });
       } catch (error) {
         this.store.failSymposiumRecipient({
           deliveryId,
@@ -952,6 +970,7 @@ function provenanceFor(
   configRevision: number,
   membershipGeneration?: number,
   capturedAt?: number,
+  artifact?: ArtifactAdmissionReferenceV1 | null,
 ): SymposiumProvenance {
   const active = requireActiveSeat(seat);
   const legacy = {
@@ -969,7 +988,7 @@ function provenanceFor(
   if (capturedAt === undefined) throw new Error('Symposium provenance capture time is required');
   return {
     ...legacy,
-    version: 2,
+    ...(artifact ? { version: 3 as const, artifact } : { version: 2 as const }),
     seatLabel: seat.name,
     seatRole: seat.role,
     capturedAt,
