@@ -1,3 +1,5 @@
+import { GoogleAuth } from 'google-auth-library';
+import { chmodSync } from 'node:fs';
 import { afterEach, expect, it, vi } from 'vitest';
 import { mkdtempSync, writeFileSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -126,4 +128,67 @@ it('rechecks custody after authentication before provider dispatch', async () =>
   });
   await expect(f.invoke()).rejects.toThrow('Vertex provisioning unavailable');
   expect(f.run).not.toHaveBeenCalled();
+});
+
+it('rejects quota-project drift, public file permissions and oversized snapshots before auth', async () => {
+  const f = fixture();
+  writeFileSync(
+    f.credentialRef,
+    JSON.stringify({ ...f.material, quota_project_id: 'wrong-project' }),
+  );
+  await expect(f.invoke()).rejects.toThrow('Vertex provisioning unavailable');
+  expect(f.authenticate).not.toHaveBeenCalled();
+  writeFileSync(f.credentialRef, 'x'.repeat(65537));
+  await expect(f.invoke()).rejects.toThrow('Vertex provisioning unavailable');
+  expect(f.authenticate).not.toHaveBeenCalled();
+  chmodSync(f.credentialRef, 0o644);
+  writeFileSync(f.credentialRef, JSON.stringify(f.material));
+  await expect(f.invoke()).rejects.toThrow('Vertex provisioning unavailable');
+  expect(f.authenticate).not.toHaveBeenCalled();
+});
+
+it('refuses mismatched provider identity and uncertain refresh without returning a binding', async () => {
+  const f = fixture();
+  f.run.mockImplementation((_file, args) => ({
+    status: 0,
+    stdout: args.includes('list') ? JSON.stringify({ providers: [], next_page_token: '' }) : '',
+  }));
+  await expect(f.invoke()).rejects.toThrow('Vertex provisioning unavailable');
+  expect(f.run.mock.calls.some((c) => c[1].includes('configure'))).toBe(false);
+  const g = fixture();
+  const original = g.run.getMockImplementation()!;
+  g.run.mockImplementation((file, args, options) =>
+    args.includes('configure')
+      ? { status: 1, stdout: 'synthetic-refresh' }
+      : original(file, args, options),
+  );
+  await expect(g.invoke()).rejects.toThrow(/^Vertex provisioning unavailable$/);
+});
+
+it('default authentication verifies the same snapshot and requires a verified email', async () => {
+  const f = fixture();
+  const getTokenInfo = vi.fn(async () => ({
+    email: f.profile.expectedPrincipal,
+    email_verified: true,
+  }));
+  const fromJSON = vi
+    .spyOn(GoogleAuth.prototype, 'fromJSON')
+    .mockReturnValue({
+      transporter: { defaults: {} },
+      getAccessToken: async () => ({ token: 'synthetic-access' }),
+      getTokenInfo,
+    } as never);
+  try {
+    await createSymposiumWorkVertexProvider(f.gateway as never, f.profile, { run: f.run as never });
+    expect(fromJSON).toHaveBeenCalledWith(f.material);
+    expect(getTokenInfo).toHaveBeenCalledWith('synthetic-access');
+    getTokenInfo.mockResolvedValue({ email: f.profile.expectedPrincipal, email_verified: false });
+    f.run.mockClear();
+    await expect(
+      createSymposiumWorkVertexProvider(f.gateway as never, f.profile, { run: f.run as never }),
+    ).rejects.toThrow('Vertex provisioning unavailable');
+    expect(f.run).not.toHaveBeenCalled();
+  } finally {
+    fromJSON.mockRestore();
+  }
 });
