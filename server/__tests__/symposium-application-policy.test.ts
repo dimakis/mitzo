@@ -369,13 +369,24 @@ it('stops unchanged artifact/finding repetition without fabricating resolution',
   let state = terminalReview(a, 'one', [
     { criterion: 'works', summary: 'missing branch', location: 'file:1', evidenceRefs: ['diff'] },
   ]);
-  a.authorizeFix({
+  expect(() =>
+    a.authorizeFix({
+      workflowId: 'w',
+      artifactRevision: 'a',
+      artifactHash: hash,
+      actor: 'user',
+      authorityGrantId: 'stale',
+      authorityRevision: 1,
+      findingFingerprints: [state.findings[0].fingerprint],
+      reason: 'fix',
+    }),
+  ).toThrow(/interactive fix intent/i);
+  a.authorizeApplicationFixIntent({
     workflowId: 'w',
     artifactRevision: 'a',
     artifactHash: hash,
     actor: 'user',
-    authorityGrantId: 'g',
-    authorityRevision: 1,
+    authorizationId: 'fix-action',
     findingFingerprints: [state.findings[0].fingerprint],
     reason: 'fix',
   });
@@ -501,13 +512,12 @@ it('blocks a third fix cycle while allowing the final delta turn', () => {
   for (let cycle = 1; cycle <= 2; cycle++) {
     const revision = state.artifactRevision,
       artifactHash = state.artifactHash;
-    a.authorizeFix({
+    a.authorizeApplicationFixIntent({
       workflowId: 'w',
       artifactRevision: revision,
       artifactHash,
       actor: 'user',
-      authorityGrantId: 'g',
-      authorityRevision: 1,
+      authorizationId: 'fix-action-' + cycle,
       findingFingerprints: [state.findings[0].fingerprint],
       reason: 'fix',
     });

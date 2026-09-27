@@ -1499,6 +1499,8 @@ export class SymposiumReviewStore {
     return this.db
       .transaction(() => {
         const state = this.read(parsed.workflowId);
+        if (isApplicationPolicy(state.limits))
+          throw new Error('Application fixes require an interactive fix intent');
         this.requireArtifact(state, parsed.artifactRevision, parsed.artifactHash);
         if (state.status !== 'awaiting_fix') throw new Error('Fix authority is not due');
         if (parsed.actor !== state.owner) throw new Error('Owner authority is required');
@@ -1631,6 +1633,7 @@ export class SymposiumReviewStore {
       state.authorizations
         .filter(
           (auth) =>
+            !isApplicationPolicy(state.limits) &&
             auth.artifactRevision === state.artifactRevision &&
             auth.artifactHash === state.artifactHash &&
             auth.actor === state.owner,
