@@ -63,7 +63,7 @@ function fixture() {
       stateParent: root,
       gateway: 'owned',
       workspace: 'workspace',
-      workloadImage: `sha256:${'a'.repeat(64)}`,
+      workloadImage: 'sha256:a5a5302f2443c02f24506248883b9d22f070f58b288f898ac69a547b653e2161',
     },
     attestationPath: attestation,
     runtime: {
@@ -153,19 +153,11 @@ describe('explicit owned Symposium host composition', () => {
       }),
     ).rejects.toThrow('stopped');
   });
-  it('derives artifact access from current host seat authority and generation', async () => {
+  it('keeps configured artifact mappings closed for new admission without receipts', async () => {
     const f = fixture();
     const host = await createOwnedSymposiumHost(f.options, f.launch);
-    expect(host.artifactRequest('session', 'seat', 2)).toMatchObject({
-      access: 'writer',
-      driver: 'podman',
-      workspaceId: 'workspace',
-      volumeName: 'artifacts',
-    });
+    expect(() => host.artifactRequest('session', 'seat', 2)).toThrow('mapping');
     f.seat.role = 'reviewer';
-    expect(host.artifactRequest('session', 'seat', 2).access).toBe('reviewer');
-    expect(() => host.artifactRequest('unknown', 'seat', 2)).toThrow('mapping');
-    f.membership.generation = 3;
     expect(() => host.artifactRequest('session', 'seat', 2)).toThrow('mapping');
     host.stop();
   });
@@ -175,7 +167,15 @@ describe('explicit owned Symposium host composition', () => {
       const f = fixture();
       const host = await createOwnedSymposiumHost(f.options, f.launch, undefined, async () => '[]');
       const sandboxName = sandboxNameForConversation('old-runtime', 13);
-      const original = host.artifactRequest('session', 'seat', 2);
+      const original = {
+        sessionId: 'session',
+        seatId: 'seat',
+        workspaceId: 'workspace',
+        volumeName: 'artifacts',
+        volumeGeneration: 'generation',
+        driver: 'podman' as const,
+        access: 'writer' as const,
+      };
       const lease = await host.artifactLeaseHost.reserve(original);
       host.artifactLeaseHost.markCreationStarted(lease.token, lease.revision, sandboxName);
       host.artifactLeaseHost.bindSandbox(lease.token, lease.revision, sandboxName, 'physical-old');
@@ -370,7 +370,16 @@ it('provisions a new draft through owned argv and makes its checked mapping avai
           labels[key] = parts.join('=');
         }
       });
-      expect(args.slice(0, 4)).toEqual(['volume', 'create', '--driver', 'local']);
+      expect(args.slice(0, 8)).toEqual([
+        'volume',
+        'create',
+        '--driver',
+        'local',
+        '--uid',
+        '998',
+        '--gid',
+        '998',
+      ]);
       volume = { Name: args.at(-1)!, Driver: 'local', Options: {}, Labels: labels };
       return volume.Name + '\n';
     }
@@ -615,6 +624,15 @@ it('preserves safe diagnostic fields when the host forces creation reconciliatio
   } finally {
     host.stop();
   }
+});
+
+it('rejects an unreviewed workload owner before launching the gateway', async () => {
+  const f = fixture();
+  f.options.gateway.workloadImage = `sha256:${'f'.repeat(64)}`;
+  await expect(createOwnedSymposiumHost(f.options, f.launch)).rejects.toThrow(
+    'identity is not reviewed',
+  );
+  expect(f.launch).not.toHaveBeenCalled();
 });
 
 it('retains the lease ledger across different launch directories and blocks legacy launch databases', async () => {

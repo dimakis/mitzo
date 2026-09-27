@@ -44,6 +44,7 @@ type Row = {
   volume_name: string;
   generation: string;
   revision: number;
+  initialization_contract: string | null;
   state: 'reserved' | 'creating' | 'ready' | 'uncertain' | 'quarantined';
 };
 /** A host-only lifecycle ledger. No deletion, lease release or caller-selected volume.
@@ -58,11 +59,13 @@ export class SymposiumSessionArtifacts {
     private readonly custody: string,
     private readonly verifyCustody: () => void,
     private readonly host: {
+      initializationContract: string;
       inspect(name: string): Promise<ArtifactVolumeEvidence | null>;
       create(name: string, labels: Record<string, string>): Promise<void>;
     },
   ) {
-    if (!id.test(workspace) || !custody) throw new Error('Invalid session artifact host');
+    if (!id.test(workspace) || !custody || !host.initializationContract)
+      throw new Error('Invalid session artifact host');
     this.db = new Database(path);
     this.db.pragma('journal_mode = WAL');
     this.db.pragma('busy_timeout = 5000');
@@ -71,6 +74,10 @@ export class SymposiumSessionArtifacts {
    volume_name TEXT NOT NULL UNIQUE, generation TEXT NOT NULL, revision INTEGER NOT NULL DEFAULT 0, state TEXT NOT NULL
    CHECK(state IN ('reserved','creating','ready','uncertain','quarantined')))`);
     const columns = this.db.pragma('table_info(symposium_session_artifacts)') as { name: string }[];
+    if (!columns.some((column) => column.name === 'initialization_contract'))
+      this.db.exec(
+        'ALTER TABLE symposium_session_artifacts ADD COLUMN initialization_contract TEXT',
+      );
     if (!columns.some((column) => column.name === 'revision'))
       this.db.exec(
         'ALTER TABLE symposium_session_artifacts ADD COLUMN revision INTEGER NOT NULL DEFAULT 0',
@@ -107,7 +114,9 @@ export class SymposiumSessionArtifacts {
     const row = this.read(sessionId);
     if (!row) return null;
     this.assertOwner(row);
-    return row.state === 'ready' ? this.mapping(row) : null;
+    return row.state === 'ready' && row.initialization_contract === this.host.initializationContract
+      ? this.mapping(row)
+      : null;
   }
   ensure(sessionId: string): Promise<SessionArtifactPreparation> {
     if (!id.test(sessionId)) return Promise.reject(new Error('Invalid Symposium session identity'));
@@ -148,6 +157,9 @@ export class SymposiumSessionArtifacts {
     let creationStarted = false;
     const ready = () => {
       this.assertOwner(row);
+      const initialized = this.read(sessionId);
+      if (initialized?.initialization_contract !== this.host.initializationContract)
+        return { state: 'recovery_required' } as SessionArtifactPreparation;
       const updated = this.db
         .prepare(
           "UPDATE symposium_session_artifacts SET state='ready', revision=revision+1 WHERE session_id=? AND revision=? AND state IN ('creating','uncertain','ready')",
@@ -207,6 +219,14 @@ export class SymposiumSessionArtifacts {
       creationStarted = true;
       this.assertOwner(row);
       await this.host.create(mapping.volumeName, artifactVolumeLabels(this.workspace, mapping));
+      // Record successful terminal creation before a later custody check can fail.
+      // A timeout/unknown exit never reaches this durable initialization receipt.
+      const initialized = this.db
+        .prepare(
+          "UPDATE symposium_session_artifacts SET initialization_contract=? WHERE session_id=? AND revision=? AND state='creating' AND initialization_contract IS NULL",
+        )
+        .run(this.host.initializationContract, sessionId, revision);
+      if (initialized.changes !== 1) throw new Error('Artifact initialization receipt changed');
       this.assertOwner(row);
       assertSessionArtifactVolume(
         this.workspace,
