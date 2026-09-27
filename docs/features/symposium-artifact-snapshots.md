@@ -61,8 +61,21 @@ committed-tree equivalence proof under the artifact lease plus the existing
 approval/preflight/idempotency boundary. Repository import/initialization and
 committing are separate explicit actions; this observer never performs them.
 
-Validation uses temporary local directories, a real SQLite lease store, and mocked
-Podman/custody operations. No Podman container, gateway, model call, OAuth flow, or
-production activation was run for this slice. The pinned image's Python scanner
-execution and resource limits still require a separately authorized offline
-physical smoke before application integration.
+Unit validation uses temporary local directories, a real SQLite lease store, and
+mocked Podman/custody operations. A separately authorized zero-model physical
+Podman probe used this exact pinned image and uniquely named disposable resources:
+the default image user (UID/GID 998) could write a marker in the new named volume
+and read it with mode 0600. With the volume mounted read-only, the same user could
+read the marker while a write failed with EROFS (30). UID 0 with all capabilities
+dropped could not read the same file (EACCES 13). The observer therefore preserves
+the pinned image's default user and never overrides it with root or broadens file
+permissions. The verifier factory cannot select an alternative image; the image ID
+is code-owned. Network isolation, read-only mounts/root, and dropped capabilities
+remain unchanged.
+
+All test containers and the test volume were removed and exact-name absence
+verified. No gateway, account credentials, OAuth, model call, or production
+activation was involved. This is direct Podman mount/ownership evidence, not an
+OpenShell lease, revocation, scanner end-to-end, or execution-fencing proof.
+Application integration still requires those separate checks. Files unreadable to
+the builder's image user fail closed; no automatic chmod/chown is performed.

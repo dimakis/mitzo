@@ -190,7 +190,6 @@ export class ArtifactSnapshotObserver {
         '--pids-limit=32',
         '--memory=256m',
         '--cpus=1',
-        '--user=0:0',
         '--mount',
         `type=volume,src=${selection.request.volumeName},dst=/sandbox/symposium-artifacts,readonly`,
         '--entrypoint=/usr/bin/python3',

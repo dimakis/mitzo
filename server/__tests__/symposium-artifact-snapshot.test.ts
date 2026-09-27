@@ -86,6 +86,12 @@ it('records an empty observation only after exact verifier cleanup and preserves
   const create = f.command.mock.calls.find(([args]) => args[0] === 'create')![0];
   expect(create).toContain('--network=none');
   expect(create).toContain('--read-only');
+  expect(create.some((arg) => arg.startsWith('--user'))).toBe(false);
+  expect(create).toContain('--cap-drop=ALL');
+  expect(create).toContain('--pull=never');
+  expect(create).toContain(
+    'sha256:a5a5302f2443c02f24506248883b9d22f070f58b288f898ac69a547b653e2161',
+  );
   expect(create).toContain('type=volume,src=v,dst=/sandbox/symposium-artifacts,readonly');
   expect(create).not.toContain('git');
   const name = create[create.indexOf('--name') + 1];
