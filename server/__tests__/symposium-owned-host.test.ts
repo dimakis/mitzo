@@ -817,3 +817,22 @@ it('passes bounded successor stdin through the owned transport with the attached
     await host.stop();
   }
 });
+
+it('keeps the production successor capability unavailable without a trusted fix authority', async () => {
+  const f = fixture();
+  const command = vi.fn(async () => 'unexpected');
+  const host = await createOwnedSymposiumHost(f.options, f.launch, undefined, command);
+  try {
+    await expect(
+      host.copySuccessorArtifact(
+        {} as never,
+        {} as never,
+        Buffer.alloc(0),
+        new AbortController().signal,
+      ),
+    ).rejects.toThrow(/fix authority unavailable/);
+    expect(command).not.toHaveBeenCalled();
+  } finally {
+    await host.stop();
+  }
+});

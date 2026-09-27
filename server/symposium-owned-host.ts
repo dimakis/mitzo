@@ -1,3 +1,10 @@
+import { withOwnedArtifactSuccessor } from './symposium-owned-successor.js';
+import {
+  assertSuccessorFixAuthority,
+  type SuccessorFixAuthority,
+} from './symposium-artifact-successor-authority.js';
+import type { ArtifactGenerationRequest } from './symposium-artifact-generations.js';
+import type { SuccessorArtifactExportReceipt } from './symposium-physical-artifact-seal.js';
 import { REVIEWED_SYMPOSIUM_OWNED_RUNTIME } from './symposium-owned-runtime-contract.js';
 import { artifactGitContract, createArtifactGitVolume } from './symposium-artifact-initializer.js';
 import { symposiumArtifactOwner } from './symposium-artifact-owner.js';
@@ -76,6 +83,8 @@ export interface OwnedSymposiumHostOptions {
   personal: Omit<SymposiumSubscriptionHostOptions, 'gateway' | 'seatProof'>;
   facts: SymposiumDispatchFacts & Pick<EventStore, 'getSymposiumSeatSandbox' | 'getSession'>;
   hostGrants: SymposiumHostGrantVerifier;
+  /** Trusted construction only; unavailable until a real current review/fix authority exists. */
+  successorAuthority?: SuccessorFixAuthority;
   artifacts: readonly { sessionId: string; volumeName: string; volumeGeneration: string }[];
 }
 
@@ -573,6 +582,39 @@ export async function createOwnedSymposiumHost(
         },
       },
     );
+    const getArtifactSealer = () => {
+      if (draining || stopped) throw new Error('Owned Symposium host is shutting down');
+      if (!(options.facts instanceof EventStore))
+        throw new Error('Artifact sealing requires the retained event store');
+      return (artifactSealer ??= new PhysicalArtifactSealer({
+        store: options.facts,
+        leaseHost: leaseHost!,
+        gateway,
+        attemptRegistry: native!.registry,
+        runtimeConfig,
+      }));
+    };
+    const withSuccessor = <T>(
+      request: ArtifactGenerationRequest,
+      exported: SuccessorArtifactExportReceipt,
+      bundle: Buffer,
+      run: Parameters<typeof withOwnedArtifactSuccessor<T>>[4],
+    ) => {
+      assertSuccessorFixAuthority(options.successorAuthority, request);
+      return withOwnedArtifactSuccessor(
+        {
+          authority: options.successorAuthority,
+          gateway,
+          leaseHost: leaseHost!,
+          sessionArtifacts: sessionArtifacts!,
+          sealer: getArtifactSealer(),
+        },
+        request,
+        exported,
+        bundle,
+        run,
+      );
+    };
     return {
       gateway,
       runtimeConfig,
@@ -687,6 +729,37 @@ export async function createOwnedSymposiumHost(
           runtimeConfig,
         });
         return track(() => artifactSealer!.seal(input, runtime, signal));
+      },
+      async exportSuccessorArtifactBundle(
+        input: Parameters<PhysicalArtifactSealer['exportSuccessorArtifactBundle']>[0],
+        signal: AbortSignal,
+      ) {
+        return track(() => getArtifactSealer().exportSuccessorArtifactBundle(input, signal));
+      },
+      async copySuccessorArtifact(
+        request: ArtifactGenerationRequest,
+        exported: SuccessorArtifactExportReceipt,
+        bundle: Buffer,
+        signal: AbortSignal,
+      ) {
+        return track(() =>
+          withSuccessor(request, exported, bundle, (copier) =>
+            copier.copy(request, exported, bundle, signal),
+          ),
+        );
+      },
+      async activateSuccessorArtifact(
+        request: ArtifactGenerationRequest,
+        generationId: string,
+        exported: SuccessorArtifactExportReceipt,
+        bundle: Buffer,
+        signal: AbortSignal,
+      ) {
+        return track(() =>
+          withSuccessor(request, exported, bundle, (copier) =>
+            copier.activate(request, generationId, exported, bundle, signal),
+          ),
+        );
       },
       artifactLeaseHost: leaseHost,
       artifactRequest,
