@@ -206,7 +206,7 @@ export async function createCodexNativeSeat(
       acceptedTurnId = providerTurnId;
       callbacks?.accepted(providerThreadId, providerTurnId);
     },
-    onProviderTerminalConflict: (commandId, threadId, turnId, status) => {
+    onProviderTerminalConflict: (commandId, threadId, turnId, status, previousStatus) => {
       if (
         commandId !== execution.claimToken ||
         threadId !== acceptedThreadId ||
@@ -219,6 +219,7 @@ export async function createCodexNativeSeat(
           providerThreadId: threadId,
           providerTurnId: turnId,
           status,
+          previousStatus,
         });
     },
     onProviderTerminal: (commandId, turnId, status) => {

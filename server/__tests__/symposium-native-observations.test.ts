@@ -168,10 +168,22 @@ it('wires exact native callbacks into the reserved registry before completion an
           expect(registry.observations.get('claim')?.status).toBe('accepted');
           options.onProviderTerminal?.(command.id, 'turn', 'completed');
           options.onProviderComplete?.(command.id, 'completed');
-          options.onProviderTerminalConflict?.(command.id, 'other-thread', 'turn', 'failed');
-          options.onProviderTerminalConflict?.(command.id, 'thread', 'other-turn', 'failed');
+          options.onProviderTerminalConflict?.(
+            command.id,
+            'other-thread',
+            'turn',
+            'failed',
+            'completed',
+          );
+          options.onProviderTerminalConflict?.(
+            command.id,
+            'thread',
+            'other-turn',
+            'failed',
+            'completed',
+          );
           expect(registry.observations.get('claim')?.terminalConflict).toBe(false);
-          options.onProviderTerminalConflict?.(command.id, 'thread', 'turn', 'failed');
+          options.onProviderTerminalConflict?.(command.id, 'thread', 'turn', 'failed', 'completed');
           expect(registry.observations.get('claim')).toMatchObject({
             status: 'completed',
             terminalConflict: true,
@@ -209,5 +221,20 @@ it('persists conflicting terminal evidence without replacing the original observ
   registry.close();
   const reopened = new SymposiumAttemptRegistry(path);
   expect(reopened.observations.get('claim')).toEqual({ ...original, terminalConflict: true });
+  reopened.close();
+});
+
+it('durably flags conflicting accepted-turn evidence before a completion hook finishes', () => {
+  const { path, registry } = fixture();
+  registry.observations.accept(identity);
+  registry.observations.conflict({ ...terminal, status: 'failed', previousStatus: 'completed' });
+  registry.close();
+  const reopened = new SymposiumAttemptRegistry(path);
+  expect(reopened.observations.get('claim')).toMatchObject({
+    status: 'accepted',
+    terminalAt: null,
+    terminalConflict: true,
+    observedUsage: null,
+  });
   reopened.close();
 });

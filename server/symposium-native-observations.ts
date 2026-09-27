@@ -108,22 +108,31 @@ export class SymposiumNativeObservations {
         .run(terminal.status, Date.now(), terminal.claimToken);
     })();
   }
-  conflict(input: z.infer<typeof terminalSchema>): void {
-    const terminal = terminalSchema.parse(input);
+  conflict(
+    input: z.infer<typeof terminalSchema> & {
+      previousStatus?: 'completed' | 'interrupted' | 'failed';
+    },
+  ): void {
+    const { previousStatus, ...value } = input;
+    const terminal = terminalSchema.parse(value);
     const previous = this.get(terminal.claimToken);
     if (
       !previous ||
       previous.identity.providerThreadId !== terminal.providerThreadId ||
       previous.identity.providerTurnId !== terminal.providerTurnId ||
-      previous.status === 'accepted' ||
-      previous.status === terminal.status
+      (previous.status === 'accepted' && !previousStatus) ||
+      (previousStatus ?? previous.status) === terminal.status
     )
       throw new Error('Native terminal conflict does not match accepted terminal identity');
     this.db
       .prepare(
         'INSERT OR IGNORE INTO symposium_native_terminal_conflicts (claim_token, observed_status, observed_at) VALUES (?, ?, ?)',
       )
-      .run(terminal.claimToken, terminal.status, Date.now());
+      .run(
+        terminal.claimToken,
+        JSON.stringify([previousStatus ?? previous.status, terminal.status]),
+        Date.now(),
+      );
   }
   get(claimToken: string): NativeTurnObservation | undefined {
     const row = this.db

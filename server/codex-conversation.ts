@@ -86,6 +86,7 @@ export interface CodexConversationOptions {
     threadId: string,
     turnId: string,
     status: 'completed' | 'interrupted' | 'failed',
+    previousStatus: 'completed' | 'interrupted' | 'failed',
   ) => void;
   loadConversationHistory?: () => ConversationHistoryEntry[];
   onClosed?: () => void;
@@ -173,7 +174,8 @@ export class CodexConversation {
   private active?: {
     command: CodexCommand;
     turnId?: string;
-    completion?: ObjectValue;
+    accepted: boolean;
+    completions: Map<string, { first: ObjectValue; conflict?: ObjectValue }>;
     completionHook?: 'pending' | 'done';
     interruptRequested?: boolean;
     abort: AbortController;
@@ -905,7 +907,8 @@ export class CodexConversation {
       command,
       abort: new AbortController(),
       turnId: undefined as string | undefined,
-      completion: undefined as ObjectValue | undefined,
+      accepted: false,
+      completions: new Map<string, { first: ObjectValue; conflict?: ObjectValue }>(),
       interruptRequested: false,
       span: undefined as Span | undefined,
     };
@@ -962,11 +965,11 @@ export class CodexConversation {
           throw new Error('Codex turn identity changed');
         active.turnId = result.turn.id;
         this.opts.onProviderAccepted?.(command.id, this.threadId!, active.turnId);
-        if (active.completion) {
-          const completedTurn = z.object({ id: z.string() }).safeParse(active.completion.turn);
-          if (!completedTurn.success || completedTurn.data.id !== active.turnId)
-            throw new Error('Codex buffered completion identity mismatch');
-          this.notification('turn/completed', active.completion);
+        active.accepted = true;
+        const completion = active.completions.get(active.turnId);
+        if (completion) {
+          this.notification('turn/completed', completion.first);
+          if (completion.conflict) this.notification('turn/completed', completion.conflict);
           return;
         }
         if (active.interruptRequested || active.abort.signal.aborted) {
@@ -1035,6 +1038,7 @@ export class CodexConversation {
               this.threadId!,
               turn.data.id,
               turn.data.status as 'completed' | 'interrupted' | 'failed',
+              previous.status as 'completed' | 'interrupted' | 'failed',
             );
           } finally {
             this.opts.onError?.(new Error('Conflicting provider terminal status'));
@@ -1044,12 +1048,43 @@ export class CodexConversation {
         return;
       }
       if (!this.active) return;
-      if (!this.active.turnId) {
-        // Wait for the start response to confirm identity; do not accept a stale turn.
-        this.active.completion = params;
+      if (this.active.accepted && this.active.turnId !== turn.data.id) return;
+      const buffered = this.active.completions.get(turn.data.id);
+      const firstStatus =
+        buffered && z.object({ status: z.string().optional() }).parse(buffered.first.turn).status;
+      const known = (value: string | undefined) =>
+        ['completed', 'interrupted', 'failed'].includes(value ?? '');
+      if (!buffered || (!known(firstStatus) && known(turn.data.status))) {
+        if (!buffered && this.active.completions.size >= 32) {
+          this.opts.onError?.(new Error('Too many unconfirmed provider terminal identities'));
+          this.close();
+          return;
+        }
+        this.active.completions.set(turn.data.id, { first: params });
+      } else if (
+        known(firstStatus) &&
+        known(turn.data.status) &&
+        firstStatus !== turn.data.status
+      ) {
+        buffered.conflict ??= params;
+        if (this.active.accepted) {
+          try {
+            this.opts.onProviderTerminalConflict?.(
+              this.active.command.id,
+              this.threadId!,
+              turn.data.id,
+              turn.data.status as 'completed' | 'interrupted' | 'failed',
+              firstStatus as 'completed' | 'interrupted' | 'failed',
+            );
+          } finally {
+            this.opts.onError?.(new Error('Conflicting provider terminal status'));
+            this.close();
+          }
+        }
         return;
       }
-      if (this.active.turnId !== turn.data.id) return;
+      // Even turn/started is not an acceptance receipt: wait for turn/start's exact response.
+      if (!this.active.accepted) return;
       if (
         this.opts.beforeComplete &&
         turn.data.status === 'completed' &&
