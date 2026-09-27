@@ -1191,7 +1191,7 @@ export function createSymposiumSessionRuntime(deps: SymposiumSessionRuntimeDeps)
   }) => {
     if (sessionId !== deps.sessionId) throw new Error('Symposium stop belongs to another session');
     const attempts = deps.store.getUnsettledSymposiumSeatExecutions(sessionId, seatId);
-    await Promise.all(
+    const cancellations = await Promise.allSettled(
       attempts.map(async (attempt) => {
         if (!attempt.claimToken) throw new Error('Legacy native attempt cleanup is unknown');
         await executors[seatId].cancel!({
@@ -1204,7 +1204,11 @@ export function createSymposiumSessionRuntime(deps: SymposiumSessionRuntimeDeps)
         deps.store.confirmSymposiumAttemptCleanup(attempt.attemptId, attempt.idempotencyKey);
       }),
     );
-    await owner.stop(sessionId, seatId, generation, new AbortController().signal);
+    const physical = await Promise.allSettled([
+      owner.stop(sessionId, seatId, generation, new AbortController().signal),
+    ]);
+    if ([...cancellations, ...physical].some((result) => result.status === 'rejected'))
+      throw new Error('Symposium seat cleanup incomplete');
   };
   const orchestrator = new SymposiumOrchestrator({
     store: deps.store,
@@ -1348,8 +1352,6 @@ export function createSymposiumSessionRuntime(deps: SymposiumSessionRuntimeDeps)
       const native = await Promise.allSettled(
         [...cache.values()].map((executor) => executor.drain(signal)),
       );
-      if (native.some((result) => result.status === 'rejected'))
-        throw new Error('Native shutdown cleanup incomplete');
       const seats = new Map<string, number>();
       for (const member of deps.store.getSymposiumMembershipHistory(deps.sessionId))
         seats.set(member.seatId, Math.max(seats.get(member.seatId) ?? 0, member.generation));
@@ -1360,7 +1362,7 @@ export function createSymposiumSessionRuntime(deps: SymposiumSessionRuntimeDeps)
         }),
       );
       signal.throwIfAborted();
-      if (results.some((result) => result.status === 'rejected'))
+      if ([...native, ...results].some((result) => result.status === 'rejected'))
         throw new Error('Symposium seat cleanup incomplete');
     },
   };

@@ -85,10 +85,10 @@ export class SymposiumOpenShellSeatExecutor implements SymposiumSeatExecutor {
     const results = await Promise.allSettled(
       [...this.attempts.keys()].map((claimToken) => this.cancel({ claimToken })),
     );
-    if (results.some((result) => result.status === 'rejected'))
-      throw new Error('Native shutdown cleanup incomplete');
     await Promise.allSettled([...this.runs]);
     signal.throwIfAborted();
+    if (results.some((result) => result.status === 'rejected'))
+      throw new Error('Native shutdown cleanup incomplete');
   }
 
   prepare(input: { sessionId: string; claimToken: string }) {

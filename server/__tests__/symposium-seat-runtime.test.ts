@@ -514,6 +514,45 @@ describe('last native Symposium dispatch fence', () => {
     host.registry.close();
   });
 
+  it('shutdown waits for in-flight setup even when cancellation fails', async () => {
+    const work = fixture();
+    const host = initializeSymposiumNativeHost(registryDirectory());
+    let finish!: (value: { sandboxName: string; workdir: string }) => void;
+    const openNative = vi.fn();
+    const executor = new SymposiumOpenShellSeatExecutor({
+      facts: work.facts,
+      profiles,
+      hostGrants,
+      attemptRegistry: host.registry,
+      owner: {
+        ensure: () =>
+          new Promise((resolve) => {
+            finish = resolve;
+          }),
+        readOnlyEnforced: { openaiApi: true, claudeVertex: false },
+      },
+      recordAccepted: () => true,
+      openNative,
+    });
+    vi.spyOn(executor, 'cancel').mockRejectedValue(new Error('cancel failed'));
+    const running = executor.execute(work.input);
+    const rejected = expect(running).rejects.toThrow('shutting down');
+    let drained = false;
+    const drain = executor.drain(new AbortController().signal);
+    void drain.catch(() => {
+      drained = true;
+    });
+    const drainRejected = expect(drain).rejects.toThrow('cleanup incomplete');
+    await expect(executor.execute(work.input)).rejects.toThrow('shutting down');
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(drained).toBe(false);
+    finish({ sandboxName: 'shared', workdir: '/work' });
+    await rejected;
+    await drainRejected;
+    expect(openNative).not.toHaveBeenCalled();
+    host.registry.close();
+  });
+
   it('prevents setup from launching after a concurrent prelaunch cancellation', async () => {
     const work = fixture();
     const host = initializeSymposiumNativeHost(registryDirectory());
@@ -1894,6 +1933,77 @@ describe('last native Symposium dispatch fence', () => {
     expect(recordEvent).toHaveBeenCalledWith(work.input, { type: 'symposium_attempt_released' });
     expect(runtime.owner).toBeDefined();
   });
+  it.each([false, true])(
+    'drains all physical seats after cancellation failure (native failure %s)',
+    async (nativeFailure) => {
+      const work = fixture();
+      const confirm = vi.fn();
+      const runtime = createSymposiumSessionRuntime({
+        sessionId: 'symposium',
+        store: {
+          ...work.facts,
+          ...seatSandboxRegistry(),
+          getSymposiumMembershipHistory: () => [
+            { seatId: 'reviewer', generation: 2 },
+            { seatId: 'other', generation: 1 },
+          ],
+          getUnsettledSymposiumSeatExecutions: (_session: string, seat: string) =>
+            seat === 'reviewer'
+              ? [
+                  { claimToken: 'bad', attemptId: 'bad-attempt', idempotencyKey: 'bad-key' },
+                  { claimToken: 'good', attemptId: 'good-attempt', idempotencyKey: 'good-key' },
+                ]
+              : [],
+          confirmSymposiumAttemptCleanup: confirm,
+        } as never,
+        profiles,
+        hostGrants,
+        codexStore: {} as never,
+        recordAccepted: () => true,
+        resolveProviderIdentity: (name, id) => ({ name, id, type: 'openai', workspace: 'default' }),
+        runtimeConfig: {
+          cli: 'openshell',
+          cliContract: 'v0.1',
+          image: 'image',
+          policy: '/policy',
+          seed: '/seed',
+          serviceProviders: [],
+          grantableServiceProviders: [],
+          workspace: 'default',
+          gateway: 'openshell',
+          gatewayInsecure: false,
+          createDetached: true,
+          sandboxIdLength: 13,
+          workdir: '/sandbox/workspaces/mgmt',
+          webSearch: 'disabled',
+        },
+        readOnlyEnforced: { openaiApi: true, claudeVertex: false },
+        perSeatSandboxVerified: true,
+      });
+      const executor = runtime.executors.reviewer as SymposiumOpenShellSeatExecutor;
+      vi.spyOn(executor, 'drain').mockImplementation(async () => {
+        if (nativeFailure) throw new Error('native failure');
+      });
+      let finish!: () => void;
+      const cancel = vi.spyOn(executor, 'cancel').mockImplementation(async ({ claimToken }) => {
+        if (claimToken === 'bad') throw new Error('cancel failed');
+        await new Promise<void>((resolve) => {
+          finish = resolve;
+        });
+      });
+      const stop = vi.spyOn(runtime.owner, 'stop').mockResolvedValue(undefined);
+      const draining = runtime.drain(new AbortController().signal);
+      const rejected = expect(draining).rejects.toThrow('cleanup incomplete');
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(cancel).toHaveBeenCalledTimes(2);
+      expect(stop).not.toHaveBeenCalledWith('symposium', 'reviewer', 2, expect.anything());
+      finish();
+      await rejected;
+      expect(stop).toHaveBeenCalledWith('symposium', 'reviewer', 2, expect.anything());
+      expect(stop).toHaveBeenCalledWith('symposium', 'other', 1, expect.anything());
+      expect(confirm.mock.calls).toEqual([['good-attempt', 'good-key']]);
+    },
+  );
   it('requires a current host-issued grant at the native boundary', () => {
     const { facts, input } = fixture();
     const verifier = {
