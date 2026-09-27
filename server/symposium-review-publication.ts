@@ -255,8 +255,13 @@ export function createSymposiumReviewPublicationPreflight(deps: ReviewPublicatio
       input: Readonly<Record<string, string | boolean>>,
       signal: AbortSignal,
     ) {
-      const { record, binding, validated, inspect } =
-        await prepareSymposiumReviewPublication(deps, context, recordId, input, signal);
+      const { record, binding, validated, inspect } = await prepareSymposiumReviewPublication(
+        deps,
+        context,
+        recordId,
+        input,
+        signal,
+      );
       const forbidden = async (): Promise<never> => {
         throw new Error('Publication mutation is unavailable');
       };
