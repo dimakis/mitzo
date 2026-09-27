@@ -6,7 +6,11 @@ import { createOwnedEvidenceCollector } from './symposium-owned-evidence-async.j
 import { fenceDiscoveryCreation } from './symposium-discovery-creation.js';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
-import { runSymposiumModelDiscovery } from './symposium-model-discovery.js';
+import {
+  runSymposiumModelDiscovery,
+  recoverSymposiumModelDiscovery,
+  type DiscoveryReceipt,
+} from './symposium-model-discovery.js';
 import { guardDiscoveryOperations } from './symposium-discovery-custody.js';
 import { createDiscoveryHostOperations } from './symposium-model-discovery-host.js';
 import type { CatalogModel } from './model-catalog.js';
@@ -339,7 +343,6 @@ export async function createOwnedSymposiumHost(
           configPins: [{ path: gatewayConfigPath, sha256: gatewayConfigDigest, mode: 0o400 }],
           attestGateway: async () => {
             custody();
-            proof.assertCurrent();
           },
         });
         const guarded = guardDiscoveryOperations(
@@ -369,7 +372,23 @@ export async function createOwnedSymposiumHost(
         proof.assertCurrent();
         if (fenced.creationUncertain())
           return { result: { status: 'reconciliation_required', inference: false } };
-        return { result, models };
+        let recover;
+        if (result.status === 'reconciliation_required') {
+          const receipt = structuredClone(await operations.readReceipt()) as DiscoveryReceipt;
+          recover = (check: () => void) =>
+            workspaceLifecycle.cleanup(async () => {
+              const cleanup = guardDiscoveryOperations(
+                operations,
+                () => {
+                  custody();
+                  check();
+                },
+                proof.account,
+              );
+              return recoverSymposiumModelDiscovery(config, cleanup, receipt);
+            });
+        }
+        return { result, models, recover };
       },
     );
     const artifactRequest = (
@@ -588,6 +607,11 @@ export async function createOwnedSymposiumHost(
         disconnect: (
           ...args: Parameters<NonNullable<typeof subscription>['personalConnections']['disconnect']>
         ) => track(() => subscription!.personalConnections.disconnect(...args)),
+        recoverDiscovery: (
+          ...args: Parameters<
+            NonNullable<typeof subscription>['personalConnections']['recoverDiscovery']
+          >
+        ) => track(() => subscription!.personalConnections.recoverDiscovery(...args)),
         discoverModels: (
           ...args: Parameters<
             NonNullable<NonNullable<typeof subscription>['personalConnections']['discoverModels']>

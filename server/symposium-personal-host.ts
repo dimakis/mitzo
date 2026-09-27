@@ -8,6 +8,7 @@ import {
   type SymposiumSubscriptionHostOptions,
 } from './symposium-subscription-host.js';
 import type { VerifySymposiumSubscriptionAuth } from './symposium-subscription-native.js';
+type DiscoveryRecovery = (assertCurrent: () => void) => Promise<DiscoveryResult>;
 /** Slots retain display metadata only; each live adapter owns an independent receipt. */
 export function createPersonalSubscriptionHost(
   options: SymposiumSubscriptionHostOptions,
@@ -16,8 +17,10 @@ export function createPersonalSubscriptionHost(
     provider: { name: string; id: string };
     account: { email: string; planType: string };
     assertCurrent(): void;
-  }) => Promise<{ result: DiscoveryResult; models?: CatalogModel[] }>,
+  }) => Promise<{ result: DiscoveryResult; models?: CatalogModel[]; recover?: DiscoveryRecovery }>,
 ) {
+  const recoveries = new Map<string, { revision: number; recover: DiscoveryRecovery }>();
+  let recovering = false;
   const initial = createSymposiumSubscriptionHost(options);
   const connections = new PersonalConnections(metadataPath, (accountId, label) =>
     accountId === options.accountId
@@ -142,6 +145,39 @@ export function createPersonalSubscriptionHost(
         assertNoDiscovery();
         return connections.disconnect(id, revision);
       },
+      async recoverDiscovery(id: string, revision: number, assertOperator: () => void) {
+        const retained = recoveries.get(id);
+        const check = () => {
+          assertOperator();
+          options.gateway.verifyCustody();
+          const row = select({ connectionId: id, expectedRevision: revision });
+          if (
+            row.state !== 'recovery_required' ||
+            row.modelDiscovery !== 'reconciliation_required' ||
+            !retained ||
+            retained.revision !== revision ||
+            recoveries.get(id) !== retained
+          )
+            throw new Error('Retained discovery recovery is unavailable');
+        };
+        check();
+        if (recovering) throw new Error('Discovery recovery is already running');
+        recovering = true;
+        try {
+          const result = await retained!.recover(check);
+          check();
+          if (result.status !== 'reconciled')
+            return {
+              ...result,
+              connection: select({ connectionId: id, expectedRevision: revision }),
+            };
+          const connection = connections.finishDiscoveryRecovery(id, revision);
+          recoveries.delete(id);
+          return { ...result, connection };
+        } finally {
+          recovering = false;
+        }
+      },
       async discoverModels(id: string, revision: number, assertOperator: () => void) {
         assertOperator();
         if (!discover) throw new Error('Owned model discovery is unavailable');
@@ -169,6 +205,9 @@ export function createPersonalSubscriptionHost(
             if (!discovered.models?.length) throw new Error('Discovery catalog missing');
             proof.publish(discovered.models, lease.revision + 1);
           }
+          // Retain cleanup authority before invalidation destroys admission authority.
+          if (discovered.result.status === 'reconciliation_required' && discovered.recover)
+            recoveries.set(id, { revision: lease.revision + 1, recover: discovered.recover });
           const connection = connections.finishDiscovery(
             lease,
             discovered.result.status !== 'reconciliation_required',
