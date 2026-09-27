@@ -302,16 +302,53 @@ function samePullRequestUrl(left: string, right: string) {
 export function createGithubPublishPrExecutor(
   deps: GithubPublishPrDependencies,
 ): CapabilityExecutor {
+  return createGithubArtifactPublishPrExecutor({
+    host: deps.host,
+    resolvePublicConfig: deps.resolvePublicConfig,
+    resolveWorkspace: (operation) => deps.resolveConversation(operation)?.workspace,
+    inspect: (input) => {
+      const conversation = deps.resolveConversation(input.operation);
+      if (!conversation) return Promise.reject(new Error('Live GitHub attachment unavailable'));
+      return deps.sandbox.inspect({ ...input, sandboxName: conversation.sandboxName });
+    },
+    exportBundle: (input) => {
+      const conversation = deps.resolveConversation(input.operation);
+      if (!conversation) return Promise.reject(new Error('Live GitHub attachment unavailable'));
+      return deps.sandbox.exportBundle({ ...input, sandboxName: conversation.sandboxName });
+    },
+  });
+}
+
+/** Host-owned source contract shared by live sandboxes and physically sealed artifacts.
+ * A sealed source supplies its own exact seal-bound transport, never a fake sandbox. */
+export interface GithubArtifactPublishDependencies {
+  host: GithubHostPublisher;
+  resolvePublicConfig: GithubPublishPrDependencies['resolvePublicConfig'];
+  resolveWorkspace(operation: CapabilityOperation): string | undefined;
+  inspect(
+    input: Omit<Parameters<GithubSandboxTransport['inspect']>[0], 'sandboxName'> & {
+      operation: CapabilityOperation;
+    },
+  ): Promise<GithubSandboxInspection>;
+  exportBundle(
+    input: Omit<Parameters<GithubSandboxTransport['exportBundle']>[0], 'sandboxName'> & {
+      operation: CapabilityOperation;
+    },
+  ): Promise<Buffer>;
+}
+export function createGithubArtifactPublishPrExecutor(
+  deps: GithubArtifactPublishDependencies,
+): CapabilityExecutor {
   const inspect = async (context: CapabilityExecutionContext) => {
     const input = inputOf(context.input);
     if (input.connectionId !== context.operation.connectionId) reject('GitHub connection changed');
     if (!validBranch(input.baseBranch)) reject('Base branch is invalid');
-    const conversation = deps.resolveConversation(context.operation);
+    const workspace = deps.resolveWorkspace(context.operation);
     const config = deps.resolvePublicConfig(context.operation);
-    if (!conversation || !config) reject('GitHub publish access is unavailable');
-    const repositoryPath = canonicalRepositoryPath(conversation.workspace, input.repositoryPath);
-    const inspection = await deps.sandbox.inspect({
-      sandboxName: conversation.sandboxName,
+    if (!workspace || !config) reject('GitHub publish access is unavailable');
+    const repositoryPath = canonicalRepositoryPath(workspace, input.repositoryPath);
+    const inspection = await deps.inspect({
+      operation: context.operation,
       repositoryPath,
       baseBranch: input.baseBranch,
       signal: context.signal,
@@ -350,7 +387,7 @@ export function createGithubPublishPrExecutor(
       isProtectedGithubSourceBranch(inspection.sourceBranch)
     )
       reject('Source branch is protected');
-    return { input, conversation, repositoryPath, inspection, repository: repo };
+    return { input, repositoryPath, inspection, repository: repo };
   };
   const approval = (
     state: Awaited<ReturnType<typeof inspect>>,
@@ -439,8 +476,8 @@ export function createGithubPublishPrExecutor(
         signal: context.signal,
       });
       assertApproved(context, state, existingBeforeWrite);
-      const bundle = await deps.sandbox.exportBundle({
-        sandboxName: state.conversation.sandboxName,
+      const bundle = await deps.exportBundle({
+        operation: context.operation,
         repositoryPath: state.repositoryPath,
         sourceBranch: state.inspection.sourceBranch!,
         sourceOid: state.inspection.sourceOid,
