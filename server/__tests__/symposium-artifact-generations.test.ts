@@ -539,6 +539,8 @@ it('admits an imported parent only for the exact initial attempt and selected au
   const f = fixture();
   f.store.registerInitial(initial);
   const { fixAttemptId: _fixAttemptId, findingFingerprints: _findings, ...common } = request;
+  void _fixAttemptId;
+  void _findings;
   const accountBinding = {
     accountId: 'personal',
     accountLabel: 'Personal',
@@ -612,6 +614,8 @@ it('admits an imported parent only for the exact initial attempt and selected au
 });
 it('requires a retained initial policy reservation rather than fabricated fix findings', () => {
   const { fixAttemptId: _fixAttemptId, findingFingerprints: _findings, ...common } = request;
+  void _fixAttemptId;
+  void _findings;
   const initialRequest: ArtifactGenerationRequest = {
     ...common,
     kind: 'initial',
@@ -629,27 +633,6 @@ it('requires a retained initial policy reservation rather than fabricated fix fi
     },
     contextGrant: { grantId: 'context', revision: 1 },
   };
-  const attempt = {
-    kind: 'initial',
-    attemptId: 'first-attempt',
-    policyReservationId: 'reservation',
-    settled: false,
-    dispatched: false,
-    actorSeatId: 'writer',
-    artifactRevision: oid,
-    artifactHash: hash,
-    binding: {
-      membershipGeneration: 1,
-      configRevision: 1,
-      accountId: 'personal',
-      model: 'luna-fixture',
-      profileId: 'profile',
-      profileRevision: '1',
-      accountProfileRevision: '1',
-      authorityGrant: { grantId: 'grant', revision: 1 },
-      contextGrant: { grantId: 'context', revision: 1 },
-    },
-  };
   const state = {
     limits: { mode: 'application' },
     status: 'awaiting_initial',
@@ -664,7 +647,38 @@ it('requires a retained initial policy reservation rather than fabricated fix fi
       profileId: 'profile',
       profileRevision: 1,
     },
-    applicationAttempts: [attempt],
+    applicationAttempts: [],
+    applicationPreparations: [
+      {
+        kind: 'initial',
+        status: 'preparing',
+        workflowId: 'workflow',
+        attemptId: 'first-attempt',
+        policyReservationId: 'reservation',
+        sourceSealId: 'source-seal',
+        actorSeatId: 'writer',
+        artifactRevision: oid,
+        artifactHash: hash,
+        transitionId: 'transition',
+        seal: {
+          fenceId: 'source-seal',
+          artifactGenerationId: 'initial',
+          volumeName: 'source-volume',
+          sealDigest: hash,
+          artifactRevision: oid,
+          artifactHash: hash,
+        },
+        from: { configRevision: 1, membershipGeneration: 1 },
+        to: { configRevision: 2, membershipGeneration: 2 },
+        expectedSelection: {
+          accountId: 'personal',
+          model: 'luna-fixture',
+          profileId: 'profile',
+          profileRevision: '1',
+          accountProfileRevision: '1',
+        },
+      },
+    ],
   };
   const authority = {
     workflows: { get: () => state },
@@ -677,6 +691,6 @@ it('requires a retained initial policy reservation rather than fabricated fix fi
   expect(() =>
     assertSuccessorFixAuthority(authority, { ...initialRequest, expectedConfigRevision: 2 }),
   ).toThrow('initial attempt');
-  attempt.dispatched = true;
+  state.applicationPreparations[0].status = 'bound';
   expect(() => assertSuccessorFixAuthority(authority, initialRequest)).toThrow('initial attempt');
 });

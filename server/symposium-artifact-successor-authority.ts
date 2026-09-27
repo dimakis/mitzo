@@ -325,7 +325,7 @@ export function assertSuccessorFixAuthority(
     throw new Error('Current successor fix authority required');
   const state = authority.workflows.get(request.workflowId);
   if (request.kind === 'initial') {
-    const prep = state?.applicationPreparations.find(
+    const prep = state?.applicationPreparations?.find(
       (value) =>
         value.kind === 'initial' &&
         value.attemptId === request.initialAttemptId &&
