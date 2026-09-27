@@ -58,6 +58,21 @@ workspace and provider-absence checks. `NotFound`, lost custody, and other
 unacknowledged outcomes do not prove deletion and remain blocked for host
 recovery. These stage proofs are never restored from disk.
 
+## Explicit supported-model refresh
+
+Connected slots offer **Refresh supported models** through the authenticated
+`/api/symposium/personal/connections/:id/models/refresh` endpoint, using the revision
+currently displayed. This UI requires the owned-host model-discovery backend. Merely
+opening Connections never starts discovery. It performs no inference and does not
+select a model or rebind active seats.
+
+While the request runs, account mutations are disabled. Persisted pending discovery
+markers remain visible after remount and are polled through the connection list; an
+uncertain cleanup marker requires host recovery. A successful response refreshes the
+account catalog and instructs the user to choose the account/model explicitly. Failed,
+malformed and interrupted responses do not claim a new catalog is ready. The local
+preview simulates only the exact supported POST and revision; it makes no upstream
+request or real sandbox operation.
 A retained host coordinator serializes sandbox creation with credential cleanup.
 Creation revalidates its seat binding after acquiring the fence and durably marks
 the external operation before dispatch. Rejection or host loss leaves a persistent

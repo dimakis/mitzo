@@ -215,6 +215,97 @@ it('places browser callback login inside the selected saved account with its rev
   );
 });
 
+it.each([1, 11])(
+  'explicitly refreshes %i supported models without choosing a model',
+  async (count) => {
+    let finish!: (value: Response) => void;
+    const changed = vi.fn();
+    vi.mocked(apiFetch).mockImplementation(async (url) => {
+      if (url.endsWith('/models/refresh'))
+        return new Promise((resolve) => {
+          finish = resolve;
+        });
+      return response({ connections: rows });
+    });
+    render(<SymposiumPersonalConnections onAccountsChanged={changed} />);
+    const button = await screen.findByRole('button', { name: 'Refresh supported models' });
+    expect(vi.mocked(apiFetch).mock.calls.some(([, init]) => init?.method === 'POST')).toBe(false);
+    fireEvent.click(button);
+    await screen.findByText(/Checking supported models for Personal/);
+    expect((screen.getByRole('button', { name: 'Disconnect' }) as HTMLButtonElement).disabled).toBe(
+      true,
+    );
+    expect(apiFetch).toHaveBeenCalledWith(
+      '/api/symposium/personal/connections/personal-a/models/refresh',
+      expect.objectContaining({ method: 'POST', body: JSON.stringify({ expectedRevision: 2 }) }),
+    );
+    finish(response({ status: 'complete', inference: false, modelCount: count }));
+    await screen.findByText(
+      new RegExp(`${count} supported ${count === 1 ? 'model is' : 'models are'} ready`),
+    );
+    expect(changed).toHaveBeenCalledOnce();
+    expect(
+      vi.mocked(apiFetch).mock.calls.filter(([, init]) => init?.method === 'POST'),
+    ).toHaveLength(1);
+  },
+);
+it.each(['pending', 'reconciliation_required'])(
+  'recovers persisted discovery %s without enabling conflicting account actions',
+  async (modelDiscovery) => {
+    vi.mocked(apiFetch).mockResolvedValue(
+      response({
+        connections: [
+          {
+            ...rows[0],
+            modelDiscovery,
+            state: modelDiscovery === 'pending' ? 'connected' : 'recovery_required',
+          },
+          rows[1],
+        ],
+      }),
+    );
+    render(<SymposiumPersonalConnections />);
+    await screen.findByText('one@example.test');
+    expect((screen.getByRole('button', { name: 'Connect' }) as HTMLButtonElement).disabled).toBe(
+      true,
+    );
+    expect(screen.queryByRole('button', { name: 'Refresh supported models' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Reconnect' })).toBeNull();
+    expect(vi.mocked(apiFetch).mock.calls.some(([, init]) => init?.method === 'POST')).toBe(false);
+  },
+);
+it('does not report success on failed or unconfirmed model discovery', async () => {
+  vi.mocked(apiFetch).mockImplementation(async (url) =>
+    response(
+      url.endsWith('/models/refresh')
+        ? { status: 'reconciliation_required', inference: false }
+        : { connections: rows },
+    ),
+  );
+  render(<SymposiumPersonalConnections />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Refresh supported models' }));
+  await screen.findByText(/cleanup could not be confirmed/);
+  expect(screen.queryByText(/supported models are ready/)).toBeNull();
+});
+
+it('notifies an open picker when callback recovery reports a completed login', async () => {
+  const changed = vi.fn();
+  vi.mocked(apiFetch).mockImplementation(async (url) =>
+    response(
+      url.endsWith('/connections')
+        ? { connections: rows }
+        : { state: 'completed', attemptId: 'previous', connectionId: 'personal-a' },
+    ),
+  );
+  render(<SymposiumPersonalConnections onAccountsChanged={changed} />);
+  await screen.findByText('one@example.test');
+  const personal = within(screen.getByRole('region', { name: 'Personal' }));
+  fireEvent.click(personal.getByText('Browser callback alternative for Personal'));
+  fireEvent.click(personal.getByRole('button', { name: 'Connect personal subscription' }));
+  await personal.findByText(/Previous login completed/);
+  expect(changed).toHaveBeenCalledOnce();
+});
+
 it('releases callback lock when refresh unmounts a disconnecting callback control', async () => {
   let state = rows[1].state;
   let started = false;

@@ -517,6 +517,9 @@ provider inventories; legacy bare-array responses cannot establish cleanup or at
 
 Browser callback alternatives are scoped to a saved personal account and its current revision. An open account manager follows the picker’s disabled state, and refreshing completed sign-ins releases stale UI locks.
 
+Connections offers **Refresh supported models** for a connected personal account.
+The action uses that displayed account revision, reports pending cleanup or host recovery,
+and leaves model choice and active-seat rebinding explicit.
 Credential cleanup waits for owned-workspace sandbox creation to settle; uncertain creation stays blocked across restart.
 
 Discovery journal ownership is exclusive across host adapters; interrupted owners
