@@ -45,7 +45,7 @@ export interface DiscoveryOperations {
   verifyCustody(config: DiscoveryConfig): Promise<void>;
   readReceipt(): Promise<unknown>;
   persistReceipt(receipt: DiscoveryReceipt, exclusive: boolean): Promise<void>;
-  clearReceipt(): Promise<void>;
+  clearReceipt(receipt: DiscoveryReceipt): Promise<void>;
   /** Exact local-journal cleanup only after proven absence of external dispatch. */
   clearUndispatchedReceipt?(receipt: DiscoveryReceipt): Promise<void>;
   list(): Promise<unknown>;
@@ -82,6 +82,7 @@ async function runExclusiveDiscovery(
   ops: DiscoveryOperations,
 ): Promise<DiscoveryResult> {
   let receipt: DiscoveryReceipt | undefined;
+  let journalAbsenceConfirmed = false;
   let config: DiscoveryConfig;
   let client: DiscoveryReadClient | undefined;
   let result: DiscoveryResult;
@@ -99,7 +100,7 @@ async function runExclusiveDiscovery(
     await verify();
     const configHash = createHash('sha256').update(JSON.stringify(config)).digest('hex');
     const previous = await ops.readReceipt();
-    if (previous) {
+    if (previous !== undefined) {
       const parsed = receiptSchema.parse(previous);
       if (parsed.configHash !== configHash)
         return { status: 'reconciliation_required', inference: false };
@@ -107,6 +108,7 @@ async function runExclusiveDiscovery(
       resumed = true;
       creationConfirmed = !!receipt.id;
     } else {
+      journalAbsenceConfirmed = true;
       receipt = {
         name: `md-${randomBytes(8).toString('hex')}`,
         claim: randomBytes(32).toString('hex'),
@@ -201,14 +203,18 @@ async function runExclusiveDiscovery(
     if (error instanceof DiscoveryNotDispatchedError && !resumed) {
       try {
         if (receipt && ops.clearUndispatchedReceipt) await ops.clearUndispatchedReceipt(receipt);
-        else await ops.clearReceipt();
+        else if (receipt) await ops.clearReceipt(receipt);
+        else throw new Error('Missing journal identity', { cause: error });
         receipt = undefined;
       } catch {
         /* Retain reconciliation if the exact local journal cannot be cleared. */
       }
     }
     // Deliberately never surface command output, provider errors, identity or credential data.
-    result = { status: receipt ? 'reconciliation_required' : 'failed', inference: false };
+    result = {
+      status: receipt || !journalAbsenceConfirmed ? 'reconciliation_required' : 'failed',
+      inference: false,
+    };
   }
   try {
     client?.close();
@@ -248,7 +254,7 @@ async function runExclusiveDiscovery(
       }
       if (!clean) result = { status: 'reconciliation_required', inference: false };
       else {
-        await ops.clearReceipt();
+        await ops.clearReceipt(receipt);
         if (result.status === 'reconciliation_required')
           result = { status: resumed ? 'reconciled' : 'failed', inference: false };
       }

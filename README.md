@@ -507,3 +507,5 @@ Native Symposium Codex turns use [validated cumulative token usage](docs/feature
 
 Discovery preflight rejection can undo an exact undispatched local journal under
 its retained lock; dispatched or replaced evidence still requires reconciliation.
+Unreadable discovery journals remain reconciliation-required, and completion clears
+only the exact receipt under its retained lock.

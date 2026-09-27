@@ -414,3 +414,25 @@ it.each(['name', 'claim', 'configHash'])(
     });
   },
 );
+
+it('clears a completed journal only when the exact identity remains under its lock', async () => {
+  const { config, options } = fixture();
+  const ops = createDiscoveryHostOperations(config, options);
+  const receipt = {
+    name: 'md-aaaaaaaaaaaaaaaa',
+    claim: 'b'.repeat(64),
+    configHash: 'c'.repeat(64),
+    id: 'created-sandbox',
+  };
+  await ops.persistReceipt(receipt, true);
+  await expect(ops.clearReceipt(receipt)).rejects.toThrow('proof');
+  await ops.withExclusiveAttempt(async () => {
+    const replacement = { ...receipt, claim: 'd'.repeat(64) };
+    writeFileSync(options.journal, JSON.stringify(replacement));
+    await expect(ops.clearReceipt(receipt)).rejects.toThrow('identity');
+    expect(await ops.readReceipt()).toEqual(replacement);
+    writeFileSync(options.journal, JSON.stringify(receipt));
+    await ops.clearReceipt(receipt);
+    expect(await ops.readReceipt()).toBeUndefined();
+  });
+});
