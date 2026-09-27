@@ -942,6 +942,10 @@ export interface SymposiumProductionHost {
   assertSubscriptionDispatch?: (input: Parameters<VerifySymposiumSubscriptionAuth>[0]) => void;
   physical: SymposiumProductionPhysicalProof;
   attemptRegistry: SymposiumAttemptRegistry;
+  assertArtifactAdmissionCurrent?: (
+    sessionId: string,
+    reference: import('@mitzo/protocol').ArtifactAdmissionReferenceV1,
+  ) => void;
   artifactLeaseHost: SqliteArtifactLeaseHost;
   artifactRequest(
     sessionId: string,
@@ -1062,6 +1066,7 @@ let symposiumRuntimeForSession: (sessionId: string) => SymposiumOrchestrator | n
       attemptRegistry: host.attemptRegistry,
       claimIdFactory: (input) =>
         selectSymposiumApplicationClaim(symposiumReviewStore, input) ?? randomUUID(),
+      assertArtifactAdmissionCurrent: host.assertArtifactAdmissionCurrent,
       applicationPolicy: createSymposiumApplicationDispatchPolicy({
         store: symposiumReviewStore,
         observations: host.attemptRegistry.observations,

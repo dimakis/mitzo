@@ -311,9 +311,21 @@ it('binds successor provenance into runtime identity and the final artifact fenc
     provenance: { ...work.input.provenance, version: 3 as const, artifact },
   } as SymposiumSeatExecution;
   const fence = vi.fn();
-  const facts = { ...work.facts, assertSymposiumArtifactWorkAllowed: fence };
+  const facts = {
+    ...work.facts,
+    assertSymposiumArtifactWorkAllowed: fence,
+    getSymposiumArtifactReference: () => artifact,
+  };
   expect(admitSymposiumSeatDispatch(facts, profiles, child, hostGrants).kind).toBe('openai-api');
   expect(fence).toHaveBeenCalledWith(child.sessionId, artifact);
+  expect(() =>
+    admitSymposiumSeatDispatch(
+      { ...facts, getSymposiumArtifactReference: () => null },
+      profiles,
+      child,
+      hostGrants,
+    ),
+  ).toThrow(/artifact reference/i);
   expect(symposiumSeatRuntimeId(child)).not.toBe(symposiumSeatRuntimeId(work.input));
   const other = {
     ...child,
@@ -323,6 +335,64 @@ it('binds successor provenance into runtime identity and the final artifact fenc
     },
   } as SymposiumSeatExecution;
   expect(symposiumSeatRuntimeId(other)).not.toBe(symposiumSeatRuntimeId(child));
+});
+it('requires the physical generation owner before setting up successor native work', async () => {
+  const work = fixture();
+  const artifact = {
+    version: 1 as const,
+    transitionId: 'transition',
+    artifactGenerationId: 'child',
+    pointerRevision: 1,
+    bindingDigest: 'a'.repeat(64),
+  };
+  const input = {
+    ...work.input,
+    provenance: { ...work.input.provenance, version: 3 as const, artifact },
+  } as SymposiumSeatExecution;
+  const ensure = vi.fn();
+  const executor = new SymposiumOpenShellSeatExecutor({
+    facts: work.facts,
+    profiles,
+    hostGrants,
+    owner: { ensure, readOnlyEnforced: { openaiApi: true, claudeVertex: false } },
+    recordAccepted: () => true,
+    openNative: vi.fn(),
+  });
+  await expect(executor.execute(input)).rejects.toThrow(/artifact admission owner/i);
+  expect(ensure).not.toHaveBeenCalled();
+});
+it('retains the same artifact reference in native preparation before and during execution', async () => {
+  const work = fixture();
+  const artifact = {
+    version: 1 as const,
+    transitionId: 'transition',
+    artifactGenerationId: 'child',
+    pointerRevision: 1,
+    bindingDigest: 'a'.repeat(64),
+  };
+  const input = {
+    ...work.input,
+    provenance: { ...work.input.provenance, version: 3 as const, artifact },
+  } as SymposiumSeatExecution;
+  const prepare = vi.fn();
+  const executor = new SymposiumOpenShellSeatExecutor({
+    facts: { ...work.facts, getSymposiumArtifactReference: () => artifact },
+    profiles,
+    hostGrants,
+    attemptRegistry: { prepare } as never,
+    assertArtifactAdmissionCurrent: () => undefined,
+    owner: {
+      ensure: vi.fn().mockRejectedValue(Error('stop after prepare')),
+      readOnlyEnforced: { openaiApi: true, claudeVertex: false },
+    },
+    recordAccepted: () => true,
+    openNative: vi.fn(),
+  });
+  executor.prepare({ sessionId: input.sessionId, claimToken: input.claimToken, artifact });
+  await expect(executor.execute(input)).rejects.toThrow(/stop after prepare/);
+  expect(prepare).toHaveBeenCalledTimes(2);
+  for (const call of prepare.mock.calls)
+    expect(call[0]).toEqual({ sessionId: input.sessionId, claimToken: input.claimToken, artifact });
 });
 it('selects only the reserved recipient claim and fences ordinary work in an application session', () => {
   const work = fixture();

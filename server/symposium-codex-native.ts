@@ -162,6 +162,9 @@ export async function createCodexNativeSeat(
         sandbox,
         sessionId: execution.sessionId,
         claimToken: execution.claimToken,
+        ...('version' in execution.provenance && execution.provenance.version === 3
+          ? { artifact: execution.provenance.artifact }
+          : {}),
         access: route.readOnly ? 'read' : 'write',
         command: input.verifiedControllerCommand,
       });

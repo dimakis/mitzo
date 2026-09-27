@@ -102,7 +102,7 @@ export class SymposiumOrchestrator {
     this.store = deps.store;
     this.executors = deps.executors;
     this.idFactory = deps.idFactory ?? randomUUID;
-    this.claimIdFactory = deps.claimIdFactory ?? randomUUID;
+    this.claimIdFactory = deps.claimIdFactory ?? (() => randomUUID());
     this.now = deps.now ?? Date.now;
     this.stopSeat = deps.stopSeat;
     this.creationRecovery = deps.creationRecovery;

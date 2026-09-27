@@ -112,7 +112,9 @@ export function symposiumSeatRuntimeId(input: SymposiumSeatExecution): string {
     input.seat.contextGrant,
     input.seat.authorityGrant,
     input.seat.isolationRequest,
-    ...(input.provenance.version === 3 ? [input.provenance.artifact] : []),
+    ...('version' in input.provenance && input.provenance.version === 3
+      ? [input.provenance.artifact]
+      : []),
   ]);
   return `symposium:${createHash('sha256').update(key).digest('hex')}`;
 }
@@ -125,9 +127,20 @@ export function admitSymposiumSeatDispatch(
   hostGrants: SymposiumHostGrantVerifier,
 ): SymposiumSeatRoute {
   input.signal.throwIfAborted();
+  if ('version' in input.provenance && input.provenance.version === 3) {
+    const retained = facts.getSymposiumArtifactReference?.(
+      input.sessionId,
+      input.seat.id,
+      input.provenance.membershipGeneration,
+    );
+    if (!retained || JSON.stringify(retained) !== JSON.stringify(input.provenance.artifact))
+      throw new Error('Exact current seat artifact reference required');
+  }
   facts.assertSymposiumArtifactWorkAllowed(
     input.sessionId,
-    input.provenance.version === 3 ? input.provenance.artifact : undefined,
+    'version' in input.provenance && input.provenance.version === 3
+      ? input.provenance.artifact
+      : undefined,
   );
   const config = facts.getActiveSymposiumConfig(input.sessionId);
   if (

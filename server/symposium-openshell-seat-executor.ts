@@ -44,6 +44,10 @@ export interface SymposiumApplicationDispatchPolicy {
 export interface SymposiumOpenShellSeatExecutorDeps {
   facts: SymposiumDispatchFacts;
   applicationPolicy?: SymposiumApplicationDispatchPolicy;
+  assertArtifactAdmissionCurrent?: (
+    sessionId: string,
+    artifact: import('@mitzo/protocol').ArtifactAdmissionReferenceV1,
+  ) => void;
   attemptRegistry?: SymposiumAttemptRegistry;
   profiles: AccountProfiles;
   currentProfiles?: () => AccountProfiles;
@@ -105,8 +109,16 @@ export class SymposiumOpenShellSeatExecutor implements SymposiumSeatExecutor {
       throw new Error('Native shutdown cleanup incomplete');
   }
 
-  prepare(input: { sessionId: string; claimToken: string }) {
-    this.deps.attemptRegistry?.prepare(input);
+  prepare(input: {
+    sessionId: string;
+    claimToken: string;
+    artifact?: import('@mitzo/protocol').ArtifactAdmissionReferenceV1;
+  }) {
+    this.deps.attemptRegistry?.prepare({
+      sessionId: input.sessionId,
+      claimToken: input.claimToken,
+      ...(input.artifact ? { artifact: input.artifact } : {}),
+    });
   }
 
   execute(input: SymposiumSeatExecution) {
@@ -117,7 +129,13 @@ export class SymposiumOpenShellSeatExecutor implements SymposiumSeatExecutor {
     return run;
   }
   private async executeCurrent(input: SymposiumSeatExecution) {
-    this.prepare(input);
+    this.prepare({
+      sessionId: input.sessionId,
+      claimToken: input.claimToken,
+      ...('version' in input.provenance && input.provenance.version === 3
+        ? { artifact: input.provenance.artifact }
+        : {}),
+    });
     const attempt: {
       native?: SymposiumNativeSeat;
       execution: SymposiumSeatExecution;
@@ -126,6 +144,11 @@ export class SymposiumOpenShellSeatExecutor implements SymposiumSeatExecutor {
     this.attempts.set(input.claimToken, attempt);
     const admission = () => {
       if (this.draining) throw new Error('Symposium runtime is shutting down');
+      if ('version' in input.provenance && input.provenance.version === 3) {
+        if (!this.deps.assertArtifactAdmissionCurrent)
+          throw new Error('Trusted artifact admission owner unavailable');
+        this.deps.assertArtifactAdmissionCurrent(input.sessionId, input.provenance.artifact);
+      }
       this.deps.applicationPolicy?.assertCurrent(input);
       const admitted = admitSymposiumSeatDispatch(
         this.deps.facts,

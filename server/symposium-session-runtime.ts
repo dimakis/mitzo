@@ -1297,6 +1297,7 @@ export interface SymposiumSessionRuntimeDeps extends Omit<
 > {
   store: EventStore;
   applicationPolicy?: SymposiumOpenShellSeatExecutorDeps['applicationPolicy'];
+  assertArtifactAdmissionCurrent?: SymposiumOpenShellSeatExecutorDeps['assertArtifactAdmissionCurrent'];
   claimIdFactory?: import('./symposium-orchestrator.js').SymposiumOrchestratorDeps['claimIdFactory'];
   codexStore: CodexConversationStore;
   profileCatalogStore?: Pick<SymposiumProfileStore, 'list' | 'get'>;
@@ -1391,6 +1392,7 @@ export function createSymposiumSessionRuntime(deps: SymposiumSessionRuntimeDeps)
         executor = new SymposiumOpenShellSeatExecutor({
           facts: deps.store,
           applicationPolicy: deps.applicationPolicy,
+          assertArtifactAdmissionCurrent: deps.assertArtifactAdmissionCurrent,
           attemptRegistry: deps.attemptRegistry,
           profiles: deps.profiles,
           currentProfiles: deps.currentProfiles,
