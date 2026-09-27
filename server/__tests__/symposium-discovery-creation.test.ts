@@ -6,7 +6,8 @@ it('retains the workspace creation fence until exact Ready identity is durably j
   const events: string[] = [];
   const r = receipt();
   const ops = {
-    create: async () => {
+    create: async (_receipt: unknown, _config: unknown, dispatch?: () => void) => {
+      dispatch?.();
       events.push('create');
     },
     list: async () => [
@@ -28,7 +29,7 @@ it('retains the workspace creation fence until exact Ready identity is durably j
     'work',
     async (_verify, operation) => {
       events.push('lock');
-      const result = await operation();
+      const result = await operation(() => {});
       events.push('unlock');
       return result;
     },
@@ -41,14 +42,15 @@ it('retains the workspace creation fence until exact Ready identity is durably j
 });
 it('keeps ambiguous creation quarantined even when helper cleanup later reports absence', async () => {
   const ops = {
-    create: async () => {
+    create: async (_receipt: unknown, _config: unknown, dispatch?: () => void) => {
+      dispatch?.();
       throw new Error('unknown');
     },
   } as unknown as DiscoveryOperations;
   const fenced = fenceDiscoveryCreation(
     ops,
     'work',
-    async (_verify, operation) => operation(),
+    async (_verify, operation) => operation(() => {}),
     () => {},
   );
   await expect(fenced.operations.create(receipt(), {} as never)).rejects.toThrow();
@@ -56,7 +58,9 @@ it('keeps ambiguous creation quarantined even when helper cleanup later reports 
 });
 it('rejects a substituted physical identity before releasing the creation fence', async () => {
   const ops = {
-    create: async () => {},
+    create: async (_receipt: unknown, _config: unknown, dispatch?: () => void) => {
+      dispatch?.();
+    },
     list: async () => [
       { id: 'other', name: receipt().name, workspace: 'other', phase: 'Ready', labels: {} },
     ],
@@ -64,9 +68,25 @@ it('rejects a substituted physical identity before releasing the creation fence'
   const fenced = fenceDiscoveryCreation(
     ops,
     'work',
-    async (_verify, operation) => operation(),
+    async (_verify, operation) => operation(() => {}),
     () => {},
   );
   await expect(fenced.operations.create(receipt(), {} as never)).rejects.toThrow('identity');
   expect(fenced.creationUncertain()).toBe(true);
+});
+
+it('does not quarantine read-only preflight failure before external dispatch', async () => {
+  const ops = {
+    create: async () => {
+      throw new Error('preflight');
+    },
+  } as unknown as DiscoveryOperations;
+  const fenced = fenceDiscoveryCreation(
+    ops,
+    'work',
+    async (_verify, operation) => operation(() => {}),
+    () => {},
+  );
+  await expect(fenced.operations.create(receipt(), {} as never)).rejects.toThrow();
+  expect(fenced.creationUncertain()).toBe(false);
 });

@@ -473,3 +473,5 @@ Credential cleanup waits for owned-workspace sandbox creation to settle; uncerta
 Personal login requires selecting a saved connection and displayed revision, including callback alternatives. Credential cleanup waits for owned-workspace sandbox creation to settle; uncertain creation stays blocked across restart.
 Discovery journal ownership is exclusive across host adapters; interrupted owners
 retain a recovery lock, and SSH cleanup terminates its proxy process group.
+
+Owned sandbox creation records uncertainty at the external dispatch boundary; read-only preflight failures do not strand credential cleanup or seat creation reservations.

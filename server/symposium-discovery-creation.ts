@@ -1,5 +1,8 @@
 import { z } from 'zod';
-import type { DiscoveryOperations } from './symposium-model-discovery.js';
+import {
+  DiscoveryNotDispatchedError,
+  type DiscoveryOperations,
+} from './symposium-model-discovery.js';
 import type { SandboxCreationFence } from './symposium-workspace-lifecycle.js';
 const rowsSchema = z.array(
   z.object({
@@ -23,9 +26,13 @@ export function fenceDiscoveryCreation(
     operations: {
       ...operations,
       async create(receipt, config) {
+        let dispatched = false;
         try {
-          await fence(verify, async () => {
-            await operations.create(receipt, config);
+          await fence(verify, async (markDispatched) => {
+            await operations.create(receipt, config, () => {
+              markDispatched();
+              dispatched = true;
+            });
             verify();
             for (let attempt = 0; attempt < 12; attempt++) {
               verify();
@@ -53,7 +60,8 @@ export function fenceDiscoveryCreation(
             throw new Error('Discovery creation identity unconfirmed');
           });
         } catch (error) {
-          uncertain = true;
+          uncertain = dispatched;
+          if (!dispatched) throw new DiscoveryNotDispatchedError('Discovery preflight failed');
           throw error;
         }
       },

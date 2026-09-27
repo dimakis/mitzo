@@ -1,3 +1,4 @@
+import { SymposiumWorkspaceLifecycle } from '../symposium-workspace-lifecycle.js';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -107,6 +108,7 @@ describe('OpenShell runtime lifecycle', () => {
       },
     };
     let created = false;
+    const beforeSandboxCreate = vi.fn();
     const run = vi.fn(async (args: readonly string[]) => {
       commands.push([...args]);
       if (args[0] === 'sandbox' && args.includes('provider') && args.includes('list'))
@@ -114,6 +116,7 @@ describe('OpenShell runtime lifecycle', () => {
           providers: [{ name: 'openai-work', type: 'openai' }],
           next_page_token: '',
         });
+      if (args[0] === 'provider' && !created) expect(beforeSandboxCreate).not.toHaveBeenCalled();
       if (args[0] === 'provider')
         return JSON.stringify({
           providers: [
@@ -141,6 +144,7 @@ describe('OpenShell runtime lifecycle', () => {
         });
       }
       if (args.includes('create')) {
+        expect(beforeSandboxCreate).toHaveBeenCalledOnce();
         created = true;
         return '{}';
       }
@@ -151,6 +155,7 @@ describe('OpenShell runtime lifecycle', () => {
     const manager = new OpenShellRuntimeManager(
       {
         ...config,
+        beforeSandboxCreate,
         cliContract: 'v0.1',
         serviceProviders: [],
         grantableServiceProviders: [],
@@ -2617,4 +2622,26 @@ it('attaches the upstream codex provider and returns only the native subscriptio
   expect(create).not.toContain('--inference-model');
   expect(calls.some((args) => args.includes('refresh'))).toBe(false);
   expect(runtime.appServerCommand).toBe('/usr/local/bin/symposium-subscription-app-server');
+});
+
+it('leaves owned cleanup available when actual manager provider preflight fails before create', async () => {
+  const fence = new SymposiumWorkspaceLifecycle(join(privateRoot, 'creation.json'), () => {});
+  let dispatch!: () => void;
+  const beforeSandboxCreate = vi.fn(() => dispatch());
+  const run = vi.fn(async () => {
+    throw new Error('provider inventory unavailable');
+  });
+  const manager = new OpenShellRuntimeManager({ ...config, beforeSandboxCreate }, run);
+  await expect(
+    fence.create(
+      () => {},
+      async (markDispatched) => {
+        dispatch = markDispatched;
+        return manager.ensure('conversation', new AbortController().signal);
+      },
+    ),
+  ).rejects.toThrow();
+  expect(beforeSandboxCreate).not.toHaveBeenCalled();
+  expect(run.mock.calls.length).toBeGreaterThan(0);
+  await expect(fence.cleanup(async () => {})).resolves.toBeUndefined();
 });
