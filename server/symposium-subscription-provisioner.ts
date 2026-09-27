@@ -387,6 +387,34 @@ export class SymposiumSubscriptionProvisioner {
     this.pending = undefined;
   }
 
+  captureDiscovery() {
+    this.verifyCustody();
+    const receipt = this.receipt;
+    const generation = this.generation;
+    if (!receipt) throw new Error('Verified personal receipt required');
+    const assertCurrent = () => {
+      this.verifyCustody();
+      if (this.receipt !== receipt || this.generation !== generation)
+        throw new Error('Personal receipt changed');
+    };
+    return {
+      provider: { name: receipt.provider, id: receipt.providerId },
+      binding: { ...receipt.binding },
+      account: { email: receipt.identity.email, planType: receipt.identity.planType },
+      assertCurrent,
+      publishBinding: (binding: AccountBinding) => {
+        assertCurrent();
+        if (
+          binding.accountId !== receipt.binding.accountId ||
+          binding.provider !== receipt.binding.provider
+        )
+          throw new Error('Catalog account changed');
+        receipt.binding = { ...binding };
+        this.generation++;
+      },
+    };
+  }
+
   readonly assertPrivateAuth = (input: Parameters<VerifySymposiumSubscriptionAuth>[0]): void => {
     this.verifyCustody();
     const receipt = this.receipt;

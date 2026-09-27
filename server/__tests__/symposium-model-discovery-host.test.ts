@@ -8,6 +8,7 @@ import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
 import { execFile, spawn } from 'node:child_process';
 import { runSymposiumModelDiscovery } from '../symposium-model-discovery.js';
+import { guardDiscoveryOperations } from '../symposium-discovery-custody.js';
 import { createDiscoveryHostOperations } from '../symposium-model-discovery-host.js';
 vi.mock('node:child_process', () => ({ execFile: vi.fn(), spawn: vi.fn() }));
 vi.mock('node:fs/promises', async (original) => {
@@ -364,12 +365,14 @@ it.each([false, true])(
         writeFileSync(options.journal, JSON.stringify({ ...receipt, claim: 'f'.repeat(64) }));
       current = false;
     };
-    const verify = base.verifyCustody;
-    base.verifyCustody = async (config) => {
-      if (!current) throw new Error('custody changed');
-      await verify(config);
-    };
-    await runSymposiumModelDiscovery(config, base);
+    const guarded = guardDiscoveryOperations(
+      base,
+      () => {
+        if (!current) throw new Error('custody changed');
+      },
+      { email: 'a@example.test', planType: 'plus' },
+    );
+    await runSymposiumModelDiscovery(config, guarded);
     expect(!!(await base.readReceipt())).toBe(replaced);
     expect(execFile).not.toHaveBeenCalled();
     expect(spawn).not.toHaveBeenCalled();

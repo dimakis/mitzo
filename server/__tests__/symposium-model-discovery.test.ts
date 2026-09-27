@@ -189,6 +189,23 @@ it.each(['other-workspace', 'duplicate', 'wrong-type'])(
   },
 );
 
+it('publishes a catalog only after both cleanup planes and journal completion', async () => {
+  const f = fixture();
+  const publish = vi.fn(() => {
+    expect(f.receipt()).toBeUndefined();
+    expect(f.operations.physicalAbsent).toHaveBeenCalled();
+  });
+  expect((await runSymposiumModelDiscovery(f.config, f.operations, publish)).status).toBe(
+    'complete',
+  );
+  expect(publish).toHaveBeenCalledWith([expect.objectContaining({ id: 'gpt-5.6-luna' })]);
+  const blocked = fixture();
+  blocked.operations.physicalAbsent = async () => false;
+  const forbidden = vi.fn();
+  await runSymposiumModelDiscovery(blocked.config, blocked.operations, forbidden);
+  expect(forbidden).not.toHaveBeenCalled();
+});
+
 it('does not inspect or reconcile a journal held by another active attempt', async () => {
   const f = fixture();
   f.operations.withExclusiveAttempt = async () => {

@@ -1608,6 +1608,11 @@ describe('mounted personal device login ownership', () => {
       list: vi.fn(() => [row]),
       create: vi.fn(() => row),
       disconnect: vi.fn(async () => ({ ...row, revision: 2 })),
+      discoverModels: vi.fn(async () => ({
+        status: 'complete',
+        inference: false,
+        models: [{ id: 'luna', label: 'Luna' }],
+      })),
     };
     const cancel = vi.fn(async () => {});
     installSymposiumProductionHost({
@@ -1674,5 +1679,27 @@ describe('mounted personal device login ownership', () => {
       ).status,
     ).toBe(200);
     expect(personalConnections.disconnect).toHaveBeenCalledWith('personal_test', 1);
+    const endpoint = '/api/symposium/personal/connections/personal_test/models/refresh';
+    expect((await request(app).post(endpoint).send({ expectedRevision: 1 })).status).toBe(401);
+    expect((await request(app).post(endpoint).set('Cookie', first).send({})).status).toBe(400);
+    expect(personalConnections.discoverModels).not.toHaveBeenCalled();
+    const discovered = await request(app)
+      .post(endpoint)
+      .set('Cookie', first)
+      .send({ expectedRevision: 1 });
+    expect(discovered.status).toBe(200);
+    expect(discovered.headers['cache-control']).toBe('no-store');
+    expect(personalConnections.discoverModels).toHaveBeenCalledWith(
+      'personal_test',
+      1,
+      expect.any(Function),
+    );
+    personalConnections.discoverModels.mockRejectedValueOnce(new Error('private token'));
+    const rejectedDiscovery = await request(app)
+      .post(endpoint)
+      .set('Cookie', first)
+      .send({ expectedRevision: 1 });
+    expect(rejectedDiscovery.status).toBe(409);
+    expect(JSON.stringify(rejectedDiscovery.body)).not.toContain('private token');
   });
 });
