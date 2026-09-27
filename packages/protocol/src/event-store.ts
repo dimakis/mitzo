@@ -2719,9 +2719,75 @@ export class EventStore {
     return row.result_json ? (JSON.parse(row.result_json) as SymposiumMembershipRecord) : null;
   }
 
+  /** Called inside the caller's SQLite transaction. A seat-local fence must not
+   * cancel other recipients or retire their claims/results. */
+  private cancelSymposiumSeatRecipients(
+    sessionId: string,
+    seatId: string,
+    reason: string,
+    at: number,
+  ): void {
+    const affected = this.db!.prepare(
+      `SELECT r.delivery_id FROM symposium_delivery_recipients r JOIN symposium_deliveries d USING(delivery_id)
+       WHERE d.session_id=? AND r.seat_id=? AND r.status IN ('pending','executing','failed','recovery_required')
+         AND d.status NOT IN ('delivered','dropped','cancelled')`,
+    ).all(sessionId, seatId) as Array<{ delivery_id: string }>;
+    for (const { delivery_id: deliveryId } of affected) {
+      this.db!.prepare(
+        `UPDATE symposium_delivery_recipients SET status='cancelled',error=?,updated_at=? WHERE delivery_id=? AND seat_id=? AND status IN ('pending','executing','failed','recovery_required')`,
+      ).run(reason, at, deliveryId, seatId);
+      this.db!.prepare(
+        `UPDATE symposium_recipient_attempts SET status='recovery_required',error=?,completed_at=?,updated_at=? WHERE delivery_id=? AND seat_id=? AND status='executing'`,
+      ).run(reason, at, at, deliveryId, seatId);
+      this.db!.prepare(
+        'DELETE FROM symposium_seat_execution_claims WHERE delivery_id=? AND seat_id=?',
+      ).run(deliveryId, seatId);
+      this.reconcileSymposiumDeliveryRecipients(deliveryId, at, reason);
+    }
+  }
+
+  private reconcileSymposiumDeliveryRecipients(
+    deliveryId: string,
+    at: number,
+    reason = 'recipient cancelled',
+  ): void {
+    const delivery = this.getSymposiumDelivery(deliveryId);
+    if (!delivery || ['cancelled', 'dropped'].includes(delivery.status)) return;
+    const statuses = delivery.recipients.map((recipient) => recipient.status);
+    let status = delivery.status;
+    if (statuses.every((value) => value === 'cancelled')) status = 'cancelled';
+    else if (statuses.every((value) => value === 'delivered' || value === 'cancelled'))
+      status = 'delivered';
+    else if (statuses.includes('recovery_required')) status = 'recovery_required';
+    else if (statuses.includes('failed')) status = 'failed';
+    else if (statuses.includes('executing')) status = 'delivering';
+    else if (statuses.includes('pending') && ['failed', 'recovery_required'].includes(status))
+      status = delivery.deliveredContent === null ? 'awaiting_intervention' : 'ready';
+    this.db!.prepare(
+      `UPDATE symposium_deliveries SET status=?,updated_at=?,cancellation_reason=?,cancelled_at=? WHERE delivery_id=?`,
+    ).run(
+      status,
+      at,
+      status === 'cancelled' ? reason : null,
+      status === 'cancelled' ? at : null,
+      deliveryId,
+    );
+  }
+
   beginSymposiumCreationRecovery(input: SymposiumCreationRecoveryRequest): void {
     this.db!.transaction(() => {
       if (this.getSymposiumCreationRecovery(input) !== undefined) return;
+      // The pending recovery reserves the membership operation key before any
+      // physical cleanup. All competing membership writers use this same transaction.
+      if (
+        this.db!.prepare(
+          'SELECT 1 FROM symposium_membership WHERE session_id=? AND idempotency_key=?',
+        ).get(input.sessionId, input.idempotencyKey) ||
+        this.db!.prepare(
+          "SELECT 1 FROM symposium_creation_recoveries WHERE session_id=? AND json_extract(request_json,'$.idempotencyKey')=?",
+        ).get(input.sessionId, input.idempotencyKey)
+      )
+        throw new Error('Symposium recovery idempotency key was reused');
       const config = this.getActiveSymposiumConfig(input.sessionId);
       const member = this.getLatestSymposiumMembership(input.sessionId, input.seatId);
       const physical = this.getSymposiumSeatSandbox(
@@ -2749,17 +2815,12 @@ export class EventStore {
       this.db!.prepare(
         `UPDATE symposium_membership_reconciliation SET status='recovery_required' WHERE session_id=? AND seat_id=? AND generation=?`,
       ).run(input.sessionId, input.seatId, input.expectedGeneration);
-      // Cancel stale queued/retryable work atomically before any physical cleanup.
-      this.db!.prepare(
-        `UPDATE symposium_deliveries SET status='cancelled', cancellation_reason='seat creation recovery',cancelled_at=?,updated_at=?
-        WHERE session_id=? AND status IN ('awaiting_intervention','ready','delivering','failed','recovery_required') AND delivery_id IN
-        (SELECT delivery_id FROM symposium_delivery_recipients WHERE seat_id=?)`,
-      ).run(Date.now(), Date.now(), input.sessionId, input.seatId);
-      this.db!.prepare(
-        `UPDATE symposium_delivery_recipients SET status='cancelled',error='seat creation recovery',updated_at=?
-        WHERE seat_id=? AND status IN ('pending','executing','failed','recovery_required') AND delivery_id IN
-        (SELECT delivery_id FROM symposium_deliveries WHERE session_id=? AND status='cancelled')`,
-      ).run(Date.now(), input.seatId, input.sessionId);
+      this.cancelSymposiumSeatRecipients(
+        input.sessionId,
+        input.seatId,
+        'seat creation recovery',
+        Date.now(),
+      );
     }).immediate();
   }
 
@@ -2848,6 +2909,12 @@ export class EventStore {
         }
         return prior;
       }
+      if (
+        this.db!.prepare(
+          "SELECT 1 FROM symposium_creation_recoveries WHERE session_id=? AND result_json IS NULL AND json_extract(request_json,'$.idempotencyKey')=?",
+        ).get(input.sessionId, input.idempotencyKey)
+      )
+        throw new Error('Symposium membership idempotency key is reserved by creation recovery');
       // Recovery owns this seat generation until exact cleanup and rotation commit.
       // Revocation is also a generation transition; allowing it here would strand
       // the durable recovery even when admission/dispatch are already fenced.
@@ -2957,28 +3024,12 @@ export class EventStore {
         'pending',
       );
       if (!activating) {
-        // Durable revocation wins over queued approvals and execution claims.
-        this.db!.prepare(
-          `UPDATE symposium_deliveries SET status = 'cancelled',
-          cancellation_reason = 'recipient seat revoked', cancelled_at = ?, updated_at = ?
-          WHERE session_id = ? AND status IN ('awaiting_intervention','ready','delivering')
-          AND delivery_id IN (SELECT delivery_id FROM symposium_delivery_recipients WHERE seat_id = ?
-            AND status IN ('pending','executing'))`,
-        ).run(input.occurredAt, input.occurredAt, input.sessionId, input.seatId);
-        this.db!.prepare(
-          `UPDATE symposium_delivery_recipients SET status = 'cancelled', error = 'seat revoked', updated_at = ?
-          WHERE seat_id = ? AND status IN ('pending','executing') AND delivery_id IN
-          (SELECT delivery_id FROM symposium_deliveries WHERE session_id = ?)`,
-        ).run(input.occurredAt, input.seatId, input.sessionId);
-        this.db!.prepare(
-          `UPDATE symposium_recipient_attempts SET status = 'recovery_required',
-          error = 'seat revoked during execution', completed_at = ?, updated_at = ?
-          WHERE seat_id = ? AND status = 'executing' AND delivery_id IN
-          (SELECT delivery_id FROM symposium_deliveries WHERE session_id = ?)`,
-        ).run(input.occurredAt, input.occurredAt, input.seatId, input.sessionId);
-        this.db!.prepare(
-          `DELETE FROM symposium_seat_execution_claims WHERE session_id = ? AND seat_id = ?`,
-        ).run(input.sessionId, input.seatId);
+        this.cancelSymposiumSeatRecipients(
+          input.sessionId,
+          input.seatId,
+          'seat revoked',
+          input.occurredAt,
+        );
       }
       return this.getLatestSymposiumMembership(input.sessionId, input.seatId)!;
     }).immediate();
@@ -3546,6 +3597,7 @@ export class EventStore {
       const delivery = this.getSymposiumDelivery(deliveryId);
       if (!delivery) throw new Error('Unknown Symposium delivery');
       if (delivery.status !== 'ready') return false;
+      this.assertSymposiumArtifactWorkAllowed(delivery.sessionId);
       if (maxTurns !== undefined) {
         const reserved = this.db!.prepare(
           `SELECT
@@ -4061,16 +4113,7 @@ export class EventStore {
         this.db!.prepare(`DELETE FROM symposium_seat_execution_claims WHERE claim_token = ?`).run(
           input.claimToken,
         );
-        const remaining = this.db!.prepare(
-          `SELECT 1 FROM symposium_delivery_recipients
-           WHERE delivery_id = ? AND status != 'delivered' LIMIT 1`,
-        ).get(input.deliveryId);
-        if (!remaining) {
-          this.db!.prepare(
-            `UPDATE symposium_deliveries SET status = 'delivered', updated_at = ?
-             WHERE delivery_id = ? AND status = 'delivering'`,
-          ).run(input.updatedAt, input.deliveryId);
-        }
+        this.reconcileSymposiumDeliveryRecipients(input.deliveryId, input.updatedAt);
       }
       return this.getSymposiumDelivery(input.deliveryId)!;
     }).immediate();
