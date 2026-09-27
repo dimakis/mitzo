@@ -35,6 +35,7 @@ const artifact = {
   expectedArtifactRevision: Id,
   expectedArtifactHash: z.string().regex(/^[a-f0-9]{64}$/),
 };
+const StartApplicationRun = Start.extend({ limits: ApplicationPolicySchema, ...artifact });
 const Action = z.discriminatedUnion('action', [
   z.strictObject({ ...artifact, action: z.literal('stop') }),
   z.strictObject({
@@ -43,6 +44,7 @@ const Action = z.discriminatedUnion('action', [
     limits: ApplicationPolicySchema,
     reason: Id,
   }),
+  z.strictObject({ ...artifact, action: z.literal('initial') }),
   z.strictObject({ ...artifact, action: z.literal('review') }),
   z.strictObject({
     ...artifact,
@@ -54,7 +56,7 @@ const Action = z.discriminatedUnion('action', [
     ...artifact,
     action: z.literal('recover'),
     attemptId: Id,
-    kind: z.enum(['review', 'fix']),
+    kind: z.enum(['initial', 'review', 'fix']),
   }),
   z.strictObject({ ...artifact, action: z.literal('evidence'), evidenceId: Id }),
   z.strictObject({ ...artifact, action: z.literal('review-record') }),
@@ -115,6 +117,25 @@ export function createSymposiumReviewRouter(deps: {
       res
         .status(409)
         .json({ error: error instanceof Error ? error.message : 'Review unavailable' });
+    }
+  });
+  router.post('/application-runs', (req, res) => {
+    const input = StartApplicationRun.safeParse(req.body);
+    if (!input.success) {
+      res.status(400).json({ error: 'Invalid application run request' });
+      return;
+    }
+    const ctx = context((req.params as { id: string }).id);
+    try {
+      const result = new SymposiumReviewCoordinator(
+        deps.store,
+        deps.getHost(ctx.sessionId),
+      ).startApplicationRun(ctx, input.data);
+      res.status('kind' in result ? 409 : 200).json(result);
+    } catch (error) {
+      res
+        .status(409)
+        .json({ error: error instanceof Error ? error.message : 'Application run unavailable' });
     }
   });
   router.get('/records/:recordId', (req, res) => {
@@ -253,7 +274,9 @@ export function createSymposiumReviewRouter(deps: {
           }
           await host.dispatch(ctx, reservation);
         }
-        if (kind === 'fix') result = coordinator.recordFix(ctx, workflowId, attemptId);
+        if (kind === 'initial')
+          result = coordinator.recordInitialResult(ctx, workflowId, attemptId);
+        else if (kind === 'fix') result = coordinator.recordFix(ctx, workflowId, attemptId);
         else {
           const review = host.completedReview(ctx, attemptId);
           if (!review) {

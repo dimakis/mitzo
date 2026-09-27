@@ -72,6 +72,22 @@ const CreateSchema = z.strictObject({
   acceptanceCriteria: z.array(Id).min(1),
   limits: ReviewLimitsSchema,
 });
+const CreateApplicationRunSchema = CreateSchema.omit({ implementation: true }).extend({
+  initialArtifact: z.strictObject({ revision: Id, hash: Sha256 }),
+  limits: ApplicationPolicySchema,
+});
+const InitialResultSchema = z.strictObject({
+  workflowId: Id,
+  result: WorkResultSchema,
+  implementerSeatId: Id,
+  policyReservationId: Id,
+  operationId: Id,
+  usage: z.strictObject({
+    attemptId: Id,
+    tokens: z.number().int().nonnegative().nullable(),
+    costUsd: z.number().finite().nonnegative().nullable(),
+  }),
+});
 const UsageSchema = z.strictObject({
   attemptId: Id,
   tokens: z.number().int().nonnegative().nullable(),
@@ -159,6 +175,7 @@ type Finding = {
   disposition?: { actor: string; reason: string; evidenceRefs: string[] };
 };
 type WorkflowStatus =
+  | 'awaiting_initial'
   | 'awaiting_review'
   | 'awaiting_fix'
   | 'awaiting_delta_review'
@@ -181,7 +198,10 @@ type DecisionCode =
   | 'user_stop'
   | 'no_progress'
   | 'attempt_already_dispatched';
-type Workflow = Create & {
+type Workflow = Omit<Create, 'implementation'> & {
+  implementation: WorkResult | null;
+  initialArtifact?: { revision: string; hash: string };
+  initialResultRequestHash?: string;
   hostTurns: number;
   reviewCycles: number;
   applicationAttempts: Array<
@@ -198,7 +218,7 @@ type Workflow = Create & {
   progressSignatures: string[];
   artifactRevision: string;
   artifactHash: string;
-  currentResultId: string;
+  currentResultId: string | null;
   status: WorkflowStatus;
   decisionCode?: DecisionCode;
   reviewRounds: number;
@@ -470,6 +490,20 @@ export class SymposiumReviewStore {
 
   create(input: Create): Workflow {
     const parsed = CreateSchema.parse(input);
+    return this.insertWorkflow(parsed);
+  }
+
+  createApplicationRun(input: z.infer<typeof CreateApplicationRunSchema>): Workflow {
+    const parsed = CreateApplicationRunSchema.parse(input);
+    return this.insertWorkflow({ ...parsed, implementation: null });
+  }
+
+  private insertWorkflow(
+    parsed: Omit<Create, 'implementation'> & {
+      implementation: WorkResult | null;
+      initialArtifact?: { revision: string; hash: string };
+    },
+  ): Workflow {
     if (parsed.implementer.role !== 'coder')
       throw new Error('Implementer must be a coder selection');
     if (parsed.reviewer.role !== 'reviewer') throw new Error('Reviewer role is required');
@@ -482,10 +516,10 @@ export class SymposiumReviewStore {
       throw new Error('Acceptance criteria must be distinct');
     const state: Workflow = {
       ...parsed,
-      artifactRevision: parsed.implementation.artifactRevision,
-      artifactHash: parsed.implementation.artifactHash,
-      currentResultId: parsed.implementation.resultId,
-      status: 'awaiting_review',
+      artifactRevision: parsed.implementation?.artifactRevision ?? parsed.initialArtifact!.revision,
+      artifactHash: parsed.implementation?.artifactHash ?? parsed.initialArtifact!.hash,
+      currentResultId: parsed.implementation?.resultId ?? null,
+      status: parsed.implementation ? 'awaiting_review' : 'awaiting_initial',
       reviewRounds: 0,
       hostTurns: 0,
       reviewCycles: 0,
@@ -530,6 +564,17 @@ export class SymposiumReviewStore {
     input: Omit<Create, 'implementer' | 'reviewer'>,
     roles: { implementer: RoleAdmission; reviewer: RoleAdmission },
   ): Workflow {
+    return this.create({ ...input, ...this.admitRoles(roles) });
+  }
+
+  createApplicationRunWithPolicies(
+    input: Omit<z.infer<typeof CreateApplicationRunSchema>, 'implementer' | 'reviewer'>,
+    roles: { implementer: RoleAdmission; reviewer: RoleAdmission },
+  ): Workflow {
+    return this.createApplicationRun({ ...input, ...this.admitRoles(roles) });
+  }
+
+  private admitRoles(roles: { implementer: RoleAdmission; reviewer: RoleAdmission }) {
     const admitted = (role: RoleAdmission): z.infer<typeof SelectionSchema> => {
       const decision = resolveRoleExecution(role.policyInput);
       if (decision.kind !== 'selected')
@@ -548,11 +593,7 @@ export class SymposiumReviewStore {
         model: audit.actual.model,
       });
     };
-    return this.create({
-      ...input,
-      implementer: admitted(roles.implementer),
-      reviewer: admitted(roles.reviewer),
-    });
+    return { implementer: admitted(roles.implementer), reviewer: admitted(roles.reviewer) };
   }
 
   private requireArtifact(state: Workflow, revision: string, hash: string): void {
@@ -795,9 +836,12 @@ export class SymposiumReviewStore {
         }
         if (
           selectedKind === 'initial' &&
-          (state.status !== 'awaiting_review' ||
-            state.reviewCycles > 0 ||
-            state.applicationAttempts.some((a) => (a.effectiveKind ?? a.kind) === 'initial'))
+          (state.status !== 'awaiting_initial' ||
+            state.implementation !== null ||
+            (parsed.kind !== 'retry' &&
+              state.applicationAttempts.some(
+                (a) => (a.effectiveKind ?? a.kind) === 'initial' && (a.dispatched || !a.settled),
+              )))
         )
           throw new Error('Initial dispatch is not due');
         state.hostTurns++;
@@ -946,9 +990,54 @@ export class SymposiumReviewStore {
         if (attempt.terminalOutcome && attempt.terminalOutcome !== outcome)
           throw new Error('Terminal outcome conflict');
         attempt.terminalOutcome = outcome;
-        if (outcome !== 'completed' || (attempt.effectiveKind ?? attempt.kind) === 'initial')
-          attempt.settled = true;
+        if (outcome !== 'completed') attempt.settled = true;
         this.write(state, 'application_execution_terminal', { attemptId, operationId, outcome });
+      })
+      .immediate();
+  }
+
+  recordInitialResult(input: z.infer<typeof InitialResultSchema>): Workflow {
+    const parsed = InitialResultSchema.parse(input);
+    return this.db
+      .transaction(() => {
+        const state = this.read(parsed.workflowId);
+        const requestHash = digest(parsed);
+        if (state.initialResultRequestHash) {
+          if (state.initialResultRequestHash !== requestHash)
+            throw new Error('Initial result idempotency conflict');
+          return state;
+        }
+        if (
+          !isApplicationPolicy(state.limits) ||
+          state.implementation !== null ||
+          (state.status !== 'awaiting_initial' && state.policyResumeStatus !== 'awaiting_initial')
+        )
+          throw new Error('Initial result is not due');
+        const attempt = state.applicationAttempts.find(
+          (a) => a.attemptId === parsed.usage.attemptId,
+        );
+        if (
+          !attempt ||
+          (attempt.effectiveKind ?? attempt.kind) !== 'initial' ||
+          attempt.policyReservationId !== parsed.policyReservationId ||
+          attempt.operationId !== parsed.operationId ||
+          attempt.actorSeatId !== parsed.implementerSeatId ||
+          state.implementer.seatId !== parsed.implementerSeatId ||
+          attempt.artifactRevision !== parsed.result.inputRevision ||
+          attempt.artifactHash !== parsed.result.inputHash ||
+          parsed.result.attemptId !== parsed.usage.attemptId
+        )
+          throw new Error('Exact initial reservation and operation required');
+        this.requireArtifact(state, parsed.result.inputRevision, parsed.result.inputHash);
+        this.charge(state, parsed.usage);
+        state.implementation = parsed.result;
+        state.initialResultRequestHash = requestHash;
+        state.artifactRevision = parsed.result.artifactRevision;
+        state.artifactHash = parsed.result.artifactHash;
+        state.currentResultId = parsed.result.resultId;
+        if (state.decisionCode) state.policyResumeStatus = 'awaiting_review';
+        else state.status = 'awaiting_review';
+        return this.write(state, 'initial_result_recorded', parsed);
       })
       .immediate();
   }
@@ -1253,6 +1342,8 @@ export class SymposiumReviewStore {
     return this.db
       .transaction(() => {
         const state = this.read(workflowId);
+        if (state.implementation === null)
+          throw new Error('Initial implementation must complete first');
         if (
           [...state.reservations, ...state.applicationAttempts].some(
             (reservation) => !reservation.settled,

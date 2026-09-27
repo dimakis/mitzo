@@ -15,7 +15,7 @@ type Limits = Workflow['limits'];
 type Selection = Workflow['reviewer'];
 
 export type ReviewContext = { owner: string; sessionId: string };
-export type ReviewAttemptKind = 'review' | 'fix';
+export type ReviewAttemptKind = 'initial' | 'review' | 'fix';
 export type ReviewReceipt = {
   workflowId: string;
   attemptId: string;
@@ -43,7 +43,7 @@ export interface SymposiumReviewHost {
     context: ReviewContext;
     workflowId: string;
     attemptId: string;
-    kind: 'review' | 'fix' | 'delta';
+    kind: 'initial' | 'review' | 'fix' | 'delta';
     selection: Selection;
     artifactRevision: string;
     artifactHash: string;
@@ -56,9 +56,15 @@ export interface SymposiumReviewHost {
     reason: string,
   ): { authorizationId: string } | null;
   cancelApplicationAttempts?(context: ReviewContext, attempts: ApplicationAttempt[]): Promise<void>;
+  /** Trusted imported artifact before the first implementation turn. */
+  initialArtifact?(context: ReviewContext): { revision: string; hash: string };
+  /** Host-attested output from the exact completed initial native operation. */
+  initialResult?(context: ReviewContext, attemptId: string): WorkResult | null;
   completedImplementation(context: ReviewContext): WorkResult;
   currentArtifact(context: ReviewContext): { revision: string; hash: string };
   selectRoles(context: ReviewContext): Roles;
+  /** Exact application pins already validated by the trusted host against current config and authority. */
+  selectApplicationRoles?(context: ReviewContext): { implementer: Selection; reviewer: Selection };
   /** 'enforced' must mean native hard token/price caps, seat authority, and exact artifact
    * are bound to enforcementId. An estimate does not satisfy this contract.
    */
@@ -66,7 +72,7 @@ export interface SymposiumReviewHost {
     context: ReviewContext;
     workflowId: string;
     attemptId: string;
-    kind: ReviewAttemptKind;
+    kind: Exclude<ReviewAttemptKind, 'initial'>;
     selection: Selection;
     artifactRevision: string;
     artifactHash: string;
@@ -145,12 +151,77 @@ export class SymposiumReviewCoordinator {
       implementation.artifactHash !== artifact.hash
     )
       return decision('artifact_changed');
+    if (isApplicationPolicy(input.limits) && this.host.selectApplicationRoles) {
+      return this.store.create({
+        workflowId: input.workflowId,
+        ...context,
+        implementation,
+        acceptanceCriteria: input.acceptanceCriteria,
+        limits: input.limits,
+        ...this.host.selectApplicationRoles(context),
+      });
+    }
     return this.store.createWithPolicies(
       {
         workflowId: input.workflowId,
         owner: context.owner,
         sessionId: context.sessionId,
         implementation,
+        acceptanceCriteria: input.acceptanceCriteria,
+        limits: input.limits,
+      },
+      this.host.selectRoles(context),
+    );
+  }
+
+  startApplicationRun(
+    context: ReviewContext,
+    input: {
+      workflowId: string;
+      acceptanceCriteria: string[];
+      limits: ApplicationPolicy;
+      expectedArtifactRevision: string;
+      expectedArtifactHash: string;
+    },
+  ): Workflow | CoordinatorDecision {
+    if (!this.host?.initialArtifact) return decision('trusted_initial_host_unavailable');
+    const existing = this.store.get(input.workflowId);
+    if (existing) {
+      this.scoped(context, input.workflowId);
+      if (
+        !existing.initialArtifact ||
+        existing.initialArtifact.revision !== input.expectedArtifactRevision ||
+        existing.initialArtifact.hash !== input.expectedArtifactHash ||
+        JSON.stringify(existing.acceptanceCriteria) !== JSON.stringify(input.acceptanceCriteria) ||
+        JSON.stringify(existing.limits) !== JSON.stringify(input.limits)
+      )
+        throw new Error('Application run idempotency conflict');
+      return existing;
+    }
+    const initialArtifact = this.host.initialArtifact(context);
+    const current = this.host.currentArtifact(context);
+    if (
+      initialArtifact.revision !== input.expectedArtifactRevision ||
+      initialArtifact.hash !== input.expectedArtifactHash ||
+      current.revision !== initialArtifact.revision ||
+      current.hash !== initialArtifact.hash
+    )
+      return decision('artifact_changed');
+    if (this.host.selectApplicationRoles) {
+      return this.store.createApplicationRun({
+        workflowId: input.workflowId,
+        ...context,
+        initialArtifact,
+        acceptanceCriteria: input.acceptanceCriteria,
+        limits: input.limits,
+        ...this.host.selectApplicationRoles(context),
+      });
+    }
+    return this.store.createApplicationRunWithPolicies(
+      {
+        workflowId: input.workflowId,
+        ...context,
+        initialArtifact,
         acceptanceCriteria: input.acceptanceCriteria,
         limits: input.limits,
       },
@@ -219,6 +290,7 @@ export class SymposiumReviewCoordinator {
         artifactHash: state.artifactHash,
       };
     }
+    if (kind === 'initial') return decision('application_policy_required');
     const prepared = this.host.prepareAttempt({
       context,
       workflowId,
@@ -304,6 +376,50 @@ export class SymposiumReviewCoordinator {
       limits,
       reason,
       ...authorization,
+    });
+  }
+
+  recordInitialResult(
+    context: ReviewContext,
+    workflowId: string,
+    attemptId: string,
+  ): Workflow | CoordinatorDecision {
+    const state = this.scoped(context, workflowId);
+    if (!this.host) return decision('trusted_review_host_unavailable');
+    const receipt = this.host.receipt(context, attemptId);
+    const result = this.host.initialResult?.(context, attemptId);
+    const artifact = this.host.currentArtifact(context);
+    const attempt = state.applicationAttempts.find((a) => a.attemptId === attemptId);
+    if (
+      !receipt ||
+      !result ||
+      !isApplicationPolicy(state.limits) ||
+      receipt.terminal !== true ||
+      receipt.workflowId !== workflowId ||
+      receipt.attemptId !== attemptId ||
+      !this.matchesReservation(state, receipt) ||
+      receipt.kind !== 'initial' ||
+      receipt.actorSeatId !== state.implementer.seatId ||
+      !attempt ||
+      (attempt.effectiveKind ?? attempt.kind) !== 'initial' ||
+      receipt.artifactRevision !== attempt.artifactRevision ||
+      receipt.artifactHash !== attempt.artifactHash ||
+      !receipt.policyReservationId ||
+      !receipt.operationId ||
+      result.attemptId !== attemptId ||
+      result.inputRevision !== attempt.artifactRevision ||
+      result.inputHash !== attempt.artifactHash ||
+      result.artifactRevision !== artifact.revision ||
+      result.artifactHash !== artifact.hash
+    )
+      return decision('host_initial_receipt_required');
+    return this.store.recordInitialResult({
+      workflowId,
+      result,
+      implementerSeatId: receipt.actorSeatId,
+      policyReservationId: receipt.policyReservationId,
+      operationId: receipt.operationId,
+      usage: { attemptId, tokens: receipt.tokens, costUsd: receipt.costUsd },
     });
   }
 
