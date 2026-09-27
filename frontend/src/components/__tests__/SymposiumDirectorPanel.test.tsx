@@ -667,7 +667,7 @@ it('resumes a durable failed cleanup after remount using the retained operation 
   );
 });
 
-it.each(['reauthorization_required', 'cleanup_running'])(
+it.each(['reauthorization_required', 'cleanup_fenced'])(
   'distinguishes pending cleanup %s from lost physical custody',
   async (state) => {
     const initial = status(true);
@@ -693,9 +693,7 @@ it.each(['reauthorization_required', 'cleanup_running'])(
     render(<SymposiumDirectorPanel sessionId="session" />);
     await userEvent.click(screen.getByRole('button', { name: 'Director controls' }));
     await screen.findByText(
-      state === 'cleanup_running'
-        ? /Cleanup is still running/
-        : /Fresh app reauthorization is required/,
+      state === 'cleanup_fenced' ? /Cleanup is fenced/ : /Fresh app reauthorization is required/,
     );
     expect(screen.queryByText(/Exact retained creation proof is unavailable/)).toBeNull();
     expect(screen.queryByRole('button', { name: 'Clean up failed seat' })).toBeNull();

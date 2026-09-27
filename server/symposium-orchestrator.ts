@@ -183,7 +183,7 @@ export class SymposiumOrchestrator {
       operationId: authorization.operationId,
       revision: authorization.authorizationRevision,
       state: authorization.executing
-        ? 'cleanup_running'
+        ? 'cleanup_fenced'
         : authorization.actor === actor
           ? 'authorized'
           : 'reauthorization_required',
@@ -228,8 +228,18 @@ export class SymposiumOrchestrator {
             });
           return this.store.completeSymposiumCreationRecovery(claim.request, claim);
         } finally {
-          // Never timeout/unlock an in-flight stop. Process loss leaves this token fenced.
-          this.store.releaseSymposiumCreationRecovery(claim);
+          // A rejected local command can still finish remotely. Release only after
+          // durable terminal proof; process loss/uncertain cleanup remains fenced.
+          if (
+            this.store.getSymposiumSeatSandbox(
+              input.sessionId,
+              input.seatId,
+              input.expectedGeneration,
+            )?.state === 'stopped' &&
+            this.store.getUnsettledSymposiumSeatExecutions(input.sessionId, input.seatId).length ===
+              0
+          )
+            this.store.releaseSymposiumCreationRecovery(claim);
         }
       });
     const tail = work.then(

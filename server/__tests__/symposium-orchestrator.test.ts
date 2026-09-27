@@ -3252,6 +3252,15 @@ it.each(['before-stop', 'after-stop', 'none'] as const)(
       const getStatus = () => request(app).get('/api/sessions/chat/symposium');
       const resumedStatus = await getStatus();
       expect(resumedStatus.status).toBe(200);
+      if (failure === 'before-stop') {
+        expect(
+          resumedStatus.body.seats.find((seat: { seatId: string }) => seat.seatId === 'builder')
+            .creationDiagnostic,
+        ).toMatchObject({ canCleanup: false, recoveryAuthorization: { state: 'cleanup_fenced' } });
+        expect((await post()).status).toBe(409);
+        expect(stop).toHaveBeenCalledOnce();
+        return;
+      }
       const resumeKey = resumedStatus.body.seats.find(
         (seat: { seatId: string }) => seat.seatId === 'builder',
       ).creationDiagnostic.recoveryIdempotencyKey;
@@ -3364,6 +3373,10 @@ it.each(['suspend', 'remove'] as const)(
           first = false;
           entered();
           await stopped;
+          store.confirmSymposiumSeatSandboxStopped({
+            ...physical,
+            physicalId: 'physical-reviewer',
+          });
           throw Error('cleanup response unavailable');
         }
         store.confirmSymposiumSeatSandboxStopped({ ...physical, physicalId: 'physical-reviewer' });
@@ -3918,7 +3931,7 @@ it('retains a durable execution claim across reopen and refuses handoff, includi
   }
 });
 
-it('reauthorizes after a settled failed stop, resumes the original request and returns the immutable result without repeating physical cleanup', async () => {
+it('reauthorizes after a confirmed stop despite completion failure, resumes the original request and returns the immutable result without repeating physical cleanup', async () => {
   const { input, handoff, physical } = pendingCreation();
   let retained = true;
   let release!: () => void;
@@ -3926,7 +3939,8 @@ it('reauthorizes after a settled failed stop, resumes the original request and r
     await new Promise<void>((r) => {
       release = r;
     });
-    throw new Error('settled uncertain stop');
+    store.confirmSymposiumSeatSandboxStopped({ ...physical, physicalId: 'physical' });
+    throw new Error('completion persistence failed');
   });
   const host = new SymposiumOrchestrator({
     store,
@@ -3945,7 +3959,7 @@ it('reauthorizes after a settled failed stop, resumes the original request and r
   expect(() => other.reauthorizeSymposiumCreationRecovery(handoff)).toThrow(/execut/i);
   other.close();
   release();
-  await expect(stopping).rejects.toThrow('settled uncertain stop');
+  await expect(stopping).rejects.toThrow('completion persistence failed');
   retained = false;
   await expect(host.reauthorizeCreationRecovery(handoff)).rejects.toThrow();
   retained = true;
@@ -3976,7 +3990,14 @@ it('requires actual fresh app reauthorization, same-origin JSON and CSRF for the
     } as never),
   );
   const token = (await login('test-passphrase-for-vitest'))!;
-  const { actor: _actor, sessionId: _session, ...scope } = handoff;
+  const scope = {
+    seatId: handoff.seatId,
+    expectedRevision: handoff.expectedRevision,
+    expectedGeneration: handoff.expectedGeneration,
+    operationId: handoff.operationId,
+    expectedAuthorizationRevision: handoff.expectedAuthorizationRevision,
+    idempotencyKey: handoff.idempotencyKey,
+  };
   const body = { ...scope, confirmation: 'RESUME FAILED SEAT CLEANUP' };
   const post = (csrf = '', origin?: string) => {
     const call = request(app)
@@ -3995,6 +4016,25 @@ it('requires actual fresh app reauthorization, same-origin JSON and CSRF for the
   expect(auth.status).toBe(200);
   expect((await post(auth.body.csrf, 'https://foreign.example')).status).toBe(403);
   expect(apply).not.toHaveBeenCalled();
+  expect(
+    (
+      await request(app)
+        .post('/api/sessions/chat/symposium/creation/recovery/reauthorize')
+        .set('Authorization', `Bearer ${token}`)
+        .set('x-csrf-token', auth.body.csrf)
+        .send({ ...body, actor: 'operator:old' })
+    ).status,
+  ).toBe(400);
+  expect(
+    (
+      await request(app)
+        .post('/api/sessions/chat/symposium/creation/recovery/reauthorize')
+        .set('Authorization', `Bearer ${token}`)
+        .set('x-csrf-token', auth.body.csrf)
+        .type('text')
+        .send('RESUME FAILED SEAT CLEANUP')
+    ).status,
+  ).toBe(415);
   expect((await post(auth.body.csrf)).status).toBe(200);
   expect(apply).toHaveBeenCalledWith(
     expect.objectContaining({
@@ -4042,4 +4082,37 @@ it('rechecks fresh authorization after waiting for physical cleanup and preserve
   expect(store.getSymposiumSeatSandbox('chat', 'builder', 1)?.state).toBe('stopped');
   expect((await host.recoverCreation(input)).state).toBe('suspended');
   expect(stop).toHaveBeenCalledOnce();
+});
+
+it('keeps an uncertain cleanup fenced after local timeout and late physical completion', async () => {
+  const { input, handoff, physical } = pendingCreation();
+  const stop = vi.fn(async () => {
+    throw new Error('remote command timed out');
+  });
+  const host = new SymposiumOrchestrator({
+    store,
+    executors: {},
+    stopSeat: stop,
+    creationRecovery: {
+      diagnostic: () => ({ phase: 'upload', code: 'SEAT_UPLOAD_FAILED', canCleanup: true }),
+      assertRetained: () => {},
+    },
+  });
+  await expect(host.recoverCreation(input)).rejects.toThrow('remote command timed out');
+  const other = new EventStore(dbPath);
+  try {
+    expect(() => other.reauthorizeSymposiumCreationRecovery(handoff)).toThrow(/execut/i);
+    await expect(host.recoverCreation(input)).rejects.toThrow(/execut/i);
+    expect(host.creationDiagnostic('chat', 'builder', 'operator:new')).toMatchObject({
+      canCleanup: false,
+      recoveryAuthorization: { state: 'cleanup_fenced' },
+    });
+    // A late observed physical stop is preserved, but is not an automatic unlock.
+    store.confirmSymposiumSeatSandboxStopped({ ...physical, physicalId: 'physical' });
+    expect(() => other.reauthorizeSymposiumCreationRecovery(handoff)).toThrow(/execut/i);
+    expect(other.getSymposiumSeatSandbox('chat', 'builder', 1)?.state).toBe('stopped');
+    expect(stop).toHaveBeenCalledOnce();
+  } finally {
+    other.close();
+  }
 });

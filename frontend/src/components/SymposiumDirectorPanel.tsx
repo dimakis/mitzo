@@ -24,7 +24,7 @@ interface DirectorSeat {
     recoveryAuthorization?: {
       operationId: string;
       revision: number;
-      state: 'reauthorization_required' | 'cleanup_running' | 'authorized';
+      state: 'reauthorization_required' | 'cleanup_fenced' | 'authorized';
     };
   } | null;
   admission?: Pick<
@@ -810,14 +810,13 @@ function SessionDirectorPanel({
                           'reauthorization_required' ? (
                           <p>
                             Fresh app reauthorization is required to resume this pending cleanup.
-                            The scoped operator recovery API is available; this screen does not yet
-                            transfer authorization.
+                            This screen cannot transfer cleanup authorization yet.
                           </p>
                         ) : seat.creationDiagnostic.recoveryAuthorization?.state ===
-                          'cleanup_running' ? (
+                          'cleanup_fenced' ? (
                           <p>
-                            Cleanup is still running. Refresh status after it settles; do not retry
-                            or transfer authorization.
+                            Cleanup is fenced: physical work may still be running or its outcome is
+                            uncertain. Automatic retry and authorization transfer are unavailable.
                           </p>
                         ) : (
                           <p>

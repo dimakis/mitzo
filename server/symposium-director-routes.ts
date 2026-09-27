@@ -779,7 +779,14 @@ export function createSymposiumDirectorRouter(deps: SymposiumDirectorRouteDeps):
         throw new Error('Recent reauthorization required');
     };
     try {
-      const { confirmation: _confirmation, ...scope } = parsed.data;
+      const scope = {
+        seatId: parsed.data.seatId,
+        expectedRevision: parsed.data.expectedRevision,
+        expectedGeneration: parsed.data.expectedGeneration,
+        operationId: parsed.data.operationId,
+        expectedAuthorizationRevision: parsed.data.expectedAuthorizationRevision,
+        idempotencyKey: parsed.data.idempotencyKey,
+      };
       res.json(
         await runtime.reauthorizeCreationRecovery(
           {
