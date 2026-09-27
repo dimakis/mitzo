@@ -173,3 +173,106 @@ it('serializes lifecycle-before-seal and seal-before-new-work across independent
   expect(() => second.assertSymposiumArtifactWorkAllowed('symposium')).toThrow(/fenced/);
   second.assertSymposiumArtifactWorkAllowed('other-session');
 });
+it('admits only a confirmed exact successor and preserves parent seal history', () => {
+  const { first, second } = fixture();
+  first.transitionSymposiumMembership({
+    sessionId: 'symposium',
+    seatId: seat.id,
+    action: 'admit',
+    expectedGeneration: 0,
+    configRevision: 4,
+    actor: 'owner',
+    reason: 'initial',
+    idempotencyKey: 'initial',
+    occurredAt: 1,
+  });
+  first.markSymposiumMembershipReconciled('symposium', seat.id, 1, 'confirmed');
+  const sandbox = {
+    sessionId: 'symposium',
+    seatId: seat.id,
+    generation: 1,
+    runtimeId: 'parent-runtime',
+    workspace: 'workspace',
+    providerName: 'provider',
+    providerId: 'provider-id',
+    providerType: 'openai',
+    model: seat.model,
+  };
+  first.reserveSymposiumSeatSandbox(sandbox);
+  first.confirmAbsentSymposiumSeatSandboxStopped(sandbox);
+  const parent = first.beginSymposiumArtifactSeal(selection);
+  const binding = {
+    version: 1 as const,
+    transitionId: 'transition',
+    operationId: 'copy',
+    sessionId: 'symposium',
+    workspaceId: 'workspace',
+    custodyDigest: 'a'.repeat(64),
+    parentGenerationId: 'generation-1',
+    parentFenceId: parent.fenceId,
+    parentSealDigest: 'c'.repeat(64),
+    childGenerationId: 'generation-2',
+    childVolumeName: 'child-volume',
+    copyReceiptDigest: 'd'.repeat(64),
+    expectedPointerRevision: 0,
+    activatedPointerRevision: 1,
+    workflowId: 'workflow',
+    fixAttemptId: 'fix',
+    policyReservationId: 'reservation',
+    seatId: seat.id,
+    actor: 'owner',
+    expectedConfigRevision: 4,
+    resultingConfigRevision: 5,
+    predecessorMembershipGeneration: 1,
+    successorMembershipGeneration: 2,
+    accountBinding: seat.accountBinding,
+    profileBinding: seat.profileBinding,
+    contextGrant: { grantId: seat.contextGrant.grantId, revision: 1 },
+    authorityGrant: { grantId: seat.authorityGrant.grantId, revision: 1 },
+    findingFingerprints: ['e'.repeat(64)],
+  };
+  const intent = first.beginSymposiumArtifactAdmission(binding, () => true);
+  expect(() => second.assertSymposiumArtifactWorkAllowed('symposium', intent.reference)).toThrow();
+  const receipt = {
+    version: 1 as const,
+    transitionId: binding.transitionId,
+    bindingDigest: intent.reference.bindingDigest,
+    sessionId: binding.sessionId,
+    parentGenerationId: binding.parentGenerationId,
+    childGenerationId: binding.childGenerationId,
+    childVolumeName: binding.childVolumeName,
+    expectedPointerRevision: 0,
+    pointerRevision: 1,
+    copyReceiptDigest: binding.copyReceiptDigest,
+  };
+  expect(() =>
+    second.confirmSymposiumArtifactAdmission(
+      binding,
+      { ...receipt, pointerRevision: 2 },
+      () => true,
+    ),
+  ).toThrow();
+  second.confirmSymposiumArtifactAdmission(binding, receipt, () => true);
+  expect(first.getLatestSymposiumMembership('symposium', seat.id)).toMatchObject({
+    action: 'artifact_successor',
+    generation: 2,
+    configRevision: 5,
+  });
+  first.assertSymposiumArtifactWorkAllowed('symposium', intent.reference);
+  expect(() => first.assertSymposiumArtifactWorkAllowed('symposium')).toThrow();
+  expect(first.getSymposiumArtifactReference('symposium', seat.id, 1)).toBeNull();
+  expect(first.getSymposiumArtifactReference('symposium', seat.id, 2)).toEqual(intent.reference);
+  first.beginSymposiumArtifactSeal({
+    ...selection,
+    expectedConfigRevision: 5,
+    idempotencyKey: 'child-seal',
+    artifact: {
+      ...selection.artifact,
+      volumeName: 'child-volume',
+      volumeGeneration: 'generation-2',
+    },
+  });
+  expect(first.getSymposiumArtifactSealIntent('symposium', 'generation-1')).toEqual(parent);
+  expect(() => first.getSymposiumArtifactSealIntent('symposium')).toThrow(/ambiguous/i);
+  expect(() => first.assertSymposiumArtifactWorkAllowed('symposium', intent.reference)).toThrow();
+});

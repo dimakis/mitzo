@@ -1,3 +1,13 @@
+import {
+  ArtifactAdmissionBindingV1Schema,
+  ArtifactAdmissionReferenceV1Schema,
+  ArtifactActivationReceiptV1Schema,
+  artifactAdmissionDigest,
+  artifactAdmissionReference,
+  type ArtifactAdmissionBindingV1,
+  type ArtifactAdmissionReferenceV1,
+  type ArtifactActivationReceiptV1,
+} from './symposium-artifact-admission.js';
 import Database from 'better-sqlite3';
 import { createHash, randomUUID } from 'node:crypto';
 import {
@@ -1067,6 +1077,20 @@ export class EventStore {
           db.exec(`UPDATE ${table} SET cost_known = 1 WHERE cost_usd > 0`);
         }
       }
+      const sealColumns = db
+        .prepare('PRAGMA table_info(symposium_artifact_seal_intents)')
+        .all() as Array<{ name: string }>;
+      if (!sealColumns.some((column) => column.name === 'volume_generation')) {
+        db.exec(`ALTER TABLE symposium_artifact_seal_intents RENAME TO symposium_artifact_seal_intents_legacy;
+          CREATE TABLE symposium_artifact_seal_intents (
+            session_id TEXT NOT NULL, volume_generation TEXT NOT NULL, fence_id TEXT NOT NULL UNIQUE,
+            selection_json TEXT NOT NULL, intent_json TEXT NOT NULL, PRIMARY KEY(session_id,volume_generation));
+          INSERT INTO symposium_artifact_seal_intents SELECT session_id,json_extract(selection_json,'$.artifact.volumeGeneration'),fence_id,selection_json,intent_json FROM symposium_artifact_seal_intents_legacy;
+          DROP TABLE symposium_artifact_seal_intents_legacy;`);
+      }
+      db.exec(`CREATE TABLE IF NOT EXISTS symposium_artifact_admissions (
+        transition_id TEXT PRIMARY KEY, session_id TEXT NOT NULL, child_generation TEXT NOT NULL UNIQUE,
+        binding_json TEXT NOT NULL, receipt_json TEXT, UNIQUE(session_id,transition_id));`);
       const recipientColumns = db
         .prepare("PRAGMA table_info('symposium_delivery_recipients')")
         .all() as Array<{ name: string }>;
@@ -2323,8 +2347,9 @@ export class EventStore {
       throw new Error('Artifact seal requires durable SQLite synchronization');
     return this.db!.transaction(() => {
       const existing = this.db!.prepare(
-        'SELECT selection_json, intent_json FROM symposium_artifact_seal_intents WHERE session_id=?',
-      ).get(selection.sessionId) as { selection_json: string; intent_json: string } | undefined;
+        'SELECT selection_json, intent_json FROM symposium_artifact_seal_intents WHERE session_id=? AND volume_generation=?',
+      ).get(selection.sessionId, selection.artifact.volumeGeneration) as
+        { selection_json: string; intent_json: string } | undefined;
       if (existing) {
         if (existing.selection_json !== selectionJson)
           throw new Error('Artifact seal intent identity changed');
@@ -2370,8 +2395,9 @@ export class EventStore {
         memberships,
         capturedAt: Date.now(),
       };
-      this.db!.prepare('INSERT INTO symposium_artifact_seal_intents VALUES(?,?,?,?)').run(
+      this.db!.prepare('INSERT INTO symposium_artifact_seal_intents VALUES(?,?,?,?,?)').run(
         selection.sessionId,
+        selection.artifact.volumeGeneration,
         intent.fenceId,
         selectionJson,
         JSON.stringify(intent),
@@ -2380,10 +2406,20 @@ export class EventStore {
     }).immediate();
   }
 
-  getSymposiumArtifactSealIntent(sessionId: string): SymposiumArtifactSealIntent | null {
+  getSymposiumArtifactSealIntent(
+    sessionId: string,
+    generation?: string,
+  ): SymposiumArtifactSealIntent | null {
+    const rows = this.db!.prepare(
+      'SELECT intent_json FROM symposium_artifact_seal_intents WHERE session_id=? AND (? IS NULL OR volume_generation=?)',
+    ).all(sessionId, generation ?? null, generation ?? null) as Array<{ intent_json: string }>;
+    if (rows.length > 1) throw new Error('Ambiguous artifact seal; exact generation required');
+    return rows[0] ? (JSON.parse(rows[0].intent_json) as SymposiumArtifactSealIntent) : null;
+  }
+  getSymposiumArtifactSealByFence(fenceId: string): SymposiumArtifactSealIntent | null {
     const row = this.db!.prepare(
-      'SELECT intent_json FROM symposium_artifact_seal_intents WHERE session_id=?',
-    ).get(sessionId) as { intent_json: string } | undefined;
+      'SELECT intent_json FROM symposium_artifact_seal_intents WHERE fence_id=?',
+    ).get(fenceId) as { intent_json: string } | undefined;
     return row ? (JSON.parse(row.intent_json) as SymposiumArtifactSealIntent) : null;
   }
 
@@ -2393,7 +2429,10 @@ export class EventStore {
    */
   withSymposiumArtifactSealSnapshot(intent: SymposiumArtifactSealIntent, action: () => void): void {
     this.db!.transaction(() => {
-      const current = this.getSymposiumArtifactSealIntent(intent.selection.sessionId);
+      const current = this.getSymposiumArtifactSealIntent(
+        intent.selection.sessionId,
+        intent.selection.artifact.volumeGeneration,
+      );
       const digest = (value: unknown) =>
         createHash('sha256').update(JSON.stringify(value)).digest('hex');
       const memberships = [
@@ -2421,14 +2460,220 @@ export class EventStore {
     }).immediate();
   }
 
+  /** Trusted host only. Proof must verify retained completed parent, copy and current policy authority. */
+  beginSymposiumArtifactAdmission(
+    input: ArtifactAdmissionBindingV1,
+    assertAuthority: (binding: ArtifactAdmissionBindingV1) => true,
+  ) {
+    const binding = ArtifactAdmissionBindingV1Schema.parse(input);
+    this.db!.pragma('synchronous = FULL');
+    return this.db!.transaction(() => {
+      if (assertAuthority(binding) !== true) throw new Error('Successor authority required');
+      const existing = this.getSymposiumArtifactAdmission(binding.sessionId, binding.transitionId);
+      if (existing) {
+        if (artifactAdmissionDigest(existing.binding) !== artifactAdmissionDigest(binding))
+          throw new Error('Successor intent identity conflict');
+        return existing;
+      }
+      this.assertSymposiumArtifactPredecessor(binding);
+      if (
+        this.db!.prepare(
+          'SELECT 1 FROM symposium_artifact_admissions WHERE session_id=? AND receipt_json IS NULL',
+        ).get(binding.sessionId)
+      )
+        throw new Error('Successor transition is pending');
+      this.db!.prepare('INSERT INTO symposium_artifact_admissions VALUES(?,?,?,?,NULL)').run(
+        binding.transitionId,
+        binding.sessionId,
+        binding.childGenerationId,
+        JSON.stringify(binding),
+      );
+      return this.getSymposiumArtifactAdmission(binding.sessionId, binding.transitionId)!;
+    }).immediate();
+  }
+  private assertSymposiumArtifactPredecessor(binding: ArtifactAdmissionBindingV1): void {
+    const config = this.getActiveSymposiumConfig(binding.sessionId);
+    const seat = config.seats.find((candidate) => candidate.id === binding.seatId);
+    const member = this.getLatestSymposiumMembership(binding.sessionId, binding.seatId);
+    const parent = this.getSymposiumArtifactSealByFence(binding.parentFenceId);
+    const sandbox = this.getSymposiumSeatSandbox(
+      binding.sessionId,
+      binding.seatId,
+      binding.predecessorMembershipGeneration,
+    );
+    if (
+      config.version !== 2 ||
+      config.revision !== binding.expectedConfigRevision ||
+      !seat ||
+      !parent ||
+      parent.selection.sessionId !== binding.sessionId ||
+      parent.selection.artifact.volumeGeneration !== binding.parentGenerationId ||
+      parent.selection.custody.workspaceId !== binding.workspaceId ||
+      parent.selection.custody.gatewayLaunchDigest !== binding.custodyDigest ||
+      member?.generation !== binding.predecessorMembershipGeneration ||
+      member.state !== 'active' ||
+      member.reconciliation !== 'confirmed' ||
+      sandbox?.state !== 'stopped' ||
+      artifactAdmissionDigest(seat.accountBinding) !==
+        artifactAdmissionDigest(binding.accountBinding) ||
+      artifactAdmissionDigest(seat.profileBinding) !==
+        artifactAdmissionDigest(binding.profileBinding) ||
+      seat.contextGrant?.grantId !== binding.contextGrant.grantId ||
+      seat.contextGrant.revision !== binding.contextGrant.revision ||
+      seat.authorityGrant?.grantId !== binding.authorityGrant.grantId ||
+      seat.authorityGrant.revision !== binding.authorityGrant.revision ||
+      this.listUnstoppedSymposiumSeatSandboxes(binding.sessionId).length ||
+      config.seats.some(
+        (value) => this.getUnsettledSymposiumSeatExecutions(binding.sessionId, value.id).length,
+      )
+    )
+      throw new Error('Exact retired successor predecessor required');
+    this.withSymposiumArtifactSealSnapshot(parent, () => {});
+  }
+  confirmSymposiumArtifactAdmission(
+    input: ArtifactAdmissionBindingV1,
+    value: ArtifactActivationReceiptV1,
+    assertAuthority: (
+      binding: ArtifactAdmissionBindingV1,
+      receipt: ArtifactActivationReceiptV1,
+    ) => true,
+  ) {
+    const binding = ArtifactAdmissionBindingV1Schema.parse(input),
+      receipt = ArtifactActivationReceiptV1Schema.parse(value);
+    return this.db!.transaction(() => {
+      if (assertAuthority(binding, receipt) !== true)
+        throw new Error('Successor activation proof required');
+      const existing = this.getSymposiumArtifactAdmission(binding.sessionId, binding.transitionId);
+      if (
+        !existing ||
+        artifactAdmissionDigest(existing.binding) !== artifactAdmissionDigest(binding) ||
+        receipt.bindingDigest !== artifactAdmissionDigest(binding) ||
+        receipt.transitionId !== binding.transitionId ||
+        receipt.sessionId !== binding.sessionId ||
+        receipt.parentGenerationId !== binding.parentGenerationId ||
+        receipt.childGenerationId !== binding.childGenerationId ||
+        receipt.childVolumeName !== binding.childVolumeName ||
+        receipt.expectedPointerRevision !== binding.expectedPointerRevision ||
+        receipt.pointerRevision !== binding.activatedPointerRevision ||
+        receipt.copyReceiptDigest !== binding.copyReceiptDigest
+      )
+        throw new Error('Successor activation receipt mismatch');
+      if (existing.receipt) {
+        if (artifactAdmissionDigest(existing.receipt) !== artifactAdmissionDigest(receipt))
+          throw new Error('Successor receipt changed');
+        return existing;
+      }
+      this.assertSymposiumArtifactPredecessor(binding);
+      const config = this.getActiveSymposiumConfig(binding.sessionId);
+      const previous = this.getLatestSymposiumMembership(binding.sessionId, binding.seatId)!;
+      const changed = this.db!.prepare(
+        'UPDATE sessions SET symposium_config=?,symposium_revision=? WHERE session_id=? AND symposium_revision=?',
+      ).run(
+        JSON.stringify({ ...config, revision: binding.resultingConfigRevision }),
+        binding.resultingConfigRevision,
+        binding.sessionId,
+        binding.expectedConfigRevision,
+      );
+      if (changed.changes !== 1) throw new Error('Successor configuration CAS failed');
+      this.db!.prepare(
+        `INSERT INTO symposium_membership(session_id,seat_id,generation,state,action,config_revision,binding_key,actor,reason,idempotency_key,occurred_at,replaces_seat_id,replaced_by_seat_id) VALUES(?,?,?,'active','artifact_successor',?,?,?,?,?,?,NULL,NULL)`,
+      ).run(
+        binding.sessionId,
+        binding.seatId,
+        binding.successorMembershipGeneration,
+        binding.resultingConfigRevision,
+        previous.bindingKey,
+        binding.actor,
+        'Verified artifact successor',
+        binding.transitionId,
+        Date.now(),
+      );
+      this.db!.prepare('INSERT INTO symposium_membership_reconciliation VALUES(?,?,?,?)').run(
+        binding.sessionId,
+        binding.seatId,
+        binding.successorMembershipGeneration,
+        'confirmed',
+      );
+      this.db!.prepare(
+        'UPDATE symposium_artifact_admissions SET receipt_json=? WHERE transition_id=? AND receipt_json IS NULL',
+      ).run(JSON.stringify(receipt), binding.transitionId);
+      return this.getSymposiumArtifactAdmission(binding.sessionId, binding.transitionId)!;
+    }).immediate();
+  }
+  getSymposiumArtifactAdmission(sessionId: string, transitionId: string) {
+    const row = this.db!.prepare(
+      'SELECT binding_json,receipt_json FROM symposium_artifact_admissions WHERE session_id=? AND transition_id=?',
+    ).get(sessionId, transitionId) as
+      { binding_json: string; receipt_json: string | null } | undefined;
+    if (!row) return null;
+    const binding = ArtifactAdmissionBindingV1Schema.parse(JSON.parse(row.binding_json));
+    return {
+      binding,
+      reference: artifactAdmissionReference(binding),
+      receipt: row.receipt_json
+        ? ArtifactActivationReceiptV1Schema.parse(JSON.parse(row.receipt_json))
+        : null,
+    };
+  }
+  getSymposiumArtifactReference(
+    sessionId: string,
+    seatId: string,
+    generation: number,
+  ): ArtifactAdmissionReferenceV1 | null {
+    const rows = this.db!.prepare(
+      'SELECT transition_id FROM symposium_artifact_admissions WHERE session_id=? AND receipt_json IS NOT NULL',
+    ).all(sessionId) as Array<{ transition_id: string }>;
+    for (const row of rows) {
+      const record = this.getSymposiumArtifactAdmission(sessionId, row.transition_id)!;
+      if (
+        record.binding.seatId === seatId &&
+        record.binding.successorMembershipGeneration === generation
+      )
+        return record.reference;
+    }
+    return null;
+  }
+  assertSymposiumArtifactAdmissionCurrent(
+    sessionId: string,
+    value: ArtifactAdmissionReferenceV1,
+  ): ArtifactAdmissionBindingV1 {
+    const reference = ArtifactAdmissionReferenceV1Schema.parse(value);
+    const record = this.getSymposiumArtifactAdmission(sessionId, reference.transitionId);
+    if (
+      !record?.receipt ||
+      artifactAdmissionDigest(record.reference) !== artifactAdmissionDigest(reference)
+    )
+      throw new Error('Confirmed successor binding required');
+    const binding = record.binding,
+      config = this.getActiveSymposiumConfig(sessionId),
+      member = this.getLatestSymposiumMembership(sessionId, binding.seatId);
+    if (
+      config.revision !== binding.resultingConfigRevision ||
+      member?.generation !== binding.successorMembershipGeneration ||
+      member.state !== 'active' ||
+      member.reconciliation !== 'confirmed'
+    )
+      throw new Error('Successor current binding changed');
+    return binding;
+  }
+
   /** Session-wide denial includes readers until a later reviewed sealed-reader adapter exists. */
-  assertSymposiumArtifactWorkAllowed(sessionId: string): void {
+  assertSymposiumArtifactWorkAllowed(
+    sessionId: string,
+    artifact?: ArtifactAdmissionReferenceV1 | null,
+  ): void {
     if (
       this.db!.prepare(
         'SELECT 1 FROM symposium_creation_recoveries WHERE session_id=? AND result_json IS NULL',
       ).get(sessionId)
     )
       throw new Error('Symposium creation cleanup is pending; new seat work is fenced');
+    if (artifact) {
+      this.assertSymposiumArtifactAdmissionCurrent(sessionId, artifact);
+      if (this.getSymposiumArtifactSealIntent(sessionId, artifact.artifactGenerationId))
+        throw new Error('Symposium artifact seal is pending; new seat work is fenced');
+      return;
+    }
     if (
       this.db!.prepare('SELECT 1 FROM symposium_artifact_seal_intents WHERE session_id=?').get(
         sessionId,
@@ -3166,6 +3411,8 @@ export class EventStore {
       const previous = this.getLatestSymposiumMembership(input.sessionId, input.seatId);
       if ((previous?.generation ?? 0) !== input.expectedGeneration)
         throw new Error('Symposium membership generation conflict');
+      if (input.action === 'artifact_successor')
+        throw new Error('Artifact successor requires internal confirmed admission');
       const activating =
         input.action === 'admit' || input.action === 'restore' || input.action === 'replace';
       if (activating) this.assertSymposiumArtifactWorkAllowed(input.sessionId);

@@ -1,3 +1,4 @@
+import { ArtifactAdmissionReferenceV1Schema } from './symposium-artifact-admission.js';
 import { z } from 'zod';
 import { AccountBindingSchema, AccountProviderSchema } from './account-binding.js';
 
@@ -20,7 +21,8 @@ export type SymposiumRecipientStatus =
   'pending' | 'executing' | 'delivered' | 'failed' | 'cancelled' | 'recovery_required';
 export type SymposiumMembershipState = 'active' | 'suspended' | 'removed';
 export type SymposiumReconciliationStatus = 'pending' | 'confirmed' | 'recovery_required';
-export type SymposiumMembershipAction = 'admit' | 'suspend' | 'remove' | 'restore' | 'replace';
+export type SymposiumMembershipAction =
+  'admit' | 'suspend' | 'remove' | 'restore' | 'replace' | 'artifact_successor';
 
 /** Every transition is immutable; generation fences work already staged for this seat. */
 export interface SymposiumMembershipRecord {
@@ -145,7 +147,12 @@ export const SymposiumProvenanceV2Schema = LegacySymposiumProvenanceSchema.exten
     revision: z.number().int().positive(),
   }),
 });
+export const SymposiumProvenanceV3Schema = SymposiumProvenanceV2Schema.extend({
+  version: z.literal(3),
+  artifact: ArtifactAdmissionReferenceV1Schema,
+});
 export const SymposiumProvenanceSchema = z.union([
+  SymposiumProvenanceV3Schema,
   SymposiumProvenanceV2Schema,
   LegacySymposiumProvenanceSchema,
 ]);
