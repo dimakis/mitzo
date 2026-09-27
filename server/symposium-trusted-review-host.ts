@@ -141,7 +141,7 @@ export function createSymposiumTrustedReviewHost(
       throw new Error('Application review workflow not found');
     return state;
   };
-  const selected = (context: ReviewContext, seatId: string) => {
+  const selected = (context: ReviewContext, seatId: string, allowUnadmittedSource = false) => {
     const config = deps.events.getActiveSymposiumConfig(context.sessionId);
     const seat = config?.seats.find((s) => s.id === seatId);
     const membership = deps.events.getLatestSymposiumMembership(context.sessionId, seatId);
@@ -156,9 +156,10 @@ export function createSymposiumTrustedReviewHost(
       !seat.contextGrant ||
       membership?.state !== 'active' ||
       membership.reconciliation !== 'confirmed' ||
-      admission?.decision !== 'admitted' ||
-      admission.membershipGeneration !== membership.generation ||
-      admission.configRevision !== config.revision
+      (!allowUnadmittedSource &&
+        (admission?.decision !== 'admitted' ||
+          admission.membershipGeneration !== membership.generation ||
+          admission.configRevision !== config.revision))
     )
       throw new Error('Selected review seat is not currently admitted');
     deps.grants.verifySeat({
@@ -174,8 +175,10 @@ export function createSymposiumTrustedReviewHost(
     context: ReviewContext,
     seatId: string,
     role: 'coder' | 'reviewer',
+    allowUnadmittedSource = false,
   ): Selection => {
-    const { config, seat, membership } = selected(context, seatId);
+    if (allowUnadmittedSource) deps.artifacts.initial(context);
+    const { config, seat, membership } = selected(context, seatId, allowUnadmittedSource);
     if (
       role === 'reviewer' &&
       (seat.role !== 'reviewer' ||
@@ -330,7 +333,7 @@ export function createSymposiumTrustedReviewHost(
       if (ids.implementerSeatId === ids.reviewerSeatId)
         throw new Error('Independent review selection required');
       return {
-        implementer: selection(context, ids.implementerSeatId, 'coder'),
+        implementer: selection(context, ids.implementerSeatId, 'coder', true),
         reviewer: selection(context, ids.reviewerSeatId, 'reviewer'),
       };
     },

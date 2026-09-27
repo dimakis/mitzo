@@ -181,6 +181,33 @@ function fixture(phase: 'initial' | 'review' = 'initial') {
   };
 }
 describe('trusted production review adapter', () => {
+  it('selects a sealed initial source coder before native admission but cannot stage on that grant', () => {
+    const f = fixture();
+    f.deps.events.getLatestSymposiumAdmission = ((_sessionId: string, seatId: string) =>
+      seatId === 'coder'
+        ? null
+        : {
+            decision: 'admitted',
+            membershipGeneration: 1,
+            configRevision: 1,
+          }) as never;
+    const selected = f.host.selectApplicationRoles!(context);
+    expect(selected.implementer.seatId).toBe('coder');
+    const state = f.reviews.get('workflow')!;
+    expect(() =>
+      f.host.prepareApplicationAttempt!({
+        context,
+        workflowId: 'workflow',
+        attemptId: 'unadmitted',
+        kind: 'initial',
+        selection: state.implementer,
+        artifactRevision: 'source',
+        artifactHash: hash,
+        policy: state.limits as ApplicationPolicy,
+      }),
+    ).toThrow('currently admitted');
+    f.reviews.close();
+  });
   it('stages exact selected recipient but never dispatches during preparation', () => {
     const f = fixture();
     const state = f.reviews.get('workflow')!;
