@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { afterEach, beforeEach, expect, it } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -421,6 +422,7 @@ it('uses application authority without claiming native enforcement and accepts u
     artifactHash: hash('b'),
     binding: {
       claimToken: 'claim',
+      contentHash: createHash('sha256').update('fixture').digest('hex'),
       deliveryId: 'delivery',
       membershipGeneration: 1,
       configRevision: 1,

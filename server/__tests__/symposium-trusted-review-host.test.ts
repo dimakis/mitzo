@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
 import type {
   SeatConfig,
@@ -395,6 +396,25 @@ it('dispatches only the persisted approved delivery and awaits physical refresh'
   expect(f.deps.artifacts.refresh).toHaveBeenCalledOnce();
   f.reviews.close();
 });
+it('rejects a changed staged prompt before approving or dispatching', async () => {
+  const f = fixture();
+  const planned = prepare(f, 'initial');
+  f.deliveries.get('delivery')!.originalContent = 'changed prompt';
+  await expect(
+    f.host.dispatch(context, {
+      kind: 'reserved_not_dispatched',
+      attemptId: 'initial',
+      policyReservationId: planned.policyReservationId,
+      applicationAttempt: planned,
+      selection: f.reviews.get('workflow')!.implementer,
+      artifactRevision: 'source',
+      artifactHash: hash,
+    }),
+  ).rejects.toThrow(/content/i);
+  expect(f.runtime.intervene).not.toHaveBeenCalled();
+  expect(f.runtime.deliver).not.toHaveBeenCalled();
+  f.reviews.close();
+});
 it('charges a nonadmitting reader intent before applying confirmed future pins', async () => {
   const f = fixture('review');
   const preparation = {
@@ -435,6 +455,7 @@ it('charges a nonadmitting reader intent before applying confirmed future pins',
     binding: {
       claimToken: 'claim',
       deliveryId: 'delivery',
+      contentHash: createHash('sha256').update('fixture').digest('hex'),
       membershipGeneration: 2,
       configRevision: 2,
       accountId: 'reviewer',
@@ -449,6 +470,13 @@ it('charges a nonadmitting reader intent before applying confirmed future pins',
   const apply = vi.fn(async () => {
     expect(f.reviews.get('workflow')).toMatchObject({ hostTurns: 1, reviewCycles: 1 });
     expect(f.reviews.applicationAttemptForClaim('claim')).toBeNull();
+    f.runtime.stageDelivery({
+      sessionId: 'session',
+      sourceSeatId: null,
+      recipientSeatIds: ['reviewer'],
+      originalContent: 'fixture',
+      idempotencyKey: 'reader-transition',
+    });
     return {
       attempt: final,
       proof: { transitionId: 'reader-transition', sealDigest: 'b'.repeat(64) },

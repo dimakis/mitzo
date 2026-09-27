@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { randomUUID, createHash } from 'node:crypto';
 import { z } from 'zod';
 import {
   WorkResultSchema,
@@ -114,6 +114,7 @@ const reviewOutput = z.strictObject({
   resolvedFingerprints: z.array(z.string().regex(/^[a-f0-9]{64}$/)),
   failure: z.string().trim().min(1).optional(),
 });
+const contentHash = (value: string) => createHash('sha256').update(value, 'utf8').digest('hex');
 const same = (a: unknown, b: unknown) => canonicalReviewJson(a) === canonicalReviewJson(b);
 const operation = (observation: NativeTurnObservation) =>
   canonicalReviewJson({
@@ -401,7 +402,18 @@ export function createSymposiumTrustedReviewHost(
         )
       )
         throw new Error('Persisted transition preparation required');
-      return deps.transition.apply(context, preparation);
+      const bound = await deps.transition.apply(context, preparation);
+      const delivery = deps.events.getSymposiumDelivery(bound.attempt.binding.deliveryId);
+      if (
+        !delivery ||
+        delivery.sessionId !== context.sessionId ||
+        delivery.recipients.length !== 1 ||
+        delivery.recipients[0].seatId !== bound.attempt.actorSeatId ||
+        contentHash(delivery.originalContent) !== bound.attempt.binding.contentHash ||
+        delivery.status !== 'awaiting_intervention'
+      )
+        throw new Error('Prepared transition delivery content changed');
+      return bound;
     },
     prepareApplicationAttempt(input) {
       const state = workflow(input.context, input.workflowId);
@@ -441,6 +453,7 @@ export function createSymposiumTrustedReviewHost(
         idempotencyKey: `review:${input.workflowId}:${input.attemptId}`,
       });
       const recipient = delivery.recipients[0];
+      if (delivery.originalContent !== prompt) throw new Error('Staged review prompt changed');
       if (
         delivery.sessionId !== input.context.sessionId ||
         delivery.recipients.length !== 1 ||
@@ -467,6 +480,7 @@ export function createSymposiumTrustedReviewHost(
         binding: {
           claimToken: randomUUID(),
           deliveryId: delivery.deliveryId,
+          contentHash: contentHash(prompt),
           membershipGeneration: membership.generation,
           configRevision: config.revision,
           accountId: seat.accountBinding!.accountId,
@@ -499,13 +513,30 @@ export function createSymposiumTrustedReviewHost(
       const current = deps.artifacts.current(context);
       if (current.revision !== planned.artifactRevision || current.hash !== planned.artifactHash)
         throw new Error('Artifact changed before review dispatch');
+      const staged = deps.events.getSymposiumDelivery(planned.binding.deliveryId);
+      if (
+        !staged ||
+        staged.sessionId !== context.sessionId ||
+        staged.recipients.length !== 1 ||
+        staged.recipients[0].seatId !== planned.actorSeatId ||
+        contentHash(staged.originalContent) !== planned.binding.contentHash ||
+        staged.status !== 'awaiting_intervention'
+      )
+        throw new Error('Reserved application delivery content changed');
       const runtime = deps.runtime(context);
-      runtime.intervene({
+      const approved = runtime.intervene({
         deliveryId: planned.binding.deliveryId,
         action: 'approve',
         reason: `Authorized application ${planned.kind}`,
         idempotencyKey: `review-approve:${planned.policyReservationId}`,
       });
+      if (
+        approved.deliveryId !== planned.binding.deliveryId ||
+        approved.status !== 'ready' ||
+        approved.deliveredContent === null ||
+        contentHash(approved.deliveredContent) !== planned.binding.contentHash
+      )
+        throw new Error('Approved application delivery content changed');
       await runtime.deliver(planned.binding.deliveryId);
       const done = completion(context, planned.attemptId);
       if (!done)

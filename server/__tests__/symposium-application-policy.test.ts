@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { describe, it, expect } from 'vitest';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -52,6 +53,7 @@ const request = (attemptId: string) => ({
   artifactHash: hash,
   binding: {
     claimToken: attemptId,
+    contentHash: createHash('sha256').update('fixture').digest('hex'),
     deliveryId: attemptId,
     membershipGeneration: 1,
     configRevision: 1,

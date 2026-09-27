@@ -49,6 +49,7 @@ const initial = (attemptId = 'initial'): ApplicationAttempt => ({
   binding: {
     claimToken: attemptId,
     deliveryId: attemptId,
+    contentHash: hash,
     membershipGeneration: 1,
     configRevision: 1,
     accountId: 'coder',

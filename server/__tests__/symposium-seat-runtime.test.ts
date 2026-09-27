@@ -266,6 +266,7 @@ function applicationFixture(work: ReturnType<typeof fixture>) {
     binding: {
       claimToken: work.input.claimToken,
       deliveryId: work.input.deliveryId,
+      contentHash: hash,
       membershipGeneration: 2,
       configRevision: 4,
       accountId: seat.accountBinding.accountId,

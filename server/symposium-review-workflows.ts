@@ -50,6 +50,7 @@ const ApplicationAttemptSchema = z.strictObject({
   binding: z.strictObject({
     claimToken: Id,
     deliveryId: Id,
+    contentHash: Sha256,
     membershipGeneration: z.number().int().positive(),
     configRevision: z.number().int().positive(),
     accountId: Id,

@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { expect, it } from 'vitest';
 import {
   SymposiumReviewStore,
@@ -81,6 +82,7 @@ const claim = {
   artifactHash: h,
   binding: {
     claimToken: 'claim-1',
+    contentHash: createHash('sha256').update('fixture').digest('hex'),
     deliveryId: 'delivery-1',
     membershipGeneration: 2,
     configRevision: 2,
