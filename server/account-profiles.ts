@@ -48,6 +48,7 @@ const CodexProfile = z
     label: z.string().min(1),
     provider: z.literal('openai-codex'),
     nativeAuth: z.literal('sandbox-chatgpt').optional(),
+    nativeCatalogRevision: z.number().int().positive().optional(),
     credentialRef: z.string().refine(isAbsolute).optional(),
     email: z.string().min(1),
     planType: z.string().min(1),
@@ -434,6 +435,7 @@ export class AccountProfiles {
                 profile.sandboxProviderId,
                 profile.sandboxGrantId,
                 ...(profile.nativeAuth ? [profile.nativeAuth] : []),
+                ...(profile.nativeCatalogRevision ? [profile.nativeCatalogRevision] : []),
               ]
             : profile.provider === 'openai'
               ? [

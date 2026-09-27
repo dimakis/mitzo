@@ -86,3 +86,7 @@ proved, reports reconciliation required. Successful cleanup deletes only the exa
 receipt under the retained lock; a replaced receipt or lost lock remains for host
 recovery instead of being erased. These checks apply to ordinary completion as
 well as undispatched rollback.
+
+Personal connection preflight failures before entering the discovery capability
+release their local discovery marker durably, allowing explicit disconnect. Once
+the capability is entered, a thrown error remains uncertain and retains recovery.
