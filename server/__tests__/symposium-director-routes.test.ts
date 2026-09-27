@@ -185,7 +185,9 @@ describe('Symposium director routes', () => {
       revision: 1,
       state: 'draft',
       anchorSeatId: 'architect',
-      seats: [{ id: 'architect', accountBinding: { accountId: 'claude-work' } }],
+      seats: [
+        { id: 'architect', role: 'implementer', accountBinding: { accountId: 'claude-work' } },
+      ],
     });
     expect(store.setSymposiumConfig).toHaveBeenCalledWith('chat', expect.any(Object), 0);
   });

@@ -424,8 +424,8 @@ export function createSymposiumDirectorRouter(deps: SymposiumDirectorRouteDeps):
       seats: [
         {
           id: 'architect',
-          name: 'Architect',
-          role: 'architect',
+          name: 'Primary agent',
+          role: 'implementer',
           model: binding.data.model,
           systemPrompt: '',
           color: '#335577',
