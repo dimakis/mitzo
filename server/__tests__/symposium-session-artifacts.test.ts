@@ -334,3 +334,46 @@ it('persists initialization receipt but rejects legacy or mismatched image contr
   db.close();
   expect(f.host.create).toHaveBeenCalledOnce();
 });
+
+it('persists initializer intent and ID before failure and never retries or exposes ready volume', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'git-init-receipt-'));
+  cleanup.push(() => rmSync(root, { recursive: true, force: true }));
+  const volumes = new Map<string, ArtifactVolumeEvidence>();
+  const create = vi.fn(async (name, labels, receipt) => {
+    volumes.set(name, { name, labels, driver: 'local', options: {} });
+    receipt.intent(`${name}-init`);
+    receipt.created('a'.repeat(64));
+    throw new Error('crash after initializer start');
+  });
+  const host = {
+    initializationContract: 'git-v1',
+    initializerRequired: true,
+    inspect: async (name: string) => volumes.get(name) ?? null,
+    create,
+  };
+  const store = new SymposiumSessionArtifacts(
+    join(root, 'db'),
+    'workspace',
+    'custody',
+    () => {},
+    host,
+  );
+  cleanup.push(() => store.close());
+  expect(await store.ensure('session')).toEqual({ state: 'recovery_required' });
+  const db = new Database(join(root, 'db'));
+  const row = db
+    .prepare(
+      'SELECT initializer_name,initializer_id,initializer_removed,initialization_contract FROM symposium_session_artifacts',
+    )
+    .get();
+  db.close();
+  expect(row).toEqual({
+    initializer_name: expect.stringMatching(/-init$/),
+    initializer_id: 'a'.repeat(64),
+    initializer_removed: 0,
+    initialization_contract: null,
+  });
+  expect(await store.ensure('session')).toEqual({ state: 'recovery_required' });
+  expect(store.getReady('session')).toBeNull();
+  expect(create).toHaveBeenCalledOnce();
+});

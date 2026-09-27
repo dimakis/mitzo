@@ -1,8 +1,10 @@
+import { REVIEWED_SYMPOSIUM_OWNED_RUNTIME } from './symposium-owned-runtime-contract.js';
+import { artifactGitContract, createArtifactGitVolume } from './symposium-artifact-initializer.js';
+import { symposiumArtifactOwner } from './symposium-artifact-owner.js';
 import {
   PhysicalArtifactSealer,
   type PhysicalArtifactSealInput,
 } from './symposium-physical-artifact-seal.js';
-import { symposiumArtifactOwner, artifactOwnerContract } from './symposium-artifact-owner.js';
 import { stableSymposiumArtifactLeasePath } from './symposium-artifact-state.js';
 import { isPodmanSandboxNamespace } from './symposium-podman-namespace.js';
 import {
@@ -87,7 +89,7 @@ export async function createOwnedSymposiumHost(
   options: OwnedSymposiumHostOptions,
   launch: typeof OwnedSymposiumGateway.launch = OwnedSymposiumGateway.launch,
   prepareGateway?: (gateway: OwnedSymposiumGateway) => Promise<readonly unknown[]>,
-  podmanCommand?: (args: readonly string[]) => Promise<string>,
+  podmanCommand?: (args: readonly string[], execution: { timeout: number }) => Promise<string>,
 ) {
   if (
     !isAbsolute(options.attestationPath) ||
@@ -182,7 +184,7 @@ export async function createOwnedSymposiumHost(
       seed: options.runtime.seed,
       createDetached: options.runtime.createDetached,
       sandboxIdLength: options.runtime.sandboxIdLength,
-      workdir: '/sandbox/workspaces/mgmt',
+      workdir: REVIEWED_SYMPOSIUM_OWNED_RUNTIME.workload.workdir,
       serviceProviders: [],
       grantableServiceProviders: [],
       webSearch: 'disabled',
@@ -205,8 +207,9 @@ export async function createOwnedSymposiumHost(
       } catch (error) {
         throw new ArtifactCommandNotDispatched(error);
       }
+      const timeout = args[0] === 'start' && args[1] === '--attach' ? 60_000 : 15_000;
       const text = podmanCommand
-        ? await podmanCommand(args)
+        ? await podmanCommand(args, { timeout })
         : await new Promise<string>((resolve, reject) => {
             execFile(
               options.podman.executable,
@@ -216,7 +219,7 @@ export async function createOwnedSymposiumHost(
                 encoding: 'utf8',
                 // Attached verifier/export helpers own bounded child work (including
                 // a 20-second bundle phase); the transport must outlive that bound.
-                timeout: args[0] === 'start' && args[1] === '--attach' ? 60_000 : 15_000,
+                timeout,
                 maxBuffer: maxOutputBytes,
               },
               (error, stdout) => {
@@ -266,8 +269,9 @@ export async function createOwnedSymposiumHost(
       custody,
       {
         get initializationContract() {
-          return artifactOwnerContract(artifactOwner);
+          return artifactGitContract(artifactOwner);
         },
+        initializerRequired: true,
         async inspect(name) {
           const listed = await podman([
             'volume',
@@ -285,21 +289,18 @@ export async function createOwnedSymposiumHost(
             throw new Error('Ambiguous artifact volume inventory');
           return listed.length ? leaseHost!.inspectVolume(name, 'podman') : null;
         },
-        async create(name, labels) {
-          const owner = artifactOwner;
-          const result = await podmanText([
-            'volume',
-            'create',
-            '--driver',
-            'local',
-            '--uid',
-            String(owner.uid),
-            '--gid',
-            String(owner.gid),
-            ...Object.entries(labels).flatMap(([key, value]) => ['--label', `${key}=${value}`]),
+        async create(name, labels, receipt) {
+          // The initializer journals terminal create/removal before its own
+          // post-command custody check. The generic transport postcheck would
+          // otherwise discard an exact helper identity after a successful create.
+          await createArtifactGitVolume(
             name,
-          ]);
-          if (result.trim() !== name) throw new Error('Artifact volume creation identity changed');
+            labels,
+            artifactOwner,
+            (args) => podmanText(args, undefined, true),
+            custody,
+            receipt,
+          );
         },
       },
     );
