@@ -275,6 +275,40 @@ export async function createOwnedSymposiumHost(
         (purpose === 'cleanup'
           ? sessionArtifacts!.getRetained(sessionId)
           : sessionArtifacts!.getReady(sessionId));
+      if (purpose === 'cleanup') {
+        const record = options.facts.getSymposiumSeatSandbox(sessionId, seatId, generation);
+        if (
+          !mapped ||
+          !record ||
+          record.sessionId !== sessionId ||
+          record.seatId !== seatId ||
+          record.generation !== generation ||
+          record.workspace !== gateway.workspace
+        )
+          throw new Error('Artifact cleanup has no retained sandbox mapping');
+        const retained = leaseHost!.retainedCleanupRequest(record);
+        if (retained) {
+          if (
+            retained.sessionId !== sessionId ||
+            retained.seatId !== seatId ||
+            retained.workspaceId !== record.workspace ||
+            retained.driver !== 'podman' ||
+            retained.volumeName !== mapped.volumeName ||
+            retained.volumeGeneration !== mapped.volumeGeneration
+          )
+            throw new Error('Retained artifact cleanup mapping changed');
+          return retained;
+        }
+        // No lease and no dispatched create: the owner still proves gateway absence
+        // twice before retiring the reservation. This descriptor cannot admit a seat.
+        return {
+          ...mapped,
+          seatId,
+          workspaceId: record.workspace,
+          driver: 'podman',
+          access: 'reviewer',
+        };
+      }
       const config = options.facts.getActiveSymposiumConfig(sessionId);
       const seat = config.seats.find((row) => row.id === seatId);
       const membership = options.facts.getLatestSymposiumMembership(sessionId, seatId);
