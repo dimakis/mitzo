@@ -516,7 +516,7 @@ export function ConnectionsView() {
 
 function PageState({ text, error, retry }: { text: string; error?: boolean; retry?: () => void }) {
   return (
-    <main className="workspace-page">
+    <main className="workspace-page connections-page">
       <WorkspacePageHeading title="Connections" />
       <SymposiumPersonalConnections />
       <p role={error ? 'alert' : undefined}>{text}</p>

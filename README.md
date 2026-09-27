@@ -478,6 +478,8 @@ both the review acknowledgement and that exception.
 ```bash
 npm run dev          # backend + frontend concurrently
 npm test             # vitest — full suite
+npx playwright install webkit chromium # first-time browser test setup
+npm run test:browser  # Connections scrolling in mobile WebKit and desktop Chromium (mocked APIs)
 npm run lint         # eslint
 npm run format:check # prettier
 ```
@@ -598,3 +600,6 @@ Before external seat creation, local artifact and seat intent writes complete be
 A final seat or custody rejection from the retained workspace fence may undo local creation intent only before the fence attempts its durable uncertainty write. Failure during that write remains quarantined.
 
 Native model-discovery failures retain [private staged diagnostics](docs/features/symposium-discovery-diagnostics.md) without changing conservative cleanup or recovery gates.
+
+Symposium director controls identify the current primary-seat lifecycle restriction;
+primary-writer removal remains unsupported. See [Symposium lifecycle](docs/features/symposium.md#durable-delivery-attribution-and-recovery).
