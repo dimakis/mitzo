@@ -116,6 +116,23 @@ export class SymposiumArtifactGenerations {
       session_id TEXT PRIMARY KEY, generation_id TEXT NOT NULL UNIQUE, revision INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS symposium_artifact_copy_observations (generation_id TEXT PRIMARY KEY, receipt_json TEXT NOT NULL);
     `);
+    // The unique storage key includes the session; migrate earlier unscoped keys atomically.
+    db.transaction(() => {
+      const rows = db
+        .prepare(
+          'SELECT generation_id,intent_json FROM symposium_artifact_generations WHERE intent_json IS NOT NULL',
+        )
+        .all() as { generation_id: string; intent_json: string }[];
+      for (const row of rows) {
+        const intent = intentSchema.parse(JSON.parse(row.intent_json));
+        db.prepare(
+          'UPDATE symposium_artifact_generations SET operation_id=? WHERE generation_id=?',
+        ).run(this.operationKey(intent.request), row.generation_id);
+      }
+    }).immediate();
+  }
+  private operationKey(request: ArtifactGenerationRequest) {
+    return canonicalReviewJson([request.sessionId, request.operationId]);
   }
   private require(value: unknown) {
     if (value !== true) throw new Error('Affirmative synchronous generation proof required');
@@ -186,8 +203,10 @@ export class SymposiumArtifactGenerations {
       .transaction(() => {
         this.require(this.proof.authority(request));
         const prior = this.db
-          .prepare('SELECT * FROM symposium_artifact_generations WHERE operation_id=?')
-          .get(request.operationId) as Row | undefined;
+          .prepare(
+            'SELECT * FROM symposium_artifact_generations WHERE session_id=? AND operation_id=?',
+          )
+          .get(request.sessionId, this.operationKey(request)) as Row | undefined;
         if (prior) {
           const intent = this.intent(this.get(request, prior.generation_id));
           if (canonicalReviewJson(intent.request) !== canonicalReviewJson(request))
@@ -216,7 +235,7 @@ export class SymposiumArtifactGenerations {
             request.sessionId,
             canonicalReviewJson(scope(request)),
             intent.volumeName,
-            request.operationId,
+            this.operationKey(request),
             canonicalReviewJson(intent),
           );
         return intent;
@@ -254,7 +273,10 @@ export class SymposiumArtifactGenerations {
       .transaction(() => {
         const row = this.get(context, generationId);
         this.intent(row); // Retain cleanup identity even if approval was revoked after dispatch.
-        if (row.state !== 'copy_uncertain' || (row.helper_id && row.helper_id !== helperId))
+        if (
+          !['copy_uncertain', 'quarantined'].includes(row.state) ||
+          (row.helper_id && row.helper_id !== helperId)
+        )
           throw new Error('Copy helper identity changed or unavailable');
         this.db
           .prepare('UPDATE symposium_artifact_generations SET helper_id=? WHERE generation_id=?')
@@ -263,15 +285,21 @@ export class SymposiumArtifactGenerations {
       .immediate();
   }
   quarantine(context: Context, generationId: string): void {
-    const row = this.get(context, generationId);
-    if (!['reserved', 'copy_uncertain', 'quarantined'].includes(row.state))
-      throw new Error('Cannot quarantine settled generation');
     this.db
-      .prepare(
-        "UPDATE symposium_artifact_generations SET state='quarantined' WHERE generation_id=? AND state IN ('reserved','copy_uncertain','quarantined')",
-      )
-      .run(generationId);
+      .transaction(() => {
+        const row = this.get(context, generationId);
+        if (!['reserved', 'copy_uncertain', 'quarantined'].includes(row.state))
+          throw new Error('Cannot quarantine settled generation');
+        const changed = this.db
+          .prepare(
+            "UPDATE symposium_artifact_generations SET state='quarantined' WHERE generation_id=? AND state IN ('reserved','copy_uncertain','quarantined')",
+          )
+          .run(generationId);
+        if (changed.changes !== 1) throw new Error('Generation quarantine transition failed');
+      })
+      .immediate();
   }
+
   recordCopy(context: Context, generationId: string, input: ArtifactGenerationCopyReceipt): void {
     const receipt = receiptSchema.parse(input);
     const encoded = canonicalReviewJson(receipt);

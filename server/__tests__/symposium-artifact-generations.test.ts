@@ -287,3 +287,67 @@ it('retains helper and terminal observation before later proof failure without a
   });
   expect(() => reopened.activate(context, f.intent.generationId)).toThrow('revoked');
 });
+it('retains late helper identity after quarantine without allowing activation or copy proof', () => {
+  const f = prepared();
+  f.store.claimCopy(context, f.intent.generationId);
+  f.store.quarantine(context, f.intent.generationId);
+  f.store.bindHelper(context, f.intent.generationId, receipt(f.intent).helperId);
+  expect(f.store.historical(context, f.intent.generationId)).toMatchObject({
+    state: 'quarantined',
+    helperId: receipt(f.intent).helperId,
+  });
+  expect(() => f.store.recordCopy(context, f.intent.generationId, receipt(f.intent))).toThrow();
+  expect(() => f.store.activate(context, f.intent.generationId)).toThrow();
+});
+it('scopes operation replay to session and migrates legacy keys without changing intent', () => {
+  const f = prepared();
+  f.db
+    .prepare('UPDATE symposium_artifact_generations SET operation_id=? WHERE generation_id=?')
+    .run(request.operationId, f.intent.generationId);
+  const reopened = f.open().store;
+  expect(reopened.reserve(request)).toEqual(f.intent);
+  const second = {
+    ...initial,
+    sessionId: 'second',
+    generationId: 'second-initial',
+    volumeName: 'second-volume',
+  };
+  reopened.registerInitial(second);
+  const child = reopened.reserve({
+    ...request,
+    sessionId: 'second',
+    parentGenerationId: 'second-initial',
+  });
+  expect(child.request.operationId).toBe(request.operationId);
+  expect(child.generationId).not.toBe(f.intent.generationId);
+});
+it('reports settled quarantine transition failure across independent connections', () => {
+  const f = copied();
+  const other = f.open().store;
+  expect(() => other.quarantine(context, f.intent.generationId)).toThrow('settled');
+  expect(other.historical(context, f.intent.generationId).state).toBe('verified');
+});
+it('racing quarantine and terminal verification never reports quarantine success for verified child', async () => {
+  const f = prepared();
+  f.store.claimCopy(context, f.intent.generationId);
+  f.store.bindHelper(context, f.intent.generationId, receipt(f.intent).helperId);
+  const moduleUrl = pathToFileURL(resolve('server/symposium-artifact-generations.ts')).href;
+  const code = `import Database from 'better-sqlite3';import {SymposiumArtifactGenerations} from ${JSON.stringify(moduleUrl)};const db=new Database(process.argv[1]);const yes=()=>true;const s=new SymposiumArtifactGenerations(db,{initial:yes,authority:yes,parent:yes,copy:yes});try{if(process.argv[2]==='quarantine')s.quarantine(JSON.parse(process.argv[4]),process.argv[3]);else s.recordCopy(JSON.parse(process.argv[4]),process.argv[3],JSON.parse(process.argv[5]));process.stdout.write('ok');}catch(e){process.stdout.write('rejected');}finally{db.close();}`;
+  const run = (mode: string) =>
+    promisify(execFile)(process.execPath, [
+      '--import',
+      'tsx',
+      '--input-type=module',
+      '-e',
+      code,
+      f.path,
+      mode,
+      f.intent.generationId,
+      JSON.stringify(context),
+      JSON.stringify(receipt(f.intent)),
+    ]);
+  const [quarantine] = await Promise.all([run('quarantine'), run('copy')]);
+  expect(f.store.historical(context, f.intent.generationId).state).toBe(
+    quarantine.stdout === 'ok' ? 'quarantined' : 'verified',
+  );
+}, 15000);
