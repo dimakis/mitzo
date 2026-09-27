@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { SymposiumWorkVertexProfile } from './symposium-work-vertex-profile.js';
 const id = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/);
 export const WorkerVertexRequest = z.strictObject({
   method: z.literal('claude'),
@@ -6,7 +7,7 @@ export const WorkerVertexRequest = z.strictObject({
 });
 export const WorkerVertexReceipt = z.strictObject({
   principal: z.email().max(254),
-  accountId: id,
+  accountId: SymposiumWorkVertexProfile.shape.id,
   provider: id,
   providerId: id,
   projectId: z.string().regex(/^[a-z][a-z0-9-]{4,61}[a-z0-9]$/),

@@ -95,6 +95,7 @@ function fixture(overrideSource?: string) {
 }
 it.each([
   'valid',
+  'long-account-id',
   'missing',
   'readiness',
   'changed-after-probe',
@@ -126,7 +127,12 @@ it.each([
       f.custody.captureClaudeProviderAsync
         .mockResolvedValueOnce({ ...receipt })
         .mockRejectedValue(Error('PRIVATE expired readiness'));
-    if (mode === 'valid') {
+    if (mode === 'long-account-id')
+      f.custody.captureClaudeProviderAsync.mockResolvedValue({
+        ...receipt,
+        accountId: 'work_' + 'x'.repeat(256),
+      });
+    if (mode === 'valid' || mode === 'long-account-id') {
       const candidate = await f.collect(selected);
       expect(candidate.providerInstances).toEqual(selected.providerInstances);
       expect(f.custody.captureClaudeProviderAsync.mock.calls.length).toBeGreaterThanOrEqual(2);

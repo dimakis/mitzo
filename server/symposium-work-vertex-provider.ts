@@ -1,3 +1,5 @@
+import { SymposiumWorkVertexProfile } from './symposium-work-vertex-profile.js';
+export { SymposiumWorkVertexProfile } from './symposium-work-vertex-profile.js';
 import {
   assertSymposiumWorkVertexReadiness,
   assertSymposiumWorkVertexReadinessAsync,
@@ -5,25 +7,12 @@ import {
 import { execFile, spawnSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { closeSync, constants, fstatSync, openSync, readSync } from 'node:fs';
-import { isAbsolute } from 'node:path';
 import { GoogleAuth } from 'google-auth-library';
 import { z } from 'zod';
 import { AccountProfiles } from './account-profiles.js';
 import { validateOpenShellCliEnvironment } from './openshell-cli-environment.js';
 import type { OwnedSymposiumGateway } from './symposium-owned-gateway.js';
 
-export const SymposiumWorkVertexProfile = z.strictObject({
-  id: z.string().regex(/^[a-zA-Z0-9_-]+$/),
-  label: z.string().min(1).max(256),
-  provider: z.literal('anthropic-vertex'),
-  credentialRef: z.string().refine(isAbsolute),
-  expectedPrincipal: z.email().max(254),
-  projectId: z.string().regex(/^[a-z][a-z0-9-]{4,61}[a-z0-9]$/),
-  region: z.literal('global'),
-  models: z
-    .array(z.strictObject({ id: z.literal('claude-haiku-4-5@20251001'), label: z.string().min(1) }))
-    .length(1),
-});
 const Adc = z.object({
   type: z.literal('authorized_user'),
   client_id: z.string().min(1).max(1024),
