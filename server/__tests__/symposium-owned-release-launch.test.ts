@@ -11,6 +11,13 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
+const authEnv = {
+  PATH: process.env.PATH,
+  AUTH_PASSPHRASE: 'synthetic-offline-passphrase-000000000000',
+  AUTH_SECRET: 'synthetic-offline-secret-'.padEnd(64, '0'),
+  PORT: '19992',
+  MITZO_BIND_HOST: '127.0.0.1',
+};
 const roots: string[] = [];
 afterEach(() => roots.splice(0).forEach((p) => rmSync(p, { recursive: true, force: true })));
 function fixture() {
@@ -35,7 +42,7 @@ function fixture() {
   );
   writeFileSync(
     join(root, 'dist/symposium-custodian-main.js'),
-    `console.log(JSON.stringify({entry:'custodian',repo:process.env.REPO_PATH,config:process.env.MITZO_SYMPOSIUM_OWNED_HOST_CONFIG,legacy:process.env.MITZO_OPENSHELL_ENABLED,accounts:process.env.MITZO_ACCOUNT_PROFILES_FILE}));`,
+    `console.log(JSON.stringify({entry:'custodian',repo:process.env.REPO_PATH,config:process.env.MITZO_SYMPOSIUM_OWNED_HOST_CONFIG,legacy:process.env.MITZO_OPENSHELL_ENABLED,accounts:process.env.MITZO_ACCOUNT_PROFILES_FILE,ambient:Object.keys(process.env).filter(k=>['HTTPS_PROXY','GH_TOKEN','GOOGLE_APPLICATION_CREDENTIALS'].includes(k))}));`,
   );
   writeFileSync(join(root, 'dist/index.js'), `throw Error('ordinary entry must not run');`);
   return { root, plan };
@@ -48,7 +55,14 @@ it('executes the fixed custodian entry only after claim; repeat startup cannot e
   ];
   const first = spawnSync(process.execPath, args, {
     encoding: 'utf8',
-    env: { PATH: process.env.PATH, MITZO_OPENSHELL_ENABLED: '1', REPO_PATH: '/wrong' },
+    env: {
+      ...authEnv,
+      MITZO_OPENSHELL_ENABLED: '1',
+      REPO_PATH: '/wrong',
+      HTTPS_PROXY: 'http://invalid',
+      GH_TOKEN: 'synthetic-not-a-token',
+      GOOGLE_APPLICATION_CREDENTIALS: '/must-not-read',
+    },
   });
   expect(first.status, first.stderr).toBe(0);
   expect(JSON.parse(first.stdout)).toEqual({
@@ -57,8 +71,9 @@ it('executes the fixed custodian entry only after claim; repeat startup cannot e
     config: f.plan.configPath,
     legacy: '0',
     accounts: join(f.plan.planDirectory, 'empty-accounts.json'),
+    ambient: [],
   });
-  expect(spawnSync(process.execPath, args, { encoding: 'utf8' }).status).not.toBe(0);
+  expect(spawnSync(process.execPath, args, { encoding: 'utf8', env: authEnv }).status).not.toBe(0);
 });
 it('does not claim or execute when entry/config verification fails', () => {
   const f = fixture();
@@ -69,9 +84,29 @@ it('does not claim or execute when entry/config verification fails', () => {
   const result = spawnSync(
     process.execPath,
     [join(f.root, 'scripts/start-owned-custodian.mjs'), join(f.root, 'plan/owned-release.json')],
-    { encoding: 'utf8' },
+    { encoding: 'utf8', env: authEnv },
   );
   expect(result.status).not.toBe(0);
   expect(result.stderr).not.toContain('/wrong');
+  expect(() => readFileSync(join(f.root, 'plan/launch.intent'))).toThrow();
+});
+it.each([
+  {},
+  { AUTH_PASSPHRASE: 'short' },
+  { NODE_OPTIONS: '--trace-warnings' },
+  { DOTENV_CONFIG_PATH: '/ambient/private' },
+  { PORT: '3100junk' },
+  { MITZO_BIND_HOST: '0.0.0.0' },
+])('rejects missing/unsafe launch settings before claim %j', (override) => {
+  const f = fixture();
+  const result = spawnSync(
+    process.execPath,
+    [join(f.root, 'scripts/start-owned-custodian.mjs'), join(f.root, 'plan/owned-release.json')],
+    {
+      encoding: 'utf8',
+      env: Object.keys(override).length ? { ...authEnv, ...override } : { PATH: process.env.PATH },
+    },
+  );
+  expect(result.status).not.toBe(0);
   expect(() => readFileSync(join(f.root, 'plan/launch.intent'))).toThrow();
 });

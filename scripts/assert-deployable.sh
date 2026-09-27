@@ -13,9 +13,17 @@ fail() {
 
 git -C "$REPO_ROOT" rev-parse --git-dir >/dev/null 2>&1 ||
   fail "production must deploy from a Git worktree"
-git -C "$REPO_ROOT" fetch --prune "$DEPLOY_REMOTE" \
-  "+refs/heads/*:refs/remotes/$DEPLOY_REMOTE/*" ||
-  fail "cannot refresh deployment remote $DEPLOY_REMOTE"
+# Static owned-release checks are deliberately offline. The default deployment
+# path still refreshes remote refs; callers must fetch before offline preparation.
+if [ "${1:-}" = "--offline" ] && [ "$#" -eq 1 ]; then
+  :
+elif [ "$#" -eq 0 ]; then
+  git -C "$REPO_ROOT" fetch --prune "$DEPLOY_REMOTE" \
+    "+refs/heads/*:refs/remotes/$DEPLOY_REMOTE/*" ||
+    fail "cannot refresh deployment remote $DEPLOY_REMOTE"
+else
+  fail "unsupported deployment guard arguments"
+fi
 
 HEAD_COMMIT="$(git -C "$REPO_ROOT" rev-parse HEAD)"
 MAIN_COMMIT="$(git -C "$REPO_ROOT" rev-parse --verify "$MAIN_REF")"

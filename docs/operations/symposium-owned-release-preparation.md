@@ -7,7 +7,7 @@ install a service, replace production, migrate databases, authenticate providers
 run model requests or prove admission. Existing production migration remains gated.
 
 Build the reviewed detached release with `npm run build:server` and `npm run build`.
-Apply the existing release/source review and CI checks before preparation. Supply
+Apply the existing release/source review and CI checks before preparation. Fetch current main separately; preparation and startup reuse `assert-deployable.sh --offline` to require a clean detached published checkout and exact source/tree/base-main release manifest without network access. The default deployment guard still fetches. Supply
 an absolute private owned-host JSON configuration, a new empty private repository
 directory, and a separate private preparation directory:
 
@@ -21,10 +21,8 @@ All three paths must refer to the intended fresh environment. The repository and
 gateway state parent must be empty. Any existing repository content, artifact
 mapping or admission attestation is refused. This deliberately does not reinterpret
 legacy `owner_kind=NULL` rows, clear import/cleanup claims, reuse old providers, or
-adopt an old gateway. Preparation does not fetch a release or independently prove
-that compiled bytes came from reviewed source; retain the separate build/review
-receipt. It fingerprints the compiled server, frontend, workspace packages and
-scripts so later changes prevent launch.
+adopt an old gateway. Preparation does not fetch refs or independently prove that compiled bytes came from source; retain the separate build/review receipt. It fingerprints the compiled server, frontend, workspace packages and
+scripts so later changes prevent launch. Actual Node ESM resolution must map every supported `@mitzo` package/subpath to this release’s built outputs, never another checkout.
 
 Static validation uses the same strict configuration schemas as bootstrap, without
 importing bootstrap or authentication owners. It derives the complete expected
@@ -41,15 +39,25 @@ The preparation writes exclusive mode0600 files: `owned-release.json`, an empty
 ordinary account catalog, and `com.mitzo.owned-custodian.plist`. A partial preparation
 failure is reported, never silently overwritten. The plist has its own label,
 `RunAtLoad=false`, `KeepAlive=false` and `ExitTimeOut=180`. No installation or
-`launchctl` command is executed. Review app listener/authentication settings before
-any separately authorized manual start; startup can authenticate the explicitly
-selected provider references.
+`launchctl` command is executed. The plist intentionally contains no authentication secrets. A separately reviewed
+secure launcher transport must supply explicit AUTH_PASSPHRASE (at least32 characters),
+AUTH_SECRET (at least64 characters), a numeric PORT1024–65535 and loopback
+MITZO_BIND_HOST before a manual start can succeed. This preparation does not install
+that transport or make the plist independently deployable. Missing settings fail
+before the durable launch marker. Startup can authenticate the explicitly selected
+provider references.
 
 The plist selects `scripts/start-owned-custodian.mjs`, which requires a Node runtime
 with `process.execve` (Node22.15+ on supported Unix hosts). It verifies the plan,
 exclusively writes and fsyncs `launch.intent` and its private parent directory,
 rechecks configuration/build immediately before exec, then replaces itself with
-`dist/symposium-custodian-main.js`. The parent PID remains the owner. An existing
+`dist/symposium-custodian-main.js`. The parent PID remains the owner. All release `.env*` files and `certs` directories
+are refused before launch; this fresh preparation is loopback HTTP only. The plist
+clears NODE_OPTIONS/NODE_PATH and fixes DOTENV_CONFIG_PATH to `/dev/null` before
+Node starts. Direct invocations must use a trusted Node bootstrap; the script also
+refuses nonempty loader options and arbitrary dotenv paths before claiming. It
+passes only explicit auth/listener values and fixed runtime settings to the parent,
+never inherited proxies, provider credentials or arbitrary environment variables. An existing
 intent, including a dangling symlink, prevents another launch. The intent is never
 automatically removed, including after clean shutdown or failure before exec.
 Deleting it is not a supported retry/recovery procedure.

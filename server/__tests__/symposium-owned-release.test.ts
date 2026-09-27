@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import { afterEach, expect, it } from 'vitest';
 import {
   realpathSync,
@@ -5,6 +6,7 @@ import {
   mkdirSync,
   writeFileSync,
   rmSync,
+  unlinkSync,
   symlinkSync,
   chmodSync,
   readFileSync,
@@ -28,6 +30,8 @@ function fixture() {
   for (const p of [
     'release/dist',
     'release/scripts',
+    'release/node_modules/@mitzo',
+    'release/packages/client/dist/hooks',
     'release/frontend/dist',
     'release/packages/protocol/dist',
     'release/packages/harness/dist',
@@ -50,6 +54,52 @@ function fixture() {
     'packages/client/dist/index.js',
   ])
     writeFileSync(join(root, 'release', p), 'reviewed build');
+  for (const pkg of ['protocol', 'harness', 'client']) {
+    const exports: Record<string, string> = { '.': './dist/index.js' };
+    if (pkg === 'protocol') {
+      exports['./event-store'] = './dist/event-store.js';
+      writeFileSync(join(root, 'release/packages/protocol/dist/event-store.js'), 'compiled');
+    }
+    if (pkg === 'client') {
+      exports['./hooks'] = './dist/hooks/index.js';
+      writeFileSync(join(root, 'release/packages/client/dist/hooks/index.js'), 'compiled');
+    }
+    writeFileSync(
+      join(root, 'release/packages', pkg, 'package.json'),
+      JSON.stringify({ name: '@mitzo/' + pkg, type: 'module', exports }),
+    );
+    symlinkSync(
+      join(root, 'release/packages', pkg),
+      join(root, 'release/node_modules/@mitzo', pkg),
+    );
+  }
+  writeFileSync(
+    join(root, 'release/scripts/assert-deployable.sh'),
+    readFileSync('scripts/assert-deployable.sh'),
+  );
+  writeFileSync(
+    join(root, 'release/.gitignore'),
+    'node_modules/\ndist/\nfrontend/dist/\npackages/*/dist/\nrelease.txt\n',
+  );
+  const git = (args: string[]) =>
+    execFileSync('git', args, {
+      cwd: join(root, 'release'),
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+    }).trim();
+  git(['init', '-q']);
+  git(['config', 'user.name', 'Offline']);
+  git(['config', 'user.email', 'offline@example.invalid']);
+  git(['add', '.']);
+  git(['-c', 'commit.gpgsign=false', 'commit', '-qm', 'fixture']);
+  const head = git(['rev-parse', 'HEAD']),
+    sourceTree = git(['rev-parse', 'HEAD^{tree}']);
+  git(['update-ref', 'refs/remotes/origin/main', head]);
+  git(['checkout', '--detach', '-q']);
+  writeFileSync(
+    join(root, 'release/release.txt'),
+    `source_commit=${head}\nbase_main=${head}\nsource_tree=${sourceTree}\n`,
+  );
   const file = (name: string) => {
     const p = join(root, name);
     writeFileSync(p, 'synthetic', { mode: 0o600 });
@@ -232,4 +282,27 @@ it('validates Vertex reference metadata without reading credential or TLS materi
   for (const path of Object.values(f.config.gateway.tls)) expect(observed).not.toContain(path);
   chmodSync(reference, 0o644);
   expect(() => prepareOwnedRelease(f.input, digest)).toThrow();
+});
+
+it('rejects dotenv files before any marker is written', () => {
+  const f = fixture();
+  writeFileSync(join(f.input.releaseRoot, '.env.local'), 'do not read');
+  expect(() => prepareOwnedRelease(f.input, f.digest)).toThrow();
+});
+
+it('rejects workspace resolution to another checkout even with the same compiled bytes', () => {
+  const f = fixture(),
+    foreign = fixture();
+  const link = join(f.input.releaseRoot, 'node_modules/@mitzo/protocol');
+  unlinkSync(link);
+  symlinkSync(join(foreign.input.releaseRoot, 'packages/protocol'), link);
+  expect(() => prepareOwnedRelease(f.input, f.digest)).toThrow();
+});
+it('rejects a branch checkout and changed release manifest without fetching or deploying', () => {
+  const f = fixture();
+  execFileSync('git', ['checkout', '-b', 'not-detached'], {
+    cwd: f.input.releaseRoot,
+    stdio: 'pipe',
+  });
+  expect(() => prepareOwnedRelease(f.input, f.digest)).toThrow();
 });

@@ -1,3 +1,5 @@
+import { execFileSync } from 'node:child_process';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 /** Static release preparation only. Never imports the host/bootstrap/auth owners. */
 import { createHash } from 'node:crypto';
 import {
@@ -17,11 +19,11 @@ import { dirname, isAbsolute, join, relative } from 'node:path';
 import { OwnedSymposiumConfigSchema } from './symposium-owned-config-schema.js';
 import { reviewedSymposiumOwnedRuntime } from './symposium-owned-runtime-contract.js';
 const sha = (value: Buffer | string) => createHash('sha256').update(value).digest('hex');
-const fail = (): never => {
+function fail(): never {
   throw Error(
     'Owned release preparation refused; inspect explicit fresh configuration and reviewed build',
   );
-};
+}
 function pathMetadata(path: string, directory = false, privateMode = false) {
   if (!isAbsolute(path) || realpathSync(path) !== path) fail();
   const stat = lstatSync(path);
@@ -76,6 +78,51 @@ function tree(path: string) {
   visit(path);
   return sha(entries.join('\n'));
 }
+function verifyCompiledResolution(root: string) {
+  const entries: Record<string, string> = {
+    '@mitzo/protocol': 'packages/protocol/dist/index.js',
+    '@mitzo/protocol/event-store': 'packages/protocol/dist/event-store.js',
+    '@mitzo/harness': 'packages/harness/dist/index.js',
+    '@mitzo/client': 'packages/client/dist/index.js',
+    '@mitzo/client/hooks': 'packages/client/dist/hooks/index.js',
+  };
+  const origins = [
+    'dist/symposium-custodian-main.js',
+    'packages/protocol/dist/index.js',
+    'packages/harness/dist/index.js',
+    'packages/client/dist/index.js',
+  ];
+  const input = origins.flatMap((origin) =>
+    Object.keys(entries).map((specifier) => ({
+      specifier,
+      parent: pathToFileURL(join(root, origin)).href,
+    })),
+  );
+  const result = execFileSync(
+    process.execPath,
+    [
+      '--experimental-import-meta-resolve',
+      '--input-type=module',
+      '-e',
+      "let text='';for await(const chunk of process.stdin)text+=chunk;process.stdout.write(JSON.stringify(JSON.parse(text).map(x=>import.meta.resolve(x.specifier,x.parent))));",
+    ],
+    {
+      input: JSON.stringify(input),
+      encoding: 'utf8',
+      timeout: 15000,
+      maxBuffer: 65536,
+      env: { PATH: '/usr/bin:/bin' },
+      stdio: ['pipe', 'pipe', 'pipe'],
+    },
+  );
+  const resolved: unknown = JSON.parse(result);
+  if (!Array.isArray(resolved) || resolved.length !== input.length) fail();
+  for (let i = 0; i < input.length; i++) {
+    const expected = join(root, entries[input[i].specifier]);
+    pathMetadata(expected);
+    if (typeof resolved[i] !== 'string' || fileURLToPath(resolved[i]) !== expected) fail();
+  }
+}
 export interface OwnedReleaseInput {
   releaseRoot: string;
   configPath: string;
@@ -88,6 +135,8 @@ export interface OwnedReleasePlan extends OwnedReleaseInput {
   entry: 'dist/symposium-custodian-main.js';
   configSha256: string;
   appHome: string;
+  sourceCommit: string;
+  sourceTree: string;
   buildSha256: string;
   inputsSha256: string;
   runtime: ReturnType<typeof reviewedSymposiumOwnedRuntime>['build'];
@@ -95,10 +144,36 @@ export interface OwnedReleasePlan extends OwnedReleaseInput {
 }
 function inspect(input: OwnedReleaseInput, digest: (path: string) => string) {
   pathMetadata(input.releaseRoot, true);
+  if (
+    readdirSync(input.releaseRoot).some((name) => name.startsWith('.env')) ||
+    existsSync(join(input.releaseRoot, 'certs'))
+  )
+    fail();
   pathMetadata(input.planDirectory, true, true);
   pathMetadata(input.repositoryPath, true, true);
   pathMetadata(input.configPath, false, true);
   if (readdirSync(input.repositoryPath).length) fail();
+  const sourceGuard = execFileSync(
+    '/bin/bash',
+    [join(input.releaseRoot, 'scripts/assert-deployable.sh'), '--offline'],
+    {
+      encoding: 'utf8',
+      timeout: 15000,
+      maxBuffer: 65536,
+      env: {
+        PATH: '/usr/bin:/bin',
+        HOME: input.planDirectory,
+        GIT_CONFIG_NOSYSTEM: '1',
+        GIT_CONFIG_GLOBAL: '/dev/null',
+      },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    },
+  );
+  const sourceCommit = /^DEPLOYMENT_COMMIT=([a-f0-9]{40})$/m.exec(sourceGuard)?.[1];
+  const sourceTree = /^source_tree=([a-f0-9]{40})$/m.exec(
+    bytes(join(input.releaseRoot, 'release.txt'), 65536).toString('utf8'),
+  )?.[1];
+  if (!sourceCommit || !sourceTree) fail();
   const raw = bytes(input.configPath, 1024 * 1024),
     config = OwnedSymposiumConfigSchema.parse(JSON.parse(raw.toString('utf8')));
   const reviewed = reviewedSymposiumOwnedRuntime(config.gateway.workloadImage).build;
@@ -159,6 +234,7 @@ function inspect(input: OwnedReleaseInput, digest: (path: string) => string) {
     'packages/client/dist/index.js',
   ])
     pathMetadata(join(input.releaseRoot, name));
+  verifyCompiledResolution(input.releaseRoot);
   const buildSha256 = sha(
     JSON.stringify(
       [
@@ -172,6 +248,8 @@ function inspect(input: OwnedReleaseInput, digest: (path: string) => string) {
     ),
   );
   return {
+    sourceCommit,
+    sourceTree,
     configSha256: sha(raw),
     appHome: config.podman.environment.HOME,
     buildSha256,
@@ -201,7 +279,15 @@ export function verifyOwnedRelease(plan: OwnedReleasePlan, digest = fileDigest):
   )
     fail();
   const actual = inspect(plan, digest);
-  for (const key of ['configSha256', 'appHome', 'buildSha256', 'inputsSha256', 'runtime'] as const)
+  for (const key of [
+    'sourceCommit',
+    'sourceTree',
+    'configSha256',
+    'appHome',
+    'buildSha256',
+    'inputsSha256',
+    'runtime',
+  ] as const)
     if (JSON.stringify(plan[key]) !== JSON.stringify(actual[key])) fail();
 }
 export function claimOwnedLaunch(plan: OwnedReleasePlan, digest = fileDigest) {
@@ -251,5 +337,5 @@ export function renderOwnedPlist(plan: OwnedReleasePlan, node: string) {
       .replaceAll('<', '&lt;')
       .replaceAll('>', '&gt;')
       .replaceAll('"', '&quot;');
-  return `<?xml version="1.0" encoding="UTF-8"?>\n<plist version="1.0"><dict><key>Label</key><string>com.mitzo.owned-custodian</string><key>ProgramArguments</key><array><string>${xml(node)}</string><string>${xml(join(plan.releaseRoot, 'scripts/start-owned-custodian.mjs'))}</string><string>${xml(join(plan.planDirectory, 'owned-release.json'))}</string></array><key>WorkingDirectory</key><string>${xml(plan.releaseRoot)}</string><key>KeepAlive</key><false/><key>RunAtLoad</key><false/><key>ExitTimeOut</key><integer>180</integer></dict></plist>\n`;
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<plist version="1.0"><dict><key>Label</key><string>com.mitzo.owned-custodian</string><key>ProgramArguments</key><array><string>${xml(node)}</string><string>${xml(join(plan.releaseRoot, 'scripts/start-owned-custodian.mjs'))}</string><string>${xml(join(plan.planDirectory, 'owned-release.json'))}</string></array><key>EnvironmentVariables</key><dict><key>NODE_OPTIONS</key><string></string><key>NODE_PATH</key><string></string><key>DOTENV_CONFIG_PATH</key><string>/dev/null</string></dict><key>WorkingDirectory</key><string>${xml(plan.releaseRoot)}</string><key>KeepAlive</key><false/><key>RunAtLoad</key><false/><key>ExitTimeOut</key><integer>180</integer></dict></plist>\n`;
 }
