@@ -205,8 +205,8 @@ it('requires a charged fix preparation and current grant for successor admission
       artifactRevision: 'a',
       artifactHash: hash,
     },
-    from: { configRevision: 1, membershipGeneration: 1 },
-    to: { configRevision: 2, membershipGeneration: 2 },
+    from: { configRevision: 2, membershipGeneration: 1 },
+    to: { configRevision: 3, membershipGeneration: 2 },
     expectedSelection: {
       accountId: 'coder',
       model: 'offline',
@@ -235,8 +235,8 @@ it('requires a charged fix preparation and current grant for successor admission
     policyReservationId: 'reservation',
     seatId: 'coder',
     actor: 'user',
-    expectedConfigRevision: 1,
-    resultingConfigRevision: 2,
+    expectedConfigRevision: 2,
+    resultingConfigRevision: 3,
     predecessorMembershipGeneration: 1,
     successorMembershipGeneration: 2,
     accountBinding: {
@@ -269,7 +269,8 @@ it('requires a charged fix preparation and current grant for successor admission
     contextGrant: { ...binding.contextGrant, classification: 'work', sourceRefs: [] },
   } as SeatConfig;
   let generation = 1,
-    revision = 1;
+    revision = 2,
+    historical = true;
   const authority = createSymposiumSuccessorFixAuthority({
     workflows: a,
     events: {
@@ -283,13 +284,59 @@ it('requires a charged fix preparation and current grant for successor admission
         decision: 'admitted',
         membershipGeneration: 1,
         configRevision: 1,
+        provider: 'openai',
+        accountId: 'coder',
+        model: 'offline',
+        accountProfileRevision: '1',
       }),
+      getSymposiumArtifactSealByFence: () => ({
+        fenceId: 'fence',
+        selection: {
+          sessionId: 's',
+          expectedConfigRevision: 1,
+          artifact: { volumeGeneration: 'parent' },
+        },
+        memberships: [
+          { seatId: 'coder', generation: 1, state: 'active', reconciliation: 'confirmed' },
+        ],
+      }),
+      withSymposiumHistoricalArtifactSealSnapshot: (_intent: unknown, action: () => void) => {
+        if (!historical) throw new Error('Historical successor revision chain changed');
+        action();
+      },
     } as unknown as Parameters<typeof createSymposiumSuccessorFixAuthority>[0]['events'],
     grants: { verifySeat: () => {} },
   });
   expect(() => authority.assertAdmissionCurrent!(binding)).toThrow(/preparation/i);
   a.reserveApplicationPreparation(prep);
   expect(authority.assertAdmissionCurrent!(binding)).toBe(true);
+  // The reader advances config after sealing; ordinary coder admission is
+  // fenced until a successor exists, but its sealed predecessor is provable.
+  revision = 2;
+  const predecessor = {
+    sessionId: 's',
+    workflowId: 'w',
+    fixAttemptId: 'fix',
+    actor: 'user',
+    seatId: 'coder',
+    membershipGeneration: 1,
+    accountId: 'coder',
+    model: 'offline',
+    profileId: 'coder',
+    profileRevision: '1',
+    authorityGrantId: 'grant',
+    authorityRevision: 1,
+    parentGenerationId: 'parent',
+    parentSealDigest: hash,
+    parentCommit: 'a',
+    parentCommittedTreeDigest: hash,
+    findingFingerprints: fingerprints,
+  } as Parameters<typeof authority.assertCurrent>[0];
+  expect(authority.assertCurrent(predecessor)).toBe(true);
+  historical = false;
+  expect(() => authority.assertCurrent(predecessor)).toThrow(/Historical/);
+  historical = true;
+  revision = 2;
   expect(() =>
     authority.assertAdmissionCurrent!({
       ...binding,
@@ -297,7 +344,7 @@ it('requires a charged fix preparation and current grant for successor admission
     }),
   ).toThrow(/binding/i);
   generation = 2;
-  revision = 2;
+  revision = 3;
   expect(authority.assertAdmissionCurrent!(binding)).toBe(true);
   a.close();
 });

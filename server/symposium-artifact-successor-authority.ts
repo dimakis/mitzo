@@ -19,7 +19,11 @@ export function createSymposiumSuccessorFixAuthority(deps: {
   workflows: SymposiumReviewStore;
   events: Pick<
     EventStore,
-    'getActiveSymposiumConfig' | 'getLatestSymposiumMembership' | 'getLatestSymposiumAdmission'
+    | 'getActiveSymposiumConfig'
+    | 'getLatestSymposiumMembership'
+    | 'getLatestSymposiumAdmission'
+    | 'getSymposiumArtifactSealByFence'
+    | 'withSymposiumHistoricalArtifactSealSnapshot'
   >;
   grants: Pick<SymposiumHostGrants, 'verifySeat'>;
 }): SuccessorFixAuthority {
@@ -64,7 +68,7 @@ export function createSymposiumSuccessorFixAuthority(deps: {
   return {
     workflows: deps.workflows,
     assertCurrent(request) {
-      const { seat, member } = current(request.sessionId, request.seatId, undefined, true);
+      const { config, seat, member } = current(request.sessionId, request.seatId);
       if (
         member.generation !== request.membershipGeneration ||
         seat.accountBinding?.accountId !== request.accountId ||
@@ -75,6 +79,78 @@ export function createSymposiumSuccessorFixAuthority(deps: {
         seat.authorityGrant.revision !== request.authorityRevision
       )
         throw new Error('Current successor request selection changed');
+      const admission = deps.events.getLatestSymposiumAdmission(
+        request.sessionId,
+        request.seatId,
+        config.revision,
+      );
+      if (
+        admission?.decision === 'admitted' &&
+        admission.membershipGeneration === member.generation &&
+        admission.configRevision === config.revision
+      )
+        return true;
+      // A reader can advance the configuration while the sealed coder is stopped.
+      // The exception is usable only for the exact charged fix preparation and an
+      // immutable historical seal whose admission predates that reader transition.
+      const state = deps.workflows.get(request.workflowId);
+      const prep = state?.applicationPreparations.find(
+        (value) => value.kind === 'fix' && value.attemptId === request.fixAttemptId,
+      );
+      const seal = prep && deps.events.getSymposiumArtifactSealByFence(prep.seal.fenceId);
+      const predecessor = seal && seal.memberships.find((value) => value.seatId === request.seatId);
+      const prior =
+        seal &&
+        deps.events.getLatestSymposiumAdmission(
+          request.sessionId,
+          request.seatId,
+          seal.selection.expectedConfigRevision,
+        );
+      const sameFindings = (values: readonly string[]) =>
+        values.length === request.findingFingerprints.length &&
+        [...values].sort().join() === [...request.findingFingerprints].sort().join();
+      if (
+        !state ||
+        state.limits.mode !== 'application' ||
+        state.status !== 'awaiting_fix' ||
+        state.sessionId !== request.sessionId ||
+        state.owner !== request.actor ||
+        state.artifactRevision !== request.parentCommit ||
+        state.artifactHash !== request.parentCommittedTreeDigest ||
+        !prep ||
+        prep.status !== 'preparing' ||
+        prep.actorSeatId !== request.seatId ||
+        prep.from.configRevision !== config.revision ||
+        prep.from.membershipGeneration !== member.generation ||
+        prep.artifactRevision !== state.artifactRevision ||
+        prep.artifactHash !== state.artifactHash ||
+        prep.seal.artifactGenerationId !== request.parentGenerationId ||
+        prep.seal.sealDigest !== request.parentSealDigest ||
+        !state.applicationFixIntents.some(
+          (value) =>
+            value.actor === request.actor &&
+            value.artifactRevision === state.artifactRevision &&
+            value.artifactHash === state.artifactHash &&
+            sameFindings(value.findingFingerprints),
+        ) ||
+        !seal ||
+        seal.selection.sessionId !== request.sessionId ||
+        seal.selection.artifact.volumeGeneration !== request.parentGenerationId ||
+        !predecessor ||
+        predecessor.generation !== member.generation ||
+        predecessor.state !== 'active' ||
+        predecessor.reconciliation !== 'confirmed' ||
+        !prior ||
+        prior.decision !== 'admitted' ||
+        prior.configRevision !== seal.selection.expectedConfigRevision ||
+        prior.membershipGeneration !== member.generation ||
+        prior.provider !== seat.accountBinding?.provider ||
+        prior.accountId !== request.accountId ||
+        prior.model !== request.model ||
+        prior.accountProfileRevision !== seat.accountBinding?.profileRevision
+      )
+        throw new Error('Current or sealed-predecessor admitted writer authority required');
+      deps.events.withSymposiumHistoricalArtifactSealSnapshot(seal, () => {});
       return true;
     },
     assertAdmissionCurrent(binding) {
