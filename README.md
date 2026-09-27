@@ -550,3 +550,5 @@ Owned native personal accounts expose an operator-only, revision-scoped model re
 endpoint. It performs account/model reads without inference, then publishes the catalog
 only after sandbox and physical cleanup. A new catalog revision requires explicit seat
 selection; interrupted discovery retains host recovery state.
+
+Owned sandbox creation records uncertainty at the external dispatch boundary; read-only preflight failures do not strand credential cleanup or seat creation reservations.

@@ -19,10 +19,12 @@ it('holds cleanup until an invisible in-flight sandbox create has completed', as
   const deletion = vi.fn(async () => {});
   const create = fence.create(
     () => {},
-    () =>
-      new Promise<void>((resolve) => {
+    (markDispatched) => {
+      markDispatched();
+      return new Promise<void>((resolve) => {
         finish = resolve;
-      }),
+      });
+    },
   );
   await Promise.resolve();
   const cleanup = fence.cleanup(deletion);
@@ -38,10 +40,12 @@ it('retains uncertainty across restart when create rejects or remains in flight'
   let fail!: (error: Error) => void;
   const create = fence.create(
     () => {},
-    () =>
-      new Promise<void>((_, reject) => {
+    (markDispatched) => {
+      markDispatched();
+      return new Promise<void>((_, reject) => {
         fail = reject;
-      }),
+      });
+    },
   );
   await Promise.resolve();
   const restored = new SymposiumWorkspaceLifecycle(path, () => {});
@@ -70,5 +74,30 @@ it('revalidates queued creation after cleanup fences an account, without issuing
   await cleanup;
   await expect(create).rejects.toThrow('revoked');
   expect(createOperation).not.toHaveBeenCalled();
+  await expect(fence.cleanup(async () => {})).resolves.toBeUndefined();
+});
+it('does not quarantine preflight failures before explicit external dispatch', async () => {
+  const { fence, path } = fixture();
+  await expect(
+    fence.create(
+      () => {},
+      async () => {
+        throw new Error('provider read unavailable');
+      },
+    ),
+  ).rejects.toThrow('provider read');
+  await expect(fence.cleanup(async () => {})).resolves.toBeUndefined();
+  await expect(
+    new SymposiumWorkspaceLifecycle(path, () => {}).cleanup(async () => {}),
+  ).resolves.toBeUndefined();
+});
+it('refuses a successful create result without its trusted dispatch marker', async () => {
+  const { fence } = fixture();
+  await expect(
+    fence.create(
+      () => {},
+      async () => 'unproven',
+    ),
+  ).rejects.toThrow('dispatch was not recorded');
   await expect(fence.cleanup(async () => {})).resolves.toBeUndefined();
 });

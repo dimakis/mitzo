@@ -654,10 +654,19 @@ export class SymposiumPerSeatSandboxOwner {
           ? await artifactDriverConfigForLease(this.deps.artifactLeaseHost!, lease)
           : undefined;
         snapshot.verify();
+        let physicalDispatch: (() => void) | undefined;
         const manager = (
           this.deps.managerFactory ?? ((config) => new OpenShellRuntimeManager(config))
         )({
           ...this.deps.runtimeConfig,
+          ...(this.deps.runSandboxCreation
+            ? {
+                beforeSandboxCreate: () => {
+                  if (!physicalDispatch) throw new Error('Missing sandbox dispatch fence');
+                  physicalDispatch();
+                },
+              }
+            : {}),
           account: snapshot.account,
           accountProviderBindings: snapshot.bindings,
           verifyAccountProviderUnion: () => {
@@ -716,23 +725,36 @@ export class SymposiumPerSeatSandboxOwner {
         signal.throwIfAborted();
         verifySeatCapability();
         snapshot.verify();
-        if (lease) {
-          // This durable write precedes every possible gateway create. A crash
-          // after it leaves an unbound lease closed until explicit reconciliation.
-          this.deps.artifactLeaseHost!.markCreationStarted(
-            lease.token,
-            lease.revision,
-            sandboxNameForConversation(snapshot.runtimeId, this.deps.runtimeConfig.sandboxIdLength),
-          );
-        }
-        this.deps.seatSandboxRegistry!.markSymposiumSeatSandboxCreationStarted({
-          sessionId,
-          seatId,
-          generation: snapshot.generation,
-          runtimeId: snapshot.runtimeId,
-        });
-        const create = async () => {
+        const markCreationStarted = () => {
+          if (lease) {
+            // This durable write precedes every possible gateway create. A crash
+            // after it leaves an unbound lease closed until explicit reconciliation.
+            this.deps.artifactLeaseHost!.markCreationStarted(
+              lease.token,
+              lease.revision,
+              sandboxNameForConversation(
+                snapshot.runtimeId,
+                this.deps.runtimeConfig.sandboxIdLength,
+              ),
+            );
+          }
+          this.deps.seatSandboxRegistry!.markSymposiumSeatSandboxCreationStarted({
+            sessionId,
+            seatId,
+            generation: snapshot.generation,
+            runtimeId: snapshot.runtimeId,
+          });
+        };
+        const create = async (markDispatched?: () => void) => {
+          let started = false;
+          physicalDispatch = () => {
+            markDispatched?.();
+            markCreationStarted();
+            started = true;
+          };
+          if (!this.deps.runSandboxCreation) physicalDispatch();
           const created = await manager.ensure(snapshot.runtimeId, signal);
+          if (!started) throw new Error('Seat creation did not record external dispatch');
           if (!created.sandboxId)
             throw new Error('OpenShell seat sandbox has no physical identity');
           return created;
