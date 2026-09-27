@@ -1297,6 +1297,7 @@ export interface SymposiumSessionRuntimeDeps extends Omit<
 > {
   store: EventStore;
   applicationPolicy?: SymposiumOpenShellSeatExecutorDeps['applicationPolicy'];
+  claimIdFactory?: import('./symposium-orchestrator.js').SymposiumOrchestratorDeps['claimIdFactory'];
   codexStore: CodexConversationStore;
   profileCatalogStore?: Pick<SymposiumProfileStore, 'list' | 'get'>;
   profileProposalStore?: Pick<SymposiumProfileProposalStore, 'propose'>;
@@ -1520,6 +1521,7 @@ export function createSymposiumSessionRuntime(deps: SymposiumSessionRuntimeDeps)
   const orchestrator = new SymposiumOrchestrator({
     store: deps.store,
     executors,
+    claimIdFactory: deps.claimIdFactory,
     admitSeat: ({ sessionId, seatId, generation, retained }) => {
       if (sessionId !== deps.sessionId)
         throw new Error('Symposium admission belongs to another session');

@@ -187,6 +187,24 @@ afterEach(() => {
 });
 
 describe('SymposiumOrchestrator', () => {
+  it('binds the host-selected claim to the exact staged delivery and recipient', async () => {
+    admit('builder');
+    const selectClaim = vi.fn(() => 'policy-reserved-claim');
+    orchestrator = new SymposiumOrchestrator({
+      store,
+      executors: { builder },
+      claimIdFactory: selectClaim,
+    });
+    const deliveryId = readyFor(['builder'], 'policy-reserved-turn');
+    await orchestrator.deliver(deliveryId);
+    expect(selectClaim).toHaveBeenCalledExactlyOnceWith({
+      sessionId: 'chat',
+      deliveryId,
+      seatId: 'builder',
+    });
+    expect(builder.calls[0]?.claimToken).toBe('policy-reserved-claim');
+  });
+
   it('recovers a native claim after a crash between durable claim and execute', async () => {
     await prepareConcurrentSeats();
     const hostDir = join(dir, 'native-host');

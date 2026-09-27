@@ -57,7 +57,7 @@ export interface SymposiumOrchestratorDeps {
   store: EventStore;
   executors: Record<string, SymposiumSeatExecutor>;
   idFactory?: () => string;
-  claimIdFactory?: () => string;
+  claimIdFactory?: (input: { sessionId: string; deliveryId: string; seatId: string }) => string;
   now?: () => number;
   creationRecovery?: {
     diagnostic(
@@ -82,7 +82,7 @@ export class SymposiumOrchestrator {
   private readonly store: EventStore;
   private readonly executors: Record<string, SymposiumSeatExecutor>;
   private readonly idFactory: () => string;
-  private readonly claimIdFactory: () => string;
+  private readonly claimIdFactory: NonNullable<SymposiumOrchestratorDeps['claimIdFactory']>;
   private readonly now: () => number;
   private readonly creationRecovery?: SymposiumOrchestratorDeps['creationRecovery'];
   private readonly stopSeat?: SymposiumOrchestratorDeps['stopSeat'];
@@ -813,7 +813,11 @@ export class SymposiumOrchestrator {
           : undefined,
         this.now(),
       );
-      const claimToken = this.claimIdFactory();
+      const claimToken = this.claimIdFactory({
+        sessionId: delivery.sessionId,
+        deliveryId,
+        seatId: seat.id,
+      });
       try {
         executor.prepare?.({ sessionId: delivery.sessionId, claimToken });
       } catch (error) {
