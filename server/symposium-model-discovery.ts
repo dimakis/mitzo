@@ -29,6 +29,15 @@ const receiptSchema = z
   })
   .strict();
 export type DiscoveryReceipt = z.infer<typeof receiptSchema>;
+/** Preserve all 256 claim bits within upstream Kubernetes label limits (63 chars).
+ * Fixed alphanumeric ends also cover base64url values ending in '-' or '_'.
+ * Journals and native controller claims keep their original 64-character hex form.
+ */
+export function discoveryClaimLabel(claim: string): string {
+  if (!/^[a-f0-9]{64}$/.test(claim)) throw new Error('Invalid discovery claim');
+  return `v1.${Buffer.from(claim, 'hex').toString('base64url')}.c`;
+}
+
 const sandboxSchema = z.object({
   id: identifier,
   name: identifier,
@@ -171,7 +180,7 @@ async function runExclusiveDiscovery(
     row.name === expected.name &&
     row.workspace === config.workspace &&
     row.labels['mitzo.discovery'] === 'models' &&
-    row.labels['mitzo.discovery.claim'] === expected.claim &&
+    row.labels['mitzo.discovery.claim'] === discoveryClaimLabel(expected.claim) &&
     (!expected.id || row.id === expected.id);
   try {
     config = configSchema.parse(input);

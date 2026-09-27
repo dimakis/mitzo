@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import {
   DiscoveryNotDispatchedError,
+  discoveryClaimLabel,
   type DiscoveryOperations,
 } from './symposium-model-discovery.js';
 import type { SandboxCreationFence } from './symposium-workspace-lifecycle.js';
@@ -44,7 +45,8 @@ export function fenceDiscoveryCreation(
                 (selected[0] &&
                   (selected[0].workspace !== workspace ||
                     selected[0].labels['mitzo.discovery'] !== 'models' ||
-                    selected[0].labels['mitzo.discovery.claim'] !== receipt.claim ||
+                    selected[0].labels['mitzo.discovery.claim'] !==
+                      discoveryClaimLabel(receipt.claim) ||
                     (receipt.id && selected[0].id !== receipt.id)))
               )
                 throw new Error('Discovery creation identity changed');
