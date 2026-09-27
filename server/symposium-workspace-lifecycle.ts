@@ -15,6 +15,14 @@ export type SandboxCreationFence = <T>(
   verify: () => void,
   operation: (markDispatched: () => void) => Promise<T>,
 ) => Promise<T>;
+/** Produced only by the retained fence before it attempts the durable dispatch write. */
+export class SandboxCreationPreflightError extends Error {
+  constructor(cause: unknown) {
+    super(cause instanceof Error ? cause.message : 'Sandbox creation preflight rejected', {
+      cause,
+    });
+  }
+}
 /** Retained by the sole owned host. An uncertain external create is never
  * converted into proof of absence by inventory polling or a process restart. */
 export class SymposiumWorkspaceLifecycle {
@@ -88,8 +96,12 @@ export class SymposiumWorkspaceLifecycle {
       let dispatched = false;
       const result = await operation(() => {
         if (dispatched) throw new Error('Sandbox creation dispatch already recorded');
-        verify();
-        this.custody();
+        try {
+          verify();
+          this.custody();
+        } catch (error) {
+          throw new SandboxCreationPreflightError(error);
+        }
         this.save(true);
         dispatched = true;
       });
