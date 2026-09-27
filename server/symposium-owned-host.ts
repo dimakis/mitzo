@@ -1,3 +1,4 @@
+import { captureSymposiumWorkVertexProvider } from './symposium-work-vertex-provider.js';
 import { createSymposiumSourceHost } from './symposium-source-service.js';
 import type { PublicationCredentialRegistration } from './symposium-publication-registration.js';
 import { withOwnedArtifactSuccessor } from './symposium-owned-successor.js';
@@ -361,6 +362,10 @@ export async function createOwnedSymposiumHost(
       cliEnv: gateway.managementEnvironment,
       podmanEnv,
       ownedGateway: gateway,
+      captureClaudeProvider: (providerId) => {
+        custody();
+        return captureSymposiumWorkVertexProvider(gateway, providerId);
+      },
     });
     const currentProfiles = () => {
       custody();

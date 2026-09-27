@@ -1,9 +1,12 @@
 # Selected Work Vertex provisioning
 
-This bootstrap groundwork does not enable Vertex seat admission. The production
-attestation still excludes `anthropic-vertex`; Claude runtime verification,
-per-seat policy/isolation evidence, and continuation semantics remain separate
-gates. No existing account profile is migrated or altered.
+Selected Work provisioning supplies identity and custody evidence for the separate
+reviewed owned Claude runtime variant. Admission additionally requires its exact
+image/native artifact tuple, endpointless provider policy, fresh installed-token
+readiness, current account/model/host grants, and per-seat isolation. The older
+Codex-only image cannot authorize Vertex seats. Offline physical startup and
+continuation regressions are implemented; live inference acceptance remains a
+separate gate. No existing account profile is migrated or altered.
 
 An explicitly configured `personal.workProfiles` entry may select
 `provider: anthropic-vertex`, an absolute `credentialRef` to a private owned
@@ -29,8 +32,13 @@ The gateway creates a fresh provider, receives exact project/region config,
 and returns a bounded census identifying name, ID, type, and workspace. Refresh
 configuration and an initial rotation request must both be acknowledged before
 publishing the account binding. Rotation acknowledgement is not proof that the
-background refresh finished; admission must inspect current refresh readiness
-and expiry before relying on it. The initial token was authenticated from the
+background refresh finished. Each retained-capability capture reads bounded
+current refresh status between two exact provider censuses, requiring the
+`oauth2_refresh_token` strategy, `refreshed` status, no recovery/failure, and a
+stable installed credential expiry matching the refresh receipt with at least
+60 seconds remaining. Status alone is insufficient because the upstream handler
+persists refreshed state before installing the credential. Pending, uncertain,
+expired or concurrently changing observations reject admission/dispatch. The initial token was authenticated from the
 same selected snapshot. A failed/uncertain startup returns no binding; the existing
 bootstrap stops its newly owned gateway. Do not retry or adopt that provider.
 The code does not claim restart recovery.
@@ -39,18 +47,36 @@ The code does not claim restart recovery.
 same-process receipt containing the Google-verified principal and selected
 account/project/region/model bound to the created provider identity. Only the
 original gateway object with live custody can retrieve it; observing custody
-loss removes the retained capability. Serialized account metadata cannot
-reconstruct it. No parallel ledger or scheduler is introduced.
+loss removes the retained capability, including loss observed during readiness
+queries. Readiness is never cached in that receipt: every capture performs a
+fresh bounded observation using the original gateway's CLI and environment.
+Serialized account metadata cannot reconstruct it. No parallel ledger or
+scheduler is introduced.
 
 ## Proof limits
 
 The pinned OpenShell CLI lists config **keys**, not config values or resolved
 profile workspace. This increment proves acknowledged creation with exact
 public intent, fresh identity census, and exclusive retained gateway custody;
-it does not claim public-config readback. Future admission must verify the
-resolved endpointless profile and native projected project/region before
-execution, as well as cross-account, binary and filesystem restrictions.
-Provider rotation does not prove model enablement or prediction IAM.
+it does not claim public-config readback. The owned production gate verifies the
+resolved endpointless profile and exact provider association, while the fixed
+native launcher verifies projected project/region and clears model/provider
+overrides. The separate measured image supplies binary and filesystem evidence.
+The supported refresh-status table has second precision; provider list JSON
+supplies installed credential expiry and resource revision, checked before and
+after status. These observations prove current gateway credential readiness,
+not successful sandbox inference, model enablement, prediction IAM, or future
+refresh success. No credential value is returned or logged.
+
+Claude claims use fresh native session UUIDs and complete eligible same-seat
+history as bounded untrusted user input, never native `--resume` or copied state.
+Actual offline stream-json startup emits the expected dated Haiku model/session
+receipt. Model mismatches and missing required model receipts fail before event
+projection. Each message is buffered until its matching assistant ID/model
+receipt; verified completed messages project incrementally across tool turns,
+not as live unverified token deltas. Cancellation releases pending output.
+The real EventStore/native-adapter regression covers three claims,
+but it is a synthetic transport test, not live multi-turn model acceptance.
 
 Official [Google global endpoint documentation](https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/partner-models/use-partner-models)
 lists Haiku 4.5 at `aiplatform.googleapis.com` with `/locations/global`.

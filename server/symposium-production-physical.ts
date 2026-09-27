@@ -1,3 +1,4 @@
+import type { SymposiumWorkVertexReceipt } from './symposium-work-vertex-provider.js';
 export class SymposiumPhysicalCleanupError extends Error {}
 /** Only the host spawn result can establish that no CLI process was started.
  * Remote nonzero exits, timeouts and error messages never provide this proof. */
@@ -67,6 +68,7 @@ export function digestSymposiumPublicProfile(profile: unknown): string {
 }
 
 export interface LocalSymposiumPhysicalOptions {
+  captureClaudeProvider?: (providerId: string) => SymposiumWorkVertexReceipt;
   cli: string;
   podman: string;
   /** Explicit private CLI state/TLS environment, owned by the host bootstrap. */
@@ -92,6 +94,11 @@ export class LocalSymposiumProductionPhysicalProof implements SymposiumProductio
     if (!isAbsolute(options.cli) || !isAbsolute(options.podman))
       throw new Error('Physical inspection tools must be absolute');
     validateOpenShellCliEnvironment(options.cliEnv);
+  }
+  captureClaudeProvider(providerId: string): SymposiumWorkVertexReceipt {
+    if (!this.options.captureClaudeProvider)
+      throw new Error('Claude selected provider proof is unavailable');
+    return this.options.captureClaudeProvider(providerId);
   }
   private podman(args: readonly string[]): string {
     return this.run(this.options.podman, args, this.options.podmanEnv);

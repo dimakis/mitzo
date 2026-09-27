@@ -87,6 +87,43 @@ static void require_native_codex(void) {
   close(fd);
 }
 
+/* Claude's embedded runtime requires its own maps inode at startup. This is
+ * granted only for the fixed root-owned launcher or canonical native ELF. The
+ * inode follows this process across exec; fork descendants inherit access to
+ * this parent's maps, not their own or arbitrary other process maps. */
+static void require_claude_file(const char *path, int native) {
+  int fd = open(path, O_RDONLY | O_CLOEXEC | O_NOFOLLOW);
+  if (fd < 0) die("canonical Claude file required");
+  struct stat info;
+  unsigned char header[20];
+  if (fstat(fd, &info) < 0 || !S_ISREG(info.st_mode) || info.st_uid != 0 ||
+      (info.st_mode & 0022) || !(info.st_mode & 0111) ||
+      (native && (read(fd, header, sizeof(header)) != (ssize_t)sizeof(header) ||
+                  memcmp(header, "\177ELF\002\001", 6) != 0 ||
+                  header[18] != 183 || header[19] != 0))) {
+    fprintf(stderr, "reviewed root-owned Claude executable required\n");
+    exit(1);
+  }
+  close(fd);
+}
+
+static void allow_claude_process_maps(int ruleset) {
+  int fd = open("/proc/self/maps", O_PATH | O_CLOEXEC | O_NOFOLLOW);
+  if (fd < 0) die("Claude process maps");
+  struct stat info;
+  if (fstat(fd, &info) < 0 || !S_ISREG(info.st_mode)) {
+    fprintf(stderr, "Claude process maps must be a regular file\n");
+    exit(1);
+  }
+  struct landlock_path_beneath_attr rule = {
+      .allowed_access = LANDLOCK_ACCESS_FS_READ_FILE,
+      .parent_fd = fd,
+  };
+  if (syscall(__NR_landlock_add_rule, ruleset, LANDLOCK_RULE_PATH_BENEATH, &rule, 0) < 0)
+    die("Claude process maps rule");
+  close(fd);
+}
+
 static int valid_home(const char *path) {
   const char *prefix = "/sandbox/.symposium-seats/";
   if (strncmp(path, prefix, strlen(prefix)) != 0) return 0;
@@ -108,6 +145,13 @@ int main(int argc, char **argv) {
   if (!strcmp(argv[4], "/usr/bin/codex") ||
       !strcmp(argv[4], "/usr/local/bin/symposium-subscription-app-server"))
     require_native_codex();
+  int claude_launcher = !strcmp(argv[4], "/usr/local/bin/symposium-claude-vertex");
+  int claude = claude_launcher || !strcmp(argv[4], "/usr/local/bin/claude");
+  if (claude) {
+    require_claude_file("/usr/local/bin/claude", 1);
+    if (claude_launcher)
+      require_claude_file("/usr/local/bin/symposium-claude-vertex", 0);
+  }
   int abi = syscall(__NR_landlock_create_ruleset, NULL, 0, LANDLOCK_CREATE_RULESET_VERSION);
   if (abi < 3) {
     fprintf(stderr, "Landlock ABI 3 or newer is required\n");
@@ -143,6 +187,7 @@ int main(int argc, char **argv) {
   allow_public_ca(fd, "/run/openshell-supervisor-ca/material/ca-bundle.crt");
   allow_path(fd, "/dev/null", LANDLOCK_ACCESS_FS_READ_FILE | LANDLOCK_ACCESS_FS_WRITE_FILE, 0);
   allow_path(fd, "/dev/urandom", LANDLOCK_ACCESS_FS_READ_FILE, 0);
+  if (claude) allow_claude_process_maps(fd);
   allow_path(fd, argv[1], READ_ACCESS | WRITE_ACCESS | EXEC_ACCESS, 1);
   allow_path(fd, argv[2], READ_ACCESS |
              (strcmp(argv[3], "write") == 0 ? WRITE_ACCESS : 0), 1);

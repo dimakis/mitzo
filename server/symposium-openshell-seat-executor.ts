@@ -1,5 +1,6 @@
 import {
   assertSymposiumAttestedProvider,
+  assertSymposiumAttestedClaudeProvider,
   type SymposiumProviderCapability,
 } from './symposium-production-gate.js';
 import type { ControlledAttemptSandbox } from './symposium-attempt-transport.js';
@@ -112,12 +113,18 @@ export class SymposiumOpenShellSeatExecutor implements SymposiumSeatExecutor {
     this.attempts.set(input.claimToken, attempt);
     const admission = () => {
       if (this.draining) throw new Error('Symposium runtime is shutting down');
-      return admitSymposiumSeatDispatch(
+      const admitted = admitSymposiumSeatDispatch(
         this.deps.facts,
         this.deps.currentProfiles?.() ?? this.deps.profiles,
         input,
         this.deps.hostGrants,
       );
+      if (admitted.kind === 'claude-vertex')
+        assertSymposiumAttestedClaudeProvider(this.deps.verifyHostCapability?.(), {
+          ...admitted,
+          accountId: input.seat.accountBinding!.accountId,
+        });
+      return admitted;
     };
     let route = admission();
     if (

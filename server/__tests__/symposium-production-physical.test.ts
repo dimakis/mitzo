@@ -292,3 +292,41 @@ it('accepts exact absence after completed create and lost removal response', () 
     ),
   ).not.toThrow();
 });
+it('uses only the retained host accessor for Claude identity and never reconstructs it from CLI output', () => {
+  const receipt = {
+    principal: 'work@example.test',
+    accountId: 'work',
+    provider: 'work',
+    providerId: 'exact',
+    projectId: 'project-1',
+    region: 'global' as const,
+    model: 'claude-haiku-4-5@20251001' as const,
+    workspace: 'workspace',
+  };
+  const capture = vi.fn(() => receipt);
+  const run = vi.fn();
+  const proof = new LocalSymposiumProductionPhysicalProof(
+    {
+      cli: '/bin/openshell',
+      podman: '/bin/podman',
+      cliEnv: { HOME: '/private/home', XDG_CONFIG_HOME: '/private/config', PATH: '/usr/bin:/bin' },
+      podmanEnv: { PATH: '/usr/bin:/bin' },
+      ownedGateway: {
+        gateway: 'owned',
+        workspace: 'workspace',
+        endpoint: 'https://localhost:1',
+        verifyGatewayDriverConfig: vi.fn(),
+      },
+      captureClaudeProvider: capture,
+    },
+    run,
+  );
+  expect(proof.captureClaudeProvider('exact')).toBe(receipt);
+  expect(capture).toHaveBeenCalledWith('exact');
+  expect(run).not.toHaveBeenCalled();
+  capture.mockImplementation(() => {
+    throw Error('custody lost');
+  });
+  expect(() => proof.captureClaudeProvider('exact')).toThrow('custody lost');
+  expect(() => setup().proof.captureClaudeProvider('exact')).toThrow(/unavailable/);
+});

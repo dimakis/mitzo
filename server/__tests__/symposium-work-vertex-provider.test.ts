@@ -44,16 +44,43 @@ function fixture() {
     return { email: profile.expectedPrincipal, accessToken: 'synthetic-access' };
   });
   let name = '';
+  const expiry = Date.now() + 3600_000;
+  const date = (n: number) => new Date(n).toISOString().slice(0, 19).replace('T', ' ');
   const run = vi.fn((_file: string, args: string[], _options: unknown) => {
     if (args.includes('create')) name = args[args.indexOf('--name') + 1];
     return {
       status: 0,
       stdout: args.includes('list')
         ? JSON.stringify({
-            providers: [{ name, id: 'new-id', workspace: 'private', type: 'google-vertex-ai' }],
+            providers: [
+              {
+                name,
+                id: 'new-id',
+                workspace: 'private',
+                type: 'google-vertex-ai',
+                resource_version: 2,
+                credential_keys: ['GOOGLE_VERTEX_AI_TOKEN'],
+                credential_expires_at_ms: { GOOGLE_VERTEX_AI_TOKEN: expiry },
+              },
+            ],
             next_page_token: '',
           })
-        : '',
+        : args.includes('status')
+          ? 'PROVIDER  CREDENTIAL_KEY  STRATEGY  STATUS  RECOVERY  EXPIRES_AT  NEXT_REFRESH  LAST_REFRESH  FAILURE_CODE  LAST_ERROR\n' +
+            [
+              name,
+              'GOOGLE_VERTEX_AI_TOKEN',
+              'oauth2_refresh_token',
+              'refreshed',
+              '-',
+              date(expiry),
+              date(expiry - 300000),
+              date(Date.now() - 10000),
+              '',
+              '',
+            ].join('  ') +
+            '\n'
+          : '',
     };
   });
   const invoke = () =>
@@ -251,4 +278,36 @@ it('retains verified principal and exact provider intent only under the original
   expect(() => captureSymposiumWorkVertexProvider(f.gateway as never, 'new-id')).toThrow(
     'Vertex provider custody unavailable',
   );
+});
+
+it('rechecks current installed credential readiness on every retained capability capture', async () => {
+  const f = fixture();
+  const result = await f.invoke();
+  const start = f.run.mock.calls.length;
+  captureSymposiumWorkVertexProvider(f.gateway as never, result.sandboxProviderId);
+  expect(f.run.mock.calls.slice(start).some(([, args]) => args.includes('status'))).toBe(true);
+  f.run.mockImplementation(() => ({ status: 1, stdout: 'synthetic-private-diagnostic' }));
+  expect(() =>
+    captureSymposiumWorkVertexProvider(f.gateway as never, result.sandboxProviderId),
+  ).toThrow('Vertex provider readiness unavailable');
+});
+
+it('permanently revokes retained identity when custody is lost during a readiness observation', async () => {
+  const f = fixture();
+  const result = await f.invoke();
+  const original = f.run.getMockImplementation()!;
+  f.run.mockImplementation((file, args, options) => {
+    const output = original(file, args, options);
+    f.gateway.verifyCustody.mockImplementationOnce(() => {
+      throw new Error('lost');
+    });
+    return output;
+  });
+  expect(() =>
+    captureSymposiumWorkVertexProvider(f.gateway as never, result.sandboxProviderId),
+  ).toThrow('readiness unavailable');
+  f.gateway.verifyCustody.mockReset();
+  expect(() =>
+    captureSymposiumWorkVertexProvider(f.gateway as never, result.sandboxProviderId),
+  ).toThrow('custody unavailable');
 });

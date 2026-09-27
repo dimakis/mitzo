@@ -2887,14 +2887,20 @@ describe('mixed personal subscription and work seat isolation', () => {
       verifiedSubscriptionControllerCommand: ['/usr/local/bin/symposium-subscription-app-server'],
       verifySubscriptionPrivateAuth: async () => {},
     });
+    await expect(owner.ensure('symposium', 'claude', new AbortController().signal)).rejects.toThrow(
+      'Claude native image',
+    );
     const sandboxes = await Promise.all(
-      seats.map((selected) => owner.ensure('symposium', selected.id, new AbortController().signal)),
+      seats
+        .filter((selected) => selected.id !== 'claude')
+        .map((selected) => owner.ensure('symposium', selected.id, new AbortController().signal)),
     );
-    expect(new Set(sandboxes.map((sandbox) => sandbox.sandboxName)).size).toBe(3);
-    expect(configurations.map((configuration) => configuration.accountProviderBindings)).toEqual(
-      snapshots.map((snapshot) => snapshot.bindings),
-    );
-    expect(configurations[2].account.kind).toBe('chatgpt-subscription-native');
+    expect(new Set(sandboxes.map((sandbox) => sandbox.sandboxName)).size).toBe(2);
+    expect(configurations.map((configuration) => configuration.accountProviderBindings)).toEqual([
+      snapshots[0].bindings,
+      snapshots[2].bindings,
+    ]);
+    expect(configurations[1].account.kind).toBe('chatgpt-subscription-native');
     const incompleteRegistry = seatSandboxRegistry();
     let stopped = false;
     const postCreate = vi.fn(

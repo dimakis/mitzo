@@ -1122,3 +1122,246 @@ describe('production Symposium route to native runtime', () => {
     expect(symposiumSeatSystemPrompt(seat)).not.toContain('session:symposium');
   });
 });
+
+import { EventEmitter } from 'node:events';
+import { PassThrough } from 'node:stream';
+import { REVIEWED_SYMPOSIUM_CLAUDE_RUNTIME } from '../symposium-owned-runtime-contract.js';
+it('runs real Claude adapter through EventStore admission, claim migration, and attributed event projection', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'mitzo-claude-runtime-'));
+  chmodSync(root, 0o700);
+  const model = 'claude-haiku-4-5@20251001';
+  const vertexProfiles = new AccountProfiles([
+    {
+      id: 'work-vertex',
+      label: 'Work Vertex',
+      provider: 'anthropic-vertex',
+      credentialRef: '/never-read-adc',
+      projectId: 'project-1',
+      region: 'global',
+      sandboxProvider: 'vertex-work',
+      sandboxProviderId: 'vertex-id',
+      models: [{ id: model, label: 'Haiku' }],
+    },
+  ]);
+  const binding = AccountBindingSchema.parse(vertexProfiles.resolve('work-vertex', model));
+  const currentSeat = { ...seat, accountBinding: binding, model };
+  const currentConfig = {
+    ...config,
+    turnRules: { ...config.turnRules, maxTurns: 8 },
+    seats: [{ ...currentSeat, id: 'anchor' }, currentSeat],
+  };
+  const store = new EventStore(join(root, 'events.db'));
+  store.upsertSession({ sessionId: 'symposium', accountBinding: binding });
+  store.setSymposiumConfig('symposium', currentConfig);
+  const commands: readonly string[][] = [];
+  const prompts: string[] = [];
+  let failModel = false;
+  let failAssistant = false;
+  let omitInit = false;
+  const registry = new SymposiumAttemptRegistry(join(root, 'attempts.db'), {
+    launch: (_sandbox, _claim, _access, command) => {
+      (commands as string[][]).push([...command]);
+      const child = Object.assign(new EventEmitter(), {
+        stdin: new PassThrough(),
+        stdout: new PassThrough(),
+        stderr: new PassThrough(),
+        kill: vi.fn(),
+      });
+      let prompt = '';
+      child.stdin.on('data', (x) => (prompt += x.toString()));
+      child.stdin.on('finish', () =>
+        queueMicrotask(() => {
+          prompts.push(prompt);
+          const thread = command[command.indexOf('--session-id') + 1];
+          const emit = (data: Record<string, unknown>) =>
+            child.stdout.write(JSON.stringify({ session_id: thread, ...data }) + '\n');
+          if (!omitInit)
+            emit({ type: 'system', subtype: 'init', model: failModel ? 'wrong-model' : model });
+          emit({
+            type: 'stream_event',
+            event: {
+              type: 'message_start',
+              message: { id: `turn-${prompts.length}`, model: 'claude-haiku-4-5-20251001' },
+            },
+          });
+          emit({
+            type: 'stream_event',
+            event: {
+              type: 'content_block_start',
+              index: 0,
+              content_block: { type: 'text', text: '' },
+            },
+          });
+          emit({
+            type: 'stream_event',
+            event: {
+              type: 'content_block_delta',
+              index: 0,
+              delta: { type: 'text_delta', text: `Reply ${prompts.length}` },
+            },
+          });
+          emit({ type: 'stream_event', event: { type: 'content_block_stop', index: 0 } });
+          emit({
+            type: 'assistant',
+            message: {
+              id: `turn-${prompts.length}`,
+              model: failAssistant ? 'wrong-model' : 'claude-haiku-4-5-20251001',
+              content: [{ type: 'text', text: `Reply ${prompts.length}` }],
+            },
+          });
+          emit({ type: 'result', is_error: false });
+          child.emit('close', 0);
+        }),
+      );
+      return { child: child as never, confirmStopped: async () => {} };
+    },
+    confirm: async () => {},
+  });
+  const receipt = {
+    principal: 'work@example.test',
+    accountId: 'work-vertex',
+    provider: 'vertex-work',
+    providerId: 'vertex-id',
+    projectId: 'project-1',
+    region: 'global' as const,
+    model: 'claude-haiku-4-5@20251001' as const,
+    workspace: 'default',
+  };
+  let providerCurrent = true;
+  const broadcast = vi.fn();
+  const runtime = createSymposiumSessionRuntime({
+    sessionId: 'symposium',
+    store,
+    profiles: vertexProfiles,
+    currentProfiles: () => vertexProfiles,
+    hostGrants: { verifySeat: vi.fn() },
+    codexStore: {} as never,
+    attemptRegistry: registry,
+    runtimeConfig: { ...runtimeConfig, image: REVIEWED_SYMPOSIUM_CLAUDE_RUNTIME.build.image },
+    perSeatSandboxVerified: true,
+    readOnlyEnforced: { openaiApi: false, claudeVertex: true },
+    verifyHostCapability: () => ({
+      attestedProviderInstances: new Map([
+        [
+          'vertex-work',
+          {
+            id: 'vertex-id',
+            type: 'google-vertex-ai',
+            profileName: 'google-vertex-ai',
+            workspace: 'default',
+          },
+        ],
+      ]),
+      claudeProviders: new Map(providerCurrent ? [['vertex-work', receipt]] : []),
+    }),
+    resolveProviderIdentity: (name, id) => ({
+      name,
+      id,
+      type: 'google-vertex-ai',
+      workspace: 'default',
+    }),
+    recordAccepted: (r) => store.markSymposiumRecipientAccepted(r),
+    broadcastEvent: broadcast,
+    managerFactory: () => ({
+      ensure: async () => ({
+        sandboxName: 'claude-seat',
+        sandboxId: 'physical-claude',
+        workdir: runtimeConfig.workdir,
+      }),
+      inspectReserved: async () => ({ id: 'physical-claude', name: 'claude-seat', phase: 'Ready' }),
+      inspect: async () => ({ id: 'physical-claude', phase: 'Ready' }),
+      stop: async () => {},
+    }),
+  });
+  try {
+    const member = await runtime.orchestrator.transitionMembership({
+      sessionId: 'symposium',
+      seatId: 'builder',
+      action: 'admit',
+      expectedGeneration: 0,
+      configRevision: 1,
+      actor: 'owner',
+      reason: 'Approved',
+      idempotencyKey: 'claude-admit',
+    });
+    expect(member.reconciliation).toBe('confirmed');
+    const deliver = async (text: string) => {
+      const d = runtime.orchestrator.stageDelivery({
+        sessionId: 'symposium',
+        sourceSeatId: null,
+        recipientSeatIds: ['builder'],
+        originalContent: text,
+        idempotencyKey: text,
+      });
+      runtime.orchestrator.intervene({
+        deliveryId: d.deliveryId,
+        action: 'approve',
+        idempotencyKey: 'approve-' + text,
+      });
+      return runtime.orchestrator.deliver(d.deliveryId);
+    };
+    expect((await deliver('First')).status).toBe('delivered');
+    expect((await deliver('Second')).status).toBe('delivered');
+    expect((await deliver('Third')).status).toBe('delivered');
+    expect(prompts[1]).toContain('Reply 1');
+    expect(prompts[2]).toContain('Reply 1');
+    expect(prompts[2]).toContain('Reply 2');
+    expect(commands[0].slice(0, 4)).toEqual([
+      '/usr/local/bin/symposium-claude-vertex',
+      'project-1',
+      'global',
+      '--print',
+    ]);
+    expect(commands[0]).not.toContain('/usr/local/bin/claude');
+    expect(new Set(commands.map((c) => c[c.indexOf('--session-id') + 1])).size).toBe(3);
+    expect(
+      commands.every(
+        (c) => c[0] === '/usr/local/bin/symposium-claude-vertex' && !c.includes('--resume'),
+      ),
+    ).toBe(true);
+    expect(
+      store.getSessionEvents('symposium').filter((e) => e.type === 'symposium_thread_migrated'),
+    ).toHaveLength(2);
+    const authored = store.getSessionEvents('symposium').filter((e) => e.type === 'message_start');
+    expect(authored).toHaveLength(3);
+    expect(
+      authored.every(
+        (e) =>
+          e.seatId === 'builder' &&
+          !!e.symposiumProvenance &&
+          'accountBinding' in e.symposiumProvenance &&
+          e.symposiumProvenance.accountBinding.accountId === 'work-vertex',
+      ),
+    ).toBe(true);
+    const before = broadcast.mock.calls.length;
+    failModel = true;
+    expect((await deliver('Wrong model')).status).toBe('failed');
+    expect(broadcast.mock.calls.slice(before).some(([, e]) => e.type === 'message_start')).toBe(
+      false,
+    );
+    failModel = false;
+    failAssistant = true;
+    const beforeAssistantFailure = broadcast.mock.calls.length;
+    expect((await deliver('Late wrong model')).status).toBe('failed');
+    expect(
+      broadcast.mock.calls
+        .slice(beforeAssistantFailure)
+        .some(([, e]) => e.type === 'message_start'),
+    ).toBe(false);
+    failAssistant = false;
+    omitInit = true;
+    const beforeMissingInit = broadcast.mock.calls.length;
+    expect((await deliver('Missing init')).status).toBe('failed');
+    expect(
+      broadcast.mock.calls.slice(beforeMissingInit).some(([, e]) => e.type === 'message_start'),
+    ).toBe(false);
+    providerCurrent = false;
+    const starts = commands.length;
+    expect((await deliver('Revoked provider')).status).toBe('failed');
+    expect(commands).toHaveLength(starts);
+  } finally {
+    registry.close();
+    store.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});

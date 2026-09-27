@@ -1,3 +1,4 @@
+import { assertSymposiumWorkVertexReadiness } from './symposium-work-vertex-readiness.js';
 import { spawnSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { closeSync, constants, fstatSync, openSync, readSync } from 'node:fs';
@@ -39,20 +40,39 @@ export interface SymposiumWorkVertexReceipt {
   readonly workspace: string;
 }
 // Same-process capability, not a persisted ledger or reconstructed authority.
-const receipts = new WeakMap<OwnedSymposiumGateway, Map<string, SymposiumWorkVertexReceipt>>();
-export function captureSymposiumWorkVertexProvider(
-  gateway: OwnedSymposiumGateway,
-  providerId: string,
-) {
+const receipts = new WeakMap<
+  OwnedSymposiumGateway,
+  Map<string, { receipt: SymposiumWorkVertexReceipt; verifyReadiness(): void }>
+>();
+function verifyCustody(gateway: OwnedSymposiumGateway): void {
   try {
     gateway.verifyCustody();
   } catch {
     receipts.delete(gateway);
     throw new Error('Vertex provider custody unavailable');
   }
-  const receipt = receipts.get(gateway)?.get(providerId);
-  if (!receipt) throw new Error('Vertex provider custody unavailable');
-  return receipt;
+}
+export function captureSymposiumWorkVertexProvider(
+  gateway: OwnedSymposiumGateway,
+  providerId: string,
+) {
+  try {
+    verifyCustody(gateway);
+  } catch {
+    receipts.delete(gateway);
+    throw new Error('Vertex provider custody unavailable');
+  }
+  const retained = receipts.get(gateway)?.get(providerId);
+  if (!retained) throw new Error('Vertex provider custody unavailable');
+  try {
+    retained.verifyReadiness();
+    verifyCustody(gateway);
+  } catch {
+    // Refresh failures and CLI diagnostics may contain private provider details.
+    // Identity stays retained for later fresh observations; readiness is never cached.
+    throw new Error('Vertex provider readiness unavailable');
+  }
+  return retained.receipt;
 }
 interface Dependencies {
   authenticate?(material: Material): Promise<{ email: string; accessToken: string }>;
@@ -109,27 +129,31 @@ export async function createSymposiumWorkVertexProvider(
     const selected = SymposiumWorkVertexProfile.parse(input);
     const { expectedPrincipal, ...profile } = selected;
     new AccountProfiles([profile]);
-    gateway.verifyCustody();
+    verifyCustody(gateway);
     const material = snapshot(profile.credentialRef);
     if (material.quota_project_id && material.quota_project_id !== profile.projectId) throw Error();
     const verified = await (dependencies.authenticate ?? authenticate)(material);
-    gateway.verifyCustody();
+    verifyCustody(gateway);
     if (verified.email !== expectedPrincipal || !verified.accessToken) throw Error();
     const environment = validateOpenShellCliEnvironment(gateway.managementEnvironment);
     const run = dependencies.run ?? spawnSync;
-    const invoke = (args: string[], secretEnvironment: Record<string, string> = {}) => {
-      gateway.verifyCustody();
+    const invoke = (
+      args: string[],
+      secretEnvironment: Record<string, string> = {},
+      timeoutMs = 30_000,
+    ) => {
+      verifyCustody(gateway);
       const result = run(
         gateway.cli,
         ['provider', '--gateway', gateway.gateway, '--workspace', gateway.workspace, ...args],
         {
           env: { ...environment, ...secretEnvironment },
           encoding: 'utf8',
-          timeout: 30_000,
+          timeout: timeoutMs,
           maxBuffer: 1_000_000,
         },
       );
-      gateway.verifyCustody();
+      verifyCustody(gateway);
       if (result.error || result.status !== 0) throw Error();
       return String(result.stdout);
     };
@@ -205,11 +229,10 @@ export async function createSymposiumWorkVertexProvider(
       },
     );
     invoke(['refresh', 'rotate', provider, '--credential-key', 'GOOGLE_VERTEX_AI_TOKEN']);
-    gateway.verifyCustody();
-    const retained = receipts.get(gateway) ?? new Map<string, SymposiumWorkVertexReceipt>();
-    retained.set(
-      found.id,
-      Object.freeze({
+    verifyCustody(gateway);
+    const retained = receipts.get(gateway) ?? new Map();
+    retained.set(found.id, {
+      receipt: Object.freeze({
         principal: verified.email,
         accountId: profile.id,
         provider,
@@ -219,7 +242,14 @@ export async function createSymposiumWorkVertexProvider(
         model: profile.models[0].id,
         workspace: gateway.workspace,
       }),
-    );
+      verifyReadiness: () =>
+        assertSymposiumWorkVertexReadiness({
+          provider,
+          providerId: found.id as string,
+          workspace: gateway.workspace,
+          invoke: (args, timeoutMs) => invoke(args, {}, timeoutMs),
+        }),
+    });
     receipts.set(gateway, retained);
     return { ...profile, sandboxProvider: provider, sandboxProviderId: found.id };
   } catch {
