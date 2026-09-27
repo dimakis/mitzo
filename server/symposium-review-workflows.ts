@@ -919,6 +919,12 @@ export class SymposiumReviewStore {
         const attempt = state.applicationAttempts.find((a) => a.attemptId === attemptId);
         if (!attempt?.dispatched || (attempt.operationId && attempt.operationId !== operationId))
           throw new Error('Exact dispatched operation required');
+        if (
+          state.applicationAttempts.some(
+            (a) => a.attemptId !== attemptId && a.operationId === operationId,
+          )
+        )
+          throw new Error('Native operation already bound to another host turn');
         attempt.operationId = operationId;
         this.write(state, 'application_operation_bound', { attemptId, operationId });
       })

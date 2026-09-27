@@ -413,3 +413,23 @@ it('blocks a third fix cycle while allowing the final delta turn', () => {
   expect(a.get('w')).toMatchObject({ hostTurns: 5, reviewCycles: 2 });
   a.close();
 });
+it('never attributes one accepted native operation to two host turns', () => {
+  const a = new SymposiumReviewStore(':memory:');
+  a.create({ ...create(), limits: { ...create().limits, maxReviewCycles: 2 } });
+  a.reserveApplicationAttempt(request('one'));
+  a.consumeApplicationDispatch(request('one'));
+  a.bindApplicationOperation('w', 'one', 'same-operation');
+  a.settleApplicationExecution('w', 'one', 'same-operation', 'failed');
+  const retry = {
+    ...request('retry'),
+    kind: 'retry' as const,
+    retryOfAttemptId: 'one',
+    retryAuthorizationId: 'retry-auth',
+  };
+  a.reserveApplicationAttempt(retry);
+  a.consumeApplicationDispatch(retry);
+  expect(() => a.bindApplicationOperation('w', 'retry', 'same-operation')).toThrow(
+    /already bound/i,
+  );
+  a.close();
+});
