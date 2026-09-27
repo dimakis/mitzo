@@ -516,3 +516,54 @@ describe('SymposiumConversation', () => {
     });
   });
 });
+
+it('simplifies after the last reviewer is removed but keeps isolated delivery routing', async () => {
+  vi.mocked(apiFetch).mockImplementation(async (url) => {
+    if (String(url).endsWith('/symposium'))
+      return json({
+        sessionId: 'chat',
+        config: { version: 2, revision: 8, state: 'active', anchorSeatId: 'architect' },
+        seats: [
+          {
+            seatId: 'architect',
+            seat: { name: 'Architect' },
+            admitted: true,
+            membership: { state: 'active' },
+          },
+          {
+            seatId: 'reviewer',
+            seat: { name: 'Reviewer' },
+            admitted: false,
+            membership: { state: 'removed' },
+          },
+        ],
+      });
+    if (String(url).includes('perspectives')) return json({ items: [], nextSeq: null, queued: [] });
+    return json([]);
+  });
+  render(
+    <SymposiumConversation
+      sessionId="chat"
+      chat={chat}
+      ordinaryComposer={<button>Ordinary send</button>}
+    />,
+  );
+  await screen.findByLabelText('Message for Architect');
+  expect(screen.queryByRole('tablist')).toBeNull();
+  expect(screen.queryByText('Ordinary send')).toBeNull();
+  fireEvent.change(screen.getByLabelText('Message for Architect'), {
+    target: { value: 'Continue' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Queue for approval' }));
+  await waitFor(() =>
+    expect(
+      vi
+        .mocked(apiFetch)
+        .mock.calls.some(
+          ([url, init]) =>
+            String(url).endsWith('/deliveries') &&
+            JSON.parse(String(init?.body)).recipientSeatIds.join() === 'architect',
+        ),
+    ).toBe(true),
+  );
+});

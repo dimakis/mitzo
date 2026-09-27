@@ -31,7 +31,12 @@ type PerspectivePage = { items: PerspectiveItem[]; nextSeq: number | null; queue
 type Status = {
   sessionId: string;
   config: SymposiumConfig | null;
-  seats: { seatId: string; seat: Omit<SeatProfileSeed, 'seatId'>; admitted: boolean }[];
+  seats: {
+    seatId: string;
+    seat: Omit<SeatProfileSeed, 'seatId'>;
+    admitted: boolean;
+    membership?: { state: string } | null;
+  }[];
 };
 
 async function readJson<T>(url: string, init?: RequestInit): Promise<T> {
@@ -134,10 +139,13 @@ export function SymposiumConversation({
       }
     };
     void refresh();
+    const onRosterChanged = () => void refresh();
+    window.addEventListener('symposium-roster-changed', onRosterChanged);
     const timer = window.setInterval(() => void refresh(), 8000);
     return () => {
       cancelled = true;
       window.clearInterval(timer);
+      window.removeEventListener('symposium-roster-changed', onRosterChanged);
     };
   }, [base, sessionId]);
 
@@ -196,6 +204,21 @@ export function SymposiumConversation({
     () => status?.seats?.filter((seat) => seat.admitted).map((seat) => seat.seatId) ?? [],
     [status],
   );
+  const anchorSeatId = status?.config?.version === 2 ? status.config.anchorSeatId : undefined;
+  const compact = Boolean(
+    status?.config?.version === 2 &&
+    status.config.state === 'active' &&
+    status.seats.some((seat) => seat.seatId === anchorSeatId && seat.admitted) &&
+    status.seats
+      .filter((seat) => seat.seatId !== anchorSeatId)
+      .every((seat) => seat.membership?.state === 'removed'),
+  );
+  useEffect(() => {
+    if (compact) {
+      setSelected('all');
+      setShare(null);
+    }
+  }, [compact]);
   const recipients =
     selected === 'all' ? admitted : admitted.filter((seatId) => seatId === selected);
   const seatName = seats.find((seat) => seat.id === selected)?.name ?? selected;
@@ -313,6 +336,7 @@ export function SymposiumConversation({
     );
   return (
     <SymposiumPerspectiveTabs
+      compact={compact}
       seats={seats}
       selected={selected}
       onSelect={(next) => {
@@ -321,8 +345,8 @@ export function SymposiumConversation({
       }}
     >
       <p className="symposium-boundary-note">
-        Seats share this session's admitted context and provider access. An aside goes only to its
-        named recipients.
+        Each seat receives explicitly granted context with its own account and tool authority. An
+        aside goes only to its named recipients.
       </p>
       {selected !== 'all' && status.seats.find((seat) => seat.seatId === selected) && (
         <button
@@ -415,7 +439,13 @@ export function SymposiumConversation({
       )}
       <SymposiumAudienceComposer
         audience={selected}
-        audienceLabel={selected === 'all' ? 'all admitted seats' : seatName}
+        audienceLabel={
+          compact
+            ? (seats.find((seat) => seat.id === anchorSeatId)?.name ?? 'builder')
+            : selected === 'all'
+              ? 'all admitted seats'
+              : seatName
+        }
         recipients={recipients}
         enabled={recipients.length > 0}
         onQueue={queue}

@@ -283,7 +283,15 @@ export class SymposiumNativeEventSink {
       closeTurn();
       append('provider_turn_end', {
         isError: native.is_error === true,
-        ...(native.usage && typeof native.usage === 'object' ? { usage: native.usage } : {}),
+        usage_status:
+          native.usage_status === 'unknown' || !native.usage
+            ? 'unknown'
+            : native.usage_status === 'complete'
+              ? 'complete'
+              : 'unverified',
+        ...(native.usage_status !== 'unknown' && native.usage && typeof native.usage === 'object'
+          ? { usage: native.usage }
+          : {}),
       });
       stream.terminal = true;
       return;
