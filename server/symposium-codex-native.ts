@@ -106,6 +106,23 @@ export async function createCodexNativeSeat(
   let resolveConfirmedTerminal: ((status: string) => void) | undefined;
   let confirmedStatus: string | undefined;
   let acceptedTurnId: string | undefined;
+  let acceptedThreadId: string | undefined;
+  const observationContext = input.attemptRegistry
+    ? structuredClone({
+        claimToken: execution.claimToken,
+        sessionId: execution.sessionId,
+        seatId: execution.seat.id,
+        membershipGeneration: execution.provenance.membershipGeneration,
+        accountBinding: binding,
+        provenance: execution.provenance,
+      })
+    : undefined;
+  if (
+    observationContext &&
+    (!Number.isSafeInteger(observationContext.membershipGeneration) ||
+      Number(observationContext.membershipGeneration) < 0)
+  )
+    throw new Error('Native observation requires exact membership generation');
   let rejectTerminal: ((error: Error) => void) | undefined;
   let dispatched = false;
   let controlled: ControlledAttemptProcess | undefined;
@@ -176,12 +193,44 @@ export async function createCodexNativeSeat(
       dispatched = true;
     },
     onProviderAccepted: (commandId, providerThreadId, providerTurnId) => {
-      if (commandId !== execution.claimToken) throw new Error('Symposium receipt identity changed');
+      if (commandId !== execution.claimToken || providerThreadId !== conversation.getThreadId())
+        throw new Error('Symposium receipt identity changed');
+      if (observationContext)
+        input.attemptRegistry!.observations.accept({
+          ...observationContext,
+          membershipGeneration: observationContext.membershipGeneration!,
+          providerThreadId,
+          providerTurnId,
+        });
+      acceptedThreadId = providerThreadId;
       acceptedTurnId = providerTurnId;
       callbacks?.accepted(providerThreadId, providerTurnId);
     },
+    onProviderTerminalConflict: (commandId, threadId, turnId, status, previousStatus) => {
+      if (
+        commandId !== execution.claimToken ||
+        threadId !== acceptedThreadId ||
+        turnId !== acceptedTurnId
+      )
+        return;
+      if (observationContext)
+        input.attemptRegistry!.observations.conflict({
+          claimToken: commandId,
+          providerThreadId: threadId,
+          providerTurnId: turnId,
+          status,
+          previousStatus,
+        });
+    },
     onProviderTerminal: (commandId, turnId, status) => {
       if (commandId !== execution.claimToken || turnId !== acceptedTurnId) return;
+      if (observationContext && acceptedThreadId)
+        input.attemptRegistry!.observations.terminal({
+          claimToken: commandId,
+          providerThreadId: acceptedThreadId,
+          providerTurnId: turnId,
+          status,
+        });
       confirmedStatus = status;
       resolveConfirmedTerminal?.(status);
     },

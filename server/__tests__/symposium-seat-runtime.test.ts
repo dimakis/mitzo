@@ -1,7 +1,7 @@
 import Database from 'better-sqlite3';
 import { SymposiumWorkspaceLifecycle } from '../symposium-workspace-lifecycle.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { SymposiumSeatSandboxRecord } from '@mitzo/protocol/event-store';
@@ -2033,6 +2033,7 @@ describe('per-seat artifact admission', () => {
       failManager?: boolean;
       failFinalCapability?: boolean;
       creationFence?: boolean;
+      revokeBeforeDispatch?: boolean;
     } = {},
   ) {
     const root = mkdtempSync(join(tmpdir(), 'symposium-owner-artifact-'));
@@ -2086,6 +2087,7 @@ describe('per-seat artifact admission', () => {
     const remove = vi.fn(async () => {
       phase = 'Absent';
     });
+    let rejectDispatch = false;
     let capabilityChecks = 0;
     let artifactReady = true;
     const owner = () =>
@@ -2116,6 +2118,10 @@ describe('per-seat artifact admission', () => {
         perSeatSandboxVerified: true,
         verifyHostCapability: () => {
           capabilityChecks += 1;
+          if (rejectDispatch) {
+            rejectDispatch = false;
+            throw new Error('seat revoked at dispatch');
+          }
           if (options.failFinalCapability && capabilityChecks === 2)
             throw new Error('host capability changed');
           return {
@@ -2145,6 +2151,7 @@ describe('per-seat artifact admission', () => {
           return {
             ensure: options.creationFence
               ? async (runtimeId) => {
+                  rejectDispatch = Boolean(options.revokeBeforeDispatch);
                   config.beforeSandboxCreate?.();
                   return ensure(runtimeId);
                 }
@@ -2272,6 +2279,43 @@ describe('per-seat artifact admission', () => {
       }
     },
   );
+
+  it('rolls back local intent when final dispatch verification rejects before gateway creation', async () => {
+    const options = { creationFence: true, revokeBeforeDispatch: true };
+    const state = setup('writer', options);
+    try {
+      await expect(
+        state.owner().ensure('symposium', 'reviewer', new AbortController().signal),
+      ).rejects.toThrow('seat revoked at dispatch');
+      expect(state.ensure).not.toHaveBeenCalled();
+      await expect(state.lifecycle.cleanup(async () => 'available')).resolves.toBe('available');
+      options.revokeBeforeDispatch = false;
+      await expect(
+        state.owner().ensure('symposium', 'reviewer', new AbortController().signal),
+      ).resolves.toMatchObject({ sandboxId: 'physical-1' });
+    } finally {
+      state.host.close();
+      rmSync(state.root, { recursive: true, force: true });
+    }
+  });
+
+  it('does not roll back local intent when the workspace uncertainty write fails', async () => {
+    const state = setup('writer', { creationFence: true });
+    try {
+      mkdirSync(join(state.root, 'fence.json'));
+      await expect(
+        state.owner().ensure('symposium', 'reviewer', new AbortController().signal),
+      ).rejects.toThrow();
+      expect(state.ensure).not.toHaveBeenCalled();
+      expect(
+        state.registry.getSymposiumSeatSandbox('symposium', 'reviewer', 2)?.creationStarted,
+      ).toBe(true);
+      await expect(state.lifecycle.cleanup(async () => 'available')).rejects.toThrow('recovery');
+    } finally {
+      state.host.close();
+      rmSync(state.root, { recursive: true, force: true });
+    }
+  });
 
   it('retains a local recovery block if undispatched marker rollback fails', async () => {
     const state = setup('writer', { creationFence: true });

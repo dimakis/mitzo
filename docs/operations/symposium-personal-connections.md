@@ -84,3 +84,5 @@ for in-flight creation and refuses uncertain outcomes. Interrupted login rows
 without a live adapter also remain blocked even when account metadata is absent.
 
 Mounted Symposium account pickers share a payload-free catalog invalidation signal after account mutations or recovered mutation receipts. Each picker reloads independently and clears its parent selection; an unavailable draft remains visible until an explicit available account/model choice. Catalog reads do not emit the signal. Callback allocation and terminal outcomes refresh account state, including unsuccessful attempts, and each callback setup uses its own radio group even when the same saved connection appears in several pickers.
+
+Device receipts remain attempt-scoped across cancellation, status polling and late allocation replies. The preview assigns fresh synthetic attempt identities and verifies a second code can be requested without contacting an upstream host.

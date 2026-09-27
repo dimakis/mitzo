@@ -202,7 +202,7 @@ reports the missing capability rather than falling back to ordinary chat. Mocked
 integration coverage establishes the workflow boundaries, not live production
 readiness. Reviewer and Claude admission still require independent host attestation
 and live acceptance; environment settings alone do not enable them. See the
-[integration gaps](docs/features/symposium.md#integrated-review-surface-and-remaining-native-gate).
+[integration gaps](docs/features/symposium.md#review-records-and-publication-boundary).
 
 ### Symposium OpenShell 0.1 per-seat runtime
 
@@ -246,15 +246,15 @@ for the architecture and remaining gates. Installing this code does not upgrade
 or enable the active gateway.
 
 The [feature-stack implementation and acceptance record](docs/features/symposium.md)
-identifies sibling PRs for Add reviewer/context UI, immutable review records,
-publication preflight, and session artifact preparation; these are not installed
-by this documentation change or all present in its PR #627 base checkout. It distinguishes mocked application coverage from the attended two-turn native
+describes the composed Add reviewer/context UI, immutable review records,
+publication preflight, and session artifact preparation. It distinguishes mocked
+application coverage from the attended two-turn native
 `gpt-5.6-luna` smoke. The smoke verified streaming, replay, exact replies and
 probe cleanup; it did not establish full application or production admission.
 Multiple personal account slots and explicit supported-model refresh are
 implemented. Saved metadata survives restart, but personal authorization requires
-fresh sign-in. The newer CA-enabled image requires the separately reviewed build-pin
-update and matching physical proof before it can satisfy the production gate.
+fresh sign-in. The CA-enabled image must match the reviewed build pins and physical proof
+before it can satisfy the production gate.
 
 ### Packages (`packages/`) — npm workspace
 
@@ -514,10 +514,9 @@ The Podman launch agent preserves the VM process group after `podman machine sta
 
 The OpenAI Responses route uses bearer authentication in the Authorization header. Its base policy and gateway provider profile must disable request-body credential rewriting and retain enforced REST inspection. This requires a supervisor with the identity-aware streaming guard: literal placeholder examples in documents must pass unchanged, while actual credential identities in model input remain blocked. Production preflight checks both the configured base policy and live provider profile. Qualify the supervisor and policy together; changing only the policy on an older supervisor reintroduces documentation-triggered denials. Existing sandbox containers retain their supervisor image across stop/start and need a separately verified migration.
 
-Symposium's [reusable reviewer profiles](docs/features/symposium.md#reusable-reviewer-recipes) include five editable starters, versioned portable context recipes, skill/tool references and provider compatibility. Import/export preserves exact revisions; applying a profile and selecting account/context remain explicit.
+Symposium's [reusable reviewer profiles](docs/features/symposium.md#profiles-and-reusable-reviewer-recipes) include five editable starters, versioned portable context recipes, skill/tool references and provider compatibility. Import/export preserves exact revisions; applying a profile and selecting account/context remain explicit.
 
 Symposium account selection also includes [guided personal subscription login](docs/operations/symposium-owned-gateway.md#in-app-personal-account-setup), with explicit local/SSH callback preparation, phone guidance and credential-free login status receipts.
-Native Symposium Codex turns use [validated cumulative token usage](docs/features/symposium.md#native-codex-usage-capture), keeping terminal accounting unknown because completion carries no final usage proof, including when cumulative updates arrive late. This does not enable budgeted review admission or claim a hard provider spending cap.
 
 Personal ChatGPT [device sign-in](docs/operations/symposium-device-auth.md) is available from **Connections → Personal ChatGPT accounts**
 and Symposium reviewer setup. Enable device-code authentication in ChatGPT
@@ -531,37 +530,59 @@ reviewer account/model or silently rebind an active seat.
 
 Login receipts are private to the initiating authenticated session, and credential cleanup must complete before success. A separately signed-in browser cannot recover or cancel another session’s pending code.
 
-Owned Symposium test instances require certificate SANs for both loopback and the Podman guest endpoint; see [disposable gateway TLS](docs/operations/symposium-disposable-tls.md).
+Personal Symposium Connections support separate saved account slots with explicit
+connect, reconnect, and disconnect. Connection transitions sync the private metadata file and its parent directory before credential lifecycle operations proceed. Persistence failure fences the connection for recovery. Saved metadata survives restart; account
+authorization does not. See [personal connection lifecycle](docs/operations/symposium-personal-connections.md).
+
+Personal login requires selecting a saved connection and displayed revision, including callback alternatives. Credential cleanup waits for owned-workspace sandbox creation to settle; uncertain creation stays blocked across restart.
+
+Owned sandbox creation records uncertainty at the external dispatch boundary; read-only preflight failures do not strand credential cleanup or seat creation reservations.
 
 The [model-discovery acceptance helper](docs/operations/symposium-model-discovery.md)
 checks native subscription account type and model availability without inference.
 It requires a trusted owned-host attestation, pins its configuration and provider,
 and retains reconciliation evidence until gateway and physical cleanup agree.
 
-Personal Symposium Connections support separate saved account slots with explicit
-connect, reconnect, and disconnect. Saved metadata survives restart; account
-authorization does not. See [personal connection lifecycle](docs/operations/symposium-personal-connections.md).
-
 The no-inference discovery helper requires complete, bounded paginated sandbox and
 provider inventories; legacy bare-array responses cannot establish cleanup or attachment proof.
-
-Browser callback alternatives are scoped to a saved personal account and its current revision. An open account manager follows the picker’s disabled state, and refreshing completed sign-ins releases stale UI locks.
-
-Connections offers **Refresh supported models** for a connected personal account.
-The action uses that displayed account revision, reports pending cleanup or host recovery,
-and leaves model choice and active-seat rebinding explicit.
-Credential cleanup waits for owned-workspace sandbox creation to settle; uncertain creation stays blocked across restart.
-
 Discovery journal ownership is exclusive across host adapters; interrupted owners
 retain a recovery lock, and SSH cleanup terminates its proxy process group.
+
+Owned Symposium test instances require certificate SANs for both loopback and the Podman guest endpoint; see [disposable gateway TLS](docs/operations/symposium-disposable-tls.md).
+
+- [Owned Symposium evidence candidate collection](docs/features/symposium-owned-evidence.md)
+
+Native Symposium Codex turns use [validated cumulative token usage](docs/features/symposium.md#durable-delivery-attribution-and-recovery), keeping terminal accounting unknown because completion carries no final usage proof, including when cumulative updates arrive late. This does not enable budgeted review admission or claim a hard provider spending cap.
+
+Discovery preflight rejection can undo an exact undispatched local journal under
+its retained lock; dispatched or replaced evidence still requires reconciliation.
+Unreadable discovery journals remain reconciliation-required, and completion clears
+only the exact receipt under its retained lock.
+
+Connections lists saved personal ChatGPT identities with per-connection sign-in,
+reconnect and disconnect. Catalog mutations invalidate all open account pickers;
+changed or unavailable selections require explicit confirmation.
 
 Owned native personal accounts expose an operator-only, revision-scoped model refresh
 endpoint. It performs account/model reads without inference, then publishes the catalog
 only after sandbox and physical cleanup. A new catalog revision requires explicit seat
 selection; interrupted discovery retains host recovery state.
 
-Owned sandbox creation records uncertainty at the external dispatch boundary; read-only preflight failures do not strand credential cleanup or seat creation reservations.
+Personal discovery preflight can release its local marker before the discovery
+capability is entered; uncertain allocation still requires recovery.
 
-- [Owned Symposium evidence candidate collection](docs/features/symposium-owned-evidence.md)
+Connections offers **Refresh supported models** for a connected personal account.
+The action uses that displayed account revision, reports pending cleanup or host recovery,
+and leaves model choice and active-seat rebinding explicit.
+
+Browser callback alternatives are scoped to a saved personal account and its current revision. An open account manager follows the picker’s disabled state, and refreshing completed sign-ins releases stale UI locks.
+
+Native Codex acceptance and exact terminal notifications now persist as private
+[diagnostic observations](docs/operations/symposium-native-observations.md), independently
+of controller cleanup. Usage remains explicitly unknown; these records do not enable
+review admission or prove a hard token budget. Storage replay covers the same private
+registry file, not automatic history adoption after fresh gateway custody.
 
 Before external seat creation, local artifact and seat intent writes complete before workspace dispatch uncertainty is recorded. A live owner can undo its exact unbound local intent if those writes fail before dispatch; failed rollback and interrupted processes retain recovery requirements. Inventory absence never discharges an uncertain dispatched create.
+
+A final seat or custody rejection from the retained workspace fence may undo local creation intent only before the fence attempts its durable uncertainty write. Failure during that write remains quarantined.
