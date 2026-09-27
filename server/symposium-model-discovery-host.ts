@@ -1,7 +1,7 @@
 import { execFile, spawn } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
 import { lstatSync, readFileSync } from 'node:fs';
-import { readFile, writeFile, rename, unlink, open, lstat } from 'node:fs/promises';
+import { readFile, rename, unlink, open, lstat } from 'node:fs/promises';
 import { dirname, isAbsolute } from 'node:path';
 import {
   CodexAppServerClient,
@@ -28,13 +28,21 @@ function jsonCommand(
   args: readonly string[],
   env: Record<string, string>,
   timeout = 15000,
+  processGroup = false,
 ): Promise<unknown> {
-  return new Promise((resolve, reject) =>
-    execFile(
+  return new Promise((resolve, reject) => {
+    const child = execFile(
       command,
       [...args],
-      { env, timeout, maxBuffer: 1024 * 1024, encoding: 'utf8' },
+      {
+        env,
+        timeout,
+        maxBuffer: 1024 * 1024,
+        encoding: 'utf8',
+        ...(processGroup ? { detached: true, shell: false } : {}),
+      },
       (error, stdout) => {
+        if (processGroup) child.kill();
         if (error) return reject(new Error('Discovery host operation failed'));
         try {
           resolve(JSON.parse(stdout));
@@ -42,8 +50,21 @@ function jsonCommand(
           reject(new Error('Invalid discovery host response'));
         }
       },
-    ),
-  );
+    );
+    if (processGroup) {
+      const killChild = child.kill.bind(child);
+      child.kill = (() =>
+        terminateOpenShellProcess({ pid: child.pid, kill: killChild })) as typeof child.kill;
+    }
+  });
+}
+async function syncDirectory(path: string) {
+  const directory = await open(path, 'r');
+  try {
+    await directory.sync();
+  } finally {
+    await directory.close();
+  }
 }
 function privateDirectory(path: string) {
   const stat = lstatSync(path);
@@ -195,13 +216,18 @@ export function createDiscoveryHostOperations(
       }
     },
     async persistReceipt(receipt, exclusive) {
-      if (exclusive) {
-        await writeFile(options.journal, JSON.stringify(receipt), { flag: 'wx', mode: 0o600 });
-        return;
+      const destination = exclusive
+        ? options.journal
+        : `${options.journal}.${randomBytes(8).toString('hex')}`;
+      const file = await open(destination, 'wx', 0o600);
+      try {
+        await file.writeFile(JSON.stringify(receipt));
+        await file.sync();
+      } finally {
+        await file.close();
       }
-      const temporary = `${options.journal}.${randomBytes(8).toString('hex')}`;
-      await writeFile(temporary, JSON.stringify(receipt), { flag: 'wx', mode: 0o600 });
-      await rename(temporary, options.journal);
+      if (!exclusive) await rename(destination, options.journal);
+      await syncDirectory(dirname(options.journal));
     },
     async clearReceipt() {
       await unlink(options.journal);
@@ -282,7 +308,7 @@ export function createDiscoveryHostOperations(
         'cancel',
         receipt.claim,
       ]);
-      await jsonCommand(spec.command, spec.args, spec.env as Record<string, string>);
+      await jsonCommand(spec.command, spec.args, spec.env as Record<string, string>, 15000, true);
     },
     async delete(receipt) {
       await cli(['sandbox', ...base, 'delete', receipt.name], 30000);
