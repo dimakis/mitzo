@@ -304,9 +304,9 @@ async function fixture() {
     managerFactory: () =>
       ({
         inspect: async () =>
-          phase === 'Absent' ? null : { phase, id: physicalId, name: sandboxName },
+          phase === 'Absent' ? undefined : { phase, id: physicalId, name: sandboxName },
         inspectReserved: async () =>
-          phase === 'Absent' ? null : { phase, id: physicalId, name: sandboxName },
+          phase === 'Absent' ? undefined : { phase, id: physicalId, name: sandboxName },
         stop: async () => {
           phase = 'Stopped';
         },
@@ -316,7 +316,7 @@ async function fixture() {
       }) as never,
   });
   vi.spyOn(OpenShellRuntimeManager.prototype, 'inspectReserved').mockImplementation(async () =>
-    phase === 'Absent' ? null : ({ phase, id: physicalId, name: sandboxName } as never),
+    phase === 'Absent' ? undefined : ({ phase, id: physicalId, name: sandboxName } as never),
   );
   const deps = {
     store,
