@@ -23,6 +23,7 @@ import type { SymposiumSeatSandboxRecord } from '@mitzo/protocol/event-store';
 import { createClaudeVertexSeat } from './symposium-claude-native.js';
 import {
   acquireSymposiumArtifactLease,
+  acquireConfirmedSealedReaderLease,
   artifactDriverConfigForLease,
   type ArtifactLeaseRequest,
   type ArtifactLease,
@@ -615,6 +616,7 @@ export class SymposiumPerSeatSandboxOwner {
         purpose?: 'admission' | 'cleanup',
       ) => ArtifactLeaseRequest;
       artifactLeaseHost?: SqliteArtifactLeaseHost;
+      artifactReferenceStore?: EventStore;
     },
   ) {
     this.readOnlyEnforced = deps.readOnlyEnforced;
@@ -724,7 +726,29 @@ export class SymposiumPerSeatSandboxOwner {
                 reservation.sandboxName!,
                 reservation.physicalId!,
               )
-            : await acquireSymposiumArtifactLease(this.deps.artifactLeaseHost!, artifactRequest)
+            : artifactRequest.readerAdmissionId
+              ? await (async () => {
+                  const reference = this.deps.artifactReferenceStore?.getSymposiumArtifactReference(
+                    sessionId,
+                    seatId,
+                    snapshot.generation,
+                  );
+                  if (
+                    !reference ||
+                    !('kind' in reference) ||
+                    reference.kind !== 'sealed_reader' ||
+                    reference.readerAdmissionId !== artifactRequest.readerAdmissionId ||
+                    reference.artifactGenerationId !== artifactRequest.volumeGeneration
+                  )
+                    throw new Error('Current confirmed sealed reader reference required');
+                  return acquireConfirmedSealedReaderLease(
+                    this.deps.artifactLeaseHost!,
+                    this.deps.artifactReferenceStore!,
+                    sessionId,
+                    reference,
+                  );
+                })()
+              : await acquireSymposiumArtifactLease(this.deps.artifactLeaseHost!, artifactRequest)
           : undefined;
         const artifactDriverConfig = lease
           ? await artifactDriverConfigForLease(this.deps.artifactLeaseHost!, lease)
@@ -1381,6 +1405,7 @@ export function createSymposiumSessionRuntime(deps: SymposiumSessionRuntimeDeps)
   const owner = new SymposiumPerSeatSandboxOwner({
     ...deps,
     facts: deps.store,
+    artifactReferenceStore: deps.store,
     seatSandboxRegistry: deps.store,
   });
   const cache = new Map<string, SymposiumOpenShellSeatExecutor>();

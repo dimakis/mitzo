@@ -3537,6 +3537,15 @@ describe('mixed personal subscription and work seat isolation', () => {
       }),
     });
     try {
+      const unreferencedReader = new SymposiumPerSeatSandboxOwner({
+        ...phasedDeps,
+        seatSandboxRegistry: seatSandboxRegistry(),
+        artifactLeaseHost: artifactHost,
+        artifactRequest: () => ({ ...artifactRequest, readerAdmissionId: 'reader-1' }),
+      });
+      await expect(
+        unreferencedReader.ensure('symposium', 'personal', new AbortController().signal),
+      ).rejects.toThrow('Current confirmed sealed reader reference required');
       await expect(
         artifactOwner.ensure('symposium', 'personal', new AbortController().signal),
       ).rejects.toThrow('binding rejected before persistence');
