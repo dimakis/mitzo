@@ -240,15 +240,15 @@ for the architecture and remaining gates. Installing this code does not upgrade
 or enable the active gateway.
 
 The [feature-stack implementation and acceptance record](docs/features/symposium.md)
-identifies sibling PRs for Add reviewer/context UI, immutable review records,
-publication preflight, and session artifact preparation; these are not installed
-by this documentation change or all present in its PR #627 base checkout. It distinguishes mocked application coverage from the attended two-turn native
+describes the composed Add reviewer/context UI, immutable review records,
+publication preflight, and session artifact preparation. It distinguishes mocked
+application coverage from the attended two-turn native
 `gpt-5.6-luna` smoke. The smoke verified streaming, replay, exact replies and
 probe cleanup; it did not establish full application or production admission.
 Multiple personal account slots and explicit supported-model refresh are
 implemented. Saved metadata survives restart, but personal authorization requires
-fresh sign-in. The newer CA-enabled image requires the separately reviewed build-pin
-update and matching physical proof before it can satisfy the production gate.
+fresh sign-in. The CA-enabled image must match the reviewed build pins and physical proof
+before it can satisfy the production gate.
 
 ### Packages (`packages/`) — npm workspace
 
