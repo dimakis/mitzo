@@ -125,7 +125,7 @@ the latest version to create a new one. Conversational profile proposals require
 operator review before saving. Profiles do not carry account credentials or
 execution authority; those are bound separately by host-issued grants.
 
-This is the director and profile foundation. The default server has no Symposium
+These implemented controls remain subject to runtime admission. The default server has no Symposium
 provider runtime: activation and grant reissue fail closed until a trusted runtime
 is installed. These controls do not enable production native seat execution.
 
@@ -196,7 +196,7 @@ reports the missing capability rather than falling back to ordinary chat. Mocked
 integration coverage establishes the workflow boundaries, not live production
 readiness. Reviewer and Claude admission still require independent host attestation
 and live acceptance; environment settings alone do not enable them. See the
-[integration gaps](docs/features/symposium.md#integrated-review-surface-and-remaining-native-gate).
+[integration gaps](docs/features/symposium.md#review-records-and-publication-boundary).
 
 ### Symposium OpenShell 0.1 per-seat runtime
 
@@ -220,9 +220,9 @@ matching host attestation for the selected CLI, gateway, images, policy, provide
 profiles, seed and artifacts. Attestations must map each exact provider instance
 name, ID and type to its reviewed profile; the host must verify that association
 in the selected workspace. Missing instance mappings or physical proof fail closed.
-The first supported attestation scope is OpenAI
-writer roles. Claude via Vertex and reviewer admission remain closed pending their
-live acceptance checks. An experimental [personal ChatGPT seat route](docs/features/symposium-chatgpt-subscription.md)
+The legacy attestation scope is OpenAI writer roles. The separate owned-native
+contract includes personal Codex and reviewer capability when all of its physical
+and authorization gates pass; Claude via Vertex remains unavailable. An experimental [personal ChatGPT seat route](docs/features/symposium-chatgpt-subscription.md)
 uses upstream Codex provider attachments and a private native authentication bootstrap.
 It rejects the older private-gateway OAuth binding and host login imports, and keeps
 subscription production admission closed pending independent account, credential
@@ -238,6 +238,17 @@ independent account authorization and all production evidence gates. See
 [per-seat runtime handoff](docs/spikes/openshell-codex/SYMPOSIUM_PHASE3_HANDOFF.md)
 for the architecture and remaining gates. Installing this code does not upgrade
 or enable the active gateway.
+
+The [feature-stack implementation and acceptance record](docs/features/symposium.md)
+describes the composed Add reviewer/context UI, immutable review records,
+publication preflight, and session artifact preparation. It distinguishes mocked
+application coverage from the attended two-turn native
+`gpt-5.6-luna` smoke. The smoke verified streaming, replay, exact replies and
+probe cleanup; it did not establish full application or production admission.
+Multiple personal account slots and explicit supported-model refresh are
+implemented. Saved metadata survives restart, but personal authorization requires
+fresh sign-in. The CA-enabled image must match the reviewed build pins and physical proof
+before it can satisfy the production gate.
 
 ### Packages (`packages/`) — npm workspace
 
@@ -497,7 +508,7 @@ The Podman launch agent preserves the VM process group after `podman machine sta
 
 The OpenAI Responses route uses bearer authentication in the Authorization header. Its base policy and gateway provider profile must disable request-body credential rewriting and retain enforced REST inspection. This requires a supervisor with the identity-aware streaming guard: literal placeholder examples in documents must pass unchanged, while actual credential identities in model input remain blocked. Production preflight checks both the configured base policy and live provider profile. Qualify the supervisor and policy together; changing only the policy on an older supervisor reintroduces documentation-triggered denials. Existing sandbox containers retain their supervisor image across stop/start and need a separately verified migration.
 
-Symposium's [reusable reviewer profiles](docs/features/symposium.md#reusable-reviewer-recipes) include five editable starters, versioned portable context recipes, skill/tool references and provider compatibility. Import/export preserves exact revisions; applying a profile and selecting account/context remain explicit.
+Symposium's [reusable reviewer profiles](docs/features/symposium.md#profiles-and-reusable-reviewer-recipes) include five editable starters, versioned portable context recipes, skill/tool references and provider compatibility. Import/export preserves exact revisions; applying a profile and selecting account/context remain explicit.
 
 Symposium account selection also includes [guided personal subscription login](docs/operations/symposium-owned-gateway.md#in-app-personal-account-setup), with explicit local/SSH callback preparation, phone guidance and credential-free login status receipts.
 
@@ -532,7 +543,7 @@ Owned Symposium test instances require certificate SANs for both loopback and th
 
 - [Owned Symposium evidence candidate collection](docs/features/symposium-owned-evidence.md)
 
-Native Symposium Codex turns use [validated cumulative token usage](docs/features/symposium.md#native-codex-usage-capture), keeping terminal accounting unknown because completion carries no final usage proof, including when cumulative updates arrive late. This does not enable budgeted review admission or claim a hard provider spending cap.
+Native Symposium Codex turns use [validated cumulative token usage](docs/features/symposium.md#durable-delivery-attribution-and-recovery), keeping terminal accounting unknown because completion carries no final usage proof, including when cumulative updates arrive late. This does not enable budgeted review admission or claim a hard provider spending cap.
 
 Discovery preflight rejection can undo an exact undispatched local journal under
 its retained lock; dispatched or replaced evidence still requires reconciliation.

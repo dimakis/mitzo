@@ -1,427 +1,202 @@
-# Symposium implementation
+# Symposium implementation and acceptance
 
 Telos parent: `6403fb22f9bb743c`. Phase 2.5: `c10fc341b0533a54`.
 
-## Current source status (26 September 2026)
+## Status at 27 September 2026
 
-The director, directed conversation UI, portable profiles, conversational profile
-proposals, native attempt transport, and review coordinator are implemented in
-source. The application now mounts durable review routes and a findings panel, but
-the native review/fix workflow is **not production-enabled**: the trusted review
-host adapter, enforced native token budgets, and bound result/evidence receipts
-are still missing. The panel states this explicitly and cannot dispatch through
-an ordinary chat fallback. The production factory requires both an installed host capability and a
-verified OpenShell attestation; environment configuration alone cannot activate a
-draft or mint its runtime grants.
+This page describes the implemented feature stack and its acceptance evidence.
+It does not assert deployment or production readiness. The source now composes
+personal-account/model-refresh UI ([PR #627](https://github.com/dimakis/mitzo/pull/627)),
+reviewer setup ([PR #611](https://github.com/dimakis/mitzo/pull/611)), mounted review
+routes ([PR #613](https://github.com/dimakis/mitzo/pull/613)), immutable records
+([PR #615](https://github.com/dimakis/mitzo/pull/615)), publication preflight
+([PR #620](https://github.com/dimakis/mitzo/pull/620)), and session artifact
+preparation ([PR #624](https://github.com/dimakis/mitzo/pull/624)). The canonical
+product contract is the
+[workspace redesign Symposium reconciliation](../design/workspace-redesign/mitzo-redesign-launch-plan.md#symposium-reconciliation).
 
-The OpenShell 0.1 path gives each seat generation its own durable sandbox identity.
-Lifecycle fences, artifact leases, and physical deletion evidence keep uncertain
-creation or cleanup quarantined. Host capability and the exact physical provider
-are checked again at admission and dispatch. The first production gate permits
-only attested OpenAI implementer/coder seats. Claude Vertex and reviewer read-only
-enforcement remain experimental and unavailable through that gate.
+The director, durable membership and delivery records, portable profiles,
+personal connection slots, explicit model refresh, shared reviewer setup,
+review workflows, immutable records, artifact preparation, and publication
+preflight have mocked tests. These guarded slices do not install a trusted
+native review host or publish a pull request. The panel reports the unavailable
+host capability; ordinary chat cannot bypass the gate.
 
-The split rehearsal uses mocked providers. It does not establish live model,
-gateway, IAM, or production readiness. The sections below retain the historical
-phase contracts; their shared-sandbox descriptions are superseded for the current
-production path by the per-seat gate described here.
+Phone device sign-in has been exercised against an isolated host. A separate
+attended native smoke completed two real `gpt-5.6-luna` turns through the personal
+ChatGPT route. The [sanitized evidence](../operations/evidence/symposium-luna-native-smoke.json)
+records exact replies, 16 streamed deltas, two replayed turns, and confirmed
+absence of the probe containers and local transport afterward. Its source commit
+is `9b67c2a6c0e4decf5bc81d4b43ea2230996ec072`; its charged account was the
+personal ChatGPT connection on the isolated test instance. It explicitly records
+`productionAdmission: false` and `fullAppAcceptance: false`.
 
-## Product contract
+That smoke proves the tested native route, not the complete application workflow,
+review budgets, or artifact-bound terminal receipts. Full application admission
+still requires the exact reviewed build, current owned-host custody, provider
+bindings, policy/seed evidence, and physical artifact proof. Configuration alone
+cannot satisfy these gates.
 
-The 22 September Phase 2.5 decision supersedes the earlier two-seat limit.
-Symposium starts as one chat and can admit a bounded set of stable seats. Both desktop and mobile
-use one conversation stream. Each prompt can target explicit seat IDs; the
-director explicitly chooses which prior context is delivered. Pre-PR code and
-artifact review is the initial workflow. Profile, connection, model, and context
-or tool grants remain separate choices. Profiles can be drafted conversationally
-and saved to a reusable catalog without credentials or session-specific grants.
+## One conversation, explicit reviewer setup
 
-See also `../design/workspace-redesign/mitzo-redesign-launch-plan.md`.
+The Add-reviewer implementation in PR #611 keeps one conversation stream and has responsive
+`ChatView` and `DesktopChatView` wrappers; they share the reviewer entry and
+conversation behavior. This is not a claim that they have been replaced by a
+single component.
 
-## Foundation delivered by this change
+In PR #611, **Add reviewer / Ask another agent** uses a focused sheet with a saved profile
+revision, connection, model, and explicit context choice. Profile creation/import
+is behind profile management. Independent context is the default: the operator
+supplies the task package and selected references. It does not automatically read
+the repository, fetch referenced artifacts, or include prior conversation.
+Summary, selected turns, and full shared transcript are separate explicit choices.
+Private directed inputs are excluded from shared-history selection.
 
-The following records the historical Phase 1 and 2 contract. Version 1 remains
-readable for migration and historical replay. These archived activation and runtime
-claims are not the current production contract.
+A changed account requires acknowledging the data sent through that provider.
+Partial seat creation retains the existing seat for retry instead of silently
+creating a duplicate or changing its selected bindings. Removing a reviewer
+simplifies the composer while preserving the durable Symposium membership and
+isolated runtime history; it does not convert a version-2 session back to ordinary
+chat.
 
-- Exported a canonical validated account-binding schema using Mitzo's supported
-  provider identities, rather than accepting arbitrary provider strings.
-- Versioned two-seat configuration with stable primary/reviewer roles, separate
-  account and profile bindings, explicit context/authority grants, requested
-  isolation placement, turn limits, and manual/automatic interception mode.
-- Draft configuration permits lazy reviewer setup without authority. Active
-  configuration requires complete bindings and grants for both seats.
-- Typed activation retains the existing session binding as Seat 1 and requires
-  monotonically increasing configuration revisions. The original proposal described
-  deactivation returning to ordinary chat; this is superseded. Current Symposium
-  sessions retain identity and provenance and never fall back to an ordinary runtime.
-- Exported immutable delivery provenance fields for later orchestration and replay:
-  configuration, account/profile, context/authority, and isolation-domain revisions.
-- Additive SQLite migration for session type/configuration and event seat identity.
-- Configuration may be attached to or removed from an existing session without
-  changing its ID, transcript, account binding, or other metadata.
-- Optional `StoredEvent.seatId` is derived from the append payload, persisted, and
-  returned by full and cursor-based replay. Ordinary events retain their shape.
+**New Symposium** creates a draft with explicit account/model and profile choices.
+Draft creation does not authorize execution. Activation and addition to an active
+roster require current grants and provider admission for every active seat.
 
-The type/configuration contract does not execute models or enforce grants. A draft
-seat without an account reference is unbound; later runtime integration must resolve
-a connection explicitly before execution. Schema validation checks configuration
-shape and activation completeness, not account ownership, current model availability,
-tool-policy enforcement, or data visibility. Callers should use the typed
-`setSymposiumConfig` activation path rather than writing serialized configuration.
+## Personal accounts and model availability
 
-OpenShell permits multiple providers to be attached to one sandbox, including with
-repeated `--provider` flags at creation or attach commands at runtime. Those
-attachments and their composed policy are sandbox-wide for newly launched processes;
-they are not per-seat isolation. Ordinary Mitzo conversations attach one
-account/inference provider by default. An explicitly shared Symposium is different:
-the Symposium sandbox is the declared trust boundary and may attach multiple seat
-providers after explicit admission. Every admitted seat shares the sandbox's
-artifacts and effective provider/tool policy. If the user or organisational policy
-does not accept that sharing, the additional seat cannot join that Symposium;
-brokered multi-sandbox federation is outside v1.
+Connections supports multiple named personal ChatGPT slots with explicit Connect,
+Reconnect, Disconnect, and cleanup recovery. Every login targets an exact slot and
+displayed revision. Reconnect fences the old binding and does not silently rebind
+existing seats. Credential cleanup remains blocked while physical cleanup is
+uncertain, including uncertain sandbox creation in the owned workspace.
 
-## Phase 2 control plane
+[Device sign-in](../operations/symposium-device-auth.md) uses the supported
+OpenAI browser link and one-time code; the phone browser does not need a localhost
+callback. The ChatGPT security setting enabling device-code authentication is a
+prerequisite. Local-browser/SSH callback setup remains an explicit alternative.
+Receipts are scoped to the initiating authenticated session; another session
+cannot recover or cancel its pending code.
 
-Phase 2 (`b0d963167545a7a7`) adds a deterministic directed/manual state machine with
-an injected `SymposiumSeatExecutor` boundary. No production provider or OpenShell
-implementation is selected here. Tests use fake executors whose stable execution
-keys model the idempotency contract required of a later adapter.
+Saved slot metadata survives restart. Personal authorization does not: a
+previously connected slot requires fresh sign-in. An interrupted credential
+operation remains in recovery until cleanup is proven. Metadata and unchecked
+credential files never reconstruct trust, and no work-account fallback is used.
 
-Mitzo's SQLite event database now owns the durable control-plane record:
+**Refresh supported models** performs account/model discovery without inference
+through the selected slot's exact owned provider. It publishes a new catalog
+revision only after verified sandbox and physical cleanup. Unavailable or
+undiscovered models cannot be selected by silently accepting a placeholder.
+A catalog refresh does not choose a model or update an active seat: the operator
+must explicitly confirm the current account/model selection again.
 
-- every admit/refuse decision identifies the seat, provider, account, model,
-  configuration revision, and the one shared isolation-domain revision;
-- a staged delivery retains its original content, selected recipients, immutable
-  source/target grant provenance, and the approved, edited, or replaced content;
-- approve, edit, replace, drop, and retry interventions remain as append-only
-  history even though the delivery row exposes the latest state;
-- an append-only recipient-attempt ledger retains stable execution idempotency
-  keys, results, cost, errors, and provider-thread IDs across retries;
-- provider conversations are reused only for the same account/profile/grant and
-  isolation binding. A grant or binding revision starts a new thread;
-- cancellation is persisted before in-process abort/cancel signals are issued;
-- server startup changes in-flight work to `recovery_required`. An explicit retry
-  uses the original execution key so an idempotent executor can reconcile an
-  ambiguous provider outcome without silently starting a second turn; and
-- turn admission is reserved transactionally against the append-only attempt count,
-  so failed attempts and concurrent dispatch cannot exceed the configured cap.
+## Runtime and physical authority
 
-The orchestrator fails closed for draft/stale configurations, unadmitted providers,
-unsupported scheduling modes, changed grants, and missing executors. Both seats
-remain inside the single Symposium trust domain established by Phase 1; this change
-does not introduce per-seat sandboxes or brokered federation.
+The current production path gives each seat generation its own durable sandbox
+identity and exact provider attachment. It uses upstream OpenShell contracts
+without a private gateway patch. The historical version-1 shared sandbox is not
+the security model for this path.
 
-## Phase 2.5 membership foundation
+The legacy attestation contract permits OpenAI API writer seats. The distinct
+owned-native contract can describe OpenAI API and personal Codex seats, including
+reviewers, but only after its exact binary/image, custody, provider, and authority
+checks pass. Claude admission remains unavailable through these contracts.
 
-Version 2 configuration has a validated active-seat cap (1–8), a stable anchor seat
-ID, and role labels independent of array position, account, model, effort, profile,
-and grants. A session may begin with only its anchor and add seats later. Configured
-historical seats remain in the document after suspension or removal; only active
-membership consumes the cap. An upgrade preserves the original Seat 1 identity and
-account binding. A v2 configuration with membership history cannot be deactivated
-into ordinary chat, which would erase the identity context required to interpret
-its ledger. Existing v1 event and delivery rows are never rewritten.
+Shared artifacts use a separately admitted named volume: writer access is
+read-write and reviewer access is read-only. Host leases check the physical mount
+and retain writer reservations until exact stop/deletion evidence permits release.
+The session artifact service can prepare a bounded owned volume and durable
+mapping. A saved draft exposes Prepare/retry after reopening, without activating
+the roster or dispatching work. The service cannot
+mint runtime admission or replace a failed host attestation.
 
-Membership transitions are append-only SQLite rows. An immediate transaction
-compares the expected per-seat generation, reserves capacity, and on revocation
-cancels queued, staged, approved, and executing recipients before returning. The
-anchor cannot be revoked without a separate transfer contract. Suspension can be
-restored only with a fresh generation and current provider admission. Removal is
-terminal for that seat identity; replacement creates a distinct seat linked to its
-removed predecessor. A changed account/profile/model/effort/grant/isolation binding
-uses a different thread key and cannot silently reuse the prior thread.
+TLS setup requires the Podman guest hostname as well as loopback in the gateway
+certificate. The newer runtime image also carries the guest CA/launcher fixes
+used by the attended smoke. These fixes do not automatically update production
+build pins. The measured image update replaced the older literal gate pins through
+[PR #629](https://github.com/dimakis/mitzo/pull/629) with physical and live evidence.
+Admission requires whichever reviewed pins are present in the selected source to
+match the actual image. A caller-supplied hash cannot override the schema.
 
-An activation remains `pending` until a current-generation provider decision is
-recorded and the runtime reconciliation callback confirms the required provider
-set. Refusal or missing approval cannot attach a provider. On revocation, the
-orchestrator persists the fence first, then asks the injected stop and provider-set
-interfaces to reconcile. The provider set is the union of admitted active seats and
-other authoritative retained grants supplied by the caller. A failed or missing
-cleanup interface leaves `recovery_required`; admission and dispatch stay blocked
-until `reconcileMembership` confirms that same generation. Restart does not turn a
-pending or uncertain row into operational success. A refused pending seat can be
-removed and reconciled without erasing its refusal; only the latest generation
-blocks new admissions. Provider reconciliation is serialized per session for
-orchestrators sharing the same event store, so a late activation is followed by
-revocation cleanup rather than silently reopening the provider.
+Personal provider receipts are necessary but do not replace the static
+attestation's exact provider-instance allowlist. A fresh dynamic provider must
+satisfy both checks. This implementation does not silently amend reviewed
+authority after login.
 
-Recipient snapshots and seat event provenance carry membership generation in v2.
-The execution claim transaction checks current configuration, binding, provider
-admission, and generation. Revoked recipients cannot use stale approvals or retries.
-Late provider output is retained in a separate audit ledger with its cost and
-original recipient, while the cancelled delivery remains cancelled. The shared
-turn cap and historical attempt ledger are retained; usage includes late-result
-cost across suspension, replacement, and restoration. These tests use fake executors;
-actual process shutdown and provider attachment are Phase 3 responsibilities. The
-shared OpenShell boundary does not provide per-seat credential, artifact, or egress
-isolation, and revocation cannot retract data already seen.
+## Durable delivery, attribution, and recovery
 
-## Phase 4 attribution foundation
+Version-2 configuration supports one stable anchor and a bounded active roster
+of up to eight seats. Membership generations are append-only. Suspension or
+removal fences queued and running work before cleanup; replacement creates a new
+identity. Historical seat metadata remains available to interpret the ledger.
 
-New v2 seat events pin an immutable execution snapshot: stable seat ID and
-membership generation, display label and role, exact account binding/model/effort,
-profile binding, context and authority grant IDs/revisions, trust-domain revision,
-configuration revision, and capture time. Event append validates that snapshot
-against the admitted seat before accepting a new stream event. Existing unversioned
-v1 provenance remains readable as the fields originally stored; replay never fills
-unknown labels or account choices from today's configuration. The same stored
-snapshot survives reconnect-cursor and full-session event reads after a seat is
-renamed or its role changes.
+Every recipient retains immutable configuration, account/profile, context/tool
+grant, and membership provenance. Provider acceptance receipts pin the exact
+attempt, native thread, and turn. Queued inputs are distinct from received inputs;
+dispatched inputs without acceptance evidence remain uncertain. Interception
+preserves original and delivered content.
 
-Recipient claims retain their stamped snapshot in the existing attempt ledger.
-When revocation fences a claim, a late provider result stays in the existing
-late-result audit ledger with that original snapshot and cost; it cannot revive
-the cancelled delivery. An active seat cannot change its label, role, or binding
-without first revoking membership; revocation cancels the claim. The event append
-boundary rejects any subsequent stream chunk under that stale generation, and the
-caller must retain the provider's late outcome in the audit ledger rather than
-silently presenting it as a live message. During upgrade, a still-live historical
-claim supplies its durable token to the matching executing attempt, so later
-revocation cannot erase the evidence needed to audit its result and cost. Its
-provenance stays unknown. A claim already revoked before upgrade has no provable
-token and is not reconstructed from current configuration.
-
-The client keeps simultaneous seat turns in a message-keyed map while ordinary
-chat retains its single current-turn adapter. It validates the stored seat
-envelope before applying events, routes tools and nested subagents within their
-seat, and refuses stale generations or conflicting snapshots for resync. The
-existing ChatArea merges active and finished turns by durable start sequence on
-mobile and desktop and renders v2 labels from each immutable snapshot. Legacy
-rows show the seat ID with unknown account/model; current configuration never
-relabels history. Event replay, REST event reads, and periodic sync project
-seat attribution from durable event columns rather than payload fields.
-
-The bounded REST reconnect transcript returns every active attributed seat turn
-with its original provenance and start sequence, alongside the ordinary current
-turn. Replay isolates seat streams so reused block IDs cannot cross seats. The
-client applies all durable seat snapshots before captured post-cursor actions;
-an ambiguous or mismatched transcript fails recovery without replacing visible
-history or acknowledging the cursor. The WebSocket and SSE transport advances
-its applied cursor only after the consumer accepts an event or the matching
-connection-scoped REST snapshot offer. Negotiated reconnect loads a bounded
-snapshot before replaying buffered live events. Missing consumers, refused
-events, stale offers, and buffer overflow trigger recovery without acknowledging
-unapplied state. Provider execution and directed-seat controls remain integration
+Concurrent seat streams render into the shared transcript with durable ordering.
+Replay does not relabel old events from current account/model selections. Restart,
+ambiguous completion, or failed cleanup cannot invent success or release a writer.
+Late results remain attributed to their original claim without reviving cancelled
 work.
 
-Next, integrate provider execution and websocket controls (Phase 3), complete
-seat-attributed controls in the existing ChatView (Phases 4–6).
-The old Phase 6 separate-session creation wording is superseded by add/remove seat
-within a chat. Review findings, delta review, profile catalog, context selection,
-and account/model selection need explicit coverage in those slices. Account/model
-availability must reuse the existing connection infrastructure.
+Provider usage preserves missing prices and unproven terminal totals as unknown.
+A known subtotal is not a proven complete bill. Native hard monetary/token
+enforcement requires trusted reservations and completion evidence beyond display
+accounting.
 
-## Existing PR reconciliation
+## Profiles and reusable reviewer recipes
 
-PR #446 contains an older Phase 1 implementation plus unrelated transport changes.
-This clean implementation on current main replaces its foundation scope without
-bringing those changes forward. #446 is not a required stacked dependency. It has
-not been closed or modified by this change.
+Mitzo owns immutable, owner-scoped profile revisions with guidance, expected
+output, acceptance criteria, and optional version-1 recipes. Five editable
+starters cover code correctness, security, architecture, testability, and artifact
+review. Saving/importing a profile does not create a seat or change its binding.
 
-The original foundation slice did not include runtime or UI integration. The
-current implementation includes concurrent transcript rendering and acknowledged
-reconnect transport. Shared provider execution and reusable review workflows
-remain unfinished. No live model acceptance or production
-deployment has been performed for these changes; the Telos parent remains open.
+Recipes suggest context categories, source kinds, skill references, read-only tool
+preferences, and compatible providers. They contain no credentials, transient
+paths, transcript, or session authority. Skill references do not install tools;
+context references do not grant access. ContexGin is an explicitly selected
+context source, with no implicit write-back.
 
-## Phase 5 director API foundation
+Conversational profile proposals require explicit review and Save. Applying a
+saved revision to a seat is a separate action with its own suspension/rebind and
+grant checks.
 
-The authenticated session-scoped director status endpoint reports configured
-seats, reserved capacity, latest membership and provider admission separately.
-It marks a seat admitted only when its current membership generation has a
-confirmed reconciliation and matching provider admission from an available
-runtime. Membership revocation remains available if the runtime is missing:
-the durable generation fence is written first and cleanup is reported as
-`recovery_required`. Admission and restoration refuse an unavailable runtime
-and require explicit acknowledgement of the shared boundary. A session-scoped
-runtime factory is an integration seam; configuration alone never confirms a
-provider or grants access.
+## Review records and publication boundary
 
-## Portable profiles and artifact review services
+The application mounts authenticated review routes with persistence/coordinator
+services, immutable export and snapshot retrieval, and guarded publication
+preflight. These routes do not supply the trusted native review host, enforce a
+native spending cap, or authorize publication dispatch.
 
-`SymposiumProfileStore` keeps immutable, owner-scoped profile revisions alongside
-the session database. Profiles contain role instructions, expected output,
-acceptance criteria, and a model-policy role. Export and import preserve the exact
-revision and content hash. Account bindings, credentials, context grants, and
-authority grants are excluded; importing a profile cannot grant runtime access.
-Saving uses revision compare-and-swap and durable idempotency keys.
+The review workflow records structured findings, fix/dismissal decisions, exact
+artifact revisions, and delta-review history. The interactive panel reports an
+unavailable native review host honestly. Mocked coordinator tests do not prove
+live budget enforcement or a complete autonomous review/fix loop.
 
-`SymposiumReviewStore` records a bounded review workflow for an exact artifact
-revision and hash. The coder and reviewer are independently selected through the
-existing execution-policy resolver. Structured findings have stable fingerprints,
-evidence references, and explicit fix or dismissal dispositions. A fix requires
-owner authority and produces a new artifact revision for delta review.
+The immutable-record slice binds an owner/session/workflow to the verified
+artifact and exact history sequence, result, and evidence. Authenticated retrieval
+does not rewrite a snapshot. Repeating the same export returns the same record;
+changed history or artifact identity produces a distinct snapshot. Records are
+stored outside the reviewed Git branch.
 
-Every review or fix requires a persisted attempt reservation before dispatch.
-Round, token, and cost ceilings block further admission; unknown cost under a
-monetary limit requires a decision. Repeating an admitted attempt identifier does
-not authorize another model call. Artifact edits preserve outstanding budget
-decisions. Completion requires current-artifact host evidence for every acceptance
-criterion; model agreement does not establish verification, and newer failed host
-evidence supersedes an earlier verified result.
+Publication preflight validates a trusted host binding and current review/artifact
+evidence. It is a guarded preparation step, not **Create PR**. Native review-host
+completion, durable terminal evidence and approved publication dispatch remain
+separate gates. No publication or production deployment is established by the
+native smoke.
 
-These are persistence and admission services. Profile catalog UI, runtime-enforced
-attempt limits, recovery of uncertain native execution, and the complete automated
-review/fix loop still require integration. The tests use synthetic results and do
-not invoke models.
+## Historical compatibility
 
-## Concurrent directed dispatch
+Earlier Phase 1/2 text described a two-seat, shared-sandbox foundation with injected
+executors. Version-1 records remain readable; that historical scope does not limit
+the current roster or authorize shared credentials. Version-2 membership history
+cannot be erased by deactivating the session into ordinary chat. The original
+foundation PR #446 is not a required dependency of this implementation.
 
-V2 directed deliveries may execute independent admitted seats concurrently, bounded
-by the configured roster and existing durable turn reservations. Each seat still
-uses its exclusive execution claim and provider thread. V1 retains its sequential
-dispatch behavior. Results from already-running seats remain recorded if another
-recipient fails; failed turns still require explicit intervention before retry.
-
-Within one shared Symposium boundary, filesystem or tool write authority conflicts
-with other writers. The existing SQLite claim transaction refuses a second writer
-across orchestrator instances. Pending work returns to `ready` once no recipient
-is executing, so the host can drain approved work after the resource is released.
-Unconfirmed revocation cleanup also blocks new writers, including after a restart.
-This scheduling rule does not enforce a provider's tools: runtime admission must
-still enforce the declared authority. It adds no per-seat sandbox isolation.
-
-Resource reservations persist on the existing recipient attempt until its executor
-returns a completed result or confirms cancellation. Cancelling a delivery or
-marking it recovery-required does not release this reservation. A second host
-therefore cannot infer that a recovered writer has stopped. Failed multi-seat
-deliveries cannot be retried while any attempt still has unconfirmed cleanup.
-Executor cancellation must resolve only when further native operations are
-impossible; missing or failed cancellation retains the reservation for recovery.
-
-For historical failures with uncertain cleanup, the host calls
-`reconcileDeliveryCleanup` to stop the exact persisted attempts. Missing or failed
-cleanup keeps the reservation and returns `recovery_required`. Confirmed cleanup
-unblocks a separate explicit retry; reconciliation itself never dispatches work.
-A later successful attempt with the same idempotency identity settles its earlier
-historical failures during migration. Seat restoration includes membership
-generation in the provider-thread binding, so it cannot reuse a pre-suspension
-thread even when account and profile choices are unchanged.
-
-## Directed context and provider receipts
-
-Each dispatched recipient attempt retains the exact approved input and an ordered
-durable transcript anchor. A separate provider acceptance receipt pins that
-attempt's claim, native thread, and native turn. Execution completion is not a
-substitute for acceptance: an accepted input remains received even if the turn
-later fails or membership is revoked. A dispatched input without a receipt remains
-uncertain. Completion cannot replace a thread identity pinned by an acceptance
-receipt. Queued inputs are exposed separately and are never presented as received;
-only deliveries awaiting intervention, ready, or delivering appear in the queue.
-Failed deliveries require explicit retry before pending inputs reappear.
-
-Audience projections include each seat's own completed messages and only the
-inputs dispatched to it, with received/uncertain labels. All aggregates these
-records for the user; it grants no automatic delivery to other seats. A selected
-excerpt must match completed durable source text, retaining source provenance and
-any later delivery edits. Source identity includes seat and membership generation,
-so colliding provider message IDs cannot select another seat's text. Ambiguous
-historical references are refused.
-
-Assistant messages use completion events as pagination anchors, so a turn that
-finishes after a page is read remains discoverable on a subsequent page. User
-messages and dispatched inputs retain their original event anchors.
-
-These bounded persistence projections provide message anchors for rich transcript
-rendering. Runtime receipt/event wiring and the full interactive composer remain
-separate integration work; these tests do not invoke providers.
-
-## Provider cost evidence
-
-The delivery and attempt ledgers preserve missing provider prices as unknown
-(`null`). An explicitly reported zero remains a known zero. Usage returns the
-known subtotal (`knownCostUsd`) and the count of attempts without price evidence
-(`unknownCostAttempts`); its total `costUsd` is unknown while any such attempt
-remains. A late result reconciles the exact original claim without reviving a
-cancelled delivery. Failed attempts and successful retries sharing the same
-provider idempotency identity count as one priced turn; host attempts still count
-individually toward the turn cap. Conflicting reported prices remain unresolved. Historical positive costs remain known during migration;
-historical zeros remain unknown because earlier code also used zero for omitted
-prices. Negative or nonfinite provider costs are rejected as billing evidence.
-
-This accounting does not enforce a native monetary budget. Budgeted native
-execution still requires trusted pricing and a reservation before dispatch.
-
-## Integrated review surface and remaining native gate
-
-The same-session findings panel uses `/api/sessions/:id/symposium/reviews`.
-Authenticated interactive actions bind to the artifact revision and hash the user
-inspected. Workflows and ordered history persist in the application events database;
-reloading retrieves scoped history, and an interrupted request can reconcile an
-already completed attempt from its host receipt without dispatching it again.
-
-The mocked trusted-adapter lifecycle covers a full review, explicit selected-finding
-fix authorization, a changed artifact, delta review, current host verification, and
-preparation of a PR review record containing the revision, findings, decisions, and
-history. Findings optionally carry a reviewer-reported severity (`critical`, `high`,
-`medium`, or `low`). Legacy findings remain unlabeled; severity updates are preserved
-in review history and do not change the stable finding fingerprint. Findings are untrusted content: they neither grant write authority nor
-create a PR. A reasoned dismissal records its human actor and evidence references.
-Preparing a record does **not** publish a PR. Automated PR creation and attachment
-are not implemented by this slice; publication requires a separate explicit action.
-
-The optional server-bootstrap `SymposiumProductionHost.reviewHost` capability is
-only exposed when the existing production runtime gate also succeeds. No HTTP
-endpoint installs it. Current bootstrap deliberately supplies no adapter because
-these native contracts are still absent:
-
-- Native execution currently returns provider thread, text, and optional cost, not
-  complete host-attested token totals or an enforced hard token ceiling.
-- The native attempt registry tracks transport/process cleanup; cleanup confirmation
-  is not a terminal provider usage or structured review receipt.
-- A trusted collector must bind `WorkResult`, structured findings, final usage, and
-  verification evidence to the same completed native attempt, enforcement ID,
-  session, seat, and artifact revision/hash. Request bodies cannot supply those facts.
-- The reviewer requires attested read-only tool and filesystem grants. The current
-  production gate allows OpenAI implementer/coder seats only; it must not be widened
-  merely to make the review UI executable.
-- Dispatch must enforce remaining round/token/cost budgets before provider work,
-  preserve one upstream OpenShell sandbox per seat generation, and retain uncertain
-  attempts for receipt-based recovery. Estimated budgets do not satisfy enforcement.
-
-The source and mocked tests establish application wiring and boundary behavior,
-not a live native workflow or production readiness. The canonical product decision
-is [Design Mitzo symposium UX](codex://threads/01a07b9b-63ca-7771-96f4-6dbeb03f1c48),
-reconciled in the workspace redesign launch plan. A future adapter must meet these
-contracts rather than weakening the coordinator or reusing an ordinary runtime.
-
-PR publication follow-up should reuse the reviewed `github.publish-pr@1` capability,
-not a shell `gh` bypass. Its current HTTP authorization resolves ordinary-session
-registry and live connection bindings, and its executor resolves one trusted
-workspace/sandbox. Symposium needs an attested builder-seat binding plus the same
-forced conversation approval. The current 512-character PR-body schema cannot carry
-an arbitrary full review record; publication needs an immutable record reference
-and attachment policy. Recheck the reviewed artifact at approval and dispatch,
-not only before requesting publication. No existing gate should be bypassed to
-make this missing integration appear complete.
-
-A [read-only publication preflight adapter](symposium-review-publication.md) now
-checks a committed-tree digest under the existing artifact lease and reuses the
-reviewed GitHub capability preflight. Its authenticated route remains unavailable
-without trusted runtime, review-host and builder-operation bindings. A preview
-does not approve or create a PR; native review evidence and publication dispatch
-remain unfinished.
-
-### Reusable reviewer recipes
-
-Mitzo owns immutable, owner-scoped profile revisions. New profile offers Code correctness reviewer, Security reviewer, Architecture critic, Testability reviewer, and Artifact/editorial critic starters. Edit the starter and save explicitly; templates do not create sessions or bind seats. Account selection remains **ask when seated**.
-
-An optional `recipe` version 1 travels with profile JSON exports/imports: suggested context categories and source kinds, skill references, read-only tool preferences, compatible providers and reviewer template. Profiles without recipes retain their original representation and hashes. Unknown recipe versions, credentials, machine paths and session authority fields are rejected. Skill/tool references do not install or enable capabilities. Provider compatibility constrains host grant issuance; it does not promise that an account/model is available.
-
-Recipes are setup guidance, not context grants. ContexGin is only an explicitly selected context source; the catalog never writes to ContexGin. Operators still select the concrete context package and account/model per review. Saving or importing a revision does not change active seats; use the existing explicit apply flow, which requires suspension before changing an active seat grant.
-
-### Native Codex usage capture
-
-Codex usage is accumulated from `thread/tokenUsage/updated.tokenUsage.total`, not `last` (which describes only the latest provider response). The implementation was checked against upstream `TokenUsageInfo.append_last_usage` in [Codex protocol source](https://github.com/openai/codex/blob/06f97622f8529feef0d230fc37519c36c6bb2eeb/codex-rs/protocol/src/protocol.rs) and the locally generated Codex 0.156.1 app-server schema. This verification makes no provider calls.
-
-Only a newly created thread starts with a known zero baseline for observed usage. Resumed or replacement threads have no trustworthy initial baseline; terminal notification ordering does not establish a final baseline for a following turn. The mapper requires matching thread and turn IDs, safe nonnegative integer counters, internally consistent token categories and monotonic cumulative updates. Replayed snapshots are idempotent. Reconnects, malformed/reset counters, mismatched turns, missing snapshots and late usage invalidate the baseline. Cached input is separated from uncached input; reasoning remains part of output and is not added twice.
-
-Terminal results expose `usage_status: unknown` with no numeric usage payload. `turn/completed` carries no proof that the last cumulative snapshot includes the final provider request; valid earlier snapshots may still undercount when the final update arrives later. The mapper invalidates the observed baseline at completion rather than certifying an incomplete prefix or using it for subsequent accounting. Neither a waiting timeout nor arrival before completion establishes completeness. A future terminal-total proof or durable late-event reconciliation is required to report complete turn usage. This is bounded event-stream accounting, **not** a durable trusted review receipt or proof of a hard spending cap. Durable late-event reconciliation, exact attempt/artifact receipt binding and native hard-limit enforcement remain prerequisites; budgeted review admission remains closed.
-
-The native sink preserves this status in the existing claim- and provenance-bound `provider_turn_end` event, including SQLite replay and the client wire projection. Missing usage is stored as `unknown` with no numeric usage payload; legacy numeric payloads without a verified status are marked `unverified`. The current client parser does not use `provider_turn_end` to update token counters, so this change does not claim complete per-seat usage UI or turn unknown attempts into zero-token receipts. Session-wide counters from other event types are not an accounting source for these attempts.
-The read-only UI preview routes `preview-1` to open review findings, `preview-3`
-to a changed artifact awaiting delta review, and `preview-2` to the unavailable
-native host explanation. Open **Review findings** in the selected preview chat.
-All review responses are fixtures and review mutation requests return HTTP 405;
-no provider, sandbox, account, or PR service is called.
+The current mocked suites cover persistence, privacy, admission, restart fencing,
+cleanup ordering, UI selection, and review-record integrity. Their results must
+remain distinct from the bounded live evidence above and from full application
+acceptance.
