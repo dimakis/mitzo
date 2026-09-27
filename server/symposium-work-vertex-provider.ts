@@ -72,7 +72,10 @@ async function authenticate(material: Material) {
   const accessToken = (await client.getAccessToken()).token;
   if (!accessToken || !('getTokenInfo' in client)) throw Error();
   const info = await client.getTokenInfo(accessToken);
-  if (!info.email || info.email_verified !== true) throw Error();
+  // Google's tokeninfo response can encode this flag as the exact string 'true',
+  // despite the auth library declaring a boolean. Never use truthiness.
+  const emailVerified: unknown = info.email_verified;
+  if (!info.email || (emailVerified !== true && emailVerified !== 'true')) throw Error();
   return { email: info.email, accessToken };
 }
 function snapshot(path: string): Material {

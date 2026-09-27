@@ -170,10 +170,12 @@ it('refuses mismatched provider identity and uncertain refresh without returning
 
 it('default authentication verifies the same snapshot and requires a verified email', async () => {
   const f = fixture();
-  const getTokenInfo = vi.fn(async () => ({
-    email: f.profile.expectedPrincipal,
-    email_verified: true,
-  }));
+  const getTokenInfo = vi.fn(
+    async (): Promise<{ email: string; email_verified: boolean | string }> => ({
+      email: f.profile.expectedPrincipal,
+      email_verified: true,
+    }),
+  );
   const fromJSON = vi.spyOn(GoogleAuth.prototype, 'fromJSON').mockReturnValue({
     transporter: { defaults: {} },
     getAccessToken: async () => ({ token: 'synthetic-access' }),
@@ -183,12 +185,18 @@ it('default authentication verifies the same snapshot and requires a verified em
     await createSymposiumWorkVertexProvider(f.gateway as never, f.profile, { run: f.run as never });
     expect(fromJSON).toHaveBeenCalledWith(f.material);
     expect(getTokenInfo).toHaveBeenCalledWith('synthetic-access');
-    getTokenInfo.mockResolvedValue({ email: f.profile.expectedPrincipal, email_verified: false });
-    f.run.mockClear();
+    getTokenInfo.mockResolvedValue({ email: f.profile.expectedPrincipal, email_verified: 'true' });
     await expect(
       createSymposiumWorkVertexProvider(f.gateway as never, f.profile, { run: f.run as never }),
-    ).rejects.toThrow('Vertex provisioning unavailable');
-    expect(f.run).not.toHaveBeenCalled();
+    ).resolves.toHaveProperty('sandboxProviderId', 'new-id');
+    for (const email_verified of [false, 'false', 'TRUE', ' true ', '']) {
+      getTokenInfo.mockResolvedValue({ email: f.profile.expectedPrincipal, email_verified });
+      f.run.mockClear();
+      await expect(
+        createSymposiumWorkVertexProvider(f.gateway as never, f.profile, { run: f.run as never }),
+      ).rejects.toThrow('Vertex provisioning unavailable');
+      expect(f.run).not.toHaveBeenCalled();
+    }
   } finally {
     fromJSON.mockRestore();
   }
