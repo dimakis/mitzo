@@ -1156,6 +1156,8 @@ it('runs real Claude adapter through EventStore admission, claim migration, and 
   const commands: readonly string[][] = [];
   const prompts: string[] = [];
   let failModel = false;
+  let failAssistant = false;
+  let omitInit = false;
   const registry = new SymposiumAttemptRegistry(join(root, 'attempts.db'), {
     launch: (_sandbox, _claim, _access, command) => {
       (commands as string[][]).push([...command]);
@@ -1173,7 +1175,8 @@ it('runs real Claude adapter through EventStore admission, claim migration, and 
           const thread = command[command.indexOf('--session-id') + 1];
           const emit = (data: Record<string, unknown>) =>
             child.stdout.write(JSON.stringify({ session_id: thread, ...data }) + '\n');
-          emit({ type: 'system', subtype: 'init', model: failModel ? 'wrong-model' : model });
+          if (!omitInit)
+            emit({ type: 'system', subtype: 'init', model: failModel ? 'wrong-model' : model });
           emit({
             type: 'stream_event',
             event: {
@@ -1202,7 +1205,7 @@ it('runs real Claude adapter through EventStore admission, claim migration, and 
             type: 'assistant',
             message: {
               id: `turn-${prompts.length}`,
-              model: 'claude-haiku-4-5-20251001',
+              model: failAssistant ? 'wrong-model' : 'claude-haiku-4-5-20251001',
               content: [{ type: 'text', text: `Reply ${prompts.length}` }],
             },
           });
@@ -1336,6 +1339,22 @@ it('runs real Claude adapter through EventStore admission, claim migration, and 
     expect(broadcast.mock.calls.slice(before).some(([, e]) => e.type === 'message_start')).toBe(
       false,
     );
+    failModel = false;
+    failAssistant = true;
+    const beforeAssistantFailure = broadcast.mock.calls.length;
+    expect((await deliver('Late wrong model')).status).toBe('failed');
+    expect(
+      broadcast.mock.calls
+        .slice(beforeAssistantFailure)
+        .some(([, e]) => e.type === 'message_start'),
+    ).toBe(false);
+    failAssistant = false;
+    omitInit = true;
+    const beforeMissingInit = broadcast.mock.calls.length;
+    expect((await deliver('Missing init')).status).toBe('failed');
+    expect(
+      broadcast.mock.calls.slice(beforeMissingInit).some(([, e]) => e.type === 'message_start'),
+    ).toBe(false);
     providerCurrent = false;
     const starts = commands.length;
     expect((await deliver('Revoked provider')).status).toBe('failed');

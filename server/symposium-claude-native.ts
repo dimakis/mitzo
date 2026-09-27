@@ -229,6 +229,7 @@ export async function createClaudeVertexSeat(
   let child: ClaudeProcess | undefined;
   let confirmStopped: (() => Promise<void>) | undefined;
   let terminalConfirmed = false;
+  let rejectActive: (() => void) | undefined;
   return {
     verifyThreadMigration(previous, next) {
       if (
@@ -261,6 +262,12 @@ export async function createClaudeVertexSeat(
       let outputBytes = 0;
       let threadId: string | undefined;
       let accepted = false;
+      let initialized = false;
+      let assistantVerified = false;
+      let awaitingAssistant: string | undefined;
+      // Hold each message until its exact assistant ID/model receipt validates.
+      // The total stdout bound also bounds this per-message buffer.
+      const pendingEvents: Record<string, unknown>[] = [];
       let result: Extract<ClaudeVertexEvent, { kind: 'result' }> | undefined;
       const texts: string[] = [];
       return new Promise<{ providerThreadId: string; content: string; costUsd?: number }>(
@@ -269,6 +276,7 @@ export async function createClaudeVertexSeat(
           const fail = () => {
             if (settled) return;
             settled = true;
+            pendingEvents.length = 0;
             if (confirmStopped) {
               try {
                 input.attemptRegistry?.markUncertain(execution.claimToken);
@@ -278,6 +286,7 @@ export async function createClaudeVertexSeat(
             }
             reject(new Error('Claude native turn failed or has an uncertain outcome'));
           };
+          rejectActive = fail;
           process.stdout.on('data', (chunk: Buffer | string) => {
             if (settled) return;
             outputBytes += Buffer.byteLength(chunk);
@@ -316,6 +325,22 @@ export async function createClaudeVertexSeat(
                   (threadId && threadId !== event.threadId)
                 )
                   return fail();
+                if (input.requireModelReceipts && event.kind !== 'init' && !initialized)
+                  return fail();
+                if (event.kind === 'init') initialized = true;
+                if (event.kind === 'native' && event.turnId) {
+                  if (input.requireModelReceipts && awaitingAssistant) return fail();
+                  awaitingAssistant = event.turnId;
+                }
+                if (event.kind === 'assistant') {
+                  if (
+                    input.requireModelReceipts &&
+                    awaitingAssistant &&
+                    awaitingAssistant !== event.turnId
+                  )
+                    return fail();
+                  assistantVerified = true;
+                }
                 threadId = event.threadId;
                 if (event.kind === 'assistant' || (event.kind === 'native' && event.turnId)) {
                   if (!accepted) {
@@ -329,7 +354,18 @@ export async function createClaudeVertexSeat(
                   if (event.kind === 'assistant' && event.text) texts.push(event.text);
                 } else if (event.kind === 'result') result = event;
                 try {
-                  input.onEvent?.(value as Record<string, unknown>);
+                  if (input.requireModelReceipts) {
+                    if (event.kind === 'result' && (awaitingAssistant || !assistantVerified))
+                      return fail();
+                    if (event.kind === 'assistant') {
+                      pendingEvents.push(value as Record<string, unknown>);
+                      for (const pending of pendingEvents) input.onEvent?.(pending);
+                      pendingEvents.length = 0;
+                      awaitingAssistant = undefined;
+                    } else if (awaitingAssistant || !assistantVerified)
+                      pendingEvents.push(value as Record<string, unknown>);
+                    else input.onEvent?.(value as Record<string, unknown>);
+                  } else input.onEvent?.(value as Record<string, unknown>);
                 } catch {
                   return fail();
                 }
@@ -343,13 +379,23 @@ export async function createClaudeVertexSeat(
           process.stdin.on('error', fail);
           process.on('close', async (code: number | null) => {
             if (settled) return;
-            if (code !== 0 || !result?.success || !threadId || !accepted) return fail();
+            if (
+              code !== 0 ||
+              !result?.success ||
+              !threadId ||
+              !accepted ||
+              stdout.trim() ||
+              (input.requireModelReceipts &&
+                (!initialized || !assistantVerified || awaitingAssistant))
+            )
+              return fail();
             try {
               await confirmStopped?.();
             } catch {
               return fail();
             }
             terminalConfirmed = true;
+            pendingEvents.length = 0;
             settled = true;
             resolve({
               providerThreadId: threadId,
@@ -370,6 +416,7 @@ export async function createClaudeVertexSeat(
       );
     },
     async cancel() {
+      rejectActive?.();
       if (!child || terminalConfirmed) return;
       if (confirmStopped) {
         await confirmStopped();

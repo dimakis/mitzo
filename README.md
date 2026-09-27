@@ -679,8 +679,14 @@ complete eligible same-seat conversation as explicitly untrusted user context,
 with a 64 KiB UTF-8 ceiling; unavailable or oversized history rejects dispatch.
 No native state is copied and `--resume` is denied. Exact init/assistant model
 receipts and actual session IDs are checked before native events are projected.
+Claude buffers each message until its matching assistant ID/model receipt;
+verified messages can appear across tool turns, but its unverified token deltas
+are not shown live. Cancellation discards the bounded pending message buffer.
 A planned UUID is not provider acceptance. Account/profile, host grants, provider
 identity and the retained Vertex capability are rechecked at admission and dispatch.
+Every capability capture pairs current refresh status with stable installed-token
+expiry before and after it, requires a 60-second lifetime margin, and rejects
+pending or uncertain readiness. Identity receipts never cache credential readiness.
 
 The credential-free physical contract can be run explicitly with
 `MITZO_CLAUDE_PHYSICAL_CONTRACT=1 npx vitest run server/__tests__/symposium-claude-physical.contract.test.ts`.

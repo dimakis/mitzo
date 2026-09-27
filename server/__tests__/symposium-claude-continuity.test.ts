@@ -192,11 +192,13 @@ it('recognizes only the documented dated Haiku request/response IDs and rejects 
   const child = process();
   const current = { ...execution, providerThreadId: undefined };
   const routed = { ...route, model: 'claude-haiku-4-5@20251001' };
+  const onEvent = vi.fn();
   const native = await createClaudeVertexSeat({
     sandbox,
     route: routed,
     execution: current,
     requireModelReceipts: true,
+    onEvent,
     spawnProcess: () => child,
   });
   const accepted = vi.fn();
@@ -227,6 +229,7 @@ it('recognizes only the documented dated Haiku request/response IDs and rejects 
   );
   child.emit('close', 0);
   await rejection;
+  expect(onEvent).not.toHaveBeenCalled();
 });
 
 it('measures complete continuity at the exact UTF-8 64 KiB boundary', async () => {
@@ -249,4 +252,147 @@ it('measures complete continuity at the exact UTF-8 64 KiB boundary', async () =
   history[1].text += 'é';
   await expect(createClaudeVertexSeat(options)).rejects.toThrow(/64 KiB/);
   expect(options.spawnProcess).not.toHaveBeenCalled();
+});
+
+it('requires actual init before accepting an otherwise valid assistant and result', async () => {
+  const child = process();
+  const current = { ...execution, providerThreadId: undefined };
+  const accepted = vi.fn(),
+    onEvent = vi.fn();
+  const native = await createClaudeVertexSeat({
+    sandbox,
+    route,
+    execution: current,
+    requireModelReceipts: true,
+    spawnProcess: () => child,
+    onEvent,
+  });
+  const run = native.run(current, { beforeDispatch: vi.fn(), accepted });
+  const rejected = expect(run).rejects.toThrow(/failed|uncertain/);
+  const thread = claudeVertexArgv(route, current).at(-1)!;
+  child.stdout.write(
+    JSON.stringify({
+      type: 'assistant',
+      session_id: thread,
+      message: { id: 'turn', model: route.model, content: [{ type: 'text', text: 'unverified' }] },
+    }) + '\n',
+  );
+  child.stdout.write(
+    JSON.stringify({ type: 'result', session_id: thread, is_error: false }) + '\n',
+  );
+  child.emit('close', 0);
+  await rejected;
+  expect(accepted).not.toHaveBeenCalled();
+  expect(onEvent).not.toHaveBeenCalled();
+});
+
+it('projects completed messages incrementally only after their matching assistant receipt', async () => {
+  const child = process(),
+    onEvent = vi.fn();
+  const current = { ...execution, providerThreadId: undefined };
+  const native = await createClaudeVertexSeat({
+    sandbox,
+    route,
+    execution: current,
+    requireModelReceipts: true,
+    spawnProcess: () => child,
+    onEvent,
+  });
+  const run = native.run(current, { beforeDispatch: vi.fn(), accepted: vi.fn() });
+  const rejected = expect(run).rejects.toThrow(/failed|uncertain/);
+  const thread = claudeVertexArgv(route, current).at(-1)!;
+  const emit = (value: object) =>
+    child.stdout.write(JSON.stringify({ session_id: thread, ...value }) + '\n');
+  emit({ type: 'system', subtype: 'init', model: route.model });
+  emit({
+    type: 'stream_event',
+    event: { type: 'message_start', message: { id: 'first', model: route.model } },
+  });
+  emit({
+    type: 'stream_event',
+    event: { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'first' } },
+  });
+  expect(onEvent).not.toHaveBeenCalled();
+  emit({
+    type: 'assistant',
+    message: { id: 'first', model: route.model, content: [{ type: 'text', text: 'first' }] },
+  });
+  expect(onEvent).toHaveBeenCalledTimes(4);
+  emit({
+    type: 'stream_event',
+    event: { type: 'message_start', message: { id: 'second', model: route.model } },
+  });
+  emit({
+    type: 'stream_event',
+    event: { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'second' } },
+  });
+  expect(onEvent).toHaveBeenCalledTimes(4);
+  emit({ type: 'assistant', message: { id: 'foreign-id', model: route.model, content: [] } });
+  await rejected;
+  expect(onEvent).toHaveBeenCalledTimes(4);
+});
+
+it('discards an unverified message buffer when cancelled, including late native events', async () => {
+  const child = process(),
+    onEvent = vi.fn();
+  const current = { ...execution, providerThreadId: undefined };
+  const native = await createClaudeVertexSeat({
+    sandbox,
+    route,
+    execution: current,
+    requireModelReceipts: true,
+    spawnProcess: () => child,
+    onEvent,
+  });
+  const run = native.run(current, { beforeDispatch: vi.fn(), accepted: vi.fn() });
+  const rejected = expect(run).rejects.toThrow(/failed|uncertain/);
+  const thread = claudeVertexArgv(route, current).at(-1)!;
+  const emit = (value: object) =>
+    child.stdout.write(JSON.stringify({ session_id: thread, ...value }) + '\n');
+  emit({ type: 'system', subtype: 'init', model: route.model });
+  emit({
+    type: 'stream_event',
+    event: { type: 'message_start', message: { id: 'pending', model: route.model } },
+  });
+  await expect(native.cancel()).rejects.toThrow(/cleanup/);
+  emit({ type: 'assistant', message: { id: 'pending', model: route.model, content: [] } });
+  emit({ type: 'result', is_error: false });
+  child.emit('close', 0);
+  await rejected;
+  expect(onEvent).not.toHaveBeenCalled();
+});
+
+it('bounds unverified streamed output before any projection', async () => {
+  const child = process(),
+    onEvent = vi.fn();
+  const current = { ...execution, providerThreadId: undefined };
+  const native = await createClaudeVertexSeat({
+    sandbox,
+    route,
+    execution: current,
+    requireModelReceipts: true,
+    spawnProcess: () => child,
+    onEvent,
+  });
+  const run = native.run(current, { beforeDispatch: vi.fn(), accepted: vi.fn() });
+  const rejected = expect(run).rejects.toThrow(/failed|uncertain/);
+  const thread = claudeVertexArgv(route, current).at(-1)!;
+  const emit = (value: object) =>
+    child.stdout.write(JSON.stringify({ session_id: thread, ...value }) + '\n');
+  emit({ type: 'system', subtype: 'init', model: route.model });
+  emit({
+    type: 'stream_event',
+    event: { type: 'message_start', message: { id: 'pending', model: route.model } },
+  });
+  for (let i = 0; i < 9; i++)
+    emit({
+      type: 'stream_event',
+      event: {
+        type: 'content_block_delta',
+        index: 0,
+        delta: { type: 'text_delta', text: 'x'.repeat(900000) },
+      },
+    });
+  await rejected;
+  expect(onEvent).not.toHaveBeenCalled();
 });
