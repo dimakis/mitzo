@@ -399,3 +399,66 @@ it('does not offer a second start after failed status recovery reports idle duri
     1,
   );
 });
+
+it('ignores an early idle poll that arrives after the start returned a known pending receipt', async () => {
+  vi.useFakeTimers();
+  let finishStart!: (value: Response) => void;
+  let finishPoll!: (value: Response) => void;
+  let started = false;
+  vi.mocked(apiFetch).mockImplementation(async (_url, init) => {
+    if (init?.method === 'POST') {
+      started = true;
+      return new Promise((resolve) => {
+        finishStart = resolve;
+      });
+    }
+    if (!started) return response({ state: 'idle' });
+    return new Promise((resolve) => {
+      finishPoll = resolve;
+    });
+  });
+  render(<SymposiumDeviceLogin />);
+  await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Connect ChatGPT' })));
+  fireEvent.click(screen.getByRole('button', { name: 'Get sign-in code' }));
+  await act(async () => vi.advanceTimersByTimeAsync(2000));
+  await act(async () => finishStart(response(pending)));
+  await act(async () => finishPoll(response({ state: 'idle' })));
+  expect(screen.getByText(pending.userCode)).toBeTruthy();
+  expect(screen.getByRole('button', { name: 'Cancel sign-in' })).toBeTruthy();
+});
+
+it.each(['previous-completed', 'unknown-without-attempt'])(
+  'keeps a reconnect provisional when status returns %s before the new receipt',
+  async (early) => {
+    vi.useFakeTimers();
+    let started = false;
+    let finishStart!: (value: Response) => void;
+    vi.mocked(apiFetch).mockImplementation(async (_url, init) => {
+      if (init?.method === 'POST') {
+        started = true;
+        return new Promise((resolve) => {
+          finishStart = resolve;
+        });
+      }
+      return response(
+        !started || early === 'previous-completed'
+          ? { state: 'completed', attemptId: 'old-attempt' }
+          : { state: 'unknown' },
+      );
+    });
+    render(<SymposiumDeviceLogin />);
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Connect ChatGPT' })));
+    fireEvent.click(screen.getByRole('button', { name: 'Reconnect ChatGPT' }));
+    await act(async () => vi.advanceTimersByTimeAsync(2000));
+    expect(
+      (
+        screen.getByRole('button', {
+          name: /Reconnect ChatGPT|Get sign-in code/,
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(true);
+    await act(async () => finishStart(response(pending)));
+    expect(screen.getByText(pending.userCode)).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Cancel sign-in' })).toBeTruthy();
+  },
+);

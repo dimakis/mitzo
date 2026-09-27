@@ -59,6 +59,7 @@ export function SymposiumDeviceLogin({
   const version = useRef(0);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const attempt = useRef<string | undefined>(undefined);
+  const previousAttempt = useRef<string | undefined>(undefined);
   const refreshed = useRef(new Set<string>());
   const changed = useRef(onAccountsChanged);
   changed.current = onAccountsChanged;
@@ -92,14 +93,27 @@ export function SymposiumDeviceLogin({
     if (next.state === 'pending' && !next.attemptId) throw new Error('Missing receipt');
     if (next.verificationUrl && next.verificationUrl !== 'https://auth.openai.com/codex/device')
       throw new Error('Unsupported sign-in address');
+    // Recovery may still describe the previous attempt until the new start allocates.
+    if (
+      startingVersion.current === version.current &&
+      ((next.attemptId && next.attemptId === previousAttempt.current) ||
+        (next.state === 'unknown' && !next.attemptId && !attempt.current))
+    )
+      return receipt.current;
+    if (attempt.current && next.attemptId && next.attemptId !== attempt.current)
+      throw new Error('Mismatched active receipt');
     // Idle before allocation is acknowledged does not prove the start failed.
-    if (next.state === 'idle' && startingVersion.current === version.current)
+    if (
+      next.state === 'idle' &&
+      (startingVersion.current === version.current || receipt.current.state !== 'idle')
+    )
       return receipt.current;
     // A late allocation reply cannot reopen an attempt already observed terminal.
     if (
       receipt.current.state !== 'idle' &&
       receipt.current.state !== 'pending' &&
-      next.state === 'pending'
+      next.state === 'pending' &&
+      next.attemptId === attempt.current
     )
       return receipt.current;
     receipt.current = next;
@@ -111,7 +125,7 @@ export function SymposiumDeviceLogin({
       }
     }
     if (next.attemptId !== attempt.current || next.state !== 'pending') setCopyFeedback('');
-    attempt.current = next.attemptId;
+    attempt.current = next.attemptId ?? attempt.current;
     setStatus(next);
     pendingChanged.current?.(next.state === 'pending');
     setError('');
@@ -169,6 +183,7 @@ export function SymposiumDeviceLogin({
       receipt.current = { state: 'idle' };
       refreshed.current.clear();
       changed.current?.();
+      previousAttempt.current = attempt.current;
       attempt.current = undefined;
       startingVersion.current = generation;
       pendingChanged.current?.(true);
