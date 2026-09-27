@@ -8,12 +8,21 @@ import './AddReviewerSheet.css';
 
 type Status = {
   config: SymposiumConfig | null;
+  ordinaryAccountId?: string | null;
   runtimeAvailable: boolean;
   initialProfileSelections?: Record<string, SymposiumProfileSelection>;
   seats: { seatId: string; membership: { state: string; generation: number } | null }[];
 };
 type Mode = 'independent' | 'summary' | 'selected-turns' | 'full-context';
 const confirmation = 'ADD CROSS-ACCOUNT SEAT';
+class ReviewerRequestError extends Error {
+  constructor(
+    message: string,
+    readonly noSeatMutation: boolean,
+  ) {
+    super(message);
+  }
+}
 async function request<T>(path: string, body?: unknown, method = 'POST'): Promise<T> {
   const response = await apiFetch(
     path,
@@ -26,7 +35,11 @@ async function request<T>(path: string, body?: unknown, method = 'POST'): Promis
         },
   );
   const result = await response.json();
-  if (!response.ok) throw new Error(result.error || 'Reviewer request failed');
+  if (!response.ok)
+    throw new ReviewerRequestError(
+      result.error || 'Reviewer request failed',
+      result.seatMutation === 'not-started',
+    );
   return result as T;
 }
 
@@ -117,7 +130,12 @@ function ReviewerForm({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [done, setDone] = useState(false);
-  const [locked, setLocked] = useState(false);
+  const [locked, updateLocked] = useState(false);
+  const lockedRef = useRef(false);
+  const setLocked = (next: boolean) => {
+    lockedRef.current = next;
+    updateLocked(next);
+  };
   const [progress, setProgress] = useState('');
   const packageSnapshot = useRef<{ content: string } | null>(null);
   const operation = useRef({ seatId: `reviewer-${crypto.randomUUID()}`, key: crypto.randomUUID() });
@@ -155,11 +173,13 @@ function ReviewerForm({
       seat.id ===
       (status.config?.version === 2 ? status.config.anchorSeatId : status.config?.seats[0]?.id),
   );
-  const crossAccount = Boolean(
-    anchor?.accountBinding && selection?.accountId !== anchor.accountBinding.accountId,
-  );
+  const sourceAccountId = status?.config
+    ? anchor?.accountBinding?.accountId
+    : status?.ordinaryAccountId;
+  const crossAccount = Boolean(sourceAccountId && selection?.accountId !== sourceAccountId);
   const ready = Boolean(
     status &&
+    sourceAccountId &&
     (!status.config || status.runtimeAvailable) &&
     profile &&
     selection?.accountId &&
@@ -173,7 +193,13 @@ function ReviewerForm({
     if (!ready || !selection || !profile || busy) return;
     setBusy(true);
     setError('');
+    let reviewerMutationAttempted = false;
     try {
+      const selectedProfile = await request<{ definition: { role: string } }>(
+        `/api/symposium/profiles/${encodeURIComponent(profile.profileId)}/${profile.revision}`,
+      );
+      if (selectedProfile.definition?.role !== 'reviewer')
+        throw new Error('Choose a profile with the reviewer role.');
       const context =
         packageSnapshot.current ??
         (await request<{ content: string }>(`${base}/context-package`, {
@@ -183,7 +209,16 @@ function ReviewerForm({
         }));
       let current = await request<Status>(base);
       let config = current.config;
-      if (!config) config = await request<SymposiumConfig>(`${base}/draft`, {});
+      if (!config) {
+        setStatus(current);
+        if (!current.ordinaryAccountId)
+          throw new Error('Conversation account binding is unavailable');
+        if (current.ordinaryAccountId !== selection.accountId && typed !== confirmation)
+          throw new Error('Confirm the cross-account transfer before binding the reviewer');
+        config = await request<SymposiumConfig>(`${base}/draft`, {
+          expectedAccountId: current.ordinaryAccountId,
+        });
+      }
       if (config.version !== 2)
         throw new Error('This roster must be upgraded before adding a reviewer');
       const configuredAnchorId = config.anchorSeatId;
@@ -201,8 +236,10 @@ function ReviewerForm({
         ...(typed === confirmation ? { crossAccountConfirmation: confirmation } : {}),
       };
       const seatId = operation.current.seatId;
-      if (!config.seats.some((seat) => seat.id === seatId)) {
+      reviewerMutationAttempted = config.seats.some((seat) => seat.id === seatId);
+      if (!reviewerMutationAttempted) {
         if (config.state === 'active') {
+          reviewerMutationAttempted = true;
           config = await request<SymposiumConfig>(`${base}/seats/revise`, {
             expectedRevision: config.revision,
             seatId,
@@ -223,6 +260,7 @@ function ReviewerForm({
             model: selection.model,
             ...(selection.reasoningEffort ? { reasoningEffort: selection.reasoningEffort } : {}),
           });
+          reviewerMutationAttempted = true;
           config = await request<SymposiumConfig>(
             `${base}/config`,
             {
@@ -288,7 +326,20 @@ function ReviewerForm({
       window.dispatchEvent(new Event('symposium-roster-changed'));
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Could not add reviewer');
-      setStatus(await request<Status>(base).catch(() => null));
+      const refreshed = await request<Status>(base).catch(() => null);
+      setStatus(refreshed);
+      // Absence alone does not exclude an in-flight write after a lost response.
+      if (
+        !locked &&
+        refreshed &&
+        !refreshed.config?.seats.some((seat) => seat.id === operation.current.seatId) &&
+        (!reviewerMutationAttempted ||
+          (cause instanceof ReviewerRequestError && cause.noSeatMutation))
+      ) {
+        setLocked(false);
+        packageSnapshot.current = null;
+        setProgress('');
+      }
     } finally {
       setBusy(false);
     }
@@ -354,17 +405,22 @@ function ReviewerForm({
             <fieldset disabled={busy || locked}>
               <SymposiumProfilePicker
                 compact
+                requiredRole="reviewer"
                 value={profile}
-                onChange={setProfile}
-                disabled={busy}
+                onChange={(next) => {
+                  if (!lockedRef.current) setProfile(next);
+                }}
+                disabled={busy || locked}
               />
               <AccountModelPicker
                 scope="symposium"
                 requireExplicitSelection
                 sessionId={null}
                 preferredModel=""
-                onChange={setSelection}
-                disabled={busy}
+                onChange={(next) => {
+                  if (!lockedRef.current) setSelection(next);
+                }}
+                disabled={busy || locked}
               />
               <label>
                 Review package

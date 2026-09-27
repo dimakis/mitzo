@@ -64,6 +64,21 @@ describe('durable Symposium seat sandbox identity', () => {
     };
     expect(store.reserveSymposiumSeatSandbox(reservation).state).toBe('reserved');
     store.markSymposiumSeatSandboxCreationStarted(reservation);
+    expect(() =>
+      store.rollbackUndispatchedSymposiumSeatCreation({ ...reservation, fenceToken: 'wrong' }),
+    ).toThrow('recovery');
+    store.claimSymposiumSeatLifecycle('session', 'seat', 'owner');
+    expect(() =>
+      store.rollbackUndispatchedSymposiumSeatCreation({
+        ...reservation,
+        runtimeId: 'other',
+        fenceToken: 'owner',
+      }),
+    ).toThrow('recovery');
+    store.rollbackUndispatchedSymposiumSeatCreation({ ...reservation, fenceToken: 'owner' });
+    expect(store.getSymposiumSeatSandbox('session', 'seat', 1)?.creationStarted).toBe(false);
+    store.releaseSymposiumSeatLifecycle('session', 'seat', 'owner');
+    store.markSymposiumSeatSandboxCreationStarted(reservation);
     store.close();
     store = new EventStore(path);
     expect(store.getSymposiumSeatSandbox('session', 'seat', 1)).toMatchObject({

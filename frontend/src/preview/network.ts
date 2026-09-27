@@ -238,6 +238,7 @@ window.fetch = async (input, init) => {
     return Response.json({
       sessionId,
       config: null,
+      ordinaryAccountId: account.id,
       seats: [],
       runtimeAvailable: false,
       profileBindingEnforced: false,

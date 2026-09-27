@@ -1,4 +1,7 @@
-import type { SandboxCreationFence } from './symposium-workspace-lifecycle.js';
+import {
+  SandboxCreationPreflightError,
+  type SandboxCreationFence,
+} from './symposium-workspace-lifecycle.js';
 import { validateOpenShellCliEnvironment } from './openshell-cli-environment.js';
 import {
   assertSymposiumAttestedProvider,
@@ -355,6 +358,7 @@ type SeatSandboxRegistry = Pick<
   | 'releaseSymposiumSeatLifecycle'
   | 'reserveSymposiumSeatSandbox'
   | 'markSymposiumSeatSandboxCreationStarted'
+  | 'rollbackUndispatchedSymposiumSeatCreation'
   | 'markSymposiumSeatSandboxCreationCompleted'
   | 'confirmSymposiumSeatSandbox'
   | 'getSymposiumSeatSandbox'
@@ -513,7 +517,7 @@ export class SymposiumPerSeatSandboxOwner {
     sessionId: string,
     seatId: string,
     signal: AbortSignal,
-    operation: () => Promise<T>,
+    operation: (fenceToken: string) => Promise<T>,
   ): Promise<T> {
     const registry = this.deps.seatSandboxRegistry!;
     const token = randomUUID();
@@ -537,7 +541,7 @@ export class SymposiumPerSeatSandboxOwner {
     }
     try {
       signal.throwIfAborted();
-      return await operation();
+      return await operation(token);
     } finally {
       registry.releaseSymposiumSeatLifecycle(sessionId, seatId, token);
     }
@@ -590,7 +594,7 @@ export class SymposiumPerSeatSandboxOwner {
       throw new Error('OpenShell per-seat sandbox capability is not verified');
     const prior = this.tails.get(seatId) ?? Promise.resolve();
     const work = prior.then(() =>
-      this.withDurableSeatFence(sessionId, seatId, signal, async () => {
+      this.withDurableSeatFence(sessionId, seatId, signal, async (fenceToken) => {
         signal.throwIfAborted();
         const snapshot = snapshotSymposiumSeatProvider(
           sessionId,
@@ -748,8 +752,35 @@ export class SymposiumPerSeatSandboxOwner {
         const create = async (markDispatched?: () => void) => {
           let started = false;
           physicalDispatch = () => {
-            markDispatched?.();
-            markCreationStarted();
+            if (started) throw new Error('Seat creation dispatch already recorded');
+            let localMarkersComplete = false;
+            try {
+              markCreationStarted();
+              localMarkersComplete = true;
+              markDispatched?.();
+            } catch (error) {
+              if (localMarkersComplete && !(error instanceof SandboxCreationPreflightError))
+                throw error;
+              // Only local write rejection or the retained fence's explicit pre-write
+              // proof permits rollback. A failed uncertainty write stays quarantined.
+              this.deps.seatSandboxRegistry!.rollbackUndispatchedSymposiumSeatCreation({
+                sessionId,
+                seatId,
+                generation: snapshot.generation,
+                runtimeId: snapshot.runtimeId,
+                fenceToken,
+              });
+              if (lease)
+                this.deps.artifactLeaseHost!.rollbackUndispatchedCreation(
+                  lease.token,
+                  lease.revision,
+                  sandboxNameForConversation(
+                    snapshot.runtimeId,
+                    this.deps.runtimeConfig.sandboxIdLength,
+                  ),
+                );
+              throw error;
+            }
             started = true;
           };
           if (!this.deps.runSandboxCreation) physicalDispatch();
