@@ -70,7 +70,7 @@ function fixture() {
   const path = join(root, 'store.db');
   const db = new Database(path);
   dbs.push(db);
-  const validate = vi.fn();
+  const validate = vi.fn(() => true as const);
   return { path, db, validate, store: new SymposiumReviewAttemptStaging(db, validate) };
 }
 function accepted() {
@@ -230,4 +230,15 @@ it('checks fresh authority again before staging and returning pending evidence',
   });
   expect(() => f.store.stageOutput(context, link.attemptId, native, item)).toThrow('revoked');
   expect(() => f.store.pending(context, link.attemptId)).toThrow('revoked');
+});
+it('requires synchronous affirmative validation before persistence', () => {
+  const f = fixture();
+  const unchecked = new SymposiumReviewAttemptStaging(f.db, (() => undefined) as never);
+  expect(() => unchecked.link(link)).toThrow('Synchronous');
+  const asynchronous = new SymposiumReviewAttemptStaging(f.db, (() =>
+    Promise.resolve(true)) as never);
+  expect(() => asynchronous.link(link)).toThrow('Synchronous');
+  expect(f.db.prepare('SELECT count(*) AS n FROM symposium_review_attempt_staging').get()).toEqual({
+    n: 0,
+  });
 });

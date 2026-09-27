@@ -54,13 +54,17 @@ type Row = {
 export class SymposiumReviewAttemptStaging {
   constructor(
     private readonly db: Database.Database,
-    private readonly validateCurrentLink: (link: ReviewAttemptLink) => void,
+    private readonly validateCurrentLink: (link: ReviewAttemptLink) => true,
   ) {
     db.exec(`CREATE TABLE IF NOT EXISTS symposium_review_attempt_staging (
       attempt_id TEXT PRIMARY KEY, native_claim TEXT NOT NULL UNIQUE,
       link TEXT NOT NULL, state TEXT NOT NULL CHECK(state IN ('linked','dispatch_uncertain','accepted')),
       native TEXT UNIQUE, output TEXT, item_id TEXT, conflict INTEGER NOT NULL DEFAULT 0 CHECK(conflict IN (0,1))
     )`);
+  }
+  private validate(link: ReviewAttemptLink): void {
+    if (this.validateCurrentLink(link) !== true)
+      throw new Error('Synchronous current review linkage validation required');
   }
   private row(context: Context, attemptId: string): Row {
     const row = this.db
@@ -79,7 +83,7 @@ export class SymposiumReviewAttemptStaging {
     const encoded = canonicalReviewJson(link);
     this.db
       .transaction(() => {
-        this.validateCurrentLink(link);
+        this.validate(link);
         const existing = this.db
           .prepare('SELECT link FROM symposium_review_attempt_staging WHERE attempt_id=?')
           .get(link.attemptId) as { link: string } | undefined;
@@ -100,7 +104,7 @@ export class SymposiumReviewAttemptStaging {
     return this.db
       .transaction(() => {
         const row = this.row(context, attemptId);
-        this.validateCurrentLink(ReviewAttemptLinkSchema.parse(JSON.parse(row.link)));
+        this.validate(ReviewAttemptLinkSchema.parse(JSON.parse(row.link)));
         if (row.conflict || row.state !== 'linked') return false;
         return (
           this.db
@@ -117,7 +121,7 @@ export class SymposiumReviewAttemptStaging {
     const conflict = this.db
       .transaction(() => {
         const current = this.row(context, attemptId);
-        this.validateCurrentLink(ReviewAttemptLinkSchema.parse(JSON.parse(current.link)));
+        this.validate(ReviewAttemptLinkSchema.parse(JSON.parse(current.link)));
         if (current.native && current.native !== native) {
           this.taint(attemptId);
           return true;
@@ -147,7 +151,7 @@ export class SymposiumReviewAttemptStaging {
     if (row.state !== 'accepted' || row.native !== native || row.conflict)
       throw new Error('Review output is not from accepted attempt');
     const link = ReviewAttemptLinkSchema.parse(JSON.parse(row.link));
-    this.validateCurrentLink(link);
+    this.validate(link);
     id.parse(item.itemId);
     if (item.final !== true || item.truncated !== false) {
       this.taint(attemptId);
@@ -163,7 +167,7 @@ export class SymposiumReviewAttemptStaging {
     const conflict = this.db
       .transaction(() => {
         const current = this.row(context, attemptId);
-        this.validateCurrentLink(ReviewAttemptLinkSchema.parse(JSON.parse(current.link)));
+        this.validate(ReviewAttemptLinkSchema.parse(JSON.parse(current.link)));
         if (current.conflict || current.native !== native)
           throw new Error('Review evidence changed');
         if (current.output !== null) {
@@ -192,7 +196,7 @@ export class SymposiumReviewAttemptStaging {
   pending(context: Context, attemptId: string) {
     const row = this.row(context, attemptId);
     const link = ReviewAttemptLinkSchema.parse(JSON.parse(row.link));
-    this.validateCurrentLink(link);
+    this.validate(link);
     return {
       link,
       state: row.state,
