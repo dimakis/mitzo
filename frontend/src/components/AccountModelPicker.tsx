@@ -2,6 +2,7 @@ import { SymposiumPersonalConnections } from './SymposiumPersonalConnections';
 import { useEffect, useRef, useState } from 'react';
 import { z } from 'zod';
 import { apiFetch } from '../lib/api-fetch';
+import { subscribeSymposiumAccountCatalog } from '../lib/symposium-account-catalog';
 
 export interface AccountSelection {
   accountId?: string;
@@ -80,6 +81,10 @@ export function AccountModelPicker({
   const [savingAlias, setSavingAlias] = useState(false);
   const [error, setError] = useState('');
   const [attempt, setAttempt] = useState(0);
+  useEffect(() => {
+    if (scope === 'symposium')
+      return subscribeSymposiumAccountCatalog(() => setAttempt((value) => value + 1));
+  }, [scope]);
   const explicitSelection = requireExplicitSelection || (scope === 'symposium' && attempt > 0);
   const [personalAccountsOpen, setPersonalAccountsOpen] = useState(false);
   const [legacyRequested, setLegacy] = useState(false);
@@ -258,12 +263,7 @@ export function AccountModelPicker({
         >
           Manage personal ChatGPT accounts
         </button>
-        {personalAccountsOpen && (
-          <SymposiumPersonalConnections
-            disabled={disabled}
-            onAccountsChanged={() => setAttempt((value) => value + 1)}
-          />
-        )}
+        {personalAccountsOpen && <SymposiumPersonalConnections disabled={disabled} />}
       </>
     ) : null;
   if (error)

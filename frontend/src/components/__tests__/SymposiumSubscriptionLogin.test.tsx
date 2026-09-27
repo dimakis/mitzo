@@ -260,3 +260,75 @@ it('clears device-only pending guidance when the owning manager confirms it ende
   ).toBe(false);
   expect(apiFetch).toHaveBeenCalledTimes(1);
 });
+
+it.each(['failed', 'unknown', 'expired', 'cancelled'])(
+  'refreshes invalidated account choices when a login becomes %s',
+  async (state) => {
+    const changed = vi.fn();
+    vi.mocked(apiFetch).mockImplementation(async (url, init) => {
+      if (init?.method === 'POST')
+        return response({
+          attemptId: 'attempt',
+          authorizationUrl: 'https://auth.openai.com/oauth/authorize?state=fake',
+        });
+      return response(
+        url.includes('?attemptId=') ? { state, attemptId: 'attempt' } : { state: 'idle' },
+      );
+    });
+    render(<SymposiumSubscriptionLogin onComplete={vi.fn()} onCatalogRefresh={changed} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Connect personal subscription' }));
+    await waitFor(() => expect(apiFetch).toHaveBeenCalled());
+    fireEvent.click(screen.getByLabelText('Browser on the Mitzo server'));
+    fireEvent.click(screen.getByLabelText('The callback setup is ready on the browser computer'));
+    fireEvent.click(screen.getByRole('button', { name: 'Start personal login' }));
+    await screen.findByRole('alert');
+    expect(changed).toHaveBeenCalled();
+  },
+);
+
+it('keeps transport radio groups independent across simultaneous setup controls', async () => {
+  vi.mocked(apiFetch).mockResolvedValue(response({ state: 'idle' }));
+  render(
+    <>
+      <SymposiumSubscriptionLogin
+        connectionId="personal"
+        expectedRevision={1}
+        onComplete={vi.fn()}
+      />
+      <SymposiumSubscriptionLogin
+        connectionId="personal"
+        expectedRevision={1}
+        onComplete={vi.fn()}
+      />
+    </>,
+  );
+  for (const button of screen.getAllByRole('button', { name: 'Connect personal subscription' }))
+    fireEvent.click(button);
+  const choices = screen.getAllByLabelText('Browser on the Mitzo server') as HTMLInputElement[];
+  fireEvent.click(choices[0]);
+  fireEvent.click(choices[1]);
+  expect(choices[0].name).not.toBe(choices[1].name);
+  expect(choices.every((choice) => choice.checked)).toBe(true);
+});
+
+it('invalidates old account choices as soon as a new callback attempt is allocated', async () => {
+  const changed = vi.fn();
+  vi.mocked(apiFetch).mockImplementation(async (url, init) => {
+    if (init?.method === 'POST')
+      return response({
+        attemptId: 'attempt',
+        authorizationUrl: 'https://auth.openai.com/oauth/authorize?state=fake',
+      });
+    return response(
+      url.includes('?attemptId=') ? { state: 'pending', attemptId: 'attempt' } : { state: 'idle' },
+    );
+  });
+  render(<SymposiumSubscriptionLogin onComplete={vi.fn()} onCatalogRefresh={changed} />);
+  fireEvent.click(screen.getByRole('button', { name: 'Connect personal subscription' }));
+  await waitFor(() => expect(apiFetch).toHaveBeenCalled());
+  fireEvent.click(screen.getByLabelText('Browser on the Mitzo server'));
+  fireEvent.click(screen.getByLabelText('The callback setup is ready on the browser computer'));
+  fireEvent.click(screen.getByRole('button', { name: 'Start personal login' }));
+  await screen.findByRole('link', { name: 'Open official OpenAI login' });
+  expect(changed).toHaveBeenCalledOnce();
+});
