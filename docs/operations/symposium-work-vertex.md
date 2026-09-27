@@ -148,3 +148,19 @@ parent. It shares the synchronous readiness validator and its total ten-second
 observation bound, uses bounded output, and kills/reaps the exact CLI child on
 timeout. Offline regressions exercise real synthetic subprocesses to verify
 parent responsiveness and timeout cleanup; they do not exercise a live gateway.
+
+The pinned `854b2370b8740b67f6481d3015272fc37aaf9427` refresh table
+`crates/openshell-cli/src/commands/provider.rs:2076` (`refresh_status_row`)
+prints the failure code unchanged in a 44-character column.
+`crates/openshell-cli/src/commands/common.rs:159` (`truncate_status_field`)
+prints `-` for an empty last error. A successful row therefore has nine fields
+after whitespace splitting, under a ten-column header. The parser requires the
+blank failure column’s exact padding and final marker; omitted markers, shifted
+columns and nonempty diagnostics fail closed. Offline tests reproduce those
+renderer widths in both synchronous and asynchronous retained-provider probes.
+
+This parser lives in the retained custodian process. Replacing the app child
+does not reload that parent’s modules or closures, and there is no supported
+same-parent code-upgrade operation. Applying a code repair to a retained owner
+requires a separately reviewed lifecycle decision; editing compiled files or
+reconstructing its capabilities is not an upgrade path.

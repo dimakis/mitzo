@@ -17,7 +17,10 @@ const row = {
   credential_expires_at_ms: { GOOGLE_VERTEX_AI_TOKEN: expires },
 };
 const census = (r: unknown = row) => JSON.stringify({ providers: [r], next_page_token: '' });
-const status = (state = 'refreshed', expiry = expires) =>
+// Exact 854b provider.rs refresh_status_row minimum widths, including blank
+// FAILURE_CODE and common.rs truncate_status_field empty LAST_ERROR marker.
+const widths = [24, 28, 28, 24, 18, 20, 20, 20, 44, 0];
+const status = (state = 'refreshed', expiry = expires, failure = '', error = '-') =>
   header +
   '\n' +
   [
@@ -29,9 +32,11 @@ const status = (state = 'refreshed', expiry = expires) =>
     date(expiry),
     date(expires - 300000),
     date(now - 10000),
-    '',
-    '',
-  ].join('  ') +
+    failure,
+    error,
+  ]
+    .map((value, index) => value.padEnd(widths[index]))
+    .join('  ') +
   '\n';
 function run(outputs = [census(), status(), census()]) {
   const invoke = vi.fn((_args: string[], _timeout: number) => outputs.shift()!);
@@ -52,6 +57,23 @@ describe('owned Vertex current refresh readiness', () => {
       ['list', '--output', 'json', '--page-size', '100'],
     ]);
     expect(invoke.mock.calls.every((c) => c[1] > 0 && c[1] <= 10000)).toBe(true);
+  });
+  it('requires the pinned empty failure column and LAST_ERROR placeholder without ambiguity', () => {
+    vi.spyOn(Date, 'now').mockReturnValue(now);
+    expect(status().trim().split('\n')[1].split(/ {2,}/)).toHaveLength(9);
+    expect(() => run()).not.toThrow();
+    for (const table of [
+      status('refreshed', expires, 'oauth_failure'),
+      status('refreshed', expires, '', 'private diagnostic'),
+      status('refreshed', expires, '-', '-'),
+      status('refreshed', expires, '-', ''),
+      status('refreshed', expires, '', ''),
+      status('refreshed', expires, '', '-  private diagnostic'),
+      status().replace(/ {49}-\n$/, '  -\n'),
+    ])
+      expect(() => run([census(), table, census()])).toThrow(
+        'Vertex credential readiness unavailable',
+      );
   });
   it.each(['configured', 'refreshing', 'error', 'ready'])('denies status %s', (state) => {
     vi.spyOn(Date, 'now').mockReturnValue(now);
