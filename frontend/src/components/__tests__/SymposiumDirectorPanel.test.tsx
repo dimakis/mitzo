@@ -16,9 +16,19 @@ vi.mock('../AccountModelPicker', () => ({
   }) => {
     expect(scope).toBe('symposium');
     return (
-      <button type="button" onClick={() => onChange({ accountId: 'openai-work', model: 'gpt' })}>
-        Select OpenAI model
-      </button>
+      <>
+        <button type="button" onClick={() => onChange({ accountId: 'openai-work', model: 'gpt' })}>
+          Select OpenAI model
+        </button>
+        <button
+          type="button"
+          onClick={() =>
+            onChange({ accountId: 'vertex-default', model: 'claude-haiku-4-5@20251001' })
+          }
+        >
+          Select Work Haiku
+        </button>
+      </>
     );
   },
 }));
@@ -875,4 +885,59 @@ it('requires freshly typed cleanup confirmation after another session handoff an
   ).toBe(false);
   await userEvent.type(confirmation, 'CLEAN UP FAILED SEAT');
   expect(cleanup.hasAttribute('disabled')).toBe(false);
+});
+
+it('drops the previous thinking level when a draft reviewer switches from Luna to Haiku', async () => {
+  const previous = {
+    ...config.seats[1],
+    model: 'gpt-5.6-luna',
+    reasoningEffort: 'low',
+    accountBinding: {
+      ...config.seats[1].accountBinding,
+      accountId: 'personal-chatgpt',
+      provider: 'openai-codex',
+      model: 'gpt-5.6-luna',
+    },
+  };
+  const draftConfig = { ...config, state: 'draft', seats: [config.seats[0], previous] };
+  const draft = {
+    ...status(false),
+    config: draftConfig,
+    seats: draftConfig.seats.map((seat) => ({
+      seatId: seat.id,
+      seat,
+      admitted: false,
+      membership: null,
+      admission: null,
+    })),
+  };
+  const binding = {
+    accountId: 'vertex-default',
+    accountLabel: 'Work Vertex',
+    provider: 'anthropic-vertex',
+    model: 'claude-haiku-4-5@20251001',
+    profileRevision: 'vertex-revision',
+  };
+  vi.mocked(apiFetch)
+    .mockResolvedValueOnce(response(draft))
+    .mockResolvedValueOnce(response({ binding }))
+    .mockResolvedValueOnce(response({ ok: true }))
+    .mockResolvedValueOnce(response(draft));
+  render(<SymposiumDirectorPanel sessionId="session" />);
+  await userEvent.click(screen.getByRole('button', { name: 'Director controls' }));
+  await screen.findByText(/Draft — provider seats are not admitted/);
+  const reviewer = screen
+    .getAllByRole('button', { name: 'Save seat model' })[1]
+    .closest('.symposium-seat-selection') as HTMLElement;
+  await userEvent.click(within(reviewer).getByRole('button', { name: 'Select Work Haiku' }));
+  await userEvent.click(within(reviewer).getByRole('button', { name: 'Save seat model' }));
+  await waitFor(() => expect(apiFetch).toHaveBeenCalledTimes(4));
+  expect(JSON.parse(String(vi.mocked(apiFetch).mock.calls[1][1]?.body))).toEqual({
+    accountId: binding.accountId,
+    model: binding.model,
+  });
+  const updated = JSON.parse(String(vi.mocked(apiFetch).mock.calls[2][1]?.body)).config.seats[1];
+  expect(updated).toMatchObject({ id: 'reviewer', model: binding.model, accountBinding: binding });
+  expect(updated).not.toHaveProperty('reasoningEffort');
+  expect(previous.reasoningEffort).toBe('low');
 });
