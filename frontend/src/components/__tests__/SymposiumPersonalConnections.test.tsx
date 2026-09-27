@@ -270,3 +270,26 @@ it('releases callback lock when refresh unmounts a disconnecting callback contro
     ),
   );
 });
+
+it('blocks the callback alternative while the same slot has a pending device sign-in', async () => {
+  vi.mocked(apiFetch).mockImplementation(async (url) =>
+    response(
+      url.endsWith('/connections')
+        ? { connections: [{ ...rows[0], state: 'connecting' }, rows[1]] }
+        : {
+            state: 'pending',
+            attemptId: 'device',
+            connectionId: rows[0].id,
+            method: 'device-code',
+          },
+    ),
+  );
+  render(<SymposiumPersonalConnections />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Continue sign-in' }));
+  await screen.findByRole('button', { name: 'Cancel sign-in' });
+  const first = within(screen.getByRole('region', { name: rows[0].label }));
+  expect(
+    (first.getByRole('button', { name: 'Connect personal subscription' }) as HTMLButtonElement)
+      .disabled,
+  ).toBe(true);
+});
