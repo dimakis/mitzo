@@ -4,6 +4,10 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { SymposiumReviewStore } from '../symposium-review-workflows.js';
+import {
+  SymposiumReviewCoordinator,
+  type SymposiumReviewHost,
+} from '../symposium-review-coordinator.js';
 import { createSymposiumSuccessorFixAuthority } from '../symposium-artifact-successor-authority.js';
 import type { ArtifactAdmissionBindingV1, SeatConfig } from '@mitzo/protocol';
 const hash = 'a'.repeat(64);
@@ -69,6 +73,80 @@ const request = (attemptId: string) => ({
   },
 });
 describe('persisted application admission', () => {
+  it('persists the initial charge before a trusted child owner can stage a claim', async () => {
+    const a = new SymposiumReviewStore(':memory:');
+    const { implementation, ...base } = create();
+    expect(implementation).toBeDefined();
+    a.createApplicationRun({ ...base, initialArtifact: { revision: 'i', hash } });
+    const preparation = {
+      workflowId: 'w',
+      attemptId: 'initial-attempt',
+      policyReservationId: 'policy-initial',
+      kind: 'initial' as const,
+      sourceSealId: 'source-fence',
+      actorSeatId: 'coder',
+      artifactRevision: 'i',
+      artifactHash: hash,
+      transitionId: 'initial-child',
+      seal: {
+        fenceId: 'source-fence',
+        artifactGenerationId: 'source',
+        volumeName: 'source-volume',
+        sealDigest: hash,
+        artifactRevision: 'i',
+        artifactHash: hash,
+      },
+      from: { configRevision: 1, membershipGeneration: 1 },
+      to: { configRevision: 2, membershipGeneration: 2 },
+      expectedSelection: {
+        accountId: 'coder',
+        model: 'offline',
+        profileId: 'coder',
+        profileRevision: '1',
+        accountProfileRevision: '1',
+      },
+    };
+    const selected = request('initial-attempt');
+    const attempt = {
+      ...selected,
+      policyReservationId: 'policy-initial',
+      kind: 'initial' as const,
+      actorSeatId: 'coder',
+      artifactRevision: 'i',
+      binding: {
+        ...selected.binding,
+        claimToken: 'claim-initial',
+        deliveryId: 'delivery-initial',
+        configRevision: 2,
+        membershipGeneration: 2,
+        accountId: 'coder',
+        profileId: 'coder',
+      },
+    };
+    let staged = false;
+    const host = {
+      currentArtifact: () => ({ revision: 'i', hash }),
+      prepareApplicationTransition: async () => preparation,
+      completeApplicationTransition: async () => {
+        expect(a.getApplicationPreparation('w', 'initial-attempt')).toMatchObject({
+          status: 'preparing',
+        });
+        expect(a.get('w')).toMatchObject({ hostTurns: 1, applicationAttempts: [] });
+        staged = true;
+        return { attempt, proof: { transitionId: 'initial-child', sealDigest: hash } };
+      },
+    } as unknown as SymposiumReviewHost;
+    const result = await new SymposiumReviewCoordinator(a, host).reserveWithTransition(
+      { owner: 'user', sessionId: 's' },
+      'w',
+      'initial',
+      'initial-attempt',
+    );
+    expect(staged).toBe(true);
+    expect(result).toMatchObject({ kind: 'reserved_not_dispatched', attemptId: 'initial-attempt' });
+    expect(a.getApplicationPreparation('w', 'initial-attempt')).toMatchObject({ status: 'bound' });
+    a.close();
+  });
   it('charges a sealed-source initial transition before any native claim exists', () => {
     const a = new SymposiumReviewStore(':memory:');
     const { implementation, ...base } = create();
