@@ -146,6 +146,9 @@ export async function createCodexNativeSeat(
     storedBinding: binding,
     store: input.store,
     loadConversationHistory: input.loadConversationHistory,
+    ...(input.route.kind === 'chatgpt-subscription-native'
+      ? { providerThreadLifecycle: 'attempt' as const }
+      : {}),
     systemPrompt: [symposiumSeatSystemPrompt(execution.seat), input.profileTools?.instructions]
       .filter(Boolean)
       .join('\n\n'),
@@ -273,12 +276,11 @@ export async function createCodexNativeSeat(
   let migratedFrom: string | undefined;
   if (execution.providerThreadId && execution.providerThreadId !== providerThreadId) {
     try {
-      input.store.assertToolSurfaceReplacement(
-        symposiumSeatRuntimeId(execution),
-        binding,
-        execution.providerThreadId,
-        providerThreadId,
-      );
+      input.store[
+        input.route.kind === 'chatgpt-subscription-native'
+          ? 'assertAttemptHomeReplacement'
+          : 'assertToolSurfaceReplacement'
+      ](symposiumSeatRuntimeId(execution), binding, execution.providerThreadId, providerThreadId);
       migratedFrom = execution.providerThreadId;
     } catch (error) {
       await closeAndConfirm(conversation);
@@ -292,12 +294,11 @@ export async function createCodexNativeSeat(
       if (previous !== migratedFrom || next !== providerThreadId)
         throw new Error('Codex seat thread migration identity changed');
       // Revalidate before dispatch while the one-shot continuity fragment is durable.
-      input.store.assertToolSurfaceReplacement(
-        symposiumSeatRuntimeId(execution),
-        binding,
-        previous,
-        next,
-      );
+      input.store[
+        input.route.kind === 'chatgpt-subscription-native'
+          ? 'assertAttemptHomeReplacement'
+          : 'assertToolSurfaceReplacement'
+      ](symposiumSeatRuntimeId(execution), binding, previous, next);
     },
     async run(currentExecution, currentCallbacks) {
       if (currentExecution.claimToken !== execution.claimToken)
