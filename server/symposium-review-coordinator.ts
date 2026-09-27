@@ -3,6 +3,7 @@ import type { z } from 'zod';
 import {
   isApplicationPolicy,
   type ApplicationAttempt,
+  type ApplicationPreparation,
   type ApplicationPolicy,
   SymposiumReviewStore,
 } from './symposium-review-workflows.js';
@@ -44,6 +45,23 @@ export type CompletedReview = Omit<Parameters<SymposiumReviewStore['recordReview
 
 /** Only a trusted host implementation may supply these facts. It never launches a provider call. */
 export interface SymposiumReviewHost {
+  prepareApplicationTransition?(input: {
+    context: ReviewContext;
+    workflowId: string;
+    attemptId: string;
+    kind: 'review' | 'delta' | 'fix';
+    selection: Selection;
+    artifactRevision: string;
+    artifactHash: string;
+    policy: ApplicationPolicy;
+  }): Promise<ApplicationPreparation | { kind: 'decision_required'; code: string }>;
+  completeApplicationTransition?(
+    context: ReviewContext,
+    preparation: ApplicationPreparation,
+  ): Promise<
+    | { attempt: ApplicationAttempt; proof: { transitionId: string; sealDigest: string } }
+    | { kind: 'decision_required'; code: string }
+  >;
   prepareApplicationAttempt?(input: {
     context: ReviewContext;
     workflowId: string;
@@ -345,6 +363,61 @@ export class SymposiumReviewCoordinator {
       selection,
       artifactRevision: state.artifactRevision,
       artifactHash: state.artifactHash,
+    };
+  }
+
+  async reserveWithTransition(
+    context: ReviewContext,
+    workflowId: string,
+    kind: 'review' | 'fix',
+    attemptId: string,
+  ): Promise<ReturnType<SymposiumReviewCoordinator['reserve']>> {
+    const state = this.scoped(context, workflowId);
+    if (!isApplicationPolicy(state.limits))
+      return this.reserve(context, workflowId, kind, attemptId);
+    if (!this.host?.prepareApplicationTransition || !this.host.completeApplicationTransition)
+      return decision('trusted_transition_host_unavailable');
+    if (!this.current(context, state)) return decision('artifact_changed');
+    const actualKind =
+      kind === 'review' && state.status === 'awaiting_delta_review' ? 'delta' : kind;
+    const selection =
+      actualKind === 'review' || actualKind === 'delta' ? state.reviewer : state.implementer;
+    const prepared = await this.host.prepareApplicationTransition({
+      context,
+      workflowId,
+      attemptId,
+      kind: actualKind,
+      selection,
+      artifactRevision: state.artifactRevision,
+      artifactHash: state.artifactHash,
+      policy: state.limits,
+    });
+    if ('code' in prepared) return prepared;
+    if (
+      prepared.workflowId !== workflowId ||
+      prepared.attemptId !== attemptId ||
+      prepared.kind !== actualKind ||
+      prepared.actorSeatId !== selection.seatId ||
+      prepared.artifactRevision !== state.artifactRevision ||
+      prepared.artifactHash !== state.artifactHash ||
+      prepared.policyReservationId === ''
+    )
+      return decision('application_transition_binding_mismatch');
+    const admitted = this.store.reserveApplicationPreparation(prepared);
+    if (admitted.kind === 'decision_required') return admitted;
+    const bound = await this.host.completeApplicationTransition(context, prepared);
+    if ('code' in bound) return bound;
+    const { attempt, proof } = bound;
+    const result = this.store.completeApplicationPreparation(attempt, proof);
+    if (result.kind !== 'admitted') return result;
+    return {
+      kind: 'reserved_not_dispatched',
+      attemptId,
+      policyReservationId: attempt.policyReservationId,
+      applicationAttempt: attempt,
+      selection,
+      artifactRevision: attempt.artifactRevision,
+      artifactHash: attempt.artifactHash,
     };
   }
 

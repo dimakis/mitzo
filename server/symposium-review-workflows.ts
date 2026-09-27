@@ -62,6 +62,45 @@ const ApplicationAttemptSchema = z.strictObject({
   }),
 });
 export type ApplicationAttempt = z.infer<typeof ApplicationAttemptSchema>;
+const ApplicationPreparationSchema = z.strictObject({
+  workflowId: Id,
+  attemptId: Id,
+  policyReservationId: Id,
+  kind: z.enum(['review', 'delta', 'fix']),
+  actorSeatId: Id,
+  artifactRevision: Id,
+  artifactHash: Sha256,
+  transitionId: Id,
+  seal: z.strictObject({
+    fenceId: Id,
+    artifactGenerationId: Id,
+    volumeName: Id,
+    sealDigest: Sha256,
+    artifactRevision: Id,
+    artifactHash: Sha256,
+  }),
+  from: z.strictObject({
+    configRevision: z.number().int().positive(),
+    membershipGeneration: z.number().int().positive(),
+  }),
+  to: z.strictObject({
+    configRevision: z.number().int().positive(),
+    membershipGeneration: z.number().int().positive(),
+  }),
+  expectedSelection: z.strictObject({
+    accountId: Id,
+    model: Id,
+    profileId: Id,
+    profileRevision: Id,
+    accountProfileRevision: Id,
+  }),
+});
+export type ApplicationPreparation = z.infer<typeof ApplicationPreparationSchema>;
+type PersistedApplicationPreparation = ApplicationPreparation & {
+  requestHash: string;
+  status: 'preparing' | 'bound' | 'settled';
+  disposition?: 'not_applied' | 'applied_no_dispatch';
+};
 const CreateSchema = z.strictObject({
   workflowId: Id,
   owner: Id,
@@ -204,6 +243,7 @@ type Workflow = Omit<Create, 'implementation'> & {
   initialResultRequestHash?: string;
   hostTurns: number;
   reviewCycles: number;
+  applicationPreparations: PersistedApplicationPreparation[];
   applicationAttempts: Array<
     ApplicationAttempt & {
       requestHash: string;
@@ -416,6 +456,7 @@ export class SymposiumReviewStore {
 
   private hydrate(state: Workflow): Workflow {
     state.applicationAttempts ??= [];
+    state.applicationPreparations ??= [];
     state.hostTurns ??= 0;
     state.reviewCycles ??= 0;
     state.progressSignatures ??= [];
@@ -524,6 +565,7 @@ export class SymposiumReviewStore {
       hostTurns: 0,
       reviewCycles: 0,
       applicationAttempts: [],
+      applicationPreparations: [],
       progressSignatures: [],
       tokensUsed: 0,
       usageCompleteness: { tokens: 'complete', cost: 'complete' },
@@ -687,6 +729,13 @@ export class SymposiumReviewStore {
       if (!attempt.dispatched) attempt.settled = true;
     this.write(state, 'application_stopped', {
       code,
+      preparations: state.applicationPreparations
+        .filter((p) => p.status === 'preparing')
+        .map((p) => ({
+          attemptId: p.attemptId,
+          transitionId: p.transitionId,
+          sealDigest: p.seal.sealDigest,
+        })),
       attempts: state.applicationAttempts
         .filter((a) => a.dispatched && !a.settled)
         .map((a) => ({ attemptId: a.attemptId, operationId: a.operationId ?? null })),
@@ -726,8 +775,13 @@ export class SymposiumReviewStore {
           throw new Error('Application owner required');
         if (state.status !== 'decision_required' || !state.decisionCode)
           throw new Error('Stopped application policy required for continuation');
-        if (state.applicationAttempts.some((a) => !a.settled))
-          throw new Error('Reconcile unresolved operations before continuation');
+        if (
+          state.applicationAttempts.some((a) => !a.settled) ||
+          state.applicationPreparations.some((p) => p.status === 'preparing')
+        )
+          throw new Error(
+            'Reconcile unresolved application preparation or operations before continuation',
+          );
         if (
           this.history(input.workflowId).some(
             (e) =>
@@ -748,6 +802,207 @@ export class SymposiumReviewStore {
         delete state.policyResumeStatus;
         delete state.decisionCode;
         return this.write(state, 'application_continued', { ...input, previous });
+      })
+      .immediate();
+  }
+
+  reserveApplicationPreparation(
+    input: ApplicationPreparation,
+  ):
+    | { kind: 'prepared' | 'already_prepared'; policyReservationId: string }
+    | { kind: 'decision_required'; code: string } {
+    const parsed = ApplicationPreparationSchema.parse(input);
+    return this.db
+      .transaction(() => {
+        const state = this.read(parsed.workflowId);
+        if (!isApplicationPolicy(state.limits)) throw new Error('Application policy required');
+        this.requireArtifact(state, parsed.artifactRevision, parsed.artifactHash);
+        if (
+          parsed.seal.artifactRevision !== parsed.artifactRevision ||
+          parsed.seal.artifactHash !== parsed.artifactHash ||
+          parsed.to.configRevision <= parsed.from.configRevision ||
+          parsed.to.membershipGeneration <= parsed.from.membershipGeneration
+        )
+          throw new Error('Exact sealed reader transition pins required');
+        const prior = state.applicationPreparations.find(
+          (p) =>
+            p.attemptId === parsed.attemptId ||
+            p.policyReservationId === parsed.policyReservationId ||
+            p.transitionId === parsed.transitionId,
+        );
+        if (prior) {
+          if (prior.requestHash !== digest(parsed))
+            throw new Error('Application preparation idempotency conflict');
+          return {
+            kind: 'already_prepared' as const,
+            policyReservationId: prior.policyReservationId,
+          };
+        }
+        if (state.decisionCode)
+          return { kind: 'decision_required' as const, code: state.decisionCode };
+        if (Date.now() >= state.limits.deadlineAt) {
+          this.applicationStop(state, 'deadline_exceeded');
+          return { kind: 'decision_required' as const, code: 'deadline_exceeded' };
+        }
+        if (state.hostTurns >= state.limits.maxHostTurns) {
+          this.applicationStop(state, 'host_turns_exhausted');
+          return { kind: 'decision_required' as const, code: 'host_turns_exhausted' };
+        }
+        if (
+          state.applicationAttempts.some((a) => !a.settled) ||
+          state.applicationPreparations.some((p) => p.status === 'preparing')
+        )
+          return { kind: 'decision_required' as const, code: 'attempt_in_progress' };
+        if (parsed.kind === 'review') {
+          if (state.status !== 'awaiting_review') throw new Error('Review preparation is not due');
+          if (state.reviewCycles >= state.limits.maxReviewCycles) {
+            this.applicationStop(state, 'cycles_exhausted');
+            return { kind: 'decision_required' as const, code: 'cycles_exhausted' };
+          }
+          state.reviewCycles++;
+        } else if (parsed.kind === 'delta') {
+          if (state.status !== 'awaiting_delta_review')
+            throw new Error('Delta preparation is not due');
+        } else {
+          if (state.status !== 'awaiting_fix') throw new Error('Fix preparation is not due');
+          this.requireFixAuthority(state);
+          const fixes =
+            state.applicationAttempts.filter((a) => (a.effectiveKind ?? a.kind) === 'fix').length +
+            state.applicationPreparations.filter((p) => p.kind === 'fix').length;
+          if (fixes >= state.reviewCycles) {
+            if (state.reviewCycles >= state.limits.maxReviewCycles) {
+              this.applicationStop(state, 'cycles_exhausted');
+              return { kind: 'decision_required' as const, code: 'cycles_exhausted' };
+            }
+            state.reviewCycles++;
+          }
+        }
+        const selection =
+          parsed.kind === 'review' || parsed.kind === 'delta' ? state.reviewer : state.implementer;
+        if (
+          parsed.actorSeatId !== selection.seatId ||
+          parsed.expectedSelection.accountId !== selection.accountId ||
+          parsed.expectedSelection.model !== selection.model ||
+          parsed.expectedSelection.profileId !== selection.profileId ||
+          parsed.expectedSelection.profileRevision !== String(selection.profileRevision)
+        )
+          throw new Error('Exact selected future role pins required');
+        state.hostTurns++;
+        state.applicationPreparations.push({
+          ...parsed,
+          requestHash: digest(parsed),
+          status: 'preparing',
+        });
+        this.write(state, 'application_preparation_reserved', parsed);
+        return { kind: 'prepared' as const, policyReservationId: parsed.policyReservationId };
+      })
+      .immediate();
+  }
+
+  getApplicationPreparation(
+    workflowId: string,
+    attemptId: string,
+  ): PersistedApplicationPreparation | null {
+    return (
+      this.read(workflowId).applicationPreparations.find((p) => p.attemptId === attemptId) ?? null
+    );
+  }
+
+  completeApplicationPreparation(
+    input: ApplicationAttempt,
+    proof: { transitionId: string; sealDigest: string },
+  ):
+    | { kind: 'admitted'; policyReservationId: string }
+    | { kind: 'decision_required'; code: string } {
+    const parsed = ApplicationAttemptSchema.parse(input);
+    Sha256.parse(proof.sealDigest);
+    Id.parse(proof.transitionId);
+    return this.db
+      .transaction(() => {
+        const state = this.read(parsed.workflowId);
+        if (!isApplicationPolicy(state.limits)) throw new Error('Application policy required');
+        const prep = state.applicationPreparations.find(
+          (p) =>
+            p.attemptId === parsed.attemptId &&
+            p.policyReservationId === parsed.policyReservationId,
+        );
+        if (
+          !prep ||
+          prep.transitionId !== proof.transitionId ||
+          prep.seal.sealDigest !== proof.sealDigest ||
+          prep.status !== 'preparing'
+        )
+          throw new Error('Exact confirmed transition preparation required');
+        this.requireArtifact(state, prep.artifactRevision, prep.artifactHash);
+        if (state.decisionCode)
+          return { kind: 'decision_required' as const, code: state.decisionCode };
+        if (Date.now() >= state.limits.deadlineAt) {
+          this.applicationStop(state, 'deadline_exceeded');
+          return { kind: 'decision_required' as const, code: 'deadline_exceeded' };
+        }
+        if (
+          parsed.kind !== prep.kind ||
+          parsed.actorSeatId !== prep.actorSeatId ||
+          parsed.artifactRevision !== prep.artifactRevision ||
+          parsed.artifactHash !== prep.artifactHash ||
+          parsed.binding.configRevision !== prep.to.configRevision ||
+          parsed.binding.membershipGeneration !== prep.to.membershipGeneration ||
+          parsed.binding.accountId !== prep.expectedSelection.accountId ||
+          parsed.binding.model !== prep.expectedSelection.model ||
+          parsed.binding.profileId !== prep.expectedSelection.profileId ||
+          parsed.binding.profileRevision !== prep.expectedSelection.profileRevision ||
+          parsed.binding.accountProfileRevision !== prep.expectedSelection.accountProfileRevision
+        )
+          throw new Error('Confirmed transition binding differs from preparation pins');
+        if (
+          state.applicationAttempts.some(
+            (a) =>
+              a.attemptId === parsed.attemptId ||
+              a.policyReservationId === parsed.policyReservationId ||
+              a.binding.claimToken === parsed.binding.claimToken,
+          )
+        )
+          throw new Error('Application claim idempotency conflict');
+        state.applicationAttempts.push({
+          ...parsed,
+          effectiveKind: parsed.kind,
+          requestHash: digest(parsed),
+          dispatched: false,
+          settled: false,
+        });
+        prep.status = 'bound';
+        this.write(state, 'application_preparation_bound', { proof, attempt: parsed });
+        return { kind: 'admitted' as const, policyReservationId: parsed.policyReservationId };
+      })
+      .immediate();
+  }
+
+  settleApplicationPreparation(
+    workflowId: string,
+    attemptId: string,
+    transitionId: string,
+    disposition: 'not_applied' | 'applied_no_dispatch',
+  ): void {
+    this.db
+      .transaction(() => {
+        const state = this.read(workflowId);
+        const prep = state.applicationPreparations.find(
+          (p) => p.attemptId === attemptId && p.transitionId === transitionId,
+        );
+        if (!prep) throw new Error('Exact transition preparation required');
+        if (prep.status === 'bound')
+          throw new Error('Bound preparation retains its native attempt');
+        if (prep.status === 'settled') {
+          if (prep.disposition !== disposition) throw new Error('Preparation disposition conflict');
+          return;
+        }
+        prep.status = 'settled';
+        prep.disposition = disposition;
+        this.write(state, 'application_preparation_settled', {
+          attemptId,
+          transitionId,
+          disposition,
+        });
       })
       .immediate();
   }
@@ -782,7 +1037,10 @@ export class SymposiumReviewStore {
           return { kind: 'decision_required' as const, code: state.decisionCode };
         if (Date.now() >= state.limits.deadlineAt) return stop('deadline_exceeded');
         if (state.hostTurns >= state.limits.maxHostTurns) return stop('host_turns_exhausted');
-        if (state.applicationAttempts.some((a) => !a.settled))
+        if (
+          state.applicationAttempts.some((a) => !a.settled) ||
+          state.applicationPreparations.some((p) => p.status === 'preparing')
+        )
           return { kind: 'decision_required' as const, code: 'attempt_in_progress' };
         const original = parsed.retryOfAttemptId
           ? state.applicationAttempts.find((a) => a.attemptId === parsed.retryOfAttemptId)
@@ -1250,7 +1508,10 @@ export class SymposiumReviewStore {
         const state = this.read(parsed.workflowId);
         this.requireArtifact(state, parsed.artifactRevision, parsed.artifactHash);
         if (
-          [...state.reservations, ...state.applicationAttempts].some((attempt) => !attempt.settled)
+          [...state.reservations, ...state.applicationAttempts].some(
+            (attempt) => !attempt.settled,
+          ) ||
+          state.applicationPreparations.some((p) => p.status === 'preparing')
         )
           throw new Error('An attempt is in progress; wait before changing a finding disposition');
         if (state.status !== 'awaiting_fix') throw new Error('Finding disposition is not due');
@@ -1404,7 +1665,10 @@ export class SymposiumReviewStore {
     return this.db
       .transaction(() => {
         const state = this.read(workflowId);
-        if ([...state.reservations, ...state.applicationAttempts].some((a) => !a.settled))
+        if (
+          [...state.reservations, ...state.applicationAttempts].some((a) => !a.settled) ||
+          state.applicationPreparations.some((p) => p.status === 'preparing')
+        )
           return { kind: 'decision_required' as const, code: 'attempt_in_progress' as const };
         if (state.status === 'verified')
           return {

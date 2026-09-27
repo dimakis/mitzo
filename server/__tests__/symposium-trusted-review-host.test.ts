@@ -395,3 +395,76 @@ it('dispatches only the persisted approved delivery and awaits physical refresh'
   expect(f.deps.artifacts.refresh).toHaveBeenCalledOnce();
   f.reviews.close();
 });
+it('charges a nonadmitting reader intent before applying confirmed future pins', async () => {
+  const f = fixture('review');
+  const preparation = {
+    workflowId: 'workflow',
+    attemptId: 'review',
+    policyReservationId: 'reservation',
+    kind: 'review' as const,
+    actorSeatId: 'reviewer',
+    artifactRevision: 'source',
+    artifactHash: hash,
+    transitionId: 'reader-transition',
+    seal: {
+      fenceId: 'fence',
+      artifactGenerationId: 'gen',
+      volumeName: 'volume',
+      sealDigest: 'b'.repeat(64),
+      artifactRevision: 'source',
+      artifactHash: hash,
+    },
+    from: { configRevision: 1, membershipGeneration: 1 },
+    to: { configRevision: 2, membershipGeneration: 2 },
+    expectedSelection: {
+      accountId: 'reviewer',
+      model: 'offline',
+      profileId: 'reviewer',
+      profileRevision: '1',
+      accountProfileRevision: 'account-1',
+    },
+  };
+  const final = {
+    workflowId: 'workflow',
+    attemptId: 'review',
+    policyReservationId: 'reservation',
+    kind: 'review' as const,
+    actorSeatId: 'reviewer',
+    artifactRevision: 'source',
+    artifactHash: hash,
+    binding: {
+      claimToken: 'claim',
+      deliveryId: 'delivery',
+      membershipGeneration: 2,
+      configRevision: 2,
+      accountId: 'reviewer',
+      model: 'offline',
+      profileId: 'reviewer',
+      profileRevision: '1',
+      accountProfileRevision: 'account-1',
+      authorityGrant: { grantId: 'future', revision: 2 },
+      contextGrant: { grantId: 'future-context', revision: 2 },
+    },
+  };
+  const apply = vi.fn(async () => {
+    expect(f.reviews.get('workflow')).toMatchObject({ hostTurns: 1, reviewCycles: 1 });
+    expect(f.reviews.applicationAttemptForClaim('claim')).toBeNull();
+    return {
+      attempt: final,
+      proof: { transitionId: 'reader-transition', sealDigest: 'b'.repeat(64) },
+    };
+  });
+  f.deps.transition = { prepare: vi.fn(async () => preparation), apply };
+  const host = createSymposiumTrustedReviewHost(f.deps);
+  const { SymposiumReviewCoordinator } = await import('../symposium-review-coordinator.js');
+  const coordinator = new SymposiumReviewCoordinator(f.reviews, host);
+  const reserved = await coordinator.reserveWithTransition(context, 'workflow', 'review', 'review');
+  expect(reserved).toMatchObject({
+    kind: 'reserved_not_dispatched',
+    policyReservationId: 'reservation',
+  });
+  expect(f.reviews.get('workflow')).toMatchObject({ hostTurns: 1, reviewCycles: 1 });
+  expect(apply).toHaveBeenCalledOnce();
+  expect(f.reviews.applicationAttemptForClaim('claim')).toEqual(final);
+  f.reviews.close();
+});
