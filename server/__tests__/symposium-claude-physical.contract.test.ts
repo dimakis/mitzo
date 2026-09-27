@@ -104,7 +104,7 @@ print(json.dumps({'receipts':receipts,'measured':measured,'isolation':True}))
         '--user',
         `${runtime.workload.uid}:${runtime.workload.gid}`,
         '--tmpfs',
-        '/sandbox:rw,mode=0700,uid=998,gid=998',
+        '/sandbox:rw,mode=1777',
         '--entrypoint=/usr/bin/python3',
         contract.image,
         '-I',
