@@ -200,3 +200,15 @@ it('submits the explicitly selected saved slot revision and scopes receipt recov
     ),
   );
 });
+
+it('releases the pending parent lock when its callback control unmounts', async () => {
+  vi.mocked(apiFetch).mockResolvedValue(response({ state: 'pending', attemptId: 'existing' }));
+  const onPendingChange = vi.fn();
+  const view = render(
+    <SymposiumSubscriptionLogin onComplete={vi.fn()} onPendingChange={onPendingChange} />,
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Connect personal subscription' }));
+  await waitFor(() => expect(onPendingChange).toHaveBeenLastCalledWith(true));
+  view.unmount();
+  expect(onPendingChange).toHaveBeenLastCalledWith(false);
+});
