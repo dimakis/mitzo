@@ -306,3 +306,79 @@ it('rejects a branch checkout and changed release manifest without fetching or d
   });
   expect(() => prepareOwnedRelease(f.input, f.digest)).toThrow();
 });
+it('revalidates the exact empty account catalog at every post-preparation boundary', () => {
+  const f = fixture(),
+    plan = prepareOwnedRelease(f.input, f.digest);
+  unlinkSync(join(f.input.planDirectory, 'empty-accounts.json'));
+  expect(() => verifyOwnedRelease(plan, f.digest)).toThrow();
+});
+it('accepts canonical root-owned public CA and executable metadata only', () => {
+  const f = fixture();
+  f.config.gateway.systemCaBundle = realpathSync('/usr/bin/env');
+  f.config.podman.executable = realpathSync('/usr/bin/env');
+  f.save();
+  expect(prepareOwnedRelease(f.input, f.digest).admissionVerified).toBe(false);
+});
+it('rejects dangling attestation entries before producing a launch plan', () => {
+  const f = fixture();
+  symlinkSync(join(f.root, 'absent'), f.config.attestationPath);
+  expect(() => prepareOwnedRelease(f.input, f.digest)).toThrow();
+});
+it('rejects plan directories equal to or containing fresh repository/state directories', () => {
+  for (const key of ['repositoryPath', 'stateParent'] as const) {
+    const f = fixture();
+    const target = key === 'repositoryPath' ? f.input.repositoryPath : f.config.gateway.stateParent;
+    rmSync(join(f.input.planDirectory, 'empty-accounts.json'));
+    f.input.planDirectory = target;
+    expect(() => prepareOwnedRelease(f.input, f.digest)).toThrow();
+    const g = fixture();
+    if (key === 'repositoryPath') g.input.repositoryPath = join(g.input.planDirectory, 'child');
+    else g.config.gateway.stateParent = join(g.input.planDirectory, 'child');
+    mkdirSync(join(g.input.planDirectory, 'child'), { mode: 0o700 });
+    g.save();
+    expect(() => prepareOwnedRelease(g.input, g.digest)).toThrow();
+  }
+});
+it('rejects private references and mutable directories contained in the seed before reading seed bytes', () => {
+  for (const kind of ['config', 'adc', 'tls', 'jwt', 'state', 'home', 'plan'] as const) {
+    const f = fixture(),
+      nested = join(f.config.runtime.seed, kind);
+    if (kind === 'config') {
+      f.input.configPath = nested;
+    } else if (kind === 'adc') {
+      writeFileSync(nested, 'synthetic private bytes', { mode: 0o600 });
+      Object.assign(f.config.personal, {
+        workProfiles: [
+          {
+            id: 'work',
+            label: 'Work',
+            provider: 'anthropic-vertex',
+            credentialRef: nested,
+            expectedPrincipal: 'operator@example.com',
+            projectId: 'project-example',
+            region: 'global',
+            models: [{ id: 'claude-haiku-4-5@20251001', label: 'Haiku' }],
+          },
+        ],
+      });
+      f.config.providerProfiles[0].sha256 =
+        'a1aac4f9e3710bba3aaa32c1787d588de6ec3c422198267077db11f1f1e2039d';
+    } else if (kind === 'tls' || kind === 'jwt') {
+      writeFileSync(nested, 'synthetic private bytes', { mode: 0o600 });
+      if (kind === 'tls') f.config.gateway.tls.serverKey = nested;
+      else f.config.gateway.jwt.signingKey = nested;
+    } else {
+      mkdirSync(nested, { mode: 0o700 });
+      if (kind === 'state') f.config.gateway.stateParent = nested;
+      if (kind === 'home') f.config.podman.environment.HOME = nested;
+      if (kind === 'plan') f.input.planDirectory = nested;
+    }
+    f.save();
+    if (kind === 'config') writeFileSync(nested, JSON.stringify(f.config), { mode: 0o600 });
+    const digest = (path: string) =>
+      kind === 'adc' && path === f.config.providerProfiles[0].path
+        ? f.config.providerProfiles[0].sha256
+        : f.digest(path);
+    expect(() => prepareOwnedRelease(f.input, digest)).toThrow();
+  }
+});

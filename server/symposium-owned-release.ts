@@ -5,7 +5,6 @@ import { createHash } from 'node:crypto';
 import {
   constants,
   closeSync,
-  existsSync,
   fstatSync,
   fsyncSync,
   lstatSync,
@@ -24,11 +23,27 @@ function fail(): never {
     'Owned release preparation refused; inspect explicit fresh configuration and reviewed build',
   );
 }
-function pathMetadata(path: string, directory = false, privateMode = false) {
+function entryExists(path: string) {
+  try {
+    lstatSync(path);
+    return true;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false;
+    throw error;
+  }
+}
+function contains(parent: string, child: string) {
+  const path = relative(parent, child);
+  return path === '' || (!path.startsWith('../') && path !== '..' && !isAbsolute(path));
+}
+function overlaps(a: string, b: string) {
+  return contains(a, b) || contains(b, a);
+}
+function pathMetadata(path: string, directory = false, privateMode = false, allowRoot = false) {
   if (!isAbsolute(path) || realpathSync(path) !== path) fail();
   const stat = lstatSync(path);
   if (
-    stat.uid !== process.getuid?.() ||
+    (stat.uid !== process.getuid?.() && !(allowRoot && !privateMode && stat.uid === 0)) ||
     stat.isSymbolicLink() ||
     !(directory ? stat.isDirectory() : stat.isFile()) ||
     stat.mode & (privateMode ? 0o077 : 0o022)
@@ -146,7 +161,7 @@ function inspect(input: OwnedReleaseInput, digest: (path: string) => string) {
   pathMetadata(input.releaseRoot, true);
   if (
     readdirSync(input.releaseRoot).some((name) => name.startsWith('.env')) ||
-    existsSync(join(input.releaseRoot, 'certs'))
+    entryExists(join(input.releaseRoot, 'certs'))
   )
     fail();
   pathMetadata(input.planDirectory, true, true);
@@ -176,6 +191,29 @@ function inspect(input: OwnedReleaseInput, digest: (path: string) => string) {
   if (!sourceCommit || !sourceTree) fail();
   const raw = bytes(input.configPath, 1024 * 1024),
     config = OwnedSymposiumConfigSchema.parse(JSON.parse(raw.toString('utf8')));
+  // Reject aliases before hashing a seed or creating any release artifacts. Private
+  // references are metadata-only and must never become copied seed contents.
+  const privateFiles = [
+    input.configPath,
+    ...Object.values(config.gateway.tls),
+    ...Object.values(config.gateway.jwt),
+    ...config.personal.workProfiles.flatMap((profile) =>
+      profile.provider === 'anthropic-vertex' ? [profile.credentialRef] : [],
+    ),
+  ];
+  const mutableDirectories = [
+    input.planDirectory,
+    input.repositoryPath,
+    config.gateway.stateParent,
+    config.podman.environment.HOME,
+  ];
+  if (
+    overlaps(input.planDirectory, input.repositoryPath) ||
+    overlaps(input.planDirectory, config.gateway.stateParent) ||
+    privateFiles.some((path) => contains(config.runtime.seed, path)) ||
+    mutableDirectories.some((path) => overlaps(config.runtime.seed, path))
+  )
+    fail();
   const reviewed = reviewedSymposiumOwnedRuntime(config.gateway.workloadImage).build;
   if (
     config.gateway.cliSha256 !== reviewed.cliSha256 ||
@@ -188,7 +226,7 @@ function inspect(input: OwnedReleaseInput, digest: (path: string) => string) {
     fail();
   if (
     config.artifacts.length ||
-    existsSync(config.attestationPath) ||
+    entryExists(config.attestationPath) ||
     !config.runtime.createDetached ||
     config.runtime.sandboxIdLength !== 13
   )
@@ -198,8 +236,8 @@ function inspect(input: OwnedReleaseInput, digest: (path: string) => string) {
   pathMetadata(config.podman.environment.HOME, true, true);
   for (const path of [...Object.values(config.gateway.tls), ...Object.values(config.gateway.jwt)])
     pathMetadata(path, false, true);
-  pathMetadata(config.gateway.systemCaBundle);
-  pathMetadata(config.podman.executable);
+  pathMetadata(config.gateway.systemCaBundle, false, false, true);
+  pathMetadata(config.podman.executable, false, false, true);
   const profiles = config.providerProfiles.map((profile) => {
     const actual = digest(profile.path);
     if (actual !== profile.sha256) fail();
@@ -279,6 +317,10 @@ export function verifyOwnedRelease(plan: OwnedReleasePlan, digest = fileDigest):
   )
     fail();
   const actual = inspect(plan, digest);
+  const accounts = join(plan.planDirectory, 'empty-accounts.json');
+  pathMetadata(accounts, false, true);
+  if (bytes(accounts, 16).toString('utf8') !== '[]\n') fail();
+
   for (const key of [
     'sourceCommit',
     'sourceTree',
@@ -292,9 +334,6 @@ export function verifyOwnedRelease(plan: OwnedReleasePlan, digest = fileDigest):
 }
 export function claimOwnedLaunch(plan: OwnedReleasePlan, digest = fileDigest) {
   verifyOwnedRelease(plan, digest);
-  const accounts = join(plan.planDirectory, 'empty-accounts.json');
-  pathMetadata(accounts, false, true);
-  if (bytes(accounts, 16).toString('utf8') !== '[]\n') fail();
   const marker = join(plan.planDirectory, 'launch.intent');
   // O_EXCL refuses existing regular files, dangling symlinks and previous uncertain starts alike.
   const fd = openSync(

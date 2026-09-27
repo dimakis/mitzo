@@ -80,3 +80,11 @@ prove live production migration, image installation, model acceptance or databas
 rollback. Preserve originals and durable uncertainty; an old binary or database
 snapshot must not erase newer fences. Publication fresh-login reconciliation and
 native hard-budget/final-usage authority remain separate unresolved contracts.
+
+Preparation rejects dangling attestation entries and overlapping preparation,
+repository, or gateway-state paths. The seed must be separate from configured
+private references and mutable runtime directories; a shared ancestor directory
+is allowed. The verifier accepts canonical root-owned public CA and Podman
+executable files with no group/other write permission. Private metadata still
+requires the current owner and private permissions. Every launch boundary also
+rechecks the exact empty ordinary-account catalog.
