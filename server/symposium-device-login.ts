@@ -98,7 +98,8 @@ export async function beginDeviceLogin(
   launch: typeof spawn = spawn,
   removeHome: (path: string) => void = (path) => rmSync(path, { recursive: true, force: true }),
 ): Promise<DeviceLogin> {
-  const importTokens = service.beginDevice();
+  const expiresAt = Date.now() + DEVICE_LOGIN_WINDOW_MS;
+  const importTokens = service.beginDevice(expiresAt);
   const home = mkdtempSync(join(tmpdir(), 'mitzo-device-login-'));
   chmodSync(home, 0o700);
   mkdirSync(join(home, 'codex'), { mode: 0o700 });
@@ -262,12 +263,12 @@ export async function beginDeviceLogin(
     )
       throw new Error('Device login is unsupported');
     loginId = result.loginId;
-    const expiresAt = Date.now() + DEVICE_LOGIN_WINDOW_MS;
+    if (Date.now() >= expiresAt) throw new Error('Device login expired during initialization');
     expiry = setTimeout(() => {
       cancelled = true;
       service.invalidate();
       void finish(false);
-    }, DEVICE_LOGIN_WINDOW_MS);
+    }, expiresAt - Date.now());
     expiry.unref();
     if (early?.loginId === loginId) void finish(early.success);
     return {
