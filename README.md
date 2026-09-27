@@ -196,7 +196,7 @@ reports the missing capability rather than falling back to ordinary chat. Mocked
 integration coverage establishes the workflow boundaries, not live production
 readiness. Reviewer and Claude admission still require independent host attestation
 and live acceptance; environment settings alone do not enable them. See the
-[integration gaps](docs/features/symposium.md#integrated-review-surface-and-remaining-native-gate).
+[integration gaps](docs/features/symposium.md#review-records-and-publication-boundary).
 
 ### Symposium OpenShell 0.1 per-seat runtime
 
@@ -508,7 +508,7 @@ The Podman launch agent preserves the VM process group after `podman machine sta
 
 The OpenAI Responses route uses bearer authentication in the Authorization header. Its base policy and gateway provider profile must disable request-body credential rewriting and retain enforced REST inspection. This requires a supervisor with the identity-aware streaming guard: literal placeholder examples in documents must pass unchanged, while actual credential identities in model input remain blocked. Production preflight checks both the configured base policy and live provider profile. Qualify the supervisor and policy together; changing only the policy on an older supervisor reintroduces documentation-triggered denials. Existing sandbox containers retain their supervisor image across stop/start and need a separately verified migration.
 
-Symposium's [reusable reviewer profiles](docs/features/symposium.md#reusable-reviewer-recipes) include five editable starters, versioned portable context recipes, skill/tool references and provider compatibility. Import/export preserves exact revisions; applying a profile and selecting account/context remain explicit.
+Symposium's [reusable reviewer profiles](docs/features/symposium.md#profiles-and-reusable-reviewer-recipes) include five editable starters, versioned portable context recipes, skill/tool references and provider compatibility. Import/export preserves exact revisions; applying a profile and selecting account/context remain explicit.
 
 Symposium account selection also includes [guided personal subscription login](docs/operations/symposium-owned-gateway.md#in-app-personal-account-setup), with explicit local/SSH callback preparation, phone guidance and credential-free login status receipts.
 
@@ -543,7 +543,7 @@ Owned Symposium test instances require certificate SANs for both loopback and th
 
 - [Owned Symposium evidence candidate collection](docs/features/symposium-owned-evidence.md)
 
-Native Symposium Codex turns use [validated cumulative token usage](docs/features/symposium.md#native-codex-usage-capture), keeping terminal accounting unknown because completion carries no final usage proof, including when cumulative updates arrive late. This does not enable budgeted review admission or claim a hard provider spending cap.
+Native Symposium Codex turns use [validated cumulative token usage](docs/features/symposium.md#durable-delivery-attribution-and-recovery), keeping terminal accounting unknown because completion carries no final usage proof, including when cumulative updates arrive late. This does not enable budgeted review admission or claim a hard provider spending cap.
 
 Discovery preflight rejection can undo an exact undispatched local journal under
 its retained lock; dispatched or replaced evidence still requires reconciliation.
