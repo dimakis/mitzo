@@ -2364,7 +2364,7 @@ describe('per-seat artifact admission', () => {
               {
                 type: 'volume',
                 source: state.request.volumeName,
-                target: '/sandbox/symposium-artifacts',
+                target: '/sandbox/workspaces/mgmt',
                 read_only: access === 'reviewer',
               },
             ],

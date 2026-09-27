@@ -1,3 +1,4 @@
+import { SYMPOSIUM_ARTIFACT_TARGET } from './symposium-artifact-lease.js';
 import {
   probeOwnedArtifactAccess,
   type NativeArtifactAccessProbe,
@@ -13,9 +14,9 @@ type PodmanCommand = (args: readonly string[]) => Promise<unknown>;
 
 const identifier = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/;
 const containerId = /^[a-f0-9]{12,64}$/i;
-const target = '/sandbox/symposium-artifacts';
+const target = SYMPOSIUM_ARTIFACT_TARGET;
 
-/** The local Podman API is host evidence; stdout from a sandbox is never used. */
+/** Podman host metadata only; native access is checked separately through owned SSH. */
 export const localPodmanCommand: PodmanCommand = (args) =>
   new Promise((resolve, reject) => {
     execFile(
@@ -168,7 +169,10 @@ export class LocalPodmanArtifactEvidence implements ArtifactHostEvidence {
         await nativeAccess(
           sandboxName,
           sandboxId,
-          'set -eu; uid=$(/usr/bin/id -u); gid=$(/usr/bin/id -g); set -- $(/usr/bin/stat -c "%u %g %a" /sandbox/symposium-artifacts); readable=false; searchable=false; if test -r /sandbox/symposium-artifacts; then readable=true; fi; if test -x /sandbox/symposium-artifacts; then searchable=true; fi; writable=false; if test -w /sandbox/symposium-artifacts; then writable=true; fi; printf \'{"uid":%s,"gid":%s,"ownerUid":%s,"ownerGid":%s,"mode":"%s","writable":%s,"readable":%s,"searchable":%s}\\n\' "$uid" "$gid" "$1" "$2" "$3" "$writable" "$readable" "$searchable"',
+          'set -eu; uid=$(/usr/bin/id -u); gid=$(/usr/bin/id -g); set -- $(/usr/bin/stat -c "%u %g %a" __ARTIFACT_TARGET__); readable=false; searchable=false; if test -r __ARTIFACT_TARGET__; then readable=true; fi; if test -x __ARTIFACT_TARGET__; then searchable=true; fi; writable=false; if test -w __ARTIFACT_TARGET__; then writable=true; fi; printf \'{"uid":%s,"gid":%s,"ownerUid":%s,"ownerGid":%s,"mode":"%s","writable":%s,"readable":%s,"searchable":%s}\\n\' "$uid" "$gid" "$1" "$2" "$3" "$writable" "$readable" "$searchable"'.replaceAll(
+            '__ARTIFACT_TARGET__',
+            target,
+          ),
         ),
       );
       if (

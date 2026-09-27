@@ -3,7 +3,8 @@
  * never from a sandbox or a model-produced value.
  */
 
-export const SYMPOSIUM_ARTIFACT_TARGET = '/sandbox/symposium-artifacts';
+/** Shared artifact mount and reviewed native controller cwd must be identical. */
+export const SYMPOSIUM_ARTIFACT_TARGET = '/sandbox/workspaces/mgmt';
 
 export type ArtifactDriver = 'docker' | 'podman';
 export type ArtifactAccess = 'writer' | 'reviewer';

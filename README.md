@@ -575,6 +575,7 @@ retain a recovery lock, and SSH cleanup terminates its proxy process group.
 Owned Symposium test instances require certificate SANs for both loopback and the Podman guest endpoint; see [disposable gateway TLS](docs/operations/symposium-disposable-tls.md).
 Owned Podman hosts must explicitly bind the driver namespace label, including the pinned driver’s empty value; see [Podman namespace evidence](docs/operations/symposium-podman-namespace.md).
 Owned artifact volumes also require a reviewed image-bound owner and terminal initialization receipt; see [artifact ownership readiness](docs/operations/symposium-artifact-ownership.md).
+Shared artifacts use the reviewed native working directory; see [canonical artifact layout](docs/operations/symposium-artifact-layout.md).
 
 - [Owned Symposium evidence candidate collection](docs/features/symposium-owned-evidence.md)
 
@@ -631,6 +632,11 @@ this internal retention lock remains unsealed and does not prove physical revoca
 
 A dormant [artifact generation ledger](docs/operations/symposium-artifact-generations.md)
 records verified-copy lineage and a CAS working pointer without reopening sealed sessions.
+
+The dormant [sealed publication service](docs/operations/symposium-sealed-publication-authority.md)
+binds an explicitly selected operator GitHub identity to a completed seal and forced
+Create PR approval. It is unavailable without registered credential custody and the
+completed seal/review bridge; no publication route or UI action is enabled.
 
 Dormant [pending native review evidence](docs/operations/symposium-review-attempt-staging.md)
 stores immutable linkage and bounded untrusted findings without enabling dispatch or receipt promotion.

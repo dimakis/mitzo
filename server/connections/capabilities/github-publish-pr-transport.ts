@@ -295,7 +295,7 @@ export type GithubHostCommandRunner = (
   args: readonly string[],
   signal: AbortSignal,
 ) => Promise<{ stdout: string; stderr: string }>;
-class GithubNotFoundError extends Error {
+export class GithubNotFoundError extends Error {
   constructor(cause: unknown) {
     super('GitHub resource not found', { cause });
   }
