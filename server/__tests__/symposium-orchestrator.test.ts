@@ -1,5 +1,3 @@
-import express from 'express';
-import request from 'supertest';
 import { createSessionMessagesHandler } from '../session-messages-route.js';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
