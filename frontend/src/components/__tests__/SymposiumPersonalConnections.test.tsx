@@ -309,8 +309,9 @@ it('notifies an open picker when callback recovery reports a completed login', a
 it('releases callback lock when refresh unmounts a disconnecting callback control', async () => {
   let state = rows[1].state;
   let started = false;
-  vi.mocked(apiFetch).mockImplementation(async (url, init) =>
-    response(
+  vi.mocked(apiFetch).mockImplementation(async (url, init) => {
+    if (init?.method === 'POST') started = true;
+    return response(
       url.endsWith('/connections')
         ? { connections: [rows[0], { ...rows[1], state }] }
         : init?.method === 'POST'
@@ -321,8 +322,8 @@ it('releases callback lock when refresh unmounts a disconnecting callback contro
           : started
             ? { state: 'pending', attemptId: 'callback', connectionId: 'personal-b' }
             : { state: 'idle' },
-    ),
-  );
+    );
+  });
   render(<SymposiumPersonalConnections />);
   await screen.findByText('two@example.test');
   const second = within(screen.getByRole('region', { name: 'Second account' }));
@@ -344,7 +345,6 @@ it('releases callback lock when refresh unmounts a disconnecting callback contro
       }),
     ),
   );
-  started = true;
   await waitFor(() =>
     expect((second.getByRole('button', { name: 'Connect' }) as HTMLButtonElement).disabled).toBe(
       true,
