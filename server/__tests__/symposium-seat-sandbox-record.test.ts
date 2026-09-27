@@ -145,3 +145,46 @@ describe('durable Symposium seat sandbox identity', () => {
     store.close();
   });
 });
+it('persists terminal create identity without granting ready admission or allowing rebinding', () => {
+  const root = mkdtempSync(join(tmpdir(), 'terminal-create-'));
+  roots.push(root);
+  const path = join(root, 'events.db');
+  let store = new EventStore(path);
+  const raw = new Database(path);
+  raw
+    .prepare(
+      `INSERT INTO symposium_membership
+    (session_id,seat_id,generation,state,action,config_revision,binding_key,actor,reason,idempotency_key,occurred_at)
+    VALUES ('s','seat',1,'active','restore',1,'binding','director','test','membership',1)`,
+    )
+    .run();
+
+  raw
+    .prepare(
+      `INSERT INTO symposium_seat_sandboxes
+    (session_id,seat_id,generation,runtime_id,workspace,provider_name,provider_id,provider_type,model,state,creation_started)
+    VALUES ('s','seat',1,'runtime','workspace','provider','provider-id','codex','luna','reserved',1)`,
+    )
+    .run();
+  raw.close();
+  const receipt = {
+    sessionId: 's',
+    seatId: 'seat',
+    generation: 1,
+    runtimeId: 'runtime',
+    sandboxName: 'sandbox',
+    physicalId: 'physical',
+  };
+  store.recordSymposiumSeatSandboxTerminalCreate(receipt);
+  store.close();
+  store = new EventStore(path);
+  expect(store.getSymposiumSeatSandbox('s', 'seat', 1)).toMatchObject({
+    state: 'reserved',
+    physicalId: 'physical',
+    creationCompleted: true,
+  });
+  expect(() =>
+    store.recordSymposiumSeatSandboxTerminalCreate({ ...receipt, physicalId: 'replacement' }),
+  ).toThrow('changed');
+  store.close();
+});

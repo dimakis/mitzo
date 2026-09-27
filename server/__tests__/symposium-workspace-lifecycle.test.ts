@@ -132,3 +132,36 @@ it('fences queued creates and waits for an already dispatched create before drai
   await expect(fence.create(() => {}, queuedOperation)).rejects.toThrow('shutting down');
   await expect(fence.cleanup(async () => {})).resolves.toBeUndefined();
 });
+it('allows cleanup after a persisted terminal receipt even when later configuration fails', async () => {
+  const { fence } = fixture();
+  await expect(
+    fence.create(
+      () => {},
+      async (dispatched, settled) => {
+        dispatched();
+        settled!();
+        throw new Error('upload failed');
+      },
+    ),
+  ).rejects.toThrow('upload failed');
+  await expect(fence.cleanup(async () => 'cleanup permitted')).resolves.toBe('cleanup permitted');
+});
+it('retains uncertainty if custody changes before terminal receipt settlement', async () => {
+  const { path } = fixture();
+  let current = true;
+  const fence = new SymposiumWorkspaceLifecycle(path, () => {
+    if (!current) throw new Error('custody lost');
+  });
+  await expect(
+    fence.create(
+      () => {},
+      async (dispatched, settled) => {
+        dispatched();
+        current = false;
+        settled!();
+      },
+    ),
+  ).rejects.toThrow('custody lost');
+  current = true;
+  await expect(fence.cleanup(async () => {})).rejects.toThrow('recovery');
+});

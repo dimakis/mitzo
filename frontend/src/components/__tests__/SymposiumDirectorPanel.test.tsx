@@ -581,3 +581,88 @@ it('does not offer retained admission recheck for pending membership or a curren
   await screen.findByText(/OpenAI work · gpt/);
   expect(screen.queryByRole('button', { name: 'Recheck retained seat admissions' })).toBeNull();
 });
+
+it('offers failed primary cleanup only from host capability and requires typed confirmation', async () => {
+  const initial = status(true);
+  const failed = {
+    ...initial,
+    seats: initial.seats.map((seat, index) =>
+      index
+        ? seat
+        : {
+            ...seat,
+            admitted: false,
+            creationDiagnostic: { phase: 'upload', code: 'SEAT_UPLOAD_FAILED', canCleanup: true },
+          },
+    ),
+  };
+  vi.mocked(apiFetch).mockResolvedValue(response(failed));
+  render(<SymposiumDirectorPanel sessionId="session" />);
+  await userEvent.click(screen.getByRole('button', { name: 'Director controls' }));
+  const button = await screen.findByRole('button', { name: 'Clean up failed seat' });
+  expect(button.hasAttribute('disabled')).toBe(true);
+  await userEvent.type(
+    screen.getByLabelText('Type CLEAN UP FAILED SEAT for Architect'),
+    'CLEAN UP FAILED SEAT',
+  );
+  await userEvent.click(button);
+  const call = vi
+    .mocked(apiFetch)
+    .mock.calls.find(([url]) => String(url).endsWith('/creation/recover'))!;
+  expect(JSON.parse(call[1]!.body as string)).toMatchObject({
+    seatId: 'architect',
+    expectedRevision: 4,
+    expectedGeneration: 1,
+    confirmation: 'CLEAN UP FAILED SEAT',
+  });
+});
+it('resumes a durable failed cleanup after remount using the retained operation key and fresh confirmation', async () => {
+  const base = status(true);
+  const failed = {
+    ...base,
+    seats: base.seats.map((seat, index) =>
+      index
+        ? seat
+        : {
+            ...seat,
+            admitted: false,
+            creationDiagnostic: {
+              phase: 'upload',
+              code: 'SEAT_UPLOAD_FAILED',
+              canCleanup: true,
+              recoveryIdempotencyKey: 'retained-cleanup-key',
+            },
+          },
+    ),
+  };
+  vi.mocked(apiFetch).mockResolvedValue(response(failed));
+  const first = render(<SymposiumDirectorPanel sessionId="session" />);
+  await userEvent.click(screen.getByRole('button', { name: 'Director controls' }));
+  await userEvent.type(
+    await screen.findByLabelText('Type CLEAN UP FAILED SEAT for Architect'),
+    'CLEAN UP FAILED SEAT',
+  );
+  first.unmount();
+  render(<SymposiumDirectorPanel sessionId="session" />);
+  await userEvent.click(screen.getByRole('button', { name: 'Director controls' }));
+  const button = await screen.findByRole('button', { name: 'Clean up failed seat' });
+  expect(button.hasAttribute('disabled')).toBe(true);
+  await userEvent.type(
+    screen.getByLabelText('Type CLEAN UP FAILED SEAT for Architect'),
+    'CLEAN UP FAILED SEAT',
+  );
+  await userEvent.click(button);
+  const call = vi
+    .mocked(apiFetch)
+    .mock.calls.find(([url]) => String(url).endsWith('/creation/recover'))!;
+  expect(JSON.parse(call[1]!.body as string)).toMatchObject({
+    idempotencyKey: 'retained-cleanup-key',
+    expectedRevision: 4,
+    expectedGeneration: 1,
+  });
+  await waitFor(() =>
+    expect(
+      screen.getByRole('button', { name: 'Clean up failed seat' }).hasAttribute('disabled'),
+    ).toBe(true),
+  );
+});

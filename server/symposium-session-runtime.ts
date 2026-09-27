@@ -365,7 +365,13 @@ type SeatSandboxRegistry = Pick<
   | 'listUnstoppedSymposiumSeatSandboxes'
   | 'confirmSymposiumSeatSandboxStopped'
   | 'confirmAbsentSymposiumSeatSandboxStopped'
->;
+> &
+  Partial<
+    Pick<
+      EventStore,
+      'recordSymposiumSeatSandboxTerminalCreate' | 'recordSymposiumSeatCreationDiagnostic'
+    >
+  >;
 
 /** One owner serializes all seat/provider mutations for the shared session sandbox. */
 export class SymposiumSharedSandboxOwner {
@@ -508,6 +514,8 @@ export function snapshotSymposiumSeatProvider(
 
 /** Isolated sandbox per active seat; no credential is attached for another seat. */
 export class SymposiumPerSeatSandboxOwner {
+  /** Same-owner terminal proof for cleanup only; never restored from inventories/restart. */
+  private readonly terminalCreates = new Map<string, { sandboxName: string; sandboxId: string }>();
   readonly readOnlyEnforced: {
     openaiApi: boolean;
     claudeVertex: boolean;
@@ -632,6 +640,8 @@ export class SymposiumPerSeatSandboxOwner {
           providerType: binding.type,
           model: snapshot.account.model,
         });
+        if (reservation.state === 'reserved' && reservation.physicalId)
+          throw new Error('Created seat configuration incomplete; explicit cleanup required');
         const artifactRequest = this.deps.artifactRequest?.(sessionId, seatId, snapshot.generation);
         if (
           artifactRequest &&
@@ -661,6 +671,17 @@ export class SymposiumPerSeatSandboxOwner {
           : undefined;
         snapshot.verify();
         let physicalDispatch: (() => void) | undefined;
+        let terminalSettled: (() => void) | undefined;
+        let creationPhase: 'create' | 'upload' | 'provider' | 'mount' = 'provider';
+        const diagnostic = (failed: boolean) =>
+          this.deps.seatSandboxRegistry!.recordSymposiumSeatCreationDiagnostic?.({
+            sessionId,
+            seatId,
+            generation: snapshot.generation,
+            runtimeId: snapshot.runtimeId,
+            phase: creationPhase,
+            failed,
+          });
         const manager = (
           this.deps.managerFactory ?? ((config) => new OpenShellRuntimeManager(config))
         )({
@@ -670,6 +691,47 @@ export class SymposiumPerSeatSandboxOwner {
                 beforeSandboxCreate: () => {
                   if (!physicalDispatch) throw new Error('Missing sandbox dispatch fence');
                   physicalDispatch();
+                },
+              }
+            : {}),
+          ...(this.deps.runSandboxCreation &&
+          this.deps.runtimeConfig.cliContract === 'v0.1' &&
+          snapshot.account.kind === 'chatgpt-subscription-native' &&
+          this.deps.seatSandboxRegistry!.recordSymposiumSeatSandboxTerminalCreate
+            ? {
+                onSandboxCreationPhase: (phase) => {
+                  creationPhase = phase;
+                  diagnostic(false);
+                },
+                onSandboxCreateSettled: (receipt) => {
+                  if (!terminalSettled) throw new Error('Missing terminal create fence');
+                  if (
+                    receipt.workspace !== this.deps.runtimeConfig.workspace ||
+                    receipt.accountProvider !== snapshot.account.provider
+                  )
+                    throw new Error('Terminal create receipt binding changed');
+                  const identity = {
+                    sandboxName: receipt.sandboxName,
+                    sandboxId: receipt.sandboxId,
+                  };
+                  // Bind cleanup identity before a provider/upload/mount postcheck may fail.
+                  if (lease)
+                    this.deps.artifactLeaseHost!.bindSandbox(
+                      lease.token,
+                      lease.revision,
+                      receipt.sandboxName,
+                      receipt.sandboxId,
+                    );
+                  this.deps.seatSandboxRegistry!.recordSymposiumSeatSandboxTerminalCreate!({
+                    sessionId,
+                    seatId,
+                    generation: snapshot.generation,
+                    runtimeId: snapshot.runtimeId,
+                    sandboxName: receipt.sandboxName,
+                    physicalId: receipt.sandboxId,
+                  });
+                  terminalSettled();
+                  this.terminalCreates.set(snapshot.runtimeId, identity);
                 },
               }
             : {}),
@@ -751,7 +813,8 @@ export class SymposiumPerSeatSandboxOwner {
             runtimeId: snapshot.runtimeId,
           });
         };
-        const create = async (markDispatched?: () => void) => {
+        const create = async (markDispatched?: () => void, markSettled?: () => void) => {
+          terminalSettled = markSettled;
           let started = false;
           physicalDispatch = () => {
             if (started) throw new Error('Seat creation dispatch already recorded');
@@ -786,7 +849,14 @@ export class SymposiumPerSeatSandboxOwner {
             started = true;
           };
           if (!this.deps.runSandboxCreation) physicalDispatch();
-          const created = await manager.ensure(snapshot.runtimeId, signal);
+          let created;
+          try {
+            diagnostic(false);
+            created = await manager.ensure(snapshot.runtimeId, signal);
+          } catch (error) {
+            diagnostic(true);
+            throw error;
+          }
           if (!started) throw new Error('Seat creation did not record external dispatch');
           if (!created.sandboxId)
             throw new Error('OpenShell seat sandbox has no physical identity');
@@ -802,19 +872,25 @@ export class SymposiumPerSeatSandboxOwner {
           : await create();
         if (!sandbox.sandboxId) throw new Error('OpenShell seat sandbox has no physical identity');
         if (lease) {
-          // A custom manager must attest the mount too. Duplicate attestation is
-          // intentional; the host is the authoritative physical verifier.
-          await this.deps.artifactLeaseHost!.verifyPhysicalMount(
-            sandbox.sandboxName,
-            sandbox.sandboxId,
-            artifactDriverConfig!,
-          );
-          this.deps.artifactLeaseHost!.bindSandbox(
-            lease.token,
-            lease.revision,
-            sandbox.sandboxName,
-            sandbox.sandboxId,
-          );
+          creationPhase = 'mount';
+          try {
+            // A custom manager must attest the mount too. Duplicate attestation is
+            // intentional; the host is the authoritative physical verifier.
+            await this.deps.artifactLeaseHost!.verifyPhysicalMount(
+              sandbox.sandboxName,
+              sandbox.sandboxId,
+              artifactDriverConfig!,
+            );
+            this.deps.artifactLeaseHost!.bindSandbox(
+              lease.token,
+              lease.revision,
+              sandbox.sandboxName,
+              sandbox.sandboxId,
+            );
+          } catch (error) {
+            diagnostic(true);
+            throw error;
+          }
         }
         this.deps.seatSandboxRegistry!.confirmSymposiumSeatSandbox({
           sessionId,
@@ -824,13 +900,14 @@ export class SymposiumPerSeatSandboxOwner {
           sandboxName: sandbox.sandboxName,
           physicalId: sandbox.sandboxId,
         });
-        this.deps.seatSandboxRegistry!.markSymposiumSeatSandboxCreationCompleted({
-          sessionId,
-          seatId,
-          generation: snapshot.generation,
-          runtimeId: snapshot.runtimeId,
-          physicalId: sandbox.sandboxId,
-        });
+        if (!this.terminalCreates.has(snapshot.runtimeId))
+          this.deps.seatSandboxRegistry!.markSymposiumSeatSandboxCreationCompleted({
+            sessionId,
+            seatId,
+            generation: snapshot.generation,
+            runtimeId: snapshot.runtimeId,
+            physicalId: sandbox.sandboxId,
+          });
         // A revocation during gateway creation leaves the exact physical ID
         // retained in the registry for the waiting stop operation.
         snapshot.verify();
@@ -848,6 +925,47 @@ export class SymposiumPerSeatSandboxOwner {
     return work;
   }
 
+  creationDiagnostic(seatId: string) {
+    const member = this.deps.facts.getLatestSymposiumMembership(this.deps.sessionId, seatId);
+    if (!member) return null;
+    const record = this.deps.seatSandboxRegistry!.getSymposiumSeatSandbox(
+      this.deps.sessionId,
+      seatId,
+      member.generation,
+    );
+    if (!record?.creationFailureCode || !['reserved', 'stopped'].includes(record.state))
+      return null;
+    const retained = this.terminalCreates.get(record.runtimeId);
+    return {
+      phase: record.creationPhase ?? 'create',
+      code: record.creationFailureCode,
+      canCleanup: !!(
+        record.creationCompleted &&
+        retained &&
+        retained.sandboxId === record.physicalId &&
+        retained.sandboxName === record.sandboxName
+      ),
+    };
+  }
+  assertCreationCleanup(seatId: string, generation: number) {
+    const record = this.deps.seatSandboxRegistry!.getSymposiumSeatSandbox(
+      this.deps.sessionId,
+      seatId,
+      generation,
+    );
+    const retained = record && this.terminalCreates.get(record.runtimeId);
+    if (
+      !record ||
+      !retained ||
+      retained.sandboxId !== record.physicalId ||
+      retained.sandboxName !== record.sandboxName ||
+      !record.creationCompleted ||
+      !record.creationFailureCode ||
+      !['reserved', 'stopped'].includes(record.state)
+    )
+      throw new Error('Retained exact failed creation receipt unavailable');
+  }
+
   /** Stop exactly the retained physical sandboxes, including a prior generation after revocation. */
   stop(sessionId: string, seatId: string, generation: number, signal: AbortSignal): Promise<void> {
     if (sessionId !== this.deps.sessionId)
@@ -863,6 +981,17 @@ export class SymposiumPerSeatSandboxOwner {
         )) {
           if (original.generation > generation) continue;
           let record: SymposiumSeatSandboxRecord = original;
+          if (record.state === 'reserved' && record.creationCompleted && record.physicalId) {
+            const terminal = this.terminalCreates.get(record.runtimeId);
+            if (
+              !terminal ||
+              terminal.sandboxId !== record.physicalId ||
+              terminal.sandboxName !== record.sandboxName
+            )
+              throw new Error(
+                'Incomplete seat cleanup requires retained terminal creation custody',
+              );
+          }
           if (record.workspace !== this.deps.runtimeConfig.workspace)
             throw new Error('Seat sandbox workspace changed before stop');
           const manager = (
@@ -1351,6 +1480,18 @@ export function createSymposiumSessionRuntime(deps: SymposiumSessionRuntimeDeps)
     },
     retainedProviders: () => [],
     stopSeat,
+    creationRecovery:
+      owner instanceof SymposiumPerSeatSandboxOwner
+        ? {
+            diagnostic: (sessionId, seatId) =>
+              sessionId === deps.sessionId ? owner.creationDiagnostic(seatId) : null,
+            assertRetained: (sessionId, seatId, generation) => {
+              if (sessionId !== deps.sessionId)
+                throw new Error('Creation recovery session changed');
+              owner.assertCreationCleanup(seatId, generation);
+            },
+          }
+        : undefined,
   });
   return {
     orchestrator,
