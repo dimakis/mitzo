@@ -93,6 +93,7 @@ describe('persisted application admission', () => {
     const a = new SymposiumReviewStore(':memory:');
     a.create(create());
     a.reserveApplicationAttempt(request('one'));
+    a.consumeApplicationDispatch(request('one'));
     a.stopApplication('w', 'user', 'user_stop');
     expect(a.consumeApplicationDispatch(request('one'))).toMatchObject({ code: 'user_stop' });
     expect(() =>
@@ -275,10 +276,46 @@ it('charges explicit reconciled retries and retains counters through authorized 
     actor: 'user',
     authorizationId: 'new-authority',
     reason: 'retry after reconciliation',
-    limits: create().limits,
+    limits: { ...create().limits, maxReviewCycles: 2 },
   });
   expect(a.reserveApplicationAttempt(retry).kind).toBe('admitted');
   expect(a.get('w')?.hostTurns).toBe(2);
+  a.consumeApplicationDispatch(retry);
+  a.bindApplicationOperation('w', 'retry', 'op-retry');
+  a.settleApplicationExecution('w', 'retry', 'op-retry', 'completed');
+  expect(
+    a.recordReview({
+      workflowId: 'w',
+      reviewId: 'retry-result',
+      reviewerSeatId: 'reviewer',
+      kind: 'full',
+      artifactRevision: 'a',
+      artifactHash: hash,
+      findings: [],
+      resolvedFingerprints: [],
+      usage: { attemptId: 'retry', tokens: null, costUsd: null },
+    }).status,
+  ).toBe('awaiting_evidence');
   expect(a.history('w').some((e) => e.action === 'application_continued')).toBe(true);
+  a.close();
+});
+
+it('can continue safely after a stop before dispatch without refunding the reservation', () => {
+  const a = new SymposiumReviewStore(':memory:');
+  a.create(create());
+  a.reserveApplicationAttempt(request('one'));
+  a.stopApplication('w', 'user', 'user_stop');
+  expect(a.get('w')?.applicationAttempts[0].settled).toBe(true);
+  a.continueApplication({
+    workflowId: 'w',
+    actor: 'user',
+    authorizationId: 'amend',
+    reason: 'resume',
+    limits: create().limits,
+  });
+  expect(a.get('w')?.hostTurns).toBe(1);
+  expect(a.consumeApplicationDispatch(request('one'))).toMatchObject({
+    code: 'attempt_already_dispatched',
+  });
   a.close();
 });

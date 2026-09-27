@@ -74,7 +74,8 @@ export interface SymposiumReviewHost {
   }):
     | { kind: 'enforced'; enforcementId: string; maxTokens: number; maxCostUsd: number | null }
     | { kind: 'decision_required'; code: string };
-  /** A receipt exists only after host-observed terminal provider completion and final usage.
+  /** A receipt exists only after host-observed terminal provider completion.
+   * Application mode permits explicitly unknown usage; native hard-cap mode requires final usage.
    * Planned dispatch or provider acceptance is not completion.
    */
   receipt(context: ReviewContext, attemptId: string): ReviewReceipt | null;

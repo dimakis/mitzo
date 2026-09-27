@@ -187,6 +187,7 @@ type Workflow = Create & {
   applicationAttempts: Array<
     ApplicationAttempt & {
       requestHash: string;
+      effectiveKind?: 'initial' | 'review' | 'fix' | 'delta';
       dispatched: boolean;
       settled: boolean;
       operationId?: string;
@@ -641,6 +642,8 @@ export class SymposiumReviewStore {
     state.policyResumeStatus ??= state.status;
     state.status = 'decision_required';
     state.decisionCode = code;
+    for (const attempt of state.applicationAttempts)
+      if (!attempt.dispatched) attempt.settled = true;
     this.write(state, 'application_stopped', {
       code,
       attempts: state.applicationAttempts
@@ -757,7 +760,9 @@ export class SymposiumReviewStore {
           )
         )
           throw new Error('Fresh retry authorization required');
-        const selectedKind = parsed.kind === 'retry' ? original!.kind : parsed.kind;
+        const selectedKind =
+          parsed.kind === 'retry' ? (original!.effectiveKind ?? original!.kind) : parsed.kind;
+        if (selectedKind === 'retry') throw new Error('Original retry kind is unresolved');
         const selection =
           selectedKind === 'review' || selectedKind === 'delta'
             ? state.reviewer
@@ -769,25 +774,34 @@ export class SymposiumReviewStore {
           selection.profileId !== parsed.binding.profileId
         )
           throw new Error('Exact selected seat binding required');
-        if (parsed.kind === 'review') {
+        if (selectedKind === 'review') {
           if (state.status !== 'awaiting_review') throw new Error('Review is not due');
           if (state.reviewCycles >= state.limits.maxReviewCycles) return stop('cycles_exhausted');
           state.reviewCycles++;
-        } else if (parsed.kind === 'delta') {
+        } else if (selectedKind === 'delta') {
           if (state.status !== 'awaiting_delta_review') throw new Error('Delta is not due');
-        } else if (parsed.kind === 'fix') {
+        } else if (selectedKind === 'fix') {
           if (state.status !== 'awaiting_fix') throw new Error('Fix is not due');
           if (
-            state.applicationAttempts.filter((a) => a.kind === 'fix').length >= state.reviewCycles
+            state.applicationAttempts.filter((a) => (a.effectiveKind ?? a.kind) === 'fix').length >=
+            state.reviewCycles
           ) {
             if (state.reviewCycles >= state.limits.maxReviewCycles) return stop('cycles_exhausted');
             state.reviewCycles++;
           }
           this.requireFixAuthority(state);
         }
+        if (
+          selectedKind === 'initial' &&
+          (state.status !== 'awaiting_review' ||
+            state.reviewCycles > 0 ||
+            state.applicationAttempts.some((a) => (a.effectiveKind ?? a.kind) === 'initial'))
+        )
+          throw new Error('Initial dispatch is not due');
         state.hostTurns++;
         state.applicationAttempts.push({
           ...parsed,
+          effectiveKind: selectedKind,
           requestHash: digest(parsed),
           dispatched: false,
           settled: false,
@@ -924,7 +938,7 @@ export class SymposiumReviewStore {
         if (attempt.terminalOutcome && attempt.terminalOutcome !== outcome)
           throw new Error('Terminal outcome conflict');
         attempt.terminalOutcome = outcome;
-        if (outcome !== 'completed' || attempt.kind === 'initial' || attempt.kind === 'retry')
+        if (outcome !== 'completed' || (attempt.effectiveKind ?? attempt.kind) === 'initial')
           attempt.settled = true;
         this.write(state, 'application_execution_terminal', { attemptId, operationId, outcome });
       })
@@ -1017,7 +1031,10 @@ export class SymposiumReviewStore {
             (entry) =>
               !entry.settled &&
               entry.attemptId === parsed.usage.attemptId &&
-              (entry.kind === 'review' || entry.kind === 'delta') &&
+              (entry.kind === 'review' ||
+                entry.kind === 'delta' ||
+                (entry.kind === 'retry' &&
+                  (entry.effectiveKind === 'review' || entry.effectiveKind === 'delta'))) &&
               entry.actorSeatId === parsed.reviewerSeatId &&
               entry.artifactRevision === parsed.artifactRevision &&
               entry.artifactHash === parsed.artifactHash,
@@ -1187,7 +1204,7 @@ export class SymposiumReviewStore {
             (entry) =>
               !entry.settled &&
               entry.attemptId === parsed.usage.attemptId &&
-              entry.kind === 'fix' &&
+              (entry.kind === 'fix' || (entry.kind === 'retry' && entry.effectiveKind === 'fix')) &&
               entry.actorSeatId === parsed.implementerSeatId &&
               entry.artifactRevision === parsed.result.inputRevision &&
               entry.artifactHash === parsed.result.inputHash,
