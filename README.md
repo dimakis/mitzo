@@ -74,6 +74,12 @@ The server translates raw SDK stream events into a v2 block lifecycle protocol (
 
 The [durable child session allocation design](docs/design/session-service-core.md) describes the SessionService foundation for future bounded Task Board workers and Symposium seats. It records a child conversation and its parent/grant link in one transaction before runtime setup, fences cancellation across descendants, and retains uncertain starts or missing results for recovery. This foundation does not yet change the current Task Board or Symposium runtime paths.
 
+Codex Symposium turns now persist a host-only [completion checkpoint](docs/features/symposium-completion-checkpoints.md)
+after matching terminal completion and confirmed controller cleanup. The checkpoint
+binds the exact claimed delivered input and returned text; it is not an artifact,
+review receipt, full-context commitment, or budget-enforcement proof. Recovery reads
+never automatically redispatch a turn.
+
 ### Symposium director and portable profiles
 
 The mobile and desktop ChatViews include **Director controls** for the Symposium
