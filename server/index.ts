@@ -1,3 +1,4 @@
+import { custodianControllerMode, custodianOwnerMode } from './symposium-custodian-mode.js';
 import { closeCapabilityOperationStores } from './capability-operation-owner.js';
 import { createSymposiumShutdown, settleSymposiumCleanup } from './symposium-shutdown.js';
 import { bootstrapConfiguredSymposiumHost } from './symposium-owned-config.js';
@@ -1378,6 +1379,9 @@ checkPort(PORT).then(async (inUse) => {
     process.exit(1);
   }
 
+  if (custodianOwnerMode) throw Error('Use the dedicated custodian entry point');
+  if (custodianControllerMode && process.env.MITZO_SYMPOSIUM_OWNED_HOST_CONFIG)
+    throw Error('Controller cannot bootstrap an owned host');
   const symposiumConfig = process.env.MITZO_SYMPOSIUM_OWNED_HOST_CONFIG;
   if (symposiumConfig) {
     try {
@@ -1419,9 +1423,9 @@ checkPort(PORT).then(async (inUse) => {
     // Recover sessions left in incomplete states after crash/restart (Transport SSOT P0).
     // Must run before reconcileSessionsBackground() so reconciliation sees ENDED states.
     // recoverStaleSessions() logs internally — no need to log here.
-    eventStore.recoverStaleSessions();
-    eventStore.recoverOrphanedExecutions();
-    eventStore.recoverPendingSendCommands();
+    eventStore.recoverStaleSessions({ excludeSymposium: custodianControllerMode });
+    eventStore.recoverOrphanedExecutions({ excludeSymposium: custodianControllerMode });
+    eventStore.recoverPendingSendCommands({ excludeSymposium: custodianControllerMode });
 
     const repositoryMaintenance = startupRepositoryMaintenanceEnabled();
     // Eagerly reconcile sessions so the first /api/sessions request is fast and accurate.

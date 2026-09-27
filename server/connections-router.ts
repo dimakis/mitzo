@@ -1,3 +1,4 @@
+import { custodianRequestAuthority } from './symposium-custodian-authority.js';
 import express from 'express';
 import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import { randomUUID } from 'node:crypto';
@@ -132,7 +133,27 @@ export function recentAuthorizationSession(res: express.Response): AuthSession |
   }
   return value;
 }
+/** Export only the validity bound of a capability verified in this app process. */
+export function recentAuthorizationExpiry(res: express.Response, csrf: string): number | undefined {
+  const auth = res.locals.authSession as AuthSession | undefined;
+  if (!auth || auth.expiresAt <= Date.now()) return undefined;
+  const capability = capabilities.get(auth.id);
+  if (!capability || capability.csrf !== csrf || capability.expiresAt <= Date.now())
+    return undefined;
+  return Math.min(capability.expiresAt, auth.expiresAt);
+}
 export function requireRecentConnectionAuthorization(res: express.Response, csrf: string) {
+  try {
+    const retained = custodianRequestAuthority(res.req);
+    if (retained) {
+      if (retained.recentUntil && retained.recentUntil > Date.now()) return true;
+      res.status(403).json({ error: 'Recent reauthorization required' });
+      return false;
+    }
+  } catch {
+    res.status(403).json({ error: 'Custodian authorization unavailable' });
+    return false;
+  }
   const value = recentAuthorizationSession(res);
   if (!value) return false;
   const capability = capabilities.get(value.id);

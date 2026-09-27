@@ -31,6 +31,7 @@ interface Rpc {
   close(): void;
 }
 export interface CodexConversationOptions {
+  ownerKind?: 'ordinary' | 'symposium';
   conversationId: string;
   cwd: string;
   profile: CodexAccountProfile;
@@ -259,6 +260,7 @@ export class CodexConversation {
       this.binding,
       this.opts.cwd,
       toolSurfaceRevision,
+      this.opts.ownerKind,
     );
     const state = this.opts.store.read(this.opts.conversationId, this.binding);
     this.paused = !!state.recovery;

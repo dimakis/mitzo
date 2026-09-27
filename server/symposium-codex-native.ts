@@ -139,6 +139,7 @@ export async function createCodexNativeSeat(
     );
   };
   const options: CodexConversationOptions = {
+    ownerKind: 'symposium',
     conversationId: symposiumSeatRuntimeId(execution),
     cwd: sandbox.workdir,
     runtimeCwd: sandbox.workdir,

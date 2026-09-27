@@ -882,3 +882,84 @@ it('waits for the entire source import receipt lifecycle during shutdown between
   expect(receiptPersisted).toBe(true);
   expect(f.gateway.stopAndWait).toHaveBeenCalledOnce();
 });
+it('retains personal custody across controller quiescence without permanent host shutdown', async () => {
+  const f = fixture();
+  const host = await createOwnedSymposiumHost(f.options, f.launch);
+  try {
+    const original = host.personalConnections.create('retained account');
+    host.pauseController();
+    expect(() => host.personalConnections.create('blocked')).toThrow('controller');
+    await host.quiesceController(new AbortController().signal);
+    expect(host.personalConnections.list()).toContainEqual(original);
+    expect(f.gateway.stop).not.toHaveBeenCalled();
+    host.resumeController();
+    expect(host.personalConnections.create('new slot').label).toBe('new slot');
+    host.beginShutdown();
+    expect(() => host.resumeController()).toThrow('shutting down');
+  } finally {
+    host.stop();
+  }
+});
+
+it.each(['beginLogin', 'beginDeviceLogin'] as const)(
+  'quiesces a late %s allocation before replacing the controller',
+  async (method) => {
+    const f = fixture();
+    let finish!: (value: never) => void;
+    const original = personalHost.createPersonalSubscriptionHost;
+    vi.spyOn(personalHost, 'createPersonalSubscriptionHost').mockImplementation((...args) => ({
+      ...original(...args),
+      [method]: () =>
+        new Promise<never>((resolve) => {
+          finish = resolve;
+        }),
+    }));
+    const host = await createOwnedSymposiumHost(f.options, f.launch);
+    try {
+      const pending = host[method]();
+      const rejected = expect(pending).rejects.toThrow('stopped');
+      host.pauseController();
+      const drain = host.quiesceController(new AbortController().signal);
+      const cancel = vi.fn().mockResolvedValue(undefined);
+      finish({ completed: new Promise(() => {}), cancel } as never);
+      await rejected;
+      await expect(drain).resolves.toBeUndefined();
+      expect(cancel).toHaveBeenCalledOnce();
+      expect(f.gateway.stopAndWait).not.toHaveBeenCalled();
+      host.resumeController();
+    } finally {
+      host.stop();
+    }
+  },
+);
+
+it('quarantines failed cleanup of a login allocated after controller pause', async () => {
+  const f = fixture();
+  let finish!: (value: never) => void;
+  const original = personalHost.createPersonalSubscriptionHost;
+  vi.spyOn(personalHost, 'createPersonalSubscriptionHost').mockImplementation((...args) => ({
+    ...original(...args),
+    beginLogin: () =>
+      new Promise<never>((resolve) => {
+        finish = resolve;
+      }),
+  }));
+  const host = await createOwnedSymposiumHost(f.options, f.launch);
+  try {
+    const rejected = expect(host.beginLogin()).rejects.toThrow('cleanup unknown');
+    host.pauseController();
+    const drain = expect(host.quiesceController(new AbortController().signal)).rejects.toThrow(
+      'uncertain',
+    );
+    finish({
+      completed: new Promise(() => {}),
+      cancel: vi.fn().mockRejectedValue(Error('cleanup unknown')),
+    } as never);
+    await rejected;
+    await drain;
+    expect(() => host.resumeController()).toThrow('uncertain');
+    expect(f.gateway.stopAndWait).not.toHaveBeenCalled();
+  } finally {
+    host.stop();
+  }
+});
