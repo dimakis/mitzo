@@ -403,12 +403,20 @@ it('provisions a new draft through owned argv and makes its checked mapping avai
   const host = await createOwnedSymposiumHost(f.options, f.launch, undefined, command);
   try {
     expect(await host.ensureSessionArtifacts('new-session')).toEqual({ state: 'ready' });
+    expect(host.sourceImport.status('new-session')).toMatchObject({
+      available: true,
+      admissionIssued: false,
+    });
     const personalSelection = {
       personalConnection: { connectionId: 'personal', expectedRevision: 3 },
       sessionId: 'new-session',
       allowedRoles: ['coder'],
     };
     const candidate = await host.collectAdmissionEvidence(personalSelection);
+    expect(host.sourceImport.status('new-session')).toMatchObject({
+      available: false,
+      admissionIssued: true,
+    });
     expect(candidate).toMatchObject({
       providerInstances: [{ name: 'retained-personal', id: 'retained-id' }],
       artifactVolume: { name: volume!.Name },

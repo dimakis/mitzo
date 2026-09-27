@@ -162,7 +162,7 @@ export class SymposiumSessionArtifacts {
     return this.db
       .transaction(() => {
         const mapping = this.getReady(sessionId);
-        if (!mapping) throw new Error('Artifact source import or preparation is incomplete');
+        if (!mapping) throw new Error('Artifact source import or preparation mapping is incomplete');
         this.db
           .prepare('UPDATE symposium_session_artifacts SET admission_issued=1 WHERE session_id=?')
           .run(sessionId);
@@ -240,6 +240,11 @@ export class SymposiumSessionArtifacts {
           value.helperRemoved = true;
         }),
     };
+  }
+  observeSourceImport(claim: SessionArtifactMapping & { token: string }, proof: unknown): void {
+    this.updateSourceImport(claim, (value) => {
+      value.observed = proof;
+    });
   }
   completeSourceImport(claim: SessionArtifactMapping & { token: string }, receipt: unknown): void {
     this.updateSourceImport(claim, (value) => {
