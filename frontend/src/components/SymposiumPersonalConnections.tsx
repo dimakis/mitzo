@@ -47,6 +47,8 @@ export function SymposiumPersonalConnections({
   const [callbackId, setCallbackId] = useState<string | null>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
   const version = useRef(0);
+  const mounted = useRef(false);
+  const observedRevisions = useRef(new Map<string, number>());
   const mutation = useRef(false);
   const observedPendingDiscovery = useRef(new Set<string>());
   const accountsChanged = useRef(onAccountsChanged);
@@ -54,6 +56,7 @@ export function SymposiumPersonalConnections({
   const discoveryBlocked = connections.some((row) => !!row.modelDiscovery);
   const discoveryPending = connections.some((row) => row.modelDiscovery === 'pending');
   const refresh = useCallback(async () => {
+    if (!mounted.current) return;
     const request = ++version.current;
     try {
       const response = await apiFetch(endpoint);
@@ -66,9 +69,14 @@ export function SymposiumPersonalConnections({
         body.connections.filter((row) => row.modelDiscovery === 'pending').map((row) => row.id),
       );
       const finished = [...observedPendingDiscovery.current].some((id) => !pending.has(id));
+      const revisions = new Map(body.connections.map((row) => [row.id, row.revision]));
+      const revised = [...observedRevisions.current].some(
+        ([id, revision]) => revisions.get(id) !== revision,
+      );
+      observedRevisions.current = revisions;
       observedPendingDiscovery.current = pending;
       setConnections(body.connections);
-      if (finished) accountsChanged.current?.();
+      if (finished || revised) accountsChanged.current?.();
       setActiveId((current) =>
         current &&
         body.connections.some(
@@ -90,15 +98,26 @@ export function SymposiumPersonalConnections({
     }
   }, []);
   useEffect(() => {
+    mounted.current = true;
     void refresh();
     return () => {
+      mounted.current = false;
       version.current += 1;
     };
   }, [refresh]);
   useEffect(() => {
     if (!discoveryPending) return;
-    const timer = window.setInterval(() => void refresh(), 2500);
-    return () => window.clearInterval(timer);
+    let stopped = false;
+    let timer: number;
+    const poll = async () => {
+      await refresh();
+      if (!stopped) timer = window.setTimeout(() => void poll(), 2500);
+    };
+    timer = window.setTimeout(() => void poll(), 2500);
+    return () => {
+      stopped = true;
+      window.clearTimeout(timer);
+    };
   }, [discoveryPending, refresh]);
   async function refreshModels(connection: Connection) {
     if (disabled || mutation.current || discoveryBlocked) return;
@@ -124,6 +143,7 @@ export function SymposiumPersonalConnections({
           modelCount: z.number().int().nonnegative().optional(),
         })
         .parse(await response.json());
+      if (!mounted.current) return;
       if (result.status === 'complete' && result.modelCount !== undefined) {
         setMessage(
           `${result.modelCount} supported ${result.modelCount === 1 ? 'model is' : 'models are'} ready for ${connection.label}. Explicitly choose an account and model to rebind existing seats.`,
@@ -139,13 +159,14 @@ export function SymposiumPersonalConnections({
       }
       onAccountsChanged?.();
     } catch {
+      if (!mounted.current) return;
       setMessage(
         'Model discovery could not be confirmed. Refresh connection status before retrying; cleanup may still be pending on the Mac.',
       );
     } finally {
       await refresh();
       mutation.current = false;
-      setBusy(false);
+      if (mounted.current) setBusy(false);
     }
   }
   async function mutate(path: string, body: unknown, success: string) {
@@ -160,17 +181,19 @@ export function SymposiumPersonalConnections({
         body: JSON.stringify(body),
       });
       if (!response.ok) throw new Error('Request failed');
+      if (!mounted.current) return;
       setMessage(success);
       if (path === endpoint) setLabel('');
       onAccountsChanged?.();
     } catch {
+      if (!mounted.current) return;
       setMessage(
         'Could not confirm the change. Check the refreshed account status before trying again.',
       );
     } finally {
       await refresh();
       mutation.current = false;
-      setBusy(false);
+      if (mounted.current) setBusy(false);
     }
   }
   const pendingId =
