@@ -3,6 +3,7 @@ import { z } from 'zod';
 /** A closed list, not a generic HTTP/host-command tunnel. Reauthorization and
  * publication approval stay in the current browser controller. */
 const operations = {
+  'custody.status': ['GET', '/api/symposium/custody'],
   'director.status': ['GET', '/api/sessions/:sessionId/symposium'],
   'director.contextTurns': ['GET', '/api/sessions/:sessionId/symposium/context-turns'],
   'director.contextPackage': ['POST', '/api/sessions/:sessionId/symposium/context-package'],

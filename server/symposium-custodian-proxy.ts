@@ -40,7 +40,7 @@ export function createCustodianProxy(client: CustodianClient): RequestHandler {
         let input: Omit<CustodianRequest, 'epoch'>;
         try {
           const recentUntil = recentAuthorizationExpiry(res, csrf);
-          const { epoch: _epoch, ...parsed } = decodeCustodianRequest({
+          const parsed = decodeCustodianRequest({
             ...selected,
             epoch: 1,
             requestId: randomUUID(),
@@ -52,7 +52,13 @@ export function createCustodianProxy(client: CustodianClient): RequestHandler {
               ...(recentUntil ? { recentUntil } : {}),
             },
           });
-          input = parsed;
+          input = {
+            ...selected,
+            requestId: parsed.requestId,
+            query: parsed.query,
+            body: parsed.body,
+            authorization: parsed.authorization,
+          };
         } catch {
           res.status(400).json({ error: 'Invalid custodian request' });
           return;
@@ -70,12 +76,10 @@ export function createCustodianProxy(client: CustodianClient): RequestHandler {
           }
           res.status(result.status).json(result.body);
         } catch {
-          res
-            .status(503)
-            .json({
-              error:
-                'Symposium custodian unavailable; check retained operation status before retrying',
-            });
+          res.status(503).json({
+            error:
+              'Symposium custodian unavailable; check retained operation status before retrying',
+          });
         } finally {
           unregister();
         }

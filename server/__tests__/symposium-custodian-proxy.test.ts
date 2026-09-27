@@ -96,3 +96,34 @@ it('forwards logout invalidation while a semantic request is in flight', async (
   release();
   await pending;
 });
+it('invalidates a retained parent grant when logout follows an already completed response', async () => {
+  const { revokeOperatorSessions } = await import('../auth.js');
+  const { dispatchCustodianHttp } = await import('../symposium-custodian-http.js');
+  const parent = express();
+  parent.use(authMiddleware);
+  parent.get('/api/sessions/s1/symposium', (_req, res) => res.json({ ok: true }));
+  const token = (await login(process.env.AUTH_PASSPHRASE!))!,
+    auth = (await authenticateToken(token))!;
+  const retained = {
+    epoch: 1,
+    requestId: 'completed',
+    operation: 'director.status' as const,
+    sessionId: 's1',
+    body: {},
+    query: {},
+    authorization: auth,
+  };
+  expect((await dispatchCustodianHttp(parent, retained, () => {})).status).toBe(200);
+  const notify = vi.fn((id: string) => revokeAuthSession({ id, expiresAt: auth.expiresAt }));
+  revokeOperatorSessions([auth], notify);
+  expect(notify).toHaveBeenCalledWith(auth.id);
+  expect(
+    (
+      await dispatchCustodianHttp(
+        parent,
+        { ...retained, epoch: 2, requestId: 'new-epoch' },
+        () => {},
+      )
+    ).status,
+  ).toBe(403);
+});

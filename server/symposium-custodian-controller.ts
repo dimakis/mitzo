@@ -46,6 +46,7 @@ export class SymposiumCustodianController {
           throw Error('Operator authorization expired or revoked');
       };
       authorize();
+      if (pending.size >= 64) throw Error('Custodian request capacity unavailable');
       sessions.add(command.authorization.id);
       const work = this.owner.dispatch(command, authorize);
       pending.add(work);

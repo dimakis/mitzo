@@ -1,3 +1,4 @@
+import { custodianControllerMode, custodianOwnerMode } from './symposium-custodian-mode.js';
 import { JIRA_API_ENDPOINT } from './connections-gateway.js';
 import { HOST_TOOL_INSTRUCTIONS } from './session-permission-policy.js';
 import { createNativeHooks } from './native-hooks.js';
@@ -184,8 +185,11 @@ function store() {
   if (!privateStore) {
     const dir = codexPrivateDirectory();
     mkdirSync(dir, { recursive: true, mode: 0o700 });
-    privateStore = new CodexConversationStore(join(dir, 'conversations.db'));
-    privateStore.recoverAtStartup();
+    privateStore = new CodexConversationStore(join(dir, 'conversations.db'), {
+      requireOwner: custodianControllerMode || custodianOwnerMode,
+    });
+    if (!custodianOwnerMode)
+      privateStore.recoverAtStartup(custodianControllerMode ? 'ordinary' : undefined);
   }
   return privateStore;
 }

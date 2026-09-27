@@ -200,3 +200,98 @@ it('retires only successfully drained runtime owners and requires explicit later
     store.close();
   }
 });
+it('survives real app child SIGKILL and serves the same retained store only after exact drain', async () => {
+  const { fork } = await import('node:child_process');
+  const { SymposiumCustodianController } = await import('../symposium-custodian-controller.js');
+  const { serveCustodianController } = await import('../symposium-custodian-ipc.js');
+  const { drainRetainedSymposiumControllers } = await import('../symposium-controller-drain.js');
+  const store = fixture();
+  const retainedProviderOwner = Object.freeze({ identity: 'same-original-owner' });
+  let stopped = 0;
+  const runtimes = new Map([
+    [
+      's',
+      {
+        runtime: {
+          beginShutdown() {},
+          async drain() {
+            stopped++;
+          },
+        },
+      },
+    ],
+  ]);
+  const controller = new SymposiumCustodianController({
+    pause() {},
+    resume() {},
+    invalidate() {},
+    drain: (signal) => drainRetainedSymposiumControllers(store, runtimes, 'retained-epoch', signal),
+    async dispatch() {
+      return {
+        status: 200,
+        body: {
+          providerOwner: retainedProviderOwner.identity,
+          membership: store.getLatestSymposiumMembership('s', 'anchor')?.state,
+        },
+      };
+    },
+  });
+  const children: import('node:child_process').ChildProcess[] = [];
+  const launch = () => {
+    const child = fork(new URL('./fixtures/symposium-custodian-child.cjs', import.meta.url), [], {
+      execArgv: [],
+      env: { PATH: process.env.PATH },
+      stdio: ['ignore', 'ignore', 'ignore', 'ipc'],
+    });
+    children.push(child);
+    const response = new Promise<unknown>((resolve) =>
+      child.on('message', (value) => {
+        if (value && typeof value === 'object' && 'fixtureResult' in value)
+          resolve(value.fixtureResult);
+      }),
+    );
+    const lost = serveCustodianController(
+      child as unknown as import('../symposium-custodian-ipc.js').CustodianChannel,
+      controller,
+      { heartbeatMs: 5000 },
+    );
+    return { child, response, lost };
+  };
+  try {
+    const first = launch();
+    expect(await first.response).toEqual({
+      status: 200,
+      body: { providerOwner: 'same-original-owner', membership: 'active' },
+    });
+    first.child.kill('SIGKILL');
+    await first.lost;
+    expect(stopped).toBe(1);
+    const replacement = launch();
+    expect(await replacement.response).toEqual({
+      status: 200,
+      body: { providerOwner: 'same-original-owner', membership: 'suspended' },
+    });
+    replacement.child.kill('SIGKILL');
+    await replacement.lost;
+    expect(stopped).toBe(1);
+  } finally {
+    for (const child of children)
+      if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
+    store.close();
+  }
+});
+it('retires a retained draft runtime without inventing active membership or blocking replacement', async () => {
+  const { drainRetainedSymposiumControllers } = await import('../symposium-controller-drain.js');
+  const store = fixture();
+  store.upsertSession({ sessionId: 'draft' });
+  try {
+    const runtimes = new Map([['draft', { runtime: { beginShutdown() {}, async drain() {} } }]]);
+    await expect(
+      drainRetainedSymposiumControllers(store, runtimes, 'epoch', new AbortController().signal),
+    ).resolves.toBeUndefined();
+    expect(runtimes.size).toBe(0);
+    expect(store.getSymposiumMembershipHistory('draft')).toEqual([]);
+  } finally {
+    store.close();
+  }
+});

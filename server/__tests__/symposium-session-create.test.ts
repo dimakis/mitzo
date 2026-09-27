@@ -238,3 +238,62 @@ it('keeps a draft usable when provisioning fails and retries only that session',
   ).toBe(400);
   expect(ensureSessionArtifacts).toHaveBeenCalledTimes(2);
 });
+it('does not hand a replacement controller active membership when loss races artifact initialization', async () => {
+  const { SymposiumCustodianController } = await import('../symposium-custodian-controller.js');
+  const { dispatchCustodianHttp } = await import('../symposium-custodian-http.js');
+  let release!: () => void, started!: () => void;
+  const entered = new Promise<void>((resolve) => {
+    started = resolve;
+  });
+  const physical = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const retained = new Set<string>();
+  app = express();
+  app.use(express.json());
+  app.use(
+    '/api/symposium/sessions',
+    operatorAuthMiddleware,
+    createSymposiumSessionRouter({
+      store,
+      profiles,
+      currentAccounts,
+      newSessionId: () => 'allocated',
+      onSessionCreated: (id) => retained.add(id),
+      ensureSessionArtifacts: async () => {
+        started();
+        await physical;
+        return { state: 'ready' };
+      },
+    }),
+  );
+  const controller = new SymposiumCustodianController({
+    pause() {},
+    resume() {},
+    invalidate() {},
+    drain: async () => {
+      await physical;
+    },
+    dispatch: (command, assert) => dispatchCustodianHttp(app, command, assert),
+  });
+  const first = controller.attach();
+  const pending = first.request({
+    epoch: first.epoch,
+    requestId: 'create',
+    operation: 'session.create',
+    body,
+    query: {},
+    authorization: { id: 'actual-test-jti', expiresAt: Date.now() + 10000 },
+  });
+  const rejected = expect(pending).rejects.toThrow('controller');
+  await entered;
+  const lost = first.lost();
+  expect(() => controller.attach()).toThrow('cleanup');
+  expect(retained.has('allocated')).toBe(true);
+  release();
+  await rejected;
+  await lost;
+  expect(controller.attach().epoch).toBe(2);
+  expect(JSON.parse(store.getSession('allocated')!.symposiumConfig!).state).toBe('draft');
+  expect(store.getSymposiumMembershipHistory('allocated')).toEqual([]);
+});

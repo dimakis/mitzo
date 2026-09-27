@@ -31,7 +31,11 @@ const response = z.strictObject({
 const ready = z.strictObject({ kind: z.literal('ready'), epoch: z.number().int().positive() });
 export function createCustodianIpcClient(
   channel: CustodianChannel,
-  options: { heartbeatMs?: number; requestTimeoutMs?: number } = {},
+  options: {
+    heartbeatMs?: number;
+    requestTimeoutMs?: number;
+    onEvent?: (sessionId: string, event: Record<string, unknown>) => void;
+  } = {},
 ): CustodianClient {
   let epoch: number | undefined;
   let closed = false;
@@ -75,6 +79,20 @@ export function createCustodianIpcClient(
     }
   };
   const message = (value: unknown) => {
+    if (value && typeof value === 'object') {
+      const frame = value as Record<string, unknown>;
+      if (
+        frame.kind === 'event' &&
+        typeof frame.sessionId === 'string' &&
+        frame.event &&
+        typeof frame.event === 'object' &&
+        !Array.isArray(frame.event) &&
+        Buffer.byteLength(JSON.stringify(frame)) <= 1_048_576
+      ) {
+        options.onEvent?.(frame.sessionId, frame.event as Record<string, unknown>);
+        return;
+      }
+    }
     const greeting = ready.safeParse(value);
     if (greeting.success) {
       if (epoch !== undefined && epoch !== greeting.data.epoch) {

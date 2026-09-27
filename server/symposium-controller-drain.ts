@@ -17,6 +17,14 @@ export async function drainRetainedSymposiumControllers<T extends { runtime: Run
   for (const [sessionId, { runtime }] of entries) {
     runtime.beginShutdown();
     try {
+      const latest = new Map<
+        string,
+        ReturnType<EventStore['getSymposiumMembershipHistory']>[number]
+      >();
+      for (const row of store.getSymposiumMembershipHistory(sessionId))
+        if (!latest.has(row.seatId) || latest.get(row.seatId)!.generation < row.generation)
+          latest.set(row.seatId, row);
+      if (![...latest.values()].some((row) => row.state === 'active')) continue;
       const config = store.getActiveSymposiumConfig(sessionId);
       suspended.push(
         ...store.suspendSymposiumForControllerLoss(

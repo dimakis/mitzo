@@ -19,6 +19,9 @@ describe('finite custodian protocol', () => {
       '/api/sessions/s/symposium/deliveries/d/dispatch/extra',
     ])
       expect(selectCustodianOperation('POST', path)).toBeNull();
+    expect(selectCustodianOperation('GET', '/api/symposium/custody')).toEqual({
+      operation: 'custody.status',
+    });
   });
   it('rejects reflection, host paths, caller authentication and unbounded envelopes', () => {
     const valid = {

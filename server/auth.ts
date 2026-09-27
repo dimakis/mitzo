@@ -309,3 +309,15 @@ export function revokeAuthSession(session: AuthSession | undefined): void {
 }
 
 export { COOKIE_NAME, MAX_AGE_HOURS };
+
+/** Logout invalidation must outlive an individual proxied HTTP request. */
+export function revokeOperatorSessions(
+  sessions: readonly (AuthSession | null)[],
+  notify?: (jti: string) => void,
+) {
+  for (const session of sessions) {
+    if (!session) continue;
+    revokeAuthSession(session);
+    notify?.(session.id);
+  }
+}

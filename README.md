@@ -661,3 +661,5 @@ Dormant [pending native review evidence](docs/operations/symposium-review-attemp
 stores immutable linkage and bounded untrusted findings without enabling dispatch or receipt promotion.
 
 Pending failed-seat cleanup supports [scoped fresh app reauthorization](docs/operations/symposium-native-create-receipts.md#fresh-app-authentication-for-a-pending-cleanup) in the Director UI and operator API while the original host retains custody. Authorization and cleanup require separate explicit actions; this does not provide restart recovery.
+
+- [Local Symposium custodian](docs/operations/symposium-local-custodian.md): optional fresh-fixture owner process survives app loss, fences epochs and drains exact workloads before explicit restoration; custodian death remains quarantined.
