@@ -187,6 +187,8 @@ it.skipIf(!physical)(
       sealer = new FixtureSealer({
         store: {
           getSymposiumArtifactSealIntent: () => intent,
+          getSymposiumArtifactSealByFence: (fenceId: string) =>
+            fenceId === seal.fenceId ? intent : null,
           withSymposiumArtifactSealSnapshot: (_value: unknown, run: () => void) => run(),
         } as never,
         leaseHost,
