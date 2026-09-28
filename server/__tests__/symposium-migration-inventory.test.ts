@@ -94,10 +94,71 @@ it('inventories legacy NULL ownership and unresolved work without replay or data
   ]);
   expect(inventory.pendingIdentities.sourceImports).toEqual(['session-1']);
   expect(inventory.pendingIdentities.artifactLeases).toEqual([
-    { token: 'lease-1', volumeName: 'volume-1', access: 'writer' },
+    { volumeName: 'volume-1', access: 'writer' },
   ]);
   expect(JSON.stringify(inventory)).not.toContain('DO_NOT_PRINT');
+  expect(JSON.stringify(inventory)).not.toContain('lease-1');
   expect(readFileSync(paths.conversationDb)).toEqual(before);
+});
+
+it('treats absent legacy command and artifact columns as unknown while retaining observable work', () => {
+  const paths = fixture(false);
+  const commands = new Database(paths.conversationDb);
+  commands.exec('ALTER TABLE codex_commands DROP COLUMN recovery_acknowledged');
+  commands
+    .prepare('INSERT INTO codex_commands VALUES (?,?,?)')
+    .run('legacy', 'old-running', 'running');
+  commands
+    .prepare('INSERT INTO codex_commands VALUES (?,?,?)')
+    .run('legacy', 'old-interrupted', 'interrupted');
+  commands.close();
+  const artifacts = new Database(paths.artifactDb);
+  artifacts.exec('ALTER TABLE symposium_session_artifacts DROP COLUMN source_import_json');
+  artifacts.exec('ALTER TABLE symposium_session_artifacts DROP COLUMN source_seal_json');
+  artifacts.exec('ALTER TABLE symposium_session_artifacts DROP COLUMN admission_issued');
+  artifacts
+    .prepare('INSERT INTO symposium_session_artifacts VALUES (?,?)')
+    .run('legacy-session', 'ready');
+  artifacts.close();
+  const inventory = inventorySymposiumMigration(paths);
+  expect(inventory.commands.map((command) => command.commandId)).toEqual([
+    'old-interrupted',
+    'old-running',
+  ]);
+  expect(inventory.missingColumns).toEqual(
+    expect.arrayContaining([
+      'codex_commands.recovery_acknowledged',
+      'symposium_session_artifacts.source_import_json',
+      'symposium_session_artifacts.source_seal_json',
+      'symposium_session_artifacts.admission_issued',
+    ]),
+  );
+  expect(inventory.pending).toMatchObject({
+    artifactReservations: 1,
+    sourceImports: null,
+    sourceSeals: null,
+    admissionIssued: null,
+  });
+  expect(rehearseApplicationRollback(inventory)).toMatchObject({
+    decision: 'refused_upgraded_fences',
+    authorized: false,
+  });
+});
+
+it('refuses an empty old artifact schema because the missing fence columns are unknown', () => {
+  const paths = fixture(false);
+  const artifacts = new Database(paths.artifactDb);
+  artifacts.exec('ALTER TABLE symposium_session_artifacts DROP COLUMN source_import_json');
+  artifacts.exec('ALTER TABLE symposium_session_artifacts DROP COLUMN source_seal_json');
+  artifacts.exec('ALTER TABLE symposium_session_artifacts DROP COLUMN admission_issued');
+  artifacts.close();
+  const inventory = inventorySymposiumMigration(paths);
+  expect(inventory.pending.sourceImports).toBeNull();
+  expect(inventory.pending.artifactReservations).toBe(0);
+  expect(rehearseApplicationRollback(inventory)).toMatchObject({
+    decision: 'refused_pending_or_unknown_state',
+    authorized: false,
+  });
 });
 
 it('refuses application rollback when additive fences remain on disposable upgraded state', () => {

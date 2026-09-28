@@ -14,13 +14,14 @@ node scripts/symposium/inventory-migration.mjs ABS_CONVERSATIONS_DB ABS_EVENTS_D
 The Codex conversation database normally lives in the configured private Codex
 directory; EventStore is the repository's `.mitzo/events.db`; the artifact and
 lease databases live in the owned gateway's stable `stateParent`. The command
-opens existing files with SQLite read-only/query-only access. Missing files or
-tables are reported as missing coverage. It lists legacy NULL and explicit
+opens existing files with SQLite read-only/query-only access. Missing files,
+tables or columns are reported as missing coverage; counts that depend on
+missing columns are `null`. It lists legacy NULL and explicit
 ordinary/Symposium ownership, unresolved command IDs, pending creation recovery
 identities, lifecycle fences, executing attempts, imported source session IDs,
-and artifact lease identities. It also counts issued admissions, source seals,
+and artifact volume identities. It also counts issued admissions, source seals,
 artifact reservations and pending retention. It never emits command input,
-source-import JSON, provider credentials or publication payloads.
+source-import JSON, lease tokens, provider credentials or publication payloads.
 
 The application rollback rehearsal has three refusal outcomes:
 

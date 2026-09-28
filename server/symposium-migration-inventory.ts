@@ -28,6 +28,7 @@ export function inventorySymposiumMigration(paths: SymposiumMigrationInventoryPa
   const artifacts = openReadOnly(paths.artifactDb);
   const leases = openReadOnly(paths.leaseDb);
   const missingTables = new Set<string>();
+  const missingColumns = new Set<string>();
   const table = (db: Database.Database | null, name: string) => {
     const exists = Boolean(
       db?.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(name),
@@ -43,6 +44,14 @@ export function inventorySymposiumMigration(paths: SymposiumMigrationInventoryPa
           }
         ).count
       : 0;
+  const column = (db: Database.Database | null, tableName: string, name: string) => {
+    if (!table(db, tableName) || !db) return false;
+    const exists = (db.pragma(`table_info(${tableName})`) as Array<{ name: string }>).some(
+      (entry) => entry.name === name,
+    );
+    if (!exists) missingColumns.add(`${tableName}.${name}`);
+    return exists;
+  };
   try {
     const hasConversations = table(conversations, 'codex_conversations');
     const ownerColumnPresent =
@@ -66,6 +75,7 @@ export function inventorySymposiumMigration(paths: SymposiumMigrationInventoryPa
       symposium: owners.filter((row) => row.ownerKind === 'symposium').map((row) => row.id),
       ownerColumnPresent,
     };
+    const commandAcknowledgement = column(conversations, 'codex_commands', 'recovery_acknowledged');
     const commands =
       table(conversations, 'codex_commands') && conversations
         ? (conversations
@@ -73,22 +83,35 @@ export function inventorySymposiumMigration(paths: SymposiumMigrationInventoryPa
               `SELECT conversation_id AS conversationId,id AS commandId,status
                FROM codex_commands
               WHERE status IN ('queued','running')
-                 OR (status IN ('interrupted','failed') AND recovery_acknowledged=0)
+                 OR (status IN ('interrupted','failed')${commandAcknowledgement ? ' AND recovery_acknowledged=0' : ''})
               ORDER BY conversation_id,id`,
             )
             .all() as Array<{ conversationId: string; commandId: string; status: string }>)
         : [];
+    const sourceImportColumn = column(
+      artifacts,
+      'symposium_session_artifacts',
+      'source_import_json',
+    );
+    const sourceSealColumn = column(artifacts, 'symposium_session_artifacts', 'source_seal_json');
+    const admissionIssuedColumn = column(
+      artifacts,
+      'symposium_session_artifacts',
+      'admission_issued',
+    );
     const pending = {
       creationRecoveries: count(events, 'symposium_creation_recoveries', 'result_json IS NULL'),
       lifecycleFences: count(events, 'symposium_seat_lifecycle_fences'),
       executingAttempts: count(events, 'symposium_recipient_attempts', "status='executing'"),
-      sourceImports: count(
-        artifacts,
-        'symposium_session_artifacts',
-        'source_import_json IS NOT NULL',
-      ),
-      sourceSeals: count(artifacts, 'symposium_session_artifacts', 'source_seal_json IS NOT NULL'),
-      admissionIssued: count(artifacts, 'symposium_session_artifacts', 'admission_issued=1'),
+      sourceImports: sourceImportColumn
+        ? count(artifacts, 'symposium_session_artifacts', 'source_import_json IS NOT NULL')
+        : null,
+      sourceSeals: sourceSealColumn
+        ? count(artifacts, 'symposium_session_artifacts', 'source_seal_json IS NOT NULL')
+        : null,
+      admissionIssued: admissionIssuedColumn
+        ? count(artifacts, 'symposium_session_artifacts', 'admission_issued=1')
+        : null,
       artifactReservations: count(artifacts, 'symposium_session_artifacts'),
       artifactLeases: count(leases, 'symposium_artifact_leases'),
       artifactRetention: count(leases, 'symposium_artifact_pending_retention'),
@@ -124,7 +147,7 @@ export function inventorySymposiumMigration(paths: SymposiumMigrationInventoryPa
               .all() as Array<{ deliveryId: string; seatId: string }>)
           : [],
       sourceImports:
-        table(artifacts, 'symposium_session_artifacts') && artifacts
+        sourceImportColumn && artifacts
           ? (
               artifacts
                 .prepare(
@@ -138,13 +161,20 @@ export function inventorySymposiumMigration(paths: SymposiumMigrationInventoryPa
         table(leases, 'symposium_artifact_leases') && leases
           ? (leases
               .prepare(
-                `SELECT token,volume_name AS volumeName,access
-                 FROM symposium_artifact_leases ORDER BY token`,
+                `SELECT volume_name AS volumeName,access
+                 FROM symposium_artifact_leases ORDER BY volume_name,access`,
               )
-              .all() as Array<{ token: string; volumeName: string; access: string }>)
+              .all() as Array<{ volumeName: string; access: string }>)
           : [],
     };
-    return { ownership, commands, pending, pendingIdentities, missingTables: [...missingTables] };
+    return {
+      ownership,
+      commands,
+      pending,
+      pendingIdentities,
+      missingTables: [...missingTables],
+      missingColumns: [...missingColumns],
+    };
   } finally {
     leases?.close();
     artifacts?.close();
@@ -160,7 +190,7 @@ export function rehearseApplicationRollback(
   inventory: ReturnType<typeof inventorySymposiumMigration>,
 ) {
   const upgradedFences = Object.entries(inventory.pending)
-    .filter(([, count]) => count > 0)
+    .filter(([, count]) => typeof count === 'number' && count > 0)
     .map(([name]) => name);
   if (upgradedFences.length)
     return {
@@ -168,7 +198,11 @@ export function rehearseApplicationRollback(
       authorized: false as const,
       upgradedFences,
     };
-  if (inventory.commands.length || inventory.missingTables.length)
+  if (
+    inventory.commands.length ||
+    inventory.missingTables.length ||
+    inventory.missingColumns.length
+  )
     return {
       decision: 'refused_pending_or_unknown_state' as const,
       authorized: false as const,
