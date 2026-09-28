@@ -191,6 +191,12 @@ export class PhysicalArtifactSuccessorCopier {
     await this.check(exported, bundle, signal);
     const { ledger, command } = this.deps;
     const intent = ledger.reserve(request);
+    const retained = ledger.verifiedCopy(request, intent.generationId);
+    if (retained) {
+      this.assertCopyReceipt(intent, retained);
+      await this.volume(intent);
+      return retained;
+    }
     if (!ledger.claimCopy(request, intent.generationId))
       throw new Error('Successor copy already claimed; reconciliation required');
     const observe = (value: Parameters<typeof ledger.observePhysical>[2]) =>

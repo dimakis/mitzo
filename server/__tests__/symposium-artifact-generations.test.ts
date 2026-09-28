@@ -108,6 +108,23 @@ function copied() {
   f.store.recordCopy(context, f.intent.generationId, receipt(f.intent));
   return f;
 }
+it('recovers only the exact verified copy receipt and never an uncertain dispatch', () => {
+  const pending = prepared();
+  expect(pending.store.claimCopy(context, pending.intent.generationId)).toBe(true);
+  expect(pending.store.verifiedCopy(context, pending.intent.generationId)).toBeNull();
+  expect(pending.store.claimCopy(context, pending.intent.generationId)).toBe(false);
+  const complete = copied();
+  expect(complete.store.verifiedCopy(context, complete.intent.generationId)).toEqual(
+    receipt(complete.intent),
+  );
+  expect(complete.store.claimCopy(context, complete.intent.generationId)).toBe(false);
+  expect(() =>
+    complete.store.verifiedCopy(
+      { ...context, custodyDigest: 'c'.repeat(64) },
+      complete.intent.generationId,
+    ),
+  ).toThrow();
+});
 it('keeps parent byte-identical through copy and child pointer activation', () => {
   const f = copied();
   const before = f.store.historical(context, 'initial');

@@ -21,6 +21,7 @@ import type {
   SuccessorArtifactExportReceipt,
 } from './symposium-physical-artifact-seal.js';
 import { canonicalReviewJson, reviewRecordHash } from './symposium-review-records.js';
+import { renewReviewerAdmissionAfterWriter } from './symposium-reviewer-admission-renewal.js';
 
 type Transition = NonNullable<SymposiumTrustedReviewHostDeps['transition']>;
 type Fix = ApplicationPreparation & { kind: 'fix' };
@@ -72,13 +73,6 @@ export function createSealedFixReviewTransition(deps: {
     bundle: Buffer,
     signal: AbortSignal,
   ): Promise<ArtifactGenerationCopyReceipt>;
-  activate(
-    request: ArtifactGenerationRequest,
-    generationId: string,
-    receipt: SuccessorArtifactExportReceipt,
-    bundle: Buffer,
-    signal: AbortSignal,
-  ): Promise<{ generationId: string; revision: number }>;
   admit(
     request: ArtifactGenerationRequest,
     binding: ArtifactAdmissionBindingV1,
@@ -297,18 +291,6 @@ export function createSealedFixReviewTransition(deps: {
         ...successorCopierContract(),
       };
       const copied = await deps.copy(request, receipt, exported.bundle, signal);
-      const activated = await deps.activate(
-        request,
-        copied.generationId,
-        receipt,
-        exported.bundle,
-        signal,
-      );
-      if (
-        activated.generationId !== copied.generationId ||
-        activated.revision !== pointer.pointerRevision + 1
-      )
-        throw new Error('Fix child activation changed');
       const binding: ArtifactAdmissionBindingV1 = {
         version: 1,
         kind: 'fix',
@@ -323,7 +305,7 @@ export function createSealedFixReviewTransition(deps: {
         childVolumeName: copied.volumeName,
         copyReceiptDigest: artifactAdmissionDigest(copied),
         expectedPointerRevision: pointer.pointerRevision,
-        activatedPointerRevision: activated.revision,
+        activatedPointerRevision: pointer.pointerRevision + 1,
         workflowId: prep.workflowId,
         policyReservationId: prep.policyReservationId,
         seatId: seat.id,
@@ -365,6 +347,14 @@ export function createSealedFixReviewTransition(deps: {
         admission.membershipGeneration !== prep.to.membershipGeneration
       )
         throw new Error('Fresh fix child provider admission required');
+      renewReviewerAdmissionAfterWriter({
+        context,
+        events: deps.events,
+        grants: deps.grants,
+        runtime: deps.runtime(context),
+        transitionId: prep.transitionId,
+        expectedRevision: prep.to.configRevision,
+      });
       const prompt = `Fix only the owner-authorized open findings for artifact ${prep.artifactRevision} (${prep.artifactHash}). Commit the resulting changes and report what changed; host verification determines completion. Task data:\n${JSON.stringify({ acceptanceCriteria: workflow.acceptanceCriteria, findings: workflow.findings.filter((finding) => findings.includes(finding.fingerprint)) })}`;
       const delivery = deps.runtime(context).stageDelivery({
         sessionId: context.sessionId,

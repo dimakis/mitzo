@@ -96,7 +96,6 @@ export function createSymposiumProductionReviewComposition(deps: {
     !host.inspectCompletedArtifact ||
     !host.exportSuccessorArtifactBundle ||
     !host.copySuccessorArtifact ||
-    !host.activateSuccessorArtifact ||
     !host.admitSuccessorArtifact ||
     !host.artifactLeaseHost ||
     !host.attemptRegistry
@@ -187,8 +186,6 @@ export function createSymposiumProductionReviewComposition(deps: {
       },
       copy: (request, receipt, bundle, signal) =>
         host.copySuccessorArtifact!(request, receipt, bundle, signal),
-      activate: (request, generationId, receipt, bundle, signal) =>
-        host.activateSuccessorArtifact!(request, generationId, receipt, bundle, signal),
       admit: (request, binding, receipt, bundle, signal) =>
         host.admitSuccessorArtifact!(request, binding, receipt, bundle, signal),
       runtime,
@@ -230,8 +227,6 @@ export function createSymposiumProductionReviewComposition(deps: {
       },
       copy: (request, receipt, bundle, signal) =>
         host.copySuccessorArtifact!(request, receipt, bundle, signal),
-      activate: (request, generationId, receipt, bundle, signal) =>
-        host.activateSuccessorArtifact!(request, generationId, receipt, bundle, signal),
       admit: (request, binding, receipt, bundle, signal) =>
         host.admitSuccessorArtifact!(request, binding, receipt, bundle, signal),
       runtime,

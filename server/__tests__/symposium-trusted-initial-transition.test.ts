@@ -124,6 +124,7 @@ it('rejects application of an uncharged initial preparation before physical copy
 
 it('copies and confirms the child before admitting the provider and staging delivery', async () => {
   const order: string[] = [];
+  let revision = 1;
   let retained: unknown = null;
   const exported = {
     receipt: {
@@ -199,7 +200,7 @@ it('copies and confirms the child before admitting the provider and staging deli
   };
   const transition = createSealedInitialReviewTransition({
     events: {
-      getActiveSymposiumConfig: () => ({ version: 2, state: 'active', revision: 1, seats: [seat] }),
+      getActiveSymposiumConfig: () => ({ version: 2, state: 'active', revision, seats: [seat] }),
       getLatestSymposiumMembership: () => ({
         generation: 1,
         state: 'active',
@@ -207,6 +208,7 @@ it('copies and confirms the child before admitting the provider and staging deli
       }),
       assertSymposiumArtifactAdmissionCurrent: vi.fn(() => {
         order.push('confirmed');
+        revision = 2;
       }),
     },
     reviews: {
@@ -235,8 +237,7 @@ it('copies and confirms the child before admitting the provider and staging deli
       return { generationId: 'child', volumeName: 'child-volume' };
     }),
     activate: vi.fn(async () => {
-      order.push('activate');
-      return { generationId: 'child', revision: 1 };
+      throw new Error('Activation must be part of admission');
     }),
     admit: vi.fn(async (_request: unknown, binding: unknown) => {
       order.push('admit');
@@ -279,5 +280,5 @@ it('copies and confirms the child before admitting the provider and staging deli
     actorSeatId: 'coder',
     binding: { deliveryId: 'delivery', configRevision: 2, membershipGeneration: 2 },
   });
-  expect(order).toEqual(['copy', 'activate', 'admit', 'confirmed', 'provider', 'delivery']);
+  expect(order).toEqual(['copy', 'admit', 'confirmed', 'provider', 'delivery']);
 });

@@ -18,6 +18,7 @@ import type {
 import { successorCopierContract } from './symposium-artifact-successor-copy.js';
 import type { InitialSourceExportReceipt } from './symposium-source-artifact-seal.js';
 import { canonicalReviewJson } from './symposium-review-records.js';
+import { renewReviewerAdmissionAfterWriter } from './symposium-reviewer-admission-renewal.js';
 
 type Transition = NonNullable<SymposiumTrustedReviewHostDeps['transition']>;
 type Initial = Extract<ApplicationPreparation, { kind: 'initial' }>;
@@ -63,13 +64,6 @@ export function createSealedInitialReviewTransition(deps: {
     bundle: Buffer,
     signal: AbortSignal,
   ): Promise<ArtifactGenerationCopyReceipt>;
-  activate(
-    request: ArtifactGenerationRequest,
-    generationId: string,
-    receipt: InitialSourceExportReceipt,
-    bundle: Buffer,
-    signal: AbortSignal,
-  ): Promise<{ generationId: string; revision: number }>;
   admit(
     request: ArtifactGenerationRequest,
     binding: ArtifactAdmissionBindingV1,
@@ -259,15 +253,6 @@ export function createSealedInitialReviewTransition(deps: {
       };
       const signal = AbortSignal.timeout(600_000);
       const copied = await deps.copy(request, receipt, exported.bundle, signal);
-      const activated = await deps.activate(
-        request,
-        copied.generationId,
-        receipt,
-        exported.bundle,
-        signal,
-      );
-      if (activated.generationId !== copied.generationId || activated.revision !== 1)
-        throw new Error('Initial child activation changed');
       const binding: ArtifactAdmissionBindingV1 = {
         version: 1,
         kind: 'initial',
@@ -282,7 +267,7 @@ export function createSealedInitialReviewTransition(deps: {
         childVolumeName: copied.volumeName,
         copyReceiptDigest: artifactAdmissionDigest(copied),
         expectedPointerRevision: 0,
-        activatedPointerRevision: activated.revision,
+        activatedPointerRevision: request.expectedPointerRevision + 1,
         workflowId: prep.workflowId,
         policyReservationId: prep.policyReservationId,
         seatId: seat.id,
@@ -323,6 +308,14 @@ export function createSealedInitialReviewTransition(deps: {
         admission.membershipGeneration !== prep.to.membershipGeneration
       )
         throw new Error('Fresh initial child provider admission required');
+      renewReviewerAdmissionAfterWriter({
+        context,
+        events: deps.events,
+        grants: deps.grants,
+        runtime: deps.runtime(context),
+        transitionId: prep.transitionId,
+        expectedRevision: prep.to.configRevision,
+      });
       const prompt = `Implement the acceptance contract for imported artifact ${prep.artifactRevision} (${prep.artifactHash}). Commit the changes and report what changed; host verification determines completion. Task data:\n${JSON.stringify({ acceptanceCriteria: workflow.acceptanceCriteria })}`;
       const delivery = deps.runtime(context).stageDelivery({
         sessionId: context.sessionId,

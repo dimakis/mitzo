@@ -303,8 +303,34 @@ export function createSymposiumReviewRouter(deps: {
       else {
         let attemptId: string;
         const kind = action.action === 'recover' ? action.kind : action.action;
-        if (action.action === 'recover') attemptId = action.attemptId;
-        else {
+        if (action.action === 'recover') {
+          attemptId = action.attemptId;
+          const preparation = deps.store.getApplicationPreparation(workflowId, attemptId);
+          if (preparation?.status === 'preparing') {
+            if (
+              inspected.limits.mode !== 'application' ||
+              preparation.kind !==
+                (kind === 'review' && inspected.status === 'awaiting_delta_review' ? 'delta' : kind)
+            ) {
+              res.status(409).json({ kind: 'decision_required', code: 'preparation_changed' });
+              return;
+            }
+            // Resume the exact charged transition. The physical owners reuse only
+            // retained verified receipts; an uncertain copy remains quarantined.
+            const reservation = await coordinator.reserveWithTransition(
+              ctx,
+              workflowId,
+              kind,
+              attemptId,
+            );
+            if (reservation.kind !== 'reserved_not_dispatched') {
+              res.status(409).json(reservation);
+              return;
+            }
+            await host.dispatch(ctx, reservation);
+            await host.refreshArtifact?.(ctx);
+          }
+        } else {
           if (action.action === 'fix') {
             const authorized = coordinator.authorizeFix(ctx, {
               workflowId,

@@ -95,6 +95,7 @@ it('prepares the exact sealed finding scope without exporting or copying', async
 
 it('requires one exact charged owner intent and admits the copied fix child before delivery', async () => {
   const order: string[] = [];
+  let revision = 4;
   const finding = 'c'.repeat(64);
   const intent = {
     fenceId: 'fence',
@@ -179,7 +180,7 @@ it('requires one exact charged owner intent and admits the copied fix child befo
       getActiveSymposiumConfig: () => ({
         version: 2,
         state: 'active',
-        revision: 4,
+        revision,
         seats: [
           {
             id: 'coder',
@@ -199,6 +200,7 @@ it('requires one exact charged owner intent and admits the copied fix child befo
       getSymposiumArtifactSealByFence: () => intent,
       assertSymposiumArtifactAdmissionCurrent: vi.fn(() => {
         order.push('confirmed');
+        revision = 5;
       }),
     },
     reviews: { get: () => state, getApplicationPreparation: () => retained },
@@ -250,11 +252,7 @@ it('requires one exact charged owner intent and admits the copied fix child befo
       };
     }),
     activate: vi.fn(async () => {
-      order.push('activate');
-      return {
-        generationId: 'child',
-        revision: 2,
-      };
+      throw new Error('Activation must be part of admission');
     }),
     admit: vi.fn(async (_request: unknown, binding: unknown) => {
       order.push('admit');
@@ -307,7 +305,6 @@ it('requires one exact charged owner intent and admits the copied fix child befo
     'inspect',
     'export',
     'copy',
-    'activate',
     'admit',
     'confirmed',
     'provider',

@@ -300,6 +300,17 @@ export class SymposiumArtifactGenerations {
       })
       .immediate();
   }
+  /** Retained successful copy may be reused for the same immutable operation.
+   * Uncertain and quarantined copies never authorize a second physical dispatch. */
+  verifiedCopy(context: Context, generationId: string): ArtifactGenerationCopyReceipt | null {
+    const row = this.get(context, generationId);
+    const intent = this.intent(row);
+    this.require(this.proof.authority(intent.request));
+    if (!['verified', 'active'].includes(row.state) || !row.receipt_json) return null;
+    const receipt = receiptSchema.parse(JSON.parse(row.receipt_json));
+    this.require(this.proof.copy(intent, receipt));
+    return receipt;
+  }
   /** Only true is the first durable claim; false never permits another copy dispatch. */
   claimCopy(context: Context, generationId: string): boolean {
     return this.db
