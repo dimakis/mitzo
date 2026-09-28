@@ -8,6 +8,21 @@ export type ApplicationPolicy = {
 };
 export type ReviewWorkflow = {
   workflowId: string;
+  acceptanceCriteria?: string[];
+  currentResultId?: string | null;
+  evidence?: Array<{
+    source: 'host' | 'model';
+    artifactHash: string;
+    item: {
+      evidenceId: string;
+      resultId: string;
+      criterion: string;
+      verdict: 'verified' | 'failed' | 'inconclusive';
+      artifactRevision: string;
+      evidenceRefs: string[];
+      checkedAt: number;
+    };
+  }>;
   status: string;
   artifactRevision: string;
   artifactHash: string;
@@ -44,6 +59,13 @@ export type ReviewWorkflow = {
   }>;
   reviews: Array<{ reviewId: string; kind: string; artifactRevision: string }>;
   reservations: Array<{ attemptId: string; kind: 'review' | 'fix'; settled: boolean }>;
+};
+
+export type CriterionCheck = {
+  id: string;
+  criterion: string;
+  kind: 'file-sha256';
+  path: string;
 };
 
 export type InitialApplicationRun = {

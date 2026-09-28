@@ -8,6 +8,7 @@ import { apiFetch } from '../lib/api-fetch';
 import type {
   InitialApplicationRun,
   ApplicationPolicy,
+  CriterionCheck,
   ReviewWorkflow as Workflow,
 } from '../types/symposium-review';
 export function SymposiumReviewEntry({ sessionId }: { sessionId: string }) {
@@ -28,6 +29,9 @@ export function SymposiumReviewPanel({ sessionId }: { sessionId: string }) {
 function ReviewPanel({ sessionId }: { sessionId: string }) {
   const base = `/api/sessions/${encodeURIComponent(sessionId)}/symposium/reviews`;
   const [workflows, setWorkflows] = useState<Workflow[]>([]);
+  const [criterionChecks, setCriterionChecks] = useState<CriterionCheck[]>([]);
+  const [selectedCheck, setSelectedCheck] = useState('');
+  const [confirmedArtifact, setConfirmedArtifact] = useState(false);
   const [workflowId, setWorkflowId] = useState<string | null>(null);
   const [newReview, setNewReview] = useState(false);
   const [historyVersion, setHistoryVersion] = useState(0);
@@ -67,6 +71,8 @@ function ReviewPanel({ sessionId }: { sessionId: string }) {
       setStopAvailable(data.stopAvailable ?? data.available);
       setApplicationRun(data.applicationRun ?? { available: false, initialArtifact: null });
       setWorkflows(data.workflows);
+      setCriterionChecks(data.criterionChecks ?? []);
+      setConfirmedArtifact(false);
       setHistoryVersion((version) => version + 1);
       setLoaded(true);
     },
@@ -227,6 +233,7 @@ function ReviewPanel({ sessionId }: { sessionId: string }) {
               setSelected([]);
               setReason('');
               setRecord('');
+              setConfirmedArtifact(false);
             }}
           >
             {newReview && <option value="">New review</option>}
@@ -247,6 +254,7 @@ function ReviewPanel({ sessionId }: { sessionId: string }) {
             setSelected([]);
             setReason('');
             setRecord('');
+            setConfirmedArtifact(false);
           }}
         >
           New review for current artifact
@@ -379,6 +387,68 @@ function ReviewPanel({ sessionId }: { sessionId: string }) {
               </li>
             ))}
           </ul>
+          {workflow.acceptanceCriteria && workflow.acceptanceCriteria.length > 0 && (
+            <section aria-label="Criterion verification">
+              <h4>Criterion verification</h4>
+              <p>
+                Current result: {workflow.currentResultId ?? 'none'} · Artifact:{' '}
+                {workflow.artifactRevision} · SHA-256: {workflow.artifactHash}
+              </p>
+              {workflow.status === 'awaiting_evidence' && criterionChecks.length > 0 && (
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={confirmedArtifact}
+                    disabled={busy || !available || Boolean(pending)}
+                    onChange={(event) => setConfirmedArtifact(event.target.checked)}
+                  />
+                  Confirm exact artifact for criterion checks: {workflow.artifactRevision} ·
+                  SHA-256: {workflow.artifactHash}
+                </label>
+              )}
+              <ul>
+                {workflow.acceptanceCriteria.map((criterion) => {
+                  const current = workflow.evidence
+                    ?.filter(
+                      (entry) =>
+                        entry.source === 'host' &&
+                        entry.item.criterion === criterion &&
+                        entry.item.resultId === workflow.currentResultId &&
+                        entry.item.artifactRevision === workflow.artifactRevision &&
+                        entry.artifactHash === workflow.artifactHash,
+                    )
+                    .at(-1);
+                  const verdict = current?.item.verdict ?? 'missing evidence';
+                  const registered = criterionChecks.find((item) => item.criterion === criterion);
+                  return (
+                    <li key={criterion}>
+                      <span>
+                        {criterion}: {verdict}
+                      </span>
+                      {workflow.status === 'awaiting_evidence' && registered && (
+                        <button
+                          disabled={busy || !available || Boolean(pending) || !confirmedArtifact}
+                          onClick={() =>
+                            void action(endpoint, { action: 'check', definitionId: registered.id })
+                          }
+                        >
+                          Run registered check: {criterion}
+                        </button>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+              {workflow.acceptanceCriteria.some(
+                (criterion) => !criterionChecks.some((check) => check.criterion === criterion),
+              ) && (
+                <p>
+                  Unregistered criteria need separate trusted host evidence. A reviewer's assertion
+                  does not verify them.
+                </p>
+              )}
+            </section>
+          )}
           {workflow.status === 'awaiting_fix' && (
             <>
               <label>
@@ -481,10 +551,51 @@ function ReviewPanel({ sessionId }: { sessionId: string }) {
       )}
       {loaded && available && !workflow && (
         <>
+          {criterionChecks.length > 0 && (
+            <div>
+              <label>
+                Registered criterion check
+                <select
+                  value={selectedCheck}
+                  onChange={(event) => setSelectedCheck(event.target.value)}
+                >
+                  <option value="">Select a check</option>
+                  {criterionChecks.map((check) => (
+                    <option key={check.id} value={check.id}>
+                      {check.criterion} · {check.path}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <button
+                disabled={!selectedCheck || busy}
+                onClick={() => {
+                  const check = criterionChecks.find((item) => item.id === selectedCheck);
+                  if (!check) return;
+                  setCriteria((current) => {
+                    const lines = current
+                      .split('\n')
+                      .map((line) => line.trim())
+                      .filter(Boolean);
+                    return lines.includes(check.criterion)
+                      ? current
+                      : [...lines, check.criterion].join('\n');
+                  });
+                  setSelectedCheck('');
+                }}
+              >
+                Add registered criterion
+              </button>
+            </div>
+          )}
           <label>
             Acceptance criteria (one per line)
             <textarea value={criteria} onChange={(event) => setCriteria(event.target.value)} />
           </label>
+          <p>
+            Free-form criteria require separate trusted host evidence. Registered checks are
+            available above.
+          </p>
           {limitFields}
           {applicationRun.available && applicationRun.initialArtifact ? (
             <p>

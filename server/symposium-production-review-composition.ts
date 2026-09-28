@@ -336,6 +336,15 @@ export function createSymposiumProductionReviewComposition(deps: {
             return { evidenceId: evidence.evidenceId };
           }
         : undefined,
+      criterionChecks: () =>
+        checks
+          ? host.criterionChecks!.map(({ id, criterion, kind, path }) => ({
+              id,
+              criterion,
+              kind,
+              path,
+            }))
+          : [],
       authorizeAction: (context, action) => deps.actionAuthority.authorize(context, action.kind),
     });
     return {

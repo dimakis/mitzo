@@ -5,7 +5,7 @@ import { SymposiumReviewStore } from '../symposium-review-workflows.js';
 import { createSymposiumReviewRouter } from '../symposium-review-routes.js';
 const stores: SymposiumReviewStore[] = [];
 afterEach(() => stores.splice(0).forEach((store) => store.close()));
-function fixture(owner?: string) {
+function fixture(owner?: string, host?: { criterionChecks(): unknown[] }) {
   const store = new SymposiumReviewStore(':memory:');
   stores.push(store);
   const app = express();
@@ -18,7 +18,7 @@ function fixture(owner?: string) {
     '/api/sessions/:id/symposium/reviews',
     createSymposiumReviewRouter({
       store,
-      getHost: () => null,
+      getHost: () => (host as never) ?? null,
       hasSession: (id) => id === 'session',
     }),
   );
@@ -49,7 +49,24 @@ it('reports missing native review authority without creating a workflow or dispa
       reason: 'Trusted initial artifact unavailable',
     },
     workflows: [],
+    criterionChecks: [],
   });
+});
+it('discovers only host-registered checks through the authenticated review route', async () => {
+  const host = {
+    criterionChecks: () => [
+      { id: 'marker', criterion: 'Marker exists', kind: 'file-sha256', path: 'marker.txt' },
+    ],
+  };
+  expect(
+    (await request(fixture(undefined, host).app).get('/api/sessions/session/symposium/reviews'))
+      .status,
+  ).toBe(403);
+  const response = await request(fixture('owner', host).app).get(
+    '/api/sessions/session/symposium/reviews',
+  );
+  expect(response.status).toBe(200);
+  expect(response.body.criterionChecks).toEqual(host.criterionChecks());
 });
 it('rejects caller fabricated findings and owner identities', async () => {
   const { app } = fixture('owner');

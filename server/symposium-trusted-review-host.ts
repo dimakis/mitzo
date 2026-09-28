@@ -100,6 +100,7 @@ export interface SymposiumTrustedReviewHostDeps {
     workflowId: string,
     definitionId: string,
   ): Promise<{ evidenceId: string }>;
+  criterionChecks?(): Array<{ id: string; criterion: string; kind: 'file-sha256'; path: string }>;
   /** Validate a live request-scoped interactive capability, current authentication and
    * the exact action. Plain owner/session strings never establish fresh authority. */
   authorizeAction(
@@ -635,6 +636,7 @@ export function createSymposiumTrustedReviewHost(
       if (!deps.runCriterionCheck) throw new Error('Trusted criterion check unavailable');
       return deps.runCriterionCheck(context, workflowId, definitionId);
     },
+    criterionChecks: () => deps.criterionChecks?.() ?? [],
     authorizeFix(input) {
       const state = workflow(input.context, input.workflowId);
       const { context, ...action } = input;

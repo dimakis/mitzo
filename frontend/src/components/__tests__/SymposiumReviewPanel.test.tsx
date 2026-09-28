@@ -614,3 +614,201 @@ it('keeps Stop available when artifact refresh disables execution', async () => 
       .disabled,
   ).toBe(true);
 });
+
+it('discovers a registered criterion and requires exact artifact confirmation before running its check', async () => {
+  const { symposiumReviewPreviewResponses } =
+    await import('../../preview/symposium-review-fixtures');
+  const base = symposiumReviewPreviewResponses.findings.workflows[0];
+  const workflow = {
+    ...base,
+    status: 'awaiting_evidence',
+    currentResultId: 'result-1',
+    acceptanceCriteria: ['The approved marker exists', 'A free-form claim'],
+    evidence: [],
+    applicationAttempts: [],
+    limits: policy,
+  };
+  const checks = [
+    {
+      id: 'approved-marker',
+      criterion: 'The approved marker exists',
+      kind: 'file-sha256',
+      path: 'marker.txt',
+    },
+  ];
+  vi.mocked(apiFetch).mockImplementation(async (_path, init) =>
+    response(
+      init?.method === 'POST'
+        ? {
+            ...workflow,
+            evidence: [
+              {
+                source: 'host',
+                artifactHash: workflow.artifactHash,
+                item: {
+                  evidenceId: 'receipt-1',
+                  resultId: 'result-1',
+                  criterion: checks[0].criterion,
+                  verdict: 'verified',
+                  artifactRevision: workflow.artifactRevision,
+                  evidenceRefs: ['physical:1'],
+                  checkedAt: 2,
+                },
+              },
+            ],
+          }
+        : { available: true, workflows: [workflow], criterionChecks: checks },
+    ),
+  );
+  render(<SymposiumReviewPanel sessionId="session" />);
+  expect(await screen.findByText('A free-form claim: missing evidence')).toBeTruthy();
+  expect(screen.getByText('The approved marker exists: missing evidence')).toBeTruthy();
+  const run = screen.getByRole('button', {
+    name: 'Run registered check: The approved marker exists',
+  });
+  expect((run as HTMLButtonElement).disabled).toBe(true);
+  expect(
+    screen.queryByRole('button', { name: 'Run registered check: A free-form claim' }),
+  ).toBeNull();
+  fireEvent.click(screen.getByLabelText(/Confirm exact artifact for criterion checks/));
+  fireEvent.click(run);
+  await waitFor(() =>
+    expect(apiFetch).toHaveBeenCalledWith(
+      '/api/sessions/session/symposium/reviews/preview-review/actions',
+      expect.objectContaining({
+        body: JSON.stringify({
+          action: 'check',
+          definitionId: 'approved-marker',
+          expectedArtifactRevision: workflow.artifactRevision,
+          expectedArtifactHash: workflow.artifactHash,
+        }),
+      }),
+    ),
+  );
+});
+
+it('shows current host check verdicts and ignores stale or model asserted evidence', async () => {
+  const { symposiumReviewPreviewResponses } =
+    await import('../../preview/symposium-review-fixtures');
+  const base = symposiumReviewPreviewResponses.findings.workflows[0];
+  const workflow = {
+    ...base,
+    status: 'awaiting_evidence',
+    currentResultId: 'current-result',
+    acceptanceCriteria: ['Check me'],
+    evidence: [
+      {
+        source: 'host',
+        artifactHash: base.artifactHash,
+        item: {
+          criterion: 'Check me',
+          resultId: 'old-result',
+          artifactRevision: base.artifactRevision,
+          verdict: 'verified',
+          evidenceId: 'old',
+          evidenceRefs: ['old'],
+          checkedAt: 1,
+        },
+      },
+      {
+        source: 'model',
+        artifactHash: base.artifactHash,
+        item: {
+          criterion: 'Check me',
+          resultId: 'current-result',
+          artifactRevision: base.artifactRevision,
+          verdict: 'verified',
+          evidenceId: 'model',
+          evidenceRefs: ['claim'],
+          checkedAt: 2,
+        },
+      },
+      {
+        source: 'host',
+        artifactHash: base.artifactHash,
+        item: {
+          criterion: 'Check me',
+          resultId: 'current-result',
+          artifactRevision: base.artifactRevision,
+          verdict: 'failed',
+          evidenceId: 'failed',
+          evidenceRefs: ['physical'],
+          checkedAt: 3,
+        },
+      },
+    ],
+  };
+  vi.mocked(apiFetch).mockResolvedValue(
+    response({ available: true, workflows: [workflow], criterionChecks: [] }),
+  );
+  render(<SymposiumReviewPanel sessionId="session" />);
+  expect(await screen.findByText('Check me: failed')).toBeTruthy();
+  expect(screen.queryByText('Check me: verified')).toBeNull();
+});
+
+it('shows verified only for the current exact host result and artifact', async () => {
+  const { symposiumReviewPreviewResponses } =
+    await import('../../preview/symposium-review-fixtures');
+  const base = symposiumReviewPreviewResponses.findings.workflows[0];
+  const workflow = {
+    ...base,
+    status: 'verified',
+    currentResultId: 'current-result',
+    acceptanceCriteria: ['Check me'],
+    evidence: [
+      {
+        source: 'host',
+        artifactHash: base.artifactHash,
+        item: {
+          criterion: 'Check me',
+          resultId: 'current-result',
+          artifactRevision: base.artifactRevision,
+          verdict: 'verified',
+          evidenceId: 'receipt',
+          evidenceRefs: ['physical'],
+          checkedAt: 3,
+        },
+      },
+    ],
+  };
+  vi.mocked(apiFetch).mockResolvedValue(
+    response({ available: true, workflows: [workflow], criterionChecks: [] }),
+  );
+  render(<SymposiumReviewPanel sessionId="session" />);
+  expect(await screen.findByText('Check me: verified')).toBeTruthy();
+});
+
+it('adds only the selected registered criterion to a new application run', async () => {
+  const checks = [
+    {
+      id: 'marker',
+      criterion: 'The approved marker exists',
+      kind: 'file-sha256',
+      path: 'marker.txt',
+    },
+  ];
+  vi.mocked(apiFetch).mockResolvedValue(
+    response({
+      available: true,
+      workflows: [],
+      criterionChecks: checks,
+      applicationRun: {
+        available: true,
+        initialArtifact: { revision: 'source', hash: 'c'.repeat(64) },
+      },
+    }),
+  );
+  render(<SymposiumReviewPanel sessionId="session" />);
+  const add = await screen.findByRole('button', { name: 'Add registered criterion' });
+  expect((add as HTMLButtonElement).disabled).toBe(true);
+  fireEvent.change(screen.getByLabelText('Registered criterion check'), {
+    target: { value: 'marker' },
+  });
+  fireEvent.click(add);
+  expect(
+    (screen.getByLabelText('Acceptance criteria (one per line)') as HTMLTextAreaElement).value,
+  ).toBe('The approved marker exists');
+  expect(
+    screen.getByText(/Free-form criteria require separate trusted host evidence/),
+  ).toBeTruthy();
+});
