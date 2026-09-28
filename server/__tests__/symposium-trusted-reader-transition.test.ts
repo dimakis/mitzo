@@ -80,12 +80,6 @@ function fixture() {
     occurredAt: 1,
   });
   events.markSymposiumMembershipReconciled('symposium', 'reviewer', 1, 'confirmed');
-  new SymposiumOrchestrator({ store: events, executors: {} }).recordProviderAdmission({
-    sessionId: 'symposium',
-    seatId: 'reviewer',
-    decision: 'admitted',
-    idempotencyKey: 'initial-admission',
-  });
   const selection = {
     sessionId: 'symposium',
     expectedConfigRevision: 4,
@@ -241,6 +235,7 @@ function fixture() {
 it('charges first review before reader admission and recovers an exact staged delivery after lost response', async () => {
   const f = fixture();
   try {
+    expect(f.events.getLatestSymposiumAdmission('symposium', 'reviewer', 4)).toBeUndefined();
     const prep = await f.owner.transition.prepare({
       context: f.context,
       workflowId: 'workflow',

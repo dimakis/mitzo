@@ -181,16 +181,6 @@ export function createSealedReaderReviewTransition(deps: SealedReaderTransitionD
           input.selection.seatId,
         );
         deps.verifyReviewer(input.context, seat, member.generation);
-        const priorAdmission = deps.events.getLatestSymposiumAdmission(
-          input.context.sessionId,
-          seat.id,
-          config.revision,
-        );
-        if (
-          priorAdmission?.decision !== 'admitted' ||
-          priorAdmission.membershipGeneration !== member.generation
-        )
-          throw new Error('Current reviewer provider admission required');
         if (
           input.selection.role !== 'reviewer' ||
           input.selection.accountId !== seat.accountBinding!.accountId ||
@@ -261,19 +251,6 @@ export function createSealedReaderReviewTransition(deps: SealedReaderTransitionD
         )
           throw new Error('Prepared physical artifact changed');
         const { seat } = currentSeat(context.sessionId, prep.actorSeatId);
-        const before = deps.events.getActiveSymposiumConfig(context.sessionId);
-        if (before.revision === prep.from.configRevision) {
-          const priorAdmission = deps.events.getLatestSymposiumAdmission(
-            context.sessionId,
-            prep.actorSeatId,
-            prep.from.configRevision,
-          );
-          if (
-            priorAdmission?.decision !== 'admitted' ||
-            priorAdmission.membershipGeneration !== prep.from.membershipGeneration
-          )
-            throw new Error('Reviewer admission changed before transition');
-        }
         const binding: ArtifactReaderAdmissionBindingV1 = {
           version: 1,
           kind: 'sealed_reader',
