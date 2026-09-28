@@ -22,6 +22,13 @@ describe('finite custodian protocol', () => {
     expect(selectCustodianOperation('GET', '/api/symposium/custody')).toEqual({
       operation: 'custody.status',
     });
+    expect(
+      selectCustodianOperation('POST', '/api/sessions/s-1/symposium/source/seal/recover'),
+    ).toEqual({ operation: 'source.sealRecover', sessionId: 's-1' });
+    expect(custodianRoute({ operation: 'source.sealRecover', sessionId: 's-1' })).toEqual({
+      method: 'POST',
+      path: '/api/sessions/s-1/symposium/source/seal/recover',
+    });
   });
   it('rejects reflection, host paths, caller authentication and unbounded envelopes', () => {
     const valid = {

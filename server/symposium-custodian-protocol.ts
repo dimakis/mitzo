@@ -47,6 +47,7 @@ const operations = {
   'source.status': ['GET', '/api/sessions/:sessionId/symposium/source'],
   'source.preview': ['POST', '/api/sessions/:sessionId/symposium/source/preview'],
   'source.import': ['POST', '/api/sessions/:sessionId/symposium/source/import'],
+  'source.sealRecover': ['POST', '/api/sessions/:sessionId/symposium/source/seal/recover'],
   'personal.list': ['GET', '/api/symposium/personal/connections'],
   'personal.create': ['POST', '/api/symposium/personal/connections'],
   'personal.disconnect': ['POST', '/api/symposium/personal/connections/:resourceId/disconnect'],
