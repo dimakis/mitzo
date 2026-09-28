@@ -166,6 +166,16 @@ it('carries a sealed source through real stores into a charged initial run, then
     expect(initialExport).toHaveBeenCalledOnce();
     expect(stageDelivery).not.toHaveBeenCalled();
     expect(copy).not.toHaveBeenCalled();
+    const freshAttempt = await coordinator.reserveWithTransition(
+      context,
+      'workflow',
+      'initial',
+      'attempt-2',
+    );
+    expect(freshAttempt).toMatchObject({ kind: 'decision_required' });
+    expect(reviews.get('workflow')).toMatchObject({ hostTurns: 1, applicationAttempts: [] });
+    expect(initialExport).toHaveBeenCalledTimes(1);
+    expect(stageDelivery).not.toHaveBeenCalled();
     const afterFailure = new SymposiumReviewStore(path);
     try {
       expect(afterFailure.get('workflow')).toMatchObject({
@@ -176,6 +186,18 @@ it('carries a sealed source through real stores into a charged initial run, then
     } finally {
       afterFailure.close();
     }
+    // Repeated request for the same exact attempt must retain the original
+    // charge and never stage a native delivery after a failed export.
+    await expect(
+      coordinator.reserveWithTransition(context, 'workflow', 'initial', 'attempt-1'),
+    ).rejects.toThrow('fixture physical export unavailable');
+    expect(reviews.get('workflow')).toMatchObject({
+      hostTurns: 1,
+      applicationPreparations: [{ kind: 'initial', status: 'preparing', attemptId: 'attempt-1' }],
+      applicationAttempts: [],
+    });
+    expect(stageDelivery).not.toHaveBeenCalled();
+    expect(copy).not.toHaveBeenCalled();
   } finally {
     composed.close();
     reviews.close();
