@@ -407,6 +407,11 @@ export function createSealedFixReviewTransition(deps: {
         recipientSeatIds: [seat.id],
         originalContent: prompt,
         idempotencyKey: `fix-${prep.workflowId}-${prep.attemptId}`,
+        applicationControl: {
+          workflowId: prep.workflowId,
+          attemptId: prep.attemptId,
+          policyReservationId: prep.policyReservationId,
+        },
       });
       const recipient = delivery.recipients[0];
       if (

@@ -215,7 +215,11 @@ it('cancels an exact applied reader delivery and proves no native dispatch', asy
       prep,
     ),
   ).toBe('applied_no_dispatch');
-  expect(cancelDelivery).toHaveBeenCalledWith('delivery', 'review-stop-preparation:policy');
+  expect(cancelDelivery).toHaveBeenCalledWith('delivery', 'review-stop-preparation:policy', {
+    workflowId: 'flow',
+    attemptId: 'attempt',
+    policyReservationId: 'policy',
+  });
   f.events.getSymposiumSealedReaderAdmission.mockReturnValue({
     binding,
     reference,
@@ -241,6 +245,163 @@ it('cancels an exact applied reader delivery and proves no native dispatch', asy
     ),
   ).toBeNull();
   f.reviews.close();
+});
+
+it('pauses an exact bound writer before proving same-attempt resumability', async () => {
+  const writer = {
+    ...prep,
+    kind: 'fix' as const,
+    actorSeatId: 'coder',
+    transitionId: 'fix-child',
+    expectedSelection: { ...prep.expectedSelection, accountId: 'coder', profileId: 'coder' },
+  };
+  const content = 'staged fixed work';
+  const binding = {
+    sessionId: 'session',
+    workflowId: 'flow',
+    policyReservationId: 'policy',
+    seatId: 'coder',
+    operationId: 'fix-child',
+    transitionId: 'fix-child',
+    kind: 'fix',
+    fixAttemptId: 'attempt',
+    parentGenerationId: 'generation',
+    parentSealDigest: sha,
+    expectedConfigRevision: 1,
+    resultingConfigRevision: 2,
+    successorMembershipGeneration: 2,
+  };
+  const digest = artifactAdmissionDigest(binding as never);
+  const reference = { bindingDigest: digest };
+  const delivery = {
+    deliveryId: 'delivery',
+    sessionId: 'session',
+    recipients: [{ seatId: 'coder' }],
+    status: 'awaiting_intervention',
+    originalContent: content,
+    deliveredContent: null,
+    intervention: null,
+  };
+  const attempt = {
+    attemptId: 'attempt',
+    policyReservationId: 'policy',
+    kind: 'fix',
+    actorSeatId: 'coder',
+    artifactRevision: 'commit',
+    artifactHash: sha,
+    dispatched: false,
+    settled: false,
+    binding: {
+      deliveryId: 'delivery',
+      contentHash: createHash('sha256').update(content).digest('hex'),
+      configRevision: 2,
+      membershipGeneration: 2,
+      accountId: 'coder',
+      model: 'offline',
+      profileId: 'coder',
+      profileRevision: '1',
+      accountProfileRevision: '1',
+    },
+  };
+  const stopped = {
+    owner: 'owner',
+    sessionId: 'session',
+    decisionCode: 'user_stop',
+    applicationAttempts: [attempt],
+  };
+  const reviews = {
+    get: vi.fn(() => stopped),
+    getApplicationPreparation: vi.fn(() => ({ ...writer, status: 'bound' })),
+  };
+  const control = {
+    workflowId: 'flow',
+    attemptId: 'attempt',
+    policyReservationId: 'policy',
+    epoch: 0,
+    state: 'armed',
+  };
+  const events = {
+    getActiveSymposiumConfig: vi.fn(() => ({
+      version: 2,
+      state: 'active',
+      revision: 2,
+      seats: [{ id: 'coder', role: 'coder' }],
+    })),
+    getLatestSymposiumMembership: vi.fn(() => ({
+      state: 'active',
+      reconciliation: 'confirmed',
+      generation: 2,
+    })),
+    getSymposiumSealedReaderAdmission: vi.fn(),
+    getSymposiumArtifactAdmission: vi.fn(() => ({
+      binding,
+      reference,
+      receipt: {
+        transitionId: 'fix-child',
+        parentGenerationId: 'generation',
+        bindingDigest: digest,
+        sessionId: 'session',
+      },
+    })),
+    getSymposiumDeliveryByIdempotencyKey: vi.fn(() => delivery),
+    getSymposiumDelivery: vi.fn(() => delivery),
+    getSymposiumRecipientAttempts: vi.fn(() => []),
+    getSymposiumArtifactReference: vi.fn(() => reference),
+    getSymposiumApplicationDeliveryControl: vi.fn(() => control),
+    pauseSymposiumApplicationDelivery: vi.fn(() => {
+      control.epoch = 1;
+      control.state = 'held';
+      return 1;
+    }),
+  };
+  const cancelDelivery = vi.fn();
+  const deps = {
+    reviews: reviews as never,
+    events: events as never,
+    successorState: vi.fn(async () => 'active' as const),
+    cancelDelivery,
+  };
+  expect(
+    await reconcileStoppedApplicationPreparation(
+      deps,
+      { owner: 'owner', sessionId: 'session' },
+      writer,
+    ),
+  ).toEqual({ kind: 'resumable', epoch: 1 });
+  expect(events.pauseSymposiumApplicationDelivery).toHaveBeenCalledOnce();
+  expect(cancelDelivery).not.toHaveBeenCalled();
+  control.epoch = 0;
+  control.state = 'armed';
+  delivery.status = 'ready';
+  delivery.deliveredContent = content;
+  delivery.intervention = 'approve';
+  expect(
+    await reconcileStoppedApplicationPreparation(
+      deps,
+      { owner: 'owner', sessionId: 'session' },
+      writer,
+    ),
+  ).toEqual({ kind: 'resumable', epoch: 1 });
+  control.epoch = 0;
+  control.state = 'armed';
+  events.pauseSymposiumApplicationDelivery.mockImplementationOnce(() => {
+    throw new Error('competing claim won');
+  });
+  expect(
+    await reconcileStoppedApplicationPreparation(
+      deps,
+      { owner: 'owner', sessionId: 'session' },
+      writer,
+    ),
+  ).toBeNull();
+  events.getSymposiumRecipientAttempts.mockReturnValue([{}] as never);
+  expect(
+    await reconcileStoppedApplicationPreparation(
+      deps,
+      { owner: 'owner', sessionId: 'session' },
+      writer,
+    ),
+  ).toBeNull();
 });
 
 it('reconciles a bound claim only with its exact staged delivery and no recipient attempt', async () => {

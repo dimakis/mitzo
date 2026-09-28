@@ -335,7 +335,7 @@ export function createSymposiumReviewRouter(deps: {
             if (inspected.decisionCode) {
               const settled = await coordinator.reconcileStoppedPreparations(ctx, workflowId);
               const latest = deps.store.getApplicationPreparation(workflowId, attemptId);
-              if (latest?.status !== 'settled') {
+              if (latest?.status !== 'settled' && !latest?.resumeReady) {
                 res.status(409).json({ kind: 'decision_required', code: 'preparation_uncertain' });
                 return;
               }

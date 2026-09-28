@@ -83,7 +83,7 @@ export interface SymposiumReviewHost {
   settleStoppedApplicationPreparation?(
     context: ReviewContext,
     preparation: ApplicationPreparation,
-  ): Promise<'not_applied' | 'applied_no_dispatch' | null>;
+  ): Promise<'not_applied' | 'applied_no_dispatch' | { kind: 'resumable'; epoch: number } | null>;
   /** Trusted imported artifact before the first implementation turn. */
   initialArtifact?(context: ReviewContext): { revision: string; hash: string };
   /** Host-attested output from the exact completed initial native operation. */
@@ -298,6 +298,7 @@ export class SymposiumReviewCoordinator {
         enforcementId?: string;
         policyReservationId?: string;
         applicationAttempt?: ApplicationAttempt;
+        applicationDispatchEpoch?: number;
         selection: Selection;
         artifactRevision: string;
         artifactHash: string;
@@ -337,6 +338,7 @@ export class SymposiumReviewCoordinator {
         attemptId,
         policyReservationId: prepared.policyReservationId,
         applicationAttempt: prepared,
+        applicationDispatchEpoch: 0,
         selection,
         artifactRevision: state.artifactRevision,
         artifactHash: state.artifactHash,
@@ -442,6 +444,7 @@ export class SymposiumReviewCoordinator {
         attemptId,
         policyReservationId: attempt.policyReservationId,
         applicationAttempt: attempt,
+        applicationDispatchEpoch: 0,
         selection,
         artifactRevision: attempt.artifactRevision,
         artifactHash: attempt.artifactHash,
@@ -501,6 +504,7 @@ export class SymposiumReviewCoordinator {
       attemptId,
       policyReservationId: retained.policyReservationId,
       applicationAttempt,
+      applicationDispatchEpoch: prep.resumeEpoch ?? 0,
       selection,
       artifactRevision: retained.artifactRevision,
       artifactHash: retained.artifactHash,
@@ -547,7 +551,14 @@ export class SymposiumReviewCoordinator {
         context,
         preparation,
       );
-      if (disposition)
+      if (disposition && typeof disposition !== 'string')
+        this.store.markStoppedBoundPreparationResumable(
+          workflowId,
+          preparation.attemptId,
+          preparation.transitionId,
+          disposition.epoch,
+        );
+      else if (disposition)
         this.store.settleApplicationPreparation(
           workflowId,
           preparation.attemptId,

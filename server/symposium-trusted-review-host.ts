@@ -47,8 +47,11 @@ export interface SymposiumTrustedReviewHostDeps {
     | 'getLatestSymposiumMembership'
     | 'getLatestSymposiumAdmission'
     | 'getSymposiumDelivery'
+    | 'getSymposiumRecipientAttempts'
     | 'getSymposiumRecipientAttemptByClaimToken'
     | 'getUnsettledSymposiumExecutions'
+    | 'armSymposiumApplicationDelivery'
+    | 'getSymposiumApplicationDeliveryControl'
   >;
   reviews: SymposiumReviewStore;
   registry: Pick<SymposiumAttemptRegistry, 'get' | 'observations'>;
@@ -81,7 +84,7 @@ export interface SymposiumTrustedReviewHostDeps {
     reconcileStopped?(
       context: ReviewContext,
       preparation: ApplicationPreparation,
-    ): Promise<'not_applied' | 'applied_no_dispatch' | null>;
+    ): Promise<'not_applied' | 'applied_no_dispatch' | { kind: 'resumable'; epoch: number } | null>;
   };
   /** Parent-owned, physically fenced artifact evidence. An unfenced Git read or model
    * assertion is not an implementation of this contract. Refresh/result retain exact
@@ -561,16 +564,54 @@ export function createSymposiumTrustedReviewHost(
         staged.recipients.length !== 1 ||
         staged.recipients[0].seatId !== planned.actorSeatId ||
         contentHash(staged.originalContent) !== planned.binding.contentHash ||
-        staged.status !== 'awaiting_intervention'
+        !['awaiting_intervention', 'ready'].includes(staged.status) ||
+        (staged.status === 'ready' &&
+          (staged.intervention !== 'approve' || staged.deliveredContent !== staged.originalContent))
       )
         throw new Error('Reserved application delivery content changed');
+      // The claim token is a durable, random, parent-owned capability. Derive a
+      // domain-separated permit for this exact delivery epoch so a crash after
+      // approval can replay the same permit without storing plaintext in EventStore.
+      const applicationPermit =
+        planned.kind === 'initial' || planned.kind === 'fix'
+          ? createHash('sha256')
+              .update('symposium-application-delivery-permit/v1\0')
+              .update(planned.binding.claimToken)
+              .update('\0')
+              .update(planned.binding.deliveryId)
+              .update('\0')
+              .update(String(reservation.applicationDispatchEpoch ?? 0))
+              .digest('hex')
+          : undefined;
+      if (applicationPermit) {
+        const preparation = deps.reviews.getApplicationPreparation(
+          planned.workflowId,
+          planned.attemptId,
+        );
+        if (
+          !preparation ||
+          preparation.status !== 'bound' ||
+          preparation.policyReservationId !== planned.policyReservationId ||
+          reservation.applicationDispatchEpoch !== (preparation.resumeEpoch ?? 0)
+        )
+          throw new Error('Exact bound application dispatch epoch required');
+        deps.events.armSymposiumApplicationDelivery({
+          deliveryId: planned.binding.deliveryId,
+          expectedEpoch: reservation.applicationDispatchEpoch,
+          permit: applicationPermit,
+        });
+      }
       const runtime = deps.runtime(context);
-      const approved = runtime.intervene({
-        deliveryId: planned.binding.deliveryId,
-        action: 'approve',
-        reason: `Authorized application ${planned.kind}`,
-        idempotencyKey: `review-approve:${planned.policyReservationId}`,
-      });
+      const approved =
+        staged.status === 'ready'
+          ? staged
+          : runtime.intervene({
+              deliveryId: planned.binding.deliveryId,
+              action: 'approve',
+              reason: `Authorized application ${planned.kind}`,
+              idempotencyKey: `review-approve:${planned.policyReservationId}`,
+              ...(applicationPermit ? { applicationPermit } : {}),
+            });
       if (
         approved.deliveryId !== planned.binding.deliveryId ||
         approved.status !== 'ready' ||
@@ -578,7 +619,10 @@ export function createSymposiumTrustedReviewHost(
         contentHash(approved.deliveredContent) !== planned.binding.contentHash
       )
         throw new Error('Approved application delivery content changed');
-      await runtime.deliver(planned.binding.deliveryId);
+      await runtime.deliver(
+        planned.binding.deliveryId,
+        applicationPermit ? { applicationPermit } : undefined,
+      );
       const done = completion(context, planned.attemptId);
       if (!done)
         throw new Error('Trusted review completion unavailable; reconcile original operation');
@@ -674,10 +718,43 @@ export function createSymposiumTrustedReviewHost(
           !same(exact.binding, item.binding)
         )
           throw new Error('Cancellation reservation changed');
+        const bound = state.applicationPreparations.find(
+          (preparation) =>
+            preparation.attemptId === exact.attemptId &&
+            preparation.status === 'bound' &&
+            (preparation.kind === 'initial' || preparation.kind === 'fix') &&
+            preparation.policyReservationId === exact.policyReservationId,
+        );
+        const control = deps.events.getSymposiumApplicationDeliveryControl(
+          exact.binding.deliveryId,
+        );
+        const staged = deps.events.getSymposiumDelivery(exact.binding.deliveryId);
+        const tracked = state.applicationAttempts.find(
+          (candidate) =>
+            candidate.attemptId === exact.attemptId &&
+            candidate.policyReservationId === exact.policyReservationId,
+        );
+        if (
+          bound &&
+          tracked &&
+          !tracked.dispatched &&
+          staged &&
+          (staged.status === 'awaiting_intervention' || staged.status === 'ready') &&
+          deps.events.getSymposiumRecipientAttempts(exact.binding.deliveryId).length === 0 &&
+          control?.workflowId === exact.workflowId &&
+          control.attemptId === exact.attemptId &&
+          control.policyReservationId === exact.policyReservationId
+        )
+          continue;
         await deps.runtime(context).cancel({
           deliveryId: exact.binding.deliveryId,
           reason: 'Application policy stopped',
           idempotencyKey: `review-stop:${exact.policyReservationId}`,
+          applicationControl: {
+            workflowId: exact.workflowId,
+            attemptId: exact.attemptId,
+            policyReservationId: exact.policyReservationId,
+          },
         });
       }
     },

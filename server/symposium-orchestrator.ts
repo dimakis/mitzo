@@ -471,6 +471,8 @@ export class SymposiumOrchestrator {
     recipientSeatIds: string[];
     originalContent: string;
     idempotencyKey: string;
+    /** Trusted transition only; created atomically with the staged delivery. */
+    applicationControl?: { workflowId: string; attemptId: string; policyReservationId: string };
   }): SymposiumDeliveryRecord {
     if (
       input.sourceMembershipGeneration !== undefined &&
@@ -496,6 +498,11 @@ export class SymposiumOrchestrator {
       ) {
         throw new Error('Symposium delivery idempotency key was reused with different input');
       }
+      if (input.applicationControl)
+        this.store.registerSymposiumApplicationDeliveryControl({
+          deliveryId: prior.deliveryId,
+          ...input.applicationControl,
+        });
       return prior;
     }
     const config = this.requireDirectedManualConfig(input.sessionId);
@@ -565,69 +572,72 @@ export class SymposiumOrchestrator {
     ) {
       throw new Error('Shared excerpt must match completed durable source message');
     }
-    return this.store.createSymposiumDelivery({
-      deliveryId,
-      sessionId: input.sessionId,
-      sourceSeatId: input.sourceSeatId,
-      sourceMessageId: input.sourceMessageId ?? null,
-      recipientSeatIds: recipients.map((seat) => seat.id),
-      originalContent: input.originalContent,
-      deliveredContent: null,
-      status: 'awaiting_intervention',
-      intervention: null,
-      interventionReason: null,
-      idempotencyKey: input.idempotencyKey,
-      configRevision: config.revision,
-      sourceProvenance: sourceMessage
-        ? sourceMessage.provenance
-        : sourceSeat
-          ? provenanceFor(
-              sourceSeat,
-              config.revision,
-              config.version === 2
-                ? this.store.getLatestSymposiumMembership(input.sessionId, sourceSeat.id)
-                    ?.generation
-                : undefined,
-              timestamp,
-            )
-          : null,
-      cancellationReason: null,
-      cancellationIdempotencyKey: null,
-      cancelledAt: null,
-      createdAt: timestamp,
-      updatedAt: timestamp,
-      recipients: recipients.map((seat) => {
-        const active = requireActiveSeat(seat);
-        return {
-          deliveryId,
-          seatId: seat.id,
-          ...(config.version === 2
-            ? {
-                membershipGeneration: this.store.getLatestSymposiumMembership(
-                  input.sessionId,
-                  seat.id,
-                )!.generation,
-              }
-            : {}),
-          status: 'pending',
-          idempotencyKey: `delivery:${deliveryId}:seat:${seat.id}`,
-          configRevision: config.revision,
-          accountProfileRevision: active.accountBinding.profileRevision,
-          seatProfileRevision: active.profileBinding.profileRevision,
-          contextGrantId: active.contextGrant.grantId,
-          contextGrantRevision: active.contextGrant.revision,
-          authorityGrantId: active.authorityGrant.grantId,
-          authorityGrantRevision: active.authorityGrant.revision,
-          isolationDomainId: active.isolationRequest.trustDomainId,
-          isolationDomainRevision: active.isolationRequest.revision,
-          providerThreadId: null,
-          resultContent: null,
-          costUsd: null,
-          error: null,
-          updatedAt: timestamp,
-        };
-      }),
-    });
+    return this.store.createSymposiumDelivery(
+      {
+        deliveryId,
+        sessionId: input.sessionId,
+        sourceSeatId: input.sourceSeatId,
+        sourceMessageId: input.sourceMessageId ?? null,
+        recipientSeatIds: recipients.map((seat) => seat.id),
+        originalContent: input.originalContent,
+        deliveredContent: null,
+        status: 'awaiting_intervention',
+        intervention: null,
+        interventionReason: null,
+        idempotencyKey: input.idempotencyKey,
+        configRevision: config.revision,
+        sourceProvenance: sourceMessage
+          ? sourceMessage.provenance
+          : sourceSeat
+            ? provenanceFor(
+                sourceSeat,
+                config.revision,
+                config.version === 2
+                  ? this.store.getLatestSymposiumMembership(input.sessionId, sourceSeat.id)
+                      ?.generation
+                  : undefined,
+                timestamp,
+              )
+            : null,
+        cancellationReason: null,
+        cancellationIdempotencyKey: null,
+        cancelledAt: null,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+        recipients: recipients.map((seat) => {
+          const active = requireActiveSeat(seat);
+          return {
+            deliveryId,
+            seatId: seat.id,
+            ...(config.version === 2
+              ? {
+                  membershipGeneration: this.store.getLatestSymposiumMembership(
+                    input.sessionId,
+                    seat.id,
+                  )!.generation,
+                }
+              : {}),
+            status: 'pending',
+            idempotencyKey: `delivery:${deliveryId}:seat:${seat.id}`,
+            configRevision: config.revision,
+            accountProfileRevision: active.accountBinding.profileRevision,
+            seatProfileRevision: active.profileBinding.profileRevision,
+            contextGrantId: active.contextGrant.grantId,
+            contextGrantRevision: active.contextGrant.revision,
+            authorityGrantId: active.authorityGrant.grantId,
+            authorityGrantRevision: active.authorityGrant.revision,
+            isolationDomainId: active.isolationRequest.trustDomainId,
+            isolationDomainRevision: active.isolationRequest.revision,
+            providerThreadId: null,
+            resultContent: null,
+            costUsd: null,
+            error: null,
+            updatedAt: timestamp,
+          };
+        }),
+      },
+      input.applicationControl,
+    );
   }
 
   intervene(input: {
@@ -674,6 +684,7 @@ export class SymposiumOrchestrator {
     deliveryId: string;
     reason?: string;
     idempotencyKey: string;
+    applicationControl?: { workflowId: string; attemptId: string; policyReservationId: string };
   }): Promise<SymposiumDeliveryRecord> {
     requireText(input.idempotencyKey, 'Cancellation idempotency key');
     const before = this.store.getSymposiumDelivery(input.deliveryId);
@@ -684,6 +695,7 @@ export class SymposiumOrchestrator {
       reason: input.reason?.trim() || null,
       idempotencyKey: input.idempotencyKey,
       cancelledAt: this.now(),
+      applicationControl: input.applicationControl,
     });
     this.abortControllers.get(input.deliveryId)?.abort();
     await Promise.all(
@@ -757,6 +769,7 @@ export class SymposiumOrchestrator {
     let delivery = this.store.getSymposiumDelivery(deliveryId);
     if (!delivery) throw new Error('Unknown Symposium delivery');
     if (delivery.status !== 'ready') return delivery;
+    this.store.assertSymposiumApplicationDeliveryPermit(deliveryId, applicationPermit);
     let config: SymposiumConfig;
     try {
       config = this.requireDirectedManualConfig(delivery.sessionId);

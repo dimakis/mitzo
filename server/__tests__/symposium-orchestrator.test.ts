@@ -195,12 +195,11 @@ describe('SymposiumOrchestrator', () => {
       recipientSeatIds: ['builder'],
       originalContent: 'Bound application work',
       idempotencyKey: 'controlled-application',
-    });
-    store.registerSymposiumApplicationDeliveryControl({
-      deliveryId: staged.deliveryId,
-      workflowId: 'flow',
-      attemptId: 'attempt',
-      policyReservationId: 'policy',
+      applicationControl: {
+        workflowId: 'flow',
+        attemptId: 'attempt',
+        policyReservationId: 'policy',
+      },
     });
     expect(() =>
       orchestrator.intervene({
@@ -214,6 +213,19 @@ describe('SymposiumOrchestrator', () => {
       expectedEpoch: 0,
       permit: 'permit-zero',
     });
+    store.armSymposiumApplicationDelivery({
+      deliveryId: staged.deliveryId,
+      expectedEpoch: 0,
+      permit: 'permit-zero-recovered',
+    });
+    expect(() =>
+      orchestrator.intervene({
+        deliveryId: staged.deliveryId,
+        action: 'approve',
+        idempotencyKey: 'stale-before-stop',
+        applicationPermit: 'permit-zero',
+      }),
+    ).toThrow(/application.*permit/i);
     expect(() =>
       orchestrator.intervene({
         deliveryId: staged.deliveryId,
@@ -226,13 +238,17 @@ describe('SymposiumOrchestrator', () => {
         deliveryId: staged.deliveryId,
         action: 'approve',
         idempotencyKey: 'application-approval',
-        applicationPermit: 'permit-zero',
+        applicationPermit: 'permit-zero-recovered',
       }).status,
     ).toBe('ready');
     await expect(orchestrator.deliver(staged.deliveryId)).rejects.toThrow(/application.*permit/i);
     expect(builder.calls).toHaveLength(0);
     expect(
-      (await orchestrator.deliver(staged.deliveryId, { applicationPermit: 'permit-zero' })).status,
+      (
+        await orchestrator.deliver(staged.deliveryId, {
+          applicationPermit: 'permit-zero-recovered',
+        })
+      ).status,
     ).toBe('delivered');
     expect(builder.calls).toHaveLength(1);
   });
@@ -245,12 +261,11 @@ describe('SymposiumOrchestrator', () => {
       recipientSeatIds: ['builder'],
       originalContent: 'Bound application work',
       idempotencyKey: 'paused-application',
-    });
-    store.registerSymposiumApplicationDeliveryControl({
-      deliveryId: staged.deliveryId,
-      workflowId: 'flow',
-      attemptId: 'attempt',
-      policyReservationId: 'policy',
+      applicationControl: {
+        workflowId: 'flow',
+        attemptId: 'attempt',
+        policyReservationId: 'policy',
+      },
     });
     store.armSymposiumApplicationDelivery({
       deliveryId: staged.deliveryId,
@@ -288,6 +303,60 @@ describe('SymposiumOrchestrator', () => {
         applicationPermit: 'permit-zero',
       }),
     ).toThrow(/application.*permit/i);
+  });
+  it('recovers approved but unclaimed work after restart and pauses it before native dispatch', async () => {
+    admit('builder');
+    const staged = orchestrator.stageDelivery({
+      sessionId: 'chat',
+      sourceSeatId: null,
+      recipientSeatIds: ['builder'],
+      originalContent: 'Bound application work',
+      idempotencyKey: 'approved-before-crash',
+      applicationControl: {
+        workflowId: 'flow',
+        attemptId: 'attempt',
+        policyReservationId: 'policy',
+      },
+    });
+    store.armSymposiumApplicationDelivery({
+      deliveryId: staged.deliveryId,
+      expectedEpoch: 0,
+      permit: 'durable-epoch-zero',
+    });
+    expect(
+      orchestrator.intervene({
+        deliveryId: staged.deliveryId,
+        action: 'approve',
+        idempotencyKey: 'approved-before-crash',
+        applicationPermit: 'durable-epoch-zero',
+      }).status,
+    ).toBe('ready');
+    store.close();
+    store = openStore();
+    orchestrator = createOrchestrator();
+    expect(store.getSymposiumRecipientAttempts(staged.deliveryId)).toHaveLength(0);
+    expect(
+      store.pauseSymposiumApplicationDelivery({ deliveryId: staged.deliveryId, expectedEpoch: 0 }),
+    ).toBe(1);
+    await expect(
+      orchestrator.deliver(staged.deliveryId, {
+        applicationPermit: 'durable-epoch-zero',
+      }),
+    ).rejects.toThrow(/application.*permit/i);
+    expect(builder.calls).toHaveLength(0);
+    store.armSymposiumApplicationDelivery({
+      deliveryId: staged.deliveryId,
+      expectedEpoch: 1,
+      permit: 'durable-epoch-one',
+    });
+    expect(
+      (
+        await orchestrator.deliver(staged.deliveryId, {
+          applicationPermit: 'durable-epoch-one',
+        })
+      ).status,
+    ).toBe('delivered');
+    expect(builder.calls).toHaveLength(1);
   });
   it('binds the host-selected claim to the exact staged delivery and recipient', async () => {
     admit('builder');

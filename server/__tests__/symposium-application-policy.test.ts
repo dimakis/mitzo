@@ -475,6 +475,107 @@ describe('persisted application admission', () => {
     ).toMatchObject({ dispatched: false, settled: true });
     a.close();
   });
+  it('resumes only the same charged bound initial after a durable paused-delivery proof', () => {
+    const a = new SymposiumReviewStore(':memory:');
+    const { implementation, ...base } = create();
+    expect(implementation).toBeDefined();
+    a.createApplicationRun({ ...base, initialArtifact: { revision: 'i', hash } });
+    const preparation = {
+      workflowId: 'w',
+      attemptId: 'first',
+      policyReservationId: 'policy-first',
+      kind: 'initial' as const,
+      sourceSealId: 'source-fence',
+      actorSeatId: 'coder',
+      artifactRevision: 'i',
+      artifactHash: hash,
+      transitionId: 'initial-child',
+      seal: {
+        fenceId: 'source-fence',
+        artifactGenerationId: 'source',
+        volumeName: 'source-volume',
+        sealDigest: hash,
+        artifactRevision: 'i',
+        artifactHash: hash,
+      },
+      from: { configRevision: 1, membershipGeneration: 1 },
+      to: { configRevision: 2, membershipGeneration: 2 },
+      expectedSelection: {
+        accountId: 'coder',
+        model: 'offline',
+        profileId: 'coder',
+        profileRevision: '1',
+        accountProfileRevision: '1',
+      },
+    };
+    a.reserveApplicationPreparation(preparation);
+    const selected = request('first');
+    const attempt = {
+      ...selected,
+      policyReservationId: 'policy-first',
+      kind: 'initial' as const,
+      actorSeatId: 'coder',
+      artifactRevision: 'i',
+      binding: {
+        ...selected.binding,
+        deliveryId: 'staged-first',
+        configRevision: 2,
+        membershipGeneration: 2,
+        accountId: 'coder',
+        profileId: 'coder',
+      },
+    };
+    a.completeApplicationPreparation(attempt, { transitionId: 'initial-child', sealDigest: hash });
+    a.stopApplication('w', 'user', 'user_stop');
+    expect(() =>
+      a.continueApplication({
+        workflowId: 'w',
+        actor: 'user',
+        authorizationId: 'too-early',
+        reason: 'resume',
+        limits: { ...base.limits, maxHostTurns: 3 },
+      }),
+    ).toThrow(/reconcile/i);
+    a.markStoppedBoundPreparationResumable('w', 'first', 'initial-child', 1);
+    expect(
+      a.continueApplication({
+        workflowId: 'w',
+        actor: 'user',
+        authorizationId: 'fresh',
+        reason: 'resume exact child',
+        limits: { ...base.limits, maxHostTurns: 3 },
+      }),
+    ).toMatchObject({ status: 'awaiting_initial', hostTurns: 1 });
+    expect(a.getApplicationPreparation('w', 'first')).toMatchObject({
+      status: 'bound',
+      resumeEpoch: 1,
+    });
+    expect(
+      a.reserveApplicationPreparation({
+        ...preparation,
+        attemptId: 'second',
+        policyReservationId: 'policy-second',
+        transitionId: 'second-child',
+      }),
+    ).toMatchObject({ code: 'attempt_in_progress' });
+    const recovered = new SymposiumReviewCoordinator(a, {
+      currentArtifact: () => ({ revision: 'i', hash }),
+    } as SymposiumReviewHost).recoverBoundTransition(
+      { owner: 'user', sessionId: 's' },
+      'w',
+      'initial',
+      'first',
+    );
+    expect(recovered).toMatchObject({
+      kind: 'reserved_not_dispatched',
+      applicationDispatchEpoch: 1,
+    });
+    expect(a.consumeApplicationDispatch(attempt)).toMatchObject({ kind: 'dispatch_authorized' });
+    expect(a.consumeApplicationDispatch(attempt)).toMatchObject({
+      code: 'attempt_already_dispatched',
+    });
+    a.close();
+  });
   it('charges a sealed-source initial transition before any native claim exists', () => {
     const a = new SymposiumReviewStore(':memory:');
     const { implementation, ...base } = create();

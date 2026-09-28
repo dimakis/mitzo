@@ -369,6 +369,11 @@ export function createSealedInitialReviewTransition(deps: {
         recipientSeatIds: [seat.id],
         originalContent: prompt,
         idempotencyKey: `initial-${prep.workflowId}-${prep.attemptId}`,
+        applicationControl: {
+          workflowId: prep.workflowId,
+          attemptId: prep.attemptId,
+          policyReservationId: prep.policyReservationId,
+        },
       });
       const recipient = delivery.recipients[0];
       if (

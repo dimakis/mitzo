@@ -364,11 +364,12 @@ export function createSymposiumProductionReviewComposition(deps: {
                       kind: selected.kind,
                     })
                   : null,
-              cancelDelivery: (deliveryId, idempotencyKey) =>
+              cancelDelivery: (deliveryId, idempotencyKey, applicationControl) =>
                 runtime(context).cancel({
                   deliveryId,
                   idempotencyKey,
                   reason: 'Application review preparation stopped',
+                  applicationControl,
                 }),
             },
             context,

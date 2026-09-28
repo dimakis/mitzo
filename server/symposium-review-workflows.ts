@@ -71,6 +71,8 @@ const ApplicationPreparationBase = z.strictObject({
   artifactRevision: Id,
   artifactHash: Sha256,
   transitionId: Id,
+  resumeEpoch: z.number().int().nonnegative().optional(),
+  resumeReady: z.boolean().optional(),
   seal: z.strictObject({
     fenceId: Id,
     artifactGenerationId: Id,
@@ -104,6 +106,9 @@ type PersistedApplicationPreparation = ApplicationPreparation & {
   requestHash: string;
   status: 'preparing' | 'bound' | 'settled';
   disposition?: 'not_applied' | 'applied_no_dispatch';
+  /** EventStore delivery-control epoch proved while the application was stopped. */
+  resumeEpoch?: number;
+  resumeReady?: boolean;
 };
 const CreateSchema = z.strictObject({
   workflowId: Id,
@@ -742,6 +747,8 @@ export class SymposiumReviewStore {
     state.policyResumeStatus ??= state.status;
     state.status = 'decision_required';
     state.decisionCode = code;
+    for (const prep of state.applicationPreparations)
+      if (prep.status === 'bound') prep.resumeReady = false;
     for (const attempt of state.applicationAttempts)
       if (
         !attempt.dispatched &&
@@ -798,10 +805,22 @@ export class SymposiumReviewStore {
           throw new Error('Application owner required');
         if (state.status !== 'decision_required' || !state.decisionCode)
           throw new Error('Stopped application policy required for continuation');
-        if (
-          state.applicationAttempts.some((a) => !a.settled) ||
-          state.applicationPreparations.some((p) => p.status !== 'settled')
-        )
+        const pendingAttempts = state.applicationAttempts.filter((a) => !a.settled);
+        const pendingPreparations = state.applicationPreparations.filter(
+          (p) => p.status !== 'settled',
+        );
+        const resumable =
+          pendingAttempts.length === 1 &&
+          pendingPreparations.length === 1 &&
+          (pendingPreparations[0].kind === 'initial' || pendingPreparations[0].kind === 'fix') &&
+          pendingPreparations[0].status === 'bound' &&
+          Number.isSafeInteger(pendingPreparations[0].resumeEpoch) &&
+          (pendingPreparations[0].resumeEpoch ?? 0) > 0 &&
+          pendingPreparations[0].resumeReady === true &&
+          pendingAttempts[0].attemptId === pendingPreparations[0].attemptId &&
+          pendingAttempts[0].policyReservationId === pendingPreparations[0].policyReservationId &&
+          !pendingAttempts[0].dispatched;
+        if ((pendingAttempts.length || pendingPreparations.length) && !resumable)
           throw new Error(
             'Reconcile unresolved application preparation or operations before continuation',
           );
@@ -948,6 +967,45 @@ export class SymposiumReviewStore {
     return (
       this.read(workflowId).applicationPreparations.find((p) => p.attemptId === attemptId) ?? null
     );
+  }
+
+  markStoppedBoundPreparationResumable(
+    workflowId: string,
+    attemptId: string,
+    transitionId: string,
+    nextEpoch: number,
+  ): void {
+    if (!Number.isSafeInteger(nextEpoch) || nextEpoch <= 0)
+      throw new Error('Durable application delivery epoch required');
+    this.db
+      .transaction(() => {
+        const state = this.read(workflowId);
+        const prep = state.applicationPreparations.find(
+          (p) => p.attemptId === attemptId && p.transitionId === transitionId,
+        );
+        const attempt = state.applicationAttempts.find(
+          (a) => a.attemptId === attemptId && a.policyReservationId === prep?.policyReservationId,
+        );
+        if (
+          !state.decisionCode ||
+          !prep ||
+          prep.status !== 'bound' ||
+          (prep.kind !== 'initial' && prep.kind !== 'fix') ||
+          !attempt ||
+          attempt.dispatched ||
+          attempt.settled ||
+          nextEpoch !== (prep.resumeEpoch ?? 0) + 1
+        )
+          throw new Error('Exact stopped bound writer and fresh delivery epoch required');
+        prep.resumeEpoch = nextEpoch;
+        prep.resumeReady = true;
+        this.write(state, 'application_bound_writer_resumable', {
+          attemptId,
+          transitionId,
+          nextEpoch,
+        });
+      })
+      .immediate();
   }
 
   completeApplicationPreparation(

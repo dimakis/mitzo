@@ -111,8 +111,10 @@ function fixture(phase: 'initial' | 'review' = 'initial') {
         configRevision: 1,
       }),
       getSymposiumDelivery: (id: string) => deliveries.get(id),
+      getSymposiumRecipientAttempts: () => [],
       getSymposiumRecipientAttemptByClaimToken: () => execution,
       getUnsettledSymposiumExecutions: () => [],
+      armSymposiumApplicationDelivery: vi.fn(),
     },
     reviews,
     registry: {
@@ -409,6 +411,10 @@ it('does not promote model-provided artifact or outcome claims into a trusted re
 it('dispatches only the persisted approved delivery and awaits physical refresh', async () => {
   const f = fixture();
   const planned = prepare(f, 'initial');
+  vi.spyOn(f.reviews, 'getApplicationPreparation').mockReturnValue({
+    status: 'bound',
+    policyReservationId: planned.policyReservationId,
+  } as never);
   f.runtime.deliver.mockImplementation(async () => {
     completed(f, planned, 'done');
     return f.deliveries.get('delivery');
@@ -418,15 +424,56 @@ it('dispatches only the persisted approved delivery and awaits physical refresh'
     attemptId: 'initial',
     policyReservationId: planned.policyReservationId,
     applicationAttempt: planned,
+    applicationDispatchEpoch: 0,
     selection: f.reviews.get('workflow')!.implementer,
     artifactRevision: 'source',
     artifactHash: hash,
   });
   expect(f.runtime.intervene).toHaveBeenCalledWith(
-    expect.objectContaining({ deliveryId: 'delivery', action: 'approve' }),
+    expect.objectContaining({
+      deliveryId: 'delivery',
+      action: 'approve',
+      applicationPermit: expect.any(String),
+    }),
   );
-  expect(f.runtime.deliver).toHaveBeenCalledWith('delivery');
+  expect(f.runtime.deliver).toHaveBeenCalledWith('delivery', {
+    applicationPermit: expect.any(String),
+  });
+  expect(f.deps.events.armSymposiumApplicationDelivery).toHaveBeenCalledWith(
+    expect.objectContaining({ deliveryId: 'delivery', expectedEpoch: 0 }),
+  );
   expect(f.deps.artifacts.refresh).toHaveBeenCalledOnce();
+  f.reviews.close();
+});
+it('replays an approved but unclaimed bound writer with the same durable epoch permit', async () => {
+  const f = fixture();
+  const planned = prepare(f, 'initial');
+  vi.spyOn(f.reviews, 'getApplicationPreparation').mockReturnValue({
+    status: 'bound',
+    policyReservationId: planned.policyReservationId,
+  } as never);
+  const staged = f.deliveries.get('delivery')!;
+  staged.status = 'ready';
+  staged.deliveredContent = staged.originalContent;
+  staged.intervention = 'approve';
+  f.runtime.deliver.mockImplementation(async () => {
+    completed(f, planned, 'done');
+    return staged;
+  });
+  const reservation = {
+    kind: 'reserved_not_dispatched' as const,
+    attemptId: 'initial',
+    policyReservationId: planned.policyReservationId,
+    applicationAttempt: planned,
+    applicationDispatchEpoch: 0,
+    selection: f.reviews.get('workflow')!.implementer,
+    artifactRevision: 'source',
+    artifactHash: hash,
+  };
+  await f.host.dispatch(context, reservation);
+  expect(f.runtime.intervene).not.toHaveBeenCalled();
+  expect(f.deps.events.armSymposiumApplicationDelivery).toHaveBeenCalledOnce();
+  expect(f.runtime.deliver).toHaveBeenCalledOnce();
   f.reviews.close();
 });
 it('reconciles a completed initial operation on a later request after a lost response', async () => {
@@ -451,6 +498,7 @@ it('rejects a changed staged prompt before approving or dispatching', async () =
       attemptId: 'initial',
       policyReservationId: planned.policyReservationId,
       applicationAttempt: planned,
+      applicationDispatchEpoch: 0,
       selection: f.reviews.get('workflow')!.implementer,
       artifactRevision: 'source',
       artifactHash: hash,

@@ -14,8 +14,11 @@ type EventReads = Pick<
   | 'getSymposiumSealedReaderAdmission'
   | 'getSymposiumArtifactAdmission'
   | 'getSymposiumDeliveryByIdempotencyKey'
+  | 'getSymposiumDelivery'
   | 'getSymposiumRecipientAttempts'
   | 'getSymposiumArtifactReference'
+  | 'getSymposiumApplicationDeliveryControl'
+  | 'pauseSymposiumApplicationDelivery'
 >;
 const same = (a: unknown, b: unknown) => canonicalReviewJson(a) === canonicalReviewJson(b);
 const exactFields = (p: ApplicationPreparation) => ({
@@ -41,11 +44,15 @@ export async function reconcileStoppedApplicationPreparation(
     reviews: SymposiumReviewStore;
     events: EventReads;
     successorState(preparation: ApplicationPreparation, sessionId: string): Promise<SuccessorState>;
-    cancelDelivery(deliveryId: string, idempotencyKey: string): Promise<{ status: string }>;
+    cancelDelivery(
+      deliveryId: string,
+      idempotencyKey: string,
+      applicationControl: { workflowId: string; attemptId: string; policyReservationId: string },
+    ): Promise<{ status: string }>;
   },
   context: ReviewContext,
   preparation: ApplicationPreparation,
-): Promise<'not_applied' | 'applied_no_dispatch' | null> {
+): Promise<'not_applied' | 'applied_no_dispatch' | { kind: 'resumable'; epoch: number } | null> {
   const state = deps.reviews.get(preparation.workflowId);
   const retained = deps.reviews.getApplicationPreparation(
     preparation.workflowId,
@@ -113,7 +120,7 @@ export async function reconcileStoppedApplicationPreparation(
   );
   if (
     delivery &&
-    (!['awaiting_intervention', 'cancelled'].includes(delivery.status) ||
+    (!['awaiting_intervention', 'ready', 'cancelled'].includes(delivery.status) ||
       deps.events.getSymposiumRecipientAttempts(delivery.deliveryId).length !== 0)
   )
     return null;
@@ -199,10 +206,60 @@ export async function reconcileStoppedApplicationPreparation(
     preparation.to.membershipGeneration,
   );
   if (!reference || !same(reference, record.reference)) return null;
+  if (
+    bound &&
+    !reader &&
+    delivery &&
+    (delivery.status === 'awaiting_intervention' || delivery.status === 'ready')
+  ) {
+    if (
+      delivery.status === 'ready' &&
+      (delivery.intervention !== 'approve' ||
+        delivery.deliveredContent !== delivery.originalContent)
+    )
+      return null;
+    const control = deps.events.getSymposiumApplicationDeliveryControl(delivery.deliveryId);
+    if (
+      !control ||
+      control.workflowId !== preparation.workflowId ||
+      control.attemptId !== preparation.attemptId ||
+      control.policyReservationId !== preparation.policyReservationId ||
+      (control.epoch !== (preparation.resumeEpoch ?? 0) &&
+        !(control.epoch === (preparation.resumeEpoch ?? 0) + 1 && control.state === 'held'))
+    )
+      return null;
+    let epoch: number;
+    try {
+      epoch = deps.events.pauseSymposiumApplicationDelivery({
+        deliveryId: delivery.deliveryId,
+        expectedEpoch: preparation.resumeEpoch ?? 0,
+      });
+    } catch {
+      return null;
+    }
+    const paused = deps.events.getSymposiumApplicationDeliveryControl(delivery.deliveryId);
+    if (
+      !paused ||
+      paused.epoch !== epoch ||
+      paused.state !== 'held' ||
+      paused.workflowId !== preparation.workflowId ||
+      paused.attemptId !== preparation.attemptId ||
+      paused.policyReservationId !== preparation.policyReservationId ||
+      deps.events.getSymposiumDelivery(delivery.deliveryId)?.status !== delivery.status ||
+      deps.events.getSymposiumRecipientAttempts(delivery.deliveryId).length !== 0
+    )
+      return null;
+    return { kind: 'resumable', epoch };
+  }
   if (delivery?.status === 'awaiting_intervention') {
     const cancelled = await deps.cancelDelivery(
       delivery.deliveryId,
       `review-stop-preparation:${preparation.policyReservationId}`,
+      {
+        workflowId: preparation.workflowId,
+        attemptId: preparation.attemptId,
+        policyReservationId: preparation.policyReservationId,
+      },
     );
     if (cancelled.status !== 'cancelled') return null;
     if (deps.events.getSymposiumRecipientAttempts(delivery.deliveryId).length !== 0) return null;
