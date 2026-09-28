@@ -597,7 +597,7 @@ it('admits an imported parent only for the exact initial attempt and selected au
     ArtifactAdmissionBindingV1Schema.parse({ ...binding, findingFingerprints: [hash] }),
   ).toThrow();
   expect(() =>
-    f.store.activateAdmission({ ...binding, initialAttemptId: 'wrong' }, () => true),
+    f.store.activateAdmission({ ...binding, initialAttemptId: 'wrong' } as never, () => true),
   ).toThrow('mismatch');
   expect(() =>
     f.store.activateAdmission({ ...binding, policyReservationId: 'wrong' }, () => true),

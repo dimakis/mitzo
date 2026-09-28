@@ -279,6 +279,45 @@ function hostFixture(s: SymposiumReviewStore) {
     selectRoles: () => ({ implementer: role('coder'), reviewer: role('reviewer') }),
     prepareAttempt: () => ({ kind: 'decision_required', code: 'native_caps_unavailable' }),
     prepareApplicationAttempt: ({ attemptId }) => initial(attemptId),
+    prepareApplicationTransition: async ({ workflowId, attemptId, kind, selection }) => ({
+      workflowId,
+      attemptId,
+      policyReservationId: attemptId,
+      kind: kind as 'initial',
+      actorSeatId: selection.seatId,
+      artifactRevision: 'input',
+      artifactHash: hash,
+      transitionId: attemptId,
+      sourceSealId: 'fixture-source-seal',
+      seal: {
+        fenceId: 'fixture-source-seal',
+        artifactGenerationId: 'fixture-source-generation',
+        volumeName: 'fixture-source-volume',
+        sealDigest: hash,
+        artifactRevision: 'input',
+        artifactHash: hash,
+      },
+      from: { configRevision: 1, membershipGeneration: 1 },
+      to: { configRevision: 2, membershipGeneration: 2 },
+      expectedSelection: {
+        accountId: selection.accountId,
+        model: selection.model,
+        profileId: selection.profileId,
+        profileRevision: String(selection.profileRevision),
+        accountProfileRevision: '1',
+      },
+    }),
+    completeApplicationTransition: async (_context, preparation) => ({
+      attempt: {
+        ...initial(preparation.attemptId),
+        binding: {
+          ...initial(preparation.attemptId).binding,
+          configRevision: preparation.to.configRevision,
+          membershipGeneration: preparation.to.membershipGeneration,
+        },
+      },
+      proof: { transitionId: preparation.transitionId, sealDigest: preparation.seal.sealDigest },
+    }),
     receipt: (_ctx, attemptId) =>
       output
         ? {

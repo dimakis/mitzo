@@ -88,7 +88,16 @@ describe('production review route initialization', () => {
       .get('/api/sessions/session/symposium/reviews')
       .set('Cookie', authCookie);
     expect(result.status).toBe(200);
-    expect(result.body).toEqual({ available: false, workflows: [] });
+    expect(result.body).toEqual({
+      available: false,
+      workflows: [],
+      stopAvailable: false,
+      applicationRun: {
+        available: false,
+        initialArtifact: null,
+        reason: 'Trusted initial artifact unavailable',
+      },
+    });
   });
   it('requires authentication', async () => {
     expect((await request(app).get('/api/sessions/session/symposium/reviews')).status).toBe(401);

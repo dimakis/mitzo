@@ -24,5 +24,7 @@ it('installs the concrete trusted review owner only in the retained custodian', 
   } as never;
   app.installSymposiumProductionHost(host);
   expect(composition.create).toHaveBeenCalledOnce();
-  expect(host.reviewHost).toBe(composition.create.mock.results[0].value.reviewHost);
+  expect((host as { reviewHost?: unknown }).reviewHost).toBe(
+    composition.create.mock.results[0].value.reviewHost,
+  );
 });

@@ -47,7 +47,7 @@ it('uses a completed imported source until a physically sealed writer result exi
       retainedRuntime: vi.fn(),
     } as never);
     const context = { owner: 'user', sessionId: 'session' };
-    expect(composed.reviewHost.initialArtifact(context)).toEqual({
+    expect(composed.reviewHost.initialArtifact!(context)).toEqual({
       revision: source.receipt.git.commit,
       hash: source.receipt.git.committedTreeDigest,
     });

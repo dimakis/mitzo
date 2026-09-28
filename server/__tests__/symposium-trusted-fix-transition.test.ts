@@ -70,6 +70,9 @@ it('prepares the exact sealed finding scope without exporting or copying', async
     kind: 'fix',
     selection: {
       seatId: 'coder',
+      role: 'coder',
+      selectionId: 'coder',
+      policyRevision: '1',
       accountId: 'account',
       model: 'luna-fixture',
       profileId: 'profile',
@@ -275,6 +278,9 @@ it('requires one exact charged owner intent and admits the copied fix child befo
     kind: 'fix',
     selection: {
       seatId: 'coder',
+      role: 'coder',
+      selectionId: 'coder',
+      policyRevision: '1',
       accountId: 'account',
       model: 'luna-fixture',
       profileId: 'profile',

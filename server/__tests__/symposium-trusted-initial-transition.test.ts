@@ -57,6 +57,9 @@ it('prepares a source child without copying or minting native admission', async 
     kind: 'initial',
     selection: {
       seatId: 'coder',
+      role: 'coder',
+      selectionId: 'coder',
+      policyRevision: '1',
       accountId: 'account',
       model: 'luna-fixture',
       profileId: 'profile',
@@ -103,6 +106,9 @@ it('rejects application of an uncharged initial preparation before physical copy
     kind: 'initial',
     selection: {
       seatId: 'coder',
+      role: 'coder',
+      selectionId: 'coder',
+      policyRevision: '1',
       accountId: 'account',
       model: 'luna-fixture',
       profileId: 'profile',
@@ -254,6 +260,9 @@ it('copies and confirms the child before admitting the provider and staging deli
     kind: 'initial',
     selection: {
       seatId: 'coder',
+      role: 'coder',
+      selectionId: 'coder',
+      policyRevision: '1',
       accountId: 'account',
       model: 'luna-fixture',
       profileId: 'profile',

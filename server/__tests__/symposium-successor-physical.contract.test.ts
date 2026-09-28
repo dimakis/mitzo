@@ -330,6 +330,8 @@ it.skipIf(!physical)(
         leaseHost,
         sessionArtifacts,
         sealer,
+        sourceOwner: owner,
+        sourceProof: { assertNoNativeClaims: () => {}, command },
       };
       const copied = await withOwnedArtifactSuccessor(
         deps,

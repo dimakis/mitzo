@@ -1039,7 +1039,7 @@ it('binds successor authority to the existing exact workflow authorization and c
     assertSuccessorFixAuthority(authority, { ...request, authorityRevision: 3 }),
   ).toThrow();
   expect(() =>
-    assertSuccessorFixAuthority(authority, { ...request, fixAttemptId: 'unreserved' }),
+    assertSuccessorFixAuthority(authority, { ...request, fixAttemptId: 'unreserved' } as never),
   ).toThrow();
   expect(() =>
     assertSuccessorFixAuthority(

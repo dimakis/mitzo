@@ -19,7 +19,7 @@ const binding = {
   artifactGenerationId: 'generation-1',
   readerAdmissionId: 'reader-1',
 };
-const receipt = { leaseTokenHash: h, leaseRevision: 'lease-1', access: 'reviewer' };
+const receipt = { leaseTokenHash: h, leaseRevision: 'lease-1', access: 'reviewer' as const };
 const lease = {
   request: {
     readerAdmissionId: 'reader-1',
@@ -46,7 +46,7 @@ const dependencies = () => ({
 describe('owned sealed reader final proof', () => {
   it('requires matching current EventStore, physical lease and current policy authority', () => {
     const deps = dependencies();
-    expect(() => assertOwnedSealedReaderCurrent(deps, 'session-1', ref)).not.toThrow();
+    expect(() => assertOwnedSealedReaderCurrent(deps as never, 'session-1', ref)).not.toThrow();
     expect(deps.assertAuthority).toHaveBeenCalledWith(binding);
     expect(() =>
       assertOwnedSealedReaderCurrent(
@@ -57,14 +57,14 @@ describe('owned sealed reader final proof', () => {
               { ...lease, request: { ...lease.request, access: 'writer' } },
             ],
           },
-        },
+        } as never,
         'session-1',
         ref,
       ),
     ).toThrow(/read-only/i);
     expect(() =>
       assertOwnedSealedReaderCurrent(
-        { ...deps, assertAuthority: () => false as never },
+        { ...deps, assertAuthority: () => false as never } as never,
         'session-1',
         ref,
       ),
@@ -80,7 +80,7 @@ describe('owned sealed reader final proof', () => {
               receipt: { ...receipt, leaseTokenHash: 'b'.repeat(64) },
             }),
           },
-        },
+        } as never,
         'session-1',
         ref,
       ),
