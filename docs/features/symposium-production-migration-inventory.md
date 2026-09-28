@@ -8,37 +8,45 @@ After building the server, run on selected offline copies or an explicitly
 quiesced source:
 
 ```text
-node scripts/symposium/inventory-migration.mjs ABS_CONVERSATIONS_DB ABS_EVENTS_DB ABS_SESSION_ARTIFACTS_DB ABS_ARTIFACT_LEASES_DB
+node scripts/symposium/inventory-migration.mjs ABS_CONVERSATIONS_DB ABS_EVENTS_DB ABS_SESSION_ARTIFACTS_DB ABS_ARTIFACT_LEASES_DB ABS_CAPABILITIES_DB
 ```
 
 The Codex conversation database normally lives in the configured private Codex
 directory; EventStore is the repository's `.mitzo/events.db`; the artifact and
-lease databases live in the owned gateway's stable `stateParent`. The command
+lease databases live in the owned gateway's stable `stateParent`; the shared
+CapabilityService store is `.mitzo/capabilities.db`. The command
 opens existing files with SQLite read-only/query-only access. Missing files,
 tables or columns are reported as missing coverage; counts that depend on
 missing columns are `null`. It lists legacy NULL and explicit
 ordinary/Symposium ownership, unresolved command IDs, pending creation recovery
 identities, lifecycle fences, executing attempts, imported source session IDs,
 and artifact volume identities. It also counts issued admissions, source seals,
-artifact reservations and pending retention. It never emits command input,
+artifact reservations, pending retention and `github.publish-pr` operations in
+`pending_approval`, `running` or `verification_pending` state. It reports
+conversation IDs and statuses without operation IDs or request bodies. Missing
+capability store path/schema is unknown, not an empty publication inventory.
+It never emits command input,
 source-import JSON, lease tokens, provider credentials or publication payloads.
 
-The application rollback rehearsal has three refusal outcomes:
+The application rollback rehearsal has four outcomes:
 
-| Observation                                            | Result                                              |
-| ------------------------------------------------------ | --------------------------------------------------- |
-| Any upgraded artifact, source, native or cleanup fence | `refused_upgraded_fences`                           |
-| Pending ordinary commands or missing schema coverage   | `refused_pending_or_unknown_state`                  |
-| No observed fence                                      | `requires_independent_quiescence_and_compatibility` |
+| Observation                                                         | Result                                              |
+| ------------------------------------------------------------------- | --------------------------------------------------- |
+| Any upgraded artifact, source, native, cleanup or publication fence | `refused_upgraded_fences`                           |
+| Unclassified legacy NULL conversation ownership                     | `refused_unclassified_legacy_ownership`             |
+| Pending ordinary commands or missing schema coverage                | `refused_pending_or_unknown_state`                  |
+| No observed fence                                                   | `requires_independent_quiescence_and_compatibility` |
 
 Every outcome has `authorized: false`. A clean SQLite result cannot prove that
 native execution stopped or that the old executable honors upgraded state.
-Legacy NULL ownership needs evidence-backed classification before supervised
-ordinary recovery; IDs and conversation content cannot establish it.
+Legacy NULL ownership is an explicit rollback and migration blocker until
+evidence-backed classification; IDs and conversation content cannot establish it.
 
 The disposable rehearsal covers application rollback refusal with seeded NULL
 ownership, running command, pending creation recovery, lifecycle fence,
-executing attempt, issued artifact, pending source import and artifact lease.
+executing attempt, issued artifact, pending source import, artifact lease and
+pending publication operation. An 82-row legacy NULL fixture exercises the
+ownership gate.
 It does not exercise a prior production binary, gateway/config rollback, data
 restore, pending publication reconciliation, or actual Podman/launchd state.
 Those remain separate migration gates. Preserve all original databases and

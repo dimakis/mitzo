@@ -4,9 +4,9 @@ import {
   rehearseApplicationRollback,
 } from '../../dist/symposium-migration-inventory.js';
 
-if (process.argv.length !== 6) {
+if (process.argv.length !== 7) {
   process.stderr.write(
-    'Usage: node scripts/symposium/inventory-migration.mjs ABS_CONVERSATIONS_DB ABS_EVENTS_DB ABS_SESSION_ARTIFACTS_DB ABS_ARTIFACT_LEASES_DB\n',
+    'Usage: node scripts/symposium/inventory-migration.mjs ABS_CONVERSATIONS_DB ABS_EVENTS_DB ABS_SESSION_ARTIFACTS_DB ABS_ARTIFACT_LEASES_DB ABS_CAPABILITIES_DB\n',
   );
   process.exitCode = 2;
 } else {
@@ -16,6 +16,7 @@ if (process.argv.length !== 6) {
       eventDb: process.argv[3],
       artifactDb: process.argv[4],
       leaseDb: process.argv[5],
+      capabilityDb: process.argv[6],
     });
     process.stdout.write(
       `${JSON.stringify({ inventory, applicationRollback: rehearseApplicationRollback(inventory) }, null, 2)}\n`,

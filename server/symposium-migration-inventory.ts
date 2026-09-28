@@ -7,6 +7,8 @@ export interface SymposiumMigrationInventoryPaths {
   eventDb: string;
   artifactDb: string;
   leaseDb: string;
+  /** Shared CapabilityService store, normally .mitzo/capabilities.db. */
+  capabilityDb?: string;
 }
 
 function openReadOnly(path: string): Database.Database | null {
@@ -27,6 +29,7 @@ export function inventorySymposiumMigration(paths: SymposiumMigrationInventoryPa
   const events = openReadOnly(paths.eventDb);
   const artifacts = openReadOnly(paths.artifactDb);
   const leases = openReadOnly(paths.leaseDb);
+  const capabilities = paths.capabilityDb ? openReadOnly(paths.capabilityDb) : null;
   const missingTables = new Set<string>();
   const missingColumns = new Set<string>();
   const table = (db: Database.Database | null, name: string) => {
@@ -99,6 +102,28 @@ export function inventorySymposiumMigration(paths: SymposiumMigrationInventoryPa
       'symposium_session_artifacts',
       'admission_issued',
     );
+    const publicationPathMissing = !capabilities;
+    const publicationColumns = ['id', 'conversation_id', 'capability_id', 'status'];
+    const publicationSchemaReady = publicationColumns
+      .map((name) => column(capabilities, 'capability_operations', name))
+      .every(Boolean);
+    const publicationOperations =
+      publicationSchemaReady && capabilities
+        ? (capabilities
+            .prepare(
+              `SELECT conversation_id AS conversationId,status
+                 FROM capability_operations
+                WHERE capability_id='github.publish-pr'
+                  AND status IN ('pending_approval','running','verification_pending')
+                ORDER BY conversation_id,status`,
+            )
+            .all() as Array<{ conversationId: string; status: string }>)
+        : null;
+    const publication = {
+      status: publicationOperations === null ? ('unknown' as const) : ('inspected' as const),
+      missingPath: publicationPathMissing,
+      pendingOperations: publicationOperations,
+    };
     const pending = {
       creationRecoveries: count(events, 'symposium_creation_recoveries', 'result_json IS NULL'),
       lifecycleFences: count(events, 'symposium_seat_lifecycle_fences'),
@@ -115,6 +140,7 @@ export function inventorySymposiumMigration(paths: SymposiumMigrationInventoryPa
       artifactReservations: count(artifacts, 'symposium_session_artifacts'),
       artifactLeases: count(leases, 'symposium_artifact_leases'),
       artifactRetention: count(leases, 'symposium_artifact_pending_retention'),
+      publicationOperations: publicationOperations?.length ?? null,
     };
     const pendingIdentities = {
       creationRecoveries:
@@ -166,9 +192,11 @@ export function inventorySymposiumMigration(paths: SymposiumMigrationInventoryPa
               )
               .all() as Array<{ volumeName: string; access: string }>)
           : [],
+      publicationOperations,
     };
     return {
       ownership,
+      publication,
       commands,
       pending,
       pendingIdentities,
@@ -176,6 +204,7 @@ export function inventorySymposiumMigration(paths: SymposiumMigrationInventoryPa
       missingColumns: [...missingColumns],
     };
   } finally {
+    capabilities?.close();
     leases?.close();
     artifacts?.close();
     events?.close();
@@ -192,11 +221,28 @@ export function rehearseApplicationRollback(
   const upgradedFences = Object.entries(inventory.pending)
     .filter(([, count]) => typeof count === 'number' && count > 0)
     .map(([name]) => name);
+  const blockers = [
+    ...(inventory.ownership.legacyNull.length ? ['unclassified_legacy_ownership'] : []),
+    ...(upgradedFences.length ? ['upgraded_fences'] : []),
+    ...(inventory.pending.publicationOperations ? ['publication_operations'] : []),
+    ...(inventory.commands.length ? ['pending_commands'] : []),
+    ...(inventory.missingTables.length || inventory.missingColumns.length
+      ? ['unknown_schema']
+      : []),
+  ];
   if (upgradedFences.length)
     return {
       decision: 'refused_upgraded_fences' as const,
       authorized: false as const,
       upgradedFences,
+      blockers,
+    };
+  if (inventory.ownership.legacyNull.length)
+    return {
+      decision: 'refused_unclassified_legacy_ownership' as const,
+      authorized: false as const,
+      upgradedFences,
+      blockers,
     };
   if (
     inventory.commands.length ||
@@ -207,10 +253,12 @@ export function rehearseApplicationRollback(
       decision: 'refused_pending_or_unknown_state' as const,
       authorized: false as const,
       upgradedFences,
+      blockers,
     };
   return {
     decision: 'requires_independent_quiescence_and_compatibility' as const,
     authorized: false as const,
     upgradedFences,
+    blockers,
   };
 }
