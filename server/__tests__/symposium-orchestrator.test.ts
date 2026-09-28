@@ -187,6 +187,108 @@ afterEach(() => {
 });
 
 describe('SymposiumOrchestrator', () => {
+  it('fences a controlled application delivery at intervention and both claim boundaries', async () => {
+    admit('builder');
+    const staged = orchestrator.stageDelivery({
+      sessionId: 'chat',
+      sourceSeatId: null,
+      recipientSeatIds: ['builder'],
+      originalContent: 'Bound application work',
+      idempotencyKey: 'controlled-application',
+    });
+    store.registerSymposiumApplicationDeliveryControl({
+      deliveryId: staged.deliveryId,
+      workflowId: 'flow',
+      attemptId: 'attempt',
+      policyReservationId: 'policy',
+    });
+    expect(() =>
+      orchestrator.intervene({
+        deliveryId: staged.deliveryId,
+        action: 'approve',
+        idempotencyKey: 'director-approval',
+      }),
+    ).toThrow(/application.*permit/i);
+    store.armSymposiumApplicationDelivery({
+      deliveryId: staged.deliveryId,
+      expectedEpoch: 0,
+      permit: 'permit-zero',
+    });
+    expect(() =>
+      orchestrator.intervene({
+        deliveryId: staged.deliveryId,
+        action: 'approve',
+        idempotencyKey: 'director-approval',
+      }),
+    ).toThrow(/application.*permit/i);
+    expect(
+      orchestrator.intervene({
+        deliveryId: staged.deliveryId,
+        action: 'approve',
+        idempotencyKey: 'application-approval',
+        applicationPermit: 'permit-zero',
+      }).status,
+    ).toBe('ready');
+    await expect(orchestrator.deliver(staged.deliveryId)).rejects.toThrow(/application.*permit/i);
+    expect(builder.calls).toHaveLength(0);
+    expect(
+      (await orchestrator.deliver(staged.deliveryId, { applicationPermit: 'permit-zero' })).status,
+    ).toBe('delivered');
+    expect(builder.calls).toHaveLength(1);
+  });
+
+  it('revokes a stale permit atomically at a paused staged application delivery', () => {
+    admit('builder');
+    const staged = orchestrator.stageDelivery({
+      sessionId: 'chat',
+      sourceSeatId: null,
+      recipientSeatIds: ['builder'],
+      originalContent: 'Bound application work',
+      idempotencyKey: 'paused-application',
+    });
+    store.registerSymposiumApplicationDeliveryControl({
+      deliveryId: staged.deliveryId,
+      workflowId: 'flow',
+      attemptId: 'attempt',
+      policyReservationId: 'policy',
+    });
+    store.armSymposiumApplicationDelivery({
+      deliveryId: staged.deliveryId,
+      expectedEpoch: 0,
+      permit: 'permit-zero',
+    });
+    expect(
+      store.pauseSymposiumApplicationDelivery({ deliveryId: staged.deliveryId, expectedEpoch: 0 }),
+    ).toBe(1);
+    expect(() =>
+      store.armSymposiumApplicationDelivery({
+        deliveryId: staged.deliveryId,
+        expectedEpoch: 0,
+        permit: 'stale-permit',
+      }),
+    ).toThrow(/epoch/i);
+    expect(() =>
+      orchestrator.intervene({
+        deliveryId: staged.deliveryId,
+        action: 'approve',
+        idempotencyKey: 'stale-approval',
+        applicationPermit: 'permit-zero',
+      }),
+    ).toThrow(/application.*permit/i);
+    store.armSymposiumApplicationDelivery({
+      deliveryId: staged.deliveryId,
+      expectedEpoch: 1,
+      permit: 'permit-one',
+    });
+    expect(() =>
+      orchestrator.intervene({
+        deliveryId: staged.deliveryId,
+        action: 'approve',
+        idempotencyKey: 'stale-approval',
+        applicationPermit: 'permit-zero',
+      }),
+    ).toThrow(/application.*permit/i);
+  });
   it('binds the host-selected claim to the exact staged delivery and recipient', async () => {
     admit('builder');
     const selectClaim = vi.fn(() => 'policy-reserved-claim');

@@ -636,6 +636,7 @@ export class SymposiumOrchestrator {
     content?: string;
     reason?: string;
     idempotencyKey: string;
+    applicationPermit?: string;
   }): SymposiumDeliveryRecord {
     requireText(input.idempotencyKey, 'Intervention idempotency key');
     if ((input.action === 'edit' || input.action === 'replace') && !input.content?.trim()) {
@@ -651,13 +652,17 @@ export class SymposiumOrchestrator {
       reason: input.reason?.trim() || null,
       idempotencyKey: input.idempotencyKey,
       createdAt: this.now(),
+      applicationPermit: input.applicationPermit,
     });
   }
 
-  deliver(deliveryId: string): Promise<SymposiumDeliveryRecord> {
+  deliver(
+    deliveryId: string,
+    options?: { applicationPermit?: string },
+  ): Promise<SymposiumDeliveryRecord> {
     const existing = this.running.get(deliveryId);
     if (existing) return existing;
-    const promise = this.executeDelivery(deliveryId).finally(() => {
+    const promise = this.executeDelivery(deliveryId, options?.applicationPermit).finally(() => {
       this.running.delete(deliveryId);
       this.abortControllers.delete(deliveryId);
     });
@@ -745,7 +750,10 @@ export class SymposiumOrchestrator {
     return this.store.recoverSymposiumDeliveries(this.now());
   }
 
-  private async executeDelivery(deliveryId: string): Promise<SymposiumDeliveryRecord> {
+  private async executeDelivery(
+    deliveryId: string,
+    applicationPermit?: string,
+  ): Promise<SymposiumDeliveryRecord> {
     let delivery = this.store.getSymposiumDelivery(deliveryId);
     if (!delivery) throw new Error('Unknown Symposium delivery');
     if (delivery.status !== 'ready') return delivery;
@@ -762,7 +770,9 @@ export class SymposiumOrchestrator {
         updatedAt: this.now(),
       });
     }
-    if (!this.store.claimSymposiumDelivery(deliveryId, config.turnRules.maxTurns)) {
+    if (
+      !this.store.claimSymposiumDelivery(deliveryId, config.turnRules.maxTurns, applicationPermit)
+    ) {
       return this.store.getSymposiumDelivery(deliveryId)!;
     }
 
@@ -859,6 +869,7 @@ export class SymposiumOrchestrator {
         claimToken,
         claimedAt: this.now(),
         provenance,
+        applicationPermit,
       });
       if (!claim) return false;
       const thread = claim.thread;

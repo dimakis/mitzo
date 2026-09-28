@@ -904,6 +904,17 @@ export class EventStore {
         CREATE INDEX IF NOT EXISTS idx_symposium_deliveries_session
           ON symposium_deliveries (session_id, created_at, delivery_id);
 
+        CREATE TABLE IF NOT EXISTS symposium_application_delivery_controls (
+          delivery_id TEXT PRIMARY KEY REFERENCES symposium_deliveries(delivery_id),
+          workflow_id TEXT NOT NULL,
+          attempt_id TEXT NOT NULL,
+          policy_reservation_id TEXT NOT NULL,
+          epoch INTEGER NOT NULL DEFAULT 0,
+          state TEXT NOT NULL CHECK (state IN ('held', 'armed')),
+          permit_hash TEXT,
+          UNIQUE (workflow_id, attempt_id)
+        );
+
         CREATE TABLE IF NOT EXISTS symposium_delivery_recipients (
           delivery_id TEXT NOT NULL,
           seat_id TEXT NOT NULL,
@@ -4401,6 +4412,111 @@ export class EventStore {
     }));
   }
 
+  /** Hold an exact application delivery before it is exposed to operator intervention.
+   * Registration fails closed if any intervention or recipient claim won the race. */
+  registerSymposiumApplicationDeliveryControl(input: {
+    deliveryId: string;
+    workflowId: string;
+    attemptId: string;
+    policyReservationId: string;
+  }): void {
+    this.db!.transaction(() => {
+      const existing = this.db!.prepare(
+        `SELECT workflow_id, attempt_id, policy_reservation_id, state
+         FROM symposium_application_delivery_controls WHERE delivery_id = ?`,
+      ).get(input.deliveryId) as
+        | { workflow_id: string; attempt_id: string; policy_reservation_id: string; state: string }
+        | undefined;
+      const delivery = this.getSymposiumDelivery(input.deliveryId);
+      if (
+        !delivery ||
+        delivery.status !== 'awaiting_intervention' ||
+        delivery.deliveredContent !== null ||
+        delivery.intervention !== null ||
+        this.getSymposiumRecipientAttempts(input.deliveryId).length !== 0
+      )
+        throw new Error('Exact staged application delivery required');
+      if (existing) {
+        if (
+          existing.workflow_id !== input.workflowId ||
+          existing.attempt_id !== input.attemptId ||
+          existing.policy_reservation_id !== input.policyReservationId ||
+          existing.state !== 'held'
+        )
+          throw new Error('Application delivery control identity changed');
+        return;
+      }
+      this.db!.prepare(
+        `INSERT INTO symposium_application_delivery_controls
+         (delivery_id, workflow_id, attempt_id, policy_reservation_id, epoch, state, permit_hash)
+         VALUES (?, ?, ?, ?, 0, 'held', NULL)`,
+      ).run(input.deliveryId, input.workflowId, input.attemptId, input.policyReservationId);
+    }).immediate();
+  }
+
+  pauseSymposiumApplicationDelivery(input: { deliveryId: string; expectedEpoch: number }): number {
+    return this.db!.transaction(() => {
+      const delivery = this.getSymposiumDelivery(input.deliveryId);
+      if (
+        !delivery ||
+        delivery.status !== 'awaiting_intervention' ||
+        delivery.deliveredContent !== null ||
+        delivery.intervention !== null ||
+        this.getSymposiumRecipientAttempts(input.deliveryId).length !== 0
+      )
+        throw new Error('Application delivery is not safely staged for pause');
+      const updated = this.db!.prepare(
+        `UPDATE symposium_application_delivery_controls
+         SET epoch = epoch + 1, state = 'held', permit_hash = NULL
+         WHERE delivery_id = ? AND epoch = ?`,
+      ).run(input.deliveryId, input.expectedEpoch);
+      if (updated.changes !== 1) throw new Error('Application delivery epoch changed');
+      return input.expectedEpoch + 1;
+    }).immediate();
+  }
+
+  armSymposiumApplicationDelivery(input: {
+    deliveryId: string;
+    expectedEpoch: number;
+    permit: string;
+  }): void {
+    if (!input.permit) throw new Error('Application dispatch permit required');
+    this.db!.transaction(() => {
+      const delivery = this.getSymposiumDelivery(input.deliveryId);
+      if (
+        !delivery ||
+        delivery.status !== 'awaiting_intervention' ||
+        delivery.deliveredContent !== null ||
+        delivery.intervention !== null ||
+        this.getSymposiumRecipientAttempts(input.deliveryId).length !== 0
+      )
+        throw new Error('Application delivery is not safely staged for dispatch');
+      const updated = this.db!.prepare(
+        `UPDATE symposium_application_delivery_controls
+         SET state = 'armed', permit_hash = ?
+         WHERE delivery_id = ? AND epoch = ? AND state = 'held'`,
+      ).run(
+        createHash('sha256').update(input.permit).digest('hex'),
+        input.deliveryId,
+        input.expectedEpoch,
+      );
+      if (updated.changes !== 1) throw new Error('Application delivery epoch changed');
+    }).immediate();
+  }
+
+  private assertSymposiumApplicationDeliveryPermit(deliveryId: string, permit?: string): void {
+    const control = this.db!.prepare(
+      `SELECT state, permit_hash FROM symposium_application_delivery_controls WHERE delivery_id = ?`,
+    ).get(deliveryId) as { state: string; permit_hash: string | null } | undefined;
+    if (
+      control &&
+      (control.state !== 'armed' ||
+        !permit ||
+        createHash('sha256').update(permit).digest('hex') !== control.permit_hash)
+    )
+      throw new Error('Application delivery permit required');
+  }
+
   recordSymposiumIntervention(input: {
     deliveryId: string;
     action: SymposiumIntervention;
@@ -4408,8 +4524,10 @@ export class EventStore {
     reason: string | null;
     idempotencyKey: string;
     createdAt: number;
+    applicationPermit?: string;
   }): SymposiumDeliveryRecord {
     return this.db!.transaction(() => {
+      this.assertSymposiumApplicationDeliveryPermit(input.deliveryId, input.applicationPermit);
       const duplicate = this.db!.prepare(
         `SELECT * FROM symposium_interventions
          WHERE delivery_id = ? AND idempotency_key = ?`,
@@ -4498,8 +4616,13 @@ export class EventStore {
     return rows.map(rowToSymposiumIntervention);
   }
 
-  claimSymposiumDelivery(deliveryId: string, maxTurns?: number): boolean {
+  claimSymposiumDelivery(
+    deliveryId: string,
+    maxTurns?: number,
+    applicationPermit?: string,
+  ): boolean {
     return this.db!.transaction(() => {
+      this.assertSymposiumApplicationDeliveryPermit(deliveryId, applicationPermit);
       const delivery = this.getSymposiumDelivery(deliveryId);
       if (!delivery) throw new Error('Unknown Symposium delivery');
       if (delivery.status !== 'ready') return false;
@@ -4636,8 +4759,10 @@ export class EventStore {
     claimToken: string;
     claimedAt: number;
     provenance: SymposiumProvenance;
+    applicationPermit?: string;
   }): { claimToken: string; thread: SymposiumSeatThreadRecord | undefined } | undefined {
     return this.db!.transaction(() => {
+      this.assertSymposiumApplicationDeliveryPermit(input.deliveryId, input.applicationPermit);
       this.assertSymposiumArtifactWorkAllowed(
         input.sessionId,
         'version' in input.provenance && input.provenance.version === 3
