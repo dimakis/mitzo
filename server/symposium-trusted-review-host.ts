@@ -334,7 +334,7 @@ export function createSymposiumTrustedReviewHost(
         throw new Error('Independent review selection required');
       return {
         implementer: selection(context, ids.implementerSeatId, 'coder', true),
-        reviewer: selection(context, ids.reviewerSeatId, 'reviewer'),
+        reviewer: selection(context, ids.reviewerSeatId, 'reviewer', true),
       };
     },
     initialArtifact: (context) => deps.artifacts.initial(context),

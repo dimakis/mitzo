@@ -181,18 +181,12 @@ function fixture(phase: 'initial' | 'review' = 'initial') {
   };
 }
 describe('trusted production review adapter', () => {
-  it('selects a sealed initial source coder before native admission but cannot stage on that grant', () => {
+  it('selects both sealed-source roles before admission but cannot stage on those grants', () => {
     const f = fixture();
-    f.deps.events.getLatestSymposiumAdmission = ((_sessionId: string, seatId: string) =>
-      seatId === 'coder'
-        ? null
-        : {
-            decision: 'admitted',
-            membershipGeneration: 1,
-            configRevision: 1,
-          }) as never;
+    f.deps.events.getLatestSymposiumAdmission = (() => null) as never;
     const selected = f.host.selectApplicationRoles!(context);
     expect(selected.implementer.seatId).toBe('coder');
+    expect(selected.reviewer.seatId).toBe('reviewer');
     const state = f.reviews.get('workflow')!;
     expect(() =>
       f.host.prepareApplicationAttempt!({
@@ -201,6 +195,18 @@ describe('trusted production review adapter', () => {
         attemptId: 'unadmitted',
         kind: 'initial',
         selection: state.implementer,
+        artifactRevision: 'source',
+        artifactHash: hash,
+        policy: state.limits as ApplicationPolicy,
+      }),
+    ).toThrow('currently admitted');
+    expect(() =>
+      f.host.prepareApplicationAttempt!({
+        context,
+        workflowId: 'workflow',
+        attemptId: 'unadmitted-reviewer',
+        kind: 'review',
+        selection: state.reviewer,
         artifactRevision: 'source',
         artifactHash: hash,
         policy: state.limits as ApplicationPolicy,
