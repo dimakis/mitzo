@@ -143,14 +143,9 @@ describe('controlled application delivery versus stale director routes', () => {
       recipientSeatIds: ['writer'],
       originalContent: 'write a change',
       idempotencyKey: 'stage-application',
+      applicationControl: { workflowId: 'workflow', attemptId: 'attempt', policyReservationId: 'reservation' },
     });
     const deliveryId = staged.deliveryId;
-    store.registerSymposiumApplicationDeliveryControl({
-      deliveryId,
-      workflowId: 'workflow',
-      attemptId: 'attempt',
-      policyReservationId: 'reservation',
-    });
     const path = `/api/sessions/chat/symposium/deliveries/${deliveryId}`;
     const approve = () =>
       request(app).post(`${path}/interventions`).send({
@@ -207,19 +202,14 @@ describe('controlled application delivery versus stale director routes', () => {
     expect(nativeCalls).toHaveLength(1);
   });
 
-  it('refuses a competing pause when authorized approval won the SQLite transition', async () => {
+  it('pauses an approved but unclaimed delivery before stale director dispatch', async () => {
     const staged = orchestrator.stageDelivery({
       sessionId: 'chat',
       sourceSeatId: null,
       recipientSeatIds: ['writer'],
       originalContent: 'write a change',
       idempotencyKey: 'stage-application',
-    });
-    store.registerSymposiumApplicationDeliveryControl({
-      deliveryId: staged.deliveryId,
-      workflowId: 'workflow',
-      attemptId: 'attempt',
-      policyReservationId: 'reservation',
+      applicationControl: { workflowId: 'workflow', attemptId: 'attempt', policyReservationId: 'reservation' },
     });
     store.armSymposiumApplicationDelivery({
       deliveryId: staged.deliveryId,
@@ -236,12 +226,12 @@ describe('controlled application delivery versus stale director routes', () => {
           applicationPermit: 'current-permit',
         }).status,
       ).toBe('ready');
-      expect(() =>
+      expect(
         competingStore.pauseSymposiumApplicationDelivery({
           deliveryId: staged.deliveryId,
           expectedEpoch: 0,
         }),
-      ).toThrow(/safely staged/i);
+      ).toBe(1);
       expect(nativeCalls).toHaveLength(0);
       const path = `/api/sessions/chat/symposium/deliveries/${staged.deliveryId}/dispatch`;
       expect((await request(app).post(path).send({})).status).toBe(409);
@@ -258,12 +248,7 @@ describe('controlled application delivery versus stale director routes', () => {
       recipientSeatIds: ['writer'],
       originalContent: 'write a change',
       idempotencyKey: 'stage-application',
-    });
-    store.registerSymposiumApplicationDeliveryControl({
-      deliveryId: staged.deliveryId,
-      workflowId: 'workflow',
-      attemptId: 'attempt',
-      policyReservationId: 'reservation',
+      applicationControl: { workflowId: 'workflow', attemptId: 'attempt', policyReservationId: 'reservation' },
     });
     const path = `/api/sessions/chat/symposium/deliveries/${staged.deliveryId}/cancel`;
     expect(
