@@ -255,7 +255,7 @@ export async function sealImportedSourceArtifact(
     const mounts = row.Mounts as Array<Record<string, unknown>> | undefined;
     if (
       row.Id !== helperId ||
-      row.Name !== `/${mapping.volumeName}-source-seal` ||
+      row.Name?.replace(/^\//, '') !== `${mapping.volumeName}-source-seal` ||
       row.ImageName !== deps.owner.image ||
       config?.User !== `${deps.owner.uid}:${deps.owner.gid}` ||
       host?.NetworkMode !== 'none' ||
@@ -289,9 +289,9 @@ export async function sealImportedSourceArtifact(
       const inspected: unknown = JSON.parse(await deps.command(['inspect', id]));
       if (!Array.isArray(inspected) || inspected.length !== 1 || inspected[0]?.Id !== id)
         throw new Error('Source seal helper census changed');
-      if (id === knownId && inspected[0].Name !== `/${helperName}`)
+      if (id === knownId && inspected[0].Name?.replace(/^\//, '') !== helperName)
         throw new Error('Source seal helper identity changed');
-      if (inspected[0].Name === `/${helperName}`) {
+      if (inspected[0].Name?.replace(/^\//, '') === helperName) {
         if (found) throw new Error('Ambiguous source seal helper identity');
         found = id;
       }

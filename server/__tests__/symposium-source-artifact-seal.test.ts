@@ -10,7 +10,12 @@ import { SYMPOSIUM_ARTIFACT_TARGET } from '../symposium-artifact-lease.js';
 import { ARTIFACT_GIT_EXPORT } from '../symposium-artifact-git-export.js';
 import { createHash } from 'node:crypto';
 
-it.each([false, true])('requires exact read-only source proof (matches=%s)', async (matches) => {
+it.each([
+  [false, '/mitzo-artifacts-source-source-seal'],
+  [true, '/mitzo-artifacts-source-source-seal'],
+  [true, 'mitzo-artifacts-source-source-seal'],
+  [true, 'mitzo-artifacts-source-source-seal-altered'],
+] as const)('requires exact read-only source proof (matches=%s, name=%s)', async (matches, name) => {
   const git = {
     version: 1,
     commit: 'a'.repeat(40),
@@ -100,7 +105,7 @@ it.each([false, true])('requires exact read-only source proof (matches=%s)', asy
       return JSON.stringify([
         {
           Id: helperId,
-          Name: '/mitzo-artifacts-source-source-seal',
+          Name: name,
           ImageName: 'image',
           Config: { User: '998:998', Cmd: helperCommand, Entrypoint: ['/usr/bin/python3'] },
           HostConfig: { NetworkMode: 'none', ReadonlyRootfs: true, Privileged: false },
@@ -136,13 +141,14 @@ it.each([false, true])('requires exact read-only source proof (matches=%s)', asy
     'op',
     new AbortController().signal,
   );
-  if (matches) expect(await run).toEqual({ state: 'complete' });
-  else await expect(run).rejects.toThrow(/Git proof/);
+  const validName = name.replace(/^\//, '') === 'mitzo-artifacts-source-source-seal';
+  if (matches && validName) expect(await run).toEqual({ state: 'complete' });
+  else await expect(run).rejects.toThrow(validName ? /Git proof/ : /isolation changed/);
   expect(journal.intent).toHaveBeenCalledOnce();
   expect(journal.created).toHaveBeenCalledOnce();
-  expect(journal.observed).toHaveBeenCalledTimes(matches ? 1 : 0);
-  expect(journal.exported).toHaveBeenCalledTimes(matches ? 1 : 0);
-  expect(artifacts.completeSourceSeal).toHaveBeenCalledTimes(matches ? 1 : 0);
+  expect(journal.observed).toHaveBeenCalledTimes(matches && validName ? 1 : 0);
+  expect(journal.exported).toHaveBeenCalledTimes(matches && validName ? 1 : 0);
+  expect(artifacts.completeSourceSeal).toHaveBeenCalledTimes(matches && validName ? 1 : 0);
   expect(
     command.mock.calls.some(
       ([args]) =>

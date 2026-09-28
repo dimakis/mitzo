@@ -17,6 +17,12 @@ import { createSymposiumSourceRouter } from '../symposium-source-routes.js';
 import { createArtifactGitVolume, artifactGitContract } from '../symposium-artifact-initializer.js';
 import { symposiumArtifactOwner } from '../symposium-artifact-owner.js';
 import { volumeEvidence } from '../symposium-artifact-host.js';
+import {
+  sealImportedSourceArtifact,
+  requireCompletedImportedSourceSeal,
+  initialSourceExportReceipt,
+  requireInitialSourceExport,
+} from '../symposium-source-artifact-seal.js';
 import { REVIEWED_SYMPOSIUM_OWNED_RUNTIME as runtime } from '../symposium-owned-runtime-contract.js';
 import { SYMPOSIUM_ARTIFACT_TARGET as target } from '../symposium-artifact-lease.js';
 const physical = process.env.MITZO_SOURCE_PHYSICAL_CONTRACT === '1';
@@ -174,6 +180,73 @@ it.skipIf(!physical)(
         available: false,
         admissionIssued: false,
       });
+      // Exercise the actual retained source fence, physical read-only exporter,
+      // and same-helper recovery after an injected pre-start interruption.
+      const sealOperationId = imported.body.operationId as string;
+      let interruptBeforeStart = true;
+      const sealCommand = async (args: readonly string[], maxOutputBytes = 16 * 1024 * 1024) => {
+        if (args[0] === 'start' && interruptBeforeStart) {
+          interruptBeforeStart = false;
+          throw Error('fixture interruption after physical helper create');
+        }
+        return execFileSync(process.env.MITZO_CONTRACT_PODMAN ?? 'podman', [...args], {
+          env: { HOME: process.env.HOME, PATH: process.env.PATH },
+          encoding: 'utf8',
+          timeout: 60000,
+          maxBuffer: maxOutputBytes,
+        });
+      };
+      const sealDeps = {
+        artifacts,
+        owner,
+        workspace,
+        custody: () => {},
+        assertNoNativeClaims: () => {},
+        command: sealCommand,
+      };
+      await expect(
+        sealImportedSourceArtifact(
+          sealDeps,
+          sessionId,
+          sealOperationId,
+          new AbortController().signal,
+        ),
+      ).rejects.toThrow('fixture interruption');
+      const pendingSeal = artifacts.sourceSealStatus(sessionId)!;
+      expect(pendingSeal).toMatchObject({
+        state: 'pending',
+      });
+      expect(pendingSeal.helperRemoved).not.toBe(true);
+      expect(pendingSeal.helperId).toMatch(/^[a-f0-9]{64}$/);
+      helpers.push(pendingSeal.helperId!);
+      const completedSeal = await sealImportedSourceArtifact(
+        sealDeps,
+        sessionId,
+        sealOperationId,
+        new AbortController().signal,
+      );
+      expect(completedSeal).toMatchObject({
+        state: 'complete',
+        helperId: pendingSeal.helperId,
+        helperRemoved: true,
+        terminal: { helperId: pendingSeal.helperId, exitCode: 0 },
+      });
+      const retainedSource = requireCompletedImportedSourceSeal(artifacts, owner, sessionId);
+      const exported = initialSourceExportReceipt(retainedSource, 'initial-physical-export');
+      expect(exported.bundle.length).toBeGreaterThan(0);
+      await requireInitialSourceExport(
+        {
+          artifacts,
+          owner,
+          workspace,
+          custody: () => {},
+          assertNoNativeClaims: () => {},
+          command: sealCommand,
+        },
+        exported.receipt,
+        exported.bundle,
+        new AbortController().signal,
+      );
       const db = new Database(database, { readonly: true });
       const row = db
         .prepare('SELECT * FROM symposium_session_artifacts WHERE session_id=?')
@@ -244,6 +317,9 @@ it.skipIf(!physical)(
             selectedBefore,
             preview: preview.body,
             importedState,
+            pendingSeal,
+            completedSeal,
+            initialExportReceipt: exported.receipt,
             verified,
             mapping,
             helpers,
