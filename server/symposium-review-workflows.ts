@@ -1552,6 +1552,22 @@ export class SymposiumReviewStore {
           if (digest(prior) !== digest(parsed)) throw new Error('Fix intent idempotency conflict');
           return state;
         }
+        const matchingScope = state.applicationFixIntents.filter(
+          (intent) =>
+            intent.actor === parsed.actor &&
+            intent.artifactRevision === parsed.artifactRevision &&
+            intent.artifactHash === parsed.artifactHash &&
+            intent.findingFingerprints.length === parsed.findingFingerprints.length &&
+            intent.findingFingerprints.every((key) => parsed.findingFingerprints.includes(key)),
+        );
+        if (
+          matchingScope.length > 1 ||
+          (matchingScope[0] && matchingScope[0].reason !== parsed.reason)
+        )
+          throw new Error('Fix intent retry conflict');
+        // The host can issue a new action ID after an HTTP response is lost. Keep
+        // the original exact authorization so one fix scope has one transition.
+        if (matchingScope.length === 1) return state;
         state.applicationFixIntents.push(parsed);
         return this.write(state, 'application_fix_intent_authorized', parsed);
       })

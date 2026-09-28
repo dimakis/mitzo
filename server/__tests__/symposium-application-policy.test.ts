@@ -347,6 +347,19 @@ it('retains exact user fix intent without borrowing an old writer grant', () => 
   };
   expect(a.authorizeApplicationFixIntent(intent)).toMatchObject({ status: 'awaiting_fix' });
   expect(a.get('w')?.applicationFixIntents).toEqual([intent]);
+  // A lost response can cause the same authenticated fix request to return with
+  // a fresh host authorization ID. It must retain the first exact intent.
+  expect(
+    a.authorizeApplicationFixIntent({ ...intent, authorizationId: 'fresh-retry-action' }),
+  ).toMatchObject({ status: 'awaiting_fix' });
+  expect(a.get('w')?.applicationFixIntents).toEqual([intent]);
+  expect(() =>
+    a.authorizeApplicationFixIntent({
+      ...intent,
+      authorizationId: 'different-action',
+      reason: 'different fix scope decision',
+    }),
+  ).toThrow(/intent.*conflict/i);
   expect(a.get('w')?.authorizations).toEqual([]);
   expect(() => a.authorizeApplicationFixIntent({ ...intent, findingFingerprints: [hash] })).toThrow(
     /scope/i,
