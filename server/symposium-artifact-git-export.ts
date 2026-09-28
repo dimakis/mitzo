@@ -10,6 +10,12 @@ import re, base64, selectors, time, signal
 options=json.loads(sys.argv[2])
 expected=options['expected']
 if proof!=expected: raise ValueError('sealed Git identity changed')
+if options['kind']=='check':
+ path=options['checkPath']
+ if not isinstance(path,str) or len(path)>512 or not re.fullmatch(r'[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*',path) or any(p in ('.','..','.git') for p in path.split('/')): raise ValueError('check path')
+ entry=next((item for item in manifest if item['path']==path),None)
+ print(json.dumps({'proof':proof,'checkPath':path,'observedSha256':entry['sha256'] if entry else None},sort_keys=True))
+ sys.exit(0)
 def branch(value):
  if not isinstance(value,str) or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._/-]{0,254}',value): raise ValueError('branch')
  git('check-ref-format','refs/heads/'+value)

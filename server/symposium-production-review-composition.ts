@@ -9,6 +9,7 @@ import type { SymposiumOrchestrator } from './symposium-orchestrator.js';
 import type { SymposiumReviewActionAuthority } from './symposium-review-action-authority.js';
 import type { ReviewContext } from './symposium-review-coordinator.js';
 import { createOwnedReviewArtifactResults } from './symposium-owned-review-artifacts.js';
+import { createOwnedCriterionReceipts } from './symposium-criterion-receipts.js';
 import { createSealedInitialReviewTransition } from './symposium-trusted-initial-transition.js';
 import { createSealedFixReviewTransition } from './symposium-trusted-fix-transition.js';
 import { createSealedReaderReviewTransition } from './symposium-trusted-reader-transition.js';
@@ -156,6 +157,51 @@ export function createSymposiumProductionReviewComposition(deps: {
       return ref.artifactGenerationId;
     },
   });
+  const checks =
+    host.checkCompletedArtifactFile && host.criterionChecks?.length
+      ? createOwnedCriterionReceipts(deps.artifactResultsPath, {
+          definitions: host.criterionChecks,
+          currentResult(context) {
+            const state = reviews.applicationWorkflowForSession(context.sessionId);
+            const result = artifacts.currentResult(context);
+            return state?.owner === context.owner &&
+              result?.resultId === state.currentResultId &&
+              result.artifactRevision === state.artifactRevision &&
+              result.artifactHash === state.artifactHash
+              ? result
+              : null;
+          },
+          async requireSeal(fenceId) {
+            const seal = await host.requireCompletedArtifactSeal!(
+              fenceId,
+              AbortSignal.timeout(120_000),
+            );
+            const intent = events.getSymposiumArtifactSealByFence(fenceId);
+            if (!intent || intent.selection.sessionId !== seal.sessionId)
+              throw new Error('Criterion artifact generation unavailable');
+            return {
+              seal,
+              digest: createHash('sha256').update(canonicalReviewJson(seal)).digest('hex'),
+              generationId: intent.selection.artifact.volumeGeneration,
+            };
+          },
+          async execute(context, result, definition, definitionDigest) {
+            const receipt = await host.checkCompletedArtifactFile!(
+              {
+                fenceId: result.evidenceRefs[0].slice('artifact-seal:'.length),
+                operationId: `criterion-${createHash('sha256')
+                  .update(
+                    canonicalReviewJson({ context, resultId: result.resultId, definitionDigest }),
+                  )
+                  .digest('hex')}`,
+                path: definition.path,
+              },
+              AbortSignal.timeout(120_000),
+            );
+            return { ...receipt, definitionDigest };
+          },
+        })
+      : null;
   try {
     const currentArtifact = (context: ReviewContext) =>
       artifacts.currentOrNull(context) ?? sourceIdentity(context);
@@ -270,16 +316,36 @@ export function createSymposiumProductionReviewComposition(deps: {
         initial: sourceIdentity,
         refresh: artifacts.refresh,
         result: artifacts.result,
-        evidence: () => null,
+        evidence: (context, id) => checks?.evidence(context, id) ?? null,
       },
+      runCriterionCheck: checks
+        ? async (context, workflowId, definitionId) => {
+            const state = reviews.get(workflowId);
+            const definition = host.criterionChecks!.find((item) => item.id === definitionId);
+            if (
+              !state ||
+              state.owner !== context.owner ||
+              state.sessionId !== context.sessionId ||
+              !definition ||
+              !state.acceptanceCriteria.includes(definition.criterion)
+            )
+              throw new Error('Registered acceptance criterion unavailable');
+            const evidence = await checks.run(context, definitionId);
+            return { evidenceId: evidence.evidenceId };
+          }
+        : undefined,
       authorizeAction: (context, action) => deps.actionAuthority.authorize(context, action.kind),
     });
     return {
       reviewHost,
       assertReaderAdmissionCurrent: reader.assertReaderAdmissionCurrent,
-      close: artifacts.close,
+      close: () => {
+        checks?.close();
+        artifacts.close();
+      },
     };
   } catch (error) {
+    checks?.close();
     artifacts.close();
     throw error;
   }

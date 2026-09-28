@@ -112,6 +112,14 @@ export function createOwnedReviewArtifactResults(
   return {
     close: () => db.close(),
     currentOrNull,
+    currentResult(context: ReviewContext): Result | null {
+      const row = db
+        .prepare(
+          'SELECT result_json FROM symposium_review_artifact_results WHERE session_id=? ORDER BY completed_at DESC, attempt_id DESC LIMIT 1',
+        )
+        .get(context.sessionId) as { result_json: string } | undefined;
+      return row ? WorkResultSchema.parse(JSON.parse(row.result_json)) : null;
+    },
     currentFence(context: ReviewContext, artifact: { revision: string; hash: string }) {
       const row = db
         .prepare(

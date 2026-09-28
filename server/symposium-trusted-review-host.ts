@@ -95,6 +95,11 @@ export interface SymposiumTrustedReviewHostDeps {
       evidenceId: string,
     ): z.infer<typeof OutcomeEvidenceSchema> | null;
   };
+  runCriterionCheck?(
+    context: ReviewContext,
+    workflowId: string,
+    definitionId: string,
+  ): Promise<{ evidenceId: string }>;
   /** Validate a live request-scoped interactive capability, current authentication and
    * the exact action. Plain owner/session strings never establish fresh authority. */
   authorizeAction(
@@ -624,6 +629,11 @@ export function createSymposiumTrustedReviewHost(
     evidence(context, id) {
       const evidence = deps.artifacts.evidence(context, id);
       return evidence ? OutcomeEvidenceSchema.parse(evidence) : null;
+    },
+    runCriterionCheck(context, workflowId, definitionId) {
+      workflow(context, workflowId);
+      if (!deps.runCriterionCheck) throw new Error('Trusted criterion check unavailable');
+      return deps.runCriterionCheck(context, workflowId, definitionId);
     },
     authorizeFix(input) {
       const state = workflow(input.context, input.workflowId);

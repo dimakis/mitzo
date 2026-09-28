@@ -467,6 +467,48 @@ export class PhysicalArtifactSealer {
     return sealedInspectionSchema.parse(value.inspection);
   }
 
+  /** A fresh credential-free helper recomputes the sealed committed manifest and
+   * returns only one file digest. Its journal and terminal container identity are
+   * retained with the execution receipt; absence is a failed check, not a guess. */
+  async checkCompletedArtifactFile(
+    input: { fenceId: string; operationId: string; path: string },
+    signal: AbortSignal,
+  ): Promise<{
+    executionId: string;
+    sealFenceId: string;
+    sealDigest: string;
+    artifactRevision: string;
+    artifactHash: string;
+    observedSha256: string | null;
+    completedAt: number;
+  }> {
+    const value = await this.exportOperation(
+      {
+        fenceId: input.fenceId,
+        operationId: input.operationId,
+        baseBranch: 'main',
+        kind: 'check',
+        checkPath: input.path,
+      },
+      signal,
+    );
+    const checked = z
+      .strictObject({
+        executionId: z.string().uuid(),
+        sealFenceId: z.string(),
+        sealDigest: z.string().regex(/^[a-f0-9]{64}$/),
+        artifactRevision: oid,
+        artifactHash: z.string().regex(/^[a-f0-9]{64}$/),
+        observedSha256: z
+          .string()
+          .regex(/^[a-f0-9]{64}$/)
+          .nullable(),
+        completedAt: z.number().int().nonnegative(),
+      })
+      .parse(value.checkReceipt);
+    return checked;
+  }
+
   async exportCompletedArtifactBundle(
     input: {
       fenceId: string;
@@ -539,10 +581,11 @@ export class PhysicalArtifactSealer {
       fenceId: string;
       operationId: string;
       baseBranch: string;
-      kind: 'inspect' | 'bundle' | 'successor';
+      kind: 'inspect' | 'bundle' | 'successor' | 'check';
       sourceBranch?: string;
       sourceOid?: string;
       maxBytes?: number;
+      checkPath?: string;
     },
     signal: AbortSignal,
   ): Promise<Record<string, unknown>> {
@@ -551,7 +594,7 @@ export class PhysicalArtifactSealer {
         fenceId: z.string(),
         operationId: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/),
         baseBranch: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._/-]{0,254}$/),
-        kind: z.enum(['inspect', 'bundle', 'successor']),
+        kind: z.enum(['inspect', 'bundle', 'successor', 'check']),
         sourceBranch: z
           .string()
           .regex(/^[A-Za-z0-9][A-Za-z0-9._/-]{0,254}$/)
@@ -563,9 +606,24 @@ export class PhysicalArtifactSealer {
           .min(1)
           .max(8 * 1024 * 1024)
           .optional(),
+        checkPath: z
+          .string()
+          .regex(/^[A-Za-z0-9_.-]+(?:\/[A-Za-z0-9_.-]+)*$/)
+          .max(512)
+          .optional(),
       })
       .parse(raw);
-    if (input.kind !== 'inspect' && (!input.sourceBranch || !input.sourceOid || !input.maxBytes))
+    if (
+      input.kind === 'check' &&
+      (!input.checkPath ||
+        input.checkPath.split('/').some((part) => part === '.' || part === '..' || part === '.git'))
+    )
+      throw new Error('Criterion check path is invalid');
+    if (
+      input.kind !== 'inspect' &&
+      input.kind !== 'check' &&
+      (!input.sourceBranch || !input.sourceOid || !input.maxBytes)
+    )
       throw new Error('Sealed bundle selection is incomplete');
     const receipt = await this.requireCompleted(input.fenceId, signal);
     if (input.sourceOid && input.sourceOid !== receipt.git.commit)
@@ -607,7 +665,7 @@ export class PhysicalArtifactSealer {
     let helperDeleted = false;
     let helperRemovalObserved = false;
     const outputLimit =
-      input.kind !== 'inspect'
+      input.kind !== 'inspect' && input.kind !== 'check'
         ? Math.ceil((input.maxBytes! * 4) / 3) + 16384
         : ARTIFACT_INSPECTION_MAX_OUTPUT_BYTES;
     const verify = async () => {
@@ -697,7 +755,17 @@ export class PhysicalArtifactSealer {
       )
         throw new Error('Exported Git proof differs from seal');
       if (input.kind === 'inspect') sealedInspectionSchema.parse(value.inspection);
-      else parseSealedBundle(value, input.maxBytes!);
+      else if (input.kind === 'check') {
+        if (
+          value.checkPath !== input.checkPath ||
+          (value.observedSha256 !== null &&
+            !z
+              .string()
+              .regex(/^[a-f0-9]{64}$/)
+              .safeParse(value.observedSha256).success)
+        )
+          throw new Error('Criterion check output changed');
+      } else parseSealedBundle(value, input.maxBytes!);
       this.db
         .prepare("UPDATE symposium_seal_export_jobs SET state='terminal' WHERE job_id=?")
         .run(jobId);
@@ -751,7 +819,22 @@ export class PhysicalArtifactSealer {
           );
         if (updated.changes !== 1) throw new Error('Sealed export journal changed');
       });
-      return successorReceipt ? { ...value, receipt: successorReceipt } : value;
+      return successorReceipt
+        ? { ...value, receipt: successorReceipt }
+        : input.kind === 'check'
+          ? {
+              ...value,
+              checkReceipt: {
+                executionId: jobId,
+                sealFenceId: receipt.fenceId,
+                sealDigest: reviewRecordHash(canonicalReviewJson(receipt)),
+                artifactRevision: receipt.git.commit,
+                artifactHash: receipt.git.committedTreeDigest,
+                observedSha256: value.observedSha256,
+                completedAt: Date.now(),
+              },
+            }
+          : value;
     } catch (error) {
       if (!id && error instanceof ArtifactCommandNotDispatched) {
         this.db

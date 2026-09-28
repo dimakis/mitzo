@@ -20,6 +20,7 @@ import {
   type InitialSourceExportReceipt,
 } from './symposium-source-artifact-seal.js';
 import type { PublicationCredentialRegistration } from './symposium-publication-registration.js';
+import type { CheckDefinition } from './symposium-criterion-receipts.js';
 import {
   withOwnedArtifactSuccessor,
   confirmOwnedArtifactSuccessor,
@@ -102,6 +103,7 @@ class LoginCancelledForShutdown extends Error {
 }
 
 export interface OwnedSymposiumHostOptions {
+  criterionChecks?: readonly CheckDefinition[];
   publicationCredentials?: readonly PublicationCredentialRegistration[];
   gateway: OwnedSymposiumGatewayOptions;
   /** Absolute evidence destination. It may be absent until real provisioning
@@ -792,6 +794,7 @@ export async function createOwnedSymposiumHost(
     const sealSource = (sessionId: string, operationId: string, signal: AbortSignal) =>
       sealImportedSourceArtifact(sourceSealDeps(), sessionId, operationId, signal);
     return {
+      criterionChecks: options.criterionChecks,
       resolveSeatPolicy,
       gateway,
       runtimeConfig,
@@ -877,6 +880,22 @@ export async function createOwnedSymposiumHost(
           runtimeConfig,
         });
         return track(() => artifactSealer!.exportCompletedArtifactBundle(input, signal));
+      },
+      async checkCompletedArtifactFile(
+        input: Parameters<PhysicalArtifactSealer['checkCompletedArtifactFile']>[0],
+        signal: AbortSignal,
+      ) {
+        if (draining || stopped) throw new Error('Owned Symposium host is shutting down');
+        if (!(options.facts instanceof EventStore))
+          throw new Error('Artifact sealing requires the retained event store');
+        artifactSealer ??= new PhysicalArtifactSealer({
+          store: options.facts,
+          leaseHost: leaseHost!,
+          gateway,
+          attemptRegistry: native!.registry,
+          runtimeConfig,
+        });
+        return track(() => artifactSealer!.checkCompletedArtifactFile(input, signal));
       },
       async requireCompletedArtifactSeal(fenceId: string, signal: AbortSignal) {
         if (draining || stopped) throw new Error('Owned Symposium host is shutting down');

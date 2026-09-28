@@ -19,6 +19,11 @@ import {
 export interface SymposiumInteractiveReviewHost extends SymposiumReviewHost {
   /** Refresh host-owned physical artifact facts using the current authenticated owner. */
   refreshArtifact?(context: ReviewContext): Promise<void>;
+  runCriterionCheck?(
+    context: ReviewContext,
+    workflowId: string,
+    definitionId: string,
+  ): Promise<{ evidenceId: string }>;
   dispatch(
     context: ReviewContext,
     reservation: Extract<
@@ -61,6 +66,7 @@ const Action = z.discriminatedUnion('action', [
     kind: z.enum(['initial', 'review', 'fix']),
   }),
   z.strictObject({ ...artifact, action: z.literal('evidence'), evidenceId: Id }),
+  z.strictObject({ ...artifact, action: z.literal('check'), definitionId: Id }),
   z.strictObject({ ...artifact, action: z.literal('review-record') }),
   z.strictObject({
     ...artifact,
@@ -300,7 +306,14 @@ export function createSymposiumReviewRouter(deps: {
         });
       else if (action.action === 'evidence')
         result = coordinator.recordHostEvidence(ctx, workflowId, action.evidenceId);
-      else {
+      else if (action.action === 'check') {
+        if (!host.runCriterionCheck) {
+          res.status(409).json({ kind: 'decision_required', code: 'trusted_check_unavailable' });
+          return;
+        }
+        const evidence = await host.runCriterionCheck(ctx, workflowId, action.definitionId);
+        result = coordinator.recordHostEvidence(ctx, workflowId, evidence.evidenceId);
+      } else {
         let attemptId: string;
         const kind = action.action === 'recover' ? action.kind : action.action;
         if (action.action === 'recover') {

@@ -209,6 +209,12 @@ async function fixture(inspectionPaths = ['file']) {
       return helperId;
     }
     if (args[0] === 'start') {
+      if (exportOptions?.kind === 'check')
+        return JSON.stringify({
+          proof,
+          checkPath: exportOptions.checkPath,
+          observedSha256: createHash('sha256').update('hello').digest('hex'),
+        });
       if (exportOptions?.kind === 'inspect')
         return JSON.stringify({
           proof,
@@ -489,6 +495,29 @@ it('exports only through a fresh completed seal and retains exact helper cleanup
   ]);
   db.close();
   expect(() => f.store.assertSymposiumArtifactWorkAllowed('symposium')).toThrow(/fenced/);
+});
+it('checks one committed file through a fresh credential-free sealed helper', async () => {
+  const f = await fixture();
+  const seal = await f.sealer.seal(f.input, f.runtime, new AbortController().signal);
+  const check = await f.sealer.checkCompletedArtifactFile(
+    { fenceId: seal.fenceId, operationId: 'criterion-1', path: 'marker.txt' },
+    new AbortController().signal,
+  );
+  expect(check).toMatchObject({
+    sealFenceId: seal.fenceId,
+    artifactRevision: seal.git.commit,
+    artifactHash: seal.git.committedTreeDigest,
+    observedSha256: createHash('sha256').update('hello').digest('hex'),
+  });
+  const db = new Database(join(f.root, 'leases.db'));
+  expect(
+    db.prepare('SELECT kind,state,container_id FROM symposium_seal_export_jobs').get(),
+  ).toEqual({
+    kind: 'check',
+    state: 'complete',
+    container_id: 'e'.repeat(64),
+  });
+  db.close();
 });
 it('retains uncertain export create intent and blocks another export without blind retry', async () => {
   const f = await fixture();
