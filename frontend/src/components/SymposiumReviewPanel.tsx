@@ -71,6 +71,8 @@ function ReviewPanel({ sessionId }: { sessionId: string }) {
       setStopAvailable(data.stopAvailable ?? data.available);
       setApplicationRun(data.applicationRun ?? { available: false, initialArtifact: null });
       setWorkflows(data.workflows);
+      if (data.workflows.some((item: Workflow) => item.limits?.mode === 'application'))
+        setNewReview(false);
       setCriterionChecks(data.criterionChecks ?? []);
       setConfirmedArtifact(false);
       setHistoryVersion((version) => version + 1);
@@ -128,9 +130,11 @@ function ReviewPanel({ sessionId }: { sessionId: string }) {
       setBusy(false);
     }
   }
-  const workflow = newReview
-    ? undefined
-    : (workflows.find((item) => item.workflowId === workflowId) ?? workflows.at(-1));
+  const hasApplicationRun = workflows.some((item) => item.limits?.mode === 'application');
+  const workflow =
+    newReview && !hasApplicationRun
+      ? undefined
+      : (workflows.find((item) => item.workflowId === workflowId) ?? workflows.at(-1));
   function resetLimits() {
     setHostTurns('');
     setCycles('');
@@ -242,7 +246,7 @@ function ReviewPanel({ sessionId }: { sessionId: string }) {
               setConfirmedArtifact(false);
             }}
           >
-            {newReview && <option value="">New run</option>}
+            {newReview && !hasApplicationRun && <option value="">New run</option>}
             {workflows.map((item) => (
               <option key={item.workflowId} value={item.workflowId}>
                 {item.artifactRevision} · {item.status.replaceAll('_', ' ')} · {item.workflowId}
@@ -251,7 +255,7 @@ function ReviewPanel({ sessionId }: { sessionId: string }) {
           </select>
         </label>
       )}
-      {loaded && available && workflows.length > 0 && !newReview && (
+      {loaded && available && workflows.length > 0 && !newReview && !hasApplicationRun && (
         <button
           disabled={busy}
           onClick={() => {
@@ -570,7 +574,7 @@ function ReviewPanel({ sessionId }: { sessionId: string }) {
           />
         </>
       )}
-      {loaded && available && !workflow && (
+      {loaded && available && !workflow && !hasApplicationRun && (
         <>
           {criterionChecks.length > 0 && (
             <div>

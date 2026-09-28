@@ -206,7 +206,7 @@ it('selects earlier workflows and creates a separate application run after a sto
   const old = { ...fixture, workflowId: 'old', status: 'verified', artifactRevision: 'old-commit' };
   const stopped = { ...fixture, workflowId: 'stopped', status: 'decision_required' };
   const initialArtifact = { revision: 'new-artifact', hash: 'c'.repeat(64) };
-  const created = { ...fixture, workflowId: 'new', status: 'awaiting_initial' };
+  const created = { ...fixture, workflowId: 'new', status: 'awaiting_initial', limits: policy };
   let workflows = [old, stopped];
   vi.mocked(apiFetch).mockImplementation(async (_path, init) => {
     if (init?.method === 'POST') {
@@ -249,17 +249,7 @@ it('selects earlier workflows and creates a separate application run after a sto
     'new',
   );
   expect(screen.getByRole('option', { name: /old-commit/ })).toBeTruthy();
-  fireEvent.click(screen.getByRole('button', { name: 'New implementation and review run' }));
-  expect((screen.getByLabelText('Maximum host turns') as HTMLInputElement).value).toBe('');
-  expect((screen.getByLabelText('Maximum review/fix cycles') as HTMLInputElement).value).toBe('');
-  expect((screen.getByLabelText('Deadline') as HTMLInputElement).value).toBe('');
-  expect(
-    (
-      screen.getByRole('button', {
-        name: 'Create implementation and review run',
-      }) as HTMLButtonElement
-    ).disabled,
-  ).toBe(true);
+  expect(screen.queryByRole('button', { name: 'New implementation and review run' })).toBeNull();
 });
 
 it('reloads ordered persisted decisions including reason, evidence and verification', async () => {
@@ -327,6 +317,7 @@ it('creates a new application run despite a stranded older reservation without s
     workflowId: 'current',
     status: 'awaiting_initial',
     artifactRevision: 'new-artifact',
+    limits: policy,
   };
   const initialArtifact = { revision: 'new-artifact', hash: base.artifactHash };
   let workflows = [stale];
@@ -361,6 +352,7 @@ it('creates a new application run despite a stranded older reservation without s
       .mock.calls.filter(([, init]) => init?.method === 'POST')
       .map(([path]) => path),
   ).toEqual(['/api/sessions/session/symposium/reviews/application-runs']);
+  expect(screen.queryByRole('button', { name: 'New implementation and review run' })).toBeNull();
   fireEvent.change(screen.getByLabelText('Review workflow'), { target: { value: 'stale' } });
   expect(screen.getByText('awaiting review · old-artifact')).toBeTruthy();
   expect(stale.reservations).toEqual([
@@ -386,6 +378,32 @@ const policy = {
   deadlineAt: new Date(deadline).getTime(),
   noProgressLimit: 2,
 };
+it('does not offer another application run when this session already has one', async () => {
+  const { symposiumReviewPreviewResponses } =
+    await import('../../preview/symposium-review-fixtures');
+  const fixture = symposiumReviewPreviewResponses.findings.workflows[0];
+  const existingRun = {
+    ...fixture,
+    workflowId: 'application-run',
+    limits: policy,
+    status: 'decision_required',
+  };
+  const legacy = { ...fixture, workflowId: 'legacy', status: 'verified' };
+  vi.mocked(apiFetch).mockResolvedValue(
+    response({
+      available: true,
+      applicationRun: {
+        available: true,
+        initialArtifact: { revision: 'current', hash: 'c'.repeat(64) },
+      },
+      workflows: [existingRun, legacy],
+    }),
+  );
+  render(<SymposiumReviewPanel sessionId="session" />);
+  expect(await screen.findByText(`verified · ${legacy.artifactRevision}`)).toBeTruthy();
+  expect(screen.queryByRole('button', { name: 'New implementation and review run' })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Create implementation and review run' })).toBeNull();
+});
 it('does not offer legacy review creation when only application limits are configured', async () => {
   vi.mocked(apiFetch).mockResolvedValue(
     response({
