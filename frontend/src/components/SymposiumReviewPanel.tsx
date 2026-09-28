@@ -156,9 +156,13 @@ function ReviewPanel({ sessionId }: { sessionId: string }) {
     noProgressLimit: Number(noProgress),
   };
   const application = workflow?.limits?.mode === 'application' ? workflow.limits : undefined;
-  const pending = (application ? workflow?.applicationAttempts : workflow?.reservations)?.find(
-    (attempt) => !attempt.settled,
-  );
+  const pendingAttempt = (
+    application ? workflow?.applicationAttempts : workflow?.reservations
+  )?.find((attempt) => !attempt.settled);
+  const pendingPreparation = application
+    ? workflow?.applicationPreparations?.find((preparation) => preparation.status === 'preparing')
+    : undefined;
+  const pending = pendingPreparation ?? pendingAttempt;
   const pendingKind =
     pending && 'effectiveKind' in pending ? (pending.effectiveKind ?? pending.kind) : pending?.kind;
   const recoveryKind =
@@ -504,18 +508,25 @@ function ReviewPanel({ sessionId }: { sessionId: string }) {
             </button>
           )}
           {pending && (
-            <button
-              disabled={busy || !available || !recoveryKind}
-              onClick={() =>
-                void action(endpoint, {
-                  action: 'recover',
-                  attemptId: pending.attemptId,
-                  kind: recoveryKind,
-                })
-              }
-            >
-              Recover completed attempt
-            </button>
+            <>
+              {pendingPreparation && (
+                <p>
+                  Saved preparation: {pendingPreparation.kind} · {pendingPreparation.attemptId}
+                </p>
+              )}
+              <button
+                disabled={busy || !available || !recoveryKind}
+                onClick={() =>
+                  void action(endpoint, {
+                    action: 'recover',
+                    attemptId: pending.attemptId,
+                    kind: recoveryKind,
+                  })
+                }
+              >
+                {pendingPreparation ? 'Recover saved preparation' : 'Recover completed attempt'}
+              </button>
+            </>
           )}
           {workflow.status === 'awaiting_evidence' && (
             <>

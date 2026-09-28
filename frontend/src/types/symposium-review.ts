@@ -47,6 +47,11 @@ export type ReviewWorkflow = {
     effectiveKind?: 'initial' | 'review' | 'fix' | 'delta';
     settled: boolean;
   }>;
+  applicationPreparations?: Array<{
+    attemptId: string;
+    kind: 'initial' | 'review' | 'fix' | 'delta';
+    status: 'preparing' | 'bound';
+  }>;
 
   findings: Array<{
     fingerprint: string;

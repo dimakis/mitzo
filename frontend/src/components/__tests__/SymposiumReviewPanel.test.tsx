@@ -594,6 +594,46 @@ it('leaves initial run creation unavailable without a trusted artifact and recov
   );
 });
 
+it('recovers a saved application preparation with its exact attempt ID after reload', async () => {
+  const { symposiumReviewPreviewResponses } =
+    await import('../../preview/symposium-review-fixtures');
+  const workflow = {
+    ...symposiumReviewPreviewResponses.findings.workflows[0],
+    status: 'awaiting_initial',
+    limits: policy,
+    applicationAttempts: [],
+    applicationPreparations: [
+      { attemptId: 'prepared-initial-42', kind: 'initial', status: 'preparing' },
+    ],
+  };
+  vi.mocked(apiFetch).mockResolvedValue(response({ available: true, workflows: [workflow] }));
+  render(<SymposiumReviewPanel sessionId="session" />);
+  expect(await screen.findByText(/Saved preparation: initial · prepared-initial-42/)).toBeTruthy();
+  expect(
+    (screen.getByRole('button', { name: 'Run initial implementation' }) as HTMLButtonElement)
+      .disabled,
+  ).toBe(true);
+  fireEvent.click(screen.getByRole('button', { name: 'Recover saved preparation' }));
+  await waitFor(() =>
+    expect(apiFetch).toHaveBeenCalledWith(
+      '/api/sessions/session/symposium/reviews/preview-review/actions',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({
+          action: 'recover',
+          attemptId: 'prepared-initial-42',
+          kind: 'initial',
+          expectedArtifactRevision: workflow.artifactRevision,
+          expectedArtifactHash: workflow.artifactHash,
+        }),
+      }),
+    ),
+  );
+  expect(vi.mocked(apiFetch).mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(
+    1,
+  );
+});
+
 it('keeps Stop available when artifact refresh disables execution', async () => {
   const { symposiumReviewPreviewResponses } =
     await import('../../preview/symposium-review-fixtures');
