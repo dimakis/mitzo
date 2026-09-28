@@ -72,6 +72,36 @@ export function historicalFixPointer(
   return ref;
 }
 
+/** A sealed writer remains the current result while a proven reader transition
+ * advances the config revision. Derive its generation from that result's exact
+ * seal intent and validate the historical writer pointer under the event fence. */
+export function historicalSealedResultCoderGeneration(
+  events: Parameters<typeof historicalFixPointer>[0],
+  context: ReviewContext,
+  result: { evidenceRefs: string[] } | null,
+): string | null {
+  if (!result) return null;
+  if (result.evidenceRefs.length !== 1 || !result.evidenceRefs[0].startsWith('artifact-seal:'))
+    throw new Error('Exact sealed coder result required');
+  const fenceId = result.evidenceRefs[0].slice('artifact-seal:'.length);
+  const seal = fenceId && events.getSymposiumArtifactSealByFence(fenceId);
+  const config = events.getActiveSymposiumConfig(context.sessionId);
+  const coders = config.seats.filter((seat) => seat.role === 'coder');
+  if (
+    !seal ||
+    config.version !== 2 ||
+    config.state !== 'active' ||
+    coders.length !== 1 ||
+    seal.selection.sessionId !== context.sessionId
+  )
+    throw new Error('Exact sealed coder result required');
+  const members = seal.memberships.filter((member) => member.seatId === coders[0].id);
+  if (members.length !== 1) throw new Error('Exact sealed coder membership required');
+  const generationId = seal.selection.artifact.volumeGeneration;
+  historicalFixPointer(events, context, coders[0].id, members[0].generation, generationId, fenceId);
+  return generationId;
+}
+
 /** Trusted parent-only composition. All missing physical dependencies fail closed
  * before any review route becomes available. No request can provide a callback. */
 export function createSymposiumProductionReviewComposition(deps: {
@@ -162,7 +192,12 @@ export function createSymposiumProductionReviewComposition(deps: {
     host.checkCompletedArtifactFile && host.criterionChecks?.length
       ? createOwnedCriterionReceipts(deps.artifactResultsPath, {
           definitions: host.criterionChecks,
-          currentGeneration: (context) => currentCoderGeneration(context.sessionId),
+          currentGeneration: (context) =>
+            historicalSealedResultCoderGeneration(
+              events,
+              context,
+              artifacts.currentResult(context),
+            ),
           currentResult(context) {
             const state = reviews.applicationWorkflowForSession(context.sessionId);
             const result = artifacts.currentResult(context);

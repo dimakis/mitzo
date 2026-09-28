@@ -6,6 +6,7 @@ import { artifactAdmissionDigest } from '@mitzo/protocol/event-store';
 import {
   createSymposiumProductionReviewComposition,
   historicalFixPointer,
+  historicalSealedResultCoderGeneration,
 } from '../symposium-production-review-composition.js';
 
 it('uses a completed imported source until a physically sealed writer result exists', () => {
@@ -90,6 +91,7 @@ it('reads the sealed coder pointer after a reviewer config transition without is
   const seal = {
     fenceId: 'writer-seal',
     selection: { sessionId: 'session', artifact: { volumeGeneration: 'writer-generation' } },
+    memberships: [{ seatId: 'coder', generation: 2 }],
   };
   const snapshot = vi.fn((_value, fn: () => void) => fn());
   const binding = {
@@ -100,7 +102,15 @@ it('reads the sealed coder pointer after a reviewer config transition without is
     resultingConfigRevision: 2,
   };
   const events = {
-    getActiveSymposiumConfig: () => ({ version: 2, state: 'active', revision: 3 }),
+    getActiveSymposiumConfig: () => ({
+      version: 2,
+      state: 'active',
+      revision: 3,
+      seats: [
+        { id: 'coder', role: 'coder' },
+        { id: 'reviewer', role: 'reviewer' },
+      ],
+    }),
     getLatestSymposiumMembership: () => ({
       state: 'active',
       reconciliation: 'confirmed',
@@ -115,7 +125,7 @@ it('reads the sealed coder pointer after a reviewer config transition without is
       },
       binding,
     }),
-    getSymposiumArtifactSealByFence: () => seal,
+    getSymposiumArtifactSealByFence: (fenceId: string) => (fenceId === 'writer-seal' ? seal : null),
     withSymposiumHistoricalArtifactSealSnapshot: snapshot,
     assertSymposiumArtifactAdmissionCurrent: vi.fn(() => {
       throw new Error('old config');
@@ -133,6 +143,38 @@ it('reads the sealed coder pointer after a reviewer config transition without is
   ).toEqual(ref);
   expect(snapshot).toHaveBeenCalledOnce();
   expect(events.assertSymposiumArtifactAdmissionCurrent).not.toHaveBeenCalled();
+  expect(
+    historicalSealedResultCoderGeneration(
+      events as never,
+      {
+        owner: 'user',
+        sessionId: 'session',
+      },
+      { evidenceRefs: ['artifact-seal:writer-seal'] },
+    ),
+  ).toBe('writer-generation');
+  expect(events.assertSymposiumArtifactAdmissionCurrent).not.toHaveBeenCalled();
+  expect(() =>
+    historicalSealedResultCoderGeneration(
+      events as never,
+      { owner: 'user', sessionId: 'session' },
+      { evidenceRefs: ['artifact-seal:different-seal'] },
+    ),
+  ).toThrow('sealed coder');
+  expect(() =>
+    historicalSealedResultCoderGeneration(
+      {
+        ...events,
+        getLatestSymposiumMembership: () => ({
+          state: 'active',
+          reconciliation: 'confirmed',
+          generation: 3,
+        }),
+      } as never,
+      { owner: 'user', sessionId: 'session' },
+      { evidenceRefs: ['artifact-seal:writer-seal'] },
+    ),
+  ).toThrow('sealed coder');
   expect(() =>
     historicalFixPointer(
       events as never,
