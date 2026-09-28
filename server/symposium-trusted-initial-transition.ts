@@ -43,8 +43,11 @@ export function createSealedInitialReviewTransition(deps: {
     | 'getActiveSymposiumConfig'
     | 'getLatestSymposiumMembership'
     | 'getSymposiumDelivery'
+    | 'getSymposiumArtifactAdmission'
     | 'assertSymposiumArtifactAdmissionCurrent'
   >;
+  /** Checks both owner ledgers, custody and current charged policy authority. */
+  assertConfirmed(sessionId: string, reference: ArtifactAdmissionReferenceV1): void;
   reviews: SymposiumReviewStore;
   grants: Pick<SymposiumHostGrants, 'verifySeat'>;
   workspace: string;
@@ -189,10 +192,7 @@ export function createSealedInitialReviewTransition(deps: {
       const prep = preparation;
       const workflow = exact(context, prep);
       const sealed = source(context);
-      const { config, seat, member } = current(context, prep.actorSeatId);
       if (
-        config.revision !== prep.from.configRevision ||
-        member.generation !== prep.from.membershipGeneration ||
         sealed.receipt.operationId !== prep.sourceSealId ||
         sealed.digest !== prep.seal.sealDigest ||
         sealed.receipt.volumeGeneration !== prep.seal.artifactGenerationId ||
@@ -203,99 +203,145 @@ export function createSealedInitialReviewTransition(deps: {
         workflow.initialArtifact.hash !== prep.artifactHash
       )
         throw new Error('Prepared initial source changed');
-      const exported = deps.source.initialExport(context.sessionId, prep.transitionId);
-      const receipt = exported.receipt;
-      if (
-        receipt.mode !== 'initial' ||
-        receipt.sourceSealId !== prep.sourceSealId ||
-        receipt.parentSealDigest !== prep.seal.sealDigest ||
-        receipt.parentGenerationId !== prep.seal.artifactGenerationId ||
-        receipt.seal.git.commit !== prep.artifactRevision ||
-        receipt.seal.git.committedTreeDigest !== prep.artifactHash
-      )
-        throw new Error('Retained initial export changed');
-      const request: ArtifactGenerationRequest = {
-        kind: 'initial',
-        sourceSealId: prep.sourceSealId,
-        initialAttemptId: prep.attemptId,
-        policyReservationId: prep.policyReservationId,
-        expectedConfigRevision: prep.from.configRevision,
-        predecessorMembershipGeneration: prep.from.membershipGeneration,
-        accountBinding: seat.accountBinding!,
-        contextGrant: {
-          grantId: seat.contextGrant!.grantId,
-          revision: seat.contextGrant!.revision,
-        },
-        sessionId: context.sessionId,
-        workspace: deps.workspace,
-        custodyDigest: receipt.seal.custodyDigest,
-        operationId: prep.transitionId,
-        expectedPointerRevision: 0,
-        parentGenerationId: receipt.parentGenerationId,
-        parentSealDigest: receipt.parentSealDigest,
-        parentCommit: receipt.seal.git.commit,
-        parentTree: receipt.seal.git.tree,
-        parentManifestDigest: receipt.seal.git.manifestDigest,
-        parentCommittedTreeDigest: receipt.seal.git.committedTreeDigest,
-        bundleSha256: receipt.bundleSha256,
-        exportReceiptDigest: hash(canonicalReviewJson(receipt)),
-        workflowId: prep.workflowId,
-        actor: context.owner,
-        authorityGrantId: seat.authorityGrant!.grantId,
-        authorityRevision: seat.authorityGrant!.revision,
-        seatId: seat.id,
-        membershipGeneration: member.generation,
-        accountId: seat.accountBinding!.accountId,
-        model: seat.accountBinding!.model,
-        profileId: seat.profileBinding!.profileId,
-        profileRevision: seat.profileBinding!.profileRevision,
-        ...successorCopierContract(),
-      };
-      const signal = AbortSignal.timeout(600_000);
-      const copied = await deps.copy(request, receipt, exported.bundle, signal);
-      const binding: ArtifactAdmissionBindingV1 = {
-        version: 1,
-        kind: 'initial',
-        transitionId: prep.transitionId,
-        operationId: prep.transitionId,
-        sessionId: context.sessionId,
-        workspaceId: deps.workspace,
-        custodyDigest: request.custodyDigest,
-        parentGenerationId: request.parentGenerationId,
-        parentSealDigest: request.parentSealDigest,
-        childGenerationId: copied.generationId,
-        childVolumeName: copied.volumeName,
-        copyReceiptDigest: artifactAdmissionDigest(copied),
-        expectedPointerRevision: 0,
-        activatedPointerRevision: request.expectedPointerRevision + 1,
-        workflowId: prep.workflowId,
-        policyReservationId: prep.policyReservationId,
-        seatId: seat.id,
-        actor: context.owner,
-        expectedConfigRevision: prep.from.configRevision,
-        resultingConfigRevision: prep.to.configRevision,
-        predecessorMembershipGeneration: prep.from.membershipGeneration,
-        successorMembershipGeneration: prep.to.membershipGeneration,
-        accountBinding: seat.accountBinding!,
-        profileBinding: seat.profileBinding!,
-        contextGrant: {
-          grantId: seat.contextGrant!.grantId,
-          revision: seat.contextGrant!.revision,
-        },
-        authorityGrant: {
-          grantId: seat.authorityGrant!.grantId,
-          revision: seat.authorityGrant!.revision,
-        },
-        sourceSealId: prep.sourceSealId,
-        initialAttemptId: prep.attemptId,
-      };
-      const confirmed = await deps.admit(request, binding, receipt, exported.bundle, signal);
-      if (
-        !confirmed.receipt ||
-        confirmed.reference.bindingDigest !== artifactAdmissionDigest(binding)
-      )
-        throw new Error('Confirmed initial child admission required');
-      deps.events.assertSymposiumArtifactAdmissionCurrent(context.sessionId, confirmed.reference);
+      const prior = deps.events.getSymposiumArtifactAdmission(context.sessionId, prep.transitionId);
+      let seat: SeatConfig;
+      if (prior?.receipt) {
+        const selected = current(context, prep.actorSeatId);
+        const binding = prior.binding;
+        if (
+          selected.config.revision !== prep.to.configRevision ||
+          selected.member.generation !== prep.to.membershipGeneration ||
+          binding.kind !== 'initial' ||
+          binding.sessionId !== context.sessionId ||
+          binding.transitionId !== prep.transitionId ||
+          binding.sourceSealId !== prep.sourceSealId ||
+          binding.parentGenerationId !== prep.seal.artifactGenerationId ||
+          binding.parentSealDigest !== prep.seal.sealDigest ||
+          binding.workspaceId !== deps.workspace ||
+          binding.workflowId !== prep.workflowId ||
+          binding.initialAttemptId !== prep.attemptId ||
+          binding.policyReservationId !== prep.policyReservationId ||
+          binding.seatId !== prep.actorSeatId ||
+          binding.actor !== context.owner ||
+          binding.expectedConfigRevision !== prep.from.configRevision ||
+          binding.resultingConfigRevision !== prep.to.configRevision ||
+          binding.predecessorMembershipGeneration !== prep.from.membershipGeneration ||
+          binding.successorMembershipGeneration !== prep.to.membershipGeneration ||
+          binding.expectedPointerRevision !== 0 ||
+          binding.activatedPointerRevision !== 1 ||
+          !same(binding.accountBinding, selected.seat.accountBinding) ||
+          !same(binding.profileBinding, selected.seat.profileBinding) ||
+          binding.contextGrant.grantId !== selected.seat.contextGrant?.grantId ||
+          binding.contextGrant.revision !== selected.seat.contextGrant.revision ||
+          binding.authorityGrant.grantId !== selected.seat.authorityGrant?.grantId ||
+          binding.authorityGrant.revision !== selected.seat.authorityGrant.revision ||
+          prior.reference.bindingDigest !== artifactAdmissionDigest(binding)
+        )
+          throw new Error('Retained initial admission changed');
+        deps.assertConfirmed(context.sessionId, prior.reference);
+        seat = selected.seat;
+      } else {
+        const { config, seat: predecessorSeat, member } = current(context, prep.actorSeatId);
+        if (
+          config.revision !== prep.from.configRevision ||
+          member.generation !== prep.from.membershipGeneration
+        )
+          throw new Error('Prepared initial source changed');
+        seat = predecessorSeat;
+        const exported = deps.source.initialExport(context.sessionId, prep.transitionId);
+        const receipt = exported.receipt;
+        if (
+          receipt.mode !== 'initial' ||
+          receipt.sourceSealId !== prep.sourceSealId ||
+          receipt.parentSealDigest !== prep.seal.sealDigest ||
+          receipt.parentGenerationId !== prep.seal.artifactGenerationId ||
+          receipt.seal.git.commit !== prep.artifactRevision ||
+          receipt.seal.git.committedTreeDigest !== prep.artifactHash
+        )
+          throw new Error('Retained initial export changed');
+        const request: ArtifactGenerationRequest = {
+          kind: 'initial',
+          sourceSealId: prep.sourceSealId,
+          initialAttemptId: prep.attemptId,
+          policyReservationId: prep.policyReservationId,
+          expectedConfigRevision: prep.from.configRevision,
+          predecessorMembershipGeneration: prep.from.membershipGeneration,
+          accountBinding: seat.accountBinding!,
+          contextGrant: {
+            grantId: seat.contextGrant!.grantId,
+            revision: seat.contextGrant!.revision,
+          },
+          sessionId: context.sessionId,
+          workspace: deps.workspace,
+          custodyDigest: receipt.seal.custodyDigest,
+          operationId: prep.transitionId,
+          expectedPointerRevision: 0,
+          parentGenerationId: receipt.parentGenerationId,
+          parentSealDigest: receipt.parentSealDigest,
+          parentCommit: receipt.seal.git.commit,
+          parentTree: receipt.seal.git.tree,
+          parentManifestDigest: receipt.seal.git.manifestDigest,
+          parentCommittedTreeDigest: receipt.seal.git.committedTreeDigest,
+          bundleSha256: receipt.bundleSha256,
+          exportReceiptDigest: hash(canonicalReviewJson(receipt)),
+          workflowId: prep.workflowId,
+          actor: context.owner,
+          authorityGrantId: seat.authorityGrant!.grantId,
+          authorityRevision: seat.authorityGrant!.revision,
+          seatId: seat.id,
+          membershipGeneration: member.generation,
+          accountId: seat.accountBinding!.accountId,
+          model: seat.accountBinding!.model,
+          profileId: seat.profileBinding!.profileId,
+          profileRevision: seat.profileBinding!.profileRevision,
+          ...successorCopierContract(),
+        };
+        const signal = AbortSignal.timeout(600_000);
+        const copied = await deps.copy(request, receipt, exported.bundle, signal);
+        const binding: ArtifactAdmissionBindingV1 = {
+          version: 1,
+          kind: 'initial',
+          transitionId: prep.transitionId,
+          operationId: prep.transitionId,
+          sessionId: context.sessionId,
+          workspaceId: deps.workspace,
+          custodyDigest: request.custodyDigest,
+          parentGenerationId: request.parentGenerationId,
+          parentSealDigest: request.parentSealDigest,
+          childGenerationId: copied.generationId,
+          childVolumeName: copied.volumeName,
+          copyReceiptDigest: artifactAdmissionDigest(copied),
+          expectedPointerRevision: 0,
+          activatedPointerRevision: request.expectedPointerRevision + 1,
+          workflowId: prep.workflowId,
+          policyReservationId: prep.policyReservationId,
+          seatId: seat.id,
+          actor: context.owner,
+          expectedConfigRevision: prep.from.configRevision,
+          resultingConfigRevision: prep.to.configRevision,
+          predecessorMembershipGeneration: prep.from.membershipGeneration,
+          successorMembershipGeneration: prep.to.membershipGeneration,
+          accountBinding: seat.accountBinding!,
+          profileBinding: seat.profileBinding!,
+          contextGrant: {
+            grantId: seat.contextGrant!.grantId,
+            revision: seat.contextGrant!.revision,
+          },
+          authorityGrant: {
+            grantId: seat.authorityGrant!.grantId,
+            revision: seat.authorityGrant!.revision,
+          },
+          sourceSealId: prep.sourceSealId,
+          initialAttemptId: prep.attemptId,
+        };
+        const confirmed = await deps.admit(request, binding, receipt, exported.bundle, signal);
+        if (
+          !confirmed.receipt ||
+          confirmed.reference.bindingDigest !== artifactAdmissionDigest(binding)
+        )
+          throw new Error('Confirmed initial child admission required');
+        deps.assertConfirmed(context.sessionId, confirmed.reference);
+      }
       const admission = deps.runtime(context).recordProviderAdmission({
         sessionId: context.sessionId,
         seatId: seat.id,

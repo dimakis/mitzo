@@ -31,6 +31,7 @@ it('uses a completed imported source until a physically sealed writer result exi
     copySuccessorArtifact: vi.fn(),
     activateSuccessorArtifact: vi.fn(),
     admitSuccessorArtifact: vi.fn(),
+    assertArtifactAdmissionCurrent: vi.fn(),
     artifactLeaseHost: {},
     attemptRegistry: { observations: {}, get: vi.fn() },
     currentProfiles: vi.fn(),

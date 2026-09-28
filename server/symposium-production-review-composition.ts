@@ -97,6 +97,7 @@ export function createSymposiumProductionReviewComposition(deps: {
     !host.exportSuccessorArtifactBundle ||
     !host.copySuccessorArtifact ||
     !host.admitSuccessorArtifact ||
+    !host.assertArtifactAdmissionCurrent ||
     !host.artifactLeaseHost ||
     !host.attemptRegistry
   )
@@ -177,6 +178,8 @@ export function createSymposiumProductionReviewComposition(deps: {
     });
     const initial = createSealedInitialReviewTransition({
       events,
+      assertConfirmed: (sessionId, reference) =>
+        host.assertArtifactAdmissionCurrent!(sessionId, reference),
       reviews,
       grants,
       workspace: host.gateway.workspace,
@@ -192,6 +195,8 @@ export function createSymposiumProductionReviewComposition(deps: {
     });
     const fix = createSealedFixReviewTransition({
       events,
+      assertConfirmed: (sessionId, reference) =>
+        host.assertArtifactAdmissionCurrent!(sessionId, reference),
       reviews,
       grants,
       workspace: host.gateway.workspace,

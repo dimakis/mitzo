@@ -96,6 +96,8 @@ it('prepares the exact sealed finding scope without exporting or copying', async
 it('requires one exact charged owner intent and admits the copied fix child before delivery', async () => {
   const order: string[] = [];
   let revision = 4;
+  let generation = 3;
+  let confirmedBinding: unknown = null;
   const finding = 'c'.repeat(64);
   const intent = {
     fenceId: 'fence',
@@ -195,14 +197,28 @@ it('requires one exact charged owner intent and admits the copied fix child befo
       getLatestSymposiumMembership: () => ({
         state: 'active',
         reconciliation: 'confirmed',
-        generation: 3,
+        generation,
       }),
+      getSymposiumArtifactAdmission: () =>
+        confirmedBinding && {
+          binding: confirmedBinding,
+          reference: {
+            version: 1,
+            transitionId: 'new',
+            artifactGenerationId: 'child',
+            pointerRevision: 2,
+            bindingDigest: artifactAdmissionDigest(confirmedBinding),
+          },
+          receipt: { bindingDigest: artifactAdmissionDigest(confirmedBinding) },
+        },
       getSymposiumArtifactSealByFence: () => intent,
-      assertSymposiumArtifactAdmissionCurrent: vi.fn(() => {
-        order.push('confirmed');
-        revision = 5;
-      }),
+      assertSymposiumArtifactAdmissionCurrent: vi.fn(),
     },
+    assertConfirmed: vi.fn(() => {
+      order.push('confirmed');
+      revision = 5;
+      generation = 4;
+    }),
     reviews: { get: () => state, getApplicationPreparation: () => retained },
     grants: { verifySeat: vi.fn() },
     workspace: 'workspace',
@@ -256,6 +272,7 @@ it('requires one exact charged owner intent and admits the copied fix child befo
     }),
     admit: vi.fn(async (_request: unknown, binding: unknown) => {
       order.push('admit');
+      confirmedBinding = binding;
       return {
         reference: {
           version: 1,
@@ -310,4 +327,8 @@ it('requires one exact charged owner intent and admits the copied fix child befo
     'provider',
     'delivery',
   ]);
+  order.length = 0;
+  const recovered = await transition.apply(context, prep);
+  expect(recovered.attempt.binding).toMatchObject({ deliveryId: 'delivery', configRevision: 5 });
+  expect(order).toEqual(['confirmed', 'provider', 'delivery']);
 });

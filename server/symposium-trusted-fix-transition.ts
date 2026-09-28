@@ -38,8 +38,11 @@ export function createSealedFixReviewTransition(deps: {
     | 'getActiveSymposiumConfig'
     | 'getLatestSymposiumMembership'
     | 'getSymposiumArtifactSealByFence'
+    | 'getSymposiumArtifactAdmission'
     | 'assertSymposiumArtifactAdmissionCurrent'
   >;
+  /** Checks both owner ledgers, custody and current charged policy authority. */
+  assertConfirmed(sessionId: string, reference: ArtifactAdmissionReferenceV1): void;
   reviews: SymposiumReviewStore;
   grants: Pick<SymposiumHostGrants, 'verifySeat'>;
   workspace: string;
@@ -217,124 +220,166 @@ export function createSealedFixReviewTransition(deps: {
       if (preparation.kind !== 'fix') throw new Error('Fix preparation required');
       const prep = preparation as Fix;
       const { workflow, findings } = exact(context, prep);
-      const { config, seat, member } = current(context, prep.actorSeatId);
       const artifact = { revision: prep.artifactRevision, hash: prep.artifactHash };
       const { fenceId, intent, seal } = await parent(context, artifact);
       if (
-        config.revision !== prep.from.configRevision ||
-        member.generation !== prep.from.membershipGeneration ||
         fenceId !== prep.seal.fenceId ||
         sealDigest(seal) !== prep.seal.sealDigest ||
         intent.selection.artifact.volumeGeneration !== prep.seal.artifactGenerationId ||
         intent.selection.artifact.volumeName !== prep.seal.volumeName
       )
         throw new Error('Prepared fix parent changed');
-      const pointer = deps.currentPointer(context, seat.id, member.generation);
-      if (pointer.artifactGenerationId !== prep.seal.artifactGenerationId)
-        throw new Error('Current fix generation pointer changed');
-      const signal = AbortSignal.timeout(600_000);
-      const baseBranch = deps.baseBranch(context);
-      const inspection = await deps.inspect(
-        { fenceId, operationId: prep.transitionId, baseBranch },
-        signal,
-      );
-      if (inspection.sourceOid !== prep.artifactRevision)
-        throw new Error('Sealed fix branch identity changed');
-      const exported = await deps.exportSuccessor(
-        {
-          fenceId,
+      const prior = deps.events.getSymposiumArtifactAdmission(context.sessionId, prep.transitionId);
+      let seat: SeatConfig;
+      if (prior?.receipt) {
+        const selected = current(context, prep.actorSeatId);
+        const binding = prior.binding;
+        if (
+          selected.config.revision !== prep.to.configRevision ||
+          selected.member.generation !== prep.to.membershipGeneration ||
+          binding.kind !== 'fix' ||
+          binding.sessionId !== context.sessionId ||
+          binding.transitionId !== prep.transitionId ||
+          binding.parentFenceId !== fenceId ||
+          binding.parentGenerationId !== prep.seal.artifactGenerationId ||
+          binding.parentSealDigest !== prep.seal.sealDigest ||
+          binding.workspaceId !== deps.workspace ||
+          binding.workflowId !== prep.workflowId ||
+          binding.fixAttemptId !== prep.attemptId ||
+          binding.policyReservationId !== prep.policyReservationId ||
+          binding.seatId !== prep.actorSeatId ||
+          binding.actor !== context.owner ||
+          binding.expectedConfigRevision !== prep.from.configRevision ||
+          binding.resultingConfigRevision !== prep.to.configRevision ||
+          binding.predecessorMembershipGeneration !== prep.from.membershipGeneration ||
+          binding.successorMembershipGeneration !== prep.to.membershipGeneration ||
+          !same([...binding.findingFingerprints].sort(), findings) ||
+          !same(binding.accountBinding, selected.seat.accountBinding) ||
+          !same(binding.profileBinding, selected.seat.profileBinding) ||
+          binding.contextGrant.grantId !== selected.seat.contextGrant?.grantId ||
+          binding.contextGrant.revision !== selected.seat.contextGrant.revision ||
+          binding.authorityGrant.grantId !== selected.seat.authorityGrant?.grantId ||
+          binding.authorityGrant.revision !== selected.seat.authorityGrant.revision ||
+          prior.reference.bindingDigest !== artifactAdmissionDigest(binding)
+        )
+          throw new Error('Retained fix admission changed');
+        deps.assertConfirmed(context.sessionId, prior.reference);
+        seat = selected.seat;
+      } else {
+        const { config, seat: predecessorSeat, member } = current(context, prep.actorSeatId);
+        if (
+          config.revision !== prep.from.configRevision ||
+          member.generation !== prep.from.membershipGeneration
+        )
+          throw new Error('Prepared fix parent changed');
+        seat = predecessorSeat;
+        const pointer = deps.currentPointer(context, seat.id, member.generation);
+        if (pointer.artifactGenerationId !== prep.seal.artifactGenerationId)
+          throw new Error('Current fix generation pointer changed');
+        const signal = AbortSignal.timeout(600_000);
+        const baseBranch = deps.baseBranch(context);
+        const inspection = await deps.inspect(
+          { fenceId, operationId: prep.transitionId, baseBranch },
+          signal,
+        );
+        if (inspection.sourceOid !== prep.artifactRevision)
+          throw new Error('Sealed fix branch identity changed');
+        const exported = await deps.exportSuccessor(
+          {
+            fenceId,
+            operationId: prep.transitionId,
+            sourceBranch: inspection.sourceBranch,
+            sourceOid: inspection.sourceOid,
+            baseBranch,
+            maxBytes: 8 * 1024 * 1024,
+          },
+          signal,
+        );
+        const receipt = exported.receipt;
+        if (
+          receipt.mode !== 'successor' ||
+          receipt.operationId !== prep.transitionId ||
+          receipt.parentGenerationId !== prep.seal.artifactGenerationId ||
+          receipt.parentVolumeName !== prep.seal.volumeName ||
+          receipt.parentSealDigest !== prep.seal.sealDigest ||
+          !same(receipt.seal, seal)
+        )
+          throw new Error('Retained fix successor export changed');
+        const request: ArtifactGenerationRequest = {
+          kind: 'fix',
+          fixAttemptId: prep.attemptId,
+          findingFingerprints: findings,
+          sessionId: context.sessionId,
+          workspace: deps.workspace,
+          custodyDigest: seal.custodyDigest,
           operationId: prep.transitionId,
-          sourceBranch: inspection.sourceBranch,
-          sourceOid: inspection.sourceOid,
-          baseBranch,
-          maxBytes: 8 * 1024 * 1024,
-        },
-        signal,
-      );
-      const receipt = exported.receipt;
-      if (
-        receipt.mode !== 'successor' ||
-        receipt.operationId !== prep.transitionId ||
-        receipt.parentGenerationId !== prep.seal.artifactGenerationId ||
-        receipt.parentVolumeName !== prep.seal.volumeName ||
-        receipt.parentSealDigest !== prep.seal.sealDigest ||
-        !same(receipt.seal, seal)
-      )
-        throw new Error('Retained fix successor export changed');
-      const request: ArtifactGenerationRequest = {
-        kind: 'fix',
-        fixAttemptId: prep.attemptId,
-        findingFingerprints: findings,
-        sessionId: context.sessionId,
-        workspace: deps.workspace,
-        custodyDigest: seal.custodyDigest,
-        operationId: prep.transitionId,
-        expectedPointerRevision: pointer.pointerRevision,
-        parentGenerationId: receipt.parentGenerationId,
-        parentSealDigest: receipt.parentSealDigest,
-        parentCommit: seal.git.commit,
-        parentTree: seal.git.tree,
-        parentManifestDigest: seal.git.manifestDigest,
-        parentCommittedTreeDigest: seal.git.committedTreeDigest,
-        bundleSha256: receipt.bundleSha256,
-        exportReceiptDigest: reviewRecordHash(canonicalReviewJson(receipt)),
-        workflowId: prep.workflowId,
-        actor: context.owner,
-        authorityGrantId: seat.authorityGrant!.grantId,
-        authorityRevision: seat.authorityGrant!.revision,
-        seatId: seat.id,
-        membershipGeneration: member.generation,
-        accountId: seat.accountBinding!.accountId,
-        model: seat.accountBinding!.model,
-        profileId: seat.profileBinding!.profileId,
-        profileRevision: seat.profileBinding!.profileRevision,
-        ...successorCopierContract(),
-      };
-      const copied = await deps.copy(request, receipt, exported.bundle, signal);
-      const binding: ArtifactAdmissionBindingV1 = {
-        version: 1,
-        kind: 'fix',
-        transitionId: prep.transitionId,
-        operationId: prep.transitionId,
-        sessionId: context.sessionId,
-        workspaceId: deps.workspace,
-        custodyDigest: request.custodyDigest,
-        parentGenerationId: request.parentGenerationId,
-        parentSealDigest: request.parentSealDigest,
-        childGenerationId: copied.generationId,
-        childVolumeName: copied.volumeName,
-        copyReceiptDigest: artifactAdmissionDigest(copied),
-        expectedPointerRevision: pointer.pointerRevision,
-        activatedPointerRevision: pointer.pointerRevision + 1,
-        workflowId: prep.workflowId,
-        policyReservationId: prep.policyReservationId,
-        seatId: seat.id,
-        actor: context.owner,
-        expectedConfigRevision: prep.from.configRevision,
-        resultingConfigRevision: prep.to.configRevision,
-        predecessorMembershipGeneration: prep.from.membershipGeneration,
-        successorMembershipGeneration: prep.to.membershipGeneration,
-        accountBinding: seat.accountBinding!,
-        profileBinding: seat.profileBinding!,
-        contextGrant: {
-          grantId: seat.contextGrant!.grantId,
-          revision: seat.contextGrant!.revision,
-        },
-        authorityGrant: {
-          grantId: seat.authorityGrant!.grantId,
-          revision: seat.authorityGrant!.revision,
-        },
-        parentFenceId: fenceId,
-        fixAttemptId: prep.attemptId,
-        findingFingerprints: findings,
-      };
-      const confirmed = await deps.admit(request, binding, receipt, exported.bundle, signal);
-      if (
-        !confirmed.receipt ||
-        confirmed.reference.bindingDigest !== artifactAdmissionDigest(binding)
-      )
-        throw new Error('Confirmed fix child admission required');
-      deps.events.assertSymposiumArtifactAdmissionCurrent(context.sessionId, confirmed.reference);
+          expectedPointerRevision: pointer.pointerRevision,
+          parentGenerationId: receipt.parentGenerationId,
+          parentSealDigest: receipt.parentSealDigest,
+          parentCommit: seal.git.commit,
+          parentTree: seal.git.tree,
+          parentManifestDigest: seal.git.manifestDigest,
+          parentCommittedTreeDigest: seal.git.committedTreeDigest,
+          bundleSha256: receipt.bundleSha256,
+          exportReceiptDigest: reviewRecordHash(canonicalReviewJson(receipt)),
+          workflowId: prep.workflowId,
+          actor: context.owner,
+          authorityGrantId: seat.authorityGrant!.grantId,
+          authorityRevision: seat.authorityGrant!.revision,
+          seatId: seat.id,
+          membershipGeneration: member.generation,
+          accountId: seat.accountBinding!.accountId,
+          model: seat.accountBinding!.model,
+          profileId: seat.profileBinding!.profileId,
+          profileRevision: seat.profileBinding!.profileRevision,
+          ...successorCopierContract(),
+        };
+        const copied = await deps.copy(request, receipt, exported.bundle, signal);
+        const binding: ArtifactAdmissionBindingV1 = {
+          version: 1,
+          kind: 'fix',
+          transitionId: prep.transitionId,
+          operationId: prep.transitionId,
+          sessionId: context.sessionId,
+          workspaceId: deps.workspace,
+          custodyDigest: request.custodyDigest,
+          parentGenerationId: request.parentGenerationId,
+          parentSealDigest: request.parentSealDigest,
+          childGenerationId: copied.generationId,
+          childVolumeName: copied.volumeName,
+          copyReceiptDigest: artifactAdmissionDigest(copied),
+          expectedPointerRevision: pointer.pointerRevision,
+          activatedPointerRevision: pointer.pointerRevision + 1,
+          workflowId: prep.workflowId,
+          policyReservationId: prep.policyReservationId,
+          seatId: seat.id,
+          actor: context.owner,
+          expectedConfigRevision: prep.from.configRevision,
+          resultingConfigRevision: prep.to.configRevision,
+          predecessorMembershipGeneration: prep.from.membershipGeneration,
+          successorMembershipGeneration: prep.to.membershipGeneration,
+          accountBinding: seat.accountBinding!,
+          profileBinding: seat.profileBinding!,
+          contextGrant: {
+            grantId: seat.contextGrant!.grantId,
+            revision: seat.contextGrant!.revision,
+          },
+          authorityGrant: {
+            grantId: seat.authorityGrant!.grantId,
+            revision: seat.authorityGrant!.revision,
+          },
+          parentFenceId: fenceId,
+          fixAttemptId: prep.attemptId,
+          findingFingerprints: findings,
+        };
+        const confirmed = await deps.admit(request, binding, receipt, exported.bundle, signal);
+        if (
+          !confirmed.receipt ||
+          confirmed.reference.bindingDigest !== artifactAdmissionDigest(binding)
+        )
+          throw new Error('Confirmed fix child admission required');
+        deps.assertConfirmed(context.sessionId, confirmed.reference);
+      }
       const admission = deps.runtime(context).recordProviderAdmission({
         sessionId: context.sessionId,
         seatId: seat.id,

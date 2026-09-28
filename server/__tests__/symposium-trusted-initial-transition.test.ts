@@ -125,6 +125,9 @@ it('rejects application of an uncharged initial preparation before physical copy
 it('copies and confirms the child before admitting the provider and staging delivery', async () => {
   const order: string[] = [];
   let revision = 1;
+  let generation = 1;
+  let confirmedBinding: unknown = null;
+  let ownerProof = true;
   let retained: unknown = null;
   const exported = {
     receipt: {
@@ -202,15 +205,30 @@ it('copies and confirms the child before admitting the provider and staging deli
     events: {
       getActiveSymposiumConfig: () => ({ version: 2, state: 'active', revision, seats: [seat] }),
       getLatestSymposiumMembership: () => ({
-        generation: 1,
+        generation,
         state: 'active',
         reconciliation: 'confirmed',
       }),
-      assertSymposiumArtifactAdmissionCurrent: vi.fn(() => {
-        order.push('confirmed');
-        revision = 2;
-      }),
+      getSymposiumArtifactAdmission: () =>
+        confirmedBinding && {
+          binding: confirmedBinding,
+          reference: {
+            version: 1,
+            transitionId: 'transition',
+            artifactGenerationId: 'child',
+            pointerRevision: 1,
+            bindingDigest: artifactAdmissionDigest(confirmedBinding),
+          },
+          receipt: { bindingDigest: artifactAdmissionDigest(confirmedBinding) },
+        },
+      assertSymposiumArtifactAdmissionCurrent: vi.fn(),
     },
+    assertConfirmed: vi.fn(() => {
+      if (!ownerProof) throw new Error('Physical successor receipt unavailable');
+      order.push('confirmed');
+      revision = 2;
+      generation = 2;
+    }),
     reviews: {
       get: () => ({
         owner: 'user',
@@ -241,6 +259,7 @@ it('copies and confirms the child before admitting the provider and staging deli
     }),
     admit: vi.fn(async (_request: unknown, binding: unknown) => {
       order.push('admit');
+      confirmedBinding = binding;
       return {
         reference: {
           version: 1,
@@ -281,4 +300,14 @@ it('copies and confirms the child before admitting the provider and staging deli
     binding: { deliveryId: 'delivery', configRevision: 2, membershipGeneration: 2 },
   });
   expect(order).toEqual(['copy', 'admit', 'confirmed', 'provider', 'delivery']);
+  order.length = 0;
+  ownerProof = false;
+  await expect(transition.apply(context, prep)).rejects.toThrow(
+    'Physical successor receipt unavailable',
+  );
+  expect(order).toEqual([]);
+  ownerProof = true;
+  const recovered = await transition.apply(context, prep);
+  expect(recovered.attempt.binding).toMatchObject({ deliveryId: 'delivery', configRevision: 2 });
+  expect(order).toEqual(['confirmed', 'provider', 'delivery']);
 });

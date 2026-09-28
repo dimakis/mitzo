@@ -531,6 +531,9 @@ it('charges a nonadmitting reader intent before applying confirmed future pins',
   const host = createSymposiumTrustedReviewHost(f.deps);
   const { SymposiumReviewCoordinator } = await import('../symposium-review-coordinator.js');
   const coordinator = new SymposiumReviewCoordinator(f.reviews, host);
+  // A prior process died after charging the preparation. Recovery must use
+  // its retained pins, not run transition.prepare against a later roster.
+  expect(f.reviews.reserveApplicationPreparation(preparation)).toMatchObject({ kind: 'prepared' });
   const reserved = await coordinator.reserveWithTransition(context, 'workflow', 'review', 'review');
   expect(reserved).toMatchObject({
     kind: 'reserved_not_dispatched',
@@ -538,6 +541,7 @@ it('charges a nonadmitting reader intent before applying confirmed future pins',
   });
   expect(f.reviews.get('workflow')).toMatchObject({ hostTurns: 1, reviewCycles: 1 });
   expect(apply).toHaveBeenCalledOnce();
+  expect(f.deps.transition.prepare).not.toHaveBeenCalled();
   expect(f.reviews.applicationAttemptForClaim('claim')).toEqual(final);
   f.reviews.close();
 });
