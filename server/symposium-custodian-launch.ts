@@ -57,6 +57,7 @@ export function custodianAppEnvironment(source: NodeJS.ProcessEnv): NodeJS.Proce
     'CORS_ALLOWED_ORIGINS',
     'MITZO_CODEX_PRIVATE_DIR',
     'LOG_LEVEL',
+    'OTEL_EXPORTER_OTLP_ENDPOINT',
   ])
     if (source[name] !== undefined) result[name] = source[name];
   return result;
