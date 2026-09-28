@@ -250,4 +250,25 @@ describe('controlled application delivery versus stale director routes', () => {
       competingStore.close();
     }
   });
+
+  it('keeps a stale director cancel from destroying an exact controlled delivery', async () => {
+    const staged = orchestrator.stageDelivery({
+      sessionId: 'chat',
+      sourceSeatId: null,
+      recipientSeatIds: ['writer'],
+      originalContent: 'write a change',
+      idempotencyKey: 'stage-application',
+    });
+    store.registerSymposiumApplicationDeliveryControl({
+      deliveryId: staged.deliveryId,
+      workflowId: 'workflow',
+      attemptId: 'attempt',
+      policyReservationId: 'reservation',
+    });
+    const path = `/api/sessions/chat/symposium/deliveries/${staged.deliveryId}/cancel`;
+    expect(
+      (await request(app).post(path).send({ idempotencyKey: 'stale-director-cancel' })).status,
+    ).toBe(409);
+    expect(store.getSymposiumDelivery(staged.deliveryId)?.status).toBe('awaiting_intervention');
+  });
 });
