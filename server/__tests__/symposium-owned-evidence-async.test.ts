@@ -75,7 +75,10 @@ it('real worker keeps event loop responsive during a slow CLI, fails closed, and
     expect(settled).toBe(false);
     await rejected;
     expect(f.custody.verifyCustodyAsync.mock.calls.length).toBeGreaterThanOrEqual(2);
-    await expect(collect(selection)).rejects.toThrow('Evidence could not be verified');
+    await expect(collect(selection)).rejects.toMatchObject({
+      message: 'Evidence could not be verified',
+      phase: 'custody-native',
+    });
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -129,6 +132,52 @@ it('quarantines an abnormal worker exit instead of claiming cleanup or starting 
     await expect(collect(selection)).rejects.toThrow('operator recovery');
     await expect(collect(selection)).rejects.toThrow('operator recovery');
     expect(spawn).toHaveBeenCalledTimes(1);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it('returns only an allowlisted worker phase after a clean exit and never forwards raw diagnostics', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'evidence-phase-'));
+  try {
+    const f = fixture(root);
+    const collect = createOwnedEvidenceCollector(
+      f.config,
+      'https://localhost:1234',
+      f.physical,
+      f.custody,
+      (_source, options) =>
+        new Worker(
+          `const {parentPort}=require('node:worker_threads'); parentPort.postMessage({error:true, phase:'verify-image', message:'secret /private/path'});`,
+          { ...options, eval: true },
+        ),
+    );
+    await expect(collect(selection)).rejects.toMatchObject({
+      message: 'Evidence could not be verified',
+      phase: 'verify-image',
+    });
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it('ignores unrecognized worker phases and retains uncertain cleanup quarantine', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'evidence-phase-invalid-'));
+  try {
+    const f = fixture(root);
+    const collect = createOwnedEvidenceCollector(
+      f.config,
+      'https://localhost:1234',
+      f.physical,
+      f.custody,
+      (_source, options) =>
+        new Worker(
+          `const {parentPort}=require('node:worker_threads'); parentPort.postMessage({error:true, phase:'secret /private/path', cleanupUncertain:true});`,
+          { ...options, eval: true },
+        ),
+    );
+    await expect(collect(selection)).rejects.toThrow('operator recovery');
+    await expect(collect(selection)).rejects.toThrow('operator recovery');
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

@@ -12,6 +12,11 @@ import type {
   SymposiumOwnedNativeHostBinding,
 } from './symposium-production-gate.js';
 import { OwnedEvidenceSelection } from './symposium-owned-evidence.js';
+import {
+  ownedEvidencePhase,
+  OwnedEvidenceVerificationError,
+  type OwnedEvidencePhase,
+} from './symposium-owned-evidence-diagnostic.js';
 
 type Physical = Omit<LocalSymposiumPhysicalOptions, 'ownedGateway' | 'captureClaudeProvider'>;
 export interface OwnedEvidenceWorkerData {
@@ -142,10 +147,16 @@ export function createOwnedEvidenceCollector(
       });
       return await new Promise<SymposiumProductionAttestation>((resolve, reject) => {
         let result: SymposiumProductionAttestation | undefined;
+        let failurePhase: OwnedEvidencePhase | undefined;
         worker.on(
           'message',
-          (message: { candidate?: SymposiumProductionAttestation; cleanupUncertain?: boolean }) => {
+          (message: {
+            candidate?: SymposiumProductionAttestation;
+            cleanupUncertain?: boolean;
+            phase?: unknown;
+          }) => {
             if (message.cleanupUncertain) uncertain = true;
+            if (!message.candidate) failurePhase = ownedEvidencePhase(message.phase);
             result = message.candidate;
           },
         );
@@ -157,7 +168,7 @@ export function createOwnedEvidenceCollector(
           if (code !== 0 || workerError || uncertain) {
             uncertain = true;
             reject(new Error('Evidence worker cleanup requires operator recovery'));
-          } else if (!result) reject(new Error('Evidence could not be verified'));
+          } else if (!result) reject(new OwnedEvidenceVerificationError(failurePhase));
           else
             void (async () => {
               await custody.verifyCustodyAsync();

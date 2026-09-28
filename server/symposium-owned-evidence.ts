@@ -9,6 +9,10 @@ import { validateOpenShellCliEnvironment } from './openshell-cli-environment.js'
 import type { OpenShellRuntimeConfig } from './openshell-runtime.js';
 import { digestSymposiumPublicProfile } from './symposium-production-physical.js';
 import {
+  OwnedEvidenceVerificationError,
+  type OwnedEvidencePhase,
+} from './symposium-owned-evidence-diagnostic.js';
+import {
   digestSymposiumSeedTree,
   TESTED_SYMPOSIUM_NATIVE_BUILD,
   verifySymposiumProductionGate,
@@ -74,15 +78,22 @@ export function collectOwnedAdmissionEvidence(
     custody(): void;
   },
   selection: unknown,
-  dependencies: { invoke?: Invoke; verify?: typeof verifySymposiumProductionGate } = {},
+  dependencies: {
+    invoke?: Invoke;
+    verify?: typeof verifySymposiumProductionGate;
+    onPhase?: (phase: OwnedEvidencePhase) => void;
+  } = {},
 ): SymposiumProductionAttestation {
+  dependencies.onPhase?.('selection');
   const selected = OwnedEvidenceSelection.parse(selection);
   for (const instance of selected.providerInstances)
     if (instance.type !== instance.profileName)
       throw new Error('Provider and public profile differ');
+  dependencies.onPhase?.('custody');
   host.custody();
   const invoke = dependencies.invoke ?? invokeOwnedEvidenceCli;
   const config = host.config;
+  dependencies.onPhase?.('local-inputs');
   const policy = lstatSync(config.policy);
   if (!policy.isFile() || policy.isSymbolicLink()) throw new Error('Policy must be a regular file');
   const build = reviewedSymposiumOwnedRuntime(
@@ -108,31 +119,36 @@ export function collectOwnedAdmissionEvidence(
     seedTreeSha256: digestSymposiumSeedTree(config.seed),
     providerProfiles: [
       ...new Set(selected.providerInstances.map((instance) => instance.profileName)),
-    ].map((name) => ({
-      name,
-      sha256: digestSymposiumPublicProfile(
-        JSON.parse(
-          invoke(
-            config.cli,
-            [
-              'profile',
-              'export',
-              name,
-              '--output',
-              'json',
-              '--gateway',
-              config.gateway,
-              '--workspace',
-              config.workspace,
-            ],
-            config.cliEnvironment,
+    ].map((name) => {
+      dependencies.onPhase?.('profile-export');
+      return {
+        name,
+        sha256: digestSymposiumPublicProfile(
+          JSON.parse(
+            invoke(
+              config.cli,
+              [
+                'profile',
+                'export',
+                name,
+                '--output',
+                'json',
+                '--gateway',
+                config.gateway,
+                '--workspace',
+                config.workspace,
+              ],
+              config.cliEnvironment,
+            ),
           ),
         ),
-      ),
-    })),
+      };
+    }),
     ...selected,
   };
+  dependencies.onPhase?.('gate');
   (dependencies.verify ?? verifySymposiumProductionGate)(config, candidate, host.physical, invoke);
+  dependencies.onPhase?.('custody');
   host.custody();
   return candidate;
 }
@@ -157,9 +173,12 @@ export function ownedEvidenceHandler(
     }
     try {
       res.json({ candidate: await collect(parsed.data), activated: false });
-    } catch {
+    } catch (error) {
       res.status(409).json({
         error: 'Evidence could not be verified. Check the explicit selection and owned host.',
+        ...(error instanceof OwnedEvidenceVerificationError && error.phase
+          ? { phase: error.phase }
+          : {}),
       });
     }
   };
