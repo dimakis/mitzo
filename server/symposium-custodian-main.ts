@@ -138,7 +138,10 @@ async function main() {
     engine.beginSymposiumShutdown();
     host.beginShutdown();
     const results = await Promise.allSettled([
-      engine.drainSymposiumRuntimes(signal),
+      engine.retireRetainedSymposiumRuntimes(
+        `${identity}-${controllerGeneration}-retirement`,
+        signal,
+      ),
       host.drain(signal),
     ]);
     if (results.some((result) => result.status === 'rejected'))

@@ -916,6 +916,14 @@ export async function drainSymposiumRuntimes(signal: AbortSignal) {
   if (results.some((result) => result.status === 'rejected'))
     throw new Error('Symposium runtime cleanup incomplete');
 }
+/** Retire a live custodian's retained authority before its gateway exits.
+ * Physical cleanup alone cannot leave active membership generations behind:
+ * the next owner must see durable suspension and require explicit restore. */
+export async function retireRetainedSymposiumRuntimes(identity: string, signal: AbortSignal) {
+  if (!custodianOwnerMode) throw Error('Retained custodian mode required');
+  beginSymposiumShutdown();
+  await drainRetainedSymposiumControllers(eventStore, symposiumSessionRuntimes, identity, signal);
+}
 export interface SymposiumProductionHost {
   sourceImport?: import('./symposium-source-service.js').SymposiumSourceHost & {
     requireSeal?(
