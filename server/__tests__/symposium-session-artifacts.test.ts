@@ -507,9 +507,15 @@ it('durably fences original source admission before an imported generation can b
   expect(() => reopened.beginSourceSeal('source', 'other')).toThrow(/source seal/);
   const proof = reopened.sourceSealHelperReceipt('source', 'import-op');
   proof.verifier('pinned-image', '8'.repeat(64));
+  expect(() => proof.verifier('pinned-image', '8'.repeat(64))).not.toThrow();
+  expect(() => proof.verifier('changed-image', '8'.repeat(64))).toThrow(/identity changed/);
   proof.intent(`${mapping.volumeName}-source-seal`);
+  expect(() => proof.intent(`${mapping.volumeName}-source-seal`)).not.toThrow();
   proof.created('9'.repeat(64));
+  expect(() => proof.created('9'.repeat(64))).not.toThrow();
+  expect(() => proof.created('a'.repeat(64))).toThrow(/identity changed/);
   proof.observed(receipt.git);
+  expect(() => proof.observed(receipt.git)).not.toThrow();
   const bundle = Buffer.from('source-bundle');
   const exportReceipt = {
     proof: receipt.git,
@@ -525,10 +531,17 @@ it('durably fences original source admission before an imported generation can b
     },
   };
   proof.exported(exportReceipt, bundle);
+  expect(() => proof.exported(exportReceipt, bundle)).not.toThrow();
+  expect(() => proof.exported(exportReceipt, Buffer.from('other-bundle'))).toThrow(
+    /evidence changed/,
+  );
   expect(() => reopened.completeSourceSeal('source', 'import-op')).toThrow(/physical completion/);
   proof.terminal('9'.repeat(64), 0);
+  expect(() => proof.terminal('9'.repeat(64), 0)).not.toThrow();
   proof.removed();
+  expect(() => proof.removed()).not.toThrow();
   const completed = reopened.completeSourceSeal('source', 'import-op');
+  expect(reopened.completeSourceSeal('source', 'import-op')).toEqual(completed);
   expect(completed).toMatchObject({
     state: 'complete',
     helperId: '9'.repeat(64),

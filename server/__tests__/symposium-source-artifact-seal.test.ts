@@ -21,6 +21,7 @@ it.each([false, true])('requires exact read-only source proof (matches=%s)', asy
     committedTreeDigest: 'd'.repeat(64),
   };
   const receipt = {
+    state: 'pending',
     sessionId: 'session',
     operationId: 'op',
     workspace: 'workspace',
@@ -70,6 +71,7 @@ it.each([false, true])('requires exact read-only source proof (matches=%s)', asy
   };
   const helperId = 'e'.repeat(64);
   let started = false;
+  let helperCommand: string[] = [];
   const command = vi.fn(async (args: readonly string[]) => {
     if (args[0] === 'volume')
       return JSON.stringify([
@@ -90,14 +92,17 @@ it.each([false, true])('requires exact read-only source proof (matches=%s)', asy
         },
       ]);
     if (args[0] === 'ps') return JSON.stringify([]);
-    if (args[0] === 'create') return helperId;
+    if (args[0] === 'create') {
+      helperCommand = [...args.slice(args.indexOf('image') + 1)];
+      return helperId;
+    }
     if (args[0] === 'inspect')
       return JSON.stringify([
         {
           Id: helperId,
           Name: '/mitzo-artifacts-source-source-seal',
           ImageName: 'image',
-          Config: { User: '998:998' },
+          Config: { User: '998:998', Cmd: helperCommand, Entrypoint: ['/usr/bin/python3'] },
           HostConfig: { NetworkMode: 'none', ReadonlyRootfs: true, Privileged: false },
           Mounts: [
             {
@@ -148,6 +153,249 @@ it.each([false, true])('requires exact read-only source proof (matches=%s)', asy
     ),
   ).toBe(true);
 });
+
+it.each([
+  'beforeCreate',
+  'lostCreate',
+  'lostStart',
+  'afterExport',
+  'lostRemove',
+  'afterRemoved',
+  'wrongCreatedHelper',
+  'runningAfterStart',
+  'disappearedAfterStart',
+] as const)(
+  'resumes the same fenced source seal after %s without replaying completed helper work',
+  async (failure) => {
+    const git = {
+      version: 1,
+      commit: 'a'.repeat(40),
+      tree: 'b'.repeat(40),
+      entries: 1,
+      bytes: 2,
+      manifestDigest: 'c'.repeat(64),
+      committedTreeDigest: 'd'.repeat(64),
+    };
+    const helperId = 'e'.repeat(64);
+    const volumeName = 'mitzo-artifacts-source';
+    const bundle = Buffer.from('source-bundle');
+    const exported = JSON.stringify({
+      proof: git,
+      bundle: bundle.toString('base64'),
+      bytes: bundle.length,
+      bundleSha256: createHash('sha256').update(bundle).digest('hex'),
+      selection: {
+        sourceRef: 'refs/heads/change',
+        sourceOid: git.commit,
+        baseRef: 'refs/remotes/origin/main',
+        baseOid: git.commit,
+        defaultBranch: 'main',
+        originUrl: 'https://github.com/owner/repo.git',
+      },
+    });
+    const pending: {
+      state: string;
+      sessionId: string;
+      operationId: string;
+      volumeName: string;
+      volumeGeneration: string;
+      sourceReceipt: {
+        git: typeof git;
+        commit: string;
+        manifest: { baseBranch: string; featureBranch: string; targetRepository: string };
+      };
+      verifier?: { image: string; codeDigest: string };
+      helperName?: string;
+      helperId?: string;
+      git?: unknown;
+      terminal?: { helperId: string; exitCode: number };
+      helperRemoved?: boolean;
+    } = {
+      state: 'pending',
+      sessionId: 'session',
+      operationId: 'op',
+      volumeName,
+      volumeGeneration: 'generation',
+      sourceReceipt: {
+        git,
+        commit: git.commit,
+        manifest: {
+          baseBranch: 'main',
+          featureBranch: 'change',
+          targetRepository: 'owner/repo',
+        },
+      },
+    };
+    const journal = {
+      verifier: (image: string, codeDigest: string) => {
+        pending.verifier = { image, codeDigest };
+      },
+      intent: (name: string) => {
+        pending.helperName = name;
+      },
+      created: (id: string) => {
+        pending.helperId = id;
+      },
+      observed: (value: unknown) => {
+        pending.git = value;
+      },
+      exported: vi.fn(),
+      terminal: (id: string, exitCode: number) => {
+        pending.terminal = { helperId: id, exitCode };
+      },
+      removed: () => {
+        pending.helperRemoved = true;
+      },
+    };
+    const artifacts = {
+      beginSourceSeal: () => structuredClone(pending),
+      sourceSealHelperReceipt: () => journal,
+      completeSourceSeal: () => {
+        if (failure === 'afterRemoved' && inject) {
+          inject = false;
+          throw Error('transient completion');
+        }
+        pending.state = 'complete';
+        return structuredClone(pending);
+      },
+    };
+    let exists = false;
+    let started = false;
+    let commandArgs: string[] = [];
+    let inject = true;
+    let starts = 0;
+    let creates = 0;
+    const command = vi.fn(async (args: readonly string[]) => {
+      if (args[0] === 'volume')
+        return JSON.stringify([
+          {
+            Name: volumeName,
+            Driver: 'local',
+            Options: {},
+            UID: 998,
+            GID: 998,
+            Labels: {
+              'openshell.ai/sandbox-attachable': 'true',
+              'openshell.ai/sandbox-attachable-workspace': 'workspace',
+              'mitzo.symposium.purpose': 'artifacts',
+              'mitzo.symposium.session': 'session',
+              'mitzo.symposium.workspace': 'workspace',
+              'mitzo.symposium.generation': 'generation',
+            },
+          },
+        ]);
+      if (args[0] === 'ps') return JSON.stringify(exists ? [{ Id: helperId }] : []);
+      if (args[0] === 'inspect') {
+        if (
+          failure === 'afterExport' &&
+          started &&
+          journal.exported.mock.calls.length > 0 &&
+          inject
+        ) {
+          inject = false;
+          throw Error('transient terminal inspection');
+        }
+        return JSON.stringify([
+          {
+            Id: helperId,
+            Name: `/${volumeName}-source-seal`,
+            ImageName: 'image',
+            Config: {
+              User: '998:998',
+              Cmd: failure === 'wrongCreatedHelper' ? ['unexpected'] : commandArgs,
+              Entrypoint: ['/usr/bin/python3'],
+            },
+            HostConfig: { NetworkMode: 'none', ReadonlyRootfs: true, Privileged: false },
+            Mounts: [
+              {
+                Type: 'volume',
+                Name: volumeName,
+                Destination: SYMPOSIUM_ARTIFACT_TARGET,
+                RW: false,
+              },
+            ],
+            State: {
+              Running: failure === 'runningAfterStart' && started,
+              Status:
+                failure === 'runningAfterStart' && started
+                  ? 'running'
+                  : started
+                    ? 'exited'
+                    : 'created',
+              ExitCode: 0,
+            },
+          },
+        ]);
+      }
+      if (args[0] === 'create') {
+        creates++;
+        if (failure === 'beforeCreate' && inject) {
+          inject = false;
+          throw Error('transient create');
+        }
+        exists = true;
+        commandArgs = [...args.slice(args.indexOf('image') + 1)];
+        if ((failure === 'lostCreate' || failure === 'wrongCreatedHelper') && inject) {
+          inject = false;
+          throw Error('lost create response');
+        }
+        return helperId;
+      }
+      if (args[0] === 'start') {
+        starts++;
+        started = true;
+        if (
+          (failure === 'lostStart' ||
+            failure === 'runningAfterStart' ||
+            failure === 'disappearedAfterStart') &&
+          inject
+        ) {
+          if (failure === 'disappearedAfterStart') exists = false;
+          inject = false;
+          throw Error('lost start response');
+        }
+        return exported;
+      }
+      if (args[0] === 'logs') return exported;
+      if (args[0] === 'rm') {
+        exists = false;
+        if (failure === 'lostRemove' && inject) {
+          inject = false;
+          throw Error('lost remove response');
+        }
+        return '';
+      }
+      throw Error('unexpected command');
+    });
+    const deps = {
+      artifacts: artifacts as never,
+      owner: { image: 'image', uid: 998, gid: 998 },
+      workspace: 'workspace',
+      custody: vi.fn(),
+      assertNoNativeClaims: vi.fn(),
+      command,
+    };
+    const run = () =>
+      sealImportedSourceArtifact(deps, 'session', 'op', new AbortController().signal);
+    await expect(run()).rejects.toThrow();
+    if (
+      failure === 'wrongCreatedHelper' ||
+      failure === 'runningAfterStart' ||
+      failure === 'disappearedAfterStart'
+    ) {
+      await expect(run()).rejects.toThrow(/isolation|uncertain/i);
+      expect(creates).toBe(1);
+      expect(starts).toBe(failure === 'wrongCreatedHelper' ? 0 : 1);
+      expect(pending.state).toBe('pending');
+      return;
+    }
+    expect((await run()).state).toBe('complete');
+    expect((await run()).state).toBe('complete');
+    expect(starts).toBe(1);
+    expect(creates).toBe(failure === 'beforeCreate' ? 2 : 1);
+    expect(exists).toBe(false);
+  },
+);
 
 it('rejects a pending source seal as a parent even with an imported Git receipt', () => {
   expect(() =>

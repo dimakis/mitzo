@@ -186,8 +186,8 @@ export function requireCompletedImportedSourceSeal(
   };
 }
 
-/** Permanent source fence precedes the helper. Any ambiguous create/start/cleanup
- * remains pending for explicit reconciliation; this function never retries it. */
+/** Permanent source fence precedes the helper. A retry may advance only after
+ * rechecking the exact retained phase and a fresh physical helper census. */
 export async function sealImportedSourceArtifact(
   deps: {
     artifacts: Pick<
@@ -217,6 +217,22 @@ export async function sealImportedSourceArtifact(
     volumeName: pending.volumeName,
     volumeGeneration: pending.volumeGeneration,
   };
+  const helperName = `${mapping.volumeName}-source-seal`;
+  const helperCommand = [
+    '-I',
+    '-B',
+    '-c',
+    ARTIFACT_GIT_EXPORT,
+    '.',
+    JSON.stringify({
+      kind: 'successor',
+      expected: imported.git,
+      baseBranch: imported.manifest.baseBranch,
+      sourceBranch: imported.manifest.featureBranch,
+      sourceOid: imported.commit,
+      maxBytes: 8 * 1024 * 1024,
+    }),
+  ];
   const verify = async (helperId?: string) => {
     signal.throwIfAborted();
     await deps.custody();
@@ -250,61 +266,131 @@ export async function sealImportedSourceArtifact(
       mounts[0].Type !== 'volume' ||
       mounts[0].Name !== mapping.volumeName ||
       mounts[0].Destination !== SYMPOSIUM_ARTIFACT_TARGET ||
-      mounts[0].RW !== false
+      mounts[0].RW !== false ||
+      canonicalReviewJson(config?.Cmd) !== canonicalReviewJson(helperCommand) ||
+      !(
+        canonicalReviewJson(config?.Entrypoint) === canonicalReviewJson(['/usr/bin/python3']) ||
+        config?.Entrypoint === '/usr/bin/python3'
+      )
     )
       throw new Error('Source seal helper isolation changed');
     return row.State as { Running?: boolean; Status?: string; ExitCode?: number } | undefined;
   };
-  await verify();
+  const censusHelper = async (knownId?: string): Promise<string | null> => {
+    const rows: unknown = JSON.parse(
+      await deps.command(['ps', '--all', '--no-trunc', '--format', 'json']),
+    );
+    if (!Array.isArray(rows) || rows.length > 128)
+      throw new Error('Source seal helper census unavailable');
+    let found: string | null = null;
+    for (const entry of rows) {
+      const id = String(entry?.Id ?? entry?.ID ?? '');
+      if (!containerId.test(id)) throw new Error('Source seal helper census unavailable');
+      const inspected: unknown = JSON.parse(await deps.command(['inspect', id]));
+      if (!Array.isArray(inspected) || inspected.length !== 1 || inspected[0]?.Id !== id)
+        throw new Error('Source seal helper census changed');
+      if (id === knownId && inspected[0].Name !== `/${helperName}`)
+        throw new Error('Source seal helper identity changed');
+      if (inspected[0].Name === `/${helperName}`) {
+        if (found) throw new Error('Ambiguous source seal helper identity');
+        found = id;
+      }
+    }
+    return found;
+  };
   const journal = deps.artifacts.sourceSealHelperReceipt(sessionId, operationId);
+  if (pending.state === 'complete') {
+    if (!pending.helperRemoved || (await censusHelper(pending.helperId)))
+      throw new Error('Completed source seal helper changed');
+    await verify();
+    return pending;
+  }
+  if (pending.state !== 'pending') throw new Error('Source seal state changed');
+  if (
+    pending.verifier &&
+    (pending.verifier.image !== deps.owner.image ||
+      pending.verifier.codeDigest !== verifierDigest())
+  )
+    throw new Error('Source seal verifier identity changed');
+  if (pending.helperName && pending.helperName !== helperName)
+    throw new Error('Source seal helper intent changed');
   journal.verifier(deps.owner.image, verifierDigest());
-  const helperName = `${mapping.volumeName}-source-seal`;
   journal.intent(helperName);
-  signal.throwIfAborted();
-  await deps.custody();
-  const helperId = (
-    await deps.command([
-      'create',
-      '--pull=never',
-      '--name',
-      helperName,
-      '--network=none',
-      '--read-only',
-      '--cap-drop=ALL',
-      '--security-opt=no-new-privileges',
-      '--pids-limit=32',
-      '--memory=256m',
-      '--cpus=1',
-      '--timeout=50',
-      '--user',
-      `${deps.owner.uid}:${deps.owner.gid}`,
-      '--mount',
-      `type=volume,src=${mapping.volumeName},dst=${SYMPOSIUM_ARTIFACT_TARGET},readonly`,
-      '--entrypoint=/usr/bin/python3',
-      deps.owner.image,
-      '-I',
-      '-B',
-      '-c',
-      ARTIFACT_GIT_EXPORT,
-      '.',
-      JSON.stringify({
-        kind: 'successor',
-        expected: imported.git,
-        baseBranch: imported.manifest.baseBranch,
-        sourceBranch: imported.manifest.featureBranch,
-        sourceOid: imported.commit,
-        maxBytes: 8 * 1024 * 1024,
-      }),
-    ])
-  ).trim();
-  if (!containerId.test(helperId)) throw new Error('Source seal helper identity unavailable');
-  journal.created(helperId);
+  if (pending.helperId && !containerId.test(pending.helperId))
+    throw new Error('Source seal helper identity changed');
+  const observedId = await censusHelper(pending.helperId);
+  if (pending.helperId && observedId && pending.helperId !== observedId)
+    throw new Error('Source seal helper identity changed');
+  if (pending.helperRemoved) {
+    if (
+      observedId ||
+      pending.terminal?.helperId !== pending.helperId ||
+      pending.terminal?.exitCode !== 0
+    )
+      throw new Error('Source seal cleanup changed');
+    await verify();
+    return deps.artifacts.completeSourceSeal(sessionId, operationId);
+  }
+  if (pending.helperId && !observedId) {
+    if (
+      pending.terminal?.helperId !== pending.helperId ||
+      pending.terminal?.exitCode !== 0 ||
+      !pending.git
+    )
+      throw new Error('Source seal helper disappearance is uncertain');
+    await verify();
+    journal.removed();
+    return deps.artifacts.completeSourceSeal(sessionId, operationId);
+  }
+  let helperId = pending.helperId as string | undefined;
+  if (observedId && !helperId) {
+    await verify(observedId);
+    await inspectHelper(observedId);
+    journal.created(observedId);
+    helperId = observedId;
+  }
+  if (!helperId) {
+    await verify();
+    signal.throwIfAborted();
+    await deps.custody();
+    helperId = (
+      await deps.command([
+        'create',
+        '--pull=never',
+        '--name',
+        helperName,
+        '--network=none',
+        '--read-only',
+        '--cap-drop=ALL',
+        '--security-opt=no-new-privileges',
+        '--pids-limit=32',
+        '--memory=256m',
+        '--cpus=1',
+        '--timeout=50',
+        '--user',
+        `${deps.owner.uid}:${deps.owner.gid}`,
+        '--mount',
+        `type=volume,src=${mapping.volumeName},dst=${SYMPOSIUM_ARTIFACT_TARGET},readonly`,
+        '--entrypoint=/usr/bin/python3',
+        deps.owner.image,
+        ...helperCommand,
+      ])
+    ).trim();
+    if (!containerId.test(helperId)) throw new Error('Source seal helper identity unavailable');
+    journal.created(helperId);
+  }
   await verify(helperId);
   const created = await inspectHelper(helperId);
-  if (created?.Running !== false || created.Status !== 'created')
-    throw new Error('Source seal helper state changed before start');
-  signal.throwIfAborted();
-  const output = await deps.command(['start', '--attach', helperId], 16 * 1024 * 1024);
+  let output: string;
+  if (created?.Running === false && created.Status === 'created') {
+    if (pending.git || pending.terminal) throw new Error('Source seal helper state regressed');
+    signal.throwIfAborted();
+    output = await deps.command(['start', '--attach', helperId], 16 * 1024 * 1024);
+  } else if (created?.Running === false && created.Status === 'exited' && created.ExitCode === 0) {
+    output = await deps.command(['logs', helperId], 16 * 1024 * 1024);
+  } else {
+    throw new Error('Source seal helper state uncertain');
+  }
   if (Buffer.byteLength(output) > 16 * 1024 * 1024)
     throw new Error('Source seal export exceeded bound');
   const exported = JSON.parse(output) as Record<string, unknown>;
@@ -344,6 +430,7 @@ export async function sealImportedSourceArtifact(
   await verify(helperId);
   signal.throwIfAborted();
   await deps.command(['rm', helperId]);
+  if (await censusHelper()) throw new Error('Source seal helper removal uncertain');
   journal.removed();
   await verify();
   return deps.artifacts.completeSourceSeal(sessionId, operationId);

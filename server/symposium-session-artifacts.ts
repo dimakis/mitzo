@@ -257,25 +257,40 @@ export class SymposiumSessionArtifacts {
     return {
       verifier: (image: string, codeDigest: string) =>
         this.updateSourceSeal(sessionId, operationId, (value) => {
-          if (!image || !/^[a-f0-9]{64}$/.test(codeDigest) || value.verifier || value.helperName)
+          if (!image || !/^[a-f0-9]{64}$/.test(codeDigest))
             throw new Error('source seal verifier identity changed');
+          if (value.verifier) {
+            if (JSON.stringify(value.verifier) !== JSON.stringify({ image, codeDigest }))
+              throw new Error('source seal verifier identity changed');
+            return;
+          }
+          if (value.helperName) throw new Error('source seal verifier identity changed');
           value.verifier = { image, codeDigest };
         }),
       intent: (name: string) =>
         this.updateSourceSeal(sessionId, operationId, (value) => {
-          if (name !== `${value.volumeName}-source-seal` || value.helperName || !value.verifier)
+          if (
+            name !== `${value.volumeName}-source-seal` ||
+            !value.verifier ||
+            (value.helperName && value.helperName !== name)
+          )
             throw new Error('source seal helper intent changed');
           value.helperName = name;
         }),
       created: (helperId: string) =>
         this.updateSourceSeal(sessionId, operationId, (value) => {
-          if (!value.helperName || value.helperId || !/^[a-f0-9]{64}$/.test(helperId))
+          if (
+            !value.helperName ||
+            !/^[a-f0-9]{64}$/.test(helperId) ||
+            (value.helperId && value.helperId !== helperId)
+          )
             throw new Error('source seal helper identity changed');
           value.helperId = helperId;
         }),
       observed: (git: unknown) =>
         this.updateSourceSeal(sessionId, operationId, (value) => {
-          if (!value.helperId || value.git) throw new Error('source seal proof changed');
+          if (!value.helperId || (value.git && JSON.stringify(value.git) !== JSON.stringify(git)))
+            throw new Error('source seal proof changed');
           const imported = (value.sourceReceipt as { git?: unknown }).git;
           if (JSON.stringify(git) !== JSON.stringify(imported))
             throw new Error('source seal Git proof differs from import');
@@ -313,13 +328,24 @@ export class SymposiumSessionArtifacts {
               receipt.selection.baseRef !== `refs/remotes/origin/${manifest?.baseBranch}` ||
               receipt.selection.baseOid !== value.sourceReceipt.commit ||
               receipt.selection.defaultBranch !== manifest?.baseBranch ||
-              receipt.selection.originUrl !==
-                `https://github.com/${manifest?.targetRepository}.git` ||
-              this.db
-                .prepare('SELECT 1 FROM symposium_source_seal_exports WHERE session_id=?')
-                .get(sessionId)
+              receipt.selection.originUrl !== `https://github.com/${manifest?.targetRepository}.git`
             )
               throw new Error('source seal export evidence changed');
+            const existing = this.db
+              .prepare(
+                'SELECT operation_id,receipt_json,bundle FROM symposium_source_seal_exports WHERE session_id=?',
+              )
+              .get(sessionId) as
+              { operation_id: string; receipt_json: string; bundle: Buffer } | undefined;
+            if (existing) {
+              if (
+                existing.operation_id !== operationId ||
+                existing.receipt_json !== JSON.stringify(receipt) ||
+                !existing.bundle.equals(bundle)
+              )
+                throw new Error('source seal export evidence changed');
+              return;
+            }
             this.db
               .prepare('INSERT INTO symposium_source_seal_exports VALUES(?,?,?,?)')
               .run(sessionId, operationId, JSON.stringify(receipt), bundle);
@@ -327,14 +353,19 @@ export class SymposiumSessionArtifacts {
           .immediate(),
       terminal: (helperId: string, exitCode: number) =>
         this.updateSourceSeal(sessionId, operationId, (value) => {
-          if (value.helperId !== helperId || exitCode !== 0 || !value.git || value.terminal)
+          if (
+            value.helperId !== helperId ||
+            exitCode !== 0 ||
+            !value.git ||
+            (value.terminal &&
+              JSON.stringify(value.terminal) !== JSON.stringify({ helperId, exitCode: 0 }))
+          )
             throw new Error('source seal terminal proof changed');
           value.terminal = { helperId, exitCode: 0 };
         }),
       removed: () =>
         this.updateSourceSeal(sessionId, operationId, (value) => {
-          if (!value.terminal || value.helperRemoved)
-            throw new Error('source seal cleanup changed');
+          if (!value.terminal) throw new Error('source seal cleanup changed');
           value.helperRemoved = true;
         }),
     };
@@ -349,7 +380,7 @@ export class SymposiumSessionArtifacts {
         if (
           !value ||
           value.operationId !== operationId ||
-          value.state !== 'pending' ||
+          !['pending', 'complete'].includes(value.state) ||
           !value.helperId ||
           !value.helperRemoved ||
           !value.git ||
@@ -364,6 +395,7 @@ export class SymposiumSessionArtifacts {
           row.admission_issued
         )
           throw new Error('source seal physical completion unavailable');
+        if (value.state === 'complete') return value;
         value.state = 'complete';
         this.db
           .prepare('UPDATE symposium_session_artifacts SET source_seal_json=? WHERE session_id=?')
