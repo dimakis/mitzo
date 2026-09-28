@@ -486,7 +486,6 @@ export class PhysicalArtifactSealer {
       {
         fenceId: input.fenceId,
         operationId: input.operationId,
-        baseBranch: 'main',
         kind: 'check',
         checkPath: input.path,
       },
@@ -580,7 +579,7 @@ export class PhysicalArtifactSealer {
     raw: {
       fenceId: string;
       operationId: string;
-      baseBranch: string;
+      baseBranch?: string;
       kind: 'inspect' | 'bundle' | 'successor' | 'check';
       sourceBranch?: string;
       sourceOid?: string;
@@ -593,7 +592,10 @@ export class PhysicalArtifactSealer {
       .strictObject({
         fenceId: z.string(),
         operationId: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/),
-        baseBranch: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._/-]{0,254}$/),
+        baseBranch: z
+          .string()
+          .regex(/^[A-Za-z0-9][A-Za-z0-9._/-]{0,254}$/)
+          .optional(),
         kind: z.enum(['inspect', 'bundle', 'successor', 'check']),
         sourceBranch: z
           .string()
@@ -625,6 +627,8 @@ export class PhysicalArtifactSealer {
       (!input.sourceBranch || !input.sourceOid || !input.maxBytes)
     )
       throw new Error('Sealed bundle selection is incomplete');
+    if (input.kind !== 'check' && !input.baseBranch)
+      throw new Error('Sealed export base branch is unavailable');
     const receipt = await this.requireCompleted(input.fenceId, signal);
     if (input.sourceOid && input.sourceOid !== receipt.git.commit)
       throw new Error('Sealed bundle commit changed');

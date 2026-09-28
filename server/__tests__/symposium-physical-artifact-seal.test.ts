@@ -509,6 +509,11 @@ it('checks one committed file through a fresh credential-free sealed helper', as
     artifactHash: seal.git.committedTreeDigest,
     observedSha256: createHash('sha256').update('hello').digest('hex'),
   });
+  const helperCreate = f.command.mock.calls.find(
+    ([args]) =>
+      args[0] === 'create' && args.some((arg) => arg.includes('mitzo.artifact-export-job=')),
+  );
+  expect(JSON.parse(helperCreate![0].at(-1)!)).not.toHaveProperty('baseBranch');
   const db = new Database(join(f.root, 'leases.db'));
   expect(
     db.prepare('SELECT kind,state,container_id FROM symposium_seal_export_jobs').get(),
