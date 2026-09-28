@@ -15,150 +15,153 @@ it.each([
   [true, '/mitzo-artifacts-source-source-seal'],
   [true, 'mitzo-artifacts-source-source-seal'],
   [true, 'mitzo-artifacts-source-source-seal-altered'],
-] as const)('requires exact read-only source proof (matches=%s, name=%s)', async (matches, name) => {
-  const git = {
-    version: 1,
-    commit: 'a'.repeat(40),
-    tree: 'b'.repeat(40),
-    entries: 1,
-    bytes: 2,
-    manifestDigest: 'c'.repeat(64),
-    committedTreeDigest: 'd'.repeat(64),
-  };
-  const receipt = {
-    state: 'pending',
-    sessionId: 'session',
-    operationId: 'op',
-    workspace: 'workspace',
-    volumeName: 'mitzo-artifacts-source',
-    volumeGeneration: 'generation',
-    sourceReceipt: {
-      git,
-      commit: git.commit,
-      tree: git.tree,
-      manifest: {
-        baseOid: git.commit,
-        treeOid: git.tree,
-        baseBranch: 'main',
-        featureBranch: 'change',
-        targetRepository: 'owner/repo',
-      },
-    },
-  };
-  const bundle = Buffer.from('source-bundle');
-  const exported = {
-    proof: git,
-    bundle: bundle.toString('base64'),
-    bundleSha256: createHash('sha256').update(bundle).digest('hex'),
-    bytes: bundle.length,
-    selection: {
-      sourceRef: 'refs/heads/change',
-      sourceOid: git.commit,
-      baseRef: 'refs/remotes/origin/main',
-      baseOid: git.commit,
-      defaultBranch: 'main',
-      originUrl: 'https://github.com/owner/repo.git',
-    },
-  };
-  const journal = {
-    verifier: vi.fn(),
-    intent: vi.fn(),
-    created: vi.fn(),
-    observed: vi.fn(),
-    exported: vi.fn(),
-    terminal: vi.fn(),
-    removed: vi.fn(),
-  };
-  const artifacts = {
-    beginSourceSeal: vi.fn(() => receipt),
-    sourceSealHelperReceipt: vi.fn(() => journal),
-    completeSourceSeal: vi.fn(() => ({ state: 'complete' })),
-  };
-  const helperId = 'e'.repeat(64);
-  let started = false;
-  let helperCommand: string[] = [];
-  const command = vi.fn(async (args: readonly string[]) => {
-    if (args[0] === 'volume')
-      return JSON.stringify([
-        {
-          Name: receipt.volumeName,
-          Driver: 'local',
-          Options: {},
-          UID: 998,
-          GID: 998,
-          Labels: {
-            'openshell.ai/sandbox-attachable': 'true',
-            'openshell.ai/sandbox-attachable-workspace': 'workspace',
-            'mitzo.symposium.purpose': 'artifacts',
-            'mitzo.symposium.session': 'session',
-            'mitzo.symposium.workspace': 'workspace',
-            'mitzo.symposium.generation': 'generation',
-          },
-        },
-      ]);
-    if (args[0] === 'ps') return JSON.stringify([]);
-    if (args[0] === 'create') {
-      helperCommand = [...args.slice(args.indexOf('image') + 1)];
-      return helperId;
-    }
-    if (args[0] === 'inspect')
-      return JSON.stringify([
-        {
-          Id: helperId,
-          Name: name,
-          ImageName: 'image',
-          Config: { User: '998:998', Cmd: helperCommand, Entrypoint: ['/usr/bin/python3'] },
-          HostConfig: { NetworkMode: 'none', ReadonlyRootfs: true, Privileged: false },
-          Mounts: [
-            {
-              Type: 'volume',
-              Name: receipt.volumeName,
-              Destination: SYMPOSIUM_ARTIFACT_TARGET,
-              RW: false,
-            },
-          ],
-          State: { Running: false, Status: started ? 'exited' : 'created', ExitCode: 0 },
-        },
-      ]);
-    if (args[0] === 'start') {
-      started = true;
-      return JSON.stringify(
-        matches ? exported : { ...exported, proof: { ...git, tree: 'f'.repeat(40) } },
-      );
-    }
-    return '';
-  });
-  const run = sealImportedSourceArtifact(
-    {
-      artifacts: artifacts as never,
-      owner: { image: 'image', uid: 998, gid: 998 },
+] as const)(
+  'requires exact read-only source proof (matches=%s, name=%s)',
+  async (matches, name) => {
+    const git = {
+      version: 1,
+      commit: 'a'.repeat(40),
+      tree: 'b'.repeat(40),
+      entries: 1,
+      bytes: 2,
+      manifestDigest: 'c'.repeat(64),
+      committedTreeDigest: 'd'.repeat(64),
+    };
+    const receipt = {
+      state: 'pending',
+      sessionId: 'session',
+      operationId: 'op',
       workspace: 'workspace',
-      custody: vi.fn(),
-      assertNoNativeClaims: vi.fn(),
-      command,
-    },
-    'session',
-    'op',
-    new AbortController().signal,
-  );
-  const validName = name.replace(/^\//, '') === 'mitzo-artifacts-source-source-seal';
-  if (matches && validName) expect(await run).toEqual({ state: 'complete' });
-  else await expect(run).rejects.toThrow(validName ? /Git proof/ : /isolation changed/);
-  expect(journal.intent).toHaveBeenCalledOnce();
-  expect(journal.created).toHaveBeenCalledOnce();
-  expect(journal.observed).toHaveBeenCalledTimes(matches && validName ? 1 : 0);
-  expect(journal.exported).toHaveBeenCalledTimes(matches && validName ? 1 : 0);
-  expect(artifacts.completeSourceSeal).toHaveBeenCalledTimes(matches && validName ? 1 : 0);
-  expect(
-    command.mock.calls.some(
-      ([args]) =>
-        args[0] === 'create' &&
-        args.includes(
-          `type=volume,src=mitzo-artifacts-source,dst=${SYMPOSIUM_ARTIFACT_TARGET},readonly`,
-        ),
-    ),
-  ).toBe(true);
-});
+      volumeName: 'mitzo-artifacts-source',
+      volumeGeneration: 'generation',
+      sourceReceipt: {
+        git,
+        commit: git.commit,
+        tree: git.tree,
+        manifest: {
+          baseOid: git.commit,
+          treeOid: git.tree,
+          baseBranch: 'main',
+          featureBranch: 'change',
+          targetRepository: 'owner/repo',
+        },
+      },
+    };
+    const bundle = Buffer.from('source-bundle');
+    const exported = {
+      proof: git,
+      bundle: bundle.toString('base64'),
+      bundleSha256: createHash('sha256').update(bundle).digest('hex'),
+      bytes: bundle.length,
+      selection: {
+        sourceRef: 'refs/heads/change',
+        sourceOid: git.commit,
+        baseRef: 'refs/remotes/origin/main',
+        baseOid: git.commit,
+        defaultBranch: 'main',
+        originUrl: 'https://github.com/owner/repo.git',
+      },
+    };
+    const journal = {
+      verifier: vi.fn(),
+      intent: vi.fn(),
+      created: vi.fn(),
+      observed: vi.fn(),
+      exported: vi.fn(),
+      terminal: vi.fn(),
+      removed: vi.fn(),
+    };
+    const artifacts = {
+      beginSourceSeal: vi.fn(() => receipt),
+      sourceSealHelperReceipt: vi.fn(() => journal),
+      completeSourceSeal: vi.fn(() => ({ state: 'complete' })),
+    };
+    const helperId = 'e'.repeat(64);
+    let started = false;
+    let helperCommand: string[] = [];
+    const command = vi.fn(async (args: readonly string[]) => {
+      if (args[0] === 'volume')
+        return JSON.stringify([
+          {
+            Name: receipt.volumeName,
+            Driver: 'local',
+            Options: {},
+            UID: 998,
+            GID: 998,
+            Labels: {
+              'openshell.ai/sandbox-attachable': 'true',
+              'openshell.ai/sandbox-attachable-workspace': 'workspace',
+              'mitzo.symposium.purpose': 'artifacts',
+              'mitzo.symposium.session': 'session',
+              'mitzo.symposium.workspace': 'workspace',
+              'mitzo.symposium.generation': 'generation',
+            },
+          },
+        ]);
+      if (args[0] === 'ps') return JSON.stringify([]);
+      if (args[0] === 'create') {
+        helperCommand = [...args.slice(args.indexOf('image') + 1)];
+        return helperId;
+      }
+      if (args[0] === 'inspect')
+        return JSON.stringify([
+          {
+            Id: helperId,
+            Name: name,
+            ImageName: 'image',
+            Config: { User: '998:998', Cmd: helperCommand, Entrypoint: ['/usr/bin/python3'] },
+            HostConfig: { NetworkMode: 'none', ReadonlyRootfs: true, Privileged: false },
+            Mounts: [
+              {
+                Type: 'volume',
+                Name: receipt.volumeName,
+                Destination: SYMPOSIUM_ARTIFACT_TARGET,
+                RW: false,
+              },
+            ],
+            State: { Running: false, Status: started ? 'exited' : 'created', ExitCode: 0 },
+          },
+        ]);
+      if (args[0] === 'start') {
+        started = true;
+        return JSON.stringify(
+          matches ? exported : { ...exported, proof: { ...git, tree: 'f'.repeat(40) } },
+        );
+      }
+      return '';
+    });
+    const run = sealImportedSourceArtifact(
+      {
+        artifacts: artifacts as never,
+        owner: { image: 'image', uid: 998, gid: 998 },
+        workspace: 'workspace',
+        custody: vi.fn(),
+        assertNoNativeClaims: vi.fn(),
+        command,
+      },
+      'session',
+      'op',
+      new AbortController().signal,
+    );
+    const validName = name.replace(/^\//, '') === 'mitzo-artifacts-source-source-seal';
+    if (matches && validName) expect(await run).toEqual({ state: 'complete' });
+    else await expect(run).rejects.toThrow(validName ? /Git proof/ : /isolation changed/);
+    expect(journal.intent).toHaveBeenCalledOnce();
+    expect(journal.created).toHaveBeenCalledOnce();
+    expect(journal.observed).toHaveBeenCalledTimes(matches && validName ? 1 : 0);
+    expect(journal.exported).toHaveBeenCalledTimes(matches && validName ? 1 : 0);
+    expect(artifacts.completeSourceSeal).toHaveBeenCalledTimes(matches && validName ? 1 : 0);
+    expect(
+      command.mock.calls.some(
+        ([args]) =>
+          args[0] === 'create' &&
+          args.includes(
+            `type=volume,src=mitzo-artifacts-source,dst=${SYMPOSIUM_ARTIFACT_TARGET},readonly`,
+          ),
+      ),
+    ).toBe(true);
+  },
+);
 
 it.each([
   'beforeCreate',

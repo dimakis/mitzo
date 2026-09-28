@@ -255,7 +255,8 @@ export async function sealImportedSourceArtifact(
     const mounts = row.Mounts as Array<Record<string, unknown>> | undefined;
     if (
       row.Id !== helperId ||
-      row.Name?.replace(/^\//, '') !== `${mapping.volumeName}-source-seal` ||
+      (typeof row.Name === 'string' ? row.Name.replace(/^\//, '') : '') !==
+        `${mapping.volumeName}-source-seal` ||
       row.ImageName !== deps.owner.image ||
       config?.User !== `${deps.owner.uid}:${deps.owner.gid}` ||
       host?.NetworkMode !== 'none' ||
