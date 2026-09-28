@@ -17,7 +17,8 @@ import { EventStore } from '../event-store.js';
 import { SymposiumReviewStore } from '../symposium-review-workflows.js';
 import { SymposiumReviewCoordinator } from '../symposium-review-coordinator.js';
 import { createSymposiumProductionReviewComposition } from '../symposium-production-review-composition.js';
-import { SymposiumOrchestrator } from '../symposium-orchestrator.js';
+import { SymposiumOrchestrator, type SymposiumSeatExecution } from '../symposium-orchestrator.js';
+import { SymposiumNativeEventSink } from '../symposium-native-event-sink.js';
 import { createSymposiumSuccessorFixAuthority } from '../symposium-artifact-successor-authority.js';
 import { authMiddleware, login } from '../auth.js';
 import { SymposiumSessionArtifacts } from '../symposium-session-artifacts.js';
@@ -299,6 +300,7 @@ it.skipIf(!physical)(
       let boundAttempt: unknown;
       let deliveryControl: unknown;
       let preSealGate: unknown;
+      let dispatchedInitial: unknown;
       let reviewComposition:
         ReturnType<typeof createSymposiumProductionReviewComposition> | undefined;
       let reviewCoordinator: SymposiumReviewCoordinator | undefined;
@@ -386,7 +388,44 @@ it.skipIf(!physical)(
           sourceOwner: owner,
           sourceProof: { assertNoNativeClaims: () => {}, command: sealCommand },
         };
-        const orchestrator = new SymposiumOrchestrator({ store: events, executors: {} });
+        const nativeSink = new SymposiumNativeEventSink(events, () => {});
+        let writerOutput: string[] | undefined;
+        let acceptedExecution: SymposiumSeatExecution | undefined;
+        const orchestrator = new SymposiumOrchestrator({
+          store: events,
+          executors: {
+            seat: {
+              execute: async (execution: SymposiumSeatExecution) => {
+                expect(execution.provenance).toMatchObject({ version: 3 });
+                expect(execution.claimToken).toMatch(/^[0-9a-f-]{36}$/);
+                acceptedExecution = execution;
+                expect(
+                  events.markSymposiumRecipientAccepted({
+                    deliveryId: execution.deliveryId,
+                    seatId: execution.seat.id,
+                    claimToken: execution.claimToken,
+                    providerThreadId: 'offline-physical-thread',
+                    providerTurnId: 'offline-physical-turn',
+                    acceptedAt: Date.now(),
+                  }),
+                ).toBe(true);
+                writerOutput = await physicalWriter();
+                nativeSink.record(execution, {
+                  type: 'stream_event',
+                  event: { type: 'message_start', message: { id: 'offline-physical-message' } },
+                });
+                nativeSink.record(execution, { type: 'result', usage_status: 'unknown' });
+                return {
+                  providerThreadId: 'offline-physical-thread',
+                  content: 'offline physical write',
+                  costUsd: 0,
+                };
+              },
+            },
+          },
+          artifactReady: (id, seatId, generation) =>
+            Boolean(events.getSymposiumArtifactReference(id, seatId, generation)),
+        });
         const composition = createSymposiumProductionReviewComposition({
           host: {
             gateway,
@@ -575,14 +614,55 @@ it.skipIf(!physical)(
           });
         };
         const childGit = `import subprocess\nfrom pathlib import Path\nr='${target}'\nenv={'PATH':'/usr/bin:/bin','HOME':'/nonexistent','GIT_CONFIG_NOSYSTEM':'1','GIT_CONFIG_GLOBAL':'/dev/null'}\ndef git(*args): return subprocess.check_output(['/usr/bin/git','-C',r,*args],env=env,text=True).strip()\n`;
-        const writerOutput = await native(
-          'rw',
-          'write',
-          childGit +
-            `Path(r+'/criterion.txt').write_text('INITIAL_CHILD_NATIVE\\n')\ngit('add','criterion.txt')\ngit('-c','user.name=Contract','-c','user.email=contract@example.invalid','-c','commit.gpgsign=false','commit','--quiet','-m','Initial child native write')\nprint(git('rev-parse','HEAD'))`,
-          0,
+        const physicalWriter = () =>
+          native(
+            'rw',
+            'write',
+            childGit +
+              `Path(r+'/criterion.txt').write_text('INITIAL_CHILD_NATIVE\\n')\ngit('add','criterion.txt')\ngit('-c','user.name=Contract','-c','user.email=contract@example.invalid','-c','commit.gpgsign=false','commit','--quiet','-m','Initial child native write')\nprint(git('rev-parse','HEAD'))`,
+            0,
+          );
+        const charged = reviews.get('workflow')!.applicationAttempts[0];
+        const permit = createHash('sha256')
+          .update('symposium-application-delivery-permit/v1\0')
+          .update(charged.binding.claimToken)
+          .update('\0')
+          .update(charged.binding.deliveryId)
+          .update('\0')
+          .update('0')
+          .digest('hex');
+        events.armSymposiumApplicationDelivery({
+          deliveryId: charged.binding.deliveryId,
+          expectedEpoch: 0,
+          permit,
+        });
+        orchestrator.intervene({
+          deliveryId: charged.binding.deliveryId,
+          action: 'approve',
+          idempotencyKey: 'physical-initial-approve',
+          applicationPermit: permit,
+        });
+        const delivered = await orchestrator.deliver(charged.binding.deliveryId, {
+          applicationPermit: permit,
+        });
+        expect(delivered).toMatchObject({ status: 'delivered', recipients: [{ error: null }] });
+        expect(events.getSessionEvents(sessionId)).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({
+              type: 'message_start',
+              symposiumProvenance: expect.objectContaining({ version: 3 }),
+            }),
+          ]),
         );
-        expect(writerOutput[0]).toMatch(/^[a-f0-9]{40}$/);
+        dispatchedInitial = {
+          deliveryId: delivered.deliveryId,
+          status: delivered.status,
+          nativeClaim: acceptedExecution?.claimToken,
+          provenance: acceptedExecution?.provenance,
+          recipient: delivered.recipients[0],
+        };
+        expect(writerOutput).toBeDefined();
+        expect(writerOutput![0]).toMatch(/^[a-f0-9]{40}$/);
         const readerOutput = await native(
           'ro',
           'read',
@@ -590,7 +670,7 @@ it.skipIf(!physical)(
             `print(Path(r+'/criterion.txt').read_text().strip())\nprint(git('rev-parse','HEAD'))`,
           0,
         );
-        expect(readerOutput).toEqual(['INITIAL_CHILD_NATIVE', writerOutput[0]]);
+        expect(readerOutput).toEqual(['INITIAL_CHILD_NATIVE', writerOutput![0]]);
         const denied = `from pathlib import Path\ntry:\n Path('${target}/forbidden').write_text('bad')\nexcept OSError as e:\n print('DENIED_'+str(e.errno))\n raise SystemExit(1)\nraise SystemExit(0)`;
         expect((await native('ro', 'write', denied, 1))[0]).toMatch(/^DENIED_(13|30)$/);
         expect((await native('rw', 'read', denied, 1))[0]).toBe('DENIED_13');
@@ -713,6 +793,7 @@ it.skipIf(!physical)(
             initialAdmission,
             boundAttempt,
             deliveryControl,
+            dispatchedInitial,
             preSealGate,
             nativeChild,
             verified,
@@ -723,7 +804,7 @@ it.skipIf(!physical)(
             remoteFetch: false,
             applicationCredentials: false,
             simulatedBoundary:
-              'production review composition, charged initial preparation, real Podman child, two-owner admission and staged delivery, native writer commit, independent read-only physical probe and fail-closed pre-seal reviewer gate; disposable app passphrase/custody; native provider dispatch/result, positive reviewer transition, budget and publication remain untested',
+              'production review composition, charged initial preparation, real Podman child, two-owner admission, claim-v3 orchestrator dispatch, synthetic provider acceptance/result through real native event sink, native controller writer commit, independent read-only physical probe and fail-closed pre-seal reviewer gate; disposable app passphrase/custody; owned gateway, actual provider result, physical writer seal, positive reviewer transition, budget and publication remain untested',
           },
           null,
           2,
