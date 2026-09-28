@@ -435,7 +435,6 @@ export class SymposiumReviewCoordinator {
   ): ReturnType<SymposiumReviewCoordinator['reserve']> {
     const state = this.scoped(context, workflowId);
     if (!isApplicationPolicy(state.limits)) return decision('application_policy_required');
-    if (!this.current(context, state)) return decision('artifact_changed');
     const prep = state.applicationPreparations.find((p) => p.attemptId === attemptId);
     const actualKind =
       kind === 'review' && state.status === 'awaiting_delta_review' ? 'delta' : kind;
@@ -461,6 +460,7 @@ export class SymposiumReviewCoordinator {
       return decision('bound_preparation_changed');
     if (retained.dispatched) return decision('attempt_already_dispatched');
     if (retained.settled) return decision('bound_preparation_changed');
+    if (!this.current(context, state)) return decision('artifact_changed');
     const selection =
       actualKind === 'review' || actualKind === 'delta' ? state.reviewer : state.implementer;
     if (selection.seatId !== retained.actorSeatId) return decision('bound_preparation_changed');
