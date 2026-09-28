@@ -410,6 +410,71 @@ describe('persisted application admission', () => {
     expect(a.get('w')?.applicationPreparations).toHaveLength(1);
     a.close();
   });
+  it('does not continue past an active fix successor from a stopped bound fix', () => {
+    const a = new SymposiumReviewStore(':memory:');
+    a.create({ ...create(), limits: { ...create().limits, maxHostTurns: 4 } });
+    a.reserveApplicationAttempt(request('review-first'));
+    const reviewed = terminalReview(a, 'review-first', [
+      { criterion: 'works', summary: 'missing', location: 'file', evidenceRefs: ['diff'] },
+    ]);
+    a.authorizeApplicationFixIntent({
+      workflowId: 'w',
+      artifactRevision: 'a',
+      artifactHash: hash,
+      actor: 'user',
+      authorizationId: 'fix-action',
+      findingFingerprints: [reviewed.findings[0].fingerprint],
+      reason: 'fix the accepted finding',
+    });
+    const prep = {
+      ...reviewPreparation('bound-fix'),
+      kind: 'fix' as const,
+      actorSeatId: 'coder',
+      transitionId: 'fix-child',
+      expectedSelection: {
+        accountId: 'coder',
+        model: 'offline',
+        profileId: 'coder',
+        profileRevision: '1',
+        accountProfileRevision: '1',
+      },
+    };
+    expect(a.reserveApplicationPreparation(prep)).toMatchObject({ kind: 'prepared' });
+    const selected = request('bound-fix');
+    a.completeApplicationPreparation(
+      {
+        ...selected,
+        policyReservationId: prep.policyReservationId,
+        kind: 'fix',
+        actorSeatId: 'coder',
+        binding: {
+          ...selected.binding,
+          deliveryId: 'staged-fix',
+          configRevision: prep.to.configRevision,
+          membershipGeneration: prep.to.membershipGeneration,
+          accountId: 'coder',
+          profileId: 'coder',
+        },
+      },
+      { transitionId: prep.transitionId, sealDigest: hash },
+    );
+    a.stopApplication('w', 'user', 'user_stop');
+    a.settleApplicationPreparation('w', prep.attemptId, prep.transitionId, 'applied_no_dispatch');
+    expect(() =>
+      a.continueApplication({
+        workflowId: 'w',
+        actor: 'user',
+        authorizationId: 'fresh-fix-continuation',
+        reason: 'resume',
+        limits: { ...create().limits, maxHostTurns: 5 },
+      }),
+    ).toThrow(/retire active fix successor/i);
+    expect(a.get('w')).toMatchObject({ status: 'decision_required', decisionCode: 'user_stop' });
+    expect(
+      a.get('w')?.applicationAttempts.find((attempt) => attempt.attemptId === 'bound-fix'),
+    ).toMatchObject({ dispatched: false, settled: true });
+    a.close();
+  });
   it('charges a sealed-source initial transition before any native claim exists', () => {
     const a = new SymposiumReviewStore(':memory:');
     const { implementation, ...base } = create();

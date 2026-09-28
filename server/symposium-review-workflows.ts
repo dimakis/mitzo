@@ -805,15 +805,16 @@ export class SymposiumReviewStore {
           throw new Error(
             'Reconcile unresolved application preparation or operations before continuation',
           );
-        if (
-          state.applicationPreparations.some(
-            (p) =>
-              p.kind === 'initial' &&
-              p.status === 'settled' &&
-              p.disposition === 'applied_no_dispatch',
-          )
-        )
-          throw new Error('Retire active initial successor before continuation');
+        const activeWriterSuccessor = state.applicationPreparations.find(
+          (p) =>
+            (p.kind === 'initial' || p.kind === 'fix') &&
+            p.status === 'settled' &&
+            p.disposition === 'applied_no_dispatch',
+        );
+        if (activeWriterSuccessor)
+          throw new Error(
+            `Retire active ${activeWriterSuccessor.kind} successor before continuation`,
+          );
         if (
           this.history(input.workflowId).some(
             (e) =>
