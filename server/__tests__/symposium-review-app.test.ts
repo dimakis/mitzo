@@ -91,6 +91,7 @@ describe('production review route initialization', () => {
     expect(result.body).toEqual({
       available: false,
       workflows: [],
+      criterionChecks: [],
       stopAvailable: false,
       applicationRun: {
         available: false,
