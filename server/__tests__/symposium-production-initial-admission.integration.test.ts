@@ -375,7 +375,7 @@ it('charges, confirms the exact source child, and persists one bound initial att
         }),
       ]),
     );
-    expect(acceptedExecution?.provenance.version).toBe(3);
+    expect(acceptedExecution?.provenance).toMatchObject({ version: 3 });
     const provenance = acceptedExecution!.provenance;
     if (!('artifact' in provenance)) throw new Error('Expected artifact provenance');
     expect(() =>
