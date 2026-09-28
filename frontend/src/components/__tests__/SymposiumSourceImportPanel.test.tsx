@@ -106,3 +106,103 @@ it.each([
     ),
   ).toBeTruthy();
 });
+
+it('recovers only the retained imported seal with fresh app authorization and exact status identities', async () => {
+  const pending = {
+    repositories: ['repo'],
+    expectedRevision: 4,
+    artifact: {
+      available: false,
+      state: 'imported',
+      admissionIssued: false,
+      volumeGeneration: 'volume-gen',
+      receipt: { operationId: 'import-1' },
+      sourceSeal: { state: 'pending', operationId: 'import-1' },
+    },
+  };
+  let completed = false;
+  vi.mocked(apiFetch).mockImplementation(async (url) => {
+    if (String(url).endsWith('/reauthorize'))
+      return response({ csrf: 'recent-csrf', expiresAt: Date.now() + 60_000 });
+    if (String(url).endsWith('/seal/recover')) {
+      completed = true;
+      return response({ seal: { state: 'complete', operationId: 'import-1' } });
+    }
+    return response(
+      completed
+        ? {
+            ...pending,
+            artifact: {
+              ...pending.artifact,
+              sourceSeal: { state: 'complete', operationId: 'import-1' },
+            },
+          }
+        : pending,
+    );
+  });
+  render(<SymposiumSourceImportPanel sessionId="session" />);
+  await userEvent.click(screen.getByRole('button', { name: 'Import local repository' }));
+  await screen.findByText(/source seal is pending/i);
+  expect(screen.queryByRole('button', { name: 'Import approved history' })).toBeNull();
+  const recover = screen.getByRole('button', { name: 'Recover retained source seal' });
+  expect(recover.hasAttribute('disabled')).toBe(true);
+  await userEvent.type(screen.getByLabelText('App passphrase for source seal recovery'), 'secret');
+  await userEvent.click(recover);
+  await screen.findByText(/source seal completed/i);
+  const calls = vi.mocked(apiFetch).mock.calls;
+  const recovery = calls.find(([url]) => String(url).endsWith('/seal/recover'))!;
+  expect(recovery[1]!.headers).toMatchObject({ 'x-csrf-token': 'recent-csrf' });
+  expect(JSON.parse(recovery[1]!.body as string)).toEqual({
+    expectedRevision: 4,
+    expectedGeneration: 'volume-gen',
+    operationId: 'import-1',
+  });
+  expect(calls.some(([url]) => String(url).endsWith('/import'))).toBe(false);
+  expect(screen.queryByRole('button', { name: 'Recover retained source seal' })).toBeNull();
+});
+
+it('does not offer seal recovery when the imported status lacks matching retained identities', async () => {
+  vi.mocked(apiFetch).mockResolvedValue(
+    response({
+      expectedRevision: 4,
+      artifact: {
+        available: false,
+        state: 'imported',
+        volumeGeneration: 'volume-gen',
+        receipt: { operationId: 'import-1' },
+        sourceSeal: { state: 'pending', operationId: 'different' },
+      },
+    }),
+  );
+  render(<SymposiumSourceImportPanel sessionId="session" />);
+  await userEvent.click(screen.getByRole('button', { name: 'Import local repository' }));
+  await screen.findByText(/already been imported/i);
+  expect(screen.queryByRole('button', { name: 'Recover retained source seal' })).toBeNull();
+});
+
+it('keeps a pending seal recoverable when recent authorization expires', async () => {
+  vi.mocked(apiFetch).mockImplementation(async (url) =>
+    String(url).endsWith('/reauthorize')
+      ? response({ csrf: 'expired', expiresAt: Date.now() - 1 })
+      : response({
+          expectedRevision: 4,
+          artifact: {
+            available: false,
+            state: 'imported',
+            volumeGeneration: 'volume-gen',
+            receipt: { operationId: 'import-1' },
+            sourceSeal: { state: 'pending', operationId: 'import-1' },
+          },
+        }),
+  );
+  render(<SymposiumSourceImportPanel sessionId="session" />);
+  await userEvent.click(screen.getByRole('button', { name: 'Import local repository' }));
+  await screen.findByText(/source seal is pending/i);
+  await userEvent.type(screen.getByLabelText('App passphrase for source seal recovery'), 'secret');
+  await userEvent.click(screen.getByRole('button', { name: 'Recover retained source seal' }));
+  await screen.findByText(/Recent app authorization expired/);
+  expect(
+    vi.mocked(apiFetch).mock.calls.some(([url]) => String(url).endsWith('/seal/recover')),
+  ).toBe(false);
+  expect(screen.getByRole('button', { name: 'Recover retained source seal' })).toBeTruthy();
+});
