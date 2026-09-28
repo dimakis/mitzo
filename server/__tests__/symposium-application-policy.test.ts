@@ -475,7 +475,7 @@ describe('persisted application admission', () => {
     ).toMatchObject({ dispatched: false, settled: true });
     a.close();
   });
-  it('resumes only the same charged bound initial after a durable paused-delivery proof', () => {
+  it('resumes only the same charged bound initial after a durable paused-delivery proof', async () => {
     const a = new SymposiumReviewStore(':memory:');
     const { implementation, ...base } = create();
     expect(implementation).toBeDefined();
@@ -536,7 +536,17 @@ describe('persisted application admission', () => {
         limits: { ...base.limits, maxHostTurns: 3 },
       }),
     ).toThrow(/reconcile/i);
-    a.markStoppedBoundPreparationResumable('w', 'first', 'initial-child', 1);
+    let nextEpoch = 1;
+    const host = {
+      currentArtifact: () => ({ revision: 'i', hash }),
+      settleStoppedApplicationPreparation: vi.fn(async () => ({
+        kind: 'resumable',
+        epoch: nextEpoch++,
+      })),
+    } as unknown as SymposiumReviewHost;
+    const coordinator = new SymposiumReviewCoordinator(a, host);
+    await coordinator.reconcileStoppedPreparations({ owner: 'user', sessionId: 's' }, 'w');
+    expect(host.settleStoppedApplicationPreparation).toHaveBeenCalledOnce();
     expect(
       a.continueApplication({
         workflowId: 'w',
@@ -558,9 +568,25 @@ describe('persisted application admission', () => {
         transitionId: 'second-child',
       }),
     ).toMatchObject({ code: 'attempt_in_progress' });
-    const recovered = new SymposiumReviewCoordinator(a, {
-      currentArtifact: () => ({ revision: 'i', hash }),
-    } as SymposiumReviewHost).recoverBoundTransition(
+    a.stopApplication('w', 'user', 'user_stop');
+    expect(() =>
+      a.continueApplication({
+        workflowId: 'w',
+        actor: 'user',
+        authorizationId: 'unproved-second-stop',
+        reason: 'resume',
+        limits: { ...base.limits, maxHostTurns: 3 },
+      }),
+    ).toThrow(/reconcile/i);
+    await coordinator.reconcileStoppedPreparations({ owner: 'user', sessionId: 's' }, 'w');
+    a.continueApplication({
+      workflowId: 'w',
+      actor: 'user',
+      authorizationId: 'fresh-again',
+      reason: 'resume exact child again',
+      limits: { ...base.limits, maxHostTurns: 3 },
+    });
+    const recovered = coordinator.recoverBoundTransition(
       { owner: 'user', sessionId: 's' },
       'w',
       'initial',
@@ -568,7 +594,7 @@ describe('persisted application admission', () => {
     );
     expect(recovered).toMatchObject({
       kind: 'reserved_not_dispatched',
-      applicationDispatchEpoch: 1,
+      applicationDispatchEpoch: 2,
     });
     expect(a.consumeApplicationDispatch(attempt)).toMatchObject({ kind: 'dispatch_authorized' });
     expect(a.consumeApplicationDispatch(attempt)).toMatchObject({
