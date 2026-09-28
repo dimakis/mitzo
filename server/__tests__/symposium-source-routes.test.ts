@@ -127,7 +127,11 @@ it('recovers only the retained imported source seal under recent operator author
         sessionType: 'symposium',
         symposiumConfig: JSON.stringify({ revision: 4 }),
       }),
-      getHost: () => ({ status: () => state, seal }),
+      getHost: () => ({
+        status: () => state,
+        seal,
+        requireSeal: () => ({ receipt: state.sourceSeal }),
+      }),
     } as never),
   );
   const token = (await login('test-passphrase-for-vitest'))!;
@@ -158,6 +162,12 @@ it('recovers only the retained imported source seal under recent operator author
   state = { ...state, sourceSeal: { state: 'complete', operationId: 'import-1' } };
   expect((await post(body, auth.body.csrf)).status).toBe(200);
   expect(seal).toHaveBeenCalledTimes(1);
-  state = { ...state, admissionIssued: true };
+  state = { ...state, sourceSeal: { state: 'complete', operationId: 'different' } };
+  expect((await post(body, auth.body.csrf)).status).toBe(409);
+  state = {
+    ...state,
+    sourceSeal: { state: 'complete', operationId: 'import-1' },
+    admissionIssued: true,
+  };
   expect((await post(body, auth.body.csrf)).status).toBe(409);
 });

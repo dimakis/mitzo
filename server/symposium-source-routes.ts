@@ -28,6 +28,7 @@ export function createSymposiumSourceRouter(deps: {
   getHost():
     | (SymposiumSourceHost & {
         seal?: (sessionId: string, operationId: string, signal: AbortSignal) => Promise<unknown>;
+        requireSeal?: (sessionId: string) => { receipt: unknown };
       })
     | undefined;
 }) {
@@ -178,8 +179,9 @@ export function createSymposiumSourceRouter(deps: {
       if (invalidated) throw Error('App authentication expired or revoked');
       const seal =
         state.sourceSeal?.state === 'complete'
-          ? state.sourceSeal
+          ? host.requireSeal?.(id).receipt
           : await host.seal(id, parsed.data.operationId, abort.signal);
+      if (!seal) throw Error('Retained completed source seal unavailable');
       if (invalidated) throw Error('App authentication expired or revoked');
       res.json({ seal });
     } catch (error) {
