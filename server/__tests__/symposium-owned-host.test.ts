@@ -827,6 +827,37 @@ it('passes bounded successor stdin through the owned transport with the attached
   }
 });
 
+it('dispatches the bounded source seal verifier export without widening other Podman commands', async () => {
+  const f = fixture();
+  const command = vi.fn(async () => 'sealed-export');
+  const host = await createOwnedSymposiumHost(f.options, f.launch, undefined, command);
+  try {
+    const snapshot = host.artifactLeaseHost.snapshotCommand();
+    const helperId = 'a'.repeat(64);
+    const sealBound = 16 * 1024 * 1024;
+    await expect(snapshot(['start', '--attach', helperId], sealBound)).resolves.toBe(
+      'sealed-export',
+    );
+    await expect(snapshot(['logs', helperId], sealBound)).resolves.toBe('sealed-export');
+    expect(command).toHaveBeenNthCalledWith(1, ['start', '--attach', helperId], {
+      timeout: 60_000,
+    });
+    expect(command).toHaveBeenNthCalledWith(2, ['logs', helperId], { timeout: 15_000 });
+    await expect(snapshot(['inspect', helperId], sealBound)).rejects.toThrow(
+      'Owned Podman output bound is invalid',
+    );
+    await expect(snapshot(['start', '--attach', 'not-an-id'], sealBound)).rejects.toThrow(
+      'Owned Podman output bound is invalid',
+    );
+    await expect(snapshot(['start', '--attach', helperId], sealBound + 1)).rejects.toThrow(
+      'Owned Podman output bound is invalid',
+    );
+    expect(command).toHaveBeenCalledTimes(2);
+  } finally {
+    await host.stop();
+  }
+});
+
 it('keeps the production successor capability unavailable without a trusted fix authority', async () => {
   const f = fixture();
   const command = vi.fn(async () => 'unexpected');

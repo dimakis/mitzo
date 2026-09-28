@@ -245,10 +245,17 @@ export async function createOwnedSymposiumHost(
       deferPostCustody = false,
       input?: Buffer,
     ): Promise<string> => {
+      // An 8 MiB source bundle expands to base64 plus JSON; only the exact
+      // retained helper output reads need the seal verifier's 16 MiB bound.
+      const sealVerifierRead =
+        !input &&
+        ((args.length === 3 && args[0] === 'start' && args[1] === '--attach') ||
+          (args.length === 2 && args[0] === 'logs')) &&
+        /^[a-f0-9]{64}$/.test(args.at(-1) ?? '');
       if (
         !Number.isSafeInteger(maxOutputBytes) ||
         maxOutputBytes < 1 ||
-        maxOutputBytes > 12 * 1024 * 1024
+        maxOutputBytes > (sealVerifierRead ? 16 : 12) * 1024 * 1024
       )
         throw new Error('Owned Podman output bound is invalid');
       try {
