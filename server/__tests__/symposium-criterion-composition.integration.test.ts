@@ -1,7 +1,7 @@
 /** Credential-free criterion seam through real durable stores and production composition.
  * Physical host callbacks are deterministic fixture receipts: this test does not prove
  * a Podman check or a live native result. */
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -296,8 +296,8 @@ it('binds corrected criterion evidence to the retained sealed result and refuses
     });
     const observed = sha('f');
     let returnedArtifactHash = git.committedTreeDigest;
-    const check = vi.fn(async (input: { fenceId: string; operationId: string; path: string }) => ({
-      executionId: `${input.operationId}-${check.mock.calls.length}`,
+    const check = vi.fn(async (_input: { fenceId: string; operationId: string; path: string }) => ({
+      executionId: randomUUID(),
       sealFenceId: intent.fenceId,
       sealDigest: createHash('sha256').update(canonicalReviewJson(seal)).digest('hex'),
       artifactRevision: git.commit,
