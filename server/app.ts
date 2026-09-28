@@ -1,6 +1,7 @@
 import { SymposiumReviewActionAuthority } from './symposium-review-action-authority.js';
 import { createSymposiumSuccessorFixAuthority } from './symposium-artifact-successor-authority.js';
 import { createSymposiumReaderAuthorityBridge } from './symposium-reader-authority-bridge.js';
+import { createSymposiumProductionReviewComposition } from './symposium-production-review-composition.js';
 import type { InitialSourceExportReceipt } from './symposium-source-artifact-seal.js';
 import type {
   ArtifactGenerationRequest,
@@ -10,6 +11,7 @@ import type { ArtifactAdmissionBindingV1, ArtifactAdmissionReferenceV1 } from '@
 import type {
   PhysicalArtifactSealInput,
   CompletedArtifactSeal,
+  SuccessorArtifactExportReceipt,
 } from './symposium-physical-artifact-seal.js';
 import { custodianRequestAuthority } from './symposium-custodian-authority.js';
 import {
@@ -931,23 +933,34 @@ export interface SymposiumProductionHost {
     runtime: object,
     signal: AbortSignal,
   ): Promise<CompletedArtifactSeal>;
+  exportSuccessorArtifactBundle?(
+    input: {
+      fenceId: string;
+      operationId: string;
+      sourceBranch: string;
+      baseBranch: string;
+      sourceOid: string;
+      maxBytes: number;
+    },
+    signal: AbortSignal,
+  ): Promise<{ receipt: SuccessorArtifactExportReceipt; bundle: Buffer }>;
   copySuccessorArtifact?(
     request: ArtifactGenerationRequest,
-    exported: InitialSourceExportReceipt,
+    exported: InitialSourceExportReceipt | SuccessorArtifactExportReceipt,
     bundle: Buffer,
     signal: AbortSignal,
   ): Promise<ArtifactGenerationCopyReceipt>;
   activateSuccessorArtifact?(
     request: ArtifactGenerationRequest,
     generationId: string,
-    exported: InitialSourceExportReceipt,
+    exported: InitialSourceExportReceipt | SuccessorArtifactExportReceipt,
     bundle: Buffer,
     signal: AbortSignal,
   ): Promise<{ generationId: string; revision: number }>;
   admitSuccessorArtifact?(
     request: ArtifactGenerationRequest,
     binding: ArtifactAdmissionBindingV1,
-    exported: InitialSourceExportReceipt,
+    exported: InitialSourceExportReceipt | SuccessorArtifactExportReceipt,
     bundle: Buffer,
     signal: AbortSignal,
   ): Promise<{ reference: ArtifactAdmissionReferenceV1; receipt: unknown }>;
@@ -1010,6 +1023,25 @@ let symposiumPublication: PublicationRegistration | undefined;
 export function installSymposiumProductionHost(host: SymposiumProductionHost): void {
   if (symposiumProductionHost || symposiumSessionRuntimes.size)
     throw new Error('Symposium production host must be installed once before runtime creation');
+  if (custodianOwnerMode && host.sourceImport?.requireSeal && !host.reviewHost) {
+    const composed = createSymposiumProductionReviewComposition({
+      host,
+      events: eventStore,
+      reviews: symposiumReviewStore,
+      grants: symposiumHostGrants,
+      actionAuthority: symposiumReviewActionAuthority,
+      artifactResultsPath: join(BASE_REPO || '.', '.mitzo', 'events.db'),
+      runtime: (sessionId) => symposiumRuntimeForSession(sessionId),
+      retainedRuntime: (sessionId) => symposiumSessionRuntimes.get(sessionId) ?? null,
+    });
+    try {
+      installSymposiumReaderAuthority(composed.assertReaderAdmissionCurrent);
+      host.reviewHost = composed.reviewHost;
+    } catch (error) {
+      composed.close();
+      throw error;
+    }
+  }
   if (host.publicationCredentials?.length) {
     if (
       !host.requireCompletedArtifactSeal ||
