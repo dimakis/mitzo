@@ -1,0 +1,320 @@
+/** Credential-free positive custody seam. The durable EventStore and ReviewStore
+ * exercise charged initial admission against a fixture copy/activation receipt.
+ * Actual Podman copy and native execution have separate physical contracts. */
+import { afterEach, expect, it, vi } from 'vitest';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import type { SymposiumConfig } from '@mitzo/protocol';
+import { artifactAdmissionDigest } from '@mitzo/protocol/event-store';
+import { EventStore } from '../event-store.js';
+import { SymposiumReviewStore } from '../symposium-review-workflows.js';
+import { SymposiumReviewCoordinator } from '../symposium-review-coordinator.js';
+import { createSymposiumProductionReviewComposition } from '../symposium-production-review-composition.js';
+import { SymposiumOrchestrator } from '../symposium-orchestrator.js';
+
+const roots: string[] = [];
+afterEach(() => roots.splice(0).forEach((root) => rmSync(root, { recursive: true, force: true })));
+
+it('charges, confirms the exact source child, and persists one bound initial attempt', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'mitzo-initial-admission-'));
+  roots.push(root);
+  const path = join(root, 'events.db');
+  const events = new EventStore(path);
+  const reviews = new SymposiumReviewStore(path);
+  const context = { owner: 'user', sessionId: 'session' };
+  const seat = (id: string, role: 'coder' | 'reviewer') => ({
+    id,
+    name: id,
+    role,
+    model: 'offline-fixture',
+    systemPrompt: 'Credential-free seam test',
+    color: '#123456',
+    accountBinding: {
+      accountId: `${id}-account`,
+      accountLabel: id,
+      provider: 'openai-codex' as const,
+      model: 'offline-fixture',
+      profileRevision: '1',
+    },
+    profileBinding: { profileId: id, profileRevision: '1' },
+    contextGrant: {
+      grantId: `context-${id}`,
+      revision: 1,
+      classification: 'work' as const,
+      sourceRefs: ['repo:fixture'],
+    },
+    authorityGrant: {
+      grantId: `authority-${id}`,
+      revision: 1,
+      filesystem: role === 'coder' ? ('write' as const) : ('read' as const),
+      tools: role === 'coder' ? ('write' as const) : ('read' as const),
+      network: 'restricted' as const,
+    },
+    isolationRequest: {
+      trustDomainId: 'fixture',
+      revision: 1,
+      placement: 'reuse-compatible' as const,
+    },
+  });
+  const config: SymposiumConfig = {
+    version: 2,
+    revision: 1,
+    state: 'active',
+    anchorSeatId: 'coder',
+    activeSeatCap: 2,
+    seats: [seat('coder', 'coder'), seat('reviewer', 'reviewer')],
+    turnRules: { mode: 'directed', maxTurns: 4 },
+    interceptMode: 'manual',
+  };
+  events.upsertSession({
+    sessionId: context.sessionId,
+    accountBinding: config.seats[0].accountBinding,
+  });
+  events.setSymposiumConfig(context.sessionId, config);
+  for (const seatId of ['coder', 'reviewer']) {
+    events.transitionSymposiumMembership({
+      sessionId: context.sessionId,
+      seatId,
+      action: 'admit',
+      expectedGeneration: 0,
+      configRevision: 1,
+      actor: 'fixture',
+      reason: 'Fixture admission',
+      idempotencyKey: `admit-${seatId}`,
+      occurredAt: Date.now(),
+    });
+    events.markSymposiumMembershipReconciled(context.sessionId, seatId, 1, 'confirmed');
+  }
+  const commit = 'a'.repeat(40),
+    hash = 'b'.repeat(64),
+    digest = 'c'.repeat(64);
+  const source = {
+    receipt: {
+      sessionId: context.sessionId,
+      operationId: 'source-seal',
+      volumeGeneration: 'source-generation',
+      volumeName: 'source-volume',
+      git: { commit, committedTreeDigest: hash },
+    },
+    digest,
+    exported: { receipt: { selection: { defaultBranch: 'main' } } },
+  };
+  const order: string[] = [];
+  const bundle = Buffer.from('fixture bundle');
+  const copy = vi.fn(async () => {
+    order.push('copy');
+    return { generationId: 'child-generation', volumeName: 'child-volume' };
+  });
+  const admit = vi.fn(
+    async (
+      _request: unknown,
+      binding: Parameters<EventStore['beginSymposiumArtifactAdmission']>[0],
+    ) => {
+      order.push('admit');
+      const sourceProof = (selected: typeof binding) => {
+        if (
+          selected.kind !== 'initial' ||
+          selected.sourceSealId !== source.receipt.operationId ||
+          selected.parentSealDigest !== digest
+        )
+          throw new Error('Fixture source parent changed');
+        return true as const;
+      };
+      const intent = events.beginSymposiumArtifactAdmission(
+        binding,
+        () => true as const,
+        sourceProof,
+      );
+      const receipt = {
+        version: 1 as const,
+        transitionId: binding.transitionId,
+        bindingDigest: intent.reference.bindingDigest,
+        sessionId: binding.sessionId,
+        parentGenerationId: binding.parentGenerationId,
+        childGenerationId: binding.childGenerationId,
+        childVolumeName: binding.childVolumeName,
+        expectedPointerRevision: binding.expectedPointerRevision,
+        pointerRevision: binding.activatedPointerRevision,
+        copyReceiptDigest: binding.copyReceiptDigest,
+      };
+      const confirmed = events.confirmSymposiumArtifactAdmission(
+        binding,
+        receipt,
+        () => true as const,
+        sourceProof,
+      );
+      return { reference: confirmed.reference, receipt: confirmed.receipt };
+    },
+  );
+  const orchestrator = new SymposiumOrchestrator({ store: events, executors: {} });
+  const stageDelivery = vi.fn((input: Parameters<SymposiumOrchestrator['stageDelivery']>[0]) => {
+    order.push('delivery');
+    return orchestrator.stageDelivery(input);
+  });
+  const runtime = {
+    recordProviderAdmission(
+      input: Parameters<SymposiumOrchestrator['recordProviderAdmission']>[0],
+    ) {
+      order.push(`provider:${input.seatId}`);
+      return orchestrator.recordProviderAdmission(input);
+    },
+    stageDelivery,
+  };
+  const composed = createSymposiumProductionReviewComposition({
+    host: {
+      gateway: { workspace: 'fixture' },
+      sourceImport: {
+        requireSeal: () => source,
+        initialExport: (_sessionId: string, operationId: string) => {
+          order.push('export');
+          return {
+            bundle,
+            receipt: {
+              version: 1,
+              mode: 'initial',
+              sourceSealId: source.receipt.operationId,
+              operationId,
+              parentGenerationId: source.receipt.volumeGeneration,
+              parentVolumeName: source.receipt.volumeName,
+              parentSealDigest: digest,
+              seal: {
+                sessionId: context.sessionId,
+                custodyDigest: 'd'.repeat(64),
+                repositoryPath: '.',
+                git: {
+                  version: 1,
+                  commit,
+                  tree: commit,
+                  entries: 1,
+                  bytes: 1,
+                  manifestDigest: hash,
+                  committedTreeDigest: hash,
+                },
+              },
+              selection: {
+                sourceRef: 'refs/heads/source',
+                sourceOid: commit,
+                baseRef: 'refs/heads/main',
+                baseOid: commit,
+                defaultBranch: 'main',
+                originUrl: 'https://example.test/repo',
+              },
+              bundleSha256: hash,
+              bytes: bundle.length,
+              helper: {
+                id: hash,
+                name: 'fixture',
+                image: 'fixture',
+                codeDigest: hash,
+                terminalExitCode: 0,
+                removed: true,
+              },
+            },
+          };
+        },
+      },
+      sealSessionArtifacts: vi.fn(),
+      requireCompletedArtifactSeal: vi.fn(),
+      inspectCompletedArtifact: vi.fn(),
+      exportSuccessorArtifactBundle: vi.fn(),
+      copySuccessorArtifact: copy,
+      admitSuccessorArtifact: admit,
+      inspectStoppedSuccessorOperation: vi.fn(),
+      assertArtifactAdmissionCurrent: (
+        sessionId: string,
+        reference: Parameters<EventStore['assertSymposiumArtifactAdmissionCurrent']>[1],
+      ) => {
+        events.assertSymposiumArtifactAdmissionCurrent(sessionId, reference);
+      },
+      artifactLeaseHost: {},
+      attemptRegistry: { observations: {}, get: vi.fn() },
+      currentProfiles: () => ({ resume: vi.fn(), validateModelSelection: vi.fn() }),
+    },
+    events,
+    reviews,
+    grants: { verifySeat: vi.fn() },
+    actionAuthority: { authorize: vi.fn() },
+    artifactResultsPath: path,
+    runtime: () => runtime,
+    retainedRuntime: () => null,
+  } as never);
+  try {
+    const coordinator = new SymposiumReviewCoordinator(reviews, composed.reviewHost);
+    coordinator.startApplicationRun(context, {
+      workflowId: 'workflow',
+      acceptanceCriteria: ['criterion.txt has the expected bytes'],
+      limits: {
+        version: 1,
+        mode: 'application',
+        maxHostTurns: 4,
+        maxReviewCycles: 1,
+        deadlineAt: Date.now() + 60_000,
+        noProgressLimit: 1,
+      },
+      expectedArtifactRevision: commit,
+      expectedArtifactHash: hash,
+    });
+    const selected = await coordinator.reserveWithTransition(
+      context,
+      'workflow',
+      'initial',
+      'attempt-1',
+    );
+    expect(selected).toMatchObject({ kind: 'reserved_not_dispatched', attemptId: 'attempt-1' });
+    expect(order).toEqual([
+      'export',
+      'copy',
+      'admit',
+      'provider:coder',
+      'provider:reviewer',
+      'delivery',
+    ]);
+    const state = reviews.get('workflow')!;
+    expect(state).toMatchObject({
+      hostTurns: 1,
+      applicationPreparations: [{ kind: 'initial', status: 'bound', attemptId: 'attempt-1' }],
+      applicationAttempts: [{ kind: 'initial', attemptId: 'attempt-1', dispatched: false }],
+    });
+    const persisted = events.getSymposiumArtifactAdmission(
+      context.sessionId,
+      state.applicationPreparations[0].transitionId,
+    )!;
+    expect(persisted.receipt).not.toBeNull();
+    expect(persisted.reference.bindingDigest).toBe(artifactAdmissionDigest(persisted.binding));
+    const bound = state.applicationAttempts[0];
+    const delivery = events.getSymposiumDelivery(bound.binding.deliveryId)!;
+    expect(delivery).toMatchObject({
+      status: 'awaiting_intervention',
+      configRevision: 2,
+      recipients: [{ seatId: 'coder', membershipGeneration: 2 }],
+    });
+    expect(events.getSymposiumApplicationDeliveryControl(delivery.deliveryId)).toMatchObject({
+      workflowId: 'workflow',
+      attemptId: 'attempt-1',
+      policyReservationId: bound.policyReservationId,
+    });
+    expect(
+      coordinator.recoverBoundTransition(context, 'workflow', 'initial', 'attempt-1'),
+    ).toMatchObject({
+      kind: 'reserved_not_dispatched',
+      attemptId: 'attempt-1',
+    });
+    expect(copy).toHaveBeenCalledTimes(1);
+    expect(admit).toHaveBeenCalledTimes(1);
+    expect(stageDelivery).toHaveBeenCalledTimes(1);
+    const reopened = new SymposiumReviewStore(path);
+    try {
+      expect(reopened.get('workflow')).toMatchObject({
+        hostTurns: 1,
+        applicationPreparations: [{ status: 'bound' }],
+      });
+    } finally {
+      reopened.close();
+    }
+  } finally {
+    composed.close();
+    reviews.close();
+    events.close();
+  }
+});
