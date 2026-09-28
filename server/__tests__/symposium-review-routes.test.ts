@@ -245,13 +245,15 @@ it('recovers one retained charged preparation by its exact attempt ID', async ()
   expect(dispatch).toHaveBeenCalledTimes(2);
 });
 
-it('lets the authenticated operator reconcile a stopped preparation before continuing', async () => {
+it('requires trusted reconciliation of a stopped bound preparation through the authenticated route', async () => {
   const hash = 'a'.repeat(64);
+  let disposition: 'applied_no_dispatch' | null = null;
+  const dispatch = vi.fn();
   const { app, store } = fixture('owner', {
     currentArtifact: () => ({ revision: 'commit', hash }),
     refreshArtifact: async () => {},
-    settleStoppedApplicationPreparation: async () => 'not_applied',
-    dispatch: vi.fn(),
+    settleStoppedApplicationPreparation: async () => disposition,
+    dispatch,
   } as never);
   const selection = (seatId: string, role: string) => ({
     seatId,
@@ -291,11 +293,11 @@ it('lets the authenticated operator reconcile a stopped preparation before conti
       noProgressLimit: 1,
     },
   });
-  store.reserveApplicationPreparation({
+  const preparation = {
     workflowId: 'workflow',
     attemptId: 'retained-attempt',
     policyReservationId: 'policy',
-    kind: 'review',
+    kind: 'review' as const,
     actorSeatId: 'reviewer',
     artifactRevision: 'commit',
     artifactHash: hash,
@@ -317,27 +319,58 @@ it('lets the authenticated operator reconcile a stopped preparation before conti
       profileRevision: '1',
       accountProfileRevision: '1',
     },
-  });
+  };
+  store.reserveApplicationPreparation(preparation);
+  store.completeApplicationPreparation(
+    {
+      workflowId: 'workflow',
+      attemptId: 'retained-attempt',
+      policyReservationId: 'policy',
+      kind: 'review',
+      actorSeatId: 'reviewer',
+      artifactRevision: 'commit',
+      artifactHash: hash,
+      binding: {
+        claimToken: 'claim',
+        deliveryId: 'delivery',
+        contentHash: hash,
+        membershipGeneration: 2,
+        configRevision: 2,
+        accountId: 'reviewer',
+        model: 'offline',
+        profileId: 'reviewer',
+        profileRevision: '1',
+        accountProfileRevision: '1',
+        authorityGrant: { grantId: 'authority', revision: 1 },
+        contextGrant: { grantId: 'context', revision: 1 },
+      },
+    },
+    { transitionId: 'reader', sealDigest: hash },
+  );
   store.stopApplication('workflow', 'user', 'user_stop');
-  const response = await request(app)
-    .post('/api/sessions/session/symposium/reviews/workflow/actions')
-    .send({
+  const recover = () =>
+    request(app).post('/api/sessions/session/symposium/reviews/workflow/actions').send({
       action: 'recover',
       attemptId: 'retained-attempt',
       kind: 'review',
       expectedArtifactRevision: 'commit',
       expectedArtifactHash: hash,
     });
+  expect((await recover()).body.code).toBe('preparation_uncertain');
+  disposition = 'applied_no_dispatch';
+  const response = await recover();
   expect(response.status).toBe(200);
   expect(response.body.applicationPreparations).toEqual([
     expect.objectContaining({
       attemptId: 'retained-attempt',
       status: 'settled',
-      disposition: 'not_applied',
+      disposition: 'applied_no_dispatch',
     }),
   ]);
   expect(store.getApplicationPreparation('workflow', 'retained-attempt')).toMatchObject({
     status: 'settled',
-    disposition: 'not_applied',
+    disposition: 'applied_no_dispatch',
   });
+  expect(store.get('workflow')?.applicationAttempts[0].settled).toBe(true);
+  expect(dispatch).not.toHaveBeenCalled();
 });

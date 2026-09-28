@@ -541,7 +541,7 @@ export class SymposiumReviewCoordinator {
     if (state.status !== 'decision_required' || !state.decisionCode)
       throw new Error('Stopped application policy required for reconciliation');
     for (const preparation of state.applicationPreparations.filter(
-      (p) => p.status === 'preparing',
+      (p) => p.status === 'preparing' || p.status === 'bound',
     )) {
       const disposition = await this.host?.settleStoppedApplicationPreparation?.(
         context,

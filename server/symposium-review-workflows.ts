@@ -743,18 +743,24 @@ export class SymposiumReviewStore {
     state.status = 'decision_required';
     state.decisionCode = code;
     for (const attempt of state.applicationAttempts)
-      if (!attempt.dispatched) attempt.settled = true;
+      if (
+        !attempt.dispatched &&
+        !state.applicationPreparations.some(
+          (prep) => prep.attemptId === attempt.attemptId && prep.status === 'bound',
+        )
+      )
+        attempt.settled = true;
     this.write(state, 'application_stopped', {
       code,
       preparations: state.applicationPreparations
-        .filter((p) => p.status === 'preparing')
+        .filter((p) => p.status !== 'settled')
         .map((p) => ({
           attemptId: p.attemptId,
           transitionId: p.transitionId,
           sealDigest: p.seal.sealDigest,
         })),
       attempts: state.applicationAttempts
-        .filter((a) => a.dispatched && !a.settled)
+        .filter((a) => !a.settled)
         .map((a) => ({ attemptId: a.attemptId, operationId: a.operationId ?? null })),
     });
   }
@@ -794,11 +800,20 @@ export class SymposiumReviewStore {
           throw new Error('Stopped application policy required for continuation');
         if (
           state.applicationAttempts.some((a) => !a.settled) ||
-          state.applicationPreparations.some((p) => p.status === 'preparing')
+          state.applicationPreparations.some((p) => p.status !== 'settled')
         )
           throw new Error(
             'Reconcile unresolved application preparation or operations before continuation',
           );
+        if (
+          state.applicationPreparations.some(
+            (p) =>
+              p.kind === 'initial' &&
+              p.status === 'settled' &&
+              p.disposition === 'applied_no_dispatch',
+          )
+        )
+          throw new Error('Retire active initial successor before continuation');
         if (
           this.history(input.workflowId).some(
             (e) =>
@@ -1016,8 +1031,20 @@ export class SymposiumReviewStore {
           (p) => p.attemptId === attemptId && p.transitionId === transitionId,
         );
         if (!prep) throw new Error('Exact transition preparation required');
-        if (prep.status === 'bound')
-          throw new Error('Bound preparation retains its native attempt');
+        if (prep.status === 'bound') {
+          const attempt = state.applicationAttempts.find(
+            (a) => a.attemptId === attemptId && a.policyReservationId === prep.policyReservationId,
+          );
+          if (
+            disposition !== 'applied_no_dispatch' ||
+            !state.decisionCode ||
+            !attempt ||
+            attempt.dispatched ||
+            attempt.settled
+          )
+            throw new Error('Exact stopped bound no-dispatch proof required');
+          attempt.settled = true;
+        }
         if (prep.status === 'settled') {
           if (prep.disposition !== disposition) throw new Error('Preparation disposition conflict');
           return;

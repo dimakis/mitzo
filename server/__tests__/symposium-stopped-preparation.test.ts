@@ -2,6 +2,7 @@ import { expect, it, vi } from 'vitest';
 import { SymposiumReviewStore } from '../symposium-review-workflows.js';
 import { artifactAdmissionDigest } from '@mitzo/protocol/event-store';
 import { reconcileStoppedApplicationPreparation } from '../symposium-stopped-preparation.js';
+import { createHash } from 'node:crypto';
 
 const sha = 'a'.repeat(64);
 const selection = (id: string, role: string) => ({
@@ -42,7 +43,7 @@ const prep = {
   },
 };
 
-function fixture() {
+function fixture(stopped = true) {
   const reviews = new SymposiumReviewStore(':memory:');
   reviews.create({
     workflowId: 'flow',
@@ -73,7 +74,7 @@ function fixture() {
     },
   });
   reviews.reserveApplicationPreparation(prep);
-  reviews.stopApplication('flow', 'owner', 'user_stop');
+  if (stopped) reviews.stopApplication('flow', 'owner', 'user_stop');
   const events = {
     getActiveSymposiumConfig: vi.fn(() => ({
       version: 2,
@@ -239,5 +240,107 @@ it('cancels an exact applied reader delivery and proves no native dispatch', asy
       prep,
     ),
   ).toBeNull();
+  f.reviews.close();
+});
+
+it('reconciles a bound claim only with its exact staged delivery and no recipient attempt', async () => {
+  const f = fixture(false);
+  const content = 'offline review prompt';
+  const attempt = {
+    workflowId: prep.workflowId,
+    attemptId: prep.attemptId,
+    policyReservationId: prep.policyReservationId,
+    kind: prep.kind,
+    actorSeatId: prep.actorSeatId,
+    artifactRevision: prep.artifactRevision,
+    artifactHash: prep.artifactHash,
+    binding: {
+      claimToken: 'claim',
+      deliveryId: 'delivery',
+      contentHash: createHash('sha256').update(content).digest('hex'),
+      membershipGeneration: 2,
+      configRevision: 2,
+      accountId: 'reviewer',
+      model: 'offline',
+      profileId: 'reviewer',
+      profileRevision: '1',
+      accountProfileRevision: '1',
+      authorityGrant: { grantId: 'authority', revision: 1 },
+      contextGrant: { grantId: 'context', revision: 1 },
+    },
+  };
+  f.reviews.completeApplicationPreparation(attempt, {
+    transitionId: prep.transitionId,
+    sealDigest: prep.seal.sealDigest,
+  });
+  f.reviews.stopApplication('flow', 'owner', 'user_stop');
+  const binding = {
+    sessionId: 'session',
+    workflowId: 'flow',
+    policyReservationId: 'policy',
+    seatId: 'reviewer',
+    operationId: 'reader-transition',
+    readerAdmissionId: 'reader-transition',
+    reviewAttemptId: 'attempt',
+    sealFenceId: 'fence',
+    sealDigest: sha,
+    artifactGenerationId: 'generation',
+    expectedConfigRevision: 1,
+    resultingConfigRevision: 2,
+    readerMembershipGeneration: 2,
+  };
+  const reference = { bindingDigest: artifactAdmissionDigest(binding) };
+  f.events.getSymposiumSealedReaderAdmission.mockReturnValue({
+    binding,
+    reference,
+    receipt: {
+      readerAdmissionId: 'reader-transition',
+      bindingDigest: reference.bindingDigest,
+      sessionId: 'session',
+      artifactGenerationId: 'generation',
+      seatId: 'reviewer',
+      confirmedAt: 2,
+    },
+  } as never);
+  f.events.getSymposiumArtifactReference.mockReturnValue(reference as never);
+  f.events.getActiveSymposiumConfig.mockReturnValue({
+    version: 2,
+    state: 'active',
+    revision: 2,
+    seats: [{ id: 'reviewer', role: 'reviewer' }],
+  });
+  f.events.getLatestSymposiumMembership.mockReturnValue({
+    state: 'active',
+    reconciliation: 'confirmed',
+    generation: 2,
+  });
+  f.events.getSymposiumDeliveryByIdempotencyKey.mockReturnValue({
+    deliveryId: 'wrong-delivery',
+    sessionId: 'session',
+    recipients: [{ seatId: 'reviewer' }],
+    status: 'awaiting_intervention',
+    originalContent: content,
+  } as never);
+  const deps = {
+    reviews: f.reviews,
+    events: f.events as never,
+    cancelDelivery: vi.fn(async () => ({ status: 'cancelled' })),
+    successorState: vi.fn(),
+  };
+  expect(await reconcileStoppedApplicationPreparation(deps, f.context, prep)).toBeNull();
+  f.events.getSymposiumDeliveryByIdempotencyKey.mockReturnValue({
+    deliveryId: 'delivery',
+    sessionId: 'session',
+    recipients: [{ seatId: 'reviewer' }],
+    status: 'awaiting_intervention',
+    originalContent: content,
+  } as never);
+  f.events.getSymposiumRecipientAttempts.mockReturnValue([{}] as never);
+  expect(await reconcileStoppedApplicationPreparation(deps, f.context, prep)).toBeNull();
+  f.events.getSymposiumRecipientAttempts.mockReturnValue([]);
+  expect(await reconcileStoppedApplicationPreparation(deps, f.context, prep)).toBe(
+    'applied_no_dispatch',
+  );
+  expect(deps.cancelDelivery).toHaveBeenCalledOnce();
   f.reviews.close();
 });

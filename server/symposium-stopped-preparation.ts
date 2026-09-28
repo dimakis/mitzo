@@ -3,6 +3,7 @@ import type { EventStore } from './event-store.js';
 import type { ReviewContext } from './symposium-review-coordinator.js';
 import type { ApplicationPreparation, SymposiumReviewStore } from './symposium-review-workflows.js';
 import { canonicalReviewJson } from './symposium-review-records.js';
+import { createHash } from 'node:crypto';
 
 type SuccessorState =
   'absent' | 'reserved' | 'copy_uncertain' | 'quarantined' | 'verified' | 'active' | null;
@@ -55,9 +56,33 @@ export async function reconcileStoppedApplicationPreparation(
     state.owner !== context.owner ||
     state.sessionId !== context.sessionId ||
     !retained ||
-    retained.status !== 'preparing' ||
-    !same(exactFields(retained), exactFields(preparation)) ||
-    state.applicationAttempts.some((attempt) => attempt.attemptId === preparation.attemptId)
+    (retained.status !== 'preparing' && retained.status !== 'bound') ||
+    !same(exactFields(retained), exactFields(preparation))
+  )
+    return null;
+  const bound = retained.status === 'bound';
+  const attempt = state.applicationAttempts.find(
+    (item) => item.attemptId === preparation.attemptId,
+  );
+  if (
+    bound
+      ? !attempt ||
+        attempt.dispatched ||
+        attempt.settled ||
+        attempt.policyReservationId !== preparation.policyReservationId ||
+        attempt.kind !== preparation.kind ||
+        attempt.actorSeatId !== preparation.actorSeatId ||
+        attempt.artifactRevision !== preparation.artifactRevision ||
+        attempt.artifactHash !== preparation.artifactHash ||
+        attempt.binding.configRevision !== preparation.to.configRevision ||
+        attempt.binding.membershipGeneration !== preparation.to.membershipGeneration ||
+        attempt.binding.accountId !== preparation.expectedSelection.accountId ||
+        attempt.binding.model !== preparation.expectedSelection.model ||
+        attempt.binding.profileId !== preparation.expectedSelection.profileId ||
+        attempt.binding.profileRevision !== preparation.expectedSelection.profileRevision ||
+        attempt.binding.accountProfileRevision !==
+          preparation.expectedSelection.accountProfileRevision
+      : Boolean(attempt)
   )
     return null;
   const config = deps.events.getActiveSymposiumConfig(context.sessionId);
@@ -92,8 +117,21 @@ export async function reconcileStoppedApplicationPreparation(
       deps.events.getSymposiumRecipientAttempts(delivery.deliveryId).length !== 0)
   )
     return null;
+  if (
+    bound &&
+    (!delivery ||
+      delivery.deliveryId !== attempt!.binding.deliveryId ||
+      delivery.sessionId !== context.sessionId ||
+      delivery.recipients.length !== 1 ||
+      delivery.recipients[0].seatId !== preparation.actorSeatId ||
+      typeof delivery.originalContent !== 'string' ||
+      createHash('sha256').update(delivery.originalContent, 'utf8').digest('hex') !==
+        attempt!.binding.contentHash)
+  )
+    return null;
   if (!record) {
     if (
+      bound ||
       delivery ||
       config.revision !== preparation.from.configRevision ||
       member.generation !== preparation.from.membershipGeneration
