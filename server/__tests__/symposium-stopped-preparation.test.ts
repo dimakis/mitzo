@@ -296,8 +296,8 @@ it('pauses an exact bound writer before proving same-attempt resumability', asyn
     recipients: [{ seatId: 'coder', status: 'pending' }],
     status: 'awaiting_intervention',
     originalContent: content,
-    deliveredContent: null,
-    intervention: null,
+    deliveredContent: null as string | null,
+    intervention: null as string | null,
   };
   const attempt = {
     attemptId: 'attempt',

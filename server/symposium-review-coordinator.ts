@@ -543,7 +543,9 @@ export class SymposiumReviewCoordinator {
     if (state.status !== 'decision_required' || !state.decisionCode)
       throw new Error('Stopped application policy required for reconciliation');
     const cancelOutstanding = async () => {
-      const pending = this.scoped(context, workflowId).applicationAttempts.filter((a) => !a.settled);
+      const pending = this.scoped(context, workflowId).applicationAttempts.filter(
+        (a) => !a.settled,
+      );
       await this.host?.cancelApplicationAttempts?.(context, pending);
     };
     // Reconcile may race the old host's recipient claim after the first read.

@@ -284,6 +284,7 @@ it.skipIf(!physical)(
         gateway as never,
       );
       let initialChild: { volumeName: string; generationId: string } | undefined;
+      const nativeChild: unknown[] = [];
       try {
         const parentGit = retainedSource.receipt.git;
         const actor = 'fixture-owner';
@@ -403,6 +404,63 @@ it.skipIf(!physical)(
               new AbortController().signal,
             ),
         );
+        const quote = (value: string) => "'" + value.replaceAll("'", "'\\''") + "'";
+        const native = (
+          mount: 'rw' | 'ro',
+          access: 'read' | 'write',
+          code: string,
+          exit: number,
+        ) => {
+          const claim = createHash('sha256').update(randomUUID()).digest('hex');
+          const script = `set -eu; /usr/local/bin/symposium-attempt-controller run ${claim} ${access} /usr/bin/python3 -I -B -c ${quote(code)}; /usr/bin/cat /sandbox/.symposium-control/${claim}.done`;
+          const lines = copyCommand([
+            'run',
+            '--rm',
+            '--pull=never',
+            '--network=none',
+            '--read-only',
+            '--cap-drop=ALL',
+            '--security-opt=no-new-privileges',
+            '--timeout=20',
+            '--user',
+            'sandbox',
+            '--tmpfs',
+            '/sandbox:rw,mode=1777',
+            '--volume',
+            `${copied.volumeName}:${target}:${mount}`,
+            '--entrypoint=/bin/bash',
+            owner.image,
+            '-c',
+            script,
+          ]);
+          return lines.then((value) => {
+            const output = value.trim().split('\n');
+            const receipt = JSON.parse(output.pop()!);
+            expect(receipt).toMatchObject({ claim, terminal: true, exit_code: exit });
+            nativeChild.push({ mount, access, receipt, output });
+            return output;
+          });
+        };
+        const childGit = `import subprocess\nfrom pathlib import Path\nr='${target}'\nenv={'PATH':'/usr/bin:/bin','HOME':'/nonexistent','GIT_CONFIG_NOSYSTEM':'1','GIT_CONFIG_GLOBAL':'/dev/null'}\ndef git(*args): return subprocess.check_output(['/usr/bin/git','-C',r,*args],env=env,text=True).strip()\n`;
+        const writerOutput = await native(
+          'rw',
+          'write',
+          childGit +
+            `Path(r+'/criterion.txt').write_text('INITIAL_CHILD_NATIVE\\n')\ngit('add','criterion.txt')\ngit('-c','user.name=Contract','-c','user.email=contract@example.invalid','-c','commit.gpgsign=false','commit','--quiet','-m','Initial child native write')\nprint(git('rev-parse','HEAD'))`,
+          0,
+        );
+        expect(writerOutput[0]).toMatch(/^[a-f0-9]{40}$/);
+        const readerOutput = await native(
+          'ro',
+          'read',
+          childGit +
+            `print(Path(r+'/criterion.txt').read_text().strip())\nprint(git('rev-parse','HEAD'))`,
+          0,
+        );
+        expect(readerOutput).toEqual(['INITIAL_CHILD_NATIVE', writerOutput[0]]);
+        const denied = `from pathlib import Path\ntry:\n Path('${target}/forbidden').write_text('bad')\nexcept OSError as e:\n print('DENIED_'+str(e.errno))\n raise SystemExit(1)\nraise SystemExit(0)`;
+        expect((await native('ro', 'write', denied, 1))[0]).toMatch(/^DENIED_(13|30)$/);
+        expect((await native('rw', 'read', denied, 1))[0]).toBe('DENIED_13');
       } finally {
         leaseHost.close();
       }
@@ -481,6 +539,7 @@ it.skipIf(!physical)(
             completedSeal,
             initialExportReceipt: exported.receipt,
             initialChild,
+            nativeChild,
             verified,
             mapping,
             helpers,

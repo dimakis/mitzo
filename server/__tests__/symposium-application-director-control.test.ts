@@ -143,7 +143,11 @@ describe('controlled application delivery versus stale director routes', () => {
       recipientSeatIds: ['writer'],
       originalContent: 'write a change',
       idempotencyKey: 'stage-application',
-      applicationControl: { workflowId: 'workflow', attemptId: 'attempt', policyReservationId: 'reservation' },
+      applicationControl: {
+        workflowId: 'workflow',
+        attemptId: 'attempt',
+        policyReservationId: 'reservation',
+      },
     });
     const deliveryId = staged.deliveryId;
     const path = `/api/sessions/chat/symposium/deliveries/${deliveryId}`;
@@ -209,7 +213,11 @@ describe('controlled application delivery versus stale director routes', () => {
       recipientSeatIds: ['writer'],
       originalContent: 'write a change',
       idempotencyKey: 'stage-application',
-      applicationControl: { workflowId: 'workflow', attemptId: 'attempt', policyReservationId: 'reservation' },
+      applicationControl: {
+        workflowId: 'workflow',
+        attemptId: 'attempt',
+        policyReservationId: 'reservation',
+      },
     });
     store.armSymposiumApplicationDelivery({
       deliveryId: staged.deliveryId,
@@ -248,7 +256,11 @@ describe('controlled application delivery versus stale director routes', () => {
       recipientSeatIds: ['writer'],
       originalContent: 'write a change',
       idempotencyKey: 'stage-application',
-      applicationControl: { workflowId: 'workflow', attemptId: 'attempt', policyReservationId: 'reservation' },
+      applicationControl: {
+        workflowId: 'workflow',
+        attemptId: 'attempt',
+        policyReservationId: 'reservation',
+      },
     });
     const path = `/api/sessions/chat/symposium/deliveries/${staged.deliveryId}/cancel`;
     expect(
