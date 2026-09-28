@@ -2652,7 +2652,11 @@ export class EventStore {
       member?.generation !== binding.predecessorMembershipGeneration ||
       member.state !== 'active' ||
       member.reconciliation !== 'confirmed' ||
-      sandbox?.state !== 'stopped' ||
+      (sandbox
+        ? sandbox.state !== 'stopped'
+        : binding.kind !== 'initial' ||
+          this.listSymposiumSessionSandboxes(binding.sessionId).length !== 0 ||
+          this.getSymposiumDeliveries(binding.sessionId).length !== 0) ||
       artifactAdmissionDigest(seat.accountBinding) !==
         artifactAdmissionDigest(binding.accountBinding) ||
       artifactAdmissionDigest(seat.profileBinding) !==

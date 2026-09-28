@@ -995,6 +995,7 @@ export async function createOwnedSymposiumHost(
                   selected.parentSealDigest !== source.digest
                 )
                   throw new Error('Initial admission source proof changed');
+                sourceSealDeps().assertNoNativeClaims(selected.sessionId);
                 return true;
               },
             );

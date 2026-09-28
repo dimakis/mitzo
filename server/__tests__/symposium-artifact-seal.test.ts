@@ -2,6 +2,7 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import Database from 'better-sqlite3';
 import { AccountBindingSchema, type SeatConfig, type SymposiumConfig } from '@mitzo/protocol';
 import { AccountProfiles } from '../account-profiles.js';
 import { EventStore } from '../event-store.js';
@@ -173,8 +174,8 @@ it('serializes lifecycle-before-seal and seal-before-new-work across independent
   expect(() => second.assertSymposiumArtifactWorkAllowed('symposium')).toThrow(/fenced/);
   second.assertSymposiumArtifactWorkAllowed('other-session');
 });
-it('requires a fresh completed source-parent proof for initial admission on both sides of activation', () => {
-  const { first, second } = fixture();
+it('admits a sealed fresh source with no predecessor sandbox only with source-parent proof on both sides of activation', () => {
+  const { first, second, path } = fixture();
   first.transitionSymposiumMembership({
     sessionId: 'symposium',
     seatId: seat.id,
@@ -187,19 +188,8 @@ it('requires a fresh completed source-parent proof for initial admission on both
     occurredAt: 1,
   });
   first.markSymposiumMembershipReconciled('symposium', seat.id, 1, 'confirmed');
-  const sandbox = {
-    sessionId: 'symposium',
-    seatId: seat.id,
-    generation: 1,
-    runtimeId: 'parent-runtime',
-    workspace: 'workspace',
-    providerName: 'provider',
-    providerId: 'provider-id',
-    providerType: 'openai',
-    model: seat.model,
-  };
-  first.reserveSymposiumSeatSandbox(sandbox);
-  first.confirmAbsentSymposiumSeatSandboxStopped(sandbox);
+  expect(first.listSymposiumSessionSandboxes('symposium')).toEqual([]);
+  expect(first.getSymposiumDeliveries('symposium')).toEqual([]);
   const binding = {
     version: 1 as const,
     kind: 'initial' as const,
@@ -232,6 +222,21 @@ it('requires a fresh completed source-parent proof for initial admission on both
   };
   expect(() => first.beginSymposiumArtifactAdmission(binding, () => true)).toThrow('source parent');
   const sourceProof = vi.fn(() => true as const);
+  const raw = new Database(path);
+  raw
+    .prepare(
+      `INSERT INTO symposium_deliveries
+      (delivery_id,session_id,recipient_seat_ids,original_content,status,idempotency_key,
+       config_revision,created_at,updated_at)
+     VALUES ('prior-delivery','symposium','[]','prior native work','cancelled','prior',4,1,1)`,
+    )
+    .run();
+  expect(() => first.beginSymposiumArtifactAdmission(binding, () => true, sourceProof)).toThrow(
+    'predecessor',
+  );
+  expect(sourceProof).not.toHaveBeenCalled();
+  raw.prepare("DELETE FROM symposium_deliveries WHERE delivery_id='prior-delivery'").run();
+  raw.close();
   const intent = first.beginSymposiumArtifactAdmission(binding, () => true, sourceProof);
   expect(sourceProof).toHaveBeenCalledWith(binding);
   const receipt = {
