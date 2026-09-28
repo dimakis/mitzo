@@ -15,7 +15,7 @@ try {
     'run', '--rm', '--network=none', '--mount', mount, '--entrypoint=/bin/sh', image,
     '-c', `set -eu
 cd '${SYMPOSIUM_ARTIFACT_TARGET}'
-git init -q
+git init -q -b feature
 git config user.name Fixture
 git config user.email fixture@example.invalid
 printf 'criterion-ok\n' > marker.txt
