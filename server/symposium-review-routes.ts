@@ -321,7 +321,7 @@ export function createSymposiumReviewRouter(deps: {
         if (action.action === 'recover') {
           attemptId = action.attemptId;
           const preparation = deps.store.getApplicationPreparation(workflowId, attemptId);
-          if (preparation?.status === 'preparing') {
+          if (preparation?.status === 'preparing' || preparation?.status === 'bound') {
             if (
               inspected.limits.mode !== 'application' ||
               preparation.kind !==
@@ -332,18 +332,22 @@ export function createSymposiumReviewRouter(deps: {
             }
             // Resume the exact charged transition. The physical owners reuse only
             // retained verified receipts; an uncertain copy remains quarantined.
-            const reservation = await coordinator.reserveWithTransition(
-              ctx,
-              workflowId,
-              kind,
-              attemptId,
-            );
-            if (reservation.kind !== 'reserved_not_dispatched') {
+            const reservation =
+              preparation.status === 'bound'
+                ? coordinator.recoverBoundTransition(ctx, workflowId, kind, attemptId)
+                : await coordinator.reserveWithTransition(ctx, workflowId, kind, attemptId);
+            if (
+              reservation.kind === 'decision_required' &&
+              reservation.code === 'attempt_already_dispatched'
+            ) {
+              // Native admission was already consumed. Reconcile the original receipt below.
+            } else if (reservation.kind !== 'reserved_not_dispatched') {
               res.status(409).json(reservation);
               return;
+            } else {
+              await host.dispatch(ctx, reservation);
+              await host.refreshArtifact?.(ctx);
             }
-            await host.dispatch(ctx, reservation);
-            await host.refreshArtifact?.(ctx);
           }
         } else {
           if (action.action === 'fix') {

@@ -184,7 +184,12 @@ it('recovers one retained charged preparation by its exact attempt ID', async ()
       contextGrant: { grantId: 'context', revision: 1 },
     },
   };
-  const dispatch = vi.fn(async () => {});
+  const dispatch = vi.fn(async () => {
+    if (dispatch.mock.calls.length === 1) throw new Error('simulated crash before native dispatch');
+    expect(store.consumeApplicationDispatch(attempt)).toMatchObject({
+      kind: 'dispatch_authorized',
+    });
+  });
   const host = {
     currentArtifact: () => ({ revision: 'commit', hash }),
     refreshArtifact: async () => {},
@@ -210,25 +215,32 @@ it('recovers one retained charged preparation by its exact attempt ID', async ()
       hasSession: () => true,
     }),
   );
-  const response = await request(app)
-    .post('/api/sessions/session/symposium/reviews/workflow/actions')
-    .send({
+  const recover = () =>
+    request(app).post('/api/sessions/session/symposium/reviews/workflow/actions').send({
       action: 'recover',
       attemptId: 'retained-attempt',
       kind: 'review',
       expectedArtifactRevision: 'commit',
       expectedArtifactHash: hash,
     });
+  const crashed = await recover();
+  expect(crashed.body.error).toBe('simulated crash before native dispatch');
+  expect(store.get('workflow')?.applicationAttempts[0]).toMatchObject({ dispatched: false });
+  const response = await recover();
   expect(response.body).toMatchObject({
     code: 'host_review_result_required',
     attemptId: 'retained-attempt',
   });
-  expect(dispatch).toHaveBeenCalledOnce();
+  expect(dispatch).toHaveBeenCalledTimes(2);
   expect(host.prepareApplicationTransition).toHaveBeenCalledWith(
     expect.objectContaining({ attemptId: 'retained-attempt' }),
   );
   expect(store.get('workflow')).toMatchObject({
     hostTurns: 1,
     applicationPreparations: [{ status: 'bound' }],
+    applicationAttempts: [{ dispatched: true }],
   });
+  const alreadyDispatched = await recover();
+  expect(alreadyDispatched.body.code).toBe('host_review_result_required');
+  expect(dispatch).toHaveBeenCalledTimes(2);
 });

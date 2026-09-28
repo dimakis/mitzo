@@ -425,6 +425,64 @@ export class SymposiumReviewCoordinator {
     };
   }
 
+  /** Resume only the durable attempt created by a confirmed transition. A consumed
+   * dispatch is reconciled through its original receipt, never launched again. */
+  recoverBoundTransition(
+    context: ReviewContext,
+    workflowId: string,
+    kind: 'initial' | 'review' | 'fix',
+    attemptId: string,
+  ): ReturnType<SymposiumReviewCoordinator['reserve']> {
+    const state = this.scoped(context, workflowId);
+    if (!isApplicationPolicy(state.limits)) return decision('application_policy_required');
+    if (!this.current(context, state)) return decision('artifact_changed');
+    const prep = state.applicationPreparations.find((p) => p.attemptId === attemptId);
+    const actualKind =
+      kind === 'review' && state.status === 'awaiting_delta_review' ? 'delta' : kind;
+    const retained = state.applicationAttempts.find((a) => a.attemptId === attemptId);
+    if (
+      !prep ||
+      prep.status !== 'bound' ||
+      prep.kind !== actualKind ||
+      !retained ||
+      retained.kind !== actualKind ||
+      retained.policyReservationId !== prep.policyReservationId ||
+      retained.actorSeatId !== prep.actorSeatId ||
+      retained.artifactRevision !== prep.artifactRevision ||
+      retained.artifactHash !== prep.artifactHash ||
+      retained.binding.configRevision !== prep.to.configRevision ||
+      retained.binding.membershipGeneration !== prep.to.membershipGeneration ||
+      retained.binding.accountId !== prep.expectedSelection.accountId ||
+      retained.binding.model !== prep.expectedSelection.model ||
+      retained.binding.profileId !== prep.expectedSelection.profileId ||
+      retained.binding.profileRevision !== prep.expectedSelection.profileRevision ||
+      retained.binding.accountProfileRevision !== prep.expectedSelection.accountProfileRevision
+    )
+      return decision('bound_preparation_changed');
+    if (retained.dispatched) return decision('attempt_already_dispatched');
+    if (retained.settled) return decision('bound_preparation_changed');
+    const selection =
+      actualKind === 'review' || actualKind === 'delta' ? state.reviewer : state.implementer;
+    if (selection.seatId !== retained.actorSeatId) return decision('bound_preparation_changed');
+    const applicationAttempt = this.store.applicationAttemptForClaim(retained.binding.claimToken);
+    if (
+      !applicationAttempt ||
+      applicationAttempt.workflowId !== workflowId ||
+      applicationAttempt.attemptId !== attemptId ||
+      applicationAttempt.policyReservationId !== retained.policyReservationId
+    )
+      return decision('bound_preparation_changed');
+    return {
+      kind: 'reserved_not_dispatched',
+      attemptId,
+      policyReservationId: retained.policyReservationId,
+      applicationAttempt,
+      selection,
+      artifactRevision: retained.artifactRevision,
+      artifactHash: retained.artifactHash,
+    };
+  }
+
   private matchesReservation(state: Workflow, receipt: ReviewReceipt): boolean {
     if (isApplicationPolicy(state.limits)) {
       const attempt = state.applicationAttempts.find((a) => a.attemptId === receipt.attemptId);
