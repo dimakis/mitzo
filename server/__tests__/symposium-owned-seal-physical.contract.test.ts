@@ -248,6 +248,18 @@ it.skipIf(!physical)(
         ),
       );
       expect(controller).toMatchObject({ claim, terminal: true, exit_code: 0 });
+      const writerCommit = podman(
+        'exec',
+        '--user',
+        'sandbox',
+        sandboxId,
+        '/usr/bin/git',
+        '-C',
+        target,
+        'rev-parse',
+        'HEAD',
+      );
+      expect(writerCommit).toMatch(/^[a-f0-9]{40}$/);
       const runtimeConfig = {
         cli: 'openshell',
         cliContract: 'v0.1' as const,
@@ -339,7 +351,7 @@ it.skipIf(!physical)(
         new AbortController().signal,
       );
       expect(seal.kind).toBe('completed_artifact_seal');
-      expect(seal.git.commit).toMatch(/^[a-f0-9]{40}$/);
+      expect(seal.git.commit).toBe(writerCommit);
       expect(events.getSymposiumSeatSandbox(sessionId, 'writer', 1)?.state).toBe('stopped');
       expect(absent(sandboxId)).toBe(true);
       expect(await sealer.requireCompleted(seal.fenceId, new AbortController().signal)).toEqual(
@@ -362,6 +374,7 @@ it.skipIf(!physical)(
             seal,
             check,
             controller,
+            writerCommit,
             sandboxId,
             sandboxName,
             volumeName: mapping.volumeName,
