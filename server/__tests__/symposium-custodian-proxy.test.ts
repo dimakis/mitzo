@@ -106,7 +106,7 @@ it('requires recent authorization before forwarding exact source seal recovery',
   );
 });
 it('forwards only authenticated, bounded review operations with session and record scope', async () => {
-  const invoke = vi.fn(async () => ({ status: 200, body: { ok: true } }));
+  const invoke = vi.fn(async (_input: unknown) => ({ status: 200, body: { ok: true } }));
   const app = express();
   app.use(express.json({ limit: '2mb' }));
   app.use(createCustodianProxy({ request: invoke, invalidate: vi.fn() }));
