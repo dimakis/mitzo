@@ -49,6 +49,7 @@ it('runs one registered check and retains an immutable exact-result receipt acro
     const deps = {
       definitions: [definition],
       currentResult: () => result,
+      currentGeneration: () => 'generation',
       requireSeal: async () => ({ seal, digest: hash('e'), generationId: 'generation' }),
       execute: check,
     };
@@ -80,6 +81,7 @@ it('fails closed on unregistered definitions, forged physical bindings and stale
     const owner = createOwnedCriterionReceipts(join(directory, 'receipts.db'), {
       definitions: [definition],
       currentResult: () => current,
+      currentGeneration: () => 'generation',
       requireSeal: async () => ({ seal, digest: hash('e'), generationId: 'generation' }),
       execute: async (_scope, _result, _definition, digest) => ({
         executionId: 'physical-execution-1',
@@ -110,6 +112,7 @@ it('does not reuse an old receipt after the current result advances', async () =
     const owner = createOwnedCriterionReceipts(join(directory, 'receipts.db'), {
       definitions: [definition],
       currentResult: () => current,
+      currentGeneration: () => 'generation',
       requireSeal: async () => ({ seal, digest: hash('e'), generationId: 'generation' }),
       execute: async (_scope, _result, _definition, definitionDigest) => ({
         executionId: 'physical-execution-1',
@@ -139,6 +142,7 @@ it('rejects a changed stored execution or artifact generation', async () => {
     const owner = createOwnedCriterionReceipts(path, {
       definitions: [definition],
       currentResult: () => result,
+      currentGeneration: () => 'generation',
       requireSeal: async () => ({ seal, digest: hash('e'), generationId: 'generation' }),
       execute: async (_scope, _result, _definition, definitionDigest) => ({
         executionId: 'physical-execution-1',
@@ -163,6 +167,7 @@ it('rejects a changed stored execution or artifact generation', async () => {
     const reopened = createOwnedCriterionReceipts(path, {
       definitions: [definition],
       currentResult: () => result,
+      currentGeneration: () => 'generation',
       requireSeal: async () => ({ seal, digest: hash('e'), generationId: 'generation' }),
       execute: async () => {
         throw new Error('No replay');
@@ -171,6 +176,35 @@ it('rejects a changed stored execution or artifact generation', async () => {
     expect(reopened.evidence(scope, evidence.evidenceId)).toBeNull();
     await expect(reopened.run(scope, 'required-file')).rejects.toThrow(/changed/i);
     reopened.close();
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+it('invalidates a receipt when the live artifact generation changes at identical Git identity', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'criterion-receipt-'));
+  try {
+    let generation = 'generation';
+    const owner = createOwnedCriterionReceipts(join(directory, 'receipts.db'), {
+      definitions: [definition],
+      currentResult: () => result,
+      currentGeneration: () => generation,
+      requireSeal: async () => ({ seal, digest: hash('e'), generationId: 'generation' }),
+      execute: async (_scope, _result, _definition, definitionDigest) => ({
+        executionId: 'physical-execution-1',
+        sealFenceId: 'fence',
+        sealDigest: hash('e'),
+        definitionDigest,
+        artifactRevision: result.artifactRevision,
+        artifactHash: result.artifactHash,
+        observedSha256: hash('d'),
+        completedAt: 20,
+      }),
+    });
+    const evidence = await owner.run(scope, 'required-file');
+    generation = 'successor-generation';
+    expect(owner.evidence(scope, evidence.evidenceId)).toBeNull();
+    owner.close();
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }

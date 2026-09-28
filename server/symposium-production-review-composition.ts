@@ -114,6 +114,21 @@ export function createSymposiumProductionReviewComposition(deps: {
       throw new Error('Imported source session changed');
     return { revision: sealed.receipt.git.commit, hash: sealed.receipt.git.committedTreeDigest };
   };
+  const currentCoderGeneration = (sessionId: string): string | null => {
+    const config = events.getActiveSymposiumConfig(sessionId);
+    const coders = config.seats.filter((seat) => seat.role === 'coder');
+    if (coders.length !== 1) return null;
+    const membership = events.getLatestSymposiumMembership(sessionId, coders[0].id);
+    if (!membership) return null;
+    const ref = events.getSymposiumArtifactReference(
+      sessionId,
+      coders[0].id,
+      membership.generation,
+    );
+    if (!ref || 'kind' in ref) return null;
+    events.assertSymposiumArtifactAdmissionCurrent(sessionId, ref);
+    return ref.artifactGenerationId;
+  };
   const artifacts = createOwnedReviewArtifactResults(deps.artifactResultsPath, {
     async sealCompleted(context, completion) {
       const retained = deps.retainedRuntime(context.sessionId);
@@ -141,26 +156,13 @@ export function createSymposiumProductionReviewComposition(deps: {
     sealByFence: (fenceId) =>
       host.requireCompletedArtifactSeal!(fenceId, AbortSignal.timeout(120_000)),
     sealIntent: (fenceId) => events.getSymposiumArtifactSealByFence(fenceId),
-    volumeGeneration(sessionId) {
-      const config = events.getActiveSymposiumConfig(sessionId);
-      const coders = config.seats.filter((seat) => seat.role === 'coder');
-      if (coders.length !== 1) return null;
-      const membership = events.getLatestSymposiumMembership(sessionId, coders[0].id);
-      if (!membership) return null;
-      const ref = events.getSymposiumArtifactReference(
-        sessionId,
-        coders[0].id,
-        membership.generation,
-      );
-      if (!ref || 'kind' in ref) return null;
-      events.assertSymposiumArtifactAdmissionCurrent(sessionId, ref);
-      return ref.artifactGenerationId;
-    },
+    volumeGeneration: currentCoderGeneration,
   });
   const checks =
     host.checkCompletedArtifactFile && host.criterionChecks?.length
       ? createOwnedCriterionReceipts(deps.artifactResultsPath, {
           definitions: host.criterionChecks,
+          currentGeneration: (context) => currentCoderGeneration(context.sessionId),
           currentResult(context) {
             const state = reviews.applicationWorkflowForSession(context.sessionId);
             const result = artifacts.currentResult(context);

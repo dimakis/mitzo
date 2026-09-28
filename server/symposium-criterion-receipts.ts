@@ -51,6 +51,7 @@ export function createOwnedCriterionReceipts(
   deps: {
     definitions: readonly CheckDefinition[];
     currentResult(context: ReviewContext): WorkResult | null;
+    currentGeneration(context: ReviewContext): string | null;
     requireSeal(
       fenceId: string,
     ): Promise<{ seal: SealIdentity; digest: string; generationId: string }>;
@@ -129,6 +130,7 @@ export function createOwnedCriterionReceipts(
       execution.sealDigest !== row.seal_digest ||
       typeof row.generation_id !== 'string' ||
       !row.generation_id ||
+      row.generation_id !== deps.currentGeneration(context) ||
       current.evidenceRefs.length !== 1 ||
       current.evidenceRefs[0] !== `artifact-seal:${row.seal_fence_id}`
     )
@@ -172,6 +174,8 @@ export function createOwnedCriterionReceipts(
         return { sealDigest, generationId };
       };
       const { sealDigest, generationId } = await checkSeal();
+      if (generationId !== deps.currentGeneration(context))
+        throw new Error('Current artifact generation changed');
       const definitionDigest = digest(definition);
       const execution = Execution.parse(
         await deps.execute(context, result, definition, definitionDigest),
@@ -185,7 +189,8 @@ export function createOwnedCriterionReceipts(
         execution.completedAt < result.completedAt ||
         canonicalReviewJson(await checkSeal()) !==
           canonicalReviewJson({ sealDigest, generationId }) ||
-        canonicalReviewJson(deps.currentResult(context)) !== canonicalReviewJson(result)
+        canonicalReviewJson(deps.currentResult(context)) !== canonicalReviewJson(result) ||
+        deps.currentGeneration(context) !== generationId
       )
         throw new Error('Criterion execution binding changed');
       const evidence = OutcomeEvidenceSchema.parse({
