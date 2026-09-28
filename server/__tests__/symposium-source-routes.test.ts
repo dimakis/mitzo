@@ -106,3 +106,58 @@ it('requires fresh auth, CSRF, exact scope and typed committed-history approval 
     ).status,
   ).toBe(429);
 });
+
+it('recovers only the retained imported source seal under recent operator authorization', async () => {
+  const seal = vi.fn(async () => ({ state: 'complete', operationId: 'import-1' }));
+  let state = {
+    available: false,
+    state: 'imported',
+    admissionIssued: false,
+    volumeGeneration: 'volume-gen',
+    receipt: { operationId: 'import-1' },
+    sourceSeal: null as null | { state: string; operationId: string },
+  };
+  const app = express();
+  app.use(express.json(), authMiddleware);
+  app.use(
+    '/api/sessions/:id/symposium/source',
+    createSymposiumSourceRouter({
+      repositories: () => ({}),
+      getSession: () => ({
+        sessionType: 'symposium',
+        symposiumConfig: JSON.stringify({ revision: 4 }),
+      }),
+      getHost: () => ({ status: () => state, seal }),
+    } as never),
+  );
+  const token = (await login('test-passphrase-for-vitest'))!;
+  const body = {
+    expectedRevision: 4,
+    expectedGeneration: 'volume-gen',
+    operationId: 'import-1',
+  };
+  const post = (value: Record<string, unknown>, csrf = '') =>
+    request(app)
+      .post('/api/sessions/session/symposium/source/seal/recover')
+      .set('Authorization', `Bearer ${token}`)
+      .set('x-csrf-token', csrf)
+      .send(value);
+  expect((await post(body)).status).toBe(403);
+  const auth = await request(app)
+    .post('/api/sessions/session/symposium/source/reauthorize')
+    .set('Authorization', `Bearer ${token}`)
+    .send({ passphrase: 'test-passphrase-for-vitest' });
+  expect(auth.status).toBe(200);
+  expect((await post({ ...body, operationId: 'different' }, auth.body.csrf)).status).toBe(409);
+  expect((await post({ ...body, arbitraryPath: '/host/private' }, auth.body.csrf)).status).toBe(
+    400,
+  );
+  expect(seal).not.toHaveBeenCalled();
+  expect((await post(body, auth.body.csrf)).status).toBe(200);
+  expect(seal).toHaveBeenCalledWith('session', 'import-1', expect.any(AbortSignal));
+  state = { ...state, sourceSeal: { state: 'complete', operationId: 'import-1' } };
+  expect((await post(body, auth.body.csrf)).status).toBe(200);
+  expect(seal).toHaveBeenCalledTimes(1);
+  state = { ...state, admissionIssued: true };
+  expect((await post(body, auth.body.csrf)).status).toBe(409);
+});
