@@ -1,8 +1,8 @@
 /** Credential-free real Podman initializer → mounted source API → source host → SQLite,
  * then production review composition → charged initial child admission and staged delivery.
  * App passphrase, configured local repository and custody are disposable test fixtures.
- * Direct native writer/reviewer probes make no model calls; review-result and publication
- * acceptance are outside this contract. */
+ * Direct native writer/reviewer probes make no model calls; production review admission
+ * remains closed without trusted provider completion and an exact writer seal. */
 import { expect, it } from 'vitest';
 import express from 'express';
 import request from 'supertest';
@@ -298,6 +298,10 @@ it.skipIf(!physical)(
       let initialAdmission: unknown;
       let boundAttempt: unknown;
       let deliveryControl: unknown;
+      let preSealGate: unknown;
+      let reviewComposition:
+        ReturnType<typeof createSymposiumProductionReviewComposition> | undefined;
+      let reviewCoordinator: SymposiumReviewCoordinator | undefined;
       const nativeChild: unknown[] = [];
       const events = new EventStore(database);
       const reviews = new SymposiumReviewStore(database);
@@ -462,7 +466,7 @@ it.skipIf(!physical)(
             assertArtifactAdmissionCurrent: (id: string, reference: never) =>
               events.assertSymposiumArtifactAdmissionCurrent(id, reference),
             artifactLeaseHost: leaseHost,
-            attemptRegistry: { observations: {}, get: () => null },
+            attemptRegistry: { observations: new Map(), get: () => null },
             currentProfiles: () => ({ resume: () => {}, validateModelSelection: () => {} }),
           },
           events,
@@ -473,65 +477,65 @@ it.skipIf(!physical)(
           runtime: () => orchestrator,
           retainedRuntime: () => null,
         } as never);
-        try {
-          const context = { owner: actor, sessionId };
-          const coordinator = new SymposiumReviewCoordinator(reviews, composition.reviewHost);
-          expect(
-            coordinator.startApplicationRun(context, {
-              workflowId: 'workflow',
-              acceptanceCriteria: ['criterion.txt contains INITIAL_CHILD_NATIVE'],
-              limits: {
-                version: 1,
-                mode: 'application',
-                maxHostTurns: 4,
-                maxReviewCycles: 1,
-                deadlineAt: Date.now() + 240_000,
-                noProgressLimit: 1,
-              },
-              expectedArtifactRevision: parentGit.commit,
-              expectedArtifactHash: parentGit.committedTreeDigest,
-            }),
-          ).toMatchObject({ status: 'awaiting_initial', hostTurns: 0 });
-          expect(
-            await coordinator.reserveWithTransition(
-              context,
-              'workflow',
-              'initial',
-              'initial-attempt',
-            ),
-          ).toMatchObject({ kind: 'reserved_not_dispatched', attemptId: 'initial-attempt' });
-          const retainedCharge = reviews.get('workflow')!;
-          expect(retainedCharge).toMatchObject({
-            hostTurns: 1,
-            applicationPreparations: [
-              { kind: 'initial', status: 'bound', attemptId: 'initial-attempt' },
-            ],
-          });
-          chargedPreparation = retainedCharge.applicationPreparations[0];
-          boundAttempt = retainedCharge.applicationAttempts[0];
-          expect(boundAttempt).toMatchObject({ kind: 'initial', dispatched: false });
-          const delivery = events.getSymposiumDelivery(
-            retainedCharge.applicationAttempts[0].binding.deliveryId,
-          );
-          expect(delivery).toMatchObject({
-            configRevision: 2,
-            recipients: [{ seatId: 'seat', membershipGeneration: 2 }],
-          });
-          deliveryControl = events.getSymposiumApplicationDeliveryControl(delivery!.deliveryId);
-          expect(deliveryControl).toMatchObject({
+        reviewComposition = composition;
+        const context = { owner: actor, sessionId };
+        const coordinator = new SymposiumReviewCoordinator(reviews, composition.reviewHost);
+        reviewCoordinator = coordinator;
+        expect(
+          coordinator.startApplicationRun(context, {
             workflowId: 'workflow',
-            attemptId: 'initial-attempt',
-          });
-          expect(initialChild).toBeDefined();
-          expect(
-            events.getSymposiumArtifactAdmission(
-              sessionId,
-              retainedCharge.applicationPreparations[0].transitionId,
-            ),
-          ).toMatchObject({ receipt: { pointerRevision: 1 } });
-        } finally {
-          composition.close();
-        }
+            acceptanceCriteria: ['criterion.txt contains INITIAL_CHILD_NATIVE'],
+            limits: {
+              version: 1,
+              mode: 'application',
+              maxHostTurns: 4,
+              maxReviewCycles: 1,
+              deadlineAt: Date.now() + 240_000,
+              noProgressLimit: 1,
+            },
+            expectedArtifactRevision: parentGit.commit,
+            expectedArtifactHash: parentGit.committedTreeDigest,
+          }),
+        ).toMatchObject({ status: 'awaiting_initial', hostTurns: 0 });
+        expect(
+          await coordinator.reserveWithTransition(
+            context,
+            'workflow',
+            'initial',
+            'initial-attempt',
+          ),
+        ).toMatchObject({ kind: 'reserved_not_dispatched', attemptId: 'initial-attempt' });
+        const retainedCharge = reviews.get('workflow')!;
+        expect(retainedCharge).toMatchObject({
+          hostTurns: 1,
+          applicationPreparations: [
+            { kind: 'initial', status: 'bound', attemptId: 'initial-attempt' },
+          ],
+        });
+        chargedPreparation = retainedCharge.applicationPreparations[0];
+        boundAttempt = retainedCharge.applicationAttempts[0];
+        expect(boundAttempt).toMatchObject({ kind: 'initial', dispatched: false });
+        const delivery = events.getSymposiumDelivery(
+          retainedCharge.applicationAttempts[0].binding.deliveryId,
+        );
+        expect(delivery).toMatchObject({
+          configRevision: 2,
+          recipients: [{ seatId: 'seat', membershipGeneration: 2 }],
+        });
+        deliveryControl = events.getSymposiumApplicationDeliveryControl(delivery!.deliveryId);
+        expect(deliveryControl).toMatchObject({
+          workflowId: 'workflow',
+          attemptId: 'initial-attempt',
+        });
+        expect(initialChild).toBeDefined();
+        expect(
+          events.getSymposiumArtifactAdmission(
+            sessionId,
+            retainedCharge.applicationPreparations[0].transitionId,
+          ),
+        ).toMatchObject({ receipt: { pointerRevision: 1 } });
+        // Keep the exact production composition live for the post-write
+        // observation gate below; the outer finally closes it.
         const copied = initialChild!;
         const quote = (value: string) => "'" + value.replaceAll("'", "'\\''") + "'";
         const native = (
@@ -590,7 +594,42 @@ it.skipIf(!physical)(
         const denied = `from pathlib import Path\ntry:\n Path('${target}/forbidden').write_text('bad')\nexcept OSError as e:\n print('DENIED_'+str(e.errno))\n raise SystemExit(1)\nraise SystemExit(0)`;
         expect((await native('ro', 'write', denied, 1))[0]).toMatch(/^DENIED_(13|30)$/);
         expect((await native('rw', 'read', denied, 1))[0]).toBe('DENIED_13');
+        // A real physical write and independent read do not stand in for the
+        // trusted native provider completion, execution observation or seal.
+        // The application workflow must stay before reviewer admission.
+        const reviewContext = { owner: actor, sessionId };
+        const initialDecision = reviewCoordinator!.recordInitialResult(
+          reviewContext,
+          'workflow',
+          'initial-attempt',
+        );
+        expect(initialDecision).toMatchObject({
+          kind: 'decision_required',
+          code: 'host_initial_receipt_required',
+        });
+        await expect(
+          reviewCoordinator!.reserveWithTransition(
+            reviewContext,
+            'workflow',
+            'review',
+            'premature-review',
+          ),
+        ).rejects.toThrow('Current artifact seal unavailable');
+        expect(reviews.get('workflow')).toMatchObject({
+          status: 'awaiting_initial',
+          hostTurns: 1,
+          reviewCycles: 0,
+        });
+        expect(reviews.get('workflow')!.applicationAttempts).toHaveLength(1);
+        preSealGate = {
+          initialResult: initialDecision,
+          reviewerPreparation: 'denied:Current artifact seal unavailable',
+          hostTurns: 1,
+          reviewCycles: 0,
+          retainedAttempts: 1,
+        };
       } finally {
+        reviewComposition?.close();
         reviews.close();
         events.close();
         leaseHost.close();
@@ -674,6 +713,7 @@ it.skipIf(!physical)(
             initialAdmission,
             boundAttempt,
             deliveryControl,
+            preSealGate,
             nativeChild,
             verified,
             mapping,
@@ -683,7 +723,7 @@ it.skipIf(!physical)(
             remoteFetch: false,
             applicationCredentials: false,
             simulatedBoundary:
-              'production review composition, charged initial preparation, real Podman child, two-owner admission and staged delivery; disposable app passphrase/custody; native provider dispatch/result, reviewer transition, budget and publication remain untested',
+              'production review composition, charged initial preparation, real Podman child, two-owner admission and staged delivery, native writer commit, independent read-only physical probe and fail-closed pre-seal reviewer gate; disposable app passphrase/custody; native provider dispatch/result, positive reviewer transition, budget and publication remain untested',
           },
           null,
           2,
