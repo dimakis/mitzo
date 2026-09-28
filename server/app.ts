@@ -38,6 +38,7 @@ import {
 import {
   completedPublicationArtifact,
   completedSealHash,
+  publicationSealFenceForRecord,
   type CompletedPublicationHost,
 } from './symposium-publication-artifact.js';
 import { createPublicationRouter } from './symposium-publication-routes.js';
@@ -1060,10 +1061,19 @@ export function installSymposiumProductionHost(host: SymposiumProductionHost): v
     symposiumPublication = new PublicationRegistration({
       describeArtifact: async (sessionId, recordId, signal) => {
         const record = symposiumReviewStore.getReviewRecord('user', sessionId, recordId);
-        const intent = eventStore.getSymposiumArtifactSealIntent(sessionId);
+        const fenceId = record && publicationSealFenceForRecord(record);
+        const intent = fenceId && eventStore.getSymposiumArtifactSealByFence(fenceId);
         if (!record || !intent)
           throw new Error('Trusted review record and completed seal required');
         const seal = await host.requireCompletedArtifactSeal!(intent.fenceId, signal);
+        if (
+          seal.sessionId !== sessionId ||
+          seal.fenceId !== intent.fenceId ||
+          seal.git.commit !== record.snapshot.artifactRevision ||
+          seal.git.committedTreeDigest !== record.snapshot.artifactHash ||
+          intent.selection.sessionId !== sessionId
+        )
+          throw new Error('Trusted review record seal changed');
         return {
           recordId: record.recordId,
           recordHash: record.contentHash,

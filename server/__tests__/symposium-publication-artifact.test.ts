@@ -3,9 +3,53 @@ import { SymposiumReviewStore } from '../symposium-review-workflows.js';
 import {
   completedPublicationArtifact,
   completedSealHash,
+  publicationSealFenceForRecord,
 } from '../symposium-publication-artifact.js';
 import type { CompletedArtifactSeal } from '../symposium-physical-artifact-seal.js';
+import type { ImmutableReviewRecord } from '../symposium-review-workflows.js';
 const store = new SymposiumReviewStore(':memory:');
+
+it('selects the final fix seal from immutable verified history instead of an ambiguous session seal', () => {
+  const result = (resultId: string, revision: string, fenceId: string) => ({
+    version: 1 as const,
+    resultId,
+    attemptId: `${resultId}-attempt`,
+    inputRevision: 'parent',
+    inputHash: 'a'.repeat(64),
+    artifactRevision: revision,
+    artifactHash: 'b'.repeat(64),
+    summary: 'Physically sealed result',
+    evidenceRefs: [`artifact-seal:${fenceId}`],
+    completedAt: 1,
+  });
+  const record = {
+    snapshot: {
+      artifactRevision: 'final-commit',
+      artifactHash: 'b'.repeat(64),
+      workflow: { currentResultId: 'fix-result' },
+      history: [
+        {
+          action: 'initial_result_recorded',
+          detail: { result: result('initial-result', 'initial-commit', 'initial-fence') },
+        },
+        {
+          action: 'fix_recorded',
+          detail: { result: result('fix-result', 'final-commit', 'final-fence') },
+        },
+      ],
+    },
+  } as ImmutableReviewRecord;
+  expect(publicationSealFenceForRecord(record)).toBe('final-fence');
+  expect(() =>
+    publicationSealFenceForRecord({
+      ...record,
+      snapshot: {
+        ...record.snapshot,
+        history: [...record.snapshot.history, record.snapshot.history[1]],
+      },
+    }),
+  ).toThrow('Exact verified result seal unavailable');
+});
 
 const scope = {
   owner: 'user',
