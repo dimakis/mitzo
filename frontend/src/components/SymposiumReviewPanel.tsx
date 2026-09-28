@@ -160,7 +160,9 @@ function ReviewPanel({ sessionId }: { sessionId: string }) {
     ? workflow?.applicationPreparations?.find((preparation) => preparation.status === 'preparing')
     : undefined;
   const settledPreparation = application
-    ? workflow?.applicationPreparations?.findLast((preparation) => preparation.status === 'settled')
+    ? workflow?.applicationPreparations
+        ?.filter((preparation) => preparation.status === 'settled')
+        .at(-1)
     : undefined;
   const pending = pendingPreparation ?? pendingAttempt;
   const pendingKind =
