@@ -279,12 +279,28 @@ export async function sealImportedSourceArtifact(
   };
   const censusHelper = async (knownId?: string): Promise<string | null> => {
     const rows: unknown = JSON.parse(
-      await deps.command(['ps', '--all', '--no-trunc', '--format', 'json']),
+      await deps.command([
+        'ps',
+        '--all',
+        '--no-trunc',
+        '--filter',
+        `name=^${helperName}$`,
+        '--format',
+        'json',
+      ]),
     );
     if (!Array.isArray(rows) || rows.length > 128)
       throw new Error('Source seal helper census unavailable');
     let found: string | null = null;
     for (const entry of rows) {
+      // The filter is a Podman regex; check the returned name ourselves before
+      // inspecting an ID that an unrelated concurrent cleanup may remove.
+      const names = entry?.Names;
+      if (
+        !Array.isArray(names) ||
+        !names.some((name) => typeof name === 'string' && name.replace(/^\//, '') === helperName)
+      )
+        continue;
       const id = String(entry?.Id ?? entry?.ID ?? '');
       if (!containerId.test(id)) throw new Error('Source seal helper census unavailable');
       const inspected: unknown = JSON.parse(await deps.command(['inspect', id]));

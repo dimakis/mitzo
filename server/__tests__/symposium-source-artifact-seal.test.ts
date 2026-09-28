@@ -98,7 +98,14 @@ it.each([
             },
           },
         ]);
-      if (args[0] === 'ps') return JSON.stringify([]);
+      // Deliberately ignore the requested Podman name filter: an unrelated
+      // container may disappear between census and per-ID inspect.
+      if (args[0] === 'ps')
+        return JSON.stringify(
+          args.includes('name=^mitzo-artifacts-source-source-seal$')
+            ? [{ Id: 'f'.repeat(64), Names: ['unrelated-disposable-helper'] }]
+            : [],
+        );
       if (args[0] === 'create') {
         helperCommand = [...args.slice(args.indexOf('image') + 1)];
         return helperId;
@@ -151,6 +158,14 @@ it.each([
     expect(journal.observed).toHaveBeenCalledTimes(matches && validName ? 1 : 0);
     expect(journal.exported).toHaveBeenCalledTimes(matches && validName ? 1 : 0);
     expect(artifacts.completeSourceSeal).toHaveBeenCalledTimes(matches && validName ? 1 : 0);
+    expect(
+      command.mock.calls.some(([args]) => args[0] === 'inspect' && args[1] === 'f'.repeat(64)),
+    ).toBe(false);
+    expect(
+      command.mock.calls.some(
+        ([args]) => args[0] === 'ps' && args.includes('name=^mitzo-artifacts-source-source-seal$'),
+      ),
+    ).toBe(true);
     expect(
       command.mock.calls.some(
         ([args]) =>
@@ -293,7 +308,10 @@ it.each([
             },
           },
         ]);
-      if (args[0] === 'ps') return JSON.stringify(exists ? [{ Id: helperId }] : []);
+      if (args[0] === 'ps')
+        return JSON.stringify(
+          exists ? [{ Id: helperId, Names: [`${volumeName}-source-seal`] }] : [],
+        );
       if (args[0] === 'inspect') {
         if (
           failure === 'afterExport' &&
