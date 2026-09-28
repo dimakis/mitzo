@@ -133,6 +133,14 @@ export function getOwnerConnection(clientId: string): string {
   return colonIdx === -1 ? clientId : clientId.slice(0, colonIdx);
 }
 
+function notifyPreviousOwner(ctx: V2HandlerContext, connectionId: string, sessionId: string): void {
+  // The session transport may be a REST wrapper that stays "open" to persist
+  // events after its SSE connection closes. A takeover notice is connection-
+  // local and must never pass through that durable session transport.
+  const transport = ctx.connRegistry.get(connectionId)?.transport;
+  if (transport?.isOpen()) transport.send({ type: 'session_takeover', sessionId });
+}
+
 // ─── State mismatch detection (Phase 2) ─────────────────────────────────────
 
 export interface StateMismatchResult {
@@ -325,9 +333,7 @@ export function handleReconnect(
           const ownerConnection =
             found!.session?.ownerConnectionId ?? getOwnerConnection(found!.clientId);
           if (ownerConnection !== connectionId) {
-            const oldTransport = found!.session?.transport;
-            if (oldTransport?.isOpen())
-              oldTransport.send({ type: 'session_takeover', sessionId: entry.sessionId });
+            notifyPreviousOwner(ctx, ownerConnection, entry.sessionId);
             ctx.connRegistry.unwatch(ownerConnection, entry.sessionId);
           }
 
@@ -924,10 +930,7 @@ export function handleSendV2(
 
             const activeClientId = found.clientId;
             if (!isOwner) {
-              const oldTransport = found.session?.transport;
-              if (oldTransport?.isOpen()) {
-                oldTransport.send({ type: 'session_takeover', sessionId });
-              }
+              notifyPreviousOwner(ctx, ownerConnection, sessionId);
               ctx.connRegistry.unwatch(ownerConnection, sessionId);
               denyPendingBySession(sessionId);
 
@@ -1204,10 +1207,7 @@ export function handleInterruptV2(
         const isDetached = !ctx.sessionRegistry.isAttached(found.clientId);
 
         if (!isOwner) {
-          const oldTransport = found.session?.transport;
-          if (oldTransport?.isOpen()) {
-            oldTransport.send({ type: 'session_takeover', sessionId: msg.sessionId });
-          }
+          notifyPreviousOwner(ctx, ownerConnection, msg.sessionId);
           ctx.connRegistry.unwatch(ownerConnection, msg.sessionId);
           denyPendingBySession(msg.sessionId);
 

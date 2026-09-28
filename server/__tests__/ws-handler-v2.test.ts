@@ -2778,6 +2778,39 @@ describe('handleSendV2 connection ownership', () => {
     (isActive as ReturnType<typeof vi.fn>).mockReturnValue(false);
   });
 
+  it('does not publish a takeover notice through a stale durable transport', () => {
+    (sendToChat as ReturnType<typeof vi.fn>).mockClear();
+    (reattachChat as ReturnType<typeof vi.fn>).mockClear();
+    (isActive as ReturnType<typeof vi.fn>).mockReturnValueOnce(true);
+
+    const sessionReg = mockSessionRegistry();
+    const durableTransport = mockTransport();
+    sessionReg.findBySessionId.mockReturnValue({
+      clientId: 'old-conn:sess-1',
+      session: { ownerConnectionId: 'old-conn', transport: durableTransport },
+    });
+    sessionReg.isActive.mockReturnValue(true);
+
+    const ctx = createContext({
+      sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
+    });
+    const transport = mockTransport();
+    ctx.connRegistry.register('new-conn', transport);
+
+    handleSendV2(
+      'new-conn',
+      transport,
+      { type: 'send', sessionId: 'sess-1', prompt: 'continue', clientMsgId: 'cmsg-reconnect' },
+      ctx,
+    );
+
+    expect(durableTransport.sent).not.toContainEqual(
+      expect.objectContaining({ type: 'session_takeover' }),
+    );
+    expect(sendToChat).toHaveBeenCalled();
+    (isActive as ReturnType<typeof vi.fn>).mockReturnValue(false);
+  });
+
   it('allows send when owner connection is gone (same device reconnect)', () => {
     (sendToChat as ReturnType<typeof vi.fn>).mockClear();
     (reattachChat as ReturnType<typeof vi.fn>).mockClear();
