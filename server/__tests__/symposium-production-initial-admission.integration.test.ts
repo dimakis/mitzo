@@ -147,7 +147,29 @@ it('charges, confirms the exact source child, and persists one bound initial att
       return { reference: confirmed.reference, receipt: confirmed.receipt };
     },
   );
-  const orchestrator = new SymposiumOrchestrator({ store: events, executors: {} });
+  const orchestrator = new SymposiumOrchestrator({
+    store: events,
+    executors: {},
+    artifactReady: (sessionId, seatId, generation) =>
+      Boolean(events.getSymposiumArtifactReference(sessionId, seatId, generation)),
+  });
+  for (const seatId of ['coder', 'reviewer'])
+    orchestrator.recordProviderAdmission({
+      sessionId: context.sessionId,
+      seatId,
+      decision: 'admitted',
+      idempotencyKey: `preinitial-${seatId}`,
+    });
+  expect(() =>
+    orchestrator.stageDelivery({
+      sessionId: context.sessionId,
+      sourceSeatId: null,
+      recipientSeatIds: ['coder'],
+      originalContent: 'Premature work',
+      idempotencyKey: 'premature-work',
+    }),
+  ).toThrow('not active');
+  expect(events.getSymposiumDeliveries(context.sessionId)).toEqual([]);
   const stageDelivery = vi.fn((input: Parameters<SymposiumOrchestrator['stageDelivery']>[0]) => {
     order.push('delivery');
     return orchestrator.stageDelivery(input);

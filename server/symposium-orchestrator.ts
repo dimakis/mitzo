@@ -74,6 +74,8 @@ export interface SymposiumOrchestratorDeps {
   stopSeat?: (input: { sessionId: string; seatId: string; generation: number }) => Promise<void>;
   reconcileProviders?: (input: { sessionId: string; requiredProviders: string[] }) => Promise<void>;
   retainedProviders?: (sessionId: string) => string[];
+  /** Host proof that a seat has an executable artifact, independent of provider admission. */
+  artifactReady?: (sessionId: string, seatId: string, generation: number) => boolean;
   /** Host-only verification, recorded after the durable generation exists. */
   admitSeat?: (input: {
     sessionId: string;
@@ -94,6 +96,7 @@ export class SymposiumOrchestrator {
   private readonly reconcileProviders?: SymposiumOrchestratorDeps['reconcileProviders'];
   private readonly retainedProviders: (sessionId: string) => string[];
   private readonly admitSeat?: SymposiumOrchestratorDeps['admitSeat'];
+  private readonly artifactReady?: SymposiumOrchestratorDeps['artifactReady'];
   private readonly running = new Map<string, Promise<SymposiumDeliveryRecord>>();
   private readonly abortControllers = new Map<string, AbortController>();
   private readonly reconciliationQueues: Map<string, Promise<void>>;
@@ -109,6 +112,7 @@ export class SymposiumOrchestrator {
     this.reconcileProviders = deps.reconcileProviders;
     this.retainedProviders = deps.retainedProviders ?? (() => []);
     this.admitSeat = deps.admitSeat;
+    this.artifactReady = deps.artifactReady;
     this.reconciliationQueues = sharedReconciliationQueues.get(deps.store) ?? new Map();
     sharedReconciliationQueues.set(deps.store, this.reconciliationQueues);
   }
@@ -540,7 +544,9 @@ export class SymposiumOrchestrator {
           membership?.state !== 'active' ||
           membership.reconciliation !== 'confirmed' ||
           admission?.decision !== 'admitted' ||
-          admission.membershipGeneration !== membership.generation
+          admission.membershipGeneration !== membership.generation ||
+          (this.artifactReady &&
+            !this.artifactReady(input.sessionId, seat.id, membership.generation))
         ) {
           throw new Error(`Symposium seat ${seat.id} is not active`);
         }

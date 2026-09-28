@@ -1028,6 +1028,8 @@ export interface SymposiumProductionHost {
       | import('@mitzo/protocol').ArtifactReaderReferenceV1,
   ) => void;
   artifactLeaseHost: SqliteArtifactLeaseHost;
+  preinitialSource?: (sessionId: string) => boolean;
+  artifactReady?: (sessionId: string, seatId: string, generation: number) => boolean;
   artifactRequest(
     sessionId: string,
     seatId: string,
@@ -1191,6 +1193,8 @@ let symposiumRuntimeForSession: (sessionId: string) => SymposiumOrchestrator | n
       }),
       artifactLeaseHost: host.artifactLeaseHost,
       artifactRequest: host.artifactRequest,
+      preinitialSource: host.preinitialSource,
+      artifactReady: host.artifactReady,
       resolveSeatPolicy: host.resolveSeatPolicy,
       runSandboxCreation: host.runSandboxCreation,
       verifiedCodexControllerCommand: SYMPOSIUM_CODEX_CONTROLLER_COMMAND,
@@ -1391,6 +1395,8 @@ app.use(
   operatorAuthMiddleware,
   createSymposiumDirectorRouter({
     store: eventStore,
+    artifactReady: (sessionId, seatId, generation) =>
+      symposiumProductionHost?.artifactReady?.(sessionId, seatId, generation) ?? true,
     getRuntime: (sessionId) => symposiumRuntimeForSession(sessionId),
     getSafetyOrchestrator: () => symposiumSafetyOrchestrator,
     profileBindingEnforced: true,

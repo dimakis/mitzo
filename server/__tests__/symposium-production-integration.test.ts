@@ -107,6 +107,80 @@ describe('production Symposium route to native runtime', () => {
     for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
   });
 
+  it('confirms sealed-source members without mounting the parent or staging work before a child', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'mitzo-preinitial-source-'));
+    roots.push(root);
+    const store = new EventStore(join(root, 'events.db'));
+    store.upsertSession({ sessionId: 'symposium', accountBinding: seat.accountBinding });
+    store.setSymposiumConfig('symposium', config);
+    const managerFactory = vi.fn(() => ({ ensure: vi.fn() }));
+    const artifactRequest = vi.fn(() => {
+      throw new Error('sealed source cannot be mounted');
+    });
+    const preinitialSource = vi.fn(() => true);
+    const artifactReady = vi.fn(() => false);
+    const runtime = createSymposiumSessionRuntime({
+      sessionId: 'symposium',
+      store,
+      profiles,
+      hostGrants: { verifySeat: vi.fn() },
+      codexStore: {} as never,
+      resolveProviderIdentity: (name, id) => ({ name, id, type: 'openai', workspace: 'default' }),
+      runtimeConfig,
+      perSeatSandboxVerified: true,
+      allowedSeatRoles: new Set(['implementer']),
+      allowedAccountProviders: new Set(['openai']),
+      readOnlyEnforced: { openaiApi: false, claudeVertex: false },
+      recordAccepted: vi.fn(() => true),
+      managerFactory,
+      artifactRequest,
+      artifactLeaseHost: {} as never,
+      preinitialSource,
+      artifactReady,
+    });
+    const membership = await runtime.orchestrator.transitionMembership({
+      sessionId: 'symposium',
+      seatId: 'builder',
+      action: 'admit',
+      expectedGeneration: 0,
+      configRevision: 1,
+      actor: 'owner',
+      reason: 'Approved',
+      idempotencyKey: 'preinitial',
+    });
+    expect(membership.reconciliation).toBe('confirmed');
+    expect(preinitialSource).toHaveBeenCalledWith('symposium');
+    expect(artifactRequest).not.toHaveBeenCalled();
+    expect(managerFactory).not.toHaveBeenCalled();
+    expect(store.listSymposiumSessionSandboxes('symposium')).toEqual([]);
+    expect(() =>
+      runtime.orchestrator.stageDelivery({
+        sessionId: 'symposium',
+        sourceSeatId: null,
+        recipientSeatIds: ['builder'],
+        originalContent: 'Do work',
+        idempotencyKey: 'premature',
+      }),
+    ).toThrow('not active');
+    expect(store.getSymposiumDeliveries('symposium')).toEqual([]);
+    expect(artifactReady).toHaveBeenCalledWith('symposium', 'builder', 1);
+    preinitialSource.mockReturnValue(false);
+    artifactReady.mockReturnValue(true);
+    const later = await runtime.orchestrator.transitionMembership({
+      sessionId: 'symposium',
+      seatId: 'anchor',
+      action: 'admit',
+      expectedGeneration: 0,
+      configRevision: 1,
+      actor: 'owner',
+      reason: 'Child admitted',
+      idempotencyKey: 'after-child',
+    });
+    expect(later.reconciliation).toBe('recovery_required');
+    expect(artifactRequest).toHaveBeenCalledWith('symposium', 'anchor', 1);
+    store.close();
+  });
+
   it('does not admit a seat whose physical provider is absent from the host attestation', async () => {
     const root = mkdtempSync(join(tmpdir(), 'mitzo-symposium-unattested-provider-'));
     roots.push(root);

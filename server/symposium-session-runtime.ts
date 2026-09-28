@@ -1360,6 +1360,10 @@ export interface SymposiumSessionRuntimeDeps extends Omit<
     purpose?: 'admission' | 'cleanup',
   ) => ArtifactLeaseRequest;
   artifactLeaseHost?: SqliteArtifactLeaseHost;
+  /** Trusted owner proves a sealed imported source has no executable predecessor. */
+  preinitialSource?: (sessionId: string) => boolean;
+  /** A sealed source needs a confirmed child reference before execution. */
+  artifactReady?: (sessionId: string, seatId: string, generation: number) => boolean;
 }
 
 /** Host-held factory. Callers must supply durable grants, exact receipts, and verified policy. */
@@ -1560,6 +1564,7 @@ export function createSymposiumSessionRuntime(deps: SymposiumSessionRuntimeDeps)
     store: deps.store,
     executors,
     claimIdFactory: deps.claimIdFactory,
+    artifactReady: deps.artifactReady,
     admitSeat: ({ sessionId, seatId, generation, retained }) => {
       if (sessionId !== deps.sessionId)
         throw new Error('Symposium admission belongs to another session');
@@ -1685,8 +1690,12 @@ export function createSymposiumSessionRuntime(deps: SymposiumSessionRuntimeDeps)
         ) !== JSON.stringify([...requiredProviders].sort())
       )
         throw new Error('Symposium required provider union changed before reconciliation');
-      for (const candidate of active)
-        await owner.ensure(sessionId, candidate.id, new AbortController().signal);
+      // A sealed import is a read-only parent. Confirm provider and membership
+      // authority without ever reserving or mounting a seat on that volume.
+      if (!deps.preinitialSource?.(sessionId)) {
+        for (const candidate of active)
+          await owner.ensure(sessionId, candidate.id, new AbortController().signal);
+      }
       for (const snapshot of snapshots) snapshot.verify();
     },
     retainedProviders: () => [],

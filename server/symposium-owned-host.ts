@@ -1018,6 +1018,58 @@ export async function createOwnedSymposiumHost(
       },
       artifactLeaseHost: leaseHost,
       artifactRequest,
+      preinitialSource(sessionId: string) {
+        custody();
+        const status = sessionArtifacts!.sourceImportStatus(sessionId);
+        if (
+          ['empty', 'unprepared'].includes(status.state) &&
+          !sessionArtifacts!.sourceSealStatus(sessionId)
+        )
+          return false;
+        const source = requireCompletedImportedSourceSeal(
+          sessionArtifacts!,
+          artifactOwner,
+          sessionId,
+        );
+        if (!(options.facts instanceof EventStore))
+          throw new Error('Imported source bootstrap requires retained EventStore');
+        const config = options.facts.getActiveSymposiumConfig(sessionId);
+        if (config.version !== 2 || config.state !== 'active')
+          throw new Error('Active imported source configuration required');
+        for (const seat of config.seats) {
+          const member = options.facts.getLatestSymposiumMembership(sessionId, seat.id);
+          if (
+            member?.state === 'active' &&
+            options.facts.getSymposiumArtifactReference(sessionId, seat.id, member.generation)
+          )
+            return false;
+        }
+        sourceSealDeps().assertNoNativeClaims(sessionId);
+        return source.receipt.sessionId === sessionId;
+      },
+      artifactReady(sessionId: string, seatId: string, generation: number) {
+        custody();
+        const status = sessionArtifacts!.sourceImportStatus(sessionId);
+        if (
+          ['empty', 'unprepared'].includes(status.state) &&
+          !sessionArtifacts!.sourceSealStatus(sessionId)
+        )
+          return true;
+        requireCompletedImportedSourceSeal(sessionArtifacts!, artifactOwner, sessionId);
+        if (!(options.facts instanceof EventStore)) return false;
+        const reference = options.facts.getSymposiumArtifactReference(
+          sessionId,
+          seatId,
+          generation,
+        );
+        if (!reference) return false;
+        try {
+          assertArtifactAdmissionCurrent(sessionId, reference);
+          return true;
+        } catch {
+          return false;
+        }
+      },
       ensureSessionArtifacts,
       sourceImport: {
         status: sourceImporter.status,

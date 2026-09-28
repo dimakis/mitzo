@@ -163,6 +163,37 @@ describe('explicit owned Symposium host composition', () => {
     expect(() => host.artifactRequest('session', 'seat', 2)).toThrow('mapping');
     host.stop();
   });
+  it('keeps an incomplete imported source out of bootstrap and execution readiness', async () => {
+    const f = fixture();
+    const host = await createOwnedSymposiumHost(f.options, f.launch);
+    const db = new Database(join(f.root, 'session-artifacts.db'));
+    try {
+      expect(host.preinitialSource('session')).toBe(false);
+      expect(host.artifactReady('session', 'seat', 2)).toBe(true);
+      db.prepare(
+        `INSERT INTO symposium_session_artifacts
+        (session_id,workspace,custody,volume_name,generation,state,source_import_json,source_seal_json)
+        VALUES (?,?,?,?,?,'ready',?,?)`,
+      ).run(
+        'session',
+        'workspace',
+        f.root,
+        'source-volume',
+        'source-generation',
+        JSON.stringify({ receipt: { operationId: 'import' } }),
+        JSON.stringify({ state: 'pending' }),
+      );
+      expect(() => host.preinitialSource('session')).toThrow('completed source seal');
+      expect(() => host.artifactReady('session', 'seat', 2)).toThrow('completed source seal');
+      f.gateway.verifyCustody.mockImplementation(() => {
+        throw new Error('custody lost');
+      });
+      expect(() => host.artifactReady('session', 'seat', 2)).toThrow('custody lost');
+    } finally {
+      db.close();
+      host.stop();
+    }
+  });
   it.each(['suspended', 'removed'])(
     'retains exact artifact cleanup identity after %s and role replacement',
     async (state) => {
@@ -404,6 +435,8 @@ it('provisions a new draft through owned argv and makes its checked mapping avai
   const host = await createOwnedSymposiumHost(f.options, f.launch, undefined, command);
   try {
     expect(await host.ensureSessionArtifacts('new-session')).toEqual({ state: 'ready' });
+    expect(host.preinitialSource('new-session')).toBe(false);
+    expect(host.artifactReady('new-session', 'seat', 2)).toBe(true);
     expect(host.sourceImport.status('new-session')).toMatchObject({
       available: true,
       admissionIssued: false,

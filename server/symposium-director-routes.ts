@@ -45,6 +45,7 @@ export interface SymposiumDirectorRouteDeps {
   store: DirectorStore;
   /** The verified session runtime. Null means admission and dispatch are unavailable. */
   getRuntime(sessionId: string): SymposiumOrchestrator | null;
+  artifactReady?: (sessionId: string, seatId: string, generation: number) => boolean;
   /** Can fence existing membership even when runtime cleanup is unavailable. */
   getSafetyOrchestrator(sessionId: string): SymposiumOrchestrator;
   validateSelection(seat: SeatConfig): void;
@@ -540,12 +541,20 @@ export function createSymposiumDirectorRouter(deps: SymposiumDirectorRouteDeps):
           seat.id,
           diagnosticActor ? `operator:${diagnosticActor}` : undefined,
         ) ?? null;
+      let executable = false;
+      if (admitted && !creationDiagnostic && membership) {
+        try {
+          executable = deps.artifactReady?.(sessionId, seat.id, membership.generation) ?? true;
+        } catch {
+          executable = false;
+        }
+      }
       return {
         seatId: seat.id,
         seat,
         membership: membership ?? null,
         admission: admission ?? null,
-        admitted: admitted && !creationDiagnostic,
+        admitted: executable,
         creationDiagnostic,
       };
     });
