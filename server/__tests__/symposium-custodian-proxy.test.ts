@@ -105,6 +105,61 @@ it('requires recent authorization before forwarding exact source seal recovery',
     expect.any(AbortSignal),
   );
 });
+it('forwards only authenticated, bounded review operations with session and record scope', async () => {
+  const invoke = vi.fn(async () => ({ status: 200, body: { ok: true } }));
+  const app = express();
+  app.use(express.json({ limit: '2mb' }));
+  app.use(createCustodianProxy({ request: invoke, invalidate: vi.fn() }));
+  const token = (await login(process.env.AUTH_PASSPHRASE!))!;
+  const base = '/api/sessions/s1/symposium/reviews';
+  const cases = [
+    ['GET', base, 'review.list', undefined],
+    ['POST', `${base}/application-runs`, 'review.startApplication', undefined],
+    ['GET', `${base}/flow`, 'review.workflow', 'flow'],
+    ['POST', `${base}/flow/actions`, 'review.action', 'flow'],
+    ['GET', `${base}/records/record`, 'review.record', 'record'],
+    [
+      'POST',
+      `${base}/records/record/publication-preflight`,
+      'review.publicationPreflight',
+      'record',
+    ],
+  ] as const;
+  for (const [method, path, operation, resourceId] of cases) {
+    const response = await request(app)
+      [method.toLowerCase() as 'get' | 'post'](path)
+      .set('Authorization', `Bearer ${token}`)
+      .send(method === 'POST' ? { expectedArtifactRevision: '1' } : undefined);
+    expect(response.status).toBe(200);
+    expect(invoke.mock.lastCall?.[0]).toMatchObject({
+      operation,
+      sessionId: 's1',
+      ...(resourceId ? { resourceId } : {}),
+    });
+  }
+  const calls = invoke.mock.calls.length;
+  expect((await request(app).get(base)).status).toBe(403);
+  expect(
+    (
+      await request(app)
+        .post(`${base}/application-runs`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ actor: 'forged' })
+    ).status,
+  ).toBe(400);
+  expect(
+    (
+      await request(app)
+        .post(`${base}/flow/actions`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ acceptanceCriteria: 'x'.repeat(1_048_577) })
+    ).status,
+  ).toBe(400);
+  expect(
+    (await request(app).post(base).set('Authorization', `Bearer ${token}`).send({})).status,
+  ).toBe(400);
+  expect(invoke).toHaveBeenCalledTimes(calls);
+});
 it('forwards logout invalidation while a semantic request is in flight', async () => {
   const invalidate = vi.fn();
   let complete!: () => void;

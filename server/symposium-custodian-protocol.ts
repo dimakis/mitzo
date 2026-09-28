@@ -48,6 +48,18 @@ const operations = {
   'source.preview': ['POST', '/api/sessions/:sessionId/symposium/source/preview'],
   'source.import': ['POST', '/api/sessions/:sessionId/symposium/source/import'],
   'source.sealRecover': ['POST', '/api/sessions/:sessionId/symposium/source/seal/recover'],
+  'review.list': ['GET', '/api/sessions/:sessionId/symposium/reviews'],
+  'review.startApplication': [
+    'POST',
+    '/api/sessions/:sessionId/symposium/reviews/application-runs',
+  ],
+  'review.workflow': ['GET', '/api/sessions/:sessionId/symposium/reviews/:resourceId'],
+  'review.action': ['POST', '/api/sessions/:sessionId/symposium/reviews/:resourceId/actions'],
+  'review.record': ['GET', '/api/sessions/:sessionId/symposium/reviews/records/:resourceId'],
+  'review.publicationPreflight': [
+    'POST',
+    '/api/sessions/:sessionId/symposium/reviews/records/:resourceId/publication-preflight',
+  ],
   'personal.list': ['GET', '/api/symposium/personal/connections'],
   'personal.create': ['POST', '/api/symposium/personal/connections'],
   'personal.disconnect': ['POST', '/api/symposium/personal/connections/:resourceId/disconnect'],

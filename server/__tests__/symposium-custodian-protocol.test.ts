@@ -30,6 +30,40 @@ describe('finite custodian protocol', () => {
       path: '/api/sessions/s-1/symposium/source/seal/recover',
     });
   });
+  it('maps only the bounded interactive review routes and their exact identities', () => {
+    const base = '/api/sessions/s-1/symposium/reviews';
+    const cases = [
+      ['GET', base, 'review.list', undefined],
+      ['POST', `${base}/application-runs`, 'review.startApplication', undefined],
+      ['GET', `${base}/flow-1`, 'review.workflow', 'flow-1'],
+      ['POST', `${base}/flow-1/actions`, 'review.action', 'flow-1'],
+      ['GET', `${base}/records/record-1`, 'review.record', 'record-1'],
+      [
+        'POST',
+        `${base}/records/record-1/publication-preflight`,
+        'review.publicationPreflight',
+        'record-1',
+      ],
+    ] as const;
+    for (const [method, path, operation, resourceId] of cases) {
+      const selected = selectCustodianOperation(method, path);
+      expect(selected).toEqual({
+        operation,
+        sessionId: 's-1',
+        ...(resourceId ? { resourceId } : {}),
+      });
+      expect(custodianRoute(selected!)).toEqual({ method, path });
+    }
+    for (const [method, path] of [
+      ['POST', base],
+      ['GET', `${base}/flow-1/actions`],
+      ['POST', `${base}/records/record-1`],
+      ['POST', `${base}/flow-1/export`],
+      ['GET', `${base}/records/record-1/publication-preflight`],
+      ['POST', `${base}/flow-1/actions/extra`],
+    ])
+      expect(selectCustodianOperation(method, path)).toBeNull();
+  });
   it('rejects reflection, host paths, caller authentication and unbounded envelopes', () => {
     const valid = {
       requestId: 'r1',
