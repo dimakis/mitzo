@@ -973,6 +973,13 @@ export interface SymposiumProductionHost {
     bundle: Buffer,
     signal: AbortSignal,
   ): Promise<{ reference: ArtifactAdmissionReferenceV1; receipt: unknown }>;
+  inspectStoppedSuccessorOperation?(selected: {
+    sessionId: string;
+    transitionId: string;
+    workflowId: string;
+    attemptId: string;
+    kind: 'initial' | 'fix';
+  }): 'absent' | 'reserved' | 'copy_uncertain' | 'quarantined' | 'verified' | 'active' | null;
   publicationCredentials?: readonly PublicationCredentialRegistration[];
   requireCompletedArtifactSeal?: CompletedPublicationHost['requireCompletedArtifactSeal'];
   inspectCompletedArtifact?: CompletedPublicationHost['inspectCompletedArtifact'];

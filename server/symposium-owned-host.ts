@@ -31,6 +31,7 @@ import {
 } from './symposium-artifact-successor-authority.js';
 import {
   readArtifactAdmissionReceipt,
+  inspectStoppedSuccessorOperation,
   type ArtifactGenerationRequest,
 } from './symposium-artifact-generations.js';
 import type { SuccessorArtifactExportReceipt } from './symposium-physical-artifact-seal.js';
@@ -999,6 +1000,13 @@ export async function createOwnedSymposiumHost(
             );
           }),
         );
+      },
+      inspectStoppedSuccessorOperation(
+        selected: Parameters<typeof inspectStoppedSuccessorOperation>[1],
+      ) {
+        if (stopped) return null;
+        gateway.verifyCustody();
+        return inspectStoppedSuccessorOperation(leaseHost!.snapshotDatabasePath(), selected);
       },
       artifactLeaseHost: leaseHost,
       artifactRequest,

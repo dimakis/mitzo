@@ -50,7 +50,8 @@ export type ReviewWorkflow = {
   applicationPreparations?: Array<{
     attemptId: string;
     kind: 'initial' | 'review' | 'fix' | 'delta';
-    status: 'preparing' | 'bound';
+    status: 'preparing' | 'bound' | 'settled';
+    disposition?: 'not_applied' | 'applied_no_dispatch';
   }>;
 
   findings: Array<{

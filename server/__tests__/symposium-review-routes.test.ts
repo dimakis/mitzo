@@ -244,3 +244,100 @@ it('recovers one retained charged preparation by its exact attempt ID', async ()
   expect(alreadyDispatched.body.code).toBe('host_review_result_required');
   expect(dispatch).toHaveBeenCalledTimes(2);
 });
+
+it('lets the authenticated operator reconcile a stopped preparation before continuing', async () => {
+  const hash = 'a'.repeat(64);
+  const { app, store } = fixture('owner', {
+    currentArtifact: () => ({ revision: 'commit', hash }),
+    refreshArtifact: async () => {},
+    settleStoppedApplicationPreparation: async () => 'not_applied',
+    dispatch: vi.fn(),
+  } as never);
+  const selection = (seatId: string, role: string) => ({
+    seatId,
+    role,
+    selectionId: seatId,
+    policyRevision: 'config-1',
+    profileId: seatId,
+    profileRevision: 1,
+    accountId: seatId,
+    model: 'offline',
+  });
+  store.create({
+    workflowId: 'workflow',
+    owner: 'user',
+    sessionId: 'session',
+    implementation: {
+      version: 1,
+      resultId: 'result',
+      attemptId: 'initial',
+      inputRevision: 'source',
+      inputHash: hash,
+      artifactRevision: 'commit',
+      artifactHash: hash,
+      summary: 'ready',
+      evidenceRefs: ['commit'],
+      completedAt: 1,
+    },
+    implementer: selection('coder', 'coder'),
+    reviewer: selection('reviewer', 'reviewer'),
+    acceptanceCriteria: ['works'],
+    limits: {
+      version: 1,
+      mode: 'application',
+      maxHostTurns: 3,
+      maxReviewCycles: 1,
+      deadlineAt: Date.now() + 60000,
+      noProgressLimit: 1,
+    },
+  });
+  store.reserveApplicationPreparation({
+    workflowId: 'workflow',
+    attemptId: 'retained-attempt',
+    policyReservationId: 'policy',
+    kind: 'review',
+    actorSeatId: 'reviewer',
+    artifactRevision: 'commit',
+    artifactHash: hash,
+    transitionId: 'reader',
+    seal: {
+      fenceId: 'fence',
+      artifactGenerationId: 'generation',
+      volumeName: 'volume',
+      sealDigest: hash,
+      artifactRevision: 'commit',
+      artifactHash: hash,
+    },
+    from: { configRevision: 1, membershipGeneration: 1 },
+    to: { configRevision: 2, membershipGeneration: 2 },
+    expectedSelection: {
+      accountId: 'reviewer',
+      model: 'offline',
+      profileId: 'reviewer',
+      profileRevision: '1',
+      accountProfileRevision: '1',
+    },
+  });
+  store.stopApplication('workflow', 'user', 'user_stop');
+  const response = await request(app)
+    .post('/api/sessions/session/symposium/reviews/workflow/actions')
+    .send({
+      action: 'recover',
+      attemptId: 'retained-attempt',
+      kind: 'review',
+      expectedArtifactRevision: 'commit',
+      expectedArtifactHash: hash,
+    });
+  expect(response.status).toBe(200);
+  expect(response.body.applicationPreparations).toEqual([
+    expect.objectContaining({
+      attemptId: 'retained-attempt',
+      status: 'settled',
+      disposition: 'not_applied',
+    }),
+  ]);
+  expect(store.getApplicationPreparation('workflow', 'retained-attempt')).toMatchObject({
+    status: 'settled',
+    disposition: 'not_applied',
+  });
+});

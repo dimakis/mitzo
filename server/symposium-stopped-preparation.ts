@@ -1,0 +1,173 @@
+import { artifactAdmissionDigest } from '@mitzo/protocol/event-store';
+import type { EventStore } from './event-store.js';
+import type { ReviewContext } from './symposium-review-coordinator.js';
+import type { ApplicationPreparation, SymposiumReviewStore } from './symposium-review-workflows.js';
+import { canonicalReviewJson } from './symposium-review-records.js';
+
+type SuccessorState =
+  'absent' | 'reserved' | 'copy_uncertain' | 'quarantined' | 'verified' | 'active' | null;
+type EventReads = Pick<
+  EventStore,
+  | 'getActiveSymposiumConfig'
+  | 'getLatestSymposiumMembership'
+  | 'getSymposiumSealedReaderAdmission'
+  | 'getSymposiumArtifactAdmission'
+  | 'getSymposiumDeliveryByIdempotencyKey'
+  | 'getSymposiumRecipientAttempts'
+  | 'getSymposiumArtifactReference'
+>;
+const same = (a: unknown, b: unknown) => canonicalReviewJson(a) === canonicalReviewJson(b);
+const exactFields = (p: ApplicationPreparation) => ({
+  workflowId: p.workflowId,
+  attemptId: p.attemptId,
+  policyReservationId: p.policyReservationId,
+  kind: p.kind,
+  sourceSealId: p.kind === 'initial' ? p.sourceSealId : null,
+  actorSeatId: p.actorSeatId,
+  artifactRevision: p.artifactRevision,
+  artifactHash: p.artifactHash,
+  transitionId: p.transitionId,
+  seal: p.seal,
+  from: p.from,
+  to: p.to,
+  expectedSelection: p.expectedSelection,
+});
+
+/** Inspect retained owners after the stop fence. An uncertain copy, lease,
+ * delivery, claim or changed authority returns null and keeps preparing fenced. */
+export async function reconcileStoppedApplicationPreparation(
+  deps: {
+    reviews: SymposiumReviewStore;
+    events: EventReads;
+    successorState(preparation: ApplicationPreparation, sessionId: string): Promise<SuccessorState>;
+    cancelDelivery(deliveryId: string, idempotencyKey: string): Promise<{ status: string }>;
+  },
+  context: ReviewContext,
+  preparation: ApplicationPreparation,
+): Promise<'not_applied' | 'applied_no_dispatch' | null> {
+  const state = deps.reviews.get(preparation.workflowId);
+  const retained = deps.reviews.getApplicationPreparation(
+    preparation.workflowId,
+    preparation.attemptId,
+  );
+  if (
+    !state?.decisionCode ||
+    state.owner !== context.owner ||
+    state.sessionId !== context.sessionId ||
+    !retained ||
+    retained.status !== 'preparing' ||
+    !same(exactFields(retained), exactFields(preparation)) ||
+    state.applicationAttempts.some((attempt) => attempt.attemptId === preparation.attemptId)
+  )
+    return null;
+  const config = deps.events.getActiveSymposiumConfig(context.sessionId);
+  const seat = config.seats.find((candidate) => candidate.id === preparation.actorSeatId);
+  const member = deps.events.getLatestSymposiumMembership(
+    context.sessionId,
+    preparation.actorSeatId,
+  );
+  if (
+    config.version !== 2 ||
+    config.state !== 'active' ||
+    !seat ||
+    seat.role !==
+      (preparation.kind === 'review' || preparation.kind === 'delta' ? 'reviewer' : 'coder') ||
+    !member ||
+    member.state !== 'active' ||
+    member.reconciliation !== 'confirmed'
+  )
+    return null;
+  const reader = preparation.kind === 'review' || preparation.kind === 'delta';
+  const record = reader
+    ? deps.events.getSymposiumSealedReaderAdmission(context.sessionId, preparation.transitionId)
+    : deps.events.getSymposiumArtifactAdmission(context.sessionId, preparation.transitionId);
+  const prefix = preparation.kind === 'initial' ? 'initial' : reader ? 'review' : 'fix';
+  const delivery = deps.events.getSymposiumDeliveryByIdempotencyKey(
+    context.sessionId,
+    `${prefix}-${preparation.workflowId}-${preparation.attemptId}`,
+  );
+  if (
+    delivery &&
+    (!['awaiting_intervention', 'cancelled'].includes(delivery.status) ||
+      deps.events.getSymposiumRecipientAttempts(delivery.deliveryId).length !== 0)
+  )
+    return null;
+  if (!record) {
+    if (
+      delivery ||
+      config.revision !== preparation.from.configRevision ||
+      member.generation !== preparation.from.membershipGeneration
+    )
+      return null;
+    if (!reader) {
+      const successor = await deps.successorState(preparation, context.sessionId);
+      if (successor !== 'absent' && successor !== 'reserved') return null;
+    }
+    return 'not_applied';
+  }
+  if (!record.receipt) return null;
+  const binding = record.binding;
+  const bindingDigest = artifactAdmissionDigest(binding);
+  if (
+    binding.sessionId !== context.sessionId ||
+    binding.workflowId !== preparation.workflowId ||
+    binding.policyReservationId !== preparation.policyReservationId ||
+    binding.seatId !== preparation.actorSeatId ||
+    binding.operationId !== preparation.transitionId ||
+    binding.expectedConfigRevision !== preparation.from.configRevision ||
+    binding.resultingConfigRevision !== preparation.to.configRevision ||
+    config.revision !== preparation.to.configRevision ||
+    member.generation !== preparation.to.membershipGeneration ||
+    record.reference.bindingDigest !== bindingDigest ||
+    record.receipt.bindingDigest !== bindingDigest ||
+    record.receipt.sessionId !== context.sessionId
+  )
+    return null;
+  if (reader) {
+    if (
+      !('readerAdmissionId' in record.receipt) ||
+      record.receipt.readerAdmissionId !== preparation.transitionId ||
+      record.receipt.artifactGenerationId !== preparation.seal.artifactGenerationId ||
+      record.receipt.seatId !== preparation.actorSeatId ||
+      !('reviewAttemptId' in binding) ||
+      binding.reviewAttemptId !== preparation.attemptId ||
+      binding.readerAdmissionId !== preparation.transitionId ||
+      binding.sealFenceId !== preparation.seal.fenceId ||
+      binding.sealDigest !== preparation.seal.sealDigest ||
+      binding.artifactGenerationId !== preparation.seal.artifactGenerationId ||
+      binding.readerMembershipGeneration !== preparation.to.membershipGeneration
+    )
+      return null;
+  } else {
+    if (
+      !('transitionId' in record.receipt) ||
+      record.receipt.transitionId !== preparation.transitionId ||
+      record.receipt.parentGenerationId !== preparation.seal.artifactGenerationId ||
+      !('transitionId' in binding) ||
+      binding.transitionId !== preparation.transitionId ||
+      binding.parentGenerationId !== preparation.seal.artifactGenerationId ||
+      binding.parentSealDigest !== preparation.seal.sealDigest ||
+      binding.successorMembershipGeneration !== preparation.to.membershipGeneration ||
+      (preparation.kind === 'initial'
+        ? binding.kind !== 'initial' || binding.initialAttemptId !== preparation.attemptId
+        : binding.kind !== 'fix' || binding.fixAttemptId !== preparation.attemptId)
+    )
+      return null;
+    if ((await deps.successorState(preparation, context.sessionId)) !== 'active') return null;
+  }
+  const reference = deps.events.getSymposiumArtifactReference(
+    context.sessionId,
+    preparation.actorSeatId,
+    preparation.to.membershipGeneration,
+  );
+  if (!reference || !same(reference, record.reference)) return null;
+  if (delivery?.status === 'awaiting_intervention') {
+    const cancelled = await deps.cancelDelivery(
+      delivery.deliveryId,
+      `review-stop-preparation:${preparation.policyReservationId}`,
+    );
+    if (cancelled.status !== 'cancelled') return null;
+    if (deps.events.getSymposiumRecipientAttempts(delivery.deliveryId).length !== 0) return null;
+  }
+  return 'applied_no_dispatch';
+}

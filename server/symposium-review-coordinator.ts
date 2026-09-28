@@ -79,6 +79,11 @@ export interface SymposiumReviewHost {
     reason: string,
   ): { authorizationId: string } | null;
   cancelApplicationAttempts?(context: ReviewContext, attempts: ApplicationAttempt[]): Promise<void>;
+  /** Exact trusted physical reconciliation after stop. Null retains the fence. */
+  settleStoppedApplicationPreparation?(
+    context: ReviewContext,
+    preparation: ApplicationPreparation,
+  ): Promise<'not_applied' | 'applied_no_dispatch' | null>;
   /** Trusted imported artifact before the first implementation turn. */
   initialArtifact?(context: ReviewContext): { revision: string; hash: string };
   /** Host-attested output from the exact completed initial native operation. */
@@ -133,6 +138,23 @@ export interface SymposiumReviewHost {
 
 type CoordinatorDecision = { kind: 'decision_required'; code: string };
 const decision = (code: string): CoordinatorDecision => ({ kind: 'decision_required', code });
+const transitionLocks = new Map<string, Promise<void>>();
+async function withTransitionLock<T>(workflowId: string, action: () => Promise<T>): Promise<T> {
+  const previous = transitionLocks.get(workflowId) ?? Promise.resolve();
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const queued = previous.then(() => held);
+  transitionLocks.set(workflowId, queued);
+  await previous;
+  try {
+    return await action();
+  } finally {
+    release();
+    if (transitionLocks.get(workflowId) === queued) transitionLocks.delete(workflowId);
+  }
+}
 
 /** Same-session pre-PR review/fix contract for the existing ChatView's inline actions.
  * Runtime/app wiring supplies the host adapter and authenticated context separately.
@@ -376,53 +398,55 @@ export class SymposiumReviewCoordinator {
     kind: 'initial' | 'review' | 'fix',
     attemptId: string,
   ): Promise<ReturnType<SymposiumReviewCoordinator['reserve']>> {
-    const state = this.scoped(context, workflowId);
-    if (!isApplicationPolicy(state.limits))
-      return this.reserve(context, workflowId, kind, attemptId);
-    if (!this.host?.prepareApplicationTransition || !this.host.completeApplicationTransition)
-      return decision('trusted_transition_host_unavailable');
-    if (!this.current(context, state)) return decision('artifact_changed');
-    const actualKind =
-      kind === 'review' && state.status === 'awaiting_delta_review' ? 'delta' : kind;
-    const selection =
-      actualKind === 'review' || actualKind === 'delta' ? state.reviewer : state.implementer;
-    const prepared = await this.host.prepareApplicationTransition({
-      context,
-      workflowId,
-      attemptId,
-      kind: actualKind,
-      selection,
-      artifactRevision: state.artifactRevision,
-      artifactHash: state.artifactHash,
-      policy: state.limits,
+    return withTransitionLock(workflowId, async () => {
+      const state = this.scoped(context, workflowId);
+      if (!isApplicationPolicy(state.limits))
+        return this.reserve(context, workflowId, kind, attemptId);
+      if (!this.host?.prepareApplicationTransition || !this.host.completeApplicationTransition)
+        return decision('trusted_transition_host_unavailable');
+      if (!this.current(context, state)) return decision('artifact_changed');
+      const actualKind =
+        kind === 'review' && state.status === 'awaiting_delta_review' ? 'delta' : kind;
+      const selection =
+        actualKind === 'review' || actualKind === 'delta' ? state.reviewer : state.implementer;
+      const prepared = await this.host.prepareApplicationTransition({
+        context,
+        workflowId,
+        attemptId,
+        kind: actualKind,
+        selection,
+        artifactRevision: state.artifactRevision,
+        artifactHash: state.artifactHash,
+        policy: state.limits,
+      });
+      if ('code' in prepared) return prepared;
+      if (
+        prepared.workflowId !== workflowId ||
+        prepared.attemptId !== attemptId ||
+        prepared.kind !== actualKind ||
+        prepared.actorSeatId !== selection.seatId ||
+        prepared.artifactRevision !== state.artifactRevision ||
+        prepared.artifactHash !== state.artifactHash ||
+        prepared.policyReservationId === ''
+      )
+        return decision('application_transition_binding_mismatch');
+      const admitted = this.store.reserveApplicationPreparation(prepared);
+      if (admitted.kind === 'decision_required') return admitted;
+      const bound = await this.host.completeApplicationTransition(context, prepared);
+      if ('code' in bound) return bound;
+      const { attempt, proof } = bound;
+      const result = this.store.completeApplicationPreparation(attempt, proof);
+      if (result.kind !== 'admitted') return result;
+      return {
+        kind: 'reserved_not_dispatched',
+        attemptId,
+        policyReservationId: attempt.policyReservationId,
+        applicationAttempt: attempt,
+        selection,
+        artifactRevision: attempt.artifactRevision,
+        artifactHash: attempt.artifactHash,
+      };
     });
-    if ('code' in prepared) return prepared;
-    if (
-      prepared.workflowId !== workflowId ||
-      prepared.attemptId !== attemptId ||
-      prepared.kind !== actualKind ||
-      prepared.actorSeatId !== selection.seatId ||
-      prepared.artifactRevision !== state.artifactRevision ||
-      prepared.artifactHash !== state.artifactHash ||
-      prepared.policyReservationId === ''
-    )
-      return decision('application_transition_binding_mismatch');
-    const admitted = this.store.reserveApplicationPreparation(prepared);
-    if (admitted.kind === 'decision_required') return admitted;
-    const bound = await this.host.completeApplicationTransition(context, prepared);
-    if ('code' in bound) return bound;
-    const { attempt, proof } = bound;
-    const result = this.store.completeApplicationPreparation(attempt, proof);
-    if (result.kind !== 'admitted') return result;
-    return {
-      kind: 'reserved_not_dispatched',
-      attemptId,
-      policyReservationId: attempt.policyReservationId,
-      applicationAttempt: attempt,
-      selection,
-      artifactRevision: attempt.artifactRevision,
-      artifactHash: attempt.artifactHash,
-    };
   }
 
   /** Resume only the durable attempt created by a confirmed transition. A consumed
@@ -502,11 +526,42 @@ export class SymposiumReviewCoordinator {
   }
 
   async stop(context: ReviewContext, workflowId: string) {
-    this.scoped(context, workflowId);
-    const state = this.store.stopApplication(workflowId, context.owner, 'user_stop');
-    const pending = state.applicationAttempts.filter((a) => !a.settled);
-    await this.host?.cancelApplicationAttempts?.(context, pending);
-    return this.scoped(context, workflowId);
+    return withTransitionLock(workflowId, async () => {
+      this.scoped(context, workflowId);
+      const state = this.store.stopApplication(workflowId, context.owner, 'user_stop');
+      const pending = state.applicationAttempts.filter((a) => !a.settled);
+      await this.host?.cancelApplicationAttempts?.(context, pending);
+      await this.settleStopped(context, workflowId);
+      return this.scoped(context, workflowId);
+    });
+  }
+
+  private async settleStopped(context: ReviewContext, workflowId: string) {
+    const state = this.scoped(context, workflowId);
+    if (state.status !== 'decision_required' || !state.decisionCode)
+      throw new Error('Stopped application policy required for reconciliation');
+    for (const preparation of state.applicationPreparations.filter(
+      (p) => p.status === 'preparing',
+    )) {
+      const disposition = await this.host?.settleStoppedApplicationPreparation?.(
+        context,
+        preparation,
+      );
+      if (disposition)
+        this.store.settleApplicationPreparation(
+          workflowId,
+          preparation.attemptId,
+          preparation.transitionId,
+          disposition,
+        );
+    }
+  }
+
+  async reconcileStoppedPreparations(context: ReviewContext, workflowId: string) {
+    return withTransitionLock(workflowId, async () => {
+      await this.settleStopped(context, workflowId);
+      return this.scoped(context, workflowId);
+    });
   }
 
   continue(context: ReviewContext, workflowId: string, limits: ApplicationPolicy, reason: string) {

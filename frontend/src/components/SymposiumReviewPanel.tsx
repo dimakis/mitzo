@@ -159,6 +159,9 @@ function ReviewPanel({ sessionId }: { sessionId: string }) {
   const pendingPreparation = application
     ? workflow?.applicationPreparations?.find((preparation) => preparation.status === 'preparing')
     : undefined;
+  const settledPreparation = application
+    ? workflow?.applicationPreparations?.findLast((preparation) => preparation.status === 'settled')
+    : undefined;
   const pending = pendingPreparation ?? pendingAttempt;
   const pendingKind =
     pending && 'effectiveKind' in pending ? (pending.effectiveKind ?? pending.kind) : pending?.kind;
@@ -303,6 +306,14 @@ function ReviewPanel({ sessionId }: { sessionId: string }) {
               : 'Cost total unknown'}
           </p>
           {workflow.decisionCode && <p>Stopped: {workflow.decisionCode}</p>}
+          {workflow.decisionCode && settledPreparation?.disposition && (
+            <p>
+              Preparation {settledPreparation.attemptId} reconciled:{' '}
+              {settledPreparation.disposition === 'applied_no_dispatch'
+                ? 'transition applied; no native dispatch'
+                : 'transition not applied; no native dispatch'}
+            </p>
+          )}
           {application && workflow.decisionCode && (
             <>
               {limitFields}

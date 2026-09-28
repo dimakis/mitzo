@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -71,6 +71,141 @@ const request = (attemptId: string) => ({
     authorityGrant: { grantId: 'g', revision: 1 },
     contextGrant: { grantId: 'c', revision: 1 },
   },
+});
+const reviewPreparation = (attemptId: string) => ({
+  workflowId: 'w',
+  attemptId,
+  policyReservationId: `policy-${attemptId}`,
+  kind: 'review' as const,
+  actorSeatId: 'reviewer',
+  artifactRevision: 'a',
+  artifactHash: hash,
+  transitionId: `reader-${attemptId}`,
+  seal: {
+    fenceId: 'seal',
+    artifactGenerationId: 'generation',
+    volumeName: 'volume',
+    sealDigest: hash,
+    artifactRevision: 'a',
+    artifactHash: hash,
+  },
+  from: { configRevision: 1, membershipGeneration: 1 },
+  to: { configRevision: 2, membershipGeneration: 2 },
+  expectedSelection: {
+    accountId: 'reviewer',
+    model: 'offline',
+    profileId: 'reviewer',
+    profileRevision: '1',
+    accountProfileRevision: '1',
+  },
+});
+it('settles a stopped exact preparing transition only after trusted no-dispatch reconciliation', async () => {
+  const store = new SymposiumReviewStore(':memory:');
+  store.create(create());
+  const prep = reviewPreparation('stopped-review');
+  store.reserveApplicationPreparation(prep);
+  const context = { owner: 'user', sessionId: 's' };
+  const settle = vi.fn(async () => 'not_applied' as const);
+  const host = {
+    currentArtifact: () => ({ revision: 'a', hash }),
+    settleStoppedApplicationPreparation: settle,
+    cancelApplicationAttempts: vi.fn(async () => {}),
+    authorizeContinuation: () => ({ authorizationId: 'fresh-continuation' }),
+  } as unknown as SymposiumReviewHost;
+  const coordinator = new SymposiumReviewCoordinator(store, host);
+  await coordinator.stop(context, 'w');
+  expect(settle).toHaveBeenCalledWith(
+    context,
+    expect.objectContaining({
+      attemptId: 'stopped-review',
+      transitionId: prep.transitionId,
+    }),
+  );
+  expect(store.getApplicationPreparation('w', 'stopped-review')).toMatchObject({
+    status: 'settled',
+    disposition: 'not_applied',
+  });
+  expect(
+    coordinator.continue(
+      context,
+      'w',
+      {
+        ...create().limits,
+        maxHostTurns: 3,
+      },
+      'resume',
+    ),
+  ).toMatchObject({ status: 'awaiting_review' });
+  store.close();
+});
+
+it('recovers a stopped preparation after restart through the same trusted settlement path', async () => {
+  const store = new SymposiumReviewStore(':memory:');
+  store.create(create());
+  const prep = reviewPreparation('restart-review');
+  store.reserveApplicationPreparation(prep);
+  store.stopApplication('w', 'user', 'user_stop');
+  const context = { owner: 'user', sessionId: 's' };
+  const host = {
+    settleStoppedApplicationPreparation: vi.fn(async () => 'not_applied' as const),
+  } as unknown as SymposiumReviewHost;
+  const result = await new SymposiumReviewCoordinator(store, host).reconcileStoppedPreparations(
+    context,
+    'w',
+  );
+  expect(result).toMatchObject({ status: 'decision_required' });
+  expect(store.getApplicationPreparation('w', 'restart-review')).toMatchObject({
+    status: 'settled',
+    disposition: 'not_applied',
+  });
+  store.close();
+});
+
+it('waits for an in-flight transition before stopping so it cannot strand preparing state', async () => {
+  const store = new SymposiumReviewStore(':memory:');
+  store.create(create());
+  const prep = reviewPreparation('concurrent-review');
+  const context = { owner: 'user', sessionId: 's' };
+  let release!: () => void;
+  let entered!: () => void;
+  const reached = new Promise<void>((resolve) => {
+    entered = resolve;
+  });
+  const hold = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const host = {
+    currentArtifact: () => ({ revision: 'a', hash }),
+    prepareApplicationTransition: async () => prep,
+    completeApplicationTransition: async () => {
+      entered();
+      await hold;
+      return { kind: 'decision_required' as const, code: 'physical_transition_uncertain' };
+    },
+    settleStoppedApplicationPreparation: vi.fn(async () => 'not_applied' as const),
+    cancelApplicationAttempts: vi.fn(async () => {}),
+  } as unknown as SymposiumReviewHost;
+  const first = new SymposiumReviewCoordinator(store, host).reserveWithTransition(
+    context,
+    'w',
+    'review',
+    'concurrent-review',
+  );
+  await reached;
+  let stopped = false;
+  const stop = new SymposiumReviewCoordinator(store, host).stop(context, 'w').then(() => {
+    stopped = true;
+  });
+  await Promise.resolve();
+  expect(stopped).toBe(false);
+  release();
+  await first;
+  await stop;
+  expect(store.getApplicationPreparation('w', 'concurrent-review')).toMatchObject({
+    status: 'settled',
+    disposition: 'not_applied',
+  });
+  store.close();
 });
 describe('persisted application admission', () => {
   it('persists the initial charge before a trusted child owner can stage a claim', async () => {

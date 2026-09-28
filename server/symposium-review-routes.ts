@@ -322,12 +322,24 @@ export function createSymposiumReviewRouter(deps: {
           attemptId = action.attemptId;
           const preparation = deps.store.getApplicationPreparation(workflowId, attemptId);
           if (preparation?.status === 'preparing' || preparation?.status === 'bound') {
-            if (
-              inspected.limits.mode !== 'application' ||
-              preparation.kind !==
-                (kind === 'review' && inspected.status === 'awaiting_delta_review' ? 'delta' : kind)
-            ) {
+            const expectedKind =
+              kind === 'review' &&
+              (inspected.status === 'awaiting_delta_review' ||
+                inspected.policyResumeStatus === 'awaiting_delta_review')
+                ? 'delta'
+                : kind;
+            if (inspected.limits.mode !== 'application' || preparation.kind !== expectedKind) {
               res.status(409).json({ kind: 'decision_required', code: 'preparation_changed' });
+              return;
+            }
+            if (preparation.status === 'preparing' && inspected.decisionCode) {
+              const settled = await coordinator.reconcileStoppedPreparations(ctx, workflowId);
+              const latest = deps.store.getApplicationPreparation(workflowId, attemptId);
+              if (latest?.status !== 'settled') {
+                res.status(409).json({ kind: 'decision_required', code: 'preparation_uncertain' });
+                return;
+              }
+              res.json(settled);
               return;
             }
             // Resume the exact charged transition. The physical owners reuse only

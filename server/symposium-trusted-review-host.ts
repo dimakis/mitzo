@@ -78,6 +78,10 @@ export interface SymposiumTrustedReviewHostDeps {
       attempt: ApplicationAttempt;
       proof: { transitionId: string; sealDigest: string };
     }>;
+    reconcileStopped?(
+      context: ReviewContext,
+      preparation: ApplicationPreparation,
+    ): Promise<'not_applied' | 'applied_no_dispatch' | null>;
   };
   /** Parent-owned, physically fenced artifact evidence. An unfenced Git read or model
    * assertion is not an implementation of this contract. Refresh/result retain exact
@@ -677,6 +681,8 @@ export function createSymposiumTrustedReviewHost(
         });
       }
     },
+    settleStoppedApplicationPreparation: (context, preparation) =>
+      deps.transition?.reconcileStopped?.(context, preparation) ?? Promise.resolve(null),
   };
   return host;
 }

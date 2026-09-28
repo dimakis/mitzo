@@ -6,6 +6,8 @@ import {
   type ArtifactActivationReceiptV1,
 } from '@mitzo/protocol';
 import Database from 'better-sqlite3';
+import { existsSync, lstatSync } from 'node:fs';
+import { isAbsolute } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { AccountBindingSchema } from '@mitzo/protocol';
@@ -66,6 +68,65 @@ const intentSchema = z.strictObject({
   volumeName: id,
   helperName: id,
 });
+
+/** Inspect one stopped review transition without opening the mutating ledger.
+ * `reserved` precedes the durable copy claim; all later states are physical
+ * uncertainty or an applied child and must never be treated as absent. */
+export function inspectStoppedSuccessorOperation(
+  path: string,
+  selected: {
+    sessionId: string;
+    transitionId: string;
+    workflowId: string;
+    attemptId: string;
+    kind: 'initial' | 'fix';
+  },
+): 'absent' | 'reserved' | 'copy_uncertain' | 'quarantined' | 'verified' | 'active' | null {
+  if (!isAbsolute(path) || !existsSync(path)) return null;
+  const stat = lstatSync(path);
+  if (!stat.isFile() || stat.isSymbolicLink() || stat.uid !== process.getuid?.()) return null;
+  const db = new Database(path, { readonly: true, fileMustExist: true });
+  try {
+    db.pragma('query_only = ON');
+    const columns = new Set(
+      (db.pragma('table_info(symposium_artifact_generations)') as Array<{ name: string }>).map(
+        (column) => column.name,
+      ),
+    );
+    if (!['session_id', 'operation_id', 'intent_json', 'state'].every((name) => columns.has(name)))
+      return null;
+    const rows = db
+      .prepare(
+        `SELECT intent_json,state FROM symposium_artifact_generations
+        WHERE session_id=? AND operation_id=?`,
+      )
+      .all(
+        selected.sessionId,
+        canonicalReviewJson([selected.sessionId, selected.transitionId]),
+      ) as Array<{ intent_json: string | null; state: string }>;
+    if (rows.length === 0) return 'absent';
+    if (rows.length !== 1 || !rows[0].intent_json) return null;
+    const request = (JSON.parse(rows[0].intent_json) as { request?: Record<string, unknown> })
+      .request;
+    if (
+      request?.sessionId !== selected.sessionId ||
+      request.operationId !== selected.transitionId ||
+      request.workflowId !== selected.workflowId ||
+      request.kind !== selected.kind ||
+      request[selected.kind === 'initial' ? 'initialAttemptId' : 'fixAttemptId'] !==
+        selected.attemptId
+    )
+      return null;
+    const state = rows[0].state;
+    return ['reserved', 'copy_uncertain', 'quarantined', 'verified', 'active'].includes(state)
+      ? (state as 'reserved' | 'copy_uncertain' | 'quarantined' | 'verified' | 'active')
+      : null;
+  } catch {
+    return null;
+  } finally {
+    db.close();
+  }
+}
 const receiptSchema = z.strictObject({
   intentDigest: hash,
   generationId: id,

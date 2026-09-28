@@ -15,6 +15,7 @@ import { createSealedFixReviewTransition } from './symposium-trusted-fix-transit
 import { createSealedReaderReviewTransition } from './symposium-trusted-reader-transition.js';
 import { createSymposiumTrustedReviewHost } from './symposium-trusted-review-host.js';
 import { canonicalReviewJson } from './symposium-review-records.js';
+import { reconcileStoppedApplicationPreparation } from './symposium-stopped-preparation.js';
 
 type PhysicalHost = SymposiumProductionHost;
 type Identity = { revision: string; hash: string };
@@ -128,6 +129,7 @@ export function createSymposiumProductionReviewComposition(deps: {
     !host.exportSuccessorArtifactBundle ||
     !host.copySuccessorArtifact ||
     !host.admitSuccessorArtifact ||
+    !host.inspectStoppedSuccessorOperation ||
     !host.assertArtifactAdmissionCurrent ||
     !host.artifactLeaseHost ||
     !host.attemptRegistry
@@ -347,6 +349,31 @@ export function createSymposiumProductionReviewComposition(deps: {
             : prep.kind === 'fix'
               ? fix.apply(context, prep)
               : reader.transition.apply(context, prep),
+        reconcileStopped: (context, preparation) =>
+          reconcileStoppedApplicationPreparation(
+            {
+              reviews,
+              events,
+              successorState: async (selected, sessionId) =>
+                selected.kind === 'initial' || selected.kind === 'fix'
+                  ? host.inspectStoppedSuccessorOperation!({
+                      sessionId,
+                      transitionId: selected.transitionId,
+                      workflowId: selected.workflowId,
+                      attemptId: selected.attemptId,
+                      kind: selected.kind,
+                    })
+                  : null,
+              cancelDelivery: (deliveryId, idempotencyKey) =>
+                runtime(context).cancel({
+                  deliveryId,
+                  idempotencyKey,
+                  reason: 'Application review preparation stopped',
+                }),
+            },
+            context,
+            preparation,
+          ),
       },
       artifacts: {
         current: currentArtifact,

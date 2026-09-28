@@ -686,6 +686,35 @@ it('recovers a saved application preparation with its exact attempt ID after rel
   );
 });
 
+it('shows the stopped preparation disposition before the operator continues', async () => {
+  const { symposiumReviewPreviewResponses } =
+    await import('../../preview/symposium-review-fixtures');
+  const workflow = {
+    ...symposiumReviewPreviewResponses.findings.workflows[0],
+    status: 'decision_required',
+    decisionCode: 'user_stop',
+    limits: policy,
+    applicationAttempts: [],
+    applicationPreparations: [
+      {
+        attemptId: 'prepared-review',
+        kind: 'review',
+        status: 'settled',
+        disposition: 'applied_no_dispatch',
+      },
+    ],
+  };
+  vi.mocked(apiFetch).mockResolvedValue(response({ available: true, workflows: [workflow] }));
+  render(<SymposiumReviewPanel sessionId="session" />);
+  expect(
+    await screen.findByText(
+      /Preparation prepared-review reconciled: transition applied; no native dispatch/,
+    ),
+  ).toBeTruthy();
+  expect(screen.queryByRole('button', { name: 'Recover saved preparation' })).toBeNull();
+  expect(screen.getByRole('button', { name: 'Authorize continuation' })).toBeTruthy();
+});
+
 it('keeps Stop available when artifact refresh disables execution', async () => {
   const { symposiumReviewPreviewResponses } =
     await import('../../preview/symposium-review-fixtures');
