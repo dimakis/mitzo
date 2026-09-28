@@ -1983,6 +1983,82 @@ describe('last native Symposium dispatch fence', () => {
     expect(() => snapshot('retained')).toThrow(/membership/i);
     expect(() => retained.verify()).toThrow(/membership/i);
   });
+  it('ignores a prior generation admission only while inspecting a restored candidate', () => {
+    const personalProfiles = new AccountProfiles(
+      [
+        {
+          id: 'personal',
+          label: 'Personal',
+          provider: 'openai-codex',
+          nativeAuth: 'sandbox-chatgpt',
+          email: 'personal@example.test',
+          planType: 'plus',
+          sandboxProvider: 'codex-personal',
+          sandboxProviderId: 'codex-object',
+          sandboxProviderType: 'codex',
+          models: [{ id: 'luna', label: 'Luna' }],
+        },
+      ],
+      { codexEnabled: true },
+    );
+    const cases = [
+      { selectedSeat: seat, selectedProfiles: profiles, physicalType: 'openai' },
+      {
+        selectedSeat: {
+          ...seat,
+          model: 'luna',
+          accountBinding: AccountBindingSchema.parse(personalProfiles.resolve('personal', 'luna')),
+        },
+        selectedProfiles: personalProfiles,
+        physicalType: 'codex',
+      },
+    ];
+    for (const { selectedSeat, selectedProfiles, physicalType } of cases) {
+      let restored: SymposiumMembershipRecord = {
+        ...membership,
+        generation: 3,
+        reconciliation: 'pending',
+      };
+      let currentAdmission = {
+        ...admission,
+        membershipGeneration: 1,
+        provider: selectedSeat.accountBinding.provider,
+        accountId: selectedSeat.accountBinding.accountId,
+        model: selectedSeat.accountBinding.model,
+        accountProfileRevision: selectedSeat.accountBinding.profileRevision,
+      };
+      const facts: SymposiumDispatchFacts = {
+        assertSymposiumArtifactWorkAllowed: () => {},
+        getActiveSymposiumConfig: () => ({ ...config, seats: [selectedSeat] }),
+        getLatestSymposiumMembership: () => restored,
+        getLatestSymposiumAdmission: () => currentAdmission,
+        getSymposiumDelivery: () => undefined,
+      };
+      const snapshot = (phase: 'candidate' | 'reconciling' | 'retained' | 'confirmed') =>
+        snapshotSymposiumSeatProvider(
+          'symposium',
+          'reviewer',
+          facts,
+          selectedProfiles,
+          hostGrants,
+          (name, id) => ({ name, id, type: physicalType, workspace: 'default' }),
+          'default',
+          phase,
+        );
+      expect(snapshot('candidate').generation).toBe(3);
+      expect(() => snapshot('reconciling')).toThrow(/admission/i);
+      restored = { ...restored, reconciliation: 'confirmed' };
+      expect(() => snapshot('retained')).toThrow(/admission/i);
+      expect(() => snapshot('confirmed')).toThrow(/admission/i);
+      restored = { ...restored, reconciliation: 'pending' };
+      currentAdmission = { ...currentAdmission, membershipGeneration: 3, decision: 'refused' };
+      expect(() => snapshot('candidate')).toThrow(/admission/i);
+      currentAdmission = { ...currentAdmission, decision: 'admitted', accountId: 'other-account' };
+      expect(() => snapshot('candidate')).toThrow(/admission/i);
+      currentAdmission = { ...currentAdmission, accountId: selectedSeat.accountBinding.accountId };
+      expect(snapshot('reconciling').generation).toBe(3);
+    }
+  });
   it('does not create a pending seat sandbox until its provider admission is recorded', async () => {
     // The admission changes between the two ensure attempts in this test.
     let currentAdmission: SymposiumAdmissionRecord | undefined = undefined;

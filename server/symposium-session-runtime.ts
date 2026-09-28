@@ -204,7 +204,18 @@ export function snapshotSymposiumProviderUnion(
         throw new Error('Retained Symposium seat membership is not confirmed');
       const binding = seat.accountBinding;
       if (!binding) throw new Error('Active Symposium seat lacks account binding');
-      const admission = facts.getLatestSymposiumAdmission(sessionId, seat.id, config.revision);
+      const latestAdmission = facts.getLatestSymposiumAdmission(
+        sessionId,
+        seat.id,
+        config.revision,
+      );
+      // Restore creates a new pending generation without advancing the config.
+      // A prior generation's admission cannot authorize it, but must not block
+      // inspection of the new candidate before host admission is recorded.
+      const admission =
+        phase === 'candidate' && latestAdmission?.membershipGeneration !== membership.generation
+          ? null
+          : latestAdmission;
       if (
         (phase !== 'candidate' && phase !== 'retained' && admission?.decision !== 'admitted') ||
         (admission != null &&
