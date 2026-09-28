@@ -348,7 +348,6 @@ export function assertSuccessorFixAuthority(
       request.membershipGeneration !== request.predecessorMembershipGeneration ||
       request.accountBinding.accountId !== request.accountId ||
       request.accountBinding.model !== request.model ||
-      request.accountBinding.profileRevision !== request.profileRevision ||
       !prep ||
       prep.status !== 'preparing' ||
       prep.kind !== 'initial' ||

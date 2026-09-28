@@ -629,7 +629,7 @@ it('admits an imported parent only for the exact initial attempt and selected au
   expect(f.store.requireAdmission(binding)).toEqual(activation);
   expect(f.store.historical(context, 'initial').initial).toEqual(initial);
 });
-it('requires a retained initial policy reservation rather than fabricated fix findings', () => {
+it('requires a retained initial policy reservation with distinct account and coder profile revisions', () => {
   const { fixAttemptId: _fixAttemptId, findingFingerprints: _findings, ...common } = request;
   void _fixAttemptId;
   void _findings;
@@ -646,7 +646,7 @@ it('requires a retained initial policy reservation rather than fabricated fix fi
       accountLabel: 'Personal',
       provider: 'openai-codex',
       model: 'luna-fixture',
-      profileRevision: '1',
+      profileRevision: hash,
     },
     contextGrant: { grantId: 'context', revision: 1 },
   };
@@ -692,7 +692,7 @@ it('requires a retained initial policy reservation rather than fabricated fix fi
           model: 'luna-fixture',
           profileId: 'profile',
           profileRevision: '1',
-          accountProfileRevision: '1',
+          accountProfileRevision: hash,
         },
       },
     ],
@@ -702,6 +702,15 @@ it('requires a retained initial policy reservation rather than fabricated fix fi
     assertCurrent: () => true as const,
   } as unknown as SuccessorFixAuthority;
   expect(assertSuccessorFixAuthority(authority, initialRequest)).toBe(true);
+  expect(() =>
+    assertSuccessorFixAuthority(authority, {
+      ...initialRequest,
+      accountBinding: { ...initialRequest.accountBinding, profileRevision: 'different' },
+    }),
+  ).toThrow('initial attempt');
+  expect(() =>
+    assertSuccessorFixAuthority(authority, { ...initialRequest, profileRevision: 'different' }),
+  ).toThrow('initial attempt');
   expect(() =>
     assertSuccessorFixAuthority(authority, { ...initialRequest, policyReservationId: 'other' }),
   ).toThrow('initial attempt');
