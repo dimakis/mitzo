@@ -220,6 +220,23 @@ it('cancels an exact applied reader delivery and proves no native dispatch', asy
     attemptId: 'attempt',
     policyReservationId: 'policy',
   });
+  f.events.getSymposiumDeliveryByIdempotencyKey.mockReturnValue({
+    deliveryId: 'delivery',
+    status: 'ready',
+  } as never);
+  expect(
+    await reconcileStoppedApplicationPreparation(
+      {
+        reviews: f.reviews,
+        events: f.events as never,
+        cancelDelivery,
+        successorState: vi.fn(),
+      },
+      f.context,
+      prep,
+    ),
+  ).toBeNull();
+  expect(cancelDelivery).toHaveBeenCalledOnce();
   f.events.getSymposiumSealedReaderAdmission.mockReturnValue({
     binding,
     reference,
@@ -276,7 +293,7 @@ it('pauses an exact bound writer before proving same-attempt resumability', asyn
   const delivery = {
     deliveryId: 'delivery',
     sessionId: 'session',
-    recipients: [{ seatId: 'coder' }],
+    recipients: [{ seatId: 'coder', status: 'pending' }],
     status: 'awaiting_intervention',
     originalContent: content,
     deliveredContent: null,
@@ -350,6 +367,8 @@ it('pauses an exact bound writer before proving same-attempt resumability', asyn
     getSymposiumApplicationDeliveryControl: vi.fn(() => control),
     pauseSymposiumApplicationDelivery: vi.fn(() => {
       control.epoch = 1;
+      if (delivery.status === 'delivering' || delivery.status === 'recovery_required')
+        delivery.status = 'ready';
       control.state = 'held';
       return 1;
     }),
@@ -382,6 +401,19 @@ it('pauses an exact bound writer before proving same-attempt resumability', asyn
       writer,
     ),
   ).toEqual({ kind: 'resumable', epoch: 1 });
+  for (const claimedStatus of ['delivering', 'recovery_required']) {
+    control.epoch = 0;
+    control.state = 'armed';
+    delivery.status = claimedStatus;
+    expect(
+      await reconcileStoppedApplicationPreparation(
+        deps,
+        { owner: 'owner', sessionId: 'session' },
+        writer,
+      ),
+    ).toEqual({ kind: 'resumable', epoch: 1 });
+    expect(delivery.status).toBe('ready');
+  }
   control.epoch = 0;
   control.state = 'armed';
   events.pauseSymposiumApplicationDelivery.mockImplementationOnce(() => {

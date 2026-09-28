@@ -120,7 +120,11 @@ export async function reconcileStoppedApplicationPreparation(
   );
   if (
     delivery &&
-    (!['awaiting_intervention', 'ready', 'cancelled'].includes(delivery.status) ||
+    (!(
+      bound && !reader
+        ? ['awaiting_intervention', 'ready', 'delivering', 'recovery_required', 'cancelled']
+        : ['awaiting_intervention', 'cancelled']
+    ).includes(delivery.status) ||
       deps.events.getSymposiumRecipientAttempts(delivery.deliveryId).length !== 0)
   )
     return null;
@@ -210,12 +214,13 @@ export async function reconcileStoppedApplicationPreparation(
     bound &&
     !reader &&
     delivery &&
-    (delivery.status === 'awaiting_intervention' || delivery.status === 'ready')
+    ['awaiting_intervention', 'ready', 'delivering', 'recovery_required'].includes(delivery.status)
   ) {
     if (
-      delivery.status === 'ready' &&
+      delivery.status !== 'awaiting_intervention' &&
       (delivery.intervention !== 'approve' ||
-        delivery.deliveredContent !== delivery.originalContent)
+        delivery.deliveredContent !== delivery.originalContent ||
+        delivery.recipients.some((recipient) => recipient.status !== 'pending'))
     )
       return null;
     const control = deps.events.getSymposiumApplicationDeliveryControl(delivery.deliveryId);
@@ -245,7 +250,10 @@ export async function reconcileStoppedApplicationPreparation(
       paused.workflowId !== preparation.workflowId ||
       paused.attemptId !== preparation.attemptId ||
       paused.policyReservationId !== preparation.policyReservationId ||
-      deps.events.getSymposiumDelivery(delivery.deliveryId)?.status !== delivery.status ||
+      deps.events.getSymposiumDelivery(delivery.deliveryId)?.status !==
+        (delivery.status === 'delivering' || delivery.status === 'recovery_required'
+          ? 'ready'
+          : delivery.status) ||
       deps.events.getSymposiumRecipientAttempts(delivery.deliveryId).length !== 0
     )
       return null;

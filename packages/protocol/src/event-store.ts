@@ -4484,7 +4484,12 @@ export class EventStore {
             delivery.intervention === null) ||
           (delivery.status === 'ready' &&
             delivery.intervention === 'approve' &&
-            delivery.deliveredContent === delivery.originalContent)
+            delivery.deliveredContent === delivery.originalContent) ||
+          (['delivering', 'recovery_required'].includes(delivery.status) &&
+            delivery.intervention === 'approve' &&
+            delivery.deliveredContent === delivery.originalContent &&
+            delivery.recipients.length === 1 &&
+            delivery.recipients.every((recipient) => recipient.status === 'pending'))
         ) ||
         this.getSymposiumRecipientAttempts(input.deliveryId).length !== 0
       )
@@ -4492,6 +4497,13 @@ export class EventStore {
       const control = this.getSymposiumApplicationDeliveryControl(input.deliveryId);
       if (control?.epoch === input.expectedEpoch + 1 && control.state === 'held')
         return control.epoch;
+      if (delivery.status === 'delivering' || delivery.status === 'recovery_required') {
+        const requeued = this.db!.prepare(
+          `UPDATE symposium_deliveries SET status = 'ready'
+           WHERE delivery_id = ? AND status = ?`,
+        ).run(input.deliveryId, delivery.status);
+        if (requeued.changes !== 1) throw new Error('Application delivery claim changed');
+      }
       const updated = this.db!.prepare(
         `UPDATE symposium_application_delivery_controls
          SET epoch = epoch + 1, state = 'held', permit_hash = NULL

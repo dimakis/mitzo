@@ -739,7 +739,14 @@ export function createSymposiumTrustedReviewHost(
           tracked &&
           !tracked.dispatched &&
           staged &&
-          (staged.status === 'awaiting_intervention' || staged.status === 'ready') &&
+          (staged.status === 'awaiting_intervention' ||
+            ((staged.status === 'ready' ||
+              staged.status === 'delivering' ||
+              staged.status === 'recovery_required') &&
+              staged.intervention === 'approve' &&
+              staged.deliveredContent === staged.originalContent &&
+              staged.recipients.length === 1 &&
+              staged.recipients.every((recipient) => recipient.status === 'pending'))) &&
           deps.events.getSymposiumRecipientAttempts(exact.binding.deliveryId).length === 0 &&
           control?.workflowId === exact.workflowId &&
           control.attemptId === exact.attemptId &&

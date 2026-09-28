@@ -209,7 +209,7 @@ it('fences a stopped bound transition until its exact staged delivery is reconci
   expect(
     coordinator.continue(context, 'w', { ...create().limits, maxHostTurns: 3 }, 'resume'),
   ).toMatchObject({ status: 'awaiting_review', hostTurns: 1 });
-  expect(host.cancelApplicationAttempts).toHaveBeenCalledOnce();
+  expect(host.cancelApplicationAttempts).toHaveBeenCalledTimes(4);
   store.close();
 });
 

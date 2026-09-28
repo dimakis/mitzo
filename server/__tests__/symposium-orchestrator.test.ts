@@ -358,6 +358,81 @@ describe('SymposiumOrchestrator', () => {
     ).toBe('delivered');
     expect(builder.calls).toHaveLength(1);
   });
+  it.each([false, true])(
+    'pauses a controlled delivery claimed before any recipient attempt (startup recovery: %s)',
+    async (startupRecovery) => {
+      admit('builder');
+      const staged = orchestrator.stageDelivery({
+        sessionId: 'chat', sourceSeatId: null, recipientSeatIds: ['builder'],
+        originalContent: 'Bound application work', idempotencyKey: 'claimed-before-recipient',
+        applicationControl: { workflowId: 'flow', attemptId: 'attempt', policyReservationId: 'policy' },
+      });
+      store.armSymposiumApplicationDelivery({ deliveryId: staged.deliveryId,
+        expectedEpoch: 0, permit: 'original-permit' });
+      orchestrator.intervene({ deliveryId: staged.deliveryId, action: 'approve',
+        idempotencyKey: 'approved', applicationPermit: 'original-permit' });
+      expect(store.claimSymposiumDelivery(staged.deliveryId, 2, 'original-permit')).toBe(true);
+      expect(store.getSymposiumDelivery(staged.deliveryId)?.status).toBe('delivering');
+      expect(store.getSymposiumRecipientAttempts(staged.deliveryId)).toHaveLength(0);
+      if (startupRecovery) {
+        store.recoverSymposiumDeliveries(Date.now());
+        expect(store.getSymposiumDelivery(staged.deliveryId)?.status).toBe('recovery_required');
+      }
+      expect(store.pauseSymposiumApplicationDelivery({ deliveryId: staged.deliveryId,
+        expectedEpoch: 0 })).toBe(1);
+      expect(store.getSymposiumDelivery(staged.deliveryId)?.status).toBe('ready');
+      expect(() => store.claimSymposiumRecipientExecution({
+        sessionId: 'chat', deliveryId: staged.deliveryId, seatId: 'builder',
+        expectedConfigRevision: 1, bindingKey: 'stale-host',
+        recipientIdempotencyKey: staged.recipients[0].idempotencyKey,
+        claimToken: 'stale-host-claim', claimedAt: Date.now(),
+        provenance: {} as never, applicationPermit: 'original-permit',
+      })).toThrow(/application.*permit/i);
+      await expect(orchestrator.deliver(staged.deliveryId, {
+        applicationPermit: 'original-permit',
+      })).rejects.toThrow(/application.*permit/i);
+      expect(builder.calls).toHaveLength(0);
+      store.armSymposiumApplicationDelivery({ deliveryId: staged.deliveryId,
+        expectedEpoch: 1, permit: 'resumed-permit' });
+      expect((await orchestrator.deliver(staged.deliveryId, {
+        applicationPermit: 'resumed-permit',
+      })).status).toBe('delivered');
+      expect(builder.calls).toHaveLength(1);
+    },
+  );
+  it('retains recipient-claim uncertainty and refuses controlled delivery requeue', async () => {
+    admit('builder');
+    const staged = orchestrator.stageDelivery({
+      sessionId: 'chat', sourceSeatId: null, recipientSeatIds: ['builder'],
+      originalContent: 'Bound application work', idempotencyKey: 'recipient-claimed-before-crash',
+      applicationControl: { workflowId: 'flow', attemptId: 'attempt', policyReservationId: 'policy' },
+    });
+    store.armSymposiumApplicationDelivery({ deliveryId: staged.deliveryId,
+      expectedEpoch: 0, permit: 'original-permit' });
+    orchestrator.intervene({ deliveryId: staged.deliveryId, action: 'approve',
+      idempotencyKey: 'approved', applicationPermit: 'original-permit' });
+    const claim = store.claimSymposiumRecipientExecution.bind(store);
+    const spy = vi.spyOn(store, 'claimSymposiumRecipientExecution').mockImplementation((input) => {
+      const recorded = claim(input);
+      if (recorded) throw new Error('simulated process death after recipient claim');
+      return recorded;
+    });
+    try {
+      await expect(orchestrator.deliver(staged.deliveryId, {
+        applicationPermit: 'original-permit',
+      })).rejects.toThrow(/simulated process death/);
+    } finally {
+      spy.mockRestore();
+    }
+    expect(builder.calls).toHaveLength(0);
+    expect(store.getSymposiumRecipientAttempts(staged.deliveryId)).toHaveLength(1);
+    store.recoverSymposiumDeliveries(Date.now());
+    expect(store.getSymposiumRecipientAttempts(staged.deliveryId)[0].status)
+      .toBe('recovery_required');
+    expect(() => store.pauseSymposiumApplicationDelivery({
+      deliveryId: staged.deliveryId, expectedEpoch: 0,
+    })).toThrow(/safely staged/i);
+  });
   it('binds the host-selected claim to the exact staged delivery and recipient', async () => {
     admit('builder');
     const selectClaim = vi.fn(() => 'policy-reserved-claim');

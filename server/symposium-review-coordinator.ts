@@ -532,9 +532,7 @@ export class SymposiumReviewCoordinator {
   async stop(context: ReviewContext, workflowId: string) {
     return withTransitionLock(workflowId, async () => {
       this.scoped(context, workflowId);
-      const state = this.store.stopApplication(workflowId, context.owner, 'user_stop');
-      const pending = state.applicationAttempts.filter((a) => !a.settled);
-      await this.host?.cancelApplicationAttempts?.(context, pending);
+      this.store.stopApplication(workflowId, context.owner, 'user_stop');
       await this.settleStopped(context, workflowId);
       return this.scoped(context, workflowId);
     });
@@ -544,6 +542,13 @@ export class SymposiumReviewCoordinator {
     const state = this.scoped(context, workflowId);
     if (state.status !== 'decision_required' || !state.decisionCode)
       throw new Error('Stopped application policy required for reconciliation');
+    const cancelOutstanding = async () => {
+      const pending = this.scoped(context, workflowId).applicationAttempts.filter((a) => !a.settled);
+      await this.host?.cancelApplicationAttempts?.(context, pending);
+    };
+    // Reconcile may race the old host's recipient claim after the first read.
+    // The second sweep cancels any claim that defeated the atomic delivery pause.
+    await cancelOutstanding();
     for (const preparation of state.applicationPreparations.filter(
       (p) => p.status === 'preparing' || p.status === 'bound',
     )) {
@@ -566,6 +571,7 @@ export class SymposiumReviewCoordinator {
           disposition,
         );
     }
+    await cancelOutstanding();
   }
 
   async reconcileStoppedPreparations(context: ReviewContext, workflowId: string) {
