@@ -5,6 +5,7 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { createHash } from 'node:crypto';
 import type { SymposiumConfig } from '@mitzo/protocol';
 import { artifactAdmissionDigest } from '@mitzo/protocol/event-store';
 import { EventStore } from '../event-store.js';
@@ -147,9 +148,14 @@ it('charges, confirms the exact source child, and persists one bound initial att
       return { reference: confirmed.reference, receipt: confirmed.receipt };
     },
   );
+  const execute = vi.fn(async () => ({
+    providerThreadId: 'offline-thread',
+    content: 'done',
+    costUsd: 0,
+  }));
   const orchestrator = new SymposiumOrchestrator({
     store: events,
-    executors: {},
+    executors: { coder: { execute } },
     artifactReady: (sessionId, seatId, generation) =>
       Boolean(events.getSymposiumArtifactReference(sessionId, seatId, generation)),
   });
@@ -316,6 +322,31 @@ it('charges, confirms the exact source child, and persists one bound initial att
       attemptId: 'attempt-1',
       policyReservationId: bound.policyReservationId,
     });
+    const permit = createHash('sha256')
+      .update('symposium-application-delivery-permit/v1\0')
+      .update(bound.binding.claimToken)
+      .update('\0')
+      .update(bound.binding.deliveryId)
+      .update('\0')
+      .update('0')
+      .digest('hex');
+    events.armSymposiumApplicationDelivery({
+      deliveryId: delivery.deliveryId,
+      expectedEpoch: 0,
+      permit,
+    });
+    orchestrator.intervene({
+      deliveryId: delivery.deliveryId,
+      action: 'approve',
+      idempotencyKey: 'approved-initial',
+      applicationPermit: permit,
+    });
+    const delivered = await orchestrator.deliver(delivery.deliveryId, {
+      applicationPermit: permit,
+    });
+    expect(delivered.recipients[0].error).toBeNull();
+    expect(delivered.status).toBe('delivered');
+    expect(execute).toHaveBeenCalledTimes(1);
     expect(
       coordinator.recoverBoundTransition(context, 'workflow', 'initial', 'attempt-1'),
     ).toMatchObject({

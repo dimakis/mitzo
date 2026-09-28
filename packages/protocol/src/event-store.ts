@@ -4896,7 +4896,7 @@ export class EventStore {
         } else if (
           config.version === 2 &&
           (!('version' in provenance) ||
-            provenance.version !== 2 ||
+            (provenance.version !== 2 && provenance.version !== 3) ||
             provenance.membershipGeneration !== recipient.membership_generation)
         ) {
           boundaryError = 'Symposium claim provenance must pin the active membership';
