@@ -77,7 +77,7 @@ it('real worker keeps event loop responsive during a slow CLI, fails closed, and
     expect(f.custody.verifyCustodyAsync.mock.calls.length).toBeGreaterThanOrEqual(2);
     await expect(collect(selection)).rejects.toMatchObject({
       message: 'Evidence could not be verified',
-      phase: 'custody-native',
+      phase: 'gate',
     });
   } finally {
     rmSync(root, { recursive: true, force: true });

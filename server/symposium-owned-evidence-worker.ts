@@ -73,8 +73,11 @@ try {
       const methodPhase = physicalMethods[key as keyof LocalSymposiumProductionPhysicalProof];
       if (!methodPhase) return value.bind(target);
       return (...args: unknown[]) => {
+        const previousPhase = phase;
         phase = methodPhase;
-        return value.apply(target, args);
+        const result = value.apply(target, args);
+        phase = previousPhase;
+        return result;
       };
     },
   });
