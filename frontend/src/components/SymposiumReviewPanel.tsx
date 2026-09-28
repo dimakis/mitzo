@@ -107,10 +107,7 @@ function ReviewPanel({ sessionId }: { sessionId: string }) {
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || result.code || 'Review action failed');
-      if (
-        (path === base || path === `${base}/application-runs`) &&
-        typeof result.workflowId === 'string'
-      ) {
+      if (path === `${base}/application-runs` && typeof result.workflowId === 'string') {
         setWorkflowId(result.workflowId);
         setNewReview(false);
       }
@@ -240,7 +237,7 @@ function ReviewPanel({ sessionId }: { sessionId: string }) {
               setConfirmedArtifact(false);
             }}
           >
-            {newReview && <option value="">New review</option>}
+            {newReview && <option value="">New run</option>}
             {workflows.map((item) => (
               <option key={item.workflowId} value={item.workflowId}>
                 {item.artifactRevision} · {item.status.replaceAll('_', ' ')} · {item.workflowId}
@@ -261,7 +258,7 @@ function ReviewPanel({ sessionId }: { sessionId: string }) {
             setConfirmedArtifact(false);
           }}
         >
-          New review for current artifact
+          New implementation and review run
         </button>
       )}
       {workflow && (
@@ -648,21 +645,6 @@ function ReviewPanel({ sessionId }: { sessionId: string }) {
             Creates a run before implementation. Its initial turn starts only when you choose Run
             initial implementation.
           </p>
-          <button
-            disabled={busy || !criteria.trim() || !validLimits}
-            onClick={() =>
-              void action(base, {
-                workflowId: crypto.randomUUID(),
-                acceptanceCriteria: criteria
-                  .split('\n')
-                  .map((line) => line.trim())
-                  .filter(Boolean),
-                limits,
-              })
-            }
-          >
-            Start review
-          </button>
         </>
       )}
       {record && (

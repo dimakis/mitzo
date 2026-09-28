@@ -199,55 +199,67 @@ it('shows only explicitly reported severity and leaves legacy findings unlabeled
   expect(screen.getByText(/Saved review history remains readable/)).toBeTruthy();
 });
 
-it('selects earlier workflows and starts a separate review for the current artifact after a stopped review', async () => {
+it('selects earlier workflows and creates a separate application run after a stopped review', async () => {
   const { symposiumReviewPreviewResponses } =
     await import('../../preview/symposium-review-fixtures');
   const fixture = symposiumReviewPreviewResponses.findings.workflows[0];
   const old = { ...fixture, workflowId: 'old', status: 'verified', artifactRevision: 'old-commit' };
   const stopped = { ...fixture, workflowId: 'stopped', status: 'decision_required' };
-  const created = { ...fixture, workflowId: 'new', status: 'awaiting_review' };
+  const initialArtifact = { revision: 'new-artifact', hash: 'c'.repeat(64) };
+  const created = { ...fixture, workflowId: 'new', status: 'awaiting_initial' };
   let workflows = [old, stopped];
   vi.mocked(apiFetch).mockImplementation(async (_path, init) => {
     if (init?.method === 'POST') {
       workflows = [...workflows, created];
       return response(created);
     }
-    return response({ available: true, workflows });
+    return response({
+      available: true,
+      applicationRun: { available: true, initialArtifact },
+      workflows,
+    });
   });
   render(<SymposiumReviewPanel sessionId="session" />);
   const picker = await screen.findByLabelText('Review workflow');
   fireEvent.change(picker, { target: { value: 'old' } });
   expect(screen.getByText('verified · old-commit')).toBeTruthy();
   fireEvent.change(picker, { target: { value: 'stopped' } });
-  fireEvent.click(screen.getByRole('button', { name: 'New review for current artifact' }));
+  fireEvent.click(screen.getByRole('button', { name: 'New implementation and review run' }));
   fireEvent.change(screen.getByLabelText('Acceptance criteria (one per line)'), {
     target: { value: 'Fresh criteria' },
   });
   fireEvent.change(screen.getByLabelText('Maximum host turns'), { target: { value: '1000' } });
   fireEvent.change(screen.getByLabelText('Maximum review/fix cycles'), { target: { value: '2' } });
   chooseDeadlineAndProgress();
-  fireEvent.click(screen.getByRole('button', { name: 'Start review' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Create implementation and review run' }));
   await waitFor(() =>
     expect(apiFetch).toHaveBeenCalledWith(
-      '/api/sessions/session/symposium/reviews',
+      '/api/sessions/session/symposium/reviews/application-runs',
       expect.objectContaining({ method: 'POST' }),
     ),
   );
   const call = vi.mocked(apiFetch).mock.calls.find(([, init]) => init?.method === 'POST')!;
   const body = JSON.parse(call[1]!.body as string);
   expect(body.acceptanceCriteria).toEqual(['Fresh criteria']);
-  expect(body).not.toHaveProperty('expectedArtifactRevision');
+  expect(body).toMatchObject({
+    expectedArtifactRevision: initialArtifact.revision,
+    expectedArtifactHash: initialArtifact.hash,
+  });
   expect(((await screen.findByLabelText('Review workflow')) as HTMLSelectElement).value).toBe(
     'new',
   );
   expect(screen.getByRole('option', { name: /old-commit/ })).toBeTruthy();
-  fireEvent.click(screen.getByRole('button', { name: 'New review for current artifact' }));
+  fireEvent.click(screen.getByRole('button', { name: 'New implementation and review run' }));
   expect((screen.getByLabelText('Maximum host turns') as HTMLInputElement).value).toBe('');
   expect((screen.getByLabelText('Maximum review/fix cycles') as HTMLInputElement).value).toBe('');
   expect((screen.getByLabelText('Deadline') as HTMLInputElement).value).toBe('');
-  expect((screen.getByRole('button', { name: 'Start review' }) as HTMLButtonElement).disabled).toBe(
-    true,
-  );
+  expect(
+    (
+      screen.getByRole('button', {
+        name: 'Create implementation and review run',
+      }) as HTMLButtonElement
+    ).disabled,
+  ).toBe(true);
 });
 
 it('reloads ordered persisted decisions including reason, evidence and verification', async () => {
@@ -299,7 +311,7 @@ it('reloads ordered persisted decisions including reason, evidence and verificat
   ).toHaveLength(2);
 });
 
-it('starts a new workflow despite a stranded older reservation without settling or retrying it', async () => {
+it('creates a new application run despite a stranded older reservation without settling it', async () => {
   const { symposiumReviewPreviewResponses } =
     await import('../../preview/symposium-review-fixtures');
   const base = symposiumReviewPreviewResponses.findings.workflows[0];
@@ -313,19 +325,24 @@ it('starts a new workflow despite a stranded older reservation without settling 
   const current = {
     ...base,
     workflowId: 'current',
-    status: 'awaiting_review',
+    status: 'awaiting_initial',
     artifactRevision: 'new-artifact',
   };
+  const initialArtifact = { revision: 'new-artifact', hash: base.artifactHash };
   let workflows = [stale];
   vi.mocked(apiFetch).mockImplementation(async (_path, init) => {
     if (init?.method === 'POST') {
       workflows = [stale, current];
       return response(current);
     }
-    return response({ available: true, workflows });
+    return response({
+      available: true,
+      applicationRun: { available: true, initialArtifact },
+      workflows,
+    });
   });
   render(<SymposiumReviewPanel sessionId="session" />);
-  const create = await screen.findByRole('button', { name: 'New review for current artifact' });
+  const create = await screen.findByRole('button', { name: 'New implementation and review run' });
   expect((create as HTMLButtonElement).disabled).toBe(false);
   fireEvent.click(create);
   fireEvent.change(screen.getByLabelText('Acceptance criteria (one per line)'), {
@@ -334,7 +351,7 @@ it('starts a new workflow despite a stranded older reservation without settling 
   fireEvent.change(screen.getByLabelText('Maximum host turns'), { target: { value: '1000' } });
   fireEvent.change(screen.getByLabelText('Maximum review/fix cycles'), { target: { value: '2' } });
   chooseDeadlineAndProgress();
-  fireEvent.click(screen.getByRole('button', { name: 'Start review' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Create implementation and review run' }));
   await waitFor(() =>
     expect((screen.getByLabelText('Review workflow') as HTMLSelectElement).value).toBe('current'),
   );
@@ -343,7 +360,7 @@ it('starts a new workflow despite a stranded older reservation without settling 
       .mocked(apiFetch)
       .mock.calls.filter(([, init]) => init?.method === 'POST')
       .map(([path]) => path),
-  ).toEqual(['/api/sessions/session/symposium/reviews']);
+  ).toEqual(['/api/sessions/session/symposium/reviews/application-runs']);
   fireEvent.change(screen.getByLabelText('Review workflow'), { target: { value: 'stale' } });
   expect(screen.getByText('awaiting review · old-artifact')).toBeTruthy();
   expect(stale.reservations).toEqual([
@@ -369,10 +386,40 @@ const policy = {
   deadlineAt: new Date(deadline).getTime(),
   noProgressLimit: 2,
 };
-it('requires every application limit explicitly and posts the selected policy', async () => {
-  vi.mocked(apiFetch).mockResolvedValue(response({ available: true, workflows: [] }));
+it('does not offer legacy review creation when only application limits are configured', async () => {
+  vi.mocked(apiFetch).mockResolvedValue(
+    response({
+      available: true,
+      applicationRun: { available: false, initialArtifact: null },
+      workflows: [],
+    }),
+  );
   render(<SymposiumReviewPanel sessionId="session" />);
-  const start = await screen.findByRole('button', { name: 'Start review' });
+  const create = await screen.findByRole('button', {
+    name: 'Create implementation and review run',
+  });
+  fireEvent.change(screen.getByLabelText('Acceptance criteria (one per line)'), {
+    target: { value: 'Correct behavior' },
+  });
+  chooseLimits();
+  expect((create as HTMLButtonElement).disabled).toBe(true);
+  expect(screen.queryByRole('button', { name: 'Start review' })).toBeNull();
+  expect(vi.mocked(apiFetch).mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(
+    0,
+  );
+});
+
+it('requires every application limit explicitly and posts the selected policy', async () => {
+  const initialArtifact = { revision: 'imported-source', hash: 'c'.repeat(64) };
+  vi.mocked(apiFetch).mockResolvedValue(
+    response({
+      available: true,
+      applicationRun: { available: true, initialArtifact },
+      workflows: [],
+    }),
+  );
+  render(<SymposiumReviewPanel sessionId="session" />);
+  const start = await screen.findByRole('button', { name: 'Create implementation and review run' });
   fireEvent.change(screen.getByLabelText('Acceptance criteria (one per line)'), {
     target: { value: 'Correct behavior' },
   });
@@ -394,7 +441,12 @@ it('requires every application limit explicitly and posts the selected policy', 
     expect(vi.mocked(apiFetch).mock.calls.some(([, init]) => init?.method === 'POST')).toBe(true),
   );
   const call = vi.mocked(apiFetch).mock.calls.find(([, init]) => init?.method === 'POST')!;
+  expect(call[0]).toBe('/api/sessions/session/symposium/reviews/application-runs');
   expect(JSON.parse(call[1]!.body as string).limits).toEqual(policy);
+  expect(JSON.parse(call[1]!.body as string)).toMatchObject({
+    expectedArtifactRevision: initialArtifact.revision,
+    expectedArtifactHash: initialArtifact.hash,
+  });
 });
 it('shows selected policy and actual counters, binds stop and explicit continuation, and keeps unknown totals honest', async () => {
   const { symposiumReviewPreviewResponses } =
