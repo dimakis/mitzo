@@ -161,6 +161,44 @@ it('recovers only the retained imported seal with fresh app authorization and ex
   expect(screen.queryByRole('button', { name: 'Recover retained source seal' })).toBeNull();
 });
 
+it('starts retained seal recovery when import completed before the seal receipt was created', async () => {
+  const imported = {
+    expectedRevision: 7,
+    artifact: {
+      available: false,
+      state: 'imported',
+      admissionIssued: false,
+      volumeGeneration: 'retained-gen',
+      receipt: { operationId: 'import-before-seal' },
+      sourceSeal: null,
+    },
+  };
+  vi.mocked(apiFetch).mockImplementation(async (url) =>
+    String(url).endsWith('/reauthorize')
+      ? response({ csrf: 'recent-csrf', expiresAt: Date.now() + 60_000 })
+      : String(url).endsWith('/seal/recover')
+        ? response({ seal: { state: 'complete', operationId: 'import-before-seal' } })
+        : response(imported),
+  );
+  render(<SymposiumSourceImportPanel sessionId="session" />);
+  await userEvent.click(screen.getByRole('button', { name: 'Import local repository' }));
+  await userEvent.type(
+    await screen.findByLabelText('App passphrase for source seal recovery'),
+    'secret',
+  );
+  await userEvent.click(screen.getByRole('button', { name: 'Recover retained source seal' }));
+  await screen.findByText(/source seal completed/i);
+  const calls = vi.mocked(apiFetch).mock.calls;
+  const recovery = calls.find(([url]) => String(url).endsWith('/seal/recover'))!;
+  expect(recovery[1]!.headers).toMatchObject({ 'x-csrf-token': 'recent-csrf' });
+  expect(JSON.parse(recovery[1]!.body as string)).toEqual({
+    expectedRevision: 7,
+    expectedGeneration: 'retained-gen',
+    operationId: 'import-before-seal',
+  });
+  expect(calls.some(([url]) => String(url).endsWith('/import'))).toBe(false);
+});
+
 it('does not offer seal recovery when the imported status lacks matching retained identities', async () => {
   vi.mocked(apiFetch).mockResolvedValue(
     response({
@@ -179,6 +217,28 @@ it('does not offer seal recovery when the imported status lacks matching retaine
   await screen.findByText(/already been imported/i);
   expect(screen.queryByRole('button', { name: 'Recover retained source seal' })).toBeNull();
 });
+
+it.each(['complete', 'uncertain'])(
+  'does not offer retained seal recovery for an incompatible %s seal state',
+  async (sealState) => {
+    vi.mocked(apiFetch).mockResolvedValue(
+      response({
+        expectedRevision: 4,
+        artifact: {
+          available: false,
+          state: 'imported',
+          volumeGeneration: 'volume-gen',
+          receipt: { operationId: 'import-1' },
+          sourceSeal: { state: sealState, operationId: 'import-1' },
+        },
+      }),
+    );
+    render(<SymposiumSourceImportPanel sessionId="session" />);
+    await userEvent.click(screen.getByRole('button', { name: 'Import local repository' }));
+    await screen.findByText(/already been imported/i);
+    expect(screen.queryByRole('button', { name: 'Recover retained source seal' })).toBeNull();
+  },
+);
 
 it('keeps a pending seal recoverable when recent authorization expires', async () => {
   vi.mocked(apiFetch).mockImplementation(async (url) =>

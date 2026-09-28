@@ -8,8 +8,10 @@ function retainedSeal(status: SourceStatus | null) {
   if (
     artifact?.state !== 'imported' ||
     artifact.admissionIssued ||
-    artifact.sourceSeal?.state !== 'pending' ||
-    artifact.sourceSeal.operationId !== operationId ||
+    !(
+      artifact.sourceSeal === null ||
+      (artifact.sourceSeal?.state === 'pending' && artifact.sourceSeal.operationId === operationId)
+    ) ||
     !Number.isSafeInteger(status?.expectedRevision) ||
     (status?.expectedRevision ?? 0) < 1 ||
     !artifact.volumeGeneration ||
@@ -206,7 +208,7 @@ export function SymposiumSourceImportPanel({ sessionId }: { sessionId: string })
               <p>
                 {status.artifact?.state === 'imported'
                   ? recoverableSeal
-                    ? 'Committed source was imported, but its source seal is pending or uncertain. Recover the retained seal before admission.'
+                    ? 'Committed source was imported, but its source seal is pending or has not started. Recover the retained seal before admission.'
                     : status.artifact.sourceSeal?.state === 'complete'
                       ? 'Committed source has already been imported and sealed.'
                       : 'Committed source has already been imported, but retained seal recovery is unavailable from this status. Refresh source status.'
