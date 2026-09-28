@@ -150,7 +150,9 @@ it('charges, confirms the exact source child, and persists one bound initial att
     },
   );
   const sink = new SymposiumNativeEventSink(events, vi.fn());
+  let acceptedExecution: SymposiumSeatExecution | undefined;
   const execute = vi.fn(async (execution: SymposiumSeatExecution) => {
+    acceptedExecution = execution;
     expect(
       events.markSymposiumRecipientAccepted({
         deliveryId: execution.deliveryId,
@@ -373,6 +375,55 @@ it('charges, confirms the exact source child, and persists one bound initial att
         }),
       ]),
     );
+    expect(acceptedExecution?.provenance.version).toBe(3);
+    const provenance = acceptedExecution!.provenance;
+    if (!('artifact' in provenance)) throw new Error('Expected artifact provenance');
+    expect(() =>
+      events.appendSymposium(
+        context.sessionId,
+        'message_start',
+        { messageId: 'forged-seat' },
+        {
+          ...provenance,
+          seatLabel: 'forged',
+        },
+      ),
+    ).toThrow('does not match');
+    expect(() =>
+      events.appendSymposium(
+        context.sessionId,
+        'message_start',
+        { messageId: 'forged-artifact' },
+        {
+          ...provenance,
+          artifact: { ...provenance.artifact, bindingDigest: 'f'.repeat(64) },
+        },
+      ),
+    ).toThrow('artifact');
+    const forgedClaim = orchestrator.stageDelivery({
+      sessionId: context.sessionId,
+      sourceSeatId: null,
+      recipientSeatIds: ['coder'],
+      originalContent: 'Forged snapshot must fail',
+      idempotencyKey: 'forged-seat-claim',
+    });
+    orchestrator.intervene({
+      deliveryId: forgedClaim.deliveryId,
+      action: 'approve',
+      idempotencyKey: 'approve-forged-seat-claim',
+    });
+    const originalClaim = events.claimSymposiumRecipientExecution.bind(events);
+    vi.spyOn(events, 'claimSymposiumRecipientExecution').mockImplementationOnce((input) =>
+      originalClaim({
+        ...input,
+        provenance: { ...input.provenance, seatLabel: 'forged' } as typeof input.provenance,
+      }),
+    );
+    const rejected = await orchestrator.deliver(forgedClaim.deliveryId);
+    expect(rejected.recipients[0].error).toBe(
+      'Symposium claim provenance does not match the admitted seat',
+    );
+    expect(execute).toHaveBeenCalledTimes(1);
     expect(
       coordinator.recoverBoundTransition(context, 'workflow', 'initial', 'attempt-1'),
     ).toMatchObject({

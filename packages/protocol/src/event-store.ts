@@ -1758,6 +1758,19 @@ export class EventStore {
         ) {
           throw new Error('Symposium membership generation does not permit event attribution');
         }
+        if (provenance.version === 3) {
+          const artifact = this.getSymposiumArtifactReference(
+            sessionId,
+            seat.id,
+            membership.generation,
+          );
+          if (
+            !artifact ||
+            artifactAdmissionDigest(artifact) !== artifactAdmissionDigest(provenance.artifact)
+          )
+            throw new Error('Symposium artifact provenance does not match current admission');
+          this.assertSymposiumArtifactWorkAllowed(sessionId, provenance.artifact);
+        }
       }
       if (!matchesSeatProvenance(config, seat, provenance)) {
         throw new Error('Symposium provenance does not match the active seat configuration');
@@ -6216,7 +6229,7 @@ function matchesSeatProvenance(
     provenance.isolationDomainId === seat.isolationRequest?.trustDomainId &&
     provenance.isolationDomainRevision === seat.isolationRequest?.revision;
   if (!legacyMatches) return false;
-  if ('version' in provenance && provenance.version === 2) {
+  if ('version' in provenance && (provenance.version === 2 || provenance.version === 3)) {
     return (
       provenance.seatLabel === seat.name &&
       provenance.seatRole === seat.role &&
