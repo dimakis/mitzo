@@ -77,7 +77,8 @@ export function createOwnedCriterionReceipts(
   db.pragma('journal_mode=WAL');
   db.pragma('synchronous=FULL');
   db.pragma('busy_timeout=5000');
-  db.exec(`CREATE TABLE IF NOT EXISTS symposium_criterion_receipts (
+  db.transaction(() =>
+    db.exec(`CREATE TABLE IF NOT EXISTS symposium_criterion_receipts (
     evidence_id TEXT PRIMARY KEY, execution_id TEXT NOT NULL UNIQUE,
     session_id TEXT NOT NULL, owner TEXT NOT NULL, definition_id TEXT NOT NULL,
     definition_digest TEXT NOT NULL, result_id TEXT NOT NULL,
@@ -85,11 +86,14 @@ export function createOwnedCriterionReceipts(
     seal_fence_id TEXT NOT NULL, seal_digest TEXT NOT NULL, generation_id TEXT NOT NULL,
     execution_json TEXT NOT NULL, evidence_json TEXT NOT NULL,
     receipt_digest TEXT NOT NULL
-  ); CREATE UNIQUE INDEX IF NOT EXISTS symposium_criterion_exact_check
-    ON symposium_criterion_receipts(session_id,owner,result_id,definition_id)`);
+  );
+  DROP INDEX IF EXISTS symposium_criterion_exact_check;
+  CREATE UNIQUE INDEX IF NOT EXISTS symposium_criterion_exact_definition
+    ON symposium_criterion_receipts(session_id,owner,result_id,definition_id,definition_digest)`),
+  )();
   const byId = db.prepare('SELECT * FROM symposium_criterion_receipts WHERE evidence_id=?');
   const byCheck = db.prepare(`SELECT * FROM symposium_criterion_receipts
-    WHERE session_id=? AND owner=? AND result_id=? AND definition_id=?`);
+    WHERE session_id=? AND owner=? AND result_id=? AND definition_id=? AND definition_digest=?`);
   const receipt = (context: ReviewContext, row: Record<string, unknown>): Evidence | null => {
     const definition = definitions.get(String(row.definition_id));
     const current = deps.currentResult(context);
@@ -151,8 +155,14 @@ export function createOwnedCriterionReceipts(
       WorkResultSchema.parse(result);
       if (result.evidenceRefs.length !== 1 || !result.evidenceRefs[0].startsWith('artifact-seal:'))
         throw new Error('Exact result seal unavailable');
-      const prior = byCheck.get(context.sessionId, context.owner, result.resultId, definitionId) as
-        Record<string, unknown> | undefined;
+      const definitionDigest = digest(definition);
+      const prior = byCheck.get(
+        context.sessionId,
+        context.owner,
+        result.resultId,
+        definitionId,
+        definitionDigest,
+      ) as Record<string, unknown> | undefined;
       if (prior) {
         const retained = receipt(context, prior);
         if (!retained) throw new Error('Retained criterion receipt changed');
@@ -176,7 +186,6 @@ export function createOwnedCriterionReceipts(
       const { sealDigest, generationId } = await checkSeal();
       if (generationId !== deps.currentGeneration(context))
         throw new Error('Current artifact generation changed');
-      const definitionDigest = digest(definition);
       const execution = Execution.parse(
         await deps.execute(context, result, definition, definitionDigest),
       );

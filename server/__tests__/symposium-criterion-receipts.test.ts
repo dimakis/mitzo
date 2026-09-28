@@ -74,6 +74,69 @@ it('runs one registered check and retains an immutable exact-result receipt acro
   }
 });
 
+it('runs a corrected definition against the same immutable result without replacing the failed receipt', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'criterion-receipt-'));
+  try {
+    const path = join(directory, 'receipts.db');
+    const execute = vi.fn(async (_scope, _result, _definition, definitionDigest) => ({
+      executionId: `physical-execution-${execute.mock.calls.length}`,
+      sealFenceId: 'fence',
+      sealDigest: hash('e'),
+      definitionDigest,
+      artifactRevision: result.artifactRevision,
+      artifactHash: result.artifactHash,
+      observedSha256: hash('f'),
+      completedAt: 20 + execute.mock.calls.length,
+    }));
+    const deps = {
+      currentResult: () => result,
+      currentGeneration: () => 'generation',
+      requireSeal: async () => ({ seal, digest: hash('e'), generationId: 'generation' }),
+      execute,
+    };
+    const original = createOwnedCriterionReceipts(path, {
+      ...deps,
+      definitions: [definition],
+    });
+    const failed = await original.run(scope, definition.id);
+    expect(failed.verdict).toBe('failed');
+    original.close();
+    const raw = new Database(path);
+    const oldRow = raw
+      .prepare('SELECT * FROM symposium_criterion_receipts WHERE evidence_id=?')
+      .get(failed.evidenceId);
+    raw.exec(`DROP INDEX symposium_criterion_exact_definition;
+      CREATE UNIQUE INDEX symposium_criterion_exact_check
+      ON symposium_criterion_receipts(session_id,owner,result_id,definition_id)`);
+    raw.close();
+
+    const corrected = createOwnedCriterionReceipts(path, {
+      ...deps,
+      definitions: [{ ...definition, expectedSha256: hash('f') }],
+    });
+    expect(corrected.evidence(scope, failed.evidenceId)).toBeNull();
+    const verified = await corrected.run(scope, definition.id);
+    expect(verified).toMatchObject({ resultId: result.resultId, verdict: 'verified' });
+    expect(verified.evidenceId).not.toBe(failed.evidenceId);
+    expect(await corrected.run(scope, definition.id)).toEqual(verified);
+    expect(execute).toHaveBeenCalledTimes(2);
+    corrected.close();
+
+    const retained = new Database(path, { readonly: true });
+    expect(
+      retained
+        .prepare('SELECT * FROM symposium_criterion_receipts WHERE evidence_id=?')
+        .get(failed.evidenceId),
+    ).toEqual(oldRow);
+    expect(
+      retained.prepare('SELECT COUNT(*) AS count FROM symposium_criterion_receipts').get(),
+    ).toEqual({ count: 2 });
+    retained.close();
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 it('fails closed on unregistered definitions, forged physical bindings and stale artifacts', async () => {
   const directory = mkdtempSync(join(tmpdir(), 'criterion-receipt-'));
   try {
