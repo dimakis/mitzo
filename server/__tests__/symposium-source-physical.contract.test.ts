@@ -8,7 +8,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import Database from 'better-sqlite3';
 import { authMiddleware, login } from '../auth.js';
 import { SymposiumSessionArtifacts } from '../symposium-session-artifacts.js';
@@ -16,7 +16,15 @@ import { createSymposiumSourceHost } from '../symposium-source-service.js';
 import { createSymposiumSourceRouter } from '../symposium-source-routes.js';
 import { createArtifactGitVolume, artifactGitContract } from '../symposium-artifact-initializer.js';
 import { symposiumArtifactOwner } from '../symposium-artifact-owner.js';
-import { volumeEvidence } from '../symposium-artifact-host.js';
+import {
+  ArtifactPodmanContext,
+  SqliteArtifactLeaseHost,
+  volumeEvidence,
+} from '../symposium-artifact-host.js';
+import { withOwnedArtifactSuccessor } from '../symposium-owned-successor.js';
+import { successorCopierContract } from '../symposium-artifact-successor-copy.js';
+import { canonicalReviewJson, reviewRecordHash } from '../symposium-review-records.js';
+import type { ArtifactGenerationRequest } from '../symposium-artifact-generations.js';
 import {
   sealImportedSourceArtifact,
   requireCompletedImportedSourceSeal,
@@ -247,6 +255,157 @@ it.skipIf(!physical)(
         exported.bundle,
         new AbortController().signal,
       );
+      const copyCommand = async (
+        args: readonly string[],
+        maxOutputBytes = 16 * 1024 * 1024,
+        input?: Buffer,
+      ) =>
+        execFileSync(process.env.MITZO_CONTRACT_PODMAN ?? 'podman', [...args], {
+          env: { HOME: process.env.HOME, PATH: process.env.PATH },
+          input,
+          encoding: 'utf8',
+          timeout: 60000,
+          maxBuffer: maxOutputBytes,
+        });
+      const gateway = {
+        workspace,
+        stateDirectory: root,
+        verifyCustody() {},
+        async verifyCustodyAsync() {},
+      };
+      const leaseHost = new SqliteArtifactLeaseHost(
+        database,
+        {
+          verifyGateway: async () => {},
+          verifyMount: async () => {},
+          verifyDeleted: async () => {},
+        },
+        new ArtifactPodmanContext(copyCommand),
+        gateway as never,
+      );
+      let initialChild: { volumeName: string; generationId: string } | undefined;
+      try {
+        const parentGit = retainedSource.receipt.git;
+        const actor = 'fixture-owner';
+        const accountBinding = {
+          accountId: 'fixture-account',
+          accountLabel: 'Fixture account (no call)',
+          provider: 'openai-codex' as const,
+          model: 'luna-fixture-no-calls',
+          profileRevision: '1',
+        };
+        const request: ArtifactGenerationRequest = {
+          kind: 'initial',
+          sessionId,
+          workspace,
+          custodyDigest: createHash('sha256').update(root).digest('hex'),
+          operationId: exported.receipt.operationId,
+          expectedPointerRevision: 0,
+          parentGenerationId: mapping.volumeGeneration,
+          parentSealDigest: exported.receipt.parentSealDigest,
+          parentCommit: parentGit.commit,
+          parentTree: parentGit.tree,
+          parentManifestDigest: parentGit.manifestDigest,
+          parentCommittedTreeDigest: parentGit.committedTreeDigest,
+          bundleSha256: exported.receipt.bundleSha256,
+          exportReceiptDigest: reviewRecordHash(canonicalReviewJson(exported.receipt)),
+          workflowId: 'workflow',
+          actor,
+          authorityGrantId: 'fixture-grant',
+          authorityRevision: 1,
+          seatId: 'seat',
+          membershipGeneration: 1,
+          accountId: accountBinding.accountId,
+          model: accountBinding.model,
+          profileId: 'coder',
+          profileRevision: '1',
+          sourceSealId: sealOperationId,
+          initialAttemptId: 'initial-attempt',
+          policyReservationId: 'fixture-reservation',
+          expectedConfigRevision: 1,
+          predecessorMembershipGeneration: 1,
+          accountBinding,
+          contextGrant: { grantId: 'fixture-context', revision: 1 },
+          ...successorCopierContract(),
+        };
+        const workflow = {
+          limits: { mode: 'application' },
+          status: 'awaiting_initial',
+          implementation: null,
+          sessionId,
+          owner: actor,
+          initialArtifact: { revision: parentGit.commit, hash: parentGit.committedTreeDigest },
+          implementer: {
+            seatId: 'seat',
+            accountId: accountBinding.accountId,
+            model: accountBinding.model,
+            profileId: 'coder',
+            profileRevision: '1',
+          },
+          applicationPreparations: [
+            {
+              kind: 'initial',
+              attemptId: request.initialAttemptId,
+              policyReservationId: request.policyReservationId,
+              status: 'preparing',
+              sourceSealId: sealOperationId,
+              seal: {
+                artifactGenerationId: mapping.volumeGeneration,
+                sealDigest: exported.receipt.parentSealDigest,
+              },
+              artifactRevision: parentGit.commit,
+              artifactHash: parentGit.committedTreeDigest,
+              from: { membershipGeneration: 1, configRevision: 1 },
+              actorSeatId: 'seat',
+              expectedSelection: {
+                accountId: accountBinding.accountId,
+                model: accountBinding.model,
+                profileId: 'coder',
+                profileRevision: '1',
+                accountProfileRevision: '1',
+              },
+            },
+          ],
+        };
+        const deps = {
+          authority: {
+            workflows: { get: () => workflow } as never,
+            assertCurrent: () => true as const,
+          },
+          gateway: gateway as never,
+          leaseHost,
+          sessionArtifacts: artifacts,
+          sealer: {} as never,
+          sourceOwner: owner,
+          sourceProof: { assertNoNativeClaims: () => {}, command: sealCommand },
+        };
+        const copied = await withOwnedArtifactSuccessor(
+          deps,
+          request,
+          exported.receipt,
+          exported.bundle,
+          (copier) =>
+            copier.copy(request, exported.receipt, exported.bundle, new AbortController().signal),
+        );
+        initialChild = copied;
+        volumes.push(copied.volumeName);
+        await withOwnedArtifactSuccessor(
+          deps,
+          request,
+          exported.receipt,
+          exported.bundle,
+          (copier) =>
+            copier.activate(
+              request,
+              copied.generationId,
+              exported.receipt,
+              exported.bundle,
+              new AbortController().signal,
+            ),
+        );
+      } finally {
+        leaseHost.close();
+      }
       const db = new Database(database, { readonly: true });
       const row = db
         .prepare('SELECT * FROM symposium_session_artifacts WHERE session_id=?')
@@ -305,6 +464,7 @@ it.skipIf(!physical)(
         status: git('status', '--porcelain'),
       }).toEqual(selectedBefore);
       expect(sourceReceipt()).toEqual(sourceBefore);
+      if (initialChild) await command(['volume', 'rm', initialChild.volumeName]);
       await command(['volume', 'rm', mapping.volumeName]);
       completed = true;
       writeFileSync(
@@ -320,6 +480,7 @@ it.skipIf(!physical)(
             pendingSeal,
             completedSeal,
             initialExportReceipt: exported.receipt,
+            initialChild,
             verified,
             mapping,
             helpers,
