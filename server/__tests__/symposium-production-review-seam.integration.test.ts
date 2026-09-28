@@ -96,7 +96,7 @@ it('carries a sealed source through real stores into a charged initial run, then
   const initialExport = vi.fn(() => {
     throw new Error('fixture physical export unavailable');
   });
-  const composed = createSymposiumProductionReviewComposition({
+  const compositionDeps = {
     host: {
       gateway: { workspace: 'fixture' },
       sourceImport: { requireSeal: () => source, initialExport },
@@ -119,7 +119,8 @@ it('carries a sealed source through real stores into a charged initial run, then
     artifactResultsPath: path,
     runtime: () => ({ stageDelivery }),
     retainedRuntime: () => null,
-  } as never);
+  };
+  const composed = createSymposiumProductionReviewComposition(compositionDeps as never);
   try {
     const context = { owner: 'user', sessionId: 'session' };
     const coordinator = new SymposiumReviewCoordinator(reviews, composed.reviewHost);
@@ -166,6 +167,30 @@ it('carries a sealed source through real stores into a charged initial run, then
     expect(initialExport).toHaveBeenCalledOnce();
     expect(stageDelivery).not.toHaveBeenCalled();
     expect(copy).not.toHaveBeenCalled();
+    const restartedEvents = new EventStore(path);
+    const restartedReviews = new SymposiumReviewStore(path);
+    const restarted = createSymposiumProductionReviewComposition({
+      ...compositionDeps,
+      events: restartedEvents,
+      reviews: restartedReviews,
+    } as never);
+    try {
+      const recovered = new SymposiumReviewCoordinator(restartedReviews, restarted.reviewHost);
+      await expect(
+        recovered.reserveWithTransition(context, 'workflow', 'initial', 'attempt-1'),
+      ).rejects.toThrow('fixture physical export unavailable');
+      expect(restartedReviews.get('workflow')).toMatchObject({
+        hostTurns: 1,
+        applicationPreparations: [{ kind: 'initial', status: 'preparing', attemptId: 'attempt-1' }],
+        applicationAttempts: [],
+      });
+      expect(copy).not.toHaveBeenCalled();
+      expect(stageDelivery).not.toHaveBeenCalled();
+    } finally {
+      restarted.close();
+      restartedReviews.close();
+      restartedEvents.close();
+    }
     const freshAttempt = await coordinator.reserveWithTransition(
       context,
       'workflow',
@@ -174,7 +199,7 @@ it('carries a sealed source through real stores into a charged initial run, then
     );
     expect(freshAttempt).toMatchObject({ kind: 'decision_required' });
     expect(reviews.get('workflow')).toMatchObject({ hostTurns: 1, applicationAttempts: [] });
-    expect(initialExport).toHaveBeenCalledTimes(1);
+    expect(initialExport).toHaveBeenCalledTimes(2);
     expect(stageDelivery).not.toHaveBeenCalled();
     const afterFailure = new SymposiumReviewStore(path);
     try {
@@ -186,8 +211,7 @@ it('carries a sealed source through real stores into a charged initial run, then
     } finally {
       afterFailure.close();
     }
-    // Repeated request for the same exact attempt must retain the original
-    // charge and never stage a native delivery after a failed export.
+    // Repeated request for the same exact attempt retains the original charge.
     await expect(
       coordinator.reserveWithTransition(context, 'workflow', 'initial', 'attempt-1'),
     ).rejects.toThrow('fixture physical export unavailable');
@@ -196,6 +220,7 @@ it('carries a sealed source through real stores into a charged initial run, then
       applicationPreparations: [{ kind: 'initial', status: 'preparing', attemptId: 'attempt-1' }],
       applicationAttempts: [],
     });
+    expect(initialExport).toHaveBeenCalledTimes(3);
     expect(stageDelivery).not.toHaveBeenCalled();
     expect(copy).not.toHaveBeenCalled();
   } finally {
