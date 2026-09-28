@@ -1693,8 +1693,17 @@ export function createSymposiumSessionRuntime(deps: SymposiumSessionRuntimeDeps)
       // A sealed import is a read-only parent. Confirm provider and membership
       // authority without ever reserving or mounting a seat on that volume.
       if (!deps.preinitialSource?.(sessionId)) {
-        for (const candidate of active)
+        for (const candidate of active) {
+          const membership = deps.store.getLatestSymposiumMembership(sessionId, candidate.id);
+          // The first child can exist for one seat while another still has only
+          // the sealed source. Do not reserve a sandbox against that source.
+          if (
+            deps.artifactReady &&
+            (!membership || !deps.artifactReady(sessionId, candidate.id, membership.generation))
+          )
+            continue;
           await owner.ensure(sessionId, candidate.id, new AbortController().signal);
+        }
       }
       for (const snapshot of snapshots) snapshot.verify();
     },

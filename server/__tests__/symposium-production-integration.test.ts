@@ -118,7 +118,9 @@ describe('production Symposium route to native runtime', () => {
       throw new Error('sealed source cannot be mounted');
     });
     const preinitialSource = vi.fn(() => true);
-    const artifactReady = vi.fn(() => false);
+    const artifactReady = vi.fn(
+      (_sessionId: string, _seatId: string, _generation: number) => false,
+    );
     const runtime = createSymposiumSessionRuntime({
       sessionId: 'symposium',
       store,
@@ -165,7 +167,8 @@ describe('production Symposium route to native runtime', () => {
     expect(store.getSymposiumDeliveries('symposium')).toEqual([]);
     expect(artifactReady).toHaveBeenCalledWith('symposium', 'builder', 1);
     preinitialSource.mockReturnValue(false);
-    artifactReady.mockReturnValue(true);
+    artifactReady.mockImplementation((_sessionId, seatId) => seatId === 'builder');
+    const ensure = vi.spyOn(runtime.owner, 'ensure').mockResolvedValue({} as never);
     const later = await runtime.orchestrator.transitionMembership({
       sessionId: 'symposium',
       seatId: 'anchor',
@@ -173,11 +176,25 @@ describe('production Symposium route to native runtime', () => {
       expectedGeneration: 0,
       configRevision: 1,
       actor: 'owner',
-      reason: 'Child admitted',
+      reason: 'Source child exists only for builder',
       idempotencyKey: 'after-child',
     });
-    expect(later.reconciliation).toBe('recovery_required');
-    expect(artifactRequest).toHaveBeenCalledWith('symposium', 'anchor', 1);
+    expect(later.reconciliation).toBe('confirmed');
+    expect(artifactReady).toHaveBeenCalledWith('symposium', 'anchor', 1);
+    expect(ensure).toHaveBeenCalledTimes(1);
+    expect(ensure).toHaveBeenCalledWith('symposium', 'builder', expect.any(AbortSignal));
+    expect(artifactRequest).not.toHaveBeenCalled();
+    expect(managerFactory).not.toHaveBeenCalled();
+    expect(store.listSymposiumSessionSandboxes('symposium')).toEqual([]);
+    expect(() =>
+      runtime.orchestrator.stageDelivery({
+        sessionId: 'symposium',
+        sourceSeatId: null,
+        recipientSeatIds: ['anchor'],
+        originalContent: 'Still premature',
+        idempotencyKey: 'premature-reviewer',
+      }),
+    ).toThrow('not active');
     store.close();
   });
 
