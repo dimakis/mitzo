@@ -1,6 +1,7 @@
 import Database from 'better-sqlite3';
-import { lstatSync } from 'node:fs';
+import { lstatSync, readdirSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
+import { readCustodianRetirementReceipt } from './symposium-custodian-retirement.js';
 
 export interface LostCustodyReportInput {
   eventDb: string;
@@ -70,12 +71,17 @@ export function reportLostSymposiumCustody(input: LostCustodyReportInput) {
       physicalId: string | null;
       state: string;
     }[];
-    const artifacts = artifact
+    const artifactRows = artifact
       .prepare(
-        `SELECT session_id AS sessionId,volume_name AS volumeName,state
+        `SELECT session_id AS sessionId,custody,volume_name AS volumeName,state
            FROM symposium_session_artifacts ORDER BY session_id`,
       )
-      .all() as { sessionId: string; volumeName: string; state: string }[];
+      .all() as { sessionId: string; custody: string; volumeName: string; state: string }[];
+    const artifacts = artifactRows.map(({ sessionId, volumeName, state }) => ({
+      sessionId,
+      volumeName,
+      state,
+    }));
     const leases = lease
       .prepare(
         `SELECT volume_name AS volumeName,access,sandbox_name AS sandboxName,
@@ -90,22 +96,57 @@ export function reportLostSymposiumCustody(input: LostCustodyReportInput) {
     }[];
     const count = (db: Database.Database, table: string) =>
       (db.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get() as { count: number }).count;
+    const pendingCreationRecoveries = (
+      event
+        .prepare(
+          'SELECT COUNT(*) AS count FROM symposium_creation_recoveries WHERE result_json IS NULL',
+        )
+        .get() as { count: number }
+    ).count;
+    const lifecycleFences = count(event, 'symposium_seat_lifecycle_fences');
+    const pendingArtifactRetention = count(lease, 'symposium_artifact_pending_retention');
+    const unsettled =
+      memberships.some((row) => row.state === 'active' || row.reconciliation !== 'confirmed') ||
+      sandboxes.length > 0 ||
+      artifacts.some((row) => row.state !== 'ready') ||
+      leases.length > 0 ||
+      pendingCreationRecoveries > 0 ||
+      lifecycleFences > 0 ||
+      pendingArtifactRetention > 0;
+    let retirementReceipt: 'absent' | 'matching' | 'mismatch' | 'conflicting_state' | 'invalid' =
+      'absent';
+    try {
+      const receipt = readCustodianRetirementReceipt(input.stateParent);
+      if (receipt) {
+        const otherGatewayLaunch = readdirSync(input.stateParent)
+          .filter((name) => name.startsWith('gateway-'))
+          .some((name) => join(input.stateParent, name) !== receipt.gatewayStateDirectory);
+        retirementReceipt = artifactRows.every(
+          (row) => row.custody === receipt.gatewayStateDirectory,
+        )
+          ? unsettled || otherGatewayLaunch
+            ? 'conflicting_state'
+            : 'matching'
+          : 'mismatch';
+      }
+    } catch {
+      retirementReceipt = 'invalid';
+    }
     return {
       disposition: 'fenced_requires_authenticated_reconciliation' as const,
       physicalProof: 'unavailable' as const,
+      lastOwnerShutdown:
+        retirementReceipt === 'matching'
+          ? ('confirmed_at_receipt' as const)
+          : ('unconfirmed' as const),
+      retirementReceipt,
       memberships,
       sandboxes,
       artifacts,
       leases,
-      pendingCreationRecoveries: (
-        event
-          .prepare(
-            'SELECT COUNT(*) AS count FROM symposium_creation_recoveries WHERE result_json IS NULL',
-          )
-          .get() as { count: number }
-      ).count,
-      lifecycleFences: count(event, 'symposium_seat_lifecycle_fences'),
-      pendingArtifactRetention: count(lease, 'symposium_artifact_pending_retention'),
+      pendingCreationRecoveries,
+      lifecycleFences,
+      pendingArtifactRetention,
       nextAction:
         'Keep old resources retained. Establish fresh authenticated authority and exact physical inventory before any stop, export, or retirement mutation.',
     };

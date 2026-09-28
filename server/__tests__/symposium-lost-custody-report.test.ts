@@ -4,6 +4,7 @@ import { chmodSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync 
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { reportLostSymposiumCustody } from '../symposium-lost-custody-report.js';
+import { writeCustodianRetirementReceipt } from '../symposium-custodian-retirement.js';
 
 const roots: string[] = [];
 afterEach(() => roots.splice(0).forEach((root) => rmSync(root, { recursive: true, force: true })));
@@ -118,4 +119,73 @@ it('does not infer safe retirement from an empty or previously stopped durable i
   expect(report.memberships[0].state).toBe('suspended');
   expect(report.physicalProof).toBe('unavailable');
   expect(report.disposition).toBe('fenced_requires_authenticated_reconciliation');
+});
+
+it('shows abrupt or uncertain loss when no original-owner terminal receipt exists', () => {
+  const input = fixture();
+  expect(reportLostSymposiumCustody(input)).toMatchObject({
+    lastOwnerShutdown: 'unconfirmed',
+    retirementReceipt: 'absent',
+    physicalProof: 'unavailable',
+  });
+});
+
+it('keeps a malformed terminal receipt unconfirmed while retaining the inventory', () => {
+  const input = fixture();
+  writeFileSync(join(input.stateParent, 'custodian-retirement.json'), '{broken', { mode: 0o600 });
+  expect(reportLostSymposiumCustody(input)).toMatchObject({
+    lastOwnerShutdown: 'unconfirmed',
+    retirementReceipt: 'invalid',
+    memberships: [{ sessionId: 'session-1', state: 'active' }],
+  });
+});
+
+it('shows an original-owner terminal receipt only for matching retained custody', () => {
+  const input = fixture();
+  const gatewayStateDirectory = join(input.stateParent, 'gateway-exact');
+  mkdirSync(gatewayStateDirectory, { mode: 0o700 });
+  const db = new Database(join(input.stateParent, 'session-artifacts.db'));
+  db.prepare('UPDATE symposium_session_artifacts SET custody=?').run(gatewayStateDirectory);
+  db.close();
+  writeCustodianRetirementReceipt({
+    stateParent: input.stateParent,
+    gatewayStateDirectory,
+    instanceId: 'original-owner',
+    controllerGeneration: 1,
+  });
+  expect(reportLostSymposiumCustody(input)).toMatchObject({
+    lastOwnerShutdown: 'unconfirmed',
+    retirementReceipt: 'conflicting_state',
+  });
+  {
+    const db = new Database(input.eventDb);
+    db.prepare("UPDATE symposium_membership SET state='suspended'").run();
+    db.prepare("UPDATE symposium_seat_sandboxes SET state='stopped'").run();
+    db.prepare('DELETE FROM symposium_creation_recoveries').run();
+    db.close();
+    const leases = new Database(join(input.stateParent, 'artifact-leases.db'));
+    leases.prepare('DELETE FROM symposium_artifact_leases').run();
+    leases.close();
+  }
+  expect(reportLostSymposiumCustody(input)).toMatchObject({
+    lastOwnerShutdown: 'confirmed_at_receipt',
+    retirementReceipt: 'matching',
+    disposition: 'fenced_requires_authenticated_reconciliation',
+  });
+  const laterGateway = join(input.stateParent, 'gateway-later');
+  mkdirSync(laterGateway, { mode: 0o700 });
+  expect(reportLostSymposiumCustody(input)).toMatchObject({
+    lastOwnerShutdown: 'unconfirmed',
+    retirementReceipt: 'conflicting_state',
+  });
+  rmSync(laterGateway, { recursive: true });
+  {
+    const db = new Database(join(input.stateParent, 'session-artifacts.db'));
+    db.prepare('UPDATE symposium_session_artifacts SET custody=?').run('another-gateway');
+    db.close();
+  }
+  expect(reportLostSymposiumCustody(input)).toMatchObject({
+    lastOwnerShutdown: 'unconfirmed',
+    retirementReceipt: 'mismatch',
+  });
 });

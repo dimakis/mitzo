@@ -1,10 +1,15 @@
 import 'dotenv/config';
 import { fork, type ChildProcess } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
+import { dirname } from 'node:path';
 import { custodianAppEnvironment } from './symposium-custodian-launch.js';
 import { SymposiumCustodianController } from './symposium-custodian-controller.js';
 import { serveCustodianController, type CustodianChannel } from './symposium-custodian-ipc.js';
 import { dispatchCustodianHttp } from './symposium-custodian-http.js';
+import {
+  finishCustodianRetirement,
+  writeCustodianRetirementReceipt,
+} from './symposium-custodian-retirement.js';
 
 /** Explicit fresh-owner entry point. No attach/reconstruct command exists. */
 async function main() {
@@ -135,20 +140,36 @@ async function main() {
       if (!stopping) await new Promise<void>((resolve) => setTimeout(resolve, 1000));
     }
     const signal = AbortSignal.timeout(120_000);
-    engine.beginSymposiumShutdown();
-    host.beginShutdown();
-    const results = await Promise.allSettled([
-      engine.retireRetainedSymposiumRuntimes(
-        `${identity}-${controllerGeneration}-retirement`,
-        signal,
-      ),
-      host.drain(signal),
-    ]);
-    if (results.some((result) => result.status === 'rejected'))
-      throw Error('Custodian shutdown remains uncertain');
-    await host.closeAfterDrain(signal);
+    await finishCustodianRetirement(
+      {
+        begin() {
+          engine.beginSymposiumShutdown();
+          host.beginShutdown();
+        },
+        retireRuntimes: (signal) =>
+          engine.retireRetainedSymposiumRuntimes(
+            `${identity}-${controllerGeneration}-retirement`,
+            signal,
+          ),
+        drainHost: (signal) => host.drain(signal),
+        closeHost: (signal) => host.closeAfterDrain(signal),
+        record: () =>
+          writeCustodianRetirementReceipt({
+            stateParent: dirname(host.gateway.stateDirectory),
+            gatewayStateDirectory: host.gateway.stateDirectory,
+            instanceId: identity,
+            controllerGeneration,
+          }),
+      },
+      signal,
+    );
   } catch {
-    host.markShutdownUncertain();
+    try {
+      host.markShutdownUncertain();
+    } catch {
+      // A terminal-receipt write can fail after custody stores have closed.
+      // Failure remains visible without resurrecting any original capability.
+    }
     // Keep original owners/ledgers alive for diagnosis. Never reconstruct their
     // capabilities in a replacement process or claim successful cleanup.
     process.stderr.write(
