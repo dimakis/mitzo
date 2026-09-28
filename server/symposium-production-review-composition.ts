@@ -1,4 +1,6 @@
 import { createHash } from 'node:crypto';
+import { artifactAdmissionDigest } from '@mitzo/protocol/event-store';
+import type { ArtifactAdmissionReferenceV1 } from '@mitzo/protocol';
 import type { EventStore } from './event-store.js';
 import type { SymposiumProductionHost } from './app.js';
 import type { SymposiumReviewStore } from './symposium-review-workflows.js';
@@ -15,6 +17,59 @@ import { canonicalReviewJson } from './symposium-review-records.js';
 
 type PhysicalHost = SymposiumProductionHost;
 type Identity = { revision: string; hash: string };
+
+/** A reviewer config advance makes the coder's admission historical. This
+ * reads only the sealed pointer; fix dispatch still needs fresh child admission. */
+export function historicalFixPointer(
+  events: Pick<
+    EventStore,
+    | 'getActiveSymposiumConfig'
+    | 'getLatestSymposiumMembership'
+    | 'getSymposiumArtifactReference'
+    | 'getSymposiumArtifactAdmission'
+    | 'getSymposiumArtifactSealByFence'
+    | 'withSymposiumHistoricalArtifactSealSnapshot'
+  >,
+  context: ReviewContext,
+  seatId: string,
+  membershipGeneration: number,
+  generationId: string,
+  fenceId: string,
+): ArtifactAdmissionReferenceV1 {
+  const config = events.getActiveSymposiumConfig(context.sessionId);
+  const member = events.getLatestSymposiumMembership(context.sessionId, seatId);
+  const ref = events.getSymposiumArtifactReference(context.sessionId, seatId, membershipGeneration);
+  const record =
+    ref && !('kind' in ref)
+      ? events.getSymposiumArtifactAdmission(context.sessionId, ref.transitionId)
+      : null;
+  const seal = events.getSymposiumArtifactSealByFence(fenceId);
+  if (
+    config.version !== 2 ||
+    config.state !== 'active' ||
+    !member ||
+    member.state !== 'active' ||
+    member.reconciliation !== 'confirmed' ||
+    member.generation !== membershipGeneration ||
+    !ref ||
+    'kind' in ref ||
+    !record?.receipt ||
+    !seal ||
+    seal.selection.sessionId !== context.sessionId ||
+    seal.selection.artifact.volumeGeneration !== generationId ||
+    record.binding.sessionId !== context.sessionId ||
+    record.binding.seatId !== seatId ||
+    record.binding.successorMembershipGeneration !== membershipGeneration ||
+    record.binding.childGenerationId !== generationId ||
+    record.binding.resultingConfigRevision > config.revision ||
+    artifactAdmissionDigest(record.reference) !== artifactAdmissionDigest(ref) ||
+    record.receipt.bindingDigest !== artifactAdmissionDigest(record.binding) ||
+    record.receipt.pointerRevision !== ref.pointerRevision
+  )
+    throw new Error('Exact sealed coder pointer required');
+  events.withSymposiumHistoricalArtifactSealSnapshot(seal, () => {});
+  return ref;
+}
 
 /** Trusted parent-only composition. All missing physical dependencies fail closed
  * before any review route becomes available. No request can provide a callback. */
@@ -160,14 +215,18 @@ export function createSymposiumProductionReviewComposition(deps: {
       },
       exportSuccessor: (input, signal) => host.exportSuccessorArtifactBundle!(input, signal),
       currentPointer(context, seatId, membershipGeneration) {
-        const ref = events.getSymposiumArtifactReference(
-          context.sessionId,
+        const artifact = currentArtifact(context);
+        const fenceId = currentFence(context, artifact);
+        const seal = events.getSymposiumArtifactSealByFence(fenceId);
+        if (!seal) throw new Error('Current sealed fix parent unavailable');
+        return historicalFixPointer(
+          events,
+          context,
           seatId,
           membershipGeneration,
+          seal.selection.artifact.volumeGeneration,
+          fenceId,
         );
-        if (!ref || 'kind' in ref) throw new Error('Confirmed current writer generation required');
-        events.assertSymposiumArtifactAdmissionCurrent(context.sessionId, ref);
-        return ref;
       },
       copy: (request, receipt, bundle, signal) =>
         host.copySuccessorArtifact!(request, receipt, bundle, signal),

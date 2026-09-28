@@ -2,7 +2,11 @@ import { expect, it, vi } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createSymposiumProductionReviewComposition } from '../symposium-production-review-composition.js';
+import { artifactAdmissionDigest } from '@mitzo/protocol/event-store';
+import {
+  createSymposiumProductionReviewComposition,
+  historicalFixPointer,
+} from '../symposium-production-review-composition.js';
 
 it('uses a completed imported source until a physically sealed writer result exists', () => {
   const directory = mkdtempSync(join(tmpdir(), 'symposium-review-composition-'));
@@ -72,4 +76,70 @@ it('does not install a review host from partial physical capabilities', () => {
       retainedRuntime: vi.fn(),
     } as never),
   ).toThrow('Complete trusted physical review host required');
+});
+
+it('reads the sealed coder pointer after a reviewer config transition without issuing it for dispatch', () => {
+  const ref = {
+    version: 1,
+    transitionId: 'initial',
+    artifactGenerationId: 'writer-generation',
+    pointerRevision: 1,
+    bindingDigest: 'a'.repeat(64),
+  };
+  const seal = {
+    fenceId: 'writer-seal',
+    selection: { sessionId: 'session', artifact: { volumeGeneration: 'writer-generation' } },
+  };
+  const snapshot = vi.fn((_value, fn: () => void) => fn());
+  const binding = {
+    sessionId: 'session',
+    seatId: 'coder',
+    childGenerationId: 'writer-generation',
+    successorMembershipGeneration: 2,
+    resultingConfigRevision: 2,
+  };
+  const events = {
+    getActiveSymposiumConfig: () => ({ version: 2, state: 'active', revision: 3 }),
+    getLatestSymposiumMembership: () => ({
+      state: 'active',
+      reconciliation: 'confirmed',
+      generation: 2,
+    }),
+    getSymposiumArtifactReference: () => ref,
+    getSymposiumArtifactAdmission: () => ({
+      reference: ref,
+      receipt: {
+        bindingDigest: artifactAdmissionDigest(binding),
+        pointerRevision: 1,
+      },
+      binding,
+    }),
+    getSymposiumArtifactSealByFence: () => seal,
+    withSymposiumHistoricalArtifactSealSnapshot: snapshot,
+    assertSymposiumArtifactAdmissionCurrent: vi.fn(() => {
+      throw new Error('old config');
+    }),
+  };
+  expect(
+    historicalFixPointer(
+      events as never,
+      { owner: 'user', sessionId: 'session' },
+      'coder',
+      2,
+      'writer-generation',
+      'writer-seal',
+    ),
+  ).toEqual(ref);
+  expect(snapshot).toHaveBeenCalledOnce();
+  expect(events.assertSymposiumArtifactAdmissionCurrent).not.toHaveBeenCalled();
+  expect(() =>
+    historicalFixPointer(
+      events as never,
+      { owner: 'user', sessionId: 'session' },
+      'coder',
+      2,
+      'different-generation',
+      'writer-seal',
+    ),
+  ).toThrow('sealed coder pointer');
 });
