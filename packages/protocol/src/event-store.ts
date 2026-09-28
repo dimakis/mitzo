@@ -1747,8 +1747,8 @@ export class EventStore {
       const seat = config.seats.find((candidate) => candidate.id === provenance.seatId);
       if (!seat) throw new Error('Symposium provenance references an unknown seat');
       if (config.version === 2) {
-        if (!('version' in provenance) || provenance.version !== 2) {
-          throw new Error('New Symposium v2 events require an immutable v2 snapshot');
+        if (!('version' in provenance) || (provenance.version !== 2 && provenance.version !== 3)) {
+          throw new Error('New Symposium v2 events require an immutable v2 or v3 snapshot');
         }
         const membership = this.getLatestSymposiumMembership(sessionId, seat.id);
         if (

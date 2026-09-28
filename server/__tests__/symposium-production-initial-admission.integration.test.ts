@@ -12,7 +12,8 @@ import { EventStore } from '../event-store.js';
 import { SymposiumReviewStore } from '../symposium-review-workflows.js';
 import { SymposiumReviewCoordinator } from '../symposium-review-coordinator.js';
 import { createSymposiumProductionReviewComposition } from '../symposium-production-review-composition.js';
-import { SymposiumOrchestrator } from '../symposium-orchestrator.js';
+import { SymposiumOrchestrator, type SymposiumSeatExecution } from '../symposium-orchestrator.js';
+import { SymposiumNativeEventSink } from '../symposium-native-event-sink.js';
 
 const roots: string[] = [];
 afterEach(() => roots.splice(0).forEach((root) => rmSync(root, { recursive: true, force: true })));
@@ -148,11 +149,28 @@ it('charges, confirms the exact source child, and persists one bound initial att
       return { reference: confirmed.reference, receipt: confirmed.receipt };
     },
   );
-  const execute = vi.fn(async () => ({
-    providerThreadId: 'offline-thread',
-    content: 'done',
-    costUsd: 0,
-  }));
+  const sink = new SymposiumNativeEventSink(events, vi.fn());
+  const execute = vi.fn(async (execution: SymposiumSeatExecution) => {
+    expect(
+      events.markSymposiumRecipientAccepted({
+        deliveryId: execution.deliveryId,
+        seatId: execution.seat.id,
+        claimToken: execution.claimToken,
+        providerThreadId: 'offline-thread',
+        providerTurnId: 'offline-turn',
+        acceptedAt: Date.now(),
+      }),
+    ).toBe(true);
+    expect(
+      events.getSymposiumRecipientAttemptByClaimToken(execution.claimToken)?.provenance,
+    ).toEqual(execution.provenance);
+    sink.record(execution, {
+      type: 'stream_event',
+      event: { type: 'message_start', message: { id: 'offline-message' } },
+    });
+    sink.record(execution, { type: 'result', usage_status: 'unknown' });
+    return { providerThreadId: 'offline-thread', content: 'done', costUsd: 0 };
+  });
   const orchestrator = new SymposiumOrchestrator({
     store: events,
     executors: { coder: { execute } },
@@ -347,6 +365,14 @@ it('charges, confirms the exact source child, and persists one bound initial att
     expect(delivered.recipients[0].error).toBeNull();
     expect(delivered.status).toBe('delivered');
     expect(execute).toHaveBeenCalledTimes(1);
+    expect(events.getSessionEvents(context.sessionId)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: 'message_start',
+          symposiumProvenance: expect.objectContaining({ version: 3, membershipGeneration: 2 }),
+        }),
+      ]),
+    );
     expect(
       coordinator.recoverBoundTransition(context, 'workflow', 'initial', 'attempt-1'),
     ).toMatchObject({
