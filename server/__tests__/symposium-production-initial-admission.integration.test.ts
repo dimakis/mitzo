@@ -268,6 +268,8 @@ it('charges, confirms the exact source child, and persists one bound initial att
       exportCompletedReviewContext: vi.fn(),
       releaseCompletedReviewStream: vi.fn(),
       releaseReadyReviewStream: vi.fn(),
+      releaseStoppedReadyReviewStream: vi.fn(),
+      trackApplicationTransition: <T>(operation: () => Promise<T>) => operation(),
       exportSuccessorArtifactBundle: vi.fn(),
       copySuccessorArtifact: copy,
       admitSuccessorArtifact: admit,
