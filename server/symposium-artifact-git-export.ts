@@ -4,7 +4,11 @@ import { ARTIFACT_GIT_VERIFIER_CORE } from './symposium-artifact-git-verifier.js
 export const ARTIFACT_INSPECTION_MAX_OUTPUT_BYTES = 4 * 1024 * 1024;
 export const ARTIFACT_REVIEW_CONTEXT_MAX_BYTES = 48 * 1024;
 export const ARTIFACT_REVIEW_CONTEXT_MAX_OUTPUT_BYTES = 2 * 1024 * 1024;
-export const ARTIFACT_REVIEW_MAX_PAGES = 1024;
+// The imported base and sealed target each admit at most 64 MiB of file bytes.
+// Endpoint diff lines add a prefix and Git headers, so allow roughly twice the
+// combined source budget while keeping all emitted helper batches below 2 MiB.
+export const ARTIFACT_REVIEW_MAX_SELECTED_BYTES = 260 * 1024 * 1024;
+export const ARTIFACT_REVIEW_MAX_PAGES = 32768;
 export const ARTIFACT_REVIEW_BATCH_PAGES = 16;
 /** Entire script runs inside the pinned, credential-free read-only helper. */
 export const ARTIFACT_GIT_EXPORT =
@@ -108,7 +112,7 @@ if options['kind']=='review_context':
   # Each page is re-derived from the pinned Git tree by a fresh helper. Keep the
   # complete selection bounded before emitting any page to limit repeated work.
   selected_bytes=sum(len((item[item['representation']] if item['representation'] in ('diff','content') else '').encode('utf-8')) for item in files)
-  if selected_bytes>32*1048576: raise ValueError('review evidence total byte bound')
+  if selected_bytes>${ARTIFACT_REVIEW_MAX_SELECTED_BYTES}: raise ValueError('review evidence total byte bound')
   evidence_sha=hashlib.sha256(json.dumps({'identity':identity,'files':descriptors},sort_keys=True,separators=(',',':'),ensure_ascii=False).encode('utf-8')).hexdigest()
   segments=[]
   for item in files:

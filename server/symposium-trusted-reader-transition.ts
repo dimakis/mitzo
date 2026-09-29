@@ -14,6 +14,7 @@ import { canonicalReviewJson, reviewRecordHash } from './symposium-review-record
 import {
   ARTIFACT_REVIEW_BATCH_PAGES,
   ARTIFACT_REVIEW_MAX_PAGES,
+  ARTIFACT_REVIEW_MAX_SELECTED_BYTES,
 } from './symposium-artifact-git-export.js';
 
 const REVIEW_PROMPT_MAX_BYTES = 64 * 1024;
@@ -494,7 +495,7 @@ export function createSealedReaderReviewTransition(deps: SealedReaderTransitionD
           firstCoverage.pageCount !== pages.length ||
           assembled.size !== firstCoverage.changedPathCount ||
           [...assembled.values()].reduce((total, entry) => total + entry.selectedBytes, 0) >
-            32 * 1024 * 1024 ||
+            ARTIFACT_REVIEW_MAX_SELECTED_BYTES ||
           [...assembled.values()].some((entry) => {
             const data = entry.parts.join('');
             return (
