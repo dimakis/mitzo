@@ -1479,7 +1479,7 @@ export function createSymposiumSessionRuntime(deps: SymposiumSessionRuntimeDeps)
                           : 'google-vertex-ai',
                   });
               };
-              const profileTools =
+              const reviewPages =
                 input.execution.seat.role === 'reviewer'
                   ? deps.reviewStore
                     ? createSymposiumNativeReviewTool({
@@ -1488,15 +1488,18 @@ export function createSymposiumSessionRuntime(deps: SymposiumSessionRuntimeDeps)
                         verifyCurrent: verifyNativeToolCurrent,
                       })
                     : undefined
-                  : deps.profileProposalStore
-                    ? createSymposiumNativeProfileTools({
-                        store: deps.profileProposalStore,
-                        catalogStore: deps.profileCatalogStore,
-                        owner: 'user',
-                        execution: input.execution,
-                        verifyCurrent: verifyNativeToolCurrent,
-                      })
-                    : undefined;
+                  : undefined;
+              const profileTools =
+                reviewPages ??
+                (deps.profileProposalStore && input.execution.seat.role !== 'reviewer'
+                  ? createSymposiumNativeProfileTools({
+                      store: deps.profileProposalStore,
+                      catalogStore: deps.profileCatalogStore,
+                      owner: 'user',
+                      execution: input.execution,
+                      verifyCurrent: verifyNativeToolCurrent,
+                    })
+                  : undefined);
               const loadConversationHistory = () =>
                 symposiumSeatRolloverHistory(
                   deps.store,
@@ -1538,6 +1541,13 @@ export function createSymposiumSessionRuntime(deps: SymposiumSessionRuntimeDeps)
                       ...input,
                       route: input.route,
                       loadConversationHistory,
+                      reviewPages:
+                        input.execution.seat.role === 'reviewer'
+                          ? (reviewPages ??
+                            (() => {
+                              throw new Error('Sealed Vertex review pages are unavailable');
+                            })())
+                          : undefined,
                       requireModelReceipts: true,
                       verifiedLauncher: true,
                       attemptRegistry: deps.attemptRegistry,

@@ -30,11 +30,15 @@ export function createSymposiumNativeReviewTool(input: {
   instructions: string;
   executeTool: NonNullable<CodexConversationOptions['executeTool']>;
   onToolResultDurable: NonNullable<CodexConversationOptions['onToolResultDurable']>;
+  readForHost: (pageIndex: number) => ReturnType<SymposiumReviewStore['readReviewPage']>;
+  markHostDelivered: (pageIndex: number, contextSha256: string) => void;
 } {
   if (input.execution.seat.role !== 'reviewer')
     throw new Error('Sealed review page tool requires reviewer seat');
   const readPage = (pageIndex: number) => {
+    input.execution.signal.throwIfAborted();
     input.verifyCurrent();
+    PageInput.parse({ pageIndex });
     const workflow = input.reviews.applicationWorkflowForSession(input.execution.sessionId);
     const attempt = workflow?.applicationAttempts.find(
       (entry) => entry.binding.claimToken === input.execution.claimToken,
@@ -74,9 +78,25 @@ export function createSymposiumNativeReviewTool(input: {
       artifactRevision: attempt.artifactRevision,
       artifactHash: attempt.artifactHash,
     });
+    input.verifyCurrent();
+    input.execution.signal.throwIfAborted();
     return { page, workflowId: workflow.workflowId, attemptId: attempt.attemptId };
   };
+  const readForHost = (pageIndex: number) => readPage(pageIndex).page;
+  const markHostDelivered = (pageIndex: number, contextSha256: string) => {
+    const { page, workflowId, attemptId } = readPage(pageIndex);
+    if (page.receipt.contextSha256 !== contextSha256)
+      throw new Error('Sealed review page changed during delivery');
+    input.reviews.markReviewPageDelivered({
+      workflowId,
+      attemptId,
+      pageIndex,
+      contextSha256,
+    });
+  };
   return {
+    readForHost,
+    markHostDelivered,
     tools: [
       {
         name: SYMPOSIUM_READ_REVIEW_PAGE_TOOL,
