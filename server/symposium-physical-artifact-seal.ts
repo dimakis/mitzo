@@ -13,6 +13,7 @@ import { assertSessionArtifactVolume } from './symposium-session-artifacts.js';
 import { SYMPOSIUM_ARTIFACT_TARGET } from './symposium-artifact-lease.js';
 import Database from 'better-sqlite3';
 import { createHash, randomUUID } from 'node:crypto';
+import { isDeepStrictEqual } from 'node:util';
 import { z } from 'zod';
 import { EventStore } from './event-store.js';
 type SymposiumArtifactSealIntent = NonNullable<
@@ -241,6 +242,23 @@ export class PhysicalArtifactSealer {
       )
     )
       throw new Error('Artifact volume still has unauthorized physical mounts');
+  }
+  private async noVerifierName(name: string) {
+    const rows: unknown = JSON.parse(
+      await this.command(['ps', '--all', '--no-trunc', '--format', 'json']),
+    );
+    if (!Array.isArray(rows) || rows.length > 128)
+      throw new Error('Artifact verifier name census is unavailable');
+    for (const row of rows) {
+      const names = row?.Names;
+      if (
+        typeof names !== 'string' &&
+        !(Array.isArray(names) && names.every((value) => typeof value === 'string'))
+      )
+        throw new Error('Artifact verifier name census is incomplete');
+      if ((Array.isArray(names) ? names : [names]).includes(name))
+        throw new Error('Artifact verifier name is already occupied');
+    }
   }
   private async absent(records: SymposiumSeatSandboxRecord[], signal: AbortSignal) {
     for (const record of records) {
@@ -886,73 +904,199 @@ export class PhysicalArtifactSealer {
     if (config.version !== 2 || config.revision !== input.expectedConfigRevision)
       throw new Error('Artifact seal configuration is stale');
     const allRecords = store.listSymposiumSessionSandboxes(input.sessionId);
-    const activeRecords = allRecords.filter((row) => row.state !== 'stopped');
-    const writerRecords = activeRecords.filter(
-      (row) =>
-        config.seats.find((s) => s.id === row.seatId)?.authorityGrant?.filesystem === 'write',
-    );
-    if (writerRecords.length !== 1)
-      throw new Error('Artifact seal requires one exact retained writer');
-    const writerRecord = writerRecords[0];
-    const request = leaseHost.retainedCleanupRequest(writerRecord);
-    if (!request || request.access !== 'writer' || request.driver !== 'podman')
-      throw new Error('Artifact writer lease unavailable');
-    const leases = leaseHost.sealLeaseIdentities(request.driver, request.volumeName);
-    const writer = leases.find(
-      (row) => row.sandboxId === writerRecord.physicalId && row.request.access === 'writer',
-    );
-    if (!writer) throw new Error('Artifact seal writer lease identity changed');
-    const intent = store.beginSymposiumArtifactSeal({
-      sessionId: input.sessionId,
-      expectedConfigRevision: input.expectedConfigRevision,
-      idempotencyKey: input.idempotencyKey,
-      custody: { workspaceId: gateway.workspace, gatewayLaunchDigest: custodyDigest },
-      artifact: {
-        driver: 'podman',
-        volumeName: request.volumeName,
-        volumeGeneration: request.volumeGeneration,
-        leaseRevision: writer.revision,
-        leaseTokenHash: writer.tokenHash,
-      },
-    });
-    if (intent.selection.custody.gatewayLaunchDigest !== custodyDigest)
-      throw new Error('Artifact seal belongs to another gateway custody');
-    const retention = leaseHost.beginPendingArtifactRetention(
-      store,
-      input.sessionId,
-      request.volumeGeneration,
-    );
-    // All leases, including old generations/readers, must match a completed physical create.
-    const leasedRecords = leases.map((lease) => {
-      const matches = allRecords.filter(
-        (r) =>
-          r.sandboxName === lease.sandboxName &&
-          r.physicalId === lease.sandboxId &&
-          r.seatId === lease.request.seatId &&
-          r.workspace === lease.request.workspaceId,
-      );
+    const requestJson = JSON.stringify(input);
+    const retainedJobs = this.db
+      .prepare('SELECT * FROM symposium_physical_seal_jobs WHERE request_json=?')
+      .all(requestJson) as Array<{
+      fence_id: string;
+      custody_digest: string;
+      phase: string;
+      records_json: string;
+      verifier_name: string;
+      verifier_id: string | null;
+      receipt_json: string | null;
+    }>;
+    if (retainedJobs.length > 1) throw new Error('Artifact seal retained identity is ambiguous');
+    const retained = retainedJobs[0];
+    let request: NonNullable<ReturnType<SqliteArtifactLeaseHost['retainedCleanupRequest']>>;
+    let intent: SymposiumArtifactSealIntent;
+    let retention: NonNullable<ReturnType<SqliteArtifactLeaseHost['pendingArtifactRetention']>>;
+    let records: SymposiumSeatSandboxRecord[];
+    let verifierName: string;
+    if (retained) {
+      intent = store.getSymposiumArtifactSealByFence(retained.fence_id)!;
       if (
-        lease.request.sessionId !== input.sessionId ||
-        lease.request.volumeGeneration !== request.volumeGeneration ||
-        !lease.creationStarted ||
-        !lease.sandboxId ||
-        lease.intendedSandboxName !== lease.sandboxName ||
-        matches.length !== 1 ||
-        !matches[0].creationCompleted
+        !intent ||
+        retained.custody_digest !== custodyDigest ||
+        intent.selection.sessionId !== input.sessionId ||
+        intent.selection.expectedConfigRevision !== input.expectedConfigRevision ||
+        intent.selection.idempotencyKey !== input.idempotencyKey ||
+        intent.selection.custody.workspaceId !== gateway.workspace ||
+        intent.selection.custody.gatewayLaunchDigest !== custodyDigest ||
+        intent.selection.artifact.driver !== 'podman' ||
+        !/^mitzo-seal-[a-f0-9-]{36}$/.test(retained.verifier_name)
       )
-        throw new Error('Artifact seal has orphan or uncertain lease identity');
-      return matches[0];
-    });
-    if (
-      activeRecords.some(
+        throw new Error('Artifact seal retained identity changed');
+      if (retained.phase === 'complete') return this.requireCompleted(retained.fence_id, signal);
+      if (
+        intent.status !== 'pending_unsealed' ||
+        retained.phase !== 'draining' ||
+        retained.verifier_id !== null ||
+        retained.receipt_json !== null
+      )
+        throw new Error('Artifact seal retained phase requires explicit reconciliation');
+      const parsed: unknown = JSON.parse(retained.records_json);
+      if (!Array.isArray(parsed) || !parsed.length)
+        throw new Error('Artifact seal retained writer records are invalid');
+      records = parsed as SymposiumSeatSandboxRecord[];
+      const writerRecords = records.filter(
         (row) =>
-          !leasedRecords.some((r) => r.seatId === row.seatId && r.generation === row.generation),
+          config.seats.find((seat) => seat.id === row.seatId)?.authorityGrant?.filesystem ===
+          'write',
+      );
+      if (writerRecords.length !== 1 || allRecords.some((row) => row.state !== 'stopped'))
+        throw new Error('Artifact seal retained drain is incomplete');
+      const writerRecord = writerRecords[0];
+      request = leaseHost.retainedCleanupRequest(writerRecord)!;
+      retention = leaseHost.pendingArtifactRetention(
+        'podman',
+        intent.selection.artifact.volumeName,
+      )!;
+      const released = this.db
+        .prepare(
+          'SELECT token,revision,request_json,sandbox_name,sandbox_id FROM symposium_artifact_release_receipts WHERE sandbox_name=? AND sandbox_id=?',
+        )
+        .all(writerRecord.sandboxName, writerRecord.physicalId) as Array<{
+        token: string;
+        revision: string;
+        request_json: string;
+        sandbox_name: string;
+        sandbox_id: string;
+      }>;
+      if (
+        !request ||
+        request.access !== 'writer' ||
+        request.driver !== 'podman' ||
+        request.sessionId !== input.sessionId ||
+        request.workspaceId !== gateway.workspace ||
+        request.volumeName !== intent.selection.artifact.volumeName ||
+        request.volumeGeneration !== intent.selection.artifact.volumeGeneration ||
+        !retention ||
+        retention.status !== 'pending_unsealed' ||
+        retention.fenceId !== intent.fenceId ||
+        !isDeepStrictEqual(retention.intent, intent) ||
+        retention.writerSandboxId !== writerRecord.physicalId ||
+        retention.writerSandboxName !== writerRecord.sandboxName ||
+        released.length !== 1 ||
+        released[0].revision !== intent.selection.artifact.leaseRevision ||
+        hash(released[0].token) !== intent.selection.artifact.leaseTokenHash ||
+        released[0].request_json !== JSON.stringify(request) ||
+        records.some((record) => {
+          const current = allRecords.find(
+            (row) => row.seatId === record.seatId && row.generation === record.generation,
+          );
+          return (
+            !current ||
+            !record.creationCompleted ||
+            !record.physicalId ||
+            !record.sandboxName ||
+            !isDeepStrictEqual({ ...record, state: current.state }, current)
+          );
+        })
       )
-    )
-      throw new Error('Artifact seal has an unaccounted seat sandbox');
-    const records = allRecords.filter((row) => row.creationStarted);
-    if (records.some((row) => !row.creationCompleted || !row.physicalId || !row.sandboxName))
-      throw new Error('Artifact seal includes uncertain prior creation');
+        throw new Error('Artifact seal retained physical identity changed');
+      verifierName = retained.verifier_name;
+    } else {
+      const activeRecords = allRecords.filter((row) => row.state !== 'stopped');
+      const writerRecords = activeRecords.filter(
+        (row) =>
+          config.seats.find((s) => s.id === row.seatId)?.authorityGrant?.filesystem === 'write',
+      );
+      if (writerRecords.length !== 1)
+        throw new Error('Artifact seal requires one exact retained writer');
+      const writerRecord = writerRecords[0];
+      const selected = leaseHost.retainedCleanupRequest(writerRecord);
+      if (!selected || selected.access !== 'writer' || selected.driver !== 'podman')
+        throw new Error('Artifact writer lease unavailable');
+      request = selected;
+      const leases = leaseHost.sealLeaseIdentities(request.driver, request.volumeName);
+      const writer = leases.find(
+        (row) => row.sandboxId === writerRecord.physicalId && row.request.access === 'writer',
+      );
+      if (!writer) throw new Error('Artifact seal writer lease identity changed');
+      intent = store.beginSymposiumArtifactSeal({
+        sessionId: input.sessionId,
+        expectedConfigRevision: input.expectedConfigRevision,
+        idempotencyKey: input.idempotencyKey,
+        custody: { workspaceId: gateway.workspace, gatewayLaunchDigest: custodyDigest },
+        artifact: {
+          driver: 'podman',
+          volumeName: request.volumeName,
+          volumeGeneration: request.volumeGeneration,
+          leaseRevision: writer.revision,
+          leaseTokenHash: writer.tokenHash,
+        },
+      });
+      if (intent.selection.custody.gatewayLaunchDigest !== custodyDigest)
+        throw new Error('Artifact seal belongs to another gateway custody');
+      retention = leaseHost.beginPendingArtifactRetention(
+        store,
+        input.sessionId,
+        request.volumeGeneration,
+      );
+      // All leases, including old generations/readers, must match a completed physical create.
+      const leasedRecords = leases.map((lease) => {
+        const matches = allRecords.filter(
+          (r) =>
+            r.sandboxName === lease.sandboxName &&
+            r.physicalId === lease.sandboxId &&
+            r.seatId === lease.request.seatId &&
+            r.workspace === lease.request.workspaceId,
+        );
+        if (
+          lease.request.sessionId !== input.sessionId ||
+          lease.request.volumeGeneration !== request.volumeGeneration ||
+          !lease.creationStarted ||
+          !lease.sandboxId ||
+          lease.intendedSandboxName !== lease.sandboxName ||
+          matches.length !== 1 ||
+          !matches[0].creationCompleted
+        )
+          throw new Error('Artifact seal has orphan or uncertain lease identity');
+        return matches[0];
+      });
+      if (
+        activeRecords.some(
+          (row) =>
+            !leasedRecords.some((r) => r.seatId === row.seatId && r.generation === row.generation),
+        )
+      )
+        throw new Error('Artifact seal has an unaccounted seat sandbox');
+      records = allRecords.filter((row) => row.creationStarted);
+      if (records.some((row) => !row.creationCompleted || !row.physicalId || !row.sandboxName))
+        throw new Error('Artifact seal includes uncertain prior creation');
+      verifierName = `mitzo-seal-${randomUUID()}`;
+      this.db
+        .transaction(() => {
+          if (
+            this.db
+              .prepare('SELECT 1 FROM symposium_physical_seal_jobs WHERE fence_id=?')
+              .get(intent.fenceId)
+          )
+            throw new Error('Artifact seal has retained work; explicit recovery is required');
+          this.db
+            .prepare('INSERT INTO symposium_physical_seal_jobs VALUES(?,?,?,?,?,?,NULL,NULL)')
+            .run(
+              intent.fenceId,
+              requestJson,
+              custodyDigest,
+              'draining',
+              JSON.stringify(records),
+              verifierName,
+            );
+        })
+        .immediate();
+    }
     const membershipSnapshot = () =>
       [
         ...new Map(
@@ -970,28 +1114,6 @@ export class PhysicalArtifactSealer {
           bindingDigest: hash(JSON.stringify(member.bindingKey)),
         }))
         .sort((a, b) => a.seatId.localeCompare(b.seatId));
-    const requestJson = JSON.stringify(input);
-    const verifierName = `mitzo-seal-${randomUUID()}`;
-    this.db
-      .transaction(() => {
-        if (
-          this.db
-            .prepare('SELECT 1 FROM symposium_physical_seal_jobs WHERE fence_id=?')
-            .get(intent.fenceId)
-        )
-          throw new Error('Artifact seal has retained work; explicit recovery is required');
-        this.db
-          .prepare('INSERT INTO symposium_physical_seal_jobs VALUES(?,?,?,?,?,?,NULL,NULL)')
-          .run(
-            intent.fenceId,
-            requestJson,
-            custodyDigest,
-            'draining',
-            JSON.stringify(records),
-            verifierName,
-          );
-      })
-      .immediate();
     const check = async () => {
       signal.throwIfAborted();
       await this.custody();
@@ -1017,7 +1139,14 @@ export class PhysicalArtifactSealer {
         throw new Error('Artifact seal identity changed');
     };
     await check();
-    await drainSymposiumRuntimeForArtifactSeal(runtime, store, leaseHost, input.sessionId, signal);
+    if (!retained)
+      await drainSymposiumRuntimeForArtifactSeal(
+        runtime,
+        store,
+        leaseHost,
+        input.sessionId,
+        signal,
+      );
     const drained = () => {
       for (const seat of new Set([
         ...config.seats.map((s) => s.id),
@@ -1027,7 +1156,10 @@ export class PhysicalArtifactSealer {
           throw new Error('Artifact seal has unsettled attempts');
       if (
         leaseHost.sealLeaseIdentities('podman', request.volumeName).length ||
-        this.deps.attemptRegistry.pending().some((row) => row.sessionId === input.sessionId)
+        this.deps.attemptRegistry.pending().some((row) => row.sessionId === input.sessionId) ||
+        this.deps.attemptRegistry
+          .pendingPreparations()
+          .some((row) => row.sessionId === input.sessionId)
       )
         throw new Error('Artifact seal drain is incomplete');
       for (const record of records) {
@@ -1049,11 +1181,17 @@ export class PhysicalArtifactSealer {
     await this.absent(records, signal);
     await this.noVolumeMounts(request.volumeName);
     await check();
-    this.db
+    await this.noVerifierName(verifierName);
+    // A resumed seal and an overlapping original handler compete for this one
+    // durable transition. Only the winner may create the physical verifier.
+    const claimed = this.db
       .prepare(
-        "UPDATE symposium_physical_seal_jobs SET phase='verifier_create_uncertain' WHERE fence_id=?",
+        "UPDATE symposium_physical_seal_jobs SET phase='verifier_create_uncertain' WHERE fence_id=? AND phase='draining' AND request_json=? AND custody_digest=? AND verifier_id IS NULL AND receipt_json IS NULL",
       )
-      .run(intent.fenceId);
+      .run(intent.fenceId, requestJson, custodyDigest);
+    if (claimed.changes !== 1)
+      throw new Error('Artifact seal verifier creation is already claimed or uncertain');
+    await this.noVerifierName(verifierName);
     const created = (
       await this.command([
         'create',

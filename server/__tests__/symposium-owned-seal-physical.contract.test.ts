@@ -8,6 +8,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import Database from 'better-sqlite3';
 import { AccountProfiles } from '../account-profiles.js';
 import { EventStore } from '../event-store.js';
 import { initializeSymposiumNativeHost } from '../symposium-native-host.js';
@@ -25,7 +26,8 @@ import { SymposiumSessionArtifacts } from '../symposium-session-artifacts.js';
 import { createSymposiumSessionRuntime } from '../symposium-session-runtime.js';
 import { OpenShellRuntimeManager, sandboxNameForConversation } from '../openshell-runtime.js';
 
-const physical = process.env.MITZO_OWNED_SEAL_PHYSICAL_CONTRACT === '1';
+const physicalResume = process.env.MITZO_OWNED_SEAL_RESUME_PHYSICAL_CONTRACT === '1';
+const physical = process.env.MITZO_OWNED_SEAL_PHYSICAL_CONTRACT === '1' || physicalResume;
 it.skipIf(!physical)(
   'drains a retained physical writer and seals the exact committed criterion',
   async () => {
@@ -37,18 +39,31 @@ it.skipIf(!physical)(
     const owner = symposiumArtifactOwner(image);
     const database = join(root, 'custody.db');
     const env = { HOME: process.env.HOME, PATH: process.env.PATH };
+    let interruptAfterDrain = physicalResume;
+    let verifierCreates = 0;
     const command = async (
       args: readonly string[],
       maxOutputBytes = 16 * 1024 * 1024,
       input?: Buffer,
-    ) =>
-      execFileSync(process.env.MITZO_CONTRACT_PODMAN ?? 'podman', [...args], {
+    ) => {
+      if (
+        interruptAfterDrain &&
+        args[0] === 'ps' &&
+        events.getSymposiumSeatSandbox(sessionId, 'writer', 1)?.state === 'stopped'
+      ) {
+        interruptAfterDrain = false;
+        throw Error('Simulated loss after physical writer drain');
+      }
+      if (args[0] === 'create' && args.some((arg) => arg.startsWith('mitzo-seal-')))
+        verifierCreates++;
+      return execFileSync(process.env.MITZO_CONTRACT_PODMAN ?? 'podman', [...args], {
         env,
         input,
         encoding: 'utf8',
         timeout: 60000,
         maxBuffer: maxOutputBytes,
       });
+    };
     const podman = (...args: string[]) =>
       execFileSync(process.env.MITZO_CONTRACT_PODMAN ?? 'podman', args, {
         env,
@@ -340,16 +355,98 @@ it.skipIf(!physical)(
         attemptRegistry: native.registry,
         runtimeConfig,
       });
-      const seal = await sealer.seal(
-        {
-          sessionId,
-          expectedConfigRevision: 1,
-          idempotencyKey: 'physical-writer-seal',
-          repositoryPath: '.',
-        },
-        runtime,
-        new AbortController().signal,
-      );
+      const sealInput = {
+        sessionId,
+        expectedConfigRevision: 1,
+        idempotencyKey: 'physical-writer-seal',
+        repositoryPath: '.',
+      };
+      if (physicalResume) {
+        await expect(sealer.seal(sealInput, runtime, new AbortController().signal)).rejects.toThrow(
+          'Simulated loss after physical writer drain',
+        );
+        expect(events.getSymposiumSeatSandbox(sessionId, 'writer', 1)?.state).toBe('stopped');
+        expect(absent(sandboxId)).toBe(true);
+        const pending = events.getSymposiumArtifactSealIntent(sessionId);
+        expect(pending?.status).toBe('pending_unsealed');
+        expect(leaseHost.pendingArtifactRetention('podman', mapping.volumeName)?.fenceId).toBe(
+          pending?.fenceId,
+        );
+        sealer.close();
+        sealer = new PhysicalArtifactSealer({
+          store: events,
+          leaseHost,
+          gateway: gateway as never,
+          attemptRegistry: native.registry,
+          runtimeConfig,
+        });
+        const pendingClaim = randomUUID();
+        native.registry.prepare({ claimToken: pendingClaim, sessionId });
+        await expect(sealer.seal(sealInput, runtime, new AbortController().signal)).rejects.toThrow(
+          'Artifact seal drain is incomplete',
+        );
+        await native.registry.recover(pendingClaim);
+        const ledger = new Database(join(root, 'leases.db'));
+        const job = ledger
+          .prepare('SELECT fence_id,phase,verifier_name FROM symposium_physical_seal_jobs')
+          .get() as { fence_id: string; phase: string; verifier_name: string };
+        expect(job.phase).toBe('draining');
+        gateway.stateDirectory = join(root, 'wrong-custody');
+        try {
+          await expect(
+            sealer.seal(sealInput, runtime, new AbortController().signal),
+          ).rejects.toThrow('Artifact seal retained identity changed');
+        } finally {
+          gateway.stateDirectory = root;
+        }
+        const occupied = podman(
+          'create',
+          '--pull=never',
+          '--name',
+          job.verifier_name,
+          '--network=none',
+          '--entrypoint=/bin/true',
+          image,
+        );
+        try {
+          await expect(
+            sealer.seal(sealInput, runtime, new AbortController().signal),
+          ).rejects.toThrow('Artifact verifier name is already occupied');
+          expect(verifierCreates).toBe(0);
+        } finally {
+          podman('rm', occupied);
+        }
+        ledger
+          .prepare(
+            "UPDATE symposium_physical_seal_jobs SET phase='verifier_create_uncertain' WHERE fence_id=?",
+          )
+          .run(job.fence_id);
+        await expect(sealer.seal(sealInput, runtime, new AbortController().signal)).rejects.toThrow(
+          'Artifact seal retained phase requires explicit reconciliation',
+        );
+        expect(verifierCreates).toBe(0);
+        ledger
+          .prepare("UPDATE symposium_physical_seal_jobs SET phase='draining' WHERE fence_id=?")
+          .run(job.fence_id);
+        ledger.close();
+      }
+      let seal;
+      if (physicalResume) {
+        const attempts = await Promise.allSettled([
+          sealer.seal(sealInput, runtime, new AbortController().signal),
+          sealer.seal(sealInput, runtime, new AbortController().signal),
+        ]);
+        expect(attempts.filter((attempt) => attempt.status === 'fulfilled')).toHaveLength(1);
+        expect(attempts.filter((attempt) => attempt.status === 'rejected')).toHaveLength(1);
+        expect(verifierCreates).toBe(1);
+        seal = (
+          attempts.find((attempt) => attempt.status === 'fulfilled') as PromiseFulfilledResult<
+            Awaited<ReturnType<PhysicalArtifactSealer['seal']>>
+          >
+        ).value;
+      } else {
+        seal = await sealer.seal(sealInput, runtime, new AbortController().signal);
+      }
       expect(seal.kind).toBe('completed_artifact_seal');
       expect(seal.git.commit).toBe(writerCommit);
       expect(events.getSymposiumSeatSandbox(sessionId, 'writer', 1)?.state).toBe('stopped');
@@ -357,6 +454,7 @@ it.skipIf(!physical)(
       expect(await sealer.requireCompleted(seal.fenceId, new AbortController().signal)).toEqual(
         seal,
       );
+      expect(await sealer.seal(sealInput, runtime, new AbortController().signal)).toEqual(seal);
       const check = await sealer.checkCompletedArtifactFile(
         { fenceId: seal.fenceId, operationId: 'physical-criterion', path: 'criterion.txt' },
         new AbortController().signal,
