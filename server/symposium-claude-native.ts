@@ -312,6 +312,7 @@ export async function createClaudeVertexSeat(
       let threadId: string | undefined;
       let accepted = false;
       let acceptedTurnId: string | undefined;
+      const seenAssistantTurns = new Set<string>();
       let initialized = false;
       let assistantVerified = false;
       let awaitingAssistant: string | undefined;
@@ -395,6 +396,8 @@ export async function createClaudeVertexSeat(
                     awaitingAssistant !== event.turnId
                   )
                     return fail();
+                  if (seenAssistantTurns.has(event.turnId)) return fail();
+                  seenAssistantTurns.add(event.turnId);
                   assistantVerified = true;
                 }
                 threadId = event.threadId;
