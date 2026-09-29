@@ -287,11 +287,18 @@ it('async custody verifies files and process again after asynchronous listener o
 it('rechecks full async custody after an owned token rotation during listener observation', async () => {
   const f = fixture();
   let complete!: (pid: number) => void;
-  const listenerPidAsync = vi.fn()
-    .mockImplementationOnce(() => new Promise<number>((resolve) => { complete = resolve; }))
+  const listenerPidAsync = vi
+    .fn()
+    .mockImplementationOnce(
+      () =>
+        new Promise<number>((resolve) => {
+          complete = resolve;
+        }),
+    )
     .mockResolvedValue(4321);
   const gateway = await OwnedSymposiumGateway.launch(f.options, {
-    ...f.operations, listenerPidAsync,
+    ...f.operations,
+    listenerPidAsync,
   });
   try {
     const pending = gateway.verifyCustodyAsync();
@@ -314,11 +321,18 @@ it('rechecks full async custody after an owned token rotation during listener ob
 it('still rejects static launch-material drift when an owned token rotates', async () => {
   const f = fixture();
   let complete!: (pid: number) => void;
-  const listenerPidAsync = vi.fn()
-    .mockImplementationOnce(() => new Promise<number>((resolve) => { complete = resolve; }))
+  const listenerPidAsync = vi
+    .fn()
+    .mockImplementationOnce(
+      () =>
+        new Promise<number>((resolve) => {
+          complete = resolve;
+        }),
+    )
     .mockResolvedValue(4321);
   const gateway = await OwnedSymposiumGateway.launch(f.options, {
-    ...f.operations, listenerPidAsync,
+    ...f.operations,
+    listenerPidAsync,
   });
   try {
     const pending = gateway.verifyCustodyAsync();
