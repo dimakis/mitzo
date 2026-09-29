@@ -598,14 +598,16 @@ export class PhysicalArtifactSealer {
       .transaction(() => {
         const tombstone = this.db
           .prepare(
-            'SELECT pages_sha256 FROM symposium_review_stream_tombstones WHERE fence_id=? AND operation_id=?',
+            'SELECT input_json,seal_digest,pages_sha256,evidence_sha256 FROM symposium_review_stream_tombstones WHERE fence_id=? AND operation_id=?',
           )
-          .get(input.fenceId, input.operationId) as { pages_sha256: string } | undefined;
-        if (tombstone) {
-          if (tombstone.pages_sha256 !== input.pagesSha256)
-            throw new Error('Sealed review stream release changed');
-          return;
-        }
+          .get(input.fenceId, input.operationId) as
+          | {
+              input_json: string;
+              seal_digest: string;
+              pages_sha256: string;
+              evidence_sha256: string;
+            }
+          | undefined;
         const row = this.db
           .prepare(
             'SELECT job_id,input_json,seal_digest,receipt_json,ready FROM symposium_review_streams WHERE fence_id=? AND operation_id=?',
@@ -619,6 +621,9 @@ export class PhysicalArtifactSealer {
               ready: number;
             }
           | undefined;
+        if (tombstone && tombstone.pages_sha256 !== input.pagesSha256)
+          throw new Error('Sealed review stream release changed');
+        if (tombstone && !row) return;
         if (!row || row.ready !== 1 || !row.receipt_json)
           throw new Error('Completed sealed review stream unavailable for release');
         const receipt = JSON.parse(row.receipt_json) as CompletedArtifactReviewContext['receipt'];
@@ -635,19 +640,24 @@ export class PhysicalArtifactSealer {
           job.state !== 'complete' ||
           job.receipt_json !== row.receipt_json ||
           receipt.pagesSha256 !== input.pagesSha256 ||
+          (tombstone &&
+            (row.input_json !== tombstone.input_json ||
+              row.seal_digest !== tombstone.seal_digest ||
+              receipt.evidenceSha256 !== tombstone.evidence_sha256)) ||
           count.count !== receipt.pageCount
         )
           throw new Error('Completed sealed review stream changed before release');
-        this.db
-          .prepare('INSERT INTO symposium_review_stream_tombstones VALUES(?,?,?,?,?,?)')
-          .run(
-            input.fenceId,
-            input.operationId,
-            row.input_json,
-            row.seal_digest,
-            input.pagesSha256,
-            receipt.evidenceSha256,
-          );
+        if (!tombstone)
+          this.db
+            .prepare('INSERT INTO symposium_review_stream_tombstones VALUES(?,?,?,?,?,?)')
+            .run(
+              input.fenceId,
+              input.operationId,
+              row.input_json,
+              row.seal_digest,
+              input.pagesSha256,
+              receipt.evidenceSha256,
+            );
         this.db
           .prepare('DELETE FROM symposium_review_stream_pages WHERE fence_id=? AND operation_id=?')
           .run(input.fenceId, input.operationId);
@@ -712,14 +722,13 @@ export class PhysicalArtifactSealer {
           | undefined;
         if (tombstone) {
           if (
-            row ||
             tombstone.seal_digest !== sealDigest ||
             !validSelection(tombstone.input_json) ||
             !/^[a-f0-9]{64}$/.test(tombstone.pages_sha256) ||
             !/^[a-f0-9]{64}$/.test(tombstone.evidence_sha256)
           )
             throw new Error('Sealed review stream release tombstone changed');
-          return;
+          if (!row) return;
         }
         if (
           !row ||
@@ -763,19 +772,25 @@ export class PhysicalArtifactSealer {
           receipt.pageCount !== header.pageCount ||
           receipt.evidenceSha256 !== header.evidenceSha256 ||
           !/^[a-f0-9]{64}$/.test(receipt.pagesSha256 ?? '') ||
-          !/^[a-f0-9]{64}$/.test(receipt.evidenceSha256 ?? '')
+          !/^[a-f0-9]{64}$/.test(receipt.evidenceSha256 ?? '') ||
+          (tombstone &&
+            (row.input_json !== tombstone.input_json ||
+              row.seal_digest !== tombstone.seal_digest ||
+              receipt.pagesSha256 !== tombstone.pages_sha256 ||
+              receipt.evidenceSha256 !== tombstone.evidence_sha256))
         )
           throw new Error('Completed sealed review stream journal changed');
-        this.db
-          .prepare('INSERT INTO symposium_review_stream_tombstones VALUES(?,?,?,?,?,?)')
-          .run(
-            input.fenceId,
-            input.operationId,
-            row.input_json,
-            row.seal_digest,
-            receipt.pagesSha256,
-            receipt.evidenceSha256,
-          );
+        if (!tombstone)
+          this.db
+            .prepare('INSERT INTO symposium_review_stream_tombstones VALUES(?,?,?,?,?,?)')
+            .run(
+              input.fenceId,
+              input.operationId,
+              row.input_json,
+              row.seal_digest,
+              receipt.pagesSha256,
+              receipt.evidenceSha256,
+            );
         this.db
           .prepare('DELETE FROM symposium_review_stream_pages WHERE fence_id=? AND operation_id=?')
           .run(input.fenceId, input.operationId);

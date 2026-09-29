@@ -819,6 +819,27 @@ it('stages a complete review stream once and serves exact replay from SQLite', a
   });
   const replay = await f.sealer.exportCompletedReviewContext(input, signal);
   expect(replay.receipt.pagesSha256).toBe(first.receipt.pagesSha256);
+  expect(db.prepare('SELECT COUNT(*) AS count FROM symposium_review_stream_pages').get()).toEqual({
+    count: 18,
+  });
+  await expect(
+    f.sealer.releaseCompletedReviewStream({
+      fenceId: seal.fenceId,
+      operationId: input.operationId,
+      pagesSha256: '0'.repeat(64),
+    }),
+  ).rejects.toThrow(/release changed/);
+  expect(db.prepare('SELECT COUNT(*) AS count FROM symposium_review_stream_pages').get()).toEqual({
+    count: 18,
+  });
+  await f.sealer.releaseCompletedReviewStream({
+    fenceId: seal.fenceId,
+    operationId: input.operationId,
+    pagesSha256: first.receipt.pagesSha256!,
+  });
+  expect(db.prepare('SELECT COUNT(*) AS count FROM symposium_review_stream_pages').get()).toEqual({
+    count: 0,
+  });
   db.close();
 });
 it('discards incomplete staged pages after exact helper cleanup and retries', async () => {
@@ -874,6 +895,11 @@ it('releases a ready stream after page-zero return fails without a caller digest
   ).rejects.toThrow(/journal changed/);
   expect(db.prepare('SELECT ready FROM symposium_review_streams').get()).toEqual({ ready: 1 });
   await f.sealer.releaseReadyReviewStream(release);
+  await f.sealer.releaseReadyReviewStream(release);
+  await expect(f.sealer.exportCompletedReviewContext(input, signal)).rejects.toThrow(
+    /stream failed/,
+  );
+  expect(db.prepare('SELECT ready FROM symposium_review_streams').get()).toEqual({ ready: 1 });
   await f.sealer.releaseReadyReviewStream(release);
   expect(db.prepare('SELECT COUNT(*) AS count FROM symposium_review_streams').get()).toEqual({
     count: 0,
