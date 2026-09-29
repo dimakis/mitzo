@@ -1341,7 +1341,10 @@ export interface SymposiumSessionRuntimeDeps extends Omit<
   profileProposalStore?: Pick<SymposiumProfileProposalStore, 'propose'>;
   reviewStore?: Pick<
     SymposiumReviewStore,
-    'applicationWorkflowForSession' | 'getApplicationPreparation' | 'readReviewPage'
+    | 'applicationWorkflowForSession'
+    | 'getApplicationPreparation'
+    | 'readReviewPage'
+    | 'markReviewPageDelivered'
   >;
   recordAccepted: SymposiumOpenShellSeatExecutorDeps['recordAccepted'];
   /** Trusted override owns durable persistence and live publication when supplied. */

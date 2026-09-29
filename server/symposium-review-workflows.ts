@@ -395,6 +395,26 @@ export class SymposiumReviewStore {
       } & Record<string, unknown>;
     }[];
   }): void {
+    // A same-operation physical replay may use a new short-lived helper. Bind
+    // retained evidence to the stable sealed identity, not helper ID or time.
+    const stableReceipt = (receipt: Record<string, unknown>) =>
+      canonicalReviewJson({
+        version: receipt.version,
+        mode: receipt.mode,
+        operationId: receipt.operationId,
+        sealFenceId: receipt.sealFenceId,
+        sealDigest: receipt.sealDigest,
+        intentDigest: receipt.intentDigest,
+        artifactRevision: receipt.artifactRevision,
+        artifactHash: receipt.artifactHash,
+        baseOid: receipt.baseOid,
+        sourceOid: receipt.sourceOid,
+        contextSha256: receipt.contextSha256,
+        pageIndex: receipt.pageIndex,
+        pageCount: receipt.pageCount,
+        evidenceSha256: receipt.evidenceSha256,
+        pagesSha256: receipt.pagesSha256,
+      });
     const workflow = this.get(input.workflowId);
     const preparation = this.getApplicationPreparation(input.workflowId, input.attemptId);
     if (
@@ -438,7 +458,8 @@ export class SymposiumReviewStore {
               existing.evidence_sha256 !== input.evidenceSha256 ||
               existing.page_count !== input.pages.length ||
               existing.context !== page.context ||
-              existing.receipt !== receipt
+              stableReceipt(JSON.parse(existing.receipt as string) as Record<string, unknown>) !==
+                stableReceipt(page.receipt)
             )
               throw new Error('Retained review page changed');
           } else {
@@ -525,7 +546,7 @@ export class SymposiumReviewStore {
           workflow.artifactRevision !== input.artifactRevision ||
           workflow.artifactHash !== input.artifactHash ||
           !attempt ||
-          attempt.kind !== 'review' ||
+          (attempt.kind !== 'review' && attempt.kind !== 'delta') ||
           attempt.binding.claimToken !== input.claimToken ||
           attempt.actorSeatId !== input.seatId ||
           attempt.settled ||
@@ -561,15 +582,25 @@ export class SymposiumReviewStore {
           receipt.contextSha256 !== createHash('sha256').update(row.context).digest('hex')
         )
           throw new Error('Retained review page identity changed');
-        this.db
-          .prepare(
-            `UPDATE symposium_review_context_pages SET accessed=1
-        WHERE workflow_id=? AND attempt_id=? AND page_index=?`,
-          )
-          .run(input.workflowId, input.attemptId, input.pageIndex);
         return { context: row.context, receipt };
       })
       .immediate();
+  }
+
+  markReviewPageDelivered(input: {
+    workflowId: string;
+    attemptId: string;
+    pageIndex: number;
+    contextSha256: string;
+  }): void {
+    const result = this.db
+      .prepare(
+        `UPDATE symposium_review_context_pages SET accessed=1
+         WHERE workflow_id=? AND attempt_id=? AND page_index=?
+           AND json_extract(receipt, '$.contextSha256')=?`,
+      )
+      .run(input.workflowId, input.attemptId, input.pageIndex, input.contextSha256);
+    if (result.changes !== 1) throw new Error('Exact review page delivery required');
   }
 
   hasCompleteReviewPageCoverage(workflowId: string, attemptId: string): boolean {

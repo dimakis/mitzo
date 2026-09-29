@@ -10,7 +10,10 @@ const PageInput = z.strictObject({ pageIndex: z.number().int().nonnegative().max
 export function createSymposiumNativeReviewTool(input: {
   reviews: Pick<
     SymposiumReviewStore,
-    'applicationWorkflowForSession' | 'getApplicationPreparation' | 'readReviewPage'
+    | 'applicationWorkflowForSession'
+    | 'getApplicationPreparation'
+    | 'readReviewPage'
+    | 'markReviewPageDelivered'
   >;
   execution: SymposiumSeatExecution;
   verifyCurrent(): void;
@@ -59,9 +62,9 @@ export function createSymposiumNativeReviewTool(input: {
         if (
           !workflow ||
           !attempt ||
-          attempt.kind !== 'review' ||
+          (attempt.kind !== 'review' && attempt.kind !== 'delta') ||
           !preparation ||
-          preparation.kind !== 'review' ||
+          (preparation.kind !== 'review' && preparation.kind !== 'delta') ||
           !artifact ||
           preparation.transitionId !== artifact.readerAdmissionId ||
           preparation.seal.fenceId !== artifact.sealFenceId ||
@@ -82,6 +85,14 @@ export function createSymposiumNativeReviewTool(input: {
           artifactHash: attempt.artifactHash,
         });
         input.verifyCurrent();
+        signal.throwIfAborted();
+        input.execution.signal.throwIfAborted();
+        input.reviews.markReviewPageDelivered({
+          workflowId: workflow.workflowId,
+          attemptId: attempt.attemptId,
+          pageIndex,
+          contextSha256: page.receipt.contextSha256 as string,
+        });
         return { content: JSON.stringify(page), isError: false };
       } catch {
         return { content: 'Sealed review page request was rejected', isError: true };

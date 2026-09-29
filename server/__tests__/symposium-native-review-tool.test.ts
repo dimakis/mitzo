@@ -38,13 +38,18 @@ const preparation = { kind: 'review', transitionId: 'transition-1', seal: { fenc
 
 describe('reviewer sealed page native tool', () => {
   it('passes only the host-bound active claim and numbered page to durable storage', async () => {
-    const readReviewPage = vi.fn(() => ({ context: '{"pageIndex":1}', receipt: { pageIndex: 1 } }));
+    const readReviewPage = vi.fn(() => ({
+      context: '{"pageIndex":1}',
+      receipt: { pageIndex: 1, contextSha256: 'hash-1' },
+    }));
+    const markReviewPageDelivered = vi.fn();
     const verifyCurrent = vi.fn();
     const tool = createSymposiumNativeReviewTool({
       reviews: {
         applicationWorkflowForSession: () => workflow,
         getApplicationPreparation: () => preparation,
         readReviewPage,
+        markReviewPageDelivered,
       } as never,
       execution: execution as never,
       verifyCurrent,
@@ -69,15 +74,23 @@ describe('reviewer sealed page native tool', () => {
       }),
     );
     expect(verifyCurrent).toHaveBeenCalledTimes(2);
+    expect(markReviewPageDelivered).toHaveBeenCalledWith({
+      workflowId: 'workflow-1',
+      attemptId: 'attempt-1',
+      pageIndex: 1,
+      contextSha256: 'hash-1',
+    });
   });
 
   it('rejects forged fields and a stale reviewer claim', async () => {
     const readReviewPage = vi.fn();
+    const markReviewPageDelivered = vi.fn();
     const tool = createSymposiumNativeReviewTool({
       reviews: {
         applicationWorkflowForSession: () => workflow,
         getApplicationPreparation: () => preparation,
         readReviewPage,
+        markReviewPageDelivered,
       } as never,
       execution: execution as never,
       verifyCurrent: () => {},
@@ -95,6 +108,7 @@ describe('reviewer sealed page native tool', () => {
         applicationWorkflowForSession: () => workflow,
         getApplicationPreparation: () => preparation,
         readReviewPage,
+        markReviewPageDelivered,
       } as never,
       execution: { ...execution, claimToken: 'old-claim' } as never,
       verifyCurrent: () => {},
@@ -110,5 +124,63 @@ describe('reviewer sealed page native tool', () => {
       ).isError,
     ).toBe(true);
     expect(readReviewPage).not.toHaveBeenCalled();
+    expect(markReviewPageDelivered).not.toHaveBeenCalled();
+  });
+
+  it('does not count a page when the final current-claim check fails', async () => {
+    const markReviewPageDelivered = vi.fn();
+    const tool = createSymposiumNativeReviewTool({
+      reviews: {
+        applicationWorkflowForSession: () => workflow,
+        getApplicationPreparation: () => preparation,
+        readReviewPage: () => ({ context: 'page', receipt: { contextSha256: 'hash-1' } }),
+        markReviewPageDelivered,
+      } as never,
+      execution: execution as never,
+      verifyCurrent: vi
+        .fn()
+        .mockImplementationOnce(() => {})
+        .mockImplementationOnce(() => {
+          throw new Error('stale claim');
+        }),
+    });
+    const result = await tool.executeTool(
+      SYMPOSIUM_READ_REVIEW_PAGE_TOOL,
+      { pageIndex: 1 },
+      new AbortController().signal,
+      { turnId: 'turn', callId: 'call' } as never,
+    );
+    expect(result.isError).toBe(true);
+    expect(markReviewPageDelivered).not.toHaveBeenCalled();
+  });
+
+  it('reads pages for a delta review', async () => {
+    const markReviewPageDelivered = vi.fn();
+    const readReviewPage = vi.fn(() => ({
+      context: 'delta',
+      receipt: { contextSha256: 'hash-d' },
+    }));
+    const tool = createSymposiumNativeReviewTool({
+      reviews: {
+        applicationWorkflowForSession: () => ({
+          ...workflow,
+          applicationAttempts: [{ ...workflow.applicationAttempts[0], kind: 'delta' }],
+        }),
+        getApplicationPreparation: () => ({ ...preparation, kind: 'delta' }),
+        readReviewPage,
+        markReviewPageDelivered,
+      } as never,
+      execution: execution as never,
+      verifyCurrent: () => {},
+    });
+    const result = await tool.executeTool(
+      SYMPOSIUM_READ_REVIEW_PAGE_TOOL,
+      { pageIndex: 1 },
+      new AbortController().signal,
+      { turnId: 'turn', callId: 'call' } as never,
+    );
+    expect(result.isError).toBe(false);
+    expect(readReviewPage).toHaveBeenCalledOnce();
+    expect(markReviewPageDelivered).toHaveBeenCalledOnce();
   });
 });

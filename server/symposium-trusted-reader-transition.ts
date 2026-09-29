@@ -15,7 +15,9 @@ import { canonicalReviewJson, reviewRecordHash } from './symposium-review-record
 const REVIEW_PROMPT_MAX_BYTES = 64 * 1024;
 const reviewContextCoverage = z.object({
   version: z.literal(3),
+  scope: z.literal('sealed-changed-path-pages'),
   sourceOid: z.string(),
+  sourceBranch: z.string(),
   baseOid: z.string(),
   baseBranch: z.string(),
   committedTreeDigest: z.string(),
@@ -400,6 +402,7 @@ export function createSealedReaderReviewTransition(deps: SealedReaderTransitionD
               (coverage.data?.pageCount !== firstCoverage.pageCount ||
                 coverage.data?.evidenceSha256 !== firstCoverage.evidenceSha256 ||
                 coverage.data?.changedPathCount !== firstCoverage.changedPathCount ||
+                coverage.data?.sourceBranch !== firstCoverage.sourceBranch ||
                 contextReceipt.baseOid !== baseOid))
           )
             throw new Error('Exact bounded sealed review page required');

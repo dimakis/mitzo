@@ -263,6 +263,8 @@ export function createSymposiumProductionReviewComposition(deps: {
       },
       exportReviewContext: (input) =>
         host.exportCompletedReviewContext!(input, AbortSignal.timeout(120_000)),
+      retainReviewPages: (input) => reviews.retainReviewPages(input),
+      markReviewPromptPageDelivered: (input) => reviews.markReviewPromptPageDelivered(input),
       currentArtifact,
       verifyReviewer(context, seat, membershipGeneration) {
         grants.verifySeat({ sessionId: context.sessionId, seat, membershipGeneration });
