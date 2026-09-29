@@ -64,10 +64,15 @@ export type ArtifactPodmanCommand = (
   maxOutputBytes?: number,
   input?: Buffer,
 ) => Promise<string>;
+export type ArtifactPodmanStream = (
+  args: readonly string[],
+  onChunk: (chunk: Buffer) => void,
+) => Promise<void>;
 export class ArtifactPodmanContext {
   constructor(
     private readonly command: ArtifactPodmanCommand,
     private readonly terminalCommand = command,
+    private readonly terminalStream?: ArtifactPodmanStream,
   ) {}
   async inspect(driver: ArtifactDriver, name: string): Promise<unknown> {
     if (driver !== 'podman' || !safeName.test(name))
@@ -95,6 +100,19 @@ export class ArtifactPodmanContext {
           ? this.terminalCommand
           : this.command
       )(args, maxOutputBytes, input);
+    };
+  }
+  verifierStream(): ArtifactPodmanStream {
+    if (!this.terminalStream) throw new Error('Artifact streaming transport unavailable');
+    return (args, onChunk) => {
+      if (
+        args.length !== 3 ||
+        args[0] !== 'start' ||
+        args[1] !== '--attach' ||
+        !/^[a-f0-9]{64}$/.test(args[2])
+      )
+        throw new Error('Artifact streaming command is invalid');
+      return this.terminalStream!(args, onChunk);
     };
   }
 }
@@ -243,6 +261,12 @@ export class SqliteArtifactLeaseHost implements ArtifactLeaseHost {
     if (!this.podmanContext)
       throw new Error('Artifact snapshot requires the lease host Podman context');
     return this.podmanContext.verifierCommand();
+  }
+
+  snapshotStream(): ArtifactPodmanStream {
+    if (!this.podmanContext)
+      throw new Error('Artifact snapshot requires the lease host Podman context');
+    return this.podmanContext.verifierStream();
   }
 
   close(): void {

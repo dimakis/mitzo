@@ -85,7 +85,7 @@ afterEach(() => {
   vi.restoreAllMocks();
   for (const fn of cleanups.splice(0).reverse()) fn();
 });
-async function fixture(inspectionPaths = ['file']) {
+async function fixture(inspectionPaths = ['file'], streaming = true) {
   const root = mkdtempSync(join(tmpdir(), 'physical-seal-'));
   cleanups.push(() => rmSync(root, { recursive: true, force: true }));
   const store = new EventStore(join(root, 'events.db'));
@@ -156,6 +156,9 @@ async function fixture(inspectionPaths = ['file']) {
     extraMount: false,
     uncertain: false,
     crowdCount: 0,
+    streamIncomplete: false,
+    streamPages: 2,
+    streamHold: undefined as Promise<void> | undefined,
     censusTamper: 'none' as 'none' | 'missing' | 'duplicate' | 'foreign' | 'malformed',
   };
   const gateway = {
@@ -383,10 +386,46 @@ async function fixture(inspectionPaths = ['file']) {
       if (phase !== 'Absent') throw new Error('writer remains');
     },
   };
+  const stream = async (args: readonly string[], onChunk: (chunk: Buffer) => void) => {
+    if (exportOptions?.kind !== 'review_stream') throw new Error('Unexpected stream');
+    await state.streamHold;
+    const current = exportOptions;
+    exportOptions = { ...current, kind: 'review_context', page: 0 };
+    const result = JSON.parse(await command(args));
+    exportOptions = current;
+    const baseContexts = result.pages as string[];
+    const contexts = Array.from({ length: state.streamPages }, (_, pageIndex) =>
+      canonicalReviewJson({
+        ...JSON.parse(baseContexts[pageIndex % baseContexts.length]),
+        pageIndex,
+        pageCount: state.streamPages,
+      }),
+    );
+    const header = {
+      proof,
+      pageCount: contexts.length,
+      evidenceSha256: 'd'.repeat(64),
+      sourceOid: proof.commit,
+      baseOid: 'b'.repeat(40),
+    };
+    onChunk(Buffer.from(`H${canonicalReviewJson(header)}\n`));
+    for (const context of contexts) onChunk(Buffer.from(`P${context}\n`));
+    if (!state.streamIncomplete)
+      onChunk(
+        Buffer.from(
+          `F${canonicalReviewJson({
+            proof,
+            pageCount: contexts.length,
+            evidenceSha256: header.evidenceSha256,
+            pagesSha256: createHash('sha256').update(canonicalReviewJson(contexts)).digest('hex'),
+          })}\n`,
+        ),
+      );
+  };
   const host = new SqliteArtifactLeaseHost(
     join(root, 'leases.db'),
     evidence,
-    new ArtifactPodmanContext(command),
+    new ArtifactPodmanContext(command, command, streaming ? stream : undefined),
     gateway as never,
   );
   cleanups.push(() => host.close());
@@ -728,6 +767,120 @@ it('attests every page of one bounded physical review export', async () => {
       contextSha256: createHash('sha256').update(page.context).digest('hex'),
     });
   }
+});
+it('stages a complete review stream once and serves exact replay from SQLite', async () => {
+  const f = await fixture(['file'], true);
+  f.state.streamPages = 18;
+  const signal = new AbortController().signal;
+  const seal = await f.sealer.seal(f.input, f.runtime, signal);
+  const input = {
+    fenceId: seal.fenceId,
+    operationId: 'stream-pages-1',
+    baseBranch: 'main',
+    page: 0,
+  };
+  const first = await f.sealer.exportCompletedReviewContext(input, signal);
+  const repeated = await f.sealer.exportCompletedReviewContext(input, signal);
+  expect(repeated).toEqual(first);
+  expect(first.pages).toHaveLength(16);
+  const tail = await f.sealer.exportCompletedReviewContext(
+    { ...input, operationId: 'stream-pages-1-p16', page: 16 },
+    signal,
+  );
+  expect(tail.pages).toHaveLength(2);
+  expect(tail.receipt.pagesSha256).toBe(first.receipt.pagesSha256);
+  expect(
+    f.command.mock.calls.filter(
+      (call) =>
+        call[0][0] === 'create' &&
+        call[0].includes('mitzo.artifact-export-job=' + first.receipt.jobId),
+    ),
+  ).toHaveLength(1);
+  const db = new Database(join(f.root, 'leases.db'));
+  expect(db.prepare('SELECT ready FROM symposium_review_streams').get()).toEqual({ ready: 1 });
+  expect(db.prepare('SELECT COUNT(*) AS count FROM symposium_review_stream_pages').get()).toEqual({
+    count: 18,
+  });
+  await f.sealer.releaseCompletedReviewStream({
+    fenceId: seal.fenceId,
+    operationId: input.operationId,
+    pagesSha256: first.receipt.pagesSha256!,
+  });
+  await f.sealer.releaseCompletedReviewStream({
+    fenceId: seal.fenceId,
+    operationId: input.operationId,
+    pagesSha256: first.receipt.pagesSha256!,
+  });
+  expect(db.prepare('SELECT COUNT(*) AS count FROM symposium_review_stream_pages').get()).toEqual({
+    count: 0,
+  });
+  expect(db.prepare('SELECT pages_sha256 FROM symposium_review_stream_tombstones').get()).toEqual({
+    pages_sha256: first.receipt.pagesSha256,
+  });
+  const replay = await f.sealer.exportCompletedReviewContext(input, signal);
+  expect(replay.receipt.pagesSha256).toBe(first.receipt.pagesSha256);
+  db.close();
+});
+it('discards incomplete staged pages after exact helper cleanup and retries', async () => {
+  const f = await fixture(['file'], true);
+  const signal = new AbortController().signal;
+  const seal = await f.sealer.seal(f.input, f.runtime, signal);
+  const input = {
+    fenceId: seal.fenceId,
+    operationId: 'stream-retry-1',
+    baseBranch: 'main',
+    page: 0,
+  };
+  f.state.streamIncomplete = true;
+  await expect(f.sealer.exportCompletedReviewContext(input, signal)).rejects.toThrow(
+    /stream failed/,
+  );
+  const db = new Database(join(f.root, 'leases.db'));
+  expect(db.prepare('SELECT COUNT(*) AS count FROM symposium_review_stream_pages').get()).toEqual({
+    count: 0,
+  });
+  f.state.streamIncomplete = false;
+  const result = await f.sealer.exportCompletedReviewContext(input, signal);
+  expect(result.pages).toHaveLength(2);
+  db.close();
+});
+it('never reconciles an active same-operation review helper', async () => {
+  const f = await fixture(['file'], true);
+  const signal = new AbortController().signal;
+  const seal = await f.sealer.seal(f.input, f.runtime, signal);
+  let resume!: () => void;
+  f.state.streamHold = new Promise<void>((resolve) => {
+    resume = resolve;
+  });
+  const input = {
+    fenceId: seal.fenceId,
+    operationId: 'stream-concurrent-1',
+    baseBranch: 'main',
+    page: 0,
+  };
+  const first = f.sealer.exportCompletedReviewContext(input, signal);
+  for (
+    let i = 0;
+    i < 100 &&
+    !f.command.mock.calls.some(
+      (call) =>
+        call[0][0] === 'create' &&
+        call[0].some((arg) => arg.includes('mitzo.artifact-export-job=')),
+    );
+    i++
+  )
+    await new Promise((resolve) => setTimeout(resolve, 1));
+  const removalsBefore = f.command.mock.calls.filter(
+    (call) => call[0][0] === 'stop' || call[0][0] === 'rm',
+  ).length;
+  await expect(f.sealer.exportCompletedReviewContext(input, signal)).rejects.toThrow(
+    /in progress|unauthorized physical mounts/,
+  );
+  expect(
+    f.command.mock.calls.filter((call) => call[0][0] === 'stop' || call[0][0] === 'rm'),
+  ).toHaveLength(removalsBefore);
+  resume();
+  await expect(first).resolves.toMatchObject({ receipt: { pageCount: 2 } });
 });
 it('rejects changed review context output and retains failed cleanup evidence', async () => {
   const f = await fixture();

@@ -70,7 +70,7 @@ import {
   type SessionArtifactPreparation,
 } from './symposium-session-artifacts.js';
 import { DeviceLoginCleanupError } from './symposium-device-login.js';
-import { execFile } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { chmodSync, lstatSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
 import { EventStore } from '@mitzo/protocol/event-store';
@@ -290,6 +290,65 @@ export async function createOwnedSymposiumHost(
       if (!deferPostCustody) custody();
       return text;
     };
+    const podmanStream = async (
+      args: readonly string[],
+      onChunk: (chunk: Buffer) => void,
+    ): Promise<void> => {
+      if (
+        args.length !== 3 ||
+        args[0] !== 'start' ||
+        args[1] !== '--attach' ||
+        !/^[a-f0-9]{64}$/.test(args[2])
+      )
+        throw new Error('Owned Podman streaming command is invalid');
+      try {
+        custody();
+      } catch (error) {
+        throw new ArtifactCommandNotDispatched(error);
+      }
+      // Test transports are already bounded in-memory mocks. The production path
+      // consumes stdout incrementally so a complete sealed review never enters a
+      // Node string, an execFile buffer, stderr, or a command argument.
+      const maximumBytes = 32768 * (48 * 1024 + 2) + 2 * 1024 * 1024;
+      if (podmanCommand) {
+        const output = await podmanCommand(args, { timeout: 60_000 });
+        if (Buffer.byteLength(output, 'utf8') > maximumBytes)
+          throw new Error('Owned Podman stream exceeded bound');
+        onChunk(Buffer.from(output, 'utf8'));
+        custody();
+        return;
+      }
+      const child = spawn(options.podman.executable, [...args], {
+        env: podmanEnv,
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+      const closed = new Promise<number | null>((resolve, reject) => {
+        child.once('error', () => reject(new Error('Owned Podman stream failed')));
+        child.once('close', (code) => resolve(code));
+      });
+      let timedOut = false;
+      const deadline = setTimeout(() => {
+        timedOut = true;
+        child.kill('SIGKILL');
+      }, 60_000);
+      child.stderr.resume();
+      let bytes = 0;
+      try {
+        for await (const chunk of child.stdout) {
+          bytes += chunk.length;
+          if (bytes > maximumBytes) throw new Error('Owned Podman stream exceeded bound');
+          onChunk(chunk);
+        }
+        if ((await closed) !== 0 || timedOut) throw new Error('Owned Podman stream failed');
+        custody();
+      } catch {
+        child.kill('SIGKILL');
+        await closed.catch(() => undefined);
+        throw new Error('Owned Podman stream failed');
+      } finally {
+        clearTimeout(deadline);
+      }
+    };
     const podman = async (args: readonly string[]): Promise<unknown> =>
       JSON.parse(await podmanText(args));
     const artifactEvidence = new LocalPodmanArtifactEvidence(
@@ -305,6 +364,7 @@ export async function createOwnedSymposiumHost(
       new ArtifactPodmanContext(
         (args, max, input) => podmanText(args, max, false, input),
         (args, maxOutputBytes, input) => podmanText(args, maxOutputBytes, true, input),
+        podmanStream,
       ),
       gateway,
     );
@@ -904,6 +964,12 @@ export async function createOwnedSymposiumHost(
           runtimeConfig,
         });
         return track(() => artifactSealer!.exportCompletedReviewContext(input, signal));
+      },
+      async releaseCompletedReviewStream(
+        input: Parameters<PhysicalArtifactSealer['releaseCompletedReviewStream']>[0],
+      ) {
+        if (draining || stopped) throw new Error('Owned Symposium host is shutting down');
+        return track(() => getArtifactSealer().releaseCompletedReviewStream(input));
       },
       async checkCompletedArtifactFile(
         input: Parameters<PhysicalArtifactSealer['checkCompletedArtifactFile']>[0],

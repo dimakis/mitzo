@@ -27,6 +27,7 @@ import type { SymposiumSeatSandboxRecord } from '@mitzo/protocol/event-store';
 import {
   SqliteArtifactLeaseHost,
   ArtifactCommandNotDispatched,
+  type ArtifactPodmanStream,
 } from './symposium-artifact-host.js';
 import type { OwnedSymposiumGateway } from './symposium-owned-gateway.js';
 import type { SymposiumAttemptRegistry } from './symposium-attempt-registry.js';
@@ -181,7 +182,9 @@ function parseSealedBundle(value: Record<string, unknown>, maxBytes: number): Bu
 
 export class PhysicalArtifactSealer {
   private readonly db: Database.Database;
+  private readonly activeReviewStreams = new Set<string>();
   private readonly command: (args: readonly string[], maxOutputBytes?: number) => Promise<string>;
+  private readonly stream?: ArtifactPodmanStream;
   constructor(
     private readonly deps: {
       store: EventStore;
@@ -198,6 +201,11 @@ export class PhysicalArtifactSealer {
   ) {
     deps.leaseHost.requireSnapshotGateway(deps.gateway);
     this.command = deps.leaseHost.snapshotCommand();
+    try {
+      this.stream = deps.leaseHost.snapshotStream();
+    } catch {
+      /* Legacy test host. */
+    }
     this.db = new Database(deps.leaseHost.snapshotDatabasePath());
     this.db.pragma('journal_mode=WAL');
     this.db.pragma('synchronous=FULL');
@@ -214,6 +222,27 @@ export class PhysicalArtifactSealer {
       )
     )
       this.db.exec('ALTER TABLE symposium_seal_export_jobs ADD COLUMN receipt_json TEXT');
+    this.db.exec(`CREATE TABLE IF NOT EXISTS symposium_review_streams(
+      fence_id TEXT NOT NULL, operation_id TEXT NOT NULL, job_id TEXT NOT NULL,
+      input_json TEXT NOT NULL, seal_digest TEXT NOT NULL, header_json TEXT,
+      receipt_json TEXT, ready INTEGER NOT NULL DEFAULT 0, started_at INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY(fence_id,operation_id));
+      CREATE TABLE IF NOT EXISTS symposium_review_stream_pages(
+      fence_id TEXT NOT NULL, operation_id TEXT NOT NULL, page_index INTEGER NOT NULL,
+      context TEXT NOT NULL, context_sha256 TEXT NOT NULL,
+      PRIMARY KEY(fence_id,operation_id,page_index));
+      CREATE TABLE IF NOT EXISTS symposium_review_stream_tombstones(
+      fence_id TEXT NOT NULL, operation_id TEXT NOT NULL, input_json TEXT NOT NULL,
+      seal_digest TEXT NOT NULL, pages_sha256 TEXT NOT NULL,
+      evidence_sha256 TEXT NOT NULL, PRIMARY KEY(fence_id,operation_id));`);
+    if (
+      !(this.db.pragma('table_info(symposium_review_streams)') as { name: string }[]).some(
+        (row) => row.name === 'started_at',
+      )
+    )
+      this.db.exec(
+        'ALTER TABLE symposium_review_streams ADD COLUMN started_at INTEGER NOT NULL DEFAULT 0',
+      );
   }
   close() {
     this.db.close();
@@ -533,6 +562,10 @@ export class PhysicalArtifactSealer {
     input: { fenceId: string; operationId: string; baseBranch: string; page?: number },
     signal: AbortSignal,
   ): Promise<CompletedArtifactReviewContext> {
+    if (input.page !== undefined) {
+      if (!this.stream) throw new Error('Sealed review streaming transport unavailable');
+      return this.exportStreamedReviewContext(input, signal);
+    }
     const value = await this.exportOperation({ ...input, kind: 'review_context' }, signal);
     return {
       context: value.context as string,
@@ -550,6 +583,642 @@ export class PhysicalArtifactSealer {
           }
         : {}),
     };
+  }
+
+  /** Called only after the reviewer store durably retains and verifies every
+   * page. A compact immutable digest remains to police any later replay. */
+  async releaseCompletedReviewStream(input: {
+    fenceId: string;
+    operationId: string;
+    pagesSha256: string;
+  }): Promise<void> {
+    if (!/^[a-f0-9]{64}$/.test(input.pagesSha256))
+      throw new Error('Sealed review stream release digest is invalid');
+    this.db
+      .transaction(() => {
+        const tombstone = this.db
+          .prepare(
+            'SELECT pages_sha256 FROM symposium_review_stream_tombstones WHERE fence_id=? AND operation_id=?',
+          )
+          .get(input.fenceId, input.operationId) as { pages_sha256: string } | undefined;
+        if (tombstone) {
+          if (tombstone.pages_sha256 !== input.pagesSha256)
+            throw new Error('Sealed review stream release changed');
+          return;
+        }
+        const row = this.db
+          .prepare(
+            'SELECT job_id,input_json,seal_digest,receipt_json,ready FROM symposium_review_streams WHERE fence_id=? AND operation_id=?',
+          )
+          .get(input.fenceId, input.operationId) as
+          | {
+              job_id: string;
+              input_json: string;
+              seal_digest: string;
+              receipt_json: string | null;
+              ready: number;
+            }
+          | undefined;
+        if (!row || row.ready !== 1 || !row.receipt_json)
+          throw new Error('Completed sealed review stream unavailable for release');
+        const receipt = JSON.parse(row.receipt_json) as CompletedArtifactReviewContext['receipt'];
+        const job = this.db
+          .prepare('SELECT state,receipt_json FROM symposium_seal_export_jobs WHERE job_id=?')
+          .get(row.job_id) as { state: string; receipt_json: string | null } | undefined;
+        const count = this.db
+          .prepare(
+            'SELECT COUNT(*) AS count FROM symposium_review_stream_pages WHERE fence_id=? AND operation_id=?',
+          )
+          .get(input.fenceId, input.operationId) as { count: number };
+        if (
+          !job ||
+          job.state !== 'complete' ||
+          job.receipt_json !== row.receipt_json ||
+          receipt.pagesSha256 !== input.pagesSha256 ||
+          count.count !== receipt.pageCount
+        )
+          throw new Error('Completed sealed review stream changed before release');
+        this.db
+          .prepare('INSERT INTO symposium_review_stream_tombstones VALUES(?,?,?,?,?,?)')
+          .run(
+            input.fenceId,
+            input.operationId,
+            row.input_json,
+            row.seal_digest,
+            input.pagesSha256,
+            receipt.evidenceSha256,
+          );
+        this.db
+          .prepare('DELETE FROM symposium_review_stream_pages WHERE fence_id=? AND operation_id=?')
+          .run(input.fenceId, input.operationId);
+        this.db
+          .prepare(
+            'DELETE FROM symposium_review_streams WHERE fence_id=? AND operation_id=? AND ready=1',
+          )
+          .run(input.fenceId, input.operationId);
+      })
+      .immediate();
+  }
+
+  /** One exact helper pass produces the entire sealed page set. SQLite rows are
+   * invisible until the footer, terminal exit, helper deletion, and custody have
+   * all been proved. Subsequent 16-page reads never start another helper. */
+  private async exportStreamedReviewContext(
+    input: { fenceId: string; operationId: string; baseBranch: string; page?: number },
+    signal: AbortSignal,
+  ): Promise<CompletedArtifactReviewContext> {
+    const page = input.page!;
+    if (
+      !Number.isSafeInteger(page) ||
+      page < 0 ||
+      page >= ARTIFACT_REVIEW_MAX_PAGES ||
+      page % ARTIFACT_REVIEW_BATCH_PAGES !== 0 ||
+      !/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/.test(input.operationId) ||
+      !/^[A-Za-z0-9][A-Za-z0-9._/-]{0,254}$/.test(input.baseBranch)
+    )
+      throw new Error('Sealed review stream selection is invalid');
+    const suffix = page === 0 ? '' : `-p${page}`;
+    if (suffix && !input.operationId.endsWith(suffix))
+      throw new Error('Sealed review stream operation changed');
+    const root = suffix ? input.operationId.slice(0, -suffix.length) : input.operationId;
+    const activeKey = `${input.fenceId}:${root}`;
+    const seal = await this.requireCompleted(input.fenceId, signal);
+    const sealDigest = reviewRecordHash(canonicalReviewJson(seal));
+    const rootInput = {
+      fenceId: input.fenceId,
+      operationId: root,
+      baseBranch: input.baseBranch,
+      kind: 'review_stream',
+    };
+    const inputJson = JSON.stringify(rootInput);
+    const tombstone = this.db
+      .prepare(
+        'SELECT input_json,seal_digest,pages_sha256,evidence_sha256 FROM symposium_review_stream_tombstones WHERE fence_id=? AND operation_id=?',
+      )
+      .get(input.fenceId, root) as
+      | { input_json: string; seal_digest: string; pages_sha256: string; evidence_sha256: string }
+      | undefined;
+    if (tombstone && (tombstone.input_json !== inputJson || tombstone.seal_digest !== sealDigest))
+      throw new Error('Sealed review stream replay identity changed');
+    type StreamRow = {
+      job_id: string;
+      input_json: string;
+      seal_digest: string;
+      header_json: string | null;
+      receipt_json: string | null;
+      ready: number;
+      started_at: number;
+    };
+    const readRow = () =>
+      this.db
+        .prepare(
+          'SELECT job_id,input_json,seal_digest,header_json,receipt_json,ready,started_at FROM symposium_review_streams WHERE fence_id=? AND operation_id=?',
+        )
+        .get(input.fenceId, root) as StreamRow | undefined;
+    const readBatch = (): CompletedArtifactReviewContext => {
+      const row = readRow();
+      if (
+        !row ||
+        row.ready !== 1 ||
+        row.input_json !== inputJson ||
+        row.seal_digest !== sealDigest ||
+        !row.receipt_json ||
+        !row.header_json
+      )
+        throw new Error('Completed sealed review stream unavailable');
+      const journal = this.db
+        .prepare('SELECT state,kind,receipt_json FROM symposium_seal_export_jobs WHERE job_id=?')
+        .get(row.job_id) as
+        { state: string; kind: string; receipt_json: string | null } | undefined;
+      if (
+        !journal ||
+        journal.state !== 'complete' ||
+        journal.kind !== 'review_stream' ||
+        journal.receipt_json !== row.receipt_json
+      )
+        throw new Error('Completed sealed review stream journal changed');
+      const header = JSON.parse(row.header_json) as { pageCount: number; evidenceSha256: string };
+      const stable = JSON.parse(row.receipt_json) as CompletedArtifactReviewContext['receipt'];
+      if (
+        page >= header.pageCount ||
+        stable.pageCount !== header.pageCount ||
+        stable.evidenceSha256 !== header.evidenceSha256 ||
+        stable.sealDigest !== sealDigest
+      )
+        throw new Error('Sealed review stream identity changed');
+      const found = this.db
+        .prepare(
+          'SELECT page_index,context,context_sha256 FROM symposium_review_stream_pages WHERE fence_id=? AND operation_id=? AND page_index>=? AND page_index<? ORDER BY page_index',
+        )
+        .all(input.fenceId, root, page, page + ARTIFACT_REVIEW_BATCH_PAGES) as Array<{
+        page_index: number;
+        context: string;
+        context_sha256: string;
+      }>;
+      if (found.length !== Math.min(ARTIFACT_REVIEW_BATCH_PAGES, header.pageCount - page))
+        throw new Error('Sealed review page set changed');
+      const pages = found.map((item, offset) => {
+        if (
+          item.page_index !== page + offset ||
+          item.context_sha256 !== hash(item.context) ||
+          Buffer.byteLength(item.context, 'utf8') > ARTIFACT_REVIEW_CONTEXT_MAX_BYTES
+        )
+          throw new Error('Sealed review page changed');
+        return {
+          context: item.context,
+          receipt: {
+            ...stable,
+            operationId: input.operationId,
+            contextSha256: item.context_sha256,
+            pageIndex: item.page_index,
+          },
+        };
+      });
+      return { context: pages[0].context, receipt: pages[0].receipt, pages };
+    };
+    const existing = readRow();
+    if (existing) {
+      if (existing.input_json !== inputJson || existing.seal_digest !== sealDigest)
+        throw new Error('Sealed review stream replay identity changed');
+      if (existing.ready === 1) return readBatch();
+      if (this.activeReviewStreams.has(activeKey) || existing.started_at > Date.now() - 90_000)
+        throw new Error('Sealed review stream is in progress');
+      // A crash can leave only an unready staging row. Reconcile the exact
+      // journaled helper, prove physical absence, then discard those rows and
+      // derive afresh. No unready row is ever served to the reviewer.
+      if (page !== 0) throw new Error('Sealed review stream requires page-zero recovery');
+      await this.reconcileReviewStream(input.fenceId, root, existing.job_id, signal);
+    }
+    if (page !== 0) throw new Error('Sealed review stream must start at page zero');
+    const intent = this.deps.store.getSymposiumArtifactSealByFence(seal.fenceId)!;
+    const volume = intent.selection.artifact.volumeName;
+    const jobId = randomUUID();
+    const name = `mitzo-seal-export-${jobId}`;
+    signal.throwIfAborted();
+    await this.custody();
+    this.db
+      .transaction(() => {
+        if (
+          this.db
+            .prepare(
+              "SELECT 1 FROM symposium_seal_export_jobs WHERE fence_id=? AND state NOT IN ('complete','failed_cleaned','not_dispatched')",
+            )
+            .get(input.fenceId)
+        )
+          throw new Error('Sealed export requires helper reconciliation');
+        this.db
+          .prepare(
+            'INSERT INTO symposium_review_streams(fence_id,operation_id,job_id,input_json,seal_digest,started_at) VALUES(?,?,?,?,?,?)',
+          )
+          .run(input.fenceId, root, jobId, inputJson, sealDigest, Date.now());
+        this.db
+          .prepare(
+            'INSERT INTO symposium_seal_export_jobs(job_id,fence_id,operation_id,kind,input_json,custody_digest,state,container_name) VALUES(?,?,?,?,?,?,?,?)',
+          )
+          .run(
+            jobId,
+            input.fenceId,
+            root,
+            'review_stream',
+            inputJson,
+            seal.custodyDigest,
+            'create_uncertain',
+            name,
+          );
+      })
+      .immediate();
+    this.activeReviewStreams.add(activeKey);
+    let id: string | undefined;
+    let removed = false;
+    const verify = async () => {
+      const found: unknown = JSON.parse(await this.command(['inspect', id!]));
+      if (!Array.isArray(found) || found.length !== 1)
+        throw new Error('Sealed review helper identity changed');
+      const c = found[0];
+      if (
+        c.Id !== id ||
+        c.Config?.Labels?.['mitzo.artifact-export-job'] !== jobId ||
+        c.ImageName !== TESTED_SYMPOSIUM_NATIVE_BUILD.image ||
+        c.Config?.User !== 'sandbox' ||
+        c.HostConfig?.NetworkMode !== 'none' ||
+        c.HostConfig?.ReadonlyRootfs !== true ||
+        c.HostConfig?.Privileged !== false ||
+        !Array.isArray(c.Mounts) ||
+        c.Mounts.length !== 1 ||
+        c.Mounts[0].Type !== 'volume' ||
+        c.Mounts[0].Name !== volume ||
+        c.Mounts[0].Destination !== SYMPOSIUM_ARTIFACT_TARGET ||
+        c.Mounts[0].RW !== false
+      )
+        throw new Error('Sealed review helper isolation changed');
+      return c;
+    };
+    const cleanup = async () => {
+      const c = await verify();
+      if (c.State?.Running !== false) await this.command(['stop', '--time', '1', id!]);
+      if ((await verify()).State?.Running !== false)
+        throw new Error('Sealed review helper stop is uncertain');
+      await this.command(['rm', id!]);
+      if ((await this.census()).some((entry) => entry.id === id))
+        throw new Error('Sealed review helper deletion is uncertain');
+      this.db
+        .prepare("UPDATE symposium_seal_export_jobs SET state='removed' WHERE job_id=?")
+        .run(jobId);
+      removed = true;
+    };
+    try {
+      const created = (
+        await this.command([
+          'create',
+          '--pull=never',
+          '--name',
+          name,
+          '--label',
+          `mitzo.artifact-export-job=${jobId}`,
+          '--network=none',
+          '--read-only',
+          '--cap-drop=ALL',
+          '--security-opt=no-new-privileges',
+          '--user',
+          'sandbox',
+          '--pids-limit=32',
+          '--memory=256m',
+          '--cpus=1',
+          '--mount',
+          `type=volume,src=${volume},dst=${SYMPOSIUM_ARTIFACT_TARGET},readonly`,
+          '--entrypoint=/usr/bin/python3',
+          TESTED_SYMPOSIUM_NATIVE_BUILD.image,
+          '-I',
+          '-c',
+          ARTIFACT_GIT_EXPORT,
+          seal.repositoryPath,
+          JSON.stringify({ ...rootInput, expected: seal.git }),
+        ])
+      ).trim();
+      if (!containerId.test(created))
+        throw new Error('Sealed review helper create outcome is uncertain');
+      id = created;
+      this.db
+        .prepare(
+          "UPDATE symposium_seal_export_jobs SET state='created',container_id=? WHERE job_id=?",
+        )
+        .run(id, jobId);
+      await verify();
+      signal.throwIfAborted();
+      await this.custody();
+      let pending = Buffer.alloc(0);
+      let header:
+        | {
+            proof: unknown;
+            pageCount: number;
+            evidenceSha256: string;
+            sourceOid: string;
+            baseOid: string;
+          }
+        | undefined;
+      let footer:
+        | { proof: unknown; pageCount: number; evidenceSha256: string; pagesSha256: string }
+        | undefined;
+      let count = 0;
+      const staged: Array<{ index: number; context: string; sha256: string }> = [];
+      const insertPage = this.db.prepare(
+        'INSERT INTO symposium_review_stream_pages(fence_id,operation_id,page_index,context,context_sha256) VALUES(?,?,?,?,?)',
+      );
+      const flush = () => {
+        if (!staged.length) return;
+        this.db
+          .transaction(() => {
+            for (const item of staged)
+              insertPage.run(input.fenceId, root, item.index, item.context, item.sha256);
+          })
+          .immediate();
+        staged.length = 0;
+      };
+      const digest = createHash('sha256');
+      digest.update('[');
+      const frame = (line: Buffer) => {
+        if (line.length < 2 || line.length > ARTIFACT_REVIEW_CONTEXT_MAX_OUTPUT_BYTES)
+          throw new Error('Sealed review stream frame bound changed');
+        const marker = String.fromCharCode(line[0]);
+        const value = line.subarray(1).toString('utf8');
+        if (marker === 'H' && !header && count === 0) {
+          const parsed = JSON.parse(value);
+          if (
+            canonicalReviewJson(gitProofSchema.parse(parsed.proof)) !==
+              canonicalReviewJson(seal.git) ||
+            !Number.isSafeInteger(parsed.pageCount) ||
+            parsed.pageCount < 1 ||
+            parsed.pageCount > ARTIFACT_REVIEW_MAX_PAGES ||
+            !/^[a-f0-9]{64}$/.test(parsed.evidenceSha256) ||
+            parsed.sourceOid !== seal.git.commit ||
+            !oid.safeParse(parsed.baseOid).success
+          )
+            throw new Error('Sealed review stream header changed');
+          header = parsed;
+          this.db
+            .prepare(
+              'UPDATE symposium_review_streams SET header_json=? WHERE fence_id=? AND operation_id=?',
+            )
+            .run(canonicalReviewJson(parsed), input.fenceId, root);
+        } else if (marker === 'P' && header && !footer) {
+          if (
+            Buffer.byteLength(value, 'utf8') > ARTIFACT_REVIEW_CONTEXT_MAX_BYTES ||
+            count >= header.pageCount
+          )
+            throw new Error('Sealed review page bound changed');
+          const parsed = JSON.parse(value);
+          if (
+            canonicalReviewJson(parsed) !== value ||
+            parsed.version !== 3 ||
+            parsed.scope !== 'sealed-changed-path-pages' ||
+            parsed.pageIndex !== count ||
+            parsed.pageCount !== header.pageCount ||
+            parsed.evidenceSha256 !== header.evidenceSha256 ||
+            parsed.sourceOid !== seal.git.commit ||
+            parsed.baseOid !== header.baseOid ||
+            parsed.baseBranch !== input.baseBranch ||
+            parsed.committedTreeDigest !== seal.git.committedTreeDigest ||
+            parsed.manifestDigest !== seal.git.manifestDigest ||
+            parsed.trackedFileCount !== seal.git.entries ||
+            !Array.isArray(parsed.segments) ||
+            parsed.segments.length === 0
+          )
+            throw new Error('Sealed review page identity changed');
+          digest.update(count ? ',' : '');
+          digest.update(JSON.stringify(value));
+          staged.push({ index: count, context: value, sha256: hash(value) });
+          if (staged.length === ARTIFACT_REVIEW_BATCH_PAGES) flush();
+          count++;
+        } else if (marker === 'F' && header && !footer && count === header.pageCount) {
+          const parsed = JSON.parse(value);
+          digest.update(']');
+          if (
+            canonicalReviewJson(gitProofSchema.parse(parsed.proof)) !==
+              canonicalReviewJson(seal.git) ||
+            parsed.pageCount !== count ||
+            parsed.evidenceSha256 !== header.evidenceSha256 ||
+            parsed.pagesSha256 !== digest.digest('hex')
+          )
+            throw new Error('Sealed review stream footer changed');
+          footer = parsed;
+        } else throw new Error('Sealed review stream frame order changed');
+      };
+      await this.stream!(['start', '--attach', id], (chunk) => {
+        for (let offset = 0; offset < chunk.length; offset += 64 * 1024) {
+          pending = Buffer.concat([pending, chunk.subarray(offset, offset + 64 * 1024)]);
+          let newline: number;
+          while ((newline = pending.indexOf(10)) >= 0) {
+            frame(pending.subarray(0, newline));
+            pending = pending.subarray(newline + 1);
+          }
+          if (pending.length > ARTIFACT_REVIEW_CONTEXT_MAX_OUTPUT_BYTES)
+            throw new Error('Sealed review stream frame bound changed');
+        }
+      });
+      if (pending.length || !header || !footer)
+        throw new Error('Sealed review stream is incomplete');
+      if (
+        tombstone &&
+        (footer.pagesSha256 !== tombstone.pages_sha256 ||
+          header.evidenceSha256 !== tombstone.evidence_sha256)
+      )
+        throw new Error('Sealed review stream replay changed');
+      flush();
+      const terminal = await verify();
+      if (terminal.State?.Running !== false || terminal.State?.ExitCode !== 0)
+        throw new Error('Sealed review stream terminal success is unconfirmed');
+      this.db
+        .prepare("UPDATE symposium_seal_export_jobs SET state='terminal' WHERE job_id=?")
+        .run(jobId);
+      const terminalId = id;
+      await cleanup();
+      id = undefined;
+      const current = await this.requireCompleted(input.fenceId, signal);
+      if (canonicalReviewJson(current) !== canonicalReviewJson(seal))
+        throw new Error('Sealed review stream custody changed');
+      const first = this.db
+        .prepare(
+          'SELECT context,context_sha256 FROM symposium_review_stream_pages WHERE fence_id=? AND operation_id=? AND page_index=0',
+        )
+        .get(input.fenceId, root) as { context: string; context_sha256: string } | undefined;
+      if (!first) throw new Error('Sealed review stream first page missing');
+      const stable: CompletedArtifactReviewContext['receipt'] = {
+        version: 1,
+        mode: 'review_context',
+        jobId,
+        operationId: root,
+        sealFenceId: seal.fenceId,
+        sealDigest,
+        intentDigest: seal.intentDigest,
+        artifactRevision: seal.git.commit,
+        artifactHash: seal.git.committedTreeDigest,
+        baseOid: header.baseOid,
+        sourceOid: seal.git.commit,
+        contextSha256: first.context_sha256,
+        pageIndex: 0,
+        pageCount: header.pageCount,
+        evidenceSha256: header.evidenceSha256,
+        pagesSha256: footer.pagesSha256,
+        completedAt: Date.now(),
+        helper: {
+          id: terminalId!,
+          name,
+          image: TESTED_SYMPOSIUM_NATIVE_BUILD.image,
+          codeDigest: hash(ARTIFACT_GIT_EXPORT),
+          terminalExitCode: 0,
+          removed: true,
+        },
+      };
+      this.deps.store.withSymposiumArtifactSealSnapshot(intent, () => {
+        this.db
+          .transaction(() => {
+            const changed = this.db
+              .prepare(
+                "UPDATE symposium_seal_export_jobs SET state='complete',result_hash=?,receipt_json=? WHERE job_id=? AND state='removed'",
+              )
+              .run(footer!.pagesSha256, canonicalReviewJson(stable), jobId);
+            if (changed.changes !== 1) throw new Error('Sealed review stream journal changed');
+            const ready = this.db
+              .prepare(
+                'UPDATE symposium_review_streams SET receipt_json=?,ready=1 WHERE fence_id=? AND operation_id=? AND job_id=? AND ready=0',
+              )
+              .run(canonicalReviewJson(stable), input.fenceId, root, jobId);
+            if (ready.changes !== 1) throw new Error('Sealed review stream staging changed');
+          })
+          .immediate();
+      });
+      const completed = readBatch();
+      this.activeReviewStreams.delete(activeKey);
+      return completed;
+    } catch (error) {
+      if (!id && error instanceof ArtifactCommandNotDispatched)
+        this.db
+          .prepare(
+            "UPDATE symposium_seal_export_jobs SET state='not_dispatched' WHERE job_id=? AND state='create_uncertain' AND container_id IS NULL",
+          )
+          .run(jobId);
+      if (id && !removed) {
+        try {
+          await cleanup();
+        } catch {
+          /* Exact helper remains journaled. */
+        }
+      }
+      if (removed && readRow()?.ready !== 1) {
+        this.db
+          .transaction(() => {
+            this.db
+              .prepare(
+                'DELETE FROM symposium_review_stream_pages WHERE fence_id=? AND operation_id=?',
+              )
+              .run(input.fenceId, root);
+            this.db
+              .prepare(
+                'DELETE FROM symposium_review_streams WHERE fence_id=? AND operation_id=? AND ready=0',
+              )
+              .run(input.fenceId, root);
+            this.db
+              .prepare(
+                "UPDATE symposium_seal_export_jobs SET state='failed_cleaned' WHERE job_id=? AND state='removed'",
+              )
+              .run(jobId);
+          })
+          .immediate();
+      }
+      this.activeReviewStreams.delete(activeKey);
+      // eslint-disable-next-line preserve-caught-error -- Stream frames may contain private artifact bytes.
+      throw new Error(
+        'Sealed review stream failed; retained helper state may require reconciliation',
+      );
+    }
+  }
+
+  private async reconcileReviewStream(
+    fenceId: string,
+    root: string,
+    jobId: string,
+    signal: AbortSignal,
+  ): Promise<void> {
+    const intent = this.deps.store.getSymposiumArtifactSealByFence(fenceId);
+    if (!intent) throw new Error('Sealed review stream fence changed');
+    const volume = intent.selection.artifact.volumeName;
+    const job = this.db
+      .prepare(
+        'SELECT state,kind,container_name,container_id FROM symposium_seal_export_jobs WHERE job_id=? AND fence_id=? AND operation_id=?',
+      )
+      .get(jobId, fenceId, root) as
+      | { state: string; kind: string; container_name: string; container_id: string | null }
+      | undefined;
+    if (!job || job.kind !== 'review_stream' || job.container_name !== `mitzo-seal-export-${jobId}`)
+      throw new Error('Sealed review stream journal changed');
+    const rows: unknown = JSON.parse(
+      await this.command(['ps', '--all', '--no-trunc', '--format', 'json']),
+    );
+    if (!Array.isArray(rows) || rows.length > 128)
+      throw new Error('Sealed review stream census unavailable');
+    const matching = rows.filter((row) => {
+      const names = row?.Names;
+      return (Array.isArray(names) ? names : [names]).includes(job.container_name);
+    });
+    if (matching.length > 1) throw new Error('Ambiguous sealed review helper identity');
+    const foundId = matching.length === 1 ? String(matching[0].Id ?? matching[0].ID ?? '') : null;
+    if (
+      foundId &&
+      (!containerId.test(foundId) || (job.container_id && job.container_id !== foundId))
+    )
+      throw new Error('Sealed review helper identity changed');
+    if (foundId) {
+      const inspected: unknown = JSON.parse(await this.command(['inspect', foundId]));
+      if (
+        !Array.isArray(inspected) ||
+        inspected.length !== 1 ||
+        inspected[0].Id !== foundId ||
+        inspected[0].Config?.Labels?.['mitzo.artifact-export-job'] !== jobId ||
+        inspected[0].ImageName !== TESTED_SYMPOSIUM_NATIVE_BUILD.image ||
+        inspected[0].Config?.User !== 'sandbox' ||
+        inspected[0].HostConfig?.NetworkMode !== 'none' ||
+        inspected[0].HostConfig?.ReadonlyRootfs !== true ||
+        inspected[0].HostConfig?.Privileged !== false ||
+        !Array.isArray(inspected[0].Mounts) ||
+        inspected[0].Mounts.length !== 1 ||
+        inspected[0].Mounts[0].Type !== 'volume' ||
+        inspected[0].Mounts[0].Name !== volume ||
+        inspected[0].Mounts[0].Destination !== SYMPOSIUM_ARTIFACT_TARGET ||
+        inspected[0].Mounts[0].RW !== false
+      )
+        throw new Error('Sealed review helper isolation changed');
+      if (inspected[0].State?.Running !== false)
+        await this.command(['stop', '--time', '1', foundId]);
+      await this.command(['rm', foundId]);
+    } else if (
+      job.container_id &&
+      (await this.census()).some((entry) => entry.id === job.container_id)
+    ) {
+      throw new Error('Sealed review helper name changed');
+    }
+    if (
+      (await this.census()).some((entry) => entry.id === foundId || entry.id === job.container_id)
+    )
+      throw new Error('Sealed review helper deletion is uncertain');
+    await this.requireCompleted(fenceId, signal);
+    this.db
+      .transaction(() => {
+        this.db
+          .prepare('DELETE FROM symposium_review_stream_pages WHERE fence_id=? AND operation_id=?')
+          .run(fenceId, root);
+        const removed = this.db
+          .prepare(
+            'DELETE FROM symposium_review_streams WHERE fence_id=? AND operation_id=? AND job_id=? AND ready=0',
+          )
+          .run(fenceId, root, jobId);
+        if (removed.changes !== 1) throw new Error('Sealed review stream recovery changed');
+        this.db
+          .prepare(
+            "UPDATE symposium_seal_export_jobs SET state='failed_cleaned' WHERE job_id=? AND state!='complete'",
+          )
+          .run(jobId);
+      })
+      .immediate();
   }
 
   /** A fresh credential-free helper recomputes the sealed committed manifest and
