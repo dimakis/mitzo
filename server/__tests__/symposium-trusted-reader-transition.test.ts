@@ -179,8 +179,18 @@ function fixture() {
   const context = { owner: 'user', sessionId: 'symposium' };
   let loseStageResponse = false;
   let reviewContext = JSON.stringify({
-    diff: '+tested',
-    files: [{ path: 'marker.txt', content: 'tested' }],
+    version: 2,
+    sourceOid: commit,
+    baseOid: 'c'.repeat(40),
+    baseBranch: 'main',
+    committedTreeDigest: treeDigest,
+    manifestDigest: 'e'.repeat(64),
+    trackedFileCount: 0,
+    changedPathCount: 1,
+    omittedPathCount: 0,
+    files: [
+      { path: 'marker.txt', content: 'tested', contentTruncated: false, diffTruncated: false },
+    ],
   });
   let contextRevision = commit;
   const completedSeal = {
@@ -355,6 +365,51 @@ it('rejects mismatched or oversized sealed context before reader admission', asy
       'Exact bounded sealed review context required',
     );
     expect(f.events.getActiveSymposiumConfig('symposium').revision).toBe(4);
+  } finally {
+    f.leaseHost.close();
+    f.reviews.close();
+    f.events.close();
+  }
+});
+
+it('refuses partial review evidence before any reader admission', async () => {
+  const f = fixture();
+  try {
+    const prep = await f.owner.transition.prepare({
+      context: f.context,
+      workflowId: 'workflow',
+      attemptId: 'review-1',
+      kind: 'review',
+      selection: f.reviews.get('workflow')!.reviewer,
+      artifactRevision: commit,
+      artifactHash: treeDigest,
+      policy: f.reviews.get('workflow')!.limits as any,
+    });
+    f.reviews.reserveApplicationPreparation(prep);
+    const complete = {
+      version: 2,
+      sourceOid: commit,
+      baseOid: 'c'.repeat(40),
+      baseBranch: 'main',
+      committedTreeDigest: treeDigest,
+      manifestDigest: 'e'.repeat(64),
+      trackedFileCount: 0,
+      changedPathCount: 1,
+      omittedPathCount: 0,
+      files: [{ path: 'marker.txt', contentTruncated: false, diffTruncated: false }],
+    };
+    for (const partial of [
+      { ...complete, changedPathCount: 2, omittedPathCount: 1 },
+      { ...complete, files: [{ ...complete.files[0], contentTruncated: true }] },
+      { ...complete, files: [{ ...complete.files[0], diffTruncated: true }] },
+    ]) {
+      f.setReviewContext(JSON.stringify(partial));
+      await expect(f.owner.transition.apply(f.context, prep)).rejects.toThrow(
+        'Complete sealed review context required',
+      );
+      expect(f.events.getActiveSymposiumConfig('symposium').revision).toBe(4);
+      expect(f.events.getLatestSymposiumAdmission('symposium', 'reviewer', 5)).toBeUndefined();
+    }
   } finally {
     f.leaseHost.close();
     f.reviews.close();
