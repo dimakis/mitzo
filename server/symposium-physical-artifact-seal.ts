@@ -197,6 +197,7 @@ export class PhysicalArtifactSealer {
     const rows: unknown = JSON.parse(
       await this.command(['ps', '--all', '--no-trunc', '--format', 'json']),
     );
+    if (Date.now() - started > 20000) throw new Error('Artifact census exceeded time bound');
     if (!Array.isArray(rows) || rows.length > 128)
       throw new Error('Artifact volume census is unavailable');
     const ids = rows.map((row) => {
@@ -206,29 +207,43 @@ export class PhysicalArtifactSealer {
     });
     if (new Set(ids).size !== ids.length)
       throw new Error('Artifact census contains duplicate identities');
-    const result: Array<{
-      id: string;
-      mounts: Array<{ Type: string; Name?: string; RW: boolean }>;
-    }> = [];
-    for (const id of ids) {
-      if (Date.now() - started > 20000) throw new Error('Artifact census exceeded time bound');
-      const inspected: unknown = JSON.parse(await this.command(['inspect', id]));
+    if (!ids.length) return [];
+    // One Podman round trip for the bounded census. Per-container CLI launches can
+    // exhaust the physical seal deadline on a shared VM before any mount is checked.
+    const inspected: unknown = JSON.parse(
+      await this.command(['inspect', '--type', 'container', ...ids], 12 * 1024 * 1024),
+    );
+    if (Date.now() - started > 20000) throw new Error('Artifact census exceeded time bound');
+    if (!Array.isArray(inspected) || inspected.length !== ids.length)
+      throw new Error('Artifact census inspection changed');
+    const expected = new Set(ids);
+    const observed = new Map<string, Array<{ Type: string; Name?: string; RW: boolean }>>();
+    for (const row of inspected) {
       if (
-        !Array.isArray(inspected) ||
-        inspected.length !== 1 ||
-        inspected[0].Id !== id ||
-        !Array.isArray(inspected[0].Mounts)
+        !row ||
+        typeof row !== 'object' ||
+        !containerId.test(row.Id) ||
+        !expected.has(row.Id) ||
+        observed.has(row.Id) ||
+        !Array.isArray(row.Mounts)
       )
         throw new Error('Artifact census inspection changed');
-      const mounts = inspected[0].Mounts;
-      for (const mount of mounts)
+      for (const mount of row.Mounts)
         if (
+          !mount ||
           typeof mount.Type !== 'string' ||
           typeof mount.RW !== 'boolean' ||
           (mount.Type === 'volume' && typeof mount.Name !== 'string')
         )
           throw new Error('Artifact mount census is incomplete');
-      result.push({ id, mounts });
+      observed.set(row.Id, row.Mounts);
+    }
+    const result: Array<{
+      id: string;
+      mounts: Array<{ Type: string; Name?: string; RW: boolean }>;
+    }> = [];
+    for (const id of ids) {
+      result.push({ id, mounts: observed.get(id)! });
     }
     return result;
   }

@@ -149,7 +149,14 @@ async function fixture(inspectionPaths = ['file']) {
     manifestDigest: 'c'.repeat(64),
     committedTreeDigest: 'f'.repeat(64),
   };
-  const state = { failCreate: false, failDelete: false, extraMount: false, uncertain: false };
+  const state = {
+    failCreate: false,
+    failDelete: false,
+    extraMount: false,
+    uncertain: false,
+    crowdCount: 0,
+    censusTamper: 'none' as 'none' | 'missing' | 'duplicate' | 'foreign' | 'malformed',
+  };
   const gateway = {
     workspace: 'workspace',
     stateDirectory: join(root, 'gateway-first'),
@@ -169,31 +176,53 @@ async function fixture(inspectionPaths = ['file']) {
           }),
         },
       ]);
-    if (args[0] === 'ps')
-      return JSON.stringify(
-        verifierExists ? [{ Id: helperId }] : state.extraMount ? [{ Id: 'e'.repeat(64) }] : [],
-      );
-    if (args[0] === 'inspect')
+    if (args[0] === 'ps') {
+      const present = verifierExists
+        ? [{ Id: helperId, Names: 'fixture-helper' }]
+        : state.extraMount
+          ? [{ Id: 'e'.repeat(64), Names: 'fixture-extra' }]
+          : [];
       return JSON.stringify([
-        {
-          Id: args[1],
-          ImageName: TESTED_SYMPOSIUM_NATIVE_BUILD.image,
-          Config: {
-            User: 'sandbox',
-            Labels: exportJob ? { 'mitzo.artifact-export-job': exportJob } : {},
-          },
-          HostConfig: { NetworkMode: 'none', ReadonlyRootfs: true, Privileged: false },
-          State: { Running: false, ExitCode: 0 },
-          Mounts: [
-            {
-              Type: 'volume',
-              Name: 'volume',
-              Destination: SYMPOSIUM_ARTIFACT_TARGET,
-              RW: state.extraMount,
-            },
-          ],
-        },
+        ...present,
+        ...Array.from({ length: state.crowdCount }, (_, i) => ({
+          Id: (i + 1).toString(16).padStart(64, '0'),
+          Names: `unrelated-${i}`,
+        })),
       ]);
+    }
+    if (args[0] === 'inspect') {
+      const ids = args[1] === '--type' ? args.slice(3) : args.slice(1);
+      const inspected = ids.map((id) => ({
+        Id: id,
+        ImageName: TESTED_SYMPOSIUM_NATIVE_BUILD.image,
+        Config: {
+          User: 'sandbox',
+          Labels: exportJob ? { 'mitzo.artifact-export-job': exportJob } : {},
+        },
+        HostConfig: { NetworkMode: 'none', ReadonlyRootfs: true, Privileged: false },
+        State: { Running: false, ExitCode: 0 },
+        Mounts:
+          id === helperId || id === 'e'.repeat(64)
+            ? [
+                {
+                  Type: 'volume',
+                  Name: 'volume',
+                  Destination: SYMPOSIUM_ARTIFACT_TARGET,
+                  RW: state.extraMount && id === 'e'.repeat(64),
+                },
+              ]
+            : [],
+      }));
+      if (args[1] === '--type') {
+        if (state.censusTamper === 'missing') inspected.pop();
+        if (state.censusTamper === 'duplicate' && inspected.length > 1)
+          inspected[1].Id = inspected[0].Id;
+        if (state.censusTamper === 'foreign') inspected[0].Id = 'f'.repeat(64);
+        if (state.censusTamper === 'malformed')
+          inspected[0].Mounts = [{ Type: 'volume', Name: 'volume' }] as never;
+      }
+      return JSON.stringify(inspected);
+    }
     if (args[0] === 'create') {
       if (state.failCreate) throw new Error('create uncertain');
       verifierExists = true;
@@ -349,6 +378,35 @@ async function fixture(inspectionPaths = ['file']) {
   };
   return { store, host, native, sealer, runtime, input, state, command, root, deps, gateway };
 }
+it('seals with eighty unrelated containers through bounded bulk inspection', async () => {
+  const f = await fixture();
+  f.state.crowdCount = 80;
+  const receipt = await f.sealer.seal(f.input, f.runtime, new AbortController().signal);
+  expect(receipt.kind).toBe('completed_artifact_seal');
+  const bulk = f.command.mock.calls.filter(
+    ([args]) => args[0] === 'inspect' && args[1] === '--type',
+  );
+  expect(bulk.length).toBeGreaterThan(0);
+  expect(bulk.some(([args]) => args.length === 83)).toBe(true);
+  expect(bulk.every(([, maxBytes]) => maxBytes === 12 * 1024 * 1024)).toBe(true);
+  expect(f.command.mock.calls.some(([args]) => args[0] === 'inspect' && args.length === 2)).toBe(
+    true,
+  );
+});
+
+it.each(['missing', 'duplicate', 'foreign', 'malformed'] as const)(
+  'fails closed when bulk inspection is %s',
+  async (kind) => {
+    const f = await fixture();
+    f.state.crowdCount = 80;
+    f.state.censusTamper = kind;
+    await expect(f.sealer.seal(f.input, f.runtime, new AbortController().signal)).rejects.toThrow(
+      /Artifact census inspection changed|Artifact mount census is incomplete/,
+    );
+    expect(f.command.mock.calls.some(([args]) => args[0] === 'create')).toBe(false);
+  },
+);
+
 it('drains the anchor through the real runtime and commits only after exact verifier cleanup', async () => {
   const f = await fixture();
   const receipt = await f.sealer.seal(f.input, f.runtime, new AbortController().signal);
