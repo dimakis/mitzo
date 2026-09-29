@@ -10,6 +10,8 @@ import {
   ARTIFACT_GIT_EXPORT,
   ARTIFACT_INSPECTION_MAX_OUTPUT_BYTES,
   ARTIFACT_REVIEW_CONTEXT_MAX_BYTES,
+  ARTIFACT_REVIEW_BATCH_PAGES,
+  ARTIFACT_REVIEW_CONTEXT_MAX_OUTPUT_BYTES,
 } from '../symposium-artifact-git-export.js';
 import { SYMPOSIUM_ARTIFACT_TARGET } from '../symposium-artifact-lease.js';
 const roots: string[] = [];
@@ -263,6 +265,36 @@ it('exports a large changed diff as complete, identity-bound pages', () => {
   expect(createHash('sha256').update(complete).digest('hex')).toBe(segments[0].selectedSha256);
   expect(complete).toContain('X'.repeat(ARTIFACT_REVIEW_CONTEXT_MAX_BYTES));
 });
+it('retrieves more than 1 MiB of changed evidence through bounded sealed batches', () => {
+  const content = 'X'.repeat(2500 * 1024);
+  const f = fixture((root) => writeFileSync(join(root, 'large.txt'), content));
+  const first = f.run({ kind: 'review_context', page: 0 });
+  const firstPage = JSON.parse(first.context);
+  expect(firstPage.pageCount).toBeGreaterThan(64);
+  const pages = [...first.pages] as string[];
+  expect(Buffer.byteLength(JSON.stringify(first))).toBeLessThan(
+    ARTIFACT_REVIEW_CONTEXT_MAX_OUTPUT_BYTES,
+  );
+  for (
+    let offset = ARTIFACT_REVIEW_BATCH_PAGES;
+    offset < firstPage.pageCount;
+    offset += ARTIFACT_REVIEW_BATCH_PAGES
+  ) {
+    const batch = f.run({ kind: 'review_context', page: offset });
+    expect(Buffer.byteLength(JSON.stringify(batch))).toBeLessThan(
+      ARTIFACT_REVIEW_CONTEXT_MAX_OUTPUT_BYTES,
+    );
+    expect(batch.pagesSha256).toBe(first.pagesSha256);
+    expect(JSON.parse(batch.context).pageIndex).toBe(offset);
+    pages.push(...batch.pages);
+  }
+  expect(pages).toHaveLength(firstPage.pageCount);
+  expect(createHash('sha256').update(JSON.stringify(pages)).digest('hex')).toBe(first.pagesSha256);
+  const segments = pages
+    .flatMap((encoded) => JSON.parse(encoded).segments)
+    .filter((part) => part.path === 'large.txt');
+  expect(segments.map((part) => part.data).join('')).toBe(content);
+}, 120_000);
 it('pages many changed paths without omitting one', () => {
   const f = fixture((root) => {
     for (let i = 0; i < 100; i++)

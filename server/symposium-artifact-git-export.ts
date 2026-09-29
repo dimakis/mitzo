@@ -4,6 +4,8 @@ import { ARTIFACT_GIT_VERIFIER_CORE } from './symposium-artifact-git-verifier.js
 export const ARTIFACT_INSPECTION_MAX_OUTPUT_BYTES = 4 * 1024 * 1024;
 export const ARTIFACT_REVIEW_CONTEXT_MAX_BYTES = 48 * 1024;
 export const ARTIFACT_REVIEW_CONTEXT_MAX_OUTPUT_BYTES = 2 * 1024 * 1024;
+export const ARTIFACT_REVIEW_MAX_PAGES = 1024;
+export const ARTIFACT_REVIEW_BATCH_PAGES = 16;
 /** Entire script runs inside the pinned, credential-free read-only helper. */
 export const ARTIFACT_GIT_EXPORT =
   ARTIFACT_GIT_VERIFIER_CORE +
@@ -100,13 +102,13 @@ if options['kind']=='review_context':
   files.append({'path':path,'status':'present' if source else 'deleted','baseMode':base_modes.get(path),'mode':source['mode'] if source else None,'sha256':source['sha256'] if source else None,'bytes':source['bytes'] if source else None,'representation':representation,'complete':True,'content':content if representation=='content' else None,'contentTruncated':False,'diff':diff if representation=='diff' else None,'diffSha256':hashlib.sha256(diff_bytes).hexdigest(),'diffBytes':len(diff_bytes),'diffTruncated':False})
  if 'page' in options:
   page=options['page']
-  if type(page)!=int or page!=0: raise ValueError('review page')
+  if type(page)!=int or page<0 or page>=${ARTIFACT_REVIEW_MAX_PAGES} or page%${ARTIFACT_REVIEW_BATCH_PAGES}!=0: raise ValueError('review page')
   identity={'version':3,'scope':'sealed-changed-path-pages','sourceOid':commit,'baseOid':review_base_oid,'sourceBranch':source_branch,'baseBranch':base_branch,'committedTreeDigest':proof['committedTreeDigest'],'manifestDigest':proof['manifestDigest'],'trackedFileCount':proof['entries'],'changedPathCount':len(paths)}
   descriptors=[{key:item[key] for key in ('path','status','baseMode','mode','sha256','bytes','representation','diffSha256','diffBytes')} for item in files]
   # Each page is re-derived from the pinned Git tree by a fresh helper. Keep the
   # complete selection bounded before emitting any page to limit repeated work.
   selected_bytes=sum(len((item[item['representation']] if item['representation'] in ('diff','content') else '').encode('utf-8')) for item in files)
-  if selected_bytes>1048576: raise ValueError('review evidence total byte bound')
+  if selected_bytes>32*1048576: raise ValueError('review evidence total byte bound')
   evidence_sha=hashlib.sha256(json.dumps({'identity':identity,'files':descriptors},sort_keys=True,separators=(',',':'),ensure_ascii=False).encode('utf-8')).hexdigest()
   segments=[]
   for item in files:
@@ -136,11 +138,12 @@ if options['kind']=='review_context':
    if len(encoded_page([segment],65535,65535).encode('utf-8'))>${ARTIFACT_REVIEW_CONTEXT_MAX_BYTES}: raise ValueError('review segment metadata bound')
    current.append(segment)
   if current: pages.append(current)
-  if not pages or len(pages)>64: raise ValueError('review page unavailable')
+  if not pages or len(pages)>${ARTIFACT_REVIEW_MAX_PAGES} or page>=len(pages): raise ValueError('review page unavailable')
   encoded_pages=[encoded_page(parts,index,len(pages)) for index,parts in enumerate(pages)]
   if any(len(encoded.encode('utf-8'))>${ARTIFACT_REVIEW_CONTEXT_MAX_BYTES} for encoded in encoded_pages): raise ValueError('review page byte bound')
   pages_digest=hashlib.sha256(json.dumps(encoded_pages,sort_keys=True,separators=(',',':'),ensure_ascii=False).encode('utf-8')).hexdigest()
-  print(json.dumps({'proof':proof,'context':encoded_pages[0],'contextSha256':hashlib.sha256(encoded_pages[0].encode('utf-8')).hexdigest(),'pages':encoded_pages,'pagesSha256':pages_digest},sort_keys=True,ensure_ascii=False))
+  selected_pages=encoded_pages[page:page+${ARTIFACT_REVIEW_BATCH_PAGES}]
+  print(json.dumps({'proof':proof,'context':selected_pages[0],'contextSha256':hashlib.sha256(selected_pages[0].encode('utf-8')).hexdigest(),'pages':selected_pages,'pagesSha256':pages_digest},sort_keys=True,ensure_ascii=False))
   sys.exit(0)
  context={'version':2,'scope':'bounded-changed-path-evidence','sourceOid':commit,'baseOid':review_base_oid,'sourceBranch':source_branch,'baseBranch':base_branch,'committedTreeDigest':proof['committedTreeDigest'],'manifestDigest':proof['manifestDigest'],'trackedFileCount':proof['entries'],'changedPathCount':len(paths),'omittedPathCount':0,'files':[]}
  for item in files:

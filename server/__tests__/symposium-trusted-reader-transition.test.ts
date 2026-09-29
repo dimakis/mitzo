@@ -12,6 +12,7 @@ import { SymposiumOrchestrator } from '../symposium-orchestrator.js';
 import { SymposiumReviewStore } from '../symposium-review-workflows.js';
 import { createSealedReaderReviewTransition } from '../symposium-trusted-reader-transition.js';
 import { canonicalReviewJson, reviewRecordHash } from '../symposium-review-records.js';
+import { ARTIFACT_REVIEW_BATCH_PAGES } from '../symposium-artifact-git-export.js';
 
 const sha = (value: string) => createHash('sha256').update(value).digest('hex');
 function pageContext(content: string, path = 'marker.txt') {
@@ -216,6 +217,7 @@ function fixture() {
   let loseStageResponse = false;
   let reviewContext = pageContext('tested');
   let reviewPageTexts = [reviewContext];
+  const exportedPageBatches: number[] = [];
   let contextRevision = commit;
   const completedSeal = {
     kind: 'completed_artifact_seal' as const,
@@ -246,31 +248,34 @@ function fixture() {
     sourceFence: () => seal.fenceId,
     requireCompletedSeal: async () => completedSeal,
     baseBranch: () => 'main',
-    exportReviewContext: async ({ fenceId, operationId, baseBranch }) => {
+    exportReviewContext: async ({ fenceId, operationId, baseBranch, page = 0 }) => {
+      exportedPageBatches.push(page);
       if (fenceId !== seal.fenceId || baseBranch !== 'main')
         throw new Error('Context selector changed');
       const pagesSha256 = sha(canonicalReviewJson(reviewPageTexts));
-      const pageReceipts = reviewPageTexts.map((context, pageIndex) => ({
-        context,
-        receipt: {
-          jobId: '11111111-1111-4111-8111-111111111111',
-          operationId,
-          sealFenceId: seal.fenceId,
-          sealDigest: reviewRecordHash(canonicalReviewJson(completedSeal)),
-          artifactRevision: contextRevision,
-          artifactHash: treeDigest,
-          baseOid: 'c'.repeat(40),
-          sourceOid: commit,
-          contextSha256: sha(context),
-          pageIndex,
-          pageCount: reviewPageTexts.length,
-          evidenceSha256: 'd'.repeat(64),
-          pagesSha256,
-          completedAt: 1,
-        },
-      }));
+      const pageReceipts = reviewPageTexts
+        .slice(page, page + ARTIFACT_REVIEW_BATCH_PAGES)
+        .map((context, index) => ({
+          context,
+          receipt: {
+            jobId: '11111111-1111-4111-8111-111111111111',
+            operationId,
+            sealFenceId: seal.fenceId,
+            sealDigest: reviewRecordHash(canonicalReviewJson(completedSeal)),
+            artifactRevision: contextRevision,
+            artifactHash: treeDigest,
+            baseOid: 'c'.repeat(40),
+            sourceOid: commit,
+            contextSha256: sha(context),
+            pageIndex: page + index,
+            pageCount: reviewPageTexts.length,
+            evidenceSha256: 'd'.repeat(64),
+            pagesSha256,
+            completedAt: 1,
+          },
+        }));
       return {
-        context: reviewPageTexts[0],
+        context: reviewPageTexts[page],
         pages: pageReceipts,
         receipt: pageReceipts[0].receipt,
       };
@@ -324,6 +329,7 @@ function fixture() {
     setContextRevision: (value: string) => {
       contextRevision = value;
     },
+    exportedPageBatches,
   };
 }
 
@@ -569,6 +575,49 @@ it('admits complete ordered pages and rejects a missing final segment before adm
     const admitted = await f.owner.transition.apply(f.context, prep);
     expect(admitted.attempt.binding.deliveryId).toBe('delivery-1');
     expect(f.events.getSymposiumDelivery('delivery-1')!.originalContent).toContain('page 0');
+  } finally {
+    f.leaseHost.close();
+    f.reviews.close();
+    f.events.close();
+  }
+});
+
+it('fetches a second sealed helper batch before admitting the reviewer', async () => {
+  const f = fixture();
+  try {
+    const prep = await f.owner.transition.prepare({
+      context: f.context,
+      workflowId: 'workflow',
+      attemptId: 'review-1',
+      kind: 'review',
+      selection: f.reviews.get('workflow')!.reviewer,
+      artifactRevision: commit,
+      artifactHash: treeDigest,
+      policy: f.reviews.get('workflow')!.limits as any,
+    });
+    f.reviews.reserveApplicationPreparation(prep);
+    const content = 'x'.repeat(ARTIFACT_REVIEW_BATCH_PAGES + 1);
+    const original = JSON.parse(pageContext(content));
+    const segment = original.segments[0];
+    const pages = [...content].map((data, pageIndex) =>
+      canonicalReviewJson({
+        ...original,
+        pageIndex,
+        pageCount: content.length,
+        segments: [
+          {
+            ...segment,
+            data,
+            segmentIndex: pageIndex,
+            segmentCount: content.length,
+            segmentSha256: sha(data),
+          },
+        ],
+      }),
+    );
+    f.setReviewPages(pages);
+    await f.owner.transition.apply(f.context, prep);
+    expect(f.exportedPageBatches).toEqual([0, ARTIFACT_REVIEW_BATCH_PAGES]);
   } finally {
     f.leaseHost.close();
     f.reviews.close();

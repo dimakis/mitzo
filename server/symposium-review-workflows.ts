@@ -1,4 +1,5 @@
 import { canonicalReviewJson, reviewRecordHash } from './symposium-review-records.js';
+import { ARTIFACT_REVIEW_MAX_PAGES } from './symposium-artifact-git-export.js';
 import Database from 'better-sqlite3';
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
@@ -425,7 +426,7 @@ export class SymposiumReviewStore {
       preparation.artifactRevision !== workflow.artifactRevision ||
       preparation.artifactHash !== workflow.artifactHash ||
       input.pages.length < 1 ||
-      input.pages.length > 64 ||
+      input.pages.length > ARTIFACT_REVIEW_MAX_PAGES ||
       !/^[a-f0-9]{64}$/.test(input.evidenceSha256)
     )
       throw new Error('Exact prepared review pages required');
@@ -532,7 +533,11 @@ export class SymposiumReviewStore {
     artifactRevision: string;
     artifactHash: string;
   }): { context: string; receipt: Record<string, unknown> } {
-    if (!Number.isSafeInteger(input.pageIndex) || input.pageIndex < 0 || input.pageIndex >= 64)
+    if (
+      !Number.isSafeInteger(input.pageIndex) ||
+      input.pageIndex < 0 ||
+      input.pageIndex >= ARTIFACT_REVIEW_MAX_PAGES
+    )
       throw new Error('Review page index is out of bounds');
     return this.db
       .transaction(() => {

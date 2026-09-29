@@ -11,6 +11,10 @@ import type { SymposiumTrustedReviewHostDeps } from './symposium-trusted-review-
 import type { ApplicationPreparation, SymposiumReviewStore } from './symposium-review-workflows.js';
 import { confirmOwnedSealedReader } from './symposium-sealed-reader.js';
 import { canonicalReviewJson, reviewRecordHash } from './symposium-review-records.js';
+import {
+  ARTIFACT_REVIEW_BATCH_PAGES,
+  ARTIFACT_REVIEW_MAX_PAGES,
+} from './symposium-artifact-git-export.js';
 
 const REVIEW_PROMPT_MAX_BYTES = 64 * 1024;
 const reviewContextCoverage = z.object({
@@ -26,7 +30,7 @@ const reviewContextCoverage = z.object({
   changedPathCount: z.number().int().positive(),
   evidenceSha256: z.string().regex(/^[a-f0-9]{64}$/),
   pageIndex: z.number().int().nonnegative(),
-  pageCount: z.number().int().positive().max(64),
+  pageCount: z.number().int().positive().max(ARTIFACT_REVIEW_MAX_PAGES),
   segments: z
     .array(
       z.object({
@@ -341,12 +345,39 @@ export function createSealedReaderReviewTransition(deps: SealedReaderTransitionD
           baseBranch,
           page: 0,
         });
-        const pages = reviewBundle.pages;
+        const pages = [...(reviewBundle.pages ?? [])];
+        const firstPage = reviewContextCoverage.safeParse(JSON.parse(reviewBundle.context));
+        if (!firstPage.success) throw new Error('Exact bounded sealed review page required');
         if (
-          !pages ||
           pages.length === 0 ||
-          pages.length > 64 ||
+          pages.length !== Math.min(ARTIFACT_REVIEW_BATCH_PAGES, firstPage.data.pageCount) ||
           pages[0].context !== reviewBundle.context ||
+          firstPage.data.pageIndex !== 0
+        )
+          throw new Error('Complete sealed review page bundle required');
+        for (
+          let offset = ARTIFACT_REVIEW_BATCH_PAGES;
+          offset < firstPage.data.pageCount;
+          offset += ARTIFACT_REVIEW_BATCH_PAGES
+        ) {
+          const next = await deps.exportReviewContext({
+            fenceId: prep.seal.fenceId,
+            operationId: `${operationRoot}-p${offset}`,
+            baseBranch,
+            page: offset,
+          });
+          if (
+            !next.pages ||
+            next.pages.length !==
+              Math.min(ARTIFACT_REVIEW_BATCH_PAGES, firstPage.data.pageCount - offset) ||
+            next.pages[0].context !== next.context ||
+            next.receipt.pagesSha256 !== reviewBundle.receipt.pagesSha256
+          )
+            throw new Error('Complete sealed review page batch required');
+          pages.push(...next.pages);
+        }
+        if (
+          pages.length !== firstPage.data.pageCount ||
           reviewBundle.receipt.pagesSha256 !==
             hash(canonicalReviewJson(pages.map((page) => page.context)))
         )
@@ -378,7 +409,10 @@ export function createSealedReaderReviewTransition(deps: SealedReaderTransitionD
             Buffer.byteLength(reviewContext.context, 'utf8') === 0 ||
             Buffer.byteLength(reviewContext.context, 'utf8') > 48 * 1024 ||
             contextReceipt.sealFenceId !== prep.seal.fenceId ||
-            contextReceipt.operationId !== operationRoot ||
+            contextReceipt.operationId !==
+              (page < ARTIFACT_REVIEW_BATCH_PAGES
+                ? operationRoot
+                : `${operationRoot}-p${Math.floor(page / ARTIFACT_REVIEW_BATCH_PAGES) * ARTIFACT_REVIEW_BATCH_PAGES}`) ||
             contextReceipt.sealDigest !== reviewRecordHash(canonicalReviewJson(completedSeal)) ||
             contextReceipt.artifactRevision !== prep.artifactRevision ||
             contextReceipt.artifactHash !== prep.artifactHash ||
@@ -460,7 +494,7 @@ export function createSealedReaderReviewTransition(deps: SealedReaderTransitionD
           firstCoverage.pageCount !== pages.length ||
           assembled.size !== firstCoverage.changedPathCount ||
           [...assembled.values()].reduce((total, entry) => total + entry.selectedBytes, 0) >
-            1024 * 1024 ||
+            32 * 1024 * 1024 ||
           [...assembled.values()].some((entry) => {
             const data = entry.parts.join('');
             return (

@@ -9,6 +9,8 @@ import {
   ARTIFACT_INSPECTION_MAX_OUTPUT_BYTES,
   ARTIFACT_REVIEW_CONTEXT_MAX_BYTES,
   ARTIFACT_REVIEW_CONTEXT_MAX_OUTPUT_BYTES,
+  ARTIFACT_REVIEW_MAX_PAGES,
+  ARTIFACT_REVIEW_BATCH_PAGES,
 } from './symposium-artifact-git-export.js';
 import type { GithubSandboxInspection } from './connections/capabilities/github-publish-pr.js';
 import { assertSessionArtifactVolume } from './symposium-session-artifacts.js';
@@ -537,12 +539,12 @@ export class PhysicalArtifactSealer {
       receipt: value.receipt as CompletedArtifactReviewContext['receipt'],
       ...(Array.isArray(value.pages)
         ? {
-            pages: (value.pages as string[]).map((context, pageIndex) => ({
+            pages: (value.pages as string[]).map((context, index) => ({
               context,
               receipt: {
                 ...(value.receipt as CompletedArtifactReviewContext['receipt']),
                 contextSha256: hash(context),
-                pageIndex,
+                pageIndex: input.page! + index,
               },
             })),
           }
@@ -903,17 +905,19 @@ export class PhysicalArtifactSealer {
           throw new Error('Sealed review context integrity changed');
         if (input.page !== undefined) {
           if (
-            input.page !== 0 ||
             !Array.isArray(value.pages) ||
             value.pages.length === 0 ||
-            value.pages.length > 64 ||
+            value.pages.length > ARTIFACT_REVIEW_BATCH_PAGES ||
             value.pages.some(
               (page) =>
                 typeof page !== 'string' ||
                 Buffer.byteLength(page, 'utf8') > ARTIFACT_REVIEW_CONTEXT_MAX_BYTES,
             ) ||
             value.pages[0] !== value.context ||
-            value.pagesSha256 !== hash(canonicalReviewJson(value.pages))
+            !z
+              .string()
+              .regex(/^[a-f0-9]{64}$/)
+              .safeParse(value.pagesSha256).success
           )
             throw new Error('Sealed review page bundle changed');
           const context = z
@@ -930,7 +934,7 @@ export class PhysicalArtifactSealer {
               changedPathCount: z.number().int().positive().max(500),
               evidenceSha256: z.string().regex(/^[a-f0-9]{64}$/),
               pageIndex: z.number().int().min(0).max(65535),
-              pageCount: z.number().int().min(1).max(64),
+              pageCount: z.number().int().min(1).max(ARTIFACT_REVIEW_MAX_PAGES),
               segments: z
                 .array(
                   z.strictObject({
@@ -966,7 +970,8 @@ export class PhysicalArtifactSealer {
             context.trackedFileCount !== receipt.git.entries ||
             context.pageIndex !== input.page ||
             context.pageIndex >= context.pageCount ||
-            context.pageCount !== value.pages.length ||
+            value.pages.length !==
+              Math.min(ARTIFACT_REVIEW_BATCH_PAGES, context.pageCount - input.page) ||
             context.segments.some(
               (segment) =>
                 segment.segmentIndex >= segment.segmentCount ||

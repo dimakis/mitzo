@@ -3,9 +3,16 @@ import { createHash } from 'node:crypto';
 import type { CodexConversationOptions } from './codex-conversation.js';
 import type { SymposiumSeatExecution } from './symposium-orchestrator.js';
 import type { SymposiumReviewStore } from './symposium-review-workflows.js';
+import { ARTIFACT_REVIEW_MAX_PAGES } from './symposium-artifact-git-export.js';
 
 export const SYMPOSIUM_READ_REVIEW_PAGE_TOOL = 'SymposiumReadSealedReviewPage';
-const PageInput = z.strictObject({ pageIndex: z.number().int().nonnegative().max(63) });
+const PageInput = z.strictObject({
+  pageIndex: z
+    .number()
+    .int()
+    .nonnegative()
+    .max(ARTIFACT_REVIEW_MAX_PAGES - 1),
+});
 
 /** The model supplies only a page index. All identities come from the active host claim. */
 export function createSymposiumNativeReviewTool(input: {
