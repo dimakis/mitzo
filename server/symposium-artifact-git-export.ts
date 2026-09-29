@@ -59,6 +59,7 @@ inspection={'canonicalRepositoryPath':repo,'status':'clean','sourceBranch':sourc
 if options['kind']=='review_context':
  if not paths: raise ValueError('review context has no changed files')
  base_entries={}
+ base_modes={}
  for row in git('ls-tree','-r','-z','--full-tree',review_base_oid).split(b'\0'):
   if not row: continue
   meta,rawpath=row.split(b'\t',1); mode,kind,objectid=meta.decode().split(' ')
@@ -66,6 +67,7 @@ if options['kind']=='review_context':
   if path in paths:
    if kind!='blob' or mode not in ('100644','100755'): raise ValueError('unsupported review base entry')
    base_entries[path]=objectid
+   base_modes[path]=mode
  target={item['path']:item for item in manifest}
  files=[]
  def excerpt(value,limit):
@@ -82,7 +84,7 @@ if options['kind']=='review_context':
    if b'\0' in data: raise ValueError('binary review file')
    data.decode('utf-8','strict')
   content=git('cat-file','blob',source['oid']).decode('utf-8','strict') if source else None
-  diff=git('diff','--no-ext-diff','--no-textconv','--no-renames','--full-index','--unified=3',review_base_oid,commit,'--',path).decode('utf-8','strict')
+  diff=git('diff','--no-ext-diff','--no-textconv','--no-renames','--full-index','--unified=3',review_base_oid,commit,'--',':(literal)'+path).decode('utf-8','strict')
   if 'Binary files ' in diff or 'GIT binary patch' in diff: raise ValueError('binary review diff')
   diff_bytes=diff.encode('utf-8')
   content_bytes=content.encode('utf-8') if content is not None else None
@@ -92,7 +94,7 @@ if options['kind']=='review_context':
    representation='content'
   else:
    representation='absent' # Changed in history, but absent at both endpoints.
-  files.append({'path':path,'status':'present' if source else 'deleted','mode':source['mode'] if source else None,'sha256':source['sha256'] if source else None,'bytes':source['bytes'] if source else None,'representation':representation,'complete':True,'content':content if representation=='content' else None,'contentTruncated':False,'diff':diff if representation=='diff' else None,'diffSha256':hashlib.sha256(diff_bytes).hexdigest(),'diffBytes':len(diff_bytes),'diffTruncated':False})
+  files.append({'path':path,'status':'present' if source else 'deleted','baseMode':base_modes.get(path),'mode':source['mode'] if source else None,'sha256':source['sha256'] if source else None,'bytes':source['bytes'] if source else None,'representation':representation,'complete':True,'content':content if representation=='content' else None,'contentTruncated':False,'diff':diff if representation=='diff' else None,'diffSha256':hashlib.sha256(diff_bytes).hexdigest(),'diffBytes':len(diff_bytes),'diffTruncated':False})
  context={'version':2,'scope':'bounded-changed-path-evidence','sourceOid':commit,'baseOid':review_base_oid,'sourceBranch':source_branch,'baseBranch':base_branch,'committedTreeDigest':proof['committedTreeDigest'],'manifestDigest':proof['manifestDigest'],'trackedFileCount':proof['entries'],'changedPathCount':len(paths),'omittedPathCount':0,'files':[]}
  for item in files:
   context['files'].append(item)

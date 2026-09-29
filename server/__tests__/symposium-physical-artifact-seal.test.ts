@@ -264,26 +264,37 @@ async function fixture(inspectionPaths = ['file']) {
       if (exportOptions?.kind === 'review_context') {
         const fileHash = createHash('sha256').update('hello').digest('hex');
         const context = canonicalReviewJson({
-          version: 1,
-          scope: 'changed-file-contents',
+          version: 2,
+          scope: 'bounded-changed-path-evidence',
           sourceOid: proof.commit,
           baseOid: 'b'.repeat(40),
           sourceBranch: 'feature',
           baseBranch: 'main',
           committedTreeDigest: proof.committedTreeDigest,
           manifestDigest: proof.manifestDigest,
-          manifest: [{ path: 'marker.txt', mode: '100644', bytes: 5, sha256: fileHash }],
+          trackedFileCount: proof.entries,
+          changedPathCount: 1,
+          omittedPathCount: 0,
           files: [
             {
               path: 'marker.txt',
               status: 'present',
+              baseMode: null,
               mode: '100644',
               bytes: 5,
               sha256: fileHash,
+              representation: 'content',
+              complete: true,
               content: 'hello',
+              contentTruncated: false,
+              diff: null,
+              diffSha256: createHash('sha256')
+                .update('diff --git a/marker.txt b/marker.txt\n+hello\n')
+                .digest('hex'),
+              diffBytes: Buffer.byteLength('diff --git a/marker.txt b/marker.txt\n+hello\n'),
+              diffTruncated: false,
             },
           ],
-          diff: 'diff --git a/marker.txt b/marker.txt\n+hello\n',
         });
         return JSON.stringify({
           proof,
@@ -681,7 +692,7 @@ it('rejects a changed replay of the same review context operation', async () => 
     if (args[0][0] !== 'start' || !output.includes('contextSha256')) return output;
     const value = JSON.parse(output);
     const context = JSON.parse(value.context);
-    context.diff += '+unexpected\n';
+    context.sourceBranch = 'other';
     value.context = canonicalReviewJson(context);
     value.contextSha256 = createHash('sha256').update(value.context).digest('hex');
     return JSON.stringify(value);

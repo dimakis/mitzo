@@ -883,41 +883,41 @@ export class PhysicalArtifactSealer {
           throw new Error('Sealed review context integrity changed');
         const context = z
           .strictObject({
-            version: z.literal(1),
-            scope: z.literal('changed-file-contents'),
+            version: z.literal(2),
+            scope: z.literal('bounded-changed-path-evidence'),
             sourceOid: oid,
             baseOid: oid,
             sourceBranch: z.string(),
             baseBranch: z.string(),
             committedTreeDigest: z.string().regex(/^[a-f0-9]{64}$/),
             manifestDigest: z.string().regex(/^[a-f0-9]{64}$/),
-            manifest: z
-              .array(
-                z.strictObject({
-                  path: z.string(),
-                  mode: z.enum(['100644', '100755']),
-                  bytes: z.number().int().nonnegative(),
-                  sha256: z.string().regex(/^[a-f0-9]{64}$/),
-                }),
-              )
-              .max(10000),
+            trackedFileCount: z.number().int().nonnegative(),
+            changedPathCount: z.number().int().positive().max(500),
+            omittedPathCount: z.number().int().nonnegative().max(500),
             files: z
               .array(
                 z.strictObject({
                   path: z.string(),
                   status: z.enum(['present', 'deleted']),
+                  baseMode: z.enum(['100644', '100755']).nullable(),
                   mode: z.enum(['100644', '100755']).nullable(),
                   sha256: z
                     .string()
                     .regex(/^[a-f0-9]{64}$/)
                     .nullable(),
                   bytes: z.number().int().nonnegative().nullable(),
+                  representation: z.enum(['diff', 'content', 'absent', 'partial']),
+                  complete: z.boolean(),
                   content: z.string().nullable(),
+                  contentTruncated: z.boolean(),
+                  diff: z.string().nullable(),
+                  diffSha256: z.string().regex(/^[a-f0-9]{64}$/),
+                  diffBytes: z.number().int().nonnegative(),
+                  diffTruncated: z.boolean(),
                 }),
               )
               .min(1)
-              .max(10000),
-            diff: z.string(),
+              .max(500),
           })
           .parse(JSON.parse(value.context));
         if (
@@ -926,29 +926,39 @@ export class PhysicalArtifactSealer {
           context.baseBranch !== input.baseBranch ||
           context.committedTreeDigest !== receipt.git.committedTreeDigest ||
           context.manifestDigest !== receipt.git.manifestDigest ||
-          context.manifest.length !== receipt.git.entries ||
-          context.manifest.reduce((sum, entry) => sum + entry.bytes, 0) !== receipt.git.bytes ||
-          context.files.some(
-            (file) =>
-              file.status === 'present' &&
-              !context.manifest.some(
-                (entry) =>
-                  entry.path === file.path &&
-                  entry.mode === file.mode &&
-                  entry.bytes === file.bytes &&
-                  entry.sha256 === file.sha256,
-              ),
-          ) ||
+          context.trackedFileCount !== receipt.git.entries ||
+          context.files.length + context.omittedPathCount !== context.changedPathCount ||
+          new Set(context.files.map((file) => file.path)).size !== context.files.length ||
           context.files.some((file) =>
             file.status === 'present'
+              ? file.sha256 === null || file.mode === null || file.bytes === null
+              : file.sha256 !== null || file.mode !== null || file.bytes !== null,
+          ) ||
+          context.files.some((file) =>
+            file.representation === 'content' && file.complete
               ? file.content === null ||
                 file.sha256 !== hash(file.content) ||
-                file.mode === null ||
-                file.bytes !== Buffer.byteLength(file.content)
-              : file.content !== null ||
-                file.sha256 !== null ||
-                file.mode !== null ||
-                file.bytes !== null,
+                file.bytes !== Buffer.byteLength(file.content) ||
+                file.diff !== null ||
+                file.contentTruncated ||
+                file.diffTruncated
+              : file.representation === 'diff' && file.complete
+                ? file.diff === null ||
+                  file.content !== null ||
+                  file.diffSha256 !== hash(file.diff) ||
+                  file.diffBytes !== Buffer.byteLength(file.diff) ||
+                  file.contentTruncated ||
+                  file.diffTruncated
+                : file.representation === 'absent' && file.complete
+                  ? file.status !== 'deleted' ||
+                    file.content !== null ||
+                    file.diff !== null ||
+                    file.diffBytes !== 0 ||
+                    file.contentTruncated ||
+                    file.diffTruncated
+                  : file.representation !== 'partial' ||
+                    file.complete ||
+                    (!file.contentTruncated && !file.diffTruncated),
           )
         )
           throw new Error('Sealed review context selection changed');

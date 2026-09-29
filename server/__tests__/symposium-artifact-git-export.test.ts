@@ -1,6 +1,6 @@
 import { ARTIFACT_GIT_SUCCESSOR_IMPORT } from '../symposium-artifact-git-successor-import.js';
 import { afterEach, expect, it } from 'vitest';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { execFileSync } from 'node:child_process';
@@ -159,6 +159,35 @@ it('keeps a moderately sized changed file complete by choosing one representatio
     diff: null,
   });
   expect(file.content).toHaveLength(25 * 1024);
+});
+it('uses a literal pathspec for a deleted filename with Git magic syntax', () => {
+  const name = ':(icase)secret.txt';
+  const f = fixture(
+    (root) => unlinkSync(join(root, name)),
+    (root) => writeFileSync(join(root, name), 'SECRET'),
+  );
+  const context = JSON.parse(f.run({ kind: 'review_context' }).context);
+  const deleted = context.files.find((file: { path: string }) => file.path === name);
+  expect(deleted).toMatchObject({
+    status: 'deleted',
+    baseMode: '100644',
+    representation: 'diff',
+    complete: true,
+  });
+  expect(deleted.diff).toContain('-SECRET');
+});
+it('carries the prior mode when target content is the shorter complete representation', () => {
+  const f = fixture(
+    (root) => chmodSync(join(root, 'mode.sh'), 0o755),
+    (root) => writeFileSync(join(root, 'mode.sh'), 'echo ok\n'),
+  );
+  const context = JSON.parse(f.run({ kind: 'review_context' }).context);
+  expect(context.files.find((file: { path: string }) => file.path === 'mode.sh')).toMatchObject({
+    status: 'present',
+    baseMode: '100644',
+    mode: '100755',
+    complete: true,
+  });
 });
 it('truncates a large changed file without losing its sealed identity', () => {
   const f = fixture((root) =>
