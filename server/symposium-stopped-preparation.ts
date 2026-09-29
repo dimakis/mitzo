@@ -49,6 +49,10 @@ export async function reconcileStoppedApplicationPreparation(
       idempotencyKey: string,
       applicationControl: { workflowId: string; attemptId: string; policyReservationId: string },
     ): Promise<{ status: string }>;
+    releaseStoppedReviewStream?(
+      preparation: ApplicationPreparation,
+      sessionId: string,
+    ): Promise<void>;
   },
   context: ReviewContext,
   preparation: ApplicationPreparation,
@@ -152,6 +156,7 @@ export async function reconcileStoppedApplicationPreparation(
       const successor = await deps.successorState(preparation, context.sessionId);
       if (successor !== 'absent' && successor !== 'reserved') return null;
     }
+    if (reader) await deps.releaseStoppedReviewStream?.(preparation, context.sessionId);
     return 'not_applied';
   }
   if (!record.receipt) return null;
@@ -272,5 +277,6 @@ export async function reconcileStoppedApplicationPreparation(
     if (cancelled.status !== 'cancelled') return null;
     if (deps.events.getSymposiumRecipientAttempts(delivery.deliveryId).length !== 0) return null;
   }
+  if (reader) await deps.releaseStoppedReviewStream?.(preparation, context.sessionId);
   return 'applied_no_dispatch';
 }

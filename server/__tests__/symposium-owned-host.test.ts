@@ -1,4 +1,6 @@
 import Database from 'better-sqlite3';
+import { EventStore } from '../event-store.js';
+import { PhysicalArtifactSealer } from '../symposium-physical-artifact-seal.js';
 import * as discoveryCore from '../symposium-model-discovery.js';
 import * as discoveryCreation from '../symposium-discovery-creation.js';
 import * as evidenceCollector from '../symposium-owned-evidence-async.js';
@@ -94,6 +96,48 @@ function fixture() {
   return { root, gateway, options, launch, seat, membership };
 }
 describe('explicit owned Symposium host composition', () => {
+  it('sweeps abandoned ready review streams before exposing a fresh owner', async () => {
+    const f = fixture();
+    const events = new EventStore(join(f.root, 'facts.db'));
+    f.options.facts = events;
+    const sweep = vi.spyOn(PhysicalArtifactSealer.prototype, 'releaseAbandonedReadyReviewStreams');
+    try {
+      const host = await createOwnedSymposiumHost(f.options, f.launch);
+      expect(sweep).toHaveBeenCalledOnce();
+      host.stop();
+    } finally {
+      events.close();
+    }
+  });
+  it('waits for a whole application transition before shutdown stream sweep', async () => {
+    const f = fixture();
+    const events = new EventStore(join(f.root, 'facts.db'));
+    f.options.facts = events;
+    const sweep = vi.spyOn(PhysicalArtifactSealer.prototype, 'releaseAbandonedReadyReviewStreams');
+    try {
+      const host = await createOwnedSymposiumHost(f.options, f.launch);
+      let settle!: () => void;
+      const running = host.trackApplicationTransition(
+        () =>
+          new Promise<void>((resolve) => {
+            settle = resolve;
+          }),
+      );
+      host.beginShutdown();
+      const signal = new AbortController().signal;
+      const draining = host.drain(signal);
+      await Promise.resolve();
+      expect(sweep).toHaveBeenCalledTimes(1); // startup only
+      settle();
+      await running;
+      await draining;
+      expect(sweep).toHaveBeenCalledTimes(2); // drained transition
+      await host.closeAfterDrain(signal);
+      expect(sweep).toHaveBeenCalledTimes(3);
+    } finally {
+      events.close();
+    }
+  });
   it('fences admission and keeps custody stores readable until exact gateway exit completes', async () => {
     const f = fixture();
     let exited!: () => void;
@@ -112,6 +156,7 @@ describe('explicit owned Symposium host composition', () => {
     await host.drain(signal);
     const closing = host.closeAfterDrain(signal);
     expect(() => host.currentProfiles()).not.toThrow();
+    await vi.waitFor(() => expect(f.gateway.stopAndWait).toHaveBeenCalledOnce());
     exited();
     await closing;
     expect(() => host.currentProfiles()).toThrow('stopped');

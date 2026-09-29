@@ -202,6 +202,13 @@ export async function createOwnedSymposiumHost(
     void promise.finally(() => pendingHostOperations.delete(promise)).catch(() => {});
     return promise;
   };
+  const trackCleanup = <T>(operation: () => Promise<T>): Promise<T> => {
+    if (stopped) return Promise.reject(new Error('Owned Symposium host stopped'));
+    const promise = operation();
+    pendingHostOperations.add(promise);
+    void promise.finally(() => pendingHostOperations.delete(promise)).catch(() => {});
+    return promise;
+  };
   let loginStarting = false;
   let loginQuarantined = false;
   let login:
@@ -369,6 +376,18 @@ export async function createOwnedSymposiumHost(
       gateway,
     );
     chmodSync(leasePath, 0o600);
+    if (options.facts instanceof EventStore) {
+      artifactSealer = new PhysicalArtifactSealer({
+        store: options.facts,
+        leaseHost,
+        gateway,
+        attemptRegistry: native.registry,
+        runtimeConfig,
+      });
+      // A new gateway never inherits old seal custody. Dispose only completed
+      // stream caches whose old journal and removed helper are still provable.
+      await artifactSealer.releaseAbandonedReadyReviewStreams();
+    }
     // Session identities survive fresh gateway launches. Retain their reservations
     // in the stable private parent, while recording launch custody in every row.
     const parent = lstatSync(options.gateway.stateParent);
@@ -968,14 +987,26 @@ export async function createOwnedSymposiumHost(
       async releaseCompletedReviewStream(
         input: Parameters<PhysicalArtifactSealer['releaseCompletedReviewStream']>[0],
       ) {
-        if (draining || stopped) throw new Error('Owned Symposium host is shutting down');
-        return track(() => getArtifactSealer().releaseCompletedReviewStream(input));
+        if (stopped) throw new Error('Owned Symposium host stopped');
+        if (!artifactSealer) throw new Error('Artifact sealer unavailable for exact cleanup');
+        return trackCleanup(() => artifactSealer!.releaseCompletedReviewStream(input));
       },
       async releaseReadyReviewStream(
         input: Parameters<PhysicalArtifactSealer['releaseReadyReviewStream']>[0],
       ) {
-        if (draining || stopped) throw new Error('Owned Symposium host is shutting down');
-        return track(() => getArtifactSealer().releaseReadyReviewStream(input));
+        if (stopped) throw new Error('Owned Symposium host stopped');
+        if (!artifactSealer) throw new Error('Artifact sealer unavailable for exact cleanup');
+        return trackCleanup(() => artifactSealer!.releaseReadyReviewStream(input));
+      },
+      async releaseStoppedReadyReviewStream(
+        input: Parameters<PhysicalArtifactSealer['releaseStoppedReadyReviewStream']>[0],
+      ) {
+        if (stopped) throw new Error('Owned Symposium host stopped');
+        if (!artifactSealer) throw new Error('Artifact sealer unavailable for exact cleanup');
+        return trackCleanup(() => artifactSealer!.releaseStoppedReadyReviewStream(input));
+      },
+      trackApplicationTransition<T>(operation: () => Promise<T>): Promise<T> {
+        return track(operation);
       },
       async checkCompletedArtifactFile(
         input: Parameters<PhysicalArtifactSealer['checkCompletedArtifactFile']>[0],
@@ -1272,6 +1303,11 @@ export async function createOwnedSymposiumHost(
           failed = true;
         }
         signal.throwIfAborted();
+        // Whole application transitions have settled, including their exact
+        // cleanup attempts. Reclaim any ready stream before an uncertain drain
+        // can prevent the normal closeAfterDrain path.
+        await artifactSealer?.releaseAbandonedReadyReviewStreams();
+        signal.throwIfAborted();
         if (failed) throw new Error('Host operation did not settle cleanly');
       },
       markShutdownUncertain() {
@@ -1279,6 +1315,8 @@ export async function createOwnedSymposiumHost(
           native!.registry.markUncertain(claim.claimToken);
       },
       async closeAfterDrain(signal: AbortSignal) {
+        signal.throwIfAborted();
+        await artifactSealer?.releaseAbandonedReadyReviewStreams();
         signal.throwIfAborted();
         await gateway.stopAndWait(signal);
         signal.throwIfAborted();

@@ -986,6 +986,8 @@ export interface SymposiumProductionHost {
   exportCompletedReviewContext?: import('./symposium-physical-artifact-seal.js').PhysicalArtifactSealer['exportCompletedReviewContext'];
   releaseCompletedReviewStream?: import('./symposium-physical-artifact-seal.js').PhysicalArtifactSealer['releaseCompletedReviewStream'];
   releaseReadyReviewStream?: import('./symposium-physical-artifact-seal.js').PhysicalArtifactSealer['releaseReadyReviewStream'];
+  releaseStoppedReadyReviewStream?: import('./symposium-physical-artifact-seal.js').PhysicalArtifactSealer['releaseStoppedReadyReviewStream'];
+  trackApplicationTransition?<T>(operation: () => Promise<T>): Promise<T>;
   exportCompletedArtifactBundle?: CompletedPublicationHost['exportCompletedArtifactBundle'];
   checkCompletedArtifactFile?: import('./symposium-physical-artifact-seal.js').PhysicalArtifactSealer['checkCompletedArtifactFile'];
   criterionChecks?: readonly import('./symposium-criterion-receipts.js').CheckDefinition[];

@@ -129,6 +129,8 @@ export function createSymposiumProductionReviewComposition(deps: {
     !host.exportCompletedReviewContext ||
     !host.releaseCompletedReviewStream ||
     !host.releaseReadyReviewStream ||
+    !host.releaseStoppedReadyReviewStream ||
+    !host.trackApplicationTransition ||
     !host.exportSuccessorArtifactBundle ||
     !host.copySuccessorArtifact ||
     !host.admitSuccessorArtifact ||
@@ -362,36 +364,53 @@ export function createSymposiumProductionReviewComposition(deps: {
               ? fix.prepare(input)
               : reader.transition.prepare(input),
         apply: (context, prep) =>
-          prep.kind === 'initial'
-            ? initial.apply(context, prep)
-            : prep.kind === 'fix'
-              ? fix.apply(context, prep)
-              : reader.transition.apply(context, prep),
+          host.trackApplicationTransition!(() =>
+            prep.kind === 'initial'
+              ? initial.apply(context, prep)
+              : prep.kind === 'fix'
+                ? fix.apply(context, prep)
+                : reader.transition.apply(context, prep),
+          ),
         reconcileStopped: (context, preparation) =>
-          reconcileStoppedApplicationPreparation(
-            {
-              reviews,
-              events,
-              successorState: async (selected, sessionId) =>
-                selected.kind === 'initial' || selected.kind === 'fix'
-                  ? host.inspectStoppedSuccessorOperation!({
-                      sessionId,
-                      transitionId: selected.transitionId,
-                      workflowId: selected.workflowId,
-                      attemptId: selected.attemptId,
-                      kind: selected.kind,
-                    })
-                  : null,
-              cancelDelivery: (deliveryId, idempotencyKey, applicationControl) =>
-                runtime(context).cancel({
-                  deliveryId,
-                  idempotencyKey,
-                  reason: 'Application review preparation stopped',
-                  applicationControl,
-                }),
-            },
-            context,
-            preparation,
+          host.trackApplicationTransition!(() =>
+            reconcileStoppedApplicationPreparation(
+              {
+                reviews,
+                events,
+                successorState: async (selected, sessionId) =>
+                  selected.kind === 'initial' || selected.kind === 'fix'
+                    ? host.inspectStoppedSuccessorOperation!({
+                        sessionId,
+                        transitionId: selected.transitionId,
+                        workflowId: selected.workflowId,
+                        attemptId: selected.attemptId,
+                        kind: selected.kind,
+                      })
+                    : null,
+                cancelDelivery: (deliveryId, idempotencyKey, applicationControl) =>
+                  runtime(context).cancel({
+                    deliveryId,
+                    idempotencyKey,
+                    reason: 'Application review preparation stopped',
+                    applicationControl,
+                  }),
+                releaseStoppedReviewStream: async (selected, sessionId) => {
+                  const sealed = source.requireSeal!(sessionId);
+                  if (sealed.receipt.sessionId !== sessionId)
+                    throw new Error('Imported source session changed');
+                  const operationId = `context-${createHash('sha256')
+                    .update(`${selected.workflowId}:${selected.attemptId}:${selected.seal.fenceId}`)
+                    .digest('hex')}`;
+                  await host.releaseStoppedReadyReviewStream!({
+                    fenceId: selected.seal.fenceId,
+                    operationId,
+                    baseBranch: sealed.exported.receipt.selection.defaultBranch,
+                  });
+                },
+              },
+              context,
+              preparation,
+            ),
           ),
       },
       artifacts: {

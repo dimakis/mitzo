@@ -99,6 +99,7 @@ function fixture(stopped = true) {
 
 it('proves a stopped reader preparation was not applied only while exact old state remains', async () => {
   const f = fixture();
+  const releaseStoppedReviewStream = vi.fn().mockResolvedValue(undefined);
   expect(
     await reconcileStoppedApplicationPreparation(
       {
@@ -106,11 +107,13 @@ it('proves a stopped reader preparation was not applied only while exact old sta
         events: f.events as never,
         cancelDelivery: vi.fn(),
         successorState: vi.fn(),
+        releaseStoppedReviewStream,
       },
       f.context,
       prep,
     ),
   ).toBe('not_applied');
+  expect(releaseStoppedReviewStream).toHaveBeenCalledWith(prep, 'session');
   f.events.getActiveSymposiumConfig.mockReturnValue({
     version: 2,
     state: 'active',
@@ -129,6 +132,53 @@ it('proves a stopped reader preparation was not applied only while exact old sta
       prep,
     ),
   ).toBeNull();
+  f.reviews.close();
+});
+
+it('does not settle a stopped reader preparation while ready-stream cleanup is uncertain', async () => {
+  const f = fixture();
+  await expect(
+    reconcileStoppedApplicationPreparation(
+      {
+        reviews: f.reviews,
+        events: f.events as never,
+        cancelDelivery: vi.fn(),
+        successorState: vi.fn(),
+        releaseStoppedReviewStream: vi
+          .fn()
+          .mockRejectedValue(new Error('stream cleanup uncertain')),
+      },
+      f.context,
+      prep,
+    ),
+  ).rejects.toThrow('stream cleanup uncertain');
+  expect(f.reviews.getApplicationPreparation('flow', 'attempt')?.status).toBe('preparing');
+  f.reviews.close();
+});
+
+it('keeps stopped stream pages when reader admission state is uncertain', async () => {
+  const f = fixture();
+  f.events.getActiveSymposiumConfig.mockReturnValue({
+    version: 2,
+    state: 'active',
+    revision: 2,
+    seats: [{ id: 'reviewer', role: 'reviewer' }],
+  });
+  const releaseStoppedReviewStream = vi.fn();
+  expect(
+    await reconcileStoppedApplicationPreparation(
+      {
+        reviews: f.reviews,
+        events: f.events as never,
+        cancelDelivery: vi.fn(),
+        successorState: vi.fn(),
+        releaseStoppedReviewStream,
+      },
+      f.context,
+      prep,
+    ),
+  ).toBeNull();
+  expect(releaseStoppedReviewStream).not.toHaveBeenCalled();
   f.reviews.close();
 });
 

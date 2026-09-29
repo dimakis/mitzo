@@ -31,6 +31,8 @@ it('uses a completed imported source until a physically sealed writer result exi
     exportCompletedReviewContext: vi.fn(),
     releaseCompletedReviewStream: vi.fn(),
     releaseReadyReviewStream: vi.fn(),
+    releaseStoppedReadyReviewStream: vi.fn(),
+    trackApplicationTransition: (operation: () => Promise<unknown>) => operation(),
     exportSuccessorArtifactBundle: vi.fn(),
     copySuccessorArtifact: vi.fn(),
     activateSuccessorArtifact: vi.fn(),

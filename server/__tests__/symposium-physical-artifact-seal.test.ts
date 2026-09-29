@@ -842,6 +842,89 @@ it('stages a complete review stream once and serves exact replay from SQLite', a
   });
   db.close();
 });
+it('reclaims a ready review stream after restart without renewing old seal custody', async () => {
+  const f = await fixture(['file'], true);
+  f.state.streamPages = 18;
+  const signal = new AbortController().signal;
+  const seal = await f.sealer.seal(f.input, f.runtime, signal);
+  const input = {
+    fenceId: seal.fenceId,
+    operationId: 'crashed-review-1',
+    baseBranch: 'main',
+    page: 0,
+  };
+  const exported = await f.sealer.exportCompletedReviewContext(input, signal);
+  const db = new Database(join(f.root, 'leases.db'));
+  expect(db.prepare('SELECT COUNT(*) AS count FROM symposium_review_stream_pages').get()).toEqual({
+    count: 18,
+  });
+  f.sealer.close();
+  Object.assign(f.gateway, { stateDirectory: join(f.root, 'gateway-restarted') });
+  const restarted = new PhysicalArtifactSealer(f.deps);
+  cleanups.push(() => restarted.close());
+  await restarted.releaseAbandonedReadyReviewStreams();
+  expect(db.prepare('SELECT COUNT(*) AS count FROM symposium_review_stream_pages').get()).toEqual({
+    count: 0,
+  });
+  expect(db.prepare('SELECT pages_sha256 FROM symposium_review_stream_tombstones').get()).toEqual({
+    pages_sha256: exported.receipt.pagesSha256,
+  });
+  await expect(restarted.requireCompleted(seal.fenceId, signal)).rejects.toThrow(/custody/);
+  db.close();
+});
+it('releases a stopped review preparation only when its exact ready stream exists', async () => {
+  const f = await fixture(['file'], true);
+  const signal = new AbortController().signal;
+  const seal = await f.sealer.seal(f.input, f.runtime, signal);
+  const input = {
+    fenceId: seal.fenceId,
+    operationId: 'stopped-review-1',
+    baseBranch: 'main',
+  };
+  await f.sealer.releaseStoppedReadyReviewStream(input); // no export began
+  const exported = await f.sealer.exportCompletedReviewContext({ ...input, page: 0 }, signal);
+  const db = new Database(join(f.root, 'leases.db'));
+  expect(db.prepare('SELECT COUNT(*) AS count FROM symposium_review_stream_pages').get()).toEqual({
+    count: 2,
+  });
+  await f.sealer.releaseStoppedReadyReviewStream(input);
+  expect(db.prepare('SELECT COUNT(*) AS count FROM symposium_review_stream_pages').get()).toEqual({
+    count: 0,
+  });
+  expect(db.prepare('SELECT pages_sha256 FROM symposium_review_stream_tombstones').get()).toEqual({
+    pages_sha256: exported.receipt.pagesSha256,
+  });
+  await f.sealer.releaseStoppedReadyReviewStream(input); // exact tombstone replay
+  db.close();
+});
+
+it('keeps a corrupted historical ready stream sealed for recovery', async () => {
+  const f = await fixture(['file'], true);
+  const signal = new AbortController().signal;
+  const seal = await f.sealer.seal(f.input, f.runtime, signal);
+  await f.sealer.exportCompletedReviewContext(
+    { fenceId: seal.fenceId, operationId: 'crashed-review-bad', baseBranch: 'main', page: 0 },
+    signal,
+  );
+  const db = new Database(join(f.root, 'leases.db'));
+  db.prepare("UPDATE symposium_seal_export_jobs SET result_hash=? WHERE kind='review_stream'").run(
+    '0'.repeat(64),
+  );
+  f.sealer.close();
+  Object.assign(f.gateway, { stateDirectory: join(f.root, 'gateway-restarted') });
+  const restarted = new PhysicalArtifactSealer(f.deps);
+  cleanups.push(() => restarted.close());
+  await expect(restarted.releaseAbandonedReadyReviewStreams()).rejects.toThrow(/identity changed/);
+  expect(db.prepare('SELECT COUNT(*) AS count FROM symposium_review_stream_pages').get()).toEqual({
+    count: 2,
+  });
+  expect(
+    db.prepare('SELECT COUNT(*) AS count FROM symposium_review_stream_tombstones').get(),
+  ).toEqual({
+    count: 0,
+  });
+  db.close();
+});
 it('discards incomplete staged pages after exact helper cleanup and retries', async () => {
   const f = await fixture(['file'], true);
   const signal = new AbortController().signal;
