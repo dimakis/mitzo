@@ -108,10 +108,18 @@ it('exports canonical bounded changed-path evidence with exact identities', () =
     baseOid: f.git('rev-parse', 'refs/remotes/origin/main').trim(),
     committedTreeDigest: f.proof.committedTreeDigest,
     manifestDigest: f.proof.manifestDigest,
-    files: [{ path: 'feature.txt', status: 'present', content: 'FEATURE' }],
+    files: [
+      {
+        path: 'feature.txt',
+        status: 'present',
+        representation: 'content',
+        content: 'FEATURE',
+        complete: true,
+      },
+    ],
   });
   expect(context).not.toHaveProperty('manifest');
-  expect(context.files[0].diff).toContain('+FEATURE');
+  expect(context.files[0].diff).toBeNull();
   expect(context.files[0].diffTruncated).toBe(false);
 });
 it('reviews a sealed feature against its merge base after origin/main advances', () => {
@@ -132,8 +140,25 @@ it('reviews a sealed feature against its merge base after origin/main advances',
   expect(context.files).toEqual([
     expect.objectContaining({ path: 'feature.txt', status: 'present', content: 'FEATURE' }),
   ]);
-  expect(context.files[0].diff).toContain('+FEATURE');
-  expect(context.files[0].diff).not.toContain('MAIN ONLY');
+  expect(context.files[0].content).toBe('FEATURE');
+  expect(result.context).not.toContain('MAIN ONLY');
+});
+it('keeps a moderately sized changed file complete by choosing one representation', () => {
+  const f = fixture((root) => writeFileSync(join(root, 'medium.txt'), 'M'.repeat(25 * 1024)));
+  const result = f.run({ kind: 'review_context' });
+  const context = JSON.parse(result.context);
+  const file = context.files.find((entry: { path: string }) => entry.path === 'medium.txt');
+  expect(Buffer.byteLength(result.context)).toBeLessThanOrEqual(ARTIFACT_REVIEW_CONTEXT_MAX_BYTES);
+  expect(context.omittedPathCount).toBe(0);
+  expect(file).toMatchObject({
+    bytes: 25 * 1024,
+    representation: 'content',
+    complete: true,
+    contentTruncated: false,
+    diffTruncated: false,
+    diff: null,
+  });
+  expect(file.content).toHaveLength(25 * 1024);
 });
 it('truncates a large changed file without losing its sealed identity', () => {
   const f = fixture((root) =>
@@ -144,8 +169,10 @@ it('truncates a large changed file without losing its sealed identity', () => {
   expect(Buffer.byteLength(result.context)).toBeLessThanOrEqual(ARTIFACT_REVIEW_CONTEXT_MAX_BYTES);
   expect(context.files.find((file: { path: string }) => file.path === 'large.txt')).toMatchObject({
     bytes: ARTIFACT_REVIEW_CONTEXT_MAX_BYTES,
+    representation: 'partial',
+    complete: false,
     contentTruncated: true,
-    diffTruncated: true,
+    diffTruncated: false,
   });
 });
 it('does not require the whole tracked manifest in a small change review', () => {

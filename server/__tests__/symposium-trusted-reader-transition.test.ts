@@ -189,7 +189,16 @@ function fixture() {
     changedPathCount: 1,
     omittedPathCount: 0,
     files: [
-      { path: 'marker.txt', content: 'tested', contentTruncated: false, diffTruncated: false },
+      {
+        path: 'marker.txt',
+        status: 'present',
+        representation: 'content',
+        complete: true,
+        content: 'tested',
+        diff: null,
+        contentTruncated: false,
+        diffTruncated: false,
+      },
     ],
   });
   let contextRevision = commit;
@@ -396,12 +405,23 @@ it('refuses partial review evidence before any reader admission', async () => {
       trackedFileCount: 0,
       changedPathCount: 1,
       omittedPathCount: 0,
-      files: [{ path: 'marker.txt', contentTruncated: false, diffTruncated: false }],
+      files: [
+        {
+          path: 'marker.txt',
+          status: 'present',
+          representation: 'content',
+          complete: true,
+          content: 'tested',
+          diff: null,
+          contentTruncated: false,
+          diffTruncated: false,
+        },
+      ],
     };
     for (const partial of [
       { ...complete, changedPathCount: 2, omittedPathCount: 1 },
-      { ...complete, files: [{ ...complete.files[0], contentTruncated: true }] },
-      { ...complete, files: [{ ...complete.files[0], diffTruncated: true }] },
+      { ...complete, files: [{ ...complete.files[0], complete: false, contentTruncated: true }] },
+      { ...complete, files: [{ ...complete.files[0], complete: false, diffTruncated: true }] },
     ]) {
       f.setReviewContext(JSON.stringify(partial));
       await expect(f.owner.transition.apply(f.context, prep)).rejects.toThrow(
@@ -410,6 +430,59 @@ it('refuses partial review evidence before any reader admission', async () => {
       expect(f.events.getActiveSymposiumConfig('symposium').revision).toBe(4);
       expect(f.events.getLatestSymposiumAdmission('symposium', 'reviewer', 5)).toBeUndefined();
     }
+  } finally {
+    f.leaseHost.close();
+    f.reviews.close();
+    f.events.close();
+  }
+});
+
+it('admits a complete 25 KiB changed-file representation', async () => {
+  const f = fixture();
+  try {
+    const prep = await f.owner.transition.prepare({
+      context: f.context,
+      workflowId: 'workflow',
+      attemptId: 'review-1',
+      kind: 'review',
+      selection: f.reviews.get('workflow')!.reviewer,
+      artifactRevision: commit,
+      artifactHash: treeDigest,
+      policy: f.reviews.get('workflow')!.limits as any,
+    });
+    f.reviews.reserveApplicationPreparation(prep);
+    const content = 'M'.repeat(25 * 1024);
+    f.setReviewContext(
+      JSON.stringify({
+        version: 2,
+        sourceOid: commit,
+        baseOid: 'c'.repeat(40),
+        baseBranch: 'main',
+        committedTreeDigest: treeDigest,
+        manifestDigest: 'e'.repeat(64),
+        trackedFileCount: 0,
+        changedPathCount: 1,
+        omittedPathCount: 0,
+        files: [
+          {
+            path: 'medium.txt',
+            status: 'present',
+            representation: 'content',
+            complete: true,
+            content,
+            diff: null,
+            contentTruncated: false,
+            diffTruncated: false,
+          },
+        ],
+      }),
+    );
+    const admitted = await f.owner.transition.apply(f.context, prep);
+    expect(admitted.attempt.binding).toMatchObject({ deliveryId: 'delivery-1' });
+    expect(f.events.getLatestSymposiumAdmission('symposium', 'reviewer', 5)).toMatchObject({
+      decision: 'admitted',
+    });
+    expect(f.events.getSymposiumDelivery('delivery-1')?.originalContent).toContain(content);
   } finally {
     f.leaseHost.close();
     f.reviews.close();

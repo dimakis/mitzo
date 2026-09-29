@@ -84,16 +84,30 @@ if options['kind']=='review_context':
   content=git('cat-file','blob',source['oid']).decode('utf-8','strict') if source else None
   diff=git('diff','--no-ext-diff','--no-textconv','--no-renames','--full-index','--unified=3',review_base_oid,commit,'--',path).decode('utf-8','strict')
   if 'Binary files ' in diff or 'GIT binary patch' in diff: raise ValueError('binary review diff')
-  content_excerpt,content_truncated=excerpt(content,2048) if content is not None else (None,False)
-  diff_excerpt,diff_truncated=excerpt(diff,4096)
-  files.append({'path':path,'status':'present' if source else 'deleted','mode':source['mode'] if source else None,'sha256':source['sha256'] if source else None,'bytes':source['bytes'] if source else None,'content':content_excerpt,'contentTruncated':content_truncated,'diff':diff_excerpt,'diffSha256':hashlib.sha256(diff.encode('utf-8')).hexdigest(),'diffBytes':len(diff.encode('utf-8')),'diffTruncated':diff_truncated})
- context={'version':2,'scope':'bounded-changed-path-excerpts','sourceOid':commit,'baseOid':review_base_oid,'sourceBranch':source_branch,'baseBranch':base_branch,'committedTreeDigest':proof['committedTreeDigest'],'manifestDigest':proof['manifestDigest'],'trackedFileCount':proof['entries'],'changedPathCount':len(paths),'omittedPathCount':0,'files':[]}
+  diff_bytes=diff.encode('utf-8')
+  content_bytes=content.encode('utf-8') if content is not None else None
+  if diff and (content_bytes is None or len(diff_bytes)<=len(content_bytes)):
+   representation='diff'
+  elif content is not None:
+   representation='content'
+  else:
+   representation='absent' # Changed in history, but absent at both endpoints.
+  files.append({'path':path,'status':'present' if source else 'deleted','mode':source['mode'] if source else None,'sha256':source['sha256'] if source else None,'bytes':source['bytes'] if source else None,'representation':representation,'complete':True,'content':content if representation=='content' else None,'contentTruncated':False,'diff':diff if representation=='diff' else None,'diffSha256':hashlib.sha256(diff_bytes).hexdigest(),'diffBytes':len(diff_bytes),'diffTruncated':False})
+ context={'version':2,'scope':'bounded-changed-path-evidence','sourceOid':commit,'baseOid':review_base_oid,'sourceBranch':source_branch,'baseBranch':base_branch,'committedTreeDigest':proof['committedTreeDigest'],'manifestDigest':proof['manifestDigest'],'trackedFileCount':proof['entries'],'changedPathCount':len(paths),'omittedPathCount':0,'files':[]}
  for item in files:
-  candidate=context['files']+[item]
-  context['omittedPathCount']=len(files)-len(candidate)
-  context['files']=candidate
+  context['files'].append(item)
+  context['omittedPathCount']=len(files)-len(context['files'])
   if len(json.dumps(context,sort_keys=True,separators=(',',':'),ensure_ascii=False).encode('utf-8'))>${ARTIFACT_REVIEW_CONTEXT_MAX_BYTES}:
    context['files'].pop()
+   if item['representation'] in ('diff','content'):
+    selected=item['representation']
+    partial=dict(item)
+    partial['representation']='partial';partial['complete']=False
+    partial[selected],_=excerpt(item[selected],2048)
+    partial[selected+'Truncated']=True
+    context['files'].append(partial)
+    context['omittedPathCount']=len(files)-len(context['files'])
+    if len(json.dumps(context,sort_keys=True,separators=(',',':'),ensure_ascii=False).encode('utf-8'))>${ARTIFACT_REVIEW_CONTEXT_MAX_BYTES}: context['files'].pop()
    context['omittedPathCount']=len(files)-len(context['files'])
    break
  if not context['files']: raise ValueError('review context metadata exceeds byte bound')
