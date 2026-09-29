@@ -33,7 +33,8 @@ def review_diff(path,base,target):
  args=['git','--git-dir='+gitdir,'-c','core.fsmonitor=false','-c','core.hooksPath=/dev/null','-c','core.untrackedCache=false','diff','--no-ext-diff','--no-textconv','--no-renames','--full-index','--unified=3',base,target,'--',':(literal)'+path]
  p=subprocess.Popen(args,cwd=repo,env=env,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,start_new_session=True)
  selector=selectors.DefaultSelector();selector.register(p.stdout,selectors.EVENT_READ)
- output=bytearray();deadline=time.monotonic()+90
+ # The owned Podman transport has a 60-second attach timeout.
+ output=bytearray();deadline=time.monotonic()+50
  try:
   while selector.get_map():
    if time.monotonic()>deadline: raise ValueError('review diff time bound')
