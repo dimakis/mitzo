@@ -265,6 +265,28 @@ it('exports a large changed diff as complete, identity-bound pages', () => {
   expect(createHash('sha256').update(complete).digest('hex')).toBe(segments[0].selectedSha256);
   expect(complete).toContain('X'.repeat(ARTIFACT_REVIEW_CONTEXT_MAX_BYTES));
 });
+it('exports a complete endpoint diff larger than the shared Git read ceiling', () => {
+  const line = 'A'.repeat(15) + '\n';
+  const replacement = 'B'.repeat(15) + '\n';
+  // Leave room for the fixture's other tracked file under the 64 MiB tree cap.
+  const count = (32 * 1024 * 1024) / 16 - 1;
+  const f = fixture(
+    (root) => writeFileSync(join(root, 'base.txt'), replacement.repeat(count)),
+    (root) => writeFileSync(join(root, 'base.txt'), line.repeat(count)),
+  );
+  const first = f.run({ kind: 'review_context', page: 0 });
+  const page = JSON.parse(first.context);
+  const segment = page.segments.find((part: { path: string }) => part.path === 'base.txt');
+  expect(segment).toMatchObject({
+    representation: 'diff',
+    selectedBytes: expect.any(Number),
+    selectedSha256: expect.stringMatching(/^[a-f0-9]{64}$/),
+  });
+  expect(segment.selectedBytes).toBeGreaterThan(64 * 1024 * 1024);
+  expect(segment.selectedBytes).toBe(segment.diffBytes);
+  expect(page.changedPathCount).toBe(2);
+  expect(page.pageCount).toBeGreaterThan(first.pages.length);
+}, 180_000);
 it('retrieves more than 1 MiB of changed evidence through bounded sealed batches', () => {
   const content = 'X'.repeat(2500 * 1024);
   const f = fixture((root) => writeFileSync(join(root, 'large.txt'), content));

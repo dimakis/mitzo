@@ -8,16 +8,46 @@ export const ARTIFACT_REVIEW_CONTEXT_MAX_OUTPUT_BYTES = 2 * 1024 * 1024;
 // Endpoint diff lines add a prefix and Git headers, so allow roughly twice the
 // combined source budget while keeping all emitted helper batches below 2 MiB.
 export const ARTIFACT_REVIEW_MAX_SELECTED_BYTES = 260 * 1024 * 1024;
+// The credential-free helper has a 256 MiB memory cgroup. Its complete
+// selection stays below half that cap while page metadata is constructed.
+export const ARTIFACT_REVIEW_HELPER_MAX_SELECTED_BYTES = 128 * 1024 * 1024;
 export const ARTIFACT_REVIEW_MAX_PAGES = 32768;
 export const ARTIFACT_REVIEW_BATCH_PAGES = 16;
 /** Entire script runs inside the pinned, credential-free read-only helper. */
 export const ARTIFACT_GIT_EXPORT =
   ARTIFACT_GIT_VERIFIER_CORE +
   String.raw`
-import re, base64, selectors, time, signal
+import re, base64, selectors, time, signal, codecs
 options=json.loads(sys.argv[2])
 expected=options['expected']
 if proof!=expected: raise ValueError('sealed Git identity changed')
+# The verifier retains its last blob and working-tree read in module globals.
+# Proof is immutable now; release those byte copies before paging evidence.
+for key in ('data','current','tree_output'):
+ globals().pop(key,None)
+def review_diff(path,base,target):
+ # The shared verifier's 64 MiB stdout ceiling protects ordinary Git reads.
+ # A complete replacement diff can exceed that ceiling even when both blobs
+ # fit the sealed 64 MiB tree. Drain this one pinned, literal-path command in
+ # bounded chunks and reject before it can exceed the review evidence budget.
+ args=['git','--git-dir='+gitdir,'-c','core.fsmonitor=false','-c','core.hooksPath=/dev/null','-c','core.untrackedCache=false','diff','--no-ext-diff','--no-textconv','--no-renames','--full-index','--unified=3',base,target,'--',':(literal)'+path]
+ p=subprocess.Popen(args,cwd=repo,env=env,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,start_new_session=True)
+ selector=selectors.DefaultSelector();selector.register(p.stdout,selectors.EVENT_READ)
+ output=bytearray();deadline=time.monotonic()+90
+ try:
+  while selector.get_map():
+   if time.monotonic()>deadline: raise ValueError('review diff time bound')
+   for key,_ in selector.select(0.1):
+    chunk=os.read(key.fileobj.fileno(),65536)
+    if not chunk: selector.unregister(key.fileobj);continue
+    if len(output)+len(chunk)>${ARTIFACT_REVIEW_HELPER_MAX_SELECTED_BYTES}: raise ValueError('review diff byte bound')
+    output.extend(chunk)
+  if p.wait(timeout=max(0.1,deadline-time.monotonic()))!=0: raise ValueError('review diff command')
+ finally:
+  selector.close()
+  if p.poll() is None:
+   os.killpg(p.pid,signal.SIGKILL);p.wait(timeout=5)
+ return output
 if options['kind']=='check':
  path=options['checkPath']
  if not isinstance(path,str) or len(path)>512 or not re.fullmatch(r'[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*',path) or any(p in ('.','..','.git') for p in path.split('/')): raise ValueError('check path')
@@ -85,25 +115,33 @@ if options['kind']=='review_context':
   return head+'\n[... sealed excerpt omitted ...]\n'+tail,True
  for path in sorted(paths,key=lambda p:p.encode('utf-8')):
   source=target.get(path)
+  source_data=None
   for objectid in ([base_entries[path]] if path in base_entries else [])+([source['oid']] if source else []):
    data=git('cat-file','blob',objectid)
    if b'\0' in data: raise ValueError('binary review file')
    data.decode('utf-8','strict')
-  content=git('cat-file','blob',source['oid']).decode('utf-8','strict') if source else None
-  diff=git('diff','--no-ext-diff','--no-textconv','--no-renames','--full-index','--unified=3',review_base_oid,commit,'--',':(literal)'+path).decode('utf-8','strict')
-  if 'Binary files ' in diff or 'GIT binary patch' in diff: raise ValueError('binary review diff')
-  diff_bytes=diff.encode('utf-8')
-  content_bytes=content.encode('utf-8') if content is not None else None
+   if source and objectid==source['oid']: source_data=data
+  diff_bytes=review_diff(path,review_base_oid,commit)
+  if b'Binary files ' in diff_bytes or b'GIT binary patch' in diff_bytes: raise ValueError('binary review diff')
+  decoder=codecs.getincrementaldecoder('utf-8')('strict')
+  for offset in range(0,len(diff_bytes),65536): decoder.decode(diff_bytes[offset:offset+65536],final=False)
+  decoder.decode(b'',final=True)
+  content_bytes=source_data
   # A target-only snapshot hides removed lines in a modified file. Preserve the
   # complete endpoint diff even when the new blob is shorter; admission rejects
   # a partial diff if the bounded context cannot carry it.
-  if diff and (path in base_entries or content_bytes is None or len(diff_bytes)<=len(content_bytes)):
+  if diff_bytes and (path in base_entries or content_bytes is None or len(diff_bytes)<=len(content_bytes)):
    representation='diff'
-  elif content is not None:
+  elif content_bytes is not None:
    representation='content'
   else:
    representation='absent' # Changed in history, but absent at both endpoints.
-  files.append({'path':path,'status':'present' if source else 'deleted','baseMode':base_modes.get(path),'mode':source['mode'] if source else None,'sha256':source['sha256'] if source else None,'bytes':source['bytes'] if source else None,'representation':representation,'complete':True,'content':content if representation=='content' else None,'contentTruncated':False,'diff':diff if representation=='diff' else None,'diffSha256':hashlib.sha256(diff_bytes).hexdigest(),'diffBytes':len(diff_bytes),'diffTruncated':False})
+  paged='page' in options
+  content=(content_bytes if paged else content_bytes.decode('utf-8','strict')) if content_bytes is not None and representation=='content' else None
+  diff=(diff_bytes if paged else diff_bytes.decode('utf-8','strict')) if representation=='diff' else None
+  files.append({'path':path,'status':'present' if source else 'deleted','baseMode':base_modes.get(path),'mode':source['mode'] if source else None,'sha256':source['sha256'] if source else None,'bytes':source['bytes'] if source else None,'representation':representation,'complete':True,'content':content,'contentTruncated':False,'diff':diff,'diffSha256':hashlib.sha256(diff_bytes).hexdigest(),'diffBytes':len(diff_bytes),'diffTruncated':False})
+  del diff_bytes,content_bytes,source_data,content,diff
+  if 'data' in locals(): del data
  if 'page' in options:
   page=options['page']
   if type(page)!=int or page<0 or page>=${ARTIFACT_REVIEW_MAX_PAGES} or page%${ARTIFACT_REVIEW_BATCH_PAGES}!=0: raise ValueError('review page')
@@ -111,31 +149,37 @@ if options['kind']=='review_context':
   descriptors=[{key:item[key] for key in ('path','status','baseMode','mode','sha256','bytes','representation','diffSha256','diffBytes')} for item in files]
   # Each page is re-derived from the pinned Git tree by a fresh helper. Keep the
   # complete selection bounded before emitting any page to limit repeated work.
-  selected_bytes=sum(len((item[item['representation']] if item['representation'] in ('diff','content') else '').encode('utf-8')) for item in files)
-  if selected_bytes>${ARTIFACT_REVIEW_MAX_SELECTED_BYTES}: raise ValueError('review evidence total byte bound')
+  selected_bytes=sum(len(item[item['representation']]) if item['representation'] in ('diff','content') else 0 for item in files)
+  if selected_bytes>${ARTIFACT_REVIEW_HELPER_MAX_SELECTED_BYTES}: raise ValueError('review evidence total byte bound')
   evidence_sha=hashlib.sha256(json.dumps({'identity':identity,'files':descriptors},sort_keys=True,separators=(',',':'),ensure_ascii=False).encode('utf-8')).hexdigest()
   segments=[]
-  for item in files:
+  for file_index,item in enumerate(files):
    selected=item['representation']
-   data=item[selected] if selected in ('diff','content') else ''
-   raw=data.encode('utf-8')
-   parts=[]
-   if not raw: parts=['']
+   raw=item[selected] if selected in ('diff','content') else b''
+   offsets=[]
+   if not raw: offsets=[(0,0)]
    else:
     start=0
     while start<len(raw):
      end=min(start+16384,len(raw))
      while end>start:
-      try: part=raw[start:end].decode('utf-8','strict');break
+      try: raw[start:end].decode('utf-8','strict');break
       except UnicodeDecodeError: end-=1
      if end==start: raise ValueError('review UTF-8 page')
-     parts.append(part);start=end
-   selected_sha=hashlib.sha256(raw).hexdigest()
-   for index,part in enumerate(parts):
-    segments.append({'path':item['path'],'status':item['status'],'baseMode':item['baseMode'],'mode':item['mode'],'sha256':item['sha256'],'bytes':item['bytes'],'representation':selected,'diffSha256':item['diffSha256'],'diffBytes':item['diffBytes'],'selectedSha256':selected_sha,'selectedBytes':len(raw),'segmentIndex':index,'segmentCount':len(parts),'data':part,'segmentSha256':hashlib.sha256(part.encode('utf-8')).hexdigest()})
+     offsets.append((start,end));start=end
+   item['selectedSha256']=hashlib.sha256(raw).hexdigest()
+   item['selectedBytes']=len(raw)
+   item['segmentCount']=len(offsets)
+   for index,(start,end) in enumerate(offsets): segments.append((file_index,index,start,end))
+  def segment_for(ref):
+   file_index,index,start,end=ref
+   item=files[file_index];selected=item['representation']
+   raw=item[selected] if selected in ('diff','content') else b''
+   part=raw[start:end].decode('utf-8','strict')
+   return {'path':item['path'],'status':item['status'],'baseMode':item['baseMode'],'mode':item['mode'],'sha256':item['sha256'],'bytes':item['bytes'],'representation':selected,'diffSha256':item['diffSha256'],'diffBytes':item['diffBytes'],'selectedSha256':item['selectedSha256'],'selectedBytes':item['selectedBytes'],'segmentIndex':index,'segmentCount':item['segmentCount'],'data':part,'segmentSha256':hashlib.sha256(raw[start:end]).hexdigest()}
   pages=[];current=[]
   def encoded_page(parts,index,total):
-   return json.dumps({**identity,'evidenceSha256':evidence_sha,'pageIndex':index,'pageCount':total,'segments':parts},sort_keys=True,separators=(',',':'),ensure_ascii=False)
+   return json.dumps({**identity,'evidenceSha256':evidence_sha,'pageIndex':index,'pageCount':total,'segments':[segment_for(ref) for ref in parts]},sort_keys=True,separators=(',',':'),ensure_ascii=False)
   for segment in segments:
    if current and len(encoded_page(current+[segment],65535,65535).encode('utf-8'))>${ARTIFACT_REVIEW_CONTEXT_MAX_BYTES}:
     pages.append(current);current=[]
@@ -143,10 +187,14 @@ if options['kind']=='review_context':
    current.append(segment)
   if current: pages.append(current)
   if not pages or len(pages)>${ARTIFACT_REVIEW_MAX_PAGES} or page>=len(pages): raise ValueError('review page unavailable')
-  encoded_pages=[encoded_page(parts,index,len(pages)) for index,parts in enumerate(pages)]
-  if any(len(encoded.encode('utf-8'))>${ARTIFACT_REVIEW_CONTEXT_MAX_BYTES} for encoded in encoded_pages): raise ValueError('review page byte bound')
-  pages_digest=hashlib.sha256(json.dumps(encoded_pages,sort_keys=True,separators=(',',':'),ensure_ascii=False).encode('utf-8')).hexdigest()
-  selected_pages=encoded_pages[page:page+${ARTIFACT_REVIEW_BATCH_PAGES}]
+  digest=hashlib.sha256();digest.update(b'[');selected_pages=[]
+  for index,parts in enumerate(pages):
+   encoded=encoded_page(parts,index,len(pages))
+   if len(encoded.encode('utf-8'))>${ARTIFACT_REVIEW_CONTEXT_MAX_BYTES}: raise ValueError('review page byte bound')
+   if index: digest.update(b',')
+   digest.update(json.dumps(encoded,separators=(',',':'),ensure_ascii=False).encode('utf-8'))
+   if page<=index<page+${ARTIFACT_REVIEW_BATCH_PAGES}: selected_pages.append(encoded)
+  digest.update(b']');pages_digest=digest.hexdigest()
   print(json.dumps({'proof':proof,'context':selected_pages[0],'contextSha256':hashlib.sha256(selected_pages[0].encode('utf-8')).hexdigest(),'pages':selected_pages,'pagesSha256':pages_digest},sort_keys=True,ensure_ascii=False))
   sys.exit(0)
  context={'version':2,'scope':'bounded-changed-path-evidence','sourceOid':commit,'baseOid':review_base_oid,'sourceBranch':source_branch,'baseBranch':base_branch,'committedTreeDigest':proof['committedTreeDigest'],'manifestDigest':proof['manifestDigest'],'trackedFileCount':proof['entries'],'changedPathCount':len(paths),'omittedPathCount':0,'files':[]}
