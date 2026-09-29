@@ -265,6 +265,7 @@ it('charges, confirms the exact source child, and persists one bound initial att
       sealSessionArtifacts: vi.fn(),
       requireCompletedArtifactSeal: vi.fn(),
       inspectCompletedArtifact: vi.fn(),
+      exportCompletedReviewContext: vi.fn(),
       exportSuccessorArtifactBundle: vi.fn(),
       copySuccessorArtifact: copy,
       admitSuccessorArtifact: admit,

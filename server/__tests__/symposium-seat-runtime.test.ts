@@ -1274,6 +1274,10 @@ describe('last native Symposium dispatch fence', () => {
     expect(options?.runtimeConfig).toEqual({
       web_search: 'disabled',
       'features.use_legacy_landlock': true,
+      'features.shell_tool': false,
+      'features.unified_exec': false,
+      'features.code_mode': false,
+      'features.code_mode_host': false,
     });
     expect(controllerProof).toHaveBeenCalledOnce();
   });

@@ -198,7 +198,15 @@ export async function createCodexNativeSeat(
     runtimeConfig: {
       web_search: 'disabled',
       ...auth.runtimeConfig,
-      ...(route.readOnly ? { 'features.use_legacy_landlock': true } : {}),
+      ...(route.readOnly
+        ? {
+            'features.use_legacy_landlock': true,
+            'features.shell_tool': false,
+            'features.unified_exec': false,
+            'features.code_mode': false,
+            'features.code_mode_host': false,
+          }
+        : {}),
     },
     turnSandboxPolicy: route.readOnly
       ? { type: 'readOnly' }

@@ -103,6 +103,7 @@ it('carries a sealed source through real stores into a charged initial run, then
       sealSessionArtifacts: vi.fn(),
       requireCompletedArtifactSeal: vi.fn(),
       inspectCompletedArtifact: vi.fn(),
+      exportCompletedReviewContext: vi.fn(),
       exportSuccessorArtifactBundle: vi.fn(),
       copySuccessorArtifact: copy,
       admitSuccessorArtifact: vi.fn(),

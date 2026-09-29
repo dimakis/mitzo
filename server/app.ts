@@ -983,6 +983,7 @@ export interface SymposiumProductionHost {
   publicationCredentials?: readonly PublicationCredentialRegistration[];
   requireCompletedArtifactSeal?: CompletedPublicationHost['requireCompletedArtifactSeal'];
   inspectCompletedArtifact?: CompletedPublicationHost['inspectCompletedArtifact'];
+  exportCompletedReviewContext?: import('./symposium-physical-artifact-seal.js').PhysicalArtifactSealer['exportCompletedReviewContext'];
   exportCompletedArtifactBundle?: CompletedPublicationHost['exportCompletedArtifactBundle'];
   checkCompletedArtifactFile?: import('./symposium-physical-artifact-seal.js').PhysicalArtifactSealer['checkCompletedArtifactFile'];
   criterionChecks?: readonly import('./symposium-criterion-receipts.js').CheckDefinition[];

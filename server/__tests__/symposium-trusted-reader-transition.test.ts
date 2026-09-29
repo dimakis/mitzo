@@ -11,6 +11,7 @@ import { SqliteArtifactLeaseHost } from '../symposium-artifact-host.js';
 import { SymposiumOrchestrator } from '../symposium-orchestrator.js';
 import { SymposiumReviewStore } from '../symposium-review-workflows.js';
 import { createSealedReaderReviewTransition } from '../symposium-trusted-reader-transition.js';
+import { canonicalReviewJson, reviewRecordHash } from '../symposium-review-records.js';
 
 const sha = (value: string) => createHash('sha256').update(value).digest('hex');
 const commit = 'a'.repeat(40);
@@ -177,33 +178,59 @@ function fixture() {
   });
   const context = { owner: 'user', sessionId: 'symposium' };
   let loseStageResponse = false;
+  let reviewContext = JSON.stringify({
+    diff: '+tested',
+    files: [{ path: 'marker.txt', content: 'tested' }],
+  });
+  let contextRevision = commit;
+  const completedSeal = {
+    kind: 'completed_artifact_seal' as const,
+    version: 1 as const,
+    fenceId: seal.fenceId,
+    sessionId: 'symposium',
+    custodyDigest: selection.custody.gatewayLaunchDigest,
+    intentDigest: sha(JSON.stringify(seal)),
+    retentionDigest: 'e'.repeat(64),
+    revocationDigest: 'f'.repeat(64),
+    repositoryPath: '.',
+    git: {
+      version: 1 as const,
+      commit,
+      tree: commit,
+      entries: 0,
+      bytes: 0,
+      manifestDigest: 'e'.repeat(64),
+      committedTreeDigest: treeDigest,
+    },
+    verifier: { id: 'fake', image: 'fake', codeDigest: 'f'.repeat(64) },
+    completedAt: 1,
+  };
   const owner = createSealedReaderReviewTransition({
     events,
     reviews,
     leaseHost,
     sourceFence: () => seal.fenceId,
-    requireCompletedSeal: async () => ({
-      kind: 'completed_artifact_seal',
-      version: 1,
-      fenceId: seal.fenceId,
-      sessionId: 'symposium',
-      custodyDigest: selection.custody.gatewayLaunchDigest,
-      intentDigest: sha(JSON.stringify(seal)),
-      retentionDigest: 'e'.repeat(64),
-      revocationDigest: 'f'.repeat(64),
-      repositoryPath: '.',
-      git: {
-        version: 1,
-        commit,
-        tree: commit,
-        entries: 0,
-        bytes: 0,
-        manifestDigest: 'e'.repeat(64),
-        committedTreeDigest: treeDigest,
-      },
-      verifier: { id: 'fake', image: 'fake', codeDigest: 'f'.repeat(64) },
-      completedAt: 1,
-    }),
+    requireCompletedSeal: async () => completedSeal,
+    baseBranch: () => 'main',
+    exportReviewContext: async ({ fenceId, operationId, baseBranch }) => {
+      if (fenceId !== seal.fenceId || baseBranch !== 'main')
+        throw new Error('Context selector changed');
+      return {
+        context: reviewContext,
+        receipt: {
+          jobId: '11111111-1111-4111-8111-111111111111',
+          operationId,
+          sealFenceId: seal.fenceId,
+          sealDigest: reviewRecordHash(canonicalReviewJson(completedSeal)),
+          artifactRevision: contextRevision,
+          artifactHash: treeDigest,
+          baseOid: 'c'.repeat(40),
+          sourceOid: commit,
+          contextSha256: sha(reviewContext),
+          completedAt: 1,
+        },
+      };
+    },
     currentArtifact: () => ({ revision: commit, hash: treeDigest }),
     verifyReviewer: () => true,
     runtime: () => ({
@@ -229,6 +256,12 @@ function fixture() {
     setLoseStageResponse: () => {
       loseStageResponse = true;
     },
+    setReviewContext: (value: string) => {
+      reviewContext = value;
+    },
+    setContextRevision: (value: string) => {
+      contextRevision = value;
+    },
   };
 }
 
@@ -251,6 +284,9 @@ it('charges first review before reader admission and recovers an exact staged de
     expect(f.events.getActiveSymposiumConfig('symposium').revision).toBe(4);
     f.setLoseStageResponse();
     await expect(f.owner.transition.apply(f.context, prep)).rejects.toThrow(/lost stage response/);
+    expect(f.events.getSymposiumDelivery('delivery-1')!.originalContent).toContain(
+      '"content":"tested"',
+    );
     expect(f.events.getActiveSymposiumConfig('symposium').revision).toBe(5);
     expect(f.events.getLatestSymposiumAdmission('symposium', 'reviewer', 5)).toMatchObject({
       decision: 'admitted',
@@ -286,6 +322,39 @@ it('charges first review before reader admission and recovers an exact staged de
         idempotencyKey: 'review-workflow-review-1',
       }).deliveryId,
     ).toBe('delivery-1');
+  } finally {
+    f.leaseHost.close();
+    f.reviews.close();
+    f.events.close();
+  }
+});
+
+it('rejects mismatched or oversized sealed context before reader admission', async () => {
+  const f = fixture();
+  try {
+    const prep = await f.owner.transition.prepare({
+      context: f.context,
+      workflowId: 'workflow',
+      attemptId: 'review-1',
+      kind: 'review',
+      selection: f.reviews.get('workflow')!.reviewer,
+      artifactRevision: commit,
+      artifactHash: treeDigest,
+      policy: f.reviews.get('workflow')!.limits as any,
+    });
+    f.reviews.reserveApplicationPreparation(prep);
+    f.setContextRevision('f'.repeat(40));
+    await expect(f.owner.transition.apply(f.context, prep)).rejects.toThrow(
+      'Exact bounded sealed review context required',
+    );
+    expect(f.events.getActiveSymposiumConfig('symposium').revision).toBe(4);
+    expect(f.events.getLatestSymposiumAdmission('symposium', 'reviewer', 5)).toBeUndefined();
+    f.setContextRevision(commit);
+    f.setReviewContext('x'.repeat(48 * 1024 + 1));
+    await expect(f.owner.transition.apply(f.context, prep)).rejects.toThrow(
+      'Exact bounded sealed review context required',
+    );
+    expect(f.events.getActiveSymposiumConfig('symposium').revision).toBe(4);
   } finally {
     f.leaseHost.close();
     f.reviews.close();

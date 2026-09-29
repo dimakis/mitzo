@@ -889,6 +889,22 @@ export async function createOwnedSymposiumHost(
         });
         return track(() => artifactSealer!.exportCompletedArtifactBundle(input, signal));
       },
+      async exportCompletedReviewContext(
+        input: Parameters<PhysicalArtifactSealer['exportCompletedReviewContext']>[0],
+        signal: AbortSignal,
+      ) {
+        if (draining || stopped) throw new Error('Owned Symposium host is shutting down');
+        if (!(options.facts instanceof EventStore))
+          throw new Error('Artifact sealing requires the retained event store');
+        artifactSealer ??= new PhysicalArtifactSealer({
+          store: options.facts,
+          leaseHost: leaseHost!,
+          gateway,
+          attemptRegistry: native!.registry,
+          runtimeConfig,
+        });
+        return track(() => artifactSealer!.exportCompletedReviewContext(input, signal));
+      },
       async checkCompletedArtifactFile(
         input: Parameters<PhysicalArtifactSealer['checkCompletedArtifactFile']>[0],
         signal: AbortSignal,

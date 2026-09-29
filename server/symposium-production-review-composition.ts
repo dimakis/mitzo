@@ -126,6 +126,7 @@ export function createSymposiumProductionReviewComposition(deps: {
     !host.sealSessionArtifacts ||
     !host.requireCompletedArtifactSeal ||
     !host.inspectCompletedArtifact ||
+    !host.exportCompletedReviewContext ||
     !host.exportSuccessorArtifactBundle ||
     !host.copySuccessorArtifact ||
     !host.admitSuccessorArtifact ||
@@ -254,6 +255,14 @@ export function createSymposiumProductionReviewComposition(deps: {
       leaseHost: host.artifactLeaseHost,
       sourceFence: currentFence,
       requireCompletedSeal: completedSeal,
+      baseBranch(context) {
+        const sealed = source.requireSeal!(context.sessionId);
+        if (sealed.receipt.sessionId !== context.sessionId)
+          throw new Error('Imported source session changed');
+        return sealed.exported.receipt.selection.defaultBranch;
+      },
+      exportReviewContext: (input) =>
+        host.exportCompletedReviewContext!(input, AbortSignal.timeout(120_000)),
       currentArtifact,
       verifyReviewer(context, seat, membershipGeneration) {
         grants.verifySeat({ sessionId: context.sessionId, seat, membershipGeneration });

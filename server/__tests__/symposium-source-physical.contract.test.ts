@@ -446,6 +446,9 @@ it.skipIf(!physical)(
             inspectCompletedArtifact: async () => {
               throw Error('No writer inspection in fixture');
             },
+            exportCompletedReviewContext: async () => {
+              throw Error('No reviewer context export in fixture');
+            },
             exportSuccessorArtifactBundle: async () => {
               throw Error('No fix export in fixture');
             },
