@@ -110,6 +110,27 @@ it('exports canonical complete changed-file contents and exact base diff within 
   });
   expect(context.diff).toContain('+FEATURE');
 });
+it('reviews a sealed feature against its merge base after origin/main advances', () => {
+  const f = fixture();
+  const sharedBase = f.git('rev-parse', 'refs/remotes/origin/main').trim();
+  f.git('checkout', '-q', 'main');
+  writeFileSync(join(f.root, 'base.txt'), 'MAIN ONLY');
+  writeFileSync(join(f.root, 'main.txt'), 'MAIN ONLY');
+  f.git('add', '.');
+  f.git('-c', 'commit.gpgsign=false', 'commit', '-qm', 'advance main');
+  f.git('update-ref', 'refs/remotes/origin/main', 'HEAD');
+  f.git('checkout', '-q', 'feature');
+
+  const result = f.run({ kind: 'review_context' });
+  const context = JSON.parse(result.context);
+  expect(context.baseOid).toBe(sharedBase);
+  expect(context.sourceOid).toBe(f.proof.commit);
+  expect(context.files).toEqual([
+    expect.objectContaining({ path: 'feature.txt', status: 'present', content: 'FEATURE' }),
+  ]);
+  expect(context.diff).toContain('+FEATURE');
+  expect(context.diff).not.toContain('MAIN ONLY');
+});
 it('rejects an oversized sealed review context without truncation', () => {
   const f = fixture((root) =>
     writeFileSync(join(root, 'large.txt'), 'X'.repeat(ARTIFACT_REVIEW_CONTEXT_MAX_BYTES)),

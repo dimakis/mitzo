@@ -35,10 +35,18 @@ default_branch=branch(default_ref[len('refs/remotes/origin/'):])
 origin=git('config','--get','remote.origin.url').decode().strip()
 # Never emit an origin containing credentials, query text or a non-GitHub host.
 if len(origin)>2048 or not re.fullmatch(r'(https://github\.com/|git@github\.com:)[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(?:\.git)?',origin): raise ValueError('origin URL')
-count=int(git('rev-list','--count',base_oid+'..'+commit).decode().strip())
+review_base_oid=base_oid
+if options['kind']=='review_context':
+ # Main may advance after the sealed feature commit. Require one shared ancestor
+ # rather than including main-only commits or selecting an arbitrary criss-cross base.
+ merge_bases=git('merge-base','--all',base_oid,commit).decode().splitlines()
+ if len(merge_bases)!=1 or len(merge_bases[0])!=len(commit) or any(c not in '0123456789abcdef' for c in merge_bases[0]): raise ValueError('unique review merge base')
+ review_base_oid=merge_bases[0]
+comparison_oid=review_base_oid if options['kind']=='review_context' else base_oid
+count=int(git('rev-list','--count',comparison_oid+'..'+commit).decode().strip())
 paths=set()
 # Feed every exported commit; a two-endpoint diff hides reverted/deleted history.
-commits=git('rev-list',base_oid+'..'+commit)
+commits=git('rev-list',comparison_oid+'..'+commit)
 history_paths=git('diff-tree','--stdin','--root','-m','--no-commit-id','--name-only','--no-renames','--no-ext-diff','--no-textconv','-r','-z',input=commits)
 if len(history_paths)>1048576: raise ValueError('history path byte bound')
 for raw in history_paths.split(b'\0'):
@@ -50,9 +58,8 @@ for raw in history_paths.split(b'\0'):
 inspection={'canonicalRepositoryPath':repo,'status':'clean','sourceBranch':source_branch,'sourceOid':commit,'defaultBranch':default_branch,'originUrl':origin,'commitsAhead':count,'changedFiles':sorted(paths,key=lambda p:p.encode('utf-8')),'sourceBranchProtected':False,'symlinkFree':True}
 if options['kind']=='review_context':
  if not paths: raise ValueError('review context has no changed files')
- if git('merge-base',base_oid,commit).decode().strip()!=base_oid: raise ValueError('review base is not an ancestor')
  base_entries={}
- for row in git('ls-tree','-r','-z','--full-tree',base_oid).split(b'\0'):
+ for row in git('ls-tree','-r','-z','--full-tree',review_base_oid).split(b'\0'):
   if not row: continue
   meta,rawpath=row.split(b'\t',1); mode,kind,objectid=meta.decode().split(' ')
   path=rawpath.decode('utf-8','strict')
@@ -69,10 +76,10 @@ if options['kind']=='review_context':
    data.decode('utf-8','strict')
   content=git('cat-file','blob',source['oid']).decode('utf-8','strict') if source else None
   files.append({'path':path,'status':'present' if source else 'deleted','mode':source['mode'] if source else None,'sha256':source['sha256'] if source else None,'bytes':source['bytes'] if source else None,'content':content})
- diff=git('diff','--no-ext-diff','--no-textconv','--no-renames','--full-index','--unified=3',base_oid,commit,'--').decode('utf-8','strict')
+ diff=git('diff','--no-ext-diff','--no-textconv','--no-renames','--full-index','--unified=3',review_base_oid,commit,'--').decode('utf-8','strict')
  if 'Binary files ' in diff or 'GIT binary patch' in diff: raise ValueError('binary review diff')
  review_manifest=[{'path':item['path'],'mode':item['mode'],'bytes':item['bytes'],'sha256':item['sha256']} for item in manifest]
- context={'version':1,'scope':'changed-file-contents','sourceOid':commit,'baseOid':base_oid,'sourceBranch':source_branch,'baseBranch':base_branch,'committedTreeDigest':proof['committedTreeDigest'],'manifestDigest':proof['manifestDigest'],'manifest':review_manifest,'files':files,'diff':diff}
+ context={'version':1,'scope':'changed-file-contents','sourceOid':commit,'baseOid':review_base_oid,'sourceBranch':source_branch,'baseBranch':base_branch,'committedTreeDigest':proof['committedTreeDigest'],'manifestDigest':proof['manifestDigest'],'manifest':review_manifest,'files':files,'diff':diff}
  encoded=json.dumps(context,sort_keys=True,separators=(',',':'),ensure_ascii=False)
  if len(encoded.encode('utf-8'))>${ARTIFACT_REVIEW_CONTEXT_MAX_BYTES}: raise ValueError('review context byte bound')
  print(json.dumps({'proof':proof,'context':encoded,'contextSha256':hashlib.sha256(encoded.encode('utf-8')).hexdigest()},sort_keys=True,ensure_ascii=False))
