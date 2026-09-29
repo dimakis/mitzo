@@ -954,8 +954,8 @@ export class PhysicalArtifactSealer {
           config.seats.find((seat) => seat.id === row.seatId)?.authorityGrant?.filesystem ===
           'write',
       );
-      if (writerRecords.length !== 1 || allRecords.some((row) => row.state !== 'stopped'))
-        throw new Error('Artifact seal retained drain is incomplete');
+      if (writerRecords.length !== 1)
+        throw new Error('Artifact seal retained writer identity changed');
       const writerRecord = writerRecords[0];
       request = leaseHost.retainedCleanupRequest(writerRecord)!;
       retention = leaseHost.pendingArtifactRetention(
@@ -973,6 +973,25 @@ export class PhysicalArtifactSealer {
         sandbox_name: string;
         sandbox_id: string;
       }>;
+      const live = leaseHost
+        .sealLeaseIdentities('podman', intent.selection.artifact.volumeName)
+        .filter(
+          (row) =>
+            row.sandboxName === writerRecord.sandboxName &&
+            row.sandboxId === writerRecord.physicalId,
+        );
+      const exactReleased =
+        released.length === 1 &&
+        released[0].revision === intent.selection.artifact.leaseRevision &&
+        hash(released[0].token) === intent.selection.artifact.leaseTokenHash &&
+        released[0].request_json === JSON.stringify(request);
+      const exactLive =
+        live.length === 1 &&
+        live[0].revision === intent.selection.artifact.leaseRevision &&
+        live[0].tokenHash === intent.selection.artifact.leaseTokenHash &&
+        isDeepStrictEqual(live[0].request, request) &&
+        live[0].creationStarted &&
+        live[0].intendedSandboxName === writerRecord.sandboxName;
       if (
         !request ||
         request.access !== 'writer' ||
@@ -987,10 +1006,8 @@ export class PhysicalArtifactSealer {
         !isDeepStrictEqual(retention.intent, intent) ||
         retention.writerSandboxId !== writerRecord.physicalId ||
         retention.writerSandboxName !== writerRecord.sandboxName ||
-        released.length !== 1 ||
-        released[0].revision !== intent.selection.artifact.leaseRevision ||
-        hash(released[0].token) !== intent.selection.artifact.leaseTokenHash ||
-        released[0].request_json !== JSON.stringify(request) ||
+        exactReleased === exactLive ||
+        allRecords.filter((row) => row.creationStarted).length !== records.length ||
         records.some((record) => {
           const current = allRecords.find(
             (row) => row.seatId === record.seatId && row.generation === record.generation,
@@ -1139,14 +1156,9 @@ export class PhysicalArtifactSealer {
         throw new Error('Artifact seal identity changed');
     };
     await check();
-    if (!retained)
-      await drainSymposiumRuntimeForArtifactSeal(
-        runtime,
-        store,
-        leaseHost,
-        input.sessionId,
-        signal,
-      );
+    // The durable phase may precede or follow physical cleanup. Replaying the
+    // exact retained runtime drain reconciles only its original seat identities.
+    await drainSymposiumRuntimeForArtifactSeal(runtime, store, leaseHost, input.sessionId, signal);
     const drained = () => {
       for (const seat of new Set([
         ...config.seats.map((s) => s.id),

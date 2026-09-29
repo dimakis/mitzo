@@ -26,7 +26,9 @@ import { SymposiumSessionArtifacts } from '../symposium-session-artifacts.js';
 import { createSymposiumSessionRuntime } from '../symposium-session-runtime.js';
 import { OpenShellRuntimeManager, sandboxNameForConversation } from '../openshell-runtime.js';
 
-const physicalResume = process.env.MITZO_OWNED_SEAL_RESUME_PHYSICAL_CONTRACT === '1';
+const resumeDuringDrain = process.env.MITZO_OWNED_SEAL_DRAIN_RESUME_PHYSICAL_CONTRACT === '1';
+const physicalResume =
+  process.env.MITZO_OWNED_SEAL_RESUME_PHYSICAL_CONTRACT === '1' || resumeDuringDrain;
 const physical = process.env.MITZO_OWNED_SEAL_PHYSICAL_CONTRACT === '1' || physicalResume;
 it.skipIf(!physical)(
   'drains a retained physical writer and seals the exact committed criterion',
@@ -39,7 +41,8 @@ it.skipIf(!physical)(
     const owner = symposiumArtifactOwner(image);
     const database = join(root, 'custody.db');
     const env = { HOME: process.env.HOME, PATH: process.env.PATH };
-    let interruptAfterDrain = physicalResume;
+    let interruptAfterDrain = physicalResume && !resumeDuringDrain;
+    let interruptDuringDrain = resumeDuringDrain;
     let verifierCreates = 0;
     const command = async (
       args: readonly string[],
@@ -307,6 +310,10 @@ it.skipIf(!physical)(
         inspect: phase,
         inspectReserved: phase,
         stop: async () => {
+          if (interruptDuringDrain) {
+            interruptDuringDrain = false;
+            throw Error('Simulated loss during physical writer drain');
+          }
           podman('stop', sandboxId!);
         },
         delete: async () => {
@@ -363,10 +370,14 @@ it.skipIf(!physical)(
       };
       if (physicalResume) {
         await expect(sealer.seal(sealInput, runtime, new AbortController().signal)).rejects.toThrow(
-          'Simulated loss after physical writer drain',
+          resumeDuringDrain
+            ? 'Symposium seat cleanup incomplete'
+            : 'Simulated loss after physical writer drain',
         );
-        expect(events.getSymposiumSeatSandbox(sessionId, 'writer', 1)?.state).toBe('stopped');
-        expect(absent(sandboxId)).toBe(true);
+        expect(events.getSymposiumSeatSandbox(sessionId, 'writer', 1)?.state).toBe(
+          resumeDuringDrain ? 'ready' : 'stopped',
+        );
+        expect(absent(sandboxId)).toBe(!resumeDuringDrain);
         const pending = events.getSymposiumArtifactSealIntent(sessionId);
         expect(pending?.status).toBe('pending_unsealed');
         expect(leaseHost.pendingArtifactRetention('podman', mapping.volumeName)?.fenceId).toBe(
