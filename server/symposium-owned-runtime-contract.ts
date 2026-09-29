@@ -46,10 +46,29 @@ export const REVIEWED_SYMPOSIUM_CLAUDE_RUNTIME = {
     },
   },
 } as const;
+
+/** Explicit successor for Codex code-mode seats. The original image and the
+ * Claude variant remain valid for their existing resources; neither migrates. */
+export const REVIEWED_SYMPOSIUM_CODE_MODE_RUNTIME = {
+  ...REVIEWED_SYMPOSIUM_OWNED_RUNTIME,
+  build: {
+    ...REVIEWED_SYMPOSIUM_OWNED_RUNTIME.build,
+    image: 'sha256:93233f9037f12afadfa1fb17a8ee96aa7e94499366d6977b4859a93fa03e5004',
+    imageDigest: '161cde9d0f59c07b3354a0e5c2d863b3796ed81716c728f7eafd4db70ab0dd42',
+    nativeArtifacts: {
+      ...REVIEWED_SYMPOSIUM_OWNED_RUNTIME.build.nativeArtifacts,
+      '/usr/bin/codex': '298d3d73d0bbc1367e58a370df5b6216fe30ce0a92e8b6b0afb0377a958dc335',
+      '/usr/bin/codex-code-mode-host':
+        '7348d1c1cee36270b5599da24ed431e1ac6372666a94bb09e09ef87d1bc9e3b8',
+    },
+  },
+} as const;
 export function reviewedSymposiumOwnedRuntime(image: string) {
   if (image === REVIEWED_SYMPOSIUM_OWNED_RUNTIME.build.image)
     return REVIEWED_SYMPOSIUM_OWNED_RUNTIME;
   if (image === REVIEWED_SYMPOSIUM_CLAUDE_RUNTIME.build.image)
     return REVIEWED_SYMPOSIUM_CLAUDE_RUNTIME;
+  if (image === REVIEWED_SYMPOSIUM_CODE_MODE_RUNTIME.build.image)
+    return REVIEWED_SYMPOSIUM_CODE_MODE_RUNTIME;
   throw new Error('Artifact workload image identity is not reviewed');
 }
