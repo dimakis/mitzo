@@ -57,11 +57,14 @@ function fixture(populate?: (root: string) => void, basePopulate?: (root: string
     python(ARTIFACT_GIT_EXPORT, [
       JSON.stringify({ baseBranch: 'main', expected: proof, ...input }),
     ]);
+  const runWithExportCode = (code: string, input: Record<string, unknown>) =>
+    python(code, [JSON.stringify({ baseBranch: 'main', expected: proof, ...input })]);
   return {
     root,
     git,
     proof,
     run,
+    runWithExportCode,
     refreshProof: () => Object.assign(proof, python(ARTIFACT_GIT_VERIFIER, [])),
   };
 }
@@ -287,6 +290,39 @@ it('exports a complete endpoint diff larger than the shared Git read ceiling', (
   expect(page.changedPathCount).toBe(2);
   expect(page.pageCount).toBeGreaterThan(first.pages.length);
 }, 180_000);
+it('rejects the second large changed path while the aggregate selection is still bounded', () => {
+  const old = ('A'.repeat(15) + '\n').repeat((31 * 1024 * 1024) / 16);
+  const next = ('B'.repeat(15) + '\n').repeat((31 * 1024 * 1024) / 16);
+  const f = fixture(
+    (root) => {
+      writeFileSync(join(root, 'a.txt'), next);
+      writeFileSync(join(root, 'b.txt'), next);
+    },
+    (root) => {
+      writeFileSync(join(root, 'a.txt'), old);
+      writeFileSync(join(root, 'b.txt'), old);
+    },
+  );
+  expect(() => f.run({ kind: 'review_context', page: 0 })).toThrow(
+    'review evidence total byte bound',
+  );
+}, 180_000);
+it('uses one diff deadline across multiple changed paths', () => {
+  const f = fixture((root) => {
+    writeFileSync(join(root, 'a.txt'), 'A');
+    writeFileSync(join(root, 'b.txt'), 'B');
+  });
+  const code = ARTIFACT_GIT_EXPORT.replace(
+    'review_diff_deadline=time.monotonic()+40',
+    'review_diff_deadline=time.monotonic()+1',
+  ).replace(
+    'def review_diff(path,base,target,keep_limit,allow_unretained):',
+    "def review_diff(path,base,target,keep_limit,allow_unretained):\n if path=='b.txt': time.sleep(1.2)",
+  );
+  expect(() => f.runWithExportCode(code, { kind: 'review_context', page: 0 })).toThrow(
+    'review diff time bound',
+  );
+});
 it('retrieves more than 1 MiB of changed evidence through bounded sealed batches', () => {
   const content = 'X'.repeat(2500 * 1024);
   const f = fixture((root) => writeFileSync(join(root, 'large.txt'), content));

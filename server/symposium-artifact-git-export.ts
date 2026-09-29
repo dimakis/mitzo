@@ -25,30 +25,44 @@ if proof!=expected: raise ValueError('sealed Git identity changed')
 # Proof is immutable now; release those byte copies before paging evidence.
 for key in ('data','current','tree_output'):
  globals().pop(key,None)
-def review_diff(path,base,target):
+# One budget covers every changed path. Leave time under the owned 60-second
+# Podman attach limit for page construction and JSON serialization.
+review_diff_deadline=time.monotonic()+40
+def review_diff(path,base,target,keep_limit,allow_unretained):
  # The shared verifier's 64 MiB stdout ceiling protects ordinary Git reads.
  # A complete replacement diff can exceed that ceiling even when both blobs
  # fit the sealed 64 MiB tree. Drain this one pinned, literal-path command in
  # bounded chunks and reject before it can exceed the review evidence budget.
+ if time.monotonic()>review_diff_deadline: raise ValueError('review diff time bound')
  args=['git','--git-dir='+gitdir,'-c','core.fsmonitor=false','-c','core.hooksPath=/dev/null','-c','core.untrackedCache=false','diff','--no-ext-diff','--no-textconv','--no-renames','--full-index','--unified=3',base,target,'--',':(literal)'+path]
  p=subprocess.Popen(args,cwd=repo,env=env,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,start_new_session=True)
  selector=selectors.DefaultSelector();selector.register(p.stdout,selectors.EVENT_READ)
- # The owned Podman transport has a 60-second attach timeout.
- output=bytearray();deadline=time.monotonic()+50
+ output=bytearray();length=0;digest=hashlib.sha256();decoder=codecs.getincrementaldecoder('utf-8')('strict');tail=b''
  try:
   while selector.get_map():
-   if time.monotonic()>deadline: raise ValueError('review diff time bound')
+   if time.monotonic()>review_diff_deadline: raise ValueError('review diff time bound')
    for key,_ in selector.select(0.1):
     chunk=os.read(key.fileobj.fileno(),65536)
     if not chunk: selector.unregister(key.fileobj);continue
-    if len(output)+len(chunk)>${ARTIFACT_REVIEW_HELPER_MAX_SELECTED_BYTES}: raise ValueError('review diff byte bound')
-    output.extend(chunk)
-  if p.wait(timeout=max(0.1,deadline-time.monotonic()))!=0: raise ValueError('review diff command')
+    length+=len(chunk)
+    if length>${ARTIFACT_REVIEW_MAX_SELECTED_BYTES}: raise ValueError('review diff byte bound')
+    digest.update(chunk);decoder.decode(chunk,final=False)
+    joined=tail+chunk
+    if b'Binary files ' in joined or b'GIT binary patch' in joined: raise ValueError('binary review diff')
+    tail=chunk[-32:]
+    if output is not None:
+     if length>keep_limit:
+      if not allow_unretained: raise ValueError('review evidence total byte bound')
+      output=None
+     else: output.extend(chunk)
+  decoder.decode(b'',final=True)
+  if p.wait(timeout=max(0.1,review_diff_deadline-time.monotonic()))!=0: raise ValueError('review diff command')
+  if time.monotonic()>review_diff_deadline: raise ValueError('review diff time bound')
  finally:
   selector.close()
   if p.poll() is None:
    os.killpg(p.pid,signal.SIGKILL);p.wait(timeout=5)
- return output
+ return output,digest.hexdigest(),length
 if options['kind']=='check':
  path=options['checkPath']
  if not isinstance(path,str) or len(path)>512 or not re.fullmatch(r'[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*',path) or any(p in ('.','..','.git') for p in path.split('/')): raise ValueError('check path')
@@ -106,7 +120,7 @@ if options['kind']=='review_context':
    base_entries[path]=objectid
    base_modes[path]=mode
  target={item['path']:item for item in manifest}
- files=[]
+ files=[];selected_used=0;paged='page' in options
  def excerpt(value,limit):
   data=value.encode('utf-8')
   if len(data)<=limit: return value,False
@@ -122,27 +136,29 @@ if options['kind']=='review_context':
    if b'\0' in data: raise ValueError('binary review file')
    data.decode('utf-8','strict')
    if source and objectid==source['oid']: source_data=data
-  diff_bytes=review_diff(path,review_base_oid,commit)
-  if b'Binary files ' in diff_bytes or b'GIT binary patch' in diff_bytes: raise ValueError('binary review diff')
-  decoder=codecs.getincrementaldecoder('utf-8')('strict')
-  for offset in range(0,len(diff_bytes),65536): decoder.decode(diff_bytes[offset:offset+65536],final=False)
-  decoder.decode(b'',final=True)
+  if 'data' in locals(): del data
+  # Modified blobs always select the complete diff. Drop their source copy
+  # before Git starts streaming, leaving room for retained earlier files.
+  if source and path in base_entries and source['oid']!=base_entries[path]: source_data=None
+  remaining=${ARTIFACT_REVIEW_HELPER_MAX_SELECTED_BYTES}-selected_used if paged else ${ARTIFACT_REVIEW_HELPER_MAX_SELECTED_BYTES}
+  diff_bytes,diff_sha,diff_length=review_diff(path,review_base_oid,commit,remaining,paged and source is not None and path not in base_entries)
   content_bytes=source_data
   # A target-only snapshot hides removed lines in a modified file. Preserve the
   # complete endpoint diff even when the new blob is shorter; admission rejects
   # a partial diff if the bounded context cannot carry it.
-  if diff_bytes and (path in base_entries or content_bytes is None or len(diff_bytes)<=len(content_bytes)):
+  if diff_length and (path in base_entries or content_bytes is None or diff_length<=len(content_bytes)):
    representation='diff'
   elif content_bytes is not None:
    representation='content'
   else:
    representation='absent' # Changed in history, but absent at both endpoints.
-  paged='page' in options
+  if representation=='diff' and diff_bytes is None: raise ValueError('review evidence total byte bound')
+  if representation=='content' and content_bytes is not None and len(content_bytes)>remaining: raise ValueError('review evidence total byte bound')
   content=(content_bytes if paged else content_bytes.decode('utf-8','strict')) if content_bytes is not None and representation=='content' else None
   diff=(diff_bytes if paged else diff_bytes.decode('utf-8','strict')) if representation=='diff' else None
-  files.append({'path':path,'status':'present' if source else 'deleted','baseMode':base_modes.get(path),'mode':source['mode'] if source else None,'sha256':source['sha256'] if source else None,'bytes':source['bytes'] if source else None,'representation':representation,'complete':True,'content':content,'contentTruncated':False,'diff':diff,'diffSha256':hashlib.sha256(diff_bytes).hexdigest(),'diffBytes':len(diff_bytes),'diffTruncated':False})
+  files.append({'path':path,'status':'present' if source else 'deleted','baseMode':base_modes.get(path),'mode':source['mode'] if source else None,'sha256':source['sha256'] if source else None,'bytes':source['bytes'] if source else None,'representation':representation,'complete':True,'content':content,'contentTruncated':False,'diff':diff,'diffSha256':diff_sha,'diffBytes':diff_length,'diffTruncated':False})
+  if paged and representation in ('diff','content'): selected_used+=len(files[-1][representation])
   del diff_bytes,content_bytes,source_data,content,diff
-  if 'data' in locals(): del data
  if 'page' in options:
   page=options['page']
   if type(page)!=int or page<0 or page>=${ARTIFACT_REVIEW_MAX_PAGES} or page%${ARTIFACT_REVIEW_BATCH_PAGES}!=0: raise ValueError('review page')
@@ -150,8 +166,7 @@ if options['kind']=='review_context':
   descriptors=[{key:item[key] for key in ('path','status','baseMode','mode','sha256','bytes','representation','diffSha256','diffBytes')} for item in files]
   # Each page is re-derived from the pinned Git tree by a fresh helper. Keep the
   # complete selection bounded before emitting any page to limit repeated work.
-  selected_bytes=sum(len(item[item['representation']]) if item['representation'] in ('diff','content') else 0 for item in files)
-  if selected_bytes>${ARTIFACT_REVIEW_HELPER_MAX_SELECTED_BYTES}: raise ValueError('review evidence total byte bound')
+  if selected_used>${ARTIFACT_REVIEW_HELPER_MAX_SELECTED_BYTES}: raise ValueError('review evidence total byte bound')
   evidence_sha=hashlib.sha256(json.dumps({'identity':identity,'files':descriptors},sort_keys=True,separators=(',',':'),ensure_ascii=False).encode('utf-8')).hexdigest()
   segments=[]
   for file_index,item in enumerate(files):
