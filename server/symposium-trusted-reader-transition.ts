@@ -515,8 +515,6 @@ export function createSealedReaderReviewTransition(deps: SealedReaderTransitionD
         )
           throw new Error('Complete sealed review pages required');
         const { seat } = currentSeat(context.sessionId, prep.actorSeatId);
-        if (pages.length > 1 && seat.accountBinding?.provider === 'anthropic-vertex')
-          throw new Error('Sealed review page retrieval unavailable for this reviewer provider');
         if (!deps.retainReviewPages) throw new Error('Sealed reviewer page retrieval unavailable');
         await deps.retainReviewPages({
           sessionId: context.sessionId,

@@ -58,16 +58,20 @@ describe('Claude Vertex sealed page feed', () => {
     });
     const markHostDelivered = vi.fn();
     const providerEvents: string[] = [];
-    const readForHost = vi.fn((pageIndex: number) => ({
-      context: `sealed-${pageIndex}`,
-      receipt: {
-        pageIndex,
-        pageCount: 2,
-        contextSha256: `hash-${pageIndex}`,
-        evidenceSha256: 'e'.repeat(64),
-        pagesSha256: 'p'.repeat(64),
-      },
-    }));
+    let dispatched = false;
+    const readForHost = vi.fn((pageIndex: number) => {
+      if (!dispatched) throw new Error('Page read before charged dispatch');
+      return {
+        context: `sealed-${pageIndex}`,
+        receipt: {
+          pageIndex,
+          pageCount: 2,
+          contextSha256: `hash-${pageIndex}`,
+          evidenceSha256: 'e'.repeat(64),
+          pagesSha256: 'p'.repeat(64),
+        },
+      };
+    });
     const native = await createClaudeVertexSeat({
       sandbox,
       route,
@@ -80,7 +84,13 @@ describe('Claude Vertex sealed page feed', () => {
     const argv = claudeVertexArgv(route, execution, true);
     expect(argv).toContain('--input-format');
     const thread = argv[argv.indexOf('--session-id') + 1];
-    const run = native.run(execution, { beforeDispatch: vi.fn(), accepted: vi.fn() });
+    expect(readForHost).not.toHaveBeenCalled();
+    const run = native.run(execution, {
+      beforeDispatch: () => {
+        dispatched = true;
+      },
+      accepted: vi.fn(),
+    });
     const lines = () =>
       sent
         .trim()
