@@ -9,6 +9,7 @@ import type { SymposiumNativeSeat } from './symposium-openshell-seat-executor.js
 import { symposiumSeatRuntimeId, type SymposiumSeatRoute } from './symposium-seat-runtime.js';
 import { symposiumSeatSystemPrompt } from './symposium-seat-prompt.js';
 import type { createSymposiumNativeReviewTool } from './symposium-native-review-tool.js';
+import { ARTIFACT_REVIEW_MAX_PAGES } from './symposium-artifact-git-export.js';
 
 type ClaudeRoute = Extract<SymposiumSeatRoute, { kind: 'claude-vertex' }>;
 
@@ -253,7 +254,7 @@ export async function createClaudeVertexSeat(
     throw new Error('Sealed review page count is missing');
   const pageCount: number =
     typeof firstPage?.receipt.pageCount === 'number' ? firstPage.receipt.pageCount : 1;
-  if (!Number.isSafeInteger(pageCount) || pageCount < 1 || pageCount > 1024)
+  if (!Number.isSafeInteger(pageCount) || pageCount < 1 || pageCount > ARTIFACT_REVIEW_MAX_PAGES)
     throw new Error('Sealed review page count is invalid');
   if (
     firstPage &&

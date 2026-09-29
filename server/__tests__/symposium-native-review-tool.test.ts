@@ -77,7 +77,7 @@ describe('reviewer sealed page native tool', () => {
         pageIndex: 1,
       }),
     );
-    expect(verifyCurrent).toHaveBeenCalledTimes(2);
+    expect(verifyCurrent).toHaveBeenCalledTimes(3);
     expect(markReviewPageDelivered).not.toHaveBeenCalled();
     tool.onToolResultDurable(SYMPOSIUM_READ_REVIEW_PAGE_TOOL, { pageIndex: 1 }, result, {
       turnId: 'turn',
@@ -110,7 +110,7 @@ describe('reviewer sealed page native tool', () => {
         callId: 'call',
       } as never);
     expect((await call({ pageIndex: 1, workflowId: 'other' })).isError).toBe(true);
-    expect((await call({ pageIndex: 2048 })).isError).toBe(true);
+    expect((await call({ pageIndex: 32768 })).isError).toBe(true);
     expect(readReviewPage).not.toHaveBeenCalled();
     const stale = createSymposiumNativeReviewTool({
       reviews: {
