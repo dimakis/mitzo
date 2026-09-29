@@ -63,7 +63,7 @@ describe('reviewer sealed page native tool', () => {
     expect(tool.tools?.map((item) => item.name)).toEqual([SYMPOSIUM_READ_REVIEW_PAGE_TOOL]);
     const result = await tool.executeTool(
       SYMPOSIUM_READ_REVIEW_PAGE_TOOL,
-      { pageIndex: 1 },
+      { pageIndex: 1, previousChallenge: 'a'.repeat(64) },
       new AbortController().signal,
       { turnId: 'turn', callId: 'call' } as never,
     );
@@ -81,15 +81,21 @@ describe('reviewer sealed page native tool', () => {
     );
     expect(verifyCurrent).toHaveBeenCalledTimes(3);
     expect(markReviewPageDelivered).not.toHaveBeenCalled();
-    tool.onToolResultDurable(SYMPOSIUM_READ_REVIEW_PAGE_TOOL, { pageIndex: 1 }, result, {
-      turnId: 'turn',
-      callId: 'call',
-    });
+    tool.onToolResultDurable(
+      SYMPOSIUM_READ_REVIEW_PAGE_TOOL,
+      { pageIndex: 1, previousChallenge: 'a'.repeat(64) },
+      result,
+      {
+        turnId: 'turn',
+        callId: 'call',
+      },
+    );
     expect(issueReviewPageChallenge).toHaveBeenCalledWith({
       workflowId: 'workflow-1',
       attemptId: 'attempt-1',
       pageIndex: 1,
       contextSha256: createHash('sha256').update('{"pageIndex":1}').digest('hex'),
+      previousChallenge: 'a'.repeat(64),
     });
     expect(JSON.parse(result.content).deliveryChallenge).toBe('d'.repeat(64));
     expect(markReviewPageDelivered).not.toHaveBeenCalled();
@@ -114,8 +120,13 @@ describe('reviewer sealed page native tool', () => {
         turnId: 'turn',
         callId: 'call',
       } as never);
-    expect((await call({ pageIndex: 1, workflowId: 'other' })).isError).toBe(true);
-    expect((await call({ pageIndex: 32768 })).isError).toBe(true);
+    expect(
+      (await call({ pageIndex: 1, previousChallenge: 'a'.repeat(64), workflowId: 'other' }))
+        .isError,
+    ).toBe(true);
+    expect((await call({ pageIndex: 32768, previousChallenge: 'a'.repeat(64) })).isError).toBe(
+      true,
+    );
     expect(readReviewPage).not.toHaveBeenCalled();
     const stale = createSymposiumNativeReviewTool({
       reviews: {
@@ -132,7 +143,7 @@ describe('reviewer sealed page native tool', () => {
       (
         await stale.executeTool(
           SYMPOSIUM_READ_REVIEW_PAGE_TOOL,
-          { pageIndex: 1 },
+          { pageIndex: 1, previousChallenge: 'a'.repeat(64) },
           new AbortController().signal,
           { turnId: 'turn', callId: 'call' } as never,
         )
@@ -162,7 +173,7 @@ describe('reviewer sealed page native tool', () => {
     });
     const result = await tool.executeTool(
       SYMPOSIUM_READ_REVIEW_PAGE_TOOL,
-      { pageIndex: 1 },
+      { pageIndex: 1, previousChallenge: 'a'.repeat(64) },
       new AbortController().signal,
       { turnId: 'turn', callId: 'call' } as never,
     );
@@ -192,7 +203,7 @@ describe('reviewer sealed page native tool', () => {
     });
     const result = await tool.executeTool(
       SYMPOSIUM_READ_REVIEW_PAGE_TOOL,
-      { pageIndex: 1 },
+      { pageIndex: 1, previousChallenge: 'a'.repeat(64) },
       new AbortController().signal,
       { turnId: 'turn', callId: 'call' } as never,
     );

@@ -127,14 +127,9 @@ const reviewOutput = z.strictObject({
   findings: z.array(finding),
   resolvedFingerprints: z.array(z.string().regex(/^[a-f0-9]{64}$/)),
   failure: z.string().trim().min(1).optional(),
-  pageAcknowledgements: z
-    .array(
-      z.strictObject({
-        pageIndex: z.number().int().positive(),
-        challenge: z.string().regex(/^[a-f0-9]{64}$/),
-      }),
-    )
-    .max(63)
+  lastPageChallenge: z
+    .string()
+    .regex(/^[a-f0-9]{64}$/)
     .optional(),
 });
 const contentHash = (value: string) => createHash('sha256').update(value, 'utf8').digest('hex');
@@ -679,7 +674,7 @@ export function createSymposiumTrustedReviewHost(
         !deps.reviews.hasCompleteReviewPageCoverage(
           done.attempt.workflowId,
           attemptId,
-          output.pageAcknowledgements ?? [],
+          output.lastPageChallenge,
           done.observation.identity.accountBinding.provider !== 'anthropic-vertex',
         )
       )

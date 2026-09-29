@@ -621,9 +621,31 @@ export class SymposiumReviewStore {
     attemptId: string;
     pageIndex: number;
     contextSha256: string;
+    previousChallenge: string;
   }): string {
     return this.db
       .transaction(() => {
+        if (
+          !Number.isSafeInteger(input.pageIndex) ||
+          input.pageIndex < 1 ||
+          !/^[a-f0-9]{64}$/.test(input.previousChallenge)
+        )
+          throw new Error('Sequential review page challenge required');
+        const previous = this.db
+          .prepare(
+            `SELECT receipt,delivery_challenge FROM symposium_review_context_pages
+           WHERE workflow_id=? AND attempt_id=? AND page_index=?`,
+          )
+          .get(input.workflowId, input.attemptId, input.pageIndex - 1) as
+          { receipt: string; delivery_challenge: string | null } | undefined;
+        const expectedPrevious =
+          input.pageIndex === 1
+            ? previous
+              ? (JSON.parse(previous.receipt) as { contextSha256?: string }).contextSha256
+              : undefined
+            : previous?.delivery_challenge;
+        if (!expectedPrevious || input.previousChallenge !== expectedPrevious)
+          throw new Error('Sequential review page challenge required');
         const row = this.db
           .prepare(
             `SELECT delivery_challenge FROM symposium_review_context_pages
@@ -649,7 +671,7 @@ export class SymposiumReviewStore {
   hasCompleteReviewPageCoverage(
     workflowId: string,
     attemptId: string,
-    acknowledgements: readonly { pageIndex: number; challenge: string }[] = [],
+    lastPageChallenge?: string,
     requireToolChallenges = false,
   ): boolean {
     const pages = this.db
@@ -663,21 +685,15 @@ export class SymposiumReviewStore {
       accessed: number;
       delivery_challenge: string | null;
     }>;
-    if (
-      !pages.length ||
-      pages.length !== pages[0].page_count ||
-      acknowledgements.length > pages.length - 1
-    )
-      return false;
-    const ack = new Map(acknowledgements.map(({ pageIndex, challenge }) => [pageIndex, challenge]));
-    if (ack.size !== acknowledgements.length) return false;
+    if (!pages.length || pages.length !== pages[0].page_count) return false;
     return pages.every((page, index) => {
       if (page.page_index !== index || page.page_count !== pages.length) return false;
-      if (index > 0 && requireToolChallenges)
-        return Boolean(page.delivery_challenge) && ack.get(index) === page.delivery_challenge;
-      return page.delivery_challenge
-        ? ack.get(index) === page.delivery_challenge
-        : page.accessed === 1;
+      if (requireToolChallenges) {
+        if (index === 0) return page.accessed === 1;
+        if (!page.delivery_challenge) return false;
+        return index < pages.length - 1 || lastPageChallenge === page.delivery_challenge;
+      }
+      return page.accessed === 1;
     });
   }
 
