@@ -20,12 +20,12 @@ The exact build inputs are
 [`Dockerfile.codex-0.155.1-normalized-measure`](../spikes/openshell-codex/Dockerfile.codex-0.155.1-normalized-measure),
 and [`normalize-symposium-codex-0.155.1-measure.py`](../spikes/openshell-codex/normalize-symposium-codex-0.155.1-measure.py).
 
-| Root-owned regular executable | SHA256 |
-| --- | --- |
-| `/usr/bin/codex` | `298d3d73d0bbc1367e58a370df5b6216fe30ce0a92e8b6b0afb0377a958dc335` |
-| `/usr/bin/codex-code-mode-host` | `7348d1c1cee36270b5599da24ed431e1ac6372666a94bb09e09ef87d1bc9e3b8` |
-| `/usr/local/bin/symposium-attempt-controller` | `d9f995cd0871ca63be4efa3c5d5760094af9c07496e1acf5d838acf8b55f2209` |
-| `/usr/local/bin/symposium-seat-landlock` | `286c37e476c145df22216402310b20ac7a7ac735d6280a1293b800299b76801f` |
+| Root-owned regular executable                      | SHA256                                                             |
+| -------------------------------------------------- | ------------------------------------------------------------------ |
+| `/usr/bin/codex`                                   | `298d3d73d0bbc1367e58a370df5b6216fe30ce0a92e8b6b0afb0377a958dc335` |
+| `/usr/bin/codex-code-mode-host`                    | `7348d1c1cee36270b5599da24ed431e1ac6372666a94bb09e09ef87d1bc9e3b8` |
+| `/usr/local/bin/symposium-attempt-controller`      | `d9f995cd0871ca63be4efa3c5d5760094af9c07496e1acf5d838acf8b55f2209` |
+| `/usr/local/bin/symposium-seat-landlock`           | `286c37e476c145df22216402310b20ac7a7ac735d6280a1293b800299b76801f` |
 | `/usr/local/bin/symposium-subscription-app-server` | `ffb14857502305d354143e475ad8b417aa733857254b6d3e34b66023e444adfb` |
 
 The package JSON SHA256 was
