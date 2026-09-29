@@ -218,6 +218,11 @@ function fixture() {
   let reviewContext = pageContext('tested');
   let reviewPageTexts = [reviewContext];
   const exportedPageBatches: number[] = [];
+  const releasedReviewStreams: string[] = [];
+  let releaseReadyCount = 0;
+  let failExportAfterReady = false;
+  let failRelease = false;
+  let malformedPagesDigest = false;
   let failAfterFirstRetain = false;
   let contextRevision = commit;
   const completedSeal = {
@@ -253,7 +258,9 @@ function fixture() {
       exportedPageBatches.push(page);
       if (fenceId !== seal.fenceId || baseBranch !== 'main')
         throw new Error('Context selector changed');
-      const pagesSha256 = sha(canonicalReviewJson(reviewPageTexts));
+      const pagesSha256 = malformedPagesDigest
+        ? 'invalid'
+        : sha(canonicalReviewJson(reviewPageTexts));
       const pageReceipts = reviewPageTexts
         .slice(page, page + ARTIFACT_REVIEW_BATCH_PAGES)
         .map((context, index) => ({
@@ -275,6 +282,10 @@ function fixture() {
             completedAt: 1,
           },
         }));
+      if (failExportAfterReady) {
+        failExportAfterReady = false;
+        throw new Error('lost completed stream response');
+      }
       return {
         context: reviewPageTexts[page],
         pages: pageReceipts,
@@ -289,6 +300,16 @@ function fixture() {
       }
     },
     assertRetainedReviewPagesComplete: (input) => reviews.assertRetainedReviewPagesComplete(input),
+    releaseCompletedReviewStream: (input) => {
+      releasedReviewStreams.push(input.pagesSha256);
+      if (failRelease) {
+        failRelease = false;
+        throw new Error('stream release failed');
+      }
+    },
+    releaseReadyReviewStream: () => {
+      releaseReadyCount++;
+    },
     markReviewPromptPageDelivered: () => {},
     currentArtifact: () => ({ revision: commit, hash: treeDigest }),
     verifyReviewer: () => true,
@@ -318,6 +339,17 @@ function fixture() {
     failAfterFirstRetain: () => {
       failAfterFirstRetain = true;
     },
+    failExportAfterReady: () => {
+      failExportAfterReady = true;
+    },
+    failRelease: () => {
+      failRelease = true;
+    },
+    setMalformedPagesDigest: () => {
+      malformedPagesDigest = true;
+    },
+    releasedReviewStreams,
+    getReleaseReadyCount: () => releaseReadyCount,
     setReviewContext: (value: string) => {
       try {
         const parsed = JSON.parse(value);
@@ -363,6 +395,7 @@ it('charges first review before reader admission and recovers an exact staged de
     expect(f.events.getActiveSymposiumConfig('symposium').revision).toBe(4);
     f.setLoseStageResponse();
     await expect(f.owner.transition.apply(f.context, prep)).rejects.toThrow(/lost stage response/);
+    expect(f.releasedReviewStreams).toHaveLength(1);
     expect(f.events.getSymposiumDelivery('delivery-1')!.originalContent).toContain(
       '"data":"tested"',
     );
@@ -379,6 +412,7 @@ it('charges first review before reader admission and recovers an exact staged de
       /charged preparation/,
     );
     const completed = await f.owner.transition.apply(f.context, prep);
+    expect(f.releasedReviewStreams).toHaveLength(2);
     expect(completed.attempt.binding).toMatchObject({
       deliveryId: 'delivery-1',
       configRevision: 5,
@@ -426,6 +460,7 @@ it('rejects mismatched or oversized sealed context before reader admission', asy
     await expect(f.owner.transition.apply(f.context, prep)).rejects.toThrow(
       'Exact bounded sealed review page required',
     );
+    expect(f.releasedReviewStreams).toEqual([sha(canonicalReviewJson([pageContext('tested')]))]);
     expect(f.events.getActiveSymposiumConfig('symposium').revision).toBe(4);
     expect(f.events.getLatestSymposiumAdmission('symposium', 'reviewer', 5)).toBeUndefined();
     f.setContextRevision(commit);
@@ -433,7 +468,71 @@ it('rejects mismatched or oversized sealed context before reader admission', asy
     await expect(f.owner.transition.apply(f.context, prep)).rejects.toThrow(
       /Unexpected token|not valid JSON/,
     );
+    expect(f.releasedReviewStreams).toHaveLength(2);
     expect(f.events.getActiveSymposiumConfig('symposium').revision).toBe(4);
+  } finally {
+    f.leaseHost.close();
+    f.reviews.close();
+    f.events.close();
+  }
+});
+
+it('releases a ready stream after a lost export response or malformed returned digest', async () => {
+  const f = fixture();
+  try {
+    const prep = await f.owner.transition.prepare({
+      context: f.context,
+      workflowId: 'workflow',
+      attemptId: 'review-1',
+      kind: 'review',
+      selection: f.reviews.get('workflow')!.reviewer,
+      artifactRevision: commit,
+      artifactHash: treeDigest,
+      policy: f.reviews.get('workflow')!.limits as any,
+    });
+    f.reviews.reserveApplicationPreparation(prep);
+    f.failExportAfterReady();
+    await expect(f.owner.transition.apply(f.context, prep)).rejects.toThrow(
+      'lost completed stream response',
+    );
+    expect(f.getReleaseReadyCount()).toBe(1);
+    f.setMalformedPagesDigest();
+    await expect(f.owner.transition.apply(f.context, prep)).rejects.toThrow(
+      'Complete sealed review pages required',
+    );
+    expect(f.getReleaseReadyCount()).toBe(2);
+    expect(f.events.getActiveSymposiumConfig('symposium').revision).toBe(4);
+    expect(f.events.getLatestSymposiumAdmission('symposium', 'reviewer', 5)).toBeUndefined();
+  } finally {
+    f.leaseHost.close();
+    f.reviews.close();
+    f.events.close();
+  }
+});
+
+it('aborts before reader admission when exact stream release fails', async () => {
+  const f = fixture();
+  try {
+    const prep = await f.owner.transition.prepare({
+      context: f.context,
+      workflowId: 'workflow',
+      attemptId: 'review-1',
+      kind: 'review',
+      selection: f.reviews.get('workflow')!.reviewer,
+      artifactRevision: commit,
+      artifactHash: treeDigest,
+      policy: f.reviews.get('workflow')!.limits as any,
+    });
+    f.reviews.reserveApplicationPreparation(prep);
+    f.failRelease();
+    await expect(f.owner.transition.apply(f.context, prep)).rejects.toThrow(
+      'stream release failed',
+    );
+    expect(f.events.getActiveSymposiumConfig('symposium').revision).toBe(4);
+    expect(f.events.getLatestSymposiumAdmission('symposium', 'reviewer', 5)).toBeUndefined();
+    expect(f.releasedReviewStreams).toHaveLength(2); // strict call plus failure cleanup
+    await f.owner.transition.apply(f.context, prep);
+    expect(f.events.getActiveSymposiumConfig('symposium').revision).toBe(5);
   } finally {
     f.leaseHost.close();
     f.reviews.close();
@@ -631,6 +730,7 @@ it('fetches a second sealed helper batch before admitting the reviewer', async (
     await expect(f.owner.transition.apply(f.context, prep)).rejects.toThrow(
       'simulated crash after first durable batch',
     );
+    expect(f.releasedReviewStreams).toEqual([sha(canonicalReviewJson(pages))]);
     const db = new Database(f.reviewPath);
     const retained = db
       .prepare(
@@ -640,6 +740,10 @@ it('fetches a second sealed helper batch before admitting the reviewer', async (
     expect(retained.count).toBe(ARTIFACT_REVIEW_BATCH_PAGES);
     db.close();
     await f.owner.transition.apply(f.context, prep);
+    expect(f.releasedReviewStreams).toEqual([
+      sha(canonicalReviewJson(pages)),
+      sha(canonicalReviewJson(pages)),
+    ]);
     expect(f.exportedPageBatches).toEqual([
       0,
       ARTIFACT_REVIEW_BATCH_PAGES,
