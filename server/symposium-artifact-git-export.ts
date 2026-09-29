@@ -3,7 +3,7 @@ import { ARTIFACT_GIT_VERIFIER_CORE } from './symposium-artifact-git-verifier.js
 // The 1 MiB history-path input expands at most threefold in ASCII JSON; metadata is bounded.
 export const ARTIFACT_INSPECTION_MAX_OUTPUT_BYTES = 4 * 1024 * 1024;
 export const ARTIFACT_REVIEW_CONTEXT_MAX_BYTES = 48 * 1024;
-export const ARTIFACT_REVIEW_CONTEXT_MAX_OUTPUT_BYTES = 128 * 1024;
+export const ARTIFACT_REVIEW_CONTEXT_MAX_OUTPUT_BYTES = 2 * 1024 * 1024;
 /** Entire script runs inside the pinned, credential-free read-only helper. */
 export const ARTIFACT_GIT_EXPORT =
   ARTIFACT_GIT_VERIFIER_CORE +
@@ -98,6 +98,50 @@ if options['kind']=='review_context':
   else:
    representation='absent' # Changed in history, but absent at both endpoints.
   files.append({'path':path,'status':'present' if source else 'deleted','baseMode':base_modes.get(path),'mode':source['mode'] if source else None,'sha256':source['sha256'] if source else None,'bytes':source['bytes'] if source else None,'representation':representation,'complete':True,'content':content if representation=='content' else None,'contentTruncated':False,'diff':diff if representation=='diff' else None,'diffSha256':hashlib.sha256(diff_bytes).hexdigest(),'diffBytes':len(diff_bytes),'diffTruncated':False})
+ if 'page' in options:
+  page=options['page']
+  if type(page)!=int or page!=0: raise ValueError('review page')
+  identity={'version':3,'scope':'sealed-changed-path-pages','sourceOid':commit,'baseOid':review_base_oid,'sourceBranch':source_branch,'baseBranch':base_branch,'committedTreeDigest':proof['committedTreeDigest'],'manifestDigest':proof['manifestDigest'],'trackedFileCount':proof['entries'],'changedPathCount':len(paths)}
+  descriptors=[{key:item[key] for key in ('path','status','baseMode','mode','sha256','bytes','representation','diffSha256','diffBytes')} for item in files]
+  # Each page is re-derived from the pinned Git tree by a fresh helper. Keep the
+  # complete selection bounded before emitting any page to limit repeated work.
+  selected_bytes=sum(len((item[item['representation']] if item['representation'] in ('diff','content') else '').encode('utf-8')) for item in files)
+  if selected_bytes>1048576: raise ValueError('review evidence total byte bound')
+  evidence_sha=hashlib.sha256(json.dumps({'identity':identity,'files':descriptors},sort_keys=True,separators=(',',':'),ensure_ascii=False).encode('utf-8')).hexdigest()
+  segments=[]
+  for item in files:
+   selected=item['representation']
+   data=item[selected] if selected in ('diff','content') else ''
+   raw=data.encode('utf-8')
+   parts=[]
+   if not raw: parts=['']
+   else:
+    start=0
+    while start<len(raw):
+     end=min(start+16384,len(raw))
+     while end>start:
+      try: part=raw[start:end].decode('utf-8','strict');break
+      except UnicodeDecodeError: end-=1
+     if end==start: raise ValueError('review UTF-8 page')
+     parts.append(part);start=end
+   selected_sha=hashlib.sha256(raw).hexdigest()
+   for index,part in enumerate(parts):
+    segments.append({'path':item['path'],'status':item['status'],'baseMode':item['baseMode'],'mode':item['mode'],'sha256':item['sha256'],'bytes':item['bytes'],'representation':selected,'diffSha256':item['diffSha256'],'diffBytes':item['diffBytes'],'selectedSha256':selected_sha,'selectedBytes':len(raw),'segmentIndex':index,'segmentCount':len(parts),'data':part,'segmentSha256':hashlib.sha256(part.encode('utf-8')).hexdigest()})
+  pages=[];current=[]
+  def encoded_page(parts,index,total):
+   return json.dumps({**identity,'evidenceSha256':evidence_sha,'pageIndex':index,'pageCount':total,'segments':parts},sort_keys=True,separators=(',',':'),ensure_ascii=False)
+  for segment in segments:
+   if current and len(encoded_page(current+[segment],65535,65535).encode('utf-8'))>${ARTIFACT_REVIEW_CONTEXT_MAX_BYTES}:
+    pages.append(current);current=[]
+   if len(encoded_page([segment],65535,65535).encode('utf-8'))>${ARTIFACT_REVIEW_CONTEXT_MAX_BYTES}: raise ValueError('review segment metadata bound')
+   current.append(segment)
+  if current: pages.append(current)
+  if not pages or len(pages)>64: raise ValueError('review page unavailable')
+  encoded_pages=[encoded_page(parts,index,len(pages)) for index,parts in enumerate(pages)]
+  if any(len(encoded.encode('utf-8'))>${ARTIFACT_REVIEW_CONTEXT_MAX_BYTES} for encoded in encoded_pages): raise ValueError('review page byte bound')
+  pages_digest=hashlib.sha256(json.dumps(encoded_pages,sort_keys=True,separators=(',',':'),ensure_ascii=False).encode('utf-8')).hexdigest()
+  print(json.dumps({'proof':proof,'context':encoded_pages[0],'contextSha256':hashlib.sha256(encoded_pages[0].encode('utf-8')).hexdigest(),'pages':encoded_pages,'pagesSha256':pages_digest},sort_keys=True,ensure_ascii=False))
+  sys.exit(0)
  context={'version':2,'scope':'bounded-changed-path-evidence','sourceOid':commit,'baseOid':review_base_oid,'sourceBranch':source_branch,'baseBranch':base_branch,'committedTreeDigest':proof['committedTreeDigest'],'manifestDigest':proof['manifestDigest'],'trackedFileCount':proof['entries'],'changedPathCount':len(paths),'omittedPathCount':0,'files':[]}
  for item in files:
   context['files'].append(item)

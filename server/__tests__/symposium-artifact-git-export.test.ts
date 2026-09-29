@@ -221,6 +221,55 @@ it('truncates a large changed file without losing its sealed identity', () => {
     diffTruncated: false,
   });
 });
+it('exports a large changed diff as complete, identity-bound pages', () => {
+  const f = fixture((root) =>
+    writeFileSync(join(root, 'large.txt'), 'X'.repeat(ARTIFACT_REVIEW_CONTEXT_MAX_BYTES * 2)),
+  );
+  const exported = f.run({ kind: 'review_context', page: 0 });
+  const first = JSON.parse(exported.context);
+  expect(exported.pagesSha256).toBe(
+    createHash('sha256').update(JSON.stringify(exported.pages)).digest('hex'),
+  );
+  expect(first.version).toBe(3);
+  expect(first.pageCount).toBeGreaterThan(1);
+  const pages = exported.pages.map((encoded: string, page: number) => {
+    expect(Buffer.byteLength(encoded)).toBeLessThanOrEqual(ARTIFACT_REVIEW_CONTEXT_MAX_BYTES);
+    const context = JSON.parse(encoded);
+    expect(context).toMatchObject({
+      pageIndex: page,
+      pageCount: first.pageCount,
+      evidenceSha256: first.evidenceSha256,
+      sourceOid: first.sourceOid,
+      baseOid: first.baseOid,
+    });
+    return context;
+  });
+  const segments = pages
+    .flatMap((page) => page.segments)
+    .filter((segment) => segment.path === 'large.txt');
+  expect(segments.map((segment) => segment.segmentIndex)).toEqual(
+    Array.from({ length: segments.length }, (_, index) => index),
+  );
+  const complete = segments.map((segment) => segment.data).join('');
+  expect(Buffer.byteLength(complete)).toBe(segments[0].selectedBytes);
+  expect(createHash('sha256').update(complete).digest('hex')).toBe(segments[0].selectedSha256);
+  expect(complete).toContain('X'.repeat(ARTIFACT_REVIEW_CONTEXT_MAX_BYTES));
+});
+it('pages many changed paths without omitting one', () => {
+  const f = fixture((root) => {
+    for (let i = 0; i < 100; i++)
+      writeFileSync(join(root, `changed-${String(i).padStart(3, '0')}.txt`), 'X'.repeat(1000));
+  });
+  const exported = f.run({ kind: 'review_context', page: 0 });
+  const first = JSON.parse(exported.context);
+  const paths = new Set<string>();
+  for (const encoded of exported.pages) {
+    const context = JSON.parse(encoded);
+    for (const segment of context.segments) paths.add(segment.path);
+  }
+  expect(paths.size).toBe(first.changedPathCount);
+  expect(paths.has('changed-099.txt')).toBe(true);
+}, 60_000);
 it('does not require the whole tracked manifest in a small change review', () => {
   const f = fixture(undefined, (root) => {
     for (let i = 0; i < 250; i++)

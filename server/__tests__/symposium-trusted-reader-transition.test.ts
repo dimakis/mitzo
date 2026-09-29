@@ -14,6 +14,42 @@ import { createSealedReaderReviewTransition } from '../symposium-trusted-reader-
 import { canonicalReviewJson, reviewRecordHash } from '../symposium-review-records.js';
 
 const sha = (value: string) => createHash('sha256').update(value).digest('hex');
+function pageContext(content: string, path = 'marker.txt') {
+  return canonicalReviewJson({
+    version: 3,
+    scope: 'sealed-changed-path-pages',
+    sourceOid: commit,
+    baseOid: 'c'.repeat(40),
+    sourceBranch: 'feature',
+    baseBranch: 'main',
+    committedTreeDigest: treeDigest,
+    manifestDigest: 'e'.repeat(64),
+    trackedFileCount: 0,
+    changedPathCount: 1,
+    evidenceSha256: 'd'.repeat(64),
+    pageIndex: 0,
+    pageCount: 1,
+    segments: [
+      {
+        path,
+        status: 'present',
+        baseMode: null,
+        mode: '100644',
+        sha256: sha(content),
+        bytes: Buffer.byteLength(content),
+        representation: 'content',
+        diffSha256: sha(''),
+        diffBytes: 0,
+        selectedSha256: sha(content),
+        selectedBytes: Buffer.byteLength(content),
+        segmentIndex: 0,
+        segmentCount: 1,
+        data: content,
+        segmentSha256: sha(content),
+      },
+    ],
+  });
+}
 const commit = 'a'.repeat(40);
 const treeDigest = 'b'.repeat(64);
 const profile = new AccountProfiles([
@@ -178,29 +214,8 @@ function fixture() {
   });
   const context = { owner: 'user', sessionId: 'symposium' };
   let loseStageResponse = false;
-  let reviewContext = JSON.stringify({
-    version: 2,
-    sourceOid: commit,
-    baseOid: 'c'.repeat(40),
-    baseBranch: 'main',
-    committedTreeDigest: treeDigest,
-    manifestDigest: 'e'.repeat(64),
-    trackedFileCount: 0,
-    changedPathCount: 1,
-    omittedPathCount: 0,
-    files: [
-      {
-        path: 'marker.txt',
-        status: 'present',
-        representation: 'content',
-        complete: true,
-        content: 'tested',
-        diff: null,
-        contentTruncated: false,
-        diffTruncated: false,
-      },
-    ],
-  });
+  let reviewContext = pageContext('tested');
+  let reviewPageTexts = [reviewContext];
   let contextRevision = commit;
   const completedSeal = {
     kind: 'completed_artifact_seal' as const,
@@ -234,8 +249,9 @@ function fixture() {
     exportReviewContext: async ({ fenceId, operationId, baseBranch }) => {
       if (fenceId !== seal.fenceId || baseBranch !== 'main')
         throw new Error('Context selector changed');
-      return {
-        context: reviewContext,
+      const pagesSha256 = sha(canonicalReviewJson(reviewPageTexts));
+      const pageReceipts = reviewPageTexts.map((context, pageIndex) => ({
+        context,
         receipt: {
           jobId: '11111111-1111-4111-8111-111111111111',
           operationId,
@@ -245,11 +261,22 @@ function fixture() {
           artifactHash: treeDigest,
           baseOid: 'c'.repeat(40),
           sourceOid: commit,
-          contextSha256: sha(reviewContext),
+          contextSha256: sha(context),
+          pageIndex,
+          pageCount: reviewPageTexts.length,
+          evidenceSha256: 'd'.repeat(64),
+          pagesSha256,
           completedAt: 1,
         },
+      }));
+      return {
+        context: reviewPageTexts[0],
+        pages: pageReceipts,
+        receipt: pageReceipts[0].receipt,
       };
     },
+    retainReviewPages: () => {},
+    markReviewPromptPageDelivered: () => {},
     currentArtifact: () => ({ revision: commit, hash: treeDigest }),
     verifyReviewer: () => true,
     runtime: () => ({
@@ -276,7 +303,23 @@ function fixture() {
       loseStageResponse = true;
     },
     setReviewContext: (value: string) => {
-      reviewContext = value;
+      try {
+        const parsed = JSON.parse(value);
+        const file = parsed.version === 2 && parsed.files?.[0];
+        reviewContext =
+          file?.complete &&
+          parsed.omittedPathCount === 0 &&
+          parsed.changedPathCount === 1 &&
+          file.representation === 'content'
+            ? pageContext(file.content, file.path)
+            : value;
+      } catch {
+        reviewContext = value;
+      }
+      reviewPageTexts = [reviewContext];
+    },
+    setReviewPages: (pages: string[]) => {
+      reviewPageTexts = pages;
     },
     setContextRevision: (value: string) => {
       contextRevision = value;
@@ -304,7 +347,7 @@ it('charges first review before reader admission and recovers an exact staged de
     f.setLoseStageResponse();
     await expect(f.owner.transition.apply(f.context, prep)).rejects.toThrow(/lost stage response/);
     expect(f.events.getSymposiumDelivery('delivery-1')!.originalContent).toContain(
-      '"content":"tested"',
+      '"data":"tested"',
     );
     expect(f.events.getActiveSymposiumConfig('symposium').revision).toBe(5);
     expect(f.events.getLatestSymposiumAdmission('symposium', 'reviewer', 5)).toMatchObject({
@@ -364,14 +407,14 @@ it('rejects mismatched or oversized sealed context before reader admission', asy
     f.reviews.reserveApplicationPreparation(prep);
     f.setContextRevision('f'.repeat(40));
     await expect(f.owner.transition.apply(f.context, prep)).rejects.toThrow(
-      'Exact bounded sealed review context required',
+      'Exact bounded sealed review page required',
     );
     expect(f.events.getActiveSymposiumConfig('symposium').revision).toBe(4);
     expect(f.events.getLatestSymposiumAdmission('symposium', 'reviewer', 5)).toBeUndefined();
     f.setContextRevision(commit);
     f.setReviewContext('x'.repeat(48 * 1024 + 1));
     await expect(f.owner.transition.apply(f.context, prep)).rejects.toThrow(
-      'Exact bounded sealed review context required',
+      /Unexpected token|not valid JSON/,
     );
     expect(f.events.getActiveSymposiumConfig('symposium').revision).toBe(4);
   } finally {
@@ -425,7 +468,7 @@ it('refuses partial review evidence before any reader admission', async () => {
     ]) {
       f.setReviewContext(JSON.stringify(partial));
       await expect(f.owner.transition.apply(f.context, prep)).rejects.toThrow(
-        'Complete sealed review context required',
+        'Exact bounded sealed review page required',
       );
       expect(f.events.getActiveSymposiumConfig('symposium').revision).toBe(4);
       expect(f.events.getLatestSymposiumAdmission('symposium', 'reviewer', 5)).toBeUndefined();
@@ -483,6 +526,49 @@ it('admits a complete 25 KiB changed-file representation', async () => {
       decision: 'admitted',
     });
     expect(f.events.getSymposiumDelivery('delivery-1')?.originalContent).toContain(content);
+  } finally {
+    f.leaseHost.close();
+    f.reviews.close();
+    f.events.close();
+  }
+});
+
+it('admits complete ordered pages and rejects a missing final segment before admission', async () => {
+  const f = fixture();
+  try {
+    const prep = await f.owner.transition.prepare({
+      context: f.context,
+      workflowId: 'workflow',
+      attemptId: 'review-1',
+      kind: 'review',
+      selection: f.reviews.get('workflow')!.reviewer,
+      artifactRevision: commit,
+      artifactHash: treeDigest,
+      policy: f.reviews.get('workflow')!.limits as any,
+    });
+    f.reviews.reserveApplicationPreparation(prep);
+    const original = JSON.parse(pageContext('tested'));
+    const segment = original.segments[0];
+    const pages = ['te', 'sted'].map((data, pageIndex) =>
+      canonicalReviewJson({
+        ...original,
+        pageIndex,
+        pageCount: 2,
+        segments: [
+          { ...segment, data, segmentIndex: pageIndex, segmentCount: 2, segmentSha256: sha(data) },
+        ],
+      }),
+    );
+    const bad = JSON.parse(pages[1]);
+    bad.segments[0].segmentIndex = 2;
+    f.setReviewPages([pages[0], canonicalReviewJson(bad)]);
+    await expect(f.owner.transition.apply(f.context, prep)).rejects.toThrow(/segment/);
+    expect(f.events.getActiveSymposiumConfig('symposium').revision).toBe(4);
+    expect(f.events.getLatestSymposiumAdmission('symposium', 'reviewer', 5)).toBeUndefined();
+    f.setReviewPages(pages);
+    const admitted = await f.owner.transition.apply(f.context, prep);
+    expect(admitted.attempt.binding.deliveryId).toBe('delivery-1');
+    expect(f.events.getSymposiumDelivery('delivery-1')!.originalContent).toContain('page 0');
   } finally {
     f.leaseHost.close();
     f.reviews.close();

@@ -263,6 +263,54 @@ async function fixture(inspectionPaths = ['file']) {
         });
       if (exportOptions?.kind === 'review_context') {
         const fileHash = createHash('sha256').update('hello').digest('hex');
+        if (exportOptions.page === 0) {
+          const identity = {
+            version: 3,
+            scope: 'sealed-changed-path-pages',
+            sourceOid: proof.commit,
+            baseOid: 'b'.repeat(40),
+            sourceBranch: 'feature',
+            baseBranch: 'main',
+            committedTreeDigest: proof.committedTreeDigest,
+            manifestDigest: proof.manifestDigest,
+            trackedFileCount: proof.entries,
+            changedPathCount: 1,
+            evidenceSha256: 'd'.repeat(64),
+            pageCount: 2,
+          };
+          const pages = ['he', 'llo'].map((data, pageIndex) =>
+            canonicalReviewJson({
+              ...identity,
+              pageIndex,
+              segments: [
+                {
+                  path: 'marker.txt',
+                  status: 'present',
+                  baseMode: null,
+                  mode: '100644',
+                  sha256: fileHash,
+                  bytes: 5,
+                  representation: 'content',
+                  diffSha256: createHash('sha256').update('diff').digest('hex'),
+                  diffBytes: 4,
+                  selectedSha256: fileHash,
+                  selectedBytes: 5,
+                  segmentIndex: pageIndex,
+                  segmentCount: 2,
+                  data,
+                  segmentSha256: createHash('sha256').update(data).digest('hex'),
+                },
+              ],
+            }),
+          );
+          return JSON.stringify({
+            proof,
+            context: pages[0],
+            contextSha256: createHash('sha256').update(pages[0]).digest('hex'),
+            pages,
+            pagesSha256: createHash('sha256').update(canonicalReviewJson(pages)).digest('hex'),
+          });
+        }
         const context = canonicalReviewJson({
           version: 2,
           scope: 'bounded-changed-path-evidence',
@@ -655,6 +703,31 @@ it('exports a bounded physically sealed review context and permits exact same-op
       .all(),
   ).toHaveLength(3);
   db.close();
+});
+it('attests every page of one bounded physical review export', async () => {
+  const f = await fixture();
+  const signal = new AbortController().signal;
+  const seal = await f.sealer.seal(f.input, f.runtime, signal);
+  const exported = await f.sealer.exportCompletedReviewContext(
+    { fenceId: seal.fenceId, operationId: 'review-pages-1', baseBranch: 'main', page: 0 },
+    signal,
+  );
+  expect(exported.pages).toHaveLength(2);
+  expect(exported.receipt).toMatchObject({
+    pageIndex: 0,
+    pageCount: 2,
+    evidenceSha256: 'd'.repeat(64),
+  });
+  expect(exported.pages!.map((page) => JSON.parse(page.context).pageIndex)).toEqual([0, 1]);
+  for (const [index, page] of exported.pages!.entries()) {
+    expect(page.receipt).toMatchObject({
+      jobId: exported.receipt.jobId,
+      pagesSha256: exported.receipt.pagesSha256,
+      pageIndex: index,
+      pageCount: 2,
+      contextSha256: createHash('sha256').update(page.context).digest('hex'),
+    });
+  }
 });
 it('rejects changed review context output and retains failed cleanup evidence', async () => {
   const f = await fixture();

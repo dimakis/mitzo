@@ -121,6 +121,7 @@ export interface SuccessorArtifactExportReceipt {
 
 export interface CompletedArtifactReviewContext {
   context: string;
+  pages?: Array<{ context: string; receipt: CompletedArtifactReviewContext['receipt'] }>;
   receipt: {
     version: 1;
     mode: 'review_context';
@@ -134,6 +135,10 @@ export interface CompletedArtifactReviewContext {
     baseOid: string;
     sourceOid: string;
     contextSha256: string;
+    pageIndex?: number;
+    pageCount?: number;
+    evidenceSha256?: string;
+    pagesSha256?: string;
     completedAt: number;
     helper: SuccessorArtifactExportReceipt['helper'];
   };
@@ -523,13 +528,25 @@ export class PhysicalArtifactSealer {
   }
 
   async exportCompletedReviewContext(
-    input: { fenceId: string; operationId: string; baseBranch: string },
+    input: { fenceId: string; operationId: string; baseBranch: string; page?: number },
     signal: AbortSignal,
   ): Promise<CompletedArtifactReviewContext> {
     const value = await this.exportOperation({ ...input, kind: 'review_context' }, signal);
     return {
       context: value.context as string,
       receipt: value.receipt as CompletedArtifactReviewContext['receipt'],
+      ...(Array.isArray(value.pages)
+        ? {
+            pages: (value.pages as string[]).map((context, pageIndex) => ({
+              context,
+              receipt: {
+                ...(value.receipt as CompletedArtifactReviewContext['receipt']),
+                contextSha256: hash(context),
+                pageIndex,
+              },
+            })),
+          }
+        : {}),
     };
   }
 
@@ -651,6 +668,7 @@ export class PhysicalArtifactSealer {
       sourceOid?: string;
       maxBytes?: number;
       checkPath?: string;
+      page?: number;
     },
     signal: AbortSignal,
   ): Promise<Record<string, unknown>> {
@@ -679,6 +697,7 @@ export class PhysicalArtifactSealer {
           .regex(/^[A-Za-z0-9_.-]+(?:\/[A-Za-z0-9_.-]+)*$/)
           .max(512)
           .optional(),
+        page: z.number().int().min(0).max(65535).optional(),
       })
       .parse(raw);
     if (
@@ -728,6 +747,7 @@ export class PhysicalArtifactSealer {
       priorReviewReceipts.some(
         (prior) =>
           prior.contextSha256 !== priorReviewReceipts[0].contextSha256 ||
+          prior.pagesSha256 !== priorReviewReceipts[0].pagesSha256 ||
           prior.sealDigest !== priorReviewReceipts[0].sealDigest ||
           prior.baseOid !== priorReviewReceipts[0].baseOid ||
           prior.sourceOid !== priorReviewReceipts[0].sourceOid,
@@ -881,87 +901,169 @@ export class PhysicalArtifactSealer {
           value.contextSha256 !== hash(value.context)
         )
           throw new Error('Sealed review context integrity changed');
-        const context = z
-          .strictObject({
-            version: z.literal(2),
-            scope: z.literal('bounded-changed-path-evidence'),
-            sourceOid: oid,
-            baseOid: oid,
-            sourceBranch: z.string(),
-            baseBranch: z.string(),
-            committedTreeDigest: z.string().regex(/^[a-f0-9]{64}$/),
-            manifestDigest: z.string().regex(/^[a-f0-9]{64}$/),
-            trackedFileCount: z.number().int().nonnegative(),
-            changedPathCount: z.number().int().positive().max(500),
-            omittedPathCount: z.number().int().nonnegative().max(500),
-            files: z
-              .array(
-                z.strictObject({
-                  path: z.string(),
-                  status: z.enum(['present', 'deleted']),
-                  baseMode: z.enum(['100644', '100755']).nullable(),
-                  mode: z.enum(['100644', '100755']).nullable(),
-                  sha256: z
-                    .string()
-                    .regex(/^[a-f0-9]{64}$/)
-                    .nullable(),
-                  bytes: z.number().int().nonnegative().nullable(),
-                  representation: z.enum(['diff', 'content', 'absent', 'partial']),
-                  complete: z.boolean(),
-                  content: z.string().nullable(),
-                  contentTruncated: z.boolean(),
-                  diff: z.string().nullable(),
-                  diffSha256: z.string().regex(/^[a-f0-9]{64}$/),
-                  diffBytes: z.number().int().nonnegative(),
-                  diffTruncated: z.boolean(),
-                }),
-              )
-              .min(1)
-              .max(500),
-          })
-          .parse(JSON.parse(value.context));
-        if (
-          canonicalReviewJson(context) !== value.context ||
-          context.sourceOid !== receipt.git.commit ||
-          context.baseBranch !== input.baseBranch ||
-          context.committedTreeDigest !== receipt.git.committedTreeDigest ||
-          context.manifestDigest !== receipt.git.manifestDigest ||
-          context.trackedFileCount !== receipt.git.entries ||
-          context.files.length + context.omittedPathCount !== context.changedPathCount ||
-          new Set(context.files.map((file) => file.path)).size !== context.files.length ||
-          context.files.some((file) =>
-            file.status === 'present'
-              ? file.sha256 === null || file.mode === null || file.bytes === null
-              : file.sha256 !== null || file.mode !== null || file.bytes !== null,
-          ) ||
-          context.files.some((file) =>
-            file.representation === 'content' && file.complete
-              ? file.content === null ||
-                file.sha256 !== hash(file.content) ||
-                file.bytes !== Buffer.byteLength(file.content) ||
-                file.diff !== null ||
-                file.contentTruncated ||
-                file.diffTruncated
-              : file.representation === 'diff' && file.complete
-                ? file.diff === null ||
-                  file.content !== null ||
-                  file.diffSha256 !== hash(file.diff) ||
-                  file.diffBytes !== Buffer.byteLength(file.diff) ||
+        if (input.page !== undefined) {
+          if (
+            input.page !== 0 ||
+            !Array.isArray(value.pages) ||
+            value.pages.length === 0 ||
+            value.pages.length > 64 ||
+            value.pages.some(
+              (page) =>
+                typeof page !== 'string' ||
+                Buffer.byteLength(page, 'utf8') > ARTIFACT_REVIEW_CONTEXT_MAX_BYTES,
+            ) ||
+            value.pages[0] !== value.context ||
+            value.pagesSha256 !== hash(canonicalReviewJson(value.pages))
+          )
+            throw new Error('Sealed review page bundle changed');
+          const context = z
+            .strictObject({
+              version: z.literal(3),
+              scope: z.literal('sealed-changed-path-pages'),
+              sourceOid: oid,
+              baseOid: oid,
+              sourceBranch: z.string(),
+              baseBranch: z.string(),
+              committedTreeDigest: z.string().regex(/^[a-f0-9]{64}$/),
+              manifestDigest: z.string().regex(/^[a-f0-9]{64}$/),
+              trackedFileCount: z.number().int().nonnegative(),
+              changedPathCount: z.number().int().positive().max(500),
+              evidenceSha256: z.string().regex(/^[a-f0-9]{64}$/),
+              pageIndex: z.number().int().min(0).max(65535),
+              pageCount: z.number().int().min(1).max(64),
+              segments: z
+                .array(
+                  z.strictObject({
+                    path: z.string(),
+                    status: z.enum(['present', 'deleted']),
+                    baseMode: z.enum(['100644', '100755']).nullable(),
+                    mode: z.enum(['100644', '100755']).nullable(),
+                    sha256: z
+                      .string()
+                      .regex(/^[a-f0-9]{64}$/)
+                      .nullable(),
+                    bytes: z.number().int().nonnegative().nullable(),
+                    representation: z.enum(['diff', 'content', 'absent']),
+                    diffSha256: z.string().regex(/^[a-f0-9]{64}$/),
+                    diffBytes: z.number().int().nonnegative(),
+                    selectedSha256: z.string().regex(/^[a-f0-9]{64}$/),
+                    selectedBytes: z.number().int().nonnegative(),
+                    segmentIndex: z.number().int().nonnegative(),
+                    segmentCount: z.number().int().positive(),
+                    data: z.string(),
+                    segmentSha256: z.string().regex(/^[a-f0-9]{64}$/),
+                  }),
+                )
+                .min(1),
+            })
+            .parse(JSON.parse(value.context));
+          if (
+            canonicalReviewJson(context) !== value.context ||
+            context.sourceOid !== receipt.git.commit ||
+            context.baseBranch !== input.baseBranch ||
+            context.committedTreeDigest !== receipt.git.committedTreeDigest ||
+            context.manifestDigest !== receipt.git.manifestDigest ||
+            context.trackedFileCount !== receipt.git.entries ||
+            context.pageIndex !== input.page ||
+            context.pageIndex >= context.pageCount ||
+            context.pageCount !== value.pages.length ||
+            context.segments.some(
+              (segment) =>
+                segment.segmentIndex >= segment.segmentCount ||
+                segment.segmentSha256 !== hash(segment.data) ||
+                (segment.status === 'present'
+                  ? segment.sha256 === null || segment.mode === null || segment.bytes === null
+                  : segment.sha256 !== null || segment.mode !== null || segment.bytes !== null) ||
+                (segment.representation === 'absent' &&
+                  (segment.status !== 'deleted' ||
+                    segment.data !== '' ||
+                    segment.selectedBytes !== 0)),
+            )
+          )
+            throw new Error('Sealed review page selection changed');
+        } else {
+          const context = z
+            .strictObject({
+              version: z.literal(2),
+              scope: z.literal('bounded-changed-path-evidence'),
+              sourceOid: oid,
+              baseOid: oid,
+              sourceBranch: z.string(),
+              baseBranch: z.string(),
+              committedTreeDigest: z.string().regex(/^[a-f0-9]{64}$/),
+              manifestDigest: z.string().regex(/^[a-f0-9]{64}$/),
+              trackedFileCount: z.number().int().nonnegative(),
+              changedPathCount: z.number().int().positive().max(500),
+              omittedPathCount: z.number().int().nonnegative().max(500),
+              files: z
+                .array(
+                  z.strictObject({
+                    path: z.string(),
+                    status: z.enum(['present', 'deleted']),
+                    baseMode: z.enum(['100644', '100755']).nullable(),
+                    mode: z.enum(['100644', '100755']).nullable(),
+                    sha256: z
+                      .string()
+                      .regex(/^[a-f0-9]{64}$/)
+                      .nullable(),
+                    bytes: z.number().int().nonnegative().nullable(),
+                    representation: z.enum(['diff', 'content', 'absent', 'partial']),
+                    complete: z.boolean(),
+                    content: z.string().nullable(),
+                    contentTruncated: z.boolean(),
+                    diff: z.string().nullable(),
+                    diffSha256: z.string().regex(/^[a-f0-9]{64}$/),
+                    diffBytes: z.number().int().nonnegative(),
+                    diffTruncated: z.boolean(),
+                  }),
+                )
+                .min(1)
+                .max(500),
+            })
+            .parse(JSON.parse(value.context));
+          if (
+            canonicalReviewJson(context) !== value.context ||
+            context.sourceOid !== receipt.git.commit ||
+            context.baseBranch !== input.baseBranch ||
+            context.committedTreeDigest !== receipt.git.committedTreeDigest ||
+            context.manifestDigest !== receipt.git.manifestDigest ||
+            context.trackedFileCount !== receipt.git.entries ||
+            context.files.length + context.omittedPathCount !== context.changedPathCount ||
+            new Set(context.files.map((file) => file.path)).size !== context.files.length ||
+            context.files.some((file) =>
+              file.status === 'present'
+                ? file.sha256 === null || file.mode === null || file.bytes === null
+                : file.sha256 !== null || file.mode !== null || file.bytes !== null,
+            ) ||
+            context.files.some((file) =>
+              file.representation === 'content' && file.complete
+                ? file.content === null ||
+                  file.sha256 !== hash(file.content) ||
+                  file.bytes !== Buffer.byteLength(file.content) ||
+                  file.diff !== null ||
                   file.contentTruncated ||
                   file.diffTruncated
-                : file.representation === 'absent' && file.complete
-                  ? file.status !== 'deleted' ||
+                : file.representation === 'diff' && file.complete
+                  ? file.diff === null ||
                     file.content !== null ||
-                    file.diff !== null ||
-                    file.diffBytes !== 0 ||
+                    file.diffSha256 !== hash(file.diff) ||
+                    file.diffBytes !== Buffer.byteLength(file.diff) ||
                     file.contentTruncated ||
                     file.diffTruncated
-                  : file.representation !== 'partial' ||
-                    file.complete ||
-                    (!file.contentTruncated && !file.diffTruncated),
+                  : file.representation === 'absent' && file.complete
+                    ? file.status !== 'deleted' ||
+                      file.content !== null ||
+                      file.diff !== null ||
+                      file.diffBytes !== 0 ||
+                      file.contentTruncated ||
+                      file.diffTruncated
+                    : file.representation !== 'partial' ||
+                      file.complete ||
+                      (!file.contentTruncated && !file.diffTruncated),
+            )
           )
-        )
-          throw new Error('Sealed review context selection changed');
+            throw new Error('Sealed review context selection changed');
+        }
       } else parseSealedBundle(value, input.maxBytes!);
       this.db
         .prepare("UPDATE symposium_seal_export_jobs SET state='terminal' WHERE job_id=?")
@@ -1009,6 +1111,8 @@ export class PhysicalArtifactSealer {
         const context = JSON.parse(value.context as string) as {
           baseOid: string;
           sourceOid: string;
+          pageCount?: number;
+          evidenceSha256?: string;
         };
         reviewContextReceipt = {
           version: 1,
@@ -1023,6 +1127,14 @@ export class PhysicalArtifactSealer {
           baseOid: context.baseOid,
           sourceOid: context.sourceOid,
           contextSha256: value.contextSha256 as string,
+          ...(input.page !== undefined
+            ? {
+                pageIndex: input.page,
+                pageCount: context.pageCount!,
+                evidenceSha256: context.evidenceSha256!,
+                pagesSha256: value.pagesSha256 as string,
+              }
+            : {}),
           completedAt: Date.now(),
           helper: {
             id: terminalId!,
@@ -1036,6 +1148,7 @@ export class PhysicalArtifactSealer {
         if (
           priorReviewReceipt &&
           (priorReviewReceipt.contextSha256 !== reviewContextReceipt.contextSha256 ||
+            priorReviewReceipt.pagesSha256 !== reviewContextReceipt.pagesSha256 ||
             priorReviewReceipt.sealDigest !== reviewContextReceipt.sealDigest ||
             priorReviewReceipt.baseOid !== reviewContextReceipt.baseOid ||
             priorReviewReceipt.sourceOid !== reviewContextReceipt.sourceOid)
