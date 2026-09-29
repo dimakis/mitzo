@@ -95,7 +95,7 @@ describe('reviewer sealed page native tool', () => {
       execution: execution as never,
       verifyCurrent: () => {},
     });
-    const call = (arguments_: unknown) =>
+    const call = (arguments_: Record<string, unknown>) =>
       tool.executeTool(SYMPOSIUM_READ_REVIEW_PAGE_TOOL, arguments_, new AbortController().signal, {
         turnId: 'turn',
         callId: 'call',

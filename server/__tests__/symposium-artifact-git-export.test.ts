@@ -232,9 +232,17 @@ it('exports a large changed diff as complete, identity-bound pages', () => {
   );
   expect(first.version).toBe(3);
   expect(first.pageCount).toBeGreaterThan(1);
-  const pages = exported.pages.map((encoded: string, page: number) => {
+  const pages = (exported.pages as string[]).map((encoded, page) => {
     expect(Buffer.byteLength(encoded)).toBeLessThanOrEqual(ARTIFACT_REVIEW_CONTEXT_MAX_BYTES);
-    const context = JSON.parse(encoded);
+    const context = JSON.parse(encoded) as {
+      segments: Array<{
+        path: string;
+        segmentIndex: number;
+        data: string;
+        selectedBytes: number;
+        selectedSha256: string;
+      }>;
+    };
     expect(context).toMatchObject({
       pageIndex: page,
       pageCount: first.pageCount,
