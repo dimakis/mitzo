@@ -40,6 +40,12 @@ import { TESTED_SYMPOSIUM_NATIVE_BUILD } from './symposium-production-gate.js';
 import { ARTIFACT_GIT_VERIFIER } from './symposium-artifact-git-verifier.js';
 
 const hash = (value: string) => createHash('sha256').update(value).digest('hex');
+// The only pre-pin reviewed export helper identity. Keep this pair frozen when
+// the current build changes; unknown legacy rows require manual recovery.
+const LEGACY_REVIEW_EXPORT_BUILD = {
+  image: 'sha256:a5a5302f2443c02f24506248883b9d22f070f58b288f898ac69a547b653e2161',
+  codeDigest: '62309c1134d93b43d82e55ef0ec4db8dfdefb84693d0857ab7584a3c6601d982',
+} as const;
 const oid = z.string().regex(/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/);
 const gitProofSchema = z.strictObject({
   version: z.literal(1),
@@ -222,6 +228,17 @@ export class PhysicalArtifactSealer {
       )
     )
       this.db.exec('ALTER TABLE symposium_seal_export_jobs ADD COLUMN receipt_json TEXT');
+    const exportColumns = this.db.pragma('table_info(symposium_seal_export_jobs)') as {
+      name: string;
+    }[];
+    if (!exportColumns.some((row) => row.name === 'helper_image'))
+      this.db.exec('ALTER TABLE symposium_seal_export_jobs ADD COLUMN helper_image TEXT');
+    if (!exportColumns.some((row) => row.name === 'export_code_digest'))
+      this.db.exec('ALTER TABLE symposium_seal_export_jobs ADD COLUMN export_code_digest TEXT');
+    if (!exportColumns.some((row) => row.name === 'review_build_version'))
+      this.db.exec(
+        'ALTER TABLE symposium_seal_export_jobs ADD COLUMN review_build_version INTEGER',
+      );
     this.db.exec(`CREATE TABLE IF NOT EXISTS symposium_review_streams(
       fence_id TEXT NOT NULL, operation_id TEXT NOT NULL, job_id TEXT NOT NULL,
       input_json TEXT NOT NULL, seal_digest TEXT NOT NULL, header_json TEXT,
@@ -930,7 +947,7 @@ export class PhysicalArtifactSealer {
           staged &&
           (this.db
             .prepare(
-              'SELECT kind,state,input_json,custody_digest,receipt_json,result_hash,container_id,container_name FROM symposium_seal_export_jobs WHERE job_id=? AND fence_id=? AND operation_id=?',
+              'SELECT kind,state,input_json,custody_digest,receipt_json,result_hash,container_id,container_name,helper_image,export_code_digest,review_build_version FROM symposium_seal_export_jobs WHERE job_id=? AND fence_id=? AND operation_id=?',
             )
             .get(staged.job_id, row.fence_id, row.operation_id) as
             | {
@@ -942,6 +959,9 @@ export class PhysicalArtifactSealer {
                 result_hash: string | null;
                 container_id: string | null;
                 container_name: string;
+                helper_image: string | null;
+                export_code_digest: string | null;
+                review_build_version: number | null;
               }
             | undefined);
         if (
@@ -980,6 +1000,18 @@ export class PhysicalArtifactSealer {
           operationId: string;
           kind: string;
         };
+        const expectedBuild =
+          exportJob?.review_build_version === 2
+            ? exportJob.helper_image && exportJob.export_code_digest
+              ? { image: exportJob.helper_image, codeDigest: exportJob.export_code_digest }
+              : null
+            : exportJob?.review_build_version === null &&
+                exportJob.helper_image === null &&
+                exportJob.export_code_digest === null &&
+                receipt.version === 1 &&
+                receipt.mode === 'review_context'
+              ? LEGACY_REVIEW_EXPORT_BUILD
+              : null;
         if (
           !intent ||
           seal.fenceId !== row.fence_id ||
@@ -1014,8 +1046,10 @@ export class PhysicalArtifactSealer {
           !containerId.test(receipt.helper.id) ||
           receipt.helper.id !== exportJob.container_id ||
           receipt.helper.name !== exportJob.container_name ||
-          receipt.helper.image !== TESTED_SYMPOSIUM_NATIVE_BUILD.image ||
-          receipt.helper.codeDigest !== hash(ARTIFACT_GIT_EXPORT) ||
+          !expectedBuild ||
+          receipt.helper.image !== expectedBuild.image ||
+          receipt.helper.image !== seal.verifier.image ||
+          receipt.helper.codeDigest !== expectedBuild.codeDigest ||
           inventory.some((item) => item.id === receipt.helper?.id) ||
           selected.fenceId !== row.fence_id ||
           selected.operationId !== row.operation_id ||
@@ -1267,7 +1301,7 @@ export class PhysicalArtifactSealer {
           .run(input.fenceId, root, jobId, inputJson, sealDigest, Date.now());
         this.db
           .prepare(
-            'INSERT INTO symposium_seal_export_jobs(job_id,fence_id,operation_id,kind,input_json,custody_digest,state,container_name) VALUES(?,?,?,?,?,?,?,?)',
+            'INSERT INTO symposium_seal_export_jobs(job_id,fence_id,operation_id,kind,input_json,custody_digest,state,container_name,helper_image,export_code_digest,review_build_version) VALUES(?,?,?,?,?,?,?,?,?,?,2)',
           )
           .run(
             jobId,
@@ -1278,6 +1312,8 @@ export class PhysicalArtifactSealer {
             seal.custodyDigest,
             'create_uncertain',
             name,
+            TESTED_SYMPOSIUM_NATIVE_BUILD.image,
+            hash(ARTIFACT_GIT_EXPORT),
           );
       })
       .immediate();

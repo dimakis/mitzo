@@ -872,6 +872,109 @@ it('reclaims a ready review stream after restart without renewing old seal custo
   await expect(restarted.requireCompleted(seal.fenceId, signal)).rejects.toThrow(/custody/);
   db.close();
 });
+it('reclaims an older pinned helper build after an application upgrade', async () => {
+  const f = await fixture(['file'], true);
+  const signal = new AbortController().signal;
+  const seal = await f.sealer.seal(f.input, f.runtime, signal);
+  await f.sealer.exportCompletedReviewContext(
+    { fenceId: seal.fenceId, operationId: 'older-build-review', baseBranch: 'main', page: 0 },
+    signal,
+  );
+  const db = new Database(join(f.root, 'leases.db'));
+  const original = db.prepare('SELECT receipt_json FROM symposium_review_streams').get() as {
+    receipt_json: string;
+  };
+  const historicalImage = `sha256:${'8'.repeat(64)}`;
+  const historicalCode = '9'.repeat(64);
+  const historicalSeal = {
+    ...seal,
+    verifier: { ...seal.verifier, image: historicalImage },
+  };
+  const historicalSealDigest = createHash('sha256')
+    .update(canonicalReviewJson(historicalSeal))
+    .digest('hex');
+  const receipt = {
+    ...JSON.parse(original.receipt_json),
+    sealDigest: historicalSealDigest,
+    helper: {
+      ...JSON.parse(original.receipt_json).helper,
+      image: historicalImage,
+      codeDigest: historicalCode,
+    },
+  };
+  const historicalReceipt = canonicalReviewJson(receipt);
+  db.prepare('UPDATE symposium_physical_seal_jobs SET receipt_json=?').run(
+    JSON.stringify(historicalSeal),
+  );
+  db.prepare('UPDATE symposium_review_streams SET receipt_json=?,seal_digest=?').run(
+    historicalReceipt,
+    historicalSealDigest,
+  );
+  db.prepare(
+    'UPDATE symposium_seal_export_jobs SET receipt_json=?,helper_image=?,export_code_digest=? WHERE kind=?',
+  ).run(historicalReceipt, historicalImage, historicalCode, 'review_stream');
+  f.sealer.close();
+  Object.assign(f.gateway, { stateDirectory: join(f.root, 'gateway-upgraded') });
+  const upgraded = new PhysicalArtifactSealer(f.deps);
+  cleanups.push(() => upgraded.close());
+  await upgraded.releaseAbandonedReadyReviewStreams();
+  expect(db.prepare('SELECT COUNT(*) AS count FROM symposium_review_stream_pages').get()).toEqual({
+    count: 0,
+  });
+  db.close();
+});
+
+it('recognizes only the frozen pre-pin legacy helper identity', async () => {
+  const f = await fixture(['file'], true);
+  const signal = new AbortController().signal;
+  const seal = await f.sealer.seal(f.input, f.runtime, signal);
+  await f.sealer.exportCompletedReviewContext(
+    { fenceId: seal.fenceId, operationId: 'legacy-build-review', baseBranch: 'main', page: 0 },
+    signal,
+  );
+  const db = new Database(join(f.root, 'leases.db'));
+  db.prepare(
+    'UPDATE symposium_seal_export_jobs SET helper_image=NULL,export_code_digest=NULL,review_build_version=NULL WHERE kind=?',
+  ).run('review_stream');
+  f.sealer.close();
+  Object.assign(f.gateway, { stateDirectory: join(f.root, 'gateway-upgraded') });
+  const upgraded = new PhysicalArtifactSealer(f.deps);
+  cleanups.push(() => upgraded.close());
+  await upgraded.releaseAbandonedReadyReviewStreams();
+  expect(db.prepare('SELECT COUNT(*) AS count FROM symposium_review_stream_pages').get()).toEqual({
+    count: 0,
+  });
+  db.close();
+});
+it('fails closed for an unrecognized pre-pin export code identity', async () => {
+  const f = await fixture(['file'], true);
+  const signal = new AbortController().signal;
+  const seal = await f.sealer.seal(f.input, f.runtime, signal);
+  await f.sealer.exportCompletedReviewContext(
+    { fenceId: seal.fenceId, operationId: 'legacy-unknown-review', baseBranch: 'main', page: 0 },
+    signal,
+  );
+  const db = new Database(join(f.root, 'leases.db'));
+  const row = db.prepare('SELECT receipt_json FROM symposium_review_streams').get() as {
+    receipt_json: string;
+  };
+  const receipt = JSON.parse(row.receipt_json);
+  receipt.helper.codeDigest = '9'.repeat(64);
+  const changed = canonicalReviewJson(receipt);
+  db.prepare('UPDATE symposium_review_streams SET receipt_json=?').run(changed);
+  db.prepare(
+    'UPDATE symposium_seal_export_jobs SET receipt_json=?,helper_image=NULL,export_code_digest=NULL,review_build_version=NULL WHERE kind=?',
+  ).run(changed, 'review_stream');
+  f.sealer.close();
+  Object.assign(f.gateway, { stateDirectory: join(f.root, 'gateway-upgraded') });
+  const upgraded = new PhysicalArtifactSealer(f.deps);
+  cleanups.push(() => upgraded.close());
+  await expect(upgraded.releaseAbandonedReadyReviewStreams()).rejects.toThrow(/identity changed/);
+  expect(db.prepare('SELECT COUNT(*) AS count FROM symposium_review_stream_pages').get()).toEqual({
+    count: 2,
+  });
+  db.close();
+});
 it('releases a stopped review preparation only when its exact ready stream exists', async () => {
   const f = await fixture(['file'], true);
   const signal = new AbortController().signal;
