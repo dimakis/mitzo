@@ -68,6 +68,13 @@ if options['kind']=='review_context':
    base_entries[path]=objectid
  target={item['path']:item for item in manifest}
  files=[]
+ def excerpt(value,limit):
+  data=value.encode('utf-8')
+  if len(data)<=limit: return value,False
+  # Decode only complete characters; the digest and byte count bind the omitted bytes.
+  head=data[:limit//2].decode('utf-8','ignore')
+  tail=data[-(limit//2):].decode('utf-8','ignore')
+  return head+'\n[... sealed excerpt omitted ...]\n'+tail,True
  for path in sorted(paths,key=lambda p:p.encode('utf-8')):
   source=target.get(path)
   for objectid in ([base_entries[path]] if path in base_entries else [])+([source['oid']] if source else []):
@@ -75,11 +82,21 @@ if options['kind']=='review_context':
    if b'\0' in data: raise ValueError('binary review file')
    data.decode('utf-8','strict')
   content=git('cat-file','blob',source['oid']).decode('utf-8','strict') if source else None
-  files.append({'path':path,'status':'present' if source else 'deleted','mode':source['mode'] if source else None,'sha256':source['sha256'] if source else None,'bytes':source['bytes'] if source else None,'content':content})
- diff=git('diff','--no-ext-diff','--no-textconv','--no-renames','--full-index','--unified=3',review_base_oid,commit,'--').decode('utf-8','strict')
- if 'Binary files ' in diff or 'GIT binary patch' in diff: raise ValueError('binary review diff')
- review_manifest=[{'path':item['path'],'mode':item['mode'],'bytes':item['bytes'],'sha256':item['sha256']} for item in manifest]
- context={'version':1,'scope':'changed-file-contents','sourceOid':commit,'baseOid':review_base_oid,'sourceBranch':source_branch,'baseBranch':base_branch,'committedTreeDigest':proof['committedTreeDigest'],'manifestDigest':proof['manifestDigest'],'manifest':review_manifest,'files':files,'diff':diff}
+  diff=git('diff','--no-ext-diff','--no-textconv','--no-renames','--full-index','--unified=3',review_base_oid,commit,'--',path).decode('utf-8','strict')
+  if 'Binary files ' in diff or 'GIT binary patch' in diff: raise ValueError('binary review diff')
+  content_excerpt,content_truncated=excerpt(content,2048) if content is not None else (None,False)
+  diff_excerpt,diff_truncated=excerpt(diff,4096)
+  files.append({'path':path,'status':'present' if source else 'deleted','mode':source['mode'] if source else None,'sha256':source['sha256'] if source else None,'bytes':source['bytes'] if source else None,'content':content_excerpt,'contentTruncated':content_truncated,'diff':diff_excerpt,'diffSha256':hashlib.sha256(diff.encode('utf-8')).hexdigest(),'diffBytes':len(diff.encode('utf-8')),'diffTruncated':diff_truncated})
+ context={'version':2,'scope':'bounded-changed-path-excerpts','sourceOid':commit,'baseOid':review_base_oid,'sourceBranch':source_branch,'baseBranch':base_branch,'committedTreeDigest':proof['committedTreeDigest'],'manifestDigest':proof['manifestDigest'],'trackedFileCount':proof['entries'],'changedPathCount':len(paths),'omittedPathCount':0,'files':[]}
+ for item in files:
+  candidate=context['files']+[item]
+  context['omittedPathCount']=len(files)-len(candidate)
+  context['files']=candidate
+  if len(json.dumps(context,sort_keys=True,separators=(',',':'),ensure_ascii=False).encode('utf-8'))>${ARTIFACT_REVIEW_CONTEXT_MAX_BYTES}:
+   context['files'].pop()
+   context['omittedPathCount']=len(files)-len(context['files'])
+   break
+ if not context['files']: raise ValueError('review context metadata exceeds byte bound')
  encoded=json.dumps(context,sort_keys=True,separators=(',',':'),ensure_ascii=False)
  if len(encoded.encode('utf-8'))>${ARTIFACT_REVIEW_CONTEXT_MAX_BYTES}: raise ValueError('review context byte bound')
  print(json.dumps({'proof':proof,'context':encoded,'contextSha256':hashlib.sha256(encoded.encode('utf-8')).hexdigest()},sort_keys=True,ensure_ascii=False))

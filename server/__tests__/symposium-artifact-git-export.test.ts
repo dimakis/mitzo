@@ -16,7 +16,7 @@ const roots: string[] = [];
 afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
-function fixture(populate?: (root: string) => void) {
+function fixture(populate?: (root: string) => void, basePopulate?: (root: string) => void) {
   const root = mkdtempSync(join(tmpdir(), 'sealed-git-export-'));
   roots.push(root);
   const git = (...args: string[]) =>
@@ -26,6 +26,7 @@ function fixture(populate?: (root: string) => void) {
   git('config', 'user.email', 'test@example.invalid');
   git('config', 'remote.origin.url', 'https://github.com/example/repo.git');
   writeFileSync(join(root, 'base.txt'), 'BASE');
+  basePopulate?.(root);
   git('add', '.');
   git('-c', 'commit.gpgsign=false', 'commit', '-qm', 'base');
   git('update-ref', 'refs/remotes/origin/main', 'HEAD');
@@ -95,20 +96,23 @@ it('inspects the sealed branch and exports a bounded reconstructable bundle', ()
     rmSync(path);
   }
 });
-it('exports canonical complete changed-file contents and exact base diff within the review bound', () => {
+it('exports canonical bounded changed-path evidence with exact identities', () => {
   const f = fixture();
   const result = f.run({ kind: 'review_context' });
   const context = JSON.parse(result.context);
   expect(Buffer.byteLength(result.context)).toBeLessThanOrEqual(ARTIFACT_REVIEW_CONTEXT_MAX_BYTES);
   expect(result.contextSha256).toBe(createHash('sha256').update(result.context).digest('hex'));
   expect(context).toMatchObject({
+    version: 2,
     sourceOid: f.proof.commit,
     baseOid: f.git('rev-parse', 'refs/remotes/origin/main').trim(),
     committedTreeDigest: f.proof.committedTreeDigest,
     manifestDigest: f.proof.manifestDigest,
     files: [{ path: 'feature.txt', status: 'present', content: 'FEATURE' }],
   });
-  expect(context.diff).toContain('+FEATURE');
+  expect(context).not.toHaveProperty('manifest');
+  expect(context.files[0].diff).toContain('+FEATURE');
+  expect(context.files[0].diffTruncated).toBe(false);
 });
 it('reviews a sealed feature against its merge base after origin/main advances', () => {
   const f = fixture();
@@ -128,15 +132,46 @@ it('reviews a sealed feature against its merge base after origin/main advances',
   expect(context.files).toEqual([
     expect.objectContaining({ path: 'feature.txt', status: 'present', content: 'FEATURE' }),
   ]);
-  expect(context.diff).toContain('+FEATURE');
-  expect(context.diff).not.toContain('MAIN ONLY');
+  expect(context.files[0].diff).toContain('+FEATURE');
+  expect(context.files[0].diff).not.toContain('MAIN ONLY');
 });
-it('rejects an oversized sealed review context without truncation', () => {
+it('truncates a large changed file without losing its sealed identity', () => {
   const f = fixture((root) =>
     writeFileSync(join(root, 'large.txt'), 'X'.repeat(ARTIFACT_REVIEW_CONTEXT_MAX_BYTES)),
   );
-  expect(() => f.run({ kind: 'review_context' })).toThrow();
+  const result = f.run({ kind: 'review_context' });
+  const context = JSON.parse(result.context);
+  expect(Buffer.byteLength(result.context)).toBeLessThanOrEqual(ARTIFACT_REVIEW_CONTEXT_MAX_BYTES);
+  expect(context.files.find((file: { path: string }) => file.path === 'large.txt')).toMatchObject({
+    bytes: ARTIFACT_REVIEW_CONTEXT_MAX_BYTES,
+    contentTruncated: true,
+    diffTruncated: true,
+  });
 });
+it('does not require the whole tracked manifest in a small change review', () => {
+  const f = fixture(undefined, (root) => {
+    for (let i = 0; i < 250; i++)
+      writeFileSync(join(root, `unchanged-${String(i).padStart(3, '0')}.txt`), 'UNCHANGED');
+  });
+  const context = JSON.parse(f.run({ kind: 'review_context' }).context);
+  expect(context.trackedFileCount).toBe(252);
+  expect(context.changedPathCount).toBe(1);
+  expect(context.omittedPathCount).toBe(0);
+  expect(context.files).toHaveLength(1);
+  expect(context).not.toHaveProperty('manifest');
+}, 60_000);
+it('reports omitted paths when changed-path evidence fills the bounded payload', () => {
+  const f = fixture((root) => {
+    for (let i = 0; i < 100; i++)
+      writeFileSync(join(root, `changed-${String(i).padStart(3, '0')}.txt`), 'X'.repeat(1000));
+  });
+  const result = f.run({ kind: 'review_context' });
+  const context = JSON.parse(result.context);
+  expect(Buffer.byteLength(result.context)).toBeLessThanOrEqual(ARTIFACT_REVIEW_CONTEXT_MAX_BYTES);
+  expect(context.changedPathCount).toBe(101);
+  expect(context.omittedPathCount).toBeGreaterThan(0);
+  expect(context.files.length + context.omittedPathCount).toBe(context.changedPathCount);
+}, 60_000);
 it('rejects binary changed content in the sealed review artifact', () => {
   const f = fixture((root) => writeFileSync(join(root, 'binary.dat'), Buffer.from([0, 1, 2])));
   expect(() => f.run({ kind: 'review_context' })).toThrow();
