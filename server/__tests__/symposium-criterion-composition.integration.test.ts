@@ -327,6 +327,7 @@ it('binds corrected criterion evidence to the retained sealed result and refuses
       inspectCompletedArtifact: vi.fn(),
       exportCompletedReviewContext: vi.fn(),
       releaseCompletedReviewStream: vi.fn(),
+      releaseReadyReviewStream: vi.fn(),
       exportSuccessorArtifactBundle: vi.fn(),
       copySuccessorArtifact: vi.fn(),
       admitSuccessorArtifact: vi.fn(),

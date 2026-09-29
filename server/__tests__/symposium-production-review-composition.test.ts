@@ -30,6 +30,7 @@ it('uses a completed imported source until a physically sealed writer result exi
     inspectCompletedArtifact: vi.fn(),
     exportCompletedReviewContext: vi.fn(),
     releaseCompletedReviewStream: vi.fn(),
+    releaseReadyReviewStream: vi.fn(),
     exportSuccessorArtifactBundle: vi.fn(),
     copySuccessorArtifact: vi.fn(),
     activateSuccessorArtifact: vi.fn(),

@@ -128,6 +128,7 @@ export function createSymposiumProductionReviewComposition(deps: {
     !host.inspectCompletedArtifact ||
     !host.exportCompletedReviewContext ||
     !host.releaseCompletedReviewStream ||
+    !host.releaseReadyReviewStream ||
     !host.exportSuccessorArtifactBundle ||
     !host.copySuccessorArtifact ||
     !host.admitSuccessorArtifact ||
@@ -268,6 +269,7 @@ export function createSymposiumProductionReviewComposition(deps: {
       assertRetainedReviewPagesComplete: (input) =>
         reviews.assertRetainedReviewPagesComplete(input),
       releaseCompletedReviewStream: (input) => host.releaseCompletedReviewStream!(input),
+      releaseReadyReviewStream: (input) => host.releaseReadyReviewStream!(input),
       markReviewPromptPageDelivered: (input) => reviews.markReviewPromptPageDelivered(input),
       currentArtifact,
       verifyReviewer(context, seat, membershipGeneration) {

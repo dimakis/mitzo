@@ -660,6 +660,136 @@ export class PhysicalArtifactSealer {
       .immediate();
   }
 
+  /** Recovers a completed stream whose page-zero response failed after the
+   * ready commit. The exact completed journal supplies the digest, so the
+   * caller need not have received any page or receipt. */
+  async releaseReadyReviewStream(input: {
+    fenceId: string;
+    operationId: string;
+    baseBranch: string;
+  }): Promise<void> {
+    if (
+      !/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/.test(input.operationId) ||
+      !/^[A-Za-z0-9][A-Za-z0-9._/-]{0,254}$/.test(input.baseBranch)
+    )
+      throw new Error('Sealed review stream release operation is invalid');
+    const seal = await this.requireCompleted(input.fenceId, AbortSignal.timeout(120_000));
+    const sealDigest = reviewRecordHash(canonicalReviewJson(seal));
+    const exactInputJson = JSON.stringify({
+      fenceId: input.fenceId,
+      operationId: input.operationId,
+      baseBranch: input.baseBranch,
+      kind: 'review_stream',
+    });
+    const validSelection = (raw: string) => raw === exactInputJson;
+    this.db
+      .transaction(() => {
+        const tombstone = this.db
+          .prepare(
+            'SELECT input_json,seal_digest,pages_sha256,evidence_sha256 FROM symposium_review_stream_tombstones WHERE fence_id=? AND operation_id=?',
+          )
+          .get(input.fenceId, input.operationId) as
+          | {
+              input_json: string;
+              seal_digest: string;
+              pages_sha256: string;
+              evidence_sha256: string;
+            }
+          | undefined;
+        const row = this.db
+          .prepare(
+            'SELECT job_id,input_json,seal_digest,header_json,receipt_json,ready FROM symposium_review_streams WHERE fence_id=? AND operation_id=?',
+          )
+          .get(input.fenceId, input.operationId) as
+          | {
+              job_id: string;
+              input_json: string;
+              seal_digest: string;
+              header_json: string | null;
+              receipt_json: string | null;
+              ready: number;
+            }
+          | undefined;
+        if (tombstone) {
+          if (
+            row ||
+            tombstone.seal_digest !== sealDigest ||
+            !validSelection(tombstone.input_json) ||
+            !/^[a-f0-9]{64}$/.test(tombstone.pages_sha256) ||
+            !/^[a-f0-9]{64}$/.test(tombstone.evidence_sha256)
+          )
+            throw new Error('Sealed review stream release tombstone changed');
+          return;
+        }
+        if (
+          !row ||
+          row.ready !== 1 ||
+          !row.receipt_json ||
+          !row.header_json ||
+          row.seal_digest !== sealDigest
+        )
+          throw new Error('Completed sealed review stream unavailable for recovery release');
+        const header = JSON.parse(row.header_json) as Record<string, unknown>;
+        const receipt = JSON.parse(row.receipt_json) as CompletedArtifactReviewContext['receipt'];
+        const job = this.db
+          .prepare(
+            'SELECT state,kind,input_json,receipt_json,result_hash FROM symposium_seal_export_jobs WHERE job_id=? AND fence_id=? AND operation_id=?',
+          )
+          .get(row.job_id, input.fenceId, input.operationId) as
+          | {
+              state: string;
+              kind: string;
+              input_json: string;
+              receipt_json: string | null;
+              result_hash: string | null;
+            }
+          | undefined;
+        if (
+          !job ||
+          job.state !== 'complete' ||
+          job.kind !== 'review_stream' ||
+          job.input_json !== row.input_json ||
+          job.receipt_json !== row.receipt_json ||
+          job.result_hash !== receipt.pagesSha256 ||
+          !validSelection(row.input_json) ||
+          receipt.jobId !== row.job_id ||
+          receipt.operationId !== input.operationId ||
+          receipt.sealFenceId !== input.fenceId ||
+          receipt.sealDigest !== sealDigest ||
+          receipt.artifactRevision !== seal.git.commit ||
+          receipt.artifactHash !== seal.git.committedTreeDigest ||
+          receipt.sourceOid !== seal.git.commit ||
+          receipt.baseOid !== header.baseOid ||
+          receipt.pageCount !== header.pageCount ||
+          receipt.evidenceSha256 !== header.evidenceSha256 ||
+          !/^[a-f0-9]{64}$/.test(receipt.pagesSha256 ?? '') ||
+          !/^[a-f0-9]{64}$/.test(receipt.evidenceSha256 ?? '')
+        )
+          throw new Error('Completed sealed review stream journal changed');
+        this.db
+          .prepare('INSERT INTO symposium_review_stream_tombstones VALUES(?,?,?,?,?,?)')
+          .run(
+            input.fenceId,
+            input.operationId,
+            row.input_json,
+            row.seal_digest,
+            receipt.pagesSha256,
+            receipt.evidenceSha256,
+          );
+        this.db
+          .prepare('DELETE FROM symposium_review_stream_pages WHERE fence_id=? AND operation_id=?')
+          .run(input.fenceId, input.operationId);
+        const deleted = this.db
+          .prepare(
+            'DELETE FROM symposium_review_streams WHERE fence_id=? AND operation_id=? AND ready=1',
+          )
+          .run(input.fenceId, input.operationId);
+        if (deleted.changes !== 1)
+          throw new Error('Completed sealed review stream release changed');
+      })
+      .immediate();
+  }
+
   /** One exact helper pass produces the entire sealed page set. SQLite rows are
    * invisible until the footer, terminal exit, helper deletion, and custody have
    * all been proved. Subsequent 16-page reads never start another helper. */

@@ -844,6 +844,48 @@ it('discards incomplete staged pages after exact helper cleanup and retries', as
   expect(result.pages).toHaveLength(2);
   db.close();
 });
+it('releases a ready stream after page-zero return fails without a caller digest', async () => {
+  const f = await fixture(['file'], true);
+  const signal = new AbortController().signal;
+  const seal = await f.sealer.seal(f.input, f.runtime, signal);
+  const db = new Database(join(f.root, 'leases.db'));
+  db.exec(`CREATE TRIGGER fail_first_stream_page AFTER UPDATE OF ready ON symposium_review_streams
+    WHEN NEW.ready=1 BEGIN
+      DELETE FROM symposium_review_stream_pages
+      WHERE fence_id=NEW.fence_id AND operation_id=NEW.operation_id AND page_index=0;
+    END`);
+  const input = {
+    fenceId: seal.fenceId,
+    operationId: 'stream-ready-return-failure',
+    baseBranch: 'main',
+    page: 0,
+  };
+  await expect(f.sealer.exportCompletedReviewContext(input, signal)).rejects.toThrow(
+    /stream failed/,
+  );
+  expect(db.prepare('SELECT ready FROM symposium_review_streams').get()).toEqual({ ready: 1 });
+  const release = {
+    fenceId: seal.fenceId,
+    operationId: input.operationId,
+    baseBranch: input.baseBranch,
+  };
+  await expect(
+    f.sealer.releaseReadyReviewStream({ ...release, baseBranch: 'other' }),
+  ).rejects.toThrow(/journal changed/);
+  expect(db.prepare('SELECT ready FROM symposium_review_streams').get()).toEqual({ ready: 1 });
+  await f.sealer.releaseReadyReviewStream(release);
+  await f.sealer.releaseReadyReviewStream(release);
+  expect(db.prepare('SELECT COUNT(*) AS count FROM symposium_review_streams').get()).toEqual({
+    count: 0,
+  });
+  expect(db.prepare('SELECT COUNT(*) AS count FROM symposium_review_stream_pages').get()).toEqual({
+    count: 0,
+  });
+  expect(
+    db.prepare('SELECT COUNT(*) AS count FROM symposium_review_stream_tombstones').get(),
+  ).toEqual({ count: 1 });
+  db.close();
+});
 it('never reconciles an active same-operation review helper', async () => {
   const f = await fixture(['file'], true);
   const signal = new AbortController().signal;

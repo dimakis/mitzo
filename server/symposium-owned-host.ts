@@ -971,6 +971,12 @@ export async function createOwnedSymposiumHost(
         if (draining || stopped) throw new Error('Owned Symposium host is shutting down');
         return track(() => getArtifactSealer().releaseCompletedReviewStream(input));
       },
+      async releaseReadyReviewStream(
+        input: Parameters<PhysicalArtifactSealer['releaseReadyReviewStream']>[0],
+      ) {
+        if (draining || stopped) throw new Error('Owned Symposium host is shutting down');
+        return track(() => getArtifactSealer().releaseReadyReviewStream(input));
+      },
       async checkCompletedArtifactFile(
         input: Parameters<PhysicalArtifactSealer['checkCompletedArtifactFile']>[0],
         signal: AbortSignal,

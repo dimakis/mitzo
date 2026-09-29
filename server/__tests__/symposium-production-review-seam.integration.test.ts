@@ -105,6 +105,7 @@ it('carries a sealed source through real stores into a charged initial run, then
       inspectCompletedArtifact: vi.fn(),
       exportCompletedReviewContext: vi.fn(),
       releaseCompletedReviewStream: vi.fn(),
+      releaseReadyReviewStream: vi.fn(),
       exportSuccessorArtifactBundle: vi.fn(),
       copySuccessorArtifact: copy,
       admitSuccessorArtifact: vi.fn(),
