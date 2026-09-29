@@ -268,6 +268,29 @@ it('exports a large changed diff as complete, identity-bound pages', () => {
   expect(createHash('sha256').update(complete).digest('hex')).toBe(segments[0].selectedSha256);
   expect(complete).toContain('X'.repeat(ARTIFACT_REVIEW_CONTEXT_MAX_BYTES));
 });
+it('keeps UTF-8 boundaries, JSON escapes, and empty content stable across paged replays', () => {
+  const content = 'é'.repeat(9000) + '"\\\n' + '💡'.repeat(500);
+  const f = fixture((root) => {
+    writeFileSync(join(root, 'unicode.txt'), content);
+    writeFileSync(join(root, 'empty.txt'), '');
+  });
+  const first = f.run({ kind: 'review_context', page: 0 });
+  const again = f.run({ kind: 'review_context', page: 0 });
+  expect(again.pagesSha256).toBe(first.pagesSha256);
+  expect(again.pages).toEqual(first.pages);
+  const segments = (first.pages as string[]).flatMap((encoded) => JSON.parse(encoded).segments);
+  expect(
+    segments
+      .filter((part: { path: string }) => part.path === 'unicode.txt')
+      .map((part: { data: string }) => part.data)
+      .join(''),
+  ).toBe(content);
+  expect(segments.find((part: { path: string }) => part.path === 'empty.txt')).toMatchObject({
+    data: '',
+    selectedBytes: 0,
+    segmentCount: 1,
+  });
+});
 it('exports a complete endpoint diff larger than the shared Git read ceiling', () => {
   const line = 'A'.repeat(15) + '\n';
   const replacement = 'B'.repeat(15) + '\n';
@@ -290,7 +313,7 @@ it('exports a complete endpoint diff larger than the shared Git read ceiling', (
   expect(page.changedPathCount).toBe(2);
   expect(page.pageCount).toBeGreaterThan(first.pages.length);
 }, 180_000);
-it('rejects the second large changed path while the aggregate selection is still bounded', () => {
+it('pages two large replacement diffs beyond the helper memory budget', () => {
   const old = ('A'.repeat(15) + '\n').repeat((31 * 1024 * 1024) / 16);
   const next = ('B'.repeat(15) + '\n').repeat((31 * 1024 * 1024) / 16);
   const f = fixture(
@@ -303,9 +326,32 @@ it('rejects the second large changed path while the aggregate selection is still
       writeFileSync(join(root, 'b.txt'), old);
     },
   );
-  expect(() => f.run({ kind: 'review_context', page: 0 })).toThrow(
-    'review evidence total byte bound',
+  const started = Date.now();
+  const first = f.run({ kind: 'review_context', page: 0 });
+  const firstPage = JSON.parse(first.context);
+  const firstSegments = (first.pages as string[]).flatMap(
+    (encoded) => JSON.parse(encoded).segments,
   );
+  expect(firstSegments[0]).toMatchObject({ path: 'a.txt', representation: 'diff' });
+  expect(firstSegments[0].selectedBytes).toBeGreaterThan(64 * 1024 * 1024);
+  expect(firstPage.pageCount).toBeGreaterThan(ARTIFACT_REVIEW_BATCH_PAGES);
+  expect(Date.now() - started).toBeLessThan(60_000);
+  const laterPageIndex =
+    Math.floor((firstPage.pageCount - 1) / ARTIFACT_REVIEW_BATCH_PAGES) *
+    ARTIFACT_REVIEW_BATCH_PAGES;
+  const laterStarted = Date.now();
+  const later = f.run({ kind: 'review_context', page: laterPageIndex });
+  const laterSegments = (later.pages as string[]).flatMap(
+    (encoded) => JSON.parse(encoded).segments,
+  );
+  expect(
+    laterSegments.some(
+      (part: { path: string; representation: string }) =>
+        part.path === 'b.txt' && part.representation === 'diff',
+    ),
+  ).toBe(true);
+  expect(later.pagesSha256).toBe(first.pagesSha256);
+  expect(Date.now() - laterStarted).toBeLessThan(60_000);
 }, 180_000);
 it('uses one diff deadline across multiple changed paths', () => {
   const f = fixture((root) => {
@@ -316,8 +362,8 @@ it('uses one diff deadline across multiple changed paths', () => {
     'review_diff_deadline=time.monotonic()+40',
     'review_diff_deadline=time.monotonic()+1',
   ).replace(
-    'def review_diff(path,base,target,keep_limit,allow_unretained):',
-    "def review_diff(path,base,target,keep_limit,allow_unretained):\n if path=='b.txt': time.sleep(1.2)",
+    'def review_diff(path,base,target,keep_limit,allow_unretained,consumer=None):',
+    "def review_diff(path,base,target,keep_limit,allow_unretained,consumer=None):\n if path=='b.txt': time.sleep(1.2)",
   );
   expect(() => f.runWithExportCode(code, { kind: 'review_context', page: 0 })).toThrow(
     'review diff time bound',
