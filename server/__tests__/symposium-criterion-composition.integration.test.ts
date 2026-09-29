@@ -326,6 +326,7 @@ it('binds corrected criterion evidence to the retained sealed result and refuses
       requireCompletedArtifactSeal: async () => seal,
       inspectCompletedArtifact: vi.fn(),
       exportCompletedReviewContext: vi.fn(),
+      releaseCompletedReviewStream: vi.fn(),
       exportSuccessorArtifactBundle: vi.fn(),
       copySuccessorArtifact: vi.fn(),
       admitSuccessorArtifact: vi.fn(),
