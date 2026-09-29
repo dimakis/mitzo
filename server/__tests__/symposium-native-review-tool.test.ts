@@ -47,6 +47,7 @@ describe('reviewer sealed page native tool', () => {
       },
     }));
     const markReviewPageDelivered = vi.fn();
+    const issueReviewPageChallenge = vi.fn(() => 'd'.repeat(64));
     const verifyCurrent = vi.fn();
     const tool = createSymposiumNativeReviewTool({
       reviews: {
@@ -54,6 +55,7 @@ describe('reviewer sealed page native tool', () => {
         getApplicationPreparation: () => preparation,
         readReviewPage,
         markReviewPageDelivered,
+        issueReviewPageChallenge,
       } as never,
       execution: execution as never,
       verifyCurrent,
@@ -83,12 +85,14 @@ describe('reviewer sealed page native tool', () => {
       turnId: 'turn',
       callId: 'call',
     });
-    expect(markReviewPageDelivered).toHaveBeenCalledWith({
+    expect(issueReviewPageChallenge).toHaveBeenCalledWith({
       workflowId: 'workflow-1',
       attemptId: 'attempt-1',
       pageIndex: 1,
       contextSha256: createHash('sha256').update('{"pageIndex":1}').digest('hex'),
     });
+    expect(JSON.parse(result.content).deliveryChallenge).toBe('d'.repeat(64));
+    expect(markReviewPageDelivered).not.toHaveBeenCalled();
   });
 
   it('rejects forged fields and a stale reviewer claim', async () => {
@@ -100,6 +104,7 @@ describe('reviewer sealed page native tool', () => {
         getApplicationPreparation: () => preparation,
         readReviewPage,
         markReviewPageDelivered,
+        issueReviewPageChallenge: vi.fn(() => 'd'.repeat(64)),
       } as never,
       execution: execution as never,
       verifyCurrent: () => {},
@@ -118,6 +123,7 @@ describe('reviewer sealed page native tool', () => {
         getApplicationPreparation: () => preparation,
         readReviewPage,
         markReviewPageDelivered,
+        issueReviewPageChallenge: vi.fn(() => 'd'.repeat(64)),
       } as never,
       execution: { ...execution, claimToken: 'old-claim' } as never,
       verifyCurrent: () => {},
@@ -144,6 +150,7 @@ describe('reviewer sealed page native tool', () => {
         getApplicationPreparation: () => preparation,
         readReviewPage: () => ({ context: 'page', receipt: { contextSha256: 'hash-1' } }),
         markReviewPageDelivered,
+        issueReviewPageChallenge: vi.fn(() => 'd'.repeat(64)),
       } as never,
       execution: execution as never,
       verifyCurrent: vi
@@ -178,6 +185,7 @@ describe('reviewer sealed page native tool', () => {
         getApplicationPreparation: () => ({ ...preparation, kind: 'delta' }),
         readReviewPage,
         markReviewPageDelivered,
+        issueReviewPageChallenge: vi.fn(() => 'd'.repeat(64)),
       } as never,
       execution: execution as never,
       verifyCurrent: () => {},

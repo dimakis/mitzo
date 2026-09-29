@@ -127,6 +127,15 @@ const reviewOutput = z.strictObject({
   findings: z.array(finding),
   resolvedFingerprints: z.array(z.string().regex(/^[a-f0-9]{64}$/)),
   failure: z.string().trim().min(1).optional(),
+  pageAcknowledgements: z
+    .array(
+      z.strictObject({
+        pageIndex: z.number().int().positive(),
+        challenge: z.string().regex(/^[a-f0-9]{64}$/),
+      }),
+    )
+    .max(63)
+    .optional(),
 });
 const contentHash = (value: string) => createHash('sha256').update(value, 'utf8').digest('hex');
 const same = (a: unknown, b: unknown) => canonicalReviewJson(a) === canonicalReviewJson(b);
@@ -667,7 +676,12 @@ export function createSymposiumTrustedReviewHost(
       if (
         deps.requireReviewPageCoverage &&
         !output.failure &&
-        !deps.reviews.hasCompleteReviewPageCoverage(done.attempt.workflowId, attemptId)
+        !deps.reviews.hasCompleteReviewPageCoverage(
+          done.attempt.workflowId,
+          attemptId,
+          output.pageAcknowledgements ?? [],
+          done.observation.identity.accountBinding.provider !== 'anthropic-vertex',
+        )
       )
         return null;
       return {

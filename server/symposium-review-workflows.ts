@@ -1,7 +1,7 @@
 import { canonicalReviewJson, reviewRecordHash } from './symposium-review-records.js';
 import { ARTIFACT_REVIEW_MAX_PAGES } from './symposium-artifact-git-export.js';
 import Database from 'better-sqlite3';
-import { createHash } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { z } from 'zod';
 import { OutcomeEvidenceSchema, WorkResultSchema } from '@mitzo/protocol';
 import { resolveRoleExecution } from './model-routing-policy.js';
@@ -367,9 +367,15 @@ export class SymposiumReviewStore {
         context TEXT NOT NULL,
         receipt TEXT NOT NULL,
         accessed INTEGER NOT NULL DEFAULT 0,
+        delivery_challenge TEXT,
         PRIMARY KEY (workflow_id, attempt_id, page_index)
       );
     `);
+    const pageColumns = this.db
+      .prepare('PRAGMA table_info(symposium_review_context_pages)')
+      .all() as Array<{ name: string }>;
+    if (!pageColumns.some((column) => column.name === 'delivery_challenge'))
+      this.db.exec('ALTER TABLE symposium_review_context_pages ADD COLUMN delivery_challenge TEXT');
   }
 
   close(): void {
@@ -608,18 +614,71 @@ export class SymposiumReviewStore {
     if (result.changes !== 1) throw new Error('Exact review page delivery required');
   }
 
-  hasCompleteReviewPageCoverage(workflowId: string, attemptId: string): boolean {
-    const row = this.db
+  /** The page tool returns this persisted challenge only inside its exact tool result.
+   * Issuing it cannot establish delivery; the reviewer must echo it in the final turn. */
+  issueReviewPageChallenge(input: {
+    workflowId: string;
+    attemptId: string;
+    pageIndex: number;
+    contextSha256: string;
+  }): string {
+    return this.db
+      .transaction(() => {
+        const row = this.db
+          .prepare(
+            `SELECT delivery_challenge FROM symposium_review_context_pages
+         WHERE workflow_id=? AND attempt_id=? AND page_index=?
+           AND json_extract(receipt, '$.contextSha256')=?`,
+          )
+          .get(input.workflowId, input.attemptId, input.pageIndex, input.contextSha256) as
+          { delivery_challenge: string | null } | undefined;
+        if (!row || input.pageIndex < 1) throw new Error('Exact review page challenge required');
+        if (row.delivery_challenge) return row.delivery_challenge;
+        const challenge = randomBytes(32).toString('hex');
+        this.db
+          .prepare(
+            `UPDATE symposium_review_context_pages SET delivery_challenge=?
+         WHERE workflow_id=? AND attempt_id=? AND page_index=? AND delivery_challenge IS NULL`,
+          )
+          .run(challenge, input.workflowId, input.attemptId, input.pageIndex);
+        return challenge;
+      })
+      .immediate();
+  }
+
+  hasCompleteReviewPageCoverage(
+    workflowId: string,
+    attemptId: string,
+    acknowledgements: readonly { pageIndex: number; challenge: string }[] = [],
+    requireToolChallenges = false,
+  ): boolean {
+    const pages = this.db
       .prepare(
-        `SELECT COUNT(*) AS count, MIN(page_count) AS pageCount,
-      SUM(accessed) AS accessed FROM symposium_review_context_pages WHERE workflow_id=? AND attempt_id=?`,
+        `SELECT page_index, page_count, accessed, delivery_challenge
+       FROM symposium_review_context_pages WHERE workflow_id=? AND attempt_id=? ORDER BY page_index`,
       )
-      .get(workflowId, attemptId) as {
-      count: number;
-      pageCount: number | null;
-      accessed: number | null;
-    };
-    return row.count > 0 && row.count === row.pageCount && row.accessed === row.pageCount;
+      .all(workflowId, attemptId) as Array<{
+      page_index: number;
+      page_count: number;
+      accessed: number;
+      delivery_challenge: string | null;
+    }>;
+    if (
+      !pages.length ||
+      pages.length !== pages[0].page_count ||
+      acknowledgements.length > pages.length - 1
+    )
+      return false;
+    const ack = new Map(acknowledgements.map(({ pageIndex, challenge }) => [pageIndex, challenge]));
+    if (ack.size !== acknowledgements.length) return false;
+    return pages.every((page, index) => {
+      if (page.page_index !== index || page.page_count !== pages.length) return false;
+      if (index > 0 && requireToolChallenges)
+        return Boolean(page.delivery_challenge) && ack.get(index) === page.delivery_challenge;
+      return page.delivery_challenge
+        ? ack.get(index) === page.delivery_challenge
+        : page.accessed === 1;
+    });
   }
 
   /** Read and persist one coherent verified state/history snapshot in a single transaction.

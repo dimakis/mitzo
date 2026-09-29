@@ -1345,6 +1345,7 @@ export interface SymposiumSessionRuntimeDeps extends Omit<
     | 'getApplicationPreparation'
     | 'readReviewPage'
     | 'markReviewPageDelivered'
+    | 'issueReviewPageChallenge'
   >;
   recordAccepted: SymposiumOpenShellSeatExecutorDeps['recordAccepted'];
   /** Trusted override owns durable persistence and live publication when supplied. */

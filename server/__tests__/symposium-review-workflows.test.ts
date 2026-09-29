@@ -2,9 +2,77 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { createHash } from 'node:crypto';
+import Database from 'better-sqlite3';
 import { isApplicationPolicy, SymposiumReviewStore } from '../symposium-review-workflows.js';
 import { AccountProfiles } from '../account-profiles.js';
 import { ExecutionPolicySchema } from '@mitzo/protocol';
+
+it('requires a provider echoed challenge after durable page issuance and survives replay', () => {
+  const db = new Database(join(directory, 'events.db'));
+  const insert = db.prepare(`INSERT INTO symposium_review_context_pages
+    (workflow_id,attempt_id,page_index,session_id,seal_fence_id,evidence_sha256,page_count,context,receipt,accessed)
+    VALUES ('workflow','attempt',?,'session','fence',?,2,?,?,?)`);
+  for (const pageIndex of [0, 1]) {
+    const context = `page-${pageIndex}`;
+    const contextSha256 = createHash('sha256').update(context).digest('hex');
+    insert.run(
+      pageIndex,
+      hash('e'),
+      context,
+      JSON.stringify({ contextSha256 }),
+      pageIndex === 0 ? 1 : 0,
+    );
+  }
+  db.close();
+  const contextSha256 = createHash('sha256').update('page-1').digest('hex');
+  expect(reviews.hasCompleteReviewPageCoverage('workflow', 'attempt')).toBe(false);
+  reviews.markReviewPageDelivered({
+    workflowId: 'workflow',
+    attemptId: 'attempt',
+    pageIndex: 1,
+    contextSha256,
+  });
+  expect(reviews.hasCompleteReviewPageCoverage('workflow', 'attempt')).toBe(true);
+  expect(reviews.hasCompleteReviewPageCoverage('workflow', 'attempt', [], true)).toBe(false);
+  const challenge = reviews.issueReviewPageChallenge({
+    workflowId: 'workflow',
+    attemptId: 'attempt',
+    pageIndex: 1,
+    contextSha256,
+  });
+  expect(challenge).toMatch(/^[a-f0-9]{64}$/);
+  expect(reviews.hasCompleteReviewPageCoverage('workflow', 'attempt')).toBe(false);
+  reviews.close();
+  reviews = new SymposiumReviewStore(join(directory, 'events.db'));
+  expect(
+    reviews.issueReviewPageChallenge({
+      workflowId: 'workflow',
+      attemptId: 'attempt',
+      pageIndex: 1,
+      contextSha256,
+    }),
+  ).toBe(challenge);
+  expect(
+    reviews.hasCompleteReviewPageCoverage('workflow', 'attempt', [
+      { pageIndex: 1, challenge: hash('f') },
+    ]),
+  ).toBe(false);
+  expect(
+    reviews.hasCompleteReviewPageCoverage(
+      'workflow',
+      'attempt',
+      [{ pageIndex: 1, challenge }],
+      true,
+    ),
+  ).toBe(true);
+  expect(
+    reviews.hasCompleteReviewPageCoverage('workflow', 'attempt', [
+      { pageIndex: 1, challenge },
+      { pageIndex: 1, challenge },
+    ]),
+  ).toBe(false);
+});
 
 const hash = (letter: string) => letter.repeat(64);
 const implementation = {
