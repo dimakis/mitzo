@@ -190,6 +190,38 @@ it('records tool claims before execution and never repeats an uncertain effect',
   expect(() => s.claimTool('c', binding, 'one', 'call-2')).toThrow('running');
   s.close();
 });
+it('reopens an exact tool result after a crash before reviewer coverage is marked', () => {
+  const { path } = setup();
+  let s = new CodexConversationStore(path);
+  s.create('c', binding, '/workspace');
+  s.enqueue('c', binding, { id: 'review-claim', prompt: 'review' });
+  s.claimNext('c', binding);
+  const identity = {
+    turnId: 'turn-1',
+    toolName: 'SymposiumReadSealedReviewPage',
+    requestHash: 'a'.repeat(64),
+  };
+  expect(s.claimTool('c', binding, 'review-claim', 'call-1', identity)).toBe(true);
+  s.recordToolResult('c', binding, 'review-claim', 'call-1', identity, {
+    content: '{"pageIndex":1}',
+    isError: false,
+  });
+  // Simulate a process loss before the separate page-coverage write.
+  s.close();
+  s = new CodexConversationStore(path);
+  expect(s.replayToolResult('c', binding, 'review-claim', 'call-1', identity)).toEqual({
+    content: '{"pageIndex":1}',
+    isError: false,
+  });
+  expect(() =>
+    s.replayToolResult('c', binding, 'review-claim', 'call-1', {
+      ...identity,
+      requestHash: 'b'.repeat(64),
+    }),
+  ).toThrow(/identity/);
+  s.close();
+});
+
 it('durably pauses same-process replacement without requiring startup recovery', () => {
   const { path } = setup();
   const s = new CodexConversationStore(path);

@@ -121,6 +121,15 @@ async function setup(
     turnId: string,
     status: 'completed' | 'interrupted' | 'failed',
   ) => void,
+  nativeTool?: {
+    ownerKind: 'symposium';
+    onToolResultDurable?: (
+      name: string,
+      input: Record<string, unknown>,
+      result: { content: string; isError: boolean },
+      context: { turnId: string; callId: string },
+    ) => void;
+  },
 ) {
   const dir = mkdtempSync(join(tmpdir(), 'mitzo-codex-'));
   const store = existingStore ?? new CodexConversationStore(join(dir, 'private.db'));
@@ -180,6 +189,7 @@ async function setup(
     }),
   };
   const c = new CodexConversation({
+    ownerKind: nativeTool?.ownerKind,
     conversationId: 'app',
     cwd: '/workspace',
     profile: {
@@ -232,6 +242,7 @@ async function setup(
       if (!['test-model', 'other-model'].includes(model)) throw new Error('Model unavailable');
     },
     executeTool: execute,
+    onToolResultDurable: nativeTool?.onToolResultDurable,
     requestUserInput,
   });
   cleanup.push(() => {
@@ -664,6 +675,43 @@ it('checks thread and turn identity, rejects unknown tools, and executes a dupli
     success: false,
   });
   expect(execute).toHaveBeenCalledOnce();
+});
+it('replays the exact durable symposium tool result for a duplicate provider call', async () => {
+  const delivered = vi.fn();
+  const { c, callbacks, execute } = await setup(
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    { ownerKind: 'symposium', onToolResultDurable: delivered },
+  );
+  await c.send({ id: 'review-claim', prompt: 'review' });
+  const call = {
+    threadId: 'provider-thread',
+    turnId: 'turn-1',
+    callId: 'page-1',
+    namespace: null,
+    tool: 'Read',
+    arguments: { pageIndex: 1 },
+  };
+  const signal = new AbortController().signal;
+  const first = await callbacks.onRequest('item/tool/call', call, signal);
+  const replay = await callbacks.onRequest('item/tool/call', call, signal);
+  expect(replay).toEqual(first);
+  expect(execute).toHaveBeenCalledOnce();
+  expect(delivered).toHaveBeenCalledTimes(2);
+  await expect(
+    callbacks.onRequest('item/tool/call', { ...call, arguments: { pageIndex: 2 } }, signal),
+  ).rejects.toThrow(/identity/);
 });
 it('interrupts the current turn, keeps queued follow-ups paused, and cancels a pending host tool', async () => {
   const { c, callbacks, execute, requests } = await setup();

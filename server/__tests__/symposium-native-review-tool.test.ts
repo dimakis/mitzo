@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { createHash } from 'node:crypto';
 import {
   createSymposiumNativeReviewTool,
   SYMPOSIUM_READ_REVIEW_PAGE_TOOL,
@@ -40,7 +41,10 @@ describe('reviewer sealed page native tool', () => {
   it('passes only the host-bound active claim and numbered page to durable storage', async () => {
     const readReviewPage = vi.fn(() => ({
       context: '{"pageIndex":1}',
-      receipt: { pageIndex: 1, contextSha256: 'hash-1' },
+      receipt: {
+        pageIndex: 1,
+        contextSha256: createHash('sha256').update('{"pageIndex":1}').digest('hex'),
+      },
     }));
     const markReviewPageDelivered = vi.fn();
     const verifyCurrent = vi.fn();
@@ -74,11 +78,16 @@ describe('reviewer sealed page native tool', () => {
       }),
     );
     expect(verifyCurrent).toHaveBeenCalledTimes(2);
+    expect(markReviewPageDelivered).not.toHaveBeenCalled();
+    tool.onToolResultDurable(SYMPOSIUM_READ_REVIEW_PAGE_TOOL, { pageIndex: 1 }, result, {
+      turnId: 'turn',
+      callId: 'call',
+    });
     expect(markReviewPageDelivered).toHaveBeenCalledWith({
       workflowId: 'workflow-1',
       attemptId: 'attempt-1',
       pageIndex: 1,
-      contextSha256: 'hash-1',
+      contextSha256: createHash('sha256').update('{"pageIndex":1}').digest('hex'),
     });
   });
 
@@ -181,6 +190,6 @@ describe('reviewer sealed page native tool', () => {
     );
     expect(result.isError).toBe(false);
     expect(readReviewPage).toHaveBeenCalledOnce();
-    expect(markReviewPageDelivered).toHaveBeenCalledOnce();
+    expect(markReviewPageDelivered).not.toHaveBeenCalled();
   });
 });

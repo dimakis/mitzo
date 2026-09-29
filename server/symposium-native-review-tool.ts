@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { createHash } from 'node:crypto';
 import type { CodexConversationOptions } from './codex-conversation.js';
 import type { SymposiumSeatExecution } from './symposium-orchestrator.js';
 import type { SymposiumReviewStore } from './symposium-review-workflows.js';
@@ -21,9 +22,53 @@ export function createSymposiumNativeReviewTool(input: {
   tools: CodexConversationOptions['tools'];
   instructions: string;
   executeTool: NonNullable<CodexConversationOptions['executeTool']>;
+  onToolResultDurable: NonNullable<CodexConversationOptions['onToolResultDurable']>;
 } {
   if (input.execution.seat.role !== 'reviewer')
     throw new Error('Sealed review page tool requires reviewer seat');
+  const readPage = (pageIndex: number) => {
+    input.verifyCurrent();
+    const workflow = input.reviews.applicationWorkflowForSession(input.execution.sessionId);
+    const attempt = workflow?.applicationAttempts.find(
+      (entry) => entry.binding.claimToken === input.execution.claimToken,
+    );
+    const preparation = attempt
+      ? input.reviews.getApplicationPreparation(attempt.workflowId, attempt.attemptId)
+      : null;
+    const artifact =
+      'version' in input.execution.provenance &&
+      input.execution.provenance.version === 3 &&
+      'kind' in input.execution.provenance.artifact &&
+      input.execution.provenance.artifact.kind === 'sealed_reader'
+        ? input.execution.provenance.artifact
+        : null;
+    if (
+      !workflow ||
+      !attempt ||
+      (attempt.kind !== 'review' && attempt.kind !== 'delta') ||
+      !preparation ||
+      (preparation.kind !== 'review' && preparation.kind !== 'delta') ||
+      !artifact ||
+      preparation.transitionId !== artifact.readerAdmissionId ||
+      preparation.seal.fenceId !== artifact.sealFenceId ||
+      attempt.actorSeatId !== input.execution.seat.id ||
+      attempt.binding.deliveryId !== input.execution.deliveryId ||
+      artifact.sealFenceId.length === 0
+    )
+      throw new Error('Exact sealed reviewer claim required');
+    const page = input.reviews.readReviewPage({
+      sessionId: input.execution.sessionId,
+      workflowId: workflow.workflowId,
+      attemptId: attempt.attemptId,
+      sealFenceId: artifact.sealFenceId,
+      pageIndex,
+      claimToken: input.execution.claimToken,
+      seatId: input.execution.seat.id,
+      artifactRevision: attempt.artifactRevision,
+      artifactHash: attempt.artifactHash,
+    });
+    return { page, workflowId: workflow.workflowId, attemptId: attempt.attemptId };
+  };
   return {
     tools: [
       {
@@ -43,60 +88,34 @@ export function createSymposiumNativeReviewTool(input: {
         input.execution.signal.throwIfAborted();
         if (!context.turnId || !context.callId)
           throw new Error('Verified provider tool identity required');
-        input.verifyCurrent();
         const { pageIndex } = PageInput.parse(arguments_);
-        const workflow = input.reviews.applicationWorkflowForSession(input.execution.sessionId);
-        const attempt = workflow?.applicationAttempts.find(
-          (entry) => entry.binding.claimToken === input.execution.claimToken,
-        );
-        const preparation = attempt
-          ? input.reviews.getApplicationPreparation(attempt.workflowId, attempt.attemptId)
-          : null;
-        const artifact =
-          'version' in input.execution.provenance &&
-          input.execution.provenance.version === 3 &&
-          'kind' in input.execution.provenance.artifact &&
-          input.execution.provenance.artifact.kind === 'sealed_reader'
-            ? input.execution.provenance.artifact
-            : null;
-        if (
-          !workflow ||
-          !attempt ||
-          (attempt.kind !== 'review' && attempt.kind !== 'delta') ||
-          !preparation ||
-          (preparation.kind !== 'review' && preparation.kind !== 'delta') ||
-          !artifact ||
-          preparation.transitionId !== artifact.readerAdmissionId ||
-          preparation.seal.fenceId !== artifact.sealFenceId ||
-          attempt.actorSeatId !== input.execution.seat.id ||
-          attempt.binding.deliveryId !== input.execution.deliveryId ||
-          artifact.sealFenceId.length === 0
-        )
-          throw new Error('Exact sealed reviewer claim required');
-        const page = input.reviews.readReviewPage({
-          sessionId: input.execution.sessionId,
-          workflowId: workflow.workflowId,
-          attemptId: attempt.attemptId,
-          sealFenceId: artifact.sealFenceId,
-          pageIndex,
-          claimToken: input.execution.claimToken,
-          seatId: input.execution.seat.id,
-          artifactRevision: attempt.artifactRevision,
-          artifactHash: attempt.artifactHash,
-        });
+        const { page } = readPage(pageIndex);
         input.verifyCurrent();
         signal.throwIfAborted();
         input.execution.signal.throwIfAborted();
-        input.reviews.markReviewPageDelivered({
-          workflowId: workflow.workflowId,
-          attemptId: attempt.attemptId,
-          pageIndex,
-          contextSha256: page.receipt.contextSha256 as string,
-        });
         return { content: JSON.stringify(page), isError: false };
       } catch {
         return { content: 'Sealed review page request was rejected', isError: true };
       }
+    },
+    onToolResultDurable: (name, arguments_, result, context) => {
+      if (name !== SYMPOSIUM_READ_REVIEW_PAGE_TOOL || result.isError) return;
+      if (!context.turnId || !context.callId)
+        throw new Error('Verified provider tool identity required');
+      input.execution.signal.throwIfAborted();
+      const { pageIndex } = PageInput.parse(arguments_);
+      const { page, workflowId, attemptId } = readPage(pageIndex);
+      if (
+        result.content !== JSON.stringify(page) ||
+        page.receipt.contextSha256 !== createHash('sha256').update(page.context).digest('hex')
+      )
+        throw new Error('Durable sealed page result changed');
+      input.reviews.markReviewPageDelivered({
+        workflowId,
+        attemptId,
+        pageIndex,
+        contextSha256: page.receipt.contextSha256 as string,
+      });
     },
   };
 }

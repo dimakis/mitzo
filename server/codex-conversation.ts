@@ -49,6 +49,13 @@ export interface CodexConversationOptions {
     /** Identifiers verified against the active provider turn, never model input. */
     context: { turnId: string; callId: string },
   ): Promise<{ content: string; isError: boolean }>;
+  /** Called only after an exact host tool result can be replayed durably. */
+  onToolResultDurable?: (
+    name: string,
+    input: ObjectValue,
+    result: { content: string; isError: boolean },
+    context: { turnId: string; callId: string },
+  ) => Promise<void> | void;
   requestUserInput?: (params: ObjectValue, signal: AbortSignal) => Promise<ObjectValue>;
   validateModel?: (model: string, reasoningEffort?: string) => void;
   displayToolName?: (name: string) => string;
@@ -1286,14 +1293,39 @@ export class CodexConversation {
       throw new Error('Unsupported Codex tool');
     const toolSignal = AbortSignal.any([signal, active.abort.signal]);
     toolSignal.throwIfAborted();
+    const toolIdentity = {
+      turnId: call.turnId,
+      toolName: call.tool,
+      requestHash: createHash('sha256').update(JSON.stringify(call.arguments)).digest('hex'),
+    };
     if (
       !this.opts.store.claimTool(
         this.opts.conversationId,
         this.binding!,
         active.command.id,
         call.callId,
+        toolIdentity,
       )
-    )
+    ) {
+      if (this.opts.ownerKind === 'symposium') {
+        const replay = this.opts.store.replayToolResult(
+          this.opts.conversationId,
+          this.binding!,
+          active.command.id,
+          call.callId,
+          toolIdentity,
+        );
+        if (replay) {
+          await this.opts.onToolResultDurable?.(call.tool, call.arguments, replay, {
+            turnId: call.turnId,
+            callId: call.callId,
+          });
+          return {
+            success: !replay.isError,
+            contentItems: [{ type: 'inputText', text: replay.content }],
+          };
+        }
+      }
       return {
         success: false,
         contentItems: [
@@ -1303,6 +1335,7 @@ export class CodexConversation {
           },
         ],
       };
+    }
     const publicId = this.mapper!.toolStart(
       call.callId,
       this.opts.displayToolName?.(call.tool) ?? call.tool,
@@ -1319,6 +1352,27 @@ export class CodexConversation {
         content: 'Tool failed or was interrupted. Inspect current state before retrying.',
         isError: true,
       };
+    }
+    if (this.opts.ownerKind === 'symposium') {
+      try {
+        this.opts.store.recordToolResult(
+          this.opts.conversationId,
+          this.binding!,
+          active.command.id,
+          call.callId,
+          toolIdentity,
+          result,
+        );
+        await this.opts.onToolResultDurable?.(call.tool, call.arguments, result, {
+          turnId: call.turnId,
+          callId: call.callId,
+        });
+      } catch {
+        result = {
+          content: 'Tool result delivery is pending; retry this exact call.',
+          isError: true,
+        };
+      }
     }
     this.mapper!.toolResult(publicId, result.content, result.isError);
     return {

@@ -190,6 +190,7 @@ export async function createCodexNativeSeat(
         content: 'Symposium native host tools are unavailable',
         isError: true,
       })),
+    onToolResultDurable: input.profileTools?.onToolResultDurable,
     validateModel: (model, effort) => {
       if (model !== route.model || (effort ?? null) !== route.effort)
         throw new Error('Symposium model or effort changed before native turn');
