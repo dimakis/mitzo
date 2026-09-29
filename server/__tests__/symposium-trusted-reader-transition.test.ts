@@ -218,6 +218,7 @@ function fixture() {
   let reviewContext = pageContext('tested');
   let reviewPageTexts = [reviewContext];
   const exportedPageBatches: number[] = [];
+  let failAfterFirstRetain = false;
   let contextRevision = commit;
   const completedSeal = {
     kind: 'completed_artifact_seal' as const,
@@ -280,7 +281,14 @@ function fixture() {
         receipt: pageReceipts[0].receipt,
       };
     },
-    retainReviewPages: () => {},
+    retainReviewPages: (input) => {
+      reviews.retainReviewPages(input);
+      if (failAfterFirstRetain && input.startPageIndex === 0) {
+        failAfterFirstRetain = false;
+        throw new Error('simulated crash after first durable batch');
+      }
+    },
+    assertRetainedReviewPagesComplete: (input) => reviews.assertRetainedReviewPagesComplete(input),
     markReviewPromptPageDelivered: () => {},
     currentArtifact: () => ({ revision: commit, hash: treeDigest }),
     verifyReviewer: () => true,
@@ -306,6 +314,9 @@ function fixture() {
     context,
     setLoseStageResponse: () => {
       loseStageResponse = true;
+    },
+    failAfterFirstRetain: () => {
+      failAfterFirstRetain = true;
     },
     setReviewContext: (value: string) => {
       try {
@@ -616,8 +627,34 @@ it('fetches a second sealed helper batch before admitting the reviewer', async (
       }),
     );
     f.setReviewPages(pages);
+    f.failAfterFirstRetain();
+    await expect(f.owner.transition.apply(f.context, prep)).rejects.toThrow(
+      'simulated crash after first durable batch',
+    );
+    const db = new Database(f.reviewPath);
+    const retained = db
+      .prepare(
+        'SELECT COUNT(*) AS count FROM symposium_review_context_pages WHERE workflow_id=? AND attempt_id=?',
+      )
+      .get('workflow', 'review-1') as { count: number };
+    expect(retained.count).toBe(ARTIFACT_REVIEW_BATCH_PAGES);
+    db.close();
     await f.owner.transition.apply(f.context, prep);
-    expect(f.exportedPageBatches).toEqual([0, ARTIFACT_REVIEW_BATCH_PAGES]);
+    expect(f.exportedPageBatches).toEqual([
+      0,
+      ARTIFACT_REVIEW_BATCH_PAGES,
+      0,
+      ARTIFACT_REVIEW_BATCH_PAGES,
+      ARTIFACT_REVIEW_BATCH_PAGES,
+    ]);
+    f.reviews.assertRetainedReviewPagesComplete({
+      sessionId: 'symposium',
+      workflowId: 'workflow',
+      attemptId: 'review-1',
+      sealFenceId: prep.seal.fenceId,
+      evidenceSha256: 'd'.repeat(64),
+      pageCount: pages.length,
+    });
   } finally {
     f.leaseHost.close();
     f.reviews.close();

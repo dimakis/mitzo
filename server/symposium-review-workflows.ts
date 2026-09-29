@@ -1,5 +1,8 @@
 import { canonicalReviewJson, reviewRecordHash } from './symposium-review-records.js';
-import { ARTIFACT_REVIEW_MAX_PAGES } from './symposium-artifact-git-export.js';
+import {
+  ARTIFACT_REVIEW_BATCH_PAGES,
+  ARTIFACT_REVIEW_MAX_PAGES,
+} from './symposium-artifact-git-export.js';
 import Database from 'better-sqlite3';
 import { createHash, randomBytes } from 'node:crypto';
 import { z } from 'zod';
@@ -390,6 +393,8 @@ export class SymposiumReviewStore {
     attemptId: string;
     sealFenceId: string;
     evidenceSha256: string;
+    pageCount: number;
+    startPageIndex: number;
     pages: readonly {
       context: string;
       receipt: {
@@ -405,23 +410,27 @@ export class SymposiumReviewStore {
     // A same-operation physical replay may use a new short-lived helper. Bind
     // retained evidence to the stable sealed identity, not helper ID or time.
     const stableReceipt = (receipt: Record<string, unknown>) =>
-      canonicalReviewJson({
-        version: receipt.version,
-        mode: receipt.mode,
-        operationId: receipt.operationId,
-        sealFenceId: receipt.sealFenceId,
-        sealDigest: receipt.sealDigest,
-        intentDigest: receipt.intentDigest,
-        artifactRevision: receipt.artifactRevision,
-        artifactHash: receipt.artifactHash,
-        baseOid: receipt.baseOid,
-        sourceOid: receipt.sourceOid,
-        contextSha256: receipt.contextSha256,
-        pageIndex: receipt.pageIndex,
-        pageCount: receipt.pageCount,
-        evidenceSha256: receipt.evidenceSha256,
-        pagesSha256: receipt.pagesSha256,
-      });
+      canonicalReviewJson(
+        Object.fromEntries(
+          Object.entries({
+            version: receipt.version,
+            mode: receipt.mode,
+            operationId: receipt.operationId,
+            sealFenceId: receipt.sealFenceId,
+            sealDigest: receipt.sealDigest,
+            intentDigest: receipt.intentDigest,
+            artifactRevision: receipt.artifactRevision,
+            artifactHash: receipt.artifactHash,
+            baseOid: receipt.baseOid,
+            sourceOid: receipt.sourceOid,
+            contextSha256: receipt.contextSha256,
+            pageIndex: receipt.pageIndex,
+            pageCount: receipt.pageCount,
+            evidenceSha256: receipt.evidenceSha256,
+            pagesSha256: receipt.pagesSha256,
+          }).filter(([, value]) => value !== undefined),
+        ),
+      );
     const workflow = this.get(input.workflowId);
     const preparation = this.getApplicationPreparation(input.workflowId, input.attemptId);
     if (
@@ -431,8 +440,15 @@ export class SymposiumReviewStore {
       preparation.seal.fenceId !== input.sealFenceId ||
       preparation.artifactRevision !== workflow.artifactRevision ||
       preparation.artifactHash !== workflow.artifactHash ||
+      !Number.isSafeInteger(input.pageCount) ||
+      input.pageCount < 1 ||
+      input.pageCount > ARTIFACT_REVIEW_MAX_PAGES ||
+      !Number.isSafeInteger(input.startPageIndex) ||
+      input.startPageIndex < 0 ||
+      input.startPageIndex >= input.pageCount ||
       input.pages.length < 1 ||
-      input.pages.length > ARTIFACT_REVIEW_MAX_PAGES ||
+      input.pages.length > ARTIFACT_REVIEW_BATCH_PAGES ||
+      input.startPageIndex + input.pages.length > input.pageCount ||
       !/^[a-f0-9]{64}$/.test(input.evidenceSha256)
     )
       throw new Error('Exact prepared review pages required');
@@ -440,9 +456,10 @@ export class SymposiumReviewStore {
       .transaction(() => {
         for (let index = 0; index < input.pages.length; index++) {
           const page = input.pages[index];
+          const pageIndex = input.startPageIndex + index;
           if (
-            page.receipt.pageIndex !== index ||
-            page.receipt.pageCount !== input.pages.length ||
+            page.receipt.pageIndex !== pageIndex ||
+            page.receipt.pageCount !== input.pageCount ||
             page.receipt.sealFenceId !== input.sealFenceId ||
             page.receipt.artifactRevision !== preparation.artifactRevision ||
             page.receipt.artifactHash !== preparation.artifactHash ||
@@ -456,14 +473,15 @@ export class SymposiumReviewStore {
               `SELECT session_id, seal_fence_id, evidence_sha256, page_count, context, receipt
           FROM symposium_review_context_pages WHERE workflow_id=? AND attempt_id=? AND page_index=?`,
             )
-            .get(input.workflowId, input.attemptId, index) as Record<string, unknown> | undefined;
+            .get(input.workflowId, input.attemptId, pageIndex) as
+            Record<string, unknown> | undefined;
           const receipt = canonicalReviewJson(page.receipt);
           if (existing) {
             if (
               existing.session_id !== input.sessionId ||
               existing.seal_fence_id !== input.sealFenceId ||
               existing.evidence_sha256 !== input.evidenceSha256 ||
-              existing.page_count !== input.pages.length ||
+              existing.page_count !== input.pageCount ||
               existing.context !== page.context ||
               stableReceipt(JSON.parse(existing.receipt as string) as Record<string, unknown>) !==
                 stableReceipt(page.receipt)
@@ -479,11 +497,11 @@ export class SymposiumReviewStore {
               .run(
                 input.workflowId,
                 input.attemptId,
-                index,
+                pageIndex,
                 input.sessionId,
                 input.sealFenceId,
                 input.evidenceSha256,
-                input.pages.length,
+                input.pageCount,
                 page.context,
                 receipt,
               );
@@ -495,9 +513,44 @@ export class SymposiumReviewStore {
         WHERE workflow_id=? AND attempt_id=?`,
           )
           .get(input.workflowId, input.attemptId) as { count: number };
-        if (count.count !== input.pages.length) throw new Error('Retained review page set changed');
+        if (count.count > input.pageCount) throw new Error('Retained review page set changed');
       })
       .immediate();
+  }
+
+  assertRetainedReviewPagesComplete(input: {
+    sessionId: string;
+    workflowId: string;
+    attemptId: string;
+    sealFenceId: string;
+    evidenceSha256: string;
+    pageCount: number;
+  }): void {
+    const rows = this.db
+      .prepare(
+        `SELECT page_index, page_count, session_id, seal_fence_id, evidence_sha256
+         FROM symposium_review_context_pages
+         WHERE workflow_id=? AND attempt_id=? ORDER BY page_index`,
+      )
+      .all(input.workflowId, input.attemptId) as {
+      page_index: number;
+      page_count: number;
+      session_id: string;
+      seal_fence_id: string;
+      evidence_sha256: string;
+    }[];
+    if (
+      rows.length !== input.pageCount ||
+      rows.some(
+        (row, index) =>
+          row.page_index !== index ||
+          row.page_count !== input.pageCount ||
+          row.session_id !== input.sessionId ||
+          row.seal_fence_id !== input.sealFenceId ||
+          row.evidence_sha256 !== input.evidenceSha256,
+      )
+    )
+      throw new Error('Retained review page set incomplete');
   }
 
   markReviewPromptPageDelivered(input: {
