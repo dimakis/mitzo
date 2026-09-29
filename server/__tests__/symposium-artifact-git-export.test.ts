@@ -59,12 +59,32 @@ function fixture(populate?: (root: string) => void, basePopulate?: (root: string
     ]);
   const runWithExportCode = (code: string, input: Record<string, unknown>) =>
     python(code, [JSON.stringify({ baseBranch: 'main', expected: proof, ...input })]);
+  const streamReview = () =>
+    execFileSync(
+      'python3',
+      [
+        '-I',
+        '-c',
+        ARTIFACT_GIT_EXPORT.replace(
+          `root='${SYMPOSIUM_ARTIFACT_TARGET}'`,
+          `root=${JSON.stringify(root)}`,
+        ),
+        '.',
+        JSON.stringify({ kind: 'review_stream', baseBranch: 'main', expected: proof }),
+      ],
+      { stdio: 'pipe', maxBuffer: 32 * 1024 * 1024 },
+    )
+      .toString()
+      .trimEnd()
+      .split('\n')
+      .map((line) => ({ marker: line[0], value: JSON.parse(line.slice(1)), raw: line.slice(1) }));
   return {
     root,
     git,
     proof,
     run,
     runWithExportCode,
+    streamReview,
     refreshProof: () => Object.assign(proof, python(ARTIFACT_GIT_VERIFIER, [])),
   };
 }
@@ -368,6 +388,39 @@ it('uses one diff deadline across multiple changed paths', () => {
   expect(() => f.runWithExportCode(code, { kind: 'review_context', page: 0 })).toThrow(
     'review diff time bound',
   );
+});
+it('streams each complete sealed page once with bounded exact frames and a terminal digest', () => {
+  const content = 'streamed line\n'.repeat(100_000);
+  const f = fixture((root) => writeFileSync(join(root, 'streamed.txt'), content));
+  const frames = f.streamReview();
+  const header = frames[0];
+  const footer = frames.at(-1)!;
+  const pageFrames = frames.slice(1, -1);
+  expect(header.marker).toBe('H');
+  expect(footer.marker).toBe('F');
+  expect(header.value.proof).toEqual(f.proof);
+  expect(footer.value.proof).toEqual(f.proof);
+  expect(pageFrames.length).toBeGreaterThan(ARTIFACT_REVIEW_BATCH_PAGES);
+  expect(pageFrames).toHaveLength(header.value.pageCount);
+  expect(footer.value.pageCount).toBe(header.value.pageCount);
+  expect(footer.value.evidenceSha256).toBe(header.value.evidenceSha256);
+  const pages = pageFrames.map((frame, index) => {
+    expect(frame.marker).toBe('P');
+    expect(Buffer.byteLength(frame.raw)).toBeLessThanOrEqual(ARTIFACT_REVIEW_CONTEXT_MAX_BYTES);
+    expect(frame.value.pageIndex).toBe(index);
+    expect(frame.value.pageCount).toBe(pageFrames.length);
+    expect(frame.value.evidenceSha256).toBe(header.value.evidenceSha256);
+    return frame.raw;
+  });
+  expect(createHash('sha256').update(JSON.stringify(pages)).digest('hex')).toBe(
+    footer.value.pagesSha256,
+  );
+  const reconstructed = pageFrames
+    .flatMap((frame) => frame.value.segments)
+    .filter((segment) => segment.path === 'streamed.txt')
+    .map((segment) => segment.data)
+    .join('');
+  expect(reconstructed).toBe(content);
 });
 it('retrieves more than 1 MiB of changed evidence through bounded sealed batches', () => {
   const content = 'X'.repeat(2500 * 1024);

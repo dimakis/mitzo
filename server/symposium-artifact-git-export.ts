@@ -104,13 +104,13 @@ origin=git('config','--get','remote.origin.url').decode().strip()
 # Never emit an origin containing credentials, query text or a non-GitHub host.
 if len(origin)>2048 or not re.fullmatch(r'(https://github\.com/|git@github\.com:)[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(?:\.git)?',origin): raise ValueError('origin URL')
 review_base_oid=base_oid
-if options['kind']=='review_context':
+if options['kind'] in ('review_context','review_stream'):
  # Main may advance after the sealed feature commit. Require one shared ancestor
  # rather than including main-only commits or selecting an arbitrary criss-cross base.
  merge_bases=git('merge-base','--all',base_oid,commit).decode().splitlines()
  if len(merge_bases)!=1 or len(merge_bases[0])!=len(commit) or any(c not in '0123456789abcdef' for c in merge_bases[0]): raise ValueError('unique review merge base')
  review_base_oid=merge_bases[0]
-comparison_oid=review_base_oid if options['kind']=='review_context' else base_oid
+comparison_oid=review_base_oid if options['kind'] in ('review_context','review_stream') else base_oid
 count=int(git('rev-list','--count',comparison_oid+'..'+commit).decode().strip())
 paths=set()
 # Feed every exported commit; a two-endpoint diff hides reverted/deleted history.
@@ -124,7 +124,7 @@ for raw in history_paths.split(b'\0'):
  paths.add(path)
  if len(paths)>500: raise ValueError('changed path bound')
 inspection={'canonicalRepositoryPath':repo,'status':'clean','sourceBranch':source_branch,'sourceOid':commit,'defaultBranch':default_branch,'originUrl':origin,'commitsAhead':count,'changedFiles':sorted(paths,key=lambda p:p.encode('utf-8')),'sourceBranchProtected':False,'symlinkFree':True}
-if options['kind']=='review_context':
+if options['kind'] in ('review_context','review_stream'):
  if not paths: raise ValueError('review context has no changed files')
  base_entries={}
  base_modes={}
@@ -137,7 +137,7 @@ if options['kind']=='review_context':
    base_entries[path]=objectid
    base_modes[path]=mode
  target={item['path']:item for item in manifest}
- files=[];selected_used=0;paged='page' in options;segments=[]
+ files=[];selected_used=0;streaming=options['kind']=='review_stream';paged='page' in options or streaming;segments=[]
  def excerpt(value,limit):
   data=value.encode('utf-8')
   if len(data)<=limit: return value,False
@@ -196,8 +196,9 @@ if options['kind']=='review_context':
    if time.monotonic()>review_page_deadline: raise ValueError('review page time bound')
   del diff_bytes,content_bytes,source_data,content,diff
  if paged: raw=b'';diff_segments=[];selected_segments=[]
- if 'page' in options:
-  page=options['page']
+ if 'page' in options or streaming:
+  page=options.get('page',0)
+  if streaming and 'page' in options: raise ValueError('stream review page')
   if type(page)!=int or page<0 or page>=${ARTIFACT_REVIEW_MAX_PAGES} or page%${ARTIFACT_REVIEW_BATCH_PAGES}!=0: raise ValueError('review page')
   identity={'version':3,'scope':'sealed-changed-path-pages','sourceOid':commit,'baseOid':review_base_oid,'sourceBranch':source_branch,'baseBranch':base_branch,'committedTreeDigest':proof['committedTreeDigest'],'manifestDigest':proof['manifestDigest'],'trackedFileCount':proof['entries'],'changedPathCount':len(paths)}
   descriptors=[{key:item[key] for key in ('path','status','baseMode','mode','sha256','bytes','representation','diffSha256','diffBytes')} for item in files]
@@ -220,6 +221,8 @@ if options['kind']=='review_context':
    current.append(segment)
   if current: pages.append(current)
   if not pages or len(pages)>${ARTIFACT_REVIEW_MAX_PAGES} or page>=len(pages): raise ValueError('review page unavailable')
+  if streaming:
+   print('H'+json.dumps({'proof':proof,'pageCount':len(pages),'evidenceSha256':evidence_sha,'sourceOid':commit,'baseOid':review_base_oid},sort_keys=True,separators=(',',':'),ensure_ascii=False),flush=True)
   digest=hashlib.sha256();digest.update(b'[');selected_pages=[];state={'cursor':0,'pageIndex':0,'parts':[]};active_file=[-1]
   def replay_segment(index,start,end,piece):
    cursor=state['cursor']
@@ -234,7 +237,9 @@ if options['kind']=='review_context':
     if len(encoded.encode('utf-8'))>${ARTIFACT_REVIEW_CONTEXT_MAX_BYTES}: raise ValueError('review page byte bound')
     if page_index: digest.update(b',')
     digest.update(json.dumps(encoded,separators=(',',':'),ensure_ascii=False).encode('utf-8'))
-    if page<=page_index<page+${ARTIFACT_REVIEW_BATCH_PAGES}: selected_pages.append(encoded)
+    if streaming:
+     print('P'+encoded,flush=True)
+    elif page<=page_index<page+${ARTIFACT_REVIEW_BATCH_PAGES}: selected_pages.append(encoded)
     state['pageIndex']=page_index+1;state['parts']=[]
    if time.monotonic()>review_page_deadline: raise ValueError('review page time bound')
   for file_index,item in enumerate(files):
@@ -250,7 +255,9 @@ if options['kind']=='review_context':
    if actual_sha!=item['selectedSha256'] or actual_size!=item['selectedBytes']: raise ValueError('review selection changed during paging')
   if state['cursor']!=len(segments) or state['pageIndex']!=len(pages): raise ValueError('review page count changed')
   digest.update(b']');pages_digest=digest.hexdigest()
-  print(json.dumps({'proof':proof,'context':selected_pages[0],'contextSha256':hashlib.sha256(selected_pages[0].encode('utf-8')).hexdigest(),'pages':selected_pages,'pagesSha256':pages_digest},sort_keys=True,ensure_ascii=False))
+  if streaming:
+   print('F'+json.dumps({'proof':proof,'pagesSha256':pages_digest,'pageCount':len(pages),'evidenceSha256':evidence_sha},sort_keys=True,separators=(',',':'),ensure_ascii=False),flush=True)
+  else: print(json.dumps({'proof':proof,'context':selected_pages[0],'contextSha256':hashlib.sha256(selected_pages[0].encode('utf-8')).hexdigest(),'pages':selected_pages,'pagesSha256':pages_digest},sort_keys=True,ensure_ascii=False))
   sys.exit(0)
  context={'version':2,'scope':'bounded-changed-path-evidence','sourceOid':commit,'baseOid':review_base_oid,'sourceBranch':source_branch,'baseBranch':base_branch,'committedTreeDigest':proof['committedTreeDigest'],'manifestDigest':proof['manifestDigest'],'trackedFileCount':proof['entries'],'changedPathCount':len(paths),'omittedPathCount':0,'files':[]}
  for item in files:
