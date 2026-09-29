@@ -1169,6 +1169,7 @@ let symposiumRuntimeForSession: (sessionId: string) => SymposiumOrchestrator | n
       codexStore: getCodexConversationStore(),
       profileProposalStore: symposiumProfileProposalStore,
       profileCatalogStore: symposiumProfileStore,
+      reviewStore: symposiumReviewStore,
       resolveProviderIdentity: createOpenShellProviderIdentityResolver(runtimeConfig),
       runtimeConfig,
       perSeatSandboxVerified: true,

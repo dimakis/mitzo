@@ -1,0 +1,114 @@
+import { describe, expect, it, vi } from 'vitest';
+import {
+  createSymposiumNativeReviewTool,
+  SYMPOSIUM_READ_REVIEW_PAGE_TOOL,
+} from '../symposium-native-review-tool.js';
+
+const artifact = {
+  version: 1 as const,
+  kind: 'sealed_reader' as const,
+  readerAdmissionId: 'transition-1',
+  artifactGenerationId: 'generation-1',
+  sealFenceId: 'fence-1',
+  bindingDigest: 'a'.repeat(64),
+};
+const execution = {
+  sessionId: 'session-1',
+  deliveryId: 'delivery-1',
+  claimToken: 'claim-1',
+  seat: { id: 'reviewer', role: 'reviewer' },
+  provenance: { version: 3, artifact },
+  signal: new AbortController().signal,
+};
+const workflow = {
+  workflowId: 'workflow-1',
+  applicationAttempts: [
+    {
+      workflowId: 'workflow-1',
+      attemptId: 'attempt-1',
+      kind: 'review',
+      actorSeatId: 'reviewer',
+      artifactRevision: 'b'.repeat(40),
+      artifactHash: 'c'.repeat(64),
+      binding: { claimToken: 'claim-1', deliveryId: 'delivery-1' },
+    },
+  ],
+};
+const preparation = { kind: 'review', transitionId: 'transition-1', seal: { fenceId: 'fence-1' } };
+
+describe('reviewer sealed page native tool', () => {
+  it('passes only the host-bound active claim and numbered page to durable storage', async () => {
+    const readReviewPage = vi.fn(() => ({ context: '{"pageIndex":1}', receipt: { pageIndex: 1 } }));
+    const verifyCurrent = vi.fn();
+    const tool = createSymposiumNativeReviewTool({
+      reviews: {
+        applicationWorkflowForSession: () => workflow,
+        getApplicationPreparation: () => preparation,
+        readReviewPage,
+      } as never,
+      execution: execution as never,
+      verifyCurrent,
+    });
+    expect(tool.tools?.map((item) => item.name)).toEqual([SYMPOSIUM_READ_REVIEW_PAGE_TOOL]);
+    const result = await tool.executeTool(
+      SYMPOSIUM_READ_REVIEW_PAGE_TOOL,
+      { pageIndex: 1 },
+      new AbortController().signal,
+      { turnId: 'turn', callId: 'call' } as never,
+    );
+    expect(result.isError).toBe(false);
+    expect(readReviewPage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: 'session-1',
+        workflowId: 'workflow-1',
+        attemptId: 'attempt-1',
+        claimToken: 'claim-1',
+        seatId: 'reviewer',
+        sealFenceId: 'fence-1',
+        pageIndex: 1,
+      }),
+    );
+    expect(verifyCurrent).toHaveBeenCalledTimes(2);
+  });
+
+  it('rejects forged fields and a stale reviewer claim', async () => {
+    const readReviewPage = vi.fn();
+    const tool = createSymposiumNativeReviewTool({
+      reviews: {
+        applicationWorkflowForSession: () => workflow,
+        getApplicationPreparation: () => preparation,
+        readReviewPage,
+      } as never,
+      execution: execution as never,
+      verifyCurrent: () => {},
+    });
+    const call = (arguments_: unknown) =>
+      tool.executeTool(SYMPOSIUM_READ_REVIEW_PAGE_TOOL, arguments_, new AbortController().signal, {
+        turnId: 'turn',
+        callId: 'call',
+      } as never);
+    expect((await call({ pageIndex: 1, workflowId: 'other' })).isError).toBe(true);
+    expect((await call({ pageIndex: 2048 })).isError).toBe(true);
+    expect(readReviewPage).not.toHaveBeenCalled();
+    const stale = createSymposiumNativeReviewTool({
+      reviews: {
+        applicationWorkflowForSession: () => workflow,
+        getApplicationPreparation: () => preparation,
+        readReviewPage,
+      } as never,
+      execution: { ...execution, claimToken: 'old-claim' } as never,
+      verifyCurrent: () => {},
+    });
+    expect(
+      (
+        await stale.executeTool(
+          SYMPOSIUM_READ_REVIEW_PAGE_TOOL,
+          { pageIndex: 1 },
+          new AbortController().signal,
+          { turnId: 'turn', callId: 'call' } as never,
+        )
+      ).isError,
+    ).toBe(true);
+    expect(readReviewPage).not.toHaveBeenCalled();
+  });
+});

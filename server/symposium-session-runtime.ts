@@ -34,6 +34,8 @@ import {
   createSymposiumNativeProfileTools,
   assertSymposiumProfileAttemptCurrent,
 } from './symposium-native-profile-tools.js';
+import { createSymposiumNativeReviewTool } from './symposium-native-review-tool.js';
+import type { SymposiumReviewStore } from './symposium-review-workflows.js';
 import type { SymposiumProfileStore } from './symposium-profiles.js';
 import type { SymposiumProfileProposalStore } from './symposium-profile-proposals.js';
 import { createOpenAiCodexSeat } from './symposium-codex-native.js';
@@ -1337,6 +1339,10 @@ export interface SymposiumSessionRuntimeDeps extends Omit<
   codexStore: CodexConversationStore;
   profileCatalogStore?: Pick<SymposiumProfileStore, 'list' | 'get'>;
   profileProposalStore?: Pick<SymposiumProfileProposalStore, 'propose'>;
+  reviewStore?: Pick<
+    SymposiumReviewStore,
+    'applicationWorkflowForSession' | 'getApplicationPreparation' | 'readReviewPage'
+  >;
   recordAccepted: SymposiumOpenShellSeatExecutorDeps['recordAccepted'];
   /** Trusted override owns durable persistence and live publication when supplied. */
   recordEvent?: SymposiumOpenShellSeatExecutorDeps['recordEvent'];
@@ -1447,37 +1453,47 @@ export function createSymposiumSessionRuntime(deps: SymposiumSessionRuntimeDeps)
           openNative:
             deps.openNative ??
             ((input) => {
-              const profileTools = deps.profileProposalStore
-                ? createSymposiumNativeProfileTools({
-                    store: deps.profileProposalStore,
-                    catalogStore: deps.profileCatalogStore,
-                    owner: 'user',
-                    execution: input.execution,
-                    verifyCurrent: () => {
-                      const capability = deps.verifyHostCapability?.();
-                      assertSymposiumProfileAttemptCurrent(deps.store, input.execution);
-                      const current = admitSymposiumSeatDispatch(
-                        deps.store,
-                        deps.currentProfiles?.() ?? deps.profiles,
-                        input.execution,
-                        deps.hostGrants,
-                      );
-                      if (JSON.stringify(current) !== JSON.stringify(input.route))
-                        throw new Error('Symposium seat route changed before profile proposal');
-                      if (capability)
-                        assertSymposiumAttestedProvider(capability, {
-                          name: current.provider,
-                          id: current.providerId,
-                          type:
-                            current.kind === 'chatgpt-subscription-native'
-                              ? 'codex'
-                              : current.kind === 'openai-api'
-                                ? 'openai'
-                                : 'google-vertex-ai',
-                        });
-                    },
-                  })
-                : undefined;
+              const verifyNativeToolCurrent = () => {
+                const capability = deps.verifyHostCapability?.();
+                assertSymposiumProfileAttemptCurrent(deps.store, input.execution);
+                const current = admitSymposiumSeatDispatch(
+                  deps.store,
+                  deps.currentProfiles?.() ?? deps.profiles,
+                  input.execution,
+                  deps.hostGrants,
+                );
+                if (JSON.stringify(current) !== JSON.stringify(input.route))
+                  throw new Error('Symposium seat route changed before host tool');
+                if (capability)
+                  assertSymposiumAttestedProvider(capability, {
+                    name: current.provider,
+                    id: current.providerId,
+                    type:
+                      current.kind === 'chatgpt-subscription-native'
+                        ? 'codex'
+                        : current.kind === 'openai-api'
+                          ? 'openai'
+                          : 'google-vertex-ai',
+                  });
+              };
+              const profileTools =
+                input.execution.seat.role === 'reviewer'
+                  ? deps.reviewStore
+                    ? createSymposiumNativeReviewTool({
+                        reviews: deps.reviewStore,
+                        execution: input.execution,
+                        verifyCurrent: verifyNativeToolCurrent,
+                      })
+                    : undefined
+                  : deps.profileProposalStore
+                    ? createSymposiumNativeProfileTools({
+                        store: deps.profileProposalStore,
+                        catalogStore: deps.profileCatalogStore,
+                        owner: 'user',
+                        execution: input.execution,
+                        verifyCurrent: verifyNativeToolCurrent,
+                      })
+                    : undefined;
               const loadConversationHistory = () =>
                 symposiumSeatRolloverHistory(
                   deps.store,

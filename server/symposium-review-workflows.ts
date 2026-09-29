@@ -355,11 +355,235 @@ export class SymposiumReviewStore {
         detail TEXT NOT NULL,
         PRIMARY KEY (workflow_id, sequence)
       );
+      CREATE TABLE IF NOT EXISTS symposium_review_context_pages (
+        workflow_id TEXT NOT NULL,
+        attempt_id TEXT NOT NULL,
+        page_index INTEGER NOT NULL,
+        session_id TEXT NOT NULL,
+        seal_fence_id TEXT NOT NULL,
+        evidence_sha256 TEXT NOT NULL,
+        page_count INTEGER NOT NULL,
+        context TEXT NOT NULL,
+        receipt TEXT NOT NULL,
+        accessed INTEGER NOT NULL DEFAULT 0,
+        PRIMARY KEY (workflow_id, attempt_id, page_index)
+      );
     `);
   }
 
   close(): void {
     this.db.close();
+  }
+
+  /** Durable, immutable pages survive runtime restart. The transition has verified the
+   * physical export before it calls this method; this enforces complete idempotence. */
+  retainReviewPages(input: {
+    sessionId: string;
+    workflowId: string;
+    attemptId: string;
+    sealFenceId: string;
+    evidenceSha256: string;
+    pages: readonly {
+      context: string;
+      receipt: {
+        contextSha256: string;
+        pageIndex?: number;
+        pageCount?: number;
+        sealFenceId: string;
+        artifactRevision: string;
+        artifactHash: string;
+      } & Record<string, unknown>;
+    }[];
+  }): void {
+    const workflow = this.get(input.workflowId);
+    const preparation = this.getApplicationPreparation(input.workflowId, input.attemptId);
+    if (
+      !workflow ||
+      workflow.sessionId !== input.sessionId ||
+      !preparation ||
+      preparation.seal.fenceId !== input.sealFenceId ||
+      preparation.artifactRevision !== workflow.artifactRevision ||
+      preparation.artifactHash !== workflow.artifactHash ||
+      input.pages.length < 1 ||
+      input.pages.length > 64 ||
+      !/^[a-f0-9]{64}$/.test(input.evidenceSha256)
+    )
+      throw new Error('Exact prepared review pages required');
+    this.db
+      .transaction(() => {
+        for (let index = 0; index < input.pages.length; index++) {
+          const page = input.pages[index];
+          if (
+            page.receipt.pageIndex !== index ||
+            page.receipt.pageCount !== input.pages.length ||
+            page.receipt.sealFenceId !== input.sealFenceId ||
+            page.receipt.artifactRevision !== preparation.artifactRevision ||
+            page.receipt.artifactHash !== preparation.artifactHash ||
+            page.receipt.contextSha256 !==
+              createHash('sha256').update(page.context).digest('hex') ||
+            (page.receipt as Record<string, unknown>).evidenceSha256 !== input.evidenceSha256
+          )
+            throw new Error('Inconsistent retained review page');
+          const existing = this.db
+            .prepare(
+              `SELECT session_id, seal_fence_id, evidence_sha256, page_count, context, receipt
+          FROM symposium_review_context_pages WHERE workflow_id=? AND attempt_id=? AND page_index=?`,
+            )
+            .get(input.workflowId, input.attemptId, index) as Record<string, unknown> | undefined;
+          const receipt = canonicalReviewJson(page.receipt);
+          if (existing) {
+            if (
+              existing.session_id !== input.sessionId ||
+              existing.seal_fence_id !== input.sealFenceId ||
+              existing.evidence_sha256 !== input.evidenceSha256 ||
+              existing.page_count !== input.pages.length ||
+              existing.context !== page.context ||
+              existing.receipt !== receipt
+            )
+              throw new Error('Retained review page changed');
+          } else {
+            this.db
+              .prepare(
+                `INSERT INTO symposium_review_context_pages
+            (workflow_id,attempt_id,page_index,session_id,seal_fence_id,evidence_sha256,page_count,context,receipt,accessed)
+            VALUES(?,?,?,?,?,?,?,?,?,0)`,
+              )
+              .run(
+                input.workflowId,
+                input.attemptId,
+                index,
+                input.sessionId,
+                input.sealFenceId,
+                input.evidenceSha256,
+                input.pages.length,
+                page.context,
+                receipt,
+              );
+          }
+        }
+        const count = this.db
+          .prepare(
+            `SELECT COUNT(*) AS count FROM symposium_review_context_pages
+        WHERE workflow_id=? AND attempt_id=?`,
+          )
+          .get(input.workflowId, input.attemptId) as { count: number };
+        if (count.count !== input.pages.length) throw new Error('Retained review page set changed');
+      })
+      .immediate();
+  }
+
+  markReviewPromptPageDelivered(input: {
+    sessionId: string;
+    workflowId: string;
+    attemptId: string;
+    sealFenceId: string;
+    contextSha256: string;
+  }): void {
+    const row = this.db
+      .prepare(
+        `SELECT context,receipt,page_count FROM symposium_review_context_pages
+      WHERE workflow_id=? AND attempt_id=? AND session_id=? AND seal_fence_id=? AND page_index=0`,
+      )
+      .get(input.workflowId, input.attemptId, input.sessionId, input.sealFenceId) as
+      { context: string; receipt: string; page_count: number } | undefined;
+    if (
+      !row ||
+      createHash('sha256').update(row.context).digest('hex') !== input.contextSha256 ||
+      (JSON.parse(row.receipt) as { contextSha256: string }).contextSha256 !== input.contextSha256
+    )
+      throw new Error('Exact staged review prompt page required');
+    this.db
+      .prepare(
+        `UPDATE symposium_review_context_pages SET accessed=1
+      WHERE workflow_id=? AND attempt_id=? AND page_index=0`,
+      )
+      .run(input.workflowId, input.attemptId);
+  }
+
+  readReviewPage(input: {
+    sessionId: string;
+    workflowId: string;
+    attemptId: string;
+    sealFenceId: string;
+    pageIndex: number;
+    claimToken: string;
+    seatId: string;
+    artifactRevision: string;
+    artifactHash: string;
+  }): { context: string; receipt: Record<string, unknown> } {
+    if (!Number.isSafeInteger(input.pageIndex) || input.pageIndex < 0 || input.pageIndex >= 64)
+      throw new Error('Review page index is out of bounds');
+    return this.db
+      .transaction(() => {
+        const workflow = this.get(input.workflowId);
+        const attempt = workflow?.applicationAttempts.find(
+          (entry) => entry.attemptId === input.attemptId,
+        );
+        if (
+          !workflow ||
+          workflow.sessionId !== input.sessionId ||
+          workflow.artifactRevision !== input.artifactRevision ||
+          workflow.artifactHash !== input.artifactHash ||
+          !attempt ||
+          attempt.kind !== 'review' ||
+          attempt.binding.claimToken !== input.claimToken ||
+          attempt.actorSeatId !== input.seatId ||
+          attempt.settled ||
+          !attempt.dispatched ||
+          attempt.artifactRevision !== input.artifactRevision ||
+          attempt.artifactHash !== input.artifactHash
+        )
+          throw new Error('Exact active review attempt required');
+        const row = this.db
+          .prepare(
+            `SELECT context,receipt,page_count,evidence_sha256 FROM symposium_review_context_pages
+        WHERE workflow_id=? AND attempt_id=? AND session_id=? AND seal_fence_id=? AND page_index=?`,
+          )
+          .get(
+            input.workflowId,
+            input.attemptId,
+            input.sessionId,
+            input.sealFenceId,
+            input.pageIndex,
+          ) as
+          | { context: string; receipt: string; page_count: number; evidence_sha256: string }
+          | undefined;
+        if (!row || input.pageIndex >= row.page_count)
+          throw new Error('Sealed review page unavailable');
+        const receipt = JSON.parse(row.receipt) as Record<string, unknown>;
+        if (
+          receipt.pageIndex !== input.pageIndex ||
+          receipt.pageCount !== row.page_count ||
+          receipt.sealFenceId !== input.sealFenceId ||
+          receipt.evidenceSha256 !== row.evidence_sha256 ||
+          receipt.artifactRevision !== input.artifactRevision ||
+          receipt.artifactHash !== input.artifactHash ||
+          receipt.contextSha256 !== createHash('sha256').update(row.context).digest('hex')
+        )
+          throw new Error('Retained review page identity changed');
+        this.db
+          .prepare(
+            `UPDATE symposium_review_context_pages SET accessed=1
+        WHERE workflow_id=? AND attempt_id=? AND page_index=?`,
+          )
+          .run(input.workflowId, input.attemptId, input.pageIndex);
+        return { context: row.context, receipt };
+      })
+      .immediate();
+  }
+
+  hasCompleteReviewPageCoverage(workflowId: string, attemptId: string): boolean {
+    const row = this.db
+      .prepare(
+        `SELECT COUNT(*) AS count, MIN(page_count) AS pageCount,
+      SUM(accessed) AS accessed FROM symposium_review_context_pages WHERE workflow_id=? AND attempt_id=?`,
+      )
+      .get(workflowId, attemptId) as {
+      count: number;
+      pageCount: number | null;
+      accessed: number | null;
+    };
+    return row.count > 0 && row.count === row.pageCount && row.accessed === row.pageCount;
   }
 
   /** Read and persist one coherent verified state/history snapshot in a single transaction.

@@ -333,6 +333,7 @@ export function createSymposiumProductionReviewComposition(deps: {
     const reviewHost = createSymposiumTrustedReviewHost({
       events,
       reviews,
+      requireReviewPageCoverage: true,
       registry: host.attemptRegistry,
       runtime,
       profiles: host.currentProfiles,

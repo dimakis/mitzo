@@ -54,6 +54,7 @@ export interface SymposiumTrustedReviewHostDeps {
     | 'getSymposiumApplicationDeliveryControl'
   >;
   reviews: SymposiumReviewStore;
+  requireReviewPageCoverage?: boolean;
   registry: Pick<SymposiumAttemptRegistry, 'get' | 'observations'>;
   runtime(
     context: ReviewContext,
@@ -661,6 +662,14 @@ export function createSymposiumTrustedReviewHost(
       } catch {
         return null;
       }
+      // A clean review requires every sealed evidence page, including page zero in
+      // the prompt, to have been delivered to this exact attempt.
+      if (
+        deps.requireReviewPageCoverage &&
+        !output.failure &&
+        !deps.reviews.hasCompleteReviewPageCoverage(done.attempt.workflowId, attemptId)
+      )
+        return null;
       return {
         workflowId: done.attempt.workflowId,
         reviewId: `review-${reviewRecordHash(canonicalReviewJson({ attemptId, output }))}`,
