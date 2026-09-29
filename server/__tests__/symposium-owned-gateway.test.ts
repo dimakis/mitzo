@@ -98,7 +98,7 @@ function fixture(san = 'DNS:localhost,IP:127.0.0.1,DNS:host.containers.internal'
     ),
     listenerPid: vi.fn<() => number | null>().mockReturnValueOnce(null).mockReturnValue(4321),
   };
-  return { options, child, operations };
+  return { options, child, issuer, operations };
 }
 
 describe('owned upstream gateway evidence', () => {
@@ -279,6 +279,65 @@ it('async custody verifies files and process again after asynchronous listener o
     complete(4321);
     await rejected;
     expect(operations.listenerPidAsync).toHaveBeenCalledTimes(1);
+  } finally {
+    gateway.stop();
+  }
+});
+
+it('rechecks full async custody after an owned token rotation during listener observation', async () => {
+  const f = fixture();
+  let complete!: (pid: number) => void;
+  const listenerPidAsync = vi.fn()
+    .mockImplementationOnce(() => new Promise<number>((resolve) => { complete = resolve; }))
+    .mockResolvedValue(4321);
+  const gateway = await OwnedSymposiumGateway.launch(f.options, {
+    ...f.operations, listenerPidAsync,
+  });
+  try {
+    const pending = gateway.verifyCustodyAsync();
+    await vi.waitFor(() => expect(listenerPidAsync).toHaveBeenCalledTimes(1));
+    f.issuer.tokenBundle.mockReturnValue({
+      access_token: 'rotated-host-only',
+      expires_at: Math.floor(Date.now() / 1000) + 300,
+      issuer: f.issuer.url,
+      client_id: 'symposium-host',
+    });
+    (gateway as unknown as { refreshManagementToken(): void }).refreshManagementToken();
+    complete(4321);
+    await expect(pending).resolves.toBeUndefined();
+    expect(listenerPidAsync).toHaveBeenCalledTimes(2);
+  } finally {
+    gateway.stop();
+  }
+});
+
+it('still rejects static launch-material drift when an owned token rotates', async () => {
+  const f = fixture();
+  let complete!: (pid: number) => void;
+  const listenerPidAsync = vi.fn()
+    .mockImplementationOnce(() => new Promise<number>((resolve) => { complete = resolve; }))
+    .mockResolvedValue(4321);
+  const gateway = await OwnedSymposiumGateway.launch(f.options, {
+    ...f.operations, listenerPidAsync,
+  });
+  try {
+    const pending = gateway.verifyCustodyAsync();
+    const rejected = expect(pending).rejects.toThrow('Owned gateway launch material changed');
+    await vi.waitFor(() => expect(listenerPidAsync).toHaveBeenCalledTimes(1));
+    f.issuer.tokenBundle.mockReturnValue({
+      access_token: 'rotated-host-only',
+      expires_at: Math.floor(Date.now() / 1000) + 300,
+      issuer: f.issuer.url,
+      client_id: 'symposium-host',
+    });
+    (gateway as unknown as { refreshManagementToken(): void }).refreshManagementToken();
+    const [, args] = f.operations.start.mock.calls[0];
+    chmodSync(args[1], 0o600);
+    writeFileSync(args[1], 'changed');
+    chmodSync(args[1], 0o400);
+    complete(4321);
+    await rejected;
+    expect(listenerPidAsync).toHaveBeenCalledTimes(1);
   } finally {
     gateway.stop();
   }

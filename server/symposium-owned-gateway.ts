@@ -553,12 +553,27 @@ enabled = true
   ): Promise<void> {
     if (gateway !== this.gateway || workspace !== this.workspace || driver !== 'podman')
       throw new Error('Artifact request differs from owned gateway identity');
-    await this.verifyFilesAndProcessAsync();
-    const pid = this.operations.listenerPidAsync
-      ? await this.operations.listenerPidAsync(this.port)
-      : this.operations.listenerPid(this.port);
-    await this.verifyFilesAndProcessAsync();
-    if (pid !== this.child.pid) throw new Error('Gateway endpoint belongs to a different process');
+    // The host rotates its own short-lived management token by atomic rename.
+    // A rotation between awaited file reads is safe to re-observe, but every
+    // other custody drift still fails closed. Never dispatch from a mixed view.
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const token = this.tokenSha256;
+      try {
+        await this.verifyFilesAndProcessAsync();
+        const pid = this.operations.listenerPidAsync
+          ? await this.operations.listenerPidAsync(this.port)
+          : this.operations.listenerPid(this.port);
+        await this.verifyFilesAndProcessAsync();
+        if (pid !== this.child.pid)
+          throw new Error('Gateway endpoint belongs to a different process');
+        if (this.tokenSha256 !== token)
+          throw new Error('Management token changed during observation');
+        return;
+      } catch (error) {
+        if (attempt === 0 && token && this.tokenSha256 !== token) continue;
+        throw error;
+      }
+    }
   }
 
   verifyCustody(): void {
