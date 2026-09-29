@@ -88,7 +88,10 @@ if options['kind']=='review_context':
   if 'Binary files ' in diff or 'GIT binary patch' in diff: raise ValueError('binary review diff')
   diff_bytes=diff.encode('utf-8')
   content_bytes=content.encode('utf-8') if content is not None else None
-  if diff and (content_bytes is None or len(diff_bytes)<=len(content_bytes)):
+  # A target-only snapshot hides removed lines in a modified file. Preserve the
+  # complete endpoint diff even when the new blob is shorter; admission rejects
+  # a partial diff if the bounded context cannot carry it.
+  if diff and (path in base_entries or content_bytes is None or len(diff_bytes)<=len(content_bytes)):
    representation='diff'
   elif content is not None:
    representation='content'

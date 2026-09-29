@@ -160,6 +160,23 @@ it('keeps a moderately sized changed file complete by choosing one representatio
   });
   expect(file.content).toHaveLength(25 * 1024);
 });
+it('includes removed lines when a modified file has shorter target content', () => {
+  const f = fixture(
+    (root) => writeFileSync(join(root, 'base.txt'), 'NEW\n'),
+    (root) => writeFileSync(join(root, 'base.txt'), 'OLD SECRET LINE\nOLD SECOND LINE\n'),
+  );
+  const context = JSON.parse(f.run({ kind: 'review_context' }).context);
+  const file = context.files.find((entry: { path: string }) => entry.path === 'base.txt');
+  expect(file).toMatchObject({
+    representation: 'diff',
+    complete: true,
+    content: null,
+    diffTruncated: false,
+  });
+  expect(file.diff).toContain('-OLD SECRET LINE');
+  expect(file.diff).toContain('-OLD SECOND LINE');
+  expect(file.diff).toContain('+NEW');
+});
 it('uses a literal pathspec for a deleted filename with Git magic syntax', () => {
   const name = ':(icase)secret.txt';
   const f = fixture(
