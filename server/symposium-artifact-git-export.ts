@@ -2,6 +2,8 @@ import { ARTIFACT_GIT_VERIFIER_CORE } from './symposium-artifact-git-verifier.js
 // Shared producer/transport ceiling includes JSON escaping and the trailing newline.
 // The 1 MiB history-path input expands at most threefold in ASCII JSON; metadata is bounded.
 export const ARTIFACT_INSPECTION_MAX_OUTPUT_BYTES = 4 * 1024 * 1024;
+export const ARTIFACT_REVIEW_CONTEXT_MAX_BYTES = 48 * 1024;
+export const ARTIFACT_REVIEW_CONTEXT_MAX_OUTPUT_BYTES = 128 * 1024;
 /** Entire script runs inside the pinned, credential-free read-only helper. */
 export const ARTIFACT_GIT_EXPORT =
   ARTIFACT_GIT_VERIFIER_CORE +
@@ -46,7 +48,35 @@ for raw in history_paths.split(b'\0'):
  paths.add(path)
  if len(paths)>500: raise ValueError('changed path bound')
 inspection={'canonicalRepositoryPath':repo,'status':'clean','sourceBranch':source_branch,'sourceOid':commit,'defaultBranch':default_branch,'originUrl':origin,'commitsAhead':count,'changedFiles':sorted(paths,key=lambda p:p.encode('utf-8')),'sourceBranchProtected':False,'symlinkFree':True}
-if options['kind']=='inspect':
+if options['kind']=='review_context':
+ if not paths: raise ValueError('review context has no changed files')
+ if git('merge-base',base_oid,commit).decode().strip()!=base_oid: raise ValueError('review base is not an ancestor')
+ base_entries={}
+ for row in git('ls-tree','-r','-z','--full-tree',base_oid).split(b'\0'):
+  if not row: continue
+  meta,rawpath=row.split(b'\t',1); mode,kind,objectid=meta.decode().split(' ')
+  path=rawpath.decode('utf-8','strict')
+  if path in paths:
+   if kind!='blob' or mode not in ('100644','100755'): raise ValueError('unsupported review base entry')
+   base_entries[path]=objectid
+ target={item['path']:item for item in manifest}
+ files=[]
+ for path in sorted(paths,key=lambda p:p.encode('utf-8')):
+  source=target.get(path)
+  for objectid in ([base_entries[path]] if path in base_entries else [])+([source['oid']] if source else []):
+   data=git('cat-file','blob',objectid)
+   if b'\0' in data: raise ValueError('binary review file')
+   data.decode('utf-8','strict')
+  content=git('cat-file','blob',source['oid']).decode('utf-8','strict') if source else None
+  files.append({'path':path,'status':'present' if source else 'deleted','mode':source['mode'] if source else None,'sha256':source['sha256'] if source else None,'bytes':source['bytes'] if source else None,'content':content})
+ diff=git('diff','--no-ext-diff','--no-textconv','--no-renames','--full-index','--unified=3',base_oid,commit,'--').decode('utf-8','strict')
+ if 'Binary files ' in diff or 'GIT binary patch' in diff: raise ValueError('binary review diff')
+ review_manifest=[{'path':item['path'],'mode':item['mode'],'bytes':item['bytes'],'sha256':item['sha256']} for item in manifest]
+ context={'version':1,'scope':'changed-file-contents','sourceOid':commit,'baseOid':base_oid,'sourceBranch':source_branch,'baseBranch':base_branch,'committedTreeDigest':proof['committedTreeDigest'],'manifestDigest':proof['manifestDigest'],'manifest':review_manifest,'files':files,'diff':diff}
+ encoded=json.dumps(context,sort_keys=True,separators=(',',':'),ensure_ascii=False)
+ if len(encoded.encode('utf-8'))>${ARTIFACT_REVIEW_CONTEXT_MAX_BYTES}: raise ValueError('review context byte bound')
+ print(json.dumps({'proof':proof,'context':encoded,'contextSha256':hashlib.sha256(encoded.encode('utf-8')).hexdigest()},sort_keys=True,ensure_ascii=False))
+elif options['kind']=='inspect':
  encoded=json.dumps({'inspection':inspection,'proof':proof},sort_keys=True)+'\n'
  if len(encoded.encode('utf-8'))>${ARTIFACT_INSPECTION_MAX_OUTPUT_BYTES}: raise ValueError('inspection byte bound')
  sys.stdout.write(encoded)

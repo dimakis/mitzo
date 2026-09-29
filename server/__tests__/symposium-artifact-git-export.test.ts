@@ -4,10 +4,12 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { ARTIFACT_GIT_VERIFIER } from '../symposium-artifact-git-verifier.js';
 import {
   ARTIFACT_GIT_EXPORT,
   ARTIFACT_INSPECTION_MAX_OUTPUT_BYTES,
+  ARTIFACT_REVIEW_CONTEXT_MAX_BYTES,
 } from '../symposium-artifact-git-export.js';
 import { SYMPOSIUM_ARTIFACT_TARGET } from '../symposium-artifact-lease.js';
 const roots: string[] = [];
@@ -92,6 +94,31 @@ it('inspects the sealed branch and exports a bounded reconstructable bundle', ()
   } finally {
     rmSync(path);
   }
+});
+it('exports canonical complete changed-file contents and exact base diff within the review bound', () => {
+  const f = fixture();
+  const result = f.run({ kind: 'review_context' });
+  const context = JSON.parse(result.context);
+  expect(Buffer.byteLength(result.context)).toBeLessThanOrEqual(ARTIFACT_REVIEW_CONTEXT_MAX_BYTES);
+  expect(result.contextSha256).toBe(createHash('sha256').update(result.context).digest('hex'));
+  expect(context).toMatchObject({
+    sourceOid: f.proof.commit,
+    baseOid: f.git('rev-parse', 'refs/remotes/origin/main').trim(),
+    committedTreeDigest: f.proof.committedTreeDigest,
+    manifestDigest: f.proof.manifestDigest,
+    files: [{ path: 'feature.txt', status: 'present', content: 'FEATURE' }],
+  });
+  expect(context.diff).toContain('+FEATURE');
+});
+it('rejects an oversized sealed review context without truncation', () => {
+  const f = fixture((root) =>
+    writeFileSync(join(root, 'large.txt'), 'X'.repeat(ARTIFACT_REVIEW_CONTEXT_MAX_BYTES)),
+  );
+  expect(() => f.run({ kind: 'review_context' })).toThrow();
+});
+it('rejects binary changed content in the sealed review artifact', () => {
+  const f = fixture((root) => writeFileSync(join(root, 'binary.dat'), Buffer.from([0, 1, 2])));
+  expect(() => f.run({ kind: 'review_context' })).toThrow();
 });
 it('exports selected successor refs without prerequisites into a fresh repository', () => {
   const f = fixture();

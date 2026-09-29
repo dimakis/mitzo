@@ -79,6 +79,7 @@ import { initializeSymposiumNativeHost } from '../symposium-native-host.js';
 import { OpenShellRuntimeManager, sandboxNameForConversation } from '../openshell-runtime.js';
 import { TESTED_SYMPOSIUM_NATIVE_BUILD } from '../symposium-production-gate.js';
 import { SYMPOSIUM_ARTIFACT_TARGET } from '../symposium-artifact-lease.js';
+import { canonicalReviewJson } from '../symposium-review-records.js';
 const cleanups: Array<() => void> = [];
 afterEach(() => {
   vi.restoreAllMocks();
@@ -260,6 +261,36 @@ async function fixture(inspectionPaths = ['file']) {
             symlinkFree: true,
           },
         });
+      if (exportOptions?.kind === 'review_context') {
+        const fileHash = createHash('sha256').update('hello').digest('hex');
+        const context = canonicalReviewJson({
+          version: 1,
+          scope: 'changed-file-contents',
+          sourceOid: proof.commit,
+          baseOid: 'b'.repeat(40),
+          sourceBranch: 'feature',
+          baseBranch: 'main',
+          committedTreeDigest: proof.committedTreeDigest,
+          manifestDigest: proof.manifestDigest,
+          manifest: [{ path: 'marker.txt', mode: '100644', bytes: 5, sha256: fileHash }],
+          files: [
+            {
+              path: 'marker.txt',
+              status: 'present',
+              mode: '100644',
+              bytes: 5,
+              sha256: fileHash,
+              content: 'hello',
+            },
+          ],
+          diff: 'diff --git a/marker.txt b/marker.txt\n+hello\n',
+        });
+        return JSON.stringify({
+          proof,
+          context,
+          contextSha256: createHash('sha256').update(context).digest('hex'),
+        });
+      }
       if (exportOptions?.kind === 'bundle' || exportOptions?.kind === 'successor') {
         const bundle = Buffer.from('synthetic bounded bundle');
         return JSON.stringify({
@@ -580,6 +611,89 @@ it('checks one committed file through a fresh credential-free sealed helper', as
     state: 'complete',
     container_id: 'e'.repeat(64),
   });
+  db.close();
+});
+it('exports a bounded physically sealed review context and permits exact same-operation recovery three times', async () => {
+  const f = await fixture();
+  const signal = new AbortController().signal;
+  const seal = await f.sealer.seal(f.input, f.runtime, signal);
+  const input = { fenceId: seal.fenceId, operationId: 'review-context-1', baseBranch: 'main' };
+  const exports = [];
+  for (let i = 0; i < 3; i++)
+    exports.push(await f.sealer.exportCompletedReviewContext(input, signal));
+  expect(new Set(exports.map((result) => result.receipt.contextSha256)).size).toBe(1);
+  expect(exports[0].receipt).toMatchObject({
+    mode: 'review_context',
+    operationId: input.operationId,
+    sealFenceId: seal.fenceId,
+    artifactRevision: seal.git.commit,
+    artifactHash: seal.git.committedTreeDigest,
+    baseOid: 'b'.repeat(40),
+    sourceOid: seal.git.commit,
+    helper: { image: TESTED_SYMPOSIUM_NATIVE_BUILD.image, removed: true },
+  });
+  expect(JSON.parse(exports[0].context).files).toMatchObject([
+    { path: 'marker.txt', content: 'hello' },
+  ]);
+  const db = new Database(join(f.root, 'leases.db'));
+  expect(
+    db
+      .prepare(
+        "SELECT state,kind,receipt_json FROM symposium_seal_export_jobs WHERE operation_id='review-context-1'",
+      )
+      .all(),
+  ).toHaveLength(3);
+  db.close();
+});
+it('rejects changed review context output and retains failed cleanup evidence', async () => {
+  const f = await fixture();
+  const signal = new AbortController().signal;
+  const seal = await f.sealer.seal(f.input, f.runtime, signal);
+  const original = f.command.getMockImplementation()!;
+  f.command.mockImplementation(async (...args) => {
+    const output = await original(...args);
+    if (args[0][0] !== 'start' || !output.includes('contextSha256')) return output;
+    const value = JSON.parse(output);
+    value.contextSha256 = '0'.repeat(64);
+    return JSON.stringify(value);
+  });
+  await expect(
+    f.sealer.exportCompletedReviewContext(
+      { fenceId: seal.fenceId, operationId: 'review-context-bad', baseBranch: 'main' },
+      signal,
+    ),
+  ).rejects.toThrow(/export failed/);
+  const db = new Database(join(f.root, 'leases.db'));
+  expect(db.prepare('SELECT state FROM symposium_seal_export_jobs').get()).toEqual({
+    state: 'failed_cleaned',
+  });
+  db.close();
+});
+it('rejects a changed replay of the same review context operation', async () => {
+  const f = await fixture();
+  const signal = new AbortController().signal;
+  const seal = await f.sealer.seal(f.input, f.runtime, signal);
+  const input = { fenceId: seal.fenceId, operationId: 'review-context-repeat', baseBranch: 'main' };
+  await f.sealer.exportCompletedReviewContext(input, signal);
+  const original = f.command.getMockImplementation()!;
+  f.command.mockImplementation(async (...args) => {
+    const output = await original(...args);
+    if (args[0][0] !== 'start' || !output.includes('contextSha256')) return output;
+    const value = JSON.parse(output);
+    const context = JSON.parse(value.context);
+    context.diff += '+unexpected\n';
+    value.context = canonicalReviewJson(context);
+    value.contextSha256 = createHash('sha256').update(value.context).digest('hex');
+    return JSON.stringify(value);
+  });
+  await expect(f.sealer.exportCompletedReviewContext(input, signal)).rejects.toThrow(
+    /export failed/,
+  );
+  const db = new Database(join(f.root, 'leases.db'));
+  expect(db.prepare('SELECT state FROM symposium_seal_export_jobs ORDER BY rowid').all()).toEqual([
+    { state: 'complete' },
+    { state: 'failed_cleaned' },
+  ]);
   db.close();
 });
 it('retains uncertain export create intent and blocks another export without blind retry', async () => {

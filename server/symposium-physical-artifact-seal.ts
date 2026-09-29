@@ -7,6 +7,8 @@ import { canonicalReviewJson, reviewRecordHash } from './symposium-review-record
 import {
   ARTIFACT_GIT_EXPORT,
   ARTIFACT_INSPECTION_MAX_OUTPUT_BYTES,
+  ARTIFACT_REVIEW_CONTEXT_MAX_BYTES,
+  ARTIFACT_REVIEW_CONTEXT_MAX_OUTPUT_BYTES,
 } from './symposium-artifact-git-export.js';
 import type { GithubSandboxInspection } from './connections/capabilities/github-publish-pr.js';
 import { assertSessionArtifactVolume } from './symposium-session-artifacts.js';
@@ -114,6 +116,26 @@ export interface SuccessorArtifactExportReceipt {
     codeDigest: string;
     terminalExitCode: 0;
     removed: true;
+  };
+}
+
+export interface CompletedArtifactReviewContext {
+  context: string;
+  receipt: {
+    version: 1;
+    mode: 'review_context';
+    jobId: string;
+    operationId: string;
+    sealFenceId: string;
+    sealDigest: string;
+    intentDigest: string;
+    artifactRevision: string;
+    artifactHash: string;
+    baseOid: string;
+    sourceOid: string;
+    contextSha256: string;
+    completedAt: number;
+    helper: SuccessorArtifactExportReceipt['helper'];
   };
 }
 
@@ -500,6 +522,17 @@ export class PhysicalArtifactSealer {
     return sealedInspectionSchema.parse(value.inspection);
   }
 
+  async exportCompletedReviewContext(
+    input: { fenceId: string; operationId: string; baseBranch: string },
+    signal: AbortSignal,
+  ): Promise<CompletedArtifactReviewContext> {
+    const value = await this.exportOperation({ ...input, kind: 'review_context' }, signal);
+    return {
+      context: value.context as string,
+      receipt: value.receipt as CompletedArtifactReviewContext['receipt'],
+    };
+  }
+
   /** A fresh credential-free helper recomputes the sealed committed manifest and
    * returns only one file digest. Its journal and terminal container identity are
    * retained with the execution receipt; absence is a failed check, not a guess. */
@@ -613,7 +646,7 @@ export class PhysicalArtifactSealer {
       fenceId: string;
       operationId: string;
       baseBranch?: string;
-      kind: 'inspect' | 'bundle' | 'successor' | 'check';
+      kind: 'inspect' | 'bundle' | 'successor' | 'check' | 'review_context';
       sourceBranch?: string;
       sourceOid?: string;
       maxBytes?: number;
@@ -629,7 +662,7 @@ export class PhysicalArtifactSealer {
           .string()
           .regex(/^[A-Za-z0-9][A-Za-z0-9._/-]{0,254}$/)
           .optional(),
-        kind: z.enum(['inspect', 'bundle', 'successor', 'check']),
+        kind: z.enum(['inspect', 'bundle', 'successor', 'check', 'review_context']),
         sourceBranch: z
           .string()
           .regex(/^[A-Za-z0-9][A-Za-z0-9._/-]{0,254}$/)
@@ -657,6 +690,7 @@ export class PhysicalArtifactSealer {
     if (
       input.kind !== 'inspect' &&
       input.kind !== 'check' &&
+      input.kind !== 'review_context' &&
       (!input.sourceBranch || !input.sourceOid || !input.maxBytes)
     )
       throw new Error('Sealed bundle selection is incomplete');
@@ -665,6 +699,42 @@ export class PhysicalArtifactSealer {
     const receipt = await this.requireCompleted(input.fenceId, signal);
     if (input.sourceOid && input.sourceOid !== receipt.git.commit)
       throw new Error('Sealed bundle commit changed');
+    const priorReviewJobs =
+      input.kind === 'review_context'
+        ? (this.db
+            .prepare(
+              'SELECT kind,state,input_json,receipt_json FROM symposium_seal_export_jobs WHERE fence_id=? AND operation_id=?',
+            )
+            .all(input.fenceId, input.operationId) as Array<{
+            kind: string;
+            state: string;
+            input_json: string;
+            receipt_json: string | null;
+          }>)
+        : [];
+    if (
+      priorReviewJobs.some(
+        (job) =>
+          job.kind !== 'review_context' ||
+          job.input_json !== JSON.stringify(input) ||
+          (job.state === 'complete' && !job.receipt_json),
+      )
+    )
+      throw new Error('Sealed review context operation identity changed');
+    const priorReviewReceipts = priorReviewJobs
+      .filter((job) => job.state === 'complete')
+      .map((job) => JSON.parse(job.receipt_json!) as CompletedArtifactReviewContext['receipt']);
+    if (
+      priorReviewReceipts.some(
+        (prior) =>
+          prior.contextSha256 !== priorReviewReceipts[0].contextSha256 ||
+          prior.sealDigest !== priorReviewReceipts[0].sealDigest ||
+          prior.baseOid !== priorReviewReceipts[0].baseOid ||
+          prior.sourceOid !== priorReviewReceipts[0].sourceOid,
+      )
+    )
+      throw new Error('Sealed review context replay history changed');
+    const priorReviewReceipt = priorReviewReceipts[0];
     const intent = this.deps.store.getSymposiumArtifactSealByFence(receipt.fenceId)!;
     const volume = intent.selection.artifact.volumeName;
     const jobId = randomUUID(),
@@ -702,9 +772,11 @@ export class PhysicalArtifactSealer {
     let helperDeleted = false;
     let helperRemovalObserved = false;
     const outputLimit =
-      input.kind !== 'inspect' && input.kind !== 'check'
-        ? Math.ceil((input.maxBytes! * 4) / 3) + 16384
-        : ARTIFACT_INSPECTION_MAX_OUTPUT_BYTES;
+      input.kind === 'review_context'
+        ? ARTIFACT_REVIEW_CONTEXT_MAX_OUTPUT_BYTES
+        : input.kind !== 'inspect' && input.kind !== 'check'
+          ? Math.ceil((input.maxBytes! * 4) / 3) + 16384
+          : ARTIFACT_INSPECTION_MAX_OUTPUT_BYTES;
     const verify = async () => {
       const found: unknown = JSON.parse(await this.command(['inspect', id!]));
       if (!Array.isArray(found) || found.length !== 1)
@@ -802,6 +874,84 @@ export class PhysicalArtifactSealer {
               .safeParse(value.observedSha256).success)
         )
           throw new Error('Criterion check output changed');
+      } else if (input.kind === 'review_context') {
+        if (
+          typeof value.context !== 'string' ||
+          Buffer.byteLength(value.context, 'utf8') > ARTIFACT_REVIEW_CONTEXT_MAX_BYTES ||
+          value.contextSha256 !== hash(value.context)
+        )
+          throw new Error('Sealed review context integrity changed');
+        const context = z
+          .strictObject({
+            version: z.literal(1),
+            scope: z.literal('changed-file-contents'),
+            sourceOid: oid,
+            baseOid: oid,
+            sourceBranch: z.string(),
+            baseBranch: z.string(),
+            committedTreeDigest: z.string().regex(/^[a-f0-9]{64}$/),
+            manifestDigest: z.string().regex(/^[a-f0-9]{64}$/),
+            manifest: z
+              .array(
+                z.strictObject({
+                  path: z.string(),
+                  mode: z.enum(['100644', '100755']),
+                  bytes: z.number().int().nonnegative(),
+                  sha256: z.string().regex(/^[a-f0-9]{64}$/),
+                }),
+              )
+              .max(10000),
+            files: z
+              .array(
+                z.strictObject({
+                  path: z.string(),
+                  status: z.enum(['present', 'deleted']),
+                  mode: z.enum(['100644', '100755']).nullable(),
+                  sha256: z
+                    .string()
+                    .regex(/^[a-f0-9]{64}$/)
+                    .nullable(),
+                  bytes: z.number().int().nonnegative().nullable(),
+                  content: z.string().nullable(),
+                }),
+              )
+              .min(1)
+              .max(10000),
+            diff: z.string(),
+          })
+          .parse(JSON.parse(value.context));
+        if (
+          canonicalReviewJson(context) !== value.context ||
+          context.sourceOid !== receipt.git.commit ||
+          context.baseBranch !== input.baseBranch ||
+          context.committedTreeDigest !== receipt.git.committedTreeDigest ||
+          context.manifestDigest !== receipt.git.manifestDigest ||
+          context.manifest.length !== receipt.git.entries ||
+          context.manifest.reduce((sum, entry) => sum + entry.bytes, 0) !== receipt.git.bytes ||
+          context.files.some(
+            (file) =>
+              file.status === 'present' &&
+              !context.manifest.some(
+                (entry) =>
+                  entry.path === file.path &&
+                  entry.mode === file.mode &&
+                  entry.bytes === file.bytes &&
+                  entry.sha256 === file.sha256,
+              ),
+          ) ||
+          context.files.some((file) =>
+            file.status === 'present'
+              ? file.content === null ||
+                file.sha256 !== hash(file.content) ||
+                file.mode === null ||
+                file.bytes !== Buffer.byteLength(file.content)
+              : file.content !== null ||
+                file.sha256 !== null ||
+                file.mode !== null ||
+                file.bytes !== null,
+          )
+        )
+          throw new Error('Sealed review context selection changed');
       } else parseSealedBundle(value, input.maxBytes!);
       this.db
         .prepare("UPDATE symposium_seal_export_jobs SET state='terminal' WHERE job_id=?")
@@ -814,6 +964,7 @@ export class PhysicalArtifactSealer {
       if (JSON.stringify(current) !== JSON.stringify(receipt))
         throw new Error('Sealed export custody changed');
       let successorReceipt: SuccessorArtifactExportReceipt | undefined;
+      let reviewContextReceipt: CompletedArtifactReviewContext['receipt'] | undefined;
       if (input.kind === 'successor') {
         const selection = successorSelectionSchema.parse(value.selection);
         if (
@@ -844,6 +995,43 @@ export class PhysicalArtifactSealer {
           },
         };
       }
+      if (input.kind === 'review_context') {
+        const context = JSON.parse(value.context as string) as {
+          baseOid: string;
+          sourceOid: string;
+        };
+        reviewContextReceipt = {
+          version: 1,
+          mode: 'review_context',
+          jobId,
+          operationId: input.operationId,
+          sealFenceId: receipt.fenceId,
+          sealDigest: reviewRecordHash(canonicalReviewJson(receipt)),
+          intentDigest: receipt.intentDigest,
+          artifactRevision: receipt.git.commit,
+          artifactHash: receipt.git.committedTreeDigest,
+          baseOid: context.baseOid,
+          sourceOid: context.sourceOid,
+          contextSha256: value.contextSha256 as string,
+          completedAt: Date.now(),
+          helper: {
+            id: terminalId!,
+            name,
+            image: TESTED_SYMPOSIUM_NATIVE_BUILD.image,
+            codeDigest: hash(ARTIFACT_GIT_EXPORT),
+            terminalExitCode: 0,
+            removed: true,
+          },
+        };
+        if (
+          priorReviewReceipt &&
+          (priorReviewReceipt.contextSha256 !== reviewContextReceipt.contextSha256 ||
+            priorReviewReceipt.sealDigest !== reviewContextReceipt.sealDigest ||
+            priorReviewReceipt.baseOid !== reviewContextReceipt.baseOid ||
+            priorReviewReceipt.sourceOid !== reviewContextReceipt.sourceOid)
+        )
+          throw new Error('Sealed review context replay changed');
+      }
       this.deps.store.withSymposiumArtifactSealSnapshot(intent, () => {
         const updated = this.db
           .prepare(
@@ -851,27 +1039,33 @@ export class PhysicalArtifactSealer {
           )
           .run(
             hash(output),
-            successorReceipt ? canonicalReviewJson(successorReceipt) : null,
+            successorReceipt
+              ? canonicalReviewJson(successorReceipt)
+              : reviewContextReceipt
+                ? canonicalReviewJson(reviewContextReceipt)
+                : null,
             jobId,
           );
         if (updated.changes !== 1) throw new Error('Sealed export journal changed');
       });
-      return successorReceipt
-        ? { ...value, receipt: successorReceipt }
-        : input.kind === 'check'
-          ? {
-              ...value,
-              checkReceipt: {
-                executionId: jobId,
-                sealFenceId: receipt.fenceId,
-                sealDigest: reviewRecordHash(canonicalReviewJson(receipt)),
-                artifactRevision: receipt.git.commit,
-                artifactHash: receipt.git.committedTreeDigest,
-                observedSha256: value.observedSha256,
-                completedAt: Date.now(),
-              },
-            }
-          : value;
+      return reviewContextReceipt
+        ? { ...value, receipt: reviewContextReceipt }
+        : successorReceipt
+          ? { ...value, receipt: successorReceipt }
+          : input.kind === 'check'
+            ? {
+                ...value,
+                checkReceipt: {
+                  executionId: jobId,
+                  sealFenceId: receipt.fenceId,
+                  sealDigest: reviewRecordHash(canonicalReviewJson(receipt)),
+                  artifactRevision: receipt.git.commit,
+                  artifactHash: receipt.git.committedTreeDigest,
+                  observedSha256: value.observedSha256,
+                  completedAt: Date.now(),
+                },
+              }
+            : value;
     } catch (error) {
       if (!id && error instanceof ArtifactCommandNotDispatched) {
         this.db
