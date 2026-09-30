@@ -159,12 +159,12 @@ describe('MitzoApiClient', () => {
     );
   });
 
-  it('startLoop sends an explicitly selected client', async () => {
-    await client.startLoop('g1', true, 'selected-chat');
+  it('startLoop sends an explicitly selected chat session', async () => {
+    await client.startLoop('g1', true, 'selected-session');
     expect(fetchFn).toHaveBeenCalledWith(
       '/api/loop/start',
       expect.objectContaining({
-        body: JSON.stringify({ goalId: 'g1', specMode: true, clientId: 'selected-chat' }),
+        body: JSON.stringify({ goalId: 'g1', specMode: true, sessionId: 'selected-session' }),
       }),
     );
   });

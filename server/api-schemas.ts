@@ -243,6 +243,7 @@ export const LoopStartBody = z.object({
     .min(1)
     .optional()
     .describe('Existing chat selected for spec mode or reuse tasks'),
+  sessionId: z.string().min(1).optional().describe('Existing chat session selected for reuse'),
 });
 
 export const WorkflowInstantiateBody = z.object({

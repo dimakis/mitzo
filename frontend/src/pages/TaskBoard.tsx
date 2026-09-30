@@ -38,7 +38,7 @@ export function TaskBoard({ desktop = false }: { desktop?: boolean } = {}) {
     showAll,
     setShowAll,
     loopStatus,
-    currentClientId,
+    currentSessionId,
     createTask,
     updateTask,
     deleteTask,
@@ -167,7 +167,7 @@ export function TaskBoard({ desktop = false }: { desktop?: boolean } = {}) {
 
       <LoopControls
         loopStatus={loopStatus}
-        currentClientId={currentClientId ?? null}
+        currentSessionId={currentSessionId ?? null}
         goals={goals}
         totalTokenUsage={totalTokenUsage}
         onStart={startLoop}

@@ -138,11 +138,11 @@ export interface UseTaskBoardResult {
   showAll: boolean;
   setShowAll: (v: boolean) => void;
   loopStatus: LoopStatus;
-  currentClientId: string | null;
+  currentSessionId: string | null;
   createTask: (input: TaskCreateInput) => Promise<void>;
   updateTask: (id: string, input: TaskUpdateInput) => Promise<void>;
   deleteTask: (id: string) => Promise<void>;
-  startLoop: (goalId: string, specMode?: boolean, clientId?: string) => Promise<void>;
+  startLoop: (goalId: string, specMode?: boolean, sessionId?: string) => Promise<void>;
   pauseLoop: () => Promise<void>;
   resumeLoop: () => Promise<void>;
   stopLoop: () => Promise<void>;
@@ -163,7 +163,7 @@ export function useTaskBoard(): UseTaskBoardResult {
 
   const tasks = useMitzoStore((s) => s.tasks.tree);
   const loopStatus = useMitzoStore((s) => s.tasks.loopStatus);
-  const currentClientId = useMitzoStore((s) => s.connection.clientId);
+  const currentSessionId = useMitzoStore((s) => s.sessions.active);
   const loadTasks = useMitzoStore((s) => s.loadTasks);
   const loadLoopStatus = useMitzoStore((s) => s.loadLoopStatus);
   const storeCreateTask = useMitzoStore((s) => s.createTask);
@@ -227,7 +227,7 @@ export function useTaskBoard(): UseTaskBoardResult {
     showAll,
     setShowAll,
     loopStatus,
-    currentClientId,
+    currentSessionId,
     createTask: useCallback(
       (input: TaskCreateInput) => storeCreateTask(input as unknown as Record<string, unknown>),
       [storeCreateTask],

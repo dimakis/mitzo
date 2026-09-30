@@ -7,8 +7,8 @@ interface LoopControlsProps {
   loopStatus: LoopStatus;
   goals: Task[];
   totalTokenUsage: number;
-  currentClientId: string | null;
-  onStart: (goalId: string, specMode?: boolean, clientId?: string) => void;
+  currentSessionId: string | null;
+  onStart: (goalId: string, specMode?: boolean, sessionId?: string) => void;
   onPause: () => void;
   onResume: () => void;
   onStop: () => void;
@@ -20,7 +20,7 @@ export function LoopControls({
   loopStatus,
   goals,
   totalTokenUsage,
-  currentClientId,
+  currentSessionId,
   onStart,
   onPause,
   onResume,
@@ -67,7 +67,7 @@ export function LoopControls({
               <input
                 type="checkbox"
                 checked={useThisChat}
-                disabled={!currentClientId}
+                disabled={!currentSessionId}
                 onChange={(e) => setUseThisChat(e.target.checked)}
               />
               Use this chat for tasks
@@ -88,13 +88,13 @@ export function LoopControls({
               className="loop-controls-btn loop-controls-btn--start"
               disabled={
                 !selectedGoalId ||
-                ((specMode || !loopStatus.spawnEnabled) && (!useThisChat || !currentClientId))
+                ((specMode || !loopStatus.spawnEnabled) && (!useThisChat || !currentSessionId))
               }
               onClick={() => {
                 onStart(
                   selectedGoalId,
                   specMode || undefined,
-                  useThisChat ? (currentClientId ?? undefined) : undefined,
+                  useThisChat ? (currentSessionId ?? undefined) : undefined,
                 );
                 setPickerOpen(false);
               }}

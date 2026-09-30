@@ -34,7 +34,7 @@ vi.mock('../chat.js', () => {
     })),
     getMcpServerNames: vi.fn().mockReturnValue([]),
     AVAILABLE_MODELS: [{ id: 'test-model', label: 'Test', desc: 'Test model' }],
-    registry: { get: vi.fn() },
+    registry: { get: vi.fn(), findBySessionId: vi.fn() },
     eventStore: { getEventsAfter: vi.fn().mockReturnValue([]) },
     setTaskStore: vi.fn(),
   };
@@ -315,7 +315,35 @@ describe('POST /api/loop/start', () => {
       .set('Cookie', authCookie);
 
     expect(res.status).toBe(422);
-    expect(res.body).toMatchObject({ code: 'client_id_required', requiredField: 'clientId' });
+    expect(res.body).toMatchObject({ code: 'client_id_required', requiredField: 'sessionId' });
     expect(start).not.toHaveBeenCalled();
+  });
+
+  it('resolves a selected session to its driver client ID', async () => {
+    const mod = await import('../app.js');
+    const { registry } = await import('../chat.js');
+    const goal = mod.taskStore.create({ title: 'Reuse workflow' });
+    vi.mocked(registry.findBySessionId).mockReturnValue({
+      clientId: 'connection-1:session-1',
+      session: {},
+    } as never);
+    vi.mocked(registry.get).mockReturnValue({} as never);
+    const start = vi.fn().mockReturnValue({ state: 'running' });
+    mod.setOrchestrator({
+      getStatus: () => ({ state: 'idle' }),
+      requiresClientId: () => false,
+      start,
+    } as never);
+
+    const res = await request(app)
+      .post('/api/loop/start')
+      .send({ goalId: goal.id, sessionId: 'session-1' })
+      .set('Cookie', authCookie);
+
+    expect(res.status).toBe(200);
+    expect(start).toHaveBeenCalledWith(goal.id, {
+      specMode: undefined,
+      clientId: 'connection-1:session-1',
+    });
   });
 });

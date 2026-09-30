@@ -431,16 +431,16 @@ The task board lets you drop a high-level goal and have Claude decompose it into
 
 ### REST API
 
-| Endpoint                      | Description                                                                                                                                                                                          |
-| ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `GET /api/tasks`              | List all tasks                                                                                                                                                                                       |
-| `POST /api/tasks`             | Create a task                                                                                                                                                                                        |
-| `POST /api/loop/start`        | Start a goal. Send `{goalId, specMode?, clientId?}`; `clientId` is required for spec mode or reuse and omitted for spawn-only workflows. A missing required target returns 422 `client_id_required`. |
-| `POST /api/loop/pause`        | Pause execution                                                                                                                                                                                      |
-| `POST /api/loop/resume`       | Resume execution                                                                                                                                                                                     |
-| `POST /api/loop/stop`         | Stop the loop                                                                                                                                                                                        |
-| `POST /api/tasks/:id/approve` | Approve a spec-mode decomposition                                                                                                                                                                    |
-| `POST /api/tasks/:id/reject`  | Reject and re-plan                                                                                                                                                                                   |
+| Endpoint                      | Description                                                                                                                                                                                                    |
+| ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /api/tasks`              | List all tasks                                                                                                                                                                                                 |
+| `POST /api/tasks`             | Create a task                                                                                                                                                                                                  |
+| `POST /api/loop/start`        | Start a goal. Send `{goalId, specMode?, sessionId?}`; `sessionId` selects the chat for spec mode or reuse and is omitted for spawn-only workflows. A missing required target returns 422 `client_id_required`. |
+| `POST /api/loop/pause`        | Pause execution                                                                                                                                                                                                |
+| `POST /api/loop/resume`       | Resume execution                                                                                                                                                                                               |
+| `POST /api/loop/stop`         | Stop the loop                                                                                                                                                                                                  |
+| `POST /api/tasks/:id/approve` | Approve a spec-mode decomposition                                                                                                                                                                              |
+| `POST /api/tasks/:id/reject`  | Reject and re-plan                                                                                                                                                                                             |
 
 ## Voice (optional)
 
