@@ -24,6 +24,8 @@ import {
   SessionSuspendMessage,
   SessionCloseMessage,
   ReconnectMessage,
+  ReconnectSnapshotAppliedMessage,
+  SessionEventAppliedMessage,
 } from '@mitzo/protocol';
 import type { V2HandlerContext } from './ws-handler-v2.js';
 import {
@@ -150,6 +152,10 @@ export function createChatRestRouter(
   router.post('/send', async (req, res) => {
     const msg = validateBody(V2SendMessage, req.body, res);
     if (!msg) return;
+    if (msg.sessionId && ctx.eventStore.getSession(msg.sessionId)?.symposiumConfig) {
+      res.status(409).json({ ok: false, error: 'Use Symposium directed prompts for this session' });
+      return;
+    }
     const connectionId =
       (req.headers['x-connection-id'] as string | undefined) ?? `send-${msg.clientMsgId}`;
     try {
@@ -286,6 +292,10 @@ export function createChatRestRouter(
     if (!transport) return;
     const msg = validateBody(V2InterruptMessage, req.body, res);
     if (!msg) return;
+    if (msg.sessionId && ctx.eventStore.getSession(msg.sessionId)?.symposiumConfig) {
+      res.status(409).json({ ok: false, error: 'Use Symposium directed prompts for this session' });
+      return;
+    }
     try {
       await handleInterruptV2(connectionId, transport, msg, ctx, {
         awaitStartupAdmission: true,
@@ -526,6 +536,31 @@ export function createChatRestRouter(
       log.error('POST /chat/reconnect failed', { connectionId, error: String(err) });
       res.status(500).json({ ok: false, error: 'Internal server error' });
     }
+  });
+
+  router.post('/reconnect-snapshot-applied', (req, res) => {
+    const connectionId = getConnectionId(req, res);
+    if (!connectionId) return;
+    if (!requireConnection(connectionId, ctx.connRegistry, res)) return;
+    const msg = validateBody(ReconnectSnapshotAppliedMessage, req.body, res);
+    if (!msg) return;
+    res.json({
+      applied: ctx.connRegistry.ackAppliedSnapshot(
+        connectionId,
+        msg.sessionId,
+        msg.cursor,
+        msg.offerId,
+      ),
+    });
+  });
+
+  router.post('/session-event-applied', (req, res) => {
+    const connectionId = getConnectionId(req, res);
+    if (!connectionId) return;
+    if (!requireConnection(connectionId, ctx.connRegistry, res)) return;
+    const msg = validateBody(SessionEventAppliedMessage, req.body, res);
+    if (!msg) return;
+    res.json({ applied: ctx.connRegistry.ackAppliedEvent(connectionId, msg.sessionId, msg.seq) });
   });
 
   return router;

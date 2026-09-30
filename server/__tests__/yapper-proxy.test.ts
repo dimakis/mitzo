@@ -18,6 +18,7 @@ vi.mock('../chat.js', () => {
   const { tmpdir } = require('os');
   const repo = join(tmpdir(), `mitzo-yapper-test-${process.pid}`);
   return {
+    broadcastDurableSymposiumEvent: vi.fn(),
     getSessions: vi.fn().mockResolvedValue({ sessions: [], hasMore: false }),
     getMessages: vi.fn().mockResolvedValue([]),
     renameSessionById: vi.fn().mockResolvedValue(undefined),

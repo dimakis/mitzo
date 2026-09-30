@@ -36,21 +36,27 @@ export const UserQuestionsSchema = z
   .max(4)
   .refine((questions) => new Set(questions.map((q) => q.question)).size === questions.length);
 
-const PERMISSION_INPUT_MAX_CHARS = 10_000;
+export const PERMISSION_INPUT_MAX_CHARS = 10_000;
 
-function permissionDisplayInput(
+/** The exact representation sent in a permission card, before its size gate. */
+export function serializePermissionDisplayInput(
   toolName: string,
   input: Record<string, unknown>,
 ): string | undefined {
-  let full: string | undefined;
   try {
-    full =
-      toolName === 'Bash' && typeof input.command === 'string'
-        ? input.command
-        : JSON.stringify(input, null, 2);
+    return toolName === 'Bash' && typeof input.command === 'string'
+      ? input.command
+      : JSON.stringify(input, null, 2);
   } catch {
     return undefined;
   }
+}
+
+export function permissionDisplayInput(
+  toolName: string,
+  input: Record<string, unknown>,
+): string | undefined {
+  const full = serializePermissionDisplayInput(toolName, input);
   if (full === undefined) return undefined;
   return full.length <= PERMISSION_INPUT_MAX_CHARS ? full : undefined;
 }

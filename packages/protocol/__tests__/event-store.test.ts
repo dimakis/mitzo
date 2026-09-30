@@ -1,5 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { EventStore } from '../src/event-store.js';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 describe('EventStore', () => {
   let store: EventStore;
@@ -54,6 +57,66 @@ describe('EventStore', () => {
       expect(events[0].sessionId).toBe('sess-1');
       expect(events[0].type).toBe('block_delta');
       expect(events[0].payload).toEqual({ delta: 'hello world' });
+    });
+
+    it('captures one reconnect boundary with durable state and events after the client cursor', () => {
+      store.upsertSession({ sessionId: 'sess-1' });
+      const firstSeq = store.append('sess-1', 'user_message', {
+        type: 'user_message',
+        sessionId: 'sess-1',
+        messageId: 'u1',
+        text: 'hello',
+      });
+      const execution = store.beginExecution('sess-1', 'execution-1');
+      store.beginProviderAttempt(execution.token, 'attempt-1');
+
+      const snapshot = store.captureReconnectState('sess-1', firstSeq);
+
+      expect(snapshot.cursorValid).toBe(true);
+      expect(snapshot.cursor).toBeGreaterThan(firstSeq);
+      expect(snapshot.events.map((event) => event.seq)).toEqual(
+        expect.arrayContaining([execution.seq, snapshot.cursor]),
+      );
+      expect(snapshot.events.every((event) => event.seq <= snapshot.cursor)).toBe(true);
+      expect(snapshot.session).toMatchObject({
+        sessionId: 'sess-1',
+        executionId: 'execution-1',
+        executionGeneration: 1,
+        executionPhase: 'RUNNING',
+      });
+      expect(snapshot.providerAttempts).toMatchObject([
+        {
+          token: {
+            sessionId: 'sess-1',
+            executionId: 'execution-1',
+            generation: 1,
+            providerAttemptId: 'attempt-1',
+            attempt: 1,
+          },
+          phase: 'RUNNING',
+        },
+      ]);
+    });
+
+    it('flags a client cursor beyond the durable high-water mark', () => {
+      store.upsertSession({ sessionId: 'sess-1' });
+      const cursor = store.append('sess-1', 'message_end', { messageId: 'm1' });
+      const snapshot = store.captureReconnectState('sess-1', cursor + 100);
+      expect(snapshot).toMatchObject({ cursor, cursorValid: false, events: [] });
+    });
+
+    it('captures a snapshot boundary without materializing a large offline replay', () => {
+      store.upsertSession({ sessionId: 'sess-1' });
+      const payload = 'x'.repeat(9 * 1024);
+      for (let i = 0; i < 270; i++)
+        store.append('sess-1', 'block_delta', { type: 'block_delta', delta: payload });
+
+      const snapshot = store.captureReconnectState('sess-1', 0, false);
+
+      expect(snapshot.cursor).toBe(270);
+      expect(snapshot.cursorValid).toBe(true);
+      expect(snapshot.events).toEqual([]);
+      expect(store.getSessionEvents('sess-1')).toHaveLength(270);
     });
   });
 
@@ -472,6 +535,48 @@ describe('EventStore', () => {
     it('returns empty array for unknown session', () => {
       const events = store.getSessionEvents('nonexistent');
       expect(events).toEqual([]);
+    });
+
+    it('reads only the immutable transcript prefix through a reconnect cursor', () => {
+      const first = store.append('sess-1', 'user_message', { messageId: 'u1', text: 'hello' });
+      store.append('sess-2', 'user_message', { messageId: 'other', text: 'unrelated' });
+      const boundary = store.append('sess-1', 'message_end', { messageId: 'm1' });
+      store.append('sess-1', 'user_message', { messageId: 'u2', text: 'later' });
+
+      expect(store.getSessionEventsThroughCursor('sess-1', boundary).map((e) => e.seq)).toEqual([
+        first,
+        boundary,
+      ]);
+      expect(() => store.getSessionEventsThroughCursor('sess-1', -1)).toThrow('Reconnect cursor');
+    });
+
+    it('reconstructs the same bounded prefix after reopening the database', () => {
+      const dir = mkdtempSync(join(tmpdir(), 'mitzo-reconnect-prefix-'));
+      const path = join(dir, 'events.db');
+      const first = new EventStore(path);
+      try {
+        first.upsertSession({ sessionId: 'sess-reopen' });
+        const cursor = first.append('sess-reopen', 'user_message', {
+          messageId: 'u1',
+          text: 'saved before restart',
+        });
+        first.close();
+
+        const reopened = new EventStore(path);
+        try {
+          reopened.append('sess-reopen', 'user_message', {
+            messageId: 'u2',
+            text: 'later',
+          });
+          expect(reopened.getSessionEventsThroughCursor('sess-reopen', cursor)).toMatchObject([
+            { seq: cursor, payload: { text: 'saved before restart' } },
+          ]);
+        } finally {
+          reopened.close();
+        }
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
     });
   });
 

@@ -6,12 +6,16 @@ import type {
   SymposiumDeliveryRecord,
   SymposiumIntervention,
   SymposiumProvenance,
+  SymposiumMembershipRecord,
+  SymposiumMembershipAction,
 } from '@mitzo/protocol';
 import { randomUUID } from 'node:crypto';
 import type { EventStore } from './event-store.js';
+import type { SymposiumCreationRecoveryRequest } from '@mitzo/protocol/event-store';
 import { createLogger } from './logger.js';
 
 const log = createLogger('symposium-orchestrator');
+const sharedReconciliationQueues = new WeakMap<EventStore, Map<string, Promise<void>>>();
 
 /** Narrow provider boundary. Phase 2 deliberately supplies only fakes.
  * Implementations must reconcile repeated idempotency keys to one provider turn.
@@ -22,6 +26,8 @@ export interface SymposiumSeatExecution {
   seat: SeatConfig;
   content: string;
   idempotencyKey: string;
+  /** Exact durable attempt claim; native acceptance and cancellation must use this token. */
+  claimToken: string;
   providerThreadId?: string;
   provenance: SymposiumProvenance;
   signal: AbortSignal;
@@ -30,12 +36,21 @@ export interface SymposiumSeatExecution {
 export interface SymposiumSeatExecutionResult {
   providerThreadId: string;
   content: string;
-  costUsd?: number;
+  costUsd?: number | null;
 }
 
 export interface SymposiumSeatExecutor {
+  /** Persist exact prelaunch identity synchronously before the execution claim is committed. */
+  prepare?(input: { sessionId: string; claimToken: string }): void;
   execute(input: SymposiumSeatExecution): Promise<SymposiumSeatExecutionResult>;
-  cancel?(input: { providerThreadId?: string; idempotencyKey: string }): Promise<void>;
+  /** Target the exact supplied attempt identity, never a newer retry on the same thread.
+   * Resolve only after that attempt can no longer execute tools or native writes. */
+  cancel?(input: {
+    providerThreadId?: string;
+    idempotencyKey: string;
+    attemptId?: number;
+    claimToken?: string;
+  }): Promise<void>;
 }
 
 export interface SymposiumOrchestratorDeps {
@@ -44,6 +59,23 @@ export interface SymposiumOrchestratorDeps {
   idFactory?: () => string;
   claimIdFactory?: () => string;
   now?: () => number;
+  creationRecovery?: {
+    diagnostic(
+      sessionId: string,
+      seatId: string,
+    ): { phase: string; code: string; canCleanup: boolean } | null;
+    assertRetained(sessionId: string, seatId: string, generation: number): void;
+  };
+  stopSeat?: (input: { sessionId: string; seatId: string; generation: number }) => Promise<void>;
+  reconcileProviders?: (input: { sessionId: string; requiredProviders: string[] }) => Promise<void>;
+  retainedProviders?: (sessionId: string) => string[];
+  /** Host-only verification, recorded after the durable generation exists. */
+  admitSeat?: (input: {
+    sessionId: string;
+    seatId: string;
+    generation: number;
+    retained?: true;
+  }) => void;
 }
 
 export class SymposiumOrchestrator {
@@ -52,8 +84,14 @@ export class SymposiumOrchestrator {
   private readonly idFactory: () => string;
   private readonly claimIdFactory: () => string;
   private readonly now: () => number;
+  private readonly creationRecovery?: SymposiumOrchestratorDeps['creationRecovery'];
+  private readonly stopSeat?: SymposiumOrchestratorDeps['stopSeat'];
+  private readonly reconcileProviders?: SymposiumOrchestratorDeps['reconcileProviders'];
+  private readonly retainedProviders: (sessionId: string) => string[];
+  private readonly admitSeat?: SymposiumOrchestratorDeps['admitSeat'];
   private readonly running = new Map<string, Promise<SymposiumDeliveryRecord>>();
   private readonly abortControllers = new Map<string, AbortController>();
+  private readonly reconciliationQueues: Map<string, Promise<void>>;
 
   constructor(deps: SymposiumOrchestratorDeps) {
     this.store = deps.store;
@@ -61,6 +99,312 @@ export class SymposiumOrchestrator {
     this.idFactory = deps.idFactory ?? randomUUID;
     this.claimIdFactory = deps.claimIdFactory ?? randomUUID;
     this.now = deps.now ?? Date.now;
+    this.stopSeat = deps.stopSeat;
+    this.creationRecovery = deps.creationRecovery;
+    this.reconcileProviders = deps.reconcileProviders;
+    this.retainedProviders = deps.retainedProviders ?? (() => []);
+    this.admitSeat = deps.admitSeat;
+    this.reconciliationQueues = sharedReconciliationQueues.get(deps.store) ?? new Map();
+    sharedReconciliationQueues.set(deps.store, this.reconciliationQueues);
+  }
+
+  /** Revalidate retained seats against a new roster revision without manufacturing
+   * membership transitions or copying stale provider admissions forward. */
+  refreshActiveAdmissions(sessionId: string, expectedRevision: number): string[] {
+    const config = this.requireDirectedManualConfig(sessionId);
+    if (config.version !== 2 || config.revision !== expectedRevision)
+      throw new Error('Symposium configuration revision conflict');
+    const active = config.seats.flatMap((seat) => {
+      const member = this.store.getLatestSymposiumMembership(sessionId, seat.id);
+      return member?.state === 'active' ? [member] : [];
+    });
+    if (active.length && !this.admitSeat) throw new Error('Verified host admission is unavailable');
+    for (const member of active) {
+      if (member.reconciliation !== 'confirmed')
+        throw new Error('Membership reconciliation is required');
+      this.admitSeat!({
+        sessionId,
+        seatId: member.seatId,
+        generation: member.generation,
+        retained: true,
+      });
+      const current = this.store.getLatestSymposiumMembership(sessionId, member.seatId);
+      const admission = this.store.getLatestSymposiumAdmission(
+        sessionId,
+        member.seatId,
+        expectedRevision,
+      );
+      if (
+        this.store.getActiveSymposiumConfig(sessionId).revision !== expectedRevision ||
+        current?.state !== 'active' ||
+        current.generation !== member.generation ||
+        current.reconciliation !== 'confirmed' ||
+        admission?.decision !== 'admitted' ||
+        admission.membershipGeneration !== member.generation
+      )
+        throw new Error('Retained seat admission changed during roster reconciliation');
+    }
+    return active.map((member) => member.seatId);
+  }
+
+  /** Transfer only the routing anchor; retained seat authority is reverified. */
+  transferPrimary(input: Parameters<EventStore['transferSymposiumAnchor']>[0]): SymposiumConfig {
+    if (!this.admitSeat) throw new Error('Verified host admission is unavailable');
+    const config = this.store.transferSymposiumAnchor(input);
+    // Exact retries return their immutable receipt even after later roster changes.
+    // Never re-admit seats against that historical configuration revision.
+    if (this.store.getActiveSymposiumConfig(input.sessionId).revision !== config.revision)
+      return config;
+    try {
+      this.refreshActiveAdmissions(input.sessionId, config.revision);
+    } catch {
+      throw new Error('Primary transfer saved; retained seat admissions require rechecking');
+    }
+    return config;
+  }
+
+  creationDiagnostic(sessionId: string, seatId: string, actor?: string) {
+    const diagnostic = this.creationRecovery?.diagnostic(sessionId, seatId) ?? null;
+    if (!diagnostic) return null;
+    const member = this.store.getLatestSymposiumMembership(sessionId, seatId);
+    const pending =
+      member &&
+      this.store.getPendingSymposiumCreationRecovery(sessionId, seatId, member.generation);
+    if (!pending) return diagnostic;
+    const current = this.store.getActiveSymposiumConfig(sessionId);
+    const authorization = this.store.getSymposiumCreationRecoveryAuthorization(pending)!;
+    if (
+      !diagnostic.canCleanup ||
+      pending.expectedRevision !== current.revision ||
+      pending.expectedGeneration !== member!.generation
+    )
+      return { ...diagnostic, canCleanup: false };
+    const recoveryAuthorization = {
+      operationId: authorization.operationId,
+      revision: authorization.authorizationRevision,
+      state: authorization.executing
+        ? 'cleanup_fenced'
+        : authorization.actor === actor
+          ? 'authorized'
+          : 'reauthorization_required',
+    };
+    if (authorization.executing || authorization.actor !== actor)
+      return { ...diagnostic, canCleanup: false, recoveryAuthorization };
+    return { ...diagnostic, recoveryAuthorization, recoveryIdempotencyKey: pending.idempotencyKey };
+  }
+  async recoverCreation(
+    input: SymposiumCreationRecoveryRequest,
+  ): Promise<SymposiumMembershipRecord> {
+    const prior = this.reconciliationQueues.get(input.sessionId) ?? Promise.resolve();
+    const work = prior
+      .catch(() => {})
+      .then(async () => {
+        const original = this.store.resolveSymposiumCreationRecovery(input);
+        const saved = this.store.getSymposiumCreationRecovery(original);
+        if (saved) return saved;
+        if (!this.creationRecovery || !this.stopSeat)
+          throw new Error('Creation cleanup capability unavailable');
+        this.creationRecovery.assertRetained(
+          input.sessionId,
+          input.seatId,
+          input.expectedGeneration,
+        );
+        const claim = this.store.claimSymposiumCreationRecovery(input);
+        try {
+          const physical = this.store.getSymposiumSeatSandbox(
+            input.sessionId,
+            input.seatId,
+            input.expectedGeneration,
+          );
+          // Durable terminal cleanup survives response/completion-persistence failure.
+          if (
+            physical?.state !== 'stopped' ||
+            this.store.getUnsettledSymposiumSeatExecutions(input.sessionId, input.seatId).length
+          )
+            await this.stopSeat({
+              sessionId: input.sessionId,
+              seatId: input.seatId,
+              generation: input.expectedGeneration,
+            });
+          return this.store.completeSymposiumCreationRecovery(claim.request, claim);
+        } finally {
+          // A rejected local command can still finish remotely. Release only after
+          // durable terminal proof; process loss/uncertain cleanup remains fenced.
+          if (
+            this.store.getSymposiumSeatSandbox(
+              input.sessionId,
+              input.seatId,
+              input.expectedGeneration,
+            )?.state === 'stopped' &&
+            this.store.getUnsettledSymposiumSeatExecutions(input.sessionId, input.seatId).length ===
+              0
+          )
+            this.store.releaseSymposiumCreationRecovery(claim);
+        }
+      });
+    const tail = work.then(
+      () => {},
+      () => {},
+    );
+    this.reconciliationQueues.set(input.sessionId, tail);
+    try {
+      return await work;
+    } finally {
+      if (this.reconciliationQueues.get(input.sessionId) === tail)
+        this.reconciliationQueues.delete(input.sessionId);
+    }
+  }
+
+  async reauthorizeCreationRecovery(
+    input: Parameters<EventStore['reauthorizeSymposiumCreationRecovery']>[0],
+    authorize: () => void = () => {},
+  ) {
+    const prior = this.reconciliationQueues.get(input.sessionId) ?? Promise.resolve();
+    const work = prior
+      .catch(() => {})
+      .then(() => {
+        authorize();
+        if (!this.creationRecovery || !this.stopSeat)
+          throw new Error('Creation cleanup capability unavailable');
+        this.creationRecovery.assertRetained(
+          input.sessionId,
+          input.seatId,
+          input.expectedGeneration,
+        );
+        return this.store.reauthorizeSymposiumCreationRecovery(input);
+      });
+    const tail = work.then(
+      () => {},
+      () => {},
+    );
+    this.reconciliationQueues.set(input.sessionId, tail);
+    try {
+      return await work;
+    } finally {
+      if (this.reconciliationQueues.get(input.sessionId) === tail)
+        this.reconciliationQueues.delete(input.sessionId);
+    }
+  }
+
+  /** Persist revocation and fence dispatch before requesting runtime cleanup. */
+  async transitionMembership(input: {
+    sessionId: string;
+    seatId: string;
+    action: SymposiumMembershipAction;
+    expectedGeneration: number;
+    configRevision: number;
+    actor: string;
+    reason: string;
+    idempotencyKey: string;
+    replacesSeatId?: string;
+  }): Promise<SymposiumMembershipRecord> {
+    const record = this.store.transitionSymposiumMembership({ ...input, occurredAt: this.now() });
+    if (record.reconciliation === 'confirmed') return record;
+    if (record.state === 'active' && !this.admitSeat) return record;
+    if (record.state === 'active' && this.admitSeat) {
+      try {
+        this.admitSeat({
+          sessionId: input.sessionId,
+          seatId: input.seatId,
+          generation: record.generation,
+        });
+      } catch {
+        return this.store.markSymposiumMembershipReconciled(
+          input.sessionId,
+          input.seatId,
+          record.generation,
+          'recovery_required',
+        );
+      }
+    }
+    return this.reconcileMembership(input.sessionId, input.seatId, record.generation);
+  }
+
+  /** Resume uncertain stop/provider reconciliation after a crash or failed cleanup. */
+  async reconcileMembership(
+    sessionId: string,
+    seatId: string,
+    generation: number,
+  ): Promise<SymposiumMembershipRecord> {
+    const predecessor = this.reconciliationQueues.get(sessionId) ?? Promise.resolve();
+    const work = predecessor
+      .catch(() => {})
+      .then(() => this.reconcileMembershipNow(sessionId, seatId, generation));
+    const settled = work.then(
+      () => {},
+      () => {},
+    );
+    this.reconciliationQueues.set(sessionId, settled);
+    try {
+      return await work;
+    } finally {
+      if (this.reconciliationQueues.get(sessionId) === settled)
+        this.reconciliationQueues.delete(sessionId);
+    }
+  }
+
+  private async reconcileMembershipNow(
+    sessionId: string,
+    seatId: string,
+    generation: number,
+  ): Promise<SymposiumMembershipRecord> {
+    const record = this.store.getLatestSymposiumMembership(sessionId, seatId);
+    if (!record || record.generation !== generation)
+      throw new Error('Symposium membership generation is stale');
+    if (record.reconciliation === 'confirmed') return record;
+    if (record.state === 'active') {
+      const admission = this.store.getLatestSymposiumAdmission(
+        sessionId,
+        seatId,
+        this.store.getActiveSymposiumConfig(sessionId).revision,
+      );
+      if (admission?.decision !== 'admitted' || admission.membershipGeneration !== generation) {
+        throw new Error('Current-generation provider admission is required before reconciliation');
+      }
+    }
+    try {
+      if (!this.reconcileProviders || (record.state !== 'active' && !this.stopSeat))
+        throw new Error('Runtime cleanup interface unavailable');
+      if (record.state !== 'active') {
+        const unsettled = this.store.getUnsettledSymposiumSeatExecutions(sessionId, seatId);
+        await this.stopSeat!({
+          sessionId,
+          seatId,
+          generation: record.generation,
+        });
+        for (const attempt of unsettled)
+          this.store.confirmSymposiumAttemptCleanup(attempt.attemptId, attempt.idempotencyKey);
+      }
+      await this.reconcileProviders({
+        sessionId,
+        requiredProviders: this.store.getSymposiumRequiredProviders(
+          sessionId,
+          this.retainedProviders(sessionId),
+        ),
+      });
+      if (this.store.getLatestSymposiumMembership(sessionId, seatId)?.generation !== generation) {
+        throw new Error('Symposium membership changed during provider reconciliation');
+      }
+      return this.store.markSymposiumMembershipReconciled(
+        sessionId,
+        seatId,
+        record.generation,
+        'confirmed',
+      );
+    } catch {
+      log.warn('Symposium membership cleanup requires recovery', {
+        sessionId,
+        seatId,
+        reason:
+          record.state === 'active' ? 'admission_reconcile_failed' : 'revocation_reconcile_failed',
+      });
+      return this.store.markSymposiumMembershipReconciled(
+        sessionId,
+        seatId,
+        record.generation,
+        'recovery_required',
+      );
+    }
   }
 
   recordProviderAdmission(input: {
@@ -93,6 +437,12 @@ export class SymposiumOrchestrator {
       admissionId: `admission:${input.sessionId}:${input.idempotencyKey}`,
       sessionId: input.sessionId,
       seatId: seat.id,
+      ...(config.version === 2
+        ? {
+            membershipGeneration: this.store.getLatestSymposiumMembership(input.sessionId, seat.id)
+              ?.generation,
+          }
+        : {}),
       decision: input.decision,
       reason: input.reason?.trim() || null,
       idempotencyKey: input.idempotencyKey,
@@ -111,10 +461,19 @@ export class SymposiumOrchestrator {
   stageDelivery(input: {
     sessionId: string;
     sourceSeatId: string | null;
+    sourceMessageId?: string | null;
+    sourceMembershipGeneration?: number;
     recipientSeatIds: string[];
     originalContent: string;
     idempotencyKey: string;
   }): SymposiumDeliveryRecord {
+    if (
+      input.sourceMembershipGeneration !== undefined &&
+      (!Number.isSafeInteger(input.sourceMembershipGeneration) ||
+        input.sourceMembershipGeneration < 0)
+    ) {
+      throw new Error('Source membership generation must be a nonnegative integer');
+    }
     requireText(input.originalContent, 'Original delivery content');
     requireText(input.idempotencyKey, 'Delivery idempotency key');
     const prior = this.store.getSymposiumDeliveryByIdempotencyKey(
@@ -124,6 +483,9 @@ export class SymposiumOrchestrator {
     if (prior) {
       if (
         prior.sourceSeatId !== input.sourceSeatId ||
+        (prior.sourceMessageId ?? null) !== (input.sourceMessageId ?? null) ||
+        (input.sourceMembershipGeneration !== undefined &&
+          prior.sourceProvenance?.membershipGeneration !== input.sourceMembershipGeneration) ||
         prior.originalContent !== input.originalContent ||
         !sameMembers(prior.recipientSeatIds, input.recipientSeatIds)
       ) {
@@ -142,7 +504,7 @@ export class SymposiumOrchestrator {
       new Set(input.recipientSeatIds).size !== input.recipientSeatIds.length ||
       input.recipientSeatIds.some((seatId) => !seatIds.has(seatId))
     ) {
-      throw new Error('Delivery recipients must be one or two distinct configured seats');
+      throw new Error('Delivery recipients must be distinct configured seats');
     }
 
     const sourceSeat =
@@ -155,6 +517,23 @@ export class SymposiumOrchestrator {
         seat.id === sourceSeat?.id || recipients.some((recipient) => recipient.id === seat.id),
     );
     for (const seat of admittedSeats) {
+      if (config.version === 2) {
+        const membership = this.store.getLatestSymposiumMembership(input.sessionId, seat.id);
+        const admission = this.store.getLatestSymposiumAdmission(
+          input.sessionId,
+          seat.id,
+          config.revision,
+        );
+        if (
+          membership?.state !== 'active' ||
+          membership.reconciliation !== 'confirmed' ||
+          admission?.decision !== 'admitted' ||
+          admission.membershipGeneration !== membership.generation
+        ) {
+          throw new Error(`Symposium seat ${seat.id} is not active`);
+        }
+        continue;
+      }
       const admission = this.store.getLatestSymposiumAdmission(
         input.sessionId,
         seat.id,
@@ -167,10 +546,25 @@ export class SymposiumOrchestrator {
 
     const deliveryId = this.idFactory();
     const timestamp = this.now();
+    const sourceMessage = input.sourceMessageId
+      ? this.store.getSymposiumSourceMessage(input.sessionId, input.sourceMessageId, {
+          seatId: input.sourceSeatId,
+          membershipGeneration: input.sourceMembershipGeneration,
+        })
+      : undefined;
+    if (
+      input.sourceMessageId &&
+      (!sourceMessage ||
+        sourceMessage.seatId !== input.sourceSeatId ||
+        !sourceMessage.content.includes(input.originalContent))
+    ) {
+      throw new Error('Shared excerpt must match completed durable source message');
+    }
     return this.store.createSymposiumDelivery({
       deliveryId,
       sessionId: input.sessionId,
       sourceSeatId: input.sourceSeatId,
+      sourceMessageId: input.sourceMessageId ?? null,
       recipientSeatIds: recipients.map((seat) => seat.id),
       originalContent: input.originalContent,
       deliveredContent: null,
@@ -179,7 +573,19 @@ export class SymposiumOrchestrator {
       interventionReason: null,
       idempotencyKey: input.idempotencyKey,
       configRevision: config.revision,
-      sourceProvenance: sourceSeat ? provenanceFor(sourceSeat, config.revision) : null,
+      sourceProvenance: sourceMessage
+        ? sourceMessage.provenance
+        : sourceSeat
+          ? provenanceFor(
+              sourceSeat,
+              config.revision,
+              config.version === 2
+                ? this.store.getLatestSymposiumMembership(input.sessionId, sourceSeat.id)
+                    ?.generation
+                : undefined,
+              timestamp,
+            )
+          : null,
       cancellationReason: null,
       cancellationIdempotencyKey: null,
       cancelledAt: null,
@@ -190,6 +596,14 @@ export class SymposiumOrchestrator {
         return {
           deliveryId,
           seatId: seat.id,
+          ...(config.version === 2
+            ? {
+                membershipGeneration: this.store.getLatestSymposiumMembership(
+                  input.sessionId,
+                  seat.id,
+                )!.generation,
+              }
+            : {}),
           status: 'pending',
           idempotencyKey: `delivery:${deliveryId}:seat:${seat.id}`,
           configRevision: config.revision,
@@ -203,7 +617,7 @@ export class SymposiumOrchestrator {
           isolationDomainRevision: active.isolationRequest.revision,
           providerThreadId: null,
           resultContent: null,
-          costUsd: 0,
+          costUsd: null,
           error: null,
           updatedAt: timestamp,
         };
@@ -254,6 +668,7 @@ export class SymposiumOrchestrator {
     requireText(input.idempotencyKey, 'Cancellation idempotency key');
     const before = this.store.getSymposiumDelivery(input.deliveryId);
     if (!before) throw new Error('Unknown Symposium delivery');
+    const unsettled = this.store.getUnsettledSymposiumExecutions(input.deliveryId);
     const cancelled = this.store.cancelSymposiumDelivery({
       deliveryId: input.deliveryId,
       reason: input.reason?.trim() || null,
@@ -262,26 +677,63 @@ export class SymposiumOrchestrator {
     });
     this.abortControllers.get(input.deliveryId)?.abort();
     await Promise.all(
-      before.recipients
-        .filter((recipient) => recipient.status === 'executing')
-        .map(async (recipient) => {
-          const executor = this.executors[recipient.seatId];
-          if (!executor?.cancel) return;
-          try {
-            await executor.cancel({
-              providerThreadId: recipient.providerThreadId ?? undefined,
-              idempotencyKey: recipient.idempotencyKey,
-            });
-          } catch (error) {
-            log.warn('provider cancellation cleanup failed after durable cancellation', {
-              deliveryId: input.deliveryId,
-              seatId: recipient.seatId,
-              error: error instanceof Error ? error.message : String(error),
-            });
-          }
-        }),
+      unsettled.map(async (attempt) => {
+        const executor = this.executors[attempt.seatId];
+        if (!executor?.cancel) return;
+        const recipient = before.recipients.find((row) => row.seatId === attempt.seatId);
+        try {
+          await executor.cancel({
+            providerThreadId: recipient?.providerThreadId ?? undefined,
+            idempotencyKey: attempt.idempotencyKey,
+            attemptId: attempt.attemptId,
+            claimToken: attempt.claimToken ?? undefined,
+          });
+          this.store.confirmSymposiumAttemptCleanup(attempt.attemptId, attempt.idempotencyKey);
+        } catch (error) {
+          log.warn('provider cancellation cleanup failed after durable cancellation', {
+            deliveryId: input.deliveryId,
+            seatId: attempt.seatId,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }),
     );
     return cancelled;
+  }
+
+  /** Inspect/stop only the captured failed attempts; this never dispatches or retries. */
+  async reconcileDeliveryCleanup(deliveryId: string): Promise<{
+    delivery: SymposiumDeliveryRecord;
+    cleanup: 'confirmed' | 'recovery_required';
+  }> {
+    const delivery = this.store.getSymposiumDelivery(deliveryId);
+    if (!delivery) throw new Error('Unknown Symposium delivery');
+    if (
+      !['failed', 'recovery_required', 'cancelled', 'delivered'].includes(delivery.status) ||
+      delivery.recipients.some((recipient) => recipient.status === 'executing')
+    )
+      throw new Error('Active recipient execution must settle or be cancelled before cleanup');
+    const attempts = this.store.getUnsettledSymposiumExecutions(deliveryId);
+    await Promise.allSettled(
+      attempts.map(async (attempt) => {
+        const executor = this.executors[attempt.seatId];
+        if (!executor?.cancel) return;
+        const recipient = delivery.recipients.find((row) => row.seatId === attempt.seatId);
+        await executor.cancel({
+          providerThreadId: recipient?.providerThreadId ?? undefined,
+          idempotencyKey: attempt.idempotencyKey,
+          attemptId: attempt.attemptId,
+          claimToken: attempt.claimToken ?? undefined,
+        });
+        this.store.confirmSymposiumAttemptCleanup(attempt.attemptId, attempt.idempotencyKey);
+      }),
+    );
+    return {
+      delivery: this.store.getSymposiumDelivery(deliveryId)!,
+      cleanup: this.store.getUnsettledSymposiumExecutions(deliveryId).length
+        ? 'recovery_required'
+        : 'confirmed',
+    };
   }
 
   recover(): SymposiumDeliveryRecord[] {
@@ -312,8 +764,8 @@ export class SymposiumOrchestrator {
     const abortController = new AbortController();
     this.abortControllers.set(deliveryId, abortController);
     delivery = this.store.getSymposiumDelivery(deliveryId)!;
-    for (const recipient of delivery.recipients) {
-      if (recipient.status !== 'pending') continue;
+    const executeRecipient = async (recipient: SymposiumDeliveryRecord['recipients'][number]) => {
+      if (recipient.status !== 'pending') return true;
       let currentConfig: SymposiumConfig;
       try {
         currentConfig = this.requireDirectedManualConfig(delivery.sessionId);
@@ -335,7 +787,7 @@ export class SymposiumOrchestrator {
           error: error instanceof Error ? error.message : String(error),
           updatedAt: this.now(),
         });
-        break;
+        return false;
       }
       const seat = currentConfig.seats.find((candidate) => candidate.id === recipient.seatId)!;
       const executor = this.executors[recipient.seatId];
@@ -346,9 +798,35 @@ export class SymposiumOrchestrator {
           error: `No executor was injected for Symposium seat ${recipient.seatId}`,
           updatedAt: this.now(),
         });
-        break;
+        return false;
       }
-      const bindingKey = seatBindingKey(seat);
+      const membershipGeneration =
+        currentConfig.version === 2
+          ? this.store.getLatestSymposiumMembership(delivery.sessionId, seat.id)?.generation
+          : undefined;
+      const bindingKey = seatBindingKey(seat, membershipGeneration);
+      const provenance = provenanceFor(
+        seat,
+        currentConfig.revision,
+        currentConfig.version === 2
+          ? this.store.getLatestSymposiumMembership(delivery.sessionId, seat.id)?.generation
+          : undefined,
+        this.now(),
+      );
+      const claimToken = this.claimIdFactory();
+      try {
+        executor.prepare?.({ sessionId: delivery.sessionId, claimToken });
+      } catch (error) {
+        this.store.failSymposiumRecipient({
+          deliveryId,
+          seatId: recipient.seatId,
+          error: error instanceof Error ? error.message : String(error),
+          updatedAt: this.now(),
+        });
+        return false;
+      }
+      // Preparation precedes the durable claim: a crash before execute() is
+      // recoverable. A lost claim race leaves only a harmless, unlaunched preparation.
       const claim = this.store.claimSymposiumRecipientExecution({
         sessionId: delivery.sessionId,
         deliveryId,
@@ -356,25 +834,29 @@ export class SymposiumOrchestrator {
         expectedConfigRevision: currentConfig.revision,
         bindingKey,
         recipientIdempotencyKey: recipient.idempotencyKey,
-        claimToken: this.claimIdFactory(),
+        claimToken,
         claimedAt: this.now(),
+        provenance,
       });
-      if (!claim) break;
+      if (!claim) return false;
       const thread = claim.thread;
       try {
-        if (abortController.signal.aborted) return this.store.getSymposiumDelivery(deliveryId)!;
+        if (abortController.signal.aborted)
+          throw new Error('Symposium execution was cancelled before dispatch');
         const result = await executor.execute({
           sessionId: delivery.sessionId,
           deliveryId,
           seat,
           content: delivery.deliveredContent!,
           idempotencyKey: recipient.idempotencyKey,
+          claimToken: claim.claimToken,
           providerThreadId: thread?.providerThreadId,
-          provenance: provenanceFor(seat, currentConfig.revision),
+          provenance,
           signal: abortController.signal,
         });
+        this.store.confirmSymposiumExecutionCleanup(claim.claimToken);
         const timestamp = this.now();
-        delivery = this.store.completeSymposiumRecipient({
+        this.store.completeSymposiumRecipient({
           sessionId: delivery.sessionId,
           deliveryId,
           seatId: seat.id,
@@ -383,13 +865,25 @@ export class SymposiumOrchestrator {
           configRevision: currentConfig.revision,
           threadCreatedAt: thread?.createdAt ?? timestamp,
           resultContent: result.content,
-          costUsd: result.costUsd ?? 0,
+          costUsd: result.costUsd ?? null,
           updatedAt: timestamp,
           claimToken: claim.claimToken,
         });
       } catch (error) {
+        if (executor.cancel) {
+          try {
+            await executor.cancel({
+              providerThreadId: thread?.providerThreadId,
+              idempotencyKey: recipient.idempotencyKey,
+              claimToken: claim.claimToken,
+            });
+            this.store.confirmSymposiumExecutionCleanup(claim.claimToken);
+          } catch {
+            /* Uncertain cleanup retains the durable resource reservation. */
+          }
+        }
         const latest = this.store.getSymposiumDelivery(deliveryId)!;
-        if (latest.status === 'cancelled' || abortController.signal.aborted) return latest;
+        if (latest.status === 'cancelled' || abortController.signal.aborted) return false;
         this.store.failSymposiumRecipient({
           deliveryId,
           seatId: seat.id,
@@ -397,9 +891,27 @@ export class SymposiumOrchestrator {
           updatedAt: this.now(),
           claimToken: claim.claimToken,
         });
-        break;
+        return false;
       }
+      return true;
+    };
+    try {
+      if (config.version === 2) {
+        const results = await Promise.allSettled(delivery.recipients.map(executeRecipient));
+        const rejected = results.find((result) => result.status === 'rejected');
+        if (rejected?.status === 'rejected') throw rejected.reason;
+      } else {
+        for (const recipient of delivery.recipients) {
+          if (!(await executeRecipient(recipient))) break;
+        }
+      }
+    } finally {
+      // Another SQLite connection can fence work after the delivery claim but
+      // before recipient claims. Preserve queued work even when a claim throws;
+      // the conditional store update leaves active claims and terminal states alone.
+      this.store.requeueIdleSymposiumDelivery(deliveryId, this.now());
     }
+
     return this.store.getSymposiumDelivery(deliveryId)!;
   }
 
@@ -431,9 +943,14 @@ function requireActiveSeat(seat: SeatConfig) {
   };
 }
 
-function provenanceFor(seat: SeatConfig, configRevision: number): SymposiumProvenance {
+function provenanceFor(
+  seat: SeatConfig,
+  configRevision: number,
+  membershipGeneration?: number,
+  capturedAt?: number,
+): SymposiumProvenance {
   const active = requireActiveSeat(seat);
-  return {
+  const legacy = {
     seatId: seat.id,
     configRevision,
     accountProfileRevision: active.accountBinding.profileRevision,
@@ -442,16 +959,36 @@ function provenanceFor(seat: SeatConfig, configRevision: number): SymposiumProve
     authorityGrantRevision: active.authorityGrant.revision,
     isolationDomainId: active.isolationRequest.trustDomainId,
     isolationDomainRevision: active.isolationRequest.revision,
+    ...(membershipGeneration !== undefined ? { membershipGeneration } : {}),
+  };
+  if (membershipGeneration === undefined) return legacy;
+  if (capturedAt === undefined) throw new Error('Symposium provenance capture time is required');
+  return {
+    ...legacy,
+    version: 2,
+    seatLabel: seat.name,
+    seatRole: seat.role,
+    capturedAt,
+    membershipGeneration,
+    accountBinding: active.accountBinding,
+    reasoningEffort: seat.reasoningEffort ?? null,
+    profileBinding: active.profileBinding,
+    contextGrant: { grantId: active.contextGrant.grantId, revision: active.contextGrant.revision },
+    authorityGrant: {
+      grantId: active.authorityGrant.grantId,
+      revision: active.authorityGrant.revision,
+    },
   };
 }
 
-function seatBindingKey(seat: SeatConfig): string {
+function seatBindingKey(seat: SeatConfig, membershipGeneration?: number): string {
   const active = requireActiveSeat(seat);
   return JSON.stringify([
     active.accountBinding.provider,
     active.accountBinding.accountId,
     active.accountBinding.model,
     active.accountBinding.profileRevision,
+    seat.reasoningEffort ?? null,
     active.profileBinding.profileId,
     active.profileBinding.profileRevision,
     active.contextGrant.grantId,
@@ -460,6 +997,7 @@ function seatBindingKey(seat: SeatConfig): string {
     active.authorityGrant.revision,
     active.isolationRequest.trustDomainId,
     active.isolationRequest.revision,
+    ...(membershipGeneration === undefined ? [] : [membershipGeneration]),
   ]);
 }
 

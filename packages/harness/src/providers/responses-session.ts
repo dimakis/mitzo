@@ -1,4 +1,5 @@
 import { isDeepStrictEqual } from 'node:util';
+import { context, trace, SpanKind, SpanStatusCode, type Context } from '@opentelemetry/api';
 import { z } from 'zod';
 import type {
   ContentBlock,
@@ -240,7 +241,15 @@ export class ResponsesSession implements ModelSession {
     return structuredClone(this.state);
   }
 
-  async *turn(messages: ConversationMessage[]): AsyncIterable<StreamEvent> {
+  turn(messages: ConversationMessage[]): AsyncIterable<StreamEvent> {
+    // Async generator bodies begin on next(), possibly outside the caller's trace context.
+    return this.streamTurn(messages, context.active());
+  }
+
+  private async *streamTurn(
+    messages: ConversationMessage[],
+    parentContext: Context,
+  ): AsyncIterable<StreamEvent> {
     if (this.running) throw new Error('OpenAI session already has a running turn');
     if (!isDeepStrictEqual(messages.slice(0, this.state.history.length), this.state.history))
       throw new Error('OpenAI conversation history does not match its checkpoint');
@@ -249,6 +258,22 @@ export class ResponsesSession implements ModelSession {
       ...inputMessages(messages.slice(this.state.history.length)),
     ];
     this.running = true;
+    const span = trace.getTracer('mitzo', '1.0.0').startSpan(
+      'openai.responses.create',
+      {
+        kind: SpanKind.CLIENT,
+        attributes: {
+          'mitzo.route': 'openai-api',
+          'gen_ai.request.model': this.config.model,
+          'http.request.method': 'POST',
+          'server.address': 'api.openai.com',
+        },
+      },
+      parentContext,
+    );
+    let completed = false;
+    let failed = false;
+    let responseReceived = false;
     try {
       const response = await fetch('https://api.openai.com/v1/responses', {
         method: 'POST',
@@ -279,6 +304,8 @@ export class ResponsesSession implements ModelSession {
             : undefined,
         }),
       });
+      responseReceived = true;
+      span.setAttribute('http.response.status_code', response.status);
       if (!response.ok) {
         let code: string | undefined;
         try {
@@ -360,6 +387,7 @@ export class ResponsesSession implements ModelSession {
             input: [...input, ...event.response.output],
             history: [...messages, { role: 'assistant' as const, content: blocks }],
           });
+          completed = true;
           yield {
             type: 'message_delta',
             delta: {
@@ -373,7 +401,24 @@ export class ResponsesSession implements ModelSession {
         }
       }
       throw new Error('OpenAI stream ended without completion');
+    } catch (error) {
+      failed = true;
+      span.setStatus({ code: SpanStatusCode.ERROR });
+      span.setAttribute(
+        'mitzo.failure.category',
+        this.config.signal?.aborted || (error instanceof Error && error.name === 'AbortError')
+          ? 'cancelled'
+          : error instanceof OpenAIResponsesRequestError && error.status !== undefined
+            ? 'http'
+            : responseReceived
+              ? 'stream'
+              : 'transport',
+      );
+      throw error;
     } finally {
+      if (completed) span.setStatus({ code: SpanStatusCode.OK });
+      else if (!failed) span.setAttribute('mitzo.failure.category', 'cancelled');
+      span.end();
       this.running = false;
     }
   }

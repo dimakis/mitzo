@@ -1,3 +1,7 @@
+import {
+  validateOpenShellCliEnvironment,
+  type OpenShellCliEnvironment,
+} from './openshell-cli-environment.js';
 import { JIRA_API_ENDPOINT } from './connections-gateway.js';
 import { applicationVersion } from './application-version.js';
 import { spawn, spawnSync } from 'node:child_process';
@@ -83,12 +87,16 @@ export class CodexRequestError extends Error {
 export interface OpenShellCodexOptions {
   sandboxName: string;
   workdir: string;
-  appServerCommand?: '/sandbox/run-mitzo-app-server' | '/sandbox/run-mitzo-subscription-app-server';
+  appServerCommand?:
+    | '/sandbox/run-mitzo-app-server'
+    | '/sandbox/run-mitzo-subscription-app-server'
+    | '/usr/local/bin/symposium-subscription-app-server';
   cli?: string;
   gateway?: string;
   workspace?: string;
   gatewayEndpoint?: string;
   gatewayInsecure?: boolean;
+  cliEnvironment?: OpenShellCliEnvironment;
   /** Non-secret, reviewed external-service context for managed sandbox tools. */
   connectionEnv?: { JIRA_URL: typeof JIRA_API_ENDPOINT; JIRA_EMAIL: string };
 }
@@ -124,9 +132,9 @@ export function openShellSshProcessSpec(
   const workspace = options.workspace || base.OPENSHELL_WORKSPACE || 'default';
   const gateway = options.gateway || base.OPENSHELL_GATEWAY || 'openshell';
   const cli = options.cli || 'openshell';
-  if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,62}$/.test(workspace))
+  if (!/^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/.test(workspace))
     throw new Error('Invalid OpenShell workspace name');
-  if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,62}$/.test(gateway))
+  if (!/^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/.test(gateway))
     throw new Error('Invalid OpenShell gateway name');
   if ((cli !== 'openshell' && !isAbsolute(cli)) || !/^[A-Za-z0-9_./+-]+$/.test(cli))
     throw new Error('Invalid OpenShell CLI path');
@@ -167,7 +175,9 @@ function openShellSshProcessSpecTrusted(
   const workdir = posix.resolve(options.workdir);
   if (workdir === '/sandbox/workspaces' || !workdir.startsWith('/sandbox/workspaces/'))
     throw new Error('OpenShell workdir must be inside /sandbox/workspaces');
-  const env: Record<string, string> = {};
+  const env: Record<string, string> = options.cliEnvironment
+    ? validateOpenShellCliEnvironment(options.cliEnvironment)
+    : {};
   for (const key of [
     'PATH',
     'HOME',
@@ -179,14 +189,14 @@ function openShellSshProcessSpecTrusted(
     'OPENSHELL_GATEWAY_INSECURE',
     'OPENSHELL_WORKSPACE',
   ]) {
-    if (base[key]) env[key] = base[key]!;
+    if (!options.cliEnvironment && base[key]) env[key] = base[key]!;
   }
   const workspace = options.workspace || base.OPENSHELL_WORKSPACE || 'default';
   const gateway = options.gateway || base.OPENSHELL_GATEWAY || 'openshell';
   const cli = options.cli || 'openshell';
-  if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,62}$/.test(workspace))
+  if (!/^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/.test(workspace))
     throw new Error('Invalid OpenShell workspace name');
-  if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,62}$/.test(gateway))
+  if (!/^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/.test(gateway))
     throw new Error('Invalid OpenShell gateway name');
   if ((cli !== 'openshell' && !isAbsolute(cli)) || !/^[A-Za-z0-9_./+-]+$/.test(cli))
     throw new Error('Invalid OpenShell CLI path');
@@ -244,6 +254,8 @@ export function openShellCodexProcessSpec(
   options: OpenShellCodexOptions,
   base: NodeJS.ProcessEnv = process.env,
 ) {
+  if (options.appServerCommand === '/usr/local/bin/symposium-subscription-app-server')
+    throw new Error('Native ChatGPT launch requires the isolated Symposium controller');
   return openShellSshProcessSpec(
     options,
     options.appServerCommand || '/sandbox/run-mitzo-app-server',
@@ -291,6 +303,7 @@ export class CodexAppServerClient {
   private initializing?: Promise<void>;
   private readonly maxFrameBytes: number;
   private readonly timeoutMs: number;
+  private readonly loginOnly: boolean;
 
   constructor(
     private child: RpcProcess,
@@ -298,9 +311,11 @@ export class CodexAppServerClient {
       timeoutMs?: number;
       maxFrameBytes?: number;
       lifecycle?: CodexLifecycleTransport;
+      loginOnly?: boolean;
     } = {},
   ) {
     this.lifecycle = options.lifecycle;
+    this.loginOnly = options.loginOnly ?? false;
     this.timeoutMs = options.timeoutMs ?? 30_000;
     this.maxFrameBytes = options.maxFrameBytes ?? 4 * 1024 * 1024;
     child.stdout.on('data', (chunk: Buffer) => this.receive(chunk));
@@ -377,8 +392,10 @@ export class CodexAppServerClient {
   request(method: string, params: JsonObject): Promise<unknown> {
     if (this.closed) return Promise.reject(new Error('Codex connection closed'));
     if (!this.ready) return Promise.reject(new Error('Codex connection not initialized'));
-    const allowed = ['account/read', 'model/list'];
-    if (this.lifecycle)
+    const allowed = this.loginOnly
+      ? ['account/read', 'account/login/start', 'account/login/cancel']
+      : ['account/read', 'model/list'];
+    if (this.lifecycle && !this.loginOnly)
       allowed.push(
         'config/read',
         'thread/start',

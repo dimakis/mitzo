@@ -61,6 +61,32 @@ describe('MitzoApiClient', () => {
     );
   });
 
+  it('accepts transcript currents with colliding provider IDs in distinct seats', async () => {
+    const provenance = (seatId: string) => ({
+      seatId,
+      membershipGeneration: 1,
+      configRevision: 1,
+      accountProfileRevision: 'account-1',
+      seatProfileRevision: 'profile-1',
+      contextGrantRevision: 1,
+      authorityGrantRevision: 1,
+      isolationDomainId: 'domain-1',
+      isolationDomainRevision: 1,
+    });
+    const body = {
+      cursor: 2,
+      messages: [],
+      current: null,
+      currents: ['architect', 'reviewer'].map((seatId) => ({
+        messageId: 'same-provider-id',
+        blocks: [],
+        symposiumProvenance: provenance(seatId),
+      })),
+    };
+    const api = new MitzoApiClient(mockFetch(body));
+    await expect(api.getSessionTranscript('session')).resolves.toMatchObject(body);
+  });
+
   it('deleteSession sends DELETE', async () => {
     await client.deleteSession('sid-1');
     expect(fetchFn).toHaveBeenCalledWith(

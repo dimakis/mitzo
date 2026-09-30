@@ -1,6 +1,7 @@
 node_modules/
 dist/
 frontend/dist/
+frontend/dist-ios/
 *.db
 *.db-wal
 *.db-shm
@@ -17,6 +18,8 @@ logs/
 .grafana-data/
 .mlflow-data/
 .DS_Store
+test-results/
+playwright-report/
 .claude/worktrees/
 .cursor/worktrees/
 frontend/ios/App/App.xcworkspace/

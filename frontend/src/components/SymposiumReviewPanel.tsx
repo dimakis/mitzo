@@ -1,0 +1,461 @@
+import { SymposiumPublication } from './SymposiumPublication';
+import { SymposiumSavedReviewRecord } from './SymposiumSavedReviewRecord';
+import { SymposiumReviewHistory } from './SymposiumReviewHistory';
+import './SymposiumReviewPanel.css';
+import { useCallback, useEffect, useState } from 'react';
+import { apiFetch } from '../lib/api-fetch';
+
+type Workflow = {
+  workflowId: string;
+  status: string;
+  artifactRevision: string;
+  artifactHash: string;
+  reviewRounds: number;
+  tokensUsed: number;
+  costUsd: number;
+  findings: Array<{
+    fingerprint: string;
+    severity?: 'critical' | 'high' | 'medium' | 'low';
+    summary: string;
+    location: string;
+    criterion: string;
+    evidenceRefs: string[];
+    status: string;
+  }>;
+  reviews: Array<{ reviewId: string; kind: string; artifactRevision: string }>;
+  reservations: Array<{ attemptId: string; kind: 'review' | 'fix'; settled: boolean }>;
+};
+export function SymposiumReviewEntry({ sessionId }: { sessionId: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="symposium-review-entry">
+      <button aria-expanded={open} onClick={() => setOpen((value) => !value)}>
+        {open ? 'Close review findings' : 'Open review findings'}
+      </button>
+      {open && <SymposiumReviewPanel sessionId={sessionId} />}
+    </div>
+  );
+}
+
+export function SymposiumReviewPanel({ sessionId }: { sessionId: string }) {
+  return <ReviewPanel key={sessionId} sessionId={sessionId} />;
+}
+function ReviewPanel({ sessionId }: { sessionId: string }) {
+  const base = `/api/sessions/${encodeURIComponent(sessionId)}/symposium/reviews`;
+  const [workflows, setWorkflows] = useState<Workflow[]>([]);
+  const [workflowId, setWorkflowId] = useState<string | null>(null);
+  const [newReview, setNewReview] = useState(false);
+  const [historyVersion, setHistoryVersion] = useState(0);
+  const [available, setAvailable] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [selected, setSelected] = useState<string[]>([]);
+  const [reason, setReason] = useState('');
+  const [dismissalEvidence, setDismissalEvidence] = useState('');
+  const [criteria, setCriteria] = useState('');
+  const [tokens, setTokens] = useState('');
+  const [rounds, setRounds] = useState('');
+  const [costMode, setCostMode] = useState('');
+  const [cost, setCost] = useState('');
+  const [record, setRecord] = useState('');
+  const [savedRecordOpen, setSavedRecordOpen] = useState(false);
+  const [recordReference, setRecordReference] = useState<{ id: string; hash: string } | null>(null);
+  const [evidenceId, setEvidenceId] = useState('');
+  const reload = useCallback(
+    async (signal?: AbortSignal) => {
+      const response = await apiFetch(base, { signal });
+      const data = await response.json();
+      if (!response.ok)
+        throw new Error(
+          response.status === 404
+            ? 'Add a reviewer to this conversation before starting an integrated review.'
+            : data.error || 'Cannot load review',
+        );
+      if (signal?.aborted) return;
+      setAvailable(data.available);
+      setWorkflows(data.workflows);
+      setHistoryVersion((version) => version + 1);
+      setLoaded(true);
+    },
+    [base],
+  );
+  useEffect(() => {
+    const controller = new AbortController();
+    void reload(controller.signal).catch((error) => {
+      if (!controller.signal.aborted) setError(String(error));
+    });
+    return () => controller.abort();
+  }, [reload]);
+  async function action(path: string, body: unknown) {
+    setBusy(true);
+    setError('');
+    setSavedRecordOpen(false);
+    setRecord('');
+    setRecordReference(null);
+    try {
+      const response = await apiFetch(path, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(
+          workflow
+            ? {
+                ...(body as Record<string, unknown>),
+                expectedArtifactRevision: workflow.artifactRevision,
+                expectedArtifactHash: workflow.artifactHash,
+              }
+            : body,
+        ),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || result.code || 'Review action failed');
+      if (path === base && typeof result.workflowId === 'string') {
+        setWorkflowId(result.workflowId);
+        setNewReview(false);
+      }
+      if (result.publication === 'not_created') {
+        setRecord(JSON.stringify(result.record, null, 2));
+        if (
+          /^review-[a-f0-9]{64}$/.test(result.record?.recordId) &&
+          /^[a-f0-9]{64}$/.test(result.record?.contentHash)
+        )
+          setRecordReference({ id: result.record.recordId, hash: result.record.contentHash });
+      }
+      setSelected([]);
+      setReason('');
+      await reload();
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'Review action failed');
+    } finally {
+      setBusy(false);
+    }
+  }
+  const workflow = newReview
+    ? undefined
+    : (workflows.find((item) => item.workflowId === workflowId) ?? workflows.at(-1));
+  const validLimits =
+    tokens.trim() !== '' &&
+    Number.isSafeInteger(Number(tokens)) &&
+    Number(tokens) > 0 &&
+    rounds.trim() !== '' &&
+    Number.isSafeInteger(Number(rounds)) &&
+    Number(rounds) > 0 &&
+    (costMode === 'none' ||
+      (costMode === 'cap' &&
+        cost.trim() !== '' &&
+        Number.isFinite(Number(cost)) &&
+        Number(cost) >= 0));
+  const pending = workflow?.reservations.find((attempt) => !attempt.settled);
+  const endpoint = workflow ? `${base}/${encodeURIComponent(workflow.workflowId)}/actions` : base;
+  return (
+    <section aria-label="Review findings" className="symposium-review-panel">
+      <h3>Review findings</h3>
+      {error && <p role="alert">{error}</p>}
+      {!loaded && !error && <p>Loading review history…</p>}
+      {loaded && !available && (
+        <p>
+          Automated review is not available for this workspace yet. Saved review history remains
+          readable. You can inspect earlier findings here or continue reviewing the changes
+          manually.
+        </p>
+      )}
+      {workflows.length > 0 && (
+        <label>
+          Review workflow
+          <select
+            value={workflow?.workflowId ?? ''}
+            disabled={busy}
+            onChange={(event) => {
+              setWorkflowId(event.target.value);
+              setNewReview(false);
+              setSelected([]);
+              setReason('');
+              setRecord('');
+            }}
+          >
+            {newReview && <option value="">New review</option>}
+            {workflows.map((item) => (
+              <option key={item.workflowId} value={item.workflowId}>
+                {item.artifactRevision} · {item.status.replaceAll('_', ' ')} · {item.workflowId}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+      {loaded && available && workflows.length > 0 && !newReview && (
+        <button
+          disabled={busy}
+          onClick={() => {
+            setNewReview(true);
+            setTokens('');
+            setRounds('');
+            setCostMode('');
+            setCost('');
+            setSelected([]);
+            setReason('');
+            setRecord('');
+          }}
+        >
+          New review for current artifact
+        </button>
+      )}
+      {workflow && (
+        <>
+          <p>
+            {workflow.status.replaceAll('_', ' ')} · {workflow.artifactRevision}
+          </p>
+          <p>
+            {workflow.reviewRounds} review rounds · {workflow.tokensUsed} tokens · $
+            {workflow.costUsd.toFixed(2)} recorded
+          </p>
+          <ul>
+            {workflow.findings.map((finding) => (
+              <li key={finding.fingerprint}>
+                <label>
+                  <input
+                    type="checkbox"
+                    aria-label={`Accept: ${finding.summary}`}
+                    disabled={busy || !available || finding.status !== 'open'}
+                    checked={selected.includes(finding.fingerprint)}
+                    onChange={(event) =>
+                      setSelected((current) =>
+                        event.target.checked
+                          ? [...current, finding.fingerprint]
+                          : current.filter((id) => id !== finding.fingerprint),
+                      )
+                    }
+                  />
+                  <span>
+                    {finding.summary} ({finding.status})
+                  </span>
+                </label>
+                {finding.severity && (
+                  <p className="symposium-review-severity">Severity: {finding.severity}</p>
+                )}
+                <p>
+                  {finding.location} · {finding.criterion}
+                </p>
+                <p>Evidence: {finding.evidenceRefs.join(', ')}</p>
+                {finding.status === 'open' && (
+                  <button
+                    disabled={
+                      busy ||
+                      !available ||
+                      Boolean(pending) ||
+                      !reason.trim() ||
+                      !dismissalEvidence.trim()
+                    }
+                    onClick={() =>
+                      void action(endpoint, {
+                        action: 'dismiss',
+                        fingerprint: finding.fingerprint,
+                        reason: reason.trim(),
+                        evidenceRefs: dismissalEvidence
+                          .split('\n')
+                          .map((ref) => ref.trim())
+                          .filter(Boolean),
+                      })
+                    }
+                  >
+                    Dismiss finding
+                  </button>
+                )}
+              </li>
+            ))}
+          </ul>
+          {workflow.status === 'awaiting_fix' && (
+            <>
+              <label>
+                Reason for accepted fixes
+                <input value={reason} onChange={(event) => setReason(event.target.value)} />
+              </label>
+              <button
+                disabled={
+                  busy || !available || !selected.length || !reason.trim() || Boolean(pending)
+                }
+                onClick={() =>
+                  void action(endpoint, {
+                    action: 'fix',
+                    findingFingerprints: selected,
+                    reason: reason.trim(),
+                  })
+                }
+              >
+                Accept selected findings and fix
+              </button>
+              <label>
+                Evidence references for dismissal
+                <input
+                  value={dismissalEvidence}
+                  onChange={(event) => setDismissalEvidence(event.target.value)}
+                />
+              </label>
+              <p>
+                Every open finding needs an explicit decision before the builder can run. Dismissal
+                uses the reason above and requires evidence.
+              </p>
+            </>
+          )}
+          {['awaiting_review', 'awaiting_delta_review'].includes(workflow.status) && (
+            <button
+              disabled={busy || !available || Boolean(pending)}
+              onClick={() => void action(endpoint, { action: 'review' })}
+            >
+              {workflow.status === 'awaiting_delta_review'
+                ? 'Review changed artifact'
+                : 'Run review'}
+            </button>
+          )}
+          {pending && (
+            <button
+              disabled={busy || !available}
+              onClick={() =>
+                void action(endpoint, {
+                  action: 'recover',
+                  attemptId: pending.attemptId,
+                  kind: pending.kind,
+                })
+              }
+            >
+              Recover completed attempt
+            </button>
+          )}
+          {workflow.status === 'awaiting_evidence' && (
+            <>
+              <label>
+                Host verification reference
+                <input value={evidenceId} onChange={(event) => setEvidenceId(event.target.value)} />
+              </label>
+              <button
+                disabled={busy || !available || !evidenceId.trim()}
+                onClick={() =>
+                  void action(endpoint, { action: 'evidence', evidenceId: evidenceId.trim() })
+                }
+              >
+                Attach verification
+              </button>
+              <p>Use a completed host check reference. Verification must match this artifact.</p>
+            </>
+          )}
+          {['awaiting_evidence', 'verified'].includes(workflow.status) && (
+            <button
+              disabled={busy || !available}
+              onClick={() => void action(endpoint, { action: 'review-record' })}
+            >
+              Prepare PR review record
+            </button>
+          )}
+          <SymposiumReviewHistory
+            key={workflow.workflowId}
+            url={`${base}/${encodeURIComponent(workflow.workflowId)}`}
+            version={historyVersion}
+          />
+        </>
+      )}
+      {loaded && available && !workflow && (
+        <>
+          <label>
+            Acceptance criteria (one per line)
+            <textarea value={criteria} onChange={(event) => setCriteria(event.target.value)} />
+          </label>
+          <label>
+            Token budget
+            <input
+              type="number"
+              min="1"
+              value={tokens}
+              onChange={(event) => setTokens(event.target.value)}
+            />
+          </label>
+          <label>
+            Maximum review rounds
+            <input
+              type="number"
+              min="1"
+              value={rounds}
+              onChange={(event) => setRounds(event.target.value)}
+            />
+          </label>
+          <label>
+            Cost limit
+            <select value={costMode} onChange={(event) => setCostMode(event.target.value)}>
+              <option value="">Choose a cost limit</option>
+              <option value="cap">Set a maximum cost</option>
+              <option value="none">No dollar limit; keep token and round limits</option>
+            </select>
+          </label>
+          {costMode === 'cap' && (
+            <label>
+              Maximum cost (USD)
+              <input
+                type="number"
+                min="0"
+                step="any"
+                value={cost}
+                onChange={(event) => setCost(event.target.value)}
+              />
+            </label>
+          )}
+          <p>Choose limits for this review. It can run only when the workspace can enforce them.</p>
+          <button
+            disabled={busy || !criteria.trim() || !validLimits}
+            onClick={() =>
+              void action(base, {
+                workflowId: crypto.randomUUID(),
+                acceptanceCriteria: criteria
+                  .split('\n')
+                  .map((line) => line.trim())
+                  .filter(Boolean),
+                limits: {
+                  maxTokens: Number(tokens),
+                  maxReviewRounds: Number(rounds),
+                  maxCostUsd: costMode === 'cap' ? Number(cost) : null,
+                },
+              })
+            }
+          >
+            Start review
+          </button>
+        </>
+      )}
+      {record && (
+        <label>
+          Current revision review record
+          <textarea readOnly value={record} />
+          {recordReference && (
+            <>
+              <button
+                type="button"
+                aria-expanded={savedRecordOpen}
+                onClick={() => setSavedRecordOpen((open) => !open)}
+              >
+                {savedRecordOpen ? 'Close saved review record' : 'Open saved review record'}
+              </button>
+              <a
+                href={`/sessions/${encodeURIComponent(sessionId)}/review-records/${encodeURIComponent(recordReference.id)}?hash=${encodeURIComponent(recordReference.hash)}`}
+              >
+                Permanent saved review link
+              </a>
+              <span>SHA-256: {recordReference.hash}</span>
+            </>
+          )}
+          <span>This immutable record requires your Mitzo login. No PR has been created.</span>
+        </label>
+      )}
+      {record && recordReference && savedRecordOpen && (
+        <SymposiumSavedReviewRecord
+          key={recordReference.id}
+          url={`${base}/records/${encodeURIComponent(recordReference.id)}`}
+          reference={recordReference}
+        />
+      )}
+      <SymposiumPublication sessionId={sessionId} record={recordReference} />
+      <button
+        disabled={busy}
+        onClick={() => void reload().catch((error) => setError(String(error)))}
+      >
+        Refresh review
+      </button>
+    </section>
+  );
+}

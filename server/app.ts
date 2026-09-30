@@ -1,15 +1,84 @@
+import { custodianPublicationApproval } from './symposium-custodian-authority.js';
+import {
+  custodianControllerClient,
+  custodianOwnerMode,
+  receiveCustodianEvents,
+} from './symposium-custodian-mode.js';
+import { createCustodianProxy } from './symposium-custodian-proxy.js';
+import { drainRetainedSymposiumControllers } from './symposium-controller-drain.js';
+import { createSessionMessagesHandler } from './session-messages-route.js';
+import { createSymposiumSourceRouter } from './symposium-source-routes.js';
+import { getConnectionRegistry } from './chat.js';
+import { publicationControllerApproval } from './symposium-publication-approval.js';
+import {
+  PublicationRegistration,
+  publicationAuthorityPath,
+  type PublicationCredentialRegistration,
+} from './symposium-publication-registration.js';
+import {
+  completedPublicationArtifact,
+  completedSealHash,
+  type CompletedPublicationHost,
+} from './symposium-publication-artifact.js';
+import { createPublicationRouter } from './symposium-publication-routes.js';
+import { capabilityOperationStore } from './capability-operation-owner.js';
+import { ownedEvidenceHandler } from './symposium-owned-evidence.js';
+
+import type { SandboxCreationFence } from './symposium-workspace-lifecycle.js';
+import type { ConnectionSelection, PersonalConnection } from './symposium-personal-connections.js';
+import {
+  createSymposiumReviewPublicationPreflight,
+  type ReviewPublicationDependencies,
+} from './symposium-review-publication.js';
+import { SymposiumReviewStore } from './symposium-review-workflows.js';
+import {
+  createSymposiumReviewRouter,
+  type SymposiumInteractiveReviewHost,
+} from './symposium-review-routes.js';
+import { createSymposiumSessionRouter } from './symposium-session-create.js';
+import { createSubscriptionLoginController } from './symposium-subscription-login-route.js';
 import { AccountAliases } from './account-aliases.js';
+import { AccountBindingSchema, SymposiumConfigSchema } from '@mitzo/protocol';
+import { SymposiumProfileStore } from './symposium-profiles.js';
+import { createSymposiumProfileRouter } from './symposium-profile-routes.js';
+import { SymposiumProfileProposalStore } from './symposium-profile-proposals.js';
+import { createSymposiumProfileProposalRouter } from './symposium-profile-proposal-routes.js';
 import {
   readCodexQueue,
   getCodexRuntime,
+  getCodexConversationStore,
   waitForCodexRuntimeBySessionId,
   readCodexQueueOverview,
   cancelCodexQueuedCommand,
 } from './codex-chat-session.js';
 import { createCodexQueueRouter } from './codex-queue-routes.js';
 import { createCodexPathProtection } from './codex-private-path.js';
-import { loadAccountProfiles } from './account-profiles.js';
+import { loadAccountProfiles, type AccountProfiles } from './account-profiles.js';
+import { SymposiumOrchestrator } from './symposium-orchestrator.js';
+import {
+  createOpenShellProviderIdentityResolver,
+  createSymposiumSessionRuntime,
+} from './symposium-session-runtime.js';
+import { SymposiumNativeEventSink } from './symposium-native-event-sink.js';
+import type { OpenShellRuntimeConfig } from './openshell-runtime.js';
+import {
+  readSymposiumProductionAttestation,
+  verifySymposiumProductionGate,
+  type SymposiumProductionPhysicalProof,
+} from './symposium-production-gate.js';
+import { SYMPOSIUM_CODEX_CONTROLLER_COMMAND } from './symposium-codex-native.js';
+import {
+  SYMPOSIUM_SUBSCRIPTION_CONTROLLER_COMMAND,
+  type VerifySymposiumSubscriptionAuth,
+} from './symposium-subscription-native.js';
+import type { SymposiumAttemptRegistry } from './symposium-attempt-registry.js';
+import type { SqliteArtifactLeaseHost } from './symposium-artifact-host.js';
+import type { ArtifactLeaseRequest } from './symposium-artifact-lease.js';
+import { createSymposiumDirectorRouter } from './symposium-director-routes.js';
+import { SymposiumHostGrants } from './symposium-host-grants.js';
+import { getSymposiumPerspective, getSymposiumQueuedInputs } from './symposium-perspectives.js';
 import express from 'express';
+import { storedEventToClientMessage } from '@mitzo/protocol';
 import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
@@ -37,7 +106,7 @@ import {
   authMiddleware,
   operatorAuthMiddleware,
   registerAuthSession,
-  revokeAuthSession,
+  revokeOperatorSessions,
   COOKIE_NAME,
   MAX_AGE_HOURS,
   type AuthSession,
@@ -47,6 +116,8 @@ import {
   getSessionsCached,
   reconcileSessionsBackground,
   getMessages,
+  getReconnectTranscript,
+  getSessionTranscript,
   hideSession,
   hideAllSessions,
   renameSessionById,
@@ -58,6 +129,7 @@ import {
   getRepoConfig,
   isIsolationEnabled,
   eventStore,
+  broadcastDurableSymposiumEvent,
   registry,
   generateWtId,
 } from './chat.js';
@@ -71,6 +143,9 @@ import {
 import { DEFAULT_AGENT_NAME, GIT_BRANCH_TIMEOUT_MS } from './constants.js';
 import { isValidInternalToken } from './internal-token.js';
 import { createConnectionsRouter } from './connections-router.js';
+import { createCapabilityOperationsRouter } from './connections/capabilities/router.js';
+import { capabilityApprovalForConversation } from './connections/capabilities/approval.js';
+import { getLiveCapabilityConversationBinding } from './capability-conversation-binding.js';
 import {
   setConnectionsRuntime as setActiveConnectionsRuntime,
   type ConnectionsRuntime,
@@ -217,7 +292,10 @@ if (CORS_ALLOWED_ORIGINS.length > 0) {
     if (origin && CORS_ALLOWED_ORIGINS.includes(origin)) {
       res.setHeader('Access-Control-Allow-Origin', origin);
       res.setHeader('Access-Control-Allow-Credentials', 'true');
-      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-CSRF-Token');
+      res.setHeader(
+        'Access-Control-Allow-Headers',
+        'Content-Type, Authorization, X-CSRF-Token, X-Connection-ID',
+      );
       res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
     }
     if (req.method === 'OPTIONS') {
@@ -255,6 +333,7 @@ app.use(cookieParser());
 // is injected from index after explicit feature configuration; importing app
 // never creates a database or starts a gateway process.
 let connectionsRouter: express.Router | null = null;
+let capabilityOperationsRouter: express.Router | null = null;
 export function setConnectionsRuntime(runtime: ConnectionsRuntime | null): void {
   setActiveConnectionsRuntime(runtime);
   connectionsRouter = runtime
@@ -265,6 +344,51 @@ export function setConnectionsRuntime(runtime: ConnectionsRuntime | null): void 
         gateway: runtime.gateway,
         workspace: runtime.workspace,
         legacyProviders: runtime.legacyProviders,
+        capabilities: runtime.capabilities,
+      })
+    : null;
+  capabilityOperationsRouter = runtime
+    ? createCapabilityOperationsRouter({
+        service: runtime.capabilities,
+        resolveConversationBinding: (req, res, authSessionId, conversationId) => {
+          const connectionId = req.header('x-connection-id');
+          if (!connectionId || !isTransportConnectionOwnedBy(connectionId, authSessionId))
+            return undefined;
+          const found = registry.findBySessionId(conversationId);
+          if (!found) return undefined;
+          const ownerConnection =
+            found.session?.ownerConnectionId ??
+            (found.clientId.includes(':')
+              ? found.clientId.slice(0, found.clientId.indexOf(':'))
+              : found.clientId);
+          if (ownerConnection !== connectionId) return undefined;
+          const accountId = eventStore.getSession(conversationId)?.accountBinding?.accountId;
+          const live = getLiveCapabilityConversationBinding(conversationId);
+          if (!accountId || !live || live.accountId !== accountId) return undefined;
+          return {
+            accountId,
+            connectionId: live.connectionId,
+            connectionRevision: live.connectionRevision,
+          };
+        },
+        resolveConversationReadBinding: (req, _res, authSessionId, conversationId) => {
+          const connectionId = req.header('x-connection-id');
+          if (!connectionId || !isTransportConnectionOwnedBy(connectionId, authSessionId))
+            return undefined;
+          const found = registry.findBySessionId(conversationId);
+          if (!found) return undefined;
+          const ownerConnection =
+            found.session?.ownerConnectionId ??
+            (found.clientId.includes(':')
+              ? found.clientId.slice(0, found.clientId.indexOf(':'))
+              : found.clientId);
+          if (ownerConnection !== connectionId) return undefined;
+          const accountId = eventStore.getSession(conversationId)?.accountBinding?.accountId;
+          return accountId ? { accountId } : undefined;
+        },
+        sessionId: (_req, res) => (res.locals.authSession as AuthSession | undefined)?.id,
+        approveForConversation: (conversationId) =>
+          capabilityApprovalForConversation(registry, conversationId),
       })
     : null;
 }
@@ -275,6 +399,11 @@ app.use('/api/connections', authMiddleware, (req, res, next) => {
         'Connections is not configured. Set MITZO_CONNECTIONS_ENABLED=1 with the reviewed OpenShell Jira profile before enabling it.',
     });
   return connectionsRouter(req, res, next);
+});
+app.use('/api/capability-operations', authMiddleware, (req, res, next) => {
+  if (!capabilityOperationsRouter)
+    return res.status(503).json({ error: 'Capability operations are not configured.' });
+  return capabilityOperationsRouter(req, res, next);
 });
 app.use(express.json({ limit: '10mb' }));
 
@@ -679,12 +808,432 @@ app.post('/api/auth/logout', async (req, res) => {
   const cookie = req.cookies?.[COOKIE_NAME] as string | undefined;
   const tokens = [...new Set([bearer, cookie].filter((token): token is string => Boolean(token)))];
   const sessions = await Promise.all(tokens.map((token) => authenticateToken(token)));
-  for (const session of sessions) revokeAuthSession(session ?? undefined);
+  revokeOperatorSessions(sessions, (id) => custodianControllerClient?.invalidate(id));
   res.clearCookie(COOKIE_NAME, { httpOnly: true, sameSite: 'strict' });
   res.json({ ok: true });
 });
 
 app.use('/api', authMiddleware);
+if (custodianControllerClient)
+  app.use(
+    createCustodianProxy(custodianControllerClient, (req, session, conversationId) =>
+      publicationControllerApproval(
+        registry,
+        isTransportConnectionOwnedBy,
+        conversationId,
+        session.id,
+        req.header('x-connection-id'),
+        getConnectionRegistry() ?? undefined,
+      ),
+    ),
+  );
+receiveCustodianEvents(broadcastDurableSymposiumEvent);
+const symposiumProfileStore = new SymposiumProfileStore(
+  join(BASE_REPO || '.', '.mitzo', 'events.db'),
+);
+const symposiumProfileProposalStore = new SymposiumProfileProposalStore(
+  join(BASE_REPO || '.', '.mitzo', 'events.db'),
+);
+app.use(
+  '/api/symposium/profile-proposals',
+  operatorAuthMiddleware,
+  createSymposiumProfileProposalRouter(symposiumProfileProposalStore, (sessionId) =>
+    Boolean(eventStore.getSession(sessionId)),
+  ),
+);
+app.use(
+  '/api/symposium/profiles',
+  operatorAuthMiddleware,
+  createSymposiumProfileRouter(symposiumProfileStore),
+);
+
+let custodianBroadcast: typeof broadcastDurableSymposiumEvent | undefined;
+export function setSymposiumCustodianBroadcast(value: typeof broadcastDurableSymposiumEvent) {
+  if (!custodianOwnerMode) throw Error('Retained custodian mode required');
+  custodianBroadcast = value;
+}
+const retainedCustodianSessions = new Set<string>();
+export function hasRetainedCustodianSession(sessionId: string) {
+  return retainedCustodianSessions.has(sessionId);
+}
+const symposiumNativeEvents = new SymposiumNativeEventSink(eventStore, (sessionId, event) =>
+  (custodianBroadcast ?? broadcastDurableSymposiumEvent)(sessionId, event),
+);
+const symposiumSessionRuntimes = new Map<
+  string,
+  {
+    orchestrator: SymposiumOrchestrator;
+    runtimeFingerprint: string;
+    runtime: ReturnType<typeof createSymposiumSessionRuntime>;
+  }
+>();
+let symposiumShuttingDown = false;
+let symposiumControllerPaused = false;
+export function pauseSymposiumController() {
+  symposiumControllerPaused = true;
+}
+export async function drainSymposiumController(identity: string, signal: AbortSignal) {
+  pauseSymposiumController();
+  await drainRetainedSymposiumControllers(eventStore, symposiumSessionRuntimes, identity, signal);
+}
+export function resumeSymposiumController() {
+  if (symposiumShuttingDown || symposiumSessionRuntimes.size)
+    throw Error('Retained runtime cleanup incomplete');
+  symposiumControllerPaused = false;
+}
+export function beginSymposiumShutdown() {
+  symposiumShuttingDown = true;
+  symposiumPublication?.shutdown();
+  for (const entry of symposiumSessionRuntimes.values()) entry.runtime.beginShutdown();
+}
+export async function drainSymposiumRuntimes(signal: AbortSignal) {
+  beginSymposiumShutdown();
+  const results = await Promise.allSettled(
+    [...symposiumSessionRuntimes.values()].map((entry) => entry.runtime.drain(signal)),
+  );
+  signal.throwIfAborted();
+  if (results.some((result) => result.status === 'rejected'))
+    throw new Error('Symposium runtime cleanup incomplete');
+}
+export interface SymposiumProductionHost {
+  sourceImport?: import('./symposium-source-service.js').SymposiumSourceHost;
+  publicationCredentials?: readonly PublicationCredentialRegistration[];
+  requireCompletedArtifactSeal?: CompletedPublicationHost['requireCompletedArtifactSeal'];
+  inspectCompletedArtifact?: CompletedPublicationHost['inspectCompletedArtifact'];
+  exportCompletedArtifactBundle?: CompletedPublicationHost['exportCompletedArtifactBundle'];
+  runSandboxCreation?: SandboxCreationFence;
+  ensureSessionArtifacts?: (
+    sessionId: string,
+  ) => Promise<import('./symposium-session-artifacts.js').SessionArtifactPreparation>;
+  /** Optional until native hard budgets and durable review receipts are available. */
+  reviewHost?: SymposiumInteractiveReviewHost;
+  /** Optional trusted read-only publication binding. No caller may supply these dependencies. */
+  reviewPublication?: Omit<ReviewPublicationDependencies, 'store'>;
+  /** Dedicated upstream routing; never inherit the legacy chat gateway. */
+  runtimeConfig: OpenShellRuntimeConfig;
+  attestationPath: string;
+  collectAdmissionEvidence?: (
+    selection: unknown,
+  ) => Promise<import('./symposium-production-gate.js').SymposiumProductionAttestation>;
+  beginDeviceLogin?: (
+    selection?: ConnectionSelection,
+  ) => Promise<import('./symposium-device-login.js').DeviceLogin>;
+  beginLogin?: (selection?: ConnectionSelection) => Promise<{
+    authorizationUrl: string;
+    completed: Promise<unknown>;
+    cancel(): void;
+  }>;
+  personalConnections?: {
+    list(): PersonalConnection[];
+    create(label: string): PersonalConnection;
+    disconnect(id: string, revision: number): Promise<PersonalConnection>;
+    recoverDiscovery?(id: string, revision: number, assertOperator: () => void): Promise<unknown>;
+    discoverModels?(id: string, revision: number, assertOperator: () => void): Promise<unknown>;
+  };
+  resolveSeatPolicy?: import('./symposium-owned-seat-policy.js').SymposiumSeatPolicySelector;
+  currentProfiles: () => AccountProfiles;
+  verifySubscriptionPrivateAuth?: VerifySymposiumSubscriptionAuth;
+  assertSubscriptionDispatch?: (input: Parameters<VerifySymposiumSubscriptionAuth>[0]) => void;
+  physical: SymposiumProductionPhysicalProof;
+  attemptRegistry: SymposiumAttemptRegistry;
+  artifactLeaseHost: SqliteArtifactLeaseHost;
+  artifactRequest(
+    sessionId: string,
+    seatId: string,
+    generation: number,
+    purpose?: 'admission' | 'cleanup',
+  ): ArtifactLeaseRequest;
+}
+let symposiumProductionHost: SymposiumProductionHost | undefined;
+let symposiumPublication: PublicationRegistration | undefined;
+/** Trusted server bootstrap only. No request handler accepts or supplies this capability. */
+export function installSymposiumProductionHost(host: SymposiumProductionHost): void {
+  if (symposiumProductionHost || symposiumSessionRuntimes.size)
+    throw new Error('Symposium production host must be installed once before runtime creation');
+  if (host.publicationCredentials?.length) {
+    if (
+      !host.requireCompletedArtifactSeal ||
+      !host.inspectCompletedArtifact ||
+      !host.exportCompletedArtifactBundle
+    )
+      throw new Error('Publication registration requires completed artifact custody');
+    const artifact = completedPublicationArtifact({
+      store: symposiumReviewStore,
+      host: {
+        requireCompletedArtifactSeal: host.requireCompletedArtifactSeal.bind(host),
+        inspectCompletedArtifact: host.inspectCompletedArtifact.bind(host),
+        exportCompletedArtifactBundle: host.exportCompletedArtifactBundle.bind(host),
+      },
+    });
+    symposiumPublication = new PublicationRegistration({
+      describeArtifact: async (sessionId, recordId, signal) => {
+        const record = symposiumReviewStore.getReviewRecord('user', sessionId, recordId);
+        const intent = eventStore.getSymposiumArtifactSealIntent(sessionId);
+        if (!record || !intent)
+          throw new Error('Trusted review record and completed seal required');
+        const seal = await host.requireCompletedArtifactSeal!(intent.fenceId, signal);
+        return {
+          recordId: record.recordId,
+          recordHash: record.contentHash,
+          sealId: seal.fenceId,
+          sealHash: completedSealHash(seal),
+          commit: seal.git.commit,
+        };
+      },
+      authorityPath: publicationAuthorityPath(join(BASE_REPO || '.', '.mitzo')),
+      operations: capabilityOperationStore(join(BASE_REPO || '.', '.mitzo')),
+      credentials: host.publicationCredentials,
+      artifact,
+    });
+  }
+  symposiumProductionHost = host;
+}
+let symposiumRuntimeForSession: (sessionId: string) => SymposiumOrchestrator | null = (
+  sessionId,
+) => {
+  if (symposiumShuttingDown || symposiumControllerPaused) return null;
+  if (custodianOwnerMode && !retainedCustodianSessions.has(sessionId)) return null;
+  if (eventStore.getSession(sessionId)?.sessionType !== 'symposium') return null;
+  const host = symposiumProductionHost;
+  if (!host) return null;
+  const baseConfig = host.runtimeConfig;
+  const attestationPath = host.attestationPath;
+  if (!attestationPath) return null;
+  let verified: ReturnType<typeof verifySymposiumProductionGate>;
+  let attestationIdentity: string | undefined;
+  const verifyHostCapability = () => {
+    if (symposiumShuttingDown) throw new Error('Symposium is shutting down');
+    if (!attestationPath || !symposiumProductionHost)
+      throw new Error('Symposium production host or attestation is unavailable');
+    const attestation = readSymposiumProductionAttestation(attestationPath);
+    const identity = JSON.stringify(attestation);
+    if (attestationIdentity && identity !== attestationIdentity)
+      throw new Error('Symposium production attestation changed during session');
+    const result = verifySymposiumProductionGate(
+      baseConfig,
+      attestation,
+      symposiumProductionHost.physical,
+    );
+    attestationIdentity = identity;
+    return result;
+  };
+  try {
+    verified = verifyHostCapability();
+    if (
+      verified.allowedAccountProviders.has('openai-codex') &&
+      (!host.verifySubscriptionPrivateAuth || !host.assertSubscriptionDispatch)
+    )
+      return null;
+  } catch {
+    return null;
+  }
+  const runtimeConfig = verified.runtimeConfig;
+  const runtimeFingerprint = JSON.stringify({
+    runtimeConfig,
+    allowedRoles: [...verified.allowedRoles].sort(),
+    allowedAccountProviders: [...verified.allowedAccountProviders].sort(),
+    attestationIdentity,
+  });
+  const cached = symposiumSessionRuntimes.get(sessionId);
+  if (cached && cached.runtimeFingerprint !== runtimeFingerprint) return null;
+  let runtime = cached?.orchestrator;
+  if (!runtime) {
+    const retainedRuntime = createSymposiumSessionRuntime({
+      sessionId,
+      store: eventStore,
+      profiles: host.currentProfiles(),
+      currentProfiles: host.currentProfiles,
+      hostGrants: symposiumHostGrants,
+      codexStore: getCodexConversationStore(),
+      profileProposalStore: symposiumProfileProposalStore,
+      profileCatalogStore: symposiumProfileStore,
+      resolveProviderIdentity: createOpenShellProviderIdentityResolver(runtimeConfig),
+      runtimeConfig,
+      perSeatSandboxVerified: true,
+      allowedSeatRoles: verified.allowedRoles,
+      allowedAccountProviders: verified.allowedAccountProviders,
+      verifyHostCapability,
+      attemptRegistry: host.attemptRegistry,
+      artifactLeaseHost: host.artifactLeaseHost,
+      artifactRequest: host.artifactRequest,
+      resolveSeatPolicy: host.resolveSeatPolicy,
+      runSandboxCreation: host.runSandboxCreation,
+      verifiedCodexControllerCommand: SYMPOSIUM_CODEX_CONTROLLER_COMMAND,
+      ...(host.verifySubscriptionPrivateAuth
+        ? {
+            verifiedSubscriptionControllerCommand: SYMPOSIUM_SUBSCRIPTION_CONTROLLER_COMMAND,
+            verifySubscriptionPrivateAuth: host.verifySubscriptionPrivateAuth,
+            assertSubscriptionDispatch: host.assertSubscriptionDispatch,
+          }
+        : {}),
+      readOnlyEnforced: {
+        openaiApi: verified.readOnlyEnforced,
+        chatgptSubscription: verified.readOnlyEnforced,
+        claudeVertex: verified.claudeProviders.size > 0,
+      },
+      recordAccepted: (receipt) => eventStore.markSymposiumRecipientAccepted(receipt),
+      recordEvent: (execution, event) => symposiumNativeEvents.record(execution, event),
+    });
+    runtime = retainedRuntime.orchestrator;
+    symposiumSessionRuntimes.set(sessionId, {
+      orchestrator: runtime,
+      runtimeFingerprint,
+      runtime: retainedRuntime,
+    });
+  }
+  return runtime;
+};
+const symposiumSafetyOrchestrator = new SymposiumOrchestrator({ store: eventStore, executors: {} });
+function symposiumAccountProfiles(): AccountProfiles {
+  if (!symposiumProductionHost) throw new Error('Symposium account catalog is unavailable');
+  return symposiumProductionHost.currentProfiles();
+}
+const symposiumHostGrants = new SymposiumHostGrants(join(BASE_REPO || '.', '.mitzo', 'events.db'), {
+  getConfig: (sessionId) => {
+    const raw = eventStore.getSession(sessionId)?.symposiumConfig;
+    return raw ? SymposiumConfigSchema.parse(JSON.parse(raw)) : null;
+  },
+  commitConfig: (sessionId, config, expectedRevision) =>
+    eventStore.setSymposiumConfig(sessionId, config, expectedRevision),
+  getMembership: (sessionId, seatId) =>
+    eventStore.getLatestSymposiumMembership(sessionId, seatId) ?? null,
+  validateSelection: (seat) => {
+    if (!seat.accountBinding) throw new Error('Seat account binding is required');
+    symposiumAccountProfiles().validateModel(seat.accountBinding, seat.model, seat.reasoningEffort);
+  },
+  resolveProfile: (selection) =>
+    symposiumProfileStore.get('user', selection.profileId, selection.revision),
+  authorizeSeat: ({ sessionId, seat, contextSourceRefs }) => {
+    const sessionSource = `session:${sessionId}`;
+    if (
+      contextSourceRefs.length > 0 &&
+      (contextSourceRefs.length !== 1 || contextSourceRefs[0] !== sessionSource)
+    )
+      throw new Error('Only this conversation context can be admitted');
+    const writable = seat.role === 'implementer' || seat.role === 'coder';
+    return {
+      classification: 'mixed' as const,
+      sourceRefs: contextSourceRefs,
+      authority: {
+        filesystem: writable ? ('write' as const) : ('read' as const),
+        tools: writable ? ('write' as const) : ('read' as const),
+        network: 'restricted' as const,
+      },
+    };
+  },
+});
+export function getSymposiumBootstrapDependencies() {
+  return { facts: eventStore, hostGrants: symposiumHostGrants };
+}
+
+/** Runtime integration installs a verified session-scoped orchestrator, never config-only admission. */
+export function setSymposiumDirectorRuntimeFactory(
+  factory: (sessionId: string) => SymposiumOrchestrator | null,
+): void {
+  symposiumRuntimeForSession = factory;
+}
+app.use(
+  '/api/symposium/sessions',
+  operatorAuthMiddleware,
+  createSymposiumSessionRouter({
+    store: eventStore,
+    profiles: symposiumProfileStore,
+    currentAccounts: symposiumAccountProfiles,
+    onSessionCreated: (sessionId) => retainedCustodianSessions.add(sessionId),
+    ensureSessionArtifacts: async (sessionId) => {
+      if (custodianOwnerMode && !retainedCustodianSessions.has(sessionId))
+        throw Error('Session was not created by this retained custodian');
+      return symposiumProductionHost?.ensureSessionArtifacts?.(sessionId) ?? { state: 'pending' };
+    },
+  }),
+);
+const symposiumReviewStore = new SymposiumReviewStore(
+  join(BASE_REPO || '.', '.mitzo', 'events.db'),
+);
+app.use(
+  '/api/sessions/:id/symposium/publication',
+  operatorAuthMiddleware,
+  createPublicationRouter({
+    registration: () => symposiumPublication,
+    hasSession: (id) => eventStore.getSession(id)?.sessionType === 'symposium',
+    approval: (req, session, conversationId) =>
+      custodianPublicationApproval(req) ??
+      publicationControllerApproval(
+        registry,
+        isTransportConnectionOwnedBy,
+        conversationId,
+        session.id,
+        req.header('x-connection-id'),
+        getConnectionRegistry() ?? undefined,
+      ),
+  }),
+);
+app.use(
+  '/api/sessions/:id/symposium/reviews',
+  operatorAuthMiddleware,
+  createSymposiumReviewRouter({
+    store: symposiumReviewStore,
+    getPublicationPreflight: (sessionId) =>
+      symposiumProductionHost?.reviewHost &&
+      symposiumProductionHost.reviewPublication &&
+      symposiumRuntimeForSession(sessionId)
+        ? createSymposiumReviewPublicationPreflight({
+            ...symposiumProductionHost.reviewPublication,
+            store: symposiumReviewStore,
+          })
+        : null,
+    hasSession: (sessionId) => eventStore.getSession(sessionId)?.sessionType === 'symposium',
+    getHost: (sessionId) =>
+      symposiumProductionHost?.reviewHost && symposiumRuntimeForSession(sessionId)
+        ? symposiumProductionHost.reviewHost
+        : null,
+  }),
+);
+app.use(
+  '/api/sessions/:id/symposium/source',
+  operatorAuthMiddleware,
+  createSymposiumSourceRouter({
+    repositories: () => getRepoConfig().repos,
+    getSession: (id) => eventStore.getSession(id),
+    getHost: () => symposiumProductionHost?.sourceImport,
+  }),
+);
+app.use(
+  '/api/sessions/:id/symposium',
+  operatorAuthMiddleware,
+  createSymposiumDirectorRouter({
+    store: eventStore,
+    getRuntime: (sessionId) => symposiumRuntimeForSession(sessionId),
+    getSafetyOrchestrator: () => symposiumSafetyOrchestrator,
+    profileBindingEnforced: true,
+    hasOrdinaryRuntime: (sessionId) => {
+      const found = registry.findBySessionId(sessionId);
+      return Boolean(found && registry.isActive(found.clientId));
+    },
+    validateSelection: (seat) => {
+      if (seat.accountBinding)
+        symposiumAccountProfiles().validateModel(
+          seat.accountBinding,
+          seat.model,
+          seat.reasoningEffort,
+        );
+    },
+    validateActiveConfig: (sessionId, config) =>
+      symposiumHostGrants.validateActiveConfig(sessionId, config),
+    activateDraft: (input) => symposiumHostGrants.activate(input),
+    reviseSeat: (input) => symposiumHostGrants.reviseSeat(input),
+    getPerspective: (sessionId, perspective, options) =>
+      getSymposiumPerspective(eventStore, sessionId, perspective, options),
+    getQueuedInputs: (sessionId, perspective) =>
+      getSymposiumQueuedInputs(eventStore, sessionId, perspective),
+    resolveSelection: (accountId, model, reasoningEffort) => {
+      const profiles = symposiumAccountProfiles();
+      const binding = profiles.resolve(accountId, model);
+      profiles.validateModel(binding, model, reasoningEffort);
+      return AccountBindingSchema.parse(binding);
+    },
+  }),
+);
 
 app.get('/api/openshell/lifecycle/:conversationId/preview', async (req, res) => {
   if (!openShellLifecycleService) {
@@ -1343,6 +1892,125 @@ app.put('/api/accounts/:id/alias', (req, res) => {
   }
 });
 
+const subscriptionLogin = createSubscriptionLoginController(
+  () => symposiumProductionHost,
+  (_req, res) => (res.locals.authSession as AuthSession | undefined)?.id,
+);
+// Retained owned-host candidate collection; never writes or activates admission.
+app.post(
+  '/api/symposium/admission-evidence',
+  operatorAuthMiddleware,
+  ownedEvidenceHandler(() => symposiumProductionHost?.collectAdmissionEvidence),
+);
+app.get('/api/symposium/personal/connections', operatorAuthMiddleware, (_req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  const service = symposiumProductionHost?.personalConnections;
+  if (!service) {
+    res.status(503).json({ error: 'Personal connections are unavailable.' });
+    return;
+  }
+  res.json({ connections: service.list() });
+});
+app.post('/api/symposium/personal/connections', operatorAuthMiddleware, (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  const service = symposiumProductionHost?.personalConnections;
+  if (!service) {
+    res.status(503).json({ error: 'Personal connections are unavailable.' });
+    return;
+  }
+  try {
+    if (typeof req.body?.label !== 'string') throw new Error();
+    res.status(201).json(service.create(req.body.label));
+  } catch {
+    res.status(400).json({
+      error: 'Use a unique slot and a label of 1–120 characters; at most 100 slots are supported.',
+    });
+  }
+});
+app.post(
+  '/api/symposium/personal/connections/:id/disconnect',
+  operatorAuthMiddleware,
+  async (req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    const service = symposiumProductionHost?.personalConnections;
+    if (!service) {
+      res.status(503).json({ error: 'Personal connections are unavailable.' });
+      return;
+    }
+    if (!Number.isSafeInteger(req.body?.expectedRevision) || req.body.expectedRevision < 1) {
+      res.status(400).json({ error: 'A current connection revision is required.' });
+      return;
+    }
+    try {
+      res.json(await service.disconnect(String(req.params.id), req.body.expectedRevision));
+    } catch {
+      res.status(409).json({
+        error:
+          'Connection changed or credential cleanup is unconfirmed. Refresh connection status; host recovery may be required.',
+      });
+    }
+  },
+);
+app.post(
+  [
+    '/api/symposium/personal/connections/:id/models/refresh',
+    '/api/symposium/personal/connections/:id/models/recover',
+  ],
+  operatorAuthMiddleware,
+  async (req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    const discover = req.path.endsWith('/recover')
+      ? symposiumProductionHost?.personalConnections?.recoverDiscovery
+      : symposiumProductionHost?.personalConnections?.discoverModels;
+    if (!discover) {
+      res.status(503).json({ error: 'Owned personal model discovery is unavailable.' });
+      return;
+    }
+    if (!Number.isSafeInteger(req.body?.expectedRevision) || req.body.expectedRevision < 1) {
+      res.status(400).json({ error: 'A current connection revision is required.' });
+      return;
+    }
+    const session = res.locals.authSession as AuthSession;
+    let current = true;
+    const unregister = registerAuthSession(session, () => {
+      current = false;
+    });
+    const assertOperator = () => {
+      if (!current || session.expiresAt <= Date.now()) throw new Error('Operator session expired');
+    };
+    try {
+      assertOperator();
+      const result = await discover(
+        String(req.params.id),
+        req.body.expectedRevision,
+        assertOperator,
+      );
+      assertOperator();
+      res.json(result);
+    } catch {
+      res.status(409).json({
+        error:
+          'Discovery is unavailable or requires recovery. Refresh connection status before retry.',
+      });
+    } finally {
+      unregister();
+    }
+  },
+);
+app.get('/api/symposium/personal/login/status', operatorAuthMiddleware, subscriptionLogin.status);
+app.post('/api/symposium/personal/login', operatorAuthMiddleware, subscriptionLogin.start);
+app.post('/api/symposium/personal/login/cancel', operatorAuthMiddleware, subscriptionLogin.cancel);
+
+// Reads the dedicated host catalog (including its cached model discovery); no refresh or legacy fallback.
+app.get('/api/symposium/accounts', (_req, res) => {
+  try {
+    if (!symposiumProductionHost) throw new Error('Symposium host is unavailable');
+    res.json(symposiumProductionHost.currentProfiles().catalog());
+  } catch {
+    res.status(503).json({ error: 'Symposium account catalog unavailable.' });
+  }
+});
+
 app.get('/api/accounts', async (req, res) => {
   try {
     const profiles = loadAccountProfiles();
@@ -1499,9 +2167,14 @@ app.get('/api/sessions', async (req, res) => {
   }
 });
 
-app.get('/api/sessions/:id/messages', async (req, res) => {
-  res.json(await getMessages(req.params.id as string));
-});
+app.get(
+  '/api/sessions/:id/messages',
+  createSessionMessagesHandler({
+    getMessages: (sessionId) => getMessages(sessionId),
+    getSessionTranscript: (sessionId) => getSessionTranscript(sessionId),
+    getReconnectTranscript: (sessionId, cursor) => getReconnectTranscript(sessionId, cursor),
+  }),
+);
 
 app.delete('/api/sessions/:id', (req, res) => {
   hideSession(req.params.id as string);
@@ -1518,9 +2191,12 @@ app.get('/api/sessions/:id/meta', async (req, res) => {
   }
   const totalTokens =
     meta.inputTokens + meta.outputTokens + meta.cacheReadTokens + meta.cacheCreationTokens;
+  const symposiumConfigured = Boolean(meta.symposiumConfig);
   const codexBacked =
-    meta.accountBinding?.provider === 'openai-codex' ||
-    (meta.accountBinding?.provider === 'openai' && !!meta.cwd?.startsWith('/sandbox/workspaces/'));
+    !symposiumConfigured &&
+    (meta.accountBinding?.provider === 'openai-codex' ||
+      (meta.accountBinding?.provider === 'openai' &&
+        !!meta.cwd?.startsWith('/sandbox/workspaces/')));
   const codexQueue =
     codexBacked && meta.accountBinding
       ? readCodexQueue(
@@ -1541,7 +2217,7 @@ app.get('/api/sessions/:id/meta', async (req, res) => {
         }>;
       }
     | undefined;
-  if (meta.accountBinding) {
+  if (meta.accountBinding && !symposiumConfigured) {
     try {
       const profiles = loadAccountProfiles();
       await profiles.refresh(req.query.refresh === '1');
@@ -1565,6 +2241,7 @@ app.get('/api/sessions/:id/meta', async (req, res) => {
   }
   res.json({
     sessionId: meta.sessionId,
+    sessionType: symposiumConfigured ? 'symposium' : meta.sessionType,
     branch: meta.branch,
     wtId: meta.wtId,
     cwd: meta.cwd,
@@ -1681,7 +2358,7 @@ app.get('/api/sessions/:id/events', (req, res) => {
     return;
   }
   const events = eventStore.getEventsAfter(req.params.id, afterSeq);
-  res.json(events.map((e) => ({ ...e.payload, seq: e.seq })));
+  res.json(events.map(storedEventToClientMessage));
 });
 
 app.delete('/api/sessions', (_req, res) => {

@@ -1,0 +1,397 @@
+import Database from 'better-sqlite3';
+import { afterEach, expect, it } from 'vitest';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { EventStore } from '../event-store.js';
+import { AccountProfiles } from '../account-profiles.js';
+import { AccountBindingSchema } from '@mitzo/protocol';
+const roots: string[] = [];
+afterEach(() => {
+  for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
+});
+function fixture() {
+  const root = mkdtempSync(join(tmpdir(), 'custodian-loss-'));
+  roots.push(root);
+  const store = new EventStore(join(root, 'events.db'));
+  const profiles = new AccountProfiles([
+    {
+      id: 'test',
+      label: 'Test',
+      provider: 'openai',
+      credentialRef: { provider: 'keychain', service: 'unused', account: 'unused' },
+      sandboxProvider: 'test',
+      sandboxProviderId: 'test-object',
+      models: [{ id: 'test', label: 'Test' }],
+    },
+  ]);
+  const binding = AccountBindingSchema.parse(profiles.resolve('test', 'test'));
+  const seat = {
+    id: 'anchor',
+    name: 'Anchor',
+    role: 'coder',
+    model: 'test',
+    systemPrompt: 'test',
+    color: '#223344',
+    accountBinding: binding,
+    profileBinding: { profileId: 'coder', profileRevision: 'p1' },
+    contextGrant: {
+      grantId: 'context',
+      revision: 1,
+      classification: 'work' as const,
+      sourceRefs: [],
+    },
+    authorityGrant: {
+      grantId: 'authority',
+      revision: 1,
+      filesystem: 'write' as const,
+      tools: 'write' as const,
+      network: 'restricted' as const,
+    },
+    isolationRequest: {
+      trustDomainId: 'shared',
+      revision: 1,
+      placement: 'reuse-compatible' as const,
+    },
+  };
+  store.upsertSession({ sessionId: 's', accountBinding: binding });
+  store.setSymposiumConfig('s', {
+    version: 2,
+    revision: 1,
+    state: 'active',
+    anchorSeatId: 'anchor',
+    activeSeatCap: 2,
+    seats: [seat, { ...seat, id: 'second' }],
+    turnRules: { mode: 'directed', maxTurns: 10 },
+    interceptMode: 'manual',
+  });
+  for (const seatId of ['anchor', 'second']) {
+    store.transitionSymposiumMembership({
+      sessionId: 's',
+      seatId,
+      action: 'admit',
+      expectedGeneration: 0,
+      configRevision: 1,
+      actor: 'operator',
+      reason: 'initial',
+      idempotencyKey: `admit-${seatId}`,
+      occurredAt: 1,
+    });
+    store.markSymposiumMembershipReconciled('s', seatId, 1, 'confirmed');
+  }
+  return store;
+}
+it('fences every active membership including the anchor only through the retained controller-loss owner', () => {
+  const store = fixture();
+  try {
+    expect(() =>
+      store.transitionSymposiumMembership({
+        sessionId: 's',
+        seatId: 'anchor',
+        action: 'suspend',
+        expectedGeneration: 1,
+        configRevision: 1,
+        actor: 'operator',
+        reason: 'ordinary',
+        idempotencyKey: 'normal',
+        occurredAt: 2,
+      }),
+    ).toThrow('anchor');
+    const records = store.suspendSymposiumForControllerLoss(
+      's',
+      1,
+      'retained-custodian-epoch-1',
+      2,
+    );
+    expect(records.map((row) => [row.seatId, row.state, row.reconciliation])).toEqual([
+      ['anchor', 'suspended', 'pending'],
+      ['second', 'suspended', 'pending'],
+    ]);
+    expect(store.getLatestSymposiumMembership('s', 'anchor')?.generation).toBe(2);
+    expect(
+      store.suspendSymposiumForControllerLoss('s', 1, 'retained-custodian-epoch-1', 2),
+    ).toEqual([]);
+  } finally {
+    store.close();
+  }
+});
+it('does not partially revoke a session when the expected revision is stale', () => {
+  const store = fixture();
+  try {
+    expect(() => store.suspendSymposiumForControllerLoss('s', 2, 'epoch', 2)).toThrow('revision');
+    for (const id of ['anchor', 'second'])
+      expect(store.getLatestSymposiumMembership('s', id)?.state).toBe('active');
+  } finally {
+    store.close();
+  }
+});
+
+it('rolls back every suspension when one seat has pending exact creation recovery', () => {
+  const store = fixture();
+  const db = new Database(join(roots.at(-1)!, 'events.db'));
+  try {
+    const original = JSON.stringify({
+      idempotencyKey: 'retained-recovery',
+      physicalId: 'exact-original',
+    });
+    db.prepare('INSERT INTO symposium_creation_recoveries VALUES (?,?,?,?,NULL)').run(
+      's',
+      'second',
+      1,
+      original,
+    );
+    expect(() => store.suspendSymposiumForControllerLoss('s', 1, 'epoch', 2)).toThrow(
+      'cleanup is pending',
+    );
+    for (const id of ['anchor', 'second'])
+      expect(store.getLatestSymposiumMembership('s', id)?.generation).toBe(1);
+    expect(
+      db.prepare('SELECT request_json,result_json FROM symposium_creation_recoveries').get(),
+    ).toEqual({ request_json: original, result_json: null });
+  } finally {
+    db.close();
+    store.close();
+  }
+});
+it('uses existing runtime drain after durable suspension and leaves uncertainty pending', async () => {
+  const { drainRetainedSymposiumControllers } = await import('../symposium-controller-drain.js');
+  const store = fixture();
+  let fenced = false;
+  try {
+    const runtimes = new Map([
+      [
+        's',
+        {
+          runtime: {
+            beginShutdown() {
+              fenced = true;
+            },
+            async drain() {
+              expect(fenced).toBe(true);
+              expect(store.getLatestSymposiumMembership('s', 'anchor')?.state).toBe('suspended');
+              throw Error('exact stop missing');
+            },
+          },
+        },
+      ],
+    ]);
+    await expect(
+      drainRetainedSymposiumControllers(store, runtimes, 'epoch', new AbortController().signal),
+    ).rejects.toThrow('cleanup');
+    expect(store.getLatestSymposiumMembership('s', 'anchor')?.reconciliation).toBe('pending');
+    expect(runtimes.size).toBe(1);
+  } finally {
+    store.close();
+  }
+});
+it('retires only successfully drained runtime owners and requires explicit later restore', async () => {
+  const { drainRetainedSymposiumControllers } = await import('../symposium-controller-drain.js');
+  const store = fixture();
+  try {
+    const runtimes = new Map([['s', { runtime: { beginShutdown() {}, async drain() {} } }]]);
+    await drainRetainedSymposiumControllers(store, runtimes, 'epoch', new AbortController().signal);
+    expect(runtimes.size).toBe(0);
+    expect(store.getLatestSymposiumMembership('s', 'anchor')).toMatchObject({
+      state: 'suspended',
+      reconciliation: 'confirmed',
+      generation: 2,
+    });
+  } finally {
+    store.close();
+  }
+});
+it('survives real app child SIGKILL and serves the same retained store only after exact drain', async () => {
+  const { fork } = await import('node:child_process');
+  const { SymposiumCustodianController } = await import('../symposium-custodian-controller.js');
+  const { serveCustodianController } = await import('../symposium-custodian-ipc.js');
+  const { drainRetainedSymposiumControllers } = await import('../symposium-controller-drain.js');
+  const store = fixture();
+  const retainedProviderOwner = Object.freeze({ identity: 'same-original-owner' });
+  let stopped = 0;
+  const runtimes = new Map([
+    [
+      's',
+      {
+        runtime: {
+          beginShutdown() {},
+          async drain() {
+            stopped++;
+          },
+        },
+      },
+    ],
+  ]);
+  const controller = new SymposiumCustodianController({
+    pause() {},
+    resume() {},
+    invalidate() {},
+    drain: (signal) => drainRetainedSymposiumControllers(store, runtimes, 'retained-epoch', signal),
+    async dispatch() {
+      return {
+        status: 200,
+        body: {
+          providerOwner: retainedProviderOwner.identity,
+          membership: store.getLatestSymposiumMembership('s', 'anchor')?.state,
+        },
+      };
+    },
+  });
+  const children: import('node:child_process').ChildProcess[] = [];
+  const launch = () => {
+    const child = fork(new URL('./fixtures/symposium-custodian-child.cjs', import.meta.url), [], {
+      execArgv: [],
+      env: { PATH: process.env.PATH },
+      stdio: ['ignore', 'ignore', 'ignore', 'ipc'],
+    });
+    children.push(child);
+    const response = new Promise<unknown>((resolve) =>
+      child.on('message', (value) => {
+        if (value && typeof value === 'object' && 'fixtureResult' in value)
+          resolve(value.fixtureResult);
+      }),
+    );
+    const lost = serveCustodianController(
+      child as unknown as import('../symposium-custodian-ipc.js').CustodianChannel,
+      controller,
+      { heartbeatMs: 5000 },
+    );
+    return { child, response, lost };
+  };
+  try {
+    const first = launch();
+    expect(await first.response).toEqual({
+      status: 200,
+      body: { providerOwner: 'same-original-owner', membership: 'active' },
+    });
+    first.child.kill('SIGKILL');
+    await first.lost;
+    expect(stopped).toBe(1);
+    const replacement = launch();
+    expect(await replacement.response).toEqual({
+      status: 200,
+      body: { providerOwner: 'same-original-owner', membership: 'suspended' },
+    });
+    replacement.child.kill('SIGKILL');
+    await replacement.lost;
+    expect(stopped).toBe(1);
+  } finally {
+    for (const child of children)
+      if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
+    store.close();
+  }
+});
+it('retires a retained draft runtime without inventing active membership or blocking replacement', async () => {
+  const { drainRetainedSymposiumControllers } = await import('../symposium-controller-drain.js');
+  const store = fixture();
+  store.upsertSession({ sessionId: 'draft' });
+  try {
+    const runtimes = new Map([['draft', { runtime: { beginShutdown() {}, async drain() {} } }]]);
+    await expect(
+      drainRetainedSymposiumControllers(store, runtimes, 'epoch', new AbortController().signal),
+    ).resolves.toBeUndefined();
+    expect(runtimes.size).toBe(0);
+    expect(store.getSymposiumMembershipHistory('draft')).toEqual([]);
+  } finally {
+    store.close();
+  }
+});
+
+it.each(['pending', 'recovery_required'] as const)(
+  'settles existing %s suspension only after original runtime drain',
+  async (status) => {
+    const { drainRetainedSymposiumControllers } = await import('../symposium-controller-drain.js');
+    const store = fixture();
+    try {
+      store.suspendSymposiumForControllerLoss('s', 1, 'earlier-epoch', 2);
+      if (status === 'recovery_required')
+        store.markSymposiumMembershipReconciled('s', 'second', 2, status);
+      const runtimes = new Map([
+        [
+          's',
+          {
+            runtime: {
+              beginShutdown() {},
+              async drain() {
+                expect(store.getLatestSymposiumMembership('s', 'second')?.reconciliation).toBe(
+                  status,
+                );
+              },
+            },
+          },
+        ],
+      ]);
+      await drainRetainedSymposiumControllers(
+        store,
+        runtimes,
+        'new-epoch',
+        new AbortController().signal,
+      );
+      expect(store.getLatestSymposiumMembership('s', 'second')).toMatchObject({
+        generation: 2,
+        state: 'suspended',
+        reconciliation: 'confirmed',
+      });
+      expect(runtimes.size).toBe(0);
+    } finally {
+      store.close();
+    }
+  },
+);
+
+it('retains unresolved memberships and runtime when historical creation recovery is still pending', async () => {
+  const { drainRetainedSymposiumControllers } = await import('../symposium-controller-drain.js');
+  const store = fixture();
+  const db = new Database(join(roots.at(-1)!, 'events.db'));
+  try {
+    store.suspendSymposiumForControllerLoss('s', 1, 'earlier-epoch', 2);
+    db.prepare('INSERT INTO symposium_creation_recoveries VALUES (?,?,?,?,NULL)').run(
+      's',
+      'second',
+      1,
+      JSON.stringify({ idempotencyKey: 'original-recovery' }),
+    );
+    const runtimes = new Map([['s', { runtime: { beginShutdown() {}, async drain() {} } }]]);
+    await expect(
+      drainRetainedSymposiumControllers(store, runtimes, 'new-epoch', new AbortController().signal),
+    ).rejects.toThrow('creation cleanup');
+    expect(store.getLatestSymposiumMembership('s', 'second')?.reconciliation).toBe('pending');
+    expect(store.getPendingSymposiumCreationRecovery('s', 'second', 1)).not.toBeNull();
+    expect(runtimes.size).toBe(1);
+  } finally {
+    db.close();
+    store.close();
+  }
+});
+
+it('settles an already removed seat using the original runtime while preserving its generation', async () => {
+  const { drainRetainedSymposiumControllers } = await import('../symposium-controller-drain.js');
+  const store = fixture();
+  try {
+    store.transitionSymposiumMembership({
+      sessionId: 's',
+      seatId: 'second',
+      action: 'remove',
+      expectedGeneration: 1,
+      configRevision: 1,
+      actor: 'operator',
+      reason: 'removed',
+      idempotencyKey: 'remove',
+      occurredAt: 2,
+    });
+    const runtimes = new Map([['s', { runtime: { beginShutdown() {}, async drain() {} } }]]);
+    await drainRetainedSymposiumControllers(
+      store,
+      runtimes,
+      'new-epoch',
+      new AbortController().signal,
+    );
+    expect(store.getLatestSymposiumMembership('s', 'second')).toMatchObject({
+      generation: 2,
+      state: 'removed',
+      reconciliation: 'confirmed',
+    });
+    expect(runtimes.size).toBe(0);
+  } finally {
+    store.close();
+  }
+});

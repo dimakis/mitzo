@@ -7,6 +7,8 @@ import { CodexConversationStore } from '../codex-conversation-store.js';
 import type { CodexLifecycleTransport } from '../codex-app-server-client.js';
 import type { AccountBinding } from '@mitzo/protocol';
 import { CodexRequestError } from '../codex-app-server-client.js';
+import { tracer } from '../tracing.js';
+import type { Span } from '@opentelemetry/api';
 const cleanup: (() => void)[] = [];
 const binding = {
   accountId: 'personal',
@@ -16,7 +18,76 @@ const binding = {
   profileRevision: 'chatgpt:test@example.com:test',
 };
 afterEach(() => {
+  vi.restoreAllMocks();
   cleanup.splice(0).forEach((f) => f());
+});
+
+it.each([
+  ['completed', 'completed', 'none'],
+  ['interrupted', 'interrupted', 'none'],
+  ['failed', 'failed', 'provider'],
+] as const)(
+  'traces a subscription turn through %s exactly once',
+  async (_case, status, failure) => {
+    const span = { setAttribute: vi.fn(), setStatus: vi.fn(), end: vi.fn() };
+    const start = vi.spyOn(tracer, 'startSpan').mockReturnValue(span as unknown as Span);
+    const { c, callbacks } = await setup();
+    await c.send({ id: 'traced', prompt: 'private text must stay out of spans' });
+    expect(start).toHaveBeenCalledOnce();
+    expect(start.mock.calls[0][0]).toBe('codex.turn');
+    expect(span.end).not.toHaveBeenCalled();
+    const notification = {
+      threadId: 'provider-thread',
+      turn: {
+        id: 'turn-1',
+        status,
+        ...(status === 'failed' ? { error: { message: 'secret diagnostic' } } : {}),
+      },
+    };
+    callbacks.onNotification('turn/completed', notification);
+    callbacks.onNotification('turn/completed', notification);
+    expect(span.end).toHaveBeenCalledOnce();
+    expect(span.setAttribute).toHaveBeenCalledWith('mitzo.route', 'chatgpt-subscription');
+    expect(span.setAttribute).toHaveBeenCalledWith('gen_ai.request.model', 'test-model');
+    expect(span.setAttribute).toHaveBeenCalledWith('mitzo.turn.status', status);
+    expect(span.setAttribute).toHaveBeenCalledWith('mitzo.failure.category', failure);
+    expect(JSON.stringify(span.setAttribute.mock.calls)).not.toContain('secret diagnostic');
+    c.close();
+    expect(span.end).toHaveBeenCalledOnce();
+  },
+);
+
+it.each(['transport', 'close'] as const)('ends a subscription span on %s loss', async (loss) => {
+  const span = { setAttribute: vi.fn(), setStatus: vi.fn(), end: vi.fn() };
+  vi.spyOn(tracer, 'startSpan').mockReturnValue(span as unknown as Span);
+  const { c, callbacks } = await setup();
+  await c.send({ id: 'traced', prompt: 'hello' });
+  if (loss === 'transport') callbacks.onClose(new Error('private transport detail'));
+  else c.close();
+  expect(span.end).toHaveBeenCalledOnce();
+  expect(span.setAttribute).toHaveBeenCalledWith('mitzo.failure.category', loss);
+});
+
+it('reports a provider-accepted turn only after the exact turn/start response', async () => {
+  const onProviderAccepted = vi.fn();
+  const { c, requests } = await setup(
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    onProviderAccepted,
+  );
+  await c.send({ id: 'symposium-attempt', prompt: 'Approved seat excerpt only.' });
+  expect(requests.some(({ method }) => method === 'turn/start')).toBe(true);
+  expect(onProviderAccepted).toHaveBeenCalledOnce();
+  expect(onProviderAccepted).toHaveBeenCalledWith('symposium-attempt', 'provider-thread', 'turn-1');
+  c.close();
 });
 async function setup(
   existingStore?: CodexConversationStore,
@@ -38,6 +109,18 @@ async function setup(
   ) => Promise<string | void>,
   onProviderDispatch?: (commandId: string) => void,
   onProviderComplete?: (commandId: string, status: 'completed' | 'interrupted' | 'failed') => void,
+  onProviderAccepted?: (commandId: string, threadId: string, turnId: string) => void,
+  onProviderTerminal?: (
+    commandId: string,
+    turnId: string,
+    status: 'completed' | 'interrupted' | 'failed',
+  ) => void,
+  onProviderTerminalConflict?: (
+    commandId: string,
+    threadId: string,
+    turnId: string,
+    status: 'completed' | 'interrupted' | 'failed',
+  ) => void,
 ) {
   const dir = mkdtempSync(join(tmpdir(), 'mitzo-codex-'));
   const store = existingStore ?? new CodexConversationStore(join(dir, 'private.db'));
@@ -118,6 +201,9 @@ async function setup(
     prepareTurn,
     onProviderDispatch,
     onProviderComplete,
+    onProviderAccepted,
+    onProviderTerminal,
+    onProviderTerminalConflict,
     loadConversationHistory: () => [
       { role: 'user', text: 'Keep the existing workstream.' },
       { role: 'assistant', text: 'The workstream is active.' },
@@ -212,16 +298,43 @@ it('preserves prior conversation text once when refreshing a stale tool surface'
       ({ method, params }) => method === 'thread/turns/list' && params.itemsView === 'full',
     ),
   ).toBe(false);
-  expect(store.read('app', binding).rolloverContext).toBeNull();
+  expect(store.read('app', binding).rolloverContext).toContain('Keep the existing workstream.');
 
   resumed.callbacks.onNotification('turn/completed', {
     threadId: resumed.getProviderThread(),
     turn: { id: 'turn-1', status: 'completed' },
   });
+  expect(store.read('app', binding).rolloverContext).toBeNull();
   await resumed.c.send({ id: 'second-after-rollover', prompt: 'Again.' });
   const turns = resumed.requests.filter(({ method }) => method === 'turn/start');
   expect(turns).toHaveLength(2);
   expect(turns[1].params).not.toHaveProperty('additionalContext');
+});
+
+it('retains rollover context when the first replacement-thread turn fails', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mitzo-codex-rollover-failure-'));
+  const store = new CodexConversationStore(join(dir, 'private.db'));
+  cleanup.push(() => {
+    store.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+  store.create('app', binding, '/workspace');
+  store.bindThread('app', binding, 'legacy-provider-thread');
+  const first = await setup(store, undefined, undefined, undefined, async () => binding);
+  first.c.close();
+  const resumed = await setup(store, undefined, undefined, undefined, async () => binding);
+
+  await resumed.c.send({ id: 'first-after-rollover', prompt: 'Continue.' });
+  expect(resumed.requests.find(({ method }) => method === 'turn/start')?.params).toHaveProperty(
+    'additionalContext',
+  );
+  resumed.callbacks.onNotification('turn/completed', {
+    threadId: resumed.getProviderThread(),
+    turn: { id: 'turn-1', status: 'failed', error: { message: 'provider stream failed' } },
+  });
+
+  expect(store.read('app', binding).rolloverContext).toContain('Keep the existing workstream.');
+  resumed.c.close();
 });
 
 it('reports the durable command boundary around provider dispatch', async () => {
@@ -251,9 +364,39 @@ it('reports the durable command boundary around provider dispatch', async () => 
   expect(onProviderComplete).toHaveBeenCalledWith('closeout-command', 'completed');
 });
 
+it('reports exact native terminal proof only for a matching turn completion', async () => {
+  const terminal = vi.fn();
+  const { c, callbacks } = await setup(
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    terminal,
+  );
+  await c.send({ id: 'exact-command', prompt: 'check terminal' });
+  callbacks.onNotification('turn/completed', {
+    threadId: 'provider-thread',
+    turn: { id: 'other-turn', status: 'completed' },
+  });
+  expect(terminal).not.toHaveBeenCalled();
+  callbacks.onNotification('turn/completed', {
+    threadId: 'provider-thread',
+    turn: { id: 'turn-1', status: 'interrupted' },
+  });
+  expect(terminal).toHaveBeenCalledExactlyOnceWith('exact-command', 'turn-1', 'interrupted');
+});
+
 it('marks a dispatched command ambiguous when its transport is lost', async () => {
   const onProviderDispatch = vi.fn();
   const onProviderComplete = vi.fn();
+  const onProviderTerminal = vi.fn();
   const { c, callbacks } = await setup(
     undefined,
     undefined,
@@ -265,6 +408,8 @@ it('marks a dispatched command ambiguous when its transport is lost', async () =
     undefined,
     onProviderDispatch,
     onProviderComplete,
+    undefined,
+    onProviderTerminal,
   );
 
   await c.send({ id: 'closeout-command', prompt: 'close safely' });
@@ -272,6 +417,7 @@ it('marks a dispatched command ambiguous when its transport is lost', async () =
 
   expect(onProviderDispatch).toHaveBeenCalledWith('closeout-command');
   expect(onProviderComplete).toHaveBeenCalledWith('closeout-command', 'failed');
+  expect(onProviderTerminal).not.toHaveBeenCalled();
   expect(c.queue()).toMatchObject([{ id: 'closeout-command', status: 'failed' }]);
   await expect(c.retryLatestFailed()).resolves.toBe('confirmation_required');
 });
@@ -896,27 +1042,28 @@ it('retains early completion until the start response confirms its turn identity
   expect(c.queue()[0].status).toBe('completed');
 });
 
-it('fails safely and recovers queued work after an unconfirmed stale completion', async () => {
-  const { c, rpc, callbacks, requests } = await setup();
+it('ignores unrelated buffered completion when accepting the current turn', async () => {
+  const { c, rpc, callbacks } = await setup();
   const request = rpc.request.getMockImplementation()!;
-  let first = true;
   rpc.request.mockImplementation(async (method, params) => {
-    if (method !== 'turn/start' || !first) return request(method, params);
-    first = false;
-    requests.push({ method, params });
+    if (method !== 'turn/start') return request(method, params);
     callbacks.onNotification('turn/completed', {
       threadId: 'provider-thread',
       turn: { id: 'stale', status: 'completed' },
     });
+    callbacks.onNotification('turn/completed', {
+      threadId: 'provider-thread',
+      turn: { id: 'stale', status: 'failed' },
+    });
     return { turn: { id: 'current' } };
   });
-  c.enqueue({ id: 'current-command', prompt: 'hello' });
-  c.enqueue({ id: 'next-command', prompt: 'recover me' });
-  await expect(c.startQueued()).rejects.toThrow('identity mismatch');
-  expect(c.queue().map((command) => command.status)).toEqual(['failed', 'queued']);
-  expect(c.isPaused()).toBe(true);
-  await c.acknowledgeRecovery();
-  expect(requests.filter((entry) => entry.method === 'turn/start')).toHaveLength(2);
+  await c.send({ id: 'current-command', prompt: 'mock' });
+  expect(c.queue()[0].status).toBe('running');
+  callbacks.onNotification('turn/completed', {
+    threadId: 'provider-thread',
+    turn: { id: 'current', status: 'completed' },
+  });
+  expect(c.queue()[0].status).toBe('completed');
 });
 
 it('does not reconnect or replay interrupted work until a new send explicitly requests recovery', async () => {
@@ -1477,7 +1624,12 @@ it('uses canonical display names while executing the original wire tool', async 
     { threadId: 'provider-thread', turnId: 'turn-1', callId: 'tool', tool: 'Read', arguments: {} },
     new AbortController().signal,
   );
-  expect(execute).toHaveBeenCalledWith('Read', {}, expect.anything());
+  expect(execute).toHaveBeenCalledWith(
+    'Read',
+    {},
+    expect.anything(),
+    expect.objectContaining({ turnId: 'turn-1', callId: 'tool' }),
+  );
   expect(events).toContainEqual(
     expect.objectContaining({
       type: 'stream_event',
@@ -1636,4 +1788,192 @@ it('rejects unsupported image types before persisting or starting work', async (
   ).toThrow();
   expect(c.queue()).toEqual([]);
   expect(requests.some((r) => r.method === 'turn/start')).toBe(false);
+});
+
+it.each([undefined, 'unrecognized'])(
+  'does not attest an unspecified native terminal status %s',
+  async (status) => {
+    const terminal = vi.fn();
+    const { c, callbacks } = await setup(
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      terminal,
+    );
+    await c.send({ id: 'unknown-status', prompt: 'mock' });
+    callbacks.onNotification('turn/completed', {
+      threadId: 'provider-thread',
+      turn: { id: 'turn-1', status },
+    });
+    expect(terminal).not.toHaveBeenCalled();
+  },
+);
+
+it.each([false, true])(
+  'fails closed on conflicting terminal replay after completion (next turn active: %s)',
+  async (nextActive) => {
+    const terminal = vi.fn();
+    const conflict = vi.fn();
+    const { c, callbacks, onError, rpc } = await setup(
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      terminal,
+      conflict,
+    );
+    await c.send({ id: 'first-command', prompt: 'mock' });
+    const completed = { threadId: 'provider-thread', turn: { id: 'turn-1', status: 'completed' } };
+    callbacks.onNotification('turn/completed', completed);
+    callbacks.onNotification('turn/completed', completed);
+    expect(terminal).toHaveBeenCalledExactlyOnceWith('first-command', 'turn-1', 'completed');
+    expect(onError).not.toHaveBeenCalled();
+    if (nextActive) await c.send({ id: 'next-command', prompt: 'mock follow-up' });
+    callbacks.onNotification('turn/completed', {
+      threadId: 'unrelated-thread',
+      turn: { id: 'turn-1', status: 'failed' },
+    });
+    expect(onError).not.toHaveBeenCalled();
+    callbacks.onNotification('turn/completed', {
+      ...completed,
+      turn: { id: 'turn-1', status: 'failed' },
+    });
+    expect(onError).toHaveBeenCalledWith(
+      expect.objectContaining({ message: 'Conflicting provider terminal status' }),
+    );
+    expect(conflict).toHaveBeenCalledExactlyOnceWith(
+      'first-command',
+      'provider-thread',
+      'turn-1',
+      'failed',
+      'completed',
+    );
+    expect(rpc.close).toHaveBeenCalled();
+    expect(terminal).toHaveBeenCalledOnce();
+  },
+);
+
+it.each([false, true])(
+  'waits for acceptance and reconciles buffered terminal duplicates (started notification: %s)',
+  async (started) => {
+    for (const conflicting of [false, true]) {
+      const terminal = vi.fn();
+      const accepted = vi.fn();
+      const conflict = vi.fn();
+      const { c, rpc, callbacks, onError } = await setup(
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        accepted,
+        terminal,
+        conflict,
+      );
+      const request = rpc.request.getMockImplementation()!;
+      rpc.request.mockImplementation(async (method, params) => {
+        if (method !== 'turn/start') return request(method, params);
+        if (started)
+          callbacks.onNotification('turn/started', {
+            threadId: 'provider-thread',
+            turn: { id: 'early' },
+          });
+        callbacks.onNotification('turn/completed', {
+          threadId: 'provider-thread',
+          turn: { id: 'early', status: 'completed' },
+        });
+        callbacks.onNotification('turn/completed', {
+          threadId: 'provider-thread',
+          turn: { id: 'early', status: conflicting ? 'failed' : 'completed' },
+        });
+        expect(accepted).not.toHaveBeenCalled();
+        expect(terminal).not.toHaveBeenCalled();
+        expect(conflict).not.toHaveBeenCalled();
+        return { turn: { id: 'early' } };
+      });
+      await c.send({ id: 'early-command', prompt: 'mock' });
+      expect(accepted).toHaveBeenCalledExactlyOnceWith('early-command', 'provider-thread', 'early');
+      expect(terminal).toHaveBeenCalledExactlyOnceWith('early-command', 'early', 'completed');
+      if (conflicting) {
+        expect(conflict).toHaveBeenCalledExactlyOnceWith(
+          'early-command',
+          'provider-thread',
+          'early',
+          'failed',
+          'completed',
+        );
+        expect(onError).toHaveBeenCalledWith(
+          expect.objectContaining({ message: 'Conflicting provider terminal status' }),
+        );
+      } else expect(conflict).not.toHaveBeenCalled();
+      c.close();
+    }
+  },
+);
+
+it('fails closed on a conflicting terminal while the completion hook is pending', async () => {
+  let finish!: () => void;
+  const terminal = vi.fn();
+  const conflict = vi.fn();
+  const { c, callbacks, onError } = await setup(
+    undefined,
+    undefined,
+    () =>
+      new Promise<void>((resolve) => {
+        finish = resolve;
+      }),
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    terminal,
+    conflict,
+  );
+  await c.send({ id: 'hook-command', prompt: 'mock' });
+  callbacks.onNotification('turn/completed', {
+    threadId: 'provider-thread',
+    turn: { id: 'turn-1', status: 'completed' },
+  });
+  callbacks.onNotification('turn/completed', {
+    threadId: 'provider-thread',
+    turn: { id: 'turn-1', status: 'failed' },
+  });
+  expect(conflict).toHaveBeenCalledExactlyOnceWith(
+    'hook-command',
+    'provider-thread',
+    'turn-1',
+    'failed',
+    'completed',
+  );
+  expect(terminal).not.toHaveBeenCalled();
+  expect(onError).toHaveBeenCalledWith(
+    expect.objectContaining({ message: 'Conflicting provider terminal status' }),
+  );
+  finish();
+  await Promise.resolve();
+  expect(terminal).not.toHaveBeenCalled();
 });

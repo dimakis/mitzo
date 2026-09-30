@@ -82,6 +82,8 @@ export { getRawInput, summarizeToolInput } from './tool-summary.js';
 // Language detection
 export { languageFromPath } from './language.js';
 
+export { storedEventToClientMessage } from './stored-event-wire.js';
+
 // Content blocks
 export {
   extractToolResultText,
@@ -108,6 +110,8 @@ export {
 export {
   HelloMessage,
   ReconnectMessage,
+  ReconnectSnapshotAppliedMessage,
+  SessionEventAppliedMessage,
   WatchMessage,
   UnwatchMessage,
   SwitchSessionMessage,
@@ -127,12 +131,48 @@ export {
 // StoredEvent, SessionMeta, and EventStoreLogger types are in './types.js' above.
 
 export { AccountProviderSchema, AccountBindingSchema } from './account-binding.js';
+export {
+  ExecutionSelectionSchema,
+  ExecutionPolicySchema,
+  ExecutionOverrideSchema,
+} from './execution-policy.js';
+export type { ExecutionSelection, ExecutionPolicy, ExecutionOverride } from './execution-policy.js';
 export type {
   AccountProvider,
   AccountBinding,
   ValidAccountBinding,
   UnavailableAccountBinding,
 } from './account-binding.js';
+
+export {
+  MembershipReferenceSchema,
+  OrchestrationIdentitySchema,
+  WorkOrderSchema,
+  AttemptStateSchema,
+  OrchestrationAttemptSchema,
+  WorkResultSchema,
+  OutcomeEvidenceSchema,
+  ApprovalDecisionSchema,
+  CancellationRecordSchema,
+  RecoveryRecordSchema,
+  DispatchOperationSchema,
+  ExecutionFenceSchema,
+  HandoverManifestSchema,
+  admitDispatch,
+  transitionAttempt,
+  reconcileProviderOutcome,
+  authorizeRetry,
+  validateHandover,
+} from './orchestration.js';
+export type {
+  AttemptState,
+  OrchestrationAttempt,
+  DispatchOperation,
+  DispatchDecision,
+  ExecutionFence,
+  RetryDecision,
+  HandoverManifest,
+} from './orchestration.js';
 
 export {
   MITZO_CLIENT_CAPABILITIES,
@@ -144,20 +184,26 @@ export type { ArtifactCapability, ClientCapability } from './client-capabilities
 
 export {
   ProfileBindingSchema,
+  SymposiumProfileDefinitionSchema,
+  SymposiumProfileRecipeSchema,
   ContextGrantSchema,
   AuthorityGrantSchema,
   IsolationRequestSchema,
   SymposiumProvenanceSchema,
+  SymposiumProvenanceV2Schema,
   SeatConfigSchema,
   TurnRulesSchema,
   SymposiumConfigSchema,
 } from './symposium.js';
 export type {
   ProfileBinding,
+  SymposiumProfileDefinition,
+  SymposiumProfileRecipe,
   ContextGrant,
   AuthorityGrant,
   IsolationRequest,
   SymposiumProvenance,
+  SymposiumProvenanceV2,
   SessionType,
   SymposiumState,
   TurnMode,
@@ -175,4 +221,8 @@ export type {
   SymposiumDeliveryRecord,
   SymposiumInterventionRecord,
   SymposiumSeatThreadRecord,
+  SymposiumMembershipRecord,
+  SymposiumMembershipAction,
+  SymposiumMembershipState,
+  SymposiumReconciliationStatus,
 } from './symposium.js';

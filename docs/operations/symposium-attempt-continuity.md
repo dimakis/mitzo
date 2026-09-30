@@ -1,0 +1,15 @@
+# Native subscription attempt continuity
+
+The reviewed attempt controller creates a private home from each claim token, and the subscription launcher sets `CODEX_HOME` beneath that home. The next attempt therefore cannot resume a provider thread whose rollout exists only in the previous home. The application retains the seat's conversation identity, but a provider thread ID alone does not move its stored history.
+
+The native ChatGPT subscription adapter explicitly opts into `attempt_home_change`. On later attempts, it starts a new provider thread using the same account/model binding and persists the replacement through the existing Codex conversation generation CAS. The existing seat-thread migration CAS revalidates that lineage before dispatch. No generic request-error fallback or empty-thread retry is used; ordinary Codex and API tool-surface migration behavior is unchanged.
+
+Continuity comes from completed application text already delivered to the same seat, account, membership generation, profile, context grant and authority grant. It includes every eligible completed attempt, including private asides delivered to that seat; foreign recipients, failed/pending attempts and provider-private reasoning/tool records are excluded. It does not copy a provider rollout, home or credential. The current approved request remains the new user input, while prior text is explicitly marked untrusted historical context.
+
+The supported limit is 64 KiB of UTF-8 text including continuity framing. Missing, incomplete or oversized eligible history fails closed before replacement-thread creation/inference rather than truncating history. The one-shot fragment is retained durably until the replacement turn completes, using the existing Codex conversation store. No parallel history ledger is introduced. Initialization interrupted before dispatch may leave checked replacement lineage; the next attempt can traverse only recorded `attempt_home_change` edges to the current generation. Closed initialization cannot commit a replacement.
+
+This is application transcript continuity, not restoration of hidden provider state. Native homes, attempt cleanup receipts, seat isolation and reviewed image/binary pins remain unchanged. Unknown cleanup still fences later work through the existing attempt owner. Supported hard inference budgets and authoritative final accounting remain separate prerequisites for trusted automated review admission.
+
+Offline validation uses real SQLite and injected protocol clients: first/second/third attempts, generic resume behavior, exact history bound, more than twenty attempts, foreign/private recipient exclusion, incomplete history, stale/foreign lineage and cancellation. No model calls or credentials are needed. Live recall acceptance must be rerun on the merged implementation before claiming runtime success.
+
+Official app-server documentation describes `thread/resume` as reopening an existing stored thread: <https://learn.chatgpt.com/docs/app-server>. The pinned 0.153.4 `ThreadResumeParams.history` schema explicitly marks that field unstable and reserved for Codex Cloud; this integration does not use it.

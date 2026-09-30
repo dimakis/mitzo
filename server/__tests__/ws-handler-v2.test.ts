@@ -101,13 +101,28 @@ function mockTransport(): SessionTransport & { sent: Record<string, unknown>[] }
 }
 
 function mockEventStore() {
-  return {
+  const store = {
     getEventsAfter: vi.fn().mockReturnValue([]),
+    getSessionPredecessorSeq: vi.fn().mockReturnValue(0),
+    captureReconnectState: vi.fn(),
     getSession: vi.fn().mockReturnValue(null),
     upsertSession: vi.fn(),
     getSessionState: vi.fn().mockReturnValue('ACTIVE'),
     setSessionState: vi.fn(),
   };
+  store.captureReconnectState.mockImplementation(
+    (sessionId: string, afterSeq: number, includeEvents = true) => {
+      const events = store.getEventsAfter(sessionId, afterSeq);
+      return {
+        session: store.getSession(sessionId),
+        events: includeEvents ? events : [],
+        cursor: events.at(-1)?.seq ?? afterSeq,
+        cursorValid: true,
+        providerAttempts: [],
+      };
+    },
+  );
+  return store;
 }
 
 function mockSessionRegistry() {
@@ -194,16 +209,61 @@ describe('handleHello', () => {
 // ─── handleReconnect ─────────────────────────────────────────────────────────
 
 describe('handleReconnect', () => {
-  it('replays missed events for each session', () => {
+  it('offers a snapshot without replaying a large negotiated backlog', () => {
     const eventStore = mockEventStore();
-    eventStore.getEventsAfter.mockReturnValue([
-      {
-        seq: 6,
+    eventStore.getSession.mockReturnValue({ sessionId: 'sess-1', state: 'ACTIVE' });
+    eventStore.getEventsAfter.mockReturnValue(
+      Array.from({ length: 270 }, (_, i) => ({
+        seq: i + 1,
         sessionId: 'sess-1',
         type: 'block_delta',
-        payload: { v: 2, type: 'block_delta', delta: 'hi', sessionId: 'sess-1' },
+        payload: { type: 'block_delta', sessionId: 'sess-1', delta: 'x'.repeat(9 * 1024) },
+      })),
+    );
+    const ctx = createContext({
+      eventStore: eventStore as unknown as V2HandlerContext['eventStore'],
+    });
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+
+    handleReconnect(
+      'c1',
+      {
+        type: 'reconnect',
+        supportsAppliedCursor: true,
+        sessions: [{ sessionId: 'sess-1', lastSeq: 0 }],
       },
-    ]);
+      ctx,
+    );
+
+    expect(eventStore.captureReconnectState).toHaveBeenCalledWith('sess-1', 0, false);
+    expect(transport.sent.filter((event) => event.type === 'block_delta')).toEqual([]);
+    expect(transport.sent).toContainEqual(
+      expect.objectContaining({
+        type: 'session_reconnect_snapshot',
+        sessionId: 'sess-1',
+        cursor: 270,
+        offerId: expect.any(String),
+      }),
+    );
+  });
+
+  it('replays missed events for each session', () => {
+    const eventStore = mockEventStore();
+    eventStore.captureReconnectState.mockReturnValue({
+      session: null,
+      cursor: 6,
+      cursorValid: true,
+      providerAttempts: [],
+      events: [
+        {
+          seq: 6,
+          sessionId: 'sess-1',
+          type: 'block_delta',
+          payload: { v: 2, type: 'block_delta', delta: 'hi', sessionId: 'sess-1' },
+        },
+      ],
+    });
 
     const ctx = createContext({
       eventStore: eventStore as unknown as V2HandlerContext['eventStore'],
@@ -217,8 +277,191 @@ describe('handleReconnect', () => {
       ctx,
     );
 
-    expect(eventStore.getEventsAfter).toHaveBeenCalledWith('sess-1', 5);
+    expect(eventStore.captureReconnectState).toHaveBeenCalledWith('sess-1', 5);
     expect(transport.sent.some((m) => m.type === 'block_delta' && m.seq === 6)).toBe(true);
+  });
+
+  it('publishes durable terminal state even when the client cursor includes every event', () => {
+    const eventStore = mockEventStore();
+    eventStore.captureReconnectState.mockReturnValue({
+      session: {
+        sessionId: 'sess-1',
+        state: 'ENDED',
+        executionGeneration: 2,
+        executionId: 'execution-2',
+        executionPhase: 'TERMINAL',
+        executionTerminalReason: 'completed',
+      },
+      cursor: 42,
+      cursorValid: true,
+      providerAttempts: [],
+      events: [],
+    });
+    eventStore.getSessionState.mockReturnValue('ENDED');
+    const ctx = createContext({
+      eventStore: eventStore as unknown as V2HandlerContext['eventStore'],
+    });
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+
+    handleReconnect(
+      'c1',
+      { type: 'reconnect', sessions: [{ sessionId: 'sess-1', lastSeq: 42 }] },
+      ctx,
+    );
+
+    expect(transport.sent).toContainEqual({
+      type: 'session_reconnect_snapshot',
+      sessionId: 'sess-1',
+      cursor: 42,
+      cursorValid: true,
+      state: 'idle',
+      internalState: 'ENDED',
+      execution: {
+        generation: 2,
+        executionId: 'execution-2',
+        phase: 'TERMINAL',
+        terminalReason: 'completed',
+      },
+      providerAttempts: [],
+      pendingPermissions: [],
+    });
+  });
+
+  it('offers a fenced applied snapshot without advancing on transport send', () => {
+    const eventStore = mockEventStore();
+    eventStore.captureReconnectState.mockReturnValue({
+      session: { sessionId: 'sess-1', state: 'ACTIVE' },
+      cursor: 8,
+      cursorValid: true,
+      providerAttempts: [],
+      events: [],
+    });
+    const ctx = createContext({
+      eventStore: eventStore as unknown as V2HandlerContext['eventStore'],
+    });
+    ctx.connRegistry.setEventStore(eventStore);
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+    handleReconnect(
+      'c1',
+      {
+        type: 'reconnect',
+        supportsAppliedCursor: true,
+        sessions: [{ sessionId: 'sess-1', lastSeq: 5 }],
+      },
+      ctx,
+    );
+    const snapshot = transport.sent.find((m) => m.type === 'session_reconnect_snapshot')!;
+    expect(snapshot).toMatchObject({ sessionId: 'sess-1', cursor: 8, offerId: expect.any(String) });
+    expect(ctx.connRegistry.ackAppliedEvent('c1', 'sess-1', 8)).toBe(false);
+    expect(ctx.connRegistry.ackAppliedSnapshot('c1', 'sess-1', 8, snapshot.offerId as string)).toBe(
+      true,
+    );
+  });
+
+  it('confirms only a matching snapshot ACK after removing the server offer fence', async () => {
+    const eventStore = mockEventStore();
+    eventStore.captureReconnectState.mockReturnValue({
+      session: { sessionId: 'sess-1', state: 'ACTIVE' },
+      cursor: 8,
+      cursorValid: true,
+      providerAttempts: [],
+      events: [],
+    });
+    const ctx = createContext({
+      eventStore: eventStore as unknown as V2HandlerContext['eventStore'],
+    });
+    ctx.connRegistry.setEventStore(eventStore);
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+    handleReconnect(
+      'c1',
+      {
+        type: 'reconnect',
+        supportsAppliedCursor: true,
+        sessions: [{ sessionId: 'sess-1', lastSeq: 5 }],
+      },
+      ctx,
+    );
+    const offer = transport.sent.find((message) => message.type === 'session_reconnect_snapshot')!;
+    await dispatchV2Message(
+      'c1',
+      transport,
+      JSON.stringify({
+        type: 'reconnect_snapshot_applied',
+        sessionId: 'sess-1',
+        cursor: 8,
+        offerId: 'wrong',
+      }),
+      ctx,
+    );
+    expect(transport.sent.some((message) => message.type === 'reconnect_snapshot_confirmed')).toBe(
+      false,
+    );
+    await dispatchV2Message(
+      'c1',
+      transport,
+      JSON.stringify({
+        type: 'reconnect_snapshot_applied',
+        sessionId: 'sess-1',
+        cursor: 8,
+        offerId: offer.offerId,
+      }),
+      ctx,
+    );
+    expect(transport.sent.at(-1)).toMatchObject({
+      type: 'reconnect_snapshot_confirmed',
+      sessionId: 'sess-1',
+      cursor: 8,
+      offerId: offer.offerId,
+    });
+  });
+
+  it('captures the active boundary after reattaching a detached live session', () => {
+    let reattached = false;
+    (reattachChat as ReturnType<typeof vi.fn>).mockImplementationOnce(() => {
+      reattached = true;
+      return true;
+    });
+    const eventStore = mockEventStore();
+    eventStore.getSessionState.mockReturnValue('DETACHED');
+    eventStore.captureReconnectState.mockImplementation(() => ({
+      session: { sessionId: 'sess-1', state: reattached ? 'ACTIVE' : 'DETACHED' },
+      cursor: reattached ? 9 : 8,
+      cursorValid: true,
+      providerAttempts: [],
+      events: reattached
+        ? [{ seq: 9, payload: { type: 'session_state', sessionId: 'sess-1', state: 'ACTIVE' } }]
+        : [],
+    }));
+    const sessionReg = mockSessionRegistry();
+    sessionReg.findBySessionId.mockReturnValue({ clientId: 'old-conn:sess-1', session: {} });
+    sessionReg.isActive.mockReturnValue(true);
+    sessionReg.isAttached.mockReturnValue(false);
+    const ctx = createContext({
+      eventStore: eventStore as unknown as V2HandlerContext['eventStore'],
+      sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
+    });
+    const transport = mockTransport();
+    ctx.connRegistry.register('new-conn', transport);
+
+    handleReconnect(
+      'new-conn',
+      { type: 'reconnect', sessions: [{ sessionId: 'sess-1', lastSeq: 8 }] },
+      ctx,
+    );
+
+    expect(reattached).toBe(true);
+    expect(transport.sent).toContainEqual(
+      expect.objectContaining({
+        type: 'session_reconnect_snapshot',
+        sessionId: 'sess-1',
+        cursor: 9,
+        state: 'running',
+        internalState: 'ACTIVE',
+      }),
+    );
   });
 
   it('auto-watches all reconnected sessions', () => {
@@ -2577,6 +2820,39 @@ describe('handleSendV2 connection ownership', () => {
     (isActive as ReturnType<typeof vi.fn>).mockReturnValue(false);
   });
 
+  it('does not publish a takeover notice through a stale durable transport', () => {
+    (sendToChat as ReturnType<typeof vi.fn>).mockClear();
+    (reattachChat as ReturnType<typeof vi.fn>).mockClear();
+    (isActive as ReturnType<typeof vi.fn>).mockReturnValueOnce(true);
+
+    const sessionReg = mockSessionRegistry();
+    const durableTransport = mockTransport();
+    sessionReg.findBySessionId.mockReturnValue({
+      clientId: 'old-conn:sess-1',
+      session: { ownerConnectionId: 'old-conn', transport: durableTransport },
+    });
+    sessionReg.isActive.mockReturnValue(true);
+
+    const ctx = createContext({
+      sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
+    });
+    const transport = mockTransport();
+    ctx.connRegistry.register('new-conn', transport);
+
+    handleSendV2(
+      'new-conn',
+      transport,
+      { type: 'send', sessionId: 'sess-1', prompt: 'continue', clientMsgId: 'cmsg-reconnect' },
+      ctx,
+    );
+
+    expect(durableTransport.sent).not.toContainEqual(
+      expect.objectContaining({ type: 'session_takeover' }),
+    );
+    expect(sendToChat).toHaveBeenCalled();
+    (isActive as ReturnType<typeof vi.fn>).mockReturnValue(false);
+  });
+
   it('allows send when owner connection is gone (same device reconnect)', () => {
     (sendToChat as ReturnType<typeof vi.fn>).mockClear();
     (reattachChat as ReturnType<typeof vi.fn>).mockClear();
@@ -4275,6 +4551,56 @@ describe('handleReconnect suspend resume', () => {
     );
   });
 
+  it('publishes ACTIVE after the attached owner resumes its suspended session', () => {
+    let durableState = 'SUSPENDED';
+    const sessionReg = mockSessionRegistry();
+    sessionReg.findBySessionId.mockReturnValue({
+      clientId: 'conn-1:sess-1',
+      session: { sessionId: 'sess-1', ownerConnectionId: 'conn-1' },
+    });
+    sessionReg.isActive.mockReturnValue(true);
+    sessionReg.isAttached.mockReturnValue(true);
+    sessionReg.isSuspended.mockReturnValue(true);
+    const eventStore = mockEventStore();
+    eventStore.getSessionState.mockImplementation(() => durableState);
+    eventStore.setSessionState.mockImplementation((_sessionId, state) => {
+      durableState = state;
+    });
+    eventStore.captureReconnectState.mockImplementation(() => ({
+      session: { sessionId: 'sess-1', state: durableState },
+      cursor: durableState === 'ACTIVE' ? 6 : 5,
+      cursorValid: true,
+      providerAttempts: [],
+      events: [],
+    }));
+    const ctx = createContext({
+      sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
+      eventStore: eventStore as unknown as V2HandlerContext['eventStore'],
+    });
+    const transport = mockTransport();
+    ctx.connRegistry.register('conn-1', transport);
+
+    handleReconnect(
+      'conn-1',
+      { type: 'reconnect', sessions: [{ sessionId: 'sess-1', lastSeq: 5 }] },
+      ctx,
+    );
+
+    expect(sessionReg.resume).toHaveBeenCalledWith('conn-1:sess-1');
+    expect(eventStore.setSessionState).toHaveBeenCalledWith('sess-1', 'ACTIVE', {
+      clientId: 'conn-1:sess-1',
+      reason: 'resume',
+    });
+    expect(transport.sent).toContainEqual(
+      expect.objectContaining({
+        type: 'session_reconnect_snapshot',
+        state: 'running',
+        internalState: 'ACTIVE',
+        cursor: 6,
+      }),
+    );
+  });
+
   it('takes over, reconciles, and resumes a real suspended session before durable replay', () => {
     const sessionReg = new SessionRegistry();
     const oldTransport = mockTransport();
@@ -4818,5 +5144,47 @@ describe('resumed session permission authority', () => {
       'continue',
       expect.objectContaining({ resumePermission: { mode: 'ask', revision: undefined } }),
     );
+  });
+});
+
+describe('Symposium ordinary transport fence', () => {
+  it('rejects send and interrupt before ordinary account lookup or any runtime operation', async () => {
+    const ctx = createContext();
+    vi.mocked(ctx.eventStore.getSession).mockReturnValue({ symposiumConfig: '{}' } as never);
+    const transport = mockTransport();
+    const starts = vi.mocked(startChat).mock.calls.length;
+    const sends = vi.mocked(sendToChat).mock.calls.length;
+    const interrupts = vi.mocked(interruptChat).mock.calls.length;
+    await handleSendV2(
+      'connection',
+      transport,
+      {
+        type: 'send',
+        sessionId: 'symposium',
+        clientMsgId: 'blocked',
+        prompt: 'hello',
+        accountId: 'absent',
+      },
+      ctx,
+    );
+    await handleInterruptV2(
+      'connection',
+      transport,
+      {
+        type: 'interrupt',
+        sessionId: 'symposium',
+        clientMsgId: 'blocked-interrupt',
+        prompt: 'hello',
+      },
+      ctx,
+    );
+    expect(transport.sent.filter((event) => event.type === 'error')).toHaveLength(2);
+    expect(
+      transport.sent.every((event) => String(event.error).includes('Symposium directed prompts')),
+    ).toBe(true);
+    expect(startChat).toHaveBeenCalledTimes(starts);
+    expect(sendToChat).toHaveBeenCalledTimes(sends);
+    expect(interruptChat).toHaveBeenCalledTimes(interrupts);
+    expect(ctx.sessionRegistry.findBySessionId).not.toHaveBeenCalled();
   });
 });

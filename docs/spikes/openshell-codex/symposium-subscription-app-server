@@ -1,0 +1,139 @@
+#!/usr/bin/python3 -I
+"""Private stdio bootstrap; no login, raw credentials, or network provisioning.
+
+Auth contract adapted from NVIDIA/OpenShell commit
+1905069948f96921daf88bffb160dceb9ac2a307,
+examples/codex-app-server/start-codex-app-server (Apache-2.0).
+"""
+import base64
+import datetime
+import json
+import os
+import re
+import stat
+import sys
+import time
+import secrets
+
+CODEX = '/usr/bin/codex'
+ARGV = [CODEX, 'app-server', '--stdio', '-c', 'model_provider="openai"',
+        '-c', 'forced_login_method="chatgpt"',
+        '-c', 'openai_base_url=""',
+        '-c', 'chatgpt_base_url="https://chatgpt.com/backend-api/"',
+        '-c', 'features.enable_request_compression=false']
+
+
+def opaque_handle(env, key, stable=False):
+    # secrets.rs: placeholder_for_env_key_for_{revision,stable_handle}.
+    identity = r's[0-9a-f]{64}' if stable else r'(?:s[0-9a-f]{64}|v[1-9][0-9]*)'
+    value = env.get(key, '')
+    if not re.fullmatch(r'openshell:resolve:env:' + identity + '_' + key, value):
+        raise ValueError('missing or unsupported provider handle')
+    return value
+
+
+def private_directory(path):
+    # Traverse using directory descriptors: no ancestor symlink may redirect auth.
+    traversal = getattr(os, 'O_PATH', os.O_RDONLY)
+    fd = os.open('/', traversal | os.O_DIRECTORY)
+    try:
+        parts = path.strip('/').split('/')
+        for index, part in enumerate(parts):
+            if part in ('', '.', '..'):
+                raise ValueError('unsafe private directory')
+            if index == len(parts) - 1:
+                try:
+                    os.mkdir(part, 0o700, dir_fd=fd)
+                except FileExistsError:
+                    pass
+            access = os.O_RDONLY if index == len(parts) - 1 else traversal
+            child = os.open(part, access | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+            os.close(fd)
+            fd = child
+        info = os.fstat(fd)
+        if info.st_uid != os.geteuid() or stat.S_IMODE(info.st_mode) != 0o700:
+            raise ValueError('unsafe private directory ownership or permissions')
+        return fd
+    except BaseException:
+        os.close(fd)
+        raise
+
+
+def write_auth(directory_fd, auth):
+    def check_existing():
+        try:
+            info = os.stat('auth.json', dir_fd=directory_fd, follow_symlinks=False)
+        except FileNotFoundError:
+            return
+        if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid()
+                or stat.S_IMODE(info.st_mode) != 0o600 or info.st_nlink != 1):
+            raise ValueError('unsafe existing auth file')
+    check_existing()
+    name = '.auth-' + secrets.token_hex(16)
+    fd = os.open(name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                 0o600, dir_fd=directory_fd)
+    try:
+        with os.fdopen(fd, 'w') as stream:
+            json.dump(auth, stream)
+            stream.flush()
+            os.fsync(stream.fileno())
+        check_existing()
+        os.replace(name, 'auth.json', src_dir_fd=directory_fd, dst_dir_fd=directory_fd)
+        os.fsync(directory_fd)
+    finally:
+        try:
+            os.unlink(name, dir_fd=directory_fd)
+        except FileNotFoundError:
+            pass
+
+
+def launch(env):
+    home = env.get('HOME', '')
+    if not re.fullmatch(r'/sandbox/\.symposium-seats/[0-9a-f]{64}', home):
+        raise ValueError('invalid private seat home')
+    codex_home = home + '/.codex'
+    if env.get('CODEX_HOME') != codex_home:
+        raise ValueError('invalid private Codex home')
+    access = opaque_handle(env, 'CODEX_AUTH_ACCESS_TOKEN', stable=True)
+    account = opaque_handle(env, 'CODEX_AUTH_ACCOUNT_ID')
+    encode = lambda obj: base64.urlsafe_b64encode(json.dumps(obj).encode()).rstrip(b'=').decode()
+    now = int(time.time())
+    identity = '.'.join([encode({'alg': 'none', 'typ': 'JWT'}), encode({
+        'iss': 'https://auth.openai.com', 'aud': 'codex', 'sub': 'openshell-app-server',
+        'email': 'app-server@openshell.local', 'iat': now, 'exp': now + 3600,
+    }), 'placeholder'])
+    auth = {'auth_mode': 'chatgptAuthTokens', 'OPENAI_API_KEY': None,
+            'tokens': {'id_token': identity, 'access_token': access,
+                       'refresh_token': '', 'account_id': account},
+            'last_refresh': datetime.datetime.now(datetime.timezone.utc).isoformat()}
+    os.umask(0o077)
+    home_fd = private_directory(home)
+    os.close(home_fd)
+    directory_fd = private_directory(codex_home)
+    try:
+        write_auth(directory_fd, auth)
+    finally:
+        os.close(directory_fd)
+    # An allowlist excludes API keys, cloud/work credentials, custom provider
+    # settings, preload hooks, and host CODEX_HOME. Keep supervisor proxy/CA only.
+    allowed = ('HTTPS_PROXY', 'HTTP_PROXY', 'ALL_PROXY', 'NO_PROXY',
+               'https_proxy', 'http_proxy', 'all_proxy', 'no_proxy',
+               'SSL_CERT_FILE', 'SSL_CERT_DIR', 'NODE_EXTRA_CA_CERTS',
+               'LANG', 'LC_ALL', 'TERM')
+    child_env = {key: env[key] for key in allowed if key in env}
+    child_env.update({'PATH': '/usr/bin:/bin', 'HOME': home, 'CODEX_HOME': codex_home,
+                      'TMPDIR': home + '/tmp', 'XDG_CONFIG_HOME': home,
+                      'XDG_STATE_HOME': home, 'XDG_CACHE_HOME': home, 'XDG_DATA_HOME': home})
+    # Replace process so controller signals and exit status belong to Codex.
+    os.execve(CODEX, ARGV, child_env)
+
+
+if __name__ == '__main__':
+    try:
+        if len(sys.argv) != 1:
+            raise ValueError('arguments are not allowed')
+        launch(os.environ)
+    except (OSError, ValueError):
+        # Never include a value, path, or exception that may contain credentials.
+        print('subscription bootstrap refused unsafe or unavailable state', file=sys.stderr)
+        sys.exit(1)

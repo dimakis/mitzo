@@ -8,7 +8,7 @@ describe('Login authentication recovery', () => {
 
     expect(source).toContain('const restored = await restoreCookieAuthentication()');
     expect(source).toContain('if (restored) {');
-    expect(source).toContain("navigate('/');\n          return;");
+    expect(source).toContain('navigate(returnTo, { replace: true });\n          return;');
   });
 
   it('leaves the login page when another tab restores authentication', () => {

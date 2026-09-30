@@ -79,7 +79,10 @@ interface Conversation {
 /** Private server-owned database. A single owning server calls recoverAtStartup before accepting work. */
 export class CodexConversationStore {
   private db: Database.Database;
-  constructor(path: string) {
+  constructor(
+    path: string,
+    private readonly ownership: { requireOwner?: boolean } = {},
+  ) {
     closeSync(openSync(path, 'a', 0o600));
     chmodSync(path, 0o600);
     this.db = new Database(path);
@@ -110,6 +113,10 @@ export class CodexConversationStore {
       const conversationColumns = this.db
         .prepare('PRAGMA table_info(codex_conversations)')
         .all() as Array<{ name: string }>;
+      if (!conversationColumns.some((column) => column.name === 'owner_kind'))
+        this.db.exec(
+          "ALTER TABLE codex_conversations ADD COLUMN owner_kind TEXT CHECK(owner_kind IN ('ordinary','symposium'))",
+        );
       if (!conversationColumns.some((column) => column.name === 'thread_generation'))
         this.db.exec(
           'ALTER TABLE codex_conversations ADD COLUMN thread_generation INTEGER NOT NULL DEFAULT 0',
@@ -253,13 +260,31 @@ export class CodexConversationStore {
     if (result.changes !== 1) throw new Error('Web search grant changed concurrently');
     return this.readWebSearchGrant(id, b);
   }
-  create(id: string, b: AccountBinding, cwd: string, toolSurfaceRevision: string | null = null) {
+  create(
+    id: string,
+    b: AccountBinding,
+    cwd: string,
+    toolSurfaceRevision: string | null = null,
+    ownerKind: 'ordinary' | 'symposium' = 'ordinary',
+  ) {
     this.db
-      .prepare(
-        'INSERT OR IGNORE INTO codex_conversations(id,binding,cwd,tool_surface_revision) VALUES (?,?,?,?)',
-      )
-      .run(id, this.key(b), cwd, toolSurfaceRevision);
-    if (this.read(id, b).cwd !== cwd) throw new Error('Codex conversation workspace changed');
+      .transaction(() => {
+        this.db
+          .prepare(
+            'INSERT OR IGNORE INTO codex_conversations(id,binding,cwd,tool_surface_revision,owner_kind) VALUES (?,?,?,?,?)',
+          )
+          .run(id, this.key(b), cwd, toolSurfaceRevision, ownerKind);
+        if (this.read(id, b).cwd !== cwd) throw new Error('Codex conversation workspace changed');
+        const row = this.db
+          .prepare('SELECT owner_kind FROM codex_conversations WHERE id=?')
+          .get(id) as { owner_kind: string | null };
+        if (
+          (row.owner_kind === null && this.ownership.requireOwner) ||
+          (row.owner_kind !== null && row.owner_kind !== ownerKind)
+        )
+          throw new Error('Codex conversation owner is unavailable or changed');
+      })
+      .immediate();
   }
   bindThread(id: string, b: AccountBinding, threadId: string, toolSurfaceRevision?: string) {
     this.db.transaction(() => {
@@ -285,7 +310,7 @@ export class CodexConversationStore {
     b: AccountBinding,
     expectedThreadId: string,
     threadId: string,
-    reason: 'provider_transport_failure' | 'tool_surface_change',
+    reason: 'provider_transport_failure' | 'tool_surface_change' | 'attempt_home_change',
     lastCompletedTurnId?: string,
     toolSurfaceRevision?: string,
     rolloverContext?: string,
@@ -320,6 +345,58 @@ export class CodexConversationStore {
       return generation;
     })();
   }
+  assertAttemptHomeReplacement(
+    id: string,
+    binding: AccountBinding,
+    previous: string,
+    next: string,
+  ) {
+    const current = this.read(id, binding);
+    if (current.threadId !== next || !current.rolloverContext?.trim())
+      throw new Error('Codex attempt migration lacks retained continuity');
+    const rows = this.db
+      .prepare(
+        `SELECT thread_id, parent_thread_id, reason FROM codex_thread_generations WHERE conversation_id=? ORDER BY generation DESC`,
+      )
+      .all(id) as Array<{ thread_id: string; parent_thread_id: string | null; reason: string }>;
+    let cursor = next;
+    for (const row of rows) {
+      if (row.thread_id !== cursor) continue;
+      if (row.reason !== 'attempt_home_change' || !row.parent_thread_id)
+        throw new Error('Codex attempt migration lineage changed');
+      cursor = row.parent_thread_id;
+      if (cursor === previous) return;
+    }
+    throw new Error('Codex attempt migration predecessor is unavailable');
+  }
+
+  /** Host-owned lineage only; a thread ID supplied by a provider is insufficient. */
+  assertToolSurfaceReplacement(
+    id: string,
+    binding: AccountBinding,
+    previous: string,
+    next: string,
+  ) {
+    const current = this.read(id, binding);
+    if (current.threadId !== next || !current.rolloverContext?.trim())
+      throw new Error('Codex thread migration lacks retained continuity');
+    const rows = this.db
+      .prepare(
+        `SELECT thread_id, parent_thread_id, reason FROM codex_thread_generations
+      WHERE conversation_id=? ORDER BY generation DESC`,
+      )
+      .all(id) as Array<{ thread_id: string; parent_thread_id: string | null; reason: string }>;
+    let cursor = next;
+    for (const row of rows) {
+      if (row.thread_id !== cursor) continue;
+      if (row.reason !== 'tool_surface_change' || !row.parent_thread_id)
+        throw new Error('Codex thread migration lineage is not a tool refresh');
+      cursor = row.parent_thread_id;
+      if (cursor === previous) return;
+    }
+    throw new Error('Codex thread migration predecessor is unavailable');
+  }
+
   clearRolloverContext(id: string, b: AccountBinding, expectedThreadId: string) {
     this.read(id, b);
     this.db
@@ -543,18 +620,26 @@ export class CodexConversationStore {
   ) {
     this.db.transaction(() => {
       const current = this.read(id, b);
-      this.db
+      const updated = this.db
         .prepare(
           "UPDATE codex_commands SET status=?, recovery_acknowledged=0 WHERE conversation_id=? AND id=? AND status='running'",
         )
         .run(status, id, commandId);
-      if (status === 'completed' && providerTurnId)
+      if (updated.changes === 1 && status === 'completed' && providerTurnId)
         this.db
           .prepare(
             `UPDATE codex_thread_generations SET last_completed_turn_id=?
             WHERE conversation_id=? AND generation=?`,
           )
           .run(providerTurnId, id, current.threadGeneration);
+      // A started turn can still fail before it establishes context on the
+      // replacement thread. Retire the handoff only with a durable completion.
+      if (updated.changes === 1 && status === 'completed' && current.threadId)
+        this.db
+          .prepare(
+            'UPDATE codex_conversations SET rollover_context=NULL WHERE id=? AND thread_id=?',
+          )
+          .run(id, current.threadId);
     })();
   }
   pauseForRecovery(
@@ -608,14 +693,23 @@ export class CodexConversationStore {
       return true;
     })();
   }
-  recoverAtStartup() {
+  recoverAtStartup(ownerKind?: 'ordinary' | 'symposium') {
     this.db.transaction(() => {
-      this.db.exec(
-        "UPDATE codex_conversations SET recovery=1 WHERE id IN (SELECT conversation_id FROM codex_commands WHERE status IN ('running','queued'))",
-      );
-      this.db.exec(
-        "UPDATE codex_commands SET status='interrupted', recovery_acknowledged=0 WHERE status='running'",
-      );
+      const scope = ownerKind === undefined ? '' : ' AND owner_kind=?';
+      this.db
+        .prepare(
+          "UPDATE codex_conversations SET recovery=1 WHERE id IN (SELECT conversation_id FROM codex_commands WHERE status IN ('running','queued'))" +
+            scope,
+        )
+        .run(...(ownerKind === undefined ? [] : [ownerKind]));
+      this.db
+        .prepare(
+          "UPDATE codex_commands SET status='interrupted', recovery_acknowledged=0 WHERE status='running'" +
+            (ownerKind === undefined
+              ? ''
+              : ' AND conversation_id IN (SELECT id FROM codex_conversations WHERE owner_kind=?)'),
+        )
+        .run(...(ownerKind === undefined ? [] : [ownerKind]));
     })();
   }
   acknowledgeRecovery(id: string, b: AccountBinding) {

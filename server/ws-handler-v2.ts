@@ -41,6 +41,7 @@ import {
   V2InterruptMessage,
   V2PermissionResponseMessage,
   V2SetModeMessage,
+  storedEventToClientMessage,
 } from '@mitzo/protocol';
 import type { z } from 'zod';
 
@@ -130,6 +131,14 @@ export function isHelloHandshake(msg: unknown): boolean {
 export function getOwnerConnection(clientId: string): string {
   const colonIdx = clientId.indexOf(':');
   return colonIdx === -1 ? clientId : clientId.slice(0, colonIdx);
+}
+
+function notifyPreviousOwner(ctx: V2HandlerContext, connectionId: string, sessionId: string): void {
+  // The session transport may be a REST wrapper that stays "open" to persist
+  // events after its SSE connection closes. A takeover notice is connection-
+  // local and must never pass through that durable session transport.
+  const transport = ctx.connRegistry.get(connectionId)?.transport;
+  if (transport?.isOpen()) transport.send({ type: 'session_takeover', sessionId });
 }
 
 // ─── State mismatch detection (Phase 2) ─────────────────────────────────────
@@ -274,7 +283,11 @@ export function handleHello(
 
 export function handleReconnect(
   connectionId: string,
-  msg: { type: 'reconnect'; sessions: Array<{ sessionId: string; lastSeq: number }> },
+  msg: {
+    type: 'reconnect';
+    supportsAppliedCursor?: boolean;
+    sessions: Array<{ sessionId: string; lastSeq: number }>;
+  },
   ctx: V2HandlerContext,
 ): void {
   withSpan(
@@ -288,7 +301,9 @@ export function handleReconnect(
 
         // Set cursor to client's lastSeq BEFORE replay, so periodic sync
         // sees a reasonable cursor during replay instead of 0.
-        ctx.connRegistry.resetCursor(connectionId, entry.sessionId, entry.lastSeq);
+        if (msg.supportsAppliedCursor)
+          ctx.connRegistry.enableAppliedCursor(connectionId, entry.sessionId, entry.lastSeq);
+        else ctx.connRegistry.resetCursor(connectionId, entry.sessionId, entry.lastSeq);
 
         // Resolve ownership before replay. A suspended session deliberately
         // remains in memory through the grace period, and its old transport
@@ -318,9 +333,7 @@ export function handleReconnect(
           const ownerConnection =
             found!.session?.ownerConnectionId ?? getOwnerConnection(found!.clientId);
           if (ownerConnection !== connectionId) {
-            const oldTransport = found!.session?.transport;
-            if (oldTransport?.isOpen())
-              oldTransport.send({ type: 'session_takeover', sessionId: entry.sessionId });
+            notifyPreviousOwner(ctx, ownerConnection, entry.sessionId);
             ctx.connRegistry.unwatch(ownerConnection, entry.sessionId);
           }
 
@@ -340,22 +353,19 @@ export function handleReconnect(
                 clientId: found!.clientId,
               });
             }
+          } else if (storeState === 'SUSPENDED') {
+            // resume() keeps the already-attached owner transport, so it does
+            // not pass through reattachChat's durable ACTIVE transition.
+            ctx.eventStore.setSessionState(entry.sessionId, 'ACTIVE', {
+              clientId: found!.clientId,
+              reason: 'resume',
+            });
           }
         }
 
-        const events = ctx.eventStore.getEventsAfter(entry.sessionId, entry.lastSeq);
-        for (const evt of events) {
-          ctx.connRegistry.get(connectionId)?.transport.send({
-            ...evt.payload,
-            seq: evt.seq,
-          } as Record<string, unknown>);
-        }
-
-        // Reset cursor to last replayed seq — prevents duplicate delivery from
-        // periodic sync. If no events replayed, cursor stays at client's lastSeq.
-        const newCursor = events.length > 0 ? events[events.length - 1].seq : entry.lastSeq;
-        ctx.connRegistry.resetCursor(connectionId, entry.sessionId, newCursor);
-
+        // Reattach can persist an ACTIVE transition. Capture the durable
+        // boundary only after that transition so the snapshot and replay
+        // suffix describe the state the new transport actually owns.
         if (found && running) {
           const ownerConnection =
             found.session?.ownerConnectionId ?? getOwnerConnection(found.clientId);
@@ -376,6 +386,61 @@ export function handleReconnect(
           }
         }
 
+        // Applied-cursor clients restore the complete prefix through the
+        // offered cursor over REST. Replaying the offline backlog first can
+        // overflow the bounded client buffer before that restore begins.
+        const reconnectState = msg.supportsAppliedCursor
+          ? ctx.eventStore.captureReconnectState(entry.sessionId, entry.lastSeq, false)
+          : ctx.eventStore.captureReconnectState(entry.sessionId, entry.lastSeq);
+        const events = reconnectState.events;
+        for (const evt of events) {
+          ctx.connRegistry.get(connectionId)?.transport.send(
+            storedEventToClientMessage({
+              ...evt,
+              prevSessionSeq: ctx.eventStore.getSessionPredecessorSeq(entry.sessionId, evt.seq),
+            }),
+          );
+        }
+
+        const durableSession = reconnectState.session;
+        if (durableSession?.state) {
+          const offerId = msg.supportsAppliedCursor ? randomUUID() : undefined;
+          if (offerId)
+            ctx.connRegistry.offerSnapshot(
+              connectionId,
+              entry.sessionId,
+              reconnectState.cursor,
+              offerId,
+            );
+          ctx.connRegistry.get(connectionId)?.transport.send({
+            type: 'session_reconnect_snapshot',
+            sessionId: entry.sessionId,
+            cursor: reconnectState.cursor,
+            cursorValid: reconnectState.cursorValid,
+            ...(offerId ? { offerId } : {}),
+            state: toClientState(durableSession.state),
+            internalState: durableSession.state,
+            ...(durableSession.executionId && durableSession.executionPhase
+              ? {
+                  execution: {
+                    generation: durableSession.executionGeneration,
+                    executionId: durableSession.executionId,
+                    phase: durableSession.executionPhase,
+                    terminalReason: durableSession.executionTerminalReason,
+                  },
+                }
+              : {}),
+            providerAttempts: reconnectState.providerAttempts,
+            pendingPermissions: getPendingRequestsBySession(entry.sessionId),
+          });
+        }
+
+        // The snapshot cursor is the transaction's high-water mark, even when
+        // no suffix event needed replay or the client cursor was invalid.
+        const newCursor = reconnectState.cursor;
+        if (!msg.supportsAppliedCursor)
+          ctx.connRegistry.resetCursor(connectionId, entry.sessionId, newCursor);
+
         if (wasSuspended) {
           ctx.connRegistry.get(connectionId)?.transport.send({
             type: 'session_resumed',
@@ -391,7 +456,7 @@ export function handleReconnect(
           });
         }
 
-        const mode = found?.session?.mode ?? ctx.eventStore.getSession(entry.sessionId)?.mode;
+        const mode = found?.session?.mode ?? reconnectState.session?.mode;
         if (mode) {
           ctx.connRegistry.get(connectionId)?.transport.send({
             type: 'mode_changed',
@@ -558,6 +623,8 @@ export function handleSendV2(
     { 'ws.connectionId': connectionId, 'ws.sessionId': msg.sessionId ?? 'new' },
     async (span) => {
       try {
+        if (msg.sessionId && ctx.eventStore.getSession(msg.sessionId)?.symposiumConfig)
+          throw new Error('Use Symposium directed prompts for this session');
         if (!delivery?.identityClaimed) claimChatCommand(ctx.eventStore, msg);
         let resolveStartupAdmission: (() => void) | undefined;
         let rejectStartupAdmission: ((error: unknown) => void) | undefined;
@@ -863,10 +930,7 @@ export function handleSendV2(
 
             const activeClientId = found.clientId;
             if (!isOwner) {
-              const oldTransport = found.session?.transport;
-              if (oldTransport?.isOpen()) {
-                oldTransport.send({ type: 'session_takeover', sessionId });
-              }
+              notifyPreviousOwner(ctx, ownerConnection, sessionId);
               ctx.connRegistry.unwatch(ownerConnection, sessionId);
               denyPendingBySession(sessionId);
 
@@ -1075,6 +1139,12 @@ export function handleInterruptV2(
     'ws.interrupt',
     { 'ws.connectionId': connectionId, 'ws.sessionId': msg.sessionId },
     async () => {
+      if (ctx.eventStore.getSession(msg.sessionId)?.symposiumConfig) {
+        const error = new Error('Use Symposium directed prompts for this session');
+        transport.send({ type: 'error', sessionId: msg.sessionId, error: error.message });
+        if (delivery?.awaitStartupAdmission) throw error;
+        return;
+      }
       if (
         cancelDeliberation(ctx.eventStore, msg.sessionId) ||
         cancelFusion(ctx.eventStore, msg.sessionId)
@@ -1137,10 +1207,7 @@ export function handleInterruptV2(
         const isDetached = !ctx.sessionRegistry.isAttached(found.clientId);
 
         if (!isOwner) {
-          const oldTransport = found.session?.transport;
-          if (oldTransport?.isOpen()) {
-            oldTransport.send({ type: 'session_takeover', sessionId: msg.sessionId });
-          }
+          notifyPreviousOwner(ctx, ownerConnection, msg.sessionId);
           ctx.connRegistry.unwatch(ownerConnection, msg.sessionId);
           denyPendingBySession(msg.sessionId);
 
@@ -1294,7 +1361,7 @@ export function handlePermissionResponseV2(
     () => {
       const pendingSessionId = getPendingSessionId(msg.permId);
       if (pendingSessionId) {
-        const found = ctx.sessionRegistry.findBySessionId(pendingSessionId);
+        const found = ctx.sessionRegistry.findBySessionId(pendingSessionId, true);
         const ownerConnection =
           found?.session?.ownerConnectionId ??
           (found ? getOwnerConnection(found.clientId) : undefined);
@@ -1703,6 +1770,18 @@ export async function dispatchV2Message(
       break;
     case 'reconnect':
       handleReconnect(connectionId, msg, ctx);
+      break;
+    case 'reconnect_snapshot_applied':
+      if (ctx.connRegistry.ackAppliedSnapshot(connectionId, msg.sessionId, msg.cursor, msg.offerId))
+        ctx.connRegistry.get(connectionId)?.transport.send({
+          type: 'reconnect_snapshot_confirmed',
+          sessionId: msg.sessionId,
+          cursor: msg.cursor,
+          offerId: msg.offerId,
+        });
+      break;
+    case 'session_event_applied':
+      ctx.connRegistry.ackAppliedEvent(connectionId, msg.sessionId, msg.seq);
       break;
     case 'watch':
       handleWatch(connectionId, msg, ctx);

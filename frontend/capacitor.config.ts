@@ -3,7 +3,7 @@ import type { CapacitorConfig } from '@capacitor/cli';
 const config: CapacitorConfig = {
   appId: 'com.mitzo.app',
   appName: 'Mitzo',
-  webDir: 'dist',
+  webDir: process.env.CAPACITOR_WEB_DIR ?? 'dist',
   ios: {
     contentInset: 'never',
   },

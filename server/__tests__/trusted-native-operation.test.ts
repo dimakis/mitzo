@@ -1,12 +1,12 @@
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync } from 'node:fs';
 import {
   chmod,
   lstat,
   mkdir,
   mkdtemp,
   readFile,
+  readdir,
   rename,
   rm,
   symlink,
@@ -201,6 +201,7 @@ describe('trusted native Git operation', () => {
     const repo = join(root, 'repo');
     const worktree = join(root, 'worktree');
     const outside = join(root, 'outside-fanout');
+    let content = 'approved fanout content';
     execFileSync('git', ['init', repo]);
     execFileSync('git', ['-C', repo, 'config', 'user.name', 'Mitzo Test']);
     execFileSync('git', ['-C', repo, 'config', 'user.email', 'test@example.invalid']);
@@ -215,20 +216,23 @@ describe('trusted native Git operation', () => {
       'initial',
     ]);
     execFileSync('git', ['-C', repo, 'worktree', 'add', '-b', 'fanout', worktree]);
-    // The initial commit may already occupy a fanout directory; choose an unused one.
-    let content = '';
+    // Force the collision that previously depended on the initial commit hash.
+    execFileSync('git', ['-C', repo, 'hash-object', '-w', '--stdin'], { input: content });
+    const occupied = new Set(await readdir(join(repo, '.git', 'objects')));
     let object = '';
-    for (let attempt = 0; attempt < 256; attempt++) {
-      content = `approved fanout content ${attempt}`;
-      object = execFileSync('git', ['hash-object', '--stdin'], {
-        input: content,
+    for (let nonce = 0; nonce < 1024; nonce += 1) {
+      const candidate = `approved fanout content${nonce === 0 ? '' : `\n${nonce}`}`;
+      const hash = execFileSync('git', ['-C', repo, 'hash-object', '--stdin'], {
+        input: candidate,
         encoding: 'utf8',
       }).trim();
-      if (!existsSync(join(repo, '.git', 'objects', object.slice(0, 2)))) break;
+      if (!occupied.has(hash.slice(0, 2))) {
+        content = candidate;
+        object = hash;
+        break;
+      }
     }
-    if (existsSync(join(repo, '.git', 'objects', object.slice(0, 2)))) {
-      throw new Error('Could not find an unused object fanout for the fixture');
-    }
+    expect(object, 'fixture must find an unused object fanout').not.toBe('');
     await mkdir(outside);
     await symlink(outside, join(repo, '.git', 'objects', object.slice(0, 2)));
     await writeFile(join(worktree, 'approved.txt'), content);

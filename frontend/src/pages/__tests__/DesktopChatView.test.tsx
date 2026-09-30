@@ -41,8 +41,19 @@ vi.mock('../../components/CommandCenter', () => ({
 }));
 
 vi.mock('../../components/ChatArea', () => ({
-  ChatArea: ({ messages }: { messages: unknown[] }) => (
-    <div data-testid="chat-area">Messages: {messages.length}</div>
+  ChatArea: ({
+    messages,
+    currentByMessage,
+  }: {
+    messages: unknown[];
+    currentByMessage?: Record<string, unknown>;
+  }) => (
+    <div data-testid="chat-area">
+      <span>Messages: {messages.length}</span>
+      <span data-testid="active-seats">
+        Active seats: {Object.keys(currentByMessage ?? {}).length}
+      </span>
+    </div>
   ),
 }));
 
@@ -107,6 +118,7 @@ import { DesktopChatView } from '../DesktopChatView';
 
 function createMockStore() {
   const store = createStore<MitzoStoreState>(() => ({
+    getTransportConnectionId: () => null,
     sessions: { list: [], active: null, loading: false },
     messages: INITIAL_MESSAGES_STATE,
     connection: { status: 'connected', clientId: null },
@@ -242,6 +254,26 @@ describe('DesktopChatView', () => {
     expect(screen.getByTestId('web-search-connection').textContent).toBe('connection-two');
   });
 
+  it('passes concurrent seat streams to the shared ChatArea', () => {
+    const store = createMockStore();
+    store.setState((state) => ({
+      messages: {
+        ...state.messages,
+        currentByMessage: {
+          reviewer: { messageId: 'reviewer', blocks: new Map(), blockOrder: [] },
+          architect: { messageId: 'architect', blocks: new Map(), blockOrder: [] },
+        },
+      },
+    }));
+    render(
+      <MemoryRouter>
+        <MitzoStoreProvider value={store}>
+          <DesktopChatView />
+        </MitzoStoreProvider>
+      </MemoryRouter>,
+    );
+    expect(screen.getByTestId('active-seats').textContent).toContain('Active seats: 2');
+  });
   it('renders three-panel layout', () => {
     renderWithRouter();
     expect(screen.getByTestId('session-panel')).toBeTruthy();
@@ -409,4 +441,17 @@ it('shows reconnecting in collapsed workspace settings when disconnected', () =>
   const toggle = screen.getByRole('button', { name: /^Workspace/ });
   expect(toggle.getAttribute('aria-expanded')).toBe('false');
   expect(toggle.textContent).toContain('Reconnecting');
+});
+
+it('offers the shared reviewer entry for an active desktop conversation', () => {
+  const store = createMockStore();
+  store.setState((state) => ({ sessions: { ...state.sessions, active: 'active-session' } }));
+  render(
+    <MemoryRouter>
+      <MitzoStoreProvider value={store}>
+        <DesktopChatView />
+      </MitzoStoreProvider>
+    </MemoryRouter>,
+  );
+  expect(screen.getByRole('button', { name: 'Add reviewer' })).toBeTruthy();
 });

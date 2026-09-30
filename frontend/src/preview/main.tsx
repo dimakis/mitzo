@@ -1,4 +1,5 @@
 import './network';
+import { ConnectionsView } from '../pages/ConnectionsView';
 import '../lib/event-bus-singleton';
 import { AUTH_RESTORED_EVENT } from '../lib/api-fetch';
 import { createRoot } from 'react-dom/client';
@@ -71,10 +72,17 @@ window.dispatchEvent(new Event(AUTH_RESTORED_EVENT));
 
 createRoot(document.getElementById('root')!).render(
   <MitzoStoreProvider value={store}>
-    <MemoryRouter initialEntries={['/chat/preview-1']}>
+    <MemoryRouter
+      initialEntries={[
+        new URLSearchParams(location.search).get('view') === 'connections'
+          ? '/connections'
+          : '/chat/preview-1',
+      ]}
+    >
       <MobileShell>
         <Routes>
           <Route path="/chat/:sessionId?" element={<ResponsiveChatView />} />
+          <Route path="/connections" element={<ConnectionsView />} />
           <Route path="/sessions" element={<PreviewSessions />} />
           <Route path="*" element={<Navigate to="/sessions" replace />} />
         </Routes>

@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeAll, beforeEach, afterAll, afterEach } from 'vitest';
-import type { Express } from 'express';
+import type { Server } from 'node:http';
+import { listenOnLoopback, closeTestServer } from './loopback-test-server.js';
 import request from 'supertest';
+import Database from 'better-sqlite3';
 import { mkdirSync, writeFileSync, symlinkSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
@@ -15,6 +17,7 @@ vi.mock('../chat.js', () => {
   const { tmpdir: ptmpdir } = require('os');
   const repo = pjoin(ptmpdir(), `mitzo-test-repo-${process.pid}`);
   return {
+    broadcastDurableSymposiumEvent: vi.fn(),
     getSessions: vi.fn().mockResolvedValue({
       sessions: [{ id: 's1', summary: 'Test', lastModified: 1 }],
       hasMore: false,
@@ -25,6 +28,13 @@ vi.mock('../chat.js', () => {
     }),
     reconcileSessionsBackground: vi.fn(),
     getMessages: vi.fn().mockResolvedValue([{ messageId: 'm1', role: 'assistant', blocks: [] }]),
+    getReconnectTranscript: vi.fn().mockReturnValue({ messages: [], current: null }),
+    getSessionTranscript: vi.fn().mockResolvedValue({
+      messages: [],
+      current: null,
+      currents: [{ messageId: 'seat-active', blocks: [], symposiumProvenance: { seatId: 'a' } }],
+      cursor: 7,
+    }),
     renameSessionById: vi.fn().mockResolvedValue(undefined),
     hideSession: vi.fn(),
     hideAllSessions: vi.fn(),
@@ -148,7 +158,7 @@ import { readCodexQueue } from '../codex-chat-session.js';
 import { resolvePending } from '../permissions.js';
 
 const overviewBroadcast = vi.fn();
-let app: Express;
+let app: Server;
 let authCookie: string;
 let authSessionId: string;
 let setOpenShellLifecycleService: typeof import('../app.js').setOpenShellLifecycleService;
@@ -192,7 +202,7 @@ beforeAll(async () => {
   process.env.NTFY_AUTH_TOKEN = 'test-ntfy-token';
 
   const mod = await import('../app.js');
-  app = mod.app;
+  app = await listenOnLoopback(mod.app);
   setOpenShellLifecycleService = mod.setOpenShellLifecycleService;
   mod.setOverviewEmitter({
     scheduleBroadcast: overviewBroadcast,
@@ -203,6 +213,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  if (app) await closeTestServer(app);
   const { releaseTransportConnection } = await import('../transport-auth-ownership.js');
   releaseTransportConnection('conn-abc', authSessionId);
   releaseTransportConnection('conn-other', authSessionId);
@@ -226,6 +237,21 @@ beforeEach(async () => {
 });
 
 // --- Auth Routes ---
+
+it('stores Symposium host grants in the repository event database', () => {
+  const db = new Database(join(TEST_REPO, '.mitzo', 'events.db'), { readonly: true });
+  try {
+    expect(
+      db
+        .prepare(
+          "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'symposium_host_grants'",
+        )
+        .get(),
+    ).toEqual({ name: 'symposium_host_grants' });
+  } finally {
+    db.close();
+  }
+});
 
 describe('auth routes', () => {
   it('POST /api/auth/login — correct passphrase returns 200 + cookie', async () => {
@@ -556,6 +582,87 @@ describe('session routes', () => {
     const res = await request(app).get('/api/sessions/s1/messages').set('Cookie', authCookie);
     expect(res.status).toBe(200);
     expect(Array.isArray(res.body)).toBe(true);
+  });
+
+  it('GET /api/sessions/:id/symposium — requires operator auth and shows unconfigured session', async () => {
+    const denied = await request(app).get('/api/sessions/s1/symposium');
+    expect(denied.status).toBe(401);
+    const response = await request(app).get('/api/sessions/s1/symposium').set('Cookie', authCookie);
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({ sessionId: 's1', config: null, seats: [] });
+  });
+
+  it('does not activate or mint grants from OpenShell environment configuration alone', async () => {
+    const { eventStore } = await import('../chat.js');
+    const { SymposiumHostGrants } = await import('../symposium-host-grants.js');
+    const getSession = vi.mocked(eventStore.getSession);
+    const originalGetSession = getSession.getMockImplementation();
+    const activate = vi.spyOn(SymposiumHostGrants.prototype, 'activate');
+    vi.stubEnv('MITZO_OPENSHELL_ENABLED', '1');
+    vi.stubEnv('MITZO_OPENSHELL_IMAGE', 'test-image');
+    vi.stubEnv('MITZO_OPENSHELL_POLICY', '/test/policy.yaml');
+    vi.stubEnv('MITZO_OPENSHELL_SEED', '/test/seed');
+    getSession.mockReturnValue({
+      sessionId: 's1',
+      sessionType: 'symposium',
+      symposiumConfig: JSON.stringify({
+        version: 2,
+        revision: 1,
+        state: 'draft',
+        anchorSeatId: 'builder',
+        activeSeatCap: 1,
+        seats: [
+          {
+            id: 'builder',
+            name: 'Builder',
+            role: 'implementer',
+            model: 'gpt-test',
+            systemPrompt: 'Build the requested patch.',
+            color: '#224466',
+          },
+        ],
+        turnRules: { mode: 'directed', maxTurns: 4 },
+        interceptMode: 'manual',
+      }),
+    } as ReturnType<typeof eventStore.getSession>);
+    try {
+      const response = await request(app)
+        .post('/api/sessions/s1/symposium/activate')
+        .set('Cookie', authCookie)
+        .send({ expectedRevision: 1, sharedBoundaryAcknowledged: true });
+      expect(response.status).toBe(503);
+      expect(response.body.error).toBe('Symposium provider runtime is unavailable');
+      expect(activate).not.toHaveBeenCalled();
+    } finally {
+      activate.mockRestore();
+      getSession.mockImplementation(originalGetSession!);
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it('GET /api/sessions/:id/messages — bounds restore by a valid cursor', async () => {
+    const { getReconnectTranscript } = await import('../chat.js');
+    const bounded = await request(app)
+      .get('/api/sessions/s1/messages?throughSeq=42')
+      .set('Cookie', authCookie);
+    expect(bounded.status).toBe(200);
+    expect(bounded.body).toEqual({ messages: [], current: null });
+    expect(getReconnectTranscript).toHaveBeenCalledWith('s1', 42);
+
+    const invalid = await request(app)
+      .get('/api/sessions/s1/messages?throughSeq=9007199254740993')
+      .set('Cookie', authCookie);
+    expect(invalid.status).toBe(400);
+  });
+
+  it('GET /api/sessions/:id/messages?transcript=1 preserves active seat turns', async () => {
+    const { getSessionTranscript } = await import('../chat.js');
+    const response = await request(app)
+      .get('/api/sessions/s1/messages?transcript=1')
+      .set('Cookie', authCookie);
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({ cursor: 7, currents: [{ messageId: 'seat-active' }] });
+    expect(getSessionTranscript).toHaveBeenCalledWith('s1');
   });
 
   it('DELETE /api/sessions/:id — hides session', async () => {
@@ -1302,6 +1409,43 @@ describe('account catalog routes', () => {
     const res = await request(app).get('/api/sessions/bound/meta').set('Cookie', authCookie);
     expect(res.body.accountBinding).toEqual(binding);
   });
+  it('serves Symposium metadata without ordinary account discovery or queue recovery', async () => {
+    const accounts = await import('../account-profiles.js');
+    const load = vi.spyOn(accounts, 'loadAccountProfiles').mockImplementation(() => {
+      throw new Error('ordinary catalog must not load');
+    });
+    const refresh = vi.spyOn(accounts.AccountProfiles.prototype, 'refresh');
+    vi.mocked(eventStore.getSession).mockReturnValueOnce({
+      sessionId: 'symposium',
+      symposiumConfig: '{}',
+      sessionType: 'symposium',
+      accountBinding: {
+        accountId: 'personal',
+        accountLabel: 'Personal',
+        provider: 'openai-codex',
+        model: 'gpt-5.6-luna',
+        profileRevision: 'owned-revision',
+      },
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheReadTokens: 0,
+      cacheCreationTokens: 0,
+    } as ReturnType<typeof eventStore.getSession>);
+    try {
+      const res = await request(app)
+        .get('/api/sessions/symposium/meta?refresh=1')
+        .set('Cookie', authCookie);
+      expect(res.status).toBe(200);
+      expect(res.body.sessionType).toBe('symposium');
+      expect(res.body.modelSelection).toBeUndefined();
+      expect(res.body.codexQueue).toBeUndefined();
+      expect(load).not.toHaveBeenCalled();
+      expect(refresh).not.toHaveBeenCalled();
+    } finally {
+      load.mockRestore();
+      refresh.mockRestore();
+    }
+  });
   it('restores a persisted picker selection for every configured account provider', async () => {
     const file = join(TEST_REPO, 'picker-profiles.json');
     writeFileSync(
@@ -1453,5 +1597,128 @@ describe('account catalog routes', () => {
       interrupted: 0,
       failed: 0,
     });
+  });
+});
+
+describe('mounted personal device login ownership', () => {
+  it('binds instructions and cancellation to the authenticated operator session', async () => {
+    const { installSymposiumProductionHost } = await import('../app.js');
+    const row = { id: 'personal_test', label: 'Test', revision: 1, state: 'disconnected' };
+    const personalConnections = {
+      list: vi.fn(() => [row]),
+      create: vi.fn(() => row),
+      disconnect: vi.fn(async () => ({ ...row, revision: 2 })),
+      recoverDiscovery: vi.fn(async () => ({ status: 'reconciled', inference: false })),
+      discoverModels: vi.fn(async () => ({
+        status: 'complete',
+        inference: false,
+        models: [{ id: 'luna', label: 'Luna' }],
+      })),
+    };
+    const cancel = vi.fn(async () => {});
+    installSymposiumProductionHost({
+      personalConnections,
+      beginDeviceLogin: async () => ({
+        verificationUrl: 'https://auth.openai.com/codex/device',
+        userCode: 'ABCD-1234',
+        expiresAt: Date.now() + 60000,
+        completed: new Promise(() => {}),
+        cancel,
+      }),
+    } as never);
+    const { login } = await import('../auth.js');
+    const first = `cc_auth=${await login(process.env.AUTH_PASSPHRASE!)}`;
+    const second = `cc_auth=${await login(process.env.AUTH_PASSPHRASE!)}`;
+    const started = await request(app)
+      .post('/api/symposium/personal/login')
+      .set('Cookie', first)
+      .send({ method: 'device-code', connectionId: row.id, expectedRevision: row.revision });
+    expect(started.status).toBe(200);
+    const foreign = await request(app)
+      .get('/api/symposium/personal/login/status')
+      .set('Cookie', second);
+    expect(foreign.body).toEqual({ state: 'unknown' });
+    const rejected = await request(app)
+      .post('/api/symposium/personal/login/cancel')
+      .set('Cookie', second)
+      .send({ attemptId: started.body.attemptId });
+    expect(rejected.body).toEqual({ state: 'unknown' });
+    expect(cancel).not.toHaveBeenCalled();
+    expect(
+      (await request(app).get('/api/symposium/personal/login/status').set('Cookie', first)).body
+        .userCode,
+    ).toBe('ABCD-1234');
+    expect(
+      (
+        await request(app)
+          .post('/api/symposium/personal/login/cancel')
+          .set('Cookie', first)
+          .send({ attemptId: started.body.attemptId })
+      ).body.state,
+    ).toBe('cancelled');
+    expect(cancel).toHaveBeenCalledOnce();
+    expect((await request(app).get('/api/symposium/personal/connections')).status).toBe(401);
+    expect(
+      (await request(app).get('/api/symposium/personal/connections').set('Cookie', authCookie))
+        .body,
+    ).toEqual({ connections: [row] });
+    expect(
+      (
+        await request(app)
+          .post('/api/symposium/personal/connections')
+          .set('Cookie', authCookie)
+          .send({ label: 'Test' })
+      ).status,
+    ).toBe(201);
+    expect(personalConnections.create).toHaveBeenCalledWith('Test');
+    expect(
+      (
+        await request(app)
+          .post('/api/symposium/personal/connections/personal_test/disconnect')
+          .set('Cookie', authCookie)
+          .send({ expectedRevision: 1 })
+      ).status,
+    ).toBe(200);
+    expect(personalConnections.disconnect).toHaveBeenCalledWith('personal_test', 1);
+    const endpoint = '/api/symposium/personal/connections/personal_test/models/refresh';
+    expect((await request(app).post(endpoint).send({ expectedRevision: 1 })).status).toBe(401);
+    expect((await request(app).post(endpoint).set('Cookie', first).send({})).status).toBe(400);
+    expect(personalConnections.discoverModels).not.toHaveBeenCalled();
+    const discovered = await request(app)
+      .post(endpoint)
+      .set('Cookie', first)
+      .send({ expectedRevision: 1 });
+    expect(discovered.status).toBe(200);
+    expect(discovered.headers['cache-control']).toBe('no-store');
+    expect(personalConnections.discoverModels).toHaveBeenCalledWith(
+      'personal_test',
+      1,
+      expect.any(Function),
+    );
+    const recoveryEndpoint = endpoint.replace('/refresh', '/recover');
+    expect((await request(app).post(recoveryEndpoint).send({ expectedRevision: 1 })).status).toBe(
+      401,
+    );
+    expect((await request(app).post(recoveryEndpoint).set('Cookie', first).send({})).status).toBe(
+      400,
+    );
+    const recovered = await request(app)
+      .post(recoveryEndpoint)
+      .set('Cookie', first)
+      .send({ expectedRevision: 1 });
+    expect(recovered.status).toBe(200);
+    expect(recovered.headers['cache-control']).toBe('no-store');
+    expect(personalConnections.recoverDiscovery).toHaveBeenCalledWith(
+      'personal_test',
+      1,
+      expect.any(Function),
+    );
+    personalConnections.discoverModels.mockRejectedValueOnce(new Error('private token'));
+    const rejectedDiscovery = await request(app)
+      .post(endpoint)
+      .set('Cookie', first)
+      .send({ expectedRevision: 1 });
+    expect(rejectedDiscovery.status).toBe(409);
+    expect(JSON.stringify(rejectedDiscovery.body)).not.toContain('private token');
   });
 });
