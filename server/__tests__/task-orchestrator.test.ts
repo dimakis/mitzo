@@ -744,6 +744,52 @@ describe('TaskOrchestrator', () => {
       expect(task.annotations).toContain('review_feedback: needs more tests');
     });
 
+    it('routes spawned-task rejection to its own session', async () => {
+      const deps = createTestDeps(store);
+      deps.spawnSession = vi.fn().mockResolvedValue('headless:task-session');
+      const orch = new TaskOrchestrator(deps);
+      orch.setSpawnEnabled(true);
+      const goal = store.create({ title: 'Goal' });
+      const task = store.create({
+        title: 'Spawned task',
+        parentId: goal.id,
+        sessionPolicy: 'spawn',
+      });
+
+      orch.start(goal.id, { clientId: 'chosen-reuse-chat' });
+      await vi.waitFor(() => expect(store.get(task.id)?.sessionId).toBe('headless:task-session'));
+      store.update(task.id, { status: 'pending_review' });
+
+      expect(orch.rejectTask(task.id, 'try again')).toBe(true);
+      expect(sendToChat).toHaveBeenCalledWith(
+        'headless:task-session',
+        expect.stringContaining('try again'),
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        expect.any(AbortSignal),
+      );
+      expect(vi.mocked(sendToChat).mock.calls.map((call) => call[0])).toEqual([
+        'headless:task-session',
+      ]);
+    });
+
+    it('keeps spawned-task review pending when its session is missing', () => {
+      const goal = store.create({ title: 'Goal' });
+      const task = store.create({
+        title: 'Spawned task',
+        parentId: goal.id,
+        sessionPolicy: 'spawn',
+      });
+      store.update(task.id, { status: 'pending_review' });
+
+      expect(orchestrator.rejectTask(task.id, 'try again')).toBe(false);
+      expect(store.get(task.id)?.status).toBe('pending_review');
+      expect(sendToChat).not.toHaveBeenCalled();
+    });
+
     it('rejectTask returns false for non-pending_review', () => {
       const goal = store.create({ title: 'Goal' });
       const c1 = store.create({ title: 'Task', parentId: goal.id });

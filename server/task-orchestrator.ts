@@ -328,6 +328,11 @@ export class TaskOrchestrator {
   rejectTask(taskId: string, feedback: string): boolean {
     const task = this.deps.store.get(taskId);
     if (!task || task.status !== 'pending_review') return false;
+    // A spawned task must receive feedback in its own session. Never fall
+    // back to the workflow's reuse chat when that session is unavailable.
+    const targetClientId =
+      task.sessionId ?? (task.sessionPolicy === 'spawn' ? null : this.pinnedClientId);
+    if (task.stageType !== 'human_review' && !targetClientId) return false;
 
     const annotations = [...task.annotations, `review_feedback: ${feedback}`];
     this.deps.store.update(taskId, {
@@ -340,16 +345,18 @@ export class TaskOrchestrator {
     log.info('task rejected', { taskId, feedback });
 
     // Notify agent session so it retries with feedback
-    if (this.state === 'running') {
-      if (this.pinnedClientId) {
-        this.dispatchToPinned(
-          taskId,
-          this.pinnedClientId,
-          `Your previous work on "${task.title}" was rejected.\n` +
-            (feedback ? `Feedback: ${feedback}\n` : '') +
-            '\nPlease re-attempt this task addressing the feedback.',
-        );
+    if (targetClientId && this.state !== 'idle') {
+      if (this.state === 'paused') {
+        this.state = 'running';
+        this.deps.broadcastStatus(this.getStatus());
       }
+      this.dispatchToPinned(
+        taskId,
+        targetClientId,
+        `Your previous work on "${task.title}" was rejected.\n` +
+          (feedback ? `Feedback: ${feedback}\n` : '') +
+          '\nPlease re-attempt this task addressing the feedback.',
+      );
     }
     return true;
   }
