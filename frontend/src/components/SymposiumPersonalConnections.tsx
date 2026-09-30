@@ -180,7 +180,6 @@ export function SymposiumPersonalConnections({
           body: JSON.stringify({ expectedRevision: connection.revision }),
         },
       );
-      if (!response.ok) throw new Error('Unconfirmed');
       const result = z
         .object({
           status: z.enum(['complete', 'failed', 'reconciled', 'reconciliation_required']),
@@ -188,6 +187,12 @@ export function SymposiumPersonalConnections({
           modelCount: z.number().int().nonnegative().optional(),
         })
         .parse(await response.json());
+      if (
+        !response.ok &&
+        !(response.status === 422 && result.status === 'failed') &&
+        !(response.status === 409 && result.status === 'reconciliation_required')
+      )
+        throw new Error('Unconfirmed');
       if (!mounted.current) return;
       if (result.status === 'complete' && result.modelCount !== undefined) {
         setMessage(
@@ -196,6 +201,10 @@ export function SymposiumPersonalConnections({
       } else if (result.status === 'reconciliation_required') {
         setMessage(
           'Model discovery cleanup could not be confirmed. This connection needs recovery on the Mac before another account operation.',
+        );
+      } else if (result.status === 'failed') {
+        setMessage(
+          'Model discovery failed; cleanup is confirmed. The previous catalog remains available but is marked stale. Review connection status before retrying.',
         );
       } else {
         setMessage(

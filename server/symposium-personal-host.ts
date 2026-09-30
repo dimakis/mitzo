@@ -1,3 +1,4 @@
+import type { SubscriptionLaunchIdentity } from './symposium-subscription-identity.js';
 import type { CatalogModel } from './model-catalog.js';
 import type { DiscoveryResult } from './symposium-model-discovery.js';
 import { AccountProfiles } from './account-profiles.js';
@@ -16,6 +17,7 @@ export function createPersonalSubscriptionHost(
   discover?: (proof: {
     provider: { name: string; id: string };
     account: { email: string; planType: string };
+    launchIdentity?(): SubscriptionLaunchIdentity;
     assertCurrent(): void;
   }) => Promise<{ result: DiscoveryResult; models?: CatalogModel[]; recover?: DiscoveryRecovery }>,
 ) {
@@ -225,6 +227,17 @@ export function createPersonalSubscriptionHost(
           const discovered = await discover({
             provider: proof.provider,
             account: proof.account,
+            launchIdentity: () => {
+              assertCurrent();
+              const identity = proof.launchIdentity();
+              return {
+                accountId: identity.accountId,
+                assertCurrent: () => {
+                  assertCurrent();
+                  identity.assertCurrent();
+                },
+              };
+            },
             assertCurrent,
           });
           assertCurrent();
@@ -268,6 +281,8 @@ export function createPersonalSubscriptionHost(
       },
     },
     invalidate: () => connections.invalidate(),
+    captureLaunchIdentity: (input: Parameters<VerifySymposiumSubscriptionAuth>[0]) =>
+      adapter(input).captureLaunchIdentity(input),
     verifyPrivateAuth: (input: Parameters<VerifySymposiumSubscriptionAuth>[0]) =>
       adapter(input).verifyPrivateAuth(input),
     assertPrivateAuth: (input: Parameters<VerifySymposiumSubscriptionAuth>[0]) =>

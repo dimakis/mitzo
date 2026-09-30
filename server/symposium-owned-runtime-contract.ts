@@ -96,6 +96,22 @@ export const REVIEWED_SYMPOSIUM_CODEX_01591_RUNTIME = {
     },
   },
 } as const;
+/** Measured private account-identity bootstrap. Retained opaque-only images are
+ * preserved; only this successor consumes a receipt-bound stdin preface. */
+export const REVIEWED_SYMPOSIUM_CODEX_01591_IDENTITY_RUNTIME = {
+  ...REVIEWED_SYMPOSIUM_CODEX_01591_RUNTIME,
+  build: {
+    ...REVIEWED_SYMPOSIUM_CODEX_01591_RUNTIME.build,
+    image: 'sha256:3c40c75d441addde40441c89479e6b982735bba16ef7493a552c8450557a632c',
+    imageDigest: '3e2c2338debf745e6f20dbbd6663e19b0243434e309471fb3b698a02a3dab856',
+    subscriptionIdentityProtocol: 'stdin-v1',
+    nativeArtifacts: {
+      ...REVIEWED_SYMPOSIUM_CODEX_01591_RUNTIME.build.nativeArtifacts,
+      '/usr/local/bin/symposium-subscription-app-server':
+        '9bb569cf68df23e8f98c6a2dc2e915f49aa1ddf86a5914539434222907a7cbda',
+    },
+  },
+} as const;
 export function reviewedSymposiumOwnedRuntime(image: string) {
   if (image === REVIEWED_SYMPOSIUM_OWNED_RUNTIME.build.image)
     return REVIEWED_SYMPOSIUM_OWNED_RUNTIME;
@@ -107,5 +123,7 @@ export function reviewedSymposiumOwnedRuntime(image: string) {
     return REVIEWED_SYMPOSIUM_CODEX_01561_RUNTIME;
   if (image === REVIEWED_SYMPOSIUM_CODEX_01591_RUNTIME.build.image)
     return REVIEWED_SYMPOSIUM_CODEX_01591_RUNTIME;
+  if (image === REVIEWED_SYMPOSIUM_CODEX_01591_IDENTITY_RUNTIME.build.image)
+    return REVIEWED_SYMPOSIUM_CODEX_01591_IDENTITY_RUNTIME;
   throw new Error('Artifact workload image identity is not reviewed');
 }

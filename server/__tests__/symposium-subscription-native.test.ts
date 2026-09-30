@@ -1,3 +1,10 @@
+import { EventEmitter } from 'node:events';
+import { PassThrough, Writable } from 'node:stream';
+import { controllerClaimDigest } from '../symposium-attempt-transport.js';
+import {
+  REVIEWED_SYMPOSIUM_CODEX_01591_IDENTITY_RUNTIME,
+  REVIEWED_SYMPOSIUM_CODEX_01591_RUNTIME,
+} from '../symposium-owned-runtime-contract.js';
 import { describe, expect, it, vi } from 'vitest';
 import { type CodexAccountProfile } from '../codex-account.js';
 import type { CodexConversationOptions } from '../codex-conversation.js';
@@ -354,4 +361,146 @@ describe('native personal subscription seat (mocked only)', () => {
     ).rejects.toThrow('account or model changed');
     expect(input.verifyPrivateAuth).not.toHaveBeenCalled();
   });
+});
+
+it.each(['synthetic-provider-account', 'different-account', undefined])(
+  'binds the real native launch frame and routing guard to the receipt (%s)',
+  async (routingAccount) => {
+    const input = await fixture();
+    const frames: Array<Record<string, unknown>> = [];
+    const child = Object.assign(new EventEmitter(), {
+      stdout: new PassThrough(),
+      stderr: new PassThrough(),
+      kill: vi.fn(() => true),
+      stdin: undefined as unknown as Writable,
+    });
+    child.stdin = new Writable({
+      write(chunk, _encoding, done) {
+        expect(child.stdout.listenerCount('data')).toBeGreaterThan(0);
+        const frame = JSON.parse(chunk.toString());
+        frames.push(frame);
+        if (frame.id) {
+          const result =
+            frame.method === 'account/read'
+              ? {
+                  account: { type: 'chatgpt' },
+                  ...(routingAccount
+                    ? { workspaceRouting: { chatgptAccountId: routingAccount } }
+                    : {}),
+                }
+              : frame.method === 'model/list'
+                ? {
+                    data: [
+                      {
+                        model: profile.model,
+                        displayName: 'Luna',
+                        supportedReasoningEfforts: [{ reasoningEffort: 'low' }],
+                      },
+                    ],
+                  }
+                : {};
+          queueMicrotask(() => child.stdout.write(JSON.stringify({ id: frame.id, result }) + '\n'));
+        }
+        done();
+      },
+    });
+    const confirmStopped = vi.fn(async () => {});
+    const launch = vi.fn(() => ({ child, confirmStopped }));
+    const identity = { accountId: 'synthetic-provider-account', assertCurrent: vi.fn() };
+    const capture = vi.fn(() => identity);
+    let rpc: ReturnType<CodexConversationOptions['createClient']>;
+    const operation = createChatGptSubscriptionSeat({
+      ...input,
+      workloadImage: REVIEWED_SYMPOSIUM_CODEX_01591_IDENTITY_RUNTIME.build.image,
+      captureLaunchIdentity: capture,
+      attemptRegistry: { launch } as never,
+      resolveAttempt: () => undefined,
+      verifiedControllerCommand: SYMPOSIUM_SUBSCRIPTION_CONTROLLER_COMMAND,
+      assertSubscriptionDispatch: vi.fn(),
+      createConversation: (opts) => {
+        rpc = opts.createClient({
+          onNotification: vi.fn(),
+          onRequest: async () => ({}),
+          onClose: vi.fn(),
+        });
+        return {
+          initialize: async () => {
+            await rpc.initialize();
+            await opts.verifyBinding!(rpc, input.execution.seat.accountBinding);
+          },
+          getThreadId: () => 'synthetic-thread',
+          send: vi.fn(),
+          interrupt: vi.fn(),
+          close: () => rpc.close(),
+        };
+      },
+    });
+    if (routingAccount === identity.accountId) {
+      const seat = await operation;
+      expect(frames.map((frame) => frame.method)).toEqual([
+        undefined,
+        'initialize',
+        'initialized',
+        'account/read',
+        'model/list',
+      ]);
+      await seat.cancel();
+    } else {
+      await expect(operation).rejects.toThrow('workspace identity');
+      expect(frames.some((frame) => frame.method === 'model/list')).toBe(false);
+    }
+    expect(frames[0]).toEqual({
+      version: 1,
+      claim: controllerClaimDigest(input.execution.claimToken),
+      accountId: identity.accountId,
+    });
+    expect(capture).toHaveBeenCalledWith(
+      expect.objectContaining({ execution: input.execution, route: input.route }),
+    );
+    expect(launch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        claimToken: input.execution.claimToken,
+        command: SYMPOSIUM_SUBSCRIPTION_CONTROLLER_COMMAND,
+      }),
+    );
+    expect(confirmStopped).toHaveBeenCalled();
+    expect(JSON.stringify(input.route.profile)).not.toContain(identity.accountId);
+  },
+);
+
+it('rejects missing identity capability for the measured successor before controlled launch', async () => {
+  const input = await fixture();
+  const launch = vi.fn();
+  await expect(
+    createChatGptSubscriptionSeat({
+      ...input,
+      workloadImage: REVIEWED_SYMPOSIUM_CODEX_01591_IDENTITY_RUNTIME.build.image,
+      attemptRegistry: { launch } as never,
+      assertSubscriptionDispatch: vi.fn(),
+    }),
+  ).rejects.toThrow('launch identity');
+  expect(launch).not.toHaveBeenCalled();
+});
+
+it('does not consume identity metadata on a retained legacy image', async () => {
+  const input = await fixture();
+  const captureLaunchIdentity = vi.fn(() => {
+    throw new Error('unused');
+  });
+  const seat = await createChatGptSubscriptionSeat({
+    ...input,
+    workloadImage: REVIEWED_SYMPOSIUM_CODEX_01591_RUNTIME.build.image,
+    captureLaunchIdentity,
+    createConversation: (opts) => ({
+      initialize: async () => {
+        await opts.verifyBinding!(input.rpc, input.execution.seat.accountBinding);
+      },
+      getThreadId: () => 'synthetic-thread',
+      send: vi.fn(),
+      interrupt: vi.fn(),
+      close: vi.fn(),
+    }),
+  });
+  expect(captureLaunchIdentity).not.toHaveBeenCalled();
+  await seat.cancel();
 });

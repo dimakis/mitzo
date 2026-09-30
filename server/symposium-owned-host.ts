@@ -535,6 +535,7 @@ export async function createOwnedSymposiumHost(
           namespace: options.podman.sandboxNamespace,
           environment: { ...gateway.managementEnvironment },
           configPins: [{ path: gatewayConfigPath, sha256: gatewayConfigDigest, mode: 0o400 }],
+          launchIdentity: proof.launchIdentity,
           attestGateway: async () => {
             custody();
           },
@@ -1217,6 +1218,7 @@ export async function createOwnedSymposiumHost(
           ),
       },
       verifySubscriptionPrivateAuth: subscription.verifyPrivateAuth,
+      captureSubscriptionLaunchIdentity: subscription.captureLaunchIdentity,
       assertSubscriptionDispatch: (
         ...args: Parameters<NonNullable<typeof subscription>['assertPrivateAuth']>
       ) => {

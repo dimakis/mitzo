@@ -1,5 +1,11 @@
 import { captureDeliveredInput } from './symposium-completion-checkpoints.js';
 import type { SymposiumRecipientAttemptRecord } from '@mitzo/protocol';
+import {
+  createSubscriptionIdentityClient,
+  subscriptionIdentityFrame,
+  type SubscriptionLaunchIdentity,
+} from './symposium-subscription-identity.js';
+import { controllerClaimDigest } from './symposium-attempt-transport.js';
 import { CodexAppServerClient } from './codex-app-server-client.js';
 import type { SymposiumAttemptRegistry } from './symposium-attempt-registry.js';
 import type {
@@ -92,6 +98,7 @@ export async function createCodexNativeSeat(
   auth: Pick<CodexConversationOptions, 'profile' | 'modelProvider' | 'verifyBinding'> & {
     assertCommand(command: readonly string[]): void;
     beforeDispatch?(): void;
+    launchIdentity?: SubscriptionLaunchIdentity;
     runtimeConfig?: Record<string, unknown>;
   },
 ): Promise<SymposiumNativeSeat> {
@@ -158,6 +165,10 @@ export async function createCodexNativeSeat(
       if (!input.attemptRegistry || !input.verifiedControllerCommand || !input.resolveAttempt)
         throw new Error('Verified Codex native controller capability is unavailable');
       auth.assertCommand(input.verifiedControllerCommand);
+      auth.launchIdentity?.assertCurrent();
+      if (auth.launchIdentity)
+        subscriptionIdentityFrame(auth.launchIdentity, controllerClaimDigest(execution.claimToken));
+      execution.signal.throwIfAborted();
       controlled = input.attemptRegistry.launch({
         sandbox,
         sessionId: execution.sessionId,
@@ -168,6 +179,16 @@ export async function createCodexNativeSeat(
         access: route.readOnly ? 'read' : 'write',
         command: input.verifiedControllerCommand,
       });
+      if (auth.launchIdentity) {
+        const process = controlled;
+        return createSubscriptionIdentityClient(
+          process.child,
+          auth.launchIdentity,
+          controllerClaimDigest(execution.claimToken),
+          process.confirmStopped,
+          { lifecycle, signal: execution.signal },
+        );
+      }
       return new CodexAppServerClient(controlled.child, { lifecycle });
     },
     emit: (event) => {
@@ -274,11 +295,16 @@ export async function createCodexNativeSeat(
     if (controlled) await controlled.confirmStopped();
     else if (input.createConversation) await input.testConfirmStopped?.();
   };
-  const conversation = input.createConversation?.(options) ?? new CodexConversation(options);
+  let conversation!: NativeCodexConversation;
   try {
+    conversation = input.createConversation?.(options) ?? new CodexConversation(options);
     await conversation.initialize();
   } catch (error) {
-    await closeAndConfirm(conversation);
+    if (conversation) await closeAndConfirm(conversation);
+    else if (controlled) {
+      controlled.child.kill();
+      await controlled.confirmStopped();
+    } else if (input.createConversation) await input.testConfirmStopped?.();
     throw error;
   }
   const providerThreadId = conversation.getThreadId();

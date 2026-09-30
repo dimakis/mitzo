@@ -345,12 +345,14 @@ import {
   REVIEWED_SYMPOSIUM_CODE_MODE_RUNTIME,
   REVIEWED_SYMPOSIUM_CODEX_01561_RUNTIME,
   REVIEWED_SYMPOSIUM_CODEX_01591_RUNTIME,
+  REVIEWED_SYMPOSIUM_CODEX_01591_IDENTITY_RUNTIME,
 } from '../symposium-owned-runtime-contract.js';
 
 it.each([
   REVIEWED_SYMPOSIUM_CODE_MODE_RUNTIME.build,
   REVIEWED_SYMPOSIUM_CODEX_01561_RUNTIME.build,
   REVIEWED_SYMPOSIUM_CODEX_01591_RUNTIME.build,
+  REVIEWED_SYMPOSIUM_CODEX_01591_IDENTITY_RUNTIME.build,
 ])('requires the exact code-mode host in reviewed image $image', (successor) => {
   const f = fixture();
   f.config.image = successor.image;
@@ -425,6 +427,31 @@ it.each([
   );
 });
 import { symposiumArtifactOwner } from '../symposium-artifact-owner.js';
+it('rejects mixing the identity bootstrap with a retained opaque-only image', () => {
+  const f = fixture();
+  const legacy = REVIEWED_SYMPOSIUM_CODEX_01591_RUNTIME.build;
+  const identity = REVIEWED_SYMPOSIUM_CODEX_01591_IDENTITY_RUNTIME.build;
+  for (const [selected, bootstrap] of [
+    [identity, legacy.nativeArtifacts['/usr/local/bin/symposium-subscription-app-server']],
+    [legacy, identity.nativeArtifacts['/usr/local/bin/symposium-subscription-app-server']],
+  ] as const) {
+    f.config.image = selected.image;
+    const attestation = {
+      ...f.attestation,
+      image: selected.image,
+      imageDigest: selected.imageDigest,
+      controllerSha256: selected.nativeArtifacts['/usr/bin/codex'],
+      nativeArtifacts: {
+        ...selected.nativeArtifacts,
+        '/usr/local/bin/symposium-subscription-app-server': bootstrap,
+      },
+    } as SymposiumProductionAttestation;
+    expect(() =>
+      verifySymposiumProductionGate(f.config, attestation, f.physical, f.invoke),
+    ).toThrow();
+  }
+  expect(f.invoke).not.toHaveBeenCalled();
+});
 const vertexReceipt = {
   principal: 'work@example.test',
   accountId: 'vertex-work',

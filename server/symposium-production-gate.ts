@@ -5,6 +5,7 @@ import {
   REVIEWED_SYMPOSIUM_CODE_MODE_RUNTIME,
   REVIEWED_SYMPOSIUM_CODEX_01561_RUNTIME,
   REVIEWED_SYMPOSIUM_CODEX_01591_RUNTIME,
+  REVIEWED_SYMPOSIUM_CODEX_01591_IDENTITY_RUNTIME,
   reviewedSymposiumOwnedRuntime,
 } from './symposium-owned-runtime-contract.js';
 import {
@@ -68,6 +69,7 @@ const claudeReviewed = REVIEWED_SYMPOSIUM_CLAUDE_RUNTIME.build;
 const codeModeReviewed = REVIEWED_SYMPOSIUM_CODE_MODE_RUNTIME.build;
 const codex01561Reviewed = REVIEWED_SYMPOSIUM_CODEX_01561_RUNTIME.build;
 const codex01591Reviewed = REVIEWED_SYMPOSIUM_CODEX_01591_RUNTIME.build;
+const codexIdentityReviewed = REVIEWED_SYMPOSIUM_CODEX_01591_IDENTITY_RUNTIME.build;
 const OwnedAttestation = LegacyAttestation.extend({
   contract: z.literal('openshell-v0.1-owned-native-seats'),
   cliVersion: z.literal(reviewed.version),
@@ -81,6 +83,7 @@ const OwnedAttestation = LegacyAttestation.extend({
     codeModeReviewed.image,
     codex01561Reviewed.image,
     codex01591Reviewed.image,
+    codexIdentityReviewed.image,
   ]),
   imageDigest: z.enum([
     reviewed.imageDigest,
@@ -88,6 +91,7 @@ const OwnedAttestation = LegacyAttestation.extend({
     codeModeReviewed.imageDigest,
     codex01561Reviewed.imageDigest,
     codex01591Reviewed.imageDigest,
+    codexIdentityReviewed.imageDigest,
   ]),
   controllerSha256: z.enum([
     reviewed.nativeArtifacts['/usr/bin/codex'],
@@ -126,9 +130,10 @@ const OwnedAttestation = LegacyAttestation.extend({
       '/usr/local/bin/symposium-claude-vertex': z
         .literal(claudeReviewed.nativeArtifacts['/usr/local/bin/symposium-claude-vertex'])
         .optional(),
-      '/usr/local/bin/symposium-subscription-app-server': z.literal(
+      '/usr/local/bin/symposium-subscription-app-server': z.enum([
         reviewed.nativeArtifacts['/usr/local/bin/symposium-subscription-app-server'],
-      ),
+        codexIdentityReviewed.nativeArtifacts['/usr/local/bin/symposium-subscription-app-server'],
+      ]),
     })
     .strict(),
   providerInstances: z

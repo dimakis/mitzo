@@ -178,11 +178,12 @@ export function createSymposiumSubscriptionHost(
       return {
         provider: proof.provider,
         account: proof.account,
+        launchIdentity: proof.launchIdentity,
         assertCurrent: proof.assertCurrent,
         invalidateCatalog: () => {
           proof.assertCurrent();
           const nextDefinition = { ...(definition as Record<string, unknown>) };
-          delete nextDefinition.nativeCatalogRevision;
+          nextDefinition.nativeCatalogStale = true;
           active = new AccountProfiles([...work, nextDefinition], { codexEnabled: true });
           definition = nextDefinition;
         },
@@ -193,6 +194,7 @@ export function createSymposiumSubscriptionHost(
             ...(definition as Record<string, unknown>),
             models: nextModels,
             nativeCatalogRevision: revision,
+            nativeCatalogStale: false,
           };
           const next = new AccountProfiles([...work, nextDefinition], { codexEnabled: true });
           const binding = next.resolve(options.accountId, nextModels[0].id);
@@ -218,6 +220,20 @@ export function createSymposiumSubscriptionHost(
         invalidate();
       }
       return active;
+    },
+    captureLaunchIdentity: (input: Parameters<VerifySymposiumSubscriptionAuth>[0]) => {
+      assertSelection(input);
+      service.assertPrivateAuth(input);
+      options.seatProof.assertCurrent(input);
+      const identity = service.captureLaunchIdentity(input);
+      return {
+        accountId: identity.accountId,
+        assertCurrent: () => {
+          assertSelection(input);
+          options.seatProof.assertCurrent(input);
+          identity.assertCurrent();
+        },
+      };
     },
     verifyPrivateAuth: async (input: Parameters<VerifySymposiumSubscriptionAuth>[0]) => {
       assertSelection(input);

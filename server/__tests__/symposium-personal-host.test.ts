@@ -32,11 +32,16 @@ vi.mock('../symposium-subscription-host.js', () => ({
         },
         invalidateCatalog: () => {
           const next = { ...(definition as Record<string, unknown>) };
-          delete next.nativeCatalogRevision;
+          next.nativeCatalogStale = true;
           definition = next;
         },
         publish: vi.fn((models, revision) => {
-          definition = { ...(definition as object), models, nativeCatalogRevision: revision };
+          definition = {
+            ...(definition as object),
+            models,
+            nativeCatalogRevision: revision,
+            nativeCatalogStale: false,
+          };
         }),
       })),
       assertPrivateAuth: vi.fn(),
@@ -235,11 +240,16 @@ it('keeps bootstrap and previously discovered catalogs stale after a failed refr
   await host.personalConnections.discoverModels(row.id, row.revision, () => {});
   expect(host.currentProfiles.catalog()[0].modelDiscovery.stale).toBe(false);
   succeed = false;
+  const authorized = host.currentProfiles.resolve(row.id, 'luna');
+  const models = host.currentProfiles.catalog()[0].models;
   const current = host.personalConnections.list()[0];
   const failed = await host.personalConnections.discoverModels(row.id, current.revision, () => {});
   expect(failed.status).toBe('failed');
   expect(host.personalConnections.list()[0].state).toBe('connected');
   expect(host.currentProfiles.catalog()[0].modelDiscovery.stale).toBe(true);
+  expect(host.currentProfiles.resolve(row.id, 'luna')).toEqual(authorized);
+  expect(host.currentProfiles.resume(authorized)).toEqual(authorized);
+  expect(host.currentProfiles.catalog()[0].models).toEqual(models);
 });
 it('retains recovery and excludes account when cleanup or receipt proof fails', async () => {
   const host = fixture(async () => ({

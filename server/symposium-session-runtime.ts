@@ -1,3 +1,4 @@
+import type { SubscriptionLaunchIdentity } from './symposium-subscription-identity.js';
 import type {
   SymposiumSeatPolicy,
   SymposiumSeatPolicySelector,
@@ -337,6 +338,9 @@ export interface SymposiumSharedSandboxOwnerDeps {
   verifyHostCapability?: () => SymposiumProviderCapability;
   verifiedSubscriptionControllerCommand?: readonly string[];
   verifySubscriptionPrivateAuth?: VerifySymposiumSubscriptionAuth;
+  captureSubscriptionLaunchIdentity?: (
+    input: Parameters<VerifySymposiumSubscriptionAuth>[0],
+  ) => SubscriptionLaunchIdentity;
   assertSubscriptionDispatch?: (input: Parameters<VerifySymposiumSubscriptionAuth>[0]) => void;
   managerFactory?: (config: BoundOpenShellRuntimeConfig) => {
     ensure(
@@ -1536,6 +1540,8 @@ export function createSymposiumSessionRuntime(deps: SymposiumSessionRuntimeDeps)
                       attemptRegistry: deps.attemptRegistry,
                       verifiedControllerCommand: deps.verifiedSubscriptionControllerCommand,
                       verifyPrivateAuth: deps.verifySubscriptionPrivateAuth!,
+                      workloadImage: deps.runtimeConfig.image,
+                      captureLaunchIdentity: deps.captureSubscriptionLaunchIdentity,
                       assertSubscriptionDispatch: deps.assertSubscriptionDispatch,
                     })
                   : createClaudeVertexSeat({
