@@ -3,6 +3,8 @@ import { promisify } from 'node:util';
 import { join } from 'node:path';
 import { mkdirSync } from 'node:fs';
 import { createHash } from 'node:crypto';
+import { GoogleWorkspaceManagement } from './google-workspace-management.js';
+import type { CommandRunner } from './connections-gateway.js';
 import { ConnectionStore } from './connections-store.js';
 import { ConnectionsService } from './connections-service.js';
 import { OpenShellConnectionGateway } from './connections-gateway.js';
@@ -29,6 +31,7 @@ export interface ConnectionsRuntime {
   gateway: string;
   workspace: string;
   legacyProviders: () => Promise<Array<{ name: string; type: string }>>;
+  googleWorkspace?: GoogleWorkspaceManagement;
 }
 let activeRuntime: ConnectionsRuntime | null = null;
 export function setConnectionsRuntime(runtime: ConnectionsRuntime | null) {
@@ -79,71 +82,69 @@ export function createConnectionsRuntime(options: {
         ...(options.gatewayInsecure ? ['--gateway-insecure'] : []),
       ]
     : ['--gateway', gatewayName];
-  const gateway = new OpenShellConnectionGateway(
-    async (args, run) => {
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), run.timeoutMs);
-      try {
-        const signal = AbortSignal.any([run.signal, controller.signal]);
-        const [command, ...rest] = args;
-        if (!command) throw new Error('Gateway command is required');
-        const pending = exec(options.cli, [command, ...gatewayArgs, ...rest], {
-          env: {
-            PATH: process.env.PATH ?? '',
-            HOME: process.env.HOME ?? '',
-            TMPDIR: process.env.TMPDIR ?? '',
-            LANG: process.env.LANG ?? '',
-            LC_ALL: process.env.LC_ALL ?? '',
-            ...run.env,
-          },
-          signal,
-          maxBuffer: 128 * 1024,
-        });
-        // openshell sandbox exec reads piped stdin to EOF before starting the
-        // remote command. execFile leaves it open unless we close it explicitly.
-        pending.child.stdin?.end();
-        const result = await pending;
-        return result.stdout;
-      } finally {
-        clearTimeout(timer);
-      }
-    },
-    {
-      workspace: options.workspace,
-      ...(options.profilePath ? { profilePath: options.profilePath } : {}),
-      probeImage: options.probeImage,
-      probePolicy: options.probePolicy,
-      githubProbePolicy: options.githubProbePolicy,
-      githubProfileFingerprint: options.githubProfileFingerprint,
-      customRestEnabled:
-        options.customRestEnabled ?? process.env.MITZO_CUSTOM_REST_PROVIDER_ENABLED === 'true',
-      publicDnsResolver:
-        (options.customRestEnabled ?? process.env.MITZO_CUSTOM_REST_PROVIDER_ENABLED === 'true')
-          ? (options.publicDnsResolver ??
-            (async (hostname, signal) => {
-              signal.throwIfAborted();
-              const { resolve4, resolve6 } = await import('node:dns/promises');
-              const resolve = async (lookup: () => Promise<string[]>) => {
-                try {
-                  return await lookup();
-                } catch (error) {
-                  const code =
-                    error && typeof error === 'object' && 'code' in error ? error.code : undefined;
-                  if (code === 'ENODATA' || code === 'ENOTFOUND') return [];
-                  throw new Error('Custom endpoint DNS resolution failed', { cause: error });
-                }
-              };
-              const [v4, v6] = await Promise.all([
-                resolve(() => resolve4(hostname)),
-                resolve(() => resolve6(hostname)),
-              ]);
-              signal.throwIfAborted();
-              return [...v4, ...v6];
-            }))
-          : undefined,
-      customProbePolicy: options.customProbePolicy,
-    },
-  );
+  const runGateway: CommandRunner = async (args, run) => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), run.timeoutMs);
+    try {
+      const signal = AbortSignal.any([run.signal, controller.signal]);
+      const [command, ...rest] = args;
+      if (!command) throw new Error('Gateway command is required');
+      const pending = exec(options.cli, [command, ...gatewayArgs, ...rest], {
+        env: {
+          PATH: process.env.PATH ?? '',
+          HOME: process.env.HOME ?? '',
+          TMPDIR: process.env.TMPDIR ?? '',
+          LANG: process.env.LANG ?? '',
+          LC_ALL: process.env.LC_ALL ?? '',
+          ...run.env,
+        },
+        signal,
+        maxBuffer: 128 * 1024,
+      });
+      // openshell sandbox exec reads piped stdin to EOF before starting the
+      // remote command. execFile leaves it open unless we close it explicitly.
+      pending.child.stdin?.end();
+      const result = await pending;
+      return result.stdout;
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+  const gateway = new OpenShellConnectionGateway(runGateway, {
+    workspace: options.workspace,
+    ...(options.profilePath ? { profilePath: options.profilePath } : {}),
+    probeImage: options.probeImage,
+    probePolicy: options.probePolicy,
+    githubProbePolicy: options.githubProbePolicy,
+    githubProfileFingerprint: options.githubProfileFingerprint,
+    customRestEnabled:
+      options.customRestEnabled ?? process.env.MITZO_CUSTOM_REST_PROVIDER_ENABLED === 'true',
+    publicDnsResolver:
+      (options.customRestEnabled ?? process.env.MITZO_CUSTOM_REST_PROVIDER_ENABLED === 'true')
+        ? (options.publicDnsResolver ??
+          (async (hostname, signal) => {
+            signal.throwIfAborted();
+            const { resolve4, resolve6 } = await import('node:dns/promises');
+            const resolve = async (lookup: () => Promise<string[]>) => {
+              try {
+                return await lookup();
+              } catch (error) {
+                const code =
+                  error && typeof error === 'object' && 'code' in error ? error.code : undefined;
+                if (code === 'ENODATA' || code === 'ENOTFOUND') return [];
+                throw new Error('Custom endpoint DNS resolution failed', { cause: error });
+              }
+            };
+            const [v4, v6] = await Promise.all([
+              resolve(() => resolve4(hostname)),
+              resolve(() => resolve6(hostname)),
+            ]);
+            signal.throwIfAborted();
+            return [...v4, ...v6];
+          }))
+        : undefined,
+    customProbePolicy: options.customProbePolicy,
+  });
   const service = new ConnectionsService(store, gateway, {
     gateway: gatewayBinding,
     workspace: options.workspace,
@@ -246,6 +247,42 @@ export function createConnectionsRuntime(options: {
     eligibleAccountIds: options.eligibleAccountIds,
     gateway: gatewayBinding,
     workspace: options.workspace,
+    ...(process.env.MITZO_GOOGLE_WORKSPACE_MANAGEMENT_ENABLED === 'true'
+      ? {
+          googleWorkspace: new GoogleWorkspaceManagement({
+            run: runGateway,
+            workspace: options.workspace,
+            exportCredentials: async (signal) => {
+              // This admin-only controller operation never mounts host credentials
+              // in a sandbox or forwards them to a model/browser.
+              try {
+                const pending = exec(
+                  process.env.MITZO_GWS_CLI ?? 'gws',
+                  ['auth', 'export', '--unmasked'],
+                  {
+                    env: {
+                      PATH: process.env.PATH ?? '',
+                      HOME: process.env.HOME ?? '',
+                      TMPDIR: process.env.TMPDIR ?? '',
+                    },
+                    signal,
+                    maxBuffer: 64 * 1024,
+                  },
+                );
+                pending.child.stdin?.end();
+                return (await pending).stdout;
+              } catch {
+                throw new Error('Local Google sign-in is unavailable');
+              }
+            },
+            request: async (url, init) => {
+              const response = await fetch(url, { ...init, redirect: 'error' });
+              if (!response.ok) throw new Error('Google authorization failed');
+              return response.json();
+            },
+          }),
+        }
+      : {}),
     legacyProviders: async () => {
       const configured = new Set(options.legacyProviders ?? []);
       if (!configured.size) return [];

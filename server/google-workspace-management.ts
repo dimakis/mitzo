@@ -143,6 +143,8 @@ export class GoogleWorkspaceManagement {
       return { credentials, email: identity.user.emailAddress };
     } catch (error) {
       if (error instanceof Error && error.message === 'Google scope mismatch') throw error;
+      // Raw OAuth/gws errors can contain credentials; do not retain their cause.
+      // eslint-disable-next-line preserve-caught-error
       throw new Error(
         'Google sign-in on the Mitzo computer needs attention. Reconnect its gws account and retry.',
       );
