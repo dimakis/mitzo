@@ -9,6 +9,136 @@ const scopes = [
   'https://www.googleapis.com/auth/drive',
   'https://www.googleapis.com/auth/calendar.readonly',
 ];
+// This safety contract mirrors the reviewed Google profile. Metadata and a
+// durable resource version may change; credential and network policy may not.
+const ReadonlyEndpoint = z
+  .object({
+    host: z.enum([
+      'www.googleapis.com',
+      'docs.googleapis.com',
+      'gmail.googleapis.com',
+      'sheets.googleapis.com',
+    ]),
+    port: z.literal(443),
+    protocol: z.literal('rest'),
+    access: z.literal('read-only'),
+    enforcement: z.literal('enforce'),
+    tls: z.literal('terminate'),
+  })
+  .strict();
+const SlidesRule = z.union([
+  z
+    .object({
+      allow: z
+        .object({ method: z.literal('GET'), path: z.literal('/v1/presentations/**') })
+        .strict(),
+    })
+    .strict(),
+  z
+    .object({
+      allow: z
+        .object({
+          method: z.literal('POST'),
+          path: z.enum(['/v1/presentations', '/v1/presentations/*:batchUpdate']),
+        })
+        .strict(),
+    })
+    .strict(),
+]);
+const ReviewedGoogleProfile = z
+  .object({
+    id: z.literal('mitzo-google-workspace-spike'),
+    resource_version: z.number().int().positive(),
+    display_name: z.string().min(1).max(1024),
+    description: z.string().min(1).max(4096),
+    category: z.literal('data'),
+    inference_capable: z.literal(false),
+    credentials: z
+      .array(
+        z
+          .object({
+            name: z.literal('access_token'),
+            description: z.string().min(1).max(4096),
+            env_vars: z.tuple([z.literal(credentialKey)]),
+            required: z.literal(true),
+            auth_style: z.literal('bearer'),
+            header_name: z.literal('authorization'),
+            query_param: z.literal('').nullable().optional(),
+            refresh: z
+              .object({
+                strategy: z.literal('oauth2_refresh_token'),
+                token_url: z.literal('https://oauth2.googleapis.com/token'),
+                scopes: z
+                  .array(
+                    z.enum([
+                      'https://www.googleapis.com/auth/drive.readonly',
+                      'https://www.googleapis.com/auth/documents.readonly',
+                      'https://www.googleapis.com/auth/calendar.readonly',
+                      'https://www.googleapis.com/auth/gmail.readonly',
+                      'https://www.googleapis.com/auth/spreadsheets.readonly',
+                      'https://www.googleapis.com/auth/presentations',
+                    ]),
+                  )
+                  .length(6)
+                  .refine((values) => new Set(values).size === 6),
+                refresh_before_seconds: z.literal(300),
+                max_lifetime_seconds: z.literal(3600),
+                material: z
+                  .array(
+                    z
+                      .object({
+                        name: z.enum(['client_id', 'client_secret', 'refresh_token']),
+                        description: z.string().min(1).max(4096),
+                        required: z.literal(true),
+                        secret: z.boolean(),
+                      })
+                      .strict(),
+                  )
+                  .length(3)
+                  .refine(
+                    (items) =>
+                      new Set(items.map((item) => item.name)).size === 3 &&
+                      items.every((item) => item.secret === (item.name !== 'client_id')),
+                  ),
+              })
+              .strict(),
+          })
+          .strict(),
+      )
+      .length(1),
+    endpoints: z
+      .array(
+        z.union([
+          ReadonlyEndpoint,
+          z
+            .object({
+              host: z.literal('slides.googleapis.com'),
+              port: z.literal(443),
+              protocol: z.literal('rest'),
+              enforcement: z.literal('enforce'),
+              tls: z.literal('terminate'),
+              rules: z
+                .array(SlidesRule)
+                .length(3)
+                .refine(
+                  (rules) =>
+                    new Set(rules.map((rule) => `${rule.allow.method}:${rule.allow.path}`)).size ===
+                    3,
+                ),
+            })
+            .strict(),
+        ]),
+      )
+      .length(5)
+      .refine((endpoints) => new Set(endpoints.map((endpoint) => endpoint.host)).size === 5),
+    binaries: z
+      .array(z.enum(['/usr/bin/gws', '/usr/bin/node', '/usr/bin/curl', '/usr/local/bin/curl']))
+      .length(4)
+      .refine((values) => new Set(values).size === 4),
+    source: z.string().max(256).optional(),
+    scope: z.string().max(256).optional(),
+  })
+  .strict();
 const Credentials = z.object({
   type: z.literal('authorized_user'),
   client_id: z.string().min(1).max(1024),
@@ -81,6 +211,17 @@ export class GoogleWorkspaceManagement {
       found.workspace !== (this.options.workspace ?? 'default')
     )
       throw new Error('Google provider is not configured');
+    try {
+      ReviewedGoogleProfile.parse(
+        JSON.parse(
+          await this.command(['provider', 'profile', 'export', found.type, '-o', 'json'], signal),
+        ),
+      );
+    } catch {
+      throw new Error(
+        'Effective Google provider differs from reviewed policy. Restore its reviewed profile and retry.',
+      );
+    }
     return found;
   }
   private async refreshCredential(signal: AbortSignal) {
@@ -99,28 +240,6 @@ export class GoogleWorkspaceManagement {
     try {
       const before = await this.verifyProvider(signal);
       const current = await this.refreshCredential(signal);
-      const profile = z
-        .object({
-          endpoints: z.array(
-            z.object({
-              host: z.string(),
-              rules: z
-                .array(z.object({ allow: z.object({ method: z.string(), path: z.string() }) }))
-                .optional(),
-            }),
-          ),
-        })
-        .parse(
-          JSON.parse(
-            await this.command(
-              ['provider', 'profile', 'export', 'mitzo-google-workspace-spike', '-o', 'json'],
-              signal,
-            ),
-          ),
-        );
-      const slides = profile.endpoints.find(
-        (endpoint) => endpoint.host === 'slides.googleapis.com',
-      );
       // Refresh success is recorded before installation. Require a stable
       // provider census and matching installed expiry before advertising readiness.
       const after = await this.verifyProvider(signal);
@@ -151,9 +270,8 @@ export class GoogleWorkspaceManagement {
               ? 'ready'
               : 'unavailable',
         expiresAt: current?.expires_at_ms ?? null,
-        slidesEditing: ['/v1/presentations', '/v1/presentations/*:batchUpdate'].every((path) =>
-          slides?.rules?.some((rule) => rule.allow.method === 'POST' && rule.allow.path === path),
-        ),
+        // Both observations verified all read boundaries and bounded Slides rules.
+        slidesEditing: true,
       };
     } catch {
       return { health: 'unavailable', expiresAt: null, slidesEditing: false };
@@ -201,6 +319,7 @@ export class GoogleWorkspaceManagement {
     }
   }
   async preview(signal: AbortSignal) {
+    await this.verifyProvider(signal);
     const { email } = await this.hostGrant(signal);
     return { email };
   }
@@ -208,11 +327,12 @@ export class GoogleWorkspaceManagement {
     if (this.busy) throw new Error('A Google update is already running');
     this.busy = true;
     try {
+      await this.verifyProvider(signal);
       const { credentials, email } = await this.hostGrant(signal);
       if (email !== expectedEmail)
         throw new Error('Google account changed. Review the account and retry.');
-      await this.verifyProvider(signal);
       const previousRefreshAt = (await this.refreshCredential(signal))?.last_refresh_at_ms ?? 0;
+      await this.verifyProvider(signal);
       this.pendingRefreshAt = Math.max(this.pendingRefreshAt ?? 0, previousRefreshAt);
       try {
         await this.command(
@@ -242,6 +362,13 @@ export class GoogleWorkspaceManagement {
             MITZO_GWS_REFRESH_TOKEN: credentials.refresh_token,
           },
         );
+      } catch {
+        throw new Error(
+          'Google recovery could not be confirmed. Check its status before retrying.',
+        );
+      }
+      await this.verifyProvider(signal);
+      try {
         await this.command(
           ['provider', 'refresh', 'rotate', provider, '--credential-key', credentialKey],
           signal,
@@ -262,6 +389,7 @@ export class GoogleWorkspaceManagement {
     try {
       await this.verifyProvider(signal);
       const previousRefreshAt = (await this.refreshCredential(signal))?.last_refresh_at_ms ?? 0;
+      await this.verifyProvider(signal);
       this.pendingRefreshAt = Math.max(this.pendingRefreshAt ?? 0, previousRefreshAt);
       try {
         await this.command(
