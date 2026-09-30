@@ -119,6 +119,44 @@ describe('Google Workspace management', () => {
       expect(result.health).toBe('unavailable');
     },
   );
+  it.each(['rotate', 'reconnect', 'failed_rotation'])(
+    'keeps the refresh fence across status polls after %s',
+    async (action) => {
+      const expiry = Date.now() + 3600000;
+      const { service, run } = fixture('refreshed', expiry);
+      const original = run.getMockImplementation()!;
+      let installedNew = false;
+      const previousRefreshAt = Date.now() - 1000;
+      run.mockImplementation(async (args, options) => {
+        if (args[2] === 'rotate' && action === 'failed_rotation') throw new Error('Gateway failed');
+        if (args[2] === 'status')
+          return JSON.stringify({
+            credentials: [
+              {
+                ...refreshRow('refreshed', expiry),
+                last_refresh_at_ms: previousRefreshAt + (installedNew ? 500 : 0),
+              },
+            ],
+          });
+        return original(args, options);
+      });
+      const signal = AbortSignal.timeout(1000);
+      if (action === 'failed_rotation')
+        await expect(service.rotate(signal)).rejects.toThrow('could not be confirmed');
+      else {
+        const result =
+          action === 'rotate'
+            ? await service.rotate(signal)
+            : await service.reconnect('user@example.com', signal);
+        expect(result.health).toBe('unavailable');
+      }
+      expect((await service.status(signal)).health).toBe('unavailable');
+      expect((await service.status(signal)).health).toBe('unavailable');
+      installedNew = true;
+      expect((await service.status(signal)).health).toBe('ready');
+      expect((await service.status(signal)).health).toBe('ready');
+    },
+  );
   it('confirms rotation only once a newer refresh is installed', async () => {
     const expiry = Date.now() + 3600000;
     const { service, run } = fixture('refreshed', expiry);

@@ -49,6 +49,8 @@ export interface GoogleWorkspaceHealth {
 }
 export class GoogleWorkspaceManagement {
   private busy = false;
+  // Retain unconfirmed updates across requests, including after command failure.
+  private pendingRefreshAt: number | undefined;
   constructor(
     private readonly options: {
       run: CommandRunner;
@@ -90,10 +92,7 @@ export class GoogleWorkspaceManagement {
   async status(signal: AbortSignal): Promise<GoogleWorkspaceHealth> {
     return this.observeStatus(signal);
   }
-  private async observeStatus(
-    signal: AbortSignal,
-    previousRefreshAt?: number,
-  ): Promise<GoogleWorkspaceHealth> {
+  private async observeStatus(signal: AbortSignal): Promise<GoogleWorkspaceHealth> {
     try {
       const before = await this.verifyProvider(signal);
       const current = await this.refreshCredential(signal);
@@ -130,13 +129,15 @@ export class GoogleWorkspaceManagement {
         current.refresh_generation_id.length > 0 &&
         current.last_refresh_at_ms > 0 &&
         current.last_refresh_at_ms <= now &&
-        (previousRefreshAt === undefined || current.last_refresh_at_ms > previousRefreshAt) &&
+        (this.pendingRefreshAt === undefined ||
+          current.last_refresh_at_ms > this.pendingRefreshAt) &&
         before.id === after.id &&
         before.resource_version === after.resource_version &&
         before.credential_expires_at_ms[credentialKey] ===
           after.credential_expires_at_ms[credentialKey] &&
         after.credential_keys.includes(credentialKey) &&
         after.credential_expires_at_ms[credentialKey] === current.expires_at_ms;
+      if (installed && current.expires_at_ms > now) this.pendingRefreshAt = undefined;
       return {
         health:
           !current ||
@@ -209,6 +210,7 @@ export class GoogleWorkspaceManagement {
         throw new Error('Google account changed. Review the account and retry.');
       await this.verifyProvider(signal);
       const previousRefreshAt = (await this.refreshCredential(signal))?.last_refresh_at_ms ?? 0;
+      this.pendingRefreshAt = Math.max(this.pendingRefreshAt ?? 0, previousRefreshAt);
       try {
         await this.command(
           [
@@ -246,7 +248,7 @@ export class GoogleWorkspaceManagement {
           'Google recovery could not be confirmed. Check its status before retrying.',
         );
       }
-      return this.observeStatus(signal, previousRefreshAt);
+      return this.observeStatus(signal);
     } finally {
       this.busy = false;
     }
@@ -257,6 +259,7 @@ export class GoogleWorkspaceManagement {
     try {
       await this.verifyProvider(signal);
       const previousRefreshAt = (await this.refreshCredential(signal))?.last_refresh_at_ms ?? 0;
+      this.pendingRefreshAt = Math.max(this.pendingRefreshAt ?? 0, previousRefreshAt);
       try {
         await this.command(
           ['provider', 'refresh', 'rotate', provider, '--credential-key', credentialKey],
@@ -265,7 +268,7 @@ export class GoogleWorkspaceManagement {
       } catch {
         throw new Error('Google refresh could not be confirmed. Check its status before retrying.');
       }
-      return this.observeStatus(signal, previousRefreshAt);
+      return this.observeStatus(signal);
     } finally {
       this.busy = false;
     }
