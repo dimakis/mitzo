@@ -288,12 +288,10 @@ export function createConnectionsRouter(options: {
                   ),
           );
         } catch {
-          return res
-            .status(422)
-            .json({
-              error:
-                'Google recovery could not be confirmed. Check the Google sign-in on the Mitzo computer and retry.',
-            });
+          return res.status(422).json({
+            error:
+              'Google recovery could not be confirmed. Check the Google sign-in on the Mitzo computer and retry.',
+          });
         }
       },
     );
