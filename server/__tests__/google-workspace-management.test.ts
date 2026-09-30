@@ -11,7 +11,7 @@ const scopes = [
   'https://www.googleapis.com/auth/drive',
   'https://www.googleapis.com/auth/calendar.readonly',
 ];
-function fixture(state = 'refreshed', expires = Date.now() + 3600000) {
+function fixture(state = 'refreshed', expires = Date.now() + 3600000, allowUpdates = true) {
   const run = vi.fn(
     async (
       args: readonly string[],
@@ -24,7 +24,12 @@ function fixture(state = 'refreshed', expires = Date.now() + 3600000) {
           endpoints: [
             {
               host: 'slides.googleapis.com',
-              rules: [{ allow: { method: 'POST', path: '/v1/presentations' } }],
+              rules: [
+                { allow: { method: 'POST', path: '/v1/presentations' } },
+                ...(allowUpdates
+                  ? [{ allow: { method: 'POST', path: '/v1/presentations/*:batchUpdate' } }]
+                  : []),
+              ],
             },
           ],
         });
@@ -47,6 +52,10 @@ function fixture(state = 'refreshed', expires = Date.now() + 3600000) {
   return { service, run, request };
 }
 describe('Google Workspace management', () => {
+  it('does not advertise editing when only blank presentation creation is allowed', async () => {
+    const { service } = fixture('refreshed', Date.now() + 3600000, false);
+    expect((await service.status(AbortSignal.timeout(1000))).slidesEditing).toBe(false);
+  });
   it.each([
     ['reauthorization_required', Date.now() + 3600000],
     ['refreshed', Date.now() - 1],

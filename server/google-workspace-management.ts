@@ -100,10 +100,9 @@ export class GoogleWorkspaceManagement {
               ? 'ready'
               : 'unavailable',
         expiresAt: current?.expires_at_ms ?? null,
-        slidesEditing:
-          slides?.rules?.some(
-            (rule) => rule.allow.method === 'POST' && rule.allow.path === '/v1/presentations',
-          ) ?? false,
+        slidesEditing: ['/v1/presentations', '/v1/presentations/*:batchUpdate'].every((path) =>
+          slides?.rules?.some((rule) => rule.allow.method === 'POST' && rule.allow.path === path),
+        ),
       };
     } catch {
       return { health: 'unavailable', expiresAt: null, slidesEditing: false };
