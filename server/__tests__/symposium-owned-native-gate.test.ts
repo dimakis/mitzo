@@ -344,85 +344,86 @@ import {
   REVIEWED_SYMPOSIUM_CLAUDE_RUNTIME,
   REVIEWED_SYMPOSIUM_CODE_MODE_RUNTIME,
   REVIEWED_SYMPOSIUM_CODEX_01561_RUNTIME,
+  REVIEWED_SYMPOSIUM_CODEX_01591_RUNTIME,
 } from '../symposium-owned-runtime-contract.js';
 
-it.each([REVIEWED_SYMPOSIUM_CODE_MODE_RUNTIME.build, REVIEWED_SYMPOSIUM_CODEX_01561_RUNTIME.build])(
-  'requires the exact code-mode host in reviewed image $image',
-  (successor) => {
-    const f = fixture();
-    f.config.image = successor.image;
-    const attestation = {
-      ...f.attestation,
-      image: successor.image,
-      imageDigest: successor.imageDigest,
-      controllerSha256: successor.nativeArtifacts['/usr/bin/codex'],
-      nativeArtifacts: { ...successor.nativeArtifacts },
-    } as SymposiumProductionAttestation;
-    expect(
-      verifySymposiumProductionGate(f.config, attestation, f.physical, f.invoke).readOnlyEnforced,
-    ).toBe(true);
-    expect(f.physical.verifyNativeArtifacts).toHaveBeenCalledWith(
-      successor.image,
-      successor.imageDigest,
-      successor.nativeArtifacts,
-    );
-    for (const artifacts of [
-      { ...successor.nativeArtifacts, '/usr/bin/codex-code-mode-host': '0'.repeat(64) },
-      Object.fromEntries(
-        Object.entries(successor.nativeArtifacts).filter(
-          ([path]) => path !== '/usr/bin/codex-code-mode-host',
-        ),
+it.each([
+  REVIEWED_SYMPOSIUM_CODE_MODE_RUNTIME.build,
+  REVIEWED_SYMPOSIUM_CODEX_01561_RUNTIME.build,
+  REVIEWED_SYMPOSIUM_CODEX_01591_RUNTIME.build,
+])('requires the exact code-mode host in reviewed image $image', (successor) => {
+  const f = fixture();
+  f.config.image = successor.image;
+  const attestation = {
+    ...f.attestation,
+    image: successor.image,
+    imageDigest: successor.imageDigest,
+    controllerSha256: successor.nativeArtifacts['/usr/bin/codex'],
+    nativeArtifacts: { ...successor.nativeArtifacts },
+  } as SymposiumProductionAttestation;
+  expect(
+    verifySymposiumProductionGate(f.config, attestation, f.physical, f.invoke).readOnlyEnforced,
+  ).toBe(true);
+  expect(f.physical.verifyNativeArtifacts).toHaveBeenCalledWith(
+    successor.image,
+    successor.imageDigest,
+    successor.nativeArtifacts,
+  );
+  for (const artifacts of [
+    { ...successor.nativeArtifacts, '/usr/bin/codex-code-mode-host': '0'.repeat(64) },
+    Object.fromEntries(
+      Object.entries(successor.nativeArtifacts).filter(
+        ([path]) => path !== '/usr/bin/codex-code-mode-host',
       ),
-    ]) {
-      expect(() =>
-        verifySymposiumProductionGate(
-          f.config,
-          { ...attestation, nativeArtifacts: artifacts } as SymposiumProductionAttestation,
-          f.physical,
-          f.invoke,
-        ),
-      ).toThrow();
-    }
+    ),
+  ]) {
     expect(() =>
       verifySymposiumProductionGate(
         f.config,
-        {
-          ...attestation,
-          controllerSha256:
-            REVIEWED_SYMPOSIUM_CLAUDE_RUNTIME.build.nativeArtifacts['/usr/bin/codex'],
-        },
+        { ...attestation, nativeArtifacts: artifacts } as SymposiumProductionAttestation,
         f.physical,
         f.invoke,
       ),
     ).toThrow();
-    const other =
-      successor.image === REVIEWED_SYMPOSIUM_CODE_MODE_RUNTIME.build.image
-        ? REVIEWED_SYMPOSIUM_CODEX_01561_RUNTIME.build
-        : REVIEWED_SYMPOSIUM_CODE_MODE_RUNTIME.build;
-    expect(() =>
-      verifySymposiumProductionGate(
-        f.config,
-        {
-          ...attestation,
-          nativeArtifacts: other.nativeArtifacts,
-        } as SymposiumProductionAttestation,
-        f.physical,
-        f.invoke,
-      ),
-    ).toThrow();
-    expect(f.physical.verifyNativeArtifacts).toHaveBeenCalledWith(
-      build.image,
-      build.imageDigest,
-      build.nativeArtifacts,
-    );
-    vi.mocked(f.physical.verifyNativeArtifacts!).mockImplementation((image) => {
-      if (image === build.image) throw new Error('Helper image unavailable');
-    });
-    expect(() =>
-      verifySymposiumProductionGate(f.config, attestation, f.physical, f.invoke),
-    ).toThrow('Helper image unavailable');
-  },
-);
+  }
+  expect(() =>
+    verifySymposiumProductionGate(
+      f.config,
+      {
+        ...attestation,
+        controllerSha256: REVIEWED_SYMPOSIUM_CLAUDE_RUNTIME.build.nativeArtifacts['/usr/bin/codex'],
+      },
+      f.physical,
+      f.invoke,
+    ),
+  ).toThrow();
+  const other =
+    successor.image === REVIEWED_SYMPOSIUM_CODE_MODE_RUNTIME.build.image
+      ? REVIEWED_SYMPOSIUM_CODEX_01561_RUNTIME.build
+      : REVIEWED_SYMPOSIUM_CODE_MODE_RUNTIME.build;
+  expect(() =>
+    verifySymposiumProductionGate(
+      f.config,
+      {
+        ...attestation,
+        nativeArtifacts: other.nativeArtifacts,
+      } as SymposiumProductionAttestation,
+      f.physical,
+      f.invoke,
+    ),
+  ).toThrow();
+  expect(f.physical.verifyNativeArtifacts).toHaveBeenCalledWith(
+    build.image,
+    build.imageDigest,
+    build.nativeArtifacts,
+  );
+  vi.mocked(f.physical.verifyNativeArtifacts!).mockImplementation((image) => {
+    if (image === build.image) throw new Error('Helper image unavailable');
+  });
+  expect(() => verifySymposiumProductionGate(f.config, attestation, f.physical, f.invoke)).toThrow(
+    'Helper image unavailable',
+  );
+});
 import { symposiumArtifactOwner } from '../symposium-artifact-owner.js';
 const vertexReceipt = {
   principal: 'work@example.test',

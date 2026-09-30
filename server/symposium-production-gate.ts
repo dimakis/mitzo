@@ -4,6 +4,7 @@ import {
   REVIEWED_SYMPOSIUM_CLAUDE_RUNTIME,
   REVIEWED_SYMPOSIUM_CODE_MODE_RUNTIME,
   REVIEWED_SYMPOSIUM_CODEX_01561_RUNTIME,
+  REVIEWED_SYMPOSIUM_CODEX_01591_RUNTIME,
   reviewedSymposiumOwnedRuntime,
 } from './symposium-owned-runtime-contract.js';
 import {
@@ -66,6 +67,7 @@ const reviewed = TESTED_SYMPOSIUM_NATIVE_BUILD;
 const claudeReviewed = REVIEWED_SYMPOSIUM_CLAUDE_RUNTIME.build;
 const codeModeReviewed = REVIEWED_SYMPOSIUM_CODE_MODE_RUNTIME.build;
 const codex01561Reviewed = REVIEWED_SYMPOSIUM_CODEX_01561_RUNTIME.build;
+const codex01591Reviewed = REVIEWED_SYMPOSIUM_CODEX_01591_RUNTIME.build;
 const OwnedAttestation = LegacyAttestation.extend({
   contract: z.literal('openshell-v0.1-owned-native-seats'),
   cliVersion: z.literal(reviewed.version),
@@ -78,17 +80,20 @@ const OwnedAttestation = LegacyAttestation.extend({
     claudeReviewed.image,
     codeModeReviewed.image,
     codex01561Reviewed.image,
+    codex01591Reviewed.image,
   ]),
   imageDigest: z.enum([
     reviewed.imageDigest,
     claudeReviewed.imageDigest,
     codeModeReviewed.imageDigest,
     codex01561Reviewed.imageDigest,
+    codex01591Reviewed.imageDigest,
   ]),
   controllerSha256: z.enum([
     reviewed.nativeArtifacts['/usr/bin/codex'],
     codeModeReviewed.nativeArtifacts['/usr/bin/codex'],
     codex01561Reviewed.nativeArtifacts['/usr/bin/codex'],
+    codex01591Reviewed.nativeArtifacts['/usr/bin/codex'],
   ]),
   sandboxRuntimeImage: z.literal(reviewed.sandboxRuntimeImage),
   supervisorImage: z.literal(reviewed.supervisorImage),
@@ -98,11 +103,13 @@ const OwnedAttestation = LegacyAttestation.extend({
         reviewed.nativeArtifacts['/usr/bin/codex'],
         codeModeReviewed.nativeArtifacts['/usr/bin/codex'],
         codex01561Reviewed.nativeArtifacts['/usr/bin/codex'],
+        codex01591Reviewed.nativeArtifacts['/usr/bin/codex'],
       ]),
       '/usr/bin/codex-code-mode-host': z
         .enum([
           codeModeReviewed.nativeArtifacts['/usr/bin/codex-code-mode-host'],
           codex01561Reviewed.nativeArtifacts['/usr/bin/codex-code-mode-host'],
+          codex01591Reviewed.nativeArtifacts['/usr/bin/codex-code-mode-host'],
         ])
         .optional(),
       '/usr/local/bin/symposium-attempt-controller': z.literal(

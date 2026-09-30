@@ -81,6 +81,21 @@ export const REVIEWED_SYMPOSIUM_CODEX_01561_RUNTIME = {
     },
   },
 } as const;
+/** Measured Codex 0.159.1 successor with Luna 6 and Sol 6.1 catalog support. */
+export const REVIEWED_SYMPOSIUM_CODEX_01591_RUNTIME = {
+  ...REVIEWED_SYMPOSIUM_CODEX_01561_RUNTIME,
+  build: {
+    ...REVIEWED_SYMPOSIUM_CODEX_01561_RUNTIME.build,
+    image: 'sha256:8d228fc4836797a00e09b48166cbeb35e0847aba76b5ef9ff796e0d1c9ae081a',
+    imageDigest: '19f5e8c3c4eb660a94cd154740ceda3e05abea86b4107a62540a3daadf08dbff',
+    nativeArtifacts: {
+      ...REVIEWED_SYMPOSIUM_CODEX_01561_RUNTIME.build.nativeArtifacts,
+      '/usr/bin/codex': '22c787768933ff4d97e62e2d4613e1671e18b6a2cc999f0666be544acecffa45',
+      '/usr/bin/codex-code-mode-host':
+        'd2f036fd6adc398a1f87a2458c3726558c2eb5660e73dc2b4b4a6b25241c6178',
+    },
+  },
+} as const;
 export function reviewedSymposiumOwnedRuntime(image: string) {
   if (image === REVIEWED_SYMPOSIUM_OWNED_RUNTIME.build.image)
     return REVIEWED_SYMPOSIUM_OWNED_RUNTIME;
@@ -90,5 +105,7 @@ export function reviewedSymposiumOwnedRuntime(image: string) {
     return REVIEWED_SYMPOSIUM_CODE_MODE_RUNTIME;
   if (image === REVIEWED_SYMPOSIUM_CODEX_01561_RUNTIME.build.image)
     return REVIEWED_SYMPOSIUM_CODEX_01561_RUNTIME;
+  if (image === REVIEWED_SYMPOSIUM_CODEX_01591_RUNTIME.build.image)
+    return REVIEWED_SYMPOSIUM_CODEX_01591_RUNTIME;
   throw new Error('Artifact workload image identity is not reviewed');
 }
