@@ -20,6 +20,9 @@ const Token = z.object({
   scope: z.string(),
   expires_in: z.number().int().positive(),
 });
+// Primary Connections gateway JSON contract, verified on the production Mitzo stack.
+// The upstream CLI used by owned Vertex gateways has a separate contract.
+// See docs/google-workspace-cli-contract.md and openshell-runtime.ts.
 const Provider = z.object({
   id: z.string().min(1),
   name: z.string(),
