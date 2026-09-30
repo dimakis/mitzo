@@ -317,6 +317,93 @@ function validateSeedContents(seedBaseline, seedPath) {
   }
 }
 
+// Keep these semantics identical to target_environment in the trusted builder
+// helper. Parity tests exercise both implementations; runtime admission parses
+// only data and never executes Python or code supplied by a publication.
+export function validateRuntimeMarkerEnvironment(encoded, targetPlatform) {
+  let environment;
+  try {
+    invariant(typeof encoded === 'string', 'marker environment must be base64');
+    const bytes = Buffer.from(encoded, 'base64');
+    invariant(bytes.toString('base64') === encoded, 'marker environment base64 is not canonical');
+    environment = JSON.parse(
+      new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes),
+    );
+  } catch {
+    throw new Error(
+      'stack lock target marker environment must be canonical base64 containing valid UTF-8 JSON; regenerate it from the pinned runtime image',
+    );
+  }
+  const keys = [
+    'implementation_name',
+    'implementation_version',
+    'os_name',
+    'platform_machine',
+    'platform_release',
+    'platform_system',
+    'platform_version',
+    'platform_python_implementation',
+    'python_full_version',
+    'python_version',
+    'sys_platform',
+  ];
+  invariant(
+    environment &&
+      typeof environment === 'object' &&
+      !Array.isArray(environment) &&
+      Object.keys(environment).length === keys.length &&
+      keys.every((key) => Object.hasOwn(environment, key) && typeof environment[key] === 'string'),
+    'stack lock target marker environment requires exactly the complete string-valued marker keys; regenerate it from the pinned runtime image',
+  );
+  invariant(
+    typeof targetPlatform === 'string' && /^[a-z0-9]+\/[a-z0-9][a-z0-9._-]*$/.test(targetPlatform),
+    'stack lock target marker environment requires an explicit target platform',
+  );
+  const [operatingSystem, architecture] = targetPlatform.split('/');
+  const system =
+    new Map([
+      ['linux', 'Linux'],
+      ['darwin', 'Darwin'],
+      ['win32', 'Windows'],
+    ]).get(operatingSystem) ?? operatingSystem;
+  const machine =
+    new Map([
+      ['amd64', 'x86_64'],
+      ['arm64', 'aarch64'],
+    ]).get(architecture) ?? architecture;
+  invariant(
+    environment.sys_platform === operatingSystem &&
+      environment.os_name === (operatingSystem === 'win32' ? 'nt' : 'posix') &&
+      environment.platform_system === system &&
+      environment.platform_machine === machine,
+    'stack lock target marker environment does not match the target platform; regenerate it from the pinned runtime image',
+  );
+  const version =
+    /^([0-9]+)\.([0-9]+)\.([0-9]+)(?:(?:a|b|rc)[0-9]+)?(?:\.post[0-9]+)?(?:\.dev[0-9]+)?$/;
+  const pythonVersion = version.exec(environment.python_full_version);
+  invariant(
+    pythonVersion &&
+      environment.python_version === `${pythonVersion[1]}.${pythonVersion[2]}` &&
+      version.test(environment.implementation_version),
+    'stack lock target marker environment contains invalid or incoherent Python versions; regenerate it from the pinned runtime image',
+  );
+  const implementation = new Map([
+    ['cpython', 'CPython'],
+    ['pypy', 'PyPy'],
+    ['jython', 'Jython'],
+    ['ironpython', 'IronPython'],
+  ]).get(environment.implementation_name);
+  invariant(
+    /^[a-z][a-z0-9_]*$/.test(environment.implementation_name) &&
+      environment.platform_python_implementation.length > 0 &&
+      (!implementation || implementation === environment.platform_python_implementation) &&
+      (environment.implementation_name !== 'cpython' ||
+        environment.implementation_version === environment.python_full_version),
+    'stack lock target marker environment contains an incoherent Python implementation; regenerate it from the pinned runtime image',
+  );
+  return environment;
+}
+
 export function validateSeedBaseline(seedBaseline, manifest, seedPath) {
   invariant(
     seedBaseline && typeof seedBaseline === 'object' && !Array.isArray(seedBaseline),
@@ -381,11 +468,11 @@ export function validateSeedBaseline(seedBaseline, manifest, seedPath) {
         /^[a-f0-9]{64}$/.test(manifest.runtime.dependencyProjectionSha256),
       'stack lock runtime dependency projection is invalid or missing',
     );
-    invariant(
-      typeof manifest.runtime?.targetMarkerEnvironmentB64 === 'string' &&
-        /^[A-Za-z0-9+/]+={0,2}$/.test(manifest.runtime.targetMarkerEnvironmentB64),
-      'stack lock target marker environment is invalid or missing',
+    validateRuntimeMarkerEnvironment(
+      manifest.runtime?.targetMarkerEnvironmentB64,
+      manifest.runtime?.targetPlatform,
     );
+
     invariant(
       seedBaseline.runtimeDependencyProjectionSha256 ===
         manifest.runtime.dependencyProjectionSha256,

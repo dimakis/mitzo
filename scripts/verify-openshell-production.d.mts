@@ -33,3 +33,8 @@ export function validateSeedBaseline(
   manifest: Record<string, unknown>,
   seedPath?: string,
 ): void;
+
+export function validateRuntimeMarkerEnvironment(
+  encoded: unknown,
+  targetPlatform: unknown,
+): Record<string, string>;

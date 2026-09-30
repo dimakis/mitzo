@@ -45,7 +45,22 @@ const stack = {
   runtime: {
     mgmtSourceCommit: 'a'.repeat(40),
     dependencyProjectionSha256: 'b'.repeat(64),
-    targetMarkerEnvironmentB64: 'e30=',
+    targetPlatform: 'linux/amd64',
+    targetMarkerEnvironmentB64: Buffer.from(
+      JSON.stringify({
+        implementation_name: 'cpython',
+        implementation_version: '3.11.9',
+        os_name: 'posix',
+        platform_machine: 'x86_64',
+        platform_release: 'fixture',
+        platform_system: 'Linux',
+        platform_version: 'fixture',
+        platform_python_implementation: 'CPython',
+        python_full_version: '3.11.9',
+        python_version: '3.11',
+        sys_platform: 'linux',
+      }),
+    ).toString('base64'),
     knowledgeSchemaVersion: 1,
     knowledgeCompilerSha256: 'c'.repeat(64),
     knowledgeRecipeSha256: 'd'.repeat(64),

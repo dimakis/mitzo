@@ -63,19 +63,33 @@ def target_environment(encoded_environment, target_platform, extra=""):
     markers.  Never fill omitted fields from the host running this helper.
     """
     try:
-        environment = json.loads(base64.b64decode(encoded_environment, validate=True))
+        raw = base64.b64decode(encoded_environment, validate=True)
+        if base64.b64encode(raw).decode("ascii") != encoded_environment:
+            raise ValueError("noncanonical base64")
+        environment = json.loads(raw.decode("utf-8"))
     except Exception as error:
-        raise SystemExit("resolution contract requires a valid target marker environment") from error
+        raise SystemExit("resolution contract requires a canonical base64 UTF-8 JSON target marker environment") from error
     if not isinstance(environment, dict) or set(environment) != MARKER_ENVIRONMENT_KEYS or not all(
         isinstance(value, str) for value in environment.values()
     ):
         raise SystemExit("resolution contract requires a complete target marker environment")
+    if not isinstance(target_platform, str) or not re.fullmatch(r"[a-z0-9]+/[a-z0-9][a-z0-9._-]*", target_platform):
+        raise SystemExit("target marker environment requires an explicit target platform")
     operating_system, architecture = target_platform.split("/", 1)
     expected_system = {"linux": "Linux", "darwin": "Darwin", "win32": "Windows"}.get(operating_system, operating_system)
     expected_machine = {"amd64": "x86_64", "arm64": "aarch64"}.get(architecture, architecture)
     expected_os_name = "nt" if operating_system == "win32" else "posix"
     if environment["sys_platform"] != operating_system or environment["os_name"] != expected_os_name or environment["platform_system"] != expected_system or environment["platform_machine"] != expected_machine:
         raise SystemExit("target marker environment does not match target platform")
+    # Admission in verify-openshell-production.mjs mirrors this data-only
+    # contract; cross-language parity tests prevent the two lanes drifting.
+    version = r"([0-9]+)\.([0-9]+)\.([0-9]+)(?:(?:a|b|rc)[0-9]+)?(?:\.post[0-9]+)?(?:\.dev[0-9]+)?"
+    python_version = re.fullmatch(version, environment["python_full_version"])
+    if not python_version or environment["python_version"] != f"{python_version[1]}.{python_version[2]}" or not re.fullmatch(version, environment["implementation_version"]):
+        raise SystemExit("target marker environment contains invalid or incoherent Python versions")
+    implementation = {"cpython": "CPython", "pypy": "PyPy", "jython": "Jython", "ironpython": "IronPython"}.get(environment["implementation_name"])
+    if not re.fullmatch(r"[a-z][a-z0-9_]*", environment["implementation_name"]) or not environment["platform_python_implementation"] or (implementation and implementation != environment["platform_python_implementation"]) or (environment["implementation_name"] == "cpython" and environment["implementation_version"] != environment["python_full_version"]):
+        raise SystemExit("target marker environment contains an incoherent Python implementation")
     return environment | {"extra": extra}
 
 
