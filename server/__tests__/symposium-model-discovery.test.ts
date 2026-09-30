@@ -86,7 +86,7 @@ it.each(['timeout', 'connection', 'protocol', 'rpc-rejection', 'cleanup-uncertai
     vi.useFakeTimers();
     try {
       const f = fixture();
-      const record = vi.fn(async () => {});
+      const record = vi.fn<NonNullable<DiscoveryOperations['recordDiagnostic']>>(async () => {});
       const stop = vi.fn(async () => {
         if (failure === 'cleanup-uncertain') throw new Error('PRIVATE cleanup token');
       });
@@ -165,7 +165,7 @@ it.each([
   ['private-account-ID private-token', 'unknown'],
 ])('persists only bounded native account/read diagnostic for %s', async (message, category) => {
   const f = fixture();
-  const record = vi.fn(async () => {});
+  const record = vi.fn<NonNullable<DiscoveryOperations['recordDiagnostic']>>(async () => {});
   f.operations.recordDiagnostic = record;
   f.operations.openClient = async () => {
     const child = Object.assign(new EventEmitter(), {
