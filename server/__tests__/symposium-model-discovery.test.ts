@@ -1,7 +1,9 @@
 import { DiscoveryCommandFailure } from '../symposium-discovery-diagnostics.js';
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
+import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import { CodexAppServerClient } from '../codex-app-server-client.js';
+import { createSubscriptionIdentityClient } from '../symposium-subscription-identity.js';
 import { nativeRoutingMessages } from '../codex-native-diagnostics.js';
 import { expect, it, vi } from 'vitest';
 import {
@@ -78,6 +80,86 @@ function fixture() {
   };
   return { config, operations, events, receipt: () => receipt };
 }
+it.each(['timeout', 'connection', 'protocol', 'rpc-rejection', 'cleanup-uncertain'] as const)(
+  'persists bounded initialization failure through the actual identity client: %s',
+  async (failure) => {
+    vi.useFakeTimers();
+    try {
+      const f = fixture();
+      const record = vi.fn(async () => {});
+      const stop = vi.fn(async () => {
+        if (failure === 'cleanup-uncertain') throw new Error('PRIVATE cleanup token');
+      });
+      f.operations.recordDiagnostic = record;
+      if (failure === 'cleanup-uncertain') f.operations.physicalAbsent = async () => false;
+      f.operations.openClient = async (receipt) => {
+        const child = Object.assign(new EventEmitter(), {
+          stdin: new PassThrough(),
+          stdout: new PassThrough(),
+          stderr: new PassThrough(),
+          kill: vi.fn(),
+        });
+        child.stdin.on('data', (chunk) => {
+          const frame = JSON.parse(chunk.toString());
+          if (frame.version === 1) return;
+          f.events.push(frame.method);
+          if (frame.method === 'initialize' && failure !== 'timeout')
+            queueMicrotask(() => {
+              if (failure === 'rpc-rejection')
+                child.stdout.write(
+                  JSON.stringify({
+                    id: frame.id,
+                    error: {
+                      code: -32603,
+                      message: 'unauthorized PRIVATE token',
+                      data: { accountId: 'PRIVATE-account' },
+                    },
+                  }) + '\n',
+                );
+              else if (failure === 'connection') child.emit('exit', 1);
+              else child.stdout.write('{PRIVATE protocol token}\n');
+            });
+        });
+        return createSubscriptionIdentityClient(
+          child as unknown as ChildProcessWithoutNullStreams,
+          { accountId: 'PRIVATE-account', assertCurrent() {} },
+          receipt.claim,
+          stop,
+          { timeoutMs: 10 },
+        );
+      };
+      const resultPromise = runSymposiumModelDiscovery(f.config, f.operations);
+      await vi.advanceTimersByTimeAsync(20);
+      const result = await resultPromise;
+      expect(result).toMatchObject({
+        status: failure === 'cleanup-uncertain' ? 'reconciliation_required' : 'failed',
+        inference: false,
+      });
+      const diagnostic = record.mock.calls[0][0];
+      expect(diagnostic).toMatchObject({
+        stage: 'native-initialize',
+        failureClass: 'operation-failed',
+      });
+      if (failure === 'cleanup-uncertain') {
+        expect(diagnostic).not.toHaveProperty('nativeFailure');
+        expect(f.receipt()).toBeDefined();
+      } else {
+        expect(diagnostic).toHaveProperty(
+          'nativeFailure',
+          failure === 'rpc-rejection' ? 'authentication' : `rpc_${failure}`,
+        );
+        if (failure === 'rpc-rejection') expect(diagnostic).toHaveProperty('rpcCode', -32603);
+        expect(f.receipt()).toBeUndefined();
+      }
+      expect(stop).toHaveBeenCalledTimes(1);
+      expect(f.events).not.toContain('account/read');
+      expect(f.events).not.toContain('model/list');
+      expect(JSON.stringify([result, record.mock.calls])).not.toContain('PRIVATE');
+    } finally {
+      vi.useRealTimers();
+    }
+  },
+);
 it.each([
   ...Object.entries(nativeRoutingMessages),
   ['private-account-ID private-token', 'unknown'],

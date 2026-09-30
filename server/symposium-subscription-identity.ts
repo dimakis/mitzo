@@ -1,5 +1,11 @@
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
-import { CodexAppServerClient, type CodexLifecycleTransport } from './codex-app-server-client.js';
+import {
+  CodexAppServerClient,
+  CodexRequestError,
+  CodexTransportError,
+  type CodexLifecycleTransport,
+} from './codex-app-server-client.js';
+import { nativeFailureCategories } from './codex-native-diagnostics.js';
 import { reviewedSymposiumOwnedRuntime } from './symposium-owned-runtime-contract.js';
 
 /** Private, receipt-owned capability. Never persist or expose it through account profiles. */
@@ -131,11 +137,29 @@ export function createSubscriptionIdentityClient(
       await initialize();
       options.signal?.throwIfAborted();
       identity.assertCurrent();
-    } catch {
+    } catch (error) {
       terminate();
       await cleanup?.catch(() => {
         throw new Error('Subscription identity cleanup is unconfirmed');
       });
+      // Reconstruct only the fixed local transport category after confirmed cleanup.
+      // Arbitrary failure objects and identity assertions remain private.
+      if (
+        error instanceof CodexTransportError &&
+        (error.category === 'timeout' ||
+          error.category === 'connection' ||
+          error.category === 'protocol')
+      )
+        throw new CodexTransportError(error.category);
+      if (error instanceof CodexRequestError && nativeFailureCategories.includes(error.category))
+        throw new CodexRequestError(
+          'initialize',
+          error.category,
+          Number.isInteger(error.code) && error.code! >= -2147483648 && error.code! <= 2147483647
+            ? error.code
+            : undefined,
+        );
+      // eslint-disable-next-line preserve-caught-error -- A cause could retain private identity or provider data.
       throw new Error('Subscription identity initialization failed');
     } finally {
       options.signal?.removeEventListener('abort', fail);
