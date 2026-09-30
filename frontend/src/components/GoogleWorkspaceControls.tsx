@@ -17,12 +17,14 @@ export function GoogleWorkspaceControls({
   onReauthorizationNeeded: () => void;
 }) {
   const [status, setStatus] = useState<GoogleWorkspaceHealth | null>(null);
+  const [now, setNow] = useState(Date.now);
   const [email, setEmail] = useState('');
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
   const refresh = useCallback(async () => {
     try {
       setStatus(await getGoogleWorkspaceStatus());
+      setNow(Date.now());
     } catch {
       setStatus({ health: 'unavailable', expiresAt: null, slidesEditing: false });
     }
@@ -30,6 +32,26 @@ export function GoogleWorkspaceControls({
   useEffect(() => {
     void refresh();
   }, [refresh]);
+  useEffect(() => {
+    if (status?.health !== 'ready' || !status.expiresAt) return;
+    const remaining = status.expiresAt - Date.now();
+    if (remaining <= 0) return;
+    const timer = setTimeout(
+      () => {
+        // Remove readiness immediately, even if the gateway status request stalls.
+        setNow(Date.now());
+        void refresh();
+      },
+      Math.min(remaining, 2_147_483_647),
+    );
+    return () => clearTimeout(timer);
+  }, [status, refresh]);
+  useEffect(() => {
+    if (status?.health !== 'unavailable') return;
+    // Gateway refresh can be acknowledged before the credential is installed.
+    const timer = setInterval(() => void refresh(), 5000);
+    return () => clearInterval(timer);
+  }, [status?.health, refresh]);
   const mutate = async (action: () => Promise<void>) => {
     if (!authorized) {
       onReauthorizationNeeded();
@@ -51,7 +73,10 @@ export function GoogleWorkspaceControls({
       setBusy(false);
     }
   };
-  const ready = status?.health === 'ready' && !!status.expiresAt && status.expiresAt > Date.now();
+  const ready =
+    status?.health === 'ready' &&
+    !!status.expiresAt &&
+    status.expiresAt > Math.max(now, Date.now());
   return (
     <section className="today-section connections-card" aria-labelledby="google-workspace-heading">
       <h2 id="google-workspace-heading">Google Workspace</h2>
