@@ -332,16 +332,27 @@ export function ChatView() {
               />
             </div>
           )}
+
+          <div className="workspace-session-settings">
+            <WebSearchConsent
+              key={activeSessionId ?? 'new'}
+              sessionId={activeSessionId}
+              mode={mode}
+              connected={connected}
+              connectionId={connectionId}
+              running={messages.running}
+            />
+            <div className="workspace-session-actions">
+              {activeSessionId && <AddReviewerSheet sessionId={activeSessionId} />}
+              {activeSessionId && (
+                <SymposiumReviewEntry key={activeSessionId} sessionId={activeSessionId} />
+              )}
+            </div>
+            {activeSessionId && <SymposiumDirectorPanel sessionId={activeSessionId} />}
+          </div>
         </WorkspaceControls>
       </div>
-      <WebSearchConsent
-        key={activeSessionId ?? 'new'}
-        sessionId={activeSessionId}
-        mode={mode}
-        connected={connected}
-        connectionId={connectionId}
-        running={messages.running}
-      />
+
       {(sendError || sendStatus) && (
         <div
           role={sendError ? 'alert' : 'status'}
@@ -370,11 +381,6 @@ export function ChatView() {
         </div>
       )}
       {!activeSessionId && !sessionId && <NewSymposium />}
-      {activeSessionId && <AddReviewerSheet sessionId={activeSessionId} />}
-      {activeSessionId && <SymposiumDirectorPanel sessionId={activeSessionId} />}
-      {activeSessionId && (
-        <SymposiumReviewEntry key={activeSessionId} sessionId={activeSessionId} />
-      )}
       <SymposiumConversation
         sessionId={activeSessionId}
         chat={{

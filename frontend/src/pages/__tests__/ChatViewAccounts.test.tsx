@@ -377,3 +377,20 @@ it('shows the profile, model and thinking in the collapsed workspace header', as
   expect(toggle.getAttribute('aria-expanded')).toBe('false');
   expect(screen.queryByRole('combobox')).toBeNull();
 });
+
+it('groups web search settings under the existing header disclosure', async () => {
+  localStorage.removeItem('mitzo-workspace-controls-expanded');
+  vi.mocked(apiFetch).mockResolvedValue({ ok: true, json: async () => [] } as Response);
+  const store = createTestStore();
+  render(
+    <MitzoStoreProvider value={store}>
+      <MemoryRouter>
+        <ChatView />
+      </MemoryRouter>
+    </MitzoStoreProvider>,
+  );
+  const settings = screen.getByTestId('web-search-connection');
+  expect(settings.closest('[hidden]')).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: /Workspace controls/ }));
+  expect(settings.closest('[hidden]')).toBeNull();
+});

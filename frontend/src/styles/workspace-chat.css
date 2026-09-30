@@ -6,7 +6,7 @@
   --border: var(--workspace-line);
   background: var(--workspace-bg);
   color: var(--workspace-text);
-  padding-top: calc(44px + env(safe-area-inset-top));
+  padding-top: env(safe-area-inset-top);
 }
 .conversation-heading {
   display: flex;
@@ -87,18 +87,28 @@
   border-color: var(--workspace-line);
 }
 .workspace-chat .session-tray[data-snap='peek'] {
+  position: static;
+  align-self: flex-end;
+  width: auto;
+  height: 32px;
+  min-height: 32px;
   border: 0;
   border-radius: 0;
+  pointer-events: auto;
 }
 .workspace-chat .session-tray[data-snap='peek'] .session-tray-handle {
-  left: 0;
-  right: 0;
-  width: 100%;
+  position: static;
+  width: auto;
+  height: 32px;
+  padding: 0 8px;
   transform: none;
-  border-radius: 0;
+  border-radius: 6px;
   border: 0;
-  border-bottom: 1px solid var(--workspace-line);
-  background: var(--workspace-bg);
+  background: var(--workspace-panel);
+  cursor: pointer;
+}
+.workspace-chat .session-tray[data-snap='peek'] .session-tray-grabber {
+  display: none;
 }
 .workspace-chat .session-tray-handle-label,
 .workspace-chat .session-tray[data-snap='peek'] .session-tray-handle-label,
@@ -156,7 +166,7 @@
 }
 @media (min-width: 768px) {
   .desktop-chat-center.workspace-chat {
-    padding-top: 44px;
+    padding-top: 0;
   }
   .desktop-chat-center .conversation-heading {
     padding: 24px 24px 14px;
@@ -300,9 +310,6 @@
 .workspace-controls-toggle > svg {
   flex-shrink: 0;
 }
-.workspace-controls-label {
-  flex-shrink: 0;
-}
 .workspace-controls-summary {
   display: flex;
   flex-wrap: wrap;
@@ -315,8 +322,32 @@
 .workspace-controls-summary > span {
   overflow-wrap: anywhere;
 }
+.workspace-controls-details {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+}
+.workspace-controls-details > span + span::before {
+  content: '·';
+  margin-right: 10px;
+}
+.workspace-session-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 20px;
+}
+.workspace-session-actions .symposium-review-entry {
+  padding: 0;
+  border: 0;
+}
+.workspace-session-settings {
+  padding-bottom: 8px;
+}
 .workspace-controls-profile {
   color: var(--workspace-text);
+  font-size: 14px;
   font-weight: 600;
 }
 .workspace-controls-toggle .conversation-state {
@@ -479,8 +510,10 @@
     padding: 8px 12px;
   }
   .workspace-controls-summary {
-    grid-row: 2;
-    grid-column: 2 / -1;
+    grid-row: 1;
+    grid-column: 2;
+    align-items: flex-start;
+    flex-direction: column;
   }
   .workspace-controls-toggle .conversation-state {
     grid-row: 1;

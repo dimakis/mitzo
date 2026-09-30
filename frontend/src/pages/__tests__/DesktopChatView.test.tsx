@@ -453,6 +453,8 @@ it('offers the shared reviewer entry for an active desktop conversation', () => 
       </MitzoStoreProvider>
     </MemoryRouter>,
   );
+  expect(screen.queryByRole('button', { name: 'Add reviewer' })).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: /Workspace controls/ }));
   expect(screen.getByRole('button', { name: 'Add reviewer' })).toBeTruthy();
 });
 
@@ -480,4 +482,13 @@ it('shows the profile, model and thinking in the collapsed workspace header', as
   expect(within(toggle).getByText('Thinking: high')).toBeTruthy();
   expect(toggle.getAttribute('aria-expanded')).toBe('false');
   expect(screen.queryByRole('combobox')).toBeNull();
+});
+
+it('groups web search settings under the existing header disclosure', async () => {
+  localStorage.removeItem('mitzo-workspace-controls-expanded');
+  renderWithRouter();
+  const settings = screen.getByTestId('web-search-connection');
+  expect(settings.closest('[hidden]')).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: /Workspace controls/ }));
+  expect(settings.closest('[hidden]')).toBeNull();
 });

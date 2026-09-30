@@ -92,7 +92,8 @@ it('shows a fixed binding without inventing its thinking setting', async () => {
   } as Response);
   render(<Harness />);
   expect(await within(toggle()).findByText('Work Vertex')).toBeTruthy();
-  expect(within(toggle()).getByText('sonnet')).toBeTruthy();
+  expect(within(toggle()).getByText('Model unknown')).toBeTruthy();
+  expect(within(toggle()).queryByText('sonnet')).toBeNull();
   expect(within(toggle()).getByText('Thinking: unknown')).toBeTruthy();
 });
 
@@ -129,4 +130,27 @@ it('restores the summary after refreshing an unchanged model catalog', async () 
   await waitFor(() => expect(apiFetch).toHaveBeenCalledTimes(2));
   expect(await within(toggle()).findByText('Work Vertex')).toBeTruthy();
   expect(within(toggle()).getByText('Thinking: high')).toBeTruthy();
+});
+
+it('reports persisted thinking even when the catalog has no configurable thinking list', async () => {
+  vi.mocked(apiFetch).mockResolvedValue({
+    ok: true,
+    json: async () => ({
+      ...metadata,
+      modelSelection: { model: 'sonnet', reasoningEffort: 'high', models },
+    }),
+  } as Response);
+  render(<Harness />);
+  expect(await within(toggle()).findByText('Thinking: high')).toBeTruthy();
+  expect(within(toggle()).getByText('Sonnet 5')).toBeTruthy();
+  fireEvent.click(toggle());
+  fireEvent.change(screen.getByLabelText('Model'), { target: { value: 'luna' } });
+  expect(await within(toggle()).findByText('Thinking: low')).toBeTruthy();
+});
+
+it('uses the profile as the header title without repeating a generic workspace heading', async () => {
+  vi.mocked(apiFetch).mockResolvedValue({ ok: true, json: async () => metadata } as Response);
+  render(<Harness />);
+  await within(toggle()).findByText('Work Vertex');
+  expect(within(toggle()).queryByText('Workspace')).toBeNull();
 });

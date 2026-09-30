@@ -108,11 +108,14 @@ export function AccountModelPicker({
         ? {
             profile: summaryAccount.label,
             model: selectedModel?.label ?? selection.model,
-            thinking: selectedModel
-              ? selectedModel.reasoningEfforts?.length
+            thinking:
+              selection.reasoningEffort !== undefined
                 ? `Thinking: ${selection.reasoningEffort ?? 'model default'}`
-                : 'Thinking: not configurable'
-              : 'Thinking: unknown',
+                : selectedModel
+                  ? selectedModel.reasoningEfforts?.length
+                    ? 'Thinking: model default'
+                    : 'Thinking: not configurable'
+                  : 'Thinking: unknown',
           }
         : fixedSummary;
   const profile = summary?.profile;
@@ -218,6 +221,9 @@ export function AccountModelPicker({
               },
               account,
             );
+            // Persisted session settings are authoritative even when catalog capabilities are missing.
+            if (modelSelection.data.reasoningEffort !== undefined)
+              next.reasoningEffort = modelSelection.data.reasoningEffort;
             setSelection(next);
             callbacks.current.onChange(explicitSelection ? null : next);
           } else {
@@ -227,7 +233,7 @@ export function AccountModelPicker({
             setFixedSession(true);
             setFixedSummary({
               profile: data.accountBinding?.accountLabel ?? 'Legacy account',
-              model: data.accountBinding?.model ?? 'Model unknown',
+              model: 'Model unknown',
               thinking: 'Thinking: unknown',
             });
             callbacks.current.onChange(explicitSelection ? null : next);

@@ -41,13 +41,16 @@ export function WorkspaceControls({
         }}
       >
         <UiIcon name="settings" />
-        <span className="workspace-controls-label">Workspace</span>
         <span className="workspace-controls-summary">
           {summary ? (
             <>
               <span className="workspace-controls-profile">{summary.profile}</span>
-              {summary.model && <span>{summary.model}</span>}
-              {summary.thinking && <span>{summary.thinking}</span>}
+              {(summary.model || summary.thinking) && (
+                <span className="workspace-controls-details">
+                  {summary.model && <span>{summary.model}</span>}
+                  {summary.thinking && <span>{summary.thinking}</span>}
+                </span>
+              )}
             </>
           ) : (
             <span>Loading profile…</span>
