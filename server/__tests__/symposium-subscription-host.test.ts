@@ -252,6 +252,7 @@ it('publishes discovered catalog under a fresh revision without rebinding a save
   mocked.finish!({ binding });
   await login.completed;
   const saved = { ...binding };
+  expect(adapter.currentProfiles.catalog()[0].modelDiscovery.stale).toBe(true);
   adapter.captureDiscovery().publish(
     [
       { id: 'gpt-5.6-luna', label: 'Luna' },
@@ -269,4 +270,15 @@ it('publishes discovered catalog under a fresh revision without rebinding a save
       profileRevision: adapter.currentProfiles.resolve('personal', saved.model).profileRevision,
     }),
   );
+  expect(adapter.currentProfiles.catalog()[0].modelDiscovery.stale).toBe(false);
+  const discoveredRevision = adapter.currentProfiles.resolve(
+    'personal',
+    saved.model,
+  ).profileRevision;
+  adapter.captureDiscovery().invalidateCatalog();
+  expect(adapter.currentProfiles.catalog()[0].modelDiscovery.stale).toBe(true);
+  expect(adapter.currentProfiles.resolve('personal', saved.model).profileRevision).not.toBe(
+    discoveredRevision,
+  );
+  expect(adapter.currentProfiles.resolve('personal', 'another-model').model).toBe('another-model');
 });

@@ -179,6 +179,13 @@ export function createSymposiumSubscriptionHost(
         provider: proof.provider,
         account: proof.account,
         assertCurrent: proof.assertCurrent,
+        invalidateCatalog: () => {
+          proof.assertCurrent();
+          const nextDefinition = { ...(definition as Record<string, unknown>) };
+          delete nextDefinition.nativeCatalogRevision;
+          active = new AccountProfiles([...work, nextDefinition], { codexEnabled: true });
+          definition = nextDefinition;
+        },
         publish: (catalog: unknown, revision: number) => {
           proof.assertCurrent();
           const nextModels = z.array(CatalogModel).min(1).parse(catalog);

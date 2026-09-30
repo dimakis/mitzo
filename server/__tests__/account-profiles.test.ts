@@ -863,6 +863,15 @@ describe('native personal ChatGPT selection', () => {
     expect(() => rotated.resume(binding)).toThrow('configuration changed');
   });
 
+  it('reports the bootstrap catalog stale until an owned native discovery revision is published', () => {
+    const bootstrap = new AccountProfiles([native], { codexEnabled: true });
+    expect(bootstrap.catalog()[0].modelDiscovery.stale).toBe(true);
+    const discovered = new AccountProfiles([{ ...native, nativeCatalogRevision: 7 }], {
+      codexEnabled: true,
+    });
+    expect(discovered.catalog()[0].modelDiscovery.stale).toBe(false);
+  });
+
   it.each([
     { credentialRef: '/host/login' },
     { sandboxGrantId: 'compat-grant' },

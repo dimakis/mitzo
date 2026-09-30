@@ -234,7 +234,14 @@ export class AccountProfiles {
               ? profile.models
               : (discovered?.models ?? profile.models),
           ),
-          modelDiscovery: { updatedAt: discovered?.updatedAt, stale: !!discovered?.error },
+          modelDiscovery: {
+            updatedAt: discovered?.updatedAt,
+            stale:
+              !!discovered?.error ||
+              (profile.provider === 'openai-codex' &&
+                profile.nativeAuth === 'sandbox-chatgpt' &&
+                !profile.nativeCatalogRevision),
+          },
           capabilities: {
             streaming: provider !== 'google-vertex',
             tools: true,

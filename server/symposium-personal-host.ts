@@ -219,6 +219,8 @@ export function createPersonalSubscriptionHost(
             proof.assertCurrent();
           };
           assertCurrent();
+          // A prior successful catalog must not remain fresh after a failed refresh.
+          proof.invalidateCatalog();
           discoveryEntered = true;
           const discovered = await discover({
             provider: proof.provider,

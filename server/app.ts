@@ -2195,7 +2195,10 @@ app.post(
         assertOperator,
       );
       assertOperator();
-      res.json(result);
+      const status = (result as { status?: unknown })?.status;
+      res
+        .status(status === 'failed' ? 422 : status === 'reconciliation_required' ? 409 : 200)
+        .json(result);
     } catch {
       res.status(409).json({
         error:

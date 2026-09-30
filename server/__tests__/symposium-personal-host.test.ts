@@ -30,6 +30,11 @@ vi.mock('../symposium-subscription-host.js', () => ({
         assertCurrent: () => {
           if (!definition) throw new Error('receipt changed');
         },
+        invalidateCatalog: () => {
+          const next = { ...(definition as Record<string, unknown>) };
+          delete next.nativeCatalogRevision;
+          definition = next;
+        },
         publish: vi.fn((models, revision) => {
           definition = { ...(definition as object), models, nativeCatalogRevision: revision };
         }),
@@ -210,9 +215,31 @@ it('serializes discovery with login/disconnect and publishes a new explicit sele
     before.profileRevision,
   );
   expect(host.personalConnections.list()[0].modelDiscovery).toBeUndefined();
+  expect(host.currentProfiles.catalog()[0].modelDiscovery.stale).toBe(false);
   await expect(
     host.personalConnections.discoverModels(row.id, row.revision, () => {}),
   ).rejects.toThrow('changed');
+});
+it('keeps bootstrap and previously discovered catalogs stale after a failed refresh', async () => {
+  let succeed = true;
+  const host = fixture(async () =>
+    succeed
+      ? {
+          result: { status: 'complete', inference: false, modelCount: 1, lunaModels: ['luna'] },
+          models: [{ id: 'luna', label: 'Luna' }],
+        }
+      : { result: { status: 'failed', inference: false } },
+  );
+  const row = await connected(host);
+  expect(host.currentProfiles.catalog()[0].modelDiscovery.stale).toBe(true);
+  await host.personalConnections.discoverModels(row.id, row.revision, () => {});
+  expect(host.currentProfiles.catalog()[0].modelDiscovery.stale).toBe(false);
+  succeed = false;
+  const current = host.personalConnections.list()[0];
+  const failed = await host.personalConnections.discoverModels(row.id, current.revision, () => {});
+  expect(failed.status).toBe('failed');
+  expect(host.personalConnections.list()[0].state).toBe('connected');
+  expect(host.currentProfiles.catalog()[0].modelDiscovery.stale).toBe(true);
 });
 it('retains recovery and excludes account when cleanup or receipt proof fails', async () => {
   const host = fixture(async () => ({
