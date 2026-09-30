@@ -343,6 +343,8 @@ Mitzo uses an npm workspace with three internal packages shared between server a
 
 **Task Board** — Multi-session orchestration
 
+Tasks with `sessionPolicy: spawn` run only in dedicated sessions. When session spawning is disabled, the workflow pauses with that task pending; a failed spawn blocks the task. Background workflows do not select an attached chat automatically. Reuse requires an explicit `clientId` in `POST /api/loop/start`.
+
 | File                   | Purpose                                                                                     |
 | ---------------------- | ------------------------------------------------------------------------------------------- |
 | `task-store.ts`        | SQLite persistence: tree queries, cascade status, DFS ordering, orphan detection. WAL mode. |
