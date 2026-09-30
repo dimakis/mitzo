@@ -139,7 +139,9 @@ export class GoogleWorkspaceManagement {
         after.credential_expires_at_ms[credentialKey] === current.expires_at_ms;
       return {
         health:
-          !current || current.status === 'reauthorization_required' || current.expires_at_ms <= now
+          !current ||
+          current.status === 'reauthorization_required' ||
+          (current.status === 'refreshed' && current.expires_at_ms <= now)
             ? 'needs_sign_in'
             : installed
               ? 'ready'

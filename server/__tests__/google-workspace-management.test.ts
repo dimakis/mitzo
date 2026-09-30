@@ -69,6 +69,10 @@ function fixture(state = 'refreshed', expires = Date.now() + 3600000, allowUpdat
   return { service, run, request };
 }
 describe('Google Workspace management', () => {
+  it('keeps a newly configured refresh pending rather than demanding sign-in again', async () => {
+    const { service } = fixture('scheduled', 1);
+    expect((await service.status(AbortSignal.timeout(1000))).health).toBe('unavailable');
+  });
   it.each(['scheduled', 'active', 'refreshing', 'error'])(
     'does not report %s as ready while an old credential is unexpired',
     async (state) => {

@@ -49,8 +49,17 @@ export function GoogleWorkspaceControls({
   useEffect(() => {
     if (status?.health !== 'unavailable') return;
     // Gateway refresh can be acknowledged before the credential is installed.
-    const timer = setInterval(() => void refresh(), 5000);
-    return () => clearInterval(timer);
+    let active = true;
+    let timer: ReturnType<typeof setTimeout>;
+    const poll = async () => {
+      await refresh();
+      if (active) timer = setTimeout(() => void poll(), 5000);
+    };
+    timer = setTimeout(() => void poll(), 5000);
+    return () => {
+      active = false;
+      clearTimeout(timer);
+    };
   }, [status?.health, refresh]);
   const mutate = async (action: () => Promise<void>) => {
     if (!authorized) {

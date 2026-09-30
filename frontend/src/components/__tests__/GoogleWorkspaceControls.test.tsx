@@ -91,6 +91,29 @@ describe('Google Workspace controls', () => {
       expect(vi.getTimerCount()).toBe(0);
     }
   });
+  it('does not overlap pending status requests when the gateway is slow', async () => {
+    (
+      globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }
+    ).IS_REACT_ACT_ENVIRONMENT = true;
+    vi.useFakeTimers();
+    vi.mocked(api.getGoogleWorkspaceStatus)
+      .mockResolvedValueOnce({ health: 'unavailable', expiresAt: 1, slidesEditing: true })
+      .mockImplementation(() => new Promise(() => {}));
+    const node = document.createElement('div');
+    const root = createRoot(node);
+    try {
+      await act(async () =>
+        root.render(
+          <GoogleWorkspaceControls csrf="csrf" authorized onReauthorizationNeeded={vi.fn()} />,
+        ),
+      );
+      await act(async () => vi.advanceTimersByTimeAsync(15000));
+      expect(api.getGoogleWorkspaceStatus).toHaveBeenCalledTimes(2);
+    } finally {
+      await act(async () => root.unmount());
+      expect(vi.getTimerCount()).toBe(0);
+    }
+  });
   it('requires fresh reauthorization and confirms the account before restoring credentials', async () => {
     (
       globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }
