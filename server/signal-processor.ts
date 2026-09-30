@@ -345,7 +345,11 @@ async function checkGhCi(config: { repo: string; pr: number | string }): Promise
   }
 }
 
-async function checkGhReview(config: { repo: string; pr: number | string }): Promise<GateResult> {
+async function checkGhReview(config: {
+  repo: string;
+  pr: number | string;
+  trusted_reviewer?: string;
+}): Promise<GateResult> {
   try {
     const { stdout } = await execFileAsync('gh', [
       'pr',
@@ -366,8 +370,8 @@ async function checkGhReview(config: { repo: string; pr: number | string }): Pro
     }
     // Centaur submits COMMENT reviews, so reviewDecision remains empty. Its
     // SHA marker appears in the review body (or issue comment fallback).
-    // Only the repository owner's marker is trusted: PR participants can
-    // otherwise copy the marker into their own comment to release this gate.
+    // Trust the configured Centaur account when present. Personal repositories
+    // can fall back to their owner; organization owners cannot post reviews.
     // Match the current head only: an earlier review cannot release this gate
     // after an agent pushes conflict, CI, or review fixes.
     if (data.headRefOid && /^[0-9a-f]{40}$/.test(data.headRefOid)) {
@@ -388,6 +392,8 @@ async function checkGhReview(config: { repo: string; pr: number | string }): Pro
           '.[] | {body, author: .user.login, association: .author_association}',
         ]),
       ]);
+      const configuredReviewer =
+        config.trusted_reviewer?.trim() || process.env.CENTAUR_REVIEWER_LOGIN?.trim();
       const repoOwner = config.repo.split('/')[0].toLowerCase();
       const hasTrustedMarker = (output: string) =>
         output.split('\n').some((line) => {
@@ -401,8 +407,9 @@ async function checkGhReview(config: { repo: string; pr: number | string }): Pro
             typeof item.body === 'string' &&
             item.body.includes(marker) &&
             typeof item.author === 'string' &&
-            item.author.toLowerCase() === repoOwner &&
-            item.association === 'OWNER'
+            (configuredReviewer
+              ? item.author.toLowerCase() === configuredReviewer.toLowerCase()
+              : item.author.toLowerCase() === repoOwner && item.association === 'OWNER')
           );
         });
       if (hasTrustedMarker(reviews.stdout) || hasTrustedMarker(comments.stdout)) {

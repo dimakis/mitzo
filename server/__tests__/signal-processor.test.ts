@@ -36,6 +36,7 @@ describe('SignalProcessor', () => {
     const oldSha = 'b'.repeat(40);
     const ghPath = join(TEST_DIR, 'gh');
     const originalPath = process.env.PATH;
+    const originalReviewer = process.env.CENTAUR_REVIEWER_LOGIN;
     const writeFakeGh = (
       reviewedSha: string,
       author: string,
@@ -55,6 +56,7 @@ describe('SignalProcessor', () => {
     };
     try {
       process.env.PATH = `${TEST_DIR}:${originalPath}`;
+      delete process.env.CENTAUR_REVIEWER_LOGIN;
       writeFakeGh(oldSha, 'org', 'OWNER');
       expect(await checkGate({ type: 'gh_review', repo: 'org/repo', pr: 7 })).toEqual({
         resolved: false,
@@ -82,8 +84,39 @@ describe('SignalProcessor', () => {
         status: 'pass',
         artifacts: { centaurReviewedSha: currentSha },
       });
+      writeFakeGh(currentSha, 'centaur-bot', 'CONTRIBUTOR');
+      expect(
+        await checkGate({
+          type: 'gh_review',
+          repo: 'organization/repo',
+          pr: 7,
+          trusted_reviewer: 'centaur-bot',
+        }),
+      ).toEqual({
+        resolved: true,
+        status: 'pass',
+        artifacts: { centaurReviewedSha: currentSha },
+      });
+      writeFakeGh(currentSha, 'contributor', 'CONTRIBUTOR');
+      expect(
+        await checkGate({
+          type: 'gh_review',
+          repo: 'organization/repo',
+          pr: 7,
+          trusted_reviewer: 'centaur-bot',
+        }),
+      ).toEqual({ resolved: false, status: 'fail' });
+      writeFakeGh(currentSha, 'centaur-bot', 'CONTRIBUTOR', 'comment');
+      process.env.CENTAUR_REVIEWER_LOGIN = 'centaur-bot';
+      expect(await checkGate({ type: 'gh_review', repo: 'organization/repo', pr: 7 })).toEqual({
+        resolved: true,
+        status: 'pass',
+        artifacts: { centaurReviewedSha: currentSha },
+      });
     } finally {
       process.env.PATH = originalPath;
+      if (originalReviewer === undefined) delete process.env.CENTAUR_REVIEWER_LOGIN;
+      else process.env.CENTAUR_REVIEWER_LOGIN = originalReviewer;
     }
   });
 
