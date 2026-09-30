@@ -63,6 +63,24 @@ export const REVIEWED_SYMPOSIUM_CODE_MODE_RUNTIME = {
     },
   },
 } as const;
+
+/** Measured Codex 0.156.1 successor for fresh Personal Luna 6 seats. */
+export const REVIEWED_SYMPOSIUM_CODEX_01561_RUNTIME = {
+  ...REVIEWED_SYMPOSIUM_OWNED_RUNTIME,
+  build: {
+    ...REVIEWED_SYMPOSIUM_OWNED_RUNTIME.build,
+    image: 'sha256:f3f1f3e6ad517a2055f2a6c3d56f7a03514038abcd8909cc686cc02e3ea96e5f',
+    imageDigest: '5bf7f4452c8593b798932bf33d88c7d4f7a02d9a12a6c9d99b467b50fa6232ae',
+    nativeArtifacts: {
+      ...REVIEWED_SYMPOSIUM_OWNED_RUNTIME.build.nativeArtifacts,
+      '/usr/bin/codex': '876fe6bb5f7af7d1e4eda629be0d8ba042f6f24a7bb07475f6a995849f50c068',
+      '/usr/bin/codex-code-mode-host':
+        'b22553f5085d1b2ad5b1d5e935bb8974e2e76d925df1fc30fa83f67bfe216623',
+      '/usr/local/bin/symposium-seat-landlock':
+        'bf31950c31eafab27d54ddd3662e450769811ea906687616217d743d3134c96d',
+    },
+  },
+} as const;
 export function reviewedSymposiumOwnedRuntime(image: string) {
   if (image === REVIEWED_SYMPOSIUM_OWNED_RUNTIME.build.image)
     return REVIEWED_SYMPOSIUM_OWNED_RUNTIME;
@@ -70,5 +88,7 @@ export function reviewedSymposiumOwnedRuntime(image: string) {
     return REVIEWED_SYMPOSIUM_CLAUDE_RUNTIME;
   if (image === REVIEWED_SYMPOSIUM_CODE_MODE_RUNTIME.build.image)
     return REVIEWED_SYMPOSIUM_CODE_MODE_RUNTIME;
+  if (image === REVIEWED_SYMPOSIUM_CODEX_01561_RUNTIME.build.image)
+    return REVIEWED_SYMPOSIUM_CODEX_01561_RUNTIME;
   throw new Error('Artifact workload image identity is not reviewed');
 }

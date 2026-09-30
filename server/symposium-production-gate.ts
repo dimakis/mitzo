@@ -3,6 +3,7 @@ import {
   REVIEWED_SYMPOSIUM_OWNED_RUNTIME,
   REVIEWED_SYMPOSIUM_CLAUDE_RUNTIME,
   REVIEWED_SYMPOSIUM_CODE_MODE_RUNTIME,
+  REVIEWED_SYMPOSIUM_CODEX_01561_RUNTIME,
   reviewedSymposiumOwnedRuntime,
 } from './symposium-owned-runtime-contract.js';
 import {
@@ -64,6 +65,7 @@ export const TESTED_SYMPOSIUM_NATIVE_BUILD = REVIEWED_SYMPOSIUM_OWNED_RUNTIME.bu
 const reviewed = TESTED_SYMPOSIUM_NATIVE_BUILD;
 const claudeReviewed = REVIEWED_SYMPOSIUM_CLAUDE_RUNTIME.build;
 const codeModeReviewed = REVIEWED_SYMPOSIUM_CODE_MODE_RUNTIME.build;
+const codex01561Reviewed = REVIEWED_SYMPOSIUM_CODEX_01561_RUNTIME.build;
 const OwnedAttestation = LegacyAttestation.extend({
   contract: z.literal('openshell-v0.1-owned-native-seats'),
   cliVersion: z.literal(reviewed.version),
@@ -71,15 +73,22 @@ const OwnedAttestation = LegacyAttestation.extend({
   gatewayVersion: z.literal(reviewed.version),
   gatewaySha256: z.literal(reviewed.gatewaySha256),
   gatewayEndpoint: z.string().url(),
-  image: z.enum([reviewed.image, claudeReviewed.image, codeModeReviewed.image]),
+  image: z.enum([
+    reviewed.image,
+    claudeReviewed.image,
+    codeModeReviewed.image,
+    codex01561Reviewed.image,
+  ]),
   imageDigest: z.enum([
     reviewed.imageDigest,
     claudeReviewed.imageDigest,
     codeModeReviewed.imageDigest,
+    codex01561Reviewed.imageDigest,
   ]),
   controllerSha256: z.enum([
     reviewed.nativeArtifacts['/usr/bin/codex'],
     codeModeReviewed.nativeArtifacts['/usr/bin/codex'],
+    codex01561Reviewed.nativeArtifacts['/usr/bin/codex'],
   ]),
   sandboxRuntimeImage: z.literal(reviewed.sandboxRuntimeImage),
   supervisorImage: z.literal(reviewed.supervisorImage),
@@ -88,9 +97,13 @@ const OwnedAttestation = LegacyAttestation.extend({
       '/usr/bin/codex': z.enum([
         reviewed.nativeArtifacts['/usr/bin/codex'],
         codeModeReviewed.nativeArtifacts['/usr/bin/codex'],
+        codex01561Reviewed.nativeArtifacts['/usr/bin/codex'],
       ]),
       '/usr/bin/codex-code-mode-host': z
-        .literal(codeModeReviewed.nativeArtifacts['/usr/bin/codex-code-mode-host'])
+        .enum([
+          codeModeReviewed.nativeArtifacts['/usr/bin/codex-code-mode-host'],
+          codex01561Reviewed.nativeArtifacts['/usr/bin/codex-code-mode-host'],
+        ])
         .optional(),
       '/usr/local/bin/symposium-attempt-controller': z.literal(
         reviewed.nativeArtifacts['/usr/local/bin/symposium-attempt-controller'],
@@ -98,6 +111,7 @@ const OwnedAttestation = LegacyAttestation.extend({
       '/usr/local/bin/symposium-seat-landlock': z.enum([
         reviewed.nativeArtifacts['/usr/local/bin/symposium-seat-landlock'],
         claudeReviewed.nativeArtifacts['/usr/local/bin/symposium-seat-landlock'],
+        codex01561Reviewed.nativeArtifacts['/usr/local/bin/symposium-seat-landlock'],
       ]),
       '/usr/local/bin/claude': z
         .literal(claudeReviewed.nativeArtifacts['/usr/local/bin/claude'])

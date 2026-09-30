@@ -7,7 +7,45 @@ import {
   createSymposiumProductionReviewComposition,
   historicalFixPointer,
   historicalSealedResultCoderGeneration,
+  sealWithRetiredReviewRuntime,
 } from '../symposium-production-review-composition.js';
+
+it('retires only the exact drained runtime after a physical seal completes', async () => {
+  const current = {},
+    runtime = {};
+  const seal = vi.fn(async () => 'sealed');
+  const retire = vi.fn();
+  expect(
+    await sealWithRetiredReviewRuntime({
+      current,
+      retained: { orchestrator: current, runtime },
+      seal,
+      retire,
+    }),
+  ).toBe('sealed');
+  expect(seal).toHaveBeenCalledWith(runtime);
+  expect(retire).toHaveBeenCalledWith(runtime);
+  expect(seal.mock.invocationCallOrder[0]).toBeLessThan(retire.mock.invocationCallOrder[0]);
+  seal.mockRejectedValueOnce(new Error('seal uncertain'));
+  await expect(
+    sealWithRetiredReviewRuntime({
+      current,
+      retained: { orchestrator: current, runtime },
+      seal,
+      retire,
+    }),
+  ).rejects.toThrow('seal uncertain');
+  expect(retire).toHaveBeenCalledTimes(1);
+  await expect(
+    sealWithRetiredReviewRuntime({
+      current,
+      retained: { orchestrator: {}, runtime },
+      seal,
+      retire,
+    }),
+  ).rejects.toThrow('Exact retained native runtime');
+  expect(seal).toHaveBeenCalledTimes(2);
+});
 
 it('uses a completed imported source until a physically sealed writer result exists', () => {
   const directory = mkdtempSync(join(tmpdir(), 'symposium-review-composition-'));

@@ -1058,6 +1058,12 @@ export function installSymposiumProductionHost(host: SymposiumProductionHost): v
       artifactResultsPath: join(BASE_REPO || '.', '.mitzo', 'events.db'),
       runtime: (sessionId) => symposiumRuntimeForSession(sessionId),
       retainedRuntime: (sessionId) => symposiumSessionRuntimes.get(sessionId) ?? null,
+      retireSealedRuntime: (sessionId, runtime) => {
+        const retained = symposiumSessionRuntimes.get(sessionId);
+        if (!retained || retained.runtime !== runtime)
+          throw new Error('Sealed runtime identity changed before retirement');
+        symposiumSessionRuntimes.delete(sessionId);
+      },
     });
     try {
       installSymposiumReaderAuthority({

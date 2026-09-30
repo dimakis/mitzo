@@ -103,6 +103,21 @@ export function historicalSealedResultCoderGeneration(
   return generationId;
 }
 
+/** A completed physical seal drains its retained runtime. Remove that exact
+ * runtime only after the seal succeeds so the next seat gets a fresh owner. */
+export async function sealWithRetiredReviewRuntime<T>(input: {
+  current: object;
+  retained: { orchestrator: object; runtime: object } | null;
+  seal(runtime: object): Promise<T>;
+  retire(runtime: object): void;
+}): Promise<T> {
+  if (!input.retained || input.retained.orchestrator !== input.current)
+    throw new Error('Exact retained native runtime required for artifact seal');
+  const sealed = await input.seal(input.retained.runtime);
+  input.retire(input.retained.runtime);
+  return sealed;
+}
+
 /** Trusted parent-only composition. All missing physical dependencies fail closed
  * before any review route becomes available. No request can provide a callback. */
 export function createSymposiumProductionReviewComposition(deps: {
@@ -116,6 +131,7 @@ export function createSymposiumProductionReviewComposition(deps: {
   retainedRuntime(
     sessionId: string,
   ): { orchestrator: SymposiumOrchestrator; runtime: object } | null;
+  retireSealedRuntime(sessionId: string, runtime: object): void;
 }) {
   const { host, events, reviews, grants } = deps;
   const source = host.sourceImport;
@@ -169,18 +185,22 @@ export function createSymposiumProductionReviewComposition(deps: {
   const artifacts = createOwnedReviewArtifactResults(deps.artifactResultsPath, {
     async sealCompleted(context, completion) {
       const retained = deps.retainedRuntime(context.sessionId);
-      if (!retained || retained.orchestrator !== runtime(context))
-        throw new Error('Exact retained native runtime required for artifact seal');
-      const seal = await host.sealSessionArtifacts!(
-        {
-          sessionId: context.sessionId,
-          expectedConfigRevision: completion.attempt.binding.configRevision,
-          idempotencyKey: `review-seal-${createHash('sha256').update(completion.attempt.attemptId).digest('hex')}`,
-          repositoryPath: '.',
-        },
-        retained.runtime,
-        AbortSignal.timeout(600_000),
-      );
+      const seal = await sealWithRetiredReviewRuntime({
+        current: runtime(context),
+        retained,
+        seal: (selected) =>
+          host.sealSessionArtifacts!(
+            {
+              sessionId: context.sessionId,
+              expectedConfigRevision: completion.attempt.binding.configRevision,
+              idempotencyKey: `review-seal-${createHash('sha256').update(completion.attempt.attemptId).digest('hex')}`,
+              repositoryPath: '.',
+            },
+            selected,
+            AbortSignal.timeout(600_000),
+          ),
+        retire: (selected) => deps.retireSealedRuntime(context.sessionId, selected),
+      });
       return {
         seal,
         claimToken: completion.attempt.binding.claimToken,
