@@ -445,6 +445,42 @@ it('dispatches only the persisted approved delivery and awaits physical refresh'
   expect(f.deps.artifacts.refresh).toHaveBeenCalledOnce();
   f.reviews.close();
 });
+it('arms the staged reviewer delivery before approving or dispatching it', async () => {
+  const f = fixture('review');
+  const planned = prepare(f, 'review');
+  vi.spyOn(f.reviews, 'getApplicationPreparation').mockReturnValue({
+    status: 'bound',
+    policyReservationId: planned.policyReservationId,
+  } as never);
+  f.runtime.deliver.mockImplementation(async () => {
+    completed(f, planned, JSON.stringify({ findings: [], resolvedFingerprints: [] }));
+    return f.deliveries.get('delivery');
+  });
+  await f.host.dispatch(context, {
+    kind: 'reserved_not_dispatched',
+    attemptId: 'review',
+    policyReservationId: planned.policyReservationId,
+    applicationAttempt: planned,
+    applicationDispatchEpoch: 0,
+    selection: f.reviews.get('workflow')!.reviewer,
+    artifactRevision: 'source',
+    artifactHash: hash,
+  });
+  expect(f.deps.events.armSymposiumApplicationDelivery).toHaveBeenCalledWith(
+    expect.objectContaining({
+      deliveryId: 'delivery',
+      expectedEpoch: 0,
+      permit: expect.any(String),
+    }),
+  );
+  expect(f.runtime.intervene).toHaveBeenCalledWith(
+    expect.objectContaining({ action: 'approve', applicationPermit: expect.any(String) }),
+  );
+  expect(f.runtime.deliver).toHaveBeenCalledWith('delivery', {
+    applicationPermit: expect.any(String),
+  });
+  f.reviews.close();
+});
 it('replays an approved but unclaimed bound writer with the same durable epoch permit', async () => {
   const f = fixture();
   const planned = prepare(f, 'initial');

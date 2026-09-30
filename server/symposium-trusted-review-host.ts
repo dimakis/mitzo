@@ -577,35 +577,30 @@ export function createSymposiumTrustedReviewHost(
       // The claim token is a durable, random, parent-owned capability. Derive a
       // domain-separated permit for this exact delivery epoch so a crash after
       // approval can replay the same permit without storing plaintext in EventStore.
-      const applicationPermit =
-        planned.kind === 'initial' || planned.kind === 'fix'
-          ? createHash('sha256')
-              .update('symposium-application-delivery-permit/v1\0')
-              .update(planned.binding.claimToken)
-              .update('\0')
-              .update(planned.binding.deliveryId)
-              .update('\0')
-              .update(String(reservation.applicationDispatchEpoch ?? 0))
-              .digest('hex')
-          : undefined;
-      if (applicationPermit) {
-        const preparation = deps.reviews.getApplicationPreparation(
-          planned.workflowId,
-          planned.attemptId,
-        );
-        if (
-          !preparation ||
-          preparation.status !== 'bound' ||
-          preparation.policyReservationId !== planned.policyReservationId ||
-          reservation.applicationDispatchEpoch !== (preparation.resumeEpoch ?? 0)
-        )
-          throw new Error('Exact bound application dispatch epoch required');
-        deps.events.armSymposiumApplicationDelivery({
-          deliveryId: planned.binding.deliveryId,
-          expectedEpoch: reservation.applicationDispatchEpoch,
-          permit: applicationPermit,
-        });
-      }
+      const applicationPermit = createHash('sha256')
+        .update('symposium-application-delivery-permit/v1\0')
+        .update(planned.binding.claimToken)
+        .update('\0')
+        .update(planned.binding.deliveryId)
+        .update('\0')
+        .update(String(reservation.applicationDispatchEpoch ?? 0))
+        .digest('hex');
+      const preparation = deps.reviews.getApplicationPreparation(
+        planned.workflowId,
+        planned.attemptId,
+      );
+      if (
+        !preparation ||
+        preparation.status !== 'bound' ||
+        preparation.policyReservationId !== planned.policyReservationId ||
+        reservation.applicationDispatchEpoch !== (preparation.resumeEpoch ?? 0)
+      )
+        throw new Error('Exact bound application dispatch epoch required');
+      deps.events.armSymposiumApplicationDelivery({
+        deliveryId: planned.binding.deliveryId,
+        expectedEpoch: reservation.applicationDispatchEpoch,
+        permit: applicationPermit,
+      });
       const runtime = deps.runtime(context);
       const approved =
         staged.status === 'ready'
@@ -615,7 +610,7 @@ export function createSymposiumTrustedReviewHost(
               action: 'approve',
               reason: `Authorized application ${planned.kind}`,
               idempotencyKey: `review-approve:${planned.policyReservationId}`,
-              ...(applicationPermit ? { applicationPermit } : {}),
+              applicationPermit,
             });
       if (
         approved.deliveryId !== planned.binding.deliveryId ||
@@ -624,10 +619,7 @@ export function createSymposiumTrustedReviewHost(
         contentHash(approved.deliveredContent) !== planned.binding.contentHash
       )
         throw new Error('Approved application delivery content changed');
-      await runtime.deliver(
-        planned.binding.deliveryId,
-        applicationPermit ? { applicationPermit } : undefined,
-      );
+      await runtime.deliver(planned.binding.deliveryId, { applicationPermit });
       const done = completion(context, planned.attemptId);
       if (!done)
         throw new Error('Trusted review completion unavailable; reconcile original operation');
