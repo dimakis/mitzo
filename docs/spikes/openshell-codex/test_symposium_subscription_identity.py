@@ -115,9 +115,13 @@ class IdentityContract(unittest.TestCase):
             os.close(write_fd)
 
     def test_real_entrypoint_errors_are_static(self):
+        # The dynamic loader acts before Python/our launcher. Trusted spawning
+        # strips ambient preload settings; exercise launcher diagnostics alone.
+        child_env = {**environment(), 'PATH': '/usr/bin:/bin'}
+        del child_env['LD_PRELOAD']
         result = subprocess.run([sys.executable, '-I', '-B', str(SOURCE)],
             input=b'{"accountId":"private-identity-must-not-print"}\n',
-            env={**environment(), 'PATH': '/usr/bin:/bin'}, capture_output=True, timeout=2)
+            env=child_env, capture_output=True, timeout=2)
         self.assertEqual(result.returncode, 1)
         self.assertEqual(result.stdout, b'')
         self.assertEqual(result.stderr, b'subscription bootstrap refused unsafe or unavailable state\n')
