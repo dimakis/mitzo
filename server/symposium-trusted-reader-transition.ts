@@ -720,6 +720,11 @@ export function createSealedReaderReviewTransition(deps: SealedReaderTransitionD
             recipientSeatIds: [prep.actorSeatId],
             originalContent: prompt,
             idempotencyKey: `review-${prep.workflowId}-${prep.attemptId}`,
+            applicationControl: {
+              workflowId: prep.workflowId,
+              attemptId: prep.attemptId,
+              policyReservationId: prep.policyReservationId,
+            },
           });
           const recipient = delivery.recipients[0];
           if (

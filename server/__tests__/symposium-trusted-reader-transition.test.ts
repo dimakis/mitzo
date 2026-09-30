@@ -399,6 +399,11 @@ it('charges first review before reader admission and recovers an exact staged de
     expect(f.events.getSymposiumDelivery('delivery-1')!.originalContent).toContain(
       '"data":"tested"',
     );
+    expect(f.events.getSymposiumApplicationDeliveryControl('delivery-1')).toMatchObject({
+      workflowId: prep.workflowId,
+      attemptId: prep.attemptId,
+      policyReservationId: prep.policyReservationId,
+    });
     expect(f.events.getActiveSymposiumConfig('symposium').revision).toBe(5);
     expect(f.events.getLatestSymposiumAdmission('symposium', 'reviewer', 5)).toMatchObject({
       decision: 'admitted',
