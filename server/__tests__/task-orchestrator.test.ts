@@ -772,9 +772,13 @@ describe('TaskOrchestrator', () => {
       expect(task.annotations).toContain('review_feedback: needs more tests');
     });
 
-    it('routes spawned-task rejection to its own session', async () => {
+    it('retries rejected spawned work in a new dedicated session', async () => {
       const deps = createTestDeps(store);
-      deps.spawnSession = vi.fn().mockResolvedValue('headless:task-session');
+      const spawnSession = vi
+        .fn()
+        .mockResolvedValueOnce('headless:first-session')
+        .mockResolvedValueOnce('headless:retry-session');
+      deps.spawnSession = spawnSession;
       const orch = new TaskOrchestrator(deps);
       orch.setSpawnEnabled(true);
       const goal = store.create({ title: 'Goal' });
@@ -785,23 +789,37 @@ describe('TaskOrchestrator', () => {
       });
 
       orch.start(goal.id, { clientId: 'chosen-reuse-chat' });
-      await vi.waitFor(() => expect(store.get(task.id)?.sessionId).toBe('headless:task-session'));
+      await vi.waitFor(() => expect(store.get(task.id)?.sessionId).toBe('headless:first-session'));
       store.update(task.id, { status: 'pending_review' });
 
       expect(orch.rejectTask(task.id, 'try again')).toBe(true);
-      expect(sendToChat).toHaveBeenCalledWith(
-        'headless:task-session',
-        expect.stringContaining('try again'),
-        undefined,
-        undefined,
-        undefined,
-        undefined,
-        undefined,
-        expect.any(AbortSignal),
-      );
-      expect(vi.mocked(sendToChat).mock.calls.map((call) => call[0])).toEqual([
-        'headless:task-session',
-      ]);
+      await vi.waitFor(() => expect(store.get(task.id)?.sessionId).toBe('headless:retry-session'));
+      expect(spawnSession).toHaveBeenCalledTimes(2);
+      expect(spawnSession.mock.calls[1][1]).toContain('review_feedback: try again');
+      expect(sendToChat).not.toHaveBeenCalled();
+    });
+
+    it('retries a rejected auto task that was spawned in a new session', async () => {
+      const deps = createTestDeps(store);
+      deps.getClientId = () => null;
+      const spawnSession = vi
+        .fn()
+        .mockResolvedValueOnce('headless:first-session')
+        .mockResolvedValueOnce('headless:retry-session');
+      deps.spawnSession = spawnSession;
+      const orch = new TaskOrchestrator(deps);
+      orch.setSpawnEnabled(true);
+      const goal = store.create({ title: 'Goal' });
+      const task = store.create({ title: 'Auto task', parentId: goal.id });
+
+      orch.start(goal.id);
+      await vi.waitFor(() => expect(store.get(task.id)?.sessionId).toBe('headless:first-session'));
+      store.update(task.id, { status: 'pending_review' });
+
+      expect(orch.rejectTask(task.id, 'fix tests')).toBe(true);
+      await vi.waitFor(() => expect(store.get(task.id)?.sessionId).toBe('headless:retry-session'));
+      expect(spawnSession.mock.calls[1][1]).toContain('review_feedback: fix tests');
+      expect(sendToChat).not.toHaveBeenCalled();
     });
 
     it('keeps spawned-task review pending when its session is missing', () => {

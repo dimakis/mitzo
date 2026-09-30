@@ -362,7 +362,33 @@ export class TaskOrchestrator {
   /** Reject a pending_review task → active + feedback + tick. */
   rejectTask(taskId: string, feedback: string): boolean {
     const task = this.deps.store.get(taskId);
-    if (!task || task.status !== 'pending_review') return false;
+    if (!task || task.status !== 'pending_review' || this.state === 'idle') return false;
+    const annotations = [...task.annotations, `review_feedback: ${feedback}`];
+
+    // Spawned work has normally finished by the time a person reviews it.
+    // Its saved session ID may point to a closed chat, so retry in a fresh
+    // dedicated session with the feedback in the task prompt.
+    const spawnedTask =
+      task.stageType !== 'human_review' &&
+      (task.sessionPolicy === 'spawn' ||
+        (task.sessionPolicy === 'auto' &&
+          !!task.sessionId &&
+          task.sessionId !== this.pinnedClientId));
+    if (spawnedTask) {
+      if (!this._spawnEnabled || !this.deps.spawnSession) return false;
+      this.deps.store.update(taskId, { status: 'pending', annotations });
+      this.deps.store.setSessionId(taskId, null);
+      this.deps.store.cascadeStatus(taskId);
+      this.deps.broadcastTasks();
+      if (this.state === 'paused') {
+        this.state = 'running';
+        this.deps.broadcastStatus(this.getStatus());
+      }
+      this.spawnDepth = 0;
+      this.tick();
+      return true;
+    }
+
     // A spawned task must receive feedback in its own session. Never fall
     // back to the workflow's reuse chat when that session is unavailable.
     const targetClientId =
@@ -372,7 +398,6 @@ export class TaskOrchestrator {
     // to send rejection feedback.
     if (!targetClientId) return false;
 
-    const annotations = [...task.annotations, `review_feedback: ${feedback}`];
     this.deps.store.update(taskId, {
       status: 'active',
       annotations,
@@ -383,7 +408,7 @@ export class TaskOrchestrator {
     log.info('task rejected', { taskId, feedback });
 
     // Notify agent session so it retries with feedback
-    if (targetClientId && this.state !== 'idle') {
+    if (targetClientId) {
       if (this.state === 'paused') {
         this.state = 'running';
         this.deps.broadcastStatus(this.getStatus());
@@ -664,9 +689,11 @@ export class TaskOrchestrator {
   }
 
   private buildTaskPrompt(task: Task): string {
+    const feedback = [...task.annotations].reverse().find((a) => a.startsWith('review_feedback: '));
     return (
       `Work on this task: "${task.title}"\n` +
       (task.description ? `\nDetails: ${task.description}\n` : '') +
+      (feedback ? `\nYour previous work was rejected. ${feedback}\n` : '') +
       '\nUse TaskStatus to see your context, TaskSet to decompose, ' +
       'and TaskComplete when done.'
     );
