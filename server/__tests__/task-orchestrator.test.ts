@@ -848,6 +848,47 @@ describe('TaskOrchestrator', () => {
       expect(sendToChat).not.toHaveBeenCalled();
     });
 
+    it('defers a spawned review retry during a manual pause', async () => {
+      const deps = createTestDeps(store);
+      const spawnSession = vi.fn().mockResolvedValue('headless:session');
+      deps.spawnSession = spawnSession;
+      const orch = new TaskOrchestrator(deps);
+      orch.setSpawnEnabled(true);
+      const goal = store.create({ title: 'Goal' });
+      const task = store.create({ title: 'Spawned task', parentId: goal.id, sessionPolicy: 'spawn' });
+      orch.start(goal.id);
+      await vi.waitFor(() => expect(store.get(task.id)?.sessionId).toBe('headless:session'));
+      store.update(task.id, { status: 'pending_review' });
+      orch.pause();
+
+      expect(orch.rejectTask(task.id, 'fix it')).toBe(true);
+      expect(orch.getStatus().state).toBe('paused');
+      expect(store.get(task.id)?.status).toBe('pending');
+      expect(spawnSession).toHaveBeenCalledOnce();
+
+      orch.resume();
+      await vi.waitFor(() => expect(spawnSession).toHaveBeenCalledTimes(2));
+    });
+
+    it('defers feedback dispatch during a manual pause', async () => {
+      const goal = store.create({ title: 'Goal' });
+      const task = store.create({ title: 'Reuse task', parentId: goal.id, sessionPolicy: 'reuse' });
+      orchestrator.start(goal.id);
+      expect(sendToChat).toHaveBeenCalledOnce();
+      store.update(task.id, { status: 'pending_review' });
+      orchestrator.pause();
+
+      expect(orchestrator.rejectTask(task.id, 'fix it')).toBe(true);
+      expect(orchestrator.getStatus().state).toBe('paused');
+      expect(store.get(task.id)?.status).toBe('pending');
+      expect(sendToChat).toHaveBeenCalledOnce();
+
+      orchestrator.resume();
+      expect(store.get(task.id)?.status).toBe('active');
+      expect(sendToChat).toHaveBeenCalledTimes(2);
+      expect(vi.mocked(sendToChat).mock.calls[1][1]).toContain('Feedback: fix it');
+    });
+
     it('retries a rejected auto task that was spawned in a new session', async () => {
       const deps = createTestDeps(store);
       deps.getClientId = () => null;

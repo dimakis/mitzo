@@ -67,6 +67,7 @@ export class TaskOrchestrator {
 
   private state: LoopState = 'idle';
   private autoPausedReason: 'no_work' | 'no_dispatch' | null = null;
+  private deferredReviewDispatch: { taskId: string; clientId: string; prompt: string } | null = null;
   private goalId: string | null = null;
   private activeTaskId: string | null = null;
   private specMode = false;
@@ -217,6 +218,7 @@ export class TaskOrchestrator {
 
     this.state = 'running';
     this.autoPausedReason = null;
+    this.deferredReviewDispatch = null;
     this.dispatchAbort.abort();
     this.dispatchAbort = new AbortController();
     this.runGeneration++;
@@ -268,6 +270,12 @@ export class TaskOrchestrator {
   }
 
   pause(): LoopStatus {
+    if (this.state === 'paused' && this.autoPausedReason) {
+      // An explicit Pause while waiting for work overrides automatic wake-ups.
+      this.autoPausedReason = null;
+      this.deps.broadcastStatus(this.getStatus());
+      return this.getStatus();
+    }
     if (this.state !== 'running') return this.getStatus();
     this.state = 'paused';
     this.autoPausedReason = null;
@@ -281,6 +289,18 @@ export class TaskOrchestrator {
     this.state = 'running';
     this.autoPausedReason = null;
     log.info('orchestrator resumed');
+    const deferred = this.deferredReviewDispatch;
+    this.deferredReviewDispatch = null;
+    if (deferred && this.goalId && this.deps.store.get(deferred.taskId)?.status === 'pending') {
+      this.activeTaskId = deferred.taskId;
+      this.deps.store.update(deferred.taskId, { status: 'active' });
+      this.deps.store.cascadeStatus(deferred.taskId);
+      this.deps.setTaskContext(deferred.taskId, this.goalId);
+      this.deps.broadcastTasks();
+      this.deps.broadcastStatus(this.getStatus());
+      this.dispatchToPinned(deferred.taskId, deferred.clientId, deferred.prompt);
+      return this.getStatus();
+    }
     this.broadcastAndTick();
     return this.getStatus();
   }
@@ -291,6 +311,7 @@ export class TaskOrchestrator {
     this.runGeneration++;
     this.state = 'idle';
     this.autoPausedReason = null;
+    this.deferredReviewDispatch = null;
     this.goalId = null;
     this.activeTaskId = null;
     this.specMode = false;
@@ -391,6 +412,7 @@ export class TaskOrchestrator {
     const task = this.deps.store.get(taskId);
     if (!task || task.status !== 'pending_review' || this.state === 'idle') return false;
     const annotations = [...task.annotations, `review_feedback: ${feedback}`];
+    const manuallyPaused = this.state === 'paused' && this.autoPausedReason === null;
 
     // Spawned work has normally finished by the time a person reviews it.
     // Its saved session ID may point to a closed chat, so retry in a fresh
@@ -407,12 +429,15 @@ export class TaskOrchestrator {
       this.deps.store.setSessionId(taskId, null);
       this.deps.store.cascadeStatus(taskId);
       this.deps.broadcastTasks();
-      if (this.state === 'paused') {
+      if (this.state === 'paused' && !manuallyPaused) {
         this.state = 'running';
+        this.autoPausedReason = null;
         this.deps.broadcastStatus(this.getStatus());
       }
-      this.spawnDepth = 0;
-      this.tick();
+      if (!manuallyPaused) {
+        this.spawnDepth = 0;
+        this.tick();
+      }
       return true;
     }
 
@@ -425,12 +450,18 @@ export class TaskOrchestrator {
     // to send rejection feedback.
     if (!targetClientId) return false;
 
-    this.deps.store.update(taskId, {
-      status: 'active',
-      annotations,
-    });
+    const retryPrompt =
+      `Your previous work on "${task.title}" was rejected.\n` +
+      (feedback ? `Feedback: ${feedback}\n` : '') +
+      '\nPlease re-attempt this task addressing the feedback.';
+    this.deps.store.update(taskId, { status: manuallyPaused ? 'pending' : 'active', annotations });
     this.deps.store.cascadeStatus(taskId);
     this.deps.broadcastTasks();
+
+    if (manuallyPaused) {
+      this.deferredReviewDispatch = { taskId, clientId: targetClientId, prompt: retryPrompt };
+      return true;
+    }
 
     log.info('task rejected', { taskId, feedback });
 
@@ -438,15 +469,10 @@ export class TaskOrchestrator {
     if (targetClientId) {
       if (this.state === 'paused') {
         this.state = 'running';
+        this.autoPausedReason = null;
         this.deps.broadcastStatus(this.getStatus());
       }
-      this.dispatchToPinned(
-        taskId,
-        targetClientId,
-        `Your previous work on "${task.title}" was rejected.\n` +
-          (feedback ? `Feedback: ${feedback}\n` : '') +
-          '\nPlease re-attempt this task addressing the feedback.',
-      );
+      this.dispatchToPinned(taskId, targetClientId, retryPrompt);
     }
     return true;
   }
