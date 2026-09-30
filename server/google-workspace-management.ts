@@ -20,9 +20,22 @@ const Token = z.object({
   scope: z.string(),
   expires_in: z.number().int().positive(),
 });
+const Provider = z.object({
+  id: z.string().min(1),
+  name: z.string(),
+  workspace: z.string(),
+  type: z.string(),
+  resource_version: z.union([z.string().min(1), z.number().int().positive()]).transform(String),
+  credential_keys: z.array(z.string()).default([]),
+  credential_expires_at_ms: z.record(z.string(), z.number().int()).default({}),
+});
 const Refresh = z.object({
   credentials: z.array(
     z.object({
+      provider_name: z.string(),
+      provider_id: z.string(),
+      refresh_generation_id: z.string(),
+      last_refresh_at_ms: z.number().int(),
       credential_key: z.string(),
       status: z.string(),
       expires_at_ms: z.number().int(),
@@ -53,21 +66,37 @@ export class GoogleWorkspaceManagement {
   }
   private async verifyProvider(signal: AbortSignal) {
     const providers = z
-      .array(z.object({ name: z.string(), type: z.string() }))
+      .array(Provider)
       .parse(JSON.parse(await this.command(['provider', 'list', '-o', 'json'], signal)));
-    const found = providers.find((item) => item.name === provider);
-    if (found?.type !== 'mitzo-google-workspace-spike')
+    const matches = providers.filter((item) => item.name === provider);
+    const found = matches[0];
+    if (
+      matches.length !== 1 ||
+      found?.type !== 'mitzo-google-workspace-spike' ||
+      found.workspace !== (this.options.workspace ?? 'default')
+    )
       throw new Error('Google provider is not configured');
+    return found;
+  }
+  private async refreshCredential(signal: AbortSignal) {
+    const refresh = Refresh.parse(
+      JSON.parse(
+        await this.command(['provider', 'refresh', 'status', provider, '-o', 'json'], signal),
+      ),
+    );
+    const matches = refresh.credentials.filter((item) => item.credential_key === credentialKey);
+    return matches.length === 1 ? matches[0] : undefined;
   }
   async status(signal: AbortSignal): Promise<GoogleWorkspaceHealth> {
+    return this.observeStatus(signal);
+  }
+  private async observeStatus(
+    signal: AbortSignal,
+    previousRefreshAt?: number,
+  ): Promise<GoogleWorkspaceHealth> {
     try {
-      await this.verifyProvider(signal);
-      const refresh = Refresh.parse(
-        JSON.parse(
-          await this.command(['provider', 'refresh', 'status', provider, '-o', 'json'], signal),
-        ),
-      );
-      const current = refresh.credentials.find((item) => item.credential_key === credentialKey);
+      const before = await this.verifyProvider(signal);
+      const current = await this.refreshCredential(signal);
       const profile = z
         .object({
           endpoints: z.array(
@@ -90,13 +119,29 @@ export class GoogleWorkspaceManagement {
       const slides = profile.endpoints.find(
         (endpoint) => endpoint.host === 'slides.googleapis.com',
       );
+      // Refresh success is recorded before installation. Require a stable
+      // provider census and matching installed expiry before advertising readiness.
+      const after = await this.verifyProvider(signal);
+      const now = Date.now();
+      const installed =
+        current?.status === 'refreshed' &&
+        current.provider_name === provider &&
+        current.provider_id === after.id &&
+        current.refresh_generation_id.length > 0 &&
+        current.last_refresh_at_ms > 0 &&
+        current.last_refresh_at_ms <= now &&
+        (previousRefreshAt === undefined || current.last_refresh_at_ms > previousRefreshAt) &&
+        before.id === after.id &&
+        before.resource_version === after.resource_version &&
+        before.credential_expires_at_ms[credentialKey] ===
+          after.credential_expires_at_ms[credentialKey] &&
+        after.credential_keys.includes(credentialKey) &&
+        after.credential_expires_at_ms[credentialKey] === current.expires_at_ms;
       return {
         health:
-          !current ||
-          current.status === 'reauthorization_required' ||
-          current.expires_at_ms <= Date.now()
+          !current || current.status === 'reauthorization_required' || current.expires_at_ms <= now
             ? 'needs_sign_in'
-            : ['refreshed', 'active', 'scheduled'].includes(current.status)
+            : installed
               ? 'ready'
               : 'unavailable',
         expiresAt: current?.expires_at_ms ?? null,
@@ -161,6 +206,7 @@ export class GoogleWorkspaceManagement {
       if (email !== expectedEmail)
         throw new Error('Google account changed. Review the account and retry.');
       await this.verifyProvider(signal);
+      const previousRefreshAt = (await this.refreshCredential(signal))?.last_refresh_at_ms ?? 0;
       try {
         await this.command(
           [
@@ -198,7 +244,7 @@ export class GoogleWorkspaceManagement {
           'Google recovery could not be confirmed. Check its status before retrying.',
         );
       }
-      return this.status(signal);
+      return this.observeStatus(signal, previousRefreshAt);
     } finally {
       this.busy = false;
     }
@@ -208,6 +254,7 @@ export class GoogleWorkspaceManagement {
     this.busy = true;
     try {
       await this.verifyProvider(signal);
+      const previousRefreshAt = (await this.refreshCredential(signal))?.last_refresh_at_ms ?? 0;
       try {
         await this.command(
           ['provider', 'refresh', 'rotate', provider, '--credential-key', credentialKey],
@@ -216,7 +263,7 @@ export class GoogleWorkspaceManagement {
       } catch {
         throw new Error('Google refresh could not be confirmed. Check its status before retrying.');
       }
-      return this.status(signal);
+      return this.observeStatus(signal, previousRefreshAt);
     } finally {
       this.busy = false;
     }

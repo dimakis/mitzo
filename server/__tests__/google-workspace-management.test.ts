@@ -11,14 +11,33 @@ const scopes = [
   'https://www.googleapis.com/auth/drive',
   'https://www.googleapis.com/auth/calendar.readonly',
 ];
+const credentialKey = 'GOOGLE_WORKSPACE_CLI_TOKEN';
+const providerRow = (expiry: number) => ({
+  id: 'google-id',
+  name: 'google-workspace',
+  workspace: 'default',
+  type: 'mitzo-google-workspace-spike',
+  resource_version: 8,
+  credential_keys: [credentialKey],
+  credential_expires_at_ms: { [credentialKey]: expiry },
+});
+const refreshRow = (status: string, expiry: number) => ({
+  provider_name: 'google-workspace',
+  provider_id: 'google-id',
+  credential_key: credentialKey,
+  status,
+  expires_at_ms: expiry,
+  refresh_generation_id: 'generation',
+  last_refresh_at_ms: Date.now() - 1000,
+});
 function fixture(state = 'refreshed', expires = Date.now() + 3600000, allowUpdates = true) {
+  const refreshedAt = Date.now() - 1000;
   const run = vi.fn(
     async (
       args: readonly string[],
       _options: { env: Record<string, string>; signal: AbortSignal; timeoutMs: number },
     ) => {
-      if (args[1] === 'list')
-        return JSON.stringify([{ name: 'google-workspace', type: 'mitzo-google-workspace-spike' }]);
+      if (args[1] === 'list') return JSON.stringify([providerRow(expires)]);
       if (args[1] === 'profile')
         return JSON.stringify({
           endpoints: [
@@ -35,9 +54,7 @@ function fixture(state = 'refreshed', expires = Date.now() + 3600000, allowUpdat
         });
       if (args[2] === 'status')
         return JSON.stringify({
-          credentials: [
-            { credential_key: 'GOOGLE_WORKSPACE_CLI_TOKEN', status: state, expires_at_ms: expires },
-          ],
+          credentials: [{ ...refreshRow(state, expires), last_refresh_at_ms: refreshedAt }],
         });
       return '';
     },
@@ -52,6 +69,72 @@ function fixture(state = 'refreshed', expires = Date.now() + 3600000, allowUpdat
   return { service, run, request };
 }
 describe('Google Workspace management', () => {
+  it.each(['scheduled', 'active', 'refreshing', 'error'])(
+    'does not report %s as ready while an old credential is unexpired',
+    async (state) => {
+      const { service } = fixture(state);
+      expect((await service.status(AbortSignal.timeout(1000))).health).toBe('unavailable');
+    },
+  );
+  it.each(['not_installed', 'wrong_expiry', 'replaced', 'changed_revision', 'no_refresh_proof'])(
+    'requires stable installed credential proof: %s',
+    async (failure) => {
+      const expiry = Date.now() + 3600000;
+      const { service, run } = fixture('refreshed', expiry);
+      let census = 0;
+      const original = run.getMockImplementation()!;
+      run.mockImplementation(async (args, options) => {
+        if (args[1] === 'list') {
+          const row = providerRow(expiry);
+          census++;
+          if (failure === 'not_installed') row.credential_keys = [];
+          if (failure === 'wrong_expiry')
+            row.credential_expires_at_ms[credentialKey] = expiry - 1000;
+          if (census > 1 && failure === 'replaced') row.id = 'replacement';
+          if (census > 1 && failure === 'changed_revision') row.resource_version++;
+          return JSON.stringify([row]);
+        }
+        if (args[2] === 'status' && failure === 'no_refresh_proof')
+          return JSON.stringify({
+            credentials: [{ ...refreshRow('refreshed', expiry), last_refresh_at_ms: 0 }],
+          });
+        return original(args, options);
+      });
+      expect((await service.status(AbortSignal.timeout(1000))).health).toBe('unavailable');
+    },
+  );
+  it.each(['rotate', 'reconnect'])(
+    'does not confirm %s from a previously successful refresh',
+    async (action) => {
+      const { service } = fixture();
+      const signal = AbortSignal.timeout(1000);
+      const result =
+        action === 'rotate'
+          ? await service.rotate(signal)
+          : await service.reconnect('user@example.com', signal);
+      expect(result.health).toBe('unavailable');
+    },
+  );
+  it('confirms rotation only once a newer refresh is installed', async () => {
+    const expiry = Date.now() + 3600000;
+    const { service, run } = fixture('refreshed', expiry);
+    const original = run.getMockImplementation()!;
+    let rotated = false;
+    run.mockImplementation(async (args, options) => {
+      if (args[2] === 'rotate') rotated = true;
+      if (args[2] === 'status')
+        return JSON.stringify({
+          credentials: [
+            {
+              ...refreshRow('refreshed', expiry),
+              last_refresh_at_ms: Date.now() - (rotated ? 500 : 1000),
+            },
+          ],
+        });
+      return original(args, options);
+    });
+    expect((await service.rotate(AbortSignal.timeout(1000))).health).toBe('ready');
+  });
   it('does not advertise editing when only blank presentation creation is allowed', async () => {
     const { service } = fixture('refreshed', Date.now() + 3600000, false);
     expect((await service.status(AbortSignal.timeout(1000))).slidesEditing).toBe(false);
