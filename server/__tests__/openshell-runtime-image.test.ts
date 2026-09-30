@@ -1,4 +1,4 @@
-import { execFileSync, spawn } from 'node:child_process';
+import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import {
   existsSync,
   chmodSync,
@@ -49,6 +49,55 @@ function notebookRunnerForTest(root: string, python: string): string {
 }
 
 describe('OpenShell runtime image builder', () => {
+  it.each([apiRunner, subscriptionRunner])(
+    'launches the recipe-pinned CLI and rejects mismatched versions in %s',
+    (sourceRunner) => {
+      const dockerfile = readFileSync(
+        resolve('docs/spikes/openshell-codex/Dockerfile.mgmt-runtime'),
+        'utf8',
+      );
+      const version = dockerfile.match(/npm install --global @openai\/codex@(\d+\.\d+\.\d+)/)?.[1];
+      expect(version).toBeDefined();
+      const root = mkdtempSync(join(tmpdir(), 'mitzo-launcher-version-'));
+      try {
+        const capture = join(root, 'native-launch');
+        const runner = join(root, 'runner');
+        // Replace only workspace initialization; all version/exec logic is real.
+        writeFileSync(
+          runner,
+          readFileSync(sourceRunner, 'utf8').replace(
+            '/sandbox/initialize-mitzo-workspace /sandbox/workspaces/mgmt',
+            '/usr/bin/true',
+          ),
+        );
+        writeFileSync(
+          join(root, 'codex'),
+          '#!/bin/sh\nif [ "$1" = "--version" ]; then printf "%s\\n" "$FAKE_VERSION"; else printf "%s\\n" "$@" > "$CAPTURE"; fi\n',
+        );
+        chmodSync(join(root, 'codex'), 0o700);
+        const run = (fakeVersion: string) =>
+          spawnSync('/bin/sh', [runner], {
+            encoding: 'utf8',
+            env: { PATH: `${root}:/usr/bin:/bin`, FAKE_VERSION: fakeVersion, CAPTURE: capture },
+          });
+        for (const wrong of ['codex-cli 0.153.4', 'codex-cli 0.159.2', 'unrecognized CLI']) {
+          const rejected = run(wrong);
+          expect(rejected.status).toBe(1);
+          expect(rejected.stderr).toContain(`Unsupported Codex CLI version; expected ${version}`);
+          expect(existsSync(capture)).toBe(false);
+        }
+        const accepted = run(`codex-cli ${version}`);
+        expect(accepted.status).toBe(0);
+        const arguments_ = readFileSync(capture, 'utf8').trim().split('\n');
+        expect(arguments_.slice(0, 2)).toEqual(['app-server', '--stdio']);
+        expect(arguments_).toContain('features.enable_request_compression=false');
+        expect(arguments_).toContain('model_provider="openshell"');
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
+    },
+  );
+
   it('installs the vendored Jira notebook runtime from its checked-in frozen lock', () => {
     const dockerfile = readFileSync(
       resolve('docs/spikes/openshell-codex/Dockerfile.mgmt-runtime'),
