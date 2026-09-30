@@ -57,6 +57,145 @@ function openWithHandshake(conn: MitzoConnection): MockWebSocket {
 // ─── Tests ───────────────────────────────────────────────────────────────────
 
 describe('MitzoConnection', () => {
+  it.each(['reconnected', 'session_resumed'])(
+    'distinguishes sequenced live takeovers from replay ending with %s',
+    (completion) => {
+      vi.useFakeTimers();
+      const conn = createConnection();
+      const received: Record<string, unknown>[] = [];
+      conn.onMessage((message) => {
+        received.push(message);
+        return true;
+      });
+      try {
+        const first = openWithHandshake(conn);
+        first.simulateMessage({
+          type: 'session_takeover',
+          sessionId: 's1',
+          seq: 5,
+          replayed: true,
+        });
+        expect(received.at(-1)).toMatchObject({ type: 'session_takeover', replayed: false });
+        first.simulateClose();
+        vi.advanceTimersByTime(100);
+        const second = lastWs!;
+        second.simulateOpen();
+        second.simulateMessage({ type: 'welcome', connectionId: 'conn-2' });
+        second.simulateMessage({
+          type: 'session_takeover',
+          sessionId: 's1',
+          seq: 6,
+          replayed: false,
+        });
+        expect(received.at(-1)).toMatchObject({ type: 'session_takeover', replayed: true });
+        // Current connection-local notices remain live even during replay.
+        second.simulateMessage({ type: 'session_takeover', sessionId: 's1' });
+        expect(received.at(-1)).toMatchObject({ type: 'session_takeover', replayed: false });
+        second.simulateMessage({
+          type: completion,
+          sessionId: 's1',
+          sessions: [{ sessionId: 's1' }],
+        });
+        second.simulateMessage({ type: 'session_takeover', sessionId: 's1', seq: 7 });
+        expect(received.at(-1)).toMatchObject({ type: 'session_takeover', replayed: false });
+        expect(conn.getLastSeq('s1')).toBe(7);
+      } finally {
+        conn.disconnect();
+        vi.useRealTimers();
+      }
+    },
+  );
+
+  it('retains replay classification through chained buffering and acknowledges the applied cursor', () => {
+    vi.useFakeTimers();
+    const conn = createConnection();
+    const received: Record<string, unknown>[] = [];
+    conn.onMessage((message) => {
+      received.push(message);
+      return true;
+    });
+    try {
+      const first = openWithHandshake(conn);
+      conn.trackSeq('s1', 5);
+      first.simulateClose();
+      vi.advanceTimersByTime(100);
+      const second = lastWs!;
+      second.simulateOpen();
+      second.simulateMessage({ type: 'welcome', connectionId: 'conn-2' });
+      second.simulateMessage({
+        type: 'session_takeover',
+        sessionId: 's1',
+        seq: 6,
+        prevSessionSeq: 5,
+      });
+      expect(received.filter((message) => message.type === 'session_takeover')).toHaveLength(0);
+      second.simulateMessage({ type: 'session_switched', sessionId: 's1' });
+      expect(received.filter((message) => message.type === 'session_takeover')).toHaveLength(0);
+      expect(conn.getLastSeq('s1')).toBe(5);
+      second.simulateMessage({
+        type: 'session_takeover',
+        sessionId: 's1',
+        seq: 7,
+        prevSessionSeq: 6,
+      });
+      expect(received.filter((message) => message.type === 'session_takeover')).toHaveLength(0);
+
+      second.simulateMessage({
+        type: 'session_reconnect_snapshot',
+        sessionId: 's1',
+        cursor: 5,
+        offerId: 'snapshot',
+      });
+      conn.acknowledgeReconnectSnapshot('s1', 5, 'snapshot');
+      second.simulateMessage({
+        type: 'reconnect_snapshot_confirmed',
+        sessionId: 's1',
+        cursor: 5,
+        offerId: 'snapshot',
+      });
+      expect(received.at(-1)).toMatchObject({ type: 'session_takeover', replayed: true });
+      expect(conn.getLastSeq('s1')).toBe(7);
+      expect(second.send).toHaveBeenCalledWith(
+        JSON.stringify({ type: 'session_event_applied', sessionId: 's1', seq: 6 }),
+      );
+      second.simulateMessage({
+        type: 'session_takeover',
+        sessionId: 's1',
+        seq: 8,
+        prevSessionSeq: 7,
+      });
+      expect(received.at(-1)).toMatchObject({ type: 'session_takeover', replayed: false });
+      expect(conn.getLastSeq('s1')).toBe(8);
+    } finally {
+      conn.disconnect();
+      vi.useRealTimers();
+    }
+  });
+
+  it('keeps an unacknowledged snapshot timeout after session resumed', () => {
+    vi.useFakeTimers();
+    const conn = createConnection();
+    conn.onMessage(() => true);
+    const ws = openWithHandshake(conn);
+    const resync = vi.spyOn(conn, 'checkAndReconnect').mockImplementation(() => {});
+    try {
+      ws.simulateMessage({
+        type: 'session_reconnect_snapshot',
+        sessionId: 's1',
+        cursor: 5,
+        offerId: 'snapshot',
+      });
+      ws.simulateMessage({ type: 'session_resumed', sessionId: 's1' });
+      expect(resync).not.toHaveBeenCalled();
+      vi.advanceTimersByTime(30_001);
+      expect(resync).toHaveBeenCalledWith(true);
+      expect(conn.getLastSeq('s1')).toBe(0);
+    } finally {
+      conn.disconnect();
+      vi.useRealTimers();
+    }
+  });
+
   describe('hello handshake', () => {
     it('sends hello on WS open', () => {
       const conn = createConnection();
