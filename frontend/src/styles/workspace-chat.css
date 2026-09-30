@@ -6,7 +6,7 @@
   --border: var(--workspace-line);
   background: var(--workspace-bg);
   color: var(--workspace-text);
-  padding-top: calc(44px + env(safe-area-inset-top));
+  padding-top: env(safe-area-inset-top);
 }
 .conversation-heading {
   display: flex;
@@ -87,18 +87,28 @@
   border-color: var(--workspace-line);
 }
 .workspace-chat .session-tray[data-snap='peek'] {
+  position: static;
+  align-self: flex-end;
+  width: auto;
+  height: 32px;
+  min-height: 32px;
   border: 0;
   border-radius: 0;
+  pointer-events: auto;
 }
 .workspace-chat .session-tray[data-snap='peek'] .session-tray-handle {
-  left: 0;
-  right: 0;
-  width: 100%;
+  position: static;
+  width: auto;
+  height: 32px;
+  padding: 0 8px;
   transform: none;
-  border-radius: 0;
+  border-radius: 6px;
   border: 0;
-  border-bottom: 1px solid var(--workspace-line);
-  background: var(--workspace-bg);
+  background: var(--workspace-panel);
+  cursor: pointer;
+}
+.workspace-chat .session-tray[data-snap='peek'] .session-tray-grabber {
+  display: none;
 }
 .workspace-chat .session-tray-handle-label,
 .workspace-chat .session-tray[data-snap='peek'] .session-tray-handle-label,
@@ -156,7 +166,7 @@
 }
 @media (min-width: 768px) {
   .desktop-chat-center.workspace-chat {
-    padding-top: 44px;
+    padding-top: 0;
   }
   .desktop-chat-center .conversation-heading {
     padding: 24px 24px 14px;
@@ -300,11 +310,48 @@
 .workspace-controls-toggle > svg {
   flex-shrink: 0;
 }
-.workspace-controls-hint {
+.workspace-controls-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  min-width: 0;
   color: var(--workspace-muted);
   font-size: 12px;
 }
+.workspace-controls-summary > span {
+  overflow-wrap: anywhere;
+}
+.workspace-controls-details {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+}
+.workspace-controls-details > span + span::before {
+  content: '·';
+  margin-right: 10px;
+}
+.workspace-session-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 20px;
+}
+.workspace-session-actions .symposium-review-entry {
+  padding: 0;
+  border: 0;
+}
+.workspace-session-settings {
+  padding-bottom: 8px;
+}
+.workspace-controls-profile {
+  color: var(--workspace-text);
+  font-size: 14px;
+  font-weight: 600;
+}
 .workspace-controls-toggle .conversation-state {
+  flex-shrink: 0;
   margin-left: auto;
   white-space: nowrap;
 }
@@ -456,8 +503,25 @@
   user-select: text;
 }
 @media (max-width: 1000px) {
-  .workspace-controls-hint {
-    display: none;
+  .workspace-controls-toggle {
+    display: grid;
+    grid-template-columns: 20px minmax(0, 1fr) auto 20px;
+    gap: 4px 8px;
+    padding: 8px 12px;
+  }
+  .workspace-controls-summary {
+    grid-row: 1;
+    grid-column: 2;
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .workspace-controls-toggle .conversation-state {
+    grid-row: 1;
+    grid-column: 3;
+  }
+  .workspace-controls-toggle > svg:last-child {
+    grid-row: 1;
+    grid-column: 4;
   }
 }
 @media (pointer: coarse) {
@@ -938,7 +1002,7 @@
 @media (max-width: 767px) {
   .chat-mobile-topbar {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) 52px;
+    grid-template-columns: minmax(0, 1fr);
     align-items: start;
     flex-shrink: 0;
   }
@@ -947,21 +1011,18 @@
   }
   .workspace-chat .workspace-controls {
     position: relative;
-    width: 52px;
-    border: 0;
+    width: 100%;
+    border-bottom: 1px solid var(--workspace-line);
   }
   .workspace-chat .workspace-controls-toggle {
-    width: 52px;
-    min-height: 44px;
-    justify-content: center;
-    padding: 0;
-  }
-  .workspace-chat .workspace-controls-toggle > span {
-    display: none;
+    width: 100%;
+    min-height: 48px;
+    gap: 4px 8px;
+    padding: 8px 12px;
   }
   .workspace-chat .workspace-controls > div:not([hidden]) {
     position: absolute;
-    top: 44px;
+    top: 100%;
     right: 0;
     z-index: 20;
     width: min(22rem, 100vw);

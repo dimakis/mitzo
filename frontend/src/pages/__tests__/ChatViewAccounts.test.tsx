@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, expect, it, vi } from 'vitest';
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, within, waitFor } from '@testing-library/react';
 import { MemoryRouter, Routes, Route, useLocation } from 'react-router-dom';
 import { MitzoStoreProvider } from '@mitzo/client/hooks';
 import { createTestStore } from '../../test-utils/createTestStore';
@@ -343,4 +343,54 @@ it('shows conversation history loading explicitly', async () => {
   expect(screen.getByText('Loading conversation…')).toBeTruthy();
   act(() => store.setState({ historyLoading: false }));
   expect(screen.queryByText('Loading conversation…')).toBeNull();
+});
+
+it('shows the profile, model and thinking in the collapsed workspace header', async () => {
+  localStorage.removeItem('mitzo-workspace-controls-expanded');
+  const catalog = [
+    {
+      id: 'work',
+      label: 'Work Vertex',
+      models: [
+        {
+          id: 'luna',
+          label: 'Luna',
+          reasoningEfforts: ['low', 'high'],
+          defaultReasoningEffort: 'high',
+        },
+      ],
+    },
+  ];
+  vi.mocked(apiFetch).mockResolvedValue({ ok: true, json: async () => catalog } as Response);
+  const store = createTestStore();
+  render(
+    <MitzoStoreProvider value={store}>
+      <MemoryRouter>
+        <ChatView />
+      </MemoryRouter>
+    </MitzoStoreProvider>,
+  );
+  const toggle = screen.getByRole('button', { name: /Workspace controls/ });
+  expect(await within(toggle).findByText('Work Vertex')).toBeTruthy();
+  expect(within(toggle).getByText('Luna')).toBeTruthy();
+  expect(within(toggle).getByText('Thinking: high')).toBeTruthy();
+  expect(toggle.getAttribute('aria-expanded')).toBe('false');
+  expect(screen.queryByRole('combobox')).toBeNull();
+});
+
+it('groups web search settings under the existing header disclosure', async () => {
+  localStorage.removeItem('mitzo-workspace-controls-expanded');
+  vi.mocked(apiFetch).mockResolvedValue({ ok: true, json: async () => [] } as Response);
+  const store = createTestStore();
+  render(
+    <MitzoStoreProvider value={store}>
+      <MemoryRouter>
+        <ChatView />
+      </MemoryRouter>
+    </MitzoStoreProvider>,
+  );
+  const settings = screen.getByTestId('web-search-connection');
+  expect(settings.closest('[hidden]')).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: /Workspace controls/ }));
+  expect(settings.closest('[hidden]')).toBeNull();
 });

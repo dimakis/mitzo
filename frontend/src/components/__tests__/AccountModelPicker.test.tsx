@@ -44,7 +44,7 @@ it('shows the durable binding for an existing conversation without selectable ac
   } as Response);
   const onChange = vi.fn();
   render(<AccountModelPicker sessionId="saved" preferredModel="wrong" onChange={onChange} />);
-  await screen.findByText('Work Vertex · sonnet');
+  await screen.findByText('Work Vertex');
   expect(onChange).toHaveBeenLastCalledWith({ accountId: 'work', model: 'sonnet' });
   expect(screen.queryByLabelText('Account')).toBeNull();
 });
@@ -193,7 +193,7 @@ it('waits for accepted session metadata to become available', async () => {
       }),
     } as Response);
   render(<AccountModelPicker sessionId="starting" preferredModel="nano" onChange={vi.fn()} />);
-  await screen.findByText('Work API · nano');
+  await screen.findByText('Work API');
   expect(screen.queryByRole('alert')).toBeNull();
 });
 

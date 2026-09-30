@@ -22,6 +22,7 @@ Symposium director status resolves the verified runtime once per request and reu
 [Local Symposium source import](docs/operations/symposium-local-source.md) previews and explicitly imports bounded committed history from a configured local repository before any seat admission permission is issued. It uses fresh app authorization and a credential-free networkless helper; oversized, unsupported and uncertain imports remain fenced. Native budget, review and publication still require their own authority.
 
 - **Streaming chat** with thinking blocks, tool pills, and markdown
+- **Session settings at a glance** — a single session header shows the account profile, model, and thinking level even when collapsed. Expand it for account, permission, web access, and reviewer controls; Outputs / Sources is beside the composer. The summary wraps compactly on mobile.
 - **Live token usage** — the chat token bar shows context and session totals for OpenAI Responses turns after the provider reports usage at completion.
 - **Three modes** — Ask (read-only), Agent (file edits allowed), Auto (shell too). Switch mid-chat.
 - **Slash-command skills** — `/simplify`, `/risk-scan`, `/pr-review`, `/person`, `/review-response`, `/land-pr`, `/pr-shepherd`. Type `/` to browse.

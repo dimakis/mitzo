@@ -3,6 +3,7 @@ import { AddReviewerSheet } from '../components/AddReviewerSheet';
 import { NewSymposium } from '../components/NewSymposium';
 import { PermissionModePicker } from '../components/PermissionModePicker';
 import { WorkspaceControls } from '../components/WorkspaceControls';
+import type { WorkspaceSummary } from '../types/workspace';
 import { AccountModelPicker, type AccountSelection } from '../components/AccountModelPicker';
 import { CodexQueueStatus } from '../components/CodexQueueStatus';
 import { WebSearchConsent } from '../components/WebSearchConsent';
@@ -58,6 +59,7 @@ export function DesktopChatView() {
   const connected = connection.status === 'connected';
 
   // Local model state — persisted to localStorage, sent in payload
+  const [workspaceSummary, setWorkspaceSummary] = useState<WorkspaceSummary | null>(null);
   const [accountSelection, setAccountSelection] = useState<AccountSelection | null>(null);
   const [modelState, setModelState] = useState(getPreferredModel);
   const setModel = useCallback(
@@ -208,6 +210,7 @@ export function DesktopChatView() {
       center={
         <div className="desktop-chat-center workspace-chat">
           <WorkspaceControls
+            summary={workspaceSummary}
             status={
               !connected
                 ? 'Reconnecting'
@@ -233,6 +236,7 @@ export function DesktopChatView() {
                 sessionId={activeSessionId}
                 preferredModel={modelState}
                 onChange={selectAccount}
+                onSummaryChange={setWorkspaceSummary}
                 disabled={messages.running}
               />
               <PermissionModePicker
@@ -265,15 +269,26 @@ export function DesktopChatView() {
                 onVoiceChange={voice.setVoice}
               />
             </header>
+
+            <div className="workspace-session-settings">
+              <WebSearchConsent
+                key={activeSessionId ?? 'new'}
+                sessionId={activeSessionId}
+                mode={mode}
+                connected={connected}
+                connectionId={connectionId}
+                running={messages.running}
+              />
+              <div className="workspace-session-actions">
+                {activeSessionId && <AddReviewerSheet sessionId={activeSessionId} />}
+                {activeSessionId && (
+                  <SymposiumReviewEntry key={activeSessionId} sessionId={activeSessionId} />
+                )}
+              </div>
+              {activeSessionId && <SymposiumDirectorPanel sessionId={activeSessionId} />}
+            </div>
           </WorkspaceControls>
-          <WebSearchConsent
-            key={activeSessionId ?? 'new'}
-            sessionId={activeSessionId}
-            mode={mode}
-            connected={connected}
-            connectionId={connectionId}
-            running={messages.running}
-          />
+
           {(historyLoading || (sessionId && sessionId !== activeSessionId)) && (
             <div role="status">Loading conversation…</div>
           )}
@@ -291,11 +306,6 @@ export function DesktopChatView() {
             </div>
           )}
           {!activeSessionId && !sessionId && <NewSymposium />}
-          {activeSessionId && <AddReviewerSheet sessionId={activeSessionId} />}
-          {activeSessionId && <SymposiumDirectorPanel sessionId={activeSessionId} />}
-          {activeSessionId && (
-            <SymposiumReviewEntry key={activeSessionId} sessionId={activeSessionId} />
-          )}
           <ScrollFab scrollRef={scrollRef} />
           <SymposiumConversation
             sessionId={activeSessionId}
