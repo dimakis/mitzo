@@ -452,6 +452,11 @@ export function verifySymposiumProductionGate(
   );
   if (owned)
     physical.verifyNativeArtifacts!(expected.image, expected.imageDigest, expected.nativeArtifacts);
+  // Completed artifact sealing and review-context export still use the original
+  // reviewed helper image with pull disabled. Admit a successor only when that
+  // exact helper image is physically present and verified on this host too.
+  if (owned && expected.image !== reviewed.image)
+    physical.verifyNativeArtifacts!(reviewed.image, reviewed.imageDigest, reviewed.nativeArtifacts);
   for (const profile of expected.providerProfiles)
     physical.verifyProviderProfile(profile.name, profile.sha256, expected.workspace);
   for (const instance of expected.providerInstances)

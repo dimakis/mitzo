@@ -410,6 +410,17 @@ it.each([REVIEWED_SYMPOSIUM_CODE_MODE_RUNTIME.build, REVIEWED_SYMPOSIUM_CODEX_01
         f.invoke,
       ),
     ).toThrow();
+    expect(f.physical.verifyNativeArtifacts).toHaveBeenCalledWith(
+      build.image,
+      build.imageDigest,
+      build.nativeArtifacts,
+    );
+    vi.mocked(f.physical.verifyNativeArtifacts!).mockImplementation((image) => {
+      if (image === build.image) throw new Error('Helper image unavailable');
+    });
+    expect(() =>
+      verifySymposiumProductionGate(f.config, attestation, f.physical, f.invoke),
+    ).toThrow('Helper image unavailable');
   },
 );
 import { symposiumArtifactOwner } from '../symposium-artifact-owner.js';
