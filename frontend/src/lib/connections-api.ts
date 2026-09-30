@@ -5,6 +5,7 @@ import type {
   ConnectionsCatalog,
   ConnectionTemplateCatalog,
   ManagedConnection,
+  GoogleWorkspaceHealth,
 } from '../types/connections';
 
 type Reauthorization = { csrf: string; expiresAt: number };
@@ -27,6 +28,27 @@ function json(method: string, body: unknown, csrf?: string): RequestInit {
 }
 export async function getConnections(): Promise<ConnectionsCatalog> {
   return bodyOrError<ConnectionsCatalog>(await apiFetch('/api/connections'));
+}
+export async function getGoogleWorkspaceStatus(): Promise<GoogleWorkspaceHealth> {
+  return bodyOrError(await apiFetch('/api/connections/google-workspace'));
+}
+export async function previewGoogleWorkspace(csrf: string): Promise<{ email: string }> {
+  return bodyOrError(
+    await apiFetch('/api/connections/google-workspace/preview', json('POST', { csrf })),
+  );
+}
+export async function reconnectGoogleWorkspace(
+  csrf: string,
+  email: string,
+): Promise<GoogleWorkspaceHealth> {
+  return bodyOrError(
+    await apiFetch('/api/connections/google-workspace/reconnect', json('POST', { csrf, email })),
+  );
+}
+export async function refreshGoogleWorkspace(csrf: string): Promise<GoogleWorkspaceHealth> {
+  return bodyOrError(
+    await apiFetch('/api/connections/google-workspace/refresh', json('POST', { csrf })),
+  );
 }
 export async function getConnectionTemplates(): Promise<ConnectionTemplateCatalog> {
   return bodyOrError<ConnectionTemplateCatalog>(await apiFetch('/api/connections/templates'));
