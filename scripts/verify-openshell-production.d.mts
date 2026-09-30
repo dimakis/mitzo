@@ -21,4 +21,20 @@ export function loadProductionConfig(
 
 export function verifyOpenAiHeaderAuthentication(profile: Record<string, unknown>): void;
 
-export function verifyPreparedSeed(seedPath: string, expectedCommit: string): void;
+export function verifyPreparedSeed(
+  seedPath: string,
+  expectedCommit: string | Record<string, unknown>,
+): void;
+
+export function canonicalJsonPayload(value: unknown): string;
+
+export function validateSeedBaseline(
+  baseline: Record<string, unknown>,
+  manifest: Record<string, unknown>,
+  seedPath?: string,
+): void;
+
+export function validateRuntimeMarkerEnvironment(
+  encoded: unknown,
+  targetPlatform: unknown,
+): Record<string, string>;

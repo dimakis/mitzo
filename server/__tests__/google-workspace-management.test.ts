@@ -1,4 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { load } from 'js-yaml';
 import { GoogleWorkspaceManagement } from '../google-workspace-management.js';
 
 const credentials = {
@@ -30,6 +32,39 @@ const refreshRow = (status: string, expiry: number) => ({
   refresh_generation_id: 'generation',
   last_refresh_at_ms: Date.now() - 1000,
 });
+function reviewedProfile() {
+  return load(
+    readFileSync(
+      new URL(
+        '../../docs/spikes/openshell-codex/google-workspace-spike-profile.yaml',
+        import.meta.url,
+      ),
+      'utf8',
+    ),
+  ) as {
+    id: string;
+    resource_version: number;
+    source?: string;
+    scope?: string;
+    inference_capable: boolean;
+    endpoints: Array<{
+      host: string;
+      port: number;
+      protocol: string;
+      access?: string;
+      enforcement: string;
+      tls: string;
+      rules?: Array<{ allow: { method: string; path: string } }>;
+    }>;
+    credentials: Array<{
+      auth_style: string;
+      header_name: string;
+      env_vars: string[];
+      query_param?: string | null;
+    }>;
+    binaries: string[];
+  };
+}
 function fixture(state = 'refreshed', expires = Date.now() + 3600000, allowUpdates = true) {
   const refreshedAt = Date.now() - 1000;
   const run = vi.fn(
@@ -38,20 +73,11 @@ function fixture(state = 'refreshed', expires = Date.now() + 3600000, allowUpdat
       _options: { env: Record<string, string>; signal: AbortSignal; timeoutMs: number },
     ) => {
       if (args[1] === 'list') return JSON.stringify([providerRow(expires)]);
-      if (args[1] === 'profile')
-        return JSON.stringify({
-          endpoints: [
-            {
-              host: 'slides.googleapis.com',
-              rules: [
-                { allow: { method: 'POST', path: '/v1/presentations' } },
-                ...(allowUpdates
-                  ? [{ allow: { method: 'POST', path: '/v1/presentations/*:batchUpdate' } }]
-                  : []),
-              ],
-            },
-          ],
-        });
+      if (args[1] === 'profile') {
+        const profile = reviewedProfile();
+        if (!allowUpdates) profile.endpoints[4].rules!.pop();
+        return JSON.stringify(profile);
+      }
       if (args[2] === 'status')
         return JSON.stringify({
           credentials: [{ ...refreshRow(state, expires), last_refresh_at_ms: refreshedAt }],
@@ -66,9 +92,242 @@ function fixture(state = 'refreshed', expires = Date.now() + 3600000, allowUpdat
       : { user: { emailAddress: 'user@example.com' } },
   );
   const service = new GoogleWorkspaceManagement({ run, exportCredentials, request });
-  return { service, run, request };
+  return { service, run, request, exportCredentials };
 }
 describe('Google Workspace management', () => {
+  const drifts: Array<[string, (profile: ReturnType<typeof reviewedProfile>) => void]> = [
+    [
+      'Drive writes',
+      (profile) => {
+        profile.endpoints[0].access = 'read-write';
+      },
+    ],
+    [
+      'unenforced Docs',
+      (profile) => {
+        profile.endpoints[1].enforcement = 'audit';
+      },
+    ],
+    [
+      'uninspected TLS',
+      (profile) => {
+        profile.endpoints[2].tls = 'passthrough';
+      },
+    ],
+    [
+      'unexpected endpoint',
+      (profile) => {
+        profile.endpoints.push({ ...profile.endpoints[0], host: 'evil.example' });
+      },
+    ],
+    [
+      'duplicate endpoint',
+      (profile) => {
+        profile.endpoints.push({ ...profile.endpoints[0] });
+      },
+    ],
+    [
+      'missing read boundary',
+      (profile) => {
+        profile.endpoints.splice(3, 1);
+      },
+    ],
+    [
+      'broad Slides writes',
+      (profile) => {
+        profile.endpoints[4].rules!.push({ allow: { method: 'POST', path: '/**' } });
+      },
+    ],
+    [
+      'Drive POST rule',
+      (profile) => {
+        profile.endpoints[0].rules = [{ allow: { method: 'POST', path: '/drive/**' } }];
+      },
+    ],
+    [
+      'unexpected port',
+      (profile) => {
+        profile.endpoints[0].port = 80;
+      },
+    ],
+    [
+      'wrong authorization header',
+      (profile) => {
+        profile.credentials[0].header_name = 'cookie';
+      },
+    ],
+    [
+      'query token',
+      (profile) => {
+        profile.credentials[0].query_param = 'access_token';
+      },
+    ],
+    [
+      'wrong credential variable',
+      (profile) => {
+        profile.credentials[0].env_vars = ['OTHER_TOKEN'];
+      },
+    ],
+    [
+      'inference capability',
+      (profile) => {
+        profile.inference_capable = true;
+      },
+    ],
+    [
+      'unexpected binary',
+      (profile) => {
+        profile.binaries.push('/usr/bin/sh');
+      },
+    ],
+  ];
+  it.each(drifts)(
+    'blocks reconnect before credentials or OAuth requests on %s drift',
+    async (_name, mutate) => {
+      const { service, run, request, exportCredentials } = fixture();
+      const original = run.getMockImplementation()!;
+      run.mockImplementation(async (args, options) => {
+        if (args[1] === 'profile') {
+          const profile = reviewedProfile();
+          mutate(profile);
+          return JSON.stringify(profile);
+        }
+        return original(args, options);
+      });
+      await expect(
+        service.reconnect('user@example.com', AbortSignal.timeout(1000)),
+      ).rejects.toThrow('reviewed policy');
+      expect(exportCredentials).not.toHaveBeenCalled();
+      expect(request).not.toHaveBeenCalled();
+      expect(
+        run.mock.calls.some(([args]) => args.includes('configure') || args.includes('rotate')),
+      ).toBe(false);
+      expect(await service.status(AbortSignal.timeout(1000))).toEqual({
+        health: 'unavailable',
+        expiresAt: null,
+        slidesEditing: false,
+      });
+    },
+  );
+  it('accepts reviewed policy with normal export metadata and reordered semantic sets', async () => {
+    const { service, run } = fixture();
+    const original = run.getMockImplementation()!;
+    run.mockImplementation(async (args, options) => {
+      if (args[1] === 'profile') {
+        const profile = reviewedProfile();
+        profile.source = 'imported';
+        profile.scope = 'workspace';
+        profile.resource_version++;
+        profile.credentials[0].query_param = null;
+        profile.endpoints.reverse();
+        profile.binaries.reverse();
+        return JSON.stringify(profile);
+      }
+      return original(args, options);
+    });
+    expect(await service.status(AbortSignal.timeout(1000))).toMatchObject({
+      health: 'ready',
+      slidesEditing: true,
+    });
+    await service.reconnect('user@example.com', AbortSignal.timeout(1000));
+    expect(run.mock.calls.some(([args]) => args.includes('configure'))).toBe(true);
+  });
+  it('does not advertise readiness if policy changes between credential observations', async () => {
+    const { service, run } = fixture();
+    const original = run.getMockImplementation()!;
+    let exports = 0;
+    run.mockImplementation(async (args, options) => {
+      if (args[1] === 'profile' && ++exports > 1) {
+        const profile = reviewedProfile();
+        profile.endpoints[0].access = 'read-write';
+        return JSON.stringify(profile);
+      }
+      return original(args, options);
+    });
+    expect(await service.status(AbortSignal.timeout(1000))).toEqual({
+      health: 'unavailable',
+      expiresAt: null,
+      slidesEditing: false,
+    });
+  });
+  it('blocks account preview before requesting a host grant under unsafe policy', async () => {
+    const { service, run, exportCredentials, request } = fixture();
+    const original = run.getMockImplementation()!;
+    run.mockImplementation(async (args, options) => {
+      if (args[1] === 'profile') {
+        const profile = reviewedProfile();
+        profile.endpoints[0].access = 'read-write';
+        return JSON.stringify(profile);
+      }
+      return original(args, options);
+    });
+    await expect(service.preview(AbortSignal.timeout(1000))).rejects.toThrow('reviewed policy');
+    expect(exportCredentials).not.toHaveBeenCalled();
+    expect(request).not.toHaveBeenCalled();
+  });
+  it.each(['reconnect', 'rotate'])(
+    'rechecks %s policy after refresh status before its mutation',
+    async (action) => {
+      const { service, run } = fixture();
+      const original = run.getMockImplementation()!;
+      let drift = false;
+      run.mockImplementation(async (args, options) => {
+        if (args[2] === 'status') drift = true;
+        if (args[1] === 'profile' && drift) {
+          const profile = reviewedProfile();
+          profile.endpoints[0].access = 'read-write';
+          return JSON.stringify(profile);
+        }
+        return original(args, options);
+      });
+      const signal = AbortSignal.timeout(1000);
+      await expect(
+        action === 'reconnect'
+          ? service.reconnect('user@example.com', signal)
+          : service.rotate(signal),
+      ).rejects.toThrow('reviewed policy');
+      expect(
+        run.mock.calls.some(([args]) => args.includes('configure') || args.includes('rotate')),
+      ).toBe(false);
+    },
+  );
+  it('does not rotate an imported grant when policy drifts during configuration', async () => {
+    const { service, run } = fixture();
+    const original = run.getMockImplementation()!;
+    let configured = false;
+    run.mockImplementation(async (args, options) => {
+      if (args[2] === 'configure') configured = true;
+      if (args[1] === 'profile' && configured) {
+        const profile = reviewedProfile();
+        profile.endpoints[0].access = 'read-write';
+        return JSON.stringify(profile);
+      }
+      return original(args, options);
+    });
+    await expect(service.reconnect('user@example.com', AbortSignal.timeout(1000))).rejects.toThrow(
+      'reviewed policy',
+    );
+    expect(run.mock.calls.some(([args]) => args.includes('configure'))).toBe(true);
+    expect(run.mock.calls.some(([args]) => args.includes('rotate'))).toBe(false);
+  });
+  it('rechecks policy after host identity verification before installing refresh material', async () => {
+    const { service, run } = fixture();
+    const original = run.getMockImplementation()!;
+    let exports = 0;
+    run.mockImplementation(async (args, options) => {
+      if (args[1] === 'profile' && ++exports > 1) {
+        const profile = reviewedProfile();
+        profile.endpoints[0].access = 'read-write';
+        return JSON.stringify(profile);
+      }
+      return original(args, options);
+    });
+    await expect(service.reconnect('user@example.com', AbortSignal.timeout(1000))).rejects.toThrow(
+      'reviewed policy',
+    );
+    expect(run.mock.calls.some(([args]) => args.includes('configure'))).toBe(false);
+  });
+
   it('keeps a newly configured refresh pending rather than demanding sign-in again', async () => {
     const { service } = fixture('scheduled', 1);
     expect((await service.status(AbortSignal.timeout(1000))).health).toBe('unavailable');
@@ -199,7 +458,9 @@ describe('Google Workspace management', () => {
     await expect(service.reconnect('other@example.com', AbortSignal.timeout(1000))).rejects.toThrow(
       'Google account changed',
     );
-    expect(run).not.toHaveBeenCalled();
+    expect(
+      run.mock.calls.some(([args]) => args.includes('configure') || args.includes('rotate')),
+    ).toBe(false);
   });
   it('uses encrypted gateway refresh, never secrets in command arguments, and omits Gmail scopes', async () => {
     const { service, run, request } = fixture();
@@ -231,6 +492,8 @@ describe('Google Workspace management', () => {
     await expect(service.reconnect('user@example.com', AbortSignal.timeout(1000))).rejects.toThrow(
       'Google scope mismatch',
     );
-    expect(run).not.toHaveBeenCalled();
+    expect(
+      run.mock.calls.some(([args]) => args.includes('configure') || args.includes('rotate')),
+    ).toBe(false);
   });
 });
