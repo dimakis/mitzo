@@ -366,6 +366,8 @@ async function checkGhReview(config: { repo: string; pr: number | string }): Pro
     }
     // Centaur submits COMMENT reviews, so reviewDecision remains empty. Its
     // SHA marker appears in the review body (or issue comment fallback).
+    // Only the repository owner's marker is trusted: PR participants can
+    // otherwise copy the marker into their own comment to release this gate.
     // Match the current head only: an earlier review cannot release this gate
     // after an agent pushes conflict, CI, or review fixes.
     if (data.headRefOid && /^[0-9a-f]{40}$/.test(data.headRefOid)) {
@@ -376,17 +378,34 @@ async function checkGhReview(config: { repo: string; pr: number | string }): Pro
           `repos/${config.repo}/pulls/${config.pr}/reviews`,
           '--paginate',
           '--jq',
-          '.[].body',
+          '.[] | {body, author: .user.login, association: .author_association}',
         ]),
         execFileAsync('gh', [
           'api',
           `repos/${config.repo}/issues/${config.pr}/comments`,
           '--paginate',
           '--jq',
-          '.[].body',
+          '.[] | {body, author: .user.login, association: .author_association}',
         ]),
       ]);
-      if (reviews.stdout.includes(marker) || comments.stdout.includes(marker)) {
+      const repoOwner = config.repo.split('/')[0].toLowerCase();
+      const hasTrustedMarker = (output: string) =>
+        output.split('\n').some((line) => {
+          if (!line.trim()) return false;
+          const item = JSON.parse(line) as {
+            body?: unknown;
+            author?: unknown;
+            association?: unknown;
+          };
+          return (
+            typeof item.body === 'string' &&
+            item.body.includes(marker) &&
+            typeof item.author === 'string' &&
+            item.author.toLowerCase() === repoOwner &&
+            item.association === 'OWNER'
+          );
+        });
+      if (hasTrustedMarker(reviews.stdout) || hasTrustedMarker(comments.stdout)) {
         return {
           resolved: true,
           status: 'pass',

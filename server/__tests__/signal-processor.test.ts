@@ -36,21 +36,47 @@ describe('SignalProcessor', () => {
     const oldSha = 'b'.repeat(40);
     const ghPath = join(TEST_DIR, 'gh');
     const originalPath = process.env.PATH;
-    const writeFakeGh = (reviewedSha: string) => {
+    const writeFakeGh = (
+      reviewedSha: string,
+      author: string,
+      association: string,
+      source: 'review' | 'comment' = 'review',
+    ) => {
+      const item = JSON.stringify({
+        body: `<!-- centaur:sha:${reviewedSha} -->`,
+        author,
+        association,
+      });
       writeFileSync(
         ghPath,
-        `#!/bin/sh\ncase "$*" in\n  *"pr view"*) echo '{"reviewDecision":"","headRefOid":"${currentSha}"}' ;;\n  *"pulls/7/reviews"*) echo '<!-- centaur:sha:${reviewedSha} -->' ;;\n  *) echo '' ;;\nesac\n`,
+        `#!/bin/sh\ncase "$*" in\n  *"pr view"*) echo '{"reviewDecision":"","headRefOid":"${currentSha}"}' ;;\n  *"pulls/7/reviews"*) ${source === 'review' ? `echo '${item}'` : "echo ''"} ;;\n  *"issues/7/comments"*) ${source === 'comment' ? `echo '${item}'` : "echo ''"} ;;\n  *) echo '' ;;\nesac\n`,
       );
       chmodSync(ghPath, 0o755);
     };
     try {
       process.env.PATH = `${TEST_DIR}:${originalPath}`;
-      writeFakeGh(oldSha);
+      writeFakeGh(oldSha, 'org', 'OWNER');
       expect(await checkGate({ type: 'gh_review', repo: 'org/repo', pr: 7 })).toEqual({
         resolved: false,
         status: 'fail',
       });
-      writeFakeGh(currentSha);
+      writeFakeGh(currentSha, 'contributor', 'CONTRIBUTOR');
+      expect(await checkGate({ type: 'gh_review', repo: 'org/repo', pr: 7 })).toEqual({
+        resolved: false,
+        status: 'fail',
+      });
+      writeFakeGh(currentSha, 'contributor', 'CONTRIBUTOR', 'comment');
+      expect(await checkGate({ type: 'gh_review', repo: 'org/repo', pr: 7 })).toEqual({
+        resolved: false,
+        status: 'fail',
+      });
+      writeFakeGh(currentSha, 'org', 'OWNER');
+      expect(await checkGate({ type: 'gh_review', repo: 'org/repo', pr: 7 })).toEqual({
+        resolved: true,
+        status: 'pass',
+        artifacts: { centaurReviewedSha: currentSha },
+      });
+      writeFakeGh(currentSha, 'org', 'OWNER', 'comment');
       expect(await checkGate({ type: 'gh_review', repo: 'org/repo', pr: 7 })).toEqual({
         resolved: true,
         status: 'pass',
