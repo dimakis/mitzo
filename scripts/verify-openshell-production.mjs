@@ -409,6 +409,24 @@ export function validateSeedBaseline(seedBaseline, manifest, seedPath) {
     seedBaseline && typeof seedBaseline === 'object' && !Array.isArray(seedBaseline),
     'prepared seed baseline must be an object',
   );
+  // The trusted runtime selection owns the publication lane. Removing fields
+  // from the first dynamic bundle must never downgrade it to static admission.
+  const dynamicFields = [
+    'knowledgeSchemaVersion',
+    'knowledgeCompilerSha256',
+    'knowledgeRecipeSha256',
+    'dependencyProjectionSha256',
+    'targetMarkerEnvironmentB64',
+    'targetPlatform',
+    'jiraRuntimeInputsSha256',
+  ];
+  const selectedDynamicContract = dynamicFields.some((field) =>
+    Object.hasOwn(manifest.runtime ?? {}, field),
+  );
+  invariant(
+    !selectedDynamicContract || Object.hasOwn(seedBaseline, 'runtimeBaseCommit'),
+    'selected knowledge runtime contract requires a dynamic publication baseline and publisher record; regenerate the publication with the pinned builder',
+  );
   // Legacy static releases retain their exact-commit admission and historical
   // mismatch diagnostic before the stronger dynamic provenance validation.
   if (!Object.hasOwn(seedBaseline, 'runtimeBaseCommit')) {

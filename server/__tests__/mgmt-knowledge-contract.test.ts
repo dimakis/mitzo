@@ -8,6 +8,7 @@ import {
   validateSeedBaseline,
   verifyPreparedSeed,
 } from '../../scripts/verify-openshell-production.mjs';
+import { verifiedOpenShellSeed } from '../openshell-runtime.js';
 let root = '';
 afterEach(() => {
   if (root) rmSync(root, { recursive: true, force: true });
@@ -170,4 +171,41 @@ it('rejects forbidden files and special file modes even with a recomputed integr
   rmSync(join(dir, '.env'));
   baseline.files['memory/manifest/index.json'].mode = '4644';
   expect(() => validateSeedBaseline(baseline, stack, dir)).toThrow(/special/);
+});
+
+it('rejects downgrading the first dynamic publication to an unverified legacy baseline', () => {
+  root = '';
+  const { dir } = fixture('a'.repeat(40));
+  const downgraded = { startingCommit: 'a'.repeat(40) };
+  writeFileSync(join(dir, '.env'), 'unverified secret');
+  writeFileSync(join(dir, '..', 'baseline.json'), JSON.stringify(downgraded));
+  const selected = { runtime: { ...stack.runtime, image: 'runtime:fixture' } };
+  expect(() => validateSeedBaseline(downgraded, selected, dir)).toThrow(
+    /selected.*dynamic publication/,
+  );
+  expect(() => verifyPreparedSeed(dir, selected)).toThrow(/selected.*dynamic publication/);
+  expect(() =>
+    verifiedOpenShellSeed({
+      image: selected.runtime.image,
+      seed: dir,
+      seedStackManifest: selected,
+    }),
+  ).toThrow(/selected.*dynamic publication/);
+  const legacy = {
+    runtime: { image: selected.runtime.image, mgmtSourceCommit: downgraded.startingCommit },
+  };
+  expect(() => verifyPreparedSeed(dir, legacy)).not.toThrow();
+});
+it.each([
+  ['knowledgeSchemaVersion', 1],
+  ['knowledgeCompilerSha256', 'c'.repeat(64)],
+  ['knowledgeRecipeSha256', 'd'.repeat(64)],
+  ['dependencyProjectionSha256', 'b'.repeat(64)],
+  ['targetMarkerEnvironmentB64', 'e30='],
+  ['targetPlatform', 'linux/amd64'],
+  ['jiraRuntimeInputsSha256', '9'.repeat(64)],
+])('rejects a partial selected dynamic runtime contract declaring only %s', (field, value) => {
+  const baseline = { startingCommit: 'a'.repeat(40) };
+  const selected = { runtime: { mgmtSourceCommit: baseline.startingCommit, [field]: value } };
+  expect(() => validateSeedBaseline(baseline, selected)).toThrow(/selected.*dynamic publication/);
 });
