@@ -451,14 +451,17 @@ const orchestrator = new TaskOrchestrator({
 
     try {
       const transport = new NullTransport();
-      // Wait for startup admission, not for the entire agent run. startChat
-      // resolves only after the session ends, but reports admission separately.
+      // Wait for the first provider event. Startup admission alone can succeed
+      // before the SDK fails, leaving an active task without a session.
       const admitted = new Promise<boolean>((resolve) => {
         startChat(transport, clientId, prompt, {
           mode: 'agent',
           isolation: true,
           telosTaskId: goalId,
-          onStartupAdmission: (error) => resolve(!error),
+          onStartupAdmission: (error) => {
+            if (error) resolve(false);
+          },
+          onFirstEventOutcome: (error) => resolve(!error),
           onSessionResolved: (sessionId) => {
             log.info('spawned headless session resolved', { taskId, sessionId, clientId });
             sseRegistry.broadcast('sessions_changed', {});

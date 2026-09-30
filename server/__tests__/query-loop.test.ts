@@ -141,6 +141,54 @@ describe('runQueryLoop', () => {
     abortController = new AbortController();
   });
 
+  it('reports a provider failure before its first event exactly once', async () => {
+    const failingStream: AsyncIterable<Record<string, unknown>> = {
+      [Symbol.asyncIterator]: () => ({
+        next: async () => {
+          throw new Error('provider startup failed');
+        },
+      }),
+    };
+    const onFirstEventOutcome = vi.fn();
+
+    await runQueryLoop(failingStream, clientId, registry, abortController, undefined, undefined, {
+      onFirstEventOutcome,
+    });
+
+    expect(onFirstEventOutcome).toHaveBeenCalledTimes(1);
+    expect(onFirstEventOutcome).toHaveBeenCalledWith(
+      expect.objectContaining({ message: 'provider startup failed' }),
+    );
+  });
+
+  it('reports an empty provider stream as failed startup', async () => {
+    const onFirstEventOutcome = vi.fn();
+
+    await runQueryLoop(eventStream([]), clientId, registry, abortController, undefined, undefined, {
+      onFirstEventOutcome,
+    });
+
+    expect(onFirstEventOutcome).toHaveBeenCalledTimes(1);
+    expect(onFirstEventOutcome.mock.calls[0][0]).toBeInstanceOf(Error);
+  });
+
+  it('admits the first provider event exactly once', async () => {
+    const onFirstEventOutcome = vi.fn();
+
+    await runQueryLoop(
+      eventStream([{ type: 'result', session_id: 'sess-1' }]),
+      clientId,
+      registry,
+      abortController,
+      undefined,
+      undefined,
+      { onFirstEventOutcome },
+    );
+
+    expect(onFirstEventOutcome).toHaveBeenCalledOnce();
+    expect(onFirstEventOutcome).toHaveBeenCalledWith(undefined);
+  });
+
   it('emits message_start, block_start, block_delta, block_end, message_end, session_end for a text turn', async () => {
     const events: Record<string, unknown>[] = [
       { type: 'stream_event', event: { type: 'message_start', message: { id: 'msg-abc' } } },

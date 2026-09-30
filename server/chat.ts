@@ -957,6 +957,7 @@ export async function startChat(
     clientMsgId?: string;
     onSessionResolved?: (sessionId: string) => void;
     onStartupAdmission?: (error?: unknown) => void;
+    onFirstEventOutcome?: (error?: Error) => void;
     telosTaskId?: string;
     agentName?: string;
     userIntent?: string;
@@ -1014,6 +1015,7 @@ async function _startChatInner(
     clientMsgId?: string;
     onSessionResolved?: (sessionId: string) => void;
     onStartupAdmission?: (error?: unknown) => void;
+    onFirstEventOutcome?: (error?: Error) => void;
     telosTaskId?: string;
     agentName?: string;
     userIntent?: string;
@@ -1710,6 +1712,7 @@ async function _startChatInner(
       options.resume || codexProfile || apiKey || gemini ? undefined : fullPrompt,
       {
         connRegistry: _connRegistry ?? undefined,
+        onFirstEventOutcome: options.onFirstEventOutcome,
         initialClientMsgId: options.clientMsgId,
         initialImages: imagePreviews(options.images),
         initialContextBlocks: options.contextBlocks,

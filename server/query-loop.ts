@@ -185,6 +185,8 @@ export interface QueryLoopOptions {
   initialContextBlocks?: string[];
   connRegistry?: ConnectionRegistry;
   onSessionResolved?: (sessionId: string) => void;
+  /** Report whether the provider produced its first event. */
+  onFirstEventOutcome?: (error?: Error) => void;
   /** Called after the initial prompt is registered, enabling auto-rename on prompt 1. */
   onInitialPrompt?: (sessionId: string) => void;
   /** Called when an assistant turn completes (snapshot cleared). */
@@ -432,6 +434,12 @@ async function _runQueryLoopInner(
   // the configured model is unreachable (e.g. requested via Vertex AI before
   // that model has landed there) and would otherwise hang indefinitely.
   let firstEventReceived = false;
+  let firstEventOutcomeReported = false;
+  const reportFirstEventOutcome = (error?: Error) => {
+    if (firstEventOutcomeReported) return;
+    firstEventOutcomeReported = true;
+    options?.onFirstEventOutcome?.(error);
+  };
   let timedOut = false;
   const firstEventTimer = setTimeout(() => {
     if (!firstEventReceived) {
@@ -447,6 +455,7 @@ async function _runQueryLoopInner(
         if (!firstEventReceived) {
           firstEventReceived = true;
           clearTimeout(firstEventTimer);
+          reportFirstEventOutcome();
           // Session state machine: mark ACTIVE on first SDK event (resume path)
           const sid = resolvedSessionId || currentOwnerSession()?.sessionId;
           if (store && sid) {
@@ -1492,6 +1501,11 @@ async function _runQueryLoopInner(
       }
     } catch (err: unknown) {
       caughtError = true;
+      if (!firstEventReceived) {
+        reportFirstEventOutcome(
+          err instanceof Error ? err : new Error('Provider failed before its first event'),
+        );
+      }
       span.setStatus({
         code: SpanStatusCode.ERROR,
         message: err instanceof Error ? err.message : 'unknown',
@@ -1511,6 +1525,15 @@ async function _runQueryLoopInner(
       }
     } finally {
       clearTimeout(firstEventTimer);
+      if (!firstEventReceived) {
+        reportFirstEventOutcome(
+          new Error(
+            timedOut
+              ? 'Provider timed out before its first event'
+              : 'Provider ended before its first event',
+          ),
+        );
+      }
       // NOTE: finalSession is captured before registry.remove() below. After remove(),
       // the object reference remains valid (Map.delete doesn't mutate the value).
       // It is read in two places after remove: (1) span attributes block reads
