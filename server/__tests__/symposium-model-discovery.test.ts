@@ -1,8 +1,8 @@
 import { DiscoveryCommandFailure } from '../symposium-discovery-diagnostics.js';
 import { EventEmitter } from 'node:events';
-import { PassThrough } from 'node:stream';
+import { PassThrough, Writable } from 'node:stream';
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
-import { CodexAppServerClient } from '../codex-app-server-client.js';
+import { CodexAppServerClient, CodexTransportError } from '../codex-app-server-client.js';
 import { createSubscriptionIdentityClient } from '../symposium-subscription-identity.js';
 import { nativeRoutingMessages } from '../codex-native-diagnostics.js';
 import { expect, it, vi } from 'vitest';
@@ -152,6 +152,166 @@ it.each(['timeout', 'connection', 'protocol', 'rpc-rejection', 'cleanup-uncertai
         expect(f.receipt()).toBeUndefined();
       }
       expect(stop).toHaveBeenCalledTimes(1);
+      expect(f.events).not.toContain('account/read');
+      expect(f.events).not.toContain('model/list');
+      expect(JSON.stringify([result, record.mock.calls])).not.toContain('PRIVATE');
+    } finally {
+      vi.useRealTimers();
+    }
+  },
+);
+it.each([
+  'timeout',
+  'exit',
+  'process-error',
+  'stdin-error',
+  'stdout-error',
+  'stderr-error',
+  'write-callback',
+  'write-throw',
+  'receipt-invalidated',
+  'abort',
+  'typed-initialize-identity',
+  'typed-initialize-abort',
+  'post-write-exit',
+  'timeout-cleanup-uncertain',
+  'connection-cleanup-uncertain',
+] as const)(
+  'persists bounded preface failure through the actual identity client: %s',
+  async (failure) => {
+    vi.useFakeTimers();
+    try {
+      const f = fixture();
+      const record = vi.fn<NonNullable<DiscoveryOperations['recordDiagnostic']>>(async () => {});
+      const uncertain = failure.endsWith('cleanup-uncertain');
+      const stop = vi.fn<() => Promise<void>>(async () => {
+        if (uncertain) throw new Error('PRIVATE cleanup token');
+      });
+      f.operations.recordDiagnostic = record;
+      if (uncertain) f.operations.physicalAbsent = async () => false;
+      let exactReceipt: DiscoveryReceipt | undefined;
+      let releasePreface: (() => void) | undefined;
+      f.operations.openClient = async (receipt) => {
+        exactReceipt = receipt;
+        const controller = new AbortController();
+        let current = true;
+        let assertions = 0;
+        if (failure === 'typed-initialize-abort') {
+          let checks = 0;
+          vi.spyOn(controller.signal, 'throwIfAborted').mockImplementation(() => {
+            if (++checks === 2) throw new CodexTransportError('timeout');
+          });
+        }
+        const child = Object.assign(new EventEmitter(), {
+          stdin: new Writable({
+            write(chunk, _encoding, done) {
+              const frame = JSON.parse(chunk.toString());
+              if (frame.version !== 1) {
+                f.events.push(frame.method);
+                done();
+                return;
+              }
+              releasePreface = () => done();
+              queueMicrotask(() => {
+                if (failure === 'write-callback') done(new Error('PRIVATE write token'));
+                else if (failure === 'exit' || failure === 'connection-cleanup-uncertain')
+                  child.emit('exit', 1);
+                else if (failure === 'process-error')
+                  child.emit('error', new Error('PRIVATE process token'));
+                else if (failure === 'stdin-error')
+                  child.stdin.emit('error', new Error('PRIVATE stdin token'));
+                else if (failure === 'stdout-error')
+                  child.stdout.emit('error', new Error('PRIVATE stdout token'));
+                else if (failure === 'stderr-error')
+                  child.stderr.emit('error', new Error('PRIVATE stderr token'));
+                else if (failure === 'receipt-invalidated') {
+                  current = false;
+                  done();
+                } else if (failure === 'abort')
+                  controller.abort(new CodexTransportError('connection'));
+                else if (
+                  [
+                    'typed-initialize-identity',
+                    'typed-initialize-abort',
+                    'post-write-exit',
+                  ].includes(failure)
+                ) {
+                  done();
+                  if (failure === 'post-write-exit') queueMicrotask(() => child.emit('exit', 1));
+                }
+              });
+            },
+          }),
+          stdout: new PassThrough(),
+          stderr: new PassThrough(),
+          kill: vi.fn(),
+        });
+        if (failure === 'write-throw')
+          child.stdin.write = () => {
+            throw new Error('PRIVATE synchronous write token');
+          };
+        return createSubscriptionIdentityClient(
+          child as unknown as ChildProcessWithoutNullStreams,
+          {
+            accountId: 'PRIVATE-account',
+            assertCurrent() {
+              if (!current) throw new CodexTransportError('connection');
+              if (++assertions === 3 && failure === 'typed-initialize-identity')
+                throw new CodexTransportError('timeout');
+            },
+          },
+          receipt.claim,
+          stop,
+          { signal: controller.signal },
+        );
+      };
+      const resultPromise = runSymposiumModelDiscovery(f.config, f.operations);
+      await vi.advanceTimersByTimeAsync(10_001);
+      const result = await resultPromise;
+      expect(result).toMatchObject({
+        status: uncertain ? 'reconciliation_required' : 'failed',
+        inference: false,
+      });
+      const diagnostic = record.mock.calls[0][0];
+      expect(diagnostic).toMatchObject({
+        stage: 'native-initialize',
+        failureClass: 'operation-failed',
+      });
+      if (
+        uncertain ||
+        failure === 'receipt-invalidated' ||
+        failure === 'abort' ||
+        failure.startsWith('typed-initialize')
+      ) {
+        expect(diagnostic).not.toHaveProperty('nativeFailure');
+      } else {
+        expect(diagnostic).toHaveProperty(
+          'nativeFailure',
+          failure === 'timeout' ? 'rpc_timeout' : 'rpc_connection',
+        );
+      }
+      if (uncertain) expect(f.receipt()).toEqual(exactReceipt);
+      else expect(f.receipt()).toBeUndefined();
+      expect(diagnostic).not.toHaveProperty('rpcCode');
+      expect(stop).toHaveBeenCalledTimes(1);
+      if (
+        [
+          'timeout',
+          'exit',
+          'process-error',
+          'stdin-error',
+          'stdout-error',
+          'stderr-error',
+          'abort',
+          'timeout-cleanup-uncertain',
+          'connection-cleanup-uncertain',
+        ].includes(failure)
+      ) {
+        releasePreface?.();
+        await vi.advanceTimersByTimeAsync(0);
+      }
+      expect(f.events).not.toContain('initialize');
+      expect(f.events).not.toContain('initialized');
       expect(f.events).not.toContain('account/read');
       expect(f.events).not.toContain('model/list');
       expect(JSON.stringify([result, record.mock.calls])).not.toContain('PRIVATE');

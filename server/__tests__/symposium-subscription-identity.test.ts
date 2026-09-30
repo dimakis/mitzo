@@ -26,7 +26,7 @@ function capability() {
     },
   };
 }
-function processFixture(writeError = false, holdWrite = false) {
+function processFixture(writeError = false, holdWrite = false, onRpc?: (method: string) => void) {
   const process = new EventEmitter() as ChildProcessWithoutNullStreams;
   process.stdout = new PassThrough() as never;
   process.stderr = new PassThrough() as never;
@@ -43,6 +43,7 @@ function processFixture(writeError = false, holdWrite = false) {
         release = () => done(writeError ? new Error('synthetic sensitive error') : undefined);
         if (!holdWrite) release();
       } else {
+        onRpc?.(frame.method);
         if (frame.method === 'initialize')
           queueMicrotask(() =>
             (process.stdout as PassThrough).write(
@@ -128,10 +129,28 @@ describe('receipt-bound subscription identity (synthetic only)', () => {
     const f = processFixture(true);
     const stop = vi.fn(async () => {});
     const client = createSubscriptionIdentityClient(f.process, capability(), claim, stop);
-    await expect(client.initialize()).rejects.toThrow('initialization failed');
+    await expect(client.initialize()).rejects.toMatchObject({
+      name: 'CodexTransportError',
+      category: 'connection',
+    });
     expect(stop).toHaveBeenCalledOnce();
     expect(f.process.kill).toHaveBeenCalledOnce();
     expect(f.frames).toHaveLength(1);
+  });
+  it('keeps an abort during initialize generic even when closing RPC reports connection loss', async () => {
+    const controller = new AbortController();
+    const f = processFixture(false, false, (method) => {
+      if (method === 'initialize') controller.abort(new Error('PRIVATE abort reason'));
+    });
+    const stop = vi.fn<() => Promise<void>>(async () => {});
+    const client = createSubscriptionIdentityClient(f.process, capability(), claim, stop, {
+      signal: controller.signal,
+    });
+    await expect(client.initialize()).rejects.toThrow(
+      'Subscription identity initialization failed',
+    );
+    expect(stop).toHaveBeenCalledOnce();
+    expect(f.frames.map((frame) => JSON.parse(frame).method)).toEqual([undefined, 'initialize']);
   });
   it('preserves cleanup uncertainty after a failed preface', async () => {
     const f = processFixture(true);
@@ -153,16 +172,29 @@ describe('receipt-bound subscription identity (synthetic only)', () => {
     expect(stop).toHaveBeenCalledOnce();
     expect(f.frames).toHaveLength(1);
   });
-  it('cleans up synchronous setup failure after spawning', async () => {
-    const f = processFixture();
-    const identity = capability();
-    const stop = vi.fn(async () => {});
-    identity.invalidate();
-    expect(() => createSubscriptionIdentityClient(f.process, identity, claim, stop)).toThrow(
-      'transport failed',
-    );
-    await Promise.resolve();
-    expect(stop).toHaveBeenCalledOnce();
-    expect(f.process.kill).toHaveBeenCalledOnce();
-  });
+  it.each(['invalidated', 'invalid-account', 'invalid-claim', 'aborted'] as const)(
+    'sanitizes synchronous setup failure after spawning: %s',
+    async (failure) => {
+      const f = processFixture();
+      const identity = capability();
+      const stop = vi.fn(async () => {});
+      const controller = new AbortController();
+      if (failure === 'invalidated') identity.invalidate();
+      if (failure === 'invalid-account') identity.accountId = 'PRIVATE invalid account';
+      if (failure === 'aborted') controller.abort(new Error('PRIVATE abort token'));
+      expect(() =>
+        createSubscriptionIdentityClient(
+          f.process,
+          identity,
+          failure === 'invalid-claim' ? 'PRIVATE claim' : claim,
+          stop,
+          { signal: controller.signal },
+        ),
+      ).toThrow('Subscription identity transport failed');
+      expect(f.frames).toHaveLength(0);
+      await Promise.resolve();
+      expect(stop).toHaveBeenCalledOnce();
+      expect(f.process.kill).toHaveBeenCalledOnce();
+    },
+  );
 });
