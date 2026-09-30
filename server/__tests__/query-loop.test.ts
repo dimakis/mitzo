@@ -232,6 +232,35 @@ describe('runQueryLoop', () => {
     );
   });
 
+  it('reports an error result before the provider stream closes', async () => {
+    let releaseStream!: () => void;
+    const hangingStream = async function* () {
+      yield { type: 'system', session_id: 'sess-1' };
+      yield { type: 'result', session_id: 'sess-1', is_error: true };
+      await new Promise<void>((resolve) => {
+        releaseStream = resolve;
+      });
+    };
+    const onFirstEventOutcome = vi.fn();
+    const onTerminalOutcome = vi.fn();
+    const loop = runQueryLoop(
+      hangingStream(),
+      clientId,
+      registry,
+      abortController,
+      undefined,
+      undefined,
+      { onFirstEventOutcome, onTerminalOutcome },
+    );
+
+    await vi.waitFor(() => expect(onTerminalOutcome).toHaveBeenCalledOnce());
+    expect(onFirstEventOutcome).toHaveBeenCalledWith(undefined);
+    expect(onTerminalOutcome.mock.calls[0][0]).toBeInstanceOf(Error);
+    releaseStream();
+    await loop;
+    expect(onTerminalOutcome).toHaveBeenCalledOnce();
+  });
+
   it('emits message_start, block_start, block_delta, block_end, message_end, session_end for a text turn', async () => {
     const events: Record<string, unknown>[] = [
       { type: 'stream_event', event: { type: 'message_start', message: { id: 'msg-abc' } } },

@@ -443,6 +443,12 @@ async function _runQueryLoopInner(
     firstEventOutcomeReported = true;
     options?.onFirstEventOutcome?.(error);
   };
+  let terminalOutcomeReported = false;
+  const reportTerminalOutcome = (error?: Error) => {
+    if (terminalOutcomeReported) return;
+    terminalOutcomeReported = true;
+    options?.onTerminalOutcome?.(error);
+  };
   let timedOut = false;
   const firstEventTimer = setTimeout(() => {
     if (!firstEventReceived) {
@@ -610,6 +616,11 @@ async function _runQueryLoopInner(
           const isError = result.is_error === true;
           const providerFailure = isError ? result.provider_failure : undefined;
           caughtError ||= isError;
+          if (isError) {
+            reportTerminalOutcome(
+              new Error(providerFailure?.message ?? 'Provider returned an error result'),
+            );
+          }
           if (providerFailure) {
             const telemetry = providerFailureTelemetry(providerFailure);
             log.warn('provider turn failed', {
@@ -1635,7 +1646,7 @@ async function _runQueryLoopInner(
 
       span.setStatus({ code: caughtError ? SpanStatusCode.ERROR : SpanStatusCode.OK });
       log.info('query loop ended', { clientId, doneSent, caughtError });
-      options?.onTerminalOutcome?.(
+      reportTerminalOutcome(
         terminalError ?? (caughtError ? new Error('Provider returned an error result') : undefined),
       );
     }
