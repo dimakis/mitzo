@@ -1,5 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
+umask 022
+# Source plumbing must resolve the selected local repository and real object,
+# never inherited Git redirects, global settings or host replacement refs.
+for variable in ${!GIT_@}; do unset "$variable"; done
+export GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null GIT_NO_REPLACE_OBJECTS=1 GIT_ATTR_NOSYSTEM=1
 
 source_repo="${1:?usage: prepare-mgmt-seed.sh SOURCE_REPO OUTPUT_DIR [RUNTIME_BASE_COMMIT]}"
 output_root="${2:?usage: prepare-mgmt-seed.sh SOURCE_REPO OUTPUT_DIR [RUNTIME_BASE_COMMIT]}"
@@ -17,25 +22,19 @@ lock_pid=''
 script_root="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 resolution_contract_tool="$script_root/runtime-resolution-contract.py"
 contract_python() {
-  # Keep the Python 3.9/3.10 tomli path declared and reproducible instead of
-  # relying on an ambient pip vendor directory.
-  if python3 -c 'import tomllib, packaging' >/dev/null 2>&1 || python3 -c 'import tomli, packaging' >/dev/null 2>&1; then
-    python3 "$@"
-  else
-    "${MITZO_UV_BIN:-uv}" run --no-project --with 'tomli==2.2.1' --with 'packaging==24.2' python "$@"
-  fi
+  # Resolution parsing/evaluation is also a declared build input, isolated from
+  # ambient packaging/tomli versions and host Python module paths.
+  PYTHONPATH= PYTHONHOME= PYTHONNOUSERSITE=1 "${MITZO_UV_BIN:-uv}" run \
+    --isolated --no-project --with 'tomli==2.2.1' --with 'packaging==24.2' python -I "$@"
 }
 seed_python() {
-  # Front-matter rebuilding and its final attestation both need the same
-  # pinned YAML parser; never depend on a host-installed PyYAML.
-  if python3 -c 'import yaml' >/dev/null 2>&1; then
-    python3 "$@"
-  else
-    "${MITZO_UV_BIN:-uv}" run --no-project --with 'PyYAML==6.0.2' python "$@" || {
-      echo 'PyYAML is required to rebuild memory front matter safely' >&2
-      return 1
-    }
-  fi
+  # Both rebuilding and attestation execute the declared parser in an isolated
+  # environment. Ambient yaml modules, user sites and PYTHONPATH are not inputs.
+  PYTHONPATH= PYTHONHOME= PYTHONNOUSERSITE=1 "${MITZO_UV_BIN:-uv}" run \
+    --isolated --no-project --with 'PyYAML==6.0.2' python -I "$@" || {
+    echo 'Pinned PyYAML==6.0.2 is required to rebuild memory front matter safely' >&2
+    return 1
+  }
 }
 
 cleanup() {
@@ -257,17 +256,26 @@ safe_path() {
   return 1
 }
 
-# Every tracked path passes the same credential/runtime filter as generated
-# knowledge artifacts. Archive the immutable starting commit, never the current
-# working tree, so the baseline's startingCommit identifies the seed content.
-# Supplying the reviewed path list to git archive preserves modes and symlinks
-# without ever materializing excluded tracked files in the seed.
+# Select paths from the immutable tree. Archive in a fresh bare repository so
+# only committed tree attributes apply: personal .git/info/attributes and global
+# attributes cannot omit or transform source files. Its object store is a
+# read-only alternate to the selected source; no host administration is copied.
 tracked_paths=()
 while IFS= read -r -d '' path; do
   safe_path "$path" && tracked_paths+=("$path")
 done < <(git -C "$source_repo" ls-tree --full-tree -r -z --name-only "$starting_commit")
 if test "${#tracked_paths[@]}" -gt 0; then
-  git -C "$source_repo" archive "$starting_commit" -- "${tracked_paths[@]}" | tar -x -C "$workspace"
+  archive_repo="$build_root/source.git"
+  source_object_format="$(git -C "$source_repo" rev-parse --show-object-format)"
+  source_objects="$(git -C "$source_repo" rev-parse --path-format=absolute --git-path objects)"
+  (
+    for variable in ${!GIT_@}; do unset "$variable"; done
+    export GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null GIT_NO_REPLACE_OBJECTS=1 GIT_ATTR_NOSYSTEM=1
+    git -c init.templateDir= init --bare -q --object-format="$source_object_format" "$archive_repo"
+    printf '%s\n' "$source_objects" > "$archive_repo/objects/info/alternates"
+    git -c core.attributesFile=/dev/null -c tar.umask=0022 --git-dir="$archive_repo" archive "$starting_commit" -- "${tracked_paths[@]}"
+  ) | env -u TAR_OPTIONS -u TAR_READER_OPTIONS -u GZIP -u TAPE tar -x -C "$workspace"
+  rm -rf "$archive_repo"
 fi
 
 # A tracked symlink could redirect a later working-tree overlay outside the seed.
@@ -324,7 +332,7 @@ done
 # Rebuild every published manifest from the archived tree. The ignored source
 # manifests are only provenance gates; no entry data crosses the working-tree
 # boundary. This mirrors build_index.py's metadata/link semantics while using a
-# deterministic Git timestamp for the portable seed's `modified` field.
+# pinned snapshot timestamp for `modified`, independent of shallow history.
 WORKSPACE="$workspace" SOURCE_REPO="$source_repo" STARTING_COMMIT="$starting_commit" seed_python - <<'PY'
 import json, os, pathlib, re, subprocess
 from datetime import date, datetime
@@ -412,7 +420,7 @@ def parse_memory(path):
         else:
             raise SystemExit(f'cannot verify date front matter in archived memory: {path}')
     result = subprocess.run(
-        ['git', '-C', source_repo, 'log', '-1', '--format=%cI', starting, '--', f'memory/{relative}'],
+        ['git', '-C', source_repo, 'show', '-s', '--format=%cI', starting],
         capture_output=True, text=True, check=False,
     )
     modified = result.stdout.strip()
@@ -678,12 +686,39 @@ test -z "$(find "$workspace" \( -name '.env*' -o -name .npmrc -o -name .netrc -o
 # Create a fresh portable repository rather than copying the host's .git data.
 # This gives the isolated task ordinary diff/commit semantics without access to
 # host worktrees, hooks, remotes, credential helpers, or repository config.
-git_isolated=(git -c core.hooksPath=/dev/null -c init.templateDir= -c filter.required=false)
-GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null "${git_isolated[@]}" -C "$workspace" init -q
-GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null "${git_isolated[@]}" -C "$workspace" config user.name 'Mitzo Sandbox'
-GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null "${git_isolated[@]}" -C "$workspace" config user.email 'sandbox@mitzo.invalid'
-GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null "${git_isolated[@]}" -C "$workspace" add --all
-GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null "${git_isolated[@]}" -C "$workspace" -c commit.gpgsign=false commit -q -m 'chore: seed isolated MGMT workspace'
+# Isolate inherited GIT_* overrides as well as system/global config. Fix the
+# format, branch, identities and source-derived time before creating objects.
+seed_git() (
+  for variable in ${!GIT_@}; do unset "$variable"; done
+  export GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null GIT_NO_REPLACE_OBJECTS=1 GIT_ATTR_NOSYSTEM=1
+  export GIT_AUTHOR_NAME='Mitzo Sandbox' GIT_COMMITTER_NAME='Mitzo Sandbox'
+  export GIT_AUTHOR_EMAIL='sandbox@mitzo.invalid' GIT_COMMITTER_EMAIL='sandbox@mitzo.invalid'
+  export GIT_AUTHOR_DATE="$seed_git_date" GIT_COMMITTER_DATE="$seed_git_date" GIT_INDEX_VERSION=2
+  git -c core.hooksPath=/dev/null -c init.templateDir= -c core.attributesFile=/dev/null -c filter.required=false "$@"
+)
+seed_git_date="@$(git -C "$source_repo" show -s --format=%ct "$starting_commit") +0000"
+seed_git -C "$workspace" init -q --initial-branch=main --object-format=sha1
+# git init probes filesystem behavior. Replace its host-specific config with
+# the portable contract, preserving ordinary future diff/commit semantics.
+cat > "$workspace/.git/config" <<'GITCONFIG'
+[core]
+	repositoryformatversion = 0
+	filemode = true
+	bare = false
+	logallrefupdates = true
+	ignorecase = false
+	precomposeunicode = false
+[user]
+	name = Mitzo Sandbox
+	email = sandbox@mitzo.invalid
+GITCONFIG
+seed_git -C "$workspace" add --all
+seed_git -C "$workspace" -c commit.gpgsign=false commit -q -m 'chore: seed isolated MGMT workspace'
+# Reflogs and commit editor state are unnecessary seed inputs. A freshly read
+# tree index has zero filesystem stat fields instead of inode/ctime/uid caches.
+rm -rf "$workspace/.git/logs"
+rm -f "$workspace/.git/COMMIT_EDITMSG" "$workspace/.git/index"
+seed_git -C "$workspace" read-tree HEAD
 
 SOURCE_REPO="$source_repo" WORKSPACE="$workspace" BASELINE="$baseline" STARTING_COMMIT="$starting_commit" RUNTIME_BASE_COMMIT="$runtime_base_commit" RUNTIME_PROJECTION_SHA256="$runtime_projection_sha256" RUNTIME_JIRA_INPUTS_SHA256="$runtime_jira_inputs_sha256" IS_DYNAMIC="$([[ "$dynamic_seed" = 1 || "$runtime_base_commit" != "$starting_commit" ]] && printf 1 || printf 0)" python3 - <<'PY'
 import hashlib, json, os, pathlib
