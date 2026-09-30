@@ -61,6 +61,12 @@ vi.mock('../../components/VoiceSettings', () => ({
   VoiceSettings: () => <div data-testid="voice-settings">Voice</div>,
 }));
 
+vi.mock('../../components/WebSearchConsent', () => ({
+  WebSearchConsent: ({ connectionId }: { connectionId: string | null }) => (
+    <span data-testid="web-search-connection">{connectionId ?? 'none'}</span>
+  ),
+}));
+
 vi.mock('../../components/ChatInput', () => ({
   ChatInput: ({
     externalContextBlocks,
@@ -149,6 +155,7 @@ function createMockStore() {
     historyError: null,
     modeChangeReady: true,
     dispatchMessages: vi.fn(),
+    getConnectionId: () => null,
     switchSession: vi.fn().mockResolvedValue(undefined),
     newSession: vi.fn(),
     sendMessage: vi.fn(),
@@ -225,6 +232,28 @@ function renderWithRouter(sessionId?: string) {
 }
 
 describe('DesktopChatView', () => {
+  it('updates web-search consent when the connection ID changes without a status change', () => {
+    const store = createMockStore();
+    store.setState({
+      connection: { ...store.getState().connection, clientId: 'connection-one' },
+    });
+    render(
+      <MemoryRouter>
+        <MitzoStoreProvider value={store}>
+          <DesktopChatView />
+        </MitzoStoreProvider>
+      </MemoryRouter>,
+    );
+    expect(screen.getByTestId('web-search-connection').textContent).toBe('connection-one');
+
+    act(() =>
+      store.setState({
+        connection: { ...store.getState().connection, clientId: 'connection-two' },
+      }),
+    );
+    expect(screen.getByTestId('web-search-connection').textContent).toBe('connection-two');
+  });
+
   it('passes concurrent seat streams to the shared ChatArea', () => {
     const store = createMockStore();
     store.setState((state) => ({
