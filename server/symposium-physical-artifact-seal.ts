@@ -47,6 +47,18 @@ const LEGACY_REVIEW_EXPORT_BUILD = {
   codeDigest: '62309c1134d93b43d82e55ef0ec4db8dfdefb84693d0857ab7584a3c6601d982',
 } as const;
 const oid = z.string().regex(/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/);
+const criterionCheckReceiptSchema = z.strictObject({
+  executionId: z.string().uuid(),
+  sealFenceId: z.string(),
+  sealDigest: z.string().regex(/^[a-f0-9]{64}$/),
+  artifactRevision: oid,
+  artifactHash: z.string().regex(/^[a-f0-9]{64}$/),
+  observedSha256: z
+    .string()
+    .regex(/^[a-f0-9]{64}$/)
+    .nullable(),
+  completedAt: z.number().int().nonnegative(),
+});
 const gitProofSchema = z.strictObject({
   version: z.literal(1),
   commit: oid,
@@ -1735,20 +1747,7 @@ export class PhysicalArtifactSealer {
       },
       signal,
     );
-    const checked = z
-      .strictObject({
-        executionId: z.string().uuid(),
-        sealFenceId: z.string(),
-        sealDigest: z.string().regex(/^[a-f0-9]{64}$/),
-        artifactRevision: oid,
-        artifactHash: z.string().regex(/^[a-f0-9]{64}$/),
-        observedSha256: z
-          .string()
-          .regex(/^[a-f0-9]{64}$/)
-          .nullable(),
-        completedAt: z.number().int().nonnegative(),
-      })
-      .parse(value.checkReceipt);
+    const checked = criterionCheckReceiptSchema.parse(value.checkReceipt);
     return checked;
   }
 
@@ -1879,6 +1878,51 @@ export class PhysicalArtifactSealer {
     const receipt = await this.requireCompleted(input.fenceId, signal);
     if (input.sourceOid && input.sourceOid !== receipt.git.commit)
       throw new Error('Sealed bundle commit changed');
+    if (input.kind === 'check') {
+      // Operation IDs bind the complete selection globally, including the seal.
+      // A lost caller response must not create another completed check helper.
+      const prior = this.db
+        .prepare('SELECT * FROM symposium_seal_export_jobs WHERE operation_id=?')
+        .all(input.operationId) as Array<{
+        job_id: string;
+        fence_id: string;
+        kind: string;
+        input_json: string;
+        custody_digest: string;
+        state: string;
+        receipt_json: string | null;
+        result_hash: string | null;
+      }>;
+      if (
+        prior.some(
+          (job) =>
+            job.kind !== 'check' ||
+            job.fence_id !== input.fenceId ||
+            job.input_json !== JSON.stringify(input),
+        )
+      )
+        throw new Error('Criterion check operation identity changed');
+      if (prior.length) {
+        if (prior.length !== 1 || prior[0].state !== 'complete' || !prior[0].receipt_json)
+          throw new Error('Criterion check requires original operation reconciliation');
+        const job = prior[0];
+        const checked = criterionCheckReceiptSchema.parse(JSON.parse(job.receipt_json!));
+        if (
+          checked.executionId !== job.job_id ||
+          checked.sealFenceId !== receipt.fenceId ||
+          checked.sealDigest !== reviewRecordHash(canonicalReviewJson(receipt)) ||
+          checked.artifactRevision !== receipt.git.commit ||
+          checked.artifactHash !== receipt.git.committedTreeDigest ||
+          job.custody_digest !== receipt.custodyDigest ||
+          job.result_hash !== hash(canonicalReviewJson(checked))
+        )
+          throw new Error('Retained criterion check binding changed');
+        const intent = this.deps.store.getSymposiumArtifactSealByFence(receipt.fenceId)!;
+        signal.throwIfAborted();
+        this.deps.store.withSymposiumArtifactSealSnapshot(intent, () => {});
+        return { checkReceipt: checked };
+      }
+    }
     const priorReviewJobs =
       input.kind === 'review_context'
         ? (this.db
@@ -1925,6 +1969,16 @@ export class PhysicalArtifactSealer {
     signal.throwIfAborted();
     this.db
       .transaction(() => {
+        // Custody verification above yields. Another caller may have completed
+        // this operation since the first lookup; reserve it again under SQLite's
+        // write lock before creating a helper, including completed history.
+        if (
+          input.kind === 'check' &&
+          this.db
+            .prepare('SELECT 1 FROM symposium_seal_export_jobs WHERE operation_id=?')
+            .get(input.operationId)
+        )
+          throw new Error('Criterion check requires original operation reconciliation');
         if (
           this.db
             .prepare(
@@ -2319,18 +2373,32 @@ export class PhysicalArtifactSealer {
         )
           throw new Error('Sealed review context replay changed');
       }
+      const checkReceipt =
+        input.kind === 'check'
+          ? criterionCheckReceiptSchema.parse({
+              executionId: jobId,
+              sealFenceId: receipt.fenceId,
+              sealDigest: reviewRecordHash(canonicalReviewJson(receipt)),
+              artifactRevision: receipt.git.commit,
+              artifactHash: receipt.git.committedTreeDigest,
+              observedSha256: value.observedSha256,
+              completedAt: Date.now(),
+            })
+          : undefined;
       this.deps.store.withSymposiumArtifactSealSnapshot(intent, () => {
         const updated = this.db
           .prepare(
             "UPDATE symposium_seal_export_jobs SET state='complete',result_hash=?,receipt_json=? WHERE job_id=? AND state='removed'",
           )
           .run(
-            hash(output),
+            checkReceipt ? hash(canonicalReviewJson(checkReceipt)) : hash(output),
             successorReceipt
               ? canonicalReviewJson(successorReceipt)
               : reviewContextReceipt
                 ? canonicalReviewJson(reviewContextReceipt)
-                : null,
+                : checkReceipt
+                  ? canonicalReviewJson(checkReceipt)
+                  : null,
             jobId,
           );
         if (updated.changes !== 1) throw new Error('Sealed export journal changed');
@@ -2342,15 +2410,7 @@ export class PhysicalArtifactSealer {
           : input.kind === 'check'
             ? {
                 ...value,
-                checkReceipt: {
-                  executionId: jobId,
-                  sealFenceId: receipt.fenceId,
-                  sealDigest: reviewRecordHash(canonicalReviewJson(receipt)),
-                  artifactRevision: receipt.git.commit,
-                  artifactHash: receipt.git.committedTreeDigest,
-                  observedSha256: value.observedSha256,
-                  completedAt: Date.now(),
-                },
+                checkReceipt,
               }
             : value;
     } catch (error) {

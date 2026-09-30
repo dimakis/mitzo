@@ -711,6 +711,179 @@ it('checks one committed file through a fresh credential-free sealed helper', as
   });
   db.close();
 });
+it('recovers the exact completed criterion execution after its caller loses the receipt', async () => {
+  const f = await fixture();
+  const signal = new AbortController().signal;
+  const seal = await f.sealer.seal(f.input, f.runtime, signal);
+  const input = {
+    fenceId: seal.fenceId,
+    operationId: 'criterion-lost-response',
+    path: 'marker.txt',
+  };
+  // The caller never persists this result to its criterion database. Recovery
+  // must use the physical owner's durable receipt, including its execution ID.
+  const completed = await f.sealer.checkCompletedArtifactFile(input, signal);
+  const reopened = new PhysicalArtifactSealer(f.deps);
+  cleanups.push(() => reopened.close());
+  const createCount = () =>
+    f.command.mock.calls.filter(
+      ([args]) =>
+        args[0] === 'create' && args.some((arg) => arg.includes('mitzo.artifact-export-job=')),
+    ).length;
+  expect(createCount()).toBe(1);
+  expect(await reopened.checkCompletedArtifactFile(input, signal)).toEqual(completed);
+  expect(createCount()).toBe(1);
+  await expect(
+    reopened.checkCompletedArtifactFile({ ...input, path: 'changed.txt' }, signal),
+  ).rejects.toThrow('Criterion check operation identity changed');
+  expect(createCount()).toBe(1);
+  const db = new Database(join(f.root, 'leases.db'));
+  expect(db.prepare('SELECT state,receipt_json FROM symposium_seal_export_jobs').all()).toEqual([
+    { state: 'complete', receipt_json: canonicalReviewJson(completed) },
+  ]);
+  db.close();
+});
+
+it('refuses a retained criterion receipt whose seal binding has changed', async () => {
+  const f = await fixture();
+  const signal = new AbortController().signal;
+  const seal = await f.sealer.seal(f.input, f.runtime, signal);
+  const input = { fenceId: seal.fenceId, operationId: 'criterion-binding', path: 'marker.txt' };
+  const completed = await f.sealer.checkCompletedArtifactFile(input, signal);
+  const db = new Database(join(f.root, 'leases.db'));
+  db.prepare('UPDATE symposium_seal_export_jobs SET receipt_json=?').run(
+    canonicalReviewJson({ ...completed, sealDigest: '0'.repeat(64) }),
+  );
+  db.close();
+  await expect(f.sealer.checkCompletedArtifactFile(input, signal)).rejects.toThrow(
+    'Retained criterion check binding changed',
+  );
+});
+
+it('revalidates physical generation and custody before recovering a completed criterion', async () => {
+  const f = await fixture();
+  const signal = new AbortController().signal;
+  const seal = await f.sealer.seal(f.input, f.runtime, signal);
+  const input = { fenceId: seal.fenceId, operationId: 'criterion-freshness', path: 'marker.txt' };
+  await f.sealer.checkCompletedArtifactFile(input, signal);
+  const original = f.command.getMockImplementation()!;
+  f.command.mockImplementation(async (args, max) => {
+    const output = await original(args, max);
+    if (args[0] !== 'volume') return output;
+    const volume = JSON.parse(output);
+    volume[0].Labels = artifactVolumeLabels('workspace', {
+      sessionId: 'symposium',
+      volumeName: 'volume',
+      volumeGeneration: 'replacement',
+    });
+    return JSON.stringify(volume);
+  });
+  await expect(f.sealer.checkCompletedArtifactFile(input, signal)).rejects.toThrow(
+    'Session artifact volume evidence changed',
+  );
+  f.command.mockImplementation(original);
+  f.gateway.stateDirectory = join(f.root, 'different-custody');
+  await expect(f.sealer.checkCompletedArtifactFile(input, signal)).rejects.toThrow(/custody/);
+  expect(
+    f.command.mock.calls.filter(
+      ([args]) =>
+        args[0] === 'create' && args.some((arg) => arg.includes('mitzo.artifact-export-job=')),
+    ),
+  ).toHaveLength(1);
+});
+
+it('retains an unsettled criterion operation without creating a replacement helper', async () => {
+  const f = await fixture();
+  const signal = new AbortController().signal;
+  const seal = await f.sealer.seal(f.input, f.runtime, signal);
+  const input = { fenceId: seal.fenceId, operationId: 'criterion-unsettled', path: 'marker.txt' };
+  await f.sealer.checkCompletedArtifactFile(input, signal);
+  const db = new Database(join(f.root, 'leases.db'));
+  db.prepare("UPDATE symposium_seal_export_jobs SET state='removed'").run();
+  db.close();
+  await expect(f.sealer.checkCompletedArtifactFile(input, signal)).rejects.toThrow(
+    'Criterion check requires original operation reconciliation',
+  );
+  expect(
+    f.command.mock.calls.filter(
+      ([args]) =>
+        args[0] === 'create' && args.some((arg) => arg.includes('mitzo.artifact-export-job=')),
+    ),
+  ).toHaveLength(1);
+});
+
+it('fences a delayed criterion creator after the same operation completes concurrently', async () => {
+  const f = await fixture();
+  const signal = new AbortController().signal;
+  const seal = await f.sealer.seal(f.input, f.runtime, signal);
+  const input = { fenceId: seal.fenceId, operationId: 'criterion-concurrent', path: 'marker.txt' };
+  let resume!: () => void;
+  let suspended!: () => void;
+  const hold = new Promise<void>((resolve) => {
+    resume = resolve;
+  });
+  const reached = new Promise<void>((resolve) => {
+    suspended = resolve;
+  });
+  let custodyCalls = 0;
+  f.gateway.verifyCustodyAsync.mockImplementation(async () => {
+    if (++custodyCalls === 3) {
+      suspended();
+      await hold;
+    }
+  });
+  const delayed = f.sealer.checkCompletedArtifactFile(input, signal);
+  await reached;
+  const completed = await f.sealer.checkCompletedArtifactFile(input, signal);
+  const rejection = expect(delayed).rejects.toThrow(
+    'Criterion check requires original operation reconciliation',
+  );
+  resume();
+  await rejection;
+  expect(await f.sealer.checkCompletedArtifactFile(input, signal)).toEqual(completed);
+  expect(
+    f.command.mock.calls.filter(
+      ([args]) =>
+        args[0] === 'create' && args.some((arg) => arg.includes('mitzo.artifact-export-job=')),
+    ),
+  ).toHaveLength(1);
+});
+
+it('does not replace a malformed completed criterion receipt or bypass abort and current seal checks', async () => {
+  const f = await fixture();
+  const signal = new AbortController().signal;
+  const seal = await f.sealer.seal(f.input, f.runtime, signal);
+  const input = { fenceId: seal.fenceId, operationId: 'criterion-malformed', path: 'marker.txt' };
+  const completed = await f.sealer.checkCompletedArtifactFile(input, signal);
+  const db = new Database(join(f.root, 'leases.db'));
+  db.prepare('UPDATE symposium_seal_export_jobs SET receipt_json=?').run('{}');
+  await expect(f.sealer.checkCompletedArtifactFile(input, signal)).rejects.toThrow();
+  db.prepare('UPDATE symposium_seal_export_jobs SET receipt_json=?').run(
+    canonicalReviewJson(completed),
+  );
+  const stopped = new AbortController();
+  stopped.abort(new Error('user stopped'));
+  await expect(f.sealer.checkCompletedArtifactFile(input, stopped.signal)).rejects.toThrow(
+    'user stopped',
+  );
+  const original = db.prepare('SELECT receipt_json FROM symposium_physical_seal_jobs').get() as {
+    receipt_json: string;
+  };
+  db.prepare('UPDATE symposium_physical_seal_jobs SET receipt_json=?').run(
+    JSON.stringify({ ...JSON.parse(original.receipt_json), intentDigest: '0'.repeat(64) }),
+  );
+  await expect(f.sealer.checkCompletedArtifactFile(input, signal)).rejects.toThrow(
+    'Completed artifact seal identity changed',
+  );
+  db.close();
+  expect(
+    f.command.mock.calls.filter(
+      ([args]) =>
+        args[0] === 'create' && args.some((arg) => arg.includes('mitzo.artifact-export-job=')),
+    ),
+  ).toHaveLength(1);
+});
+
 it('exports a bounded physically sealed review context and permits exact same-operation recovery three times', async () => {
   const f = await fixture();
   const signal = new AbortController().signal;
