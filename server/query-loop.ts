@@ -187,6 +187,8 @@ export interface QueryLoopOptions {
   onSessionResolved?: (sessionId: string) => void;
   /** Report whether the provider produced its first event. */
   onFirstEventOutcome?: (error?: Error) => void;
+  /** Report the final outcome after the provider stream ends. */
+  onTerminalOutcome?: (error?: Error) => void;
   /** Called after the initial prompt is registered, enabling auto-rename on prompt 1. */
   onInitialPrompt?: (sessionId: string) => void;
   /** Called when an assistant turn completes (snapshot cleared). */
@@ -289,6 +291,7 @@ async function _runQueryLoopInner(
 
   let blockCounter = 0;
   let caughtError = false;
+  let terminalError: Error | undefined;
   let currentMessageId: string | null = null;
   let doneSent = false;
   let openBlockCount = 0;
@@ -455,7 +458,11 @@ async function _runQueryLoopInner(
         if (!firstEventReceived) {
           firstEventReceived = true;
           clearTimeout(firstEventTimer);
-          reportFirstEventOutcome();
+          reportFirstEventOutcome(
+            msg.type === 'result' && msg.is_error === true
+              ? new Error('Provider returned an error result as its first event')
+              : undefined,
+          );
           // Session state machine: mark ACTIVE on first SDK event (resume path)
           const sid = resolvedSessionId || currentOwnerSession()?.sessionId;
           if (store && sid) {
@@ -1501,6 +1508,7 @@ async function _runQueryLoopInner(
       }
     } catch (err: unknown) {
       caughtError = true;
+      terminalError = err instanceof Error ? err : new Error('Provider stream failed');
       if (!firstEventReceived) {
         reportFirstEventOutcome(
           err instanceof Error ? err : new Error('Provider failed before its first event'),
@@ -1627,6 +1635,9 @@ async function _runQueryLoopInner(
 
       span.setStatus({ code: caughtError ? SpanStatusCode.ERROR : SpanStatusCode.OK });
       log.info('query loop ended', { clientId, doneSent, caughtError });
+      options?.onTerminalOutcome?.(
+        terminalError ?? (caughtError ? new Error('Provider returned an error result') : undefined),
+      );
     }
   } finally {
     span.end();

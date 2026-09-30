@@ -1145,6 +1145,42 @@ describe('TaskOrchestrator', () => {
       expect(sendToChat).not.toHaveBeenCalled();
     });
 
+    it('blocks a task when its spawned session ends after admission', async () => {
+      const spawnSession = vi.fn().mockResolvedValue('headless:ended');
+      const deps = createTestDeps(store);
+      deps.spawnSession = spawnSession;
+      const orch = new TaskOrchestrator(deps);
+      orch.setSpawnEnabled(true);
+      const goal = store.create({ title: 'Goal' });
+      const task = store.create({ title: 'Spawn task', parentId: goal.id, sessionPolicy: 'spawn' });
+      orch.start(goal.id);
+      await vi.waitFor(() => expect(store.get(task.id)?.sessionId).toBe('headless:ended'));
+
+      const onEnded = spawnSession.mock.calls[0][3];
+      onEnded('headless:ended', new Error('provider failed'));
+      expect(store.get(task.id)?.status).toBe('blocked');
+      expect(store.get(task.id)?.annotations).toContain('spawn_error: provider failed');
+    });
+
+    it('does not restore an active task if its session ends before spawn resolves', async () => {
+      let resolveSpawn!: (clientId: string | null) => void;
+      const spawnSession = vi.fn().mockImplementation(
+        () => new Promise<string | null>((resolve) => { resolveSpawn = resolve; }),
+      );
+      const deps = createTestDeps(store);
+      deps.spawnSession = spawnSession;
+      const orch = new TaskOrchestrator(deps);
+      orch.setSpawnEnabled(true);
+      const goal = store.create({ title: 'Goal' });
+      const task = store.create({ title: 'Spawn task', parentId: goal.id, sessionPolicy: 'spawn' });
+      orch.start(goal.id);
+      const onEnded = spawnSession.mock.calls[0][3];
+      onEnded('headless:early', new Error('provider failed'));
+      resolveSpawn('headless:early');
+      await vi.waitFor(() => expect(store.get(task.id)?.status).toBe('blocked'));
+      expect(store.get(task.id)?.sessionId).toBeNull();
+    });
+
     it('ignores spawn callback if stop() was called during spawn', async () => {
       let resolveSpawn: (v: string | null) => void;
       const spawnSession = vi.fn().mockImplementation(
@@ -1309,7 +1345,12 @@ describe('TaskOrchestrator', () => {
       orch.start(goal.id);
       await vi.waitFor(() => expect(spawnSession).toHaveBeenCalled());
 
-      expect(spawnSession).toHaveBeenCalledWith(task.id, expect.any(String), goal.id);
+      expect(spawnSession).toHaveBeenCalledWith(
+        task.id,
+        expect.any(String),
+        goal.id,
+        expect.any(Function),
+      );
       expect(store.get(task.id)?.status).toBe('active');
       expect(deps.setTaskContext).not.toHaveBeenCalled();
     });

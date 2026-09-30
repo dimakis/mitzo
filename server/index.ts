@@ -446,7 +446,7 @@ const orchestrator = new TaskOrchestrator({
     }
     return ids;
   },
-  spawnSession: async (taskId: string, prompt: string, goalId: string) => {
+  spawnSession: async (taskId: string, prompt: string, goalId: string, onEnded) => {
     const clientId = `headless:${generateWtId()}`;
 
     try {
@@ -462,6 +462,7 @@ const orchestrator = new TaskOrchestrator({
             if (error) resolve(false);
           },
           onFirstEventOutcome: (error) => resolve(!error),
+          onTerminalOutcome: (error) => onEnded?.(clientId, error),
           onSessionResolved: (sessionId) => {
             log.info('spawned headless session resolved', { taskId, sessionId, clientId });
             sseRegistry.broadcast('sessions_changed', {});

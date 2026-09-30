@@ -40,7 +40,12 @@ export interface OrchestratorDeps {
   /** Register a signal watch for a wait_for_signal task */
   watchSignal?: (taskId: string, gateConfig: GateConfig) => void;
   /** Spawn a new headless session for a task. Returns clientId or null on failure. */
-  spawnSession?: (taskId: string, prompt: string, goalId: string) => Promise<string | null>;
+  spawnSession?: (
+    taskId: string,
+    prompt: string,
+    goalId: string,
+    onEnded?: (clientId: string, error?: Error) => void,
+  ) => Promise<string | null>;
 }
 
 export class TaskOrchestrator {
@@ -74,6 +79,8 @@ export class TaskOrchestrator {
 
   /** Tracks recently-spawned task IDs with their spawn timestamp for orphan detection grace. */
   private recentSpawns = new Map<string, number>();
+  private spawnAttempts = new Map<string, number>();
+  private nextSpawnAttempt = 0;
 
   /** Sliding window of spawn timestamps for global rate limiting. */
   private spawnTimestamps: number[] = [];
@@ -216,6 +223,7 @@ export class TaskOrchestrator {
 
     // Clear spawn tracking state so a new goal isn't rate-limited by the previous one
     this.recentSpawns.clear();
+    this.spawnAttempts.clear();
     this.spawnTimestamps = [];
     this.spawnDepth = 0;
     if (this.rateLimitRetryTimer) {
@@ -282,6 +290,7 @@ export class TaskOrchestrator {
     this.pinnedClientId = null;
     this.spawnDepth = 0;
     this.recentSpawns.clear();
+    this.spawnAttempts.clear();
     this.spawnTimestamps = [];
     if (this.rateLimitRetryTimer) {
       clearTimeout(this.rateLimitRetryTimer);
@@ -596,6 +605,8 @@ export class TaskOrchestrator {
           // Record spawn for rate limiting and orphan detection grace
           this.spawnTimestamps.push(now);
           this.recentSpawns.set(next.id, now);
+          const attempt = ++this.nextSpawnAttempt;
+          this.spawnAttempts.set(next.id, attempt);
 
           // Spawn a dedicated headless session for this task
           this.deps.store.update(next.id, { status: 'active' });
@@ -608,10 +619,27 @@ export class TaskOrchestrator {
           const capturedGoalId = this.goalId;
 
           const prompt = this.buildTaskPrompt(next);
-          this.deps.spawnSession(next.id, prompt, capturedGoalId).then(
+          const onEnded = (clientId: string, error?: Error) => {
+            if (this.goalId !== capturedGoalId || this.spawnAttempts.get(next.id) !== attempt) return;
+            const current = this.deps.store.get(next.id);
+            if (!current || current.status !== 'active') return;
+            if (current.sessionId && current.sessionId !== clientId) return;
+            const reason = error?.message ?? 'session ended before TaskComplete';
+            log.warn('spawned task session ended while task active', { taskId: next.id, clientId, reason });
+            this.deps.store.update(next.id, {
+              status: 'blocked',
+              annotations: [...current.annotations, `spawn_error: ${reason}`],
+            });
+            this.recentSpawns.delete(next.id);
+            this.deps.store.cascadeStatus(next.id);
+            this.deps.broadcastTasks();
+            this.onTaskBlocked(next.id);
+          };
+          this.deps.spawnSession(next.id, prompt, capturedGoalId, onEnded).then(
             (clientId) => {
               // Guard: orchestrator moved on (stop or new goal)
-              if (this.goalId !== capturedGoalId) return;
+              if (this.goalId !== capturedGoalId || this.spawnAttempts.get(next.id) !== attempt) return;
+              if (this.deps.store.get(next.id)?.status !== 'active') return;
 
               if (clientId) {
                 this.deps.store.setSessionId(next.id, clientId);
@@ -628,7 +656,8 @@ export class TaskOrchestrator {
             },
             (err) => {
               // Guard: orchestrator moved on (stop or new goal)
-              if (this.goalId !== capturedGoalId) return;
+              if (this.goalId !== capturedGoalId || this.spawnAttempts.get(next.id) !== attempt) return;
+              if (this.deps.store.get(next.id)?.status !== 'active') return;
 
               log.error('spawnSession threw', { taskId: next.id, error: (err as Error).message });
               // Mark as blocked (not pending) to prevent infinite retry via tick loop

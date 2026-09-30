@@ -189,6 +189,49 @@ describe('runQueryLoop', () => {
     expect(onFirstEventOutcome).toHaveBeenCalledWith(undefined);
   });
 
+  it('rejects an error result as the first event and reports terminal failure', async () => {
+    const onFirstEventOutcome = vi.fn();
+    const onTerminalOutcome = vi.fn();
+    await runQueryLoop(
+      eventStream([{ type: 'result', session_id: 'sess-1', is_error: true }]),
+      clientId,
+      registry,
+      abortController,
+      undefined,
+      undefined,
+      { onFirstEventOutcome, onTerminalOutcome },
+    );
+    expect(onFirstEventOutcome.mock.calls[0][0]).toBeInstanceOf(Error);
+    expect(onTerminalOutcome.mock.calls[0][0]).toBeInstanceOf(Error);
+  });
+
+  it('reports failure after an initialization event', async () => {
+    const failingStream: AsyncIterable<Record<string, unknown>> = {
+      [Symbol.asyncIterator]: () => {
+        let first = true;
+        return {
+          next: async () => {
+            if (first) {
+              first = false;
+              return { value: { type: 'system', session_id: 'sess-1' }, done: false };
+            }
+            throw new Error('provider failed after initialization');
+          },
+        };
+      },
+    };
+    const onFirstEventOutcome = vi.fn();
+    const onTerminalOutcome = vi.fn();
+    await runQueryLoop(failingStream, clientId, registry, abortController, undefined, undefined, {
+      onFirstEventOutcome,
+      onTerminalOutcome,
+    });
+    expect(onFirstEventOutcome).toHaveBeenCalledWith(undefined);
+    expect(onTerminalOutcome).toHaveBeenCalledWith(
+      expect.objectContaining({ message: 'provider failed after initialization' }),
+    );
+  });
+
   it('emits message_start, block_start, block_delta, block_end, message_end, session_end for a text turn', async () => {
     const events: Record<string, unknown>[] = [
       { type: 'stream_event', event: { type: 'message_start', message: { id: 'msg-abc' } } },
