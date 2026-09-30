@@ -30,6 +30,14 @@ export function subscriptionIdentityFrame(identity: SubscriptionLaunchIdentity, 
   return frame;
 }
 
+/** Does not carry the received or expected account identifier. */
+export class SubscriptionRoutingIdentityError extends Error {
+  constructor(readonly category: 'routing_identity_missing' | 'routing_identity_mismatch') {
+    super('Native subscription workspace identity differs from the verified receipt');
+    this.name = 'SubscriptionRoutingIdentityError';
+  }
+}
+
 export function assertSubscriptionRoutingIdentity(
   result: unknown,
   identity: SubscriptionLaunchIdentity,
@@ -38,7 +46,11 @@ export function assertSubscriptionRoutingIdentity(
   const routing = (result as { workspaceRouting?: { chatgptAccountId?: unknown } } | null)
     ?.workspaceRouting;
   if (routing?.chatgptAccountId !== identity.accountId)
-    throw new Error('Native subscription workspace identity differs from the verified receipt');
+    throw new SubscriptionRoutingIdentityError(
+      typeof routing?.chatgptAccountId === 'string' && routing.chatgptAccountId
+        ? 'routing_identity_mismatch'
+        : 'routing_identity_missing',
+    );
 }
 
 /** Install the RPC reader before queueing the bounded preface, then hold initialize

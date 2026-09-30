@@ -1,4 +1,8 @@
 import { DiscoveryCommandFailure } from '../symposium-discovery-diagnostics.js';
+import { EventEmitter } from 'node:events';
+import { PassThrough } from 'node:stream';
+import { CodexAppServerClient } from '../codex-app-server-client.js';
+import { nativeRoutingMessages } from '../codex-native-diagnostics.js';
 import { expect, it, vi } from 'vitest';
 import {
   runSymposiumModelDiscovery,
@@ -74,6 +78,60 @@ function fixture() {
   };
   return { config, operations, events, receipt: () => receipt };
 }
+it.each([
+  ...Object.entries(nativeRoutingMessages),
+  ['private-account-ID private-token', 'unknown'],
+])('persists only bounded native account/read diagnostic for %s', async (message, category) => {
+  const f = fixture();
+  const record = vi.fn(async () => {});
+  f.operations.recordDiagnostic = record;
+  f.operations.openClient = async () => {
+    const child = Object.assign(new EventEmitter(), {
+      stdin: new PassThrough(),
+      stdout: new PassThrough(),
+      stderr: new PassThrough(),
+      kill: vi.fn(),
+    });
+    child.stdin.on('data', (chunk) => {
+      const frame = JSON.parse(chunk.toString());
+      if (frame.method === 'initialized') return;
+      f.events.push(frame.method);
+      child.stdout.write(
+        JSON.stringify(
+          frame.method === 'account/read'
+            ? {
+                id: frame.id,
+                error: {
+                  code: -32603,
+                  message,
+                  data: { token: 'PRIVATE-TOKEN', accountId: 'PRIVATE-ACCOUNT' },
+                },
+              }
+            : { id: frame.id, result: {} },
+        ) + '\n',
+      );
+    });
+    return new CodexAppServerClient(child);
+  };
+  const result = await runSymposiumModelDiscovery(f.config, f.operations);
+  expect(result).toMatchObject({
+    status: 'failed',
+    inference: false,
+    diagnostic: {
+      stage: 'account-read',
+      nativeFailure: category,
+      rpcCode: -32603,
+    },
+  });
+  expect(record).toHaveBeenCalledWith(
+    expect.objectContaining({ nativeFailure: category, rpcCode: -32603 }),
+  );
+  expect(f.events).not.toContain('model/list');
+  expect(f.receipt()).toBeUndefined();
+  expect(JSON.stringify([result, record.mock.calls])).not.toMatch(
+    /PRIVATE|private-account|private-token|workspace routing|backend URL/,
+  );
+});
 it('persists a bounded name before create and calls only read RPCs, then verifies both cleanup planes', async () => {
   const f = fixture();
   const result = await runSymposiumModelDiscovery(f.config, f.operations);

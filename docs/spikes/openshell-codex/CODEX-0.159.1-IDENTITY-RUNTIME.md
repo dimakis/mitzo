@@ -94,3 +94,25 @@ requires exact-head CI and Centaur LGTM, a fresh independently custodied login,
 and successful owned catalog discovery. Model-backed tests must explicitly use
 supported Luna and announce the exact charged account/model first. Migration,
 rollback and merge/cutover remain closed pending their separate gates and intent.
+
+## Failed live discovery and bounded diagnostics
+
+Stage 24 completed fresh Personal Pro authorization but its one owned metadata
+refresh failed at `account/read` before `model/list`. HTTP 422 is the application
+failure receipt, not an observed upstream status. The catalog remains stale; this
+does not establish Luna availability. Cleanup completed and no inference ran.
+The retained diagnostic lacked a native failure category, so elapsed time alone
+cannot distinguish a routing error, an RPC timeout or a receipt mismatch.
+
+The successor host retains optional fixed `nativeFailure` categories and a
+bounded signed 32-bit `rpcCode`. Native routing messages are classified in memory
+only for `account/read`; other RPC methods preserve their existing execution
+error classification. Typed local transport, account metadata and routing
+identity errors distinguish the remaining host failures. Generic error text is
+never inspected or retained. Provider messages, account identifiers, headers and
+response bodies are excluded from the diagnostic receipt. Legacy receipts still
+validate, and allocation, cleanup, account and admission guards are unchanged.
+
+Synthetic RPC-frame tests verify persisted categories, secret exclusion, refusal
+before `model/list`, and exact cleanup. This adds observability; it does not claim
+to repair the unproven live cause or justify replaying the retained refresh.

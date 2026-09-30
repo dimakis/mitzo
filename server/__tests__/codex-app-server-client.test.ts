@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   CodexAppServerClient,
   CodexRequestError,
+  CodexTransportError,
   SUPPORTED_CODEX_CLI_VERSION,
   assertSupportedCodexCliVersion,
   type OpenShellCodexOptions,
@@ -30,6 +31,41 @@ function processStub() {
 
 afterEach(() => vi.useRealTimers());
 describe('Codex app-server transport', () => {
+  it('preserves execution authentication classification for native routing errors', async () => {
+    const { child, sent, reply } = processStub();
+    const client = new CodexAppServerClient(child, {
+      lifecycle: { onNotification: vi.fn(), onRequest: vi.fn(async () => ({})), onClose: vi.fn() },
+    });
+    const ready = client.initialize();
+    reply({ id: sent[0].id, result: {} });
+    await ready;
+    const request = client.request('turn/start', {});
+    reply({
+      id: sent.at(-1)!.id,
+      error: { code: -32603, message: 'workspace routing discovery unauthorized (401)' },
+    });
+    await expect(request).rejects.toMatchObject({ category: 'authentication' });
+    client.close();
+  });
+  it.each(['timeout', 'connection', 'protocol'] as const)(
+    'uses a typed %s transport failure without private data',
+    async (category) => {
+      vi.useFakeTimers();
+      const { child } = processStub();
+      const client = new CodexAppServerClient(child, { timeoutMs: 10 });
+      const request = client.initialize();
+      const check = expect(request).rejects.toMatchObject({
+        name: 'CodexTransportError',
+        category,
+      });
+      if (category === 'timeout') await vi.advanceTimersByTimeAsync(11);
+      else if (category === 'connection') child.emit('exit', 1);
+      else child.stdout.write('{PRIVATE-TOKEN}\n');
+      await check;
+      await expect(request).rejects.toBeInstanceOf(CodexTransportError);
+      await expect(request).rejects.not.toThrow('PRIVATE-TOKEN');
+    },
+  );
   it('accepts only the reviewed Codex CLI contract version', () => {
     expect(() =>
       assertSupportedCodexCliVersion(`codex-cli ${SUPPORTED_CODEX_CLI_VERSION}\n`),
