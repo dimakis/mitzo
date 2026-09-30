@@ -66,6 +66,7 @@ export class TaskOrchestrator {
   private static readonly SPAWN_RATE_WINDOW_MS = 60_000;
 
   private state: LoopState = 'idle';
+  private autoPausedReason: 'no_work' | 'no_dispatch' | null = null;
   private goalId: string | null = null;
   private activeTaskId: string | null = null;
   private specMode = false;
@@ -104,6 +105,9 @@ export class TaskOrchestrator {
     this._spawnEnabled = enabled;
     log.info('spawn enabled changed', { enabled });
     this.deps.broadcastStatus(this.getStatus());
+    if (enabled && this.state === 'paused' && this.autoPausedReason === 'no_dispatch') {
+      this.resume();
+    }
   }
 
   private dispatchToPinned(taskId: string, clientId: string, prompt: string): void {
@@ -212,6 +216,7 @@ export class TaskOrchestrator {
     }
 
     this.state = 'running';
+    this.autoPausedReason = null;
     this.dispatchAbort.abort();
     this.dispatchAbort = new AbortController();
     this.runGeneration++;
@@ -265,6 +270,7 @@ export class TaskOrchestrator {
   pause(): LoopStatus {
     if (this.state !== 'running') return this.getStatus();
     this.state = 'paused';
+    this.autoPausedReason = null;
     log.info('orchestrator paused');
     this.deps.broadcastStatus(this.getStatus());
     return this.getStatus();
@@ -273,6 +279,7 @@ export class TaskOrchestrator {
   resume(): LoopStatus {
     if (this.state !== 'paused') return this.getStatus();
     this.state = 'running';
+    this.autoPausedReason = null;
     log.info('orchestrator resumed');
     this.broadcastAndTick();
     return this.getStatus();
@@ -283,6 +290,7 @@ export class TaskOrchestrator {
     this.dispatchAbort.abort();
     this.runGeneration++;
     this.state = 'idle';
+    this.autoPausedReason = null;
     this.goalId = null;
     this.activeTaskId = null;
     this.specMode = false;
@@ -340,6 +348,11 @@ export class TaskOrchestrator {
 
   /** Called when a task completes (from tool interception). */
   onTaskCompleted(taskId: string): void {
+    if (this.state === 'paused' && this.autoPausedReason === 'no_work') {
+      this.state = 'running';
+      this.autoPausedReason = null;
+      this.deps.broadcastStatus(this.getStatus());
+    }
     if (this.state !== 'running') return;
     log.info('task completed, triggering tick', { taskId });
     this.spawnDepth = 0;
@@ -348,6 +361,11 @@ export class TaskOrchestrator {
 
   /** Called when a task is blocked (from tool interception). */
   onTaskBlocked(taskId: string): void {
+    if (this.state === 'paused' && this.autoPausedReason === 'no_work') {
+      this.state = 'running';
+      this.autoPausedReason = null;
+      this.deps.broadcastStatus(this.getStatus());
+    }
     if (this.state !== 'running') return;
     log.info('task blocked, triggering tick', { taskId });
     this.spawnDepth = 0;
@@ -504,9 +522,11 @@ export class TaskOrchestrator {
       // No executable tasks — could be all blocked or pending_review
       log.info('no executable tasks found', { goalId: this.goalId });
       this.state = 'paused';
+      this.autoPausedReason = 'no_work';
       this.deps.broadcastStatus(this.getStatus());
       return;
     }
+    this.autoPausedReason = null;
 
     // Dispatch based on stage type
     const stageType = next.stageType ?? 'agent_work';
@@ -551,6 +571,7 @@ export class TaskOrchestrator {
         if (next.sessionPolicy === 'spawn' && !this._spawnEnabled) {
           log.warn('spawn task waiting for session spawning to be enabled', { taskId: next.id });
           this.state = 'paused';
+          this.autoPausedReason = 'no_dispatch';
           this.deps.broadcastStatus(this.getStatus());
           break;
         }
@@ -652,6 +673,7 @@ export class TaskOrchestrator {
                 });
                 this.deps.store.cascadeStatus(next.id);
                 this.deps.broadcastTasks();
+                this.onTaskBlocked(next.id);
               }
             },
             (err) => {
@@ -668,6 +690,7 @@ export class TaskOrchestrator {
               this.deps.store.update(next.id, { status: 'blocked', annotations });
               this.deps.store.cascadeStatus(next.id);
               this.deps.broadcastTasks();
+              this.onTaskBlocked(next.id);
             },
           );
 
@@ -684,6 +707,13 @@ export class TaskOrchestrator {
         } else {
           // Reuse pinned session (original behavior)
           if (!this.pinnedClientId) {
+            if (next.sessionPolicy === 'auto') {
+              log.info('auto task waiting for a selected chat or session spawning', { taskId: next.id });
+              this.state = 'paused';
+              this.autoPausedReason = 'no_dispatch';
+              this.deps.broadcastStatus(this.getStatus());
+              break;
+            }
             this.deps.store.update(next.id, {
               status: 'blocked',
               annotations: [...next.annotations, 'dispatch_error: no session pinned for reuse'],

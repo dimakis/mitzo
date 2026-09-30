@@ -109,6 +109,32 @@ describe('TaskOrchestrator', () => {
     expect(orch.start(goal.id).state).toBe('running');
   });
 
+  it('keeps headless auto work pending while spawning is disabled, then resumes it', async () => {
+    const deps = createTestDeps(store);
+    deps.getClientId = () => null;
+    const spawnSession = vi.fn().mockResolvedValue('headless:auto');
+    deps.spawnSession = spawnSession;
+    const orch = new TaskOrchestrator(deps);
+    orch.setSpawnEnabled(true);
+    const goal = store.create({ title: 'Goal' });
+    const review = store.create({
+      title: 'Review', parentId: goal.id, stageType: 'human_review', priority: 2,
+    });
+    const task = store.create({ title: 'Auto work', parentId: goal.id, priority: 1 });
+
+    orch.start(goal.id);
+    expect(store.get(review.id)?.status).toBe('pending_review');
+    orch.setSpawnEnabled(false);
+    orch.approveTask(review.id);
+    expect(store.get(task.id)?.status).toBe('pending');
+    expect(orch.getStatus().state).toBe('paused');
+    expect(sendToChat).not.toHaveBeenCalled();
+
+    orch.setSpawnEnabled(true);
+    await vi.waitFor(() => expect(store.get(task.id)?.sessionId).toBe('headless:auto'));
+    expect(spawnSession).toHaveBeenCalledOnce();
+  });
+
   it('requires a chat for a later reuse stage as well as the first task', () => {
     const deps = createTestDeps(store);
     deps.getClientId = () => null;
@@ -715,6 +741,29 @@ describe('TaskOrchestrator', () => {
       expect(spawnSession).toHaveBeenCalledTimes(6);
 
       vi.useRealTimers();
+    });
+
+    it('continues past the spawn depth limit when the first five spawns fail', async () => {
+      vi.useFakeTimers();
+      try {
+        const spawnSession = vi.fn().mockResolvedValue(null);
+        const deps = createTestDeps(store);
+        deps.spawnSession = spawnSession;
+        const orch = new TaskOrchestrator(deps);
+        orch.setSpawnEnabled(true);
+        const goal = store.create({ title: 'Goal' });
+        const tasks = Array.from({ length: 6 }, (_, i) =>
+          store.create({ title: `Task ${i}`, parentId: goal.id, sessionPolicy: 'spawn' }),
+        );
+        orch.start(goal.id);
+        await vi.advanceTimersByTimeAsync(0);
+        expect(spawnSession).toHaveBeenCalledTimes(5);
+        expect(store.get(tasks[5].id)?.status).toBe('pending');
+        await vi.advanceTimersByTimeAsync(61_000);
+        expect(spawnSession).toHaveBeenCalledTimes(6);
+      } finally {
+        vi.useRealTimers();
+      }
     });
   });
 
