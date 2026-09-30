@@ -118,7 +118,10 @@ describe('TaskOrchestrator', () => {
     orch.setSpawnEnabled(true);
     const goal = store.create({ title: 'Goal' });
     const review = store.create({
-      title: 'Review', parentId: goal.id, stageType: 'human_review', priority: 2,
+      title: 'Review',
+      parentId: goal.id,
+      stageType: 'human_review',
+      priority: 2,
     });
     const task = store.create({ title: 'Auto work', parentId: goal.id, priority: 1 });
 
@@ -855,7 +858,11 @@ describe('TaskOrchestrator', () => {
       const orch = new TaskOrchestrator(deps);
       orch.setSpawnEnabled(true);
       const goal = store.create({ title: 'Goal' });
-      const task = store.create({ title: 'Spawned task', parentId: goal.id, sessionPolicy: 'spawn' });
+      const task = store.create({
+        title: 'Spawned task',
+        parentId: goal.id,
+        sessionPolicy: 'spawn',
+      });
       orch.start(goal.id);
       await vi.waitFor(() => expect(store.get(task.id)?.sessionId).toBe('headless:session'));
       store.update(task.id, { status: 'pending_review' });
@@ -1255,7 +1262,10 @@ describe('TaskOrchestrator', () => {
     it('does not restore an active task if its session ends before spawn resolves', async () => {
       let resolveSpawn!: (clientId: string | null) => void;
       const spawnSession = vi.fn().mockImplementation(
-        () => new Promise<string | null>((resolve) => { resolveSpawn = resolve; }),
+        () =>
+          new Promise<string | null>((resolve) => {
+            resolveSpawn = resolve;
+          }),
       );
       const deps = createTestDeps(store);
       deps.spawnSession = spawnSession;

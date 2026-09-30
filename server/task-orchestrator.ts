@@ -67,7 +67,8 @@ export class TaskOrchestrator {
 
   private state: LoopState = 'idle';
   private autoPausedReason: 'no_work' | 'no_dispatch' | null = null;
-  private deferredReviewDispatch: { taskId: string; clientId: string; prompt: string } | null = null;
+  private deferredReviewDispatch: { taskId: string; clientId: string; prompt: string } | null =
+    null;
   private goalId: string | null = null;
   private activeTaskId: string | null = null;
   private specMode = false;
@@ -667,12 +668,17 @@ export class TaskOrchestrator {
 
           const prompt = this.buildTaskPrompt(next);
           const onEnded = (clientId: string, error?: Error) => {
-            if (this.goalId !== capturedGoalId || this.spawnAttempts.get(next.id) !== attempt) return;
+            if (this.goalId !== capturedGoalId || this.spawnAttempts.get(next.id) !== attempt)
+              return;
             const current = this.deps.store.get(next.id);
             if (!current || current.status !== 'active') return;
             if (current.sessionId && current.sessionId !== clientId) return;
             const reason = error?.message ?? 'session ended before TaskComplete';
-            log.warn('spawned task session ended while task active', { taskId: next.id, clientId, reason });
+            log.warn('spawned task session ended while task active', {
+              taskId: next.id,
+              clientId,
+              reason,
+            });
             this.deps.store.update(next.id, {
               status: 'blocked',
               annotations: [...current.annotations, `spawn_error: ${reason}`],
@@ -685,7 +691,8 @@ export class TaskOrchestrator {
           this.deps.spawnSession(next.id, prompt, capturedGoalId, onEnded).then(
             (clientId) => {
               // Guard: orchestrator moved on (stop or new goal)
-              if (this.goalId !== capturedGoalId || this.spawnAttempts.get(next.id) !== attempt) return;
+              if (this.goalId !== capturedGoalId || this.spawnAttempts.get(next.id) !== attempt)
+                return;
               if (this.deps.store.get(next.id)?.status !== 'active') return;
 
               if (clientId) {
@@ -704,7 +711,8 @@ export class TaskOrchestrator {
             },
             (err) => {
               // Guard: orchestrator moved on (stop or new goal)
-              if (this.goalId !== capturedGoalId || this.spawnAttempts.get(next.id) !== attempt) return;
+              if (this.goalId !== capturedGoalId || this.spawnAttempts.get(next.id) !== attempt)
+                return;
               if (this.deps.store.get(next.id)?.status !== 'active') return;
 
               log.error('spawnSession threw', { taskId: next.id, error: (err as Error).message });
@@ -734,7 +742,9 @@ export class TaskOrchestrator {
           // Reuse pinned session (original behavior)
           if (!this.pinnedClientId) {
             if (next.sessionPolicy === 'auto') {
-              log.info('auto task waiting for a selected chat or session spawning', { taskId: next.id });
+              log.info('auto task waiting for a selected chat or session spawning', {
+                taskId: next.id,
+              });
               this.state = 'paused';
               this.autoPausedReason = 'no_dispatch';
               this.deps.broadcastStatus(this.getStatus());
