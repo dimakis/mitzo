@@ -818,6 +818,39 @@ describe('TaskOrchestrator', () => {
       expect(sendToChat).not.toHaveBeenCalled();
     });
 
+    it('keeps headless human review pending when rejection has no retry chat', async () => {
+      const deps = createTestDeps(store);
+      deps.getClientId = () => null;
+      deps.spawnSession = vi.fn().mockResolvedValue('headless:task-session');
+      const orch = new TaskOrchestrator(deps);
+      orch.setSpawnEnabled(true);
+      const goal = store.create({ title: 'Headless workflow' });
+      const work = store.create({
+        title: 'Spawned work',
+        parentId: goal.id,
+        sessionPolicy: 'spawn',
+        priority: 2,
+      });
+      const review = store.create({
+        title: 'Review work',
+        parentId: goal.id,
+        stageType: 'human_review',
+        priority: 1,
+      });
+
+      orch.start(goal.id);
+      await vi.waitFor(() => expect(store.get(work.id)?.sessionId).toBe('headless:task-session'));
+      store.update(work.id, { status: 'done' });
+      store.cascadeStatus(work.id);
+      orch.onTaskCompleted(work.id);
+      expect(store.get(review.id)?.status).toBe('pending_review');
+
+      expect(orch.rejectTask(review.id, 'try again')).toBe(false);
+      expect(store.get(review.id)?.status).toBe('pending_review');
+      expect(sendToChat).not.toHaveBeenCalled();
+      expect(orch.approveTask(review.id)).toBe(true);
+    });
+
     it('rejectTask returns false for non-pending_review', () => {
       const goal = store.create({ title: 'Goal' });
       const c1 = store.create({ title: 'Task', parentId: goal.id });

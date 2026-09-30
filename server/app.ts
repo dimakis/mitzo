@@ -1687,7 +1687,13 @@ app.post('/api/tasks/:id/reject', (req, res) => {
   }
   const ok = orchestrator.rejectTask(req.params.id, req.body.feedback ?? '');
   if (!ok) {
-    res.status(400).json({ error: 'Task not in pending_review state' });
+    if (taskStore.get(req.params.id)?.status === 'pending_review') {
+      res
+        .status(409)
+        .json({ error: 'No chat available for retry feedback; review remains pending' });
+    } else {
+      res.status(400).json({ error: 'Task not in pending_review state' });
+    }
     return;
   }
   res.json({ ok: true });

@@ -367,7 +367,10 @@ export class TaskOrchestrator {
     // back to the workflow's reuse chat when that session is unavailable.
     const targetClientId =
       task.sessionId ?? (task.sessionPolicy === 'spawn' ? null : this.pinnedClientId);
-    if (task.stageType !== 'human_review' && !targetClientId) return false;
+    // Human review has no agent session of its own. A headless workflow may
+    // reach it after spawned work, so leave it pending when there is nowhere
+    // to send rejection feedback.
+    if (!targetClientId) return false;
 
     const annotations = [...task.annotations, `review_feedback: ${feedback}`];
     this.deps.store.update(taskId, {
