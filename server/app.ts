@@ -1607,6 +1607,10 @@ app.post('/api/loop/start', (req, res) => {
     specMode: body.data.specMode,
     clientId: body.data.clientId,
   });
+  if (body.data.specMode && result.state === 'idle') {
+    res.status(400).json({ error: 'Spec mode requires an explicit active chat' });
+    return;
+  }
   res.json(result);
 });
 

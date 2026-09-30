@@ -161,6 +161,14 @@ export class TaskOrchestrator {
       return this.getStatus();
     }
 
+    // Spec decomposition sends its first prompt immediately. A background
+    // caller must name a chat; never activate the goal without a recipient.
+    const pinnedClientId = opts?.clientId ?? this.deps.getClientId();
+    if (opts?.specMode && !pinnedClientId) {
+      log.warn('start() requires an explicit session target', { goalId });
+      return this.getStatus();
+    }
+
     this.state = 'running';
     this.dispatchAbort.abort();
     this.dispatchAbort = new AbortController();
@@ -169,7 +177,7 @@ export class TaskOrchestrator {
     this.activeTaskId = null;
     this.specMode = opts?.specMode ?? false;
     this.awaitingApproval = false;
-    this.pinnedClientId = opts?.clientId ?? this.deps.getClientId();
+    this.pinnedClientId = pinnedClientId;
 
     // Clear spawn tracking state so a new goal isn't rate-limited by the previous one
     this.recentSpawns.clear();

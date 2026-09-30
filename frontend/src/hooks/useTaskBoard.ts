@@ -141,7 +141,7 @@ export interface UseTaskBoardResult {
   createTask: (input: TaskCreateInput) => Promise<void>;
   updateTask: (id: string, input: TaskUpdateInput) => Promise<void>;
   deleteTask: (id: string) => Promise<void>;
-  startLoop: (goalId: string, specMode?: boolean) => Promise<void>;
+  startLoop: (goalId: string, specMode?: boolean, clientId?: string) => Promise<void>;
   pauseLoop: () => Promise<void>;
   resumeLoop: () => Promise<void>;
   stopLoop: () => Promise<void>;

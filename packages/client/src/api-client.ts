@@ -395,13 +395,13 @@ export class MitzoApiClient {
     return res.json();
   }
 
-  async startLoop(goalId: string, specMode?: boolean): Promise<void> {
+  async startLoop(goalId: string, specMode?: boolean, clientId?: string): Promise<void> {
     await this.assertOk(
       await this.fetch('/api/loop/start', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ goalId, specMode }),
+        body: JSON.stringify({ goalId, specMode, clientId }),
       }),
     );
   }

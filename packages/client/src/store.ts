@@ -126,7 +126,7 @@ export interface MitzoStoreState {
   createTask(input: Record<string, unknown>): Promise<void>;
   updateTask(id: string, input: Record<string, unknown>): Promise<void>;
   deleteTask(id: string): Promise<void>;
-  startLoop(goalId: string, specMode?: boolean): Promise<void>;
+  startLoop(goalId: string, specMode?: boolean, clientId?: string): Promise<void>;
   pauseLoop(): Promise<void>;
   resumeLoop(): Promise<void>;
   stopLoop(): Promise<void>;
@@ -851,8 +851,8 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       await api.deleteTask(id);
     },
 
-    async startLoop(goalId: string, specMode?: boolean) {
-      await api.startLoop(goalId, specMode);
+    async startLoop(goalId: string, specMode?: boolean, clientId?: string) {
+      await api.startLoop(goalId, specMode, clientId);
     },
 
     async pauseLoop() {

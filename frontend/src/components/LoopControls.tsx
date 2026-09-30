@@ -7,7 +7,8 @@ interface LoopControlsProps {
   loopStatus: LoopStatus;
   goals: Task[];
   totalTokenUsage: number;
-  onStart: (goalId: string, specMode?: boolean) => void;
+  currentClientId: string | null;
+  onStart: (goalId: string, specMode?: boolean, clientId?: string) => void;
   onPause: () => void;
   onResume: () => void;
   onStop: () => void;
@@ -19,6 +20,7 @@ export function LoopControls({
   loopStatus,
   goals,
   totalTokenUsage,
+  currentClientId,
   onStart,
   onPause,
   onResume,
@@ -29,6 +31,7 @@ export function LoopControls({
   const [pickerOpen, setPickerOpen] = useState(false);
   const [selectedGoalId, setSelectedGoalId] = useState('');
   const [specMode, setSpecMode] = useState(false);
+  const [useThisChat, setUseThisChat] = useState(false);
 
   const { state, progress, awaitingApproval } = loopStatus;
 
@@ -63,6 +66,15 @@ export function LoopControls({
             <label className="loop-controls-spec-toggle">
               <input
                 type="checkbox"
+                checked={useThisChat}
+                disabled={!currentClientId}
+                onChange={(e) => setUseThisChat(e.target.checked)}
+              />
+              Use this chat for tasks
+            </label>
+            <label className="loop-controls-spec-toggle">
+              <input
+                type="checkbox"
                 checked={specMode}
                 onChange={(e) => setSpecMode(e.target.checked)}
               />
@@ -74,9 +86,16 @@ export function LoopControls({
             </button>
             <button
               className="loop-controls-btn loop-controls-btn--start"
-              disabled={!selectedGoalId}
+              disabled={
+                !selectedGoalId ||
+                ((specMode || !loopStatus.spawnEnabled) && (!useThisChat || !currentClientId))
+              }
               onClick={() => {
-                onStart(selectedGoalId, specMode || undefined);
+                onStart(
+                  selectedGoalId,
+                  specMode || undefined,
+                  useThisChat ? (currentClientId ?? undefined) : undefined,
+                );
                 setPickerOpen(false);
               }}
             >

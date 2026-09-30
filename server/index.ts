@@ -451,27 +451,29 @@ const orchestrator = new TaskOrchestrator({
 
     try {
       const transport = new NullTransport();
-      // Fire-and-forget — startChat handles worktree creation, EventStore
-      // registration, and the full session lifecycle internally. We must NOT
-      // await it: startChat blocks until the agent session completes (via
-      // runQueryLoop), so awaiting would block the orchestrator tick chain.
-      startChat(transport, clientId, prompt, {
-        mode: 'agent',
-        isolation: true,
-        telosTaskId: goalId,
-        onSessionResolved: (sessionId) => {
-          log.info('spawned headless session resolved', { taskId, sessionId, clientId });
-          sseRegistry.broadcast('sessions_changed', {});
-        },
-      }).catch((err) => {
-        log.error('spawned session failed', {
-          taskId,
-          clientId,
-          error: (err as Error).message,
+      // Wait for startup admission, not for the entire agent run. startChat
+      // resolves only after the session ends, but reports admission separately.
+      const admitted = new Promise<boolean>((resolve) => {
+        startChat(transport, clientId, prompt, {
+          mode: 'agent',
+          isolation: true,
+          telosTaskId: goalId,
+          onStartupAdmission: (error) => resolve(!error),
+          onSessionResolved: (sessionId) => {
+            log.info('spawned headless session resolved', { taskId, sessionId, clientId });
+            sseRegistry.broadcast('sessions_changed', {});
+          },
+        }).catch((err) => {
+          resolve(false);
+          log.error('spawned session failed', {
+            taskId,
+            clientId,
+            error: (err as Error).message,
+          });
         });
       });
 
-      return clientId;
+      return (await admitted) ? clientId : null;
     } catch (err) {
       log.error('failed to spawn session for task', {
         taskId,

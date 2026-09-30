@@ -94,6 +94,17 @@ describe('TaskOrchestrator', () => {
     expect(sendToChat).not.toHaveBeenCalled();
   });
 
+  it('does not activate a spec goal without a target chat', () => {
+    const deps = createTestDeps(store);
+    deps.getClientId = () => null;
+    const orch = new TaskOrchestrator(deps);
+    const goal = store.create({ title: 'Spec goal' });
+
+    expect(orch.start(goal.id, { specMode: true }).state).toBe('idle');
+    expect(store.get(goal.id)?.status).toBe('pending');
+    expect(sendToChat).not.toHaveBeenCalled();
+  });
+
   it('reuses only the client explicitly supplied when starting a workflow', () => {
     const deps = createTestDeps(store);
     deps.getClientId = () => null;

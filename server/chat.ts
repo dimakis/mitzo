@@ -1265,7 +1265,6 @@ async function _startChatInner(
       return;
     }
   }
-  if (!apiKey && !gemini) options.onStartupAdmission?.();
 
   if (options.resume) {
     const validation =
@@ -1699,6 +1698,9 @@ async function _startChatInner(
       );
     }
 
+    // The session is registered and the provider query is ready. Worktree and
+    // provider setup failures above must be reported before admitting a spawn.
+    if (!apiKey && !gemini) options.onStartupAdmission?.();
     await runQueryLoop(
       q as unknown as AsyncIterable<Record<string, unknown>>,
       clientId,

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useLocation, useSearchParams } from 'react-router-dom';
+import { useMitzoStore } from '@mitzo/client/hooks';
 import { AgentTaskWorkspace } from '../components/AgentTaskWorkspace';
 import { TaskNode } from '../components/TaskNode';
 import { TaskCreateForm } from '../components/TaskCreateForm';
@@ -24,6 +25,7 @@ function countT1Recursive(tasks: Task[]): number {
 }
 
 export function TaskBoard({ desktop = false }: { desktop?: boolean } = {}) {
+  const currentClientId = useMitzoStore((s) => s.connection.clientId);
   const [boardView, setBoardView] = useState(desktop);
   const [searchParams, setSearchParams] = useSearchParams();
   const { hash } = useLocation();
@@ -166,6 +168,7 @@ export function TaskBoard({ desktop = false }: { desktop?: boolean } = {}) {
 
       <LoopControls
         loopStatus={loopStatus}
+        currentClientId={currentClientId}
         goals={goals}
         totalTokenUsage={totalTokenUsage}
         onStart={startLoop}
