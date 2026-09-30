@@ -1,4 +1,5 @@
 import { SymposiumPersonalConnections } from '../components/SymposiumPersonalConnections';
+import { GoogleWorkspaceControls } from '../components/GoogleWorkspaceControls';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { WorkspacePageHeading } from '../components/WorkspacePageHeading';
 import {
@@ -327,6 +328,15 @@ export function ConnectionsView() {
           )
         }
       />
+      {data.googleWorkspaceManaged && (
+        <GoogleWorkspaceControls
+          csrf={csrf}
+          authorized={!!csrf && csrfExpiresAt > Date.now()}
+          onReauthorizationNeeded={() => {
+            requireReauthorization();
+          }}
+        />
+      )}
       <section className="today-section connections-card" aria-labelledby="add-connection-heading">
         <h2 id="add-connection-heading">Add connection</h2>
         <p className="workspace-muted">
@@ -503,7 +513,12 @@ export function ConnectionsView() {
         <h2>Operator-managed legacy services</h2>
         <p>
           {data.legacy.length
-            ? data.legacy.map((service) => `${service.label} (${service.management})`).join(', ')
+            ? data.legacy
+                .filter(
+                  (service) => !data.googleWorkspaceManaged || service.id !== 'google-workspace',
+                )
+                .map((service) => `${service.label} (${service.management})`)
+                .join(', ') || 'None reported.'
             : 'None reported.'}
         </p>
         <p className="workspace-muted">

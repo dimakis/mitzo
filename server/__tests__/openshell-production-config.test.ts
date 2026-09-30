@@ -271,30 +271,60 @@ describe('OpenShell production bundle validation', () => {
     expect(profile).not.toContain('protocol: websocket');
   });
 
-  it('keeps sandbox-native Google Workspace reads within the requested data services', () => {
-    const profile = readFileSync(
-      new URL(
-        '../../docs/spikes/openshell-codex/google-workspace-spike-profile.yaml',
-        import.meta.url,
+  it('permits Slides authoring while keeping other Google endpoints read-only', () => {
+    const profile = load(
+      readFileSync(
+        new URL(
+          '../../docs/spikes/openshell-codex/google-workspace-spike-profile.yaml',
+          import.meta.url,
+        ),
+        'utf8',
       ),
-      'utf8',
-    );
-    for (const scope of [
-      'drive.readonly',
-      'documents.readonly',
-      'calendar.readonly',
-      'gmail.readonly',
-      'spreadsheets.readonly',
-    ])
-      expect(profile).toContain(scope);
+    ) as {
+      credentials: Array<{ refresh: { scopes: string[] } }>;
+      endpoints: Array<{
+        host: string;
+        access?: string;
+        protocol: string;
+        tls: string;
+        enforcement: string;
+        rules?: Array<{ allow: { method: string; path: string } }>;
+      }>;
+    };
+    expect(profile.credentials[0].refresh.scopes).toEqual([
+      'https://www.googleapis.com/auth/drive.readonly',
+      'https://www.googleapis.com/auth/documents.readonly',
+      'https://www.googleapis.com/auth/calendar.readonly',
+      'https://www.googleapis.com/auth/gmail.readonly',
+      'https://www.googleapis.com/auth/spreadsheets.readonly',
+      'https://www.googleapis.com/auth/presentations',
+    ]);
     for (const host of [
       'www.googleapis.com',
       'docs.googleapis.com',
       'gmail.googleapis.com',
       'sheets.googleapis.com',
     ])
-      expect(profile).toContain(`host: ${host}`);
-    expect(profile).not.toContain('access: read-write');
+      expect(profile.endpoints.find((endpoint) => endpoint.host === host)).toMatchObject({
+        access: 'read-only',
+        protocol: 'rest',
+        tls: 'terminate',
+        enforcement: 'enforce',
+      });
+    expect(profile.endpoints.find((endpoint) => endpoint.host === 'slides.googleapis.com')).toEqual(
+      {
+        host: 'slides.googleapis.com',
+        port: 443,
+        protocol: 'rest',
+        tls: 'terminate',
+        enforcement: 'enforce',
+        rules: [
+          { allow: { method: 'GET', path: '/v1/presentations/**' } },
+          { allow: { method: 'POST', path: '/v1/presentations' } },
+          { allow: { method: 'POST', path: '/v1/presentations/*:batchUpdate' } },
+        ],
+      },
+    );
   });
 
   it('starts the Podman machine before OpenShell production preflight', () => {

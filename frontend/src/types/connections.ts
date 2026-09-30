@@ -1,6 +1,12 @@
 export type ConnectionStatus =
   'provisioning' | 'needs_attention' | 'active' | 'rotating' | 'revoking' | 'revoked';
 
+export interface GoogleWorkspaceHealth {
+  health: 'ready' | 'needs_sign_in' | 'unavailable' | 'not_configured';
+  expiresAt: number | null;
+  slidesEditing: boolean;
+}
+
 export interface ManagedConnection {
   id: string;
   templateId: string;
@@ -90,6 +96,7 @@ export interface ConnectionCapabilityGrant {
 }
 
 export interface ConnectionsCatalog {
+  googleWorkspaceManaged?: boolean;
   connections: ManagedConnection[];
   legacy: Array<{ id: string; label: string; management: string }>;
   eligibleAccounts: string[];
