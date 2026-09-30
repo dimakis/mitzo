@@ -450,6 +450,7 @@ export function createSymposiumProductionReviewComposition(deps: {
     return {
       reviewHost,
       assertReaderAdmissionCurrent: reader.assertReaderAdmissionCurrent,
+      assertReaderAdmissionStaged: reader.assertReaderAdmissionStaged,
       close: () => {
         checks?.close();
         artifacts.close();

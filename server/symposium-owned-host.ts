@@ -117,7 +117,10 @@ export interface OwnedSymposiumHostOptions {
   hostGrants: SymposiumHostGrantVerifier;
   /** Trusted construction only; unavailable until a real current review/fix authority exists. */
   successorAuthority?: SuccessorFixAuthority;
-  readerAuthority?: { assertAdmissionCurrent(binding: ArtifactReaderAdmissionBindingV1): true };
+  readerAuthority?: {
+    assertAdmissionCurrent(binding: ArtifactReaderAdmissionBindingV1): true;
+    assertAdmissionStaged(binding: ArtifactReaderAdmissionBindingV1): true;
+  };
   artifacts: readonly { sessionId: string; volumeName: string; volumeGeneration: string }[];
 }
 
@@ -580,6 +583,7 @@ export async function createOwnedSymposiumHost(
     const assertArtifactAdmissionCurrent = (
       sessionId: string,
       reference: ArtifactAdmissionReferenceV1 | ArtifactReaderReferenceV1,
+      phase: 'delivery' | 'execution' = 'execution',
     ): void => {
       custody();
       if (!(options.facts instanceof EventStore))
@@ -592,7 +596,11 @@ export async function createOwnedSymposiumHost(
             workspace: gateway.workspace,
             custodyDigest: createHash('sha256').update(gateway.stateDirectory).digest('hex'),
             assertAuthority(binding) {
-              if (options.readerAuthority?.assertAdmissionCurrent(binding) !== true)
+              const assertAuthority =
+                phase === 'delivery'
+                  ? options.readerAuthority?.assertAdmissionStaged
+                  : options.readerAuthority?.assertAdmissionCurrent;
+              if (assertAuthority?.(binding) !== true)
                 throw new Error('Current reader policy authority required');
               return true;
             },
@@ -1183,7 +1191,7 @@ export async function createOwnedSymposiumHost(
         );
         if (!reference) return false;
         try {
-          assertArtifactAdmissionCurrent(sessionId, reference);
+          assertArtifactAdmissionCurrent(sessionId, reference, 'delivery');
           return true;
         } catch {
           return false;

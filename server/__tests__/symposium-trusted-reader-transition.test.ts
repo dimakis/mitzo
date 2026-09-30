@@ -411,6 +411,7 @@ it('charges first review before reader admission and recovers an exact staged de
     expect(() => f.owner.assertReaderAdmissionCurrent(readerBinding)).toThrow(
       /charged preparation/,
     );
+    expect(f.owner.assertReaderAdmissionStaged(readerBinding)).toBe(true);
     const completed = await f.owner.transition.apply(f.context, prep);
     expect(f.releasedReviewStreams).toHaveLength(2);
     expect(completed.attempt.binding).toMatchObject({

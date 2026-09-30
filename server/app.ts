@@ -1060,7 +1060,10 @@ export function installSymposiumProductionHost(host: SymposiumProductionHost): v
       retainedRuntime: (sessionId) => symposiumSessionRuntimes.get(sessionId) ?? null,
     });
     try {
-      installSymposiumReaderAuthority(composed.assertReaderAdmissionCurrent);
+      installSymposiumReaderAuthority({
+        current: composed.assertReaderAdmissionCurrent,
+        staged: composed.assertReaderAdmissionStaged,
+      });
       host.reviewHost = composed.reviewHost;
     } catch (error) {
       composed.close();

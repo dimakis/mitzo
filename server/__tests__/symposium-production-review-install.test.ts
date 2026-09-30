@@ -4,6 +4,7 @@ const composition = vi.hoisted(() => ({
   create: vi.fn(() => ({
     reviewHost: { currentArtifact: vi.fn() },
     assertReaderAdmissionCurrent: vi.fn(() => true),
+    assertReaderAdmissionStaged: vi.fn(() => true),
     close: vi.fn(),
   })),
 }));

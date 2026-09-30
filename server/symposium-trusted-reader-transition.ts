@@ -139,6 +139,7 @@ export interface SealedReaderTransitionDeps {
 export function createSealedReaderReviewTransition(deps: SealedReaderTransitionDeps): {
   transition: Transition;
   assertReaderAdmissionCurrent(binding: ArtifactReaderAdmissionBindingV1): true;
+  assertReaderAdmissionStaged(binding: ArtifactReaderAdmissionBindingV1): true;
 } {
   const stored = (context: ReviewContext, prep: ApplicationPreparation) => {
     const workflow = deps.reviews.get(prep.workflowId);
@@ -191,7 +192,10 @@ export function createSealedReaderReviewTransition(deps: SealedReaderTransitionD
       throw new Error('Current read-only reviewer required');
     return { config, seat, member };
   };
-  const assertReaderAdmissionCurrent = (binding: ArtifactReaderAdmissionBindingV1): true => {
+  const assertReaderAdmission = (
+    binding: ArtifactReaderAdmissionBindingV1,
+    requireRunnableClaim: boolean,
+  ): true => {
     const workflow = deps.reviews.get(binding.workflowId);
     const prep = deps.reviews.getApplicationPreparation(
       binding.workflowId,
@@ -202,7 +206,9 @@ export function createSealedReaderReviewTransition(deps: SealedReaderTransitionD
       workflow.sessionId !== binding.sessionId ||
       workflow.decisionCode ||
       !prep ||
-      prep.status !== 'bound' ||
+      (requireRunnableClaim
+        ? prep.status !== 'bound'
+        : !['preparing', 'bound'].includes(prep.status)) ||
       prep.kind === 'fix' ||
       prep.policyReservationId !== binding.policyReservationId ||
       prep.transitionId !== binding.readerAdmissionId ||
@@ -260,21 +266,24 @@ export function createSealedReaderReviewTransition(deps: SealedReaderTransitionD
     if (ref.bindingDigest !== artifactAdmissionDigest(binding))
       throw new Error('Confirmed reader binding changed');
     deps.events.assertSymposiumSealedReaderAdmissionCurrent(binding.sessionId, ref);
-    const admitted = workflow.applicationAttempts.find(
-      (attempt) =>
-        attempt.attemptId === binding.reviewAttemptId &&
-        attempt.policyReservationId === binding.policyReservationId &&
-        attempt.actorSeatId === binding.seatId &&
-        attempt.binding.configRevision === binding.resultingConfigRevision &&
-        attempt.binding.membershipGeneration === binding.readerMembershipGeneration &&
-        !attempt.settled,
-    );
-    if (!admitted || !deps.reviews.applicationAttemptForClaim(admitted.binding.claimToken))
-      throw new Error('Runnable reader claim is not bound');
+    if (requireRunnableClaim) {
+      const admitted = workflow.applicationAttempts.find(
+        (attempt) =>
+          attempt.attemptId === binding.reviewAttemptId &&
+          attempt.policyReservationId === binding.policyReservationId &&
+          attempt.actorSeatId === binding.seatId &&
+          attempt.binding.configRevision === binding.resultingConfigRevision &&
+          attempt.binding.membershipGeneration === binding.readerMembershipGeneration &&
+          !attempt.settled,
+      );
+      if (!admitted || !deps.reviews.applicationAttemptForClaim(admitted.binding.claimToken))
+        throw new Error('Runnable reader claim is not bound');
+    }
     return true;
   };
   return {
-    assertReaderAdmissionCurrent,
+    assertReaderAdmissionCurrent: (binding) => assertReaderAdmission(binding, true),
+    assertReaderAdmissionStaged: (binding) => assertReaderAdmission(binding, false),
     transition: {
       async prepare(input) {
         if (input.kind === 'fix' || input.kind === 'initial')
