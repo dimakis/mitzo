@@ -13,6 +13,14 @@ Provider list returns a top-level JSON array. Each provider includes `id`, `name
 
 The compiled Google management service was also run read-only against that deployment. It returned `health: ready` and `slidesEditing: true` after observing a stable provider census and matching installed expiry. This check exported no credentials and made no model calls.
 
+## Effective policy verification
+
+Provider name and type alone do not establish the advertised permissions. Management exports the installed `mitzo-google-workspace-spike` profile in the provider's selected workspace and validates its safety contract against `docs/spikes/openshell-codex/google-workspace-spike-profile.yaml`: four exact Google read-only endpoints with enforced REST filtering and terminated TLS, the three bounded Slides rules, and the reviewed bearer credential binding, refresh schema and executable allowlist. Extra endpoints, write rules, weakened enforcement, credential routing or other policy drift fail closed. Cosmetic profile metadata and positive resource-version changes remain acceptable.
+
+The primary CLI supports `provider profile export <id> -o json --workspace <workspace>`. Its export includes `scope` and `source` metadata, and serializes an unused credential `query_param` as an empty string. Read-only inspection on 30 September confirmed the exported safety fields match the reviewed YAML; no credentials were exported and no gateway or sandbox state changed.
+
+Policy verification precedes host credential requests and every refresh configure/rotate operation, and is repeated around status observation. A failed check returns unavailable capabilities or an actionable instruction to restore the reviewed profile. Offline regressions change the policy before each operation to ensure a previous successful observation cannot authorize a later unsafe import or rotation.
+
 ## Separate owned-gateway contract
 
 `server/symposium-work-vertex-readiness.ts` deliberately targets a separate owned gateway CLI pinned to upstream commit `854b2370b`. That CLI uses paginated provider-list objects and table-only refresh status. Its parser is specific to that owned runtime; it does not define the primary Connections gateway contract above. Google management does not support substituting that CLI for the primary production controller CLI.
