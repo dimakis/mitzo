@@ -7,17 +7,19 @@ candidate/operation/artifact IDs and bounded outcomes before marking a gate done
 
 ## Candidate baseline
 
-- PR input: `7cdb65b61c5f5fea51e553c969719dd0a4e79ddf`.
-- Main input: `b9028e6cf9086e2c914b13d6022ad5459f7d9bf5` (PRs #681,
-  #585, #682, #683 and #684). The integration incorporates both inputs without
-  rewriting feature history. Identify the resulting candidate and its fresh
-  gate receipts in the canonical ledger; input hashes alone are not acceptance.
-- Record the resulting commit/tree, dependency/build evidence and measured
-  runtime/image/helper/bootstrap pins before acceptance. Any source change
-  invalidates candidate gates and requires fresh checks.
-- Four green CI jobs and Centaur LGTM review `5368499330` cover only `7cdb65b6`.
-  They become historical evidence when the integration is committed. Obtain
-  fresh all-job CI and exact-head independent review/LGTM for the candidate.
+- Integrated baseline: `b34b34dcf4558a9634e09def7f6ed9d67dc99a74`, incorporating
+  main `b9028e6cf9086e2c914b13d6022ad5459f7d9bf5`. At the retained 30 September
+  checkpoint PR #678 was draft/open, 207 commits ahead and zero behind main.
+- Baseline CI run `36775554909` attempt 2 passed all four jobs. Retained suite
+  evidence records 7,522 passed / 17 skipped. Exact-head Centaur review
+  `5371758787` is LGTM with zero blockers and three verified resolutions
+  (consent ownership, WebSocket consent and legacy live takeover/replay).
+- These are retained baseline receipts, not fresh verification of subsequent
+  edits. Reverify remote head, all-job CI and exact-head independent review
+  before acting; any source change requires new candidate gates.
+- Record the candidate commit/tree, dependency/build evidence and measured
+  runtime/image/helper/bootstrap pins before acceptance. Freeze unrelated
+  provider/runtime upgrades while qualifying this candidate.
 
 ## Evidence boundary
 
@@ -30,15 +32,23 @@ and the complete workflow are unverified.
 
 Earlier live Luna evidence and mocked/unit suites demonstrate their recorded
 slices, not this integrated candidate. No inference occurred in the recent
-offline diagnostics. DIAGNOSTIC_6 is prepared and stopped; it is a narrow
-synthetic fixture, neither acceptance nor a cause of the live routing failure.
+offline diagnostics. DIAG6 `6d84d037-470d-4402-8d7a-be0e2cb2203c` and DIAG7
+`55fca0b1-25c4-4df7-b265-6a27741e1113` are retired with cleanup confirmed.
+DIAG7 reached supervisor/provider readiness after correcting its missing private
+socket setting, then retained four gateway-method-contract-refused events
+without method/predicate details. Native account RPC was intentionally
+suppressed; no upstream request or inference occurred. Readiness does not prove
+account/read composition or explain the Stage 27 failure. Identify those four
+refusals with bounded sanitized diagnostics in a separately reviewed successor;
+never replay retired operations. No successor was allocated at the checkpoint.
 Stage 20 review `bb95f6d0-cc49-4434-bb11-ce251fc23163` and all other retained
 attempts must be reconciled by original ID, never blindly replayed.
 
 ## Exit gates
 
-At checklist creation, all gates below remain open. Consult the latest ledger
-entries for completed gates. Each next check must target the reviewed candidate
+Source integration and baseline CI/review are established for `b34b34dc`.
+The workflow, routing, recovery, resource, device and release gates remain open;
+consult the latest ledger entries for candidate-bound evidence. Each next check must target the reviewed candidate
 and produce durable, physically verified evidence rather than a configuration
 assertion or an optimistic HTTP response.
 
@@ -64,10 +74,16 @@ assertion or an optimistic HTTP response.
       reconciliation using the same retained operation IDs, including uncertain
       creation/delivery and physical sandbox, credential, artifact lease and
       writer-release proof. No duplicate dispatch or cleanup-based invented success.
-- [ ] **Resources and spend.** Prove enforced CPU/memory/storage bounds and
-      trusted native token/monetary reservations, terminal usage and hard stop.
-      Application turn/cycle/deadline limits are separate controls; they do not
-      establish hard native token or spend enforcement. Unknown usage stays unknown.
+- [ ] **Application limits and resources.** Persist selected host-turn and
+      review/fix-cycle limits, deadline, user stop, no-progress termination and
+      explicitly authorized continuation. Prove their admission, restart and
+      cancellation behavior through the actual owners. Record the selected
+      settings before dispatch; proposed first-run settings are 12 host turns,
+      at most two review/fix cycles and 15 minutes, not permanent defaults or a
+      spend guarantee. Separately prove and measure CPU/memory/storage bounds.
+      Guaranteed native no-overshoot token/spend caps and mandatory final token
+      totals are deferred, not initial-release gates. Trusted execution and
+      artifact completion may succeed with usage recorded as unknown.
 - [ ] **iOS device path.** Exercise sign-in, connection/model selection,
       reviewer/context setup, workflow progress and recovery on an actual iOS
       device against the integrated candidate; desktop/mock coverage is insufficient.
@@ -79,6 +95,61 @@ assertion or an optimistic HTTP response.
       semantic results and delta history to the exact accepted artifact. Obtain
       explicit artifact-bound approval before external publication; preflight is
       not publication authorization. Record the approved action and its receipt.
+
+## Application-policy contract
+
+The explicit 27 September decision, “use application limits; defer the hard
+token cap,” governs this release.
+A host turn is one selected-seat native dispatch. Initial, review, fix, delta
+and retry dispatches share an atomic persisted reservation in the existing
+workflow; concurrency and restart cannot reset it. An unknown accepted operation
+stays charged and is reconciled by original ID before any retry. Exhaustion,
+deadline, user stop and no progress fence new work and request exact cancellation;
+they do not guarantee instant cessation of an accepted model call. Continuation
+requires a fresh authorized limit amendment retaining counters and history.
+Host-turn reservations must never be labelled native token/spend `enforced`.
+Exact account/model, grants, membership, artifact binding and final dispatch
+authority remain required. Uncertain execution, artifact identity or authority
+remain blockers even when usage may stay unknown.
+
+## Existing owners, transitions and dependencies
+
+Reuse these owners; do not introduce another scheduler. Cross-store transitions
+require durable intent, exact idempotent effects/receipts, fencing and same-ID
+reconciliation rather than an assumption of atomic commits.
+
+| Transition                        | Existing owner and boundary                                                                                                                                                                                                                                                                                          | Package / dependency                                                                                            |
+| --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| Admission and dispatch            | `SymposiumReviewStore` (`symposium-review-workflows.ts`) persists policy/counters/attempts; `SymposiumReviewCoordinator`, `createSymposiumApplicationDispatchPolicy` and `selectSymposiumApplicationClaim` reserve and authorize through `app.ts`. Native controller/EventStore retain claims and dispatch receipts. | 1; prerequisite for 2/3                                                                                         |
+| Account/read and model discovery  | `symposium-model-discovery-owned.ts`, `symposium-owned-host.ts` and `symposium-owned-gateway.ts` compose actual supervisor/gateway credential binding. Retain failing phase/cause before cleanup.                                                                                                                    | 2; synthetic fixture qualification before provider access                                                       |
+| Source import, writer and seal    | `symposium-source-import.ts`, artifact initializer/owner/generations, source/physical seals and successor authority/copy/import retain exact provenance and writer ownership. Staging alone is not runnable admission.                                                                                               | 3; policy plus physical reservation/admission/claim boundaries                                                  |
+| Independent review, fix and delta | `createSymposiumTrustedReviewHost`, review routes/coordinator/store and `symposium-owned-review-artifacts.ts` bind reader authority, findings, successor grants/permits and fresh runtime retirement.                                                                                                                | 3; reproduce Stage 18 staging/claim, Stage 19 missing permit and Stage 20 sealed/shutting-down runtime failures |
+| Criteria and immutable record     | `createOwnedCriterionReceipts` (`symposium-criterion-receipts.ts`) and `symposium-review-records.ts` bind results to artifacts. Existing file-SHA criteria require trusted semantic definitions for software correctness.                                                                                            | 5; prerequisite for complete criteria in 4                                                                      |
+| Publication preparation           | Review publication, sealed publication service/authority and publication approval owners bind exact artifact/record/action and reconcile original IDs. Preparation does not approve an external effect.                                                                                                              | 3/4; external publication remains separately gated                                                              |
+| Recovery, seats and release       | Retained custodian/native controller/gateway/artifact owners provide custody and fencing; existing profiles, seat lifecycle and device paths provide restoration/configuration.                                                                                                                                      | 5/6; gateway/custodian loss or reboot and actual iOS remain acceptance gaps                                     |
+
+Package 3 must pass the entire production application composition with a fake
+model transport and physical artifacts before package 4 live inference. Preserve
+reservation, admission, claim, permit, runtime retirement and artifact boundaries;
+inject lost responses, duplicates, cancellation and failures between owners.
+Package 5 recovery design and package 6 device planning may proceed independently;
+semantic criteria must pass before claiming the full live criteria step.
+
+## Evidence levels and remaining proof
+
+Record each level separately in the existing ledger: implemented, offline-tested,
+physically tested, live-model-tested, reviewed, merged and deployed. Code and
+helper tests establish their slices; neither green CI nor LGTM establishes the
+complete workflow, physical recovery, device matrix, merge or deployment.
+`server/__tests__/symposium-application-policy.test.ts` already covers persisted
+charging/restart, stopped preparations, exact-operation binding, deadline,
+no-progress, retry, two-cycle limits, explicit continuation and completion with
+unknown usage. This is offline coverage, not a claim that the production composed
+lifecycle or physical cancellation/resource/reboot behavior has passed. Package 3
+must close composition; packages 5/6 must close the remaining physical and device
+proof. Phases 1/2 retain their original completed scope; Phase 3
+`3675378835096b46` is a superseded historical redirect, not feature completion.
+All unfinished work belongs to current parent `6403fb22f9bb743c`.
 
 ## Execution discipline
 
