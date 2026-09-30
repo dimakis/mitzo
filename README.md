@@ -534,6 +534,19 @@ the immutable image and seed, updates the stack lock and environment example
 together, and runs focused tests. It never deploys; its generated diff is
 reviewed and merged first.
 
+The [MGMT knowledge publication contract](docs/operations/mgmt-knowledge-publication.md)
+defines an independent publication lane for compatible knowledge. The MGMT
+publisher extracts the complete builder bundle from a pinned Mitzo commit and
+passes compatibility fields from that commit's runtime lock. Each publication
+binds exact source, content hashes and modes, compiler/recipe identities and
+runtime inputs in a trusted record; knowledge A and B can share one runtime
+without changing a fixed application payload pin. Ordinary new seed uploads
+verify the selected publication and use a private verified copy. Current
+production locks lack this dynamic attestation, so this lane remains blocked
+until the Stage 2 context contract and compatible runtime baseline are released.
+Automatic catch-up, artifact-backed knowledge delivery and retained-chat
+adoption are subsequent phases.
+
 Production deploys use `./scripts/create-release.sh origin/main`. The command
 fetches only current `origin/main`, refuses every other commit, creates a
 self-contained detached release clone, records full commit/tree/base provenance

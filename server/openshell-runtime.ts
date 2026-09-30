@@ -1,3 +1,4 @@
+import { verifyPreparedSeed } from '../scripts/verify-openshell-production.mjs';
 import { SYMPOSIUM_ARTIFACT_TARGET } from './symposium-artifact-lease.js';
 import {
   validateOpenShellCliEnvironment,
@@ -6,7 +7,17 @@ import {
 import { parseProviderAttachments } from './connections-gateway.js';
 import { execFile } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  cpSync,
+  existsSync,
+  mkdtempSync,
+  mkdirSync,
+  readFileSync,
+  realpathSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { isAbsolute, join } from 'node:path';
 import { z } from 'zod';
 import type { McpServerConfig } from './mcp-config.js';
@@ -120,6 +131,8 @@ export interface OpenShellRuntimeConfig {
   image: string;
   policy: string;
   seed: string;
+  /** Trusted host release contract selected from MITZO_OPENSHELL_STACK_MANIFEST. */
+  seedStackManifest?: Record<string, unknown>;
   serviceProviders: string[];
   grantableServiceProviders: string[];
   workspace: string;
@@ -319,6 +332,12 @@ export function openShellRuntimeConfig(env: NodeJS.ProcessEnv): OpenShellRuntime
     throw new Error('MITZO_OPENSHELL_CLI must be an absolute path');
   if (!isAbsolute(policy) || !isAbsolute(seed))
     throw new Error('OpenShell policy and seed paths must be absolute');
+  const stackManifestPath = env.MITZO_OPENSHELL_STACK_MANIFEST;
+  if (stackManifestPath && !isAbsolute(stackManifestPath))
+    throw new Error('OpenShell stack manifest must be absolute');
+  const seedStackManifest = stackManifestPath
+    ? (JSON.parse(readFileSync(stackManifestPath, 'utf8')) as Record<string, unknown>)
+    : undefined;
   const serviceProviders = (env.MITZO_OPENSHELL_SERVICE_PROVIDERS || '')
     .split(',')
     .filter(Boolean)
@@ -362,6 +381,7 @@ export function openShellRuntimeConfig(env: NodeJS.ProcessEnv): OpenShellRuntime
     image,
     policy,
     seed,
+    ...(seedStackManifest ? { seedStackManifest } : {}),
     serviceProviders,
     grantableServiceProviders,
     workspace: identifier(env.OPENSHELL_WORKSPACE || 'default', 'workspace'),
@@ -373,6 +393,61 @@ export function openShellRuntimeConfig(env: NodeJS.ProcessEnv): OpenShellRuntime
     workdir: '/sandbox/workspaces/mgmt',
     webSearch,
   };
+}
+
+/** Resolve one immutable publication and verify it before a new ordinary seed upload. */
+export function verifiedOpenShellSeed(
+  config: Pick<OpenShellRuntimeConfig, 'seed' | 'image' | 'seedStackManifest'>,
+): string {
+  // Legacy development callers may provide an unprepared static fixture.
+  // A selected release manifest always requires the prepared baseline.
+  const baselinePath = join(config.seed, '..', 'baseline.json');
+  if (!config.seedStackManifest && !existsSync(baselinePath)) return config.seed;
+  const seed = realpathSync(config.seed);
+  if (!config.seedStackManifest) {
+    const baseline = JSON.parse(readFileSync(join(seed, '..', 'baseline.json'), 'utf8')) as Record<
+      string,
+      unknown
+    >;
+    if (Object.hasOwn(baseline, 'runtimeBaseCommit'))
+      throw new Error('Dynamic knowledge requires a complete stack lock at runtime admission');
+    return seed;
+  }
+  const runtime = config.seedStackManifest.runtime as Record<string, unknown> | undefined;
+  if (!runtime || runtime.image !== config.image)
+    throw new Error('OpenShell runtime image does not match the selected stack lock');
+  verifyPreparedSeed(seed, config.seedStackManifest);
+  return seed;
+}
+
+/** Freeze verified upload inputs before any asynchronous create operation. */
+export function prepareOpenShellSeed(
+  config: Pick<OpenShellRuntimeConfig, 'seed' | 'image' | 'seedStackManifest'>,
+): { seed: string; cleanup: () => void } {
+  const selected = verifiedOpenShellSeed(config);
+  if (!config.seedStackManifest) return { seed: selected, cleanup: () => undefined };
+  const privateRoot = join(codexPrivateDirectory(), 'knowledge-uploads');
+  mkdirSync(privateRoot, { recursive: true, mode: 0o700 });
+  const snapshotRoot = mkdtempSync(join(privateRoot, 'publication-'));
+  const cleanup = () => rmSync(snapshotRoot, { recursive: true, force: true });
+  try {
+    // Capture trusted metadata before copying content, then verify the frozen
+    // copy against exactly those bytes. Concurrent source changes cannot enter
+    // upload simply by changing their manifest while create is in flight.
+    const baseline = readFileSync(join(selected, '..', 'baseline.json'));
+    const publicationPath = join(selected, '..', 'publication.json');
+    const publication = existsSync(publicationPath) ? readFileSync(publicationPath) : undefined;
+    const seed = join(snapshotRoot, 'mgmt');
+    cpSync(selected, seed, { recursive: true, dereference: false });
+    writeFileSync(join(snapshotRoot, 'baseline.json'), baseline, { mode: 0o600 });
+    if (publication)
+      writeFileSync(join(snapshotRoot, 'publication.json'), publication, { mode: 0o600 });
+    verifyPreparedSeed(seed, config.seedStackManifest);
+    return { seed, cleanup };
+  } catch (error) {
+    cleanup();
+    throw error;
+  }
 }
 
 /** Builds Codex config for capabilities that execute inside OpenShell.
@@ -1104,115 +1179,123 @@ export class OpenShellRuntimeManager {
     if (sandbox) await this.verifyManagedConnections(name, signal, approvedGrantableProviders);
     else await this.config.verifyConnections?.(name, signal, []);
     if (!sandbox) {
-      created = true;
-      const phasedCreate = !!this.config.onSandboxCreateSettled;
-      if (
-        phasedCreate &&
-        (this.config.cliContract !== 'v0.1' ||
-          !['chatgpt-subscription-native', 'api'].includes(this.config.account.kind))
-      )
-        throw new Error('Phased creation requires native OpenShell seats');
-      const args = [
-        'sandbox',
-        ...this.base(),
-        'create',
-        '--name',
-        name,
-        '--from',
-        this.config.image,
-        '--policy',
-        this.config.policy,
-        ...(!phasedCreate && !artifactConfig
-          ? [
-              '--upload',
-              // OpenShell uploads a source directory as a child of the destination.
-              // Target the fixed parent so the MGMT seed lands at the canonical cwd
-              // instead of /sandbox/workspaces/mgmt/mgmt.
-              `${this.config.seed}:/sandbox/workspaces`,
-            ]
-          : []),
-        '--label',
-        `mitzo.conversation=${owner}`,
-        '--label',
-        `mitzo.account_provider=${accountProvider}`,
-        '--label',
-        `${PROVIDER_POLICY_LABEL}=${policyFingerprint}`,
-        '--no-auto-providers',
-        '--output',
-        'json',
-      ];
-      if (artifactConfig) args.push('--driver-config-json', JSON.stringify(artifactConfig));
-      if (this.config.connectionAccountId)
-        args.push('--label', `mitzo.connection_account=${this.config.connectionAccountId}`);
-      if (this.config.createDetached) args.push('--detach');
-      args.push('--provider', accountProvider);
-      // The reviewed subscription compatibility CLI requires an explicit
-      // inference route. Released OpenShell 0.0.116 does not expose these
-      // flags, and API providers already define their own inspected endpoint.
-      if (
-        this.config.account.kind === 'chatgpt-subscription' &&
-        this.config.cliContract !== 'v0.1'
-      ) {
-        args.push(
-          '--inference-provider',
-          accountProvider,
-          '--inference-model',
-          this.config.account.model,
-        );
-      }
-      for (const provider of this.config.serviceProviders)
-        if (provider !== accountProvider) args.push('--provider', provider);
-      for (const binding of this.config.accountProviderBindings ?? [])
-        if (binding.name !== accountProvider) args.push('--provider', binding.name);
-      if (this.config.accountProviderBindings) {
-        this.config.verifyAccountProviderUnion?.();
-        this.providerPolicyState.write(name, { automatic: automaticProviders(), granted: [] });
-      }
-      this.config.beforeSandboxCreate?.();
-      this.config.onSandboxCreationPhase?.('create');
+      const preparedSeed = artifactConfig
+        ? { seed: this.config.seed, cleanup: () => undefined }
+        : prepareOpenShellSeed(this.config);
+      const selectedSeed = preparedSeed.seed;
       try {
-        const output = await this.run(args, signal);
-        if (phasedCreate) {
-          const receipt = Sandbox.parse(JSON.parse(output));
-          if (
-            !receipt.id ||
-            receipt.name !== name ||
-            receipt.workspace !== this.config.workspace ||
-            receipt.phase !== 'Ready' ||
-            receipt.labels?.['mitzo.conversation'] !== owner ||
-            receipt.labels?.['mitzo.account_provider'] !== accountProvider
-          )
-            throw new Error('Terminal sandbox create identity is unavailable');
-          terminalSandboxId = receipt.id;
-          this.config.onSandboxCreateSettled!({
-            sandboxName: name,
-            sandboxId: receipt.id,
-            workspace: this.config.workspace,
-            owner,
-            accountProvider,
-          });
-          if (!artifactConfig) {
-            this.config.onSandboxCreationPhase?.('upload');
-            const beforeUpload = await this.get(name, signal);
-            if (beforeUpload?.id !== receipt.id || beforeUpload.phase !== 'Ready')
-              throw new Error('Created sandbox identity changed before seed upload');
-            await this.run(
-              ['sandbox', ...this.base(), 'upload', name, this.config.seed, '/sandbox/workspaces'],
-              signal,
-            );
-            const afterUpload = await this.get(name, signal);
-            if (afterUpload?.id !== receipt.id || afterUpload.phase !== 'Ready')
-              throw new Error('Created sandbox identity changed after seed upload');
-          }
-        }
-      } catch (error) {
+        created = true;
+        const phasedCreate = !!this.config.onSandboxCreateSettled;
         if (
-          phasedCreate ||
-          !/already exists|conflict|409/i.test(error instanceof Error ? error.message : '')
+          phasedCreate &&
+          (this.config.cliContract !== 'v0.1' ||
+            !['chatgpt-subscription-native', 'api'].includes(this.config.account.kind))
         )
-          throw error;
+          throw new Error('Phased creation requires native OpenShell seats');
+        const args = [
+          'sandbox',
+          ...this.base(),
+          'create',
+          '--name',
+          name,
+          '--from',
+          this.config.image,
+          '--policy',
+          this.config.policy,
+          ...(!phasedCreate && !artifactConfig
+            ? [
+                '--upload',
+                // OpenShell uploads a source directory as a child of the destination.
+                // Target the fixed parent so the MGMT seed lands at the canonical cwd
+                // instead of /sandbox/workspaces/mgmt/mgmt.
+                `${selectedSeed}:/sandbox/workspaces`,
+              ]
+            : []),
+          '--label',
+          `mitzo.conversation=${owner}`,
+          '--label',
+          `mitzo.account_provider=${accountProvider}`,
+          '--label',
+          `${PROVIDER_POLICY_LABEL}=${policyFingerprint}`,
+          '--no-auto-providers',
+          '--output',
+          'json',
+        ];
+        if (artifactConfig) args.push('--driver-config-json', JSON.stringify(artifactConfig));
+        if (this.config.connectionAccountId)
+          args.push('--label', `mitzo.connection_account=${this.config.connectionAccountId}`);
+        if (this.config.createDetached) args.push('--detach');
+        args.push('--provider', accountProvider);
+        // The reviewed subscription compatibility CLI requires an explicit
+        // inference route. Released OpenShell 0.0.116 does not expose these
+        // flags, and API providers already define their own inspected endpoint.
+        if (
+          this.config.account.kind === 'chatgpt-subscription' &&
+          this.config.cliContract !== 'v0.1'
+        ) {
+          args.push(
+            '--inference-provider',
+            accountProvider,
+            '--inference-model',
+            this.config.account.model,
+          );
+        }
+        for (const provider of this.config.serviceProviders)
+          if (provider !== accountProvider) args.push('--provider', provider);
+        for (const binding of this.config.accountProviderBindings ?? [])
+          if (binding.name !== accountProvider) args.push('--provider', binding.name);
+        if (this.config.accountProviderBindings) {
+          this.config.verifyAccountProviderUnion?.();
+          this.providerPolicyState.write(name, { automatic: automaticProviders(), granted: [] });
+        }
+        this.config.beforeSandboxCreate?.();
+        this.config.onSandboxCreationPhase?.('create');
+        try {
+          const output = await this.run(args, signal);
+          if (phasedCreate) {
+            const receipt = Sandbox.parse(JSON.parse(output));
+            if (
+              !receipt.id ||
+              receipt.name !== name ||
+              receipt.workspace !== this.config.workspace ||
+              receipt.phase !== 'Ready' ||
+              receipt.labels?.['mitzo.conversation'] !== owner ||
+              receipt.labels?.['mitzo.account_provider'] !== accountProvider
+            )
+              throw new Error('Terminal sandbox create identity is unavailable');
+            terminalSandboxId = receipt.id;
+            this.config.onSandboxCreateSettled!({
+              sandboxName: name,
+              sandboxId: receipt.id,
+              workspace: this.config.workspace,
+              owner,
+              accountProvider,
+            });
+            if (!artifactConfig) {
+              this.config.onSandboxCreationPhase?.('upload');
+              const beforeUpload = await this.get(name, signal);
+              if (beforeUpload?.id !== receipt.id || beforeUpload.phase !== 'Ready')
+                throw new Error('Created sandbox identity changed before seed upload');
+              await this.run(
+                ['sandbox', ...this.base(), 'upload', name, selectedSeed, '/sandbox/workspaces'],
+                signal,
+              );
+              const afterUpload = await this.get(name, signal);
+              if (afterUpload?.id !== receipt.id || afterUpload.phase !== 'Ready')
+                throw new Error('Created sandbox identity changed after seed upload');
+            }
+          }
+        } catch (error) {
+          if (
+            phasedCreate ||
+            !/already exists|conflict|409/i.test(error instanceof Error ? error.message : '')
+          )
+            throw error;
+        }
+        sandbox = await this.waitForReady(name, owner, signal);
+      } finally {
+        preparedSeed.cleanup();
       }
-      sandbox = await this.waitForReady(name, owner, signal);
     } else if (sandbox.phase === 'Stopped') {
       await this.run(['sandbox', ...this.base(), 'start', name], signal);
       sandbox = await this.waitForReady(name, owner, signal);

@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Versioned publication uses the complete sibling tool bundle; legacy static
+# task seeds retain their existing two-argument overlay contract.
+if [[ "${MGMT_DYNAMIC_SEED:-0}" == 1 || "$#" -ge 3 ]]; then
+  exec bash "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/prepare-mgmt-knowledge.sh" "$@"
+fi
+
 source_repo="${1:?usage: prepare-mgmt-seed.sh SOURCE_REPO OUTPUT_DIR}"
 output_root="${2:?usage: prepare-mgmt-seed.sh SOURCE_REPO OUTPUT_DIR}"
 workspace="$output_root/mgmt"
