@@ -238,6 +238,7 @@ export const TaskUpdateBody = z.object({
 export const LoopStartBody = z.object({
   goalId: z.string().min(1),
   specMode: z.boolean().optional(),
+  clientId: z.string().min(1).optional(),
 });
 
 export const WorkflowInstantiateBody = z.object({

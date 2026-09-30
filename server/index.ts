@@ -395,10 +395,8 @@ const orchestrator = new TaskOrchestrator({
   workloadStore,
   watchSignal: (taskId, gateConfig) => signalProc.watch(taskId, gateConfig),
   getClientId: () => {
-    // Find the first registered client (reuse-only for Phase 2)
-    for (const [clientId] of registry.entries()) {
-      if (registry.isAttached(clientId)) return clientId;
-    }
+    // A background workflow has no owner chat. Never choose an arbitrary
+    // attached conversation as the recipient of an automated task.
     return null;
   },
   setTaskContext: (taskId, goalId) => {

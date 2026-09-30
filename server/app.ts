@@ -1605,6 +1605,7 @@ app.post('/api/loop/start', (req, res) => {
   }
   const result = orchestrator.start(body.data.goalId, {
     specMode: body.data.specMode,
+    clientId: body.data.clientId,
   });
   res.json(result);
 });

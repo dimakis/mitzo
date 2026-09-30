@@ -19,6 +19,7 @@ export interface LoopStatus {
 
 export interface StartOptions {
   specMode?: boolean;
+  clientId?: string;
 }
 
 export interface OrchestratorDeps {
@@ -168,7 +169,7 @@ export class TaskOrchestrator {
     this.activeTaskId = null;
     this.specMode = opts?.specMode ?? false;
     this.awaitingApproval = false;
-    this.pinnedClientId = this.deps.getClientId();
+    this.pinnedClientId = opts?.clientId ?? this.deps.getClientId();
 
     // Clear spawn tracking state so a new goal isn't rate-limited by the previous one
     this.recentSpawns.clear();
@@ -457,8 +458,28 @@ export class TaskOrchestrator {
       case 'agent_work':
       default: {
         // Default to spawn so tasks get dedicated sessions unless explicitly 'reuse'.
-        // When spawning is disabled (kill switch), force all tasks to reuse the pinned session.
+        // Auto tasks may reuse a pinned session when spawning is disabled.
+        // An explicit spawn policy is an isolation requirement. The kill switch
+        // must leave that task pending instead of sending it to a pinned chat.
+        if (next.sessionPolicy === 'spawn' && !this._spawnEnabled) {
+          log.warn('spawn task waiting for session spawning to be enabled', { taskId: next.id });
+          this.state = 'paused';
+          this.deps.broadcastStatus(this.getStatus());
+          break;
+        }
         const policy = next.sessionPolicy === 'reuse' || !this._spawnEnabled ? 'reuse' : 'spawn';
+
+        if (policy === 'spawn' && !this.deps.spawnSession) {
+          this.deps.store.update(next.id, {
+            status: 'blocked',
+            annotations: [...next.annotations, 'spawn_error: session spawning unavailable'],
+          });
+          this.deps.store.cascadeStatus(next.id);
+          this.deps.broadcastTasks();
+          this.state = 'paused';
+          this.deps.broadcastStatus(this.getStatus());
+          break;
+        }
 
         if (policy === 'spawn' && this.deps.spawnSession) {
           // Global rate limit: refuse to spawn if too many recent spawns
@@ -505,9 +526,8 @@ export class TaskOrchestrator {
           this.deps.broadcastStatus(this.getStatus());
 
           // Capture state before async boundary — stop()+start() could change
-          // goalId/pinnedClientId to a different goal while spawn is in-flight.
+          // goalId to a different goal while spawn is in-flight.
           const capturedGoalId = this.goalId;
-          const capturedPinnedClientId = this.pinnedClientId;
 
           const prompt = this.buildTaskPrompt(next);
           this.deps.spawnSession(next.id, prompt, capturedGoalId).then(
@@ -519,22 +539,13 @@ export class TaskOrchestrator {
                 this.deps.store.setSessionId(next.id, clientId);
                 log.info('spawned session for task', { taskId: next.id, clientId });
               } else {
-                // Spawn returned null (e.g. worktree failure) — fall back to pinned session
-                log.error('failed to spawn session, falling back to pinned', { taskId: next.id });
-                // Only claim pinned session if no other task has it
-                if (!this.activeTaskId) {
-                  this.activeTaskId = next.id;
-                  this.deps.setTaskContext(next.id, capturedGoalId);
-                  this.deps.broadcastStatus(this.getStatus());
-                  if (capturedPinnedClientId)
-                    this.dispatchToPinned(next.id, capturedPinnedClientId, prompt);
-                } else {
-                  // Pinned session busy — mark blocked so it's retried later
-                  log.warn('pinned session busy, blocking spawn-failed task', { taskId: next.id });
-                  this.deps.store.update(next.id, { status: 'blocked' });
-                  this.deps.store.cascadeStatus(next.id);
-                  this.deps.broadcastTasks();
-                }
+                log.error('failed to spawn session for task', { taskId: next.id });
+                this.deps.store.update(next.id, {
+                  status: 'blocked',
+                  annotations: [...next.annotations, 'spawn_error: session creation failed'],
+                });
+                this.deps.store.cascadeStatus(next.id);
+                this.deps.broadcastTasks();
               }
             },
             (err) => {
@@ -565,6 +576,17 @@ export class TaskOrchestrator {
           }
         } else {
           // Reuse pinned session (original behavior)
+          if (!this.pinnedClientId) {
+            this.deps.store.update(next.id, {
+              status: 'blocked',
+              annotations: [...next.annotations, 'dispatch_error: no session pinned for reuse'],
+            });
+            this.deps.store.cascadeStatus(next.id);
+            this.deps.broadcastTasks();
+            this.state = 'paused';
+            this.deps.broadcastStatus(this.getStatus());
+            break;
+          }
           this.activeTaskId = next.id;
           this.deps.store.update(next.id, { status: 'active' });
           this.deps.store.cascadeStatus(next.id);

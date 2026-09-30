@@ -81,6 +81,40 @@ describe('TaskOrchestrator', () => {
     expect(orchestrator.getStatus().activeTaskId).toBeNull();
   });
 
+  it('blocks reuse when no session was explicitly pinned', () => {
+    const deps = createTestDeps(store);
+    deps.getClientId = () => null;
+    const orch = new TaskOrchestrator(deps);
+    const goal = store.create({ title: 'Goal' });
+    const task = store.create({ title: 'Reuse task', parentId: goal.id, sessionPolicy: 'reuse' });
+
+    orch.start(goal.id);
+
+    expect(store.get(task.id)?.status).toBe('blocked');
+    expect(sendToChat).not.toHaveBeenCalled();
+  });
+
+  it('reuses only the client explicitly supplied when starting a workflow', () => {
+    const deps = createTestDeps(store);
+    deps.getClientId = () => null;
+    const orch = new TaskOrchestrator(deps);
+    const goal = store.create({ title: 'Goal' });
+    store.create({ title: 'Reuse task', parentId: goal.id, sessionPolicy: 'reuse' });
+
+    orch.start(goal.id, { clientId: 'chosen-client' });
+
+    expect(sendToChat).toHaveBeenCalledWith(
+      'chosen-client',
+      expect.stringContaining('Reuse task'),
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      expect.any(AbortSignal),
+    );
+  });
+
   it('cancels a pending pinned dispatch when stopped and ignores its stale failure', async () => {
     let rejectDispatch!: (error: Error) => void;
     vi.mocked(sendToChat).mockImplementationOnce(
@@ -757,10 +791,9 @@ describe('TaskOrchestrator', () => {
       expect(deps.setTaskContext).not.toHaveBeenCalled();
     });
 
-    it('agent_work tasks behave as before (assign to session)', () => {
+    it('agent_work tasks can reuse a session', () => {
       const deps = createTestDeps(store);
       const orch = new TaskOrchestrator(deps);
-      orch.setSpawnEnabled(true);
 
       const goal = store.create({ title: 'Goal' });
       store.create({
@@ -779,7 +812,6 @@ describe('TaskOrchestrator', () => {
     it('null stageType tasks behave as agent_work (backwards compat)', () => {
       const deps = createTestDeps(store);
       const orch = new TaskOrchestrator(deps);
-      orch.setSpawnEnabled(true);
 
       const goal = store.create({ title: 'Goal' });
       store.create({ title: 'Legacy task', parentId: goal.id });
@@ -796,7 +828,6 @@ describe('TaskOrchestrator', () => {
       const deps = createTestDeps(store);
       deps.watchSignal = watchSignal;
       const orch = new TaskOrchestrator(deps);
-      orch.setSpawnEnabled(true);
 
       const goal = store.create({ title: 'Workflow Goal' });
       const agent = store.create({
@@ -894,7 +925,7 @@ describe('TaskOrchestrator', () => {
       expect(orch.getStatus().activeTaskId).toBeNull();
     });
 
-    it('falls back to pinned session when spawnSession is not provided', () => {
+    it('blocks a spawn task when spawnSession is not provided', () => {
       const deps = createTestDeps(store);
       const orch = new TaskOrchestrator(deps);
       orch.setSpawnEnabled(true);
@@ -908,8 +939,9 @@ describe('TaskOrchestrator', () => {
 
       orch.start(goal.id);
 
-      expect(orch.getStatus().activeTaskId).toBe(task.id);
-      expect(deps.setTaskContext).toHaveBeenCalledWith(task.id, goal.id);
+      expect(store.get(task.id)?.status).toBe('blocked');
+      expect(deps.setTaskContext).not.toHaveBeenCalled();
+      expect(sendToChat).not.toHaveBeenCalled();
     });
 
     it('marks task active before spawning', () => {
@@ -956,7 +988,7 @@ describe('TaskOrchestrator', () => {
       expect(deps.broadcastTasks).toHaveBeenCalled();
     });
 
-    it('falls back to pinned session when spawnSession returns null', async () => {
+    it('blocks a spawn task when spawnSession returns null', async () => {
       const spawnSession = vi.fn().mockResolvedValue(null);
       const deps = createTestDeps(store);
       deps.spawnSession = spawnSession;
@@ -972,11 +1004,9 @@ describe('TaskOrchestrator', () => {
 
       orch.start(goal.id);
 
-      await vi.waitFor(() => {
-        expect(deps.setTaskContext).toHaveBeenCalledWith(task.id, goal.id);
-      });
-
-      expect(orch.getStatus().activeTaskId).toBe(task.id);
+      await vi.waitFor(() => expect(store.get(task.id)?.status).toBe('blocked'));
+      expect(deps.setTaskContext).not.toHaveBeenCalled();
+      expect(sendToChat).not.toHaveBeenCalled();
     });
 
     it('ignores spawn callback if stop() was called during spawn', async () => {
@@ -1057,7 +1087,7 @@ describe('TaskOrchestrator', () => {
       expect(orch.getStatus().activeTaskId).toBe(reuse.id);
     });
 
-    it('blocks spawn-failed task when pinned session is busy', async () => {
+    it('blocks both spawn-failed tasks without using the pinned session', async () => {
       const calls: Array<(v: string | null) => void> = [];
       const spawnSession = vi.fn().mockImplementation(
         () =>
@@ -1088,19 +1118,19 @@ describe('TaskOrchestrator', () => {
         expect(calls).toHaveLength(2);
       });
 
-      // First spawn fails — claims pinned session
+      // Neither failed spawn may use the pinned session.
       calls[0](null);
       await vi.waitFor(() => {
-        expect(orch.getStatus().activeTaskId).not.toBeNull();
+        expect(store.getChildren(goal.id).filter((t) => t.status === 'blocked')).toHaveLength(1);
       });
 
-      // Second spawn also fails — pinned session busy, should block
       calls[1](null);
       await vi.waitFor(() => {
         const tasks = store.getChildren(goal.id);
         const blocked = tasks.filter((t) => t.status === 'blocked');
-        expect(blocked).toHaveLength(1);
+        expect(blocked).toHaveLength(2);
       });
+      expect(deps.setTaskContext).not.toHaveBeenCalled();
     });
 
     it('dispatches multiple spawn tasks via queueMicrotask', async () => {
@@ -1260,6 +1290,25 @@ describe('TaskOrchestrator', () => {
   });
 
   describe('spawn kill switch', () => {
+    it('does not send an explicit spawn task to the pinned chat while spawning is disabled', () => {
+      const deps = createTestDeps(store);
+      deps.spawnSession = vi.fn().mockResolvedValue('headless:test');
+      const orch = new TaskOrchestrator(deps);
+      const goal = store.create({ title: 'Goal' });
+      const task = store.create({
+        title: 'Separate task',
+        parentId: goal.id,
+        sessionPolicy: 'spawn',
+      });
+
+      orch.start(goal.id);
+
+      expect(store.get(task.id)?.status).toBe('pending');
+      expect(orch.getStatus().state).toBe('paused');
+      expect(deps.spawnSession).not.toHaveBeenCalled();
+      expect(sendToChat).not.toHaveBeenCalled();
+    });
+
     it('defaults to spawnEnabled=false', () => {
       expect(orchestrator.spawnEnabled).toBe(false);
       expect(orchestrator.getStatus().spawnEnabled).toBe(false);
