@@ -22,6 +22,7 @@ Symposium director status resolves the verified runtime once per request and reu
 [Local Symposium source import](docs/operations/symposium-local-source.md) previews and explicitly imports bounded committed history from a configured local repository before any seat admission permission is issued. It uses fresh app authorization and a credential-free networkless helper; oversized, unsupported and uncertain imports remain fenced. Native budget, review and publication still require their own authority.
 
 - **Streaming chat** with thinking blocks, tool pills, and markdown
+- **Session settings at a glance** — a single session header shows the account profile, model, and thinking level even when collapsed. Expand it for account, permission, web access, and reviewer controls; Outputs / Sources is beside the composer. The summary wraps compactly on mobile.
 - **Live token usage** — the chat token bar shows context and session totals for OpenAI Responses turns after the provider reports usage at completion.
 - **Three modes** — Ask (read-only), Agent (file edits allowed), Auto (shell too). Switch mid-chat.
 - **Slash-command skills** — `/simplify`, `/risk-scan`, `/pr-review`, `/person`, `/review-response`, `/land-pr`, `/pr-shepherd`. Type `/` to browse.
@@ -64,6 +65,10 @@ Connections are optional and require the reviewed OpenShell gateway setup. Enabl
 Open **More → Connections** to choose a provider, enter its one-shot credential, review the exact scope, and assign eligible accounts. For GitHub, enter the repositories as `owner/repository` pairs and the allowed base branches. The GitHub sandbox provider remains read-only. Publishing a committed feature branch and creating or updating a pull request uses the separate `github.publish-pr` operation with an explicit approval. Set a controller-only `GH_TOKEN` or `GITHUB_TOKEN` to enable that operation; it is never injected into the sandbox. Custom REST is an advanced, bounded provider and remains unavailable until its reviewed gateway probe and DNS policy are configured.
 
 After a connection is verified, expand **Manage capability grants** on its card, select the assigned profiles allowed to request a reviewed capability, and save the grant. Reauthorization is required to save or revoke a grant. A grant permits a profile to request the action; each invocation still needs explicit approval and is recorded in the capability operation audit. The setup wizard enables no mutation capability on its own.
+
+For the existing Google Workspace provider, enable `MITZO_GOOGLE_WORKSPACE_MANAGEMENT_ENABLED=true` to show Google health and recovery controls in Connections. The controller must have `gws` installed with a working local Google sign-in. **Review Google account** shows that identity before **Reconnect Google** replaces the gateway's expired authorization. Both actions require recent Mitzo reauthorization. Credentials stay in the controller and encrypted gateway storage; the browser and chats receive only status and the reviewed account email. This recovery imports Drive and read-only Calendar consent; Gmail requires separate authorization. A revoked local Google grant must first be reauthorized through `gws`; this panel does not yet provide a new Google OAuth sign-in flow.
+
+The reviewed Google profile allows Slides reads, presentation creation, and `batchUpdate` edits while preserving read-only enforcement for Drive, Docs, Sheets, and Gmail. Apply the reviewed profile to OpenShell as part of rollout: rebuilding Mitzo does not update an already registered gateway profile. Token status is checked separately from attachment, so an expired or revoked grant is never shown as healthy merely because the provider is attached. See the [Google management CLI contract](docs/google-workspace-cli-contract.md) for the primary gateway response shapes and the separate owned-gateway requirements.
 
 If the service template catalog is temporarily unavailable, existing connections remain manageable. You can test, revoke, or rotate their credentials; new connection setup resumes when the catalog is available again. Credential rotation uses nonsecret form metadata returned with each existing connection, so it does not depend on loading the setup catalog.
 
@@ -528,6 +533,19 @@ clean Mitzo and MGMT checkouts at current `origin/main`, then builds and verifie
 the immutable image and seed, updates the stack lock and environment example
 together, and runs focused tests. It never deploys; its generated diff is
 reviewed and merged first.
+
+The [MGMT knowledge publication contract](docs/operations/mgmt-knowledge-publication.md)
+defines an independent publication lane for compatible knowledge. The MGMT
+publisher extracts the complete builder bundle from a pinned Mitzo commit and
+passes compatibility fields from that commit's runtime lock. Each publication
+binds exact source, content hashes and modes, compiler/recipe identities and
+runtime inputs in a trusted record; knowledge A and B can share one runtime
+without changing a fixed application payload pin. Ordinary new seed uploads
+verify the selected publication and use a private verified copy. Current
+production locks lack this dynamic attestation, so this lane remains blocked
+until the Stage 2 context contract and compatible runtime baseline are released.
+Automatic catch-up, artifact-backed knowledge delivery and retained-chat
+adoption are subsequent phases.
 
 Production deploys use `./scripts/create-release.sh origin/main`. The command
 fetches only current `origin/main`, refuses every other commit, creates a

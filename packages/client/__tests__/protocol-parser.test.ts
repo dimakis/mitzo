@@ -731,6 +731,17 @@ describe('session_takeover', () => {
       expect.objectContaining({ type: 'ERROR', error: expect.stringContaining('another device') }),
     );
   });
+
+  it('ignores a takeover notice replayed from durable session history', () => {
+    const r = parseServerMessage(
+      { type: 'session_takeover', sessionId: 'sess-1', seq: 42 },
+      makeState({ currentSessionId: 'sess-1' }),
+      makeCallbacks(),
+      POOL_KEY,
+    );
+
+    expect(r.messagesActions).toEqual([]);
+  });
 });
 
 // ─── reconnected callback ────────────────────────────────────────────────────

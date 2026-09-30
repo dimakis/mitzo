@@ -1,7 +1,7 @@
 id: mitzo-google-workspace-spike
-resource_version: 7
+resource_version: 8
 display_name: Mitzo Google Workspace
-description: Delegated read-only Drive, Docs, Calendar, Gmail, and Sheets provider
+description: Delegated Google Workspace reads and bounded Google Slides authoring
 category: data
 inference_capable: false
 credentials:
@@ -21,6 +21,7 @@ credentials:
         - https://www.googleapis.com/auth/calendar.readonly
         - https://www.googleapis.com/auth/gmail.readonly
         - https://www.googleapis.com/auth/spreadsheets.readonly
+        - https://www.googleapis.com/auth/presentations
       refresh_before_seconds: 300
       max_lifetime_seconds: 3600
       material:
@@ -52,6 +53,15 @@ endpoints:
     access: read-only
     enforcement: enforce
     tls: terminate
+  - host: slides.googleapis.com
+    port: 443
+    protocol: rest
+    enforcement: enforce
+    tls: terminate
+    rules:
+      - allow: { method: GET, path: /v1/presentations/** }
+      - allow: { method: POST, path: /v1/presentations }
+      - allow: { method: POST, path: '/v1/presentations/*:batchUpdate' }
 binaries:
   - /usr/bin/gws
   # The packaged gws launcher executes the CLI through Node.

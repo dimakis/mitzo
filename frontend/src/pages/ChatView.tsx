@@ -4,7 +4,9 @@ import { NewSymposium } from '../components/NewSymposium';
 import { PermissionModePicker } from '../components/PermissionModePicker';
 import { StatusBar } from '../components/StatusBar';
 import { WorkspaceControls } from '../components/WorkspaceControls';
+import type { WorkspaceSummary } from '../types/workspace';
 import { CodexQueueStatus } from '../components/CodexQueueStatus';
+import { WebSearchConsent } from '../components/WebSearchConsent';
 import { AccountModelPicker, type AccountSelection } from '../components/AccountModelPicker';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useParams, useSearchParams, useNavigate } from 'react-router-dom';
@@ -60,6 +62,7 @@ export function ChatView() {
   const storeSetMode = useMitzoStore((s) => s.setMode);
   const storeSetModel = useMitzoStore((s) => s.setModel);
   const storeDispatchMessages = useMitzoStore((s) => s.dispatchMessages);
+  const connectionId = useMitzoStore((s) => s.connection.clientId);
   const storeFetchSessionMeta = useMitzoStore((s) => s.fetchSessionMeta);
   const pendingSession = useMitzoStore((s) => s.pendingSession);
   const setPendingSession = useMitzoStore((s) => s.setPendingSession);
@@ -72,6 +75,7 @@ export function ChatView() {
 
   // Local model state — persisted to localStorage, sent in payload
   const [modelState, setModelState] = useState(getPreferredModel);
+  const [workspaceSummary, setWorkspaceSummary] = useState<WorkspaceSummary | null>(null);
   const [accountSelection, setAccountSelection] = useState<AccountSelection | null>(null);
   const setModel = useCallback(
     (id: string) => {
@@ -260,6 +264,7 @@ export function ChatView() {
           </button>
         </div>
         <WorkspaceControls
+          summary={workspaceSummary}
           status={!connected ? 'Reconnecting' : messages.running ? 'Working' : 'Ready'}
         >
           <div className="chat-account-bar">
@@ -268,6 +273,7 @@ export function ChatView() {
               sessionId={activeSessionId}
               preferredModel={modelState}
               onChange={selectAccount}
+              onSummaryChange={setWorkspaceSummary}
               onUnavailable={accountUnavailable}
             />
           </div>
@@ -326,8 +332,27 @@ export function ChatView() {
               />
             </div>
           )}
+
+          <div className="workspace-session-settings">
+            <WebSearchConsent
+              key={activeSessionId ?? 'new'}
+              sessionId={activeSessionId}
+              mode={mode}
+              connected={connected}
+              connectionId={connectionId}
+              running={messages.running}
+            />
+            <div className="workspace-session-actions">
+              {activeSessionId && <AddReviewerSheet sessionId={activeSessionId} />}
+              {activeSessionId && (
+                <SymposiumReviewEntry key={activeSessionId} sessionId={activeSessionId} />
+              )}
+            </div>
+            {activeSessionId && <SymposiumDirectorPanel sessionId={activeSessionId} />}
+          </div>
         </WorkspaceControls>
       </div>
+
       {(sendError || sendStatus) && (
         <div
           role={sendError ? 'alert' : 'status'}
@@ -356,11 +381,6 @@ export function ChatView() {
         </div>
       )}
       {!activeSessionId && !sessionId && <NewSymposium />}
-      {activeSessionId && <AddReviewerSheet sessionId={activeSessionId} />}
-      {activeSessionId && <SymposiumDirectorPanel sessionId={activeSessionId} />}
-      {activeSessionId && (
-        <SymposiumReviewEntry key={activeSessionId} sessionId={activeSessionId} />
-      )}
       <SymposiumConversation
         sessionId={activeSessionId}
         chat={{

@@ -133,6 +133,14 @@ export function getOwnerConnection(clientId: string): string {
   return colonIdx === -1 ? clientId : clientId.slice(0, colonIdx);
 }
 
+function notifyPreviousOwner(ctx: V2HandlerContext, connectionId: string, sessionId: string): void {
+  // The session transport may be a REST wrapper that stays "open" to persist
+  // events after its SSE connection closes. A takeover notice is connection-
+  // local and must never pass through that durable session transport.
+  const transport = ctx.connRegistry.get(connectionId)?.transport;
+  if (transport?.isOpen()) transport.send({ type: 'session_takeover', sessionId });
+}
+
 // ─── State mismatch detection (Phase 2) ─────────────────────────────────────
 
 export interface StateMismatchResult {
@@ -325,9 +333,7 @@ export function handleReconnect(
           const ownerConnection =
             found!.session?.ownerConnectionId ?? getOwnerConnection(found!.clientId);
           if (ownerConnection !== connectionId) {
-            const oldTransport = found!.session?.transport;
-            if (oldTransport?.isOpen())
-              oldTransport.send({ type: 'session_takeover', sessionId: entry.sessionId });
+            notifyPreviousOwner(ctx, ownerConnection, entry.sessionId);
             ctx.connRegistry.unwatch(ownerConnection, entry.sessionId);
           }
 
@@ -924,10 +930,7 @@ export function handleSendV2(
 
             const activeClientId = found.clientId;
             if (!isOwner) {
-              const oldTransport = found.session?.transport;
-              if (oldTransport?.isOpen()) {
-                oldTransport.send({ type: 'session_takeover', sessionId });
-              }
+              notifyPreviousOwner(ctx, ownerConnection, sessionId);
               ctx.connRegistry.unwatch(ownerConnection, sessionId);
               denyPendingBySession(sessionId);
 
@@ -1204,10 +1207,7 @@ export function handleInterruptV2(
         const isDetached = !ctx.sessionRegistry.isAttached(found.clientId);
 
         if (!isOwner) {
-          const oldTransport = found.session?.transport;
-          if (oldTransport?.isOpen()) {
-            oldTransport.send({ type: 'session_takeover', sessionId: msg.sessionId });
-          }
+          notifyPreviousOwner(ctx, ownerConnection, msg.sessionId);
           ctx.connRegistry.unwatch(ownerConnection, msg.sessionId);
           denyPendingBySession(msg.sessionId);
 
@@ -1413,6 +1413,19 @@ export interface ModeChangeResult {
 }
 const pendingModeChanges = new WeakMap<object, Promise<unknown>>();
 
+/** Share the live session's permission queue with web-search grant updates. */
+export function serializeSessionPermissionChange<T>(
+  session: object,
+  action: () => Promise<T>,
+): Promise<T> {
+  const previous = pendingModeChanges.get(session) ?? Promise.resolve();
+  const update = previous.then(action, action);
+  pendingModeChanges.set(session, update);
+  return update.finally(() => {
+    if (pendingModeChanges.get(session) === update) pendingModeChanges.delete(session);
+  });
+}
+
 export function handleSetModeV2(
   connectionId: string,
   msg: SetModeMsg,
@@ -1480,7 +1493,7 @@ export function handleSetModeV2(
   found.session.pendingPermissionModes ??= new Map();
   found.session.pendingPermissionModes.set(transition, msg.mode);
   const previous = pendingModeChanges.get(found.session) ?? Promise.resolve();
-  const update = previous.then(() =>
+  const run = () =>
     withSpanAsync(
       'ws.set_mode',
       { 'ws.connectionId': connectionId, 'ws.sessionId': msg.sessionId, 'ws.mode': msg.mode },
@@ -1569,8 +1582,8 @@ export function handleSetModeV2(
           return { ok: false, applied: false, persisted: false, code: 'provider', error: reason };
         }
       },
-    ),
-  );
+    );
+  const update = previous.then(run, run);
   pendingModeChanges.set(found.session, update);
   return update.then((result) => {
     found.session.pendingPermissionModes?.delete(transition);

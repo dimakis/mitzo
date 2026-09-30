@@ -74,10 +74,27 @@ empty thread has no persisted rollout, so resume and fork are expected to reach
 the provider-thread lookup and return `no rollout found`; that proves the
 requests and their config objects were deserialized, not that a searched turn
 ran. Mitzo's fixture tests separately prove that the resolved configuration is
-attached to all three lifecycle calls. A live provider acceptance test remains
-part of the later, explicitly approved Luna matrix.
+attached to all three lifecycle calls.
 
 The fixture test fails if the recorded schema adds a search approval callback,
 loses lifecycle configuration, or starts exposing query/URL data through the
 generic permission callback. When upgrading Codex, regenerate and review the
 schema, refresh the reduced fixture intentionally, and rerun the probe.
+
+## Live provider acceptance
+
+`live-acceptance.mjs` verifies the provider boundary with an explicitly selected
+Luna model on an explicitly selected Codex account. It checks that a fresh
+disabled thread emits no `webSearch` item, then reopens the provider process and
+resumes with search allowed, and finally forks into a disabled thread. The
+allowed case must emit a `webSearch` item; the disabled cases must not. It
+verifies the configured account identity and provider model catalog before any
+turn, refuses other models or CLI versions, and deletes its isolated login copy
+and rollouts when finished. Provider queries and responses are not logged.
+
+Run it with `MITZO_WEB_SEARCH_ACCOUNT_ID`, `MITZO_WEB_SEARCH_MODEL`,
+`MITZO_WEB_SEARCH_CODEX_BIN`, `MITZO_WEB_SEARCH_ACCOUNTS_FILE`, and
+`MITZO_WEB_SEARCH_ACKNOWLEDGE_CHARGE` set explicitly. The acknowledgement value
+must be `<account-id>:<luna-model-id>`. State that exact account and model before
+running it. On 2026-09-25, the matrix passed with `chatgpt-personal` and
+`gpt-5.6-luna` on `codex-cli 0.153.4`.

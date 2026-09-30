@@ -1,6 +1,8 @@
 import { custodianRequestAuthority } from './symposium-custodian-authority.js';
 import express from 'express';
 import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
+import { z } from 'zod';
+import type { GoogleWorkspaceManagement } from './google-workspace-management.js';
 import { randomUUID } from 'node:crypto';
 import type { Connection } from './connections-store.js';
 import { ConnectionStore, RevisionConflictError } from './connections-store.js';
@@ -207,6 +209,7 @@ export function createConnectionsRouter(options: {
   workspace: string;
   legacyProviders: () => Promise<Array<{ name: string; type: string }>>;
   capabilities?: CapabilityService;
+  googleWorkspace?: GoogleWorkspaceManagement;
 }) {
   const router = express.Router();
   const limiter = (limit: number, message: string) =>
@@ -239,6 +242,7 @@ export function createConnectionsRouter(options: {
       legacy,
       eligibleAccounts: options.eligibleAccounts(),
       appliesTo: 'new conversations only',
+      ...(options.googleWorkspace ? { googleWorkspaceManaged: true } : {}),
     });
   });
   router.get('/templates', (_req, res) => {
@@ -250,6 +254,48 @@ export function createConnectionsRouter(options: {
       capabilities: connectionTemplateRegistry.capabilityTemplates(),
     });
   });
+  router.get('/google-workspace', async (_req, res) => {
+    if (!options.googleWorkspace)
+      return res.status(503).json({ error: 'Google management is not configured' });
+    return res.json(await options.googleWorkspace.status(AbortSignal.timeout(30_000)));
+  });
+  for (const action of ['preview', 'reconnect', 'refresh'] as const) {
+    router.post(
+      `/google-workspace/${action}`,
+      mutate,
+      requireSameOriginJson,
+      express.json({ limit: '2kb' }),
+      async (req, res) => {
+        const schema =
+          action === 'reconnect'
+            ? z.object({ csrf: z.string().min(1), email: z.string().email() }).strict()
+            : z.object({ csrf: z.string().min(1) }).strict();
+        const parsed = schema.safeParse(req.body);
+        if (!parsed.success) return res.status(400).json({ error: 'Invalid Google request' });
+        if (!requireRecentConnectionAuthorization(res, parsed.data.csrf)) return;
+        const google = options.googleWorkspace;
+        if (!google) return res.status(503).json({ error: 'Google management is not configured' });
+        try {
+          const signal = AbortSignal.timeout(60_000);
+          return res.json(
+            action === 'preview'
+              ? await google.preview(signal)
+              : action === 'refresh'
+                ? await google.rotate(signal)
+                : await google.reconnect(
+                    'email' in parsed.data ? (parsed.data.email as string) : '',
+                    signal,
+                  ),
+          );
+        } catch {
+          return res.status(422).json({
+            error:
+              'Google recovery could not be confirmed. Check the Google sign-in on the Mitzo computer and retry.',
+          });
+        }
+      },
+    );
+  }
   router.get('/:id/audit', (req, res) => {
     const c = options.store.get(connectionId(req));
     return !c || c.ownerId !== OWNER

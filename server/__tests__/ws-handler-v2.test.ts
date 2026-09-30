@@ -80,6 +80,7 @@ import {
   dispatchV2Message,
   scheduleV2Message,
   getOwnerConnection,
+  serializeSessionPermissionChange,
   detectStateMismatch,
   type V2HandlerContext,
 } from '../ws-handler-v2.js';
@@ -1195,6 +1196,47 @@ describe('live provider mode changes', () => {
     ctx.connRegistry.watch('c1', 'sess-1');
     return { ctx, sessionReg, transport };
   }
+
+  it('serializes web-search grants and mode changes on the same session', async () => {
+    let releaseGrant!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      releaseGrant = resolve;
+    });
+    const setPermissionMode = vi.fn().mockResolvedValue(undefined);
+    const { ctx, sessionReg } = setup(setPermissionMode);
+    const session = sessionReg.findBySessionId('sess-1').session;
+    const grant = serializeSessionPermissionChange(session, () => gate);
+    const mode = handleSetModeV2(
+      'c1',
+      { type: 'set_mode', sessionId: 'sess-1', mode: 'agent' },
+      ctx,
+    );
+    await Promise.resolve();
+    expect(setPermissionMode).not.toHaveBeenCalled();
+    releaseGrant();
+    await Promise.all([grant, mode]);
+    expect(setPermissionMode).toHaveBeenCalledWith('agent');
+  });
+
+  it('still applies a queued mode change after a web-search grant fails', async () => {
+    let rejectGrant!: (error: Error) => void;
+    const gate = new Promise<void>((_resolve, reject) => {
+      rejectGrant = reject;
+    });
+    const setPermissionMode = vi.fn().mockResolvedValue(undefined);
+    const { ctx, sessionReg } = setup(setPermissionMode);
+    const session = sessionReg.findBySessionId('sess-1').session;
+    const grant = serializeSessionPermissionChange(session, () => gate);
+    const mode = handleSetModeV2(
+      'c1',
+      { type: 'set_mode', sessionId: 'sess-1', mode: 'agent' },
+      ctx,
+    );
+    rejectGrant(new Error('Grant update failed'));
+    await expect(grant).rejects.toThrow('Grant update failed');
+    await expect(mode).resolves.toMatchObject({ ok: true, applied: true });
+    expect(setPermissionMode).toHaveBeenCalledWith('agent');
+  });
 
   it('awaits provider acknowledgement before publishing and serializes racing updates', async () => {
     let resolve!: () => void;
@@ -2775,6 +2817,39 @@ describe('handleSendV2 connection ownership', () => {
       expect.objectContaining({ code: 'active_elsewhere' }),
     );
 
+    (isActive as ReturnType<typeof vi.fn>).mockReturnValue(false);
+  });
+
+  it('does not publish a takeover notice through a stale durable transport', () => {
+    (sendToChat as ReturnType<typeof vi.fn>).mockClear();
+    (reattachChat as ReturnType<typeof vi.fn>).mockClear();
+    (isActive as ReturnType<typeof vi.fn>).mockReturnValueOnce(true);
+
+    const sessionReg = mockSessionRegistry();
+    const durableTransport = mockTransport();
+    sessionReg.findBySessionId.mockReturnValue({
+      clientId: 'old-conn:sess-1',
+      session: { ownerConnectionId: 'old-conn', transport: durableTransport },
+    });
+    sessionReg.isActive.mockReturnValue(true);
+
+    const ctx = createContext({
+      sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
+    });
+    const transport = mockTransport();
+    ctx.connRegistry.register('new-conn', transport);
+
+    handleSendV2(
+      'new-conn',
+      transport,
+      { type: 'send', sessionId: 'sess-1', prompt: 'continue', clientMsgId: 'cmsg-reconnect' },
+      ctx,
+    );
+
+    expect(durableTransport.sent).not.toContainEqual(
+      expect.objectContaining({ type: 'session_takeover' }),
+    );
+    expect(sendToChat).toHaveBeenCalled();
     (isActive as ReturnType<typeof vi.fn>).mockReturnValue(false);
   });
 

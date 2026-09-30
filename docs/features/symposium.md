@@ -2,6 +2,8 @@
 
 Telos parent: `6403fb22f9bb743c`. Phase 2.5: `c10fc341b0533a54`.
 
+Current consolidation gates: [integrated acceptance checklist](symposium-integrated-acceptance.md).
+
 ## Status at 27 September 2026
 
 This page describes the implemented feature stack and its acceptance evidence.
