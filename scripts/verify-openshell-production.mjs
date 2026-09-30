@@ -322,6 +322,14 @@ export function validateSeedBaseline(seedBaseline, manifest, seedPath) {
     seedBaseline && typeof seedBaseline === 'object' && !Array.isArray(seedBaseline),
     'prepared seed baseline must be an object',
   );
+  // Legacy static releases retain their exact-commit admission and historical
+  // mismatch diagnostic before the stronger dynamic provenance validation.
+  if (!Object.hasOwn(seedBaseline, 'runtimeBaseCommit')) {
+    invariant(
+      seedBaseline.startingCommit === manifest.runtime?.mgmtSourceCommit,
+      'prepared seed commit does not match the stack lock',
+    );
+  }
   invariant(
     typeof seedBaseline.startingCommit === 'string' &&
       /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(seedBaseline.startingCommit),
