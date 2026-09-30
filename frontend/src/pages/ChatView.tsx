@@ -4,6 +4,7 @@ import { NewSymposium } from '../components/NewSymposium';
 import { PermissionModePicker } from '../components/PermissionModePicker';
 import { StatusBar } from '../components/StatusBar';
 import { WorkspaceControls } from '../components/WorkspaceControls';
+import type { WorkspaceSummary } from '../types/workspace';
 import { CodexQueueStatus } from '../components/CodexQueueStatus';
 import { WebSearchConsent } from '../components/WebSearchConsent';
 import { AccountModelPicker, type AccountSelection } from '../components/AccountModelPicker';
@@ -74,6 +75,7 @@ export function ChatView() {
 
   // Local model state — persisted to localStorage, sent in payload
   const [modelState, setModelState] = useState(getPreferredModel);
+  const [workspaceSummary, setWorkspaceSummary] = useState<WorkspaceSummary | null>(null);
   const [accountSelection, setAccountSelection] = useState<AccountSelection | null>(null);
   const setModel = useCallback(
     (id: string) => {
@@ -262,6 +264,7 @@ export function ChatView() {
           </button>
         </div>
         <WorkspaceControls
+          summary={workspaceSummary}
           status={!connected ? 'Reconnecting' : messages.running ? 'Working' : 'Ready'}
         >
           <div className="chat-account-bar">
@@ -270,6 +273,7 @@ export function ChatView() {
               sessionId={activeSessionId}
               preferredModel={modelState}
               onChange={selectAccount}
+              onSummaryChange={setWorkspaceSummary}
               onUnavailable={accountUnavailable}
             />
           </div>

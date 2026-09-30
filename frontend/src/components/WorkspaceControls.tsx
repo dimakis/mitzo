@@ -1,9 +1,18 @@
 import { useId, useState, type ReactNode } from 'react';
 import { UiIcon } from './UiIcon';
+import type { WorkspaceSummary } from '../types/workspace';
 
 const STORAGE_KEY = 'mitzo-workspace-controls-expanded';
 
-export function WorkspaceControls({ children, status }: { children: ReactNode; status: string }) {
+export function WorkspaceControls({
+  children,
+  status,
+  summary,
+}: {
+  children: ReactNode;
+  status: string;
+  summary?: WorkspaceSummary | null;
+}) {
   const id = useId();
   const [expanded, setExpanded] = useState(() => {
     try {
@@ -16,7 +25,9 @@ export function WorkspaceControls({ children, status }: { children: ReactNode; s
     <section className="workspace-controls">
       <button
         className="workspace-controls-toggle"
-        aria-label="Workspace controls"
+        aria-label={['Workspace controls', summary?.profile, summary?.model, summary?.thinking]
+          .filter(Boolean)
+          .join(', ')}
         aria-expanded={expanded}
         aria-controls={id}
         onClick={() => {
@@ -30,8 +41,18 @@ export function WorkspaceControls({ children, status }: { children: ReactNode; s
         }}
       >
         <UiIcon name="settings" />
-        <span>Workspace</span>
-        <span className="workspace-controls-hint">Account, model & permissions</span>
+        <span className="workspace-controls-label">Workspace</span>
+        <span className="workspace-controls-summary">
+          {summary ? (
+            <>
+              <span className="workspace-controls-profile">{summary.profile}</span>
+              {summary.model && <span>{summary.model}</span>}
+              {summary.thinking && <span>{summary.thinking}</span>}
+            </>
+          ) : (
+            <span>Loading profile…</span>
+          )}
+        </span>
         <span className="conversation-state">{status}</span>
         <UiIcon name={expanded ? 'up' : 'down'} />
       </button>

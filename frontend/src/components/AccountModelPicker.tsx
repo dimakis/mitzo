@@ -2,6 +2,7 @@ import { SymposiumPersonalConnections } from './SymposiumPersonalConnections';
 import { useEffect, useRef, useState } from 'react';
 import { z } from 'zod';
 import { apiFetch } from '../lib/api-fetch';
+import type { WorkspaceSummary } from '../types/workspace';
 import { subscribeSymposiumAccountCatalog } from '../lib/symposium-account-catalog';
 
 export interface AccountSelection {
@@ -57,6 +58,7 @@ export function AccountModelPicker({
   preferredModel,
   onChange,
   onUnavailable,
+  onSummaryChange,
   disabled = false,
   scope = 'chat',
   requireExplicitSelection = false,
@@ -68,6 +70,7 @@ export function AccountModelPicker({
   preferredModel: string;
   onChange: (selection: AccountSelection | null) => void;
   onUnavailable?: () => void;
+  onSummaryChange?: (summary: WorkspaceSummary | null) => void;
 }) {
   const sessionId = scope === 'chat' ? requestedSessionId : null;
   const [accounts, setAccounts] = useState<Account[]>([]);
@@ -75,6 +78,7 @@ export function AccountModelPicker({
   const selectionRef = useRef(selection);
   if (selection) selectionRef.current = selection;
   const [bindingLabel, setBindingLabel] = useState('');
+  const [fixedSummary, setFixedSummary] = useState<WorkspaceSummary | null>(null);
   const [editingAlias, setEditingAlias] = useState(false);
   const [alias, setAlias] = useState('');
   const [aliasError, setAliasError] = useState('');
@@ -92,8 +96,31 @@ export function AccountModelPicker({
   const [fixedSession, setFixedSession] = useState(false);
   const [empty, setEmpty] = useState(false);
   const [draftUnavailable, setDraftUnavailable] = useState(false);
-  const callbacks = useRef({ onChange, onUnavailable });
-  callbacks.current = { onChange, onUnavailable };
+  const callbacks = useRef({ onChange, onUnavailable, onSummaryChange });
+  callbacks.current = { onChange, onUnavailable, onSummaryChange };
+  const summaryAccount = accounts.find((a) => a.id === (selection?.accountId ?? ''));
+  const selectedModel = summaryAccount?.models.find((m) => m.id === selection?.model);
+  const summary = error
+    ? { profile: 'Profile unavailable' }
+    : empty
+      ? { profile: 'No profiles configured' }
+      : summaryAccount && selection
+        ? {
+            profile: summaryAccount.label,
+            model: selectedModel?.label ?? selection.model,
+            thinking: selectedModel
+              ? selectedModel.reasoningEfforts?.length
+                ? `Thinking: ${selection.reasoningEffort ?? 'model default'}`
+                : 'Thinking: not configurable'
+              : 'Thinking: unknown',
+          }
+        : fixedSummary;
+  const profile = summary?.profile;
+  const model = summary?.model;
+  const thinking = summary?.thinking;
+  useEffect(() => {
+    callbacks.current.onSummaryChange?.(profile ? { profile, model, thinking } : null);
+  }, [profile, model, thinking]);
   useEffect(() => {
     if (error || empty) onUnavailable?.();
   }, [error, empty, onUnavailable]);
@@ -102,6 +129,9 @@ export function AccountModelPicker({
     setError('');
     setEditingAlias(false);
     setBindingLabel('');
+    setFixedSummary(null);
+    setAccounts([]);
+    callbacks.current.onSummaryChange?.(null);
     setFixedSession(false);
     setSelection(null);
     setEmpty(false);
@@ -141,6 +171,11 @@ export function AccountModelPicker({
         if (sessionId && response.status === 404) {
           if (!disposed) {
             setBindingLabel('Existing task · legacy account');
+            setFixedSummary({
+              profile: 'Legacy account',
+              model: 'Model unknown',
+              thinking: 'Thinking: unknown',
+            });
             setFixedSession(true);
             callbacks.current.onChange({ model: preferredModel });
           }
@@ -156,6 +191,7 @@ export function AccountModelPicker({
         if (disposed) return;
         if (sessionId && data.sessionType === 'symposium') {
           setBindingLabel('Accounts and models are selected per seat in Director controls.');
+          setFixedSummary({ profile: 'Symposium', model: 'Accounts and models per seat' });
           setFixedSession(true);
           return;
         }
@@ -189,6 +225,11 @@ export function AccountModelPicker({
               ? { accountId: data.accountBinding.accountId, model: data.accountBinding.model }
               : { model: preferredModel };
             setFixedSession(true);
+            setFixedSummary({
+              profile: data.accountBinding?.accountLabel ?? 'Legacy account',
+              model: data.accountBinding?.model ?? 'Model unknown',
+              thinking: 'Thinking: unknown',
+            });
             callbacks.current.onChange(explicitSelection ? null : next);
           }
           setBindingLabel(
