@@ -81,7 +81,7 @@ describe('TaskOrchestrator', () => {
     expect(orchestrator.getStatus().activeTaskId).toBeNull();
   });
 
-  it('blocks reuse when no session was explicitly pinned', () => {
+  it('requires an explicit session before starting reuse', () => {
     const deps = createTestDeps(store);
     deps.getClientId = () => null;
     const orch = new TaskOrchestrator(deps);
@@ -90,8 +90,36 @@ describe('TaskOrchestrator', () => {
 
     orch.start(goal.id);
 
-    expect(store.get(task.id)?.status).toBe('blocked');
+    expect(orch.requiresClientId(goal.id)).toBe(true);
+    expect(orch.getStatus().state).toBe('idle');
+    expect(store.get(task.id)?.status).toBe('pending');
     expect(sendToChat).not.toHaveBeenCalled();
+  });
+
+  it('allows a spawn-only workflow without an existing chat', () => {
+    const deps = createTestDeps(store);
+    deps.getClientId = () => null;
+    deps.spawnSession = vi.fn().mockResolvedValue('headless:new');
+    const orch = new TaskOrchestrator(deps);
+    orch.setSpawnEnabled(true);
+    const goal = store.create({ title: 'Goal' });
+    store.create({ title: 'Spawn task', parentId: goal.id, sessionPolicy: 'spawn' });
+
+    expect(orch.requiresClientId(goal.id)).toBe(false);
+    expect(orch.start(goal.id).state).toBe('running');
+  });
+
+  it('requires a chat for a later reuse stage as well as the first task', () => {
+    const deps = createTestDeps(store);
+    deps.getClientId = () => null;
+    const orch = new TaskOrchestrator(deps);
+    orch.setSpawnEnabled(true);
+    const goal = store.create({ title: 'Goal' });
+    store.create({ title: 'Spawn first', parentId: goal.id, sessionPolicy: 'spawn', priority: 2 });
+    store.create({ title: 'Reuse later', parentId: goal.id, sessionPolicy: 'reuse', priority: 1 });
+
+    expect(orch.requiresClientId(goal.id)).toBe(true);
+    expect(orch.start(goal.id).state).toBe('idle');
   });
 
   it('does not activate a spec goal without a target chat', () => {

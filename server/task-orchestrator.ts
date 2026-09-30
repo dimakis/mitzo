@@ -149,6 +149,41 @@ export class TaskOrchestrator {
     };
   }
 
+  /** Explain whether this goal needs an explicitly selected existing chat. */
+  requiresClientId(goalId: string, opts?: StartOptions): boolean {
+    if (opts?.clientId ?? this.deps.getClientId()) return false;
+    if (opts?.specMode) return true;
+
+    const needsReuse = (parentId: string): boolean =>
+      this.deps.store.getChildren(parentId).some((task) => {
+        if (
+          task.status === 'done' ||
+          task.status === 'skipped' ||
+          task.status === 'failed' ||
+          task.status === 'blocked'
+        ) {
+          return false;
+        }
+        if (
+          (task.stageType ?? 'agent_work') === 'agent_work' &&
+          (task.sessionPolicy === 'reuse' || (task.sessionPolicy === 'auto' && !this._spawnEnabled))
+        ) {
+          return true;
+        }
+        return needsReuse(task.id);
+      });
+    const goal = this.deps.store.get(goalId);
+    if (!goal) return false;
+    const children = this.deps.store.getChildren(goalId);
+    if (children.length === 0) {
+      return (
+        (goal.stageType ?? 'agent_work') === 'agent_work' &&
+        (goal.sessionPolicy === 'reuse' || (goal.sessionPolicy === 'auto' && !this._spawnEnabled))
+      );
+    }
+    return needsReuse(goalId);
+  }
+
   start(goalId: string, opts?: StartOptions): LoopStatus {
     if (this.state === 'running') {
       log.warn('start() called while already running');
@@ -164,7 +199,7 @@ export class TaskOrchestrator {
     // Spec decomposition sends its first prompt immediately. A background
     // caller must name a chat; never activate the goal without a recipient.
     const pinnedClientId = opts?.clientId ?? this.deps.getClientId();
-    if (opts?.specMode && !pinnedClientId) {
+    if (!pinnedClientId && this.requiresClientId(goalId, opts)) {
       log.warn('start() requires an explicit session target', { goalId });
       return this.getStatus();
     }

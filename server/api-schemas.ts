@@ -238,7 +238,11 @@ export const TaskUpdateBody = z.object({
 export const LoopStartBody = z.object({
   goalId: z.string().min(1),
   specMode: z.boolean().optional(),
-  clientId: z.string().min(1).optional(),
+  clientId: z
+    .string()
+    .min(1)
+    .optional()
+    .describe('Existing chat selected for spec mode or reuse tasks'),
 });
 
 export const WorkflowInstantiateBody = z.object({

@@ -292,3 +292,30 @@ describe('POST /api/loop/spawn', () => {
     expect(res.status).toBe(401);
   });
 });
+
+describe('POST /api/loop/start', () => {
+  afterEach(async () => {
+    const mod = await import('../app.js');
+    mod.setOrchestrator(null as never);
+  });
+
+  it('explains when an existing chat must be selected', async () => {
+    const mod = await import('../app.js');
+    const goal = mod.taskStore.create({ title: 'Reuse workflow' });
+    const start = vi.fn();
+    mod.setOrchestrator({
+      getStatus: () => ({ state: 'idle' }),
+      requiresClientId: () => true,
+      start,
+    } as never);
+
+    const res = await request(app)
+      .post('/api/loop/start')
+      .send({ goalId: goal.id })
+      .set('Cookie', authCookie);
+
+    expect(res.status).toBe(422);
+    expect(res.body).toMatchObject({ code: 'client_id_required', requiredField: 'clientId' });
+    expect(start).not.toHaveBeenCalled();
+  });
+});

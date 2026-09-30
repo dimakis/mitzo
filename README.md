@@ -343,7 +343,9 @@ Mitzo uses an npm workspace with three internal packages shared between server a
 
 **Task Board** — Multi-session orchestration
 
-Tasks with `sessionPolicy: spawn` run only in dedicated sessions. When session spawning is disabled, the workflow pauses with that task pending; a failed spawn blocks the task. Background workflows do not select an attached chat automatically. Reuse requires an explicit `clientId` in `POST /api/loop/start`.
+Tasks with `sessionPolicy: spawn` run only in dedicated sessions. When session spawning is disabled, the workflow pauses with that task pending; a failed spawn blocks the task. Background workflows do not select an attached chat automatically.
+
+`POST /api/loop/start` accepts `{ "goalId": "...", "specMode": false, "clientId": "..." }`. The `clientId` is the explicitly selected existing chat's client ID, not its session ID. It is required for spec mode and for any pending `reuse` task (or `auto` task while spawning is disabled), including later stages of the goal. A workflow containing only dedicated `spawn` tasks can omit it. `GET /api/loop/status` reports whether spawning is enabled. If a chat is needed but missing, the start API returns HTTP 422 with `code: "client_id_required"` and leaves the goal pending. Agents cannot infer a suitable existing chat from the list of connected sessions: the user must select one through the Task Board UI or supply its `clientId` to the API. Ordinary chat reconnection continues to use session IDs and does not call this endpoint.
 
 | File                   | Purpose                                                                                     |
 | ---------------------- | ------------------------------------------------------------------------------------------- |

@@ -1603,14 +1603,23 @@ app.post('/api/loop/start', (req, res) => {
     res.status(409).json({ error: 'Loop already running' });
     return;
   }
+  if (!taskStore.get(body.data.goalId)) {
+    res.status(404).json({ error: 'Goal not found' });
+    return;
+  }
+  if (orchestrator.requiresClientId(body.data.goalId, body.data)) {
+    res.status(422).json({
+      code: 'client_id_required',
+      error: 'This workflow needs an explicitly selected existing chat',
+      requiredField: 'clientId',
+      hint: 'Pass the selected chat clientId. Dedicated spawn tasks can start without one when spawning is enabled.',
+    });
+    return;
+  }
   const result = orchestrator.start(body.data.goalId, {
     specMode: body.data.specMode,
     clientId: body.data.clientId,
   });
-  if (body.data.specMode && result.state === 'idle') {
-    res.status(400).json({ error: 'Spec mode requires an explicit active chat' });
-    return;
-  }
   res.json(result);
 });
 
