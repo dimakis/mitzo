@@ -61,12 +61,19 @@ it('builds identical portable Git bytes without host clocks, configuration or in
     const workspaces = ['first', 'second'].map((name) => join(root, name));
     for (const [index, workspace] of workspaces.entries()) {
       mkdirSync(workspace);
+      const hostConfig = join(root, `host-config-${index}`);
+      mkdirSync(join(hostConfig, 'git'), { recursive: true });
+      writeFileSync(join(hostConfig, 'git/ignore'), index ? 'README.md\n' : '');
+      writeFileSync(join(workspace, 'CLAUDE.md'), '# Portable guidance\n');
+      writeFileSync(join(workspace, '.gitignore'), 'ignored-local.md\n');
+      writeFileSync(join(workspace, 'ignored-local.md'), 'Ignored by committed rule\n');
       writeFileSync(join(workspace, 'README.md'), '# Portable knowledge\n');
       chmodSync(join(workspace, 'README.md'), 0o644);
       execFileSync('bash', ['-euc', gitStage], {
         env: {
           ...process.env,
           workspace,
+          XDG_CONFIG_HOME: hostConfig,
           source_repo: source,
           starting_commit: starting,
           GIT_AUTHOR_DATE: `${index ? '2030' : '2000'}-01-01T00:00:00+0000`,
@@ -98,6 +105,9 @@ it('builds identical portable Git bytes without host clocks, configuration or in
     };
     expect(files(workspaces[0])).toEqual(files(workspaces[1]));
     for (const workspace of workspaces) {
+      expect(execFileSync('git', ['-C', workspace, 'ls-files'], { encoding: 'utf8' })).toBe(
+        '.gitignore\nCLAUDE.md\nREADME.md\n',
+      );
       expect(
         execFileSync('git', ['-C', workspace, 'status', '--porcelain'], { encoding: 'utf8' }),
       ).toBe('');

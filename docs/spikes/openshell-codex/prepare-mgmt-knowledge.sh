@@ -694,7 +694,7 @@ seed_git() (
   export GIT_AUTHOR_NAME='Mitzo Sandbox' GIT_COMMITTER_NAME='Mitzo Sandbox'
   export GIT_AUTHOR_EMAIL='sandbox@mitzo.invalid' GIT_COMMITTER_EMAIL='sandbox@mitzo.invalid'
   export GIT_AUTHOR_DATE="$seed_git_date" GIT_COMMITTER_DATE="$seed_git_date" GIT_INDEX_VERSION=2
-  git -c core.hooksPath=/dev/null -c init.templateDir= -c core.attributesFile=/dev/null -c filter.required=false "$@"
+  git -c core.hooksPath=/dev/null -c init.templateDir= -c core.attributesFile=/dev/null -c core.excludesFile=/dev/null -c filter.required=false "$@"
 )
 seed_git_date="@$(git -C "$source_repo" show -s --format=%ct "$starting_commit") +0000"
 seed_git -C "$workspace" init -q --initial-branch=main --object-format=sha1
