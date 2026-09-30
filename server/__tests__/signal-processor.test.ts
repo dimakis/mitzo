@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { join } from 'path';
-import { mkdirSync, rmSync } from 'fs';
+import { chmodSync, mkdirSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { TaskStore } from '../task-store.js';
 import { checkGate, localSignalCallbackBaseUrl, SignalProcessor } from '../signal-processor.js';
@@ -31,6 +31,36 @@ afterEach(async () => {
 });
 
 describe('SignalProcessor', () => {
+  it('accepts a Centaur COMMENT review only for the current PR head', async () => {
+    const currentSha = 'a'.repeat(40);
+    const oldSha = 'b'.repeat(40);
+    const ghPath = join(TEST_DIR, 'gh');
+    const originalPath = process.env.PATH;
+    const writeFakeGh = (reviewedSha: string) => {
+      writeFileSync(
+        ghPath,
+        `#!/bin/sh\ncase "$*" in\n  *"pr view"*) echo '{"reviewDecision":"","headRefOid":"${currentSha}"}' ;;\n  *"pulls/7/reviews"*) echo '<!-- centaur:sha:${reviewedSha} -->' ;;\n  *) echo '' ;;\nesac\n`,
+      );
+      chmodSync(ghPath, 0o755);
+    };
+    try {
+      process.env.PATH = `${TEST_DIR}:${originalPath}`;
+      writeFakeGh(oldSha);
+      expect(await checkGate({ type: 'gh_review', repo: 'org/repo', pr: 7 })).toEqual({
+        resolved: false,
+        status: 'fail',
+      });
+      writeFakeGh(currentSha);
+      expect(await checkGate({ type: 'gh_review', repo: 'org/repo', pr: 7 })).toEqual({
+        resolved: true,
+        status: 'pass',
+        artifacts: { centaurReviewedSha: currentSha },
+      });
+    } finally {
+      process.env.PATH = originalPath;
+    }
+  });
+
   it('targets the plain HTTP listener when the primary server uses TLS', () => {
     expect(localSignalCallbackBaseUrl(3100, false)).toBe('http://localhost:3100');
     expect(localSignalCallbackBaseUrl(3100, true)).toBe('http://localhost:3101');

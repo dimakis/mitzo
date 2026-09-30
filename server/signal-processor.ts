@@ -354,15 +354,45 @@ async function checkGhReview(config: { repo: string; pr: number | string }): Pro
       '--repo',
       config.repo,
       '--json',
-      'reviewDecision',
+      'reviewDecision,headRefOid',
     ]);
-    const data = JSON.parse(stdout) as { reviewDecision: string };
+    const data = JSON.parse(stdout) as { reviewDecision: string; headRefOid?: string };
 
     if (data.reviewDecision === 'APPROVED') {
       return { resolved: true, status: 'pass', artifacts: { reviewDecision: 'APPROVED' } };
     }
     if (data.reviewDecision === 'CHANGES_REQUESTED') {
       return { resolved: true, status: 'fail', artifacts: { reviewDecision: 'CHANGES_REQUESTED' } };
+    }
+    // Centaur submits COMMENT reviews, so reviewDecision remains empty. Its
+    // SHA marker appears in the review body (or issue comment fallback).
+    // Match the current head only: an earlier review cannot release this gate
+    // after an agent pushes conflict, CI, or review fixes.
+    if (data.headRefOid && /^[0-9a-f]{40}$/.test(data.headRefOid)) {
+      const marker = `<!-- centaur:sha:${data.headRefOid} -->`;
+      const [reviews, comments] = await Promise.all([
+        execFileAsync('gh', [
+          'api',
+          `repos/${config.repo}/pulls/${config.pr}/reviews`,
+          '--paginate',
+          '--jq',
+          '.[].body',
+        ]),
+        execFileAsync('gh', [
+          'api',
+          `repos/${config.repo}/issues/${config.pr}/comments`,
+          '--paginate',
+          '--jq',
+          '.[].body',
+        ]),
+      ]);
+      if (reviews.stdout.includes(marker) || comments.stdout.includes(marker)) {
+        return {
+          resolved: true,
+          status: 'pass',
+          artifacts: { centaurReviewedSha: data.headRefOid },
+        };
+      }
     }
     // REVIEW_REQUIRED or empty — not resolved yet
     return { resolved: false, status: 'fail' };
