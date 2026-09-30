@@ -95,6 +95,9 @@ it('shows a fixed binding without inventing its thinking setting', async () => {
   expect(within(toggle()).getByText('Model unknown')).toBeTruthy();
   expect(within(toggle()).queryByText('sonnet')).toBeNull();
   expect(within(toggle()).getByText('Thinking: unknown')).toBeTruthy();
+  fireEvent.click(toggle());
+  expect(screen.queryByText('Work Vertex · sonnet')).toBeNull();
+  expect(screen.getAllByText('Work Vertex').length).toBe(2);
 });
 
 it('does not present a preferred model as the actual model of a legacy session', async () => {

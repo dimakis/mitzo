@@ -240,7 +240,7 @@ export function AccountModelPicker({
           }
           setBindingLabel(
             data.accountBinding
-              ? `${data.accountBinding.accountLabel} · ${data.accountBinding.model}`
+              ? data.accountBinding.accountLabel
               : 'Existing task · legacy account',
           );
         } else {
