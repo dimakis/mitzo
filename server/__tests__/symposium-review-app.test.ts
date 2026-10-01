@@ -93,6 +93,7 @@ describe('production review route initialization', () => {
       workflows: [],
       criterionChecks: [],
       stopAvailable: false,
+      cleanupAvailable: false,
       applicationRun: {
         available: false,
         initialArtifact: null,
