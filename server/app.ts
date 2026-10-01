@@ -2456,8 +2456,9 @@ const MAX_PREVIEW_BYTES = 5 * 1024 * 1024;
 function isRemoteSessionArtifact(sessionId: string) {
   const meta = eventStore.getSession(sessionId);
   if (isOpenShellArtifactSession(meta, process.env.MITZO_OPENSHELL_WORKDIR)) return true;
-  if (!meta?.accountBinding || !['openai', 'openai-codex'].includes(meta.accountBinding.provider))
-    return false;
+  if (!meta?.accountBinding)
+    return Boolean(meta?.cwd?.startsWith('/sandbox/') && !isConfiguredAllowedPath(meta.cwd));
+  if (!['openai', 'openai-codex'].includes(meta.accountBinding.provider)) return false;
   try {
     if (getCodexConversationStore().readArtifactRuntime(sessionId, meta.accountBinding))
       return true;

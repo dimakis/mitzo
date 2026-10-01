@@ -123,6 +123,9 @@ vi.mock('../chat.js', () => {
             accountBinding: { provider: id.includes('-api-') ? 'openai' : 'openai-codex' },
           };
         }
+        if (id === 'unbound-sandbox-session') {
+          return { sessionId: id, cwd: '/sandbox/unknown-workspace' };
+        }
         if (id === 'untrusted-artifact-session') {
           return { sessionId: id, cwd: '/etc' };
         }
@@ -1870,3 +1873,26 @@ it.each(['host-api-session', 'host-subscription-session'])(
     expect(res.status).toBe(200);
   },
 );
+
+it('refuses an unbound unconfigured sandbox origin without reading the host fallback', async () => {
+  for (const endpoint of [
+    '/api/files/read',
+    '/api/files/download',
+    '/api/files',
+    '/api/files/list',
+  ]) {
+    const res = await request(app)
+      .get(endpoint)
+      .query({ path: 'test.txt', sessionId: 'unbound-sandbox-session' })
+      .set('Cookie', authCookie);
+    expect(res.status).toBe(409);
+  }
+  const file = join(TEST_REPO, 'test.txt');
+  const original = readFileSync(file, 'utf8');
+  const res = await request(app)
+    .put('/api/files/write')
+    .set('Cookie', authCookie)
+    .send({ path: 'test.txt', content: 'wrong origin', sessionId: 'unbound-sandbox-session' });
+  expect(res.status).toBe(409);
+  expect(readFileSync(file, 'utf8')).toBe(original);
+});
