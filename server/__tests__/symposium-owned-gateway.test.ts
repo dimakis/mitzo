@@ -508,3 +508,50 @@ it.each(['leaf', 'expired', 'symlink', 'hardlink', 'oversized', 'private-key'] a
     }
   },
 );
+
+describe('trusted paired-supervisor network selection', () => {
+  it.each([undefined, 'symposium'])(
+    'emits the selector only for explicit same-network opt-in: %s',
+    async (supervisorNetwork) => {
+      const f = fixture();
+      const owned = await OwnedSymposiumGateway.launch(
+        { ...f.options, supervisorNetwork },
+        f.operations,
+      );
+      const config = readFileSync(f.operations.start.mock.calls[0][1][1], 'utf8');
+      expect(config).toContain('network_name = "symposium"');
+      if (supervisorNetwork === undefined) expect(config).not.toContain('supervisor_network_name');
+      else expect(config).toContain('supervisor_network_name = "symposium"');
+      expect(config).toContain('enable_bind_mounts = false');
+      expect(() => owned.verifyCustody()).not.toThrow();
+      owned.stop();
+    },
+  );
+  it.each([
+    'foreign',
+    'host',
+    'none',
+    'bridge',
+    'private',
+    'pasta',
+    'slirp4netns',
+    'container:other',
+    '',
+    '-bad',
+    'with space',
+    'a,b',
+  ])(
+    'rejects invalid or foreign selection before issuer/process launch: %s',
+    async (supervisorNetwork) => {
+      const f = fixture();
+      const options = {
+        ...f.options,
+        supervisorNetwork,
+        network: supervisorNetwork === 'foreign' ? 'symposium' : supervisorNetwork,
+      };
+      await expect(OwnedSymposiumGateway.launch(options, f.operations)).rejects.toThrow();
+      expect(f.operations.startIssuer).not.toHaveBeenCalled();
+      expect(f.operations.start).not.toHaveBeenCalled();
+    },
+  );
+});

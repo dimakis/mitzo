@@ -1,4 +1,7 @@
-import { isOwnedSymposiumProxyUrl } from './symposium-owned-gateway.js';
+import {
+  isOwnedSymposiumProxyUrl,
+  isOwnedSymposiumSupervisorNetwork,
+} from './symposium-owned-gateway.js';
 import { isAbsolute } from 'node:path';
 import { lstatSync, readFileSync } from 'node:fs';
 import { z } from 'zod';
@@ -22,37 +25,45 @@ const Work = z.strictObject({
 export const OwnedSymposiumConfigSchema = z.strictObject({
   criterionChecks: z.array(CriterionCheckDefinitionSchema).max(100).optional(),
   publicationCredentials: z.array(PublicationCredentialRegistrationSchema).max(20).optional(),
-  gateway: z.strictObject({
-    executable: path,
-    executableSha256: digest,
-    cliExecutable: path,
-    cliSha256: digest,
-    stateParent: path,
-    systemCaBundle: path,
-    upstreamProxy: z
-      .strictObject({
-        url: z.string().max(2048).refine(isOwnedSymposiumProxyUrl),
-        caBundle: path,
-        caBundleSha256: digest,
-      })
-      .optional(),
-    gateway: id,
-    workspace: z.string().regex(/^[a-z0-9](?:[a-z0-9-]{0,17}[a-z0-9])?$/),
-    port: z.number().int().min(1024).max(65535),
-    podmanSocket: path,
-    network: id,
-    workloadImage: image,
-    sandboxRuntimeImage: image,
-    supervisorImage: image,
-    tls: z.strictObject({
-      serverCert: path,
-      serverKey: path,
-      clientCa: path,
-      managementCert: path,
-      managementKey: path,
-    }),
-    jwt: z.strictObject({ signingKey: path, publicKey: path, kid: path }),
-  }),
+  gateway: z
+    .strictObject({
+      executable: path,
+      executableSha256: digest,
+      cliExecutable: path,
+      cliSha256: digest,
+      stateParent: path,
+      systemCaBundle: path,
+      upstreamProxy: z
+        .strictObject({
+          url: z.string().max(2048).refine(isOwnedSymposiumProxyUrl),
+          caBundle: path,
+          caBundleSha256: digest,
+        })
+        .optional(),
+      gateway: id,
+      workspace: z.string().regex(/^[a-z0-9](?:[a-z0-9-]{0,17}[a-z0-9])?$/),
+      port: z.number().int().min(1024).max(65535),
+      podmanSocket: path,
+      network: id,
+      supervisorNetwork: id.optional(),
+      workloadImage: image,
+      sandboxRuntimeImage: image,
+      supervisorImage: image,
+      tls: z.strictObject({
+        serverCert: path,
+        serverKey: path,
+        clientCa: path,
+        managementCert: path,
+        managementKey: path,
+      }),
+      jwt: z.strictObject({ signingKey: path, publicKey: path, kid: path }),
+    })
+    .refine(
+      (gateway) =>
+        gateway.supervisorNetwork === undefined ||
+        isOwnedSymposiumSupervisorNetwork(gateway.supervisorNetwork, gateway.network),
+      'Supervisor network must select the configured named bridge',
+    ),
   attestationPath: path,
   runtime: z.strictObject({
     policy: path,

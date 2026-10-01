@@ -383,3 +383,40 @@ it('admits only the finite optional operator proxy configuration and rejects byp
   ])
     expect(OwnedSymposiumConfigSchema.safeParse(configured(invalid)).success).toBe(false);
 });
+
+it('admits only optional same-network operator supervisor selection in the private schema', () => {
+  const f = fixture();
+  const selected = (supervisorNetwork: unknown, network = f.config.gateway.network) => ({
+    ...f.config,
+    gateway: { ...f.config.gateway, network, supervisorNetwork },
+  });
+  expect(OwnedSymposiumConfigSchema.parse(selected('network')).gateway).toHaveProperty(
+    'supervisorNetwork',
+    'network',
+  );
+  expect(OwnedSymposiumConfigSchema.parse(f.config).gateway).not.toHaveProperty(
+    'supervisorNetwork',
+  );
+  for (const value of [
+    'foreign',
+    null,
+    '',
+    'host',
+    'none',
+    'bridge',
+    'private',
+    'pasta',
+    'slirp4netns',
+    'container:other',
+    '-bad',
+    'with space',
+    'a,b',
+  ]) {
+    expect(OwnedSymposiumConfigSchema.safeParse(selected(value)).success).toBe(false);
+    if (typeof value === 'string' && value !== 'foreign')
+      expect(OwnedSymposiumConfigSchema.safeParse(selected(value, value)).success).toBe(false);
+  }
+  expect(
+    OwnedSymposiumConfigSchema.safeParse({ ...f.config, supervisorNetwork: 'network' }).success,
+  ).toBe(false);
+});

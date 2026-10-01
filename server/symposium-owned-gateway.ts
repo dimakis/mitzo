@@ -42,6 +42,8 @@ export interface OwnedSymposiumGatewayOptions {
   port: number;
   podmanSocket: string;
   network: string;
+  /** Operator-only opt-in; must select the same owned named network. */
+  supervisorNetwork?: string;
   workloadImage: string;
   sandboxRuntimeImage: string;
   supervisorImage: string;
@@ -55,6 +57,16 @@ export interface OwnedSymposiumGatewayOptions {
   };
   /** JWTs authenticate supervisors without issuing them management certificates. */
   jwt: { signingKey: string; publicKey: string; kid: string };
+}
+
+/** Trusted driver selector only; actual network ownership is separately established. */
+export function isOwnedSymposiumSupervisorNetwork(value: string, network: string): boolean {
+  return (
+    typeof value === 'string' &&
+    id.test(value) &&
+    value === network &&
+    !['host', 'none', 'bridge', 'private', 'slirp4netns', 'pasta'].includes(value)
+  );
 }
 
 /** Shared with private file configuration admission; credentials and bypasses are forbidden. */
@@ -289,6 +301,8 @@ export class OwnedSymposiumGateway {
     };
     if (
       ![options.gateway, options.workspace, options.network].every((value) => id.test(value)) ||
+      (options.supervisorNetwork !== undefined &&
+        !isOwnedSymposiumSupervisorNetwork(options.supervisorNetwork, options.network)) ||
       !Number.isInteger(options.port) ||
       options.port < 1024 ||
       options.port > 65535 ||
@@ -413,7 +427,7 @@ allow_driver_config = true
 enable_bind_mounts = false
 ${options.upstreamProxy ? `https_proxy = ${q(options.upstreamProxy.url)}\nproxy_ca_bundle = ${q(proxyCaPath!)}\n` : ''}socket_path = ${q(options.podmanSocket)}
 network_name = ${q(options.network)}
-grpc_endpoint = ${q(`https://host.containers.internal:${options.port}`)}
+${options.supervisorNetwork !== undefined ? `supervisor_network_name = ${q(options.supervisorNetwork)}\n` : ''}grpc_endpoint = ${q(`https://host.containers.internal:${options.port}`)}
 default_image = ${q(options.workloadImage)}
 image_pull_policy = "never"
 sandbox_runtime_image = ${q(options.sandboxRuntimeImage)}
