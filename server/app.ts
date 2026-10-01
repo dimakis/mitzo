@@ -2598,7 +2598,7 @@ function resolveArtifactPath(filePath: string, sessionId: string | undefined): s
     )
       continue;
     const suffix = relative(resolve(repo), requested);
-    if (/^\.(?:claude|cursor|git|mitzo)(?:[\/\\]|$)/.test(suffix)) continue;
+    if (['.claude', '.cursor', '.git', '.mitzo'].includes(suffix.split(sep)[0])) continue;
     const candidate = resolve(workspace, suffix);
     if (
       containsPath(workspace, candidate) &&
