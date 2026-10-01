@@ -5,6 +5,7 @@ import { createHash } from 'node:crypto';
 import {
   chmodSync,
   linkSync,
+  lstatSync,
   symlinkSync,
   mkdtempSync,
   readFileSync,
@@ -422,6 +423,19 @@ describe('trusted owned upstream proxy configuration', () => {
     const frozen = join(owned.stateDirectory, 'upstream-proxy-ca.pem');
     expect(config).toContain(`proxy_ca_bundle = ${JSON.stringify(frozen)}`);
     expect(readFileSync(frozen)).toEqual(ca);
+    // A public-only CA file bind must be readable by the distinct supervisor UID.
+    expect(lstatSync(frozen).mode & 0o777).toBe(0o444);
+    expect(lstatSync(owned.stateDirectory).mode & 0o777).toBe(0o700);
+    for (const name of Object.keys(f.options.tls))
+      expect(lstatSync(join(owned.stateDirectory, `${name}.pem`)).mode & 0o777).toBe(0o400);
+    for (const name of Object.keys(f.options.jwt))
+      expect(lstatSync(join(owned.stateDirectory, `${name}.jwt`)).mode & 0o777).toBe(0o400);
+    for (const drift of [0o400, 0o600]) {
+      chmodSync(frozen, drift);
+      expect(() => owned.verifyCustody()).toThrow();
+      chmodSync(frozen, 0o444);
+      expect(() => owned.verifyCustody()).not.toThrow();
+    }
     expect(config).toContain('enable_bind_mounts = false');
     expect(config).not.toMatch(/no_proxy|proxy_auth_file|proxy_connect_by_hostname|insecure/);
     writeFileSync(f.options.tls.serverCert, 'changed original source');

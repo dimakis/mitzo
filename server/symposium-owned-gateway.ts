@@ -338,7 +338,9 @@ export class OwnedSymposiumGateway {
       files.set(path, { sha256: hash(bytes), mode });
       return path;
     };
-    const proxyCaPath = proxyCa ? freeze('upstream-proxy-ca.pem', proxyCa) : undefined;
+    // Public trust anchors cross a read-only file bind to a distinct supervisor UID.
+    // The private launch directory and all credential file modes remain unchanged.
+    const proxyCaPath = proxyCa ? freeze('upstream-proxy-ca.pem', proxyCa, 0o444) : undefined;
     const executable = freeze('openshell-gateway', binary, 0o500);
     const cli = freeze('openshell', cliBytes, 0o500);
     const publicRoots = regularBytes(options.systemCaBundle);
