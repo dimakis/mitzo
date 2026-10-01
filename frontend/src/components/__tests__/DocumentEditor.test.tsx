@@ -31,15 +31,15 @@ describe('document editor', () => {
   });
   it('previews unsaved Markdown and returns to source', () => {
     setup();
-    fireEvent.click(screen.getByRole('button', { name: 'Preview', exact: true }));
+    fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
     expect(screen.queryByRole('textbox')).toBeNull();
     expect(screen.getByText('hello')).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: 'Source', exact: true }));
+    fireEvent.click(screen.getByRole('button', { name: 'Source' }));
     expect(screen.getByRole('textbox')).toBeTruthy();
   });
   it('previews unsaved HTML in the sandboxed preview', () => {
     setup('.html');
-    fireEvent.click(screen.getByRole('button', { name: 'Preview', exact: true }));
+    fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
     expect(screen.getByTitle('Document preview').getAttribute('sandbox')).toBe('allow-scripts');
     expect(screen.queryByRole('button', { name: 'Bold' })).toBeNull();
   });

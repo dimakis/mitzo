@@ -7500,3 +7500,18 @@ option {
     display: none;
   }
 }
+.document-conflict {
+  max-height: 35%;
+  overflow: auto;
+  padding: 0.75rem;
+  border-bottom: 1px solid var(--border);
+}
+.document-conflict pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.document-conflict button,
+.document-editor-status button {
+  min-height: 44px;
+  margin-left: 0.5rem;
+}

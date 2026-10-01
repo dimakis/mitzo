@@ -177,7 +177,28 @@ function FileViewerDocument() {
               : editor.dirty
                 ? 'Unsaved changes · draft kept on this device'
                 : 'All changes saved')}
+          {editor.error && (
+            <button
+              type="button"
+              onClick={editor.reviewLatest}
+              disabled={editor.saving || editor.reviewing}
+            >
+              {editor.reviewing ? 'Loading…' : 'Review latest version'}
+            </button>
+          )}
         </div>
+      )}
+      {editor.editing && editor.latestContent !== null && editor.latestContent !== undefined && (
+        <section className="document-conflict" aria-label="Latest saved version">
+          <strong>Latest saved version</strong>
+          <pre>{editor.latestContent}</pre>
+          <button type="button" onClick={() => editor.resolveConflict(true, nav.setContent)}>
+            Use latest version
+          </button>
+          <button type="button" onClick={() => editor.resolveConflict(false, nav.setContent)}>
+            Keep my draft for next save
+          </button>
+        </section>
       )}
       <div className={`viewer-content${editor.editing ? ' viewer-content--editing' : ''}`}>
         {state.loading && <p className="viewer-status">Loading...</p>}

@@ -25,6 +25,8 @@ export function useFileEditor(
   const [editContent, setEditContent] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [latestContent, setLatestContent] = useState<string | null>(null);
+  const [reviewing, setReviewing] = useState(false);
   const [base, setBase] = useState(content);
   const [history, setHistory] = useState<string[]>([]);
   const [position, setPosition] = useState(0);
@@ -87,6 +89,36 @@ export function useFileEditor(
     persist(base);
     resetEditor();
   }
+  async function reviewLatest() {
+    if (inFlight.current || reviewing) return;
+    setReviewing(true);
+    try {
+      const query = new URLSearchParams({ path: filePath });
+      if (sessionId) query.set('sessionId', sessionId);
+      const response = await apiFetch(`/api/files/read?${query}`);
+      if (!response.ok)
+        throw new Error('Could not load the latest version. Your draft is preserved.');
+      const data = await response.json();
+      if (typeof data.content !== 'string') throw new Error('Invalid document response');
+      setLatestContent(data.content);
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'Could not load document');
+    } finally {
+      setReviewing(false);
+    }
+  }
+  function resolveConflict(replaceDraft: boolean, onLatest?: (content: string) => void) {
+    if (inFlight.current || latestContent === null) return;
+    const next = replaceDraft ? latestContent : editContent;
+    setBase(latestContent);
+    setEditContent(next);
+    setHistory([next]);
+    setPosition(0);
+    persist(next, latestContent);
+    onLatest?.(latestContent);
+    setLatestContent(null);
+    setError('');
+  }
   async function saveFile(onSaved: (newContent: string) => void) {
     if (inFlight.current || !dirty) return;
     inFlight.current = true;
@@ -125,6 +157,10 @@ export function useFileEditor(
     }
   }
   return {
+    latestContent,
+    reviewing,
+    reviewLatest,
+    resolveConflict,
     editing,
     editContent,
     saving,

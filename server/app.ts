@@ -103,7 +103,6 @@ import {
   readdirSync,
   realpathSync,
   statSync,
-  writeFileSync,
 } from 'fs';
 import { join, dirname, resolve, extname, basename, relative, isAbsolute, sep } from 'path';
 import { execFileSync, execFile } from 'child_process';
@@ -2916,13 +2915,11 @@ app.put('/api/files/write', async (req, res) => {
       const known =
         error instanceof OpenShellArtifactReadError ||
         error instanceof SessionArtifactUnavailableError;
-      res
-        .status(known ? error.status : 503)
-        .json({
-          error: known
-            ? error.message
-            : 'Sandbox document could not be saved. Your draft is preserved.',
-        });
+      res.status(known ? error.status : 503).json({
+        error: known
+          ? error.message
+          : 'Sandbox document could not be saved. Your draft is preserved.',
+      });
     }
     return;
   }
@@ -2944,11 +2941,9 @@ app.put('/api/files/write', async (req, res) => {
       path: filePath,
       error: err instanceof Error ? err.message : 'unknown',
     });
-    res
-      .status(err instanceof OpenShellArtifactReadError ? err.status : 500)
-      .json({
-        error: err instanceof OpenShellArtifactReadError ? err.message : 'Failed to write file',
-      });
+    res.status(err instanceof OpenShellArtifactReadError ? err.status : 500).json({
+      error: err instanceof OpenShellArtifactReadError ? err.message : 'Failed to write file',
+    });
   }
 });
 

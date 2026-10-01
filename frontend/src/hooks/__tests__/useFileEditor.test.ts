@@ -99,3 +99,21 @@ describe('document editing', () => {
     });
   });
 });
+
+it('lets the user review the latest version and keep the draft against a new baseline', async () => {
+  const { result } = editor();
+  act(() => result.current.startEditing());
+  act(() => result.current.handleEditChange('my draft'));
+  vi.mocked(apiFetch).mockResolvedValueOnce(
+    new Response(JSON.stringify({ content: 'agent version' })),
+  );
+  await act(() => result.current.reviewLatest());
+  expect(result.current.latestContent).toBe('agent version');
+  expect(result.current.editContent).toBe('my draft');
+  act(() => result.current.resolveConflict(false));
+  vi.mocked(apiFetch).mockResolvedValueOnce(new Response('{}'));
+  await act(() => result.current.saveFile(vi.fn()));
+  expect(
+    JSON.parse(vi.mocked(apiFetch).mock.calls.at(-1)![1]!.body as string).expectedContent,
+  ).toBe('agent version');
+});
