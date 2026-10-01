@@ -2138,6 +2138,49 @@ describe('repository links to session worktree artifacts', () => {
       getConfig.mockImplementation(originalConfig);
     }
   });
+  it.each(['active', 'restarted'])(
+    'resolves the recorded secondary worktree after resume (%s)',
+    async (state) => {
+      const chat = await import('../chat.js');
+      const getConfig = vi.mocked(chat.getRepoConfig);
+      const originalConfig = getConfig.getMockImplementation()!;
+      const secondary = join(TEST_REPO, 'resumed-secondary');
+      const target = join(secondary, '.claude', 'worktrees', 'resumed-id');
+      mkdirSync(join(target, 'outputs'), { recursive: true });
+      writeFileSync(join(target, 'outputs/report.md'), '# Resumed artifact');
+      getConfig.mockImplementation(() => ({ ...originalConfig(), repos: { secondary } }));
+      const findSession = vi.mocked(chat.registry.findBySessionId);
+      const originalFind = findSession.getMockImplementation()!;
+      const events = vi.mocked(eventStore.getEventsAfter);
+      const originalEvents = events.getMockImplementation();
+      if (state === 'active')
+        findSession.mockReturnValue({
+          session: {
+            worktreePaths: new Map([['secondary', { path: target, wtId: 'resumed-id' }]]),
+          },
+        } as ReturnType<typeof chat.registry.findBySessionId>);
+      else
+        events.mockReturnValue([
+          {
+            type: 'worktree_opened',
+            payload: { repoName: 'secondary', path: target },
+          } as ReturnType<typeof eventStore.getEventsAfter>[number],
+        ]);
+      try {
+        const res = await request(app)
+          .get('/api/files/read')
+          .set('Cookie', authCookie)
+          .query({ path: join(secondary, 'outputs/report.md'), sessionId: 'posted-artifact' });
+        expect(res.status).toBe(200);
+        expect(res.body.path).toBe(join(target, 'outputs/report.md'));
+      } finally {
+        getConfig.mockImplementation(originalConfig);
+        findSession.mockImplementation(originalFind);
+        if (originalEvents) events.mockImplementation(originalEvents);
+        else events.mockReturnValue([]);
+      }
+    },
+  );
   it('does not guess a worktree without conversation identity', async () => {
     const res = await request(app)
       .get('/api/files/read')

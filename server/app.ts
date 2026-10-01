@@ -2601,12 +2601,38 @@ function resolveArtifactPath(filePath: string, sessionId: string | undefined): s
     return requested;
   const worktreeId = basename(workspace);
   const recordedId = sessionId ? eventStore.getSession(sessionId)?.wtId : undefined;
-  if (recordedId && recordedId !== worktreeId) return requested;
   for (const repo of repos) {
     if (!containsPath(repo, requested)) continue;
     const suffix = relative(resolve(repo), requested);
     if (['.claude', '.cursor', '.git', '.mitzo'].includes(suffix.split(sep)[0])) return requested;
-    const workspaces = parentsFor(repo).map((parent) => join(parent, worktreeId));
+    const repoName =
+      Object.entries(getRepoConfig().repos).find(
+        ([, root]) => resolve(root) === resolve(repo),
+      )?.[0] ?? 'primary';
+    const activePath = sessionId
+      ? registry.findBySessionId(sessionId)?.session.worktreePaths?.get(repoName)?.path
+      : undefined;
+    const recordedPath = sessionId
+      ? eventStore
+          .getEventsAfter(sessionId, 0)
+          .filter(
+            (event) => event.type === 'worktree_opened' && event.payload.repoName === repoName,
+          )
+          .at(-1)?.payload.path
+      : undefined;
+    const explicitPath =
+      activePath ?? (typeof recordedPath === 'string' ? recordedPath : undefined);
+    const validExplicit =
+      explicitPath &&
+      parentsFor(repo).some((parent) => resolve(parent) === dirname(resolve(explicitPath)));
+    const ids = [
+      ...new Set(
+        [worktreeId, recordedId].filter((id): id is string => !!id && basename(id) === id),
+      ),
+    ];
+    const workspaces = validExplicit
+      ? [explicitPath]
+      : ids.flatMap((id) => parentsFor(repo).map((parent) => join(parent, id)));
     workspaces.sort(
       (a, b) =>
         Number(resolve(b) === resolve(workspace)) - Number(resolve(a) === resolve(workspace)),
