@@ -31,6 +31,7 @@ Symposium director status resolves the verified runtime once per request and reu
 - **Voice** — tap to start/stop recording with live transcription previews (STT) and explicit per-message read-aloud (TTS) via [Yapper](https://github.com/dimakis/yapper). The final audio chunk is sent before transcription ends; if streaming disconnects or times out, the complete recording is transcribed through the batch endpoint. Cancelling discards the recording and releases the microphone. Voice features degrade gracefully when Yapper is offline.
 - **MCP tools** — reads `~/.cursor/mcp.json`, passes servers to every session
 - **File browser** — view and edit repo files, generated session artifacts, and worktree roots; artifact links stay scoped to the session workspace that created them
+- **Markdown diagrams** — Mermaid fences render in chat, Files, inline previews and document previews, with theme-aware SVG, copy controls, and readable source for invalid or incomplete diagrams. Expanded chat previews stay open across message and navigation updates.
 - **HTML artifacts** — preview and edit self-contained `.html` prototypes from Files or expandable chat links in a sandboxed, no-network renderer
 - **Task board** — recursive multi-session task orchestration with spec mode, completion summaries, and verification hooks
 - **Durable Telos capture** — agents can create approved outcomes in live Telos; OpenShell sessions execute the write through a trusted host tool so credentials and persistence stay outside the sandbox
