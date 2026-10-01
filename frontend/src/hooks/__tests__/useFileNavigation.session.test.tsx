@@ -107,13 +107,14 @@ describe('useFileNavigation session root', () => {
 
 it('retains the resolved file identity for editing and parent navigation', async () => {
   const posted = '/base-repo/outputs/report.md';
-  const resolved = '/base-repo/.claude/worktrees/session-1/outputs/report.md';
+  const root = '/secondary-repo/.claude/worktrees/session-1';
+  const resolved = `${root}/outputs/report.md`;
   vi.mocked(apiFetch).mockImplementation((url) =>
     String(url).startsWith('/api/files/read')
       ? (response({ content: '# Worktree', ext: '.md', path: resolved }) as never)
       : (response({
-          dir: '/base-repo/.claude/worktrees/session-1/outputs',
-          root: '/base-repo/.claude/worktrees/session-1',
+          dir: new URL(String(url), 'https://mitzo.test').searchParams.get('dir'),
+          root,
           entries: [],
         }) as never),
   );
@@ -140,10 +141,13 @@ it('retains the resolved file identity for editing and parent navigation', async
       vi.mocked(apiFetch).mock.calls.some(([url]) => {
         const parsed = new URL(String(url), 'https://mitzo.test');
         return (
-          parsed.pathname === '/api/files' &&
-          parsed.searchParams.get('dir') === '/base-repo/.claude/worktrees/session-1/outputs'
+          parsed.pathname === '/api/files' && parsed.searchParams.get('dir') === `${root}/outputs`
         );
       }),
     ).toBe(true),
   );
+  await waitFor(() => expect(result.current.state.canGoUp).toBe(true));
+  act(() => result.current.goUp(false));
+  await waitFor(() => expect(result.current.state.currentDir).toBe(root));
+  expect(result.current.state.canGoUp).toBe(false);
 });
