@@ -3850,7 +3850,19 @@ export async function getMessages(sessionId: string, throughSeq?: number) {
         dir,
         limit: SESSION_MESSAGES_LIMIT,
       })) as RawSdkMessage[];
-      if (rawMessages.length > 0) break;
+      if (rawMessages.length > 0) {
+        // Pre-migration history may lack workspace metadata. Recover only cwd
+        // from the same SDK source without replacing titles or account bindings.
+        if (!eventStore.getSession(sessionId)?.cwd) {
+          try {
+            const info = await getSessionInfo(sessionId, { dir });
+            if (info?.cwd) eventStore.upsertSession({ sessionId, cwd: info.cwd });
+          } catch {
+            // Missing metadata must not prevent reading the saved transcript.
+          }
+        }
+        break;
+      }
     } catch {
       // Session not in this dir — try next
     }

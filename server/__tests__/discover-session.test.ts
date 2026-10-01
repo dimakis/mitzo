@@ -152,3 +152,58 @@ describe('getSessions reconciliation', () => {
     expect(ids).toContain('sess-known');
   });
 });
+
+describe('legacy message artifact workspace', () => {
+  it('recovers missing cwd while preserving existing session metadata', async () => {
+    const sdk = await import('@anthropic-ai/claude-agent-sdk');
+    vi.mocked(sdk.getSessionMessages).mockResolvedValue([
+      {
+        type: 'assistant',
+        message: { role: 'assistant', content: [{ type: 'text', text: '[Report](report.md)' }] },
+      },
+    ] as never);
+    mockGetSession.mockReturnValue({
+      sessionId: 'legacy',
+      cwd: null,
+      summary: 'Custom title',
+      isActive: false,
+    });
+    mockGetSessionInfo.mockResolvedValue({
+      sessionId: 'legacy',
+      cwd: '/projects/original-worktree',
+    });
+    const { getMessages } = await import('../chat.js');
+    await getMessages('legacy');
+    expect(mockUpsertSession).toHaveBeenCalledWith({
+      sessionId: 'legacy',
+      cwd: '/projects/original-worktree',
+    });
+    expect(mockGetSessionInfo).toHaveBeenCalledWith(
+      'legacy',
+      expect.objectContaining({ dir: expect.any(String) }),
+    );
+  });
+});
+
+it('keeps legacy messages available when workspace metadata cannot be recovered', async () => {
+  const sdk = await import('@anthropic-ai/claude-agent-sdk');
+  vi.mocked(sdk.getSessionMessages).mockResolvedValue([
+    {
+      type: 'assistant',
+      message: { role: 'assistant', content: [{ type: 'text', text: 'Report' }] },
+    },
+  ] as never);
+  mockGetSession.mockReturnValue({ sessionId: 'legacy', cwd: null });
+  mockGetSessionInfo.mockRejectedValue(new Error('Metadata unavailable'));
+  const { getMessages } = await import('../chat.js');
+  expect(await getMessages('legacy')).toHaveLength(1);
+  expect(mockUpsertSession).not.toHaveBeenCalled();
+});
+
+it('does not replace a recorded historical workspace with SDK metadata', async () => {
+  mockGetSession.mockReturnValue({ sessionId: 'legacy', cwd: '/recorded/worktree' });
+  const { getMessages } = await import('../chat.js');
+  await getMessages('legacy');
+  expect(mockGetSessionInfo).not.toHaveBeenCalled();
+  expect(mockUpsertSession).not.toHaveBeenCalled();
+});
