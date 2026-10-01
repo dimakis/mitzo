@@ -2135,6 +2135,14 @@ describe('repository links to session worktree artifacts', () => {
         path: join(secondaryWorktree, 'outputs/report.md'),
         content: '# Secondary artifact',
       });
+      for (const dir of [join(secondaryWorktree, 'outputs'), secondaryWorktree]) {
+        const listing = await request(app)
+          .get('/api/files')
+          .set('Cookie', authCookie)
+          .query({ dir, sessionId: 'posted-artifact' });
+        expect(listing.status).toBe(200);
+        expect(listing.body).toMatchObject({ dir, root: secondaryWorktree });
+      }
     } finally {
       getConfig.mockImplementation(originalConfig);
     }
