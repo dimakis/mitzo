@@ -73,6 +73,14 @@ describe('ShareButton', () => {
     });
   });
 
+  it('keeps cancellation neutral and forwards the originating session', async () => {
+    mockShareFile.mockResolvedValue(false);
+    render(<ShareButton filePath="report.md" sessionId="historical-session" />);
+    await userEvent.click(screen.getByRole('button', { name: 'Share file' }));
+    expect(mockShareFile).toHaveBeenCalledWith('report.md', 'historical-session');
+    expect(screen.getByRole('button', { name: 'Share file' })).toBeTruthy();
+  });
+
   it('stops event propagation on click', async () => {
     mockShareFile.mockResolvedValue(true);
     const parentClick = vi.fn();

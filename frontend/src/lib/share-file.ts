@@ -1,3 +1,4 @@
+import { Capacitor } from '@capacitor/core';
 import { apiFetch } from './api-fetch';
 import { artifactApiUrl } from './file-paths';
 
@@ -50,48 +51,63 @@ async function fetchFileBlob(
   return { blob, filename };
 }
 
-/** Check whether the browser supports sharing a file with the given MIME type. */
-function canNativeShare(filename: string, blob: Blob): boolean {
-  if (typeof navigator.canShare !== 'function') return false;
-  const file = new File([blob], filename, { type: blob.type });
-  return navigator.canShare({ files: [file] });
-}
+// Keep at most one prepared file briefly so a second tap can share synchronously
+// if fetching the bytes outlasted the browser's transient user activation.
+let retry: { key: string; file: File; expires: number } | undefined;
+let retryTimer: ReturnType<typeof setTimeout> | undefined;
 
-/**
- * Share or download a file from the workspace.
- *
- * - On mobile (Web Share API available): opens the native share sheet.
- * - On desktop (fallback): triggers a browser download.
- *
- * Returns true if the share/download was initiated successfully.
- */
+/** Returns false on cancellation; true means the share/download was initiated. */
 export async function shareFile(filePath: string, sessionId?: string): Promise<boolean> {
-  const { blob, filename } = await fetchFileBlob(filePath, sessionId);
+  clearTimeout(retryTimer);
+  const key = JSON.stringify([filePath, sessionId]);
+  let file: File;
+  if (retry?.key === key && retry.expires > Date.now()) {
+    file = retry.file;
+  } else {
+    retry = undefined;
+    const { blob, filename } = await fetchFileBlob(filePath, sessionId);
+    const mime =
+      !blob.type || blob.type === 'application/octet-stream' ? mimeFromExt(filename) : blob.type;
+    file = new File([blob], filename, { type: mime });
+  }
 
-  // Re-type the blob with a proper MIME if the server sent application/octet-stream
-  const mime = blob.type === 'application/octet-stream' ? mimeFromExt(filename) : blob.type;
-  const typedBlob = mime !== blob.type ? new Blob([blob], { type: mime }) : blob;
-
-  // Try native share (mobile)
-  if (canNativeShare(filename, typedBlob)) {
-    const file = new File([typedBlob], filename, { type: mime });
+  if (
+    typeof navigator.share === 'function' &&
+    typeof navigator.canShare === 'function' &&
+    navigator.canShare({ files: [file] })
+  ) {
+    retry = undefined;
     try {
       await navigator.share({ files: [file] });
     } catch (err) {
-      if (err instanceof DOMException && err.name === 'AbortError') return true;
+      if ((err instanceof DOMException || err instanceof Error) && err.name === 'AbortError')
+        return false;
+      if ((err instanceof DOMException || err instanceof Error) && err.name === 'NotAllowedError') {
+        retry = { key, file, expires: Date.now() + 60_000 };
+        retryTimer = setTimeout(() => {
+          retry = undefined;
+        }, 60_000);
+        throw new Error('Tap Share again to open the share sheet.', { cause: err });
+      }
       throw err;
     }
     return true;
   }
 
-  // Fallback: browser download
-  const url = URL.createObjectURL(typedBlob);
+  if (Capacitor.isNativePlatform()) {
+    throw new Error('This device cannot share this file type. Open it in a browser to download.');
+  }
+  const url = URL.createObjectURL(file);
   const a = document.createElement('a');
   a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
+  a.download = file.name;
+  try {
+    document.body.appendChild(a);
+    a.click();
+  } finally {
+    document.body.removeChild(a);
+    // Give the browser time to consume the URL before releasing its bytes.
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
   return true;
 }

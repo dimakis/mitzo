@@ -7360,3 +7360,41 @@ option {
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/* File actions stay discoverable in cards and compact phone headers. */
+.share-btn--visible,
+.share-btn:focus-visible {
+  opacity: 1;
+  min-width: 2.25rem;
+  min-height: 2.25rem;
+  flex-shrink: 0;
+}
+
+.share-error {
+  color: var(--error, #f87171);
+  font-size: var(--text-xs);
+}
+
+.viewer-header,
+.md-preview-card-header {
+  flex-wrap: wrap;
+}
+
+.viewer-header-title {
+  flex: 1;
+}
+
+.viewer-header .share-error,
+.md-preview-card-header .share-error {
+  order: 10;
+  flex-basis: 100%;
+}
+
+@media (max-width: 480px) {
+  .viewer-header {
+    gap: 0.35rem;
+  }
+  .viewer-header-branch {
+    max-width: 5rem;
+  }
+}

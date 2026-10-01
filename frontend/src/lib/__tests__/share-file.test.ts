@@ -6,6 +6,7 @@ vi.mock('../api-fetch', () => ({
 }));
 
 import { apiFetch } from '../api-fetch';
+import { Capacitor } from '@capacitor/core';
 import { shareFile } from '../share-file';
 
 const mockApiFetch = vi.mocked(apiFetch);
@@ -95,6 +96,34 @@ describe('shareFile', () => {
     );
   });
 
+  it('reuses prepared bytes on a second tap after user activation expires', async () => {
+    mockApiFetch.mockResolvedValue(
+      new Response(new Blob(['# Exact bytes\n']), {
+        headers: { 'Content-Type': 'application/octet-stream' },
+      }),
+    );
+    const share = vi
+      .fn()
+      .mockRejectedValueOnce(new DOMException('Gesture expired', 'NotAllowedError'))
+      .mockResolvedValueOnce(undefined);
+    Object.defineProperty(navigator, 'canShare', { value: () => true, configurable: true });
+    Object.defineProperty(navigator, 'share', { value: share, configurable: true });
+    const before = mockApiFetch.mock.calls.length;
+    await expect(shareFile('slow-report.md', 'old')).rejects.toThrow('Tap Share again');
+    await shareFile('slow-report.md', 'old');
+    expect(mockApiFetch.mock.calls.length - before).toBe(1);
+    expect(share.mock.calls[0][0].files[0]).toBe(share.mock.calls[1][0].files[0]);
+    expect(share.mock.calls[1][0].files[0].type).toBe('text/markdown');
+  });
+
+  it('reports unsupported native sharing without pretending a blob download saved the file', async () => {
+    vi.spyOn(Capacitor, 'isNativePlatform').mockReturnValue(true);
+    Object.defineProperty(navigator, 'canShare', { value: () => false, configurable: true });
+    mockApiFetch.mockResolvedValue(new Response('bytes'));
+    await expect(shareFile('unsupported.bin')).rejects.toThrow('cannot share this file type');
+    expect(createObjectURLSpy).not.toHaveBeenCalled();
+  });
+
   it('throws when server returns error', async () => {
     mockApiFetch.mockResolvedValue(
       new Response(JSON.stringify({ error: 'Path not allowed' }), {
@@ -106,7 +135,7 @@ describe('shareFile', () => {
     await expect(shareFile('/etc/passwd')).rejects.toThrow('Path not allowed');
   });
 
-  it('treats AbortError from share cancellation as success', async () => {
+  it('returns false when the native share is cancelled', async () => {
     const blob = new Blob(['data'], { type: 'text/plain' });
     mockApiFetch.mockResolvedValue(new Response(blob, { status: 200 }));
 
@@ -122,6 +151,6 @@ describe('shareFile', () => {
     });
 
     const result = await shareFile('/workspace/notes.txt');
-    expect(result).toBe(true);
+    expect(result).toBe(false);
   });
 });

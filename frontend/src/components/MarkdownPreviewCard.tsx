@@ -1,3 +1,4 @@
+import { ShareButton } from './ShareButton';
 import { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import {
@@ -52,6 +53,7 @@ export function MarkdownPreviewCard({ filePath, sessionId }: Props) {
           <span className="md-preview-card-name">{fileName}</span>
           <span className="md-preview-card-chevron">{expanded ? '\u25BE' : '\u25B8'}</span>
         </button>
+        <ShareButton filePath={filePath} sessionId={sessionId} className="share-btn--visible" />
         <button
           className="md-preview-card-open"
           onClick={() => navigate(artifactViewerUrl(filePath, currentPath, sessionId))}
