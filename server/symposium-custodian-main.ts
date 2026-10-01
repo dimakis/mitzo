@@ -13,16 +13,33 @@ import {
   writeCustodianRetirementReceipt,
 } from './symposium-custodian-retirement.js';
 
+export interface OriginalSymposiumControllerIdentity {
+  readonly instanceId: string;
+  readonly epoch: number;
+  readonly custodianPid: number;
+  readonly controllerPid: number;
+  readonly state: 'active';
+  readonly scope: 'fresh-retained-sessions';
+}
 /** Explicit fresh-owner entry point. No attach/reconstruct command exists. */
 export interface SymposiumCustodianConstructorHooks {
   bootstrapTools?: BootstrapTools;
   observeDurableReviewToolResult?: OwnedSymposiumHostOptions['observeDurableReviewToolResult'];
   observeStartupConfig?: OwnedSymposiumHostOptions['observeStartupConfig'];
   observePrelaunch?: OwnedSymposiumHostOptions['observePrelaunch'];
+  observeController?: (
+    identity: Readonly<OriginalSymposiumControllerIdentity>,
+    assertCurrent: () => void,
+  ) => void;
 }
 export async function runSymposiumCustodian(hooks: SymposiumCustodianConstructorHooks = {}) {
-  const { bootstrapTools, observeDurableReviewToolResult, observeStartupConfig, observePrelaunch } =
-    hooks;
+  const {
+    bootstrapTools,
+    observeDurableReviewToolResult,
+    observeStartupConfig,
+    observePrelaunch,
+    observeController,
+  } = hooks;
   if (
     observeDurableReviewToolResult !== undefined &&
     typeof observeDurableReviewToolResult !== 'function'
@@ -32,6 +49,8 @@ export async function runSymposiumCustodian(hooks: SymposiumCustodianConstructor
     throw Error('Startup observer must be a trusted constructor callback');
   if (observePrelaunch !== undefined && typeof observePrelaunch !== 'function')
     throw Error('Prelaunch observer must be a trusted constructor callback');
+  if (observeController !== undefined && typeof observeController !== 'function')
+    throw Error('Controller observer must be a trusted constructor callback');
   if (process.env.MITZO_SYMPOSIUM_CUSTODIAN_CONTROLLER || process.send)
     throw Error('Custodian must be launched as the independent owner');
   const filename = process.env.MITZO_SYMPOSIUM_OWNED_HOST_CONFIG;
@@ -148,7 +167,45 @@ export async function runSymposiumCustodian(hooks: SymposiumCustodianConstructor
       const exactChild = child;
       const exited = new Promise<void>((resolve) => exactChild.once('exit', () => resolve()));
       try {
-        await serveCustodianController(exactChild as unknown as CustodianChannel, controller);
+        await serveCustodianController(exactChild as unknown as CustodianChannel, controller, {
+          observeReady:
+            observeController &&
+            ((epoch, connectionCurrent) => {
+              const current = () => {
+                connectionCurrent();
+                if (
+                  stopping ||
+                  child !== exactChild ||
+                  !exactChild.connected ||
+                  exactChild.exitCode !== null ||
+                  exactChild.signalCode !== null ||
+                  !Number.isSafeInteger(exactChild.pid) ||
+                  exactChild.pid! <= 0
+                )
+                  throw Error('Original controller child unavailable');
+                host.currentProfiles();
+                connectionCurrent();
+              };
+              current();
+              const result: unknown = observeController(
+                Object.freeze({
+                  instanceId: identity,
+                  epoch,
+                  custodianPid: process.pid,
+                  controllerPid: exactChild.pid!,
+                  state: 'active',
+                  scope: 'fresh-retained-sessions',
+                }),
+                current,
+              );
+              if (result !== undefined) {
+                // Refuse asynchronous observation without leaving its rejection unhandled.
+                void Promise.resolve(result).catch(() => {});
+                throw Error('Controller observer must be synchronous');
+              }
+              current();
+            }),
+        });
       } catch {
         stopping = true;
         throw Error('Controller lost; retained resources remain quarantined');

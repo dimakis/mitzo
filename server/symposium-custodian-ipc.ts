@@ -178,21 +178,28 @@ export function createCustodianIpcClient(
 export function serveCustodianController(
   channel: CustodianChannel,
   controller: SymposiumCustodianController,
-  options: { heartbeatMs?: number } = {},
+  options: {
+    heartbeatMs?: number;
+    observeReady?: (epoch: number, assertCurrent: () => void) => void;
+  } = {},
 ): Promise<void> {
+  const observeReady = options.observeReady;
+  if (observeReady !== undefined && typeof observeReady !== 'function')
+    throw Error('Controller ready observer must be a trusted constructor callback');
   const connection = controller.attach();
   let lost = false,
+    observedReady = false,
     lastHeartbeat = Date.now();
   const heartbeatMs = options.heartbeatMs ?? 120_000;
   const publications = new Map<string, AbortController>();
   return new Promise<void>((resolve, reject) => {
-    const stop = () => {
+    const stop = (failure?: Error) => {
       if (lost) return;
       lost = true;
       for (const abort of publications.values()) abort.abort();
       clearInterval(timer);
       channel.off('message', message);
-      void connection.lost().then(resolve, reject);
+      void connection.lost().then(() => (failure ? reject(failure) : resolve()), reject);
     };
     const send = (value: unknown) => {
       if (lost) return;
@@ -209,6 +216,23 @@ export function serveCustodianController(
       const frame = value as Record<string, unknown>;
       if (frame.kind === 'hello' && Object.keys(frame).length === 1) {
         lastHeartbeat = Date.now();
+        if (!observedReady && observeReady) {
+          observedReady = true;
+          try {
+            connection.assertCurrent();
+            const result: unknown = observeReady(connection.epoch, connection.assertCurrent);
+            if (result !== undefined) {
+              // Refuse asynchronous observation without leaving its rejection unhandled.
+              void Promise.resolve(result).catch(() => {});
+              throw Error('Controller observer must be synchronous');
+            }
+            connection.assertCurrent();
+            if (lost || !channel.connected) throw Error('Original channel unavailable');
+          } catch {
+            stop(Error('Original controller observation failed'));
+            return;
+          }
+        }
         send({ kind: 'ready', epoch: connection.epoch });
         return;
       }
@@ -275,9 +299,9 @@ export function serveCustodianController(
         .finally(() => publications.delete(parsed.requestId));
     };
     channel.on('message', message);
-    channel.once('disconnect', stop);
-    channel.once('exit', stop);
-    channel.once('error', stop);
+    channel.once('disconnect', () => stop());
+    channel.once('exit', () => stop());
+    channel.once('error', () => stop());
     const timer = setInterval(
       () => {
         if (Date.now() - lastHeartbeat >= heartbeatMs) stop();
