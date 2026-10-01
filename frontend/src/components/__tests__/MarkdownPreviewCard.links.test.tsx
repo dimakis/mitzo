@@ -94,7 +94,7 @@ it('uses the resolved preview identity for sharing, Open and relative links', as
   await screen.findByRole('link', { name: 'details' });
   fireEvent.click(screen.getByRole('button', { name: 'Share file' }));
   await waitFor(() => expect(shareFile).toHaveBeenCalledWith(actual, 'session-1'));
-  fireEvent.click(screen.getByRole('button', { name: 'Open', exact: true }));
+  fireEvent.click(screen.getByRole('button', { name: /^Open$/ }));
   await waitFor(() =>
     expect(
       new URL(screen.getByTestId('location').textContent!, 'https://mitzo.test').searchParams.get(
