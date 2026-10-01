@@ -7,6 +7,12 @@ import { mkdirSync, writeFileSync, symlinkSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 
+const mockRemoteArtifactRead = vi.hoisted(() => vi.fn());
+vi.mock('../session-artifact-reader.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../session-artifact-reader.js')>();
+  return { ...actual, createSessionArtifactReader: () => mockRemoteArtifactRead };
+});
+
 const TEST_REPO = join(tmpdir(), `mitzo-test-repo-${process.pid}`);
 const SESSION_ARTIFACT_ROOT = join(`${TEST_REPO}-sessions`, 'artifact-session');
 
@@ -99,6 +105,13 @@ vi.mock('../chat.js', () => {
             cwd: pjoin(`${repo}-sessions`, 'artifact-session'),
           };
         }
+        if (id === 'remote-api-session' || id === 'remote-subscription-session') {
+          return {
+            sessionId: id,
+            cwd: '/sandbox/workspaces/mgmt',
+            accountBinding: { provider: id === 'remote-api-session' ? 'openai' : 'openai-codex' },
+          };
+        }
         if (id === 'untrusted-artifact-session') {
           return { sessionId: id, cwd: '/etc' };
         }
@@ -186,6 +199,7 @@ Some body text here.
 `;
 
 beforeAll(async () => {
+  mockRemoteArtifactRead.mockRejectedValue(new Error('Workspace receipt unavailable'));
   mkdirSync(TEST_REPO, { recursive: true });
   writeFileSync(join(TEST_REPO, 'test.txt'), 'hello world');
   writeFileSync(join(TEST_REPO, 'oversized.txt'), Buffer.alloc(5 * 1024 * 1024 + 1, 'x'));
@@ -339,6 +353,7 @@ describe('bearer token auth', () => {
   let bearerToken: string;
 
   beforeAll(async () => {
+    mockRemoteArtifactRead.mockRejectedValue(new Error('Workspace receipt unavailable'));
     // Get a JWT from login response
     const res = await request(app)
       .post('/api/auth/login')
@@ -1722,3 +1737,51 @@ describe('mounted personal device login ownership', () => {
     expect(JSON.stringify(rejectedDiscovery.body)).not.toContain('private token');
   });
 });
+
+describe('remote artifact fail closed', () => {
+  it.each(['remote-api-session', 'remote-subscription-session'])(
+    'never serves a same-named host file for %s',
+    async (sessionId) => {
+      for (const endpoint of ['read', 'download']) {
+        const res = await request(app)
+          .get(`/api/files/${endpoint}`)
+          .query({ path: 'test.txt', sessionId })
+          .set('Cookie', authCookie);
+        expect(res.status).toBe(409);
+        expect(res.body.error).toContain('workspace');
+        expect(JSON.stringify(res.body)).not.toContain('hello world');
+      }
+    },
+  );
+});
+
+it.each(['remote-api-session', 'remote-subscription-session'])(
+  'serves persisted remote Markdown bytes for %s on read and download',
+  async (sessionId) => {
+    for (const endpoint of ['read', 'download']) {
+      mockRemoteArtifactRead.mockResolvedValueOnce({
+        path: '/sandbox/workspaces/mgmt/report.md',
+        bytes: Buffer.from('# Remote report'),
+      });
+      const res = await request(app)
+        .get(`/api/files/${endpoint}`)
+        .query({ path: 'report.md', sessionId })
+        .set('Cookie', authCookie);
+      expect(res.status).toBe(200);
+      if (endpoint === 'read')
+        expect(res.body).toMatchObject({ content: '# Remote report', ext: '.md' });
+      else {
+        expect(res.headers['content-disposition']).toContain('report.md');
+        expect(res.body.toString()).toBe('# Remote report');
+      }
+      expect(mockRemoteArtifactRead).toHaveBeenLastCalledWith(
+        sessionId,
+        expect.objectContaining({
+          provider: sessionId === 'remote-api-session' ? 'openai' : 'openai-codex',
+        }),
+        '/sandbox/workspaces/mgmt',
+        'report.md',
+      );
+    }
+  },
+);
