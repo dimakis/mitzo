@@ -77,3 +77,37 @@ describe('MarkdownPreviewCard links', () => {
     });
   });
 });
+
+it('uses the resolved preview identity for sharing, Open and relative links', async () => {
+  const actual = '/repo/.claude/worktrees/session-1/outputs/report.md';
+  vi.mocked(apiFetch).mockResolvedValue({
+    ok: true,
+    json: async () => ({ path: actual, content: '[details](details.md)' }),
+  } as never);
+  render(
+    <MemoryRouter initialEntries={['/chat/session-1']}>
+      <MarkdownPreviewCard filePath="/repo/outputs/report.md" sessionId="session-1" />
+      <Location />
+    </MemoryRouter>,
+  );
+  fireEvent.click(screen.getByRole('button', { name: /report.md/ }));
+  await screen.findByRole('link', { name: 'details' });
+  fireEvent.click(screen.getByRole('button', { name: 'Share file' }));
+  await waitFor(() => expect(shareFile).toHaveBeenCalledWith(actual, 'session-1'));
+  fireEvent.click(screen.getByRole('button', { name: 'Open', exact: true }));
+  await waitFor(() =>
+    expect(
+      new URL(screen.getByTestId('location').textContent!, 'https://mitzo.test').searchParams.get(
+        'path',
+      ),
+    ).toBe(actual),
+  );
+  fireEvent.click(screen.getByRole('link', { name: 'details' }));
+  await waitFor(() =>
+    expect(
+      new URL(screen.getByTestId('location').textContent!, 'https://mitzo.test').searchParams.get(
+        'path',
+      ),
+    ).toBe('/repo/.claude/worktrees/session-1/outputs/details.md'),
+  );
+});
