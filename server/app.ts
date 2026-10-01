@@ -2612,14 +2612,7 @@ function resolveArtifactPath(filePath: string, sessionId: string | undefined): s
     const activePath = sessionId
       ? registry.findBySessionId(sessionId)?.session.worktreePaths?.get(repoName)?.path
       : undefined;
-    const recordedPath = sessionId
-      ? eventStore
-          .getEventsAfter(sessionId, 0)
-          .filter(
-            (event) => event.type === 'worktree_opened' && event.payload.repoName === repoName,
-          )
-          .at(-1)?.payload.path
-      : undefined;
+    const recordedPath = sessionId ? eventStore.getLatestWorktreePath(sessionId, repoName) : null;
     const explicitPath =
       activePath ?? (typeof recordedPath === 'string' ? recordedPath : undefined);
     const validExplicit =

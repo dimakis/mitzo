@@ -98,6 +98,7 @@ vi.mock('../chat.js', () => {
       setSessionState: vi.fn(),
       append: vi.fn(),
       getEventsAfter: vi.fn().mockReturnValue([]),
+      getLatestWorktreePath: vi.fn().mockReturnValue(null),
       searchSessions: vi.fn().mockReturnValue([
         {
           sessionId: 's1',
@@ -2151,7 +2152,7 @@ describe('repository links to session worktree artifacts', () => {
       getConfig.mockImplementation(() => ({ ...originalConfig(), repos: { secondary } }));
       const findSession = vi.mocked(chat.registry.findBySessionId);
       const originalFind = findSession.getMockImplementation()!;
-      const events = vi.mocked(eventStore.getEventsAfter);
+      const events = vi.mocked(eventStore.getLatestWorktreePath);
       const originalEvents = events.getMockImplementation();
       if (state === 'active')
         findSession.mockReturnValue({
@@ -2159,16 +2160,7 @@ describe('repository links to session worktree artifacts', () => {
             worktreePaths: new Map([['secondary', { path: target, wtId: 'resumed-id' }]]),
           },
         } as ReturnType<typeof chat.registry.findBySessionId>);
-      else
-        events.mockReturnValue([
-          {
-            type: 'worktree_opened',
-            seq: 1,
-            sessionId: 'posted-artifact',
-            createdAt: Date.now(),
-            payload: { repoName: 'secondary', path: target },
-          } as ReturnType<typeof eventStore.getEventsAfter>[number],
-        ]);
+      else events.mockReturnValue(target);
       try {
         const res = await request(app)
           .get('/api/files/read')
@@ -2180,7 +2172,7 @@ describe('repository links to session worktree artifacts', () => {
         getConfig.mockImplementation(originalConfig);
         findSession.mockImplementation(originalFind);
         if (originalEvents) events.mockImplementation(originalEvents);
-        else events.mockReturnValue([]);
+        else events.mockReturnValue(null);
       }
     },
   );

@@ -30,6 +30,27 @@ describe('EventStore', () => {
     });
   });
 
+  it('retrieves only the latest worktree for the requested conversation and repository after restart', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'mitzo-worktree-index-'));
+    const file = join(directory, 'events.db');
+    const writer = new EventStore(file);
+    writer.append('session', 'worktree_opened', { repoName: 'secondary', path: '/old' });
+    for (let i = 0; i < 1000; i++) writer.append('session', 'block_delta', { delta: 'noise' });
+    writer.append('session', 'worktree_opened', { repoName: 'secondary', path: '/new' });
+    writer.append('other-session', 'worktree_opened', { repoName: 'secondary', path: '/other' });
+    writer.append('session', 'worktree_opened', { repoName: 'another', path: '/another' });
+    writer.close();
+    const reader = new EventStore(file);
+    try {
+      expect(reader.getLatestWorktreePath('session', 'secondary')).toBe('/new');
+      expect(reader.getLatestWorktreePath('session', 'another')).toBe('/another');
+      expect(reader.getLatestWorktreePath('session', 'missing')).toBeNull();
+    } finally {
+      reader.close();
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
   describe('append', () => {
     it('returns incrementing sequence numbers', () => {
       const seq1 = store.append('sess-1', 'message_start', { messageId: 'm1' });
