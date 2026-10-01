@@ -371,6 +371,49 @@ describe('useVoice', () => {
       });
     });
 
+    it('falls back immediately if the connection fails while waiting for final', async () => {
+      mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ text: 'all words' }) });
+      const { result } = renderHook(() => useVoice());
+      await act(async () => {
+        await result.current.startRecording();
+      });
+      let stopped!: Promise<string>;
+      act(() => {
+        stopped = result.current.stopRecording();
+      });
+      await act(async () => {
+        mockWsClient.onError?.(new Event('error'));
+        expect(await stopped).toBe('all words');
+      });
+    });
+
+    it('settles a pending stop on cancellation without submitting partial text', async () => {
+      const { result } = renderHook(() => useVoice());
+      await act(async () => {
+        await result.current.startRecording();
+      });
+      let stopped!: Promise<string>;
+      act(() => {
+        stopped = result.current.stopRecording();
+      });
+      await act(async () => {
+        result.current.cancelRecording();
+        expect(await stopped).toBe('');
+      });
+    });
+
+    it('releases recording resources when the hook unmounts', async () => {
+      mockWsClient.close.mockClear();
+      mockStreamingRecorder.cancel.mockClear();
+      const { result, unmount } = renderHook(() => useVoice());
+      await act(async () => {
+        await result.current.startRecording();
+      });
+      unmount();
+      expect(mockWsClient.close).toHaveBeenCalledTimes(1);
+      expect(mockStreamingRecorder.cancel).toHaveBeenCalledTimes(1);
+    });
+
     it('sends audio chunks to WS as they arrive', async () => {
       mockYapper = { ok: true, detail: { stt: true, tts: false } };
       const { result } = renderHook(() => useVoice());

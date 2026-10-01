@@ -252,7 +252,10 @@ export function useVoice(): UseVoiceReturn {
       streamRecorderRef.current?.stop();
       await captureDoneRef.current;
       await audioSendRef.current;
-      if (captureId !== captureIdRef.current) return '';
+      if (captureId !== captureIdRef.current) {
+        clearTimeout(timer);
+        return '';
+      }
       if (streamingActiveRef.current) client.sendEnd();
       else finalResolveRef.current?.(null);
       const text = await final;
@@ -337,6 +340,8 @@ export function useVoice(): UseVoiceReturn {
     setTranscribing(false);
     setPartialTranscript('');
   }, [releaseStream, setPartialTranscript]);
+
+  useEffect(() => () => cancelRecording(), [cancelRecording]);
 
   // --- TTS: Voice list ---
   const fetchVoices = useCallback((): Promise<boolean> => {
