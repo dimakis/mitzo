@@ -8,9 +8,18 @@ import { join } from 'path';
 import { tmpdir } from 'os';
 
 const mockRemoteArtifactRead = vi.hoisted(() => vi.fn());
+const mockRemoteArtifactFactory = vi.hoisted(() => vi.fn());
 vi.mock('../session-artifact-reader.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../session-artifact-reader.js')>();
-  return { ...actual, createSessionArtifactReader: () => mockRemoteArtifactRead };
+  return {
+    ...actual,
+    createSessionArtifactReader: (
+      deps: import('../session-artifact-reader.js').SessionArtifactReaderDependencies,
+    ) => {
+      mockRemoteArtifactFactory(deps);
+      return mockRemoteArtifactRead;
+    },
+  };
 });
 
 const TEST_REPO = join(tmpdir(), `mitzo-test-repo-${process.pid}`);
@@ -970,7 +979,11 @@ describe('file routes', () => {
     const res = await request(app)
       .put('/api/files/write')
       .set('Cookie', authCookie)
-      .send({ path: filePath, content: 'updated content' });
+      .send({
+        path: filePath,
+        content: 'updated content',
+        expectedContent: readFileSync(filePath, 'utf8'),
+      });
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ ok: true, path: filePath });
   });
@@ -1013,7 +1026,7 @@ describe('file routes', () => {
     const res = await request(app)
       .put('/api/files/write')
       .set('Cookie', authCookie)
-      .send({ path: '/tmp/outside/file.txt', content: 'nope' });
+      .send({ path: '/tmp/outside/file.txt', content: 'nope', expectedContent: '' });
     expect(res.status).toBe(403);
   });
 
@@ -1830,6 +1843,32 @@ it.each(['remote-api-session', 'remote-subscription-session'])(
   },
 );
 
+it('refuses stale host edits and preserves the agent version', async () => {
+  const path = join(TEST_REPO, 'conflict.md');
+  writeFileSync(path, 'agent version');
+  const res = await request(app)
+    .put('/api/files/write')
+    .set('Cookie', authCookie)
+    .send({ path, content: 'my edit', expectedContent: 'original' });
+  expect(res.status).toBe(409);
+  expect(readFileSync(path, 'utf8')).toBe('agent version');
+});
+it.each(['remote-api-session', 'remote-subscription-session'])(
+  'saves a guarded edit in %s without touching host files',
+  async (sessionId) => {
+    mockRemoteArtifactRead.mockResolvedValueOnce({
+      path: '/sandbox/workspaces/mgmt/report.md',
+      bytes: Buffer.alloc(0),
+    });
+    const res = await request(app)
+      .put('/api/files/write')
+      .set('Cookie', authCookie)
+      .send({ path: 'report.md', content: 'my edit', expectedContent: 'original', sessionId });
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ ok: true, path: '/sandbox/workspaces/mgmt/report.md' });
+  },
+);
+
 it.each([
   'unresolved-api-session',
   'unresolved-subscription-session',
@@ -1879,11 +1918,33 @@ it.each(['host-api-session', 'host-subscription-session'])(
     const res = await request(app)
       .put('/api/files/write')
       .set('Cookie', authCookie)
-      .send({ path: 'test.txt', content: original, sessionId });
+      .send({ path: 'test.txt', content: original, expectedContent: original, sessionId });
     expect(res.status).toBe(200);
   },
 );
 
+it('refuses host writes without a baseline and preserves the file', async () => {
+  const path = join(TEST_REPO, 'unguarded.md');
+  writeFileSync(path, 'agent version');
+  const res = await request(app)
+    .put('/api/files/write')
+    .set('Cookie', authCookie)
+    .send({ path, content: 'legacy edit' });
+  expect(res.status).toBe(409);
+  expect(readFileSync(path, 'utf8')).toBe('agent version');
+});
+it('accepts two full-size documents including JSON control-character escaping', async () => {
+  const path = join(TEST_REPO, 'full-size.md');
+  const expectedContent = '\u0000'.repeat(5 * 1024 * 1024);
+  writeFileSync(path, expectedContent);
+  const content = '\u0001'.repeat(5 * 1024 * 1024);
+  const res = await request(app)
+    .put('/api/files/write')
+    .set('Cookie', authCookie)
+    .send({ path, content, expectedContent });
+  expect(res.status).toBe(200);
+  expect(readFileSync(path, 'utf8') === content).toBe(true);
+}, 15_000);
 it('refuses an unbound unconfigured sandbox origin without reading the host fallback', async () => {
   for (const endpoint of [
     '/api/files/read',
@@ -1899,10 +1960,12 @@ it('refuses an unbound unconfigured sandbox origin without reading the host fall
   }
   const file = join(TEST_REPO, 'test.txt');
   const original = readFileSync(file, 'utf8');
-  const res = await request(app)
-    .put('/api/files/write')
-    .set('Cookie', authCookie)
-    .send({ path: 'test.txt', content: 'wrong origin', sessionId: 'unbound-sandbox-session' });
+  const res = await request(app).put('/api/files/write').set('Cookie', authCookie).send({
+    path: 'test.txt',
+    content: 'wrong origin',
+    expectedContent: original,
+    sessionId: 'unbound-sandbox-session',
+  });
   expect(res.status).toBe(409);
   expect(readFileSync(file, 'utf8')).toBe(original);
 });
@@ -1929,7 +1992,79 @@ it.each(['sandbox-prefix-host-api-session', 'sandbox-prefix-host-subscription-se
     const res = await request(app)
       .put('/api/files/write')
       .set('Cookie', authCookie)
-      .send({ path: file, content: original, sessionId });
+      .send({ path: file, content: original, expectedContent: original, sessionId });
     expect(res.status).toBe(200);
+  },
+);
+
+it.each(['openai', 'openai-codex'] as const)(
+  'uses the recorded model override for remote reads and guarded writes with %s',
+  async (provider) => {
+    const accounts = await import('../account-profiles.js');
+    const profiles = new accounts.AccountProfiles([]);
+    const load = vi.spyOn(accounts, 'loadAccountProfiles').mockReturnValue(profiles);
+    vi.spyOn(profiles, 'apiProfile').mockReturnValue({
+      credentialRef: { provider: 'keychain', service: 'test', account: 'test' },
+      sandboxProvider: 'test-provider',
+      sandboxProviderId: 'test-provider-id',
+    });
+    vi.spyOn(profiles, 'codexProfile').mockReturnValue({
+      accountId: 'test',
+      accountLabel: 'Test',
+      email: 'test@example.com',
+      planType: 'plus',
+      sandboxProvider: 'test-provider',
+      sandboxProviderType: 'openai-codex-oauth',
+      sandboxProviderId: 'test-provider-id',
+      sandboxGrantId: 'test-grant',
+      model: 'default-model',
+    });
+    const binding = {
+      provider,
+      accountId: 'test',
+      accountLabel: 'Test',
+      model: 'default-model',
+      profileRevision: 'test',
+    };
+    const original = vi.mocked(eventStore.getSession).getMockImplementation();
+    vi.mocked(eventStore.getSession).mockImplementation(
+      () =>
+        ({
+          sessionId: 'override-session',
+          cwd: '/sandbox/workspaces/mgmt',
+          accountBinding: binding,
+          selectedModel: 'selected-model',
+        }) as ReturnType<typeof eventStore.getSession>,
+    );
+    try {
+      for (const endpoint of ['read', 'download', 'write']) {
+        mockRemoteArtifactRead.mockResolvedValueOnce({
+          path: '/sandbox/workspaces/mgmt/report.md',
+          bytes: Buffer.from('# Remote'),
+        });
+        const res =
+          endpoint === 'write'
+            ? await request(app).put('/api/files/write').set('Cookie', authCookie).send({
+                sessionId: 'override-session',
+                path: 'report.md',
+                expectedContent: '# Remote',
+                content: '# Edited',
+              })
+            : await request(app)
+                .get(`/api/files/${endpoint}`)
+                .set('Cookie', authCookie)
+                .query({ sessionId: 'override-session', path: 'report.md' });
+        expect(res.status).toBe(200);
+        const deps = mockRemoteArtifactFactory.mock
+          .lastCall![0] as import('../session-artifact-reader.js').SessionArtifactReaderDependencies;
+        expect(deps.currentRoute(binding)).toMatchObject({
+          model: 'selected-model',
+          provider: 'test-provider',
+        });
+      }
+    } finally {
+      load.mockRestore();
+      vi.mocked(eventStore.getSession).mockImplementation(original!);
+    }
   },
 );

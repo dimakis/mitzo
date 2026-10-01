@@ -276,12 +276,16 @@ describe('MitzoApiClient', () => {
   });
 
   it('writeFile sends path and content', async () => {
-    await client.writeFile('/tmp/test.ts', 'console.log("hi")');
+    await client.writeFile('/tmp/test.ts', 'console.log("hi")', 'original');
     expect(fetchFn).toHaveBeenCalledWith(
       '/api/files/write',
       expect.objectContaining({
         method: 'PUT',
-        body: JSON.stringify({ path: '/tmp/test.ts', content: 'console.log("hi")' }),
+        body: JSON.stringify({
+          path: '/tmp/test.ts',
+          content: 'console.log("hi")',
+          expectedContent: 'original',
+        }),
       }),
     );
   });

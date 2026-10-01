@@ -308,13 +308,13 @@ export class MitzoApiClient {
     return res.text();
   }
 
-  async writeFile(path: string, content: string): Promise<void> {
+  async writeFile(path: string, content: string, expectedContent: string): Promise<void> {
     await this.assertOk(
       await this.fetch('/api/files/write', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ path, content }),
+        body: JSON.stringify({ path, content, expectedContent }),
       }),
     );
   }

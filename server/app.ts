@@ -1,3 +1,5 @@
+import { writeHostArtifact } from './host-artifact-writer.js';
+import { writeOpenShellArtifact } from './artifact-writer.js';
 import { custodianPublicationApproval } from './symposium-custodian-authority.js';
 import {
   custodianControllerClient,
@@ -100,7 +102,6 @@ import {
   readdirSync,
   realpathSync,
   statSync,
-  writeFileSync,
 } from 'fs';
 import { join, dirname, resolve, extname, basename, relative, isAbsolute, sep } from 'path';
 import { execFileSync, execFile } from 'child_process';
@@ -414,6 +415,8 @@ app.use('/api/capability-operations', authMiddleware, (req, res, next) => {
     return res.status(503).json({ error: 'Capability operations are not configured.' });
   return capabilityOperationsRouter(req, res, next);
 });
+// Two 5 MiB UTF-8 documents can each expand sixfold when JSON escapes control bytes.
+app.put('/api/files/write', authMiddleware, express.json({ limit: 60 * 1024 * 1024 + 64 * 1024 }));
 app.use(express.json({ limit: '10mb' }));
 
 const loginLimiter = rateLimit({
@@ -2469,7 +2472,11 @@ function isRemoteSessionArtifact(sessionId: string) {
   return !meta.cwd || !isAbsolute(meta.cwd) || !isConfiguredAllowedPath(meta.cwd);
 }
 
-async function readRemoteSessionArtifact(sessionId: string, requestedPath: string) {
+async function readRemoteSessionArtifact(
+  sessionId: string,
+  requestedPath: string,
+  edit?: { content: string; expectedContent: string },
+) {
   const meta = eventStore.getSession(sessionId);
   if (!meta?.accountBinding || !meta.cwd)
     throw new SessionArtifactUnavailableError(
@@ -2480,14 +2487,15 @@ async function readRemoteSessionArtifact(sessionId: string, requestedPath: strin
     readRuntime: (id, binding) => getCodexConversationStore().readArtifactRuntime(id, binding),
     currentRoute: (binding) => {
       const profiles = loadAccountProfiles();
+      const model = meta.selectedModel ?? binding.model;
       if (binding.provider === 'openai') {
         const profile = profiles.apiProfile(binding);
         if (!profile.sandboxProvider) throw Error('Sandbox provider unavailable');
-        return { kind: 'api', provider: profile.sandboxProvider, model: binding.model };
+        return { kind: 'api', provider: profile.sandboxProvider, model };
       }
       return selectedOpenShellAccountRoute({
         binding,
-        model: binding.model,
+        model,
         profile: profiles.codexProfile(binding),
       });
     },
@@ -2501,7 +2509,10 @@ async function readRemoteSessionArtifact(sessionId: string, requestedPath: strin
         runtime.sandboxName,
       );
     },
-    read: (runtime, path, signal, verify) => readOpenShellArtifact(runtime, path, verify, signal),
+    read: (runtime, path, signal, verify) =>
+      edit
+        ? writeOpenShellArtifact(runtime, path, edit.content, edit.expectedContent, verify, signal)
+        : readOpenShellArtifact(runtime, path, verify, signal),
   });
   return reader(sessionId, meta.accountBinding, meta.cwd, requestedPath);
 }
@@ -2887,18 +2898,41 @@ app.get('/api/files/download', async (req, res) => {
   }
 });
 
-app.put('/api/files/write', (req, res) => {
+app.put('/api/files/write', async (req, res) => {
   const body = FileWriteBody.safeParse(req.body);
   if (!body.success) {
     res.status(400).json({ error: 'path and content are required' });
     return;
   }
-  const { path: requestedPath, content, sessionId } = body.data;
+  const { path: requestedPath, content, sessionId, expectedContent } = body.data;
+  if (expectedContent === undefined) {
+    res.status(409).json({ error: 'Reopen the document in the updated editor before saving.' });
+    return;
+  }
+  if (
+    Buffer.byteLength(content) > MAX_PREVIEW_BYTES ||
+    Buffer.byteLength(expectedContent) > MAX_PREVIEW_BYTES
+  ) {
+    res.status(413).json({ error: 'Document is too large to edit (5 MB maximum)' });
+    return;
+  }
   if (sessionId && isRemoteSessionArtifact(sessionId)) {
-    res.status(409).json({
-      error:
-        'Editing this conversation’s sandbox workspace from the file viewer is unavailable. Ask the conversation to update the file.',
-    });
+    try {
+      const file = await readRemoteSessionArtifact(sessionId, requestedPath, {
+        content,
+        expectedContent,
+      });
+      res.json({ ok: true, path: file.path });
+    } catch (error) {
+      const known =
+        error instanceof OpenShellArtifactReadError ||
+        error instanceof SessionArtifactUnavailableError;
+      res.status(known ? error.status : 503).json({
+        error: known
+          ? error.message
+          : 'Sandbox document could not be saved. Your draft is preserved.',
+      });
+    }
     return;
   }
 
@@ -2912,14 +2946,16 @@ app.put('/api/files/write', (req, res) => {
     return;
   }
   try {
-    writeFileSync(filePath, content, 'utf-8');
+    writeHostArtifact(filePath, content, expectedContent);
     res.json({ ok: true, path: filePath });
   } catch (err: unknown) {
     log.error('failed to write file', {
       path: filePath,
       error: err instanceof Error ? err.message : 'unknown',
     });
-    res.status(500).json({ error: 'Failed to write file' });
+    res.status(err instanceof OpenShellArtifactReadError ? err.status : 500).json({
+      error: err instanceof OpenShellArtifactReadError ? err.message : 'Failed to write file',
+    });
   }
 });
 
