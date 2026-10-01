@@ -81,6 +81,44 @@ describe('ShareButton', () => {
     expect(screen.getByRole('button', { name: 'Share file' })).toBeTruthy();
   });
 
+  it('does not apply an old share completion to a newly selected file', async () => {
+    let resolveShare!: (value: boolean) => void;
+    mockShareFile.mockImplementation(
+      () =>
+        new Promise<boolean>((resolve) => {
+          resolveShare = resolve;
+        }),
+    );
+    const { rerender } = render(<ShareButton filePath="old.md" sessionId="old-session" />);
+    await userEvent.click(screen.getByRole('button', { name: 'Share file' }));
+    rerender(<ShareButton filePath="new.md" sessionId="new-session" />);
+    expect((screen.getByRole('button', { name: 'Sharing...' }) as HTMLButtonElement).disabled).toBe(
+      true,
+    );
+    await act(async () => resolveShare(true));
+    expect(screen.getByRole('button', { name: 'Share file' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Shared' })).toBeNull();
+    mockShareFile.mockResolvedValue(false);
+    await userEvent.click(screen.getByRole('button', { name: 'Share file' }));
+    expect(mockShareFile).toHaveBeenLastCalledWith('new.md', 'new-session');
+  });
+
+  it('does not schedule feedback after unmounting a pending share', async () => {
+    let resolveShare!: (value: boolean) => void;
+    mockShareFile.mockImplementation(
+      () =>
+        new Promise<boolean>((resolve) => {
+          resolveShare = resolve;
+        }),
+    );
+    const { unmount } = render(<ShareButton filePath="old.md" />);
+    await userEvent.click(screen.getByRole('button', { name: 'Share file' }));
+    unmount();
+    const timeout = vi.spyOn(globalThis, 'setTimeout');
+    await act(async () => resolveShare(true));
+    expect(timeout).not.toHaveBeenCalled();
+  });
+
   it('stops event propagation on click', async () => {
     mockShareFile.mockResolvedValue(true);
     const parentClick = vi.fn();
