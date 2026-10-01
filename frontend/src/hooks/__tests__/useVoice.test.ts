@@ -414,6 +414,33 @@ describe('useVoice', () => {
       expect(mockStreamingRecorder.cancel).toHaveBeenCalledTimes(1);
     });
 
+    it('discards a late batch response after cancellation', async () => {
+      let respond!: (response: unknown) => void;
+      mockFetch.mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            respond = resolve;
+          }),
+      );
+      const { result } = renderHook(() => useVoice());
+      await act(async () => {
+        await result.current.startRecording();
+      });
+      act(() => {
+        mockWsClient.onError?.(new Event('error'));
+      });
+      let stopped!: Promise<string>;
+      await act(async () => {
+        stopped = result.current.stopRecording();
+        await Promise.resolve();
+      });
+      await act(async () => {
+        result.current.cancelRecording();
+        respond({ ok: true, json: async () => ({ text: 'cancelled words' }) });
+        expect(await stopped).toBe('');
+      });
+    });
+
     it('sends audio chunks to WS as they arrive', async () => {
       mockYapper = { ok: true, detail: { stt: true, tts: false } };
       const { result } = renderHook(() => useVoice());

@@ -104,6 +104,7 @@ export function useVoice(): UseVoiceReturn {
   const resolveCaptureDoneRef = useRef<(() => void) | null>(null);
   const audioSendRef = useRef<Promise<void>>(Promise.resolve());
   const captureIdRef = useRef(0);
+  const sttAbortRef = useRef<AbortController | null>(null);
   const mimeTypeRef = useRef<string | undefined>(undefined);
   const voicesFetchedRef = useRef(false);
   const voicesFetchRef = useRef<Promise<boolean> | null>(null);
@@ -290,12 +291,17 @@ export function useVoice(): UseVoiceReturn {
 
     try {
       const blob = await recorder.stop();
+      if (captureId !== captureIdRef.current) return '';
+      const controller = new AbortController();
+      sttAbortRef.current = controller;
       const fd = blobToFormData(blob);
 
       const res = await fetch(`${YAPPER_URL}/v1/transcribe`, {
         method: 'POST',
         body: fd,
+        signal: controller.signal,
       });
+      if (captureId !== captureIdRef.current) return '';
 
       if (!res.ok) {
         setError(`Transcription failed (${res.status})`);
@@ -303,24 +309,30 @@ export function useVoice(): UseVoiceReturn {
       }
 
       const data = await res.json();
-      return data.text || '';
+      return captureId === captureIdRef.current ? data.text || '' : '';
     } catch (err: unknown) {
+      if (captureId !== captureIdRef.current) return '';
       setError(err instanceof Error ? err.message : 'Transcription failed');
       return '';
     } finally {
-      setTranscribing(false);
-      setPartialTranscript('');
-      recorderRef.current = null;
-      wsClientRef.current?.close();
-      wsClientRef.current = null;
-      streamRecorderRef.current = null;
-      streamingActiveRef.current = false;
-      releaseStream();
+      if (captureId === captureIdRef.current) {
+        sttAbortRef.current = null;
+        setTranscribing(false);
+        setPartialTranscript('');
+        recorderRef.current = null;
+        wsClientRef.current?.close();
+        wsClientRef.current = null;
+        streamRecorderRef.current = null;
+        streamingActiveRef.current = false;
+        releaseStream();
+      }
     }
   }, [releaseStream, setPartialTranscript]);
 
   const cancelRecording = useCallback(() => {
     captureIdRef.current += 1;
+    sttAbortRef.current?.abort();
+    sttAbortRef.current = null;
     resolveCaptureDoneRef.current?.();
     finalResolveRef.current?.('');
     // Clean up streaming
