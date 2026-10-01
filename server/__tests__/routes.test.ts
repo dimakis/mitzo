@@ -2068,3 +2068,75 @@ it.each(['openai', 'openai-codex'] as const)(
     }
   },
 );
+
+describe('repository links to session worktree artifacts', () => {
+  const worktree = join(TEST_REPO, '.claude', 'worktrees', 'posted-artifact');
+  const relativeFile = 'architecture/discussions/platform/openshell-redteam-ci-budget.md';
+  const postedPath = join(TEST_REPO, relativeFile);
+  const actualPath = join(worktree, relativeFile);
+  let original: typeof eventStore.getSession | undefined;
+  beforeAll(() => {
+    mkdirSync(join(worktree, 'architecture/discussions/platform'), { recursive: true });
+    writeFileSync(actualPath, '# Worktree document');
+    symlinkSync('/etc', join(worktree, 'outside'));
+  });
+  beforeEach(() => {
+    original = vi.mocked(eventStore.getSession).getMockImplementation();
+    vi.mocked(eventStore.getSession).mockImplementation((id) =>
+      id === 'posted-artifact'
+        ? ({ sessionId: id, cwd: worktree, wtId: 'posted-artifact' } as ReturnType<
+            typeof eventStore.getSession
+          >)
+        : original!(id),
+    );
+  });
+  afterEach(() => vi.mocked(eventStore.getSession).mockImplementation(original!));
+  it('opens and downloads a missing main-repository link from its originating worktree', async () => {
+    for (const endpoint of ['read', 'download']) {
+      const res = await request(app)
+        .get(`/api/files/${endpoint}`)
+        .set('Cookie', authCookie)
+        .query({ path: postedPath, sessionId: 'posted-artifact' });
+      expect(res.status).toBe(200);
+      if (endpoint === 'read')
+        expect(res.body).toMatchObject({ path: actualPath, content: '# Worktree document' });
+      else expect(res.text).toBe('# Worktree document');
+    }
+  });
+  it('saves the resolved worktree file with the original-content guard', async () => {
+    const res = await request(app).put('/api/files/write').set('Cookie', authCookie).send({
+      path: postedPath,
+      sessionId: 'posted-artifact',
+      expectedContent: '# Worktree document',
+      content: '# Updated worktree',
+    });
+    expect(res.status).toBe(200);
+    expect(res.body.path).toBe(actualPath);
+    expect(readFileSync(actualPath, 'utf8')).toBe('# Updated worktree');
+    writeFileSync(actualPath, '# Worktree document');
+  });
+  it('does not guess a worktree without conversation identity', async () => {
+    const res = await request(app)
+      .get('/api/files/read')
+      .set('Cookie', authCookie)
+      .query({ path: postedPath });
+    expect(res.status).toBe(404);
+  });
+  it('preserves an existing explicit repository file', async () => {
+    writeFileSync(join(TEST_REPO, 'existing-main.md'), 'explicit main file');
+    writeFileSync(join(worktree, 'existing-main.md'), 'other worktree bytes');
+    const res = await request(app)
+      .get('/api/files/read')
+      .set('Cookie', authCookie)
+      .query({ path: join(TEST_REPO, 'existing-main.md'), sessionId: 'posted-artifact' });
+    expect(res.status).toBe(200);
+    expect(res.body.content).toBe('explicit main file');
+  });
+  it('refuses a candidate escaping the worktree through a symlink', async () => {
+    const res = await request(app)
+      .get('/api/files/read')
+      .set('Cookie', authCookie)
+      .query({ path: join(TEST_REPO, 'outside/passwd'), sessionId: 'posted-artifact' });
+    expect(res.status).toBe(404);
+  });
+});

@@ -2577,8 +2577,37 @@ function sessionArtifactRoot(sessionId: string | undefined): string | null {
 }
 
 function resolveArtifactPath(filePath: string, sessionId: string | undefined): string {
-  if (isAbsolute(filePath)) return resolve(filePath);
-  return resolve(sessionArtifactRoot(sessionId) ?? BASE_REPO, filePath);
+  const workspace = sessionArtifactRoot(sessionId);
+  if (!isAbsolute(filePath)) return resolve(workspace ?? BASE_REPO, filePath);
+  const requested = resolve(filePath);
+  if (!workspace || existsSync(requested) || !isAllowedPath(requested, sessionId)) return requested;
+
+  // Agents sometimes post the repository path after writing in its worktree.
+  // Resolve only missing links within that conversation's corresponding repo;
+  // never search other worktrees or replace an existing explicit file.
+  const repos = [BASE_REPO, ...Object.values(getRepoConfig().repos)].filter(Boolean);
+  for (const repo of repos) {
+    const parents = [
+      join(repo, '.claude', 'worktrees'),
+      join(repo, '.cursor', 'worktrees'),
+      `${repo}-sessions`,
+    ];
+    if (
+      !parents.some((parent) => resolve(parent) === dirname(resolve(workspace))) ||
+      !containsPath(repo, requested)
+    )
+      continue;
+    const suffix = relative(resolve(repo), requested);
+    if (/^\.(?:claude|cursor|git|mitzo)(?:[\/\\]|$)/.test(suffix)) continue;
+    const candidate = resolve(workspace, suffix);
+    if (
+      containsPath(workspace, candidate) &&
+      isAllowedPath(candidate, sessionId) &&
+      existsSync(candidate)
+    )
+      return candidate;
+  }
+  return requested;
 }
 
 function createAllowedPathChecker(sessionId?: string) {
