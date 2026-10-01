@@ -1,6 +1,9 @@
 import { useState, useRef, useEffect } from 'react';
 import { apiFetch } from '../lib/api-fetch';
 
+// Budget UTF-16 storage conservatively, including both undo and redo snapshots.
+const MAX_HISTORY_BYTES = 20 * 1024 * 1024;
+
 interface Draft {
   base: string;
   content: string;
@@ -72,6 +75,8 @@ export function useFileEditor(
   function handleEditChange(value: string) {
     if (inFlight.current || value === editContent) return;
     const next = [...history.slice(0, position + 1), value].slice(-100);
+    let bytes = next.reduce((total, snapshot) => total + snapshot.length * 2, 0);
+    while (next.length > 1 && bytes > MAX_HISTORY_BYTES) bytes -= next.shift()!.length * 2;
     setHistory(next);
     setPosition(next.length - 1);
     setEditContent(value);

@@ -131,3 +131,23 @@ it('reports failed draft backup and clears the warning after storage recovers', 
   act(() => result.current.handleEditChange('backed up now'));
   expect(result.current.draftStorageError).toBe('');
 });
+
+it('bounds large-document history while preserving recent undo, redo and branching', () => {
+  vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {});
+  const original = 'a'.repeat(3 * 1024 * 1024);
+  const version = (suffix: string) => original.slice(0, -1) + suffix;
+  const { result } = editor(original);
+  act(() => result.current.startEditing());
+  for (let i = 1; i <= 6; i++) act(() => result.current.handleEditChange(version(String(i))));
+  act(() => result.current.undo());
+  expect(result.current.editContent.endsWith('5')).toBe(true);
+  act(() => result.current.undo());
+  expect(result.current.editContent.endsWith('4')).toBe(true);
+  expect(result.current.canUndo).toBe(false);
+  act(() => result.current.redo());
+  expect(result.current.editContent.endsWith('5')).toBe(true);
+  act(() => result.current.handleEditChange(version('b')));
+  expect(result.current.canRedo).toBe(false);
+  act(() => result.current.undo());
+  expect(result.current.editContent.endsWith('5')).toBe(true);
+});
