@@ -17,7 +17,8 @@ export function ShareButton({ filePath, sessionId, className }: ShareButtonProps
   useEffect(() => {
     mountedRef.current = true;
     generationRef.current += 1;
-    setState(busyRef.current ? 'busy' : 'idle');
+    busyRef.current = false;
+    setState('idle');
     setError('');
     return () => {
       mountedRef.current = false;
@@ -47,8 +48,7 @@ export function ShareButton({ filePath, sessionId, className }: ShareButtonProps
         setError(err instanceof Error ? err.message : 'Could not share file. Try again.');
         setState('error');
       } finally {
-        busyRef.current = false;
-        if (mountedRef.current && generation !== generationRef.current) setState('idle');
+        if (generation === generationRef.current) busyRef.current = false;
       }
     },
     [filePath, sessionId],

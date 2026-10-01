@@ -2465,7 +2465,10 @@ function isRemoteSessionArtifact(sessionId: string) {
   } catch {
     /* Host API sessions do not have Codex conversation rows. */
   }
-  return Boolean(meta.cwd && isAbsolute(meta.cwd) && !isConfiguredAllowedPath(meta.cwd));
+  // An OpenAI binding does not establish that an unknown workspace is local.
+  // Only a recorded absolute cwd within the configured host roots can use
+  // host filesystem resolution when no sandbox receipt exists.
+  return !meta.cwd || !isAbsolute(meta.cwd) || !isConfiguredAllowedPath(meta.cwd);
 }
 
 async function readRemoteSessionArtifact(

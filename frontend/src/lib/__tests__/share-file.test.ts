@@ -44,6 +44,7 @@ describe('shareFile', () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.useRealTimers();
   });
 
   it('downloads file and triggers browser download when canShare is unavailable', async () => {
@@ -116,10 +117,78 @@ describe('shareFile', () => {
     expect(share.mock.calls[1][0].files[0].type).toBe('text/markdown');
   });
 
+  it('does not let an older pending share replace the latest prepared retry', async () => {
+    mockApiFetch.mockImplementation(async () => new Response('bytes'));
+    let rejectOld!: (reason: Error) => void;
+    const share = vi
+      .fn()
+      .mockImplementationOnce(
+        () =>
+          new Promise((_, reject) => {
+            rejectOld = reject;
+          }),
+      )
+      .mockRejectedValueOnce(new DOMException('Gesture expired', 'NotAllowedError'))
+      .mockResolvedValueOnce(undefined);
+    Object.defineProperty(navigator, 'canShare', { value: () => true, configurable: true });
+    Object.defineProperty(navigator, 'share', { value: share, configurable: true });
+    const old = shareFile('old.md');
+    const oldResult = old.catch((error: unknown) => error);
+    await vi.waitFor(() => expect(share).toHaveBeenCalledTimes(1));
+    await expect(shareFile('new.md')).rejects.toThrow('Tap Share again');
+    rejectOld(new DOMException('Gesture expired', 'NotAllowedError'));
+    expect(await oldResult).toMatchObject({ message: 'Tap Share again to open the share sheet.' });
+    const before = mockApiFetch.mock.calls.length;
+    await shareFile('new.md');
+    expect(mockApiFetch.mock.calls.length).toBe(before);
+    expect(share.mock.calls[2][0].files[0]).toBe(share.mock.calls[1][0].files[0]);
+  });
+
+  it('does not open a stale share sheet when an older download completes last', async () => {
+    let finishOld!: (response: Response) => void;
+    mockApiFetch
+      .mockImplementationOnce(
+        () =>
+          new Promise<Response>((resolve) => {
+            finishOld = resolve;
+          }),
+      )
+      .mockImplementation(async () => new Response('new bytes'));
+    const share = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'canShare', { value: () => true, configurable: true });
+    Object.defineProperty(navigator, 'share', { value: share, configurable: true });
+    const old = shareFile('old-download.md');
+    expect(await shareFile('new-download.md')).toBe(true);
+    finishOld(new Response('old bytes'));
+    expect(await old).toBe(false);
+    expect(share).toHaveBeenCalledTimes(1);
+    expect(share.mock.calls[0][0].files[0].name).toBe('new-download.md');
+  });
+
+  it('expires prepared bytes even after a different file fetch fails', async () => {
+    vi.useFakeTimers();
+    mockApiFetch.mockImplementation(async () => new Response('bytes'));
+    const share = vi
+      .fn()
+      .mockRejectedValueOnce(new DOMException('Gesture expired', 'NotAllowedError'))
+      .mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'canShare', { value: () => true, configurable: true });
+    Object.defineProperty(navigator, 'share', { value: share, configurable: true });
+    await expect(shareFile('prepared.md')).rejects.toThrow('Tap Share again');
+    mockApiFetch.mockRejectedValueOnce(new Error('Network unavailable'));
+    await expect(shareFile('other.md')).rejects.toThrow('Network unavailable');
+    expect(vi.getTimerCount()).toBe(0);
+    await vi.advanceTimersByTimeAsync(60_000);
+    const before = mockApiFetch.mock.calls.length;
+    await shareFile('prepared.md');
+    expect(mockApiFetch.mock.calls.length).toBe(before + 1);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
   it('reports unsupported native sharing without pretending a blob download saved the file', async () => {
     vi.spyOn(Capacitor, 'isNativePlatform').mockReturnValue(true);
     Object.defineProperty(navigator, 'canShare', { value: () => false, configurable: true });
-    mockApiFetch.mockResolvedValue(new Response('bytes'));
+    mockApiFetch.mockImplementation(async () => new Response('bytes'));
     await expect(shareFile('unsupported.bin')).rejects.toThrow('cannot share this file type');
     expect(createObjectURLSpy).not.toHaveBeenCalled();
   });

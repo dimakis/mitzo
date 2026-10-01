@@ -112,6 +112,17 @@ vi.mock('../chat.js', () => {
             accountBinding: { provider: id === 'remote-api-session' ? 'openai' : 'openai-codex' },
           };
         }
+        if (/^(unresolved|relative|host)-(api|subscription)-session$/.test(id)) {
+          return {
+            sessionId: id,
+            cwd: id.startsWith('host-')
+              ? repo
+              : id.startsWith('relative-')
+                ? 'relative/workspace'
+                : null,
+            accountBinding: { provider: id.includes('-api-') ? 'openai' : 'openai-codex' },
+          };
+        }
         if (id === 'untrusted-artifact-session') {
           return { sessionId: id, cwd: '/etc' };
         }
@@ -1829,5 +1840,59 @@ it.each(['remote-api-session', 'remote-subscription-session'])(
       .send({ path: 'report.md', content: 'my edit', expectedContent: 'original', sessionId });
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ ok: true, path: '/sandbox/workspaces/mgmt/report.md' });
+  },
+);
+
+it.each([
+  'unresolved-api-session',
+  'unresolved-subscription-session',
+  'relative-api-session',
+  'relative-subscription-session',
+])('rejects all filesystem actions for unresolved OpenAI origin %s', async (sessionId) => {
+  for (const endpoint of [
+    '/api/files/read',
+    '/api/files/download',
+    '/api/files',
+    '/api/files/list',
+  ]) {
+    const res = await request(app)
+      .get(endpoint)
+      .query({ path: 'test.txt', sessionId })
+      .set('Cookie', authCookie);
+    expect(res.status).toBe(409);
+    expect(res.body.error).toContain('workspace');
+    expect(res.body.entries).toBeUndefined();
+  }
+  const file = join(TEST_REPO, 'test.txt');
+  const original = readFileSync(file, 'utf8');
+  const res = await request(app)
+    .put('/api/files/write')
+    .set('Cookie', authCookie)
+    .send({ path: 'test.txt', content: 'must not overwrite host', sessionId });
+  expect(res.status).toBe(409);
+  expect(readFileSync(file, 'utf8')).toBe(original);
+});
+
+it.each(['host-api-session', 'host-subscription-session'])(
+  'preserves configured absolute host workspace access for %s',
+  async (sessionId) => {
+    for (const endpoint of [
+      '/api/files/read',
+      '/api/files/download',
+      '/api/files',
+      '/api/files/list',
+    ]) {
+      const res = await request(app)
+        .get(endpoint)
+        .query({ path: 'test.txt', sessionId })
+        .set('Cookie', authCookie);
+      expect(res.status).toBe(200);
+    }
+    const original = readFileSync(join(TEST_REPO, 'test.txt'), 'utf8');
+    const res = await request(app)
+      .put('/api/files/write')
+      .set('Cookie', authCookie)
+      .send({ path: 'test.txt', content: original, sessionId });
+    expect(res.status).toBe(200);
   },
 );
