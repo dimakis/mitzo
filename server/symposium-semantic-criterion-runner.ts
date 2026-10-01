@@ -1012,7 +1012,9 @@ export const SemanticCheckStateReportSchema = z.strictObject({
 export type SemanticCheckStateReport = z.infer<typeof SemanticCheckStateReportSchema>;
 /** Journal observation only. No process census, witness read, cleanup or evidence authority. */
 export function inspectOwnedSemanticCheckState(
-  deps: Pick<SemanticRunnerDependencies, 'db' | 'seal' | 'image' | 'withSnapshot'>,
+  deps: Pick<SemanticRunnerDependencies, 'db' | 'seal' | 'image' | 'withSnapshot'> & {
+    sealSourceCompatible?: boolean;
+  },
   raw: { fenceId: string; operationId: string; definition: SemanticCriterionDefinition },
   assertCurrent: () => void,
 ): SemanticCheckStateReport {
@@ -1046,7 +1048,8 @@ export function inspectOwnedSemanticCheckState(
       parent.fence_id !== input.fenceId ||
       input.fenceId !== deps.seal.fenceId ||
       parent.custody_digest !== deps.seal.custodyDigest ||
-      parent.helper_image !== deps.image ||
+      typeof parent.helper_image !== 'string' ||
+      !/^sha256:[a-f0-9]{64}$/.test(parent.helper_image) ||
       !parent.export_code_digest ||
       !CID.test(parent.export_code_digest) ||
       !['in_progress', 'complete', 'failed_cleaned'].includes(parent.state)
@@ -1097,7 +1100,10 @@ export function inspectOwnedSemanticCheckState(
       fenceId: input.fenceId,
       definitionDigest: hash(input.definition),
       parentState: parent.state,
-      sourceCompatible: parent.export_code_digest === runnerDigest(),
+      sourceCompatible:
+        deps.sealSourceCompatible !== false &&
+        parent.helper_image === deps.image &&
+        parent.export_code_digest === runnerDigest(),
       cases,
       retryAllowed: false as const,
       executionAuthorized: false as const,

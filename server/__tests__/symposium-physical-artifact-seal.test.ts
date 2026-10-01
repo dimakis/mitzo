@@ -2694,6 +2694,70 @@ it('reports an unwitnessed original semantic check without requiring helper abse
     });
     expect(f.command.mock.calls).toHaveLength(commands);
     expect(snapshot()).toEqual(before);
+    const originalSealRow = db
+      .prepare('SELECT receipt_json FROM symposium_physical_seal_jobs WHERE fence_id=?')
+      .get(seal.fenceId) as { receipt_json: string };
+    const originalBuildRows = snapshot() as Array<{
+      job_id: string;
+      helper_image: string;
+      export_code_digest: string;
+    }>;
+    for (const drift of ['seal-image', 'seal-code', 'helper-image', 'runner-code']) {
+      const historical = JSON.parse(originalSealRow.receipt_json);
+      if (drift === 'seal-image') historical.verifier.image = 'sha256:' + 'a'.repeat(64);
+      if (drift === 'seal-code') historical.verifier.codeDigest = 'b'.repeat(64);
+      db.prepare('UPDATE symposium_physical_seal_jobs SET receipt_json=? WHERE fence_id=?').run(
+        JSON.stringify(historical),
+        seal.fenceId,
+      );
+      if (drift === 'helper-image')
+        db.prepare('UPDATE symposium_seal_export_jobs SET helper_image=?').run(
+          'sha256:' + 'a'.repeat(64),
+        );
+      if (drift === 'runner-code')
+        db.prepare('UPDATE symposium_seal_export_jobs SET export_code_digest=?').run(
+          'b'.repeat(64),
+        );
+      const retainedRows = snapshot();
+      expect(
+        await f.sealer.getCompletedArtifactSemanticCheckState(input, signal, () => {}),
+      ).toMatchObject({
+        sourceCompatible: false,
+        executionAuthorized: false,
+        cleanupConfirmed: false,
+        semanticEvidenceAllowed: false,
+      });
+      expect(f.command.mock.calls).toHaveLength(commands);
+      expect(snapshot()).toEqual(retainedRows);
+      db.prepare('UPDATE symposium_physical_seal_jobs SET receipt_json=? WHERE fence_id=?').run(
+        originalSealRow.receipt_json,
+        seal.fenceId,
+      );
+      for (const row of originalBuildRows)
+        db.prepare(
+          'UPDATE symposium_seal_export_jobs SET helper_image=?,export_code_digest=? WHERE job_id=?',
+        ).run(row.helper_image, row.export_code_digest, row.job_id);
+    }
+    for (const field of ['id', 'image', 'codeDigest']) {
+      const malformed = JSON.parse(originalSealRow.receipt_json);
+      malformed.verifier[field] = 'unqualified';
+      db.prepare('UPDATE symposium_physical_seal_jobs SET receipt_json=? WHERE fence_id=?').run(
+        JSON.stringify(malformed),
+        seal.fenceId,
+      );
+      await expect(
+        f.sealer.getCompletedArtifactSemanticCheckState(input, signal, () => {}),
+      ).rejects.toThrow();
+      expect(f.command.mock.calls).toHaveLength(commands);
+    }
+    db.prepare('UPDATE symposium_physical_seal_jobs SET receipt_json=? WHERE fence_id=?').run(
+      originalSealRow.receipt_json,
+      seal.fenceId,
+    );
+    expect(
+      (await f.sealer.getCompletedArtifactSemanticCheckState(input, signal, () => {}))
+        .sourceCompatible,
+    ).toBe(true);
     await expect(
       f.sealer.getCompletedArtifactSemanticCheckState(input, signal, () => {
         throw Error('revoked');

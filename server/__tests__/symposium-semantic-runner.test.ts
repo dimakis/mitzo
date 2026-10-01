@@ -1246,3 +1246,37 @@ it('preserves incompatible historical source and rejects malformed journal state
     f.db.close();
   }
 });
+
+it('reports retained semantic helper builds without adopting incompatible image or runner code', async () => {
+  const f = fixture('lost-create');
+  const input = { fenceId: 'fence', operationId: 'semantic', definition };
+  try {
+    await expect(
+      runOwnedSemanticCriterion(f.deps, input, new AbortController().signal),
+    ).rejects.toThrow();
+    const { inspectOwnedSemanticCheckState } =
+      await import('../symposium-semantic-criterion-runner.js');
+    const before = f.db.prepare('SELECT * FROM symposium_seal_export_jobs ORDER BY job_id').all();
+    f.db
+      .prepare('UPDATE symposium_seal_export_jobs SET helper_image=?,export_code_digest=?')
+      .run('sha256:' + 'a'.repeat(64), 'b'.repeat(64));
+    const retained = f.db.prepare('SELECT * FROM symposium_seal_export_jobs ORDER BY job_id').all();
+    const report = inspectOwnedSemanticCheckState(f.deps, input, () => {});
+    expect(report.sourceCompatible).toBe(false);
+    expect(report.cleanupConfirmed).toBe(false);
+    expect(report.executionAuthorized).toBe(false);
+    expect(report.semanticEvidenceAllowed).toBe(false);
+    expect(f.db.prepare('SELECT * FROM symposium_seal_export_jobs ORDER BY job_id').all()).toEqual(
+      retained,
+    );
+    expect(retained).not.toEqual(before);
+    f.db
+      .prepare("UPDATE symposium_seal_export_jobs SET helper_image=? WHERE kind='semantic_case'")
+      .run('sha256:' + 'c'.repeat(64));
+    expect(() => inspectOwnedSemanticCheckState(f.deps, input, () => {})).toThrow();
+    f.db.prepare("UPDATE symposium_seal_export_jobs SET helper_image='unqualified'").run();
+    expect(() => inspectOwnedSemanticCheckState(f.deps, input, () => {})).toThrow();
+  } finally {
+    f.db.close();
+  }
+});

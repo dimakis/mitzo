@@ -1867,10 +1867,16 @@ export class PhysicalArtifactSealer {
     const read = () =>
       this.db
         .prepare(
-          "SELECT receipt_json,records_json,custody_digest FROM symposium_physical_seal_jobs WHERE fence_id=? AND phase='complete'",
+          "SELECT receipt_json,records_json,custody_digest,verifier_id FROM symposium_physical_seal_jobs WHERE fence_id=? AND phase='complete'",
         )
         .get(input.fenceId) as
-        { receipt_json: string; records_json: string; custody_digest: string } | undefined;
+        | {
+            receipt_json: string;
+            records_json: string;
+            custody_digest: string;
+            verifier_id: string | null;
+          }
+        | undefined;
     const row = read();
     if (!row || row.custody_digest !== hash(this.deps.gateway.stateDirectory))
       throw Error('Completed artifact seal custody is unavailable');
@@ -1890,8 +1896,11 @@ export class PhysicalArtifactSealer {
       receipt.intentDigest !== hash(JSON.stringify(intent)) ||
       receipt.retentionDigest !== hash(JSON.stringify(retention)) ||
       receipt.revocationDigest !== hash(row.records_json) ||
-      receipt.verifier.image !== TESTED_SYMPOSIUM_NATIVE_BUILD.image ||
-      receipt.verifier.codeDigest !== hash(ARTIFACT_GIT_VERIFIER)
+      !receipt.verifier ||
+      receipt.verifier.id !== row.verifier_id ||
+      !/^[a-f0-9]{64}$/.test(receipt.verifier.id) ||
+      !/^sha256:[a-f0-9]{64}$/.test(receipt.verifier.image) ||
+      !/^[a-f0-9]{64}$/.test(receipt.verifier.codeDigest)
     )
       throw Error('Completed artifact seal identity changed');
     const snapshot = (operation: () => void) =>
@@ -1918,6 +1927,9 @@ export class PhysicalArtifactSealer {
         db: this.db,
         seal: receipt,
         image: TESTED_SYMPOSIUM_NATIVE_BUILD.image,
+        sealSourceCompatible:
+          receipt.verifier.image === TESTED_SYMPOSIUM_NATIVE_BUILD.image &&
+          receipt.verifier.codeDigest === hash(ARTIFACT_GIT_VERIFIER),
         withSnapshot: snapshot,
       },
       input,
