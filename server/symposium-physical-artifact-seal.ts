@@ -1,3 +1,4 @@
+import { SemanticCidWitnessOwner } from './symposium-semantic-cid-witness.js';
 import {
   ArtifactReaderReferenceV1Schema,
   type ArtifactReaderReferenceV1,
@@ -208,6 +209,12 @@ function parseSealedBundle(value: Record<string, unknown>, maxBytes: number): Bu
 }
 
 export class PhysicalArtifactSealer {
+  private cidWitness?: SemanticCidWitnessOwner;
+  private semanticCidWitness() {
+    return (this.cidWitness ??= new SemanticCidWitnessOwner(
+      this.deps.leaseHost.snapshotDatabasePath(),
+    ));
+  }
   private readonly db: Database.Database;
   private readonly activeReviewStreams = new Set<string>();
   private readonly command: ArtifactPodmanCommand;
@@ -254,6 +261,8 @@ export class PhysicalArtifactSealer {
     const exportColumns = this.db.pragma('table_info(symposium_seal_export_jobs)') as {
       name: string;
     }[];
+    if (!exportColumns.some((row) => row.name === 'cid_witness_json'))
+      this.db.exec('ALTER TABLE symposium_seal_export_jobs ADD COLUMN cid_witness_json TEXT');
     if (!exportColumns.some((row) => row.name === 'helper_image'))
       this.db.exec('ALTER TABLE symposium_seal_export_jobs ADD COLUMN helper_image TEXT');
     if (!exportColumns.some((row) => row.name === 'export_code_digest'))
@@ -511,6 +520,7 @@ export class PhysicalArtifactSealer {
     fenceId: string,
     signal: AbortSignal,
     semantic?: { fenceId: string; operationId: string; definition: SemanticCriterionDefinition },
+    assertCurrent?: () => void,
   ): Promise<CompletedArtifactSeal> {
     if (!/^[a-f0-9-]{36}$/.test(fenceId)) throw new Error('Artifact seal identity is invalid');
     signal.throwIfAborted();
@@ -587,10 +597,21 @@ export class PhysicalArtifactSealer {
     await this.absent(records, signal);
     const allowed = this.allowedSealedReaderLeases(intent);
     if (semantic) {
+      const current = () => {
+        signal.throwIfAborted();
+        assertCurrent?.();
+      };
+      const guarded = async <T>(operation: () => Promise<T>) => {
+        current();
+        const value = await operation();
+        current();
+        return value;
+      };
       const owned = await inspectSemanticCleanupOwners(
         {
           db: this.db,
-          command: this.command,
+          cidWitness: this.semanticCidWitness(),
+          command: (...args) => guarded(() => this.command(...args)),
           seal: receipt,
           volume: intent.selection.artifact.volumeName,
           image: TESTED_SYMPOSIUM_NATIVE_BUILD.image,
@@ -598,12 +619,16 @@ export class PhysicalArtifactSealer {
           requireSeal: async () => {
             throw Error('Cleanup qualification cannot grant a seal');
           },
-          custody: () => this.custody(),
+          custody: () => guarded(() => this.custody()),
           checkFile: async () => {
             throw Error('Cleanup qualification cannot execute artifacts');
           },
           withSnapshot: (operation) =>
-            this.deps.store.withSymposiumHistoricalArtifactSealSnapshot(intent, operation),
+            this.deps.store.withSymposiumHistoricalArtifactSealSnapshot(intent, () => {
+              current();
+              operation();
+              current();
+            }),
         },
         semantic,
       );
@@ -1800,6 +1825,7 @@ export class PhysicalArtifactSealer {
     return runOwnedSemanticCriterion(
       {
         db: this.db,
+        cidWitness: this.semanticCidWitness(),
         command: this.command,
         seal,
         volume: intent.selection.artifact.volumeName,
@@ -1838,19 +1864,22 @@ export class PhysicalArtifactSealer {
       current();
       return value;
     };
-    const seal = await guarded(() => this.requireCompletedForCleanup(input.fenceId, signal, input));
+    const seal = await guarded(() =>
+      this.requireCompletedForCleanup(input.fenceId, signal, input, current),
+    );
     const intent = this.deps.store.getSymposiumArtifactSealByFence(seal.fenceId)!;
     return guarded(() =>
       reconcileOwnedSemanticCriterion(
         {
           db: this.db,
+          cidWitness: this.semanticCidWitness(),
           command: (...args) => guarded(() => this.command(...args)),
           seal,
           volume: intent.selection.artifact.volumeName,
           image: TESTED_SYMPOSIUM_NATIVE_BUILD.image,
           target: SYMPOSIUM_ARTIFACT_TARGET,
           requireSeal: () =>
-            guarded(() => this.requireCompletedForCleanup(input.fenceId, signal, input)),
+            guarded(() => this.requireCompletedForCleanup(input.fenceId, signal, input, current)),
           custody: () => guarded(() => this.custody()),
           checkFile: async () => {
             throw Error('Cleanup cannot execute artifacts');

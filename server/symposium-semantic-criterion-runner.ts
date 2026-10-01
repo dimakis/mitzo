@@ -13,6 +13,11 @@ import {
   classifySemanticAttachedNonzero,
   type ArtifactPodmanCommand,
 } from './symposium-artifact-host.js';
+import {
+  SemanticCidWitnessOwner,
+  semanticCidWitnessDigest,
+  type SemanticCidWitnessBinding,
+} from './symposium-semantic-cid-witness.js';
 const hash = (value: unknown) =>
   createHash('sha256').update(canonicalReviewJson(value)).digest('hex');
 const CAPS = new Set([
@@ -80,6 +85,7 @@ type Row = {
   receipt_json: string | null;
   helper_image: string | null;
   export_code_digest: string | null;
+  cid_witness_json?: string | null;
 };
 type CaseReceipt = {
   id: string;
@@ -89,6 +95,7 @@ type CaseReceipt = {
 };
 export type SemanticRunnerDependencies = {
   db: Database.Database;
+  cidWitness?: SemanticCidWitnessOwner;
   command: ArtifactPodmanCommand;
   seal: Seal;
   volume: string;
@@ -186,6 +193,60 @@ async function inspectOwned(deps: SemanticRunnerDependencies, row: Row) {
     throw Error('Semantic helper isolation changed');
   return c as { State: { Status?: string; Running: boolean; ExitCode: number } };
 }
+function witnessBinding(row: Row): SemanticCidWitnessBinding {
+  if (!row.export_code_digest || !row.helper_image)
+    throw Error('Semantic witness source unavailable');
+  return {
+    jobId: row.job_id,
+    fenceId: row.fence_id,
+    operationId: row.operation_id,
+    inputJson: row.input_json,
+    custodyDigest: row.custody_digest,
+    codeDigest: row.export_code_digest,
+    image: row.helper_image,
+  };
+}
+/** Original private witness, never a name-based replacement or execution permit. */
+async function recoverWitnessCid(deps: SemanticRunnerDependencies, row: Row, parent: Row) {
+  if (row.container_id) return;
+  if (!deps.cidWitness || !row.cid_witness_json || row.state !== 'create_uncertain')
+    throw Error('Unknown semantic creation CID requires reconciliation');
+  const manifest: unknown = JSON.parse(row.cid_witness_json);
+  const cid = deps.cidWitness.read(manifest, witnessBinding(row));
+  await deps.custody();
+  deps.withSnapshot(() => {});
+  await inspectOwned(deps, { ...row, container_id: cid });
+  await deps.custody();
+  deps.withSnapshot(() => {});
+  if (deps.cidWitness.read(manifest, witnessBinding(row)) !== cid)
+    throw Error('Original semantic witness changed');
+  deps.db
+    .transaction(() => {
+      deps.withSnapshot(() => {});
+      const current = deps.db
+        .prepare('SELECT * FROM symposium_seal_export_jobs WHERE job_id=?')
+        .get(row.job_id);
+      const currentParent = deps.db
+        .prepare('SELECT * FROM symposium_seal_export_jobs WHERE job_id=?')
+        .get(parent.job_id);
+      if (
+        parent.state !== 'in_progress' ||
+        canonicalReviewJson(current) !== canonicalReviewJson(row) ||
+        canonicalReviewJson(currentParent) !== canonicalReviewJson(parent)
+      )
+        throw Error('Original semantic witness journal changed');
+      if (
+        deps.db
+          .prepare(
+            "UPDATE symposium_seal_export_jobs SET container_id=? WHERE job_id=? AND state='create_uncertain' AND container_id IS NULL AND cid_witness_json=?",
+          )
+          .run(cid, row.job_id, row.cid_witness_json).changes !== 1
+      )
+        throw Error('Original semantic witness CAS changed');
+    })
+    .immediate();
+  row.container_id = cid;
+}
 async function removeOwned(deps: SemanticRunnerDependencies, row: Row) {
   const deadline = performance.now() + 30000,
     retained = deps.command;
@@ -265,6 +326,11 @@ function runnerDigest() {
     compareOutput.toString(),
     ArtifactCommandTerminalNonzero.toString(),
     classifySemanticAttachedNonzero.toString(),
+    SemanticCidWitnessOwner.toString(),
+    semanticCidWitnessDigest.toString(),
+    semanticCidWitnessDigest(),
+    witnessBinding.toString(),
+    recoverWitnessCid.toString(),
     inspectOwned.toString(),
     removeOwned.toString(),
     boundedCommand.toString(),
@@ -471,9 +537,46 @@ export async function runOwnedSemanticCriterion(
       await deps.custody();
       deps.withSnapshot(() => {});
       active('create_uncertain');
+      let witnessPath: string | undefined;
+      if (deps.cidWitness) {
+        const originalRow = deps.db
+          .prepare('SELECT * FROM symposium_seal_export_jobs WHERE job_id=?')
+          .get(id) as Row;
+        if (
+          originalRow.input_json !== row.input_json ||
+          originalRow.custody_digest !== row.custody_digest ||
+          originalRow.export_code_digest !== codeDigest ||
+          originalRow.container_name !== row.container_name
+        )
+          throw Error('Original semantic witness preparation binding changed');
+        const manifest = deps.cidWitness.prepare(witnessBinding(row));
+        row.cid_witness_json = canonicalReviewJson(manifest);
+        deps.db
+          .transaction(() => {
+            deps.withSnapshot(() => {});
+            active('create_uncertain');
+            if (
+              canonicalReviewJson(
+                deps.db.prepare('SELECT * FROM symposium_seal_export_jobs WHERE job_id=?').get(id),
+              ) !== canonicalReviewJson(originalRow)
+            )
+              throw Error('Original semantic witness preparation snapshot changed');
+            if (
+              deps.db
+                .prepare(
+                  "UPDATE symposium_seal_export_jobs SET cid_witness_json=? WHERE job_id=? AND state='create_uncertain' AND container_id IS NULL AND cid_witness_json IS NULL",
+                )
+                .run(row.cid_witness_json, id).changes !== 1
+            )
+              throw Error('Original semantic witness preparation changed');
+          })
+          .immediate();
+        witnessPath = manifest.path;
+      }
       const path = artifactPath(deps, definition.path);
       const createdArgs = [
         'create',
+        ...(witnessPath ? ['--cidfile', witnessPath] : []),
         '--interactive',
         '--pull=never',
         '--name',
@@ -688,17 +791,41 @@ export async function reconcileOwnedSemanticCriterion(
     signal.throwIfAborted();
     await deps.custody();
     deps.withSnapshot(() => {});
-    const census: unknown = JSON.parse(
-      await deps.command(['ps', '--all', '--no-trunc', '--format', 'json']),
-    );
-    if (
-      !Array.isArray(census) ||
-      census.length > 128 ||
-      census.some((c) => !CID.test(String(c?.Id ?? c?.ID ?? '')))
-    )
-      throw Error('Semantic census unavailable');
-    if (!row.container_id) throw Error('Unknown semantic creation CID requires reconciliation');
-    if (census.some((c) => (c.Id ?? c.ID) === row.container_id)) await removeOwned(deps, row);
+    const census = async () => {
+      signal.throwIfAborted();
+      await deps.custody();
+      deps.withSnapshot(() => {});
+      const current: unknown = JSON.parse(
+        await deps.command(['ps', '--all', '--no-trunc', '--format', 'json']),
+      );
+      signal.throwIfAborted();
+      await deps.custody();
+      deps.withSnapshot(() => {});
+      if (
+        !Array.isArray(current) ||
+        current.length > 128 ||
+        current.some((c) => !CID.test(String(c?.Id ?? c?.ID ?? ''))) ||
+        current.some(
+          (c) =>
+            row.container_id &&
+            Array.isArray(c?.Names) &&
+            c.Names.includes(row.container_name) &&
+            (c.Id ?? c.ID) !== row.container_id,
+        )
+      )
+        throw Error('Semantic census unavailable or original name replaced');
+      return current;
+    };
+    // Creation may finish while the original census is in flight. A recovered
+    // witness must never turn that earlier snapshot into an absence proof.
+    let current = await census();
+    if (!row.container_id) {
+      await recoverWitnessCid(deps, row, parent);
+      current = await census();
+    }
+    if (current.some((c) => (c.Id ?? c.ID) === row.container_id)) await removeOwned(deps, row);
+    if ((await census()).some((c) => (c.Id ?? c.ID) === row.container_id))
+      throw Error('Original semantic helper absence requires reconciliation');
     deps.db
       .prepare(
         "UPDATE symposium_seal_export_jobs SET state='failed_cleaned' WHERE job_id=? AND state!='complete'",
@@ -824,15 +951,15 @@ export async function inspectSemanticCleanupOwners(
       !CID.test(retained.sourceSha256) ||
       row.input_json !==
         canonicalReviewJson({ input, caseId: item.id, sourceSha256: retained.sourceSha256 }) ||
-      !row.container_id ||
-      !CID.test(row.container_id)
+      (row.container_id !== null && !CID.test(row.container_id))
     )
       throw Error('Known original semantic cleanup identity unavailable');
+    if (!row.container_id) await recoverWitnessCid(deps, row, parent);
     selected.add(row.job_id);
     if (census.some((c) => (c.Id ?? c.ID) === row.container_id)) {
       await deps.custody();
       await inspectOwned(deps, row);
-      allowed.add(row.container_id);
+      allowed.add(row.container_id!);
     }
   }
   const unfinished = deps.db

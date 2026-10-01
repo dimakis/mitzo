@@ -2508,3 +2508,139 @@ it('rechecks trusted cleanup authority after awaited stop before another inspect
     db.close();
   }
 });
+
+it('real retained sealer qualifies only a complete original local CID witness for cleanup after stdout loss', async () => {
+  const f = await fixture(),
+    signal = new AbortController().signal;
+  const seal = await f.sealer.seal(f.input, f.runtime, signal);
+  const input = {
+    fenceId: seal.fenceId,
+    operationId: 'local-witness-cleanup',
+    definition: {
+      version: 1 as const,
+      kind: 'python-json-cases' as const,
+      id: 'echo',
+      criterion: 'Echo JSON',
+      path: 'main.py',
+      cases: [{ id: 'one', input: null, expected: 0 }],
+    },
+  };
+  const { writeFileSync } = await import('node:fs');
+  const original = f.command.getMockImplementation()!;
+  let creates = 0,
+    starts = 0;
+  f.command.mockImplementation(async (...args) => {
+    const value = await original(...args);
+    if (args[0][0] === 'start' && args[0].includes('--interactive')) starts++;
+    if (args[0][0] === 'create' && args[0].includes('-B')) {
+      creates++;
+      const db = new Database(f.host.snapshotDatabasePath());
+      try {
+        const row = db
+          .prepare("SELECT * FROM symposium_seal_export_jobs WHERE kind='semantic_case'")
+          .get() as { cid_witness_json: string };
+        const manifest = JSON.parse(row.cid_witness_json);
+        expect(args[0][args[0].indexOf('--cidfile') + 1]).toBe(manifest.path);
+        writeFileSync(manifest.path, value);
+      } finally {
+        db.close();
+      }
+      throw Error('lost create stdout after complete local CID write');
+    }
+    return value;
+  });
+  await expect(f.sealer.checkCompletedArtifactSemantic(input, signal)).rejects.toThrow();
+  await expect(f.sealer.requireCompleted(seal.fenceId, signal)).rejects.toThrow();
+  await expect(f.sealer.reconcileCompletedArtifactSemantic(input, signal)).resolves.toMatchObject({
+    state: 'failed_cleaned',
+    retryAllowed: false,
+  });
+  expect(creates).toBe(1);
+  expect(starts).toBe(0);
+  const db = new Database(f.host.snapshotDatabasePath());
+  try {
+    expect(
+      db
+        .prepare(
+          "SELECT state,container_id FROM symposium_seal_export_jobs WHERE kind='semantic_case'",
+        )
+        .get(),
+    ).toEqual({ state: 'failed_cleaned', container_id: 'e'.repeat(64) });
+  } finally {
+    db.close();
+  }
+  await expect(f.sealer.requireCompleted(seal.fenceId, signal)).resolves.toMatchObject({
+    fenceId: seal.fenceId,
+  });
+});
+
+it.each(['pre-write', 'partial', 'request-revoked'])(
+  'real sealer leaves unknown CID untouched when original witness is %s',
+  async (mode) => {
+    const f = await fixture(),
+      signal = new AbortController().signal,
+      seal = await f.sealer.seal(f.input, f.runtime, signal);
+    const input = {
+      fenceId: seal.fenceId,
+      operationId: 'unknown-witness-' + mode,
+      definition: {
+        version: 1 as const,
+        kind: 'python-json-cases' as const,
+        id: 'echo',
+        criterion: 'Echo JSON',
+        path: 'main.py',
+        cases: [{ id: 'one', input: null, expected: 0 }],
+      },
+    };
+    const { writeFileSync } = await import('node:fs');
+    const original = f.command.getMockImplementation()!;
+    let reconciling = false,
+      current = true;
+    f.command.mockImplementation(async (...args) => {
+      const result = await original(...args);
+      if (args[0][0] === 'create' && args[0].includes('-B')) {
+        const path = args[0][args[0].indexOf('--cidfile') + 1];
+        if (mode !== 'pre-write') writeFileSync(path, mode === 'partial' ? 'e'.repeat(63) : result);
+        throw Error('original local create response unavailable');
+      }
+      if (
+        reconciling &&
+        mode === 'request-revoked' &&
+        args[0][0] === 'inspect' &&
+        args[0][1] === 'e'.repeat(64)
+      )
+        current = false;
+      return result;
+    });
+    await expect(f.sealer.checkCompletedArtifactSemantic(input, signal)).rejects.toThrow();
+    reconciling = true;
+    const before = f.command.mock.calls.length;
+    await expect(
+      f.sealer.reconcileCompletedArtifactSemantic(input, signal, () => {
+        if (!current) throw Error('request revoked during witness observation');
+      }),
+    ).rejects.toThrow();
+    expect(
+      f.command.mock.calls
+        .slice(before)
+        .some((c) => ['create', 'start', 'stop', 'rm'].includes(c[0][0])),
+    ).toBe(false);
+    const db = new Database(f.host.snapshotDatabasePath());
+    try {
+      expect(
+        db
+          .prepare(
+            "SELECT state,container_id FROM symposium_seal_export_jobs WHERE kind='semantic_case'",
+          )
+          .get(),
+      ).toEqual({ state: 'create_uncertain', container_id: null });
+      expect(
+        db
+          .prepare('SELECT state FROM symposium_seal_export_jobs WHERE operation_id=?')
+          .get(input.operationId),
+      ).toEqual({ state: 'in_progress' });
+    } finally {
+      db.close();
+    }
+  },
+);
