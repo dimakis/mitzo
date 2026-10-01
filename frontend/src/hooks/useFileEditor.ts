@@ -81,6 +81,7 @@ export function useFileEditor(
   }
   function resetEditor() {
     if (inFlight.current) return;
+    persist(base);
     setEditing(false);
     setError('');
   }

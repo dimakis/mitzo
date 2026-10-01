@@ -1,9 +1,11 @@
 import React, { useDeferredValue, useRef, useState } from 'react';
-import ReactMarkdown from 'react-markdown';
+import ReactMarkdown, { type Components, type UrlTransform } from 'react-markdown';
 import { remarkPlugins, rehypePlugins } from '../lib/markdown-config';
 import { HtmlPreview } from './HtmlPreview';
 
 interface Props {
+  markdownComponents?: Components;
+  urlTransform?: UrlTransform;
   content: string;
   ext: string;
   onChange(value: string): void;
@@ -140,7 +142,12 @@ export function DocumentEditor(props: Props) {
           <div className="document-editor-preview" aria-label="Unsaved preview">
             {markdown ? (
               <div className="viewer-markdown">
-                <ReactMarkdown remarkPlugins={remarkPlugins} rehypePlugins={rehypePlugins}>
+                <ReactMarkdown
+                  remarkPlugins={remarkPlugins}
+                  rehypePlugins={rehypePlugins}
+                  components={props.markdownComponents}
+                  urlTransform={props.urlTransform}
+                >
                   {preview}
                 </ReactMarkdown>
               </div>

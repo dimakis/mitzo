@@ -3,6 +3,7 @@ import {
   openSync,
   closeSync,
   fstatSync,
+  fchmodSync,
   readFileSync,
   writeFileSync,
   fsyncSync,
@@ -26,7 +27,10 @@ export function writeHostArtifact(path: string, content: string, expectedContent
   try {
     const before = fstatSync(fd);
     if (!before.isFile() || before.nlink !== 1)
-      throw new OpenShellArtifactReadError(403, 'Document is not a regular unlinked file');
+      throw new OpenShellArtifactReadError(
+        403,
+        'Document is not a regular file with a single link',
+      );
     if (before.size > 5 * 1024 * 1024)
       throw new OpenShellArtifactReadError(413, 'Document is too large to edit');
     if (expectedContent !== undefined && !readFileSync(fd).equals(Buffer.from(expectedContent)))
@@ -39,6 +43,7 @@ export function writeHostArtifact(path: string, content: string, expectedContent
       constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL,
       before.mode & 0o777,
     );
+    fchmodSync(output, before.mode & 0o777);
     writeFileSync(output, content, 'utf8');
     fsyncSync(output);
     const current = lstatSync(path);

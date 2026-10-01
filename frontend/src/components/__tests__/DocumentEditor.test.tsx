@@ -44,3 +44,26 @@ describe('document editor', () => {
     expect(screen.queryByRole('button', { name: 'Bold' })).toBeNull();
   });
 });
+
+it('uses the viewer link policy in unsaved Markdown previews', () => {
+  render(
+    <DocumentEditor
+      content="[Notes](notes.md)"
+      ext=".md"
+      onChange={vi.fn()}
+      saving={false}
+      onSave={vi.fn()}
+      undo={vi.fn()}
+      redo={vi.fn()}
+      canUndo={false}
+      canRedo={false}
+      markdownComponents={{
+        a: ({ children }) => <a href="/files?path=notes.md&sessionId=original">{children}</a>,
+      }}
+    />,
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
+  expect(screen.getByRole('link', { name: 'Notes' }).getAttribute('href')).toBe(
+    '/files?path=notes.md&sessionId=original',
+  );
+});

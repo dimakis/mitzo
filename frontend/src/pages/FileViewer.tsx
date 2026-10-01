@@ -212,6 +212,13 @@ function FileViewerDocument() {
 
         {!state.loading && !state.error && state.isViewing && editor.editing && (
           <DocumentEditor
+            markdownComponents={artifactMarkdownComponents(
+              state.filePath,
+              state.sessionId || undefined,
+              location.pathname + location.search,
+              routerNavigate,
+            )}
+            urlTransform={artifactUrlTransform}
             content={editor.editContent}
             ext={state.ext}
             onChange={editor.handleEditChange}

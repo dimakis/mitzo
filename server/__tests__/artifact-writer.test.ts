@@ -1,3 +1,4 @@
+import type { ArtifactWriteRunner } from '../artifact-writer.js';
 import { execFileSync } from 'node:child_process';
 import {
   mkdtempSync,
@@ -59,11 +60,12 @@ describe('atomic artifact editing', () => {
   });
   it('verifies sandbox identity around the write and sends content over stdin', async () => {
     const verify = vi.fn(async () => {});
-    const run = vi.fn(async () =>
+    const run = vi.fn<ArtifactWriteRunner>(async () =>
       JSON.stringify({ path: '/sandbox/workspaces/mgmt/report.md', ok: true }),
     );
     const runtime = {
       cli: 'openshell',
+      gatewayInsecure: false,
       gateway: 'local',
       workspace: 'default',
       sandboxName: 'conversation-1',
