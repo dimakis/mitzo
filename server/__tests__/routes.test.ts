@@ -2115,6 +2115,29 @@ describe('repository links to session worktree artifacts', () => {
     expect(readFileSync(actualPath, 'utf8')).toBe('# Updated worktree');
     writeFileSync(actualPath, '# Worktree document');
   });
+  it('resolves a configured secondary repository through the recorded worktree ID', async () => {
+    const chat = await import('../chat.js');
+    const getConfig = vi.mocked(chat.getRepoConfig);
+    const originalConfig = getConfig.getMockImplementation()!;
+    const secondary = join(TEST_REPO, 'secondary-repo');
+    const secondaryWorktree = join(secondary, '.cursor', 'worktrees', 'posted-artifact');
+    mkdirSync(join(secondaryWorktree, 'outputs'), { recursive: true });
+    writeFileSync(join(secondaryWorktree, 'outputs/report.md'), '# Secondary artifact');
+    getConfig.mockImplementation(() => ({ ...originalConfig(), repos: { secondary } }));
+    try {
+      const res = await request(app)
+        .get('/api/files/read')
+        .set('Cookie', authCookie)
+        .query({ path: join(secondary, 'outputs/report.md'), sessionId: 'posted-artifact' });
+      expect(res.status).toBe(200);
+      expect(res.body).toMatchObject({
+        path: join(secondaryWorktree, 'outputs/report.md'),
+        content: '# Secondary artifact',
+      });
+    } finally {
+      getConfig.mockImplementation(originalConfig);
+    }
+  });
   it('does not guess a worktree without conversation identity', async () => {
     const res = await request(app)
       .get('/api/files/read')

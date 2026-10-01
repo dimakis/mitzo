@@ -2585,27 +2585,43 @@ function resolveArtifactPath(filePath: string, sessionId: string | undefined): s
   // Agents sometimes post the repository path after writing in its worktree.
   // Resolve only missing links within that conversation's corresponding repo;
   // never search other worktrees or replace an existing explicit file.
-  const repos = [BASE_REPO, ...Object.values(getRepoConfig().repos)].filter(Boolean);
+  const repos = [
+    ...new Set([BASE_REPO, ...Object.values(getRepoConfig().repos)].filter(Boolean)),
+  ].sort((a, b) => resolve(b).length - resolve(a).length);
+  const parentsFor = (repo: string) => [
+    join(repo, '.claude', 'worktrees'),
+    join(repo, '.cursor', 'worktrees'),
+    `${repo}-sessions`,
+  ];
+  if (
+    !repos.some((repo) =>
+      parentsFor(repo).some((parent) => resolve(parent) === dirname(resolve(workspace))),
+    )
+  )
+    return requested;
+  const worktreeId = basename(workspace);
+  const recordedId = sessionId ? eventStore.getSession(sessionId)?.wtId : undefined;
+  if (recordedId && recordedId !== worktreeId) return requested;
   for (const repo of repos) {
-    const parents = [
-      join(repo, '.claude', 'worktrees'),
-      join(repo, '.cursor', 'worktrees'),
-      `${repo}-sessions`,
-    ];
-    if (
-      !parents.some((parent) => resolve(parent) === dirname(resolve(workspace))) ||
-      !containsPath(repo, requested)
-    )
-      continue;
+    if (!containsPath(repo, requested)) continue;
     const suffix = relative(resolve(repo), requested);
-    if (['.claude', '.cursor', '.git', '.mitzo'].includes(suffix.split(sep)[0])) continue;
-    const candidate = resolve(workspace, suffix);
-    if (
-      containsPath(workspace, candidate) &&
-      isAllowedPath(candidate, sessionId) &&
-      existsSync(candidate)
-    )
-      return candidate;
+    if (['.claude', '.cursor', '.git', '.mitzo'].includes(suffix.split(sep)[0])) return requested;
+    const workspaces = parentsFor(repo).map((parent) => join(parent, worktreeId));
+    workspaces.sort(
+      (a, b) =>
+        Number(resolve(b) === resolve(workspace)) - Number(resolve(a) === resolve(workspace)),
+    );
+    for (const target of workspaces) {
+      const candidate = resolve(target, suffix);
+      if (
+        containsPath(target, candidate) &&
+        isAllowedPath(candidate, sessionId) &&
+        existsSync(candidate)
+      )
+        return candidate;
+    }
+    // A nested configured repository owns its path; do not substitute a parent repo copy.
+    return requested;
   }
   return requested;
 }
