@@ -35,6 +35,7 @@ export function createRecorder(
   let autoStopTimer: ReturnType<typeof setTimeout> | undefined;
   let cancelled = false;
   let resolveBlob: ((blob: Blob) => void) | undefined;
+  let completed = Promise.resolve(new Blob([], { type: mimeType }));
 
   const recorder: Recorder = {
     onAutoStop: null,
@@ -42,6 +43,9 @@ export function createRecorder(
     start() {
       cancelled = false;
       chunks.length = 0;
+      completed = new Promise<Blob>((resolve) => {
+        resolveBlob = resolve;
+      });
 
       mr.ondataavailable = (e) => {
         if (e.data.size > 0) chunks.push(e.data);
@@ -49,9 +53,7 @@ export function createRecorder(
 
       mr.onstop = () => {
         clearTimeout(autoStopTimer);
-        if (!cancelled && resolveBlob) {
-          resolveBlob(new Blob(chunks, { type: mimeType }));
-        }
+        resolveBlob?.(new Blob(cancelled ? [] : chunks, { type: mimeType }));
       };
 
       mr.start();
@@ -66,18 +68,15 @@ export function createRecorder(
     },
 
     stop() {
-      return new Promise<Blob>((resolve) => {
-        resolveBlob = resolve;
-        if (mr.state === 'recording') {
-          mr.stop();
-        }
-        clearTimeout(autoStopTimer);
-        if (ownsStream) stopTracks(stream);
-      });
+      if (mr.state === 'recording') mr.stop();
+      clearTimeout(autoStopTimer);
+      if (ownsStream) stopTracks(stream);
+      return completed;
     },
 
     cancel() {
       cancelled = true;
+      resolveBlob?.(new Blob([], { type: mimeType }));
       clearTimeout(autoStopTimer);
       if (mr.state === 'recording') {
         mr.stop();

@@ -1,8 +1,9 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import ReactMarkdown, { defaultUrlTransform } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
 import { useNavigate, useLocation } from 'react-router-dom';
+import type { Components } from 'react-markdown';
 import type { FinishedMessage } from '../types/chat';
 import {
   decodeFilePathUrl,
@@ -17,7 +18,8 @@ import { formatTime } from '../lib/formatTime';
 import { CopyButton } from './CopyButton';
 import { ShareButton } from './ShareButton';
 import { ReadAloudButton } from './ReadAloudButton';
-import { extractText } from '../lib/extractText';
+import { markdownComponents } from '../lib/markdown-config';
+import { MarkdownCodeBlock } from './MarkdownCodeBlock';
 import { MarkdownPreviewCard } from './MarkdownPreviewCard';
 import { HtmlPreviewCard } from './HtmlPreviewCard';
 import { findArtifactCapabilityByPath } from '@mitzo/protocol';
@@ -111,10 +113,104 @@ export function TextBubble({
   const contentRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (contentRef.current && !streaming) {
-      setIsLong(contentRef.current.scrollHeight > COLLAPSE_HEIGHT);
+    const element = contentRef.current;
+    if (!element || streaming) return;
+    const measure = () => setIsLong(element.scrollHeight > COLLAPSE_HEIGHT);
+    measure();
+    if (typeof ResizeObserver !== 'undefined') {
+      const observer = new ResizeObserver(measure);
+      observer.observe(element);
+      return () => observer.disconnect();
     }
+    const observer = new MutationObserver(measure);
+    observer.observe(element, { childList: true, subtree: true });
+    return () => observer.disconnect();
   }, [content, streaming]);
+
+  const navigationRef = useRef({ navigate, currentPath });
+  useEffect(() => {
+    navigationRef.current = { navigate, currentPath };
+  }, [navigate, currentPath]);
+  const mdComponents = useMemo<Components>(
+    () => ({
+      ...markdownComponents,
+      pre: MarkdownCodeBlock,
+      // When a paragraph contains a single file-path link to a .md/.mdx
+      // file, promote it to an inline preview card instead of a plain link.
+      // In ReactMarkdown v10, children are unrendered component instances —
+      // the `a` handler hasn't run yet — so we check `href` (the prop
+      // ReactMarkdown passes) rather than rendered DOM attributes.
+      p: ({ children }) => {
+        const childArray = React.Children.toArray(children);
+        if (childArray.length === 1 && React.isValidElement(childArray[0])) {
+          const el = childArray[0] as React.ReactElement<Record<string, unknown>>;
+          const href = el.props?.href as string | undefined;
+          if (href?.startsWith(FILE_SCHEME)) {
+            const filePath = decodeFilePathUrl(href);
+            if (filePath && /\.mdx?$/i.test(filePath)) {
+              return (
+                <MarkdownPreviewCard
+                  key={filePath}
+                  filePath={filePath}
+                  sessionId={artifactSessionId}
+                />
+              );
+            }
+            if (filePath && findArtifactCapabilityByPath(filePath)?.artifact?.renderer === 'html') {
+              return (
+                <HtmlPreviewCard key={filePath} filePath={filePath} sessionId={artifactSessionId} />
+              );
+            }
+          }
+        }
+        return <p>{children}</p>;
+      },
+      a: ({ href, children }) => {
+        const filePath = href?.startsWith(FILE_SCHEME)
+          ? decodeFilePathUrl(href)
+          : href
+            ? relativeArtifactPath(href)
+            : null;
+        if (href?.startsWith(FILE_SCHEME) || filePath) {
+          if (!filePath) {
+            return <span className="file-path-invalid">{children}</span>;
+          }
+          return (
+            <span className="file-path-group">
+              <a
+                href="#"
+                className="file-path-link"
+                data-file-path={filePath}
+                onClick={(e) => {
+                  e.preventDefault();
+                  navigationRef.current.navigate(
+                    artifactViewerUrl(
+                      filePath,
+                      navigationRef.current.currentPath,
+                      artifactSessionId,
+                    ),
+                  );
+                }}
+              >
+                {children}
+              </a>
+              <ShareButton
+                filePath={filePath}
+                sessionId={artifactSessionId}
+                className="file-path-share"
+              />
+            </span>
+          );
+        }
+        return (
+          <a href={href} target="_blank" rel="noopener noreferrer">
+            {children}
+          </a>
+        );
+      },
+    }),
+    [artifactSessionId],
+  );
 
   const showCollapsed = isLong && collapsed && !streaming;
 
@@ -127,86 +223,7 @@ export function TextBubble({
           remarkPlugins={[remarkGfm, remarkLocalMarkdownLinks, remarkNeutralizeMalformedFileLinks]}
           rehypePlugins={[rehypeHighlight]}
           urlTransform={(url) => (url.startsWith(FILE_SCHEME) ? url : defaultUrlTransform(url))}
-          components={{
-            table: ({ children, ...props }) => (
-              <div className="table-scroll-wrapper">
-                <table {...props}>{children}</table>
-              </div>
-            ),
-            pre: ({ children, ...props }) => {
-              const text = extractText(children);
-              return (
-                <div className="code-block-wrapper">
-                  <pre {...props}>{children}</pre>
-                  <CopyButton text={text} className="code-block-copy" label="Copy code" />
-                </div>
-              );
-            },
-            // When a paragraph contains a single file-path link to a .md/.mdx
-            // file, promote it to an inline preview card instead of a plain link.
-            // In ReactMarkdown v10, children are unrendered component instances —
-            // the `a` handler hasn't run yet — so we check `href` (the prop
-            // ReactMarkdown passes) rather than rendered DOM attributes.
-            p: ({ children }) => {
-              const childArray = React.Children.toArray(children);
-              if (childArray.length === 1 && React.isValidElement(childArray[0])) {
-                const el = childArray[0] as React.ReactElement<Record<string, unknown>>;
-                const href = el.props?.href as string | undefined;
-                if (href?.startsWith(FILE_SCHEME)) {
-                  const filePath = decodeFilePathUrl(href);
-                  if (filePath && /\.mdx?$/i.test(filePath)) {
-                    return (
-                      <MarkdownPreviewCard filePath={filePath} sessionId={artifactSessionId} />
-                    );
-                  }
-                  if (
-                    filePath &&
-                    findArtifactCapabilityByPath(filePath)?.artifact?.renderer === 'html'
-                  ) {
-                    return <HtmlPreviewCard filePath={filePath} sessionId={artifactSessionId} />;
-                  }
-                }
-              }
-              return <p>{children}</p>;
-            },
-            a: ({ href, children }) => {
-              const filePath = href?.startsWith(FILE_SCHEME)
-                ? decodeFilePathUrl(href)
-                : href
-                  ? relativeArtifactPath(href)
-                  : null;
-              if (href?.startsWith(FILE_SCHEME) || filePath) {
-                if (!filePath) {
-                  return <span className="file-path-invalid">{children}</span>;
-                }
-                return (
-                  <span className="file-path-group">
-                    <a
-                      href="#"
-                      className="file-path-link"
-                      data-file-path={filePath}
-                      onClick={(e) => {
-                        e.preventDefault();
-                        navigate(artifactViewerUrl(filePath, currentPath, artifactSessionId));
-                      }}
-                    >
-                      {children}
-                    </a>
-                    <ShareButton
-                      filePath={filePath}
-                      sessionId={artifactSessionId}
-                      className="file-path-share"
-                    />
-                  </span>
-                );
-              }
-              return (
-                <a href={href} target="_blank" rel="noopener noreferrer">
-                  {children}
-                </a>
-              );
-            },
-          }}
+          components={mdComponents}
         >
           {processed}
         </ReactMarkdown>

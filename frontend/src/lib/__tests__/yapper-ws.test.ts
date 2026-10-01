@@ -130,6 +130,39 @@ describe('createYapperStreamClient', () => {
     expect(onError).toHaveBeenCalled();
   });
 
+  it('reports a server error frame as a streaming failure', async () => {
+    const client = createYapperStreamClient('ws://localhost/stream');
+    client.onError = vi.fn();
+    client.onTranscript = vi.fn();
+    lastWs.simulateMessage('{"type":"error","message":"unsupported format"}');
+    expect(client.onError).toHaveBeenCalledTimes(1);
+    expect(client.onTranscript).not.toHaveBeenCalled();
+  });
+
+  it('reports a remote close before final as a streaming failure', async () => {
+    const client = createYapperStreamClient('ws://localhost/stream');
+    client.onError = vi.fn();
+    lastWs.close();
+    expect(client.onError).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not report normal close after final as an error', async () => {
+    const client = createYapperStreamClient('ws://localhost/stream');
+    client.onError = vi.fn();
+    lastWs.simulateMessage('{"type":"final","text":"complete"}');
+    lastWs.close();
+    expect(client.onError).not.toHaveBeenCalled();
+  });
+
+  it('ignores malformed transcript payloads', async () => {
+    const client = createYapperStreamClient('ws://localhost/stream');
+    client.onTranscript = vi.fn();
+    for (const message of ['null', '{"type":"partial","text":42}', '{"type":"other","text":"x"}']) {
+      lastWs.simulateMessage(message);
+    }
+    expect(client.onTranscript).not.toHaveBeenCalled();
+  });
+
   it('close() closes the WebSocket', async () => {
     const client = createYapperStreamClient('ws://localhost:8700/v1/transcribe/stream');
     await new Promise((r) => setTimeout(r, 0));
