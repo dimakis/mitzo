@@ -34,11 +34,13 @@ export function relativeArtifactPath(href: string): string | null {
 
 /** Recognize explicit local Markdown destinations, leaving application URLs alone. */
 export function absoluteMarkdownArtifactPath(href: string): string | null {
+  const explicitFileUri = /^file:\/\/(?:localhost)?(?=\/)/i.test(href);
   const local = href.replace(/^file:\/\/(?:localhost)?(?=\/)/i, '');
   if (!local.startsWith('/') || local.startsWith('//')) return null;
   try {
     const path = decodeURIComponent(local.split(/[?#]/, 1)[0]).replace(/:\d+(?::\d+)?$/, '');
     if (
+      !explicitFileUri &&
       /^\/(?:api|files|chat|login|sessions|more|connections|focus|inbox|calendar|todos|tasks)(?:\/|$)/i.test(
         path,
       )

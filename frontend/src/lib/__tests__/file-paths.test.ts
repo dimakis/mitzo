@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   decodeFilePathUrl,
+  absoluteMarkdownArtifactPath,
   detectFilePaths,
   isFilePath,
   linkifyFilePaths,
@@ -274,4 +275,17 @@ describe('linkifyFilePaths', () => {
     const input = 'Just a regular sentence.';
     expect(linkifyFilePaths(input)).toBe(input);
   });
+});
+
+describe('explicit file URI authority', () => {
+  it.each(['files', 'tasks', 'chat'])(
+    'opens a local file URI under /%s while preserving browser routes',
+    (root) => {
+      expect(absoluteMarkdownArtifactPath(`file:///${root}/report.md`)).toBe(`/${root}/report.md`);
+      expect(absoluteMarkdownArtifactPath(`file://localhost/${root}/report.md`)).toBe(
+        `/${root}/report.md`,
+      );
+      expect(absoluteMarkdownArtifactPath(`/${root}/report.md`)).toBeNull();
+    },
+  );
 });
