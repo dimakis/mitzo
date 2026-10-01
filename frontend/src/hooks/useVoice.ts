@@ -32,6 +32,13 @@ export interface Voice {
   gender: string;
 }
 
+interface CaptureCompletion {
+  done: Promise<void>;
+  audioSent: Promise<void>;
+  cancelled: Promise<void>;
+  cancel: () => void;
+}
+
 export interface UseVoiceReturn {
   // STT state
   available: boolean;
@@ -100,9 +107,7 @@ export function useVoice(): UseVoiceReturn {
   const wsClientRef = useRef<YapperStreamClient | null>(null);
   const finalResolveRef = useRef<((text: string | null) => void) | null>(null);
   const streamingActiveRef = useRef(false);
-  const captureDoneRef = useRef<Promise<void>>(Promise.resolve());
-  const resolveCaptureDoneRef = useRef<(() => void) | null>(null);
-  const audioSendRef = useRef<Promise<void>>(Promise.resolve());
+  const captureRef = useRef<CaptureCompletion | null>(null);
   const captureIdRef = useRef(0);
   const sttAbortRef = useRef<AbortController | null>(null);
   const mimeTypeRef = useRef<string | undefined>(undefined);
@@ -193,19 +198,30 @@ export function useVoice(): UseVoiceReturn {
 
       // Also create a batch recorder as fallback (doesn't own stream)
       const batchRec = createRecorder(stream, mimeType, { ownsStream: false });
-      batchRec.onAutoStop = () => setRecording(false);
+      batchRec.onAutoStop = () => {
+        if (captureId === captureIdRef.current) setRecording(false);
+      };
       recorderRef.current = batchRec;
 
       // MediaRecorder emits its last dataavailable asynchronously before onStop.
       // Serialize conversions too: Blob.arrayBuffer() may finish out of order.
-      audioSendRef.current = Promise.resolve();
-      captureDoneRef.current = new Promise<void>((resolve) => {
-        resolveCaptureDoneRef.current = resolve;
-        streamRec.onStop = resolve;
-      });
+      let resolveCancelled!: () => void;
+      const capture: CaptureCompletion = {
+        done: new Promise<void>((resolve) => {
+          streamRec.onStop = resolve;
+        }),
+        audioSent: Promise.resolve(),
+        cancelled: new Promise<void>((resolve) => {
+          resolveCancelled = resolve;
+        }),
+        cancel: () => resolveCancelled(),
+      };
+      captureRef.current = capture;
       streamRec.onChunk = (blob: Blob) => {
-        audioSendRef.current = audioSendRef.current
+        if (captureId !== captureIdRef.current) return;
+        capture.audioSent = capture.audioSent
           .then(async () => {
+            if (captureId !== captureIdRef.current) return;
             const buf = await blob.arrayBuffer();
             if (captureId === captureIdRef.current && streamingActiveRef.current) {
               wsClient.sendAudio(buf);
@@ -216,13 +232,18 @@ export function useVoice(): UseVoiceReturn {
           });
       };
 
-      streamRec.onAutoStop = () => setRecording(false);
+      streamRec.onAutoStop = () => {
+        if (captureId === captureIdRef.current) setRecording(false);
+      };
 
       streamRec.start();
       batchRec.start();
       setRecording(true);
       setMicBlocked(false);
     } catch (err: unknown) {
+      if (captureId !== captureIdRef.current) return;
+      captureRef.current?.cancel();
+      captureRef.current = null;
       streamRecorderRef.current?.cancel();
       recorderRef.current?.cancel();
       wsClientRef.current?.close();
@@ -243,22 +264,27 @@ export function useVoice(): UseVoiceReturn {
     setTranscribing(true);
 
     // Register the final listener before END, and only end after the last chunk.
-    if (streamingActiveRef.current && wsClientRef.current) {
+    const capture = captureRef.current;
+    if (streamingActiveRef.current && wsClientRef.current && capture) {
       const client = wsClientRef.current;
       let timer: ReturnType<typeof setTimeout> | undefined;
+      let resolveFinal!: (text: string | null) => void;
       const final = new Promise<string | null>((resolve) => {
+        resolveFinal = resolve;
         finalResolveRef.current = resolve;
-        timer = setTimeout(() => resolve(null), 5000);
       });
       streamRecorderRef.current?.stop();
-      await captureDoneRef.current;
-      await audioSendRef.current;
-      if (captureId !== captureIdRef.current) {
-        clearTimeout(timer);
-        return '';
+      await Promise.race([capture.done, capture.cancelled]);
+      if (captureId !== captureIdRef.current) return '';
+      await Promise.race([capture.audioSent, capture.cancelled]);
+      if (captureId !== captureIdRef.current) return '';
+      if (streamingActiveRef.current) {
+        client.sendEnd();
+        // Recorder shutdown and Blob conversions do not consume the final response budget.
+        timer = setTimeout(() => resolveFinal(null), 5000);
+      } else {
+        resolveFinal(null);
       }
-      if (streamingActiveRef.current) client.sendEnd();
-      else finalResolveRef.current?.(null);
       const text = await final;
       clearTimeout(timer);
       if (captureId !== captureIdRef.current) return '';
@@ -268,6 +294,7 @@ export function useVoice(): UseVoiceReturn {
         client.close();
         wsClientRef.current = null;
         streamRecorderRef.current = null;
+        captureRef.current = null;
         streamingActiveRef.current = false;
         recorderRef.current?.cancel();
         recorderRef.current = null;
@@ -323,6 +350,7 @@ export function useVoice(): UseVoiceReturn {
         wsClientRef.current?.close();
         wsClientRef.current = null;
         streamRecorderRef.current = null;
+        captureRef.current = null;
         streamingActiveRef.current = false;
         releaseStream();
       }
@@ -333,7 +361,8 @@ export function useVoice(): UseVoiceReturn {
     captureIdRef.current += 1;
     sttAbortRef.current?.abort();
     sttAbortRef.current = null;
-    resolveCaptureDoneRef.current?.();
+    captureRef.current?.cancel();
+    captureRef.current = null;
     finalResolveRef.current?.('');
     // Clean up streaming
     wsClientRef.current?.close();
