@@ -38,9 +38,13 @@ export async function dispatchCustodianHttp(
   });
   request.push(body);
   request.push(null);
+  const response = new ServerResponse(request);
+  let completed = false;
+  let failed = false;
+  let failure: unknown;
+  let result: CustodianResponse | undefined;
   try {
-    return await new Promise<CustodianResponse>((resolve, reject) => {
-      const response = new ServerResponse(request);
+    result = await new Promise<CustodianResponse>((resolve, reject) => {
       let settled = false;
       // All enumerated handlers return a bounded JSON response. Streaming,
       // redirects, cookies and arbitrary response headers are not transported.
@@ -56,7 +60,9 @@ export async function dispatchCustodianHttp(
               : '';
           if (Buffer.byteLength(text) > 16 * 1024 * 1024)
             throw Error('Custodian response too large');
-          resolve({ status: response.statusCode, body: text ? JSON.parse(text) : null });
+          const result = { status: response.statusCode, body: text ? JSON.parse(text) : null };
+          completed = true;
+          resolve(result);
         } catch (error) {
           reject(error);
         }
@@ -69,8 +75,25 @@ export async function dispatchCustodianHttp(
         }
       });
     });
+  } catch (error) {
+    failed = true;
+    failure = error;
+  }
+  try {
+    // This transport finishes a bounded semantic response, not an HTTP socket
+    // write. Notify existing route cleanup hooks without forging socket flags.
+    // Rejected responses close the request instead of reporting completion.
+    response.emit(completed ? 'finish' : 'close');
+  } catch (error) {
+    // A cleanup listener must not replace the original rejection.
+    if (!failed) {
+      failed = true;
+      failure = error;
+    }
   } finally {
     release();
     request.destroy();
   }
+  if (failed) throw failure;
+  return result!;
 }

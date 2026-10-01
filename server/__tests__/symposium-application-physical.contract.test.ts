@@ -63,12 +63,16 @@ import {
   selectSymposiumApplicationClaim,
 } from '../symposium-application-dispatch.js';
 import { SymposiumReviewActionAuthority } from '../symposium-review-action-authority.js';
+import { runPhysicalApplicationRoutes } from './symposium-application-route-lifecycle-fixture.js';
 const physical = process.env.MITZO_APPLICATION_PHYSICAL_CONTRACT === '1';
 const sourceApiOnly = process.env.MITZO_APPLICATION_SOURCE_API_ONLY === '1';
+const routeComposition = process.env.MITZO_APPLICATION_ROUTE_CONTRACT === '1';
 it.skipIf(!physical)(
   sourceApiOnly
     ? 'qualifies physical source API only; application lifecycle unexercised'
-    : 'completes production application owners with physical artifacts and deterministic model transport',
+    : routeComposition
+      ? 'completes actual review routes with real physical owners and synthetic native transport'
+      : 'completes production application owners with physical artifacts and deterministic model transport',
   async () => {
     const sourceReceipt = () => {
       return {
@@ -1037,7 +1041,49 @@ it.skipIf(!physical)(
       let composed = compose();
       const context = { owner: 'user', sessionId };
       let coordinator = new SymposiumReviewCoordinator(reviews, composed.reviewHost);
-      try {
+      const restartOwners = () => {
+        expect(registry.pending().filter((row) => row.sessionId === sessionId)).toEqual([]);
+        composed.close();
+        sealer.close();
+        registry.close();
+        events.close();
+        reviews.close();
+        leaseHost.close();
+        retained = null;
+        leaseHost = createLeaseHost();
+        events = new EventStore(applicationDatabase);
+        reviews = new SymposiumReviewStore(applicationDatabase);
+        registry = new SymposiumAttemptRegistry(
+          join(registryDirectory, 'claims.db'),
+          registryTransport,
+        );
+        policy = createPolicy();
+        sealer = createSealer();
+        authority = createSymposiumSuccessorFixAuthority({ workflows: reviews, events, grants });
+        successorDeps = { ...successorDeps, authority, leaseHost, sealer };
+        composed = compose();
+        coordinator = new SymposiumReviewCoordinator(reviews, composed.reviewHost);
+      };
+      const pendingSealJobs = () => {
+        const db = new Database(database, { readonly: true });
+        try {
+          return db
+            .prepare(
+              'SELECT fence_id,phase,verifier_id,receipt_json FROM symposium_physical_seal_jobs',
+            )
+            .all() as Array<{
+            fence_id: string;
+            phase: string;
+            verifier_id: string | null;
+            receipt_json: string | null;
+          }>;
+        } finally {
+          db.close();
+        }
+      };
+      let record: NonNullable<ReturnType<SymposiumReviewStore['getReviewRecord']>>;
+      let originalSealFenceId: string;
+      const runDirectLifecycle = async () => {
         coordinator.startApplicationRun(context, {
           workflowId: 'workflow',
           acceptanceCriteria: ['criterion.txt contains FIXED'],
@@ -1129,26 +1175,7 @@ it.skipIf(!physical)(
         // prior handler has returned and released its durable seat fence; a hard
         // kill while that random-token fence is held remains an explicit gate.
         expect(registry.pending().filter((row) => row.sessionId === sessionId)).toEqual([]);
-        composed.close();
-        sealer.close();
-        registry.close();
-        events.close();
-        reviews.close();
-        leaseHost.close();
-        retained = null;
-        leaseHost = createLeaseHost();
-        events = new EventStore(applicationDatabase);
-        reviews = new SymposiumReviewStore(applicationDatabase);
-        registry = new SymposiumAttemptRegistry(
-          join(registryDirectory, 'claims.db'),
-          registryTransport,
-        );
-        policy = createPolicy();
-        sealer = createSealer();
-        authority = createSymposiumSuccessorFixAuthority({ workflows: reviews, events, grants });
-        successorDeps = { ...successorDeps, authority, leaseHost, sealer };
-        composed = compose();
-        coordinator = new SymposiumReviewCoordinator(reviews, composed.reviewHost);
+        restartOwners();
         injectedSealFaults.push(
           'stores/registry/sealer reopened; all original runtimes discarded while original seal draining',
         );
@@ -1251,7 +1278,9 @@ it.skipIf(!physical)(
         const exported = coordinator.exportRecord(context, 'workflow');
         expect(exported).toMatchObject({ kind: 'verified' });
         if (exported.kind !== 'verified') throw Error('Exact immutable verified record required');
-        const record = exported.record;
+        return { record: exported.record, originalSealFenceId: originalSeal.fenceId };
+      };
+      const prepareSealedPublication = async () => {
         const publicationSignal = new AbortController().signal;
         const publicationArtifact = completedPublicationArtifact({
           store: reviews,
@@ -1360,7 +1389,34 @@ it.skipIf(!physical)(
           publicationAuthority.close();
           publicationOperations.close();
         }
-
+      };
+      try {
+        const selected = routeComposition
+          ? await runPhysicalApplicationRoutes({
+              sessionId,
+              events: () => events,
+              store: () => reviews,
+              host: () => composed.reviewHost,
+              authority: actionAuthority,
+              initialArtifact: {
+                revision: retainedSource.receipt.git.commit,
+                hash: retainedSource.receipt.git.committedTreeDigest,
+              },
+              restartOwners: () => {
+                restartOwners();
+                injectedSealFaults.push(
+                  'stores/registry/sealer reopened; all original runtimes discarded while original seal draining',
+                );
+              },
+              jobs: pendingSealJobs,
+              dispatches: () => dispatches,
+              runtimeCreations: () => runtimeCreations,
+              retainedRuntime: () => retained,
+            })
+          : await runDirectLifecycle();
+        record = selected.record;
+        originalSealFenceId = selected.originalSealFenceId;
+        if (!routeComposition) await prepareSealedPublication();
         expect(dispatches).toBe(4);
         expect(registry.pending()).toEqual([]);
         expect(registry.pendingPreparations()).toEqual([]);
@@ -1424,14 +1480,21 @@ it.skipIf(!physical)(
               injectedSealFaults,
               injectedReaderFaults,
               runtimeCreations,
-              originalSealFenceId: originalSeal.fenceId,
+              originalSealFenceId,
               synthetic: [
                 'source session facts for disposable draft import',
                 'gateway identity and provider/account/grant attestation',
                 'manager lifecycle transport',
                 'deterministic model transport and native provider events',
-                'publication operator/credential attestation, GitHub identity/repository metadata GET transport',
+                ...(routeComposition
+                  ? [
+                      'hermetic revocable interactive request authority; production login unexercised',
+                    ]
+                  : [
+                      'publication operator/credential attestation, GitHub identity/repository metadata GET transport',
+                    ]),
               ],
+              routeComposition,
               real: [
                 'source import/seal',
                 'successor copy/admission',
@@ -1441,12 +1504,16 @@ it.skipIf(!physical)(
                 'runtime retirement',
                 'criterion file hash',
                 'immutable record',
-                'sealed publication preparation',
+                routeComposition
+                  ? 'record-preflight route refuses unavailable publication owner'
+                  : 'sealed publication preparation',
               ],
-              cancellation:
-                'exact staged actor stopped before dispatch then original epoch resumed',
-              publication:
-                'forced approval denied; no external writes; legacy live-writer adapter unexercised',
+              cancellation: routeComposition
+                ? 'route-owned stop/continue before initial dispatch; staged actor cancellation unexercised'
+                : 'exact staged actor stopped before dispatch then original epoch resumed',
+              publication: routeComposition
+                ? 'actual record-preflight route unavailable; no publication authority or effects'
+                : 'forced approval denied; no external writes; legacy live-writer adapter unexercised',
               semanticCriteria: false,
             },
             null,
