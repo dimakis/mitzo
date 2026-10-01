@@ -31,9 +31,11 @@ import {
 } from './symposium-artifact-host.js';
 import type { OwnedSymposiumGateway } from './symposium-owned-gateway.js';
 import type { SymposiumAttemptRegistry } from './symposium-attempt-registry.js';
+import { controlledAttemptRoute } from './symposium-attempt-transport.js';
 import {
   assertSymposiumRuntimeForArtifactSeal,
   drainSymposiumRuntimeForArtifactSeal,
+  stopRetainedSealSandbox,
 } from './symposium-session-runtime.js';
 import { OpenShellRuntimeManager, type OpenShellRuntimeConfig } from './openshell-runtime.js';
 import { TESTED_SYMPOSIUM_NATIVE_BUILD } from './symposium-production-gate.js';
@@ -210,6 +212,8 @@ export class PhysicalArtifactSealer {
       gateway: OwnedSymposiumGateway;
       attemptRegistry: SymposiumAttemptRegistry;
       runtimeConfig: OpenShellRuntimeConfig;
+      /** Constructor-owned lifecycle transport; production uses the normal manager. */
+      cleanupManagerFactory?: Parameters<typeof stopRetainedSealSandbox>[0]['managerFactory'];
       /** Requires matching activated generation ledger receipt, not EventStore alone. */
       assertSuccessorAdmissionCurrent?: (
         sessionId: string,
@@ -2451,10 +2455,35 @@ export class PhysicalArtifactSealer {
     signal: AbortSignal,
   ): Promise<CompletedArtifactSeal> {
     const input = inputSchema.parse(raw);
+    assertSymposiumRuntimeForArtifactSeal(
+      runtime,
+      this.deps.store,
+      this.deps.leaseHost,
+      input.sessionId,
+    );
+    return this.sealOperation(input, runtime, signal);
+  }
+
+  /** Restart recovery is limited to one already-journaled original seal drain. */
+  async recoverPendingSeal(
+    raw: PhysicalArtifactSealInput,
+    claimToken: string,
+    signal: AbortSignal,
+  ) {
+    return this.sealOperation(raw, undefined, signal, claimToken);
+  }
+
+  private async sealOperation(
+    raw: PhysicalArtifactSealInput,
+    runtime: object | undefined,
+    signal: AbortSignal,
+    recoveryClaimToken?: string,
+  ): Promise<CompletedArtifactSeal> {
+    const input = inputSchema.parse(raw);
     signal.throwIfAborted();
     await this.custody();
     const { store, leaseHost, gateway } = this.deps;
-    assertSymposiumRuntimeForArtifactSeal(runtime, store, leaseHost, input.sessionId);
+    if (runtime) assertSymposiumRuntimeForArtifactSeal(runtime, store, leaseHost, input.sessionId);
     const custodyDigest = hash(gateway.stateDirectory);
     const config = store.getActiveSymposiumConfig(input.sessionId);
     if (config.version !== 2 || config.revision !== input.expectedConfigRevision)
@@ -2580,6 +2609,10 @@ export class PhysicalArtifactSealer {
         throw new Error('Artifact seal retained physical identity changed');
       verifierName = retained.verifier_name;
     } else {
+      if (!runtime)
+        throw new Error(
+          'Original artifact seal drain unavailable; reconcile the original operation',
+        );
       const activeRecords = allRecords.filter((row) => row.state !== 'stopped');
       const writerRecords = activeRecords.filter(
         (row) =>
@@ -2714,14 +2747,171 @@ export class PhysicalArtifactSealer {
     await check();
     // The durable phase may precede or follow physical cleanup. Replaying the
     // exact retained runtime drain reconciles only its original seat identities.
-    await drainSymposiumRuntimeForArtifactSeal(
-      runtime,
-      store,
-      leaseHost,
-      input.sessionId,
-      signal,
-      intent.fenceId,
-    );
+    let assertRestartProof: (() => void) | undefined;
+    if (runtime) {
+      await drainSymposiumRuntimeForArtifactSeal(
+        runtime,
+        store,
+        leaseHost,
+        input.sessionId,
+        signal,
+        intent.fenceId,
+      );
+    } else {
+      const registry = this.deps.attemptRegistry;
+      const proof = () => {
+        const native = recoveryClaimToken ? registry.get(recoveryClaimToken) : undefined;
+        const observation = recoveryClaimToken
+          ? registry.observations.get(recoveryClaimToken)
+          : undefined;
+        const attempt = recoveryClaimToken
+          ? store.getSymposiumRecipientAttemptByClaimToken(recoveryClaimToken)
+          : undefined;
+        const identity = observation?.identity;
+        const original =
+          identity &&
+          records.find(
+            (row) =>
+              row.seatId === identity.seatId && row.generation === identity.membershipGeneration,
+          );
+        const provenance = identity?.provenance;
+        if (
+          !recoveryClaimToken ||
+          !native ||
+          !observation ||
+          observation.status !== 'completed' ||
+          !Number.isSafeInteger(observation.terminalAt) ||
+          observation.terminalAt === null ||
+          observation.terminalConflict ||
+          !identity ||
+          identity.sessionId !== input.sessionId ||
+          !original ||
+          original.seatId !== request.seatId ||
+          config.seats.find((seat) => seat.id === original.seatId)?.authorityGrant?.filesystem !==
+            'write' ||
+          !attempt ||
+          attempt.status !== 'delivered' ||
+          store.getSymposiumDelivery(attempt.deliveryId)?.sessionId !== input.sessionId ||
+          attempt.seatId !== original.seatId ||
+          attempt.providerThreadId !== identity.providerThreadId ||
+          attempt.providerTurnId !== identity.providerTurnId ||
+          !isDeepStrictEqual(attempt.provenance, provenance) ||
+          !provenance ||
+          !('version' in provenance) ||
+          provenance.version !== 3 ||
+          provenance.configRevision !== input.expectedConfigRevision ||
+          provenance.artifact.artifactGenerationId !== intent.selection.artifact.volumeGeneration ||
+          native.sessionId !== input.sessionId ||
+          native.sandboxName !== original.sandboxName ||
+          native.claimToken !== recoveryClaimToken ||
+          identity.claimToken !== recoveryClaimToken ||
+          attempt.claimToken !== recoveryClaimToken ||
+          !isDeepStrictEqual(
+            identity.accountBinding,
+            config.seats.find((seat) => seat.id === original.seatId)?.accountBinding,
+          ) ||
+          provenance.seatId !== original.seatId ||
+          provenance.membershipGeneration !== original.generation ||
+          native.workdir !== this.deps.runtimeConfig.workdir ||
+          !isDeepStrictEqual(
+            controlledAttemptRoute(native),
+            controlledAttemptRoute({
+              ...this.deps.runtimeConfig,
+              sandboxName: original.sandboxName!,
+              workdir: this.deps.runtimeConfig.workdir,
+            }),
+          ) ||
+          !isDeepStrictEqual(native.artifact, provenance.artifact) ||
+          registry.pendingPreparations().some((row) => row.sessionId === input.sessionId) ||
+          registry
+            .pending()
+            .some(
+              (row) => row.sessionId === input.sessionId && row.claimToken !== recoveryClaimToken,
+            ) ||
+          store.listSymposiumSessionSandboxes(input.sessionId).filter((row) => row.creationStarted)
+            .length !== records.length ||
+          records.some((row) => {
+            const current = store.getSymposiumSeatSandbox(
+              row.sessionId,
+              row.seatId,
+              row.generation,
+            );
+            return !current || !isDeepStrictEqual({ ...row, state: current.state }, current);
+          }) ||
+          records.some(
+            (row) =>
+              !['ready', 'stopped'].includes(
+                store.getSymposiumSeatSandbox(row.sessionId, row.seatId, row.generation)?.state ??
+                  '',
+              ),
+          ) ||
+          records.some((row) =>
+            store
+              .getUnsettledSymposiumSeatExecutions(input.sessionId, row.seatId)
+              .some((value) => value.claimToken !== recoveryClaimToken),
+          )
+        )
+          throw new Error(
+            'Original seal claim cleanup proof unavailable; reconcile the original seal operation',
+          );
+        return {
+          native: { ...native, state: 'confirmed' },
+          observation,
+          attempt: {
+            attemptId: attempt.attemptId,
+            idempotencyKey: attempt.idempotencyKey,
+            claimToken: attempt.claimToken,
+            deliveryId: attempt.deliveryId,
+            status: attempt.status,
+            seatId: attempt.seatId,
+            providerThreadId: attempt.providerThreadId,
+            providerTurnId: attempt.providerTurnId,
+            provenance: attempt.provenance,
+          },
+        };
+      };
+      const originalProof = canonicalReviewJson(proof());
+      assertRestartProof = () => {
+        if (canonicalReviewJson(proof()) !== originalProof)
+          throw new Error(
+            'Original seal claim cleanup identity changed; reconcile the original seal operation',
+          );
+      };
+      const attempt = proof().attempt;
+      // The registry confirms only the exact persisted controller launch; never
+      // infer process termination from losing the application runtime object.
+      await registry.recover(recoveryClaimToken!);
+      await check();
+      assertRestartProof();
+      if (registry.get(recoveryClaimToken!)?.state !== 'confirmed')
+        throw new Error('Original seal controller cleanup remains unconfirmed');
+      store.confirmSymposiumAttemptCleanup(attempt.attemptId, attempt.idempotencyKey);
+      for (const record of records) {
+        await stopRetainedSealSandbox(
+          {
+            runtimeConfig: this.deps.runtimeConfig,
+            managerFactory: this.deps.cleanupManagerFactory,
+            seatSandboxRegistry: store,
+            artifactLeaseHost: leaseHost,
+            artifactRequest: (sessionId, seatId, generation) => {
+              const selected = records.find(
+                (row) =>
+                  row.sessionId === sessionId &&
+                  row.seatId === seatId &&
+                  row.generation === generation,
+              );
+              const cleanup = selected && leaseHost.retainedCleanupRequest(selected);
+              if (!cleanup) throw new Error('Original seal lease cleanup proof unavailable');
+              return cleanup;
+            },
+          },
+          record,
+          signal,
+        );
+        await check();
+        assertRestartProof();
+      }
+    }
     const drained = () => {
       for (const seat of new Set([
         ...config.seats.map((s) => s.id),
@@ -2757,6 +2947,7 @@ export class PhysicalArtifactSealer {
     await this.noVolumeMounts(request.volumeName);
     await check();
     await this.noVerifierName(verifierName);
+    assertRestartProof?.();
     // A resumed seal and an overlapping original handler compete for this one
     // durable transition. Only the winner may create the physical verifier.
     const claimed = this.db

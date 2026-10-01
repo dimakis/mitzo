@@ -404,10 +404,22 @@ export function createSymposiumProductionReviewComposition(deps: {
             }),
           };
         }
-        const seal = await host.requireCompletedArtifactSeal!(
-          intent.fenceId,
-          AbortSignal.timeout(120_000),
-        );
+        const seal =
+          !retained && host.recoverPendingArtifactSeal
+            ? await host.recoverPendingArtifactSeal(
+                {
+                  sessionId: context.sessionId,
+                  expectedConfigRevision: completion.attempt.binding.configRevision,
+                  idempotencyKey,
+                  repositoryPath: '.',
+                },
+                completion.attempt.binding.claimToken,
+                AbortSignal.timeout(600_000),
+              )
+            : await host.requireCompletedArtifactSeal!(
+                intent.fenceId,
+                AbortSignal.timeout(120_000),
+              );
         if (
           retained &&
           isSymposiumRuntimeDrainedForSeal(

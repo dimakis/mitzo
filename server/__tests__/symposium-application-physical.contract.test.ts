@@ -391,70 +391,72 @@ it.skipIf(!physical)(
         verifyCustody() {},
         async verifyCustodyAsync() {},
       };
-      const leaseHost = new SqliteArtifactLeaseHost(
-        database,
-        {
-          verifyGateway: async () => {},
-          verifyMount: async (name, id, config) => {
-            const detail = JSON.parse(await copyCommand(['inspect', id]))[0];
-            expect(detail.Name.replace(/^\//, '')).toBe(name);
-            const expected = config.podman!.mounts[0];
-            const mounted = detail.Mounts.filter(
-              (mount: { Destination: string }) => mount.Destination === expected.target,
-            );
-            expect(mounted).toHaveLength(1);
-            expect(mounted[0]).toMatchObject({ Name: expected.source, RW: !expected.read_only });
+      const createLeaseHost = () =>
+        new SqliteArtifactLeaseHost(
+          database,
+          {
+            verifyGateway: async () => {},
+            verifyMount: async (name, id, config) => {
+              const detail = JSON.parse(await copyCommand(['inspect', id]))[0];
+              expect(detail.Name.replace(/^\//, '')).toBe(name);
+              const expected = config.podman!.mounts[0];
+              const mounted = detail.Mounts.filter(
+                (mount: { Destination: string }) => mount.Destination === expected.target,
+              );
+              expect(mounted).toHaveLength(1);
+              expect(mounted[0]).toMatchObject({ Name: expected.source, RW: !expected.read_only });
+            },
+            verifyDeleted: async (_name, id) => {
+              const all = JSON.parse(
+                await copyCommand(['ps', '--all', '--no-trunc', '--format', 'json']),
+              );
+              expect(
+                all.some((row: { Id?: string; ID?: string }) => (row.Id ?? row.ID) === id),
+              ).toBe(false);
+              if (dispatches === 1 && armPreVerifierCensusResponse) {
+                armPreVerifierCensusResponse = false;
+                losePreVerifierCensusResponse = true;
+              }
+            },
           },
-          verifyDeleted: async (_name, id) => {
-            const all = JSON.parse(
-              await copyCommand(['ps', '--all', '--no-trunc', '--format', 'json']),
-            );
-            expect(all.some((row: { Id?: string; ID?: string }) => (row.Id ?? row.ID) === id)).toBe(
-              false,
-            );
-            if (dispatches === 1 && armPreVerifierCensusResponse) {
-              armPreVerifierCensusResponse = false;
-              losePreVerifierCensusResponse = true;
-            }
-          },
-        },
-        new ArtifactPodmanContext(
-          copyCommand,
-          copyCommand,
-          (args, onChunk) =>
-            new Promise<void>((resolve, reject) => {
-              const child = spawn(process.env.MITZO_CONTRACT_PODMAN ?? 'podman', [...args], {
-                env: { HOME: process.env.HOME, PATH: process.env.PATH },
-                stdio: ['ignore', 'pipe', 'pipe'],
-              });
-              let bytes = 0;
-              const timer = setTimeout(() => {
-                child.kill('SIGTERM');
-                reject(Error('Physical stream timeout'));
-              }, 60_000);
-              child.stdout.on('data', (chunk: Buffer) => {
-                bytes += chunk.length;
-                if (bytes > 16 * 1024 * 1024) {
+          new ArtifactPodmanContext(
+            copyCommand,
+            copyCommand,
+            (args, onChunk) =>
+              new Promise<void>((resolve, reject) => {
+                const child = spawn(process.env.MITZO_CONTRACT_PODMAN ?? 'podman', [...args], {
+                  env: { HOME: process.env.HOME, PATH: process.env.PATH },
+                  stdio: ['ignore', 'pipe', 'pipe'],
+                });
+                let bytes = 0;
+                const timer = setTimeout(() => {
                   child.kill('SIGTERM');
-                  reject(Error('Physical stream bound exceeded'));
-                } else onChunk(chunk);
-              });
-              child.stderr.on('data', () => {});
-              child.once('error', (error) => {
-                clearTimeout(timer);
-                reject(error);
-              });
-              child.once('close', (code) => {
-                clearTimeout(timer);
-                if (code === 0) resolve();
-                else reject(Error('Physical stream failed'));
-              });
-            }),
-        ),
-        gateway as unknown as Parameters<typeof withOwnedArtifactSuccessor>[0]['gateway'],
-      );
+                  reject(Error('Physical stream timeout'));
+                }, 60_000);
+                child.stdout.on('data', (chunk: Buffer) => {
+                  bytes += chunk.length;
+                  if (bytes > 16 * 1024 * 1024) {
+                    child.kill('SIGTERM');
+                    reject(Error('Physical stream bound exceeded'));
+                  } else onChunk(chunk);
+                });
+                child.stderr.on('data', () => {});
+                child.once('error', (error) => {
+                  clearTimeout(timer);
+                  reject(error);
+                });
+                child.once('close', (code) => {
+                  clearTimeout(timer);
+                  if (code === 0) resolve();
+                  else reject(Error('Physical stream failed'));
+                });
+              }),
+          ),
+          gateway as unknown as Parameters<typeof withOwnedArtifactSuccessor>[0]['gateway'],
+        );
+      let leaseHost = createLeaseHost();
       const applicationDatabase = join(root, 'events.db');
-      const events = new EventStore(applicationDatabase),
+      let events = new EventStore(applicationDatabase),
         reviews = new SymposiumReviewStore(applicationDatabase);
       const registryDirectory = join(root, 'native');
       mkdirSync(registryDirectory, { mode: 0o700 });
@@ -463,11 +465,16 @@ it.skipIf(!physical)(
         join(root, 'resource-map.json'),
         JSON.stringify({ sessionId, volumes, containers: [] }),
       );
-      const registry = new SymposiumAttemptRegistry(join(registryDirectory, 'claims.db'), {
+      const registryTransport = {
         launch: () => {
           throw Error('Fixture launches only physical Podman controller');
         },
-        confirm: async (sandbox, claim) => {
+        confirm: async (
+          sandbox: Parameters<
+            NonNullable<ConstructorParameters<typeof SymposiumAttemptRegistry>[1]>['confirm']
+          >[0],
+          claim: string,
+        ) => {
           const proof = await copyCommand([
             'exec',
             '--user',
@@ -477,7 +484,11 @@ it.skipIf(!physical)(
           ]);
           verifyControllerProof(proof, claim);
         },
-      });
+      };
+      let registry = new SymposiumAttemptRegistry(
+        join(registryDirectory, 'claims.db'),
+        registryTransport,
+      );
       const profiles = new AccountProfiles(
         ['coder', 'reviewer'].map((id) => ({
           id,
@@ -543,7 +554,7 @@ it.skipIf(!physical)(
         events.markSymposiumMembershipReconciled(sessionId, seatId, 1, 'confirmed');
       }
       const grants = { verifySeat: () => {} }; // Synthetic account/grant identity; not lifecycle receipts.
-      const authority = createSymposiumSuccessorFixAuthority({
+      let authority = createSymposiumSuccessorFixAuthority({
         workflows: reviews,
         events,
         grants,
@@ -640,20 +651,84 @@ it.skipIf(!physical)(
       let dispatches = 0;
       let loseSealVerificationResponse = true;
       let losePhysicalSealResponse = true;
-      const policy = createSymposiumApplicationDispatchPolicy({
-        store: reviews,
-        observations: registry.observations,
-        assertArtifactCurrent: (_attempt, execution) => {
-          const ref =
-            'version' in execution.provenance && execution.provenance.version === 3
-              ? execution.provenance.artifact
-              : null;
-          if (!ref) throw Error('Claim v3 artifact missing');
-          if ('kind' in ref)
-            composed.assertReaderAdmissionCurrent(
-              events.assertSymposiumSealedReaderAdmissionCurrent(execution.sessionId, ref),
-            );
-          else events.assertSymposiumArtifactAdmissionCurrent(execution.sessionId, ref);
+      const createPolicy = () =>
+        createSymposiumApplicationDispatchPolicy({
+          store: reviews,
+          observations: registry.observations,
+          assertArtifactCurrent: (_attempt, execution) => {
+            const ref =
+              'version' in execution.provenance && execution.provenance.version === 3
+                ? execution.provenance.artifact
+                : null;
+            if (!ref) throw Error('Claim v3 artifact missing');
+            if ('kind' in ref)
+              composed.assertReaderAdmissionCurrent(
+                events.assertSymposiumSealedReaderAdmissionCurrent(execution.sessionId, ref),
+              );
+            else events.assertSymposiumArtifactAdmissionCurrent(execution.sessionId, ref);
+          },
+        });
+      let policy = createPolicy();
+      const lifecycleManagerFactory: NonNullable<
+        Parameters<typeof createSymposiumSessionRuntime>[0]['managerFactory']
+      > = (config) => ({
+        ensure: async (runtimeId, _signal, expected) => {
+          if (expected) return { ...expected, workdir: target };
+          const name = sandboxNameForConversation(runtimeId, 13);
+          const mount = config.artifactDriverConfig!.podman!.mounts[0];
+          const id = (
+            await copyCommand([
+              'create',
+              '--pull=never',
+              '--name',
+              name,
+              '--network=none',
+              '--read-only',
+              '--cap-drop=ALL',
+              '--security-opt=no-new-privileges',
+              '--user',
+              'sandbox',
+              '--pids-limit=64',
+              '--memory=256m',
+              '--tmpfs',
+              '/sandbox:rw,mode=1777',
+              '--mount',
+              `type=volume,src=${mount.source},dst=${mount.target}${mount.read_only ? ',readonly' : ''}`,
+              '--entrypoint=/bin/sleep',
+              owner.image,
+              '300',
+            ])
+          ).trim();
+          containers.set(name, id);
+          writeFileSync(
+            join(root, 'resource-map.json'),
+            JSON.stringify({ sessionId, volumes, containers: [...containers] }, null, 2),
+          );
+          await copyCommand(['start', id]);
+          return { sandboxName: name, sandboxId: id, workdir: target };
+        },
+        inspect: async (runtimeId, id) => {
+          const detail = await inspect(sandboxNameForConversation(runtimeId, 13));
+          if (!detail) return undefined;
+          if (detail.id !== id) throw Error('Exact physical seat identity changed');
+          return detail;
+        },
+        inspectReserved: async (runtimeId) => inspect(sandboxNameForConversation(runtimeId, 13)),
+        stop: async (_runtimeId, id) => {
+          await copyCommand(['stop', id]);
+          if (dispatches === 1 && loseWriterStopResponse) {
+            loseWriterStopResponse = false;
+            injectedSealFaults.push('original writer stop response lost');
+            throw Error('Injected lost original writer stop response');
+          }
+          if (dispatches === 2 && loseReaderStopResponse) {
+            loseReaderStopResponse = false;
+            injectedReaderFaults.push('original reader stop response lost');
+            throw Error('Injected lost original reader stop response');
+          }
+        },
+        delete: async (_runtimeId, id) => {
+          await copyCommand(['rm', id]);
         },
       });
       const getRuntime = () => {
@@ -687,67 +762,7 @@ it.skipIf(!physical)(
             else events.assertSymposiumArtifactAdmissionCurrent(id, ref);
           },
           recordAccepted: (input) => events.markSymposiumRecipientAccepted(input),
-          managerFactory: (config) => ({
-            ensure: async (runtimeId, _signal, expected) => {
-              if (expected) return { ...expected, workdir: target };
-              const name = sandboxNameForConversation(runtimeId, 13);
-              const mount = config.artifactDriverConfig!.podman!.mounts[0];
-              const id = (
-                await copyCommand([
-                  'create',
-                  '--pull=never',
-                  '--name',
-                  name,
-                  '--network=none',
-                  '--read-only',
-                  '--cap-drop=ALL',
-                  '--security-opt=no-new-privileges',
-                  '--user',
-                  'sandbox',
-                  '--pids-limit=64',
-                  '--memory=256m',
-                  '--tmpfs',
-                  '/sandbox:rw,mode=1777',
-                  '--mount',
-                  `type=volume,src=${mount.source},dst=${mount.target}${mount.read_only ? ',readonly' : ''}`,
-                  '--entrypoint=/bin/sleep',
-                  owner.image,
-                  '300',
-                ])
-              ).trim();
-              containers.set(name, id);
-              writeFileSync(
-                join(root, 'resource-map.json'),
-                JSON.stringify({ sessionId, volumes, containers: [...containers] }, null, 2),
-              );
-              await copyCommand(['start', id]);
-              return { sandboxName: name, sandboxId: id, workdir: target };
-            },
-            inspect: async (runtimeId, id) => {
-              const detail = await inspect(sandboxNameForConversation(runtimeId, 13));
-              if (!detail) return undefined;
-              if (detail.id !== id) throw Error('Exact physical seat identity changed');
-              return detail;
-            },
-            inspectReserved: async (runtimeId) =>
-              inspect(sandboxNameForConversation(runtimeId, 13)),
-            stop: async (_runtimeId, id) => {
-              await copyCommand(['stop', id]);
-              if (dispatches === 1 && loseWriterStopResponse) {
-                loseWriterStopResponse = false;
-                injectedSealFaults.push('original writer stop response lost');
-                throw Error('Injected lost original writer stop response');
-              }
-              if (dispatches === 2 && loseReaderStopResponse) {
-                loseReaderStopResponse = false;
-                injectedReaderFaults.push('original reader stop response lost');
-                throw Error('Injected lost original reader stop response');
-              }
-            },
-            delete: async (_runtimeId, id) => {
-              await copyCommand(['rm', id]);
-            },
-          }),
+          managerFactory: lifecycleManagerFactory,
           openNative: async ({ sandbox, execution, onEvent }) => ({
             run: async (_input, callbacks) => {
               callbacks.beforeDispatch();
@@ -840,14 +855,19 @@ it.skipIf(!physical)(
         });
         return retained;
       };
-      const sealer = new PhysicalArtifactSealer({
-        store: events,
-        leaseHost,
-        gateway: gateway as unknown as Parameters<typeof withOwnedArtifactSuccessor>[0]['gateway'],
-        attemptRegistry: registry,
-        runtimeConfig,
-      });
-      const successorDeps = {
+      const createSealer = () =>
+        new PhysicalArtifactSealer({
+          store: events,
+          leaseHost,
+          gateway: gateway as unknown as Parameters<
+            typeof withOwnedArtifactSuccessor
+          >[0]['gateway'],
+          attemptRegistry: registry,
+          runtimeConfig,
+          cleanupManagerFactory: lifecycleManagerFactory,
+        });
+      let sealer = createSealer();
+      let successorDeps = {
         authority,
         gateway: gateway as unknown as Parameters<typeof withOwnedArtifactSuccessor>[0]['gateway'],
         leaseHost,
@@ -862,7 +882,7 @@ it.skipIf(!physical)(
           command: sealCommand,
         },
       };
-      const composed: ReturnType<typeof createSymposiumProductionReviewComposition> =
+      const compose = () =>
         createSymposiumProductionReviewComposition({
           host: {
             gateway,
@@ -880,6 +900,22 @@ it.skipIf(!physical)(
               if (dispatches === 1 && losePhysicalSealResponse) {
                 losePhysicalSealResponse = false;
                 throw Error('Injected lost physical seal response');
+              }
+              return seal;
+            },
+            recoverPendingArtifactSeal: async (
+              input: Parameters<PhysicalArtifactSealer['recoverPendingSeal']>[0],
+              claim: string,
+              signal: AbortSignal,
+            ) => {
+              const seal = await sealer.recoverPendingSeal(input, claim, signal);
+              if (dispatches === 1 && losePhysicalSealResponse) {
+                losePhysicalSealResponse = false;
+                throw Error('Injected lost physical seal response');
+              }
+              if (loseSealVerificationResponse) {
+                loseSealVerificationResponse = false;
+                throw Error('Injected lost completed-seal response');
               }
               return seal;
             },
@@ -998,8 +1034,9 @@ it.skipIf(!physical)(
             }
           },
         });
+      let composed = compose();
       const context = { owner: 'user', sessionId };
-      const coordinator = new SymposiumReviewCoordinator(reviews, composed.reviewHost);
+      let coordinator = new SymposiumReviewCoordinator(reviews, composed.reviewHost);
       try {
         coordinator.startApplicationRun(context, {
           workflowId: 'workflow',
@@ -1088,6 +1125,33 @@ it.skipIf(!physical)(
             receipt_json: null,
           },
         ]);
+        // Restart at persisted draining after a lost writer-stop response. The
+        // prior handler has returned and released its durable seat fence; a hard
+        // kill while that random-token fence is held remains an explicit gate.
+        expect(registry.pending().filter((row) => row.sessionId === sessionId)).toEqual([]);
+        composed.close();
+        sealer.close();
+        registry.close();
+        events.close();
+        reviews.close();
+        leaseHost.close();
+        retained = null;
+        leaseHost = createLeaseHost();
+        events = new EventStore(applicationDatabase);
+        reviews = new SymposiumReviewStore(applicationDatabase);
+        registry = new SymposiumAttemptRegistry(
+          join(registryDirectory, 'claims.db'),
+          registryTransport,
+        );
+        policy = createPolicy();
+        sealer = createSealer();
+        authority = createSymposiumSuccessorFixAuthority({ workflows: reviews, events, grants });
+        successorDeps = { ...successorDeps, authority, leaseHost, sealer };
+        composed = compose();
+        coordinator = new SymposiumReviewCoordinator(reviews, composed.reviewHost);
+        injectedSealFaults.push(
+          'stores/registry/sealer reopened; all original runtimes discarded while original seal draining',
+        );
         await expect(composed.reviewHost.refreshArtifact!(context)).rejects.toThrow(
           'Injected lost pre-verifier census response',
         );
@@ -1099,7 +1163,7 @@ it.skipIf(!physical)(
             receipt_json: null,
           },
         ]);
-        expect(retained).not.toBeNull();
+        expect(retained).toBeNull();
         await expect(composed.reviewHost.refreshArtifact!(context)).rejects.toThrow(
           'Injected lost physical seal response',
         );
@@ -1111,7 +1175,7 @@ it.skipIf(!physical)(
           { fence_id: originalSeal.fenceId, phase: 'complete' },
         ]);
         expect(dispatches).toBe(1);
-        expect(retained).not.toBeNull();
+        expect(retained).toBeNull();
         await expect(composed.reviewHost.refreshArtifact!(context)).rejects.toThrow(
           'Injected lost completed-seal response',
         );

@@ -235,7 +235,7 @@ it('reads the sealed coder pointer after a reviewer config transition without is
   ).toThrow('sealed coder pointer');
 });
 
-async function exerciseWriterSealRecovery(pending: boolean) {
+async function exerciseWriterSealRecovery(pending: boolean, restarted = false) {
   // Offline receipt fixture; physical validity is covered by the opt-in application contract.
   const directory = mkdtempSync(join(tmpdir(), 'symposium-retired-seal-'));
   const context = { owner: 'user', sessionId: 'session' };
@@ -384,6 +384,15 @@ async function exerciseWriterSealRecovery(pending: boolean) {
       initialExport: vi.fn(),
     },
     sealSessionArtifacts,
+    ...(restarted
+      ? {
+          recoverPendingArtifactSeal: vi.fn(async (_input: unknown, claim: string) => {
+            expect(claim).toBe(binding.claimToken);
+            requireCompleted.mockResolvedValue(seal);
+            return seal;
+          }),
+        }
+      : {}),
     requireCompletedArtifactSeal: requireCompleted,
     inspectCompletedArtifact: vi.fn(),
     exportCompletedReviewContext: vi.fn(),
@@ -477,6 +486,20 @@ async function exerciseWriterSealRecovery(pending: boolean) {
     await expect(composed.reviewHost.refreshArtifact!(context)).rejects.toThrow(
       pending ? 'Original writer drain response lost' : 'Lost completed-seal response',
     );
+    if (pending && restarted) {
+      // Process-local runtime witnesses disappear; the retained physical seal
+      // operation and original completed native claim remain durable authority.
+      composed.close();
+      unrelatedRuntime = null;
+      composed = compose();
+      await composed.reviewHost.refreshArtifact!(context);
+      expect(composed.reviewHost.currentArtifact(context)).toEqual({
+        revision: seal.git.commit,
+        hash: seal.git.committedTreeDigest,
+      });
+      expect(retire).not.toHaveBeenCalled();
+      return;
+    }
     if (pending) {
       expect(retire).not.toHaveBeenCalled();
       for (const unavailable of [null, { orchestrator: {}, runtime: {} }]) {
@@ -743,4 +766,8 @@ it('requires exact stopped historical reader proof and preserves an unrelated fr
   };
   revoked = true;
   expect(hasCompletedReaderCleanupProof(input)).toBe(false);
+});
+
+it('recovers the original pending writer seal after process-local runtime loss and artifact-store reopen', async () => {
+  await exerciseWriterSealRecovery(true, true);
 });

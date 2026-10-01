@@ -1063,6 +1063,14 @@ export async function createOwnedSymposiumHost(
         });
         return track(() => artifactSealer!.seal(input, runtime, signal));
       },
+      async recoverPendingArtifactSeal(
+        input: PhysicalArtifactSealInput,
+        claimToken: string,
+        signal: AbortSignal,
+      ) {
+        if (draining || stopped) throw new Error('Owned Symposium host is shutting down');
+        return track(() => getArtifactSealer().recoverPendingSeal(input, claimToken, signal));
+      },
       async exportSuccessorArtifactBundle(
         input: Parameters<PhysicalArtifactSealer['exportSuccessorArtifactBundle']>[0],
         signal: AbortSignal,

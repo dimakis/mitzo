@@ -565,6 +565,155 @@ export function snapshotSymposiumSeatProvider(
 }
 
 /** Isolated sandbox per active seat; no credential is attached for another seat. */
+async function withSymposiumSeatLifecycleFence<T>(
+  registry: SeatSandboxRegistry,
+  sessionId: string,
+  seatId: string,
+  signal: AbortSignal,
+  operation: (token: string) => Promise<T>,
+): Promise<T> {
+  const token = randomUUID();
+  const deadline = Date.now() + 10_000;
+  while (!registry.claimSymposiumSeatLifecycle(sessionId, seatId, token)) {
+    signal.throwIfAborted();
+    if (Date.now() >= deadline)
+      throw new Error('Symposium seat lifecycle fence requires reconciliation');
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        signal.removeEventListener('abort', onAbort);
+        resolve();
+      }, 25);
+      const onAbort = () => {
+        clearTimeout(timer);
+        reject(signal.reason ?? new Error('Seat lifecycle aborted'));
+      };
+      signal.addEventListener('abort', onAbort, { once: true });
+      if (signal.aborted) onAbort();
+    });
+  }
+  try {
+    signal.throwIfAborted();
+    return await operation(token);
+  } finally {
+    registry.releaseSymposiumSeatLifecycle(sessionId, seatId, token);
+  }
+}
+
+type CompletedSandboxCleanupDeps = Pick<
+  SymposiumSharedSandboxOwnerDeps,
+  'runtimeConfig' | 'managerFactory'
+> & {
+  seatSandboxRegistry: SeatSandboxRegistry;
+  artifactLeaseHost?: SqliteArtifactLeaseHost;
+  artifactRequest?: (
+    sessionId: string,
+    seatId: string,
+    generation: number,
+    purpose?: 'admission' | 'cleanup',
+  ) => ArtifactLeaseRequest;
+};
+async function stopCompletedSandbox(
+  deps: CompletedSandboxCleanupDeps,
+  record: SymposiumSeatSandboxRecord,
+  manager: ReturnType<NonNullable<SymposiumSharedSandboxOwnerDeps['managerFactory']>>,
+  physicalId: string,
+  signal: AbortSignal,
+) {
+  const { sessionId, seatId } = record;
+  if (!manager.inspect || !manager.inspectReserved || !manager.stop)
+    throw new Error('OpenShell seat sandbox lifecycle interface is unavailable');
+  const observed = await manager.inspect(record.runtimeId, physicalId, signal);
+  if (!observed && !deps.artifactLeaseHost)
+    throw new Error('Recorded seat sandbox disappeared before confirmed stop');
+  if (observed?.phase === 'Ready') await manager.stop(record.runtimeId, physicalId, signal);
+  else if (observed && observed.phase !== 'Stopped')
+    throw new Error(`Seat sandbox is ${observed.phase}, not Ready or Stopped`);
+  if (observed) {
+    const stopped = await manager.inspect(record.runtimeId, physicalId, signal);
+    if (!stopped || stopped.phase !== 'Stopped')
+      throw new Error('Seat sandbox physical stop is not confirmed');
+  }
+  if (deps.artifactLeaseHost) {
+    if (!manager.delete || !record.sandboxName || !deps.artifactRequest)
+      throw new Error('Artifact seat deletion interface or identity is unavailable');
+    const expectedName = sandboxNameForConversation(
+      record.runtimeId,
+      deps.runtimeConfig.sandboxIdLength,
+    );
+    if (record.sandboxName !== expectedName)
+      throw new Error('Artifact seat sandbox name changed before deletion');
+    const request = deps.artifactRequest(sessionId, seatId, record.generation, 'cleanup');
+    if (
+      request.sessionId !== sessionId ||
+      request.seatId !== seatId ||
+      request.workspaceId !== record.workspace
+    )
+      throw new Error('Artifact lease request changed before deletion');
+    // An earlier delete may have succeeded while the process crashed before
+    // lease release. In that case, absence is reconciled below.
+    if (observed) await manager.delete(record.runtimeId, physicalId, signal);
+    const verifyGatewayAbsent = async () => {
+      if (await manager.inspectReserved!(record.runtimeId, signal))
+        throw new Error('OpenShell seat sandbox remains or was replaced after delete');
+    };
+    await deps.artifactLeaseHost.releaseBoundSandbox(
+      request,
+      record.sandboxName,
+      physicalId,
+      verifyGatewayAbsent,
+    );
+  }
+  deps.seatSandboxRegistry!.confirmSymposiumSeatSandboxStopped({
+    sessionId,
+    seatId,
+    generation: record.generation,
+    runtimeId: record.runtimeId,
+    physicalId,
+  });
+}
+
+/** Cleanup-only recovery for exact completed rows from a retained seal job.
+ * No seat admission, creation, executor or process-local runtime is reconstructed. */
+export async function stopRetainedSealSandbox(
+  deps: CompletedSandboxCleanupDeps,
+  record: SymposiumSeatSandboxRecord,
+  signal: AbortSignal,
+) {
+  await withSymposiumSeatLifecycleFence(
+    deps.seatSandboxRegistry,
+    record.sessionId,
+    record.seatId,
+    signal,
+    async () => {
+      const current = deps.seatSandboxRegistry.getSymposiumSeatSandbox(
+        record.sessionId,
+        record.seatId,
+        record.generation,
+      );
+      if (
+        !current ||
+        !record.creationCompleted ||
+        !record.physicalId ||
+        !record.sandboxName ||
+        record.workspace !== deps.runtimeConfig.workspace ||
+        JSON.stringify({ ...record, state: current.state }) !== JSON.stringify(current) ||
+        !['ready', 'stopped'].includes(current.state)
+      )
+        throw new Error('Retained seal sandbox identity requires reconciliation');
+      if (current.state === 'stopped') return;
+      const manager = (deps.managerFactory ?? ((config) => new OpenShellRuntimeManager(config)))({
+        ...deps.runtimeConfig,
+        account: { kind: 'api', provider: record.providerName, model: record.model },
+        accountProviderBindings: [
+          { name: record.providerName, type: record.providerType, id: record.providerId },
+        ],
+        verifyAccountProviderUnion: () => undefined,
+      });
+      await stopCompletedSandbox(deps, current, manager, record.physicalId, signal);
+    },
+  );
+}
+
 export class SymposiumPerSeatSandboxOwner {
   private seatPolicies = new Map<
     string,
@@ -594,32 +743,13 @@ export class SymposiumPerSeatSandboxOwner {
     signal: AbortSignal,
     operation: (fenceToken: string) => Promise<T>,
   ): Promise<T> {
-    const registry = this.deps.seatSandboxRegistry!;
-    const token = randomUUID();
-    const deadline = Date.now() + 10_000;
-    while (!registry.claimSymposiumSeatLifecycle(sessionId, seatId, token)) {
-      signal.throwIfAborted();
-      if (Date.now() >= deadline)
-        throw new Error('Symposium seat lifecycle fence requires reconciliation');
-      await new Promise<void>((resolve, reject) => {
-        const timer = setTimeout(() => {
-          signal.removeEventListener('abort', onAbort);
-          resolve();
-        }, 25);
-        const onAbort = () => {
-          clearTimeout(timer);
-          reject(signal.reason ?? new Error('Seat lifecycle aborted'));
-        };
-        signal.addEventListener('abort', onAbort, { once: true });
-        if (signal.aborted) onAbort();
-      });
-    }
-    try {
-      signal.throwIfAborted();
-      return await operation(token);
-    } finally {
-      registry.releaseSymposiumSeatLifecycle(sessionId, seatId, token);
-    }
+    return withSymposiumSeatLifecycleFence(
+      this.deps.seatSandboxRegistry!,
+      sessionId,
+      seatId,
+      signal,
+      operation,
+    );
   }
 
   constructor(
@@ -1226,59 +1356,13 @@ export class SymposiumPerSeatSandboxOwner {
           }
           if (record.creationStarted && !record.creationCompleted)
             throw new Error('Seat sandbox creation outcome is uncertain; reconciliation required');
-          const observed = await manager.inspect(record.runtimeId, physicalId, signal);
-          if (!observed && !this.deps.artifactLeaseHost)
-            throw new Error('Recorded seat sandbox disappeared before confirmed stop');
-          if (observed?.phase === 'Ready') await manager.stop(record.runtimeId, physicalId, signal);
-          else if (observed && observed.phase !== 'Stopped')
-            throw new Error(`Seat sandbox is ${observed.phase}, not Ready or Stopped`);
-          if (observed) {
-            const stopped = await manager.inspect(record.runtimeId, physicalId, signal);
-            if (!stopped || stopped.phase !== 'Stopped')
-              throw new Error('Seat sandbox physical stop is not confirmed');
-          }
-          if (this.deps.artifactLeaseHost) {
-            if (!manager.delete || !record.sandboxName || !this.deps.artifactRequest)
-              throw new Error('Artifact seat deletion interface or identity is unavailable');
-            const expectedName = sandboxNameForConversation(
-              record.runtimeId,
-              this.deps.runtimeConfig.sandboxIdLength,
-            );
-            if (record.sandboxName !== expectedName)
-              throw new Error('Artifact seat sandbox name changed before deletion');
-            const request = this.deps.artifactRequest(
-              sessionId,
-              seatId,
-              record.generation,
-              'cleanup',
-            );
-            if (
-              request.sessionId !== sessionId ||
-              request.seatId !== seatId ||
-              request.workspaceId !== record.workspace
-            )
-              throw new Error('Artifact lease request changed before deletion');
-            // An earlier delete may have succeeded while the process crashed before
-            // lease release. In that case, absence is reconciled below.
-            if (observed) await manager.delete(record.runtimeId, physicalId, signal);
-            const verifyGatewayAbsent = async () => {
-              if (await manager.inspectReserved!(record.runtimeId, signal))
-                throw new Error('OpenShell seat sandbox remains or was replaced after delete');
-            };
-            await this.deps.artifactLeaseHost.releaseBoundSandbox(
-              request,
-              record.sandboxName,
-              physicalId,
-              verifyGatewayAbsent,
-            );
-          }
-          this.deps.seatSandboxRegistry!.confirmSymposiumSeatSandboxStopped({
-            sessionId,
-            seatId,
-            generation: record.generation,
-            runtimeId: record.runtimeId,
+          await stopCompletedSandbox(
+            { ...this.deps, seatSandboxRegistry: this.deps.seatSandboxRegistry! },
+            record,
+            manager,
             physicalId,
-          });
+            signal,
+          );
         }
       }),
     );

@@ -943,6 +943,11 @@ export interface SymposiumProductionHost {
     runtime: object,
     signal: AbortSignal,
   ): Promise<CompletedArtifactSeal>;
+  recoverPendingArtifactSeal?(
+    input: PhysicalArtifactSealInput,
+    claimToken: string,
+    signal: AbortSignal,
+  ): Promise<CompletedArtifactSeal>;
   exportSuccessorArtifactBundle?(
     input: {
       fenceId: string;

@@ -529,7 +529,22 @@ async function fixture(inspectionPaths = ['file'], streaming = true, independent
     idempotencyKey: 'seal',
     repositoryPath: '.',
   };
-  return { store, host, native, sealer, runtime, input, state, command, root, deps, gateway };
+  return {
+    store,
+    host,
+    native,
+    sealer,
+    runtime,
+    input,
+    state,
+    command,
+    root,
+    deps,
+    gateway,
+    setPhase: (value: string) => {
+      phase = value;
+    },
+  };
 }
 it('seals with eighty unrelated containers through bounded bulk inspection', async () => {
   const f = await fixture();
@@ -1913,5 +1928,267 @@ it.each(['lookup', 'mismatch'] as const)(
     expect(
       isSymposiumRuntimeUnrelatedToClaim(f.runtime, f.store, f.host, 'symposium', input.claimToken),
     ).toBe(false);
+  },
+);
+
+// Native/controller receipts below are synthetic; the retained physical job,
+// EventStore, lease-release and exact sandbox lifecycle owners remain real.
+it.each([
+  'success',
+  'stopped',
+  'absent',
+  'released',
+  'conflict',
+  'pending',
+  'afterStopConflict',
+  'staleLock',
+  'missingTerminal',
+] as const)(
+  'reopened seal recovery %s preserves exact claim authority without reconstructing its runtime',
+  async (mutation) => {
+    const f = await fixture();
+    Object.assign(f.state, { failDrain: true });
+    await expect(f.sealer.seal(f.input, f.runtime, new AbortController().signal)).rejects.toThrow(
+      'cleanup incomplete',
+    );
+    const fence = f.store.getSymposiumArtifactSealIntent('symposium', 'generation')!.fenceId;
+    const provenance = {
+      version: 3,
+      seatId: 'reviewer',
+      membershipGeneration: 1,
+      configRevision: 4,
+      artifact: {
+        version: 1,
+        transitionId: 'initial',
+        artifactGenerationId: 'generation',
+        pointerRevision: 1,
+        bindingDigest: 'b'.repeat(64),
+      },
+    };
+    const identity = {
+      claimToken: 'original',
+      sessionId: 'symposium',
+      seatId: 'reviewer',
+      membershipGeneration: 1,
+      providerThreadId: 'thread',
+      providerTurnId: 'turn',
+      provenance,
+      accountBinding: seat.accountBinding,
+    };
+    vi.spyOn(f.store, 'getSymposiumRecipientAttemptByClaimToken').mockReturnValue({
+      claimToken: 'original',
+      attemptId: 1,
+      idempotencyKey: 'attempt',
+      deliveryId: 'delivery',
+      status: 'delivered',
+      seatId: 'reviewer',
+      providerThreadId: 'thread',
+      providerTurnId: 'turn',
+      provenance,
+    } as unknown as NonNullable<
+      ReturnType<EventStore['getSymposiumRecipientAttemptByClaimToken']>
+    >);
+    vi.spyOn(f.store, 'getSymposiumDelivery').mockReturnValue({
+      sessionId: 'symposium',
+    } as NonNullable<ReturnType<EventStore['getSymposiumDelivery']>>);
+    const confirmed = vi
+      .spyOn(f.store, 'confirmSymposiumAttemptCleanup')
+      .mockImplementation(() => {});
+    const nativeGet = vi.spyOn(f.native.registry, 'get').mockReturnValue({
+      claimToken: 'original',
+      sessionId: 'symposium',
+      sandboxName: sandboxNameForConversation('runtime', 13),
+      workdir: '/sandbox/workspaces/mgmt',
+      state: 'confirmed',
+      cli: 'openshell',
+      gateway: 'gateway',
+      workspace: 'workspace',
+      gatewayInsecure: false,
+      artifact: provenance.artifact,
+    });
+    const observed = vi.spyOn(f.native.registry.observations, 'get').mockReturnValue({
+      identity,
+      status: 'completed',
+      terminalAt: 12,
+      terminalConflict: false,
+    } as unknown as NonNullable<ReturnType<typeof f.native.registry.observations.get>>);
+    const recover = vi.spyOn(f.native.registry, 'recover').mockResolvedValue();
+    // Reopen the physical owner; it has no process-local runtime or drain marker.
+    const reopened = new PhysicalArtifactSealer(f.deps);
+    cleanups.push(() => reopened.close());
+    let physicalPhase: 'Ready' | 'Stopped' | 'Absent' =
+      mutation === 'stopped'
+        ? 'Stopped'
+        : ['absent', 'released'].includes(mutation)
+          ? 'Absent'
+          : 'Ready';
+    f.setPhase(physicalPhase);
+    const stop = vi
+      .spyOn(OpenShellRuntimeManager.prototype, 'stop')
+      .mockImplementation(async () => {
+        physicalPhase = 'Stopped';
+        f.setPhase('Stopped');
+      });
+    vi.spyOn(OpenShellRuntimeManager.prototype, 'inspect').mockImplementation(async () =>
+      physicalPhase === 'Absent' ? undefined : { id: 'physical-writer', phase: physicalPhase },
+    );
+    vi.spyOn(OpenShellRuntimeManager.prototype, 'inspectReserved').mockImplementation(async () =>
+      physicalPhase === 'Absent'
+        ? undefined
+        : {
+            id: 'physical-writer',
+            name: sandboxNameForConversation('runtime', 13),
+            phase: physicalPhase,
+          },
+    );
+    const deleted = vi
+      .spyOn(OpenShellRuntimeManager.prototype, 'delete')
+      .mockImplementation(async () => {
+        physicalPhase = 'Absent';
+        f.setPhase('Absent');
+        if (mutation === 'afterStopConflict')
+          observed.mockReturnValue({
+            identity,
+            status: 'completed',
+            terminalAt: 12,
+            terminalConflict: true,
+          } as unknown as NonNullable<ReturnType<typeof f.native.registry.observations.get>>);
+      });
+    observed.mockReturnValueOnce(undefined);
+    await expect(
+      reopened.recoverPendingSeal(f.input, 'original', new AbortController().signal),
+    ).rejects.toThrow('claim cleanup proof unavailable');
+    nativeGet.mockReturnValueOnce(undefined);
+    await expect(
+      reopened.recoverPendingSeal(f.input, 'original', new AbortController().signal),
+    ).rejects.toThrow('claim cleanup proof unavailable');
+    expect(recover).not.toHaveBeenCalled();
+    expect(stop).not.toHaveBeenCalled();
+    Object.assign(f.state, { failDrain: false });
+    if (mutation === 'staleLock') {
+      expect(f.store.claimSymposiumSeatLifecycle('symposium', 'reviewer', 'unowned')).toBe(true);
+      await expect(
+        reopened.recoverPendingSeal(f.input, 'original', AbortSignal.timeout(25)),
+      ).rejects.toThrow();
+      expect(f.store.claimSymposiumSeatLifecycle('symposium', 'reviewer', 'replacement')).toBe(
+        false,
+      );
+      expect(stop).not.toHaveBeenCalled();
+      expect(f.command.mock.calls.filter(([args]) => args[0] === 'create')).toHaveLength(0);
+      return;
+    }
+    if (mutation === 'missingTerminal') {
+      observed.mockReturnValue({
+        identity,
+        status: 'completed',
+        terminalAt: null,
+        terminalConflict: false,
+      } as unknown as NonNullable<ReturnType<typeof f.native.registry.observations.get>>);
+      await expect(
+        reopened.recoverPendingSeal(f.input, 'original', new AbortController().signal),
+      ).rejects.toThrow('claim cleanup proof unavailable');
+      expect(recover).not.toHaveBeenCalled();
+      expect(stop).not.toHaveBeenCalled();
+      return;
+    }
+    if (mutation === 'afterStopConflict') {
+      await expect(
+        reopened.recoverPendingSeal(f.input, 'original', new AbortController().signal),
+      ).rejects.toThrow('claim cleanup proof unavailable');
+      expect(deleted).toHaveBeenCalledTimes(1);
+      expect(f.command.mock.calls.filter(([args]) => args[0] === 'create')).toHaveLength(0);
+      return;
+    }
+    if (!['success', 'stopped', 'absent', 'released'].includes(mutation)) {
+      recover.mockImplementationOnce(async () => {
+        if (mutation === 'conflict')
+          observed.mockReturnValue({
+            identity,
+            status: 'completed',
+            terminalAt: 12,
+            terminalConflict: true,
+          } as unknown as NonNullable<ReturnType<typeof f.native.registry.observations.get>>);
+        else
+          vi.spyOn(f.native.registry, 'pending').mockReturnValue([
+            {
+              claimToken: 'foreign',
+              sessionId: 'symposium',
+              sandboxName: 'foreign',
+              workdir: '/sandbox/workspaces/mgmt',
+              state: 'uncertain',
+            },
+          ]);
+      });
+      await expect(
+        reopened.recoverPendingSeal(f.input, 'original', new AbortController().signal),
+      ).rejects.toThrow('claim cleanup proof unavailable');
+      expect(confirmed).not.toHaveBeenCalled();
+      expect(stop).not.toHaveBeenCalled();
+      expect(deleted).not.toHaveBeenCalled();
+      expect(f.command.mock.calls.filter(([args]) => args[0] === 'create')).toHaveLength(0);
+      return;
+    }
+    if (mutation === 'released') {
+      const record = f.store.getSymposiumSeatSandbox('symposium', 'reviewer', 1)!;
+      await f.host.releaseBoundSandbox(
+        f.host.retainedCleanupRequest(record)!,
+        record.sandboxName!,
+        record.physicalId!,
+        async () => {},
+      );
+      f.store.confirmSymposiumSeatSandboxStopped({
+        sessionId: 'symposium',
+        seatId: 'reviewer',
+        generation: 1,
+        runtimeId: record.runtimeId,
+        physicalId: record.physicalId!,
+      });
+    }
+    const receipt = await reopened.recoverPendingSeal(
+      f.input,
+      'original',
+      new AbortController().signal,
+    );
+    expect(receipt.fenceId).toBe(fence);
+    expect(recover).toHaveBeenCalledExactlyOnceWith('original');
+    expect(confirmed).toHaveBeenCalledExactlyOnceWith(1, 'attempt');
+    expect(stop).toHaveBeenCalledTimes(mutation === 'success' ? 1 : 0);
+    expect(deleted).toHaveBeenCalledTimes(['success', 'stopped'].includes(mutation) ? 1 : 0);
+    expect(f.command.mock.calls.filter(([args]) => args[0] === 'create')).toHaveLength(1);
+    expect(
+      await reopened.recoverPendingSeal(f.input, 'original', new AbortController().signal),
+    ).toEqual(receipt);
+    expect(f.command.mock.calls.filter(([args]) => args[0] === 'create')).toHaveLength(1);
+    expect(f.store.getSymposiumArtifactSealIntent('symposium', 'generation')!.fenceId).toBe(fence);
+  },
+);
+
+it('never starts a seal or adopts an uncertain verifier without the original runtime', async () => {
+  const f = await fixture();
+  const signal = new AbortController().signal;
+  await expect(f.sealer.recoverPendingSeal(f.input, 'original', signal)).rejects.toThrow(
+    'Original artifact seal drain unavailable',
+  );
+  f.state.failCreate = true;
+  await expect(f.sealer.seal(f.input, f.runtime, signal)).rejects.toThrow();
+  const count = f.command.mock.calls.filter(([args]) => args[0] === 'create').length;
+  await expect(f.sealer.recoverPendingSeal(f.input, 'original', signal)).rejects.toThrow(
+    'retained phase requires explicit reconciliation',
+  );
+  expect(f.command.mock.calls.filter(([args]) => args[0] === 'create')).toHaveLength(count);
+});
+
+it.each([undefined, null])(
+  'public seal rejects missing runtime authority %s even for an exact completed job',
+  async (runtime) => {
+    const f = await fixture();
+    const signal = new AbortController().signal;
+    const completed = await f.sealer.seal(f.input, f.runtime, signal);
+    const creates = f.command.mock.calls.filter(([args]) => args[0] === 'create').length;
+    await expect(f.sealer.seal(f.input, runtime as unknown as object, signal)).rejects.toThrow(
+      'runtime custody',
+    );
+    expect(await f.sealer.requireCompleted(completed.fenceId, signal)).toEqual(completed);
+    expect(f.command.mock.calls.filter(([args]) => args[0] === 'create')).toHaveLength(creates);
   },
 );
