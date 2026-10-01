@@ -9,6 +9,7 @@ import {
 import { ShareButton } from '../components/ShareButton';
 import { MitzoLogo } from '../components/MitzoLogo';
 import { useFileNavigation } from '../hooks/useFileNavigation';
+import { useEditorViewport } from '../hooks/useEditorViewport';
 import { useFileEditor } from '../hooks/useFileEditor';
 import { useDocumentReader } from '../hooks/useDocumentReader';
 import { DocumentEditor } from '../components/DocumentEditor';
@@ -21,6 +22,7 @@ export function FileViewer() {
 }
 
 function FileViewerDocument() {
+  const viewportRef = useEditorViewport();
   const [searchParams, setSearchParams] = useSearchParams();
   const routerNavigate = useNavigate();
   const location = useLocation();
@@ -51,7 +53,7 @@ function FileViewerDocument() {
     '';
 
   return (
-    <div className="viewer-page">
+    <div className="viewer-page" ref={viewportRef}>
       <header className="viewer-header">
         <MitzoLogo />
         {(state.isViewing || state.canGoUp || fromRoute) && (
@@ -102,7 +104,11 @@ function FileViewerDocument() {
           </button>
         )}
         {state.isViewing && isEditable && !editor.editing && (
-          <button className="viewer-header-action" onClick={editor.startEditing}>
+          <button
+            className="viewer-header-action"
+            onClick={editor.startEditing}
+            disabled={state.loading || !!state.error}
+          >
             Edit
           </button>
         )}

@@ -110,6 +110,7 @@ export function DocumentEditor(props: Props) {
             value={content}
             onChange={(event) => onChange(event.target.value)}
             readOnly={saving}
+            autoFocus
             spellCheck={markdown}
             autoCapitalize="off"
             autoCorrect="off"
