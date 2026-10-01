@@ -32,8 +32,48 @@ export function relativeArtifactPath(href: string): string | null {
   }
 }
 
+/** Recognize explicit local Markdown destinations, leaving application URLs alone. */
+export function absoluteMarkdownArtifactPath(href: string): string | null {
+  const local = href.replace(/^file:\/\/(?:localhost)?(?=\/)/i, '');
+  if (!local.startsWith('/') || local.startsWith('//')) return null;
+  try {
+    const path = decodeURIComponent(local.split(/[?#]/, 1)[0]).replace(/:\d+(?::\d+)?$/, '');
+    if (
+      /^\/(?:api|files|chat|login|sessions|more|connections|focus|inbox|calendar|todos|tasks)(?:\/|$)/i.test(
+        path,
+      )
+    )
+      return null;
+    if (
+      path.startsWith('//') ||
+      path.includes('\\') ||
+      [...path].some((char) => char.charCodeAt(0) < 32 || char.charCodeAt(0) === 127)
+    )
+      return null;
+    return /\.mdx?$/i.test(path) ? path : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Normalize parsed links (including reference definitions) before URL sanitization. */
+export function remarkLocalMarkdownLinks() {
+  return (tree: MarkdownNode) => {
+    const visit = (node: MarkdownNode) => {
+      if ((node.type === 'link' || node.type === 'definition') && node.url) {
+        const path = absoluteMarkdownArtifactPath(node.url);
+        if (path) node.url = `${FILE_SCHEME}${encodeURIComponent(path)}`;
+      }
+      node.children?.forEach(visit);
+    };
+    visit(tree);
+  };
+}
+
 /** Resolve a Markdown artifact's link against the directory containing the file. */
 export function linkedArtifactPath(href: string, containingFile: string): string | null {
+  const absolutePath = absoluteMarkdownArtifactPath(href);
+  if (absolutePath) return absolutePath;
   const relative = relativeArtifactPath(href);
   if (!relative) return null;
 
