@@ -106,10 +106,40 @@ function fixture() {
   return { root, filename, config, save, gateway, tools };
 }
 describe('explicit private owned startup configuration', () => {
+  it('does not invoke queued prelaunch inspection after synchronous owner pause', async () => {
+    const f = fixture();
+    const inspect = vi.fn();
+    const facts = new EventStore(join(f.root, 'queued-prelaunch.db'));
+    const host = await bootstrapConfiguredSymposiumHost(
+      f.filename,
+      { facts, hostGrants: { verifySeat: vi.fn() }, observePrelaunch: inspect },
+      f.tools as unknown as BootstrapTools,
+    );
+    const pending = host.observePrelaunch!(
+      {
+        sessionId: 'session',
+        claimToken: 'claim',
+        deliveryId: 'delivery',
+        seatId: 'reader',
+        membershipGeneration: 1,
+        controllerClaimDigest: 'a'.repeat(64),
+        cwd: '/sandbox/workspaces/mgmt',
+      },
+      new AbortController().signal,
+    );
+    const rejected = expect(pending).rejects.toThrow();
+    host.pauseController();
+    await rejected;
+    expect(inspect).not.toHaveBeenCalled();
+    host.stop();
+    facts.close();
+  });
+
   it('plumbs only a constructor observer into the actual owned host, never persisted config', async () => {
     const f = fixture();
     const observer = vi.fn();
     const startup = vi.fn();
+    const prelaunch = vi.fn();
     const facts = new EventStore(join(f.root, 'constructor-events.db'));
     const host = await bootstrapConfiguredSymposiumHost(
       f.filename,
@@ -118,6 +148,7 @@ describe('explicit private owned startup configuration', () => {
         hostGrants: { verifySeat: vi.fn() },
         observeDurableReviewToolResult: observer,
         observeStartupConfig: startup,
+        observePrelaunch: prelaunch,
       },
       f.tools as unknown as BootstrapTools,
     );
@@ -126,8 +157,36 @@ describe('explicit private owned startup configuration', () => {
       'observeDurableReviewToolResult',
     );
     expect(host.observeStartupConfig).toBeTypeOf('function');
+    expect(host.observePrelaunch).toBeTypeOf('function');
+    expect(readOwnedSymposiumHostConfig(f.filename)).not.toHaveProperty('observePrelaunch');
     expect(readOwnedSymposiumHostConfig(f.filename)).not.toHaveProperty('observeStartupConfig');
+    let entered!: () => void;
+    const enteredPromise = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    prelaunch.mockImplementation(async (_event, signal) => {
+      entered();
+      await new Promise<void>((resolve) =>
+        signal.addEventListener('abort', () => resolve(), { once: true }),
+      );
+    });
+    const pendingInspection = host.observePrelaunch!(
+      {
+        sessionId: 'session',
+        claimToken: 'claim',
+        deliveryId: 'delivery',
+        seatId: 'reader',
+        membershipGeneration: 1,
+        controllerClaimDigest: 'a'.repeat(64),
+        cwd: '/sandbox/workspaces/mgmt',
+      },
+      new AbortController().signal,
+    );
+    const rejected = expect(pendingInspection).rejects.toThrow();
+    await enteredPromise;
     host.pauseController();
+    await rejected;
+    expect(prelaunch).toHaveBeenCalledOnce();
     await expect(
       host.observeStartupConfig!(
         {

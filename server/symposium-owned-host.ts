@@ -111,6 +111,7 @@ export interface OwnedSymposiumHostOptions {
   /** Trusted construction only; never read from persisted configuration or requests. */
   observeDurableReviewToolResult?: OpenAiCodexSeatInput['observeDurableReviewToolResult'];
   observeStartupConfig?: OpenAiCodexSeatInput['observeStartupConfig'];
+  observePrelaunch?: OpenAiCodexSeatInput['observePrelaunch'];
   criterionChecks?: readonly CheckDefinition[];
   publicationCredentials?: readonly PublicationCredentialRegistration[];
   gateway: OwnedSymposiumGatewayOptions;
@@ -202,6 +203,11 @@ export async function createOwnedSymposiumHost(
   let subscription: ReturnType<typeof createPersonalSubscriptionHost> | undefined;
   let sessionArtifacts: SymposiumSessionArtifacts | undefined;
   let stopped = false;
+  const prelaunchInspections = new Set<AbortController>();
+  const abortPrelaunchInspections = () => {
+    for (const inspection of prelaunchInspections)
+      inspection.abort(new Error('Original owned prelaunch owner is shutting down'));
+  };
   let draining = false;
   let controllerPaused = false;
   const pendingHostOperations = new Set<Promise<unknown>>();
@@ -695,6 +701,49 @@ export async function createOwnedSymposiumHost(
           assertCurrent();
         }
       : undefined;
+    const observePrelaunch = options.observePrelaunch
+      ? async (
+          event: Parameters<NonNullable<OpenAiCodexSeatInput['observePrelaunch']>>[0],
+          signal: AbortSignal,
+        ) => {
+          const abort = new AbortController();
+          const onAbort = () => abort.abort(signal.reason);
+          signal.addEventListener('abort', onAbort, { once: true });
+          if (signal.aborted) onAbort();
+          prelaunchInspections.add(abort);
+          let rejectAbort: (() => void) | undefined;
+          const assertCurrent = () => {
+            if (stopped || draining || controllerPaused)
+              throw new Error('Original owned prelaunch observer is no longer current');
+            abort.signal.throwIfAborted();
+            currentProfiles();
+          };
+          try {
+            assertCurrent();
+            await track(async () => {
+              assertCurrent();
+              await Promise.race([
+                Promise.resolve().then(() => {
+                  assertCurrent();
+                  return options.observePrelaunch!(event, abort.signal);
+                }),
+                new Promise<never>((_resolve, reject) => {
+                  rejectAbort = () => reject(abort.signal.reason ?? new Error('Prelaunch aborted'));
+                  abort.signal.addEventListener('abort', rejectAbort, { once: true });
+                  if (abort.signal.aborted) rejectAbort();
+                }),
+              ]);
+              assertCurrent();
+            });
+            assertCurrent();
+          } finally {
+            signal.removeEventListener('abort', onAbort);
+            if (rejectAbort) abort.signal.removeEventListener('abort', rejectAbort);
+            prelaunchInspections.delete(abort);
+            abort.abort(new Error('Prelaunch inspection closed'));
+          }
+        }
+      : undefined;
     const seatProof = createSymposiumSubscriptionSeatProof({
       facts: options.facts,
       currentProfiles,
@@ -1148,6 +1197,7 @@ export async function createOwnedSymposiumHost(
         }),
       currentProfiles,
       observeStartupConfig,
+      observePrelaunch,
       observeDurableReviewToolResult,
       readNativeObservation,
       publicationCredentials: options.publicationCredentials,
@@ -1521,10 +1571,12 @@ export async function createOwnedSymposiumHost(
 
       pauseController() {
         controllerPaused = true;
+        abortPrelaunchInspections();
         workspaceLifecycle.pauseController();
       },
       async quiesceController(signal: AbortSignal) {
         controllerPaused = true;
+        abortPrelaunchInspections();
         workspaceLifecycle.pauseController();
         // Retain the original provider/login owner. Only an unfinished login is
         // cancelled; a completed personal connection is never invalidated here.
@@ -1552,10 +1604,12 @@ export async function createOwnedSymposiumHost(
       },
       beginShutdown() {
         draining = true;
+        abortPrelaunchInspections();
         workspaceLifecycle.beginDrain();
       },
       async drain(signal: AbortSignal) {
         draining = true;
+        abortPrelaunchInspections();
         workspaceLifecycle.beginDrain();
         const pending = await Promise.allSettled([...pendingHostOperations]);
         let failed = pending.some(
@@ -1593,6 +1647,7 @@ export async function createOwnedSymposiumHost(
         await gateway.stopAndWait(signal);
         signal.throwIfAborted();
         stopped = true;
+        abortPrelaunchInspections();
         subscription!.invalidate();
         native!.registry.close();
         artifactSealer?.close();
@@ -1602,6 +1657,7 @@ export async function createOwnedSymposiumHost(
       stop() {
         if (stopped) return;
         stopped = true;
+        abortPrelaunchInspections();
         try {
           void Promise.resolve(login?.cancel()).catch(() => {
             loginQuarantined = true;

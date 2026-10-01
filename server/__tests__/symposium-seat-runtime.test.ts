@@ -4365,3 +4365,110 @@ describe('trusted native startup observation before provider thread', () => {
     },
   );
 });
+
+describe('trusted prelaunch gate before the original controller', () => {
+  it.each([
+    'none',
+    'owner',
+    'claim',
+    'abort',
+    'missing-preparation',
+    'timeout',
+    'controller',
+    'failure',
+  ] as const)('fences launch around awaited inspection: %s', async (change) => {
+    const f = fixture();
+    const abort = new AbortController();
+    f.input.signal = abort.signal;
+    const route = admitSymposiumSeatDispatch(f.facts, profiles, f.input, hostGrants);
+    const sandbox = {
+      sandboxName: 'prelaunch-seat',
+      workdir: '/sandbox/workspaces/mgmt',
+      cli: 'openshell',
+      gateway: 'synthetic-gateway',
+      workspace: 'synthetic-workspace',
+      gatewayInsecure: false,
+    };
+    const registry = new SymposiumAttemptRegistry(join(registryDirectory(), 'prelaunch.db'), {
+      launch: () => {
+        throw Error('unexpected physical transport');
+      },
+      confirm: async () => {},
+    });
+    if (change !== 'missing-preparation')
+      registry.prepare({ claimToken: f.input.claimToken, sessionId: f.input.sessionId });
+    let current = true;
+    let attempt = { ...f.input, seatId: f.input.seat.id, status: 'executing' as const };
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const observe = vi.fn(async (event, signal) => {
+      expect(Object.isFrozen(event)).toBe(true);
+      expect(event.claimToken).toBe(f.input.claimToken);
+      expect(signal).toBeInstanceOf(AbortSignal);
+      await gate;
+      if (change === 'failure') throw Error('inspection refused');
+    });
+    const constructor = vi.fn(
+      (_opts: import('../codex-conversation.js').CodexConversationOptions) => ({
+        initialize: async () => {},
+        getThreadId: () => 'original-thread',
+        send: async () => {},
+        interrupt: async () => {},
+        close: () => {},
+      }),
+    );
+    if (change === 'timeout') vi.useFakeTimers();
+    try {
+      const pending = createOpenAiCodexSeat({
+        sandbox,
+        route,
+        execution: f.input,
+        store: {} as never,
+        attemptRegistry: registry,
+        resolveAttempt: () => attempt as never,
+        observePrelaunch: observe,
+        assertPrelaunchCurrent: () => {
+          if (!current) throw Error('prelaunch owner lost');
+        },
+        createConversation: constructor,
+      });
+      const outcome = pending.then(
+        (value) => ({ value }),
+        (error) => ({ error }),
+      );
+      await Promise.resolve();
+      expect(constructor).not.toHaveBeenCalled();
+      if (change === 'owner') current = false;
+      if (change === 'claim') attempt = { ...attempt, deliveryId: 'changed' };
+      if (change === 'controller')
+        registry.reserve({ claimToken: f.input.claimToken, sessionId: f.input.sessionId, sandbox });
+      if (change === 'abort') abort.abort(Error('cancelled original'));
+      if (change === 'timeout') await vi.advanceTimersByTimeAsync(30001);
+      release();
+      const result = await outcome;
+      if (change === 'none') {
+        expect(result).toHaveProperty('value');
+        expect(constructor).toHaveBeenCalledOnce();
+        const opts = constructor.mock
+          .calls[0]![0] as import('../codex-conversation.js').CodexConversationOptions;
+        const lifecycle = {
+          onNotification: () => {},
+          onRequest: async () => ({}),
+          onClose: () => {},
+        };
+        expect(() => opts.createClient(lifecycle)).toThrow('Verified Codex native controller');
+        expect(() => opts.createClient(lifecycle)).toThrow('consumed');
+        await expect(opts.beforeReconnect!()).rejects.toThrow('prelaunch');
+      } else {
+        expect(result).toHaveProperty('error');
+        expect(constructor).not.toHaveBeenCalled();
+      }
+      if (change !== 'controller') expect(registry.get(f.input.claimToken)).toBeUndefined();
+    } finally {
+      vi.useRealTimers();
+      registry.close();
+    }
+  });
+});

@@ -18,9 +18,11 @@ export interface SymposiumCustodianConstructorHooks {
   bootstrapTools?: BootstrapTools;
   observeDurableReviewToolResult?: OwnedSymposiumHostOptions['observeDurableReviewToolResult'];
   observeStartupConfig?: OwnedSymposiumHostOptions['observeStartupConfig'];
+  observePrelaunch?: OwnedSymposiumHostOptions['observePrelaunch'];
 }
 export async function runSymposiumCustodian(hooks: SymposiumCustodianConstructorHooks = {}) {
-  const { bootstrapTools, observeDurableReviewToolResult, observeStartupConfig } = hooks;
+  const { bootstrapTools, observeDurableReviewToolResult, observeStartupConfig, observePrelaunch } =
+    hooks;
   if (
     observeDurableReviewToolResult !== undefined &&
     typeof observeDurableReviewToolResult !== 'function'
@@ -28,6 +30,8 @@ export async function runSymposiumCustodian(hooks: SymposiumCustodianConstructor
     throw Error('Custodian observer must be a trusted constructor callback');
   if (observeStartupConfig !== undefined && typeof observeStartupConfig !== 'function')
     throw Error('Startup observer must be a trusted constructor callback');
+  if (observePrelaunch !== undefined && typeof observePrelaunch !== 'function')
+    throw Error('Prelaunch observer must be a trusted constructor callback');
   if (process.env.MITZO_SYMPOSIUM_CUSTODIAN_CONTROLLER || process.send)
     throw Error('Custodian must be launched as the independent owner');
   const filename = process.env.MITZO_SYMPOSIUM_OWNED_HOST_CONFIG;
@@ -43,6 +47,7 @@ export async function runSymposiumCustodian(hooks: SymposiumCustodianConstructor
       ...engine.getSymposiumBootstrapDependencies(),
       observeDurableReviewToolResult,
       observeStartupConfig,
+      observePrelaunch,
     },
     bootstrapTools,
   );

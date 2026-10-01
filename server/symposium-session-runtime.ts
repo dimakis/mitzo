@@ -1447,6 +1447,7 @@ export interface SymposiumSessionRuntimeDeps extends Omit<
   verifiedCodexControllerCommand?: readonly string[];
   observeDurableReviewToolResult?: import('./symposium-codex-native.js').OpenAiCodexSeatInput['observeDurableReviewToolResult'];
   observeStartupConfig?: import('./symposium-codex-native.js').OpenAiCodexSeatInput['observeStartupConfig'];
+  observePrelaunch?: import('./symposium-codex-native.js').OpenAiCodexSeatInput['observePrelaunch'];
   openNative?: SymposiumOpenShellSeatExecutorDeps['openNative'];
   /** Explicit host attestation of exact OpenShell 0.1 seat isolation and attachment semantics. */
   perSeatSandboxVerified?: boolean;
@@ -1725,6 +1726,12 @@ export function createSymposiumSessionRuntime(deps: SymposiumSessionRuntimeDeps)
                     loadConversationHistory,
                     resolveAttempt,
                     profileTools,
+                    ...(deps.observePrelaunch
+                      ? {
+                          observePrelaunch: deps.observePrelaunch,
+                          assertPrelaunchCurrent: verifyNativeToolCurrent,
+                        }
+                      : {}),
                     ...(deps.observeStartupConfig
                       ? {
                           observeStartupConfig: deps.observeStartupConfig,

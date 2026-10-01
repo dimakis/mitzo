@@ -24,6 +24,7 @@ type Dependencies = Pick<
   | 'readerAuthority'
   | 'observeDurableReviewToolResult'
   | 'observeStartupConfig'
+  | 'observePrelaunch'
 >;
 export interface BootstrapTools {
   launch: typeof OwnedSymposiumGateway.launch;

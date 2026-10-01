@@ -73,7 +73,22 @@ function freezeObservation<T>(value: T): T {
   return value;
 }
 
+export interface NativePrelaunchObservation {
+  readonly sessionId: string;
+  readonly claimToken: string;
+  readonly deliveryId: string;
+  readonly seatId: string;
+  readonly membershipGeneration: number;
+  readonly controllerClaimDigest: string;
+  readonly cwd: string;
+}
 export interface OpenAiCodexSeatInput {
+  /** Trusted constructor-only inspection before any native controller starts. */
+  observePrelaunch?: (
+    event: NativePrelaunchObservation,
+    signal: AbortSignal,
+  ) => Promise<void> | void;
+  assertPrelaunchCurrent?: () => void;
   /** Trusted constructor-only startup inspection, never a public configuration field. */
   observeStartupConfig?: (
     event: Readonly<{
@@ -163,6 +178,14 @@ export async function createCodexNativeSeat(
       !input.resolveAttempt)
   )
     throw new Error('Startup observer requires paired original owner capability');
+  if (
+    input.observePrelaunch &&
+    (typeof input.observePrelaunch !== 'function' ||
+      typeof input.assertPrelaunchCurrent !== 'function' ||
+      !input.attemptRegistry ||
+      !input.resolveAttempt)
+  )
+    throw new Error('Prelaunch observer requires paired original owner capability');
   const binding = execution.seat.accountBinding;
   if (!binding) throw new Error('Codex native seat lacks account binding');
   const startupIdentity = structuredClone({
@@ -176,6 +199,89 @@ export async function createCodexNativeSeat(
     workdir: sandbox.workdir,
   });
   let startupVetoed = false;
+  let prelaunchVetoed = false;
+  let prelaunchReady = false;
+  const originalSandbox = structuredClone(sandbox);
+  const assertPrelaunch = () => {
+    if (prelaunchVetoed) throw new Error('Native prelaunch permanently vetoed');
+    execution.signal.throwIfAborted();
+    input.assertPrelaunchCurrent!();
+    auth.launchIdentity?.assertCurrent();
+    const attempt = input.resolveAttempt!(startupIdentity.claimToken);
+    const preparation = input
+      .attemptRegistry!.pendingPreparations()
+      .find((row) => row.claimToken === startupIdentity.claimToken);
+    const artifact =
+      'version' in startupIdentity.provenance && startupIdentity.provenance.version === 3
+        ? startupIdentity.provenance.artifact
+        : null;
+    if (
+      input.attemptRegistry!.get(startupIdentity.claimToken) ||
+      input.attemptRegistry!.observations.get(startupIdentity.claimToken) ||
+      preparation?.sessionId !== startupIdentity.sessionId ||
+      !isDeepStrictEqual(preparation.artifact ?? null, artifact) ||
+      attempt?.status !== 'executing' ||
+      attempt.claimToken !== startupIdentity.claimToken ||
+      attempt.deliveryId !== startupIdentity.deliveryId ||
+      attempt.seatId !== startupIdentity.seatId ||
+      !isDeepStrictEqual(attempt.provenance, startupIdentity.provenance) ||
+      !isDeepStrictEqual(execution.seat.accountBinding, startupIdentity.accountBinding) ||
+      execution.claimToken !== startupIdentity.claimToken ||
+      execution.sessionId !== startupIdentity.sessionId ||
+      execution.deliveryId !== startupIdentity.deliveryId ||
+      execution.seat.id !== startupIdentity.seatId ||
+      !isDeepStrictEqual(execution.provenance, startupIdentity.provenance) ||
+      !isDeepStrictEqual(sandbox, originalSandbox)
+    )
+      throw new Error('Original native prelaunch binding changed');
+    input.attemptRegistry!.assertSandboxAvailable(startupIdentity.sandboxName);
+  };
+  const inspectPrelaunch = async () => {
+    if (!input.observePrelaunch) return;
+    const abort = new AbortController();
+    const onAbort = () => abort.abort(execution.signal.reason);
+    execution.signal.addEventListener('abort', onAbort, { once: true });
+    const deadline = performance.now() + 30_000;
+    const timer = setTimeout(() => abort.abort(new Error('Native prelaunch timed out')), 30_000);
+    let rejectAbort: (() => void) | undefined;
+    try {
+      assertPrelaunch();
+      await Promise.race([
+        Promise.resolve().then(() => {
+          abort.signal.throwIfAborted();
+          return input.observePrelaunch!(
+            freezeObservation({
+              sessionId: startupIdentity.sessionId,
+              claimToken: startupIdentity.claimToken,
+              deliveryId: startupIdentity.deliveryId,
+              seatId: startupIdentity.seatId,
+              membershipGeneration: startupIdentity.provenance.membershipGeneration!,
+              controllerClaimDigest: controllerClaimDigest(startupIdentity.claimToken),
+              cwd: startupIdentity.workdir,
+            }),
+            abort.signal,
+          );
+        }),
+        new Promise<never>((_resolve, reject) => {
+          rejectAbort = () => reject(abort.signal.reason ?? new Error('Native prelaunch aborted'));
+          abort.signal.addEventListener('abort', rejectAbort, { once: true });
+          if (abort.signal.aborted) rejectAbort();
+        }),
+      ]);
+      if (performance.now() >= deadline) abort.abort(new Error('Native prelaunch timed out'));
+      abort.signal.throwIfAborted();
+      assertPrelaunch();
+      prelaunchReady = true;
+    } catch (error) {
+      prelaunchVetoed = true;
+      throw error;
+    } finally {
+      clearTimeout(timer);
+      execution.signal.removeEventListener('abort', onAbort);
+      if (rejectAbort) abort.signal.removeEventListener('abort', rejectAbort);
+      abort.abort(new Error('Native prelaunch inspection closed'));
+    }
+  };
   let callbacks:
     | {
         beforeDispatch(providerThreadId?: string): void;
@@ -235,7 +341,24 @@ export async function createCodexNativeSeat(
       .filter(Boolean)
       .join('\n\n'),
     tools: input.profileTools?.tools ?? [],
+    beforeReconnect: input.observePrelaunch
+      ? async () => {
+          prelaunchVetoed = true;
+          throw new Error('Native prelaunch inspection does not support reconnect');
+        }
+      : undefined,
     createClient: (lifecycle) => {
+      if (input.observePrelaunch) {
+        if (!prelaunchReady || prelaunchVetoed)
+          throw new Error('Native prelaunch capability unavailable or consumed');
+        prelaunchReady = false;
+        try {
+          assertPrelaunch();
+        } catch (error) {
+          prelaunchVetoed = true;
+          throw error;
+        }
+      }
       if (!input.attemptRegistry || !input.verifiedControllerCommand || !input.resolveAttempt)
         throw new Error('Verified Codex native controller capability is unavailable');
       auth.assertCommand(input.verifiedControllerCommand);
@@ -562,6 +685,7 @@ export async function createCodexNativeSeat(
   };
   let conversation!: NativeCodexConversation;
   try {
+    await inspectPrelaunch();
     conversation = input.createConversation?.(options) ?? new CodexConversation(options);
     await conversation.initialize();
   } catch (error) {
