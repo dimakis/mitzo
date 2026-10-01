@@ -29,6 +29,25 @@ describe('MarkdownPreviewCard links', () => {
   });
 
   it.each([
+    'This sandbox is stopped. Resume the conversation to access its files.',
+    'This sandbox workspace is no longer available.',
+  ])('shows the server workspace guidance: %s', async (message) => {
+    vi.mocked(apiFetch).mockResolvedValue({
+      ok: false,
+      status: 409,
+      statusText: 'Conflict',
+      json: async () => ({ error: message }),
+    } as never);
+    render(
+      <MemoryRouter>
+        <MarkdownPreviewCard filePath="report.md" sessionId="sandbox-session" />
+      </MemoryRouter>,
+    );
+    fireEvent.click(screen.getByRole('button', { name: /report.md/ }));
+    expect(await screen.findByText(message)).toBeTruthy();
+  });
+
+  it.each([
     ['[details](details.html)', 'outputs/details.html'],
     [
       '[details](file-path://%2Fsession-workspace%2Fdetails.html)',

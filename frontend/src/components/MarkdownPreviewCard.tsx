@@ -34,7 +34,10 @@ export function MarkdownPreviewCard({ filePath, sessionId }: Props) {
       setLoading(true);
       try {
         const res = await apiFetch(artifactApiUrl('read', filePath, sessionId));
-        if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+        if (!res.ok) {
+          const body = await res.json().catch(() => null);
+          throw new Error(body?.error || `Failed to load file (${res.status})`);
+        }
         const data = await res.json();
         setContent(data.content);
       } catch (e: unknown) {

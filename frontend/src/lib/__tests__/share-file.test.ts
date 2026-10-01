@@ -124,6 +124,20 @@ describe('shareFile', () => {
     expect(createObjectURLSpy).not.toHaveBeenCalled();
   });
 
+  it.each([
+    'This sandbox is stopped. Resume the conversation to access its files.',
+    'This sandbox workspace is no longer available.',
+  ])('preserves workspace guidance when downloading: %s', async (message) => {
+    mockApiFetch.mockResolvedValue(
+      new Response(JSON.stringify({ error: message }), {
+        status: 409,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    );
+    await expect(shareFile('report.md', 'sandbox-session')).rejects.toThrow(message);
+    expect(createObjectURLSpy).not.toHaveBeenCalled();
+  });
+
   it('throws when server returns error', async () => {
     mockApiFetch.mockResolvedValue(
       new Response(JSON.stringify({ error: 'Path not allowed' }), {
