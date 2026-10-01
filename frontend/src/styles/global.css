@@ -5084,7 +5084,7 @@ textarea:focus {
 
 .todo-card {
   position: relative;
-  background: transparent;
+  background: var(--bg);
   padding: 16px 4px;
   cursor: pointer;
   touch-action: pan-y;
@@ -5095,7 +5095,7 @@ textarea:focus {
 
 .todo-card:hover,
 .todo-card:focus-within {
-  background: color-mix(in srgb, var(--surface) 55%, transparent);
+  background: color-mix(in srgb, var(--surface) 55%, var(--bg));
 }
 
 /* ─── 3-line card layout ──────────────────────────────────────────── */
