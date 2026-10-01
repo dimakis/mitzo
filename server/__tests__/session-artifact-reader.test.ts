@@ -1,6 +1,10 @@
 import { it, expect, vi } from 'vitest';
 import type { AccountBinding } from '@mitzo/protocol';
-import { createSessionArtifactReader } from '../session-artifact-reader.js';
+import type { OpenShellAccountRoute } from '../openshell-runtime.js';
+import {
+  createSessionArtifactReader,
+  validateSessionArtifactRuntime,
+} from '../session-artifact-reader.js';
 
 const binding = {
   accountId: 'account',
@@ -18,7 +22,7 @@ const runtime = {
   gatewayInsecure: false,
   appServerCommand: '/sandbox/run-mitzo-app-server' as const,
 };
-const route = { kind: 'api' as const, provider: 'provider', model: 'model' };
+const route: OpenShellAccountRoute = { kind: 'api', provider: 'provider', model: 'model' };
 function deps() {
   return {
     readRuntime: vi.fn(() => ({ runtime, route })),
@@ -27,13 +31,43 @@ function deps() {
     inspect: vi.fn().mockResolvedValue({ id: 'physical', phase: 'Ready' }),
     read: vi
       .fn()
-      .mockResolvedValue({ path: `${runtime.workdir}/report.md`, bytes: Buffer.from('# Report') }),
+      .mockImplementation(async (_runtime, _path, _signal, verify: () => Promise<void>) => {
+        await verify();
+        const result = { path: `${runtime.workdir}/report.md`, bytes: Buffer.from('# Report') };
+        await verify();
+        return result;
+      }),
   };
 }
-it.each(['openai', 'openai-codex'])(
-  'reads an inactive %s conversation using persisted exact runtime',
-  async (provider) => {
+it.each([
+  { provider: 'openai', selectedRoute: route },
+  {
+    provider: 'openai-codex',
+    selectedRoute: {
+      kind: 'chatgpt-subscription',
+      provider: 'provider',
+      model: 'model',
+      providerType: 'openai-codex-oauth',
+      providerId: 'oauth-provider',
+      grantId: 'grant',
+    } as OpenShellAccountRoute,
+  },
+  {
+    provider: 'openai-codex',
+    selectedRoute: {
+      kind: 'chatgpt-subscription-native',
+      provider: 'provider',
+      model: 'model',
+      providerType: 'codex',
+      providerId: 'native-provider',
+    } as OpenShellAccountRoute,
+  },
+])(
+  'reads an inactive $selectedRoute.kind conversation using persisted exact runtime',
+  async ({ provider, selectedRoute }) => {
     const d = deps();
+    d.readRuntime.mockReturnValue({ runtime, route: selectedRoute });
+    d.currentRoute.mockReturnValue(selectedRoute);
     const selected = { ...binding, provider } as AccountBinding;
     const result = await createSessionArtifactReader(d)(
       'old-session',
@@ -66,7 +100,6 @@ it.each(['Stopped', 'Deleted'])('does not restore a %s workspace on GET', async 
   await expect(
     createSessionArtifactReader(d)('old', binding, runtime.workdir, 'report.md'),
   ).rejects.toMatchObject({ status: 409 });
-  expect(d.read).not.toHaveBeenCalled();
 });
 it('rejects a replaced sandbox and changed subscription route', async () => {
   const d = deps();
@@ -74,7 +107,6 @@ it('rejects a replaced sandbox and changed subscription route', async () => {
   await expect(
     createSessionArtifactReader(d)('old', binding, runtime.workdir, 'report.md'),
   ).rejects.toMatchObject({ status: 409 });
-  expect(d.read).not.toHaveBeenCalled();
   const e = deps();
   e.currentRoute.mockReturnValue({ ...route, provider: 'other' });
   await expect(
@@ -87,7 +119,6 @@ it('rejects workspace mismatch and disappearance after read', async () => {
   await expect(
     createSessionArtifactReader(d)('old', binding, '/sandbox/other', 'report.md'),
   ).rejects.toMatchObject({ status: 409 });
-  expect(d.read).not.toHaveBeenCalled();
   const e = deps();
   e.inspect
     .mockResolvedValueOnce({ id: 'physical', phase: 'Ready' })
@@ -95,4 +126,45 @@ it('rejects workspace mismatch and disappearance after read', async () => {
   await expect(
     createSessionArtifactReader(e)('old', binding, runtime.workdir, 'report.md'),
   ).rejects.toMatchObject({ status: 409 });
+});
+
+it('rejects changed CLI environment authority and accepts matching gateway configuration', () => {
+  const current = { ...runtime, cliEnvironment: { HOME: '/trusted/home' } };
+  expect(() => validateSessionArtifactRuntime(current, current)).not.toThrow();
+  expect(() =>
+    validateSessionArtifactRuntime(
+      { ...current, cliEnvironment: { HOME: '/other/home' } },
+      current,
+    ),
+  ).toThrow('configuration changed');
+  expect(() =>
+    validateSessionArtifactRuntime(
+      { ...current, gatewayEndpoint: 'https://other-gateway' },
+      current,
+    ),
+  ).toThrow('configuration changed');
+});
+
+it('rejects changed subscription provider identity or grant', async () => {
+  const subscription = {
+    kind: 'chatgpt-subscription',
+    provider: 'provider',
+    model: 'model',
+    providerType: 'openai-codex-oauth',
+    providerId: 'provider-id',
+    grantId: 'grant',
+  } as const;
+  for (const change of [
+    { providerId: 'replacement' },
+    { grantId: 'replacement' },
+    { model: 'replacement' },
+  ]) {
+    const d = deps();
+    d.readRuntime.mockReturnValue({ runtime, route: subscription });
+    d.currentRoute.mockReturnValue({ ...subscription, ...change });
+    await expect(
+      createSessionArtifactReader(d)('old', binding, runtime.workdir, 'report.md'),
+    ).rejects.toMatchObject({ status: 409 });
+    expect(d.read).not.toHaveBeenCalled();
+  }
 });

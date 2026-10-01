@@ -835,10 +835,17 @@ export class OpenShellRuntimeManager {
   /** Read the current physical sandbox for a lifecycle record.  This keeps
    * lifecycle callers from reconstructing CLI arguments or trusting a name
    * without re-checking its ownership labels. */
-  async inspect(conversationId: string, physicalId: string, signal: AbortSignal) {
+  async inspect(
+    conversationId: string,
+    physicalId: string,
+    signal: AbortSignal,
+    expectedName?: string,
+  ) {
     const sandbox = await this.ownedSandbox(conversationId, physicalId, signal, true);
     if (!sandbox) return undefined;
     if (!sandbox.id) throw new Error('OpenShell sandbox has no physical identity');
+    if (expectedName && sandbox.name !== expectedName)
+      throw new Error('OpenShell artifact target name changed');
     // A Ready resource_version is an observation and may change after a read.
     // It is retained only in the checkpoint archive identity. A stopped
     // revision is stable and fences a later delete.

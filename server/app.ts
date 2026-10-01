@@ -60,6 +60,7 @@ import {
   createSessionArtifactReader,
   isOpenShellArtifactSession,
   SessionArtifactUnavailableError,
+  validateSessionArtifactRuntime,
 } from './session-artifact-reader.js';
 import { loadAccountProfiles, type AccountProfiles } from './account-profiles.js';
 import { SymposiumOrchestrator } from './symposium-orchestrator.js';
@@ -2488,24 +2489,14 @@ async function readRemoteSessionArtifact(sessionId: string, requestedPath: strin
         profile: profiles.codexProfile(binding),
       });
     },
-    validateRuntime: (runtime) => {
-      if (
-        !config ||
-        runtime.cli !== config.cli ||
-        runtime.gateway !== config.gateway ||
-        runtime.workspace !== config.workspace ||
-        runtime.workdir !== config.workdir ||
-        runtime.gatewayEndpoint !== config.gatewayEndpoint ||
-        runtime.gatewayInsecure !== config.gatewayInsecure
-      )
-        throw Error('Sandbox runtime configuration changed');
-    },
+    validateRuntime: (runtime) => validateSessionArtifactRuntime(runtime, config),
     inspect: (id, runtime, route, signal) => {
       if (!config) throw Error('Sandbox runtime unavailable');
       return new OpenShellRuntimeManager({ ...config, account: route }).inspect(
         id,
         runtime.sandboxId,
         signal,
+        runtime.sandboxName,
       );
     },
     read: (runtime, path, signal, verify) => readOpenShellArtifact(runtime, path, verify, signal),

@@ -1,6 +1,10 @@
 import { isDeepStrictEqual } from 'node:util';
 import type { AccountBinding } from '@mitzo/protocol';
-import type { OpenShellRuntime, OpenShellAccountRoute } from './openshell-runtime.js';
+import type {
+  OpenShellRuntime,
+  OpenShellAccountRoute,
+  OpenShellRuntimeConfig,
+} from './openshell-runtime.js';
 
 type Runtime = OpenShellRuntime & { sandboxId: string };
 export class SessionArtifactUnavailableError extends Error {
@@ -38,6 +42,39 @@ export function isOpenShellArtifactSession(
         meta.cwd === configuredWorkdir)),
   );
 }
+export function validateSessionArtifactRuntime(
+  runtime: Runtime,
+  config:
+    | Pick<
+        OpenShellRuntimeConfig,
+        | 'cli'
+        | 'gateway'
+        | 'workspace'
+        | 'workdir'
+        | 'gatewayEndpoint'
+        | 'gatewayInsecure'
+        | 'cliEnvironment'
+      >
+    | undefined,
+) {
+  if (
+    !config ||
+    [
+      'cli',
+      'gateway',
+      'workspace',
+      'workdir',
+      'gatewayEndpoint',
+      'gatewayInsecure',
+      'cliEnvironment',
+    ].some(
+      (key) =>
+        !isDeepStrictEqual(runtime[key as keyof Runtime], config[key as keyof typeof config]),
+    )
+  )
+    throw Error('Sandbox runtime configuration changed');
+}
+
 export function createSessionArtifactReader(deps: SessionArtifactReaderDependencies) {
   return async (id: string, binding: AccountBinding, cwd: string, path: string) => {
     let stored: ReturnType<typeof deps.readRuntime>;
@@ -77,9 +114,6 @@ export function createSessionArtifactReader(deps: SessionArtifactReaderDependenc
           'This conversation’s workspace is unavailable or stopped. Resume this conversation to check access; deleted files cannot be recovered by the viewer.',
         );
     };
-    await verify();
-    const file = await deps.read(runtime, path, signal, verify);
-    await verify();
-    return file;
+    return deps.read(runtime, path, signal, verify);
   };
 }
