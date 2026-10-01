@@ -72,6 +72,7 @@ export const ConnectionRotateBody = z.union([
 ]);
 
 export const FileWriteBody = z.object({
+  expectedContent: z.string().optional(),
   path: z.string().min(1),
   content: z.string(),
   sessionId: z.string().min(1).optional(),

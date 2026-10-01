@@ -1805,3 +1805,29 @@ it.each(['remote-api-session', 'remote-subscription-session'])(
     expect(readFileSync(file, 'utf8')).toBe(original);
   },
 );
+
+it('refuses stale host edits and preserves the agent version', async () => {
+  const path = join(TEST_REPO, 'conflict.md');
+  writeFileSync(path, 'agent version');
+  const res = await request(app)
+    .put('/api/files/write')
+    .set('Cookie', authCookie)
+    .send({ path, content: 'my edit', expectedContent: 'original' });
+  expect(res.status).toBe(409);
+  expect(readFileSync(path, 'utf8')).toBe('agent version');
+});
+it.each(['remote-api-session', 'remote-subscription-session'])(
+  'saves a guarded edit in %s without touching host files',
+  async (sessionId) => {
+    mockRemoteArtifactRead.mockResolvedValueOnce({
+      path: '/sandbox/workspaces/mgmt/report.md',
+      bytes: Buffer.alloc(0),
+    });
+    const res = await request(app)
+      .put('/api/files/write')
+      .set('Cookie', authCookie)
+      .send({ path: 'report.md', content: 'my edit', expectedContent: 'original', sessionId });
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ ok: true, path: '/sandbox/workspaces/mgmt/report.md' });
+  },
+);
