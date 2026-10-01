@@ -2163,6 +2163,9 @@ describe('repository links to session worktree artifacts', () => {
         events.mockReturnValue([
           {
             type: 'worktree_opened',
+            seq: 1,
+            sessionId: 'posted-artifact',
+            createdAt: Date.now(),
             payload: { repoName: 'secondary', path: target },
           } as ReturnType<typeof eventStore.getEventsAfter>[number],
         ]);
