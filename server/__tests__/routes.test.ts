@@ -2006,6 +2006,7 @@ it.each(['openai', 'openai-codex'] as const)(
     vi.spyOn(profiles, 'apiProfile').mockReturnValue({
       credentialRef: { provider: 'keychain', service: 'test', account: 'test' },
       sandboxProvider: 'test-provider',
+      sandboxProviderId: 'test-provider-id',
     });
     vi.spyOn(profiles, 'codexProfile').mockReturnValue({
       accountId: 'test',
