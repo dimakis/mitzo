@@ -1,18 +1,29 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen, cleanup } from '@testing-library/react';
+import { fireEvent, render, screen, cleanup, act, waitFor } from '@testing-library/react';
 import { MemoryRouter, useNavigate, useLocation } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { TextBubble } from '../MessageBubble';
 import { apiFetch } from '../../lib/api-fetch';
 
 vi.mock('../../lib/api-fetch', () => ({ apiFetch: vi.fn() }));
-afterEach(cleanup);
-beforeEach(() =>
+vi.mock('mermaid', () => ({
+  default: {
+    initialize: vi.fn(),
+    render: vi.fn(async () => ({ svg: '<svg><text>Diagram</text></svg>' })),
+  },
+}));
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+});
+beforeEach(() => {
+  vi.clearAllMocks();
   vi.mocked(apiFetch).mockResolvedValue({
     ok: true,
     json: async () => ({ content: 'Expanded document content' }),
-  } as Response),
-);
+  } as Response);
+});
 
 function Harness({ content, sessionId }: { content: string; sessionId: string }) {
   const navigate = useNavigate();
@@ -27,6 +38,40 @@ function Harness({ content, sessionId }: { content: string; sessionId: string })
 }
 
 describe('expanded message previews', () => {
+  it('adds collapse controls when an asynchronously rendered diagram grows', async () => {
+    let height = 100;
+    vi.spyOn(HTMLElement.prototype, 'scrollHeight', 'get').mockImplementation(() => height);
+    let notifyResize: (() => void) | undefined;
+    const disconnect = vi.fn();
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        constructor(callback: ResizeObserverCallback) {
+          notifyResize = () => callback([], this as unknown as ResizeObserver);
+        }
+        observe = vi.fn();
+        disconnect = disconnect;
+      },
+    );
+    const view = render(
+      <MemoryRouter>
+        <TextBubble content={'```mermaid\ngraph TD; A-->B;\n```'} />
+      </MemoryRouter>,
+    );
+    await waitFor(() => expect(view.container.querySelector('.mermaid-block-svg')).not.toBeNull());
+    expect(screen.queryByRole('button', { name: 'Show more' })).toBeNull();
+    expect(notifyResize).toBeDefined();
+    height = 600;
+    act(() => notifyResize!());
+    fireEvent.click(screen.getByRole('button', { name: 'Show more' }));
+    expect(screen.getByRole('button', { name: 'Show less' })).toBeDefined();
+    height = 100;
+    act(() => notifyResize!());
+    expect(screen.queryByRole('button', { name: 'Show less' })).toBeNull();
+    view.unmount();
+    expect(disconnect).toHaveBeenCalled();
+  });
+
   it('survives content, parent and query-string updates while keeping current link routing', async () => {
     const content =
       '[notes](file-path://%2Ftmp%2Fnotes.md)\n\n[other](file-path://%2Ftmp%2Fother.txt)';

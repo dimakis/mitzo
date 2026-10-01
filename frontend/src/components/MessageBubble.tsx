@@ -112,9 +112,18 @@ export function TextBubble({
   const contentRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (contentRef.current && !streaming) {
-      setIsLong(contentRef.current.scrollHeight > COLLAPSE_HEIGHT);
+    const element = contentRef.current;
+    if (!element || streaming) return;
+    const measure = () => setIsLong(element.scrollHeight > COLLAPSE_HEIGHT);
+    measure();
+    if (typeof ResizeObserver !== 'undefined') {
+      const observer = new ResizeObserver(measure);
+      observer.observe(element);
+      return () => observer.disconnect();
     }
+    const observer = new MutationObserver(measure);
+    observer.observe(element, { childList: true, subtree: true });
+    return () => observer.disconnect();
   }, [content, streaming]);
 
   const navigationRef = useRef({ navigate, currentPath });
