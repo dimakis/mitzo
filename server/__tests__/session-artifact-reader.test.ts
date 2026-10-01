@@ -3,6 +3,7 @@ import type { AccountBinding } from '@mitzo/protocol';
 import type { OpenShellAccountRoute } from '../openshell-runtime.js';
 import {
   createSessionArtifactReader,
+  isOpenShellArtifactSession,
   validateSessionArtifactRuntime,
 } from '../session-artifact-reader.js';
 
@@ -168,3 +169,41 @@ it('rejects changed subscription provider identity or grant', async () => {
     expect(d.read).not.toHaveBeenCalled();
   }
 });
+
+it.each(['google-vertex', 'anthropic-vertex', 'anthropic'])(
+  'keeps a %s host workspace under /sandbox local',
+  (provider) => {
+    expect(
+      isOpenShellArtifactSession({ cwd: '/sandbox/host-repository', accountBinding: { provider } }),
+    ).toBe(false);
+    expect(
+      isOpenShellArtifactSession(
+        { cwd: '/sandbox/workspaces/mgmt', accountBinding: { provider } },
+        '/sandbox/workspaces/mgmt',
+      ),
+    ).toBe(false);
+  },
+);
+
+it('does not infer OpenShell authority from an unbound /sandbox host cwd', () => {
+  expect(isOpenShellArtifactSession({ cwd: '/sandbox/host-repository' })).toBe(false);
+});
+
+it.each(['openai', 'openai-codex'])(
+  'recognizes bound %s sandbox paths without guessing an unresolved origin',
+  (provider) => {
+    expect(
+      isOpenShellArtifactSession({ cwd: '/sandbox/workspaces/mgmt', accountBinding: { provider } }),
+    ).toBe(true);
+    expect(
+      isOpenShellArtifactSession(
+        { cwd: '/custom/remote-workdir', accountBinding: { provider } },
+        '/custom/remote-workdir',
+      ),
+    ).toBe(true);
+    expect(isOpenShellArtifactSession({ cwd: null, accountBinding: { provider } })).toBe(false);
+    expect(
+      isOpenShellArtifactSession({ cwd: 'relative/workdir', accountBinding: { provider } }),
+    ).toBe(false);
+  },
+);
