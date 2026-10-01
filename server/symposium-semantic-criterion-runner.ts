@@ -8,7 +8,11 @@ import {
   SemanticCriterionExecutionSchema,
   type SemanticCriterionDefinition,
 } from './symposium-criterion-receipts.js';
-import type { ArtifactPodmanCommand } from './symposium-artifact-host.js';
+import {
+  ArtifactCommandTerminalNonzero,
+  classifySemanticAttachedNonzero,
+  type ArtifactPodmanCommand,
+} from './symposium-artifact-host.js';
 const hash = (value: unknown) =>
   createHash('sha256').update(canonicalReviewJson(value)).digest('hex');
 const CAPS = new Set([
@@ -180,7 +184,7 @@ async function inspectOwned(deps: SemanticRunnerDependencies, row: Row) {
     typeof c.State?.Running !== 'boolean'
   )
     throw Error('Semantic helper isolation changed');
-  return c as { State: { Running: boolean; ExitCode: number } };
+  return c as { State: { Status?: string; Running: boolean; ExitCode: number } };
 }
 async function removeOwned(deps: SemanticRunnerDependencies, row: Row) {
   const deadline = performance.now() + 30000,
@@ -225,12 +229,21 @@ async function boundedCommand(
 ) {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const deadline = performance.now() + timeoutMs;
-  const pending = command(args, MAX_OUTPUT, input, timeoutMs).then((text) => {
-    observe?.(text);
-    if (performance.now() >= deadline)
-      throw Error('Semantic late command completion requires reconciliation');
-    return text;
-  });
+  const pending = command(args, MAX_OUTPUT, input, timeoutMs).then(
+    (text) => {
+      observe?.(text);
+      if (performance.now() >= deadline)
+        throw Error('Semantic late command completion requires reconciliation');
+      return text;
+    },
+    (error: unknown) => {
+      // Rejected terminal callbacks must obey the same monotonic window. A late
+      // typed nonzero is uncertainty, never a completed criterion case.
+      if (performance.now() >= deadline)
+        throw Error('Semantic late command failure requires reconciliation');
+      throw error;
+    },
+  );
   try {
     return await Promise.race([
       pending,
@@ -250,6 +263,8 @@ function runnerDigest() {
     runOwnedSemanticCriterion.toString(),
     reconcileOwnedSemanticCriterion.toString(),
     compareOutput.toString(),
+    ArtifactCommandTerminalNonzero.toString(),
+    classifySemanticAttachedNonzero.toString(),
     inspectOwned.toString(),
     removeOwned.toString(),
     boundedCommand.toString(),
@@ -506,14 +521,39 @@ export async function runOwnedSemanticCriterion(
       deps.db
         .prepare("UPDATE symposium_seal_export_jobs SET state='start_uncertain' WHERE job_id=?")
         .run(id);
-      const output = await executionDeps.command(
-        ['start', '--attach', '--interactive', cid],
-        MAX_OUTPUT,
-        Buffer.from(JSON.stringify(item.input) + '\n'),
-      );
+      let output: string;
+      let attachedNonzero: ArtifactCommandTerminalNonzero | undefined;
+      try {
+        output = await executionDeps.command(
+          ['start', '--attach', '--interactive', cid],
+          MAX_OUTPUT,
+          Buffer.from(JSON.stringify(item.input) + '\n'),
+        );
+      } catch (error) {
+        if (
+          !(error instanceof ArtifactCommandTerminalNonzero) ||
+          error.containerId !== cid ||
+          error.stdoutCapturedBytes > MAX_OUTPUT
+        )
+          throw error;
+        signal.throwIfAborted();
+        await deps.custody();
+        deps.withSnapshot(() => {});
+        active('start_uncertain');
+        attachedNonzero = error;
+        output = error.capturedStdout();
+      }
       const terminal = await inspectOwned(executionDeps, row);
       if (terminal.State.Running || !Number.isInteger(terminal.State.ExitCode))
         throw Error('Semantic terminal result requires reconciliation');
+      if (
+        attachedNonzero &&
+        (!['exited', 'stopped'].includes(terminal.State.Status ?? '') ||
+          terminal.State.ExitCode !== attachedNonzero.exitCode ||
+          terminal.State.ExitCode < 1 ||
+          terminal.State.ExitCode > 255)
+      )
+        throw Error('Semantic nonzero terminal result requires reconciliation');
       const checked =
         terminal.State.ExitCode === 0
           ? compareOutput(item.id, output, item.expected)

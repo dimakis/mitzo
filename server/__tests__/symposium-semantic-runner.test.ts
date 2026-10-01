@@ -1,5 +1,6 @@
 import { expect, it, vi } from 'vitest';
 import Database from 'better-sqlite3';
+import { classifySemanticAttachedNonzero } from '../symposium-artifact-host.js';
 import { runOwnedSemanticCriterion } from '../symposium-semantic-criterion-runner.js';
 const hash = (x: string) => x.repeat(64);
 const definition = {
@@ -86,7 +87,7 @@ function fixture(mode = 'correct') {
             Tmpfs: {},
             Binds: ['volume:/artifact:ro,rprivate,nosuid,nodev,rbind'],
           },
-          State: { Running: false, ExitCode: exit },
+          State: { Status: 'exited', Running: false, ExitCode: exit },
           Mounts: [
             {
               Type: 'volume',
@@ -106,6 +107,15 @@ function fixture(mode = 'correct') {
       index++;
       expect(input?.toString()).toBe(JSON.stringify(definition.cases[index - 1].input) + '\n');
       if (mode === 'lost-start') throw Error('lost start reply');
+      if (mode === 'production-nonzero') {
+        exit = 1;
+        const error = Object.assign(Error('private Python traceback'), {
+          code: 1,
+          killed: false,
+          signal: null,
+        });
+        throw classifySemanticAttachedNonzero(args, input, error, 'before-error\n', 16384)!;
+      }
       if (mode === 'forged') return JSON.stringify({ pass: true, proof: seal.git });
       if (mode === 'wrong') return '99\n';
       if (mode === 'malformed') return '{';
@@ -645,6 +655,203 @@ it('accepts only the exact normalized options independent of source option order
       ).cases.every((c) => c.status === 'passed'),
     ).toBe(true);
   } finally {
+    f.db.close();
+  }
+});
+
+it('records an exact terminal Python nonzero as failed criterion when attached transport rejects', async () => {
+  const f = fixture('production-nonzero');
+  try {
+    const result = await runOwnedSemanticCriterion(
+      f.deps,
+      { fenceId: 'fence', operationId: 'nonzero-terminal', definition },
+      new AbortController().signal,
+    );
+    expect(result.cases.map((item) => item.status)).toEqual(['nonzero', 'nonzero']);
+  } finally {
+    f.db.close();
+  }
+});
+
+it('retains actual bounded stdout for nonzero only and never exposes it through errors', async () => {
+  const f = fixture('production-nonzero');
+  try {
+    const result = await runOwnedSemanticCriterion(
+      f.deps,
+      { fenceId: 'fence', operationId: 'nonzero-capture', definition },
+      new AbortController().signal,
+    );
+    expect(
+      result.cases.every(
+        (item) => item.stdoutCapturedBytes === Buffer.byteLength('before-error\n'),
+      ),
+    ).toBe(true);
+    const error = classifySemanticAttachedNonzero(
+      ['start', '--attach', '--interactive', hash('e')],
+      Buffer.from('null\n'),
+      Object.assign(Error('PRIVATE_TRACEBACK'), { code: 1 }),
+      'PRIVATE_STDOUT',
+      16384,
+    )!;
+    expect(JSON.stringify(error)).not.toContain('PRIVATE');
+    expect(error.message).not.toContain('PRIVATE');
+    expect(error.cause).toBeUndefined();
+    expect(error.capturedStdout()).toBe('PRIVATE_STDOUT');
+  } finally {
+    f.db.close();
+  }
+});
+
+it.each([
+  { code: 'ENOENT' },
+  { code: 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER' },
+  { code: 1, killed: true },
+  { code: 1, signal: 'SIGTERM' },
+  { code: 0 },
+  { code: 256 },
+  { code: 1.5 },
+])(
+  'never classifies transport/timeout/overflow uncertainty as terminal evidence: %j',
+  (properties) => {
+    expect(
+      classifySemanticAttachedNonzero(
+        ['start', '--attach', '--interactive', hash('e')],
+        Buffer.from('null\n'),
+        Object.assign(Error('private'), properties),
+        '',
+        16384,
+      ),
+    ).toBeUndefined();
+  },
+);
+it('requires captured stdout, exact interactive semantic request and no stdin failure', () => {
+  const error = Object.assign(Error('private'), { code: 1 });
+  const args = ['start', '--attach', '--interactive', hash('e')];
+  for (const output of [undefined, null, Buffer.from('x'), 'x'.repeat(16385)])
+    expect(
+      classifySemanticAttachedNonzero(args, Buffer.from('null\n'), error, output, 16384),
+    ).toBeUndefined();
+  expect(classifySemanticAttachedNonzero(args, undefined, error, '', 16384)).toBeUndefined();
+  expect(
+    classifySemanticAttachedNonzero(args, Buffer.from('null\n'), error, '', 16384, true),
+  ).toBeUndefined();
+  expect(
+    classifySemanticAttachedNonzero(
+      ['start', '--attach', hash('e')],
+      Buffer.from('null\n'),
+      error,
+      '',
+      16384,
+    ),
+  ).toBeUndefined();
+  expect(
+    classifySemanticAttachedNonzero(
+      ['inspect', hash('e')],
+      Buffer.from('null\n'),
+      error,
+      '',
+      16384,
+    ),
+  ).toBeUndefined();
+});
+it.each(['running', 'wrong-exit', 'unknown-status', 'wrong-cid', 'generic-loss'])(
+  'never records favorable or completed case for uncertain nonzero %s',
+  async (mode) => {
+    const f = fixture('production-nonzero');
+    const original = f.command.getMockImplementation()!;
+    let started = false;
+    f.command.mockImplementation(async (args, limit, input) => {
+      if (args[0] === 'start') {
+        started = true;
+        if (mode === 'generic-loss') throw Error('Owned Podman operation failed');
+      }
+      const result = await original(args, limit, input);
+      if (started && args[0] === 'inspect') {
+        const rows = JSON.parse(result);
+        if (mode === 'running') rows[0].State.Running = true;
+        if (mode === 'wrong-exit') rows[0].State.ExitCode = 0;
+        if (mode === 'unknown-status') rows[0].State.Status = 'unknown';
+        if (mode === 'wrong-cid') rows[0].Id = hash('a');
+        return JSON.stringify(rows);
+      }
+      return result;
+    });
+    try {
+      await expect(
+        runOwnedSemanticCriterion(
+          f.deps,
+          { fenceId: 'fence', operationId: 'nonzero-uncertain', definition },
+          new AbortController().signal,
+        ),
+      ).rejects.toThrow('requires reconciliation');
+      expect(
+        f.db
+          .prepare("SELECT count(*) n FROM symposium_seal_export_jobs WHERE state='complete'")
+          .get(),
+      ).toMatchObject({ n: 0 });
+    } finally {
+      f.db.close();
+    }
+  },
+);
+
+it('blocks nonzero outcome when custody changes after the typed original transport result', async () => {
+  const f = fixture('production-nonzero');
+  const original = f.command.getMockImplementation()!;
+  let started = false;
+  f.command.mockImplementation(async (args, limit, input) => {
+    if (args[0] === 'start') started = true;
+    return original(args, limit, input);
+  });
+  f.deps.custody.mockImplementation(async () => {
+    if (started) throw Error('custody revoked');
+  });
+  try {
+    await expect(
+      runOwnedSemanticCriterion(
+        f.deps,
+        { fenceId: 'fence', operationId: 'nonzero-custody', definition },
+        new AbortController().signal,
+      ),
+    ).rejects.toThrow('requires reconciliation');
+    expect(
+      f.db
+        .prepare('SELECT count(*) n FROM symposium_seal_export_jobs WHERE receipt_json IS NOT NULL')
+        .get(),
+    ).toMatchObject({ n: 0 });
+    expect(f.command.mock.calls.filter(([args]) => ['stop', 'rm'].includes(args[0]))).toHaveLength(
+      0,
+    );
+  } finally {
+    f.db.close();
+  }
+});
+
+it('late typed nonzero callback cannot bypass the per-command monotonic deadline', async () => {
+  let clock = 0;
+  const now = vi.spyOn(performance, 'now').mockImplementation(() => clock);
+  const f = fixture('production-nonzero');
+  const original = f.command.getMockImplementation()!;
+  f.command.mockImplementation(async (args, limit, input) => {
+    if (args[0] === 'start') clock += 5001;
+    return original(args, limit, input);
+  });
+  try {
+    await expect(
+      runOwnedSemanticCriterion(
+        f.deps,
+        { fenceId: 'fence', operationId: 'late-typed-nonzero', definition },
+        new AbortController().signal,
+      ),
+    ).rejects.toThrow('requires reconciliation');
+    expect(
+      f.db
+        .prepare("SELECT count(*) n FROM symposium_seal_export_jobs WHERE state='complete'")
+        .get(),
+    ).toMatchObject({ n: 0 });
+    expect(f.command.mock.calls.filter(([args]) => args[0] === 'start')).toHaveLength(1);
+  } finally {
+    now.mockRestore();
     f.db.close();
   }
 });

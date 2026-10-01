@@ -59,6 +59,71 @@ export class ArtifactCommandNotDispatched extends Error {
   }
 }
 
+/** Captured terminal transport outcome only; never an ownership or success receipt. */
+export class ArtifactCommandTerminalNonzero extends Error {
+  readonly containerId: string;
+  readonly exitCode: number;
+  readonly stdoutCapturedBytes: number;
+  #stdout: string;
+  constructor(containerId: string, exitCode: number, stdout: string) {
+    super('Artifact attached command returned nonzero');
+    if (
+      !/^[a-f0-9]{64}$/.test(containerId) ||
+      !Number.isInteger(exitCode) ||
+      exitCode < 1 ||
+      exitCode > 255 ||
+      typeof stdout !== 'string' ||
+      Buffer.byteLength(stdout) > 16 * 1024 * 1024
+    )
+      throw new Error('Invalid captured artifact terminal outcome');
+    this.name = 'ArtifactCommandTerminalNonzero';
+    this.containerId = containerId;
+    this.exitCode = exitCode;
+    this.stdoutCapturedBytes = Buffer.byteLength(stdout);
+    this.#stdout = stdout;
+  }
+  capturedStdout(): string {
+    return this.#stdout;
+  }
+}
+/** The retained callback alone supplies actual bounded stdout; generic failures stay unknown. */
+export function classifySemanticAttachedNonzero(
+  args: readonly string[],
+  input: Buffer | undefined,
+  error: unknown,
+  stdout: unknown,
+  maxOutputBytes: number,
+  stdinFailed = false,
+): ArtifactCommandTerminalNonzero | undefined {
+  if (
+    !(error instanceof Error) ||
+    stdinFailed ||
+    !Buffer.isBuffer(input) ||
+    args.length !== 4 ||
+    args[0] !== 'start' ||
+    args[1] !== '--attach' ||
+    args[2] !== '--interactive' ||
+    !/^[a-f0-9]{64}$/.test(args[3]) ||
+    typeof stdout !== 'string' ||
+    !Number.isSafeInteger(maxOutputBytes) ||
+    maxOutputBytes < 1 ||
+    maxOutputBytes > 16 * 1024 * 1024 ||
+    Buffer.byteLength(stdout) > maxOutputBytes
+  )
+    return undefined;
+  const outcome = error as Error & { code?: unknown; killed?: unknown; signal?: unknown };
+  if (
+    !Number.isInteger(outcome.code) ||
+    typeof outcome.code !== 'number' ||
+    outcome.code < 1 ||
+    outcome.code > 255 ||
+    outcome.killed ||
+    outcome.signal
+  )
+    return undefined;
+  return new ArtifactCommandTerminalNonzero(args[3], outcome.code, stdout);
+}
+
 export type ArtifactPodmanCommand = (
   args: readonly string[],
   maxOutputBytes?: number,

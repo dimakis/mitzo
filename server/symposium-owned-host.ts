@@ -83,6 +83,7 @@ import {
   SqliteArtifactLeaseHost,
   ArtifactPodmanContext,
   ArtifactCommandNotDispatched,
+  classifySemanticAttachedNonzero,
 } from './symposium-artifact-host.js';
 import { LocalPodmanArtifactEvidence } from './symposium-podman-evidence.js';
 import { LocalSymposiumProductionPhysicalProof } from './symposium-production-physical.js';
@@ -287,6 +288,7 @@ export async function createOwnedSymposiumHost(
       const text = podmanCommand
         ? await podmanCommand(args, { timeout, ...(input ? { input } : {}) })
         : await new Promise<string>((resolve, reject) => {
+            let stdinFailed = false;
             const child = execFile(
               options.podman.executable,
               [...args],
@@ -300,12 +302,25 @@ export async function createOwnedSymposiumHost(
                 ...(timeoutMs === undefined ? {} : { killSignal: 'SIGKILL' as const }),
               },
               (error, stdout) => {
-                if (error) reject(new Error('Owned Podman operation failed'));
+                if (error)
+                  reject(
+                    classifySemanticAttachedNonzero(
+                      args,
+                      input,
+                      error,
+                      stdout,
+                      maxOutputBytes,
+                      stdinFailed,
+                    ) ?? new Error('Owned Podman operation failed'),
+                  );
                 else resolve(stdout);
               },
             );
             // Errors are sanitized; artifact bytes never enter arguments, logs or error causes.
-            child.stdin?.on('error', () => reject(new Error('Owned Podman stdin failed')));
+            child.stdin?.on('error', () => {
+              stdinFailed = true;
+              reject(new Error('Owned Podman stdin failed'));
+            });
             child.stdin?.end(input);
           });
       if (!deferPostCustody) custody();
