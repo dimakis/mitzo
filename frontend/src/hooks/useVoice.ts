@@ -98,8 +98,12 @@ export function useVoice(): UseVoiceReturn {
   const streamRecorderRef = useRef<StreamingRecorder | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const wsClientRef = useRef<YapperStreamClient | null>(null);
-  const finalResolveRef = useRef<((text: string) => void) | null>(null);
+  const finalResolveRef = useRef<((text: string | null) => void) | null>(null);
   const streamingActiveRef = useRef(false);
+  const captureDoneRef = useRef<Promise<void>>(Promise.resolve());
+  const resolveCaptureDoneRef = useRef<(() => void) | null>(null);
+  const audioSendRef = useRef<Promise<void>>(Promise.resolve());
+  const captureIdRef = useRef(0);
   const mimeTypeRef = useRef<string | undefined>(undefined);
   const voicesFetchedRef = useRef(false);
   const voicesFetchRef = useRef<Promise<boolean> | null>(null);
@@ -130,14 +134,21 @@ export function useVoice(): UseVoiceReturn {
 
   // --- STT: Recording (streaming with batch fallback) ---
   const startRecording = useCallback(async () => {
+    const captureId = ++captureIdRef.current;
     setError(null);
     setPartialTranscript('');
 
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      if (captureId !== captureIdRef.current) {
+        stream.getTracks().forEach((track) => track.stop());
+        return;
+      }
+      mediaStreamRef.current = stream;
       const mimeType = mimeTypeRef.current;
       if (!mimeType) {
         setError('No supported audio format');
+        releaseStream();
         return;
       }
 
@@ -152,6 +163,7 @@ export function useVoice(): UseVoiceReturn {
 
       // Wire up transcript events
       wsClient.onTranscript = (event) => {
+        if (captureId !== captureIdRef.current) return;
         if (event.type === 'partial') {
           setPartialTranscript(event.text);
         } else if (event.type === 'final') {
@@ -162,8 +174,10 @@ export function useVoice(): UseVoiceReturn {
       };
 
       wsClient.onError = () => {
+        if (captureId !== captureIdRef.current) return;
         // Mark streaming as failed — stopRecording will use batch fallback
         streamingActiveRef.current = false;
+        finalResolveRef.current?.(null);
       };
 
       // Send format frame
@@ -181,13 +195,24 @@ export function useVoice(): UseVoiceReturn {
       batchRec.onAutoStop = () => setRecording(false);
       recorderRef.current = batchRec;
 
-      // Wire chunks to WS
+      // MediaRecorder emits its last dataavailable asynchronously before onStop.
+      // Serialize conversions too: Blob.arrayBuffer() may finish out of order.
+      audioSendRef.current = Promise.resolve();
+      captureDoneRef.current = new Promise<void>((resolve) => {
+        resolveCaptureDoneRef.current = resolve;
+        streamRec.onStop = resolve;
+      });
       streamRec.onChunk = (blob: Blob) => {
-        blob.arrayBuffer().then((buf) => {
-          if (streamingActiveRef.current) {
-            wsClient.sendAudio(buf);
-          }
-        });
+        audioSendRef.current = audioSendRef.current
+          .then(async () => {
+            const buf = await blob.arrayBuffer();
+            if (captureId === captureIdRef.current && streamingActiveRef.current) {
+              wsClient.sendAudio(buf);
+            }
+          })
+          .catch(() => {
+            if (captureId === captureIdRef.current) wsClient.onError?.(new Event('error'));
+          });
       };
 
       streamRec.onAutoStop = () => setRecording(false);
@@ -197,55 +222,66 @@ export function useVoice(): UseVoiceReturn {
       setRecording(true);
       setMicBlocked(false);
     } catch (err: unknown) {
+      streamRecorderRef.current?.cancel();
+      recorderRef.current?.cancel();
+      wsClientRef.current?.close();
+      releaseStream();
       if (err instanceof DOMException && err.name === 'NotAllowedError') {
         setMicBlocked(true);
       } else {
         setError(err instanceof Error ? err.message : 'Mic access failed');
       }
     }
-  }, [setPartialTranscript]);
+  }, [releaseStream, setPartialTranscript]);
 
   const stopRecording = useCallback(async (): Promise<string> => {
     setRecording(false);
     setError(null);
 
-    // Streaming path: send END and wait for final transcript
+    const captureId = captureIdRef.current;
+    setTranscribing(true);
+
+    // Register the final listener before END, and only end after the last chunk.
     if (streamingActiveRef.current && wsClientRef.current) {
+      const client = wsClientRef.current;
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const final = new Promise<string | null>((resolve) => {
+        finalResolveRef.current = resolve;
+        timer = setTimeout(() => resolve(null), 5000);
+      });
       streamRecorderRef.current?.stop();
-      wsClientRef.current.sendEnd();
-
-      try {
-        const text = await new Promise<string>((resolve) => {
-          finalResolveRef.current = resolve;
-          // Timeout: use best-effort partial transcript if no final arrives in 5s
-          setTimeout(() => {
-            if (finalResolveRef.current === resolve) {
-              finalResolveRef.current = null;
-              resolve(partialRef.current);
-            }
-          }, 5000);
-        });
-
+      await captureDoneRef.current;
+      await audioSendRef.current;
+      if (captureId !== captureIdRef.current) return '';
+      if (streamingActiveRef.current) client.sendEnd();
+      else finalResolveRef.current?.(null);
+      const text = await final;
+      clearTimeout(timer);
+      finalResolveRef.current = null;
+      if (captureId !== captureIdRef.current) return '';
+      if (text !== null) {
         setPartialTranscript('');
-        wsClientRef.current?.close();
+        client.close();
         wsClientRef.current = null;
         streamRecorderRef.current = null;
         streamingActiveRef.current = false;
-
-        // Also stop the batch recorder (discard its data)
         recorderRef.current?.cancel();
         recorderRef.current = null;
-
         releaseStream();
+        setTranscribing(false);
         return text;
-      } catch {
-        // Fall through to batch
       }
     }
 
     // Batch fallback
     const recorder = recorderRef.current;
-    if (!recorder) return '';
+    if (!recorder) {
+      setTranscribing(false);
+      return '';
+    }
+    streamRecorderRef.current?.cancel();
+    wsClientRef.current?.close();
+    streamingActiveRef.current = false;
 
     setTranscribing(true);
 
@@ -281,6 +317,9 @@ export function useVoice(): UseVoiceReturn {
   }, [releaseStream, setPartialTranscript]);
 
   const cancelRecording = useCallback(() => {
+    captureIdRef.current += 1;
+    resolveCaptureDoneRef.current?.();
+    finalResolveRef.current?.('');
     // Clean up streaming
     wsClientRef.current?.close();
     wsClientRef.current = null;

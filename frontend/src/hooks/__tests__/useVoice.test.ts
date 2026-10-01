@@ -85,6 +85,9 @@ beforeEach(() => {
     vibrate: vi.fn(),
   });
   mockGetUserMedia.mockResolvedValue(mockStream);
+  mockStreamingRecorder.stop.mockImplementation(() => {
+    mockStreamingRecorder.onStop?.();
+  });
   mockFetch.mockReset();
   mockYapper = null;
 });
@@ -302,6 +305,69 @@ describe('useVoice', () => {
       expect(result.current.recording).toBe(false);
       await waitFor(() => {
         expect(result.current.partialTranscript).toBe('');
+      });
+    });
+
+    it('waits for the recorder final chunk and its conversion before END', async () => {
+      mockWsClient.sendEnd.mockClear();
+      mockWsClient.sendAudio.mockClear();
+      mockStreamingRecorder.stop.mockImplementationOnce(() => {});
+      const { result } = renderHook(() => useVoice());
+      await act(async () => {
+        await result.current.startRecording();
+      });
+      let resolveChunk!: (buffer: ArrayBuffer) => void;
+      const chunk = {
+        arrayBuffer: () =>
+          new Promise<ArrayBuffer>((resolve) => {
+            resolveChunk = resolve;
+          }),
+      } as Blob;
+      let stopped!: Promise<string>;
+      act(() => {
+        stopped = result.current.stopRecording();
+      });
+      expect(mockWsClient.sendEnd).not.toHaveBeenCalled();
+      await act(async () => {
+        mockStreamingRecorder.onChunk?.(chunk);
+        mockStreamingRecorder.onStop?.();
+        await Promise.resolve();
+      });
+      expect(mockWsClient.sendEnd).not.toHaveBeenCalled();
+      await act(async () => {
+        resolveChunk(new ArrayBuffer(4));
+      });
+      expect(mockWsClient.sendAudio).toHaveBeenCalledTimes(1);
+      expect(mockWsClient.sendEnd).toHaveBeenCalledTimes(1);
+      expect(mockWsClient.sendAudio.mock.invocationCallOrder[0]).toBeLessThan(
+        mockWsClient.sendEnd.mock.invocationCallOrder[0],
+      );
+      await act(async () => {
+        mockWsClient.onTranscript?.({ type: 'final', text: 'last word' });
+        expect(await stopped).toBe('last word');
+      });
+    });
+
+    it('uses the complete batch recording when final transcript times out', async () => {
+      vi.useFakeTimers();
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ text: 'complete recording' }),
+      });
+      const { result } = renderHook(() => useVoice());
+      await act(async () => {
+        await result.current.startRecording();
+      });
+      act(() => {
+        mockWsClient.onTranscript?.({ type: 'partial', text: 'incomplete' });
+      });
+      let stopped!: Promise<string>;
+      act(() => {
+        stopped = result.current.stopRecording();
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(5000);
+        expect(await stopped).toBe('complete recording');
       });
     });
 
