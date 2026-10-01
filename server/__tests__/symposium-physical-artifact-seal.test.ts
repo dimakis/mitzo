@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import Database from 'better-sqlite3';
 import { artifactVolumeLabels } from '../symposium-session-artifacts.js';
 import { afterEach, expect, it, vi } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -164,6 +165,8 @@ async function fixture(inspectionPaths = ['file'], streaming = true, independent
   let helperId = verifierId;
   let exportJob: string | undefined;
   let exportOptions: Record<string, unknown> | undefined;
+  let semanticName = '';
+  let semanticCommand: string[] | undefined;
   const proof = {
     version: 1,
     commit: 'a'.repeat(40),
@@ -176,6 +179,7 @@ async function fixture(inspectionPaths = ['file'], streaming = true, independent
   const state = {
     failCreate: false,
     failDelete: false,
+    semanticLostStart: false,
     extraMount: false,
     uncertain: false,
     crowdCount: 0,
@@ -221,12 +225,57 @@ async function fixture(inspectionPaths = ['file'], streaming = true, independent
       const ids = args[1] === '--type' ? args.slice(3) : args.slice(1);
       const inspected = ids.map((id) => ({
         Id: id,
+        Image: TESTED_SYMPOSIUM_NATIVE_BUILD.image.replace(/^sha256:/, ''),
+        Name: semanticName,
         ImageName: TESTED_SYMPOSIUM_NATIVE_BUILD.image,
         Config: {
           User: 'sandbox',
+          ...(semanticCommand
+            ? {
+                Tty: false,
+                OpenStdin: true,
+                Entrypoint: ['/usr/bin/python3'],
+                Cmd: semanticCommand,
+              }
+            : {}),
           Labels: exportJob ? { 'mitzo.artifact-export-job': exportJob } : {},
         },
-        HostConfig: { NetworkMode: 'none', ReadonlyRootfs: true, Privileged: false },
+        HostConfig: {
+          NetworkMode: 'none',
+          ReadonlyRootfs: true,
+          Privileged: false,
+          ...(semanticCommand
+            ? {
+                CapDrop: [
+                  'CAP_CHOWN',
+                  'CAP_DAC_OVERRIDE',
+                  'CAP_FOWNER',
+                  'CAP_FSETID',
+                  'CAP_KILL',
+                  'CAP_NET_BIND_SERVICE',
+                  'CAP_SETFCAP',
+                  'CAP_SETGID',
+                  'CAP_SETPCAP',
+                  'CAP_SETUID',
+                  'CAP_SYS_CHROOT',
+                ],
+                CapAdd: [],
+                SecurityOpt: ['no-new-privileges'],
+                PidsLimit: 32,
+                Memory: 268435456,
+                NanoCpus: 1000000000,
+                CpuPeriod: 100000,
+                CpuQuota: 100000,
+                PidMode: 'private',
+                UTSMode: 'private',
+                IpcMode: 'private',
+                UsernsMode: '',
+                PortBindings: null,
+                Tmpfs: {},
+                Binds: ['volume:' + SYMPOSIUM_ARTIFACT_TARGET + ':ro,rprivate,nosuid,nodev,rbind'],
+              }
+            : {}),
+        },
         State: { Running: false, ExitCode: 0 },
         Mounts:
           id === helperId || id === 'e'.repeat(64)
@@ -234,6 +283,14 @@ async function fixture(inspectionPaths = ['file'], streaming = true, independent
                 {
                   Type: 'volume',
                   Name: 'volume',
+                  ...(semanticCommand
+                    ? {
+                        Driver: 'local',
+                        Mode: '',
+                        Propagation: 'rprivate',
+                        Options: ['nosuid', 'nodev', 'rbind'],
+                      }
+                    : {}),
                   Destination: SYMPOSIUM_ARTIFACT_TARGET,
                   RW: state.extraMount && id === 'e'.repeat(64),
                 },
@@ -255,7 +312,15 @@ async function fixture(inspectionPaths = ['file'], streaming = true, independent
       verifierExists = true;
       if (args.includes('--label')) {
         exportJob = args[args.indexOf('--label') + 1].split('=')[1];
-        exportOptions = JSON.parse(args.at(-1)!);
+        if (args.includes('-B')) {
+          if (state.semanticLostStart) state.failDelete = true;
+          semanticName = args[args.indexOf('--name') + 1];
+          semanticCommand = ['-I', '-B', args.at(-1)!];
+          exportOptions = undefined;
+        } else {
+          semanticCommand = undefined;
+          exportOptions = JSON.parse(args.at(-1)!);
+        }
         helperId = 'e'.repeat(64);
       } else {
         helperId = verifierId;
@@ -265,6 +330,10 @@ async function fixture(inspectionPaths = ['file'], streaming = true, independent
       return helperId;
     }
     if (args[0] === 'start') {
+      if (semanticCommand) {
+        if (state.semanticLostStart) throw Error('lost original semantic start');
+        return '0\n';
+      }
       if (exportOptions?.kind === 'check')
         return JSON.stringify({
           proof,
@@ -2192,3 +2261,197 @@ it.each([undefined, null])(
     expect(f.command.mock.calls.filter(([args]) => args[0] === 'create')).toHaveLength(creates);
   },
 );
+
+it('exposes trusted semantic execution through the real physical artifact owner', async () => {
+  const f = await fixture();
+  expect(
+    typeof (f.sealer as unknown as { checkCompletedArtifactSemantic: unknown })
+      .checkCompletedArtifactSemantic,
+  ).toBe('function');
+});
+
+it('public seal remains strict while exact original semantic helper cleanup is separately reconciled', async () => {
+  const f = await fixture();
+  const signal = new AbortController().signal;
+  const seal = await f.sealer.seal(f.input, f.runtime, signal);
+  const input = {
+    fenceId: seal.fenceId,
+    operationId: 'semantic-owned',
+    definition: {
+      id: 'zero',
+      criterion: 'Returns zero',
+      version: 1 as const,
+      kind: 'python-json-cases' as const,
+      path: 'main.py',
+      cases: [{ id: 'zero', input: null, expected: 0 }],
+    },
+  };
+  f.state.semanticLostStart = true;
+  await expect(f.sealer.checkCompletedArtifactSemantic(input, signal)).rejects.toThrow(/reconcil/);
+  await expect(f.sealer.requireCompleted(seal.fenceId, signal)).rejects.toThrow(/unauthorized/);
+  f.state.failDelete = false;
+  const reconcile = (
+    f.sealer as unknown as {
+      reconcileCompletedArtifactSemantic: (input: unknown, signal: AbortSignal) => Promise<unknown>;
+    }
+  ).reconcileCompletedArtifactSemantic;
+  expect(typeof reconcile).toBe('function');
+  const creates = f.command.mock.calls.filter(([a]) => a[0] === 'create').length;
+  expect(await reconcile.call(f.sealer, input, signal)).toMatchObject({
+    state: 'failed_cleaned',
+    retryAllowed: false,
+  });
+  expect(f.command.mock.calls.filter(([a]) => a[0] === 'create')).toHaveLength(creates);
+  expect(await f.sealer.requireCompleted(seal.fenceId, signal)).toEqual(seal);
+  await expect(f.sealer.checkCompletedArtifactSemantic(input, signal)).rejects.toThrow(/reconcil/);
+});
+
+it.each([
+  'changed-definition',
+  'unknown-CID',
+  'foreign-name',
+  'changed-command',
+  'wrong-image',
+  'writer',
+  'custody',
+  'concurrent-operation',
+])('original semantic cleanup refuses %s without signaling any helper', async (mode) => {
+  const f = await fixture(),
+    signal = new AbortController().signal,
+    seal = await f.sealer.seal(f.input, f.runtime, signal);
+  const input = {
+    fenceId: seal.fenceId,
+    operationId: 'semantic-negative',
+    definition: {
+      id: 'zero',
+      criterion: 'Returns zero',
+      version: 1 as const,
+      kind: 'python-json-cases' as const,
+      path: 'main.py',
+      cases: [{ id: 'zero', input: null, expected: 0 }],
+    },
+  };
+  f.state.semanticLostStart = true;
+  await expect(f.sealer.checkCompletedArtifactSemantic(input, signal)).rejects.toThrow(/reconcil/);
+  f.state.failDelete = false;
+  const db = new Database(f.host.snapshotDatabasePath());
+  try {
+    if (mode === 'changed-definition') input.definition.cases[0].expected = 1;
+    if (mode === 'unknown-CID')
+      db.prepare(
+        "UPDATE symposium_seal_export_jobs SET container_id=NULL WHERE kind='semantic_case'",
+      ).run();
+    if (mode === 'concurrent-operation')
+      db.exec(
+        "INSERT INTO symposium_seal_export_jobs(job_id,fence_id,operation_id,kind,input_json,custody_digest,state,container_name) SELECT 'foreign',fence_id,'foreign','semantic','{}',custody_digest,'create_uncertain','foreign' FROM symposium_seal_export_jobs WHERE kind='semantic' LIMIT 1",
+      );
+    if (mode === 'custody') f.gateway.verifyCustodyAsync.mockRejectedValue(Error('lost custody'));
+    const original = f.command.getMockImplementation()!;
+    f.command.mockImplementation(async (...args) => {
+      const result = await original(...args);
+      if (args[0][0] !== 'inspect') return result;
+      const values = JSON.parse(result);
+      for (const c of values) {
+        if (mode === 'foreign-name') c.Name = 'foreign';
+        if (mode === 'changed-command') c.Config.Cmd = ['-c', 'print(0)'];
+        if (mode === 'wrong-image') c.Image = 'f'.repeat(64);
+        if (mode === 'writer' && c.Mounts[0]) c.Mounts[0].RW = true;
+      }
+      return JSON.stringify(values);
+    });
+    const effects = f.command.mock.calls.filter(([a]) =>
+      ['create', 'start', 'stop', 'rm'].includes(a[0]),
+    ).length;
+    await expect(f.sealer.reconcileCompletedArtifactSemantic(input, signal)).rejects.toThrow();
+    expect(
+      f.command.mock.calls.filter(([a]) => ['create', 'start', 'stop', 'rm'].includes(a[0])),
+    ).toHaveLength(effects);
+  } finally {
+    db.close();
+  }
+});
+
+it('real sealer cannot publish cleanup when a case appears after its final private seal observation', async () => {
+  const f = await fixture(),
+    signal = new AbortController().signal,
+    seal = await f.sealer.seal(f.input, f.runtime, signal);
+  const input = {
+    fenceId: seal.fenceId,
+    operationId: 'owner-final-child-window',
+    definition: {
+      id: 'zero',
+      criterion: 'Returns zero',
+      version: 1 as const,
+      kind: 'python-json-cases' as const,
+      path: 'main.py',
+      cases: [{ id: 'zero', input: null, expected: 0 }],
+    },
+  };
+  const db = new Database(f.host.snapshotDatabasePath());
+  let runnerRelease!: () => void,
+    cleanupRelease!: () => void,
+    startRelease!: (text: string) => void,
+    cleanupCalls = 0;
+  type PrivateOwner = {
+    requireCompletedForCleanup(
+      fenceId: string,
+      signal: AbortSignal,
+      semantic?: typeof input,
+    ): Promise<typeof seal>;
+  };
+  const owner = f.sealer as unknown as PrivateOwner,
+    original = owner.requireCompletedForCleanup.bind(f.sealer);
+  const spy = vi
+    .spyOn(owner, 'requireCompletedForCleanup')
+    .mockImplementation(async (fenceId, sig, semantic) => {
+      const proof = await original(fenceId, sig, semantic);
+      if (
+        !semantic &&
+        !runnerRelease &&
+        db
+          .prepare(
+            "SELECT 1 FROM symposium_seal_export_jobs WHERE operation_id=? AND state='in_progress'",
+          )
+          .get(input.operationId)
+      )
+        await new Promise<void>((done) => {
+          runnerRelease = done;
+        });
+      if (semantic && ++cleanupCalls === 3)
+        await new Promise<void>((done) => {
+          cleanupRelease = done;
+        });
+      return proof;
+    });
+  const command = f.command.getMockImplementation()!;
+  f.command.mockImplementation((args, limit) =>
+    args[0] === 'start' && args.includes('--interactive')
+      ? new Promise<string>((done) => {
+          startRelease = done;
+        })
+      : command(args, limit),
+  );
+  try {
+    const running = f.sealer.checkCompletedArtifactSemantic(input, signal),
+      settled = running.catch(() => null);
+    await vi.waitFor(() => expect(runnerRelease).toBeTypeOf('function'));
+    const cleaning = f.sealer.reconcileCompletedArtifactSemantic(input, signal),
+      rejected = expect(cleaning).rejects.toThrow(/membership|case|journal|changed/i);
+    await vi.waitFor(() => expect(cleanupRelease).toBeTypeOf('function'));
+    runnerRelease();
+    await vi.waitFor(() => expect(startRelease).toBeTypeOf('function'));
+    cleanupRelease();
+    await rejected;
+    expect(
+      db
+        .prepare('SELECT state FROM symposium_seal_export_jobs WHERE operation_id=?')
+        .get(input.operationId),
+    ).toEqual({ state: 'in_progress' });
+    await expect(f.sealer.requireCompleted(seal.fenceId, signal)).rejects.toThrow(/unauthorized/);
+    startRelease('0\n');
+    await settled;
+  } finally {
+    spy.mockRestore();
+    db.close();
+  }
+});

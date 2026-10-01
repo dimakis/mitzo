@@ -1090,3 +1090,25 @@ it('quarantines failed cleanup of a login allocated after controller pause', asy
     host.stop();
   }
 });
+
+it('carries semantic deadlines and bounded stdin into the real retained owned transport while legacy defaults remain unchanged', async () => {
+  const f = fixture();
+  const command = vi.fn(async () => 'bounded output');
+  const host = await createOwnedSymposiumHost(f.options, f.launch, undefined, command);
+  try {
+    const retained = host.artifactLeaseHost!.snapshotCommand(),
+      cid = 'a'.repeat(64),
+      input = Buffer.from('[]\n');
+    await retained(['start', '--attach', '--interactive', cid], 16384, input, 5000);
+    expect(command).toHaveBeenLastCalledWith(['start', '--attach', '--interactive', cid], {
+      timeout: 5000,
+      input,
+    });
+    await retained(['inspect', cid], 16384, undefined, 1234);
+    expect(command).toHaveBeenLastCalledWith(['inspect', cid], { timeout: 1234 });
+    await retained(['start', '--attach', cid]);
+    expect(command).toHaveBeenLastCalledWith(['start', '--attach', cid], { timeout: 60000 });
+  } finally {
+    host.stop();
+  }
+});

@@ -29,6 +29,13 @@ import {
   ArtifactCommandNotDispatched,
   type ArtifactPodmanStream,
 } from './symposium-artifact-host.js';
+import {
+  inspectSemanticCleanupOwners,
+  reconcileOwnedSemanticCriterion,
+  runOwnedSemanticCriterion,
+} from './symposium-semantic-criterion-runner.js';
+import type { SemanticCriterionDefinition } from './symposium-criterion-receipts.js';
+import type { ArtifactPodmanCommand } from './symposium-artifact-host.js';
 import type { OwnedSymposiumGateway } from './symposium-owned-gateway.js';
 import type { SymposiumAttemptRegistry } from './symposium-attempt-registry.js';
 import { controlledAttemptRoute } from './symposium-attempt-transport.js';
@@ -203,7 +210,7 @@ function parseSealedBundle(value: Record<string, unknown>, maxBytes: number): Bu
 export class PhysicalArtifactSealer {
   private readonly db: Database.Database;
   private readonly activeReviewStreams = new Set<string>();
-  private readonly command: (args: readonly string[], maxOutputBytes?: number) => Promise<string>;
+  private readonly command: ArtifactPodmanCommand;
   private readonly stream?: ArtifactPodmanStream;
   constructor(
     private readonly deps: {
@@ -498,6 +505,13 @@ export class PhysicalArtifactSealer {
     return allowed;
   }
   async requireCompleted(fenceId: string, signal: AbortSignal): Promise<CompletedArtifactSeal> {
+    return this.requireCompletedForCleanup(fenceId, signal);
+  }
+  private async requireCompletedForCleanup(
+    fenceId: string,
+    signal: AbortSignal,
+    semantic?: { fenceId: string; operationId: string; definition: SemanticCriterionDefinition },
+  ): Promise<CompletedArtifactSeal> {
     if (!/^[a-f0-9-]{36}$/.test(fenceId)) throw new Error('Artifact seal identity is invalid');
     signal.throwIfAborted();
     await this.custody();
@@ -571,10 +585,31 @@ export class PhysicalArtifactSealer {
         throw new Error('Completed artifact terminal cleanup changed');
     }
     await this.absent(records, signal);
-    await this.noVolumeMounts(
-      intent.selection.artifact.volumeName,
-      this.allowedSealedReaderLeases(intent),
-    );
+    const allowed = this.allowedSealedReaderLeases(intent);
+    if (semantic) {
+      const owned = await inspectSemanticCleanupOwners(
+        {
+          db: this.db,
+          command: this.command,
+          seal: receipt,
+          volume: intent.selection.artifact.volumeName,
+          image: TESTED_SYMPOSIUM_NATIVE_BUILD.image,
+          target: SYMPOSIUM_ARTIFACT_TARGET,
+          requireSeal: async () => {
+            throw Error('Cleanup qualification cannot grant a seal');
+          },
+          custody: () => this.custody(),
+          checkFile: async () => {
+            throw Error('Cleanup qualification cannot execute artifacts');
+          },
+          withSnapshot: (operation) =>
+            this.deps.store.withSymposiumHistoricalArtifactSealSnapshot(intent, operation),
+        },
+        semantic,
+      );
+      for (const id of owned) allowed.add(id);
+    }
+    await this.noVolumeMounts(intent.selection.artifact.volumeName, allowed);
     if ((await this.census()).some((row) => row.id === receipt.verifier.id))
       throw new Error('Completed artifact verifier remains');
     await this.custody();
@@ -1753,6 +1788,66 @@ export class PhysicalArtifactSealer {
     );
     const checked = criterionCheckReceiptSchema.parse(value.checkReceipt);
     return checked;
+  }
+
+  /** Behavioral outputs are compared in the trusted host, never by artifact code. */
+  async checkCompletedArtifactSemantic(
+    input: { fenceId: string; operationId: string; definition: SemanticCriterionDefinition },
+    signal: AbortSignal,
+  ) {
+    const seal = await this.requireCompleted(input.fenceId, signal);
+    const intent = this.deps.store.getSymposiumArtifactSealByFence(seal.fenceId)!;
+    return runOwnedSemanticCriterion(
+      {
+        db: this.db,
+        command: this.command,
+        seal,
+        volume: intent.selection.artifact.volumeName,
+        image: TESTED_SYMPOSIUM_NATIVE_BUILD.image,
+        target: SYMPOSIUM_ARTIFACT_TARGET,
+        requireSeal: () => this.requireCompleted(input.fenceId, signal),
+        custody: () => this.custody(),
+        checkFile: async (path, operationId) =>
+          (
+            await this.checkCompletedArtifactFile(
+              { fenceId: input.fenceId, operationId, path },
+              signal,
+            )
+          ).observedSha256,
+        withSnapshot: (operation) =>
+          this.deps.store.withSymposiumHistoricalArtifactSealSnapshot(intent, operation),
+      },
+      input,
+      signal,
+    );
+  }
+
+  /** Exact original-ID retirement only; this never grants semantic evidence or admission. */
+  async reconcileCompletedArtifactSemantic(
+    input: { fenceId: string; operationId: string; definition: SemanticCriterionDefinition },
+    signal: AbortSignal,
+  ) {
+    const seal = await this.requireCompletedForCleanup(input.fenceId, signal, input);
+    const intent = this.deps.store.getSymposiumArtifactSealByFence(seal.fenceId)!;
+    return reconcileOwnedSemanticCriterion(
+      {
+        db: this.db,
+        command: this.command,
+        seal,
+        volume: intent.selection.artifact.volumeName,
+        image: TESTED_SYMPOSIUM_NATIVE_BUILD.image,
+        target: SYMPOSIUM_ARTIFACT_TARGET,
+        requireSeal: () => this.requireCompletedForCleanup(input.fenceId, signal, input),
+        custody: () => this.custody(),
+        checkFile: async () => {
+          throw Error('Cleanup cannot execute artifacts');
+        },
+        withSnapshot: (operation) =>
+          this.deps.store.withSymposiumHistoricalArtifactSealSnapshot(intent, operation),
+      },
+      input,
+      signal,
+    );
   }
 
   async exportCompletedArtifactBundle(

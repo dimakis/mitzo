@@ -17,7 +17,12 @@ import {
  * bind the reservation to its native attempt, and resolve only on terminal completion.
  * Recovery reads durable receipts; HTTP requests never supply provider output. */
 export interface SymposiumInteractiveReviewHost extends SymposiumReviewHost {
-  criterionChecks?(): Array<{ id: string; criterion: string; kind: 'file-sha256'; path: string }>;
+  criterionChecks?(): Array<{
+    id: string;
+    criterion: string;
+    kind: 'file-sha256' | 'python-json-cases';
+    path: string;
+  }>;
   /** Refresh host-owned physical artifact facts using the current authenticated owner. */
   refreshArtifact?(context: ReviewContext): Promise<void>;
   runCriterionCheck?(

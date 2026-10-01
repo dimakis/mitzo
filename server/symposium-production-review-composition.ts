@@ -471,7 +471,12 @@ export function createSymposiumProductionReviewComposition(deps: {
     volumeGeneration: currentCoderGeneration,
   });
   const checks =
-    host.checkCompletedArtifactFile && host.criterionChecks?.length
+    host.criterionChecks?.length &&
+    host.criterionChecks.every((definition) =>
+      definition.kind === 'file-sha256'
+        ? !!host.checkCompletedArtifactFile
+        : !!host.checkCompletedArtifactSemantic,
+    )
       ? createOwnedCriterionReceipts(deps.artifactResultsPath, {
           definitions: host.criterionChecks,
           currentGeneration: (context) =>
@@ -505,18 +510,23 @@ export function createSymposiumProductionReviewComposition(deps: {
             };
           },
           async execute(context, result, definition, definitionDigest) {
-            const receipt = await host.checkCompletedArtifactFile!(
-              {
-                fenceId: result.evidenceRefs[0].slice('artifact-seal:'.length),
-                operationId: `criterion-${createHash('sha256')
-                  .update(
-                    canonicalReviewJson({ context, resultId: result.resultId, definitionDigest }),
+            const operationId = `criterion-${createHash('sha256')
+              .update(canonicalReviewJson({ context, resultId: result.resultId, definitionDigest }))
+              .digest('hex')}`;
+            const selected = {
+              fenceId: result.evidenceRefs[0].slice('artifact-seal:'.length),
+              operationId,
+            };
+            const receipt =
+              definition.kind === 'file-sha256'
+                ? await host.checkCompletedArtifactFile!(
+                    { ...selected, path: definition.path },
+                    AbortSignal.timeout(120_000),
                   )
-                  .digest('hex')}`,
-                path: definition.path,
-              },
-              AbortSignal.timeout(120_000),
-            );
+                : await host.checkCompletedArtifactSemantic!(
+                    { ...selected, definition },
+                    AbortSignal.timeout(120_000),
+                  );
             return { ...receipt, definitionDigest };
           },
         })

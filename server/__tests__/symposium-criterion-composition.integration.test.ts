@@ -61,7 +61,7 @@ const seat = (id: string, role: 'coder' | 'reviewer') => ({
   },
 });
 
-it('binds corrected criterion evidence to the retained sealed result and refuses stale or changed receipts', async () => {
+async function assertCriterionComposition(family: 'file-sha256' | 'python-json-cases') {
   const root = mkdtempSync(join(tmpdir(), 'symposium-criterion-composition-'));
   const path = join(root, 'state.db');
   const events = new EventStore(path);
@@ -296,23 +296,55 @@ it('binds corrected criterion evidence to the retained sealed result and refuses
     });
     const observed = sha('f');
     let returnedArtifactHash = git.committedTreeDigest;
-    const check = vi.fn(async (_input: { fenceId: string; operationId: string; path: string }) => ({
-      executionId: randomUUID(),
-      sealFenceId: intent.fenceId,
-      sealDigest: createHash('sha256').update(canonicalReviewJson(seal)).digest('hex'),
-      artifactRevision: git.commit,
-      artifactHash: returnedArtifactHash,
-      observedSha256: observed,
-      completedAt: seal.completedAt + check.mock.calls.length,
-    }));
-    const definition = (expectedSha256: string) => ({
-      id: 'marker',
-      criterion: 'The approved marker exists',
-      version: 1 as const,
-      kind: 'file-sha256' as const,
-      path: 'marker.txt',
-      expectedSha256,
-    });
+    const check = vi.fn(
+      async (_input: {
+        fenceId: string;
+        operationId: string;
+        path?: string;
+        definition?: { cases: { id: string; expected: unknown }[] };
+      }) => ({
+        executionId: randomUUID(),
+        sealFenceId: intent.fenceId,
+        sealDigest: createHash('sha256').update(canonicalReviewJson(seal)).digest('hex'),
+        artifactRevision: git.commit,
+        artifactHash: returnedArtifactHash,
+        ...(family === 'file-sha256'
+          ? { observedSha256: observed }
+          : {
+              kind: 'python-json-cases',
+              definitionDigest: createHash('sha256')
+                .update(canonicalReviewJson(_input.definition))
+                .digest('hex'),
+              cases: _input.definition!.cases.map((c) => ({
+                id: c.id,
+                status: c.expected === 1 ? 'passed' : 'mismatch',
+                stdoutCapturedBytes: 2,
+                stdoutCapturedSha256: sha('5'),
+              })),
+            }),
+        completedAt: seal.completedAt + check.mock.calls.length,
+      }),
+    );
+    const definition = (expectedSha256: string) =>
+      family === 'python-json-cases'
+        ? {
+            id: 'marker',
+            criterion: 'The approved marker exists',
+            version: 1 as const,
+            kind: 'python-json-cases' as const,
+            path: 'total.py',
+            cases: [
+              { id: 'signed', input: [3, -2], expected: expectedSha256 === sha('f') ? 1 : 0 },
+            ],
+          }
+        : {
+            id: 'marker',
+            criterion: 'The approved marker exists',
+            version: 1 as const,
+            kind: 'file-sha256' as const,
+            path: 'marker.txt',
+            expectedSha256,
+          };
     const host = (expectedSha256: string) => ({
       gateway: { workspace: 'fixture' },
       sourceImport: {
@@ -339,7 +371,9 @@ it('binds corrected criterion evidence to the retained sealed result and refuses
       attemptRegistry: { observations: {}, get: vi.fn() },
       currentProfiles: vi.fn(),
       criterionChecks: [definition(expectedSha256)],
-      checkCompletedArtifactFile: check,
+      ...(family === 'file-sha256'
+        ? { checkCompletedArtifactFile: check }
+        : { checkCompletedArtifactSemantic: check }),
     });
     const compose = (expectedSha256: string) =>
       createSymposiumProductionReviewComposition({
@@ -401,7 +435,17 @@ it('binds corrected criterion evidence to the retained sealed result and refuses
     ).toBe(verifiedId);
     expect(check).toHaveBeenCalledTimes(3);
     expect(check).toHaveBeenCalledWith(
-      expect.objectContaining({ fenceId: intent.fenceId, path: 'marker.txt' }),
+      expect.objectContaining(
+        family === 'file-sha256'
+          ? { fenceId: intent.fenceId, path: 'marker.txt' }
+          : {
+              fenceId: intent.fenceId,
+              definition: expect.objectContaining({
+                kind: 'python-json-cases',
+                path: 'total.py',
+              }),
+            },
+      ),
       expect.anything(),
     );
     const coordinator = new SymposiumReviewCoordinator(reviews, composed.reviewHost);
@@ -438,4 +482,8 @@ it('binds corrected criterion evidence to the retained sealed result and refuses
     events.close();
     rmSync(root, { recursive: true, force: true });
   }
-});
+}
+it.each(['file-sha256', 'python-json-cases'] as const)(
+  'binds corrected %s criterion evidence to the retained sealed result and refuses stale or changed receipts',
+  assertCriterionComposition,
+);

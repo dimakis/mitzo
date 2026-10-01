@@ -114,7 +114,12 @@ export interface SymposiumTrustedReviewHostDeps {
     workflowId: string,
     definitionId: string,
   ): Promise<{ evidenceId: string }>;
-  criterionChecks?(): Array<{ id: string; criterion: string; kind: 'file-sha256'; path: string }>;
+  criterionChecks?(): Array<{
+    id: string;
+    criterion: string;
+    kind: 'file-sha256' | 'python-json-cases';
+    path: string;
+  }>;
   /** Validate a live request-scoped interactive capability, current authentication and
    * the exact action. Plain owner/session strings never establish fresh authority. */
   authorizeAction(

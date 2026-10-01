@@ -63,6 +63,7 @@ export type ArtifactPodmanCommand = (
   args: readonly string[],
   maxOutputBytes?: number,
   input?: Buffer,
+  timeoutMs?: number,
 ) => Promise<string>;
 export type ArtifactPodmanStream = (
   args: readonly string[],
@@ -82,7 +83,15 @@ export class ArtifactPodmanContext {
   verifierCommand(): ArtifactPodmanCommand {
     // Successful create/removal must reach the caller journal before post-command custody checks.
     // The retained command still checks custody before dispatch. Other reads keep both checks.
-    return async (args, maxOutputBytes, input) => {
+    return async (args, maxOutputBytes, input, timeoutMs) => {
+      if (
+        timeoutMs !== undefined &&
+        (!Number.isInteger(timeoutMs) ||
+          timeoutMs < 1 ||
+          timeoutMs > 5000 ||
+          (input && timeoutMs > 5000))
+      )
+        throw new Error('Artifact execution deadline is invalid');
       if (
         input &&
         (input.length < 1 ||
@@ -99,7 +108,7 @@ export class ArtifactPodmanContext {
           input
           ? this.terminalCommand
           : this.command
-      )(args, maxOutputBytes, input);
+      )(args, maxOutputBytes, input, ...(timeoutMs === undefined ? [] : [timeoutMs]));
     };
   }
   verifierStream(): ArtifactPodmanStream {

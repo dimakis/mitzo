@@ -254,7 +254,16 @@ export async function createOwnedSymposiumHost(
       maxOutputBytes = 2 * 1024 * 1024,
       deferPostCustody = false,
       input?: Buffer,
+      timeoutMs?: number,
     ): Promise<string> => {
+      if (
+        timeoutMs !== undefined &&
+        (!Number.isInteger(timeoutMs) ||
+          timeoutMs < 1 ||
+          timeoutMs > 5000 ||
+          (input && timeoutMs > 5000))
+      )
+        throw new Error('Owned semantic deadline is invalid');
       // An 8 MiB source bundle expands to base64 plus JSON; only the exact
       // retained helper output reads need the seal verifier's 16 MiB bound.
       const sealVerifierRead =
@@ -273,7 +282,8 @@ export async function createOwnedSymposiumHost(
       } catch (error) {
         throw new ArtifactCommandNotDispatched(error);
       }
-      const timeout = args[0] === 'start' && args[1] === '--attach' ? 60_000 : 15_000;
+      const timeout =
+        timeoutMs ?? (args[0] === 'start' && args[1] === '--attach' ? 60_000 : 15_000);
       const text = podmanCommand
         ? await podmanCommand(args, { timeout, ...(input ? { input } : {}) })
         : await new Promise<string>((resolve, reject) => {
@@ -287,6 +297,7 @@ export async function createOwnedSymposiumHost(
                 // a 20-second bundle phase); the transport must outlive that bound.
                 timeout,
                 maxBuffer: maxOutputBytes,
+                ...(timeoutMs === undefined ? {} : { killSignal: 'SIGKILL' as const }),
               },
               (error, stdout) => {
                 if (error) reject(new Error('Owned Podman operation failed'));
@@ -372,8 +383,9 @@ export async function createOwnedSymposiumHost(
       leasePath,
       artifactEvidence,
       new ArtifactPodmanContext(
-        (args, max, input) => podmanText(args, max, false, input),
-        (args, maxOutputBytes, input) => podmanText(args, maxOutputBytes, true, input),
+        (args, max, input, timeoutMs) => podmanText(args, max, false, input, timeoutMs),
+        (args, maxOutputBytes, input, timeoutMs) =>
+          podmanText(args, maxOutputBytes, true, input, timeoutMs),
         podmanStream,
       ),
       gateway,
@@ -1032,6 +1044,38 @@ export async function createOwnedSymposiumHost(
           runtimeConfig,
         });
         return track(() => artifactSealer!.checkCompletedArtifactFile(input, signal));
+      },
+      async checkCompletedArtifactSemantic(
+        input: Parameters<PhysicalArtifactSealer['checkCompletedArtifactSemantic']>[0],
+        signal: AbortSignal,
+      ) {
+        if (draining || stopped) throw new Error('Owned Symposium host is shutting down');
+        if (!(options.facts instanceof EventStore))
+          throw new Error('Artifact sealing requires the retained event store');
+        artifactSealer ??= new PhysicalArtifactSealer({
+          store: options.facts,
+          leaseHost: leaseHost!,
+          gateway,
+          attemptRegistry: native!.registry,
+          runtimeConfig,
+        });
+        return track(() => artifactSealer!.checkCompletedArtifactSemantic(input, signal));
+      },
+      async reconcileCompletedArtifactSemantic(
+        input: Parameters<PhysicalArtifactSealer['reconcileCompletedArtifactSemantic']>[0],
+        signal: AbortSignal,
+      ) {
+        if (draining || stopped) throw new Error('Owned Symposium host is shutting down');
+        if (!(options.facts instanceof EventStore))
+          throw new Error('Artifact sealing requires the retained event store');
+        artifactSealer ??= new PhysicalArtifactSealer({
+          store: options.facts,
+          leaseHost: leaseHost!,
+          gateway,
+          attemptRegistry: native!.registry,
+          runtimeConfig,
+        });
+        return track(() => artifactSealer!.reconcileCompletedArtifactSemantic(input, signal));
       },
       async requireCompletedArtifactSeal(fenceId: string, signal: AbortSignal) {
         if (draining || stopped) throw new Error('Owned Symposium host is shutting down');

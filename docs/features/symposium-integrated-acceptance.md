@@ -38,9 +38,15 @@ DIAG7 reached supervisor/provider readiness after correcting its missing private
 socket setting, then retained four gateway-method-contract-refused events
 without method/predicate details. Native account RPC was intentionally
 suppressed; no upstream request or inference occurred. Readiness does not prove
-account/read composition or explain the Stage 27 failure. Identify those four
-refusals with bounded sanitized diagnostics in a separately reviewed successor;
-never replay retired operations. No successor was allocated at the checkpoint.
+account/read composition or explain the Stage 27 failure. A distinct diagnostic
+`4fdf7711-0c95-4126-92a8-34ce78cec542` reproduced four refusals and retained
+`ReportProviderReadiness` / `readiness-tuple` labels; those labels cannot be
+retroactively attributed to the original DIAG7 events. Subsequent source-compatible
+fixture corrections accept supported telemetry reports. Telemetry remains enabled:
+routing diagnostic `ad5264ca-ccbf-4706-821d-4dfe1582a472` accepted two log batches
+containing 16 entries, with no log-report refusals. It remains uncertain and proves
+no positive account/catalog routing. Consult the current ledger for each distinct
+successor and its evidence; never replay retired or uncertain operations.
 Stage 20 review `bb95f6d0-cc49-4434-bb11-ce251fc23163` and all other retained
 attempts must be reconciled by original ID, never blindly replayed.
 
