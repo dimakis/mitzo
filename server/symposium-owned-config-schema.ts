@@ -1,3 +1,4 @@
+import { isOwnedSymposiumProxyUrl } from './symposium-owned-gateway.js';
 import { isAbsolute } from 'node:path';
 import { lstatSync, readFileSync } from 'node:fs';
 import { z } from 'zod';
@@ -28,6 +29,13 @@ export const OwnedSymposiumConfigSchema = z.strictObject({
     cliSha256: digest,
     stateParent: path,
     systemCaBundle: path,
+    upstreamProxy: z
+      .strictObject({
+        url: z.string().max(2048).refine(isOwnedSymposiumProxyUrl),
+        caBundle: path,
+        caBundleSha256: digest,
+      })
+      .optional(),
     gateway: id,
     workspace: z.string().regex(/^[a-z0-9](?:[a-z0-9-]{0,17}[a-z0-9])?$/),
     port: z.number().int().min(1024).max(65535),

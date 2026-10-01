@@ -4,6 +4,10 @@ import { constants } from 'node:fs';
 import { execFile, spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import { createHash, X509Certificate } from 'node:crypto';
 import {
+  closeSync,
+  fstatSync,
+  openSync,
+  readSync,
   chmodSync,
   lstatSync,
   mkdirSync,
@@ -29,6 +33,8 @@ export interface OwnedSymposiumGatewayOptions {
   cliSha256: string;
   /** Reviewed public roots for provider HTTPS, combined with the private issuer CA. */
   systemCaBundle: string;
+  /** Trusted operator configuration; only the existing corporate CONNECT proxy adapter. */
+  upstreamProxy?: { url: string; caBundle: string; caBundleSha256: string };
   /** Host-owned, private parent directory. Each launch allocates new isolated state. */
   stateParent: string;
   gateway: string;
@@ -49,6 +55,73 @@ export interface OwnedSymposiumGatewayOptions {
   };
   /** JWTs authenticate supervisors without issuing them management certificates. */
   jwt: { signingKey: string; publicKey: string; kid: string };
+}
+
+/** Shared with private file configuration admission; credentials and bypasses are forbidden. */
+export function isOwnedSymposiumProxyUrl(value: string): boolean {
+  if (typeof value !== 'string' || value.length > 2048) return false;
+  const match = /^(https?):\/\/(\[[0-9a-fA-F:.]+\]|[A-Za-z0-9][A-Za-z0-9.-]*):([0-9]{1,5})$/.exec(
+    value,
+  );
+  if (!match || Number(match[3]) < 1 || Number(match[3]) > 65535) return false;
+  try {
+    const url = new URL(value);
+    return !url.username && !url.password && !url.search && !url.hash && url.pathname === '/';
+  } catch {
+    return false;
+  }
+}
+function pinnedProxyCa(input: NonNullable<OwnedSymposiumGatewayOptions['upstreamProxy']>): Buffer {
+  if (
+    !isOwnedSymposiumProxyUrl(input.url) ||
+    !digest.test(input.caBundleSha256) ||
+    !isAbsolute(input.caBundle)
+  )
+    throw new Error('Invalid owned upstream proxy configuration');
+  const fd = openSync(input.caBundle, constants.O_RDONLY | constants.O_NOFOLLOW);
+  try {
+    const before = fstatSync(fd);
+    if (!before.isFile() || before.nlink !== 1 || before.size < 1 || before.size > 128 * 1024)
+      throw Error();
+    const bounded = Buffer.alloc(128 * 1024 + 1);
+    let size = 0;
+    while (size < bounded.length) {
+      const count = readSync(fd, bounded, size, bounded.length - size, null);
+      if (!count) break;
+      size += count;
+    }
+    const after = fstatSync(fd),
+      named = lstatSync(input.caBundle);
+    if (
+      size !== before.size ||
+      after.size !== before.size ||
+      after.mtimeMs !== before.mtimeMs ||
+      after.ctimeMs !== before.ctimeMs ||
+      named.isSymbolicLink() ||
+      !named.isFile() ||
+      named.dev !== before.dev ||
+      named.ino !== before.ino ||
+      named.nlink !== 1
+    )
+      throw Error();
+    const bytes = bounded.subarray(0, size);
+    if (
+      hash(bytes) !== input.caBundleSha256 ||
+      !/^-----BEGIN CERTIFICATE-----\r?\n(?:[A-Za-z0-9+/=]+\r?\n)+-----END CERTIFICATE-----\r?\n?$/.test(
+        bytes.toString('ascii'),
+      )
+    )
+      throw Error();
+    const cert = new X509Certificate(bytes),
+      now = Date.now();
+    if (!cert.ca || !(Date.parse(cert.validFrom) <= now && now < Date.parse(cert.validTo)))
+      throw Error();
+    return Buffer.from(bytes);
+  } catch {
+    throw new Error('Owned upstream proxy CA must be bounded, pinned and currently valid');
+  } finally {
+    closeSync(fd);
+  }
 }
 
 interface HostOperations {
@@ -203,7 +276,17 @@ export class OwnedSymposiumGateway {
     options: OwnedSymposiumGatewayOptions,
     operations: HostOperations = host,
   ): Promise<OwnedSymposiumGateway> {
-    options = { ...options, tls: { ...options.tls }, jwt: { ...options.jwt } };
+    if (
+      options.upstreamProxy !== undefined &&
+      (!options.upstreamProxy || typeof options.upstreamProxy !== 'object')
+    )
+      throw new Error('Invalid owned upstream proxy configuration');
+    options = {
+      ...options,
+      tls: { ...options.tls },
+      jwt: { ...options.jwt },
+      upstreamProxy: options.upstreamProxy ? { ...options.upstreamProxy } : undefined,
+    };
     if (
       ![options.gateway, options.workspace, options.network].every((value) => id.test(value)) ||
       !Number.isInteger(options.port) ||
@@ -217,6 +300,7 @@ export class OwnedSymposiumGateway {
       !isAbsolute(options.podmanSocket)
     )
       throw new Error('Invalid owned gateway launch identity');
+    const proxyCa = options.upstreamProxy ? pinnedProxyCa(options.upstreamProxy) : undefined;
     privateDirectory(options.stateParent);
     if (operations.listenerPid(options.port) !== null)
       throw new Error('Dedicated gateway port is already occupied');
@@ -254,6 +338,7 @@ export class OwnedSymposiumGateway {
       files.set(path, { sha256: hash(bytes), mode });
       return path;
     };
+    const proxyCaPath = proxyCa ? freeze('upstream-proxy-ca.pem', proxyCa) : undefined;
     const executable = freeze('openshell-gateway', binary, 0o500);
     const cli = freeze('openshell', cliBytes, 0o500);
     const publicRoots = regularBytes(options.systemCaBundle);
@@ -324,7 +409,7 @@ client_ca_path = ${q(tls.clientCa)}
 [openshell.drivers.podman]
 allow_driver_config = true
 enable_bind_mounts = false
-socket_path = ${q(options.podmanSocket)}
+${options.upstreamProxy ? `https_proxy = ${q(options.upstreamProxy.url)}\nproxy_ca_bundle = ${q(proxyCaPath!)}\n` : ''}socket_path = ${q(options.podmanSocket)}
 network_name = ${q(options.network)}
 grpc_endpoint = ${q(`https://host.containers.internal:${options.port}`)}
 default_image = ${q(options.workloadImage)}

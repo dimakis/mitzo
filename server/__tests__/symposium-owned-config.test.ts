@@ -1,3 +1,4 @@
+import { OwnedSymposiumConfigSchema } from '../symposium-owned-config-schema.js';
 import { EventStore } from '../event-store.js';
 import type { BootstrapTools } from '../symposium-owned-config.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -356,4 +357,29 @@ it('rejects a later broad Vertex profile override before any gateway or credenti
     ),
   ).rejects.toThrow('endpointless');
   expect(f.tools.launch).not.toHaveBeenCalled();
+});
+
+it('admits only the finite optional operator proxy configuration and rejects bypass/credential fields', () => {
+  const f = fixture();
+  const proxy = {
+    url: 'https://proxy.example:18443',
+    caBundle: '/absolute/public-ca.pem',
+    caBundleSha256: 'a'.repeat(64),
+  };
+  const configured = (upstreamProxy: unknown) => ({
+    ...f.config,
+    gateway: { ...f.config.gateway, upstreamProxy },
+  });
+  expect(OwnedSymposiumConfigSchema.parse(configured(proxy)).gateway.upstreamProxy).toEqual(proxy);
+  expect(OwnedSymposiumConfigSchema.parse(f.config).gateway.upstreamProxy).toBeUndefined();
+  for (const invalid of [
+    null,
+    { ...proxy, url: 'http://user:password@proxy.example:18443' },
+    { ...proxy, url: 'https://proxy.example:18443/path' },
+    { ...proxy, caBundle: 'relative' },
+    { ...proxy, caBundleSha256: 'bad' },
+    { ...proxy, no_proxy: '*' },
+    { ...proxy, proxy_auth_file: '/secret' },
+  ])
+    expect(OwnedSymposiumConfigSchema.safeParse(configured(invalid)).success).toBe(false);
 });

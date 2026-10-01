@@ -2,7 +2,15 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { EventEmitter } from 'node:events';
 import { execFileSync, type ChildProcess } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  linkSync,
+  symlinkSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import type { SymposiumHostIssuer } from '../symposium-host-issuer.js';
@@ -15,7 +23,10 @@ const roots: string[] = [];
 afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
-function fixture(san = 'DNS:localhost,IP:127.0.0.1,DNS:host.containers.internal') {
+function fixture(
+  san = 'DNS:localhost,IP:127.0.0.1,DNS:host.containers.internal',
+  ca: boolean | 'leaf' = false,
+) {
   const root = mkdtempSync(join(tmpdir(), 'symposium-owned-test-'));
   roots.push(root);
   chmodSync(root, 0o700);
@@ -63,6 +74,16 @@ function fixture(san = 'DNS:localhost,IP:127.0.0.1,DNS:host.containers.internal'
       '/CN=localhost',
       '-addext',
       `subjectAltName=${san}`,
+      ...(ca
+        ? [
+            '-addext',
+            `basicConstraints=critical,CA:${ca === true ? 'TRUE' : 'FALSE'}`,
+            '-addext',
+            ca === true
+              ? 'keyUsage=critical,keyCertSign,cRLSign'
+              : 'keyUsage=critical,digitalSignature',
+          ]
+        : []),
       '-keyout',
       options.tls.serverKey,
       '-out',
@@ -385,3 +406,91 @@ it('reports aborted child-exit observation as incomplete and removes the waiter'
   expect(f.child.listenerCount('exit')).toBe(before);
   expect(f.child.exitCode).toBeNull();
 });
+
+describe('trusted owned upstream proxy configuration', () => {
+  it('freezes the pinned public CA and writes only source-supported proxy fields', async () => {
+    const f = fixture(undefined, true);
+    const ca = readFileSync(f.options.tls.serverCert);
+    f.options.upstreamProxy = {
+      url: 'http://proxy.example:18443',
+      caBundle: f.options.tls.serverCert,
+      caBundleSha256: createHash('sha256').update(ca).digest('hex'),
+    };
+    const owned = await OwnedSymposiumGateway.launch(f.options, f.operations);
+    const config = readFileSync(f.operations.start.mock.calls[0][1][1], 'utf8');
+    expect(config).toContain('https_proxy = "http://proxy.example:18443"');
+    const frozen = join(owned.stateDirectory, 'upstream-proxy-ca.pem');
+    expect(config).toContain(`proxy_ca_bundle = ${JSON.stringify(frozen)}`);
+    expect(readFileSync(frozen)).toEqual(ca);
+    expect(config).toContain('enable_bind_mounts = false');
+    expect(config).not.toMatch(/no_proxy|proxy_auth_file|proxy_connect_by_hostname|insecure/);
+    writeFileSync(f.options.tls.serverCert, 'changed original source');
+    expect(() => owned.verifyCustody()).not.toThrow();
+    chmodSync(frozen, 0o600);
+    writeFileSync(frozen, 'changed owned copy');
+    chmodSync(frozen, 0o400);
+    expect(() => owned.verifyCustody()).toThrow();
+    owned.stop();
+  });
+  it.each([
+    'http://user:secret@proxy.example:18443',
+    'http://proxy.example:18443/path',
+    'http://proxy.example:18443?token=x',
+    'http://proxy.example:18443#x',
+    'http://proxy.example',
+    'socks5://proxy.example:18443',
+  ])('rejects unsupported proxy URI before issuer or gateway start: %s', async (url) => {
+    const f = fixture(undefined, true);
+    f.options.upstreamProxy = {
+      url,
+      caBundle: f.options.tls.serverCert,
+      caBundleSha256: createHash('sha256')
+        .update(readFileSync(f.options.tls.serverCert))
+        .digest('hex'),
+    };
+    await expect(OwnedSymposiumGateway.launch(f.options, f.operations)).rejects.toThrow();
+    expect(f.operations.startIssuer).not.toHaveBeenCalled();
+    expect(f.operations.start).not.toHaveBeenCalled();
+  });
+  it('rejects changed CA digest before issuer or gateway start', async () => {
+    const f = fixture(undefined, true);
+    f.options.upstreamProxy = {
+      url: 'https://proxy.example:18443',
+      caBundle: f.options.tls.serverCert,
+      caBundleSha256: '0'.repeat(64),
+    };
+    await expect(OwnedSymposiumGateway.launch(f.options, f.operations)).rejects.toThrow();
+    expect(f.operations.startIssuer).not.toHaveBeenCalled();
+  });
+});
+
+it.each(['leaf', 'expired', 'symlink', 'hardlink', 'oversized', 'private-key'] as const)(
+  'rejects unsafe proxy CA %s before effects',
+  async (kind) => {
+    const f = fixture(undefined, kind === 'leaf' ? 'leaf' : true);
+    let caBundle = f.options.tls.serverCert;
+    if (kind === 'symlink' || kind === 'hardlink') {
+      caBundle = join(f.options.stateParent, 'alias.pem');
+      if (kind === 'symlink') symlinkSync(f.options.tls.serverCert, caBundle);
+      else linkSync(f.options.tls.serverCert, caBundle);
+    }
+    if (kind === 'oversized') writeFileSync(caBundle, Buffer.alloc(128 * 1024 + 1));
+    if (kind === 'private-key') caBundle = f.options.tls.serverKey;
+    f.options.upstreamProxy = {
+      url: 'https://proxy.example:18443',
+      caBundle,
+      caBundleSha256: createHash('sha256').update(readFileSync(caBundle)).digest('hex'),
+    };
+    const clock =
+      kind === 'expired'
+        ? vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 3 * 86400000)
+        : undefined;
+    try {
+      await expect(OwnedSymposiumGateway.launch(f.options, f.operations)).rejects.toThrow();
+      expect(f.operations.startIssuer).not.toHaveBeenCalled();
+      expect(f.operations.start).not.toHaveBeenCalled();
+    } finally {
+      clock?.mockRestore();
+    }
+  },
+);
