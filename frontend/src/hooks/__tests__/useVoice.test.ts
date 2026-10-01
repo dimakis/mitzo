@@ -85,6 +85,9 @@ beforeEach(() => {
     vibrate: vi.fn(),
   });
   mockGetUserMedia.mockResolvedValue(mockStream);
+  mockStreamingRecorder.stop.mockImplementation(() => {
+    mockStreamingRecorder.onStop?.();
+  });
   mockFetch.mockReset();
   mockYapper = null;
 });
@@ -153,6 +156,33 @@ describe('useVoice', () => {
 
       expect(result.current.recording).toBe(false);
       expect(result.current.micBlocked).toBe(true);
+    });
+
+    it('ignores a stale mic rejection after cancellation and a new recording', async () => {
+      mockWsClient.close.mockClear();
+      let rejectMic!: (error: Error) => void;
+      mockGetUserMedia.mockImplementationOnce(
+        () =>
+          new Promise<MediaStream>((_resolve, reject) => {
+            rejectMic = reject;
+          }),
+      );
+      const { result } = renderHook(() => useVoice());
+      let oldStart!: Promise<void>;
+      act(() => {
+        oldStart = result.current.startRecording();
+      });
+      await act(async () => {
+        result.current.cancelRecording();
+        await result.current.startRecording();
+      });
+      await act(async () => {
+        rejectMic(new DOMException('denied', 'NotAllowedError'));
+        await oldStart;
+      });
+      expect(result.current.micBlocked).toBe(false);
+      expect(mockWsClient.close).not.toHaveBeenCalled();
+      expect(result.current.recording).toBe(true);
     });
 
     it('stops recording and returns transcript', async () => {
@@ -302,6 +332,254 @@ describe('useVoice', () => {
       expect(result.current.recording).toBe(false);
       await waitFor(() => {
         expect(result.current.partialTranscript).toBe('');
+      });
+    });
+
+    it('waits for the recorder final chunk and its conversion before END', async () => {
+      mockWsClient.sendEnd.mockClear();
+      mockWsClient.sendAudio.mockClear();
+      mockStreamingRecorder.stop.mockImplementationOnce(() => {});
+      const { result } = renderHook(() => useVoice());
+      await act(async () => {
+        await result.current.startRecording();
+      });
+      let resolveChunk!: (buffer: ArrayBuffer) => void;
+      const chunk = {
+        arrayBuffer: () =>
+          new Promise<ArrayBuffer>((resolve) => {
+            resolveChunk = resolve;
+          }),
+      } as Blob;
+      let stopped!: Promise<string>;
+      act(() => {
+        stopped = result.current.stopRecording();
+      });
+      expect(mockWsClient.sendEnd).not.toHaveBeenCalled();
+      await act(async () => {
+        mockStreamingRecorder.onChunk?.(chunk);
+        mockStreamingRecorder.onStop?.();
+        await Promise.resolve();
+      });
+      expect(mockWsClient.sendEnd).not.toHaveBeenCalled();
+      await act(async () => {
+        resolveChunk(new ArrayBuffer(4));
+      });
+      expect(mockWsClient.sendAudio).toHaveBeenCalledTimes(1);
+      expect(mockWsClient.sendEnd).toHaveBeenCalledTimes(1);
+      expect(mockWsClient.sendAudio.mock.invocationCallOrder[0]).toBeLessThan(
+        mockWsClient.sendEnd.mock.invocationCallOrder[0],
+      );
+      await act(async () => {
+        mockWsClient.onTranscript?.({ type: 'final', text: 'last word' });
+        expect(await stopped).toBe('last word');
+      });
+    });
+
+    it('uses the complete batch recording when final transcript times out', async () => {
+      vi.useFakeTimers();
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ text: 'complete recording' }),
+      });
+      const { result } = renderHook(() => useVoice());
+      await act(async () => {
+        await result.current.startRecording();
+      });
+      act(() => {
+        mockWsClient.onTranscript?.({ type: 'partial', text: 'incomplete' });
+      });
+      let stopped!: Promise<string>;
+      act(() => {
+        stopped = result.current.stopRecording();
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(5000);
+        expect(await stopped).toBe('complete recording');
+      });
+    });
+
+    it('gives final transcription its full timeout after recorder stop and conversions finish', async () => {
+      vi.useFakeTimers();
+      mockWsClient.sendEnd.mockClear();
+      mockStreamingRecorder.stop.mockImplementationOnce(() => {});
+      mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ text: 'batch fallback' }) });
+      const { result } = renderHook(() => useVoice());
+      await act(async () => {
+        await result.current.startRecording();
+      });
+      let resolveChunk!: (buffer: ArrayBuffer) => void;
+      const chunk = {
+        arrayBuffer: () =>
+          new Promise<ArrayBuffer>((resolve) => {
+            resolveChunk = resolve;
+          }),
+      } as Blob;
+      let stopped!: Promise<string>;
+      act(() => {
+        stopped = result.current.stopRecording();
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(6000);
+        mockStreamingRecorder.onChunk?.(chunk);
+        mockStreamingRecorder.onStop?.();
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(6000);
+      });
+      expect(mockWsClient.sendEnd).not.toHaveBeenCalled();
+      expect(mockFetch).not.toHaveBeenCalled();
+      await act(async () => {
+        resolveChunk(new ArrayBuffer(4));
+      });
+      expect(mockWsClient.sendEnd).toHaveBeenCalledTimes(1);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(4999);
+        mockWsClient.onTranscript?.({ type: 'final', text: 'complete streaming transcript' });
+        expect(await stopped).toBe('complete streaming transcript');
+      });
+      expect(mockFetch).not.toHaveBeenCalled();
+    });
+
+    it('falls back immediately if the connection fails while waiting for final', async () => {
+      mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ text: 'all words' }) });
+      const { result } = renderHook(() => useVoice());
+      await act(async () => {
+        await result.current.startRecording();
+      });
+      let stopped!: Promise<string>;
+      act(() => {
+        stopped = result.current.stopRecording();
+      });
+      await act(async () => {
+        mockWsClient.onError?.(new Event('error'));
+        expect(await stopped).toBe('all words');
+      });
+    });
+
+    it('settles a pending stop on cancellation without submitting partial text', async () => {
+      const { result } = renderHook(() => useVoice());
+      await act(async () => {
+        await result.current.startRecording();
+      });
+      let stopped!: Promise<string>;
+      act(() => {
+        stopped = result.current.stopRecording();
+      });
+      await act(async () => {
+        result.current.cancelRecording();
+        expect(await stopped).toBe('');
+      });
+    });
+
+    it.each(['recorder stop', 'audio conversion'])(
+      'cancels while waiting for %s',
+      async (waitingFor) => {
+        mockWsClient.sendAudio.mockClear();
+        mockWsClient.sendEnd.mockClear();
+        if (waitingFor === 'recorder stop') {
+          mockStreamingRecorder.stop.mockImplementationOnce(() => {});
+        }
+        const { result } = renderHook(() => useVoice());
+        await act(async () => {
+          await result.current.startRecording();
+        });
+        let resolveChunk!: (buffer: ArrayBuffer) => void;
+        let transcript: string | undefined;
+        let stopped!: Promise<string>;
+        await act(async () => {
+          mockStreamingRecorder.onChunk?.({
+            arrayBuffer: () =>
+              new Promise<ArrayBuffer>((resolve) => {
+                resolveChunk = resolve;
+              }),
+          } as Blob);
+          stopped = result.current.stopRecording();
+          void stopped.then((text) => {
+            transcript = text;
+          });
+        });
+        await act(async () => {
+          result.current.cancelRecording();
+        });
+        expect(transcript).toBe('');
+        expect(result.current.transcribing).toBe(false);
+        expect(mockWsClient.sendEnd).not.toHaveBeenCalled();
+        expect(mockFetch).not.toHaveBeenCalled();
+        await act(async () => {
+          resolveChunk(new ArrayBuffer(4));
+          expect(await stopped).toBe('');
+        });
+        expect(mockWsClient.sendAudio).not.toHaveBeenCalled();
+      },
+    );
+
+    it('ignores stale capture callbacks after a new recording starts', async () => {
+      const { createRecorder } = await import('../../lib/audio');
+      const { result } = renderHook(() => useVoice());
+      await act(async () => {
+        await result.current.startRecording();
+      });
+      const oldChunk = mockStreamingRecorder.onChunk;
+      const oldAutoStop = mockStreamingRecorder.onAutoStop;
+      const oldBatchAutoStop = vi.mocked(createRecorder).mock.results.at(-1)!.value.onAutoStop;
+      await act(async () => {
+        result.current.cancelRecording();
+        await result.current.startRecording();
+      });
+      const staleConversion = vi.fn(() => new Promise<ArrayBuffer>(() => {}));
+      await act(async () => {
+        oldChunk?.({ arrayBuffer: staleConversion } as unknown as Blob);
+        oldAutoStop?.();
+        oldBatchAutoStop?.();
+      });
+      expect(result.current.recording).toBe(true);
+      expect(staleConversion).not.toHaveBeenCalled();
+      let stopped!: Promise<string>;
+      await act(async () => {
+        stopped = result.current.stopRecording();
+      });
+      await act(async () => {
+        mockWsClient.onTranscript?.({ type: 'final', text: 'new capture' });
+        expect(await stopped).toBe('new capture');
+      });
+    });
+
+    it('releases recording resources when the hook unmounts', async () => {
+      mockWsClient.close.mockClear();
+      mockStreamingRecorder.cancel.mockClear();
+      const { result, unmount } = renderHook(() => useVoice());
+      await act(async () => {
+        await result.current.startRecording();
+      });
+      unmount();
+      expect(mockWsClient.close).toHaveBeenCalledTimes(1);
+      expect(mockStreamingRecorder.cancel).toHaveBeenCalledTimes(1);
+    });
+
+    it('discards a late batch response after cancellation', async () => {
+      let respond!: (response: unknown) => void;
+      mockFetch.mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            respond = resolve;
+          }),
+      );
+      const { result } = renderHook(() => useVoice());
+      await act(async () => {
+        await result.current.startRecording();
+      });
+      act(() => {
+        mockWsClient.onError?.(new Event('error'));
+      });
+      let stopped!: Promise<string>;
+      await act(async () => {
+        stopped = result.current.stopRecording();
+        await Promise.resolve();
+      });
+      await act(async () => {
+        result.current.cancelRecording();
+        respond({ ok: true, json: async () => ({ text: 'cancelled words' }) });
+        expect(await stopped).toBe('');
       });
     });
 
