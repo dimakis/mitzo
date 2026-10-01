@@ -19,10 +19,12 @@ afterEach(() => {
 });
 beforeEach(() => {
   vi.clearAllMocks();
-  vi.mocked(apiFetch).mockResolvedValue({
-    ok: true,
-    json: async () => ({ content: 'Expanded document content' }),
-  } as Response);
+  vi.mocked(apiFetch)
+    .mockReset()
+    .mockResolvedValue({
+      ok: true,
+      json: async () => ({ content: 'Expanded document content' }),
+    } as Response);
 });
 
 function Harness({ content, sessionId }: { content: string; sessionId: string }) {
@@ -70,6 +72,38 @@ describe('expanded message previews', () => {
     expect(screen.queryByRole('button', { name: 'Show less' })).toBeNull();
     view.unmount();
     expect(disconnect).toHaveBeenCalled();
+  });
+
+  it.each(['md', 'html'])('loads fresh content when the inline %s file changes', async (ext) => {
+    vi.mocked(apiFetch)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ content: 'FIRST DOCUMENT' }),
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ content: 'SECOND DOCUMENT' }),
+      } as Response);
+    const link = (name: string) => `[preview](file-path://%2Ftmp%2F${name}.${ext})`;
+    const bubble = (name: string) => (
+      <MemoryRouter>
+        <TextBubble content={link(name)} artifactSessionId="session-1" />
+      </MemoryRouter>
+    );
+    const view = render(bubble('first'));
+    fireEvent.click(screen.getByRole('button', { name: new RegExp(`first\\.${ext}`) }));
+    const previewContent = () =>
+      ext === 'md'
+        ? view.container.querySelector('.md-preview-card-body')?.textContent
+        : view.container.querySelector('iframe')?.getAttribute('srcdoc');
+    await waitFor(() => expect(previewContent()).toContain('FIRST DOCUMENT'));
+    view.rerender(bubble('second'));
+    expect(previewContent()).toBeFalsy();
+    fireEvent.click(screen.getByRole('button', { name: new RegExp(`second\\.${ext}`) }));
+    await waitFor(() => expect(previewContent()).toContain('SECOND DOCUMENT'));
+    expect(previewContent()).not.toContain('FIRST DOCUMENT');
+    expect(apiFetch).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(apiFetch).mock.calls[1][0]).toContain('second');
   });
 
   it('survives content, parent and query-string updates while keeping current link routing', async () => {

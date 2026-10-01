@@ -147,10 +147,18 @@ export function TextBubble({
           if (href?.startsWith(FILE_SCHEME)) {
             const filePath = decodeFilePathUrl(href);
             if (filePath && /\.mdx?$/i.test(filePath)) {
-              return <MarkdownPreviewCard filePath={filePath} sessionId={artifactSessionId} />;
+              return (
+                <MarkdownPreviewCard
+                  key={filePath}
+                  filePath={filePath}
+                  sessionId={artifactSessionId}
+                />
+              );
             }
             if (filePath && findArtifactCapabilityByPath(filePath)?.artifact?.renderer === 'html') {
-              return <HtmlPreviewCard filePath={filePath} sessionId={artifactSessionId} />;
+              return (
+                <HtmlPreviewCard key={filePath} filePath={filePath} sessionId={artifactSessionId} />
+              );
             }
           }
         }
