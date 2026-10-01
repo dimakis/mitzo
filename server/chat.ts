@@ -647,7 +647,7 @@ function buildMcpAllowedTools(clientId?: string): string[] {
  * Build an on-demand worktree creation callback for the permission handler.
  * Maps an absolute path to a configured repo and creates a worktree if needed.
  */
-function buildOnDemandCreate(wtId: string): OnDemandCreateFn {
+function buildOnDemandCreate(wtId: string, clientId: string): OnDemandCreateFn {
   return async (absolutePath: string) => {
     const config = getRepoConfig();
     const allRepos: [string, string][] = [];
@@ -659,6 +659,17 @@ function buildOnDemandCreate(wtId: string): OnDemandCreateFn {
       if (!absolutePath.startsWith(repoPath + '/') && absolutePath !== repoPath) continue;
       try {
         const worktreePath = await createWorktreeAsync(wtId, repoPath);
+        const sessionId = registry.get(clientId)?.sessionId;
+        if (sessionId) {
+          eventStore.append(sessionId, 'worktree_opened', {
+            v: 2,
+            type: 'worktree_opened',
+            ts: Date.now(),
+            sessionId,
+            repoName: name,
+            path: worktreePath,
+          });
+        }
         return { repoName: name, worktreePath };
       } catch (err) {
         log.error('on-demand worktree creation failed', {
@@ -1589,7 +1600,7 @@ async function _startChatInner(
         env: sessionEnv,
         mcpServers: allMcpServers,
         eventStore,
-        onDemandCreate: buildOnDemandCreate(wtId),
+        onDemandCreate: buildOnDemandCreate(wtId, clientId),
         onBootContext: (context) => {
           const message: BootContextMessage = { ...context, source: 'sandbox' };
           send(transport, { ...message, sessionId: conversationId });
@@ -1621,7 +1632,7 @@ async function _startChatInner(
         systemPrompt: systemPromptAppend,
         env: sessionEnv,
         mcpServers: allMcpServers,
-        onDemandCreate: buildOnDemandCreate(wtId),
+        onDemandCreate: buildOnDemandCreate(wtId, clientId),
       });
       if (!initialProviderAdmission) {
         throw new Error('Native provider startup is missing durable command admission');
@@ -1665,12 +1676,12 @@ async function _startChatInner(
             ...(Object.keys(allMcpServers).length > 0 ? { mcpServers: allMcpServers } : {}),
             hooks: buildSessionPermissionHooks(
               buildPermissionHandler(clientId, registry, {
-                onDemandCreate: buildOnDemandCreate(wtId),
+                onDemandCreate: buildOnDemandCreate(wtId, clientId),
               }),
               hooks,
             ),
             canUseTool: buildPermissionHandler(clientId, registry, {
-              onDemandCreate: buildOnDemandCreate(wtId),
+              onDemandCreate: buildOnDemandCreate(wtId, clientId),
             }),
           },
         }),

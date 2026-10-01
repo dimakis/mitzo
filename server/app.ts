@@ -2576,9 +2576,101 @@ function sessionArtifactRoot(sessionId: string | undefined): string | null {
   return isConfiguredAllowedPath(cwd) ? cwd : null;
 }
 
+function artifactWorktreeParents(repo: string): string[] {
+  return [
+    join(repo, '.claude', 'worktrees'),
+    join(repo, '.cursor', 'worktrees'),
+    `${repo}-sessions`,
+  ];
+}
+
+function sessionRepositoryWorkspaces(repo: string, sessionId: string, workspace: string): string[] {
+  const worktreeId = basename(workspace);
+  const recordedId = eventStore.getSession(sessionId)?.wtId;
+  const repoName =
+    Object.entries(getRepoConfig().repos).find(
+      ([, root]) => resolve(root) === resolve(repo),
+    )?.[0] ?? 'primary';
+  const activePath = sessionId
+    ? registry.findBySessionId(sessionId)?.session.worktreePaths?.get(repoName)?.path
+    : undefined;
+  const recordedPath = sessionId ? eventStore.getLatestWorktreePath(sessionId, repoName) : null;
+  const explicitPath = activePath ?? (typeof recordedPath === 'string' ? recordedPath : undefined);
+  const validExplicit =
+    explicitPath &&
+    artifactWorktreeParents(repo).some(
+      (parent) => resolve(parent) === dirname(resolve(explicitPath)),
+    );
+  const ids = [
+    ...new Set([worktreeId, recordedId].filter((id): id is string => !!id && basename(id) === id)),
+  ];
+  return validExplicit
+    ? [explicitPath]
+    : ids.flatMap((id) => artifactWorktreeParents(repo).map((parent) => join(parent, id)));
+}
+
+function sessionArtifactBrowserRoot(
+  dir: string | undefined,
+  sessionId: string | undefined,
+): string {
+  const workspace = sessionArtifactRoot(sessionId);
+  if (!workspace || !sessionId || !dir) return workspace ?? BASE_REPO;
+  const target = resolveArtifactPath(dir, sessionId);
+  if (containsPath(workspace, target)) return workspace;
+  const repos = [...new Set([BASE_REPO, ...Object.values(getRepoConfig().repos)].filter(Boolean))];
+  for (const repo of repos) {
+    for (const candidate of sessionRepositoryWorkspaces(repo, sessionId, workspace)) {
+      if (isAllowedPath(candidate, sessionId) && containsPath(candidate, target)) return candidate;
+    }
+  }
+  return workspace;
+}
+
 function resolveArtifactPath(filePath: string, sessionId: string | undefined): string {
-  if (isAbsolute(filePath)) return resolve(filePath);
-  return resolve(sessionArtifactRoot(sessionId) ?? BASE_REPO, filePath);
+  const workspace = sessionArtifactRoot(sessionId);
+  if (!isAbsolute(filePath)) return resolve(workspace ?? BASE_REPO, filePath);
+  const requested = resolve(filePath);
+  if (!workspace || existsSync(requested) || !isAllowedPath(requested, sessionId)) return requested;
+
+  // Agents sometimes post the repository path after writing in its worktree.
+  // Resolve only missing links within that conversation's corresponding repo;
+  // never search other worktrees or replace an existing explicit file.
+  const repos = [
+    ...new Set([BASE_REPO, ...Object.values(getRepoConfig().repos)].filter(Boolean)),
+  ].sort((a, b) => resolve(b).length - resolve(a).length);
+  const parentsFor = (repo: string) => [
+    join(repo, '.claude', 'worktrees'),
+    join(repo, '.cursor', 'worktrees'),
+    `${repo}-sessions`,
+  ];
+  if (
+    !repos.some((repo) =>
+      parentsFor(repo).some((parent) => resolve(parent) === dirname(resolve(workspace))),
+    )
+  )
+    return requested;
+  for (const repo of repos) {
+    if (!containsPath(repo, requested)) continue;
+    const suffix = relative(resolve(repo), requested);
+    if (['.claude', '.cursor', '.git', '.mitzo'].includes(suffix.split(sep)[0])) return requested;
+    const workspaces = sessionRepositoryWorkspaces(repo, sessionId!, workspace);
+    workspaces.sort(
+      (a, b) =>
+        Number(resolve(b) === resolve(workspace)) - Number(resolve(a) === resolve(workspace)),
+    );
+    for (const target of workspaces) {
+      const candidate = resolve(target, suffix);
+      if (
+        containsPath(target, candidate) &&
+        isAllowedPath(candidate, sessionId) &&
+        existsSync(candidate)
+      )
+        return candidate;
+    }
+    // A nested configured repository owns its path; do not substitute a parent repo copy.
+    return requested;
+  }
+  return requested;
 }
 
 function createAllowedPathChecker(sessionId?: string) {
@@ -2676,7 +2768,7 @@ app.get('/api/files/list', (req, res) => {
   const root = resolveRoot(
     req.query.root as string | undefined,
     allowed,
-    sessionArtifactRoot(sessionId) ?? BASE_REPO,
+    sessionArtifactBrowserRoot(req.query.dir as string | undefined, sessionId),
   );
   const requestedDir = req.query.dir as string | undefined;
   const dir = requestedDir ? resolveArtifactPath(requestedDir, sessionId) : root;
@@ -2728,7 +2820,7 @@ app.get('/api/files', (req, res) => {
   const root = resolveRoot(
     req.query.root as string | undefined,
     allowed,
-    sessionArtifactRoot(sessionId) ?? BASE_REPO,
+    sessionArtifactBrowserRoot(req.query.dir as string | undefined, sessionId),
   );
   const requestedDir = req.query.dir as string | undefined;
   const dir = requestedDir ? resolveArtifactPath(requestedDir, sessionId) : root;

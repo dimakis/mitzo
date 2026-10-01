@@ -49,3 +49,17 @@ describe('HtmlPreviewCard', () => {
     );
   });
 });
+
+it('opens the resolved file after previewing a repository alias', async () => {
+  const path = '/repo/.claude/worktrees/session-1/prototype.html';
+  vi.mocked(apiFetch).mockResolvedValue(
+    new Response(JSON.stringify({ path, content: '<h1>Worktree</h1>' })),
+  );
+  render(<HtmlPreviewCard filePath="/repo/prototype.html" sessionId="session-1" />);
+  fireEvent.click(screen.getByRole('button', { name: /prototype\.html/i }));
+  await screen.findByTitle('prototype.html preview');
+  fireEvent.click(screen.getByRole('button', { name: 'Open' }));
+  expect(new URL(navigate.mock.lastCall![0], 'https://mitzo.test').searchParams.get('path')).toBe(
+    path,
+  );
+});

@@ -18,6 +18,15 @@ interface Props {
 
 export function MarkdownPreviewCard({ filePath, sessionId }: Props) {
   const [expanded, setExpanded] = useState(false);
+  const [resolvedFile, setResolvedFile] = useState<{
+    source: string;
+    sessionId?: string;
+    path: string;
+  } | null>(null);
+  const openedPath =
+    resolvedFile?.source === filePath && resolvedFile.sessionId === sessionId
+      ? resolvedFile.path
+      : filePath;
   const [content, setContent] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -39,6 +48,8 @@ export function MarkdownPreviewCard({ filePath, sessionId }: Props) {
           throw new Error(body?.error || `Failed to load file (${res.status})`);
         }
         const data = await res.json();
+        if (typeof data.path === 'string' && data.path)
+          setResolvedFile({ source: filePath, sessionId, path: data.path });
         setContent(data.content);
       } catch (e: unknown) {
         setError(e instanceof Error ? e.message : 'Failed to load file');
@@ -56,10 +67,10 @@ export function MarkdownPreviewCard({ filePath, sessionId }: Props) {
           <span className="md-preview-card-name">{fileName}</span>
           <span className="md-preview-card-chevron">{expanded ? '\u25BE' : '\u25B8'}</span>
         </button>
-        <ShareButton filePath={filePath} sessionId={sessionId} className="share-btn--visible" />
+        <ShareButton filePath={openedPath} sessionId={sessionId} className="share-btn--visible" />
         <button
           className="md-preview-card-open"
-          onClick={() => navigate(artifactViewerUrl(filePath, currentPath, sessionId))}
+          onClick={() => navigate(artifactViewerUrl(openedPath, currentPath, sessionId))}
         >
           Open
         </button>
@@ -74,7 +85,12 @@ export function MarkdownPreviewCard({ filePath, sessionId }: Props) {
                 remarkPlugins={remarkPlugins}
                 rehypePlugins={rehypePlugins}
                 urlTransform={artifactUrlTransform}
-                components={artifactMarkdownComponents(filePath, sessionId, currentPath, navigate)}
+                components={artifactMarkdownComponents(
+                  openedPath,
+                  sessionId,
+                  currentPath,
+                  navigate,
+                )}
               >
                 {content}
               </ReactMarkdown>

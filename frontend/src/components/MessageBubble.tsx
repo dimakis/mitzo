@@ -150,7 +150,7 @@ export function TextBubble({
             if (filePath && /\.mdx?$/i.test(filePath)) {
               return (
                 <MarkdownPreviewCard
-                  key={filePath}
+                  key={`${artifactSessionId || ''}:${filePath}`}
                   filePath={filePath}
                   sessionId={artifactSessionId}
                 />
@@ -158,7 +158,11 @@ export function TextBubble({
             }
             if (filePath && findArtifactCapabilityByPath(filePath)?.artifact?.renderer === 'html') {
               return (
-                <HtmlPreviewCard key={filePath} filePath={filePath} sessionId={artifactSessionId} />
+                <HtmlPreviewCard
+                  key={`${artifactSessionId || ''}:${filePath}`}
+                  filePath={filePath}
+                  sessionId={artifactSessionId}
+                />
               );
             }
           }

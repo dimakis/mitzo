@@ -131,3 +131,40 @@ test('warns when unsaved changes cannot be backed up', async ({ page }) => {
   await expect(page.getByRole('status')).not.toContainText('draft kept');
   await expect(page.getByRole('textbox')).toHaveValue('# Draft');
 });
+
+test('keeps a resolved worktree target when a same-content repository file appears', async ({
+  page,
+}) => {
+  const posted = '/workspace/outputs/report.md';
+  const actual = '/workspace/.claude/worktrees/vertex/outputs/report.md';
+  let mainExists = false;
+  const writes: Record<string, unknown>[] = [];
+  await page.routeWebSocket('**/*', (socket) => socket.close());
+  await page.route('**/api/**', (route) => {
+    const url = new URL(route.request().url());
+    if (url.pathname === '/api/files/read')
+      return route.fulfill({ json: { path: actual, ext: '.md', content: '# Original' } });
+    if (url.pathname === '/api/files/write') {
+      const body = route.request().postDataJSON();
+      writes.push(body);
+      return route.fulfill({
+        json: { ok: true, path: mainExists && body.path === posted ? posted : actual },
+      });
+    }
+    if (url.pathname === '/api/files/roots') return route.fulfill({ json: [] });
+    if (url.pathname === '/api/git/info')
+      return route.fulfill({ json: { branch: 'main', repoPath: '/workspace', worktrees: [] } });
+    return route.fulfill({ json: {} });
+  });
+  await page.goto('/files?path=' + encodeURIComponent(posted) + '&sessionId=vertex');
+  await page.getByRole('button', { name: 'Edit', exact: true }).click();
+  mainExists = true;
+  await page.getByRole('textbox', { name: 'Document source' }).fill('# Edited worktree');
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(page.getByRole('status')).toContainText('All changes saved');
+  expect(writes[0]).toMatchObject({
+    path: actual,
+    sessionId: 'vertex',
+    expectedContent: '# Original',
+  });
+});

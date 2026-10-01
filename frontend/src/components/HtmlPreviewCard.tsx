@@ -11,6 +11,15 @@ interface Props {
 
 export function HtmlPreviewCard({ filePath, sessionId }: Props) {
   const [expanded, setExpanded] = useState(false);
+  const [resolvedFile, setResolvedFile] = useState<{
+    source: string;
+    sessionId?: string;
+    path: string;
+  } | null>(null);
+  const openedPath =
+    resolvedFile?.source === filePath && resolvedFile.sessionId === sessionId
+      ? resolvedFile.path
+      : filePath;
   const [content, setContent] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -29,6 +38,8 @@ export function HtmlPreviewCard({ filePath, sessionId }: Props) {
         const res = await apiFetch(artifactApiUrl('read', filePath, sessionId));
         if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
         const data = await res.json();
+        if (typeof data.path === 'string' && data.path)
+          setResolvedFile({ source: filePath, sessionId, path: data.path });
         setContent(data.content);
       } catch (err: unknown) {
         setError(err instanceof Error ? err.message : 'Failed to load file');
@@ -48,7 +59,7 @@ export function HtmlPreviewCard({ filePath, sessionId }: Props) {
         </button>
         <button
           className="html-preview-card-open"
-          onClick={() => navigate(artifactViewerUrl(filePath, currentPath, sessionId))}
+          onClick={() => navigate(artifactViewerUrl(openedPath, currentPath, sessionId))}
         >
           Open
         </button>

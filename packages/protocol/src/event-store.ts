@@ -333,6 +333,9 @@ const SCHEMA = `
   );
 
   CREATE INDEX IF NOT EXISTS idx_events_session_seq ON events (session_id, seq);
+  CREATE INDEX IF NOT EXISTS idx_events_worktree_repo
+    ON events (session_id, json_extract(payload, '$.repoName'), seq)
+    WHERE type = 'worktree_opened';
 
   CREATE TABLE IF NOT EXISTS sessions (
     session_id  TEXT PRIMARY KEY,
@@ -400,6 +403,7 @@ export class EventStore {
     eventsAfter: Database.Statement;
     eventsAfterLimited: Database.Statement;
     sessionEvents: Database.Statement;
+    latestWorktreePath: Database.Statement;
     recentConversationText: Database.Statement;
     getSession: Database.Statement;
     listSessions: Database.Statement;
@@ -577,6 +581,12 @@ export class EventStore {
       ),
       eventsAfterLimited: db.prepare(
         'SELECT seq, session_id, type, payload, created_at, seat_id, symposium_provenance FROM events WHERE session_id = ? AND seq > ? ORDER BY seq LIMIT ?',
+      ),
+      latestWorktreePath: db.prepare(
+        `SELECT json_extract(payload, '$.path') AS path FROM events
+         WHERE session_id = ? AND type = 'worktree_opened'
+           AND json_extract(payload, '$.repoName') = ?
+         ORDER BY seq DESC LIMIT 1`,
       ),
       sessionEvents: db.prepare(
         'SELECT seq, session_id, type, payload, created_at, seat_id, symposium_provenance FROM events WHERE session_id = ? ORDER BY seq',
@@ -1786,6 +1796,13 @@ export class EventStore {
   /** Check if a user_message with the given messageId already exists for this session. */
   hasUserMessage(sessionId: string, messageId: string): boolean {
     return this.stmts.hasUserMessage.get(sessionId, messageId) != null;
+  }
+
+  /** Indexed lookup avoids parsing a conversation's full stream for one artifact. */
+  getLatestWorktreePath(sessionId: string, repoName: string): string | null {
+    const row = this.stmts.latestWorktreePath.get(sessionId, repoName) as
+      { path: unknown } | undefined;
+    return typeof row?.path === 'string' ? row.path : null;
   }
 
   getEventsAfter(sessionId: string, afterSeq: number, limit?: number): StoredEvent[] {
