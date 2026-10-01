@@ -104,3 +104,46 @@ describe('useFileNavigation session root', () => {
     expect(result.current.state.canGoUp).toBe(false);
   });
 });
+
+it('retains the resolved file identity for editing and parent navigation', async () => {
+  const posted = '/base-repo/outputs/report.md';
+  const resolved = '/base-repo/.claude/worktrees/session-1/outputs/report.md';
+  vi.mocked(apiFetch).mockImplementation((url) =>
+    String(url).startsWith('/api/files/read')
+      ? (response({ content: '# Worktree', ext: '.md', path: resolved }) as never)
+      : (response({
+          dir: '/base-repo/.claude/worktrees/session-1/outputs',
+          root: '/base-repo/.claude/worktrees/session-1',
+          entries: [],
+        }) as never),
+  );
+  const { result } = renderHook(
+    () => {
+      const [params, setParams] = useSearchParams();
+      return useFileNavigation(params, setParams);
+    },
+    {
+      wrapper: ({ children }) => (
+        <MemoryRouter
+          initialEntries={['/files?path=' + encodeURIComponent(posted) + '&sessionId=session-1']}
+        >
+          {children}
+        </MemoryRouter>
+      ),
+    },
+  );
+  await waitFor(() => expect(result.current.state.content).toBe('# Worktree'));
+  expect(result.current.state.filePath).toBe(resolved);
+  act(() => result.current.handleBack(false));
+  await waitFor(() =>
+    expect(
+      vi.mocked(apiFetch).mock.calls.some(([url]) => {
+        const parsed = new URL(String(url), 'https://mitzo.test');
+        return (
+          parsed.pathname === '/api/files' &&
+          parsed.searchParams.get('dir') === '/base-repo/.claude/worktrees/session-1/outputs'
+        );
+      }),
+    ).toBe(true),
+  );
+});
