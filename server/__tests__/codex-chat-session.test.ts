@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
   setWebSearchGrant: vi.fn(),
   getWebSearchGrant: vi.fn(),
   store: vi.fn(),
+  setArtifactRuntime: vi.fn(),
   privateDirectory: '/tmp',
   conversationOptions: undefined as Record<string, unknown> | undefined,
   useTls: false,
@@ -27,6 +28,7 @@ vi.mock('../codex-conversation-store.js', () => ({
       mocks.store();
     }
     recoverAtStartup() {}
+    setArtifactRuntime = mocks.setArtifactRuntime;
   },
 }));
 vi.mock('../codex-conversation.js', () => ({
@@ -360,6 +362,7 @@ it('advertises reviewed per-chat provider grants to a managed OpenShell runtime'
   vi.stubEnv('MITZO_OPENSHELL_GRANTABLE_SERVICE_PROVIDERS', 'google-workspace,github');
   const ensure = vi.spyOn(OpenShellRuntimeManager.prototype, 'ensure').mockResolvedValue({
     sandboxName: 'mitzo-runtime',
+    sandboxId: 'verified-resource',
     workdir: '/sandbox/workspaces/mgmt',
     appServerCommand: '/sandbox/run-mitzo-app-server',
     cli: 'openshell',
@@ -416,6 +419,17 @@ it('advertises reviewed per-chat provider grants to a managed OpenShell runtime'
       systemPrompt: 'base prompt',
       env: {},
     });
+    expect(mocks.setArtifactRuntime).toHaveBeenCalledWith(
+      'conversation',
+      expect.objectContaining({ accountId: 'work' }),
+      {
+        runtime: expect.objectContaining({
+          sandboxId: 'verified-resource',
+          workdir: '/sandbox/workspaces/mgmt',
+        }),
+        route: { kind: 'api', provider: 'openai-work', model: 'test-model' },
+      },
+    );
     expect(mocks.conversationOptions?.tools).toEqual([
       expect.objectContaining({ name: 'TelosCreateOutcome' }),
       expect.objectContaining({ name: 'SymposiumProposeProfile' }),
@@ -717,6 +731,7 @@ it('preserves image attachments while binding a trusted capability, forcing appr
   vi.stubEnv('MITZO_OPENSHELL_SEED', '/seed/mgmt');
   const ensure = vi.spyOn(OpenShellRuntimeManager.prototype, 'ensure').mockResolvedValue({
     sandboxName: 'mitzo-runtime',
+    sandboxId: 'verified-resource',
     workdir: '/sandbox/workspaces/mgmt',
     appServerCommand: '/sandbox/run-mitzo-app-server',
     cli: 'openshell',
@@ -887,7 +902,19 @@ it('preserves image attachments while binding a trusted capability, forcing appr
       expect.objectContaining({ forcePrompt: true, approvalScope: 'conversation' }),
     );
     const beforeReconnect = mocks.conversationOptions?.beforeReconnect as () => Promise<void>;
+    mocks.setArtifactRuntime.mockClear();
+    ensure.mockResolvedValueOnce({
+      ...(await ensure.mock.results[0].value),
+      sandboxId: 'recovered-resource',
+    });
     await beforeReconnect();
+    expect(mocks.setArtifactRuntime).toHaveBeenLastCalledWith(
+      'capability-conversation',
+      expect.objectContaining({ accountId: 'work' }),
+      expect.objectContaining({
+        runtime: expect.objectContaining({ sandboxId: 'recovered-resource' }),
+      }),
+    );
     expect(recoverPendingForConversation).toHaveBeenCalledTimes(2);
     expect(ensure).toHaveBeenCalled();
     chat.close();

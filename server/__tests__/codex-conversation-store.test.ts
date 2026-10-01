@@ -21,6 +21,107 @@ afterEach(() => {
   for (const root of roots) rmSync(root, { recursive: true, force: true });
   roots.length = 0;
 });
+const artifactRuntime = {
+  runtime: {
+    sandboxName: 'sandbox-one',
+    sandboxId: 'resource-one',
+    workdir: '/sandbox/workspaces/project',
+    appServerCommand: '/sandbox/run-mitzo-app-server' as const,
+    cli: 'openshell',
+    gateway: 'gateway',
+    workspace: 'tenant-workspace',
+    gatewayInsecure: false,
+    cliEnvironment: { HOME: '/private/home', XDG_CONFIG_HOME: '/private/config', PATH: '/usr/bin' },
+  },
+  route: { kind: 'api' as const, provider: 'account-provider', model: 'test-model' },
+};
+it('retains verified artifact runtime and workspace across store restart, excluding unknown secrets', () => {
+  const { path } = setup();
+  let s = new CodexConversationStore(path);
+  s.create('conversation', binding, '/host-workspace');
+  s.setArtifactRuntime('conversation', binding, {
+    ...artifactRuntime,
+    runtime: { ...artifactRuntime.runtime, secret: 'do-not-store' },
+  } as typeof artifactRuntime);
+  s.close();
+  s = new CodexConversationStore(path);
+  expect(s.readArtifactRuntime('conversation', binding)).toEqual(artifactRuntime);
+  s.setArtifactRuntime('conversation', binding, {
+    ...artifactRuntime,
+    runtime: { ...artifactRuntime.runtime, sandboxId: 'resource-two' },
+  });
+  expect(s.readArtifactRuntime('conversation', binding)?.runtime.sandboxId).toBe('resource-two');
+  s.close();
+});
+it.each([
+  {
+    kind: 'chatgpt-subscription' as const,
+    provider: 'broker-provider',
+    providerType: 'openai-codex-oauth' as const,
+    providerId: 'provider-resource',
+    grantId: 'grant-resource',
+    model: 'subscription-model',
+  },
+  {
+    kind: 'chatgpt-subscription-native' as const,
+    provider: 'native-provider',
+    providerType: 'codex' as const,
+    providerId: 'native-resource',
+    model: 'native-model',
+  },
+])('preserves account provider routing for $kind', (route) => {
+  const { path } = setup();
+  let s = new CodexConversationStore(path);
+  s.create('conversation', binding, '/workspace');
+  s.setArtifactRuntime('conversation', binding, { ...artifactRuntime, route });
+  s.close();
+  s = new CodexConversationStore(path);
+  expect(s.readArtifactRuntime('conversation', binding)?.route).toEqual(route);
+  s.close();
+});
+it('requires an existing exact conversation binding for artifact runtime access', () => {
+  const { path } = setup();
+  const s = new CodexConversationStore(path);
+  s.create('conversation', binding, '/workspace');
+  expect(s.readArtifactRuntime('conversation', binding)).toBeNull();
+  for (const other of [
+    { ...binding, accountId: 'other' },
+    { ...binding, provider: 'other' },
+    { ...binding, model: 'other' },
+    { ...binding, profileRevision: 'other' },
+  ]) {
+    expect(() => s.setArtifactRuntime('conversation', other, artifactRuntime)).toThrow('binding');
+    expect(() => s.readArtifactRuntime('conversation', other)).toThrow('binding');
+  }
+  expect(() => s.setArtifactRuntime('missing', binding, artifactRuntime)).toThrow('binding');
+  expect(() => s.readArtifactRuntime('missing', binding)).toThrow('binding');
+  s.close();
+});
+it('fails closed for corrupted persisted artifact routing and rejects secret environment keys', () => {
+  const { path } = setup();
+  const s = new CodexConversationStore(path);
+  s.create('conversation', binding, '/workspace');
+  expect(() =>
+    s.setArtifactRuntime('conversation', binding, {
+      ...artifactRuntime,
+      runtime: {
+        ...artifactRuntime.runtime,
+        cliEnvironment: { ...artifactRuntime.runtime.cliEnvironment, TOKEN: 'secret' },
+      },
+    } as typeof artifactRuntime),
+  ).toThrow();
+  const db = new Database(path);
+  db.prepare('UPDATE codex_conversations SET artifact_runtime=? WHERE id=?').run(
+    JSON.stringify({
+      ...artifactRuntime,
+      runtime: { ...artifactRuntime.runtime, sandboxId: '', secret: 'bad' },
+    }),
+    'conversation',
+  );
+  expect(() => s.readArtifactRuntime('conversation', binding)).toThrow();
+  db.close();
+  s.close();
+});
 it('persists a canonical conversation and immutable account/model binding before work', () => {
   const { path } = setup();
   let s = new CodexConversationStore(path);
@@ -67,6 +168,7 @@ it('migrates existing conversations to unresolved search authority and persists 
   legacy.close();
 
   const s = new CodexConversationStore(path);
+  expect(s.readArtifactRuntime('legacy', binding)).toBeNull();
   expect(s.readWebSearchGrant('legacy', binding)).toEqual({
     grant: 'unresolved',
     revision: 0,
