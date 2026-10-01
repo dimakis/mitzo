@@ -188,9 +188,11 @@ preflight. These routes do not supply the trusted native review host, enforce a
 native spending cap, or authorize publication dispatch.
 
 The review workflow records structured findings, fix/dismissal decisions, exact
-artifact revisions, and delta-review history. The interactive panel reports an
-unavailable native review host honestly. Mocked coordinator tests do not prove
-live budget enforcement or a complete autonomous review/fix loop.
+artifact revisions, and delta-review history. The interactive panel reports missing native capabilities honestly. The
+[current integrated acceptance contract](symposium-integrated-acceptance.md#application-policy-contract)
+requires persisted application limits; guaranteed native token/spend caps and
+mandatory final usage totals are deferred. Mocked coordinator tests do not prove
+live account/model acceptance or a complete autonomous review/fix loop.
 
 The immutable-record slice binds an owner/session/workflow to the verified
 artifact and exact history sequence, result, and evidence. Authenticated retrieval

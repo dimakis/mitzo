@@ -49,8 +49,11 @@ A terminal helper failure is shown separately from an unknown outcome. Both reta
 the volume, helper identity and source intent; no reset or retry endpoint exists.
 Late observations are saved before post-operation custody checks. Shutdown drains
 the whole operation through its receipt. Restart recovery and adoption of historical
-resources remain unavailable. Native hard-budget admission, model authorization,
-review, publication credentials and remote publication remain separate gates.
+resources remain unavailable within this source-import slice. Application-policy
+admission, model authorization, review, publication credentials and remote
+publication remain separate gates. Guaranteed native token/spend caps and mandatory
+final usage totals are deferred under the
+[current acceptance contract](../features/symposium-integrated-acceptance.md#application-policy-contract).
 
 The opt-in `MITZO_SOURCE_PHYSICAL_CONTRACT=1` test exercises the mounted source API,
 real SQLite owner, production initializer and importer stdin transport using a

@@ -79,7 +79,10 @@ selection with a synthetic compiled entry. Those tests do not launch a gateway o
 prove live production migration, image installation, model acceptance or database
 rollback. Preserve originals and durable uncertainty; an old binary or database
 snapshot must not erase newer fences. Publication fresh-login reconciliation and
-native hard-budget/final-usage authority remain separate unresolved contracts.
+application-policy, native account/model and full runtime/semantic/release acceptance
+remain separate gates. Guaranteed native token/spend caps and mandatory final usage
+totals are deferred under the
+[current acceptance contract](../features/symposium-integrated-acceptance.md#application-policy-contract).
 
 Preparation rejects dangling attestation entries and overlapping preparation,
 repository, gateway-state, or app-home paths. These mutable directories must be

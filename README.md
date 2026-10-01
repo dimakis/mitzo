@@ -235,8 +235,11 @@ Interactive callers cannot submit fabricated findings, usage, or verification:
 the coordinator reads those facts from completed trusted host receipts.
 
 This interface is wired into the application, but native review/fix execution
-remains unavailable until a trusted adapter supplies enforced token budgets,
-terminal usage, structured results, and artifact-bound verification. The panel
+remains gated on trusted structured results, artifact-bound verification and
+persisted application limits for host turns, review cycles, deadlines, user stop,
+no progress and explicit continuation. Guaranteed native token/spend caps and
+mandatory final usage totals are deferred; missing usage stays explicitly partial
+or unknown. The panel
 reports the missing capability rather than falling back to ordinary chat. Mocked
 integration coverage establishes the workflow boundaries, not live production
 readiness. Reviewer and Claude admission require independent host attestation
@@ -249,7 +252,9 @@ writer/session/grant authority, and a mandatory completed host publication seal.
 It revalidates those bindings after approval and uses read-only recovery for an
 ambiguous external outcome. It is **not installed in the live host**: a pending
 seal intent or unfenced Git observation cannot satisfy its seal contract. Trusted
-hard-budget review execution and physical seal completion remain prerequisites.
+review execution under persisted application limits and physical seal completion
+remain prerequisites. Guaranteed native token/spend caps and mandatory final
+usage totals are deferred under the [current acceptance contract](docs/features/symposium-integrated-acceptance.md#application-policy-contract).
 
 ### Symposium OpenShell 0.1 per-seat runtime
 
@@ -686,8 +691,9 @@ required and remains unavailable in the current application.
 The [sealed publication service](docs/operations/symposium-sealed-publication-authority.md)
 binds an explicitly selected operator GitHub identity to a completed seal and forced
 Create PR approval. Explicit private credential references now enable operator selection
-and the completed-seal bridge in the review panel. Native hard-budget/final-usage review
-receipts and an authorized initial repository/base import remain prerequisites; this
+and the completed-seal bridge in the review panel. Trusted review receipts under
+persisted application limits and an authorized initial repository/base import
+remain prerequisites; this
 registration increment does not make fresh empty artifacts publishable.
 
 Dormant [pending native review evidence](docs/operations/symposium-review-attempt-staging.md)
@@ -744,7 +750,9 @@ The optional Symposium custodian rejects ordinary OpenAI/Codex host fallback: co
 Supervised Symposium publication now retains configured publication credential references and
 uses the current browser permission queue through the custodian channel. It still requires a
 trusted review record, completed seal and explicit per-operation approval; this does not enable
-native trusted review dispatch without its separate budget and final-usage guarantees.
+native trusted review dispatch without its separate application-policy, artifact
+and account/model acceptance gates. Native token/spend caps and mandatory final
+usage totals are deferred; see the [current acceptance contract](docs/features/symposium-integrated-acceptance.md#application-policy-contract).
 
 An uncertain sealed publication can be verified after fresh app authentication while its original
 custodian and credential handle remain retained. The explicit exact-operation action performs
