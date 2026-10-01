@@ -1388,6 +1388,7 @@ const sealRuntimeBindings = new WeakMap<
     leaseHost: unknown;
     sessionId: string;
     drain: (signal: AbortSignal) => Promise<void>;
+    drainedSealFence?: string;
   }
 >();
 /** Accept only a runtime created here, bound to this exact host/store/session. */
@@ -1413,9 +1414,32 @@ export async function drainSymposiumRuntimeForArtifactSeal(
   leaseHost: unknown,
   sessionId: string,
   signal: AbortSignal,
+  sealFenceId?: string,
 ): Promise<void> {
   assertSymposiumRuntimeForArtifactSeal(runtime, store, leaseHost, sessionId);
-  await sealRuntimeBindings.get(runtime)!.drain(signal);
+  const binding = sealRuntimeBindings.get(runtime)!;
+  await binding.drain(signal);
+  if (sealFenceId) binding.drainedSealFence = sealFenceId;
+}
+
+/** A completed seal may lose its return value after its exact writer was drained.
+ * Only the trusted physical drain path marks that fence; fresh reader runtimes
+ * and generic shutdowns cannot be adopted as the original writer. */
+export function isSymposiumRuntimeDrainedForSeal(
+  runtime: object,
+  store: EventStore,
+  leaseHost: unknown,
+  sessionId: string,
+  sealFenceId: string,
+): boolean {
+  const binding = sealRuntimeBindings.get(runtime);
+  return (
+    !!binding &&
+    binding.store === store &&
+    binding.leaseHost === leaseHost &&
+    binding.sessionId === sessionId &&
+    binding.drainedSealFence === sealFenceId
+  );
 }
 
 export function createSymposiumSessionRuntime(deps: SymposiumSessionRuntimeDeps) {

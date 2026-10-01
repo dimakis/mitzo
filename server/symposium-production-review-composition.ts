@@ -5,6 +5,7 @@ import type { EventStore } from './event-store.js';
 import type { SymposiumProductionHost } from './app.js';
 import type { SymposiumReviewStore } from './symposium-review-workflows.js';
 import type { SymposiumHostGrants } from './symposium-host-grants.js';
+import type { SymposiumAttemptRegistry } from './symposium-attempt-registry.js';
 import type { SymposiumOrchestrator } from './symposium-orchestrator.js';
 import type { SymposiumReviewActionAuthority } from './symposium-review-action-authority.js';
 import type { ReviewContext } from './symposium-review-coordinator.js';
@@ -15,6 +16,10 @@ import { createSealedFixReviewTransition } from './symposium-trusted-fix-transit
 import { createSealedReaderReviewTransition } from './symposium-trusted-reader-transition.js';
 import { createSymposiumTrustedReviewHost } from './symposium-trusted-review-host.js';
 import { canonicalReviewJson } from './symposium-review-records.js';
+import {
+  drainSymposiumRuntimeForArtifactSeal,
+  isSymposiumRuntimeDrainedForSeal,
+} from './symposium-session-runtime.js';
 import { reconcileStoppedApplicationPreparation } from './symposium-stopped-preparation.js';
 
 type PhysicalHost = SymposiumProductionHost;
@@ -118,6 +123,19 @@ export async function sealWithRetiredReviewRuntime<T>(input: {
   return sealed;
 }
 
+/** A terminal observation cannot retire a runtime while another claim's
+ * durable preparation or controller journal still needs reconciliation. */
+export function assertCompletedReaderClaimsSettled(
+  registry: Pick<SymposiumAttemptRegistry, 'pending' | 'pendingPreparations'>,
+  sessionId: string,
+): void {
+  if (
+    registry.pending().some((claim) => claim.sessionId === sessionId) ||
+    registry.pendingPreparations().some((claim) => claim.sessionId === sessionId)
+  )
+    throw new Error('Completed reader runtime still has unresolved work');
+}
+
 /** Trusted parent-only composition. All missing physical dependencies fail closed
  * before any review route becomes available. No request can provide a callback. */
 export function createSymposiumProductionReviewComposition(deps: {
@@ -184,7 +202,51 @@ export function createSymposiumProductionReviewComposition(deps: {
   };
   const artifacts = createOwnedReviewArtifactResults(deps.artifactResultsPath, {
     async sealCompleted(context, completion) {
+      const idempotencyKey = `review-seal-${createHash('sha256').update(completion.attempt.attemptId).digest('hex')}`;
+      const provenance = completion.observation.identity.provenance;
+      const generation =
+        'version' in provenance && provenance.version === 3
+          ? provenance.artifact.artifactGenerationId
+          : null;
+      const intent = generation
+        ? events.getSymposiumArtifactSealIntent(context.sessionId, generation)
+        : null;
       const retained = deps.retainedRuntime(context.sessionId);
+      // A response may be lost after the physical seal has retired its writer.
+      // Reconcile that exact attempt's retained seal before asking for a runtime;
+      // allocating a new runtime cannot restore the old writer's authority.
+      if (intent) {
+        if (
+          intent.selection.sessionId !== context.sessionId ||
+          intent.selection.artifact.volumeGeneration !== generation ||
+          intent.selection.idempotencyKey !== idempotencyKey ||
+          intent.selection.expectedConfigRevision !== completion.attempt.binding.configRevision
+        )
+          throw new Error('Retained review artifact seal identity changed');
+        const seal = await host.requireCompletedArtifactSeal!(
+          intent.fenceId,
+          AbortSignal.timeout(120_000),
+        );
+        if (
+          retained &&
+          isSymposiumRuntimeDrainedForSeal(
+            retained.runtime,
+            events,
+            host.artifactLeaseHost,
+            context.sessionId,
+            intent.fenceId,
+          )
+        )
+          deps.retireSealedRuntime(context.sessionId, retained.runtime);
+        return {
+          seal,
+          claimToken: completion.attempt.binding.claimToken,
+          operationId: canonicalReviewJson({
+            thread: completion.observation.identity.providerThreadId,
+            turn: completion.observation.identity.providerTurnId,
+          }),
+        };
+      }
       const seal = await sealWithRetiredReviewRuntime({
         current: runtime(context),
         retained,
@@ -193,7 +255,7 @@ export function createSymposiumProductionReviewComposition(deps: {
             {
               sessionId: context.sessionId,
               expectedConfigRevision: completion.attempt.binding.configRevision,
-              idempotencyKey: `review-seal-${createHash('sha256').update(completion.attempt.attemptId).digest('hex')}`,
+              idempotencyKey,
               repositoryPath: '.',
             },
             selected,
@@ -364,6 +426,67 @@ export function createSymposiumProductionReviewComposition(deps: {
       events,
       reviews,
       requireReviewPageCoverage: true,
+      async retireCompletedReader(context, completion) {
+        const provenance = completion.execution.provenance;
+        if (
+          !provenance ||
+          !('version' in provenance) ||
+          provenance.version !== 3 ||
+          !('kind' in provenance.artifact) ||
+          provenance.artifact.kind !== 'sealed_reader'
+        )
+          throw new Error('Exact completed reader artifact required');
+        const reference = provenance.artifact;
+        reader.assertReaderAdmissionCurrent(
+          events.assertSymposiumSealedReaderAdmissionCurrent(context.sessionId, reference),
+        );
+        assertCompletedReaderClaimsSettled(host.attemptRegistry!, context.sessionId);
+        if (reference.sealFenceId !== currentFence(context, currentArtifact(context)))
+          throw new Error('Completed reader runtime still has unresolved work');
+        const retained = deps.retainedRuntime(context.sessionId);
+        if (!retained) {
+          if (
+            events
+              .listSymposiumSessionSandboxes(context.sessionId)
+              .some((row) => row.state !== 'stopped')
+          )
+            throw new Error('Exact retained completed reader runtime required');
+          return;
+        }
+        if (
+          retained.orchestrator !== runtime(context) ||
+          events
+            .listSymposiumSessionSandboxes(context.sessionId)
+            .some(
+              (row) =>
+                row.state !== 'stopped' &&
+                (row.seatId !== completion.attempt.actorSeatId ||
+                  row.generation !== completion.attempt.binding.membershipGeneration ||
+                  canonicalReviewJson(row.artifact) !== canonicalReviewJson(reference)),
+            )
+        )
+          throw new Error('Exact retained completed reader runtime required');
+        await drainSymposiumRuntimeForArtifactSeal(
+          retained.runtime,
+          events,
+          host.artifactLeaseHost,
+          context.sessionId,
+          AbortSignal.timeout(120_000),
+        );
+        assertCompletedReaderClaimsSettled(host.attemptRegistry!, context.sessionId);
+        reader.assertReaderAdmissionCurrent(
+          events.assertSymposiumSealedReaderAdmissionCurrent(context.sessionId, reference),
+        );
+        if (
+          deps.retainedRuntime(context.sessionId)?.runtime !== retained.runtime ||
+          reference.sealFenceId !== currentFence(context, currentArtifact(context)) ||
+          events
+            .listSymposiumSessionSandboxes(context.sessionId)
+            .some((row) => row.state !== 'stopped')
+        )
+          throw new Error('Completed reader cleanup remains uncertain');
+        deps.retireSealedRuntime(context.sessionId, retained.runtime);
+      },
       registry: host.attemptRegistry,
       runtime,
       profiles: host.currentProfiles,

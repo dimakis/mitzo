@@ -55,6 +55,10 @@ export interface SymposiumTrustedReviewHostDeps {
   >;
   reviews: SymposiumReviewStore;
   requireReviewPageCoverage?: boolean;
+  retireCompletedReader?(
+    context: ReviewContext,
+    completion: TrustedReviewCompletion,
+  ): Promise<void>;
   registry: Pick<SymposiumAttemptRegistry, 'get' | 'observations'>;
   runtime(
     context: ReviewContext,
@@ -623,7 +627,13 @@ export function createSymposiumTrustedReviewHost(
       const done = completion(context, planned.attemptId);
       if (!done)
         throw new Error('Trusted review completion unavailable; reconcile original operation');
-      await deps.artifacts.refresh(context, done);
+      if (done.attempt.kind === 'initial' || done.attempt.kind === 'fix')
+        await deps.artifacts.refresh(context, done);
+      else {
+        if (!this.completedReview(context, done.attempt.attemptId))
+          throw new Error('Complete independent review evidence required for runtime retirement');
+        await deps.retireCompletedReader?.(context, done);
+      }
     },
     receipt(context, attemptId) {
       const done = completion(context, attemptId);

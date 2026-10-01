@@ -72,9 +72,13 @@ import { SqliteArtifactLeaseHost } from '../symposium-artifact-host.js';
 import type { ArtifactLeaseRequest } from '../symposium-artifact-lease.js';
 
 import Database from 'better-sqlite3';
+import { confirmOwnedSealedReader } from '../symposium-sealed-reader.js';
 import { PhysicalArtifactSealer } from '../symposium-physical-artifact-seal.js';
 import { ArtifactPodmanContext, ArtifactCommandNotDispatched } from '../symposium-artifact-host.js';
-import { createSymposiumSessionRuntime } from '../symposium-session-runtime.js';
+import {
+  isSymposiumRuntimeDrainedForSeal,
+  createSymposiumSessionRuntime,
+} from '../symposium-session-runtime.js';
 import { initializeSymposiumNativeHost } from '../symposium-native-host.js';
 import { OpenShellRuntimeManager, sandboxNameForConversation } from '../openshell-runtime.js';
 import { TESTED_SYMPOSIUM_NATIVE_BUILD } from '../symposium-production-gate.js';
@@ -85,7 +89,7 @@ afterEach(() => {
   vi.restoreAllMocks();
   for (const fn of cleanups.splice(0).reverse()) fn();
 });
-async function fixture(inspectionPaths = ['file'], streaming = true) {
+async function fixture(inspectionPaths = ['file'], streaming = true, independentReader = false) {
   const root = mkdtempSync(join(tmpdir(), 'physical-seal-'));
   cleanups.push(() => rmSync(root, { recursive: true, force: true }));
   const store = new EventStore(join(root, 'events.db'));
@@ -102,6 +106,7 @@ async function fixture(inspectionPaths = ['file'], streaming = true) {
           tools: 'write' as const,
         },
       },
+      ...(independentReader ? [{ ...seat, id: 'reader' }] : []),
     ],
   };
   store.upsertSession({ sessionId: 'symposium', accountBinding: seat.accountBinding });
@@ -118,6 +123,20 @@ async function fixture(inspectionPaths = ['file'], streaming = true) {
     )
     .run();
   raw.close();
+  if (independentReader) {
+    store.transitionSymposiumMembership({
+      sessionId: 'symposium',
+      seatId: 'reader',
+      action: 'admit',
+      expectedGeneration: 0,
+      configRevision: 4,
+      actor: 'director',
+      reason: 'Independent reader fixture',
+      idempotencyKey: 'reader-admit',
+      occurredAt: 1,
+    });
+    store.markSymposiumMembershipReconciled('symposium', 'reader', 1, 'confirmed');
+  }
   const record = {
     sessionId: 'symposium',
     seatId: 'reviewer',
@@ -1630,4 +1649,103 @@ it('does not expose malformed export bundle content through error causes', async
     expect(messages.join('\n')).not.toContain('LEAK');
     expect(messages.join('\n')).toContain('retained helper state');
   }
+});
+
+it('exports a sealed writer after a proven independent reader advances the config', async () => {
+  const f = await fixture(['file'], true, true);
+  const signal = new AbortController().signal;
+  const seal = await f.sealer.seal(f.input, f.runtime, signal);
+  expect(
+    isSymposiumRuntimeDrainedForSeal(f.runtime, f.store, f.host, 'symposium', seal.fenceId),
+  ).toBe(true);
+  expect(isSymposiumRuntimeDrainedForSeal({}, f.store, f.host, 'symposium', seal.fenceId)).toBe(
+    false,
+  );
+  expect(
+    isSymposiumRuntimeDrainedForSeal(f.runtime, f.store, f.host, 'symposium', 'unrelated-fence'),
+  ).toBe(false);
+  expect(isSymposiumRuntimeDrainedForSeal(f.runtime, f.store, {}, 'symposium', seal.fenceId)).toBe(
+    false,
+  );
+  const intent = f.store.getSymposiumArtifactSealByFence(seal.fenceId)!;
+  const binding = {
+    version: 1 as const,
+    kind: 'sealed_reader' as const,
+    readerAdmissionId: 'reader-transition',
+    operationId: 'reader-transition',
+    sessionId: 'symposium',
+    workspaceId: 'workspace',
+    custodyDigest: seal.custodyDigest,
+    sealFenceId: seal.fenceId,
+    sealDigest: seal.intentDigest,
+    artifactGenerationId: 'generation',
+    volumeName: 'volume',
+    workflowId: 'workflow',
+    reviewAttemptId: 'review',
+    policyReservationId: 'policy',
+    seatId: 'reader',
+    expectedConfigRevision: 4,
+    resultingConfigRevision: 5,
+    predecessorMembershipGeneration: 1,
+    readerMembershipGeneration: 2,
+    accountBinding: seat.accountBinding,
+    profileBinding: seat.profileBinding,
+    contextGrant: { grantId: seat.contextGrant.grantId, revision: 1 },
+    authorityGrant: { grantId: seat.authorityGrant.grantId, revision: 1 },
+  };
+  await confirmOwnedSealedReader(
+    {
+      store: f.store,
+      leaseHost: f.host,
+      assertPreparation: () => true,
+      requireCompletedSeal: (fence) => f.sealer.requireCompleted(fence, signal),
+    },
+    binding,
+  );
+  expect(f.store.getActiveSymposiumConfig('symposium').revision).toBe(5);
+  expect(() => f.store.withSymposiumArtifactSealSnapshot(intent, () => {})).toThrow(
+    'Artifact seal snapshot changed',
+  );
+  expect(() => f.store.withSymposiumHistoricalArtifactSealSnapshot(intent, () => {})).not.toThrow();
+  expect(
+    await f.sealer.inspectCompletedArtifact(
+      { fenceId: seal.fenceId, operationId: 'fix-after-reader', baseBranch: 'main' },
+      signal,
+    ),
+  ).toMatchObject({ sourceOid: seal.git.commit });
+  const checkInput = {
+    fenceId: seal.fenceId,
+    operationId: 'criterion-after-reader',
+    path: 'marker.txt',
+  };
+  const checked = await f.sealer.checkCompletedArtifactFile(checkInput, signal);
+  const helperCount = f.command.mock.calls.filter(([args]) => args[0] === 'create').length;
+  expect(await f.sealer.checkCompletedArtifactFile(checkInput, signal)).toEqual(checked);
+  expect(f.command.mock.calls.filter(([args]) => args[0] === 'create')).toHaveLength(helperCount);
+  const readerConfig = f.store.getActiveSymposiumConfig('symposium');
+  const changedConfig = {
+    ...readerConfig,
+    revision: 6,
+    seats: readerConfig.seats.map((selected) =>
+      selected.id === 'reader'
+        ? { ...selected, authorityGrant: { ...selected.authorityGrant, revision: 2 } }
+        : selected,
+    ),
+  };
+  expect(() => f.store.setSymposiumConfig('symposium', changedConfig)).toThrow(/fenced/);
+  // Corrupt persisted authority outside the supported mutation owner: historical
+  // receipt reuse must still refuse it, even though the normal API fences it.
+  const changedStore = new Database(join(f.root, 'events.db'));
+  changedStore
+    .prepare('UPDATE sessions SET symposium_config=?,symposium_revision=6 WHERE session_id=?')
+    .run(JSON.stringify(changedConfig), 'symposium');
+  changedStore.close();
+  await expect(
+    f.sealer.inspectCompletedArtifact(
+      { fenceId: seal.fenceId, operationId: 'changed-after-reader', baseBranch: 'main' },
+      signal,
+    ),
+  ).rejects.toThrow();
+  await expect(f.sealer.checkCompletedArtifactFile(checkInput, signal)).rejects.toThrow();
+  expect(f.command.mock.calls.filter(([args]) => args[0] === 'create')).toHaveLength(helperCount);
 });

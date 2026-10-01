@@ -146,7 +146,8 @@ it('requires one exact charged owner intent and admits the copied fix child befo
     ],
   };
   const runtime = {
-    recordProviderAdmission: vi.fn(() => {
+    recordProviderAdmission: vi.fn((input: { seatId: string }) => {
+      if (input.seatId === 'reviewer') throw Error('Historical sealed reader cannot be renewed');
       order.push('provider');
       return {
         decision: 'admitted',
@@ -191,6 +192,19 @@ it('requires one exact charged owner intent and admits the copied fix child befo
             profileBinding: { profileId: 'profile', profileRevision: '1' },
             authorityGrant: { grantId: 'grant', revision: 1, filesystem: 'write', tools: 'write' },
             contextGrant: { grantId: 'context', revision: 1 },
+          },
+          {
+            id: 'reviewer',
+            role: 'reviewer',
+            accountBinding: { accountId: 'reviewer', model: 'offline', profileRevision: '1' },
+            profileBinding: { profileId: 'reviewer', profileRevision: '1' },
+            authorityGrant: {
+              grantId: 'reader-grant',
+              revision: 1,
+              filesystem: 'read',
+              tools: 'read',
+            },
+            contextGrant: { grantId: 'reader-context', revision: 1 },
           },
         ],
       }),

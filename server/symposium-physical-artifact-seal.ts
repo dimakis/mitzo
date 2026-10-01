@@ -1919,7 +1919,7 @@ export class PhysicalArtifactSealer {
           throw new Error('Retained criterion check binding changed');
         const intent = this.deps.store.getSymposiumArtifactSealByFence(receipt.fenceId)!;
         signal.throwIfAborted();
-        this.deps.store.withSymposiumArtifactSealSnapshot(intent, () => {});
+        this.deps.store.withSymposiumHistoricalArtifactSealSnapshot(intent, () => {});
         return { checkReceipt: checked };
       }
     }
@@ -2385,7 +2385,7 @@ export class PhysicalArtifactSealer {
               completedAt: Date.now(),
             })
           : undefined;
-      this.deps.store.withSymposiumArtifactSealSnapshot(intent, () => {
+      this.deps.store.withSymposiumHistoricalArtifactSealSnapshot(intent, () => {
         const updated = this.db
           .prepare(
             "UPDATE symposium_seal_export_jobs SET state='complete',result_hash=?,receipt_json=? WHERE job_id=? AND state='removed'",
@@ -2714,7 +2714,14 @@ export class PhysicalArtifactSealer {
     await check();
     // The durable phase may precede or follow physical cleanup. Replaying the
     // exact retained runtime drain reconciles only its original seat identities.
-    await drainSymposiumRuntimeForArtifactSeal(runtime, store, leaseHost, input.sessionId, signal);
+    await drainSymposiumRuntimeForArtifactSeal(
+      runtime,
+      store,
+      leaseHost,
+      input.sessionId,
+      signal,
+      intent.fenceId,
+    );
     const drained = () => {
       for (const seat of new Set([
         ...config.seats.map((s) => s.id),

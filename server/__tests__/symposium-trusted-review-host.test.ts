@@ -481,6 +481,63 @@ it('arms the staged reviewer delivery before approving or dispatching it', async
   });
   f.reviews.close();
 });
+it.each(['completed', 'malformed', 'coverage', 'drain-failed'] as const)(
+  'retires an independent reader only after complete evidence (%s)',
+  async (mode) => {
+    const f = fixture('review');
+    f.deps.retireCompletedReader = vi.fn(async () => {
+      if (mode === 'drain-failed') throw Error('Exact reader drain uncertain');
+    });
+    if (mode === 'coverage') {
+      f.deps.requireReviewPageCoverage = true;
+      vi.spyOn(f.reviews, 'hasCompleteReviewPageCoverage').mockReturnValue(false);
+    }
+    const planned = prepare(f, 'review');
+    vi.spyOn(f.reviews, 'getApplicationPreparation').mockReturnValue({
+      status: 'bound',
+      policyReservationId: planned.policyReservationId,
+    } as never);
+    vi.mocked(f.deps.artifacts.refresh).mockRejectedValue(new Error('Writer-only artifact owner'));
+    f.runtime.deliver.mockImplementation(async () => {
+      completed(
+        f,
+        planned,
+        mode === 'malformed' ? '{}' : JSON.stringify({ findings: [], resolvedFingerprints: [] }),
+      );
+      return f.deliveries.get('delivery');
+    });
+    try {
+      const dispatch = f.host.dispatch(context, {
+        kind: 'reserved_not_dispatched',
+        attemptId: 'review',
+        policyReservationId: planned.policyReservationId,
+        applicationAttempt: planned,
+        applicationDispatchEpoch: 0,
+        selection: f.reviews.get('workflow')!.reviewer,
+        artifactRevision: 'source',
+        artifactHash: hash,
+      });
+      if (mode === 'completed') await dispatch;
+      else
+        await expect(dispatch).rejects.toThrow(
+          mode === 'drain-failed'
+            ? 'Exact reader drain uncertain'
+            : 'Complete independent review evidence required',
+        );
+      expect(f.deps.artifacts.refresh).not.toHaveBeenCalled();
+      if (mode === 'completed' || mode === 'drain-failed') {
+        expect(f.host.completedReview(context, 'review')).toMatchObject({ findings: [] });
+        expect(f.deps.retireCompletedReader).toHaveBeenCalledOnce();
+        const calls = vi.mocked(f.deps.retireCompletedReader).mock.calls.length;
+        expect(f.host.completedReview(context, 'review')).toMatchObject({ findings: [] });
+        expect(f.deps.retireCompletedReader).toHaveBeenCalledTimes(calls);
+      } else expect(f.deps.retireCompletedReader).not.toHaveBeenCalled();
+      expect(f.runtime.deliver).toHaveBeenCalledOnce();
+    } finally {
+      f.reviews.close();
+    }
+  },
+);
 it('replays an approved but unclaimed bound writer with the same durable epoch permit', async () => {
   const f = fixture();
   const planned = prepare(f, 'initial');
@@ -628,4 +685,32 @@ it('charges a nonadmitting reader intent before applying confirmed future pins',
   expect(f.deps.transition.prepare).not.toHaveBeenCalled();
   expect(f.reviews.applicationAttemptForClaim('claim')).toEqual(final);
   f.reviews.close();
+});
+it('cannot dispatch a future reader using a provider admission from the old writer revision', async () => {
+  const f = fixture('review');
+  const planned = prepare(f, 'review');
+  vi.spyOn(f.reviews, 'getApplicationPreparation').mockReturnValue({
+    status: 'bound',
+    policyReservationId: planned.policyReservationId,
+  } as never);
+  const oldAdmission = f.deps.events.getLatestSymposiumAdmission('session', 'reviewer', 1)!;
+  f.deps.events.getLatestSymposiumAdmission = () => ({ ...oldAdmission, configRevision: 0 });
+  try {
+    await expect(
+      f.host.dispatch(context, {
+        kind: 'reserved_not_dispatched',
+        attemptId: 'review',
+        policyReservationId: planned.policyReservationId,
+        applicationAttempt: planned,
+        applicationDispatchEpoch: 0,
+        selection: f.reviews.get('workflow')!.reviewer,
+        artifactRevision: 'source',
+        artifactHash: hash,
+      }),
+    ).rejects.toThrow('currently admitted');
+    expect(f.runtime.deliver).not.toHaveBeenCalled();
+    expect(f.runtime.intervene).not.toHaveBeenCalled();
+  } finally {
+    f.reviews.close();
+  }
 });

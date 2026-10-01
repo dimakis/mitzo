@@ -21,7 +21,6 @@ import type {
   SuccessorArtifactExportReceipt,
 } from './symposium-physical-artifact-seal.js';
 import { canonicalReviewJson, reviewRecordHash } from './symposium-review-records.js';
-import { renewReviewerAdmissionAfterWriter } from './symposium-reviewer-admission-renewal.js';
 
 type Transition = NonNullable<SymposiumTrustedReviewHostDeps['transition']>;
 type Fix = ApplicationPreparation & { kind: 'fix' };
@@ -392,14 +391,10 @@ export function createSealedFixReviewTransition(deps: {
         admission.membershipGeneration !== prep.to.membershipGeneration
       )
         throw new Error('Fresh fix child provider admission required');
-      renewReviewerAdmissionAfterWriter({
-        context,
-        events: deps.events,
-        grants: deps.grants,
-        runtime: deps.runtime(context),
-        transitionId: prep.transitionId,
-        expectedRevision: prep.to.configRevision,
-      });
+      // The previous reviewer belongs to the parent seal. Its admission remains
+      // historical after the child writer revision; the next sealed-reader
+      // transition must admit its own generation against the completed child.
+
       const prompt = `Fix only the owner-authorized open findings for artifact ${prep.artifactRevision} (${prep.artifactHash}). Commit the resulting changes and report what changed; host verification determines completion. Task data:\n${JSON.stringify({ acceptanceCriteria: workflow.acceptanceCriteria, findings: workflow.findings.filter((finding) => findings.includes(finding.fingerprint)) })}`;
       const delivery = deps.runtime(context).stageDelivery({
         sessionId: context.sessionId,

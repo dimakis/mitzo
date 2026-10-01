@@ -203,3 +203,39 @@ it('binds a real SQLite review record to a completed seal without a writer lease
   await expect(adapter.require(selected, new AbortController().signal)).rejects.toThrow('current');
   store.close();
 });
+it('projects only the physical completed inspection clean marker into Git porcelain semantics', async () => {
+  const inspection = {
+    canonicalRepositoryPath: '/sandbox/workspaces/mgmt',
+    status: 'clean',
+    sourceBranch: 'feature',
+    sourceOid: 'a'.repeat(40),
+    defaultBranch: 'main',
+    originUrl: 'https://github.com/example/project.git',
+    commitsAhead: 1,
+    changedFiles: ['criterion.txt'],
+    sourceBranchProtected: false,
+    symlinkFree: true,
+  };
+  const inspectCompletedArtifact = vi.fn(async () => inspection);
+  const adapter = completedPublicationArtifact({
+    store,
+    host: {
+      requireCompletedArtifactSeal: async () => {
+        throw Error('Unused binding helper');
+      },
+      inspectCompletedArtifact,
+      exportCompletedArtifactBundle: async () => {
+        throw Error('Publication mutation forbidden');
+      },
+    },
+  });
+  const input = { fenceId: 'exact-seal', operationId: 'exact-preparation', baseBranch: 'main' };
+  const signal = new AbortController().signal;
+  expect(await adapter.inspectCompletedArtifact(input, signal)).toEqual({
+    ...inspection,
+    status: '',
+  });
+  expect(inspectCompletedArtifact).toHaveBeenCalledWith(input, signal);
+  inspection.status = ' M criterion.txt';
+  expect((await adapter.inspectCompletedArtifact(input, signal)).status).toBe(' M criterion.txt');
+});

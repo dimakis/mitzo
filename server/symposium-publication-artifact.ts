@@ -90,7 +90,12 @@ export function completedPublicationArtifact(deps: {
         sourceOid: seal.git.commit,
       };
     },
-    inspectCompletedArtifact: (input, signal) => deps.host.inspectCompletedArtifact(input, signal),
+    async inspectCompletedArtifact(input, signal) {
+      const inspected = await deps.host.inspectCompletedArtifact(input, signal);
+      // The physical verifier emits an explicit clean marker. The GitHub
+      // executor uses Git porcelain's empty string for that same trusted state.
+      return { ...inspected, status: inspected.status === 'clean' ? '' : inspected.status };
+    },
     exportCompletedArtifactBundle: (input, signal) =>
       deps.host.exportCompletedArtifactBundle(input, signal),
   };
