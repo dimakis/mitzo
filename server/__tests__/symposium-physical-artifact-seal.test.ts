@@ -72,7 +72,6 @@ const config: SymposiumConfig = {
 import { SqliteArtifactLeaseHost } from '../symposium-artifact-host.js';
 import type { ArtifactLeaseRequest } from '../symposium-artifact-lease.js';
 
-import Database from 'better-sqlite3';
 import { confirmOwnedSealedReader } from '../symposium-sealed-reader.js';
 import { PhysicalArtifactSealer } from '../symposium-physical-artifact-seal.js';
 import { ArtifactPodmanContext, ArtifactCommandNotDispatched } from '../symposium-artifact-host.js';
