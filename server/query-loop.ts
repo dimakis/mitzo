@@ -185,6 +185,10 @@ export interface QueryLoopOptions {
   initialContextBlocks?: string[];
   connRegistry?: ConnectionRegistry;
   onSessionResolved?: (sessionId: string) => void;
+  /** Report whether the provider produced its first event. */
+  onFirstEventOutcome?: (error?: Error) => void;
+  /** Report the final outcome after the provider stream ends. */
+  onTerminalOutcome?: (error?: Error) => void;
   /** Called after the initial prompt is registered, enabling auto-rename on prompt 1. */
   onInitialPrompt?: (sessionId: string) => void;
   /** Called when an assistant turn completes (snapshot cleared). */
@@ -287,6 +291,7 @@ async function _runQueryLoopInner(
 
   let blockCounter = 0;
   let caughtError = false;
+  let terminalError: Error | undefined;
   let currentMessageId: string | null = null;
   let doneSent = false;
   let openBlockCount = 0;
@@ -432,6 +437,18 @@ async function _runQueryLoopInner(
   // the configured model is unreachable (e.g. requested via Vertex AI before
   // that model has landed there) and would otherwise hang indefinitely.
   let firstEventReceived = false;
+  let firstEventOutcomeReported = false;
+  const reportFirstEventOutcome = (error?: Error) => {
+    if (firstEventOutcomeReported) return;
+    firstEventOutcomeReported = true;
+    options?.onFirstEventOutcome?.(error);
+  };
+  let terminalOutcomeReported = false;
+  const reportTerminalOutcome = (error?: Error) => {
+    if (terminalOutcomeReported) return;
+    terminalOutcomeReported = true;
+    options?.onTerminalOutcome?.(error);
+  };
   let timedOut = false;
   const firstEventTimer = setTimeout(() => {
     if (!firstEventReceived) {
@@ -447,6 +464,11 @@ async function _runQueryLoopInner(
         if (!firstEventReceived) {
           firstEventReceived = true;
           clearTimeout(firstEventTimer);
+          reportFirstEventOutcome(
+            msg.type === 'result' && msg.is_error === true
+              ? new Error('Provider returned an error result as its first event')
+              : undefined,
+          );
           // Session state machine: mark ACTIVE on first SDK event (resume path)
           const sid = resolvedSessionId || currentOwnerSession()?.sessionId;
           if (store && sid) {
@@ -594,6 +616,11 @@ async function _runQueryLoopInner(
           const isError = result.is_error === true;
           const providerFailure = isError ? result.provider_failure : undefined;
           caughtError ||= isError;
+          if (isError) {
+            reportTerminalOutcome(
+              new Error(providerFailure?.message ?? 'Provider returned an error result'),
+            );
+          }
           if (providerFailure) {
             const telemetry = providerFailureTelemetry(providerFailure);
             log.warn('provider turn failed', {
@@ -1492,6 +1519,12 @@ async function _runQueryLoopInner(
       }
     } catch (err: unknown) {
       caughtError = true;
+      terminalError = err instanceof Error ? err : new Error('Provider stream failed');
+      if (!firstEventReceived) {
+        reportFirstEventOutcome(
+          err instanceof Error ? err : new Error('Provider failed before its first event'),
+        );
+      }
       span.setStatus({
         code: SpanStatusCode.ERROR,
         message: err instanceof Error ? err.message : 'unknown',
@@ -1511,6 +1544,15 @@ async function _runQueryLoopInner(
       }
     } finally {
       clearTimeout(firstEventTimer);
+      if (!firstEventReceived) {
+        reportFirstEventOutcome(
+          new Error(
+            timedOut
+              ? 'Provider timed out before its first event'
+              : 'Provider ended before its first event',
+          ),
+        );
+      }
       // NOTE: finalSession is captured before registry.remove() below. After remove(),
       // the object reference remains valid (Map.delete doesn't mutate the value).
       // It is read in two places after remove: (1) span attributes block reads
@@ -1604,6 +1646,9 @@ async function _runQueryLoopInner(
 
       span.setStatus({ code: caughtError ? SpanStatusCode.ERROR : SpanStatusCode.OK });
       log.info('query loop ended', { clientId, doneSent, caughtError });
+      reportTerminalOutcome(
+        terminalError ?? (caughtError ? new Error('Provider returned an error result') : undefined),
+      );
     }
   } finally {
     span.end();

@@ -957,6 +957,8 @@ export async function startChat(
     clientMsgId?: string;
     onSessionResolved?: (sessionId: string) => void;
     onStartupAdmission?: (error?: unknown) => void;
+    onFirstEventOutcome?: (error?: Error) => void;
+    onTerminalOutcome?: (error?: Error) => void;
     telosTaskId?: string;
     agentName?: string;
     userIntent?: string;
@@ -1014,6 +1016,8 @@ async function _startChatInner(
     clientMsgId?: string;
     onSessionResolved?: (sessionId: string) => void;
     onStartupAdmission?: (error?: unknown) => void;
+    onFirstEventOutcome?: (error?: Error) => void;
+    onTerminalOutcome?: (error?: Error) => void;
     telosTaskId?: string;
     agentName?: string;
     userIntent?: string;
@@ -1265,7 +1269,6 @@ async function _startChatInner(
       return;
     }
   }
-  if (!apiKey && !gemini) options.onStartupAdmission?.();
 
   if (options.resume) {
     const validation =
@@ -1699,6 +1702,9 @@ async function _startChatInner(
       );
     }
 
+    // The session is registered and the provider query is ready. Worktree and
+    // provider setup failures above must be reported before admitting a spawn.
+    if (!apiKey && !gemini) options.onStartupAdmission?.();
     await runQueryLoop(
       q as unknown as AsyncIterable<Record<string, unknown>>,
       clientId,
@@ -1708,6 +1714,8 @@ async function _startChatInner(
       options.resume || codexProfile || apiKey || gemini ? undefined : fullPrompt,
       {
         connRegistry: _connRegistry ?? undefined,
+        onFirstEventOutcome: options.onFirstEventOutcome,
+        onTerminalOutcome: options.onTerminalOutcome,
         initialClientMsgId: options.clientMsgId,
         initialImages: imagePreviews(options.images),
         initialContextBlocks: options.contextBlocks,

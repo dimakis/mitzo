@@ -159,6 +159,16 @@ describe('MitzoApiClient', () => {
     );
   });
 
+  it('startLoop sends an explicitly selected chat session', async () => {
+    await client.startLoop('g1', true, 'selected-session');
+    expect(fetchFn).toHaveBeenCalledWith(
+      '/api/loop/start',
+      expect.objectContaining({
+        body: JSON.stringify({ goalId: 'g1', specMode: true, sessionId: 'selected-session' }),
+      }),
+    );
+  });
+
   // ── Todos ────────────────────────────────────────────────────────────────
 
   it('getTodos without profile', async () => {

@@ -1603,8 +1603,42 @@ app.post('/api/loop/start', (req, res) => {
     res.status(409).json({ error: 'Loop already running' });
     return;
   }
+  if (!taskStore.get(body.data.goalId)) {
+    res.status(404).json({ error: 'Goal not found' });
+    return;
+  }
+  // Resolve the user-selected conversation to the driver identity used by
+  // sendToChat. A WebSocket connection ID is not a session client ID.
+  const selectedSession = body.data.sessionId
+    ? registry.findBySessionId(body.data.sessionId)
+    : undefined;
+  if (body.data.sessionId && !selectedSession) {
+    res.status(422).json({
+      code: 'session_unavailable',
+      error: 'The selected chat is not active on this server',
+    });
+    return;
+  }
+  const clientId = selectedSession?.clientId ?? body.data.clientId;
+  if (clientId && !registry.get(clientId)) {
+    res.status(422).json({
+      code: 'session_unavailable',
+      error: 'The selected chat is not active on this server',
+    });
+    return;
+  }
+  if (orchestrator.requiresClientId(body.data.goalId, { ...body.data, clientId })) {
+    res.status(422).json({
+      code: 'client_id_required',
+      error: 'This workflow needs an explicitly selected existing chat',
+      requiredField: 'sessionId',
+      hint: 'Pass the selected chat sessionId. Dedicated spawn tasks can start without one when spawning is enabled.',
+    });
+    return;
+  }
   const result = orchestrator.start(body.data.goalId, {
     specMode: body.data.specMode,
+    clientId,
   });
   res.json(result);
 });
@@ -1653,7 +1687,13 @@ app.post('/api/tasks/:id/reject', (req, res) => {
   }
   const ok = orchestrator.rejectTask(req.params.id, req.body.feedback ?? '');
   if (!ok) {
-    res.status(400).json({ error: 'Task not in pending_review state' });
+    if (taskStore.get(req.params.id)?.status === 'pending_review') {
+      res
+        .status(409)
+        .json({ error: 'No chat available for retry feedback; review remains pending' });
+    } else {
+      res.status(400).json({ error: 'Task not in pending_review state' });
+    }
     return;
   }
   res.json({ ok: true });

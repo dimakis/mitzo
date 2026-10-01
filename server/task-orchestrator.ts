@@ -19,6 +19,7 @@ export interface LoopStatus {
 
 export interface StartOptions {
   specMode?: boolean;
+  clientId?: string;
 }
 
 export interface OrchestratorDeps {
@@ -39,7 +40,12 @@ export interface OrchestratorDeps {
   /** Register a signal watch for a wait_for_signal task */
   watchSignal?: (taskId: string, gateConfig: GateConfig) => void;
   /** Spawn a new headless session for a task. Returns clientId or null on failure. */
-  spawnSession?: (taskId: string, prompt: string, goalId: string) => Promise<string | null>;
+  spawnSession?: (
+    taskId: string,
+    prompt: string,
+    goalId: string,
+    onEnded?: (clientId: string, error?: Error) => void,
+  ) => Promise<string | null>;
 }
 
 export class TaskOrchestrator {
@@ -60,6 +66,9 @@ export class TaskOrchestrator {
   private static readonly SPAWN_RATE_WINDOW_MS = 60_000;
 
   private state: LoopState = 'idle';
+  private autoPausedReason: 'no_work' | 'no_dispatch' | null = null;
+  private deferredReviewDispatch: { taskId: string; clientId: string; prompt: string } | null =
+    null;
   private goalId: string | null = null;
   private activeTaskId: string | null = null;
   private specMode = false;
@@ -73,6 +82,8 @@ export class TaskOrchestrator {
 
   /** Tracks recently-spawned task IDs with their spawn timestamp for orphan detection grace. */
   private recentSpawns = new Map<string, number>();
+  private spawnAttempts = new Map<string, number>();
+  private nextSpawnAttempt = 0;
 
   /** Sliding window of spawn timestamps for global rate limiting. */
   private spawnTimestamps: number[] = [];
@@ -96,6 +107,9 @@ export class TaskOrchestrator {
     this._spawnEnabled = enabled;
     log.info('spawn enabled changed', { enabled });
     this.deps.broadcastStatus(this.getStatus());
+    if (enabled && this.state === 'paused' && this.autoPausedReason === 'no_dispatch') {
+      this.resume();
+    }
   }
 
   private dispatchToPinned(taskId: string, clientId: string, prompt: string): void {
@@ -148,6 +162,41 @@ export class TaskOrchestrator {
     };
   }
 
+  /** Explain whether this goal needs an explicitly selected existing chat. */
+  requiresClientId(goalId: string, opts?: StartOptions): boolean {
+    if (opts?.clientId ?? this.deps.getClientId()) return false;
+    if (opts?.specMode) return true;
+
+    const needsReuse = (parentId: string): boolean =>
+      this.deps.store.getChildren(parentId).some((task) => {
+        if (
+          task.status === 'done' ||
+          task.status === 'skipped' ||
+          task.status === 'failed' ||
+          task.status === 'blocked'
+        ) {
+          return false;
+        }
+        if (
+          (task.stageType ?? 'agent_work') === 'agent_work' &&
+          (task.sessionPolicy === 'reuse' || (task.sessionPolicy === 'auto' && !this._spawnEnabled))
+        ) {
+          return true;
+        }
+        return needsReuse(task.id);
+      });
+    const goal = this.deps.store.get(goalId);
+    if (!goal) return false;
+    const children = this.deps.store.getChildren(goalId);
+    if (children.length === 0) {
+      return (
+        (goal.stageType ?? 'agent_work') === 'agent_work' &&
+        (goal.sessionPolicy === 'reuse' || (goal.sessionPolicy === 'auto' && !this._spawnEnabled))
+      );
+    }
+    return needsReuse(goalId);
+  }
+
   start(goalId: string, opts?: StartOptions): LoopStatus {
     if (this.state === 'running') {
       log.warn('start() called while already running');
@@ -160,7 +209,17 @@ export class TaskOrchestrator {
       return this.getStatus();
     }
 
+    // Spec decomposition sends its first prompt immediately. A background
+    // caller must name a chat; never activate the goal without a recipient.
+    const pinnedClientId = opts?.clientId ?? this.deps.getClientId();
+    if (!pinnedClientId && this.requiresClientId(goalId, opts)) {
+      log.warn('start() requires an explicit session target', { goalId });
+      return this.getStatus();
+    }
+
     this.state = 'running';
+    this.autoPausedReason = null;
+    this.deferredReviewDispatch = null;
     this.dispatchAbort.abort();
     this.dispatchAbort = new AbortController();
     this.runGeneration++;
@@ -168,10 +227,11 @@ export class TaskOrchestrator {
     this.activeTaskId = null;
     this.specMode = opts?.specMode ?? false;
     this.awaitingApproval = false;
-    this.pinnedClientId = this.deps.getClientId();
+    this.pinnedClientId = pinnedClientId;
 
     // Clear spawn tracking state so a new goal isn't rate-limited by the previous one
     this.recentSpawns.clear();
+    this.spawnAttempts.clear();
     this.spawnTimestamps = [];
     this.spawnDepth = 0;
     if (this.rateLimitRetryTimer) {
@@ -211,8 +271,15 @@ export class TaskOrchestrator {
   }
 
   pause(): LoopStatus {
+    if (this.state === 'paused' && this.autoPausedReason) {
+      // An explicit Pause while waiting for work overrides automatic wake-ups.
+      this.autoPausedReason = null;
+      this.deps.broadcastStatus(this.getStatus());
+      return this.getStatus();
+    }
     if (this.state !== 'running') return this.getStatus();
     this.state = 'paused';
+    this.autoPausedReason = null;
     log.info('orchestrator paused');
     this.deps.broadcastStatus(this.getStatus());
     return this.getStatus();
@@ -221,7 +288,20 @@ export class TaskOrchestrator {
   resume(): LoopStatus {
     if (this.state !== 'paused') return this.getStatus();
     this.state = 'running';
+    this.autoPausedReason = null;
     log.info('orchestrator resumed');
+    const deferred = this.deferredReviewDispatch;
+    this.deferredReviewDispatch = null;
+    if (deferred && this.goalId && this.deps.store.get(deferred.taskId)?.status === 'pending') {
+      this.activeTaskId = deferred.taskId;
+      this.deps.store.update(deferred.taskId, { status: 'active' });
+      this.deps.store.cascadeStatus(deferred.taskId);
+      this.deps.setTaskContext(deferred.taskId, this.goalId);
+      this.deps.broadcastTasks();
+      this.deps.broadcastStatus(this.getStatus());
+      this.dispatchToPinned(deferred.taskId, deferred.clientId, deferred.prompt);
+      return this.getStatus();
+    }
     this.broadcastAndTick();
     return this.getStatus();
   }
@@ -231,6 +311,8 @@ export class TaskOrchestrator {
     this.dispatchAbort.abort();
     this.runGeneration++;
     this.state = 'idle';
+    this.autoPausedReason = null;
+    this.deferredReviewDispatch = null;
     this.goalId = null;
     this.activeTaskId = null;
     this.specMode = false;
@@ -238,6 +320,7 @@ export class TaskOrchestrator {
     this.pinnedClientId = null;
     this.spawnDepth = 0;
     this.recentSpawns.clear();
+    this.spawnAttempts.clear();
     this.spawnTimestamps = [];
     if (this.rateLimitRetryTimer) {
       clearTimeout(this.rateLimitRetryTimer);
@@ -287,6 +370,11 @@ export class TaskOrchestrator {
 
   /** Called when a task completes (from tool interception). */
   onTaskCompleted(taskId: string): void {
+    if (this.state === 'paused' && this.autoPausedReason === 'no_work') {
+      this.state = 'running';
+      this.autoPausedReason = null;
+      this.deps.broadcastStatus(this.getStatus());
+    }
     if (this.state !== 'running') return;
     log.info('task completed, triggering tick', { taskId });
     this.spawnDepth = 0;
@@ -295,6 +383,11 @@ export class TaskOrchestrator {
 
   /** Called when a task is blocked (from tool interception). */
   onTaskBlocked(taskId: string): void {
+    if (this.state === 'paused' && this.autoPausedReason === 'no_work') {
+      this.state = 'running';
+      this.autoPausedReason = null;
+      this.deps.broadcastStatus(this.getStatus());
+    }
     if (this.state !== 'running') return;
     log.info('task blocked, triggering tick', { taskId });
     this.spawnDepth = 0;
@@ -318,29 +411,69 @@ export class TaskOrchestrator {
   /** Reject a pending_review task → active + feedback + tick. */
   rejectTask(taskId: string, feedback: string): boolean {
     const task = this.deps.store.get(taskId);
-    if (!task || task.status !== 'pending_review') return false;
-
+    if (!task || task.status !== 'pending_review' || this.state === 'idle') return false;
     const annotations = [...task.annotations, `review_feedback: ${feedback}`];
-    this.deps.store.update(taskId, {
-      status: 'active',
-      annotations,
-    });
+    const manuallyPaused = this.state === 'paused' && this.autoPausedReason === null;
+
+    // Spawned work has normally finished by the time a person reviews it.
+    // Its saved session ID may point to a closed chat, so retry in a fresh
+    // dedicated session with the feedback in the task prompt.
+    const spawnedTask =
+      task.stageType !== 'human_review' &&
+      (task.sessionPolicy === 'spawn' ||
+        (task.sessionPolicy === 'auto' &&
+          !!task.sessionId &&
+          task.sessionId !== this.pinnedClientId));
+    if (spawnedTask) {
+      if (!this._spawnEnabled || !this.deps.spawnSession) return false;
+      this.deps.store.update(taskId, { status: 'pending', annotations });
+      this.deps.store.setSessionId(taskId, null);
+      this.deps.store.cascadeStatus(taskId);
+      this.deps.broadcastTasks();
+      if (this.state === 'paused' && !manuallyPaused) {
+        this.state = 'running';
+        this.autoPausedReason = null;
+        this.deps.broadcastStatus(this.getStatus());
+      }
+      if (!manuallyPaused) {
+        this.spawnDepth = 0;
+        this.tick();
+      }
+      return true;
+    }
+
+    // A spawned task must receive feedback in its own session. Never fall
+    // back to the workflow's reuse chat when that session is unavailable.
+    const targetClientId =
+      task.sessionId ?? (task.sessionPolicy === 'spawn' ? null : this.pinnedClientId);
+    // Human review has no agent session of its own. A headless workflow may
+    // reach it after spawned work, so leave it pending when there is nowhere
+    // to send rejection feedback.
+    if (!targetClientId) return false;
+
+    const retryPrompt =
+      `Your previous work on "${task.title}" was rejected.\n` +
+      (feedback ? `Feedback: ${feedback}\n` : '') +
+      '\nPlease re-attempt this task addressing the feedback.';
+    this.deps.store.update(taskId, { status: manuallyPaused ? 'pending' : 'active', annotations });
     this.deps.store.cascadeStatus(taskId);
     this.deps.broadcastTasks();
+
+    if (manuallyPaused) {
+      this.deferredReviewDispatch = { taskId, clientId: targetClientId, prompt: retryPrompt };
+      return true;
+    }
 
     log.info('task rejected', { taskId, feedback });
 
     // Notify agent session so it retries with feedback
-    if (this.state === 'running') {
-      if (this.pinnedClientId) {
-        this.dispatchToPinned(
-          taskId,
-          this.pinnedClientId,
-          `Your previous work on "${task.title}" was rejected.\n` +
-            (feedback ? `Feedback: ${feedback}\n` : '') +
-            '\nPlease re-attempt this task addressing the feedback.',
-        );
+    if (targetClientId) {
+      if (this.state === 'paused') {
+        this.state = 'running';
+        this.autoPausedReason = null;
+        this.deps.broadcastStatus(this.getStatus());
       }
+      this.dispatchToPinned(taskId, targetClientId, retryPrompt);
     }
     return true;
   }
@@ -416,9 +549,11 @@ export class TaskOrchestrator {
       // No executable tasks — could be all blocked or pending_review
       log.info('no executable tasks found', { goalId: this.goalId });
       this.state = 'paused';
+      this.autoPausedReason = 'no_work';
       this.deps.broadcastStatus(this.getStatus());
       return;
     }
+    this.autoPausedReason = null;
 
     // Dispatch based on stage type
     const stageType = next.stageType ?? 'agent_work';
@@ -457,8 +592,29 @@ export class TaskOrchestrator {
       case 'agent_work':
       default: {
         // Default to spawn so tasks get dedicated sessions unless explicitly 'reuse'.
-        // When spawning is disabled (kill switch), force all tasks to reuse the pinned session.
+        // Auto tasks may reuse a pinned session when spawning is disabled.
+        // An explicit spawn policy is an isolation requirement. The kill switch
+        // must leave that task pending instead of sending it to a pinned chat.
+        if (next.sessionPolicy === 'spawn' && !this._spawnEnabled) {
+          log.warn('spawn task waiting for session spawning to be enabled', { taskId: next.id });
+          this.state = 'paused';
+          this.autoPausedReason = 'no_dispatch';
+          this.deps.broadcastStatus(this.getStatus());
+          break;
+        }
         const policy = next.sessionPolicy === 'reuse' || !this._spawnEnabled ? 'reuse' : 'spawn';
+
+        if (policy === 'spawn' && !this.deps.spawnSession) {
+          this.deps.store.update(next.id, {
+            status: 'blocked',
+            annotations: [...next.annotations, 'spawn_error: session spawning unavailable'],
+          });
+          this.deps.store.cascadeStatus(next.id);
+          this.deps.broadcastTasks();
+          this.state = 'paused';
+          this.deps.broadcastStatus(this.getStatus());
+          break;
+        }
 
         if (policy === 'spawn' && this.deps.spawnSession) {
           // Global rate limit: refuse to spawn if too many recent spawns
@@ -497,6 +653,8 @@ export class TaskOrchestrator {
           // Record spawn for rate limiting and orphan detection grace
           this.spawnTimestamps.push(now);
           this.recentSpawns.set(next.id, now);
+          const attempt = ++this.nextSpawnAttempt;
+          this.spawnAttempts.set(next.id, attempt);
 
           // Spawn a dedicated headless session for this task
           this.deps.store.update(next.id, { status: 'active' });
@@ -505,41 +663,57 @@ export class TaskOrchestrator {
           this.deps.broadcastStatus(this.getStatus());
 
           // Capture state before async boundary — stop()+start() could change
-          // goalId/pinnedClientId to a different goal while spawn is in-flight.
+          // goalId to a different goal while spawn is in-flight.
           const capturedGoalId = this.goalId;
-          const capturedPinnedClientId = this.pinnedClientId;
 
           const prompt = this.buildTaskPrompt(next);
-          this.deps.spawnSession(next.id, prompt, capturedGoalId).then(
+          const onEnded = (clientId: string, error?: Error) => {
+            if (this.goalId !== capturedGoalId || this.spawnAttempts.get(next.id) !== attempt)
+              return;
+            const current = this.deps.store.get(next.id);
+            if (!current || current.status !== 'active') return;
+            if (current.sessionId && current.sessionId !== clientId) return;
+            const reason = error?.message ?? 'session ended before TaskComplete';
+            log.warn('spawned task session ended while task active', {
+              taskId: next.id,
+              clientId,
+              reason,
+            });
+            this.deps.store.update(next.id, {
+              status: 'blocked',
+              annotations: [...current.annotations, `spawn_error: ${reason}`],
+            });
+            this.recentSpawns.delete(next.id);
+            this.deps.store.cascadeStatus(next.id);
+            this.deps.broadcastTasks();
+            this.onTaskBlocked(next.id);
+          };
+          this.deps.spawnSession(next.id, prompt, capturedGoalId, onEnded).then(
             (clientId) => {
               // Guard: orchestrator moved on (stop or new goal)
-              if (this.goalId !== capturedGoalId) return;
+              if (this.goalId !== capturedGoalId || this.spawnAttempts.get(next.id) !== attempt)
+                return;
+              if (this.deps.store.get(next.id)?.status !== 'active') return;
 
               if (clientId) {
                 this.deps.store.setSessionId(next.id, clientId);
                 log.info('spawned session for task', { taskId: next.id, clientId });
               } else {
-                // Spawn returned null (e.g. worktree failure) — fall back to pinned session
-                log.error('failed to spawn session, falling back to pinned', { taskId: next.id });
-                // Only claim pinned session if no other task has it
-                if (!this.activeTaskId) {
-                  this.activeTaskId = next.id;
-                  this.deps.setTaskContext(next.id, capturedGoalId);
-                  this.deps.broadcastStatus(this.getStatus());
-                  if (capturedPinnedClientId)
-                    this.dispatchToPinned(next.id, capturedPinnedClientId, prompt);
-                } else {
-                  // Pinned session busy — mark blocked so it's retried later
-                  log.warn('pinned session busy, blocking spawn-failed task', { taskId: next.id });
-                  this.deps.store.update(next.id, { status: 'blocked' });
-                  this.deps.store.cascadeStatus(next.id);
-                  this.deps.broadcastTasks();
-                }
+                log.error('failed to spawn session for task', { taskId: next.id });
+                this.deps.store.update(next.id, {
+                  status: 'blocked',
+                  annotations: [...next.annotations, 'spawn_error: session creation failed'],
+                });
+                this.deps.store.cascadeStatus(next.id);
+                this.deps.broadcastTasks();
+                this.onTaskBlocked(next.id);
               }
             },
             (err) => {
               // Guard: orchestrator moved on (stop or new goal)
-              if (this.goalId !== capturedGoalId) return;
+              if (this.goalId !== capturedGoalId || this.spawnAttempts.get(next.id) !== attempt)
+                return;
+              if (this.deps.store.get(next.id)?.status !== 'active') return;
 
               log.error('spawnSession threw', { taskId: next.id, error: (err as Error).message });
               // Mark as blocked (not pending) to prevent infinite retry via tick loop
@@ -550,6 +724,7 @@ export class TaskOrchestrator {
               this.deps.store.update(next.id, { status: 'blocked', annotations });
               this.deps.store.cascadeStatus(next.id);
               this.deps.broadcastTasks();
+              this.onTaskBlocked(next.id);
             },
           );
 
@@ -565,6 +740,26 @@ export class TaskOrchestrator {
           }
         } else {
           // Reuse pinned session (original behavior)
+          if (!this.pinnedClientId) {
+            if (next.sessionPolicy === 'auto') {
+              log.info('auto task waiting for a selected chat or session spawning', {
+                taskId: next.id,
+              });
+              this.state = 'paused';
+              this.autoPausedReason = 'no_dispatch';
+              this.deps.broadcastStatus(this.getStatus());
+              break;
+            }
+            this.deps.store.update(next.id, {
+              status: 'blocked',
+              annotations: [...next.annotations, 'dispatch_error: no session pinned for reuse'],
+            });
+            this.deps.store.cascadeStatus(next.id);
+            this.deps.broadcastTasks();
+            this.state = 'paused';
+            this.deps.broadcastStatus(this.getStatus());
+            break;
+          }
           this.activeTaskId = next.id;
           this.deps.store.update(next.id, { status: 'active' });
           this.deps.store.cascadeStatus(next.id);
@@ -589,9 +784,11 @@ export class TaskOrchestrator {
   }
 
   private buildTaskPrompt(task: Task): string {
+    const feedback = [...task.annotations].reverse().find((a) => a.startsWith('review_feedback: '));
     return (
       `Work on this task: "${task.title}"\n` +
       (task.description ? `\nDetails: ${task.description}\n` : '') +
+      (feedback ? `\nYour previous work was rejected. ${feedback}\n` : '') +
       '\nUse TaskStatus to see your context, TaskSet to decompose, ' +
       'and TaskComplete when done.'
     );
