@@ -109,6 +109,7 @@ describe('explicit private owned startup configuration', () => {
   it('plumbs only a constructor observer into the actual owned host, never persisted config', async () => {
     const f = fixture();
     const observer = vi.fn();
+    const startup = vi.fn();
     const facts = new EventStore(join(f.root, 'constructor-events.db'));
     const host = await bootstrapConfiguredSymposiumHost(
       f.filename,
@@ -116,6 +117,7 @@ describe('explicit private owned startup configuration', () => {
         facts,
         hostGrants: { verifySeat: vi.fn() },
         observeDurableReviewToolResult: observer,
+        observeStartupConfig: startup,
       },
       f.tools as unknown as BootstrapTools,
     );
@@ -123,7 +125,25 @@ describe('explicit private owned startup configuration', () => {
     expect(readOwnedSymposiumHostConfig(f.filename)).not.toHaveProperty(
       'observeDurableReviewToolResult',
     );
+    expect(host.observeStartupConfig).toBeTypeOf('function');
+    expect(readOwnedSymposiumHostConfig(f.filename)).not.toHaveProperty('observeStartupConfig');
     host.pauseController();
+    await expect(
+      host.observeStartupConfig!(
+        {
+          sessionId: 'session',
+          claimToken: 'claim',
+          deliveryId: 'delivery',
+          seatId: 'reader',
+          membershipGeneration: 1,
+          controllerClaimDigest: 'a'.repeat(64),
+          cwd: '/sandbox/workspaces/mgmt',
+          config: {},
+        },
+        new AbortController().signal,
+      ),
+    ).rejects.toThrow('no longer current');
+    expect(startup).not.toHaveBeenCalled();
     await expect(
       host.observeDurableReviewToolResult!({
         sessionId: 'session',

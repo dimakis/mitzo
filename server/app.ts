@@ -1030,6 +1030,7 @@ export interface SymposiumProductionHost {
   };
   resolveSeatPolicy?: import('./symposium-owned-seat-policy.js').SymposiumSeatPolicySelector;
   observeDurableReviewToolResult?: import('./symposium-codex-native.js').OpenAiCodexSeatInput['observeDurableReviewToolResult'];
+  observeStartupConfig?: import('./symposium-codex-native.js').OpenAiCodexSeatInput['observeStartupConfig'];
   readNativeObservation?: (
     claimToken: string,
   ) => import('./symposium-native-observations.js').NativeTurnObservation;
@@ -1191,6 +1192,7 @@ let symposiumRuntimeForSession: (sessionId: string) => SymposiumOrchestrator | n
       profiles: host.currentProfiles(),
       currentProfiles: host.currentProfiles,
       observeDurableReviewToolResult: host.observeDurableReviewToolResult,
+      observeStartupConfig: host.observeStartupConfig,
       hostGrants: symposiumHostGrants,
       codexStore: getCodexConversationStore(),
       profileProposalStore: symposiumProfileProposalStore,

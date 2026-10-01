@@ -17,14 +17,17 @@ import {
 export interface SymposiumCustodianConstructorHooks {
   bootstrapTools?: BootstrapTools;
   observeDurableReviewToolResult?: OwnedSymposiumHostOptions['observeDurableReviewToolResult'];
+  observeStartupConfig?: OwnedSymposiumHostOptions['observeStartupConfig'];
 }
 export async function runSymposiumCustodian(hooks: SymposiumCustodianConstructorHooks = {}) {
-  const { bootstrapTools, observeDurableReviewToolResult } = hooks;
+  const { bootstrapTools, observeDurableReviewToolResult, observeStartupConfig } = hooks;
   if (
     observeDurableReviewToolResult !== undefined &&
     typeof observeDurableReviewToolResult !== 'function'
   )
     throw Error('Custodian observer must be a trusted constructor callback');
+  if (observeStartupConfig !== undefined && typeof observeStartupConfig !== 'function')
+    throw Error('Startup observer must be a trusted constructor callback');
   if (process.env.MITZO_SYMPOSIUM_CUSTODIAN_CONTROLLER || process.send)
     throw Error('Custodian must be launched as the independent owner');
   const filename = process.env.MITZO_SYMPOSIUM_OWNED_HOST_CONFIG;
@@ -39,6 +42,7 @@ export async function runSymposiumCustodian(hooks: SymposiumCustodianConstructor
     {
       ...engine.getSymposiumBootstrapDependencies(),
       observeDurableReviewToolResult,
+      observeStartupConfig,
     },
     bootstrapTools,
   );

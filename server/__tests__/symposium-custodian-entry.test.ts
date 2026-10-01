@@ -59,13 +59,17 @@ it('passes constructor hooks and installs the exact bootstrap host once before a
     throw Error('stop-before-any-child');
   });
   const observer = vi.fn();
+  const startup = vi.fn();
   const entry = await import('../symposium-custodian-main.js');
   // Vitest workers themselves have IPC; remove only this synthetic process marker.
   const descriptor = Object.getOwnPropertyDescriptor(process, 'send');
   Object.defineProperty(process, 'send', { configurable: true, value: undefined });
   try {
     await expect(
-      entry.runSymposiumCustodian({ observeDurableReviewToolResult: observer }),
+      entry.runSymposiumCustodian({
+        observeDurableReviewToolResult: observer,
+        observeStartupConfig: startup,
+      }),
     ).rejects.toThrow('stop-before-any-child');
   } finally {
     if (descriptor) Object.defineProperty(process, 'send', descriptor);
@@ -76,9 +80,20 @@ it('passes constructor hooks and installs the exact bootstrap host once before a
     {
       ...effects.dependencies,
       observeDurableReviewToolResult: observer,
+      observeStartupConfig: startup,
     },
     undefined,
   );
   expect(effects.install).toHaveBeenCalledExactlyOnceWith(effects.host);
+  expect(effects.fork).not.toHaveBeenCalled();
+});
+
+it('rejects a nonfunction startup observer before bootstrap or child creation', async () => {
+  const entry = await import('../symposium-custodian-main.js');
+  const calls = effects.bootstrap.mock.calls.length;
+  await expect(
+    entry.runSymposiumCustodian({ observeStartupConfig: 'invalid' } as never),
+  ).rejects.toThrow('Startup observer must be a trusted constructor callback');
+  expect(effects.bootstrap.mock.calls).toHaveLength(calls);
   expect(effects.fork).not.toHaveBeenCalled();
 });
