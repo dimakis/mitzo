@@ -94,7 +94,8 @@ export async function readOpenShellArtifact(
 ): Promise<{ path: string; bytes: Buffer }> {
   // This validates all transport selectors and quotes each opaque argument once.
   const spec = openShellSshArgvProcessSpec(runtime, [
-    'python3',
+    '/usr/bin/python3',
+    '-I',
     '-c',
     OPEN_SHELL_ARTIFACT_HELPER,
     runtime.workdir,

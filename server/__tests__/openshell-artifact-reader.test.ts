@@ -27,7 +27,7 @@ function workspace() {
 }
 function helper(root: string, path: string) {
   return JSON.parse(
-    execFileSync('python3', ['-c', OPEN_SHELL_ARTIFACT_HELPER, root, path], {
+    execFileSync('/usr/bin/python3', ['-I', '-c', OPEN_SHELL_ARTIFACT_HELPER, root, path], {
       encoding: 'utf8',
       maxBuffer: 8 * 1024 * 1024,
     }),
@@ -117,7 +117,7 @@ describe('trusted artifact transport', () => {
     expect([...result.bytes]).toEqual([0, 1, 128, 255]);
     expect(events).toEqual(['verify', 'ssh', 'verify']);
     expect(run.mock.calls[0][0]).toBe('ssh');
-    expect(run.mock.calls[0][1].at(-1)).toContain('python3');
+    expect(run.mock.calls[0][1].at(-1)).toContain("'/usr/bin/python3' '-I' '-c'");
     expect(run.mock.calls[0][1].join(' ')).toContain('conversation-1');
   });
   it('accepts the exact size boundary without recursive base64 validation', async () => {
@@ -188,4 +188,19 @@ it.each(['before', 'after'])('preserves actionable identity refusal %s reading',
     refusal,
   );
   expect(run).toHaveBeenCalledTimes(when === 'before' ? 0 : 1);
+});
+
+it('isolates helper imports from hostile workspace modules and PYTHONPATH', () => {
+  const root = workspace();
+  writeFileSync(join(root, 'json.py'), 'raise RuntimeError("workspace module imported")');
+  writeFileSync(
+    join(root, 'sitecustomize.py'),
+    'raise RuntimeError("workspace sitecustomize imported")',
+  );
+  const response = execFileSync(
+    '/usr/bin/python3',
+    ['-I', '-c', OPEN_SHELL_ARTIFACT_HELPER, root, 'outputs/report.md'],
+    { cwd: root, env: { ...process.env, PYTHONPATH: root }, encoding: 'utf8' },
+  );
+  expect(JSON.parse(response)).toEqual({ path: `${root}/outputs/report.md`, data: 'AAGA/w==' });
 });
