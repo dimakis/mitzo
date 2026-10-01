@@ -28,6 +28,26 @@ beforeEach(() => {
 });
 
 describe('useFileNavigation session root', () => {
+  it.each([
+    'This sandbox is stopped. Resume the conversation to access its files.',
+    'This sandbox workspace is no longer available.',
+  ])('preserves server workspace guidance while reading: %s', async (message) => {
+    vi.mocked(apiFetch).mockImplementation((url) =>
+      String(url).startsWith('/api/files/read')
+        ? (Promise.resolve({
+            ok: false,
+            json: async () => ({ error: message }),
+            status: 409,
+          }) as never)
+        : (response([]) as never),
+    );
+    const { result } = renderHook(() =>
+      useFileNavigation(new URLSearchParams('path=report.md&sessionId=sandbox-session'), vi.fn()),
+    );
+    await waitFor(() => expect(result.current.state.error).toBe(message));
+    expect(result.current.state.loading).toBe(false);
+  });
+
   it('returns from a relative artifact to the session workspace', async () => {
     const { result } = renderHook(
       () => {

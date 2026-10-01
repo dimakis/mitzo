@@ -12,6 +12,7 @@ import {
   FILE_SCHEME,
   artifactViewerUrl,
   relativeArtifactPath,
+  remarkLocalMarkdownLinks,
 } from '../lib/file-paths';
 import { formatTime } from '../lib/formatTime';
 import { CopyButton } from './CopyButton';
@@ -219,7 +220,7 @@ export function TextBubble({
     >
       <div className="msg-bubble-markdown" ref={contentRef}>
         <ReactMarkdown
-          remarkPlugins={[remarkGfm, remarkNeutralizeMalformedFileLinks]}
+          remarkPlugins={[remarkGfm, remarkLocalMarkdownLinks, remarkNeutralizeMalformedFileLinks]}
           rehypePlugins={[rehypeHighlight]}
           urlTransform={(url) => (url.startsWith(FILE_SCHEME) ? url : defaultUrlTransform(url))}
           components={mdComponents}
@@ -254,9 +255,10 @@ export function TextBubble({
 // Legacy adapter for session restore — maps FinishedMessage to flat render.
 interface MessageBubbleProps {
   message: FinishedMessage;
+  artifactSessionId?: string;
 }
 
-export function MessageBubble({ message }: MessageBubbleProps) {
+export function MessageBubble({ message, artifactSessionId }: MessageBubbleProps) {
   if (message.role === 'user') {
     const textBlock = message.blocks.find((b) => b.blockType === 'text');
     return (
@@ -264,5 +266,11 @@ export function MessageBubble({ message }: MessageBubbleProps) {
     );
   }
   const textBlock = message.blocks.find((b) => b.blockType === 'text');
-  return <TextBubble content={textBlock?.content || ''} timestamp={message.timestamp} />;
+  return (
+    <TextBubble
+      content={textBlock?.content || ''}
+      timestamp={message.timestamp}
+      artifactSessionId={artifactSessionId}
+    />
+  );
 }

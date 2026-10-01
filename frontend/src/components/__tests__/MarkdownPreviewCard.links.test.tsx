@@ -5,6 +5,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { MarkdownPreviewCard } from '../MarkdownPreviewCard';
 import { apiFetch } from '../../lib/api-fetch';
 
+vi.mock('../../lib/share-file', () => ({ shareFile: vi.fn().mockResolvedValue(true) }));
+import { shareFile } from '../../lib/share-file';
+
 vi.mock('../../lib/api-fetch', () => ({ apiFetch: vi.fn() }));
 afterEach(cleanup);
 
@@ -14,6 +17,36 @@ function Location() {
 }
 
 describe('MarkdownPreviewCard links', () => {
+  it('shares a collapsed preview in its originating session', async () => {
+    render(
+      <MemoryRouter>
+        <MarkdownPreviewCard filePath="outputs/report.md" sessionId="old-session" />
+      </MemoryRouter>,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Share file' }));
+    await waitFor(() => expect(shareFile).toHaveBeenCalledWith('outputs/report.md', 'old-session'));
+    expect(screen.queryByText('Loading...')).toBeNull();
+  });
+
+  it.each([
+    'This sandbox is stopped. Resume the conversation to access its files.',
+    'This sandbox workspace is no longer available.',
+  ])('shows the server workspace guidance: %s', async (message) => {
+    vi.mocked(apiFetch).mockResolvedValue({
+      ok: false,
+      status: 409,
+      statusText: 'Conflict',
+      json: async () => ({ error: message }),
+    } as never);
+    render(
+      <MemoryRouter>
+        <MarkdownPreviewCard filePath="report.md" sessionId="sandbox-session" />
+      </MemoryRouter>,
+    );
+    fireEvent.click(screen.getByRole('button', { name: /report.md/ }));
+    expect(await screen.findByText(message)).toBeTruthy();
+  });
+
   it.each([
     ['[details](details.html)', 'outputs/details.html'],
     [

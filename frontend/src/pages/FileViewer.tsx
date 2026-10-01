@@ -6,6 +6,7 @@ import {
   artifactMarkdownComponents,
   artifactUrlTransform,
 } from '../lib/markdown-config';
+import { ShareButton } from '../components/ShareButton';
 import { MitzoLogo } from '../components/MitzoLogo';
 import { useFileNavigation } from '../hooks/useFileNavigation';
 import { useFileEditor } from '../hooks/useFileEditor';
@@ -67,6 +68,13 @@ export function FileViewer() {
 
         {displayBranch && <span className="viewer-header-branch">{displayBranch}</span>}
 
+        {state.isViewing && !editor.editing && (
+          <ShareButton
+            filePath={state.filePath}
+            sessionId={state.sessionId || undefined}
+            className="share-btn--visible viewer-header-share"
+          />
+        )}
         {state.isViewing && isMarkdown && !editor.editing && reader.available && (
           <button
             className={`viewer-header-action${reader.state !== 'idle' ? ' viewer-header-action--active' : ''}`}

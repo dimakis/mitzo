@@ -53,6 +53,14 @@ import {
 } from './codex-chat-session.js';
 import { createCodexQueueRouter } from './codex-queue-routes.js';
 import { createCodexPathProtection } from './codex-private-path.js';
+import { selectedOpenShellAccountRoute } from './codex-chat-session.js';
+import { openShellRuntimeConfig, OpenShellRuntimeManager } from './openshell-runtime.js';
+import { readOpenShellArtifact, OpenShellArtifactReadError } from './openshell-artifact-reader.js';
+import {
+  createSessionArtifactReader,
+  SessionArtifactUnavailableError,
+  validateSessionArtifactRuntime,
+} from './session-artifact-reader.js';
 import { loadAccountProfiles, type AccountProfiles } from './account-profiles.js';
 import { SymposiumOrchestrator } from './symposium-orchestrator.js';
 import {
@@ -2444,6 +2452,60 @@ const privatePathSnapshot = createCodexPathProtection(() =>
 );
 const MAX_PREVIEW_BYTES = 5 * 1024 * 1024;
 
+function isRemoteSessionArtifact(sessionId: string) {
+  const meta = eventStore.getSession(sessionId);
+  if (!meta?.accountBinding)
+    return Boolean(meta?.cwd?.startsWith('/sandbox/') && !isConfiguredAllowedPath(meta.cwd));
+  if (!['openai', 'openai-codex'].includes(meta.accountBinding.provider)) return false;
+  try {
+    if (getCodexConversationStore().readArtifactRuntime(sessionId, meta.accountBinding))
+      return true;
+  } catch {
+    /* Host API sessions do not have Codex conversation rows. */
+  }
+  // An OpenAI binding does not establish that an unknown workspace is local.
+  // Only a recorded absolute cwd within the configured host roots can use
+  // host filesystem resolution when no sandbox receipt exists.
+  return !meta.cwd || !isAbsolute(meta.cwd) || !isConfiguredAllowedPath(meta.cwd);
+}
+
+async function readRemoteSessionArtifact(sessionId: string, requestedPath: string) {
+  const meta = eventStore.getSession(sessionId);
+  if (!meta?.accountBinding || !meta.cwd)
+    throw new SessionArtifactUnavailableError(
+      'This conversation’s workspace metadata is unavailable. Resume this conversation once, then try again.',
+    );
+  const config = openShellRuntimeConfig(process.env);
+  const reader = createSessionArtifactReader({
+    readRuntime: (id, binding) => getCodexConversationStore().readArtifactRuntime(id, binding),
+    currentRoute: (binding) => {
+      const profiles = loadAccountProfiles();
+      if (binding.provider === 'openai') {
+        const profile = profiles.apiProfile(binding);
+        if (!profile.sandboxProvider) throw Error('Sandbox provider unavailable');
+        return { kind: 'api', provider: profile.sandboxProvider, model: binding.model };
+      }
+      return selectedOpenShellAccountRoute({
+        binding,
+        model: binding.model,
+        profile: profiles.codexProfile(binding),
+      });
+    },
+    validateRuntime: (runtime) => validateSessionArtifactRuntime(runtime, config),
+    inspect: (id, runtime, route, signal) => {
+      if (!config) throw Error('Sandbox runtime unavailable');
+      return new OpenShellRuntimeManager({ ...config, account: route }).inspect(
+        id,
+        runtime.sandboxId,
+        signal,
+        runtime.sandboxName,
+      );
+    },
+    read: (runtime, path, signal, verify) => readOpenShellArtifact(runtime, path, verify, signal),
+  });
+  return reader(sessionId, meta.accountBinding, meta.cwd, requestedPath);
+}
+
 function readPreviewFile(filePath: string): {
   content?: string;
   isFile: boolean;
@@ -2591,6 +2653,14 @@ app.get('/api/files/roots', (_req, res) => {
 
 app.get('/api/files/list', (req, res) => {
   const sessionId = typeof req.query.sessionId === 'string' ? req.query.sessionId : undefined;
+  if (sessionId && isRemoteSessionArtifact(sessionId)) {
+    res.status(409).json({
+      error:
+        'Directory browsing for this conversation’s sandbox workspace is unavailable. Open a file link in the conversation to view or download it.',
+    });
+    return;
+  }
+
   const allowed = createAllowedPathChecker(sessionId);
   const root = resolveRoot(
     req.query.root as string | undefined,
@@ -2635,6 +2705,14 @@ app.get('/api/files/list', (req, res) => {
 
 app.get('/api/files', (req, res) => {
   const sessionId = typeof req.query.sessionId === 'string' ? req.query.sessionId : undefined;
+  if (sessionId && isRemoteSessionArtifact(sessionId)) {
+    res.status(409).json({
+      error:
+        'Directory browsing for this conversation’s sandbox workspace is unavailable. Open a file link in the conversation to view or download it.',
+    });
+    return;
+  }
+
   const allowed = createAllowedPathChecker(sessionId);
   const root = resolveRoot(
     req.query.root as string | undefined,
@@ -2677,9 +2755,33 @@ app.get('/api/files', (req, res) => {
   }
 });
 
-app.get('/api/files/read', (req, res) => {
+app.get('/api/files/read', async (req, res) => {
   const requestedPath = req.query.path as string;
   const sessionId = typeof req.query.sessionId === 'string' ? req.query.sessionId : undefined;
+  if (sessionId && isRemoteSessionArtifact(sessionId)) {
+    try {
+      if (!requestedPath) {
+        res.status(403).json({ error: 'Path not allowed' });
+        return;
+      }
+      const file = await readRemoteSessionArtifact(sessionId, requestedPath);
+      res.json({
+        path: file.path,
+        content: file.bytes.toString('utf8'),
+        ext: extname(file.path).toLowerCase(),
+      });
+    } catch (error) {
+      const known =
+        error instanceof SessionArtifactUnavailableError ||
+        error instanceof OpenShellArtifactReadError;
+      res.status(known ? error.status : 409).json({
+        error: known
+          ? error.message
+          : 'This conversation’s workspace is unavailable. Resume this conversation once, then try again.',
+      });
+    }
+    return;
+  }
   const filePath = requestedPath ? resolveArtifactPath(requestedPath, sessionId) : '';
   if (!filePath || !isAllowedPath(filePath, sessionId)) {
     res.status(403).json({ error: 'Path not allowed' });
@@ -2723,9 +2825,36 @@ app.get('/api/images/:imageId', (req, res) => {
   res.send(img.data);
 });
 
-app.get('/api/files/download', (req, res) => {
+app.get('/api/files/download', async (req, res) => {
   const requestedPath = req.query.path as string;
   const sessionId = typeof req.query.sessionId === 'string' ? req.query.sessionId : undefined;
+  if (sessionId && isRemoteSessionArtifact(sessionId)) {
+    try {
+      if (!requestedPath) {
+        res.status(403).json({ error: 'Path not allowed' });
+        return;
+      }
+      const file = await readRemoteSessionArtifact(sessionId, requestedPath);
+      const filename = basename(file.path);
+      res.setHeader('Content-Type', 'application/octet-stream');
+      res.setHeader(
+        'Content-Disposition',
+        `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`,
+      );
+      res.setHeader('Content-Length', file.bytes.length);
+      res.send(file.bytes);
+    } catch (error) {
+      const known =
+        error instanceof SessionArtifactUnavailableError ||
+        error instanceof OpenShellArtifactReadError;
+      res.status(known ? error.status : 409).json({
+        error: known
+          ? error.message
+          : 'This conversation’s workspace is unavailable. Resume this conversation once, then try again.',
+      });
+    }
+    return;
+  }
   const filePath = requestedPath ? resolveArtifactPath(requestedPath, sessionId) : '';
   if (!filePath || !isAllowedPath(filePath, sessionId)) {
     res.status(403).json({ error: 'Path not allowed' });
@@ -2765,6 +2894,14 @@ app.put('/api/files/write', (req, res) => {
     return;
   }
   const { path: requestedPath, content, sessionId } = body.data;
+  if (sessionId && isRemoteSessionArtifact(sessionId)) {
+    res.status(409).json({
+      error:
+        'Editing this conversation’s sandbox workspace from the file viewer is unavailable. Ask the conversation to update the file.',
+    });
+    return;
+  }
+
   const filePath = resolveArtifactPath(requestedPath, sessionId);
   if (!isAllowedPath(filePath, sessionId)) {
     res.status(403).json({ error: 'Path not allowed' });

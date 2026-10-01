@@ -48,7 +48,7 @@ import type {
 } from '@mitzo/harness';
 import { execFileSync } from 'child_process';
 import { readFileSync, writeFileSync, mkdirSync, readdirSync, existsSync } from 'fs';
-import { join, resolve, dirname } from 'path';
+import { join, resolve, dirname, isAbsolute } from 'path';
 import { fileURLToPath } from 'url';
 import { resolveBundledMcpEntrypoint } from './mcp-entrypoint.js';
 import { createHash, randomUUID } from 'crypto';
@@ -3828,6 +3828,28 @@ export function replayEventsToMessages(
   return messages;
 }
 
+/** Recover legacy workspace metadata without changing session identity or permissions. */
+async function recoverSessionWorkspace(sessionId: string, dirs = getSessionDirs()) {
+  if (eventStore.getSession(sessionId)?.cwd) return;
+  for (const dir of dirs) {
+    try {
+      const info = await getSessionInfo(sessionId, { dir });
+      if (typeof info?.cwd !== 'string' || !isAbsolute(info.cwd)) continue;
+      // Preserve a workspace recorded while the SDK lookup was in flight.
+      const current = eventStore.getSession(sessionId);
+      if (!current?.cwd)
+        eventStore.upsertSession({
+          sessionId,
+          cwd: info.cwd,
+          ...(current?.updatedAt !== undefined ? { updatedAt: current.updatedAt } : {}),
+        });
+      return;
+    } catch {
+      // Missing metadata must not prevent reading the saved transcript.
+    }
+  }
+}
+
 export async function getMessages(sessionId: string, throughSeq?: number) {
   // Primary: replay from durable event store
   const events =
@@ -3835,6 +3857,7 @@ export async function getMessages(sessionId: string, throughSeq?: number) {
       ? eventStore.getSessionEvents(sessionId)
       : eventStore.getSessionEventsThroughCursor(sessionId, throughSeq);
   if (events.length > 0) {
+    if (throughSeq === undefined) await recoverSessionWorkspace(sessionId);
     const session = eventStore.getSession(sessionId);
     return replayEventsToMessages(events, session?.initialPrompt ?? undefined);
   }
@@ -3850,7 +3873,10 @@ export async function getMessages(sessionId: string, throughSeq?: number) {
         dir,
         limit: SESSION_MESSAGES_LIMIT,
       })) as RawSdkMessage[];
-      if (rawMessages.length > 0) break;
+      if (rawMessages.length > 0) {
+        await recoverSessionWorkspace(sessionId, [dir]);
+        break;
+      }
     } catch {
       // Session not in this dir — try next
     }
@@ -3878,6 +3904,7 @@ export async function getSessionTranscript(sessionId: string) {
   const events = eventStore.getSessionEvents(sessionId);
   if (events.length === 0)
     return { messages: await getMessages(sessionId), current: null, currents: [], cursor: 0 };
+  await recoverSessionWorkspace(sessionId);
   const session = eventStore.getSession(sessionId);
   return {
     ...replayEventsToTranscript(events, session?.initialPrompt ?? undefined),

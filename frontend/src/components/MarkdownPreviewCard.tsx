@@ -1,3 +1,4 @@
+import { ShareButton } from './ShareButton';
 import { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import {
@@ -33,7 +34,10 @@ export function MarkdownPreviewCard({ filePath, sessionId }: Props) {
       setLoading(true);
       try {
         const res = await apiFetch(artifactApiUrl('read', filePath, sessionId));
-        if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+        if (!res.ok) {
+          const body = await res.json().catch(() => null);
+          throw new Error(body?.error || `Failed to load file (${res.status})`);
+        }
         const data = await res.json();
         setContent(data.content);
       } catch (e: unknown) {
@@ -52,6 +56,7 @@ export function MarkdownPreviewCard({ filePath, sessionId }: Props) {
           <span className="md-preview-card-name">{fileName}</span>
           <span className="md-preview-card-chevron">{expanded ? '\u25BE' : '\u25B8'}</span>
         </button>
+        <ShareButton filePath={filePath} sessionId={sessionId} className="share-btn--visible" />
         <button
           className="md-preview-card-open"
           onClick={() => navigate(artifactViewerUrl(filePath, currentPath, sessionId))}

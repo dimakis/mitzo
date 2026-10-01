@@ -11,6 +11,7 @@ import {
   decodeFilePathUrl,
   FILE_SCHEME,
   linkedArtifactPath,
+  remarkLocalMarkdownLinks,
 } from './file-paths';
 
 const sanitizeSchema = {
@@ -30,7 +31,7 @@ const sanitizeSchema = {
 export const artifactUrlTransform = (url: string) =>
   url.startsWith(FILE_SCHEME) ? url : defaultUrlTransform(url);
 
-export const remarkPlugins: PluggableList = [remarkGfm];
+export const remarkPlugins: PluggableList = [remarkGfm, remarkLocalMarkdownLinks];
 export const rehypePlugins: PluggableList = [rehypeRaw, [rehypeSanitize, sanitizeSchema]];
 
 export const markdownComponents: Components = {
