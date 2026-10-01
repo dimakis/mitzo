@@ -409,6 +409,31 @@ it('reports aborted child-exit observation as incomplete and removes the waiter'
 });
 
 describe('trusted owned upstream proxy configuration', () => {
+  it('preserves exact frozen public and private modes under restrictive umask', async () => {
+    const f = fixture(undefined, true);
+    const ca = readFileSync(f.options.tls.serverCert);
+    f.options.upstreamProxy = {
+      url: 'http://proxy.example:18443',
+      caBundle: f.options.tls.serverCert,
+      caBundleSha256: createHash('sha256').update(ca).digest('hex'),
+    };
+    const previous = process.umask(0o077);
+    try {
+      const owned = await OwnedSymposiumGateway.launch(f.options, f.operations);
+      expect(lstatSync(join(owned.stateDirectory, 'upstream-proxy-ca.pem')).mode & 0o777).toBe(
+        0o444,
+      );
+      expect(lstatSync(owned.stateDirectory).mode & 0o777).toBe(0o700);
+      for (const name of Object.keys(f.options.tls))
+        expect(lstatSync(join(owned.stateDirectory, `${name}.pem`)).mode & 0o777).toBe(0o400);
+      for (const name of Object.keys(f.options.jwt))
+        expect(lstatSync(join(owned.stateDirectory, `${name}.jwt`)).mode & 0o777).toBe(0o400);
+      expect(() => owned.verifyCustody()).not.toThrow();
+      owned.stop();
+    } finally {
+      process.umask(previous);
+    }
+  });
   it('freezes the pinned public CA and writes only source-supported proxy fields', async () => {
     const f = fixture(undefined, true);
     const ca = readFileSync(f.options.tls.serverCert);

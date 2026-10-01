@@ -5,6 +5,7 @@ import { execFile, spawn, spawnSync, type ChildProcess } from 'node:child_proces
 import { createHash, X509Certificate } from 'node:crypto';
 import {
   closeSync,
+  fchmodSync,
   fstatSync,
   openSync,
   readSync,
@@ -348,7 +349,13 @@ export class OwnedSymposiumGateway {
     const files = new Map<string, { sha256: string; mode: number }>();
     const freeze = (name: string, bytes: Buffer, mode = 0o400) => {
       const path = join(root, name);
-      writeFileSync(path, bytes, { mode, flag: 'wx' });
+      const fd = openSync(path, 'wx', mode);
+      try {
+        writeFileSync(fd, bytes);
+        fchmodSync(fd, mode);
+      } finally {
+        closeSync(fd);
+      }
       files.set(path, { sha256: hash(bytes), mode });
       return path;
     };
