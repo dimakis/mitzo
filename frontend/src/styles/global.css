@@ -2192,7 +2192,10 @@ textarea:focus {
   font-size: var(--text-xs);
 }
 
-.code-block-wrapper:hover .code-block-copy {
+.code-block-wrapper:hover .code-block-copy,
+.code-block-wrapper:focus-within .code-block-copy,
+.mermaid-block:hover .code-block-copy,
+.mermaid-block:focus-within .code-block-copy {
   opacity: 1;
 }
 

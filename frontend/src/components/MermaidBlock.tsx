@@ -1,71 +1,74 @@
-import { useEffect, useId, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { CopyButton } from './CopyButton';
 
-let mermaidInitialized = false;
+// Mermaid configuration is global: keep each initialization paired with its render.
+let renderQueue: Promise<unknown> = Promise.resolve();
+type Theme = 'dark' | 'light';
+const currentTheme = (): Theme =>
+  document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark';
 
-interface MermaidBlockProps {
-  code: string;
+function renderDiagram(id: string, code: string, theme: Theme, signal: AbortSignal) {
+  const job = renderQueue.then(async () => {
+    if (signal.aborted) return null;
+    const [{ default: mermaid }, { default: DOMPurify }] = await Promise.all([
+      import('mermaid'),
+      import('dompurify'),
+    ]);
+    if (signal.aborted) return null;
+    const container = document.createElement('div');
+    container.style.cssText =
+      'position:absolute;left:-100000px;visibility:hidden;pointer-events:none';
+    container.setAttribute('aria-hidden', 'true');
+    document.body.appendChild(container);
+    const remove = () => container.remove();
+    signal.addEventListener('abort', remove, { once: true });
+    try {
+      mermaid.initialize({
+        startOnLoad: false,
+        securityLevel: 'strict',
+        suppressErrorRendering: true,
+        theme: theme === 'dark' ? 'dark' : 'default',
+      });
+      const { svg } = await mermaid.render(id, code, container);
+      // Also sanitize at the DOM boundary, independently of Mermaid's strict mode.
+      return signal.aborted ? null : DOMPurify.sanitize(svg);
+    } finally {
+      signal.removeEventListener('abort', remove);
+      remove();
+    }
+  });
+  renderQueue = job.catch(() => {});
+  return job;
 }
 
-export function MermaidBlock({ code }: MermaidBlockProps) {
+export function MermaidBlock({ code }: { code: string }) {
   const instanceId = useId();
-  const [error, setError] = useState<string | null>(null);
-  const [svg, setSvg] = useState<string | null>(null);
+  const generation = useRef(0);
+  const [theme, setTheme] = useState<Theme>(currentTheme);
+  const [result, setResult] = useState<{ code: string; theme: Theme; svg: string } | null>(null);
 
   useEffect(() => {
-    let cancelled = false;
-    const id = `mermaid-${instanceId.replace(/:/g, '')}`;
+    const observer = new MutationObserver(() => setTheme(currentTheme()));
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['data-theme'],
+    });
+    return () => observer.disconnect();
+  }, []);
 
-    async function render() {
-      try {
-        // Dynamic import keeps mermaid (~1MB+ with d3/katex/cytoscape) out of
-        // the main bundle — only loaded when a mermaid diagram is encountered.
-        const { default: mermaid } = await import('mermaid');
-        if (!mermaidInitialized) {
-          mermaidInitialized = true;
-          mermaid.initialize({
-            startOnLoad: false,
-            securityLevel: 'strict',
-            theme: 'dark',
-            themeVariables: {
-              darkMode: true,
-              background: '#1e1e2e',
-              primaryColor: '#7c3aed',
-              primaryTextColor: '#e2e8f0',
-              primaryBorderColor: '#6366f1',
-              lineColor: '#94a3b8',
-              secondaryColor: '#374151',
-              tertiaryColor: '#1f2937',
-              noteBkgColor: '#374151',
-              noteTextColor: '#e2e8f0',
-              fontFamily: 'inherit',
-            },
-          });
-        }
-        const { svg: rendered } = await mermaid.render(id, code);
-        if (!cancelled) {
-          setSvg(rendered);
-          setError(null);
-        }
-      } catch {
-        if (!cancelled) {
-          setError('Invalid diagram');
-          setSvg(null);
-          // Mermaid inserts a temporary element with id `d<id>` during render.
-          // On error, it may leave this element behind. Convention verified
-          // against mermaid v11 (mermaid-js/mermaid).
-          document.getElementById(`d${id}`)?.remove();
-        }
-      }
-    }
+  useEffect(() => {
+    const controller = new AbortController();
+    const id = `mermaid-${instanceId.replace(/[^a-zA-Z0-9_-]/g, '')}-${++generation.current}`;
+    renderDiagram(id, code, theme, controller.signal).then(
+      (svg) => {
+        if (svg && !controller.signal.aborted) setResult({ code, theme, svg });
+      },
+      () => {}, // Invalid or incomplete streamed diagrams retain their source fallback.
+    );
+    return () => controller.abort();
+  }, [code, theme, instanceId]);
 
-    render();
-    return () => {
-      cancelled = true;
-    };
-  }, [code, instanceId]);
-
-  if (error) {
+  if (!result || result.code !== code || result.theme !== theme) {
     return (
       <div className="code-block-wrapper">
         <pre>
@@ -76,11 +79,9 @@ export function MermaidBlock({ code }: MermaidBlockProps) {
     );
   }
 
-  if (!svg) return null;
-
   return (
     <div className="mermaid-block">
-      <div className="mermaid-block-svg" dangerouslySetInnerHTML={{ __html: svg }} />
+      <div className="mermaid-block-svg" dangerouslySetInnerHTML={{ __html: result.svg }} />
       <CopyButton text={code} className="code-block-copy" label="Copy source" />
     </div>
   );
