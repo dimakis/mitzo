@@ -1445,6 +1445,7 @@ export interface SymposiumSessionRuntimeDeps extends Omit<
   attemptRegistry?: SymposiumAttemptRegistry;
   /** Must come from image/controller attestation; no default launcher is inferred. */
   verifiedCodexControllerCommand?: readonly string[];
+  observeDurableReviewToolResult?: import('./symposium-codex-native.js').OpenAiCodexSeatInput['observeDurableReviewToolResult'];
   openNative?: SymposiumOpenShellSeatExecutorDeps['openNative'];
   /** Explicit host attestation of exact OpenShell 0.1 seat isolation and attachment semantics. */
   perSeatSandboxVerified?: boolean;
@@ -1725,6 +1726,13 @@ export function createSymposiumSessionRuntime(deps: SymposiumSessionRuntimeDeps)
                     profileTools,
                     attemptRegistry: deps.attemptRegistry,
                     verifiedControllerCommand: deps.verifiedCodexControllerCommand,
+                    ...(input.execution.seat.role === 'reviewer' &&
+                    deps.observeDurableReviewToolResult
+                      ? {
+                          observeDurableReviewToolResult: deps.observeDurableReviewToolResult,
+                          assertDurableReviewToolCurrent: verifyNativeToolCurrent,
+                        }
+                      : {}),
                   })
                 : input.route.kind === 'chatgpt-subscription-native'
                   ? createChatGptSubscriptionSeat({

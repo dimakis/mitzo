@@ -3821,3 +3821,442 @@ it('retains the recovery claim when the production stop path times out before a 
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+describe('trusted durable native review transport observer', () => {
+  async function setupObserver(
+    observer: NonNullable<
+      import('../symposium-codex-native.js').OpenAiCodexSeatInput['observeDurableReviewToolResult']
+    >,
+  ) {
+    const { EventStore } = await import('../event-store.js');
+    const { CodexConversationStore } = await import('../codex-conversation-store.js');
+    const work = fixture();
+    const abortController = new AbortController();
+    work.input.signal = abortController.signal;
+    const route = admitSymposiumSeatDispatch(work.facts, profiles, work.input, hostGrants);
+    work.input.provenance = {
+      ...work.input.provenance,
+      version: 3,
+      artifact: {
+        version: 1,
+        kind: 'sealed_reader',
+        readerAdmissionId: 'reader-admission',
+        artifactGenerationId: 'generation',
+        sealFenceId: 'fence',
+        bindingDigest: 'a'.repeat(64),
+      },
+    };
+    const root = registryDirectory();
+    const eventPath = join(root, 'events.db');
+    const events = new EventStore(eventPath);
+    const db = new Database(eventPath);
+    db.pragma('foreign_keys = OFF'); // isolated synthetic row setup only
+    // Offline synthetic execution setup; real durable readers/registry/replay are tested,
+    // not physical admission or real controller acceptance.
+    db.prepare(
+      `INSERT INTO symposium_recipient_attempts
+      (delivery_id,seat_id,attempt_number,idempotency_key,claim_token,symposium_provenance,status,
+       provider_thread_id,provider_turn_id,started_at,updated_at)
+      VALUES (?,?,?,?,?,?,'executing','thread-1','turn-1',1,1)`,
+    ).run(
+      work.input.deliveryId,
+      work.input.seat.id,
+      1,
+      work.input.idempotencyKey,
+      work.input.claimToken,
+      JSON.stringify(work.input.provenance),
+    );
+    const registry = new SymposiumAttemptRegistry(join(root, 'registry.db'));
+    const sandbox = { sandboxName: 'offline-review', workdir: '/sandbox/workspaces/mgmt' };
+    registry.reserve({
+      sessionId: work.input.sessionId,
+      claimToken: work.input.claimToken,
+      sandbox,
+      artifact:
+        'version' in work.input.provenance && work.input.provenance.version === 3
+          ? work.input.provenance.artifact
+          : undefined,
+    });
+    const store = new CodexConversationStore(join(root, 'codex.db'));
+    const conversationId = symposiumSeatRuntimeId(work.input);
+    const binding = work.input.seat.accountBinding!;
+    store.create(conversationId, binding, sandbox.workdir, null, 'symposium');
+    const args = { pageIndex: 1, previousChallenge: 'a'.repeat(64) };
+    const identity = {
+      turnId: 'turn-1',
+      toolName: 'SymposiumReadSealedReviewPage',
+      requestHash: createHash('sha256').update(JSON.stringify(args)).digest('hex'),
+    };
+    db.prepare('UPDATE symposium_recipient_attempts SET dispatched_content=?,dispatch_seq=0').run(
+      work.input.content,
+    );
+    const result = { content: 'exact synthetic tool result', isError: false };
+    store.enqueue(conversationId, binding, {
+      id: work.input.claimToken,
+      prompt: work.input.content,
+    });
+    store.claimNext(conversationId, binding);
+    store.claimTool(conversationId, binding, work.input.claimToken, 'call-1', identity);
+    store.recordToolResult(
+      conversationId,
+      binding,
+      work.input.claimToken,
+      'call-1',
+      identity,
+      result,
+    );
+    let options!: import('../codex-conversation.js').CodexConversationOptions;
+    const original = vi.fn(async () => undefined);
+    let current = true;
+    const confirmStopped = vi.fn(async () => {
+      registry.markConfirmed(work.input.claimToken);
+    });
+    const native = await createOpenAiCodexSeat({
+      sandbox,
+      route,
+      execution: work.input,
+      store,
+      attemptRegistry: registry,
+      resolveAttempt: (token) => events.getSymposiumRecipientAttemptByClaimToken(token),
+      profileTools: {
+        tools: [],
+        instructions: '',
+        executeTool: async () => result,
+        onToolResultDurable: original,
+      },
+      testConfirmStopped: confirmStopped,
+      observeDurableReviewToolResult: observer,
+      assertDurableReviewToolCurrent: () => {
+        if (!current) throw new Error('Reader provider/profile/grant no longer current');
+      },
+      createConversation: (opts) => {
+        options = opts;
+        return {
+          initialize: async () => undefined,
+          getThreadId: () => 'thread-1',
+          send: async () => undefined,
+          interrupt: async () => undefined,
+          close() {},
+        };
+      },
+    });
+    options.onProviderAccepted!(work.input.claimToken, 'thread-1', 'turn-1');
+    return {
+      native,
+      abortController,
+      confirmStopped,
+      setOwnerCurrent: (value: boolean) => {
+        current = value;
+      },
+      work,
+      events,
+      registry,
+      store,
+      db,
+      options,
+      args,
+      result,
+      original,
+      invoke: () =>
+        options.onToolResultDurable!('SymposiumReadSealedReviewPage', args, result, {
+          turnId: 'turn-1',
+          callId: 'call-1',
+        }),
+      close: () => {
+        events.close();
+        registry.close();
+        store.close();
+        db.close();
+      },
+    };
+  }
+  it('notifies only after the original callback and real retained replay/accepted identity agree', async () => {
+    const observer = vi.fn();
+    const f = await setupObserver(observer);
+    try {
+      await f.invoke();
+      expect(f.original).toHaveBeenCalledOnce();
+      expect(observer).toHaveBeenCalledOnce();
+      expect(f.original.mock.invocationCallOrder[0]).toBeLessThan(
+        observer.mock.invocationCallOrder[0],
+      );
+    } finally {
+      f.close();
+    }
+  });
+  it('never notifies when the actual original owner callback rejects', async () => {
+    const observer = vi.fn();
+    const f = await setupObserver(observer);
+    try {
+      f.original.mockRejectedValueOnce(new Error('owner rejection'));
+      await expect(f.invoke()).rejects.toThrow('owner rejection');
+      expect(observer).not.toHaveBeenCalled();
+    } finally {
+      f.close();
+    }
+  });
+  it.each(['claim', 'turn', 'replay', 'terminal', 'controller', 'uncertain'])(
+    'refuses %s drift before notifying and permanently vetoes retry',
+    async (drift) => {
+      const observer = vi.fn();
+      const f = await setupObserver(observer);
+      try {
+        if (drift === 'uncertain') f.registry.markUncertain(f.work.input.claimToken);
+        if (drift === 'controller') f.registry.markConfirmed(f.work.input.claimToken);
+        if (drift === 'claim')
+          f.db.prepare("UPDATE symposium_recipient_attempts SET status='failed'").run();
+        if (drift === 'turn')
+          f.db
+            .prepare("UPDATE symposium_recipient_attempts SET provider_turn_id='different'")
+            .run();
+        if (drift === 'replay') f.result.content = 'changed';
+        if (drift === 'terminal')
+          f.registry.observations.terminal({
+            claimToken: f.work.input.claimToken,
+            providerThreadId: 'thread-1',
+            providerTurnId: 'turn-1',
+            status: 'completed',
+          });
+        await expect(f.invoke()).rejects.toThrow();
+        expect(observer).not.toHaveBeenCalled();
+        f.db
+          .prepare(
+            "UPDATE symposium_recipient_attempts SET status='executing',provider_turn_id='turn-1'",
+          )
+          .run();
+        await expect(f.invoke()).rejects.toThrow('permanently vetoed');
+      } finally {
+        f.close();
+      }
+    },
+  );
+  it('freezes observer payload and rechecks actual claim after an awaited observer', async () => {
+    const observer = vi.fn(async (event) => {
+      expect(Object.isFrozen(event)).toBe(true);
+      expect(Object.isFrozen(event.arguments)).toBe(true);
+      expect(Object.isFrozen(event.result)).toBe(true);
+      await Promise.resolve();
+      f.db.prepare("UPDATE symposium_recipient_attempts SET status='cancelled'").run();
+    });
+    const f: Awaited<ReturnType<typeof setupObserver>> = await setupObserver(observer);
+    try {
+      await expect(f.invoke()).rejects.toThrow('identity');
+      expect(observer).toHaveBeenCalledOnce();
+      await expect(f.invoke()).rejects.toThrow('permanently vetoed');
+    } finally {
+      f.close();
+    }
+  });
+  it('observer failure cannot be retried as a new observation', async () => {
+    const observer = vi.fn().mockRejectedValueOnce(new Error('transport lost'));
+    const f = await setupObserver(observer);
+    try {
+      await expect(f.invoke()).rejects.toThrow('transport lost');
+      await expect(f.invoke()).rejects.toThrow('permanently vetoed');
+      expect(observer).toHaveBeenCalledOnce();
+    } finally {
+      f.close();
+    }
+  });
+  it('paired provider/profile/grant revocation during observer await permanently vetoes subsequent work', async () => {
+    const observer = vi.fn(async () => {
+      await Promise.resolve();
+      f.setOwnerCurrent(false);
+    });
+    const f: Awaited<ReturnType<typeof setupObserver>> = await setupObserver(observer);
+    try {
+      await expect(f.invoke()).rejects.toThrow('no longer current');
+      f.setOwnerCurrent(true);
+      await expect(f.invoke()).rejects.toThrow('permanently vetoed');
+      expect(observer).toHaveBeenCalledOnce();
+    } finally {
+      f.close();
+    }
+  });
+  it('live owner loss during the original callback prevents observer notification', async () => {
+    const observer = vi.fn();
+    const f = await setupObserver(observer);
+    try {
+      f.original.mockImplementationOnce(async () => {
+        await Promise.resolve();
+        f.setOwnerCurrent(false);
+      });
+      await expect(f.invoke()).rejects.toThrow('no longer current');
+      expect(observer).not.toHaveBeenCalled();
+    } finally {
+      f.close();
+    }
+  });
+  it('rejects observer construction without a paired live owner capability before conversation creation', async () => {
+    const work = fixture();
+    const createConversation = vi.fn();
+    await expect(
+      createOpenAiCodexSeat({
+        sandbox: { sandboxName: 'offline-unlaunched', workdir: '/sandbox/workspaces/mgmt' },
+        route: admitSymposiumSeatDispatch(work.facts, profiles, work.input, hostGrants),
+        execution: work.input,
+        store: {} as never,
+        profileTools: {
+          tools: [],
+          instructions: '',
+          executeTool: async () => ({ content: '', isError: true }),
+          onToolResultDurable: () => undefined,
+        },
+        observeDurableReviewToolResult: () => undefined,
+        createConversation,
+      }),
+    ).rejects.toThrow('paired current owner capability');
+    expect(createConversation).not.toHaveBeenCalled();
+  });
+  it('does not publish favorable completion while an actual durable observer remains in flight', async () => {
+    let release!: () => void;
+    let started!: () => void;
+    const entered = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const f = await setupObserver(async () => {
+      started();
+      await held;
+      throw new Error('late observer failure');
+    });
+    let outcome = 'pending';
+    try {
+      const running = f.native.run(f.work.input, { beforeDispatch() {}, accepted() {} });
+      void running.then(
+        () => {
+          outcome = 'favorable';
+        },
+        () => {
+          outcome = 'refused';
+        },
+      );
+      const observation = Promise.resolve(f.invoke());
+      void observation.catch(() => undefined);
+      await entered;
+      f.options.onProviderTerminal!(f.work.input.claimToken, 'turn-1', 'completed');
+      f.options.onProviderComplete!(f.work.input.claimToken, 'completed');
+      f.options.emit({
+        type: 'assistant',
+        message: { content: [{ type: 'text', text: 'synthetic favorable output' }] },
+      });
+      await new Promise((resolve) => setImmediate(resolve));
+      expect(outcome).toBe('pending');
+      expect(f.registry.checkpoints.get(f.work.input.claimToken)).toBeUndefined();
+      release();
+      await expect(observation).rejects.toThrow('late observer failure');
+      await expect(running).rejects.toThrow();
+    } finally {
+      release();
+      f.close();
+    }
+  });
+
+  it('aborts an unresolved observer barrier after confirmed stop without a favorable checkpoint', async () => {
+    let started!: () => void;
+    let release!: () => void;
+    const entered = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const f = await setupObserver(async () => {
+      started();
+      await held;
+    });
+    try {
+      const running = f.native.run(f.work.input, { beforeDispatch() {}, accepted() {} });
+      void running.catch(() => undefined);
+      const observation = Promise.resolve(f.invoke());
+      void observation.catch(() => undefined);
+      await entered;
+      f.options.onProviderTerminal!(f.work.input.claimToken, 'turn-1', 'completed');
+      f.options.onProviderComplete!(f.work.input.claimToken, 'completed');
+      await new Promise((resolve) => setImmediate(resolve));
+      f.abortController.abort(new Error('existing execution deadline'));
+      await expect(running).rejects.toThrow('existing execution deadline');
+      expect(f.registry.get(f.work.input.claimToken)?.state).toBe('confirmed');
+      expect(f.registry.checkpoints.get(f.work.input.claimToken)).toBeUndefined();
+      release();
+      await expect(observation).rejects.toThrow();
+    } finally {
+      release();
+      f.close();
+    }
+  });
+  it('rejects a new durable callback after closure begins and joins the original tracked callback', async () => {
+    let entered!: () => void;
+    let release!: () => void;
+    let stopping!: () => void;
+    let stopped!: () => void;
+    const enteredPromise = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const stoppingPromise = new Promise<void>((resolve) => {
+      stopping = resolve;
+    });
+    const stopHold = new Promise<void>((resolve) => {
+      stopped = resolve;
+    });
+    const observer = vi.fn(async () => {
+      entered();
+      await held;
+    });
+    const f = await setupObserver(observer);
+    f.confirmStopped.mockImplementation(async () => {
+      stopping();
+      await stopHold;
+      f.registry.markConfirmed(f.work.input.claimToken);
+    });
+    try {
+      const running = f.native.run(f.work.input, { beforeDispatch() {}, accepted() {} });
+      void running.catch(() => undefined);
+      const original = Promise.resolve(f.invoke());
+      void original.catch(() => undefined);
+      await enteredPromise;
+      f.options.onProviderTerminal!(f.work.input.claimToken, 'turn-1', 'completed');
+      f.options.onProviderComplete!(f.work.input.claimToken, 'completed');
+      await stoppingPromise;
+      await expect(f.invoke()).rejects.toThrow('completion fence');
+      expect(observer).toHaveBeenCalledOnce();
+      release();
+      await expect(original).rejects.toThrow('permanently vetoed');
+      stopped();
+      await expect(running).rejects.toThrow();
+      expect(f.registry.checkpoints.get(f.work.input.claimToken)).toBeUndefined();
+    } finally {
+      release();
+      stopped();
+      f.close();
+    }
+  });
+  it('revalidates paired owner currentness after stop confirmation even when observer already settled', async () => {
+    const f = await setupObserver(() => undefined);
+    try {
+      await f.invoke();
+      f.confirmStopped.mockImplementation(async () => {
+        await Promise.resolve();
+        f.setOwnerCurrent(false);
+        f.registry.markConfirmed(f.work.input.claimToken);
+      });
+      const running = f.native.run(f.work.input, { beforeDispatch() {}, accepted() {} });
+      void running.catch(() => undefined);
+      f.options.onProviderTerminal!(f.work.input.claimToken, 'turn-1', 'completed');
+      f.options.onProviderComplete!(f.work.input.claimToken, 'completed');
+      f.options.emit({
+        type: 'assistant',
+        message: { content: [{ type: 'text', text: 'synthetic output' }] },
+      });
+      await expect(running).rejects.toThrow('no longer current');
+      expect(f.registry.checkpoints.get(f.work.input.claimToken)).toBeUndefined();
+    } finally {
+      f.close();
+    }
+  });
+});

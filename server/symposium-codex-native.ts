@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+import { isDeepStrictEqual } from 'node:util';
 import { captureDeliveredInput } from './symposium-completion-checkpoints.js';
 import type { SymposiumRecipientAttemptRecord } from '@mitzo/protocol';
 import {
@@ -49,12 +51,40 @@ export function assertCodexControllerCommand(command: readonly string[]): void {
     throw new Error('Codex controller command differs from the reviewed API launcher');
 }
 
+/** Trusted constructor observation; never a provider-supplied authority object. */
+export interface DurableSymposiumReviewToolObservation {
+  readonly sessionId: string;
+  readonly claimToken: string;
+  readonly deliveryId: string;
+  readonly seatId: string;
+  readonly membershipGeneration: number;
+  readonly providerThreadId: string;
+  readonly providerTurnId: string;
+  readonly callId: string;
+  readonly toolName: string;
+  readonly arguments: Readonly<Record<string, unknown>>;
+  readonly result: Readonly<{ content: string; isError: boolean }>;
+}
+function freezeObservation<T>(value: T): T {
+  if (value && typeof value === 'object') {
+    for (const child of Object.values(value)) freezeObservation(child);
+    Object.freeze(value);
+  }
+  return value;
+}
+
 export interface OpenAiCodexSeatInput {
   sandbox: ControlledAttemptSandbox;
   route: SymposiumSeatRoute;
   execution: SymposiumSeatExecution;
   store: CodexConversationStore;
   profileTools?: SymposiumNativeProfileTools;
+  /** Same live source-owner currentness used by the actual reader tool. */
+  assertDurableReviewToolCurrent?: () => void;
+  /** Constructor-only observer after exact native/store tool-result verification. */
+  observeDurableReviewToolResult?: (
+    event: DurableSymposiumReviewToolObservation,
+  ) => Promise<void> | void;
   attemptRegistry?: SymposiumAttemptRegistry;
   /** Resolves an immutable execution claim from the retained host EventStore. */
   resolveAttempt?: (claimToken: string) => SymposiumRecipientAttemptRecord | undefined;
@@ -103,6 +133,13 @@ export async function createCodexNativeSeat(
   },
 ): Promise<SymposiumNativeSeat> {
   const { route, execution, sandbox } = input;
+  if (
+    input.observeDurableReviewToolResult &&
+    (typeof input.observeDurableReviewToolResult !== 'function' ||
+      typeof input.assertDurableReviewToolCurrent !== 'function' ||
+      typeof input.profileTools?.onToolResultDurable !== 'function')
+  )
+    throw new Error('Durable review observer requires paired current owner capability');
   const binding = execution.seat.accountBinding;
   if (!binding) throw new Error('Codex native seat lacks account binding');
   let callbacks:
@@ -136,6 +173,9 @@ export async function createCodexNativeSeat(
     throw new Error('Native observation requires exact membership generation');
   let rejectTerminal: ((error: Error) => void) | undefined;
   let dispatched = false;
+  let observerVetoed = false;
+  let observerCompletionClosing = false;
+  const pendingReviewObservers = new Set<Promise<void>>();
   let controlled: ControlledAttemptProcess | undefined;
   const content: string[] = [];
   const captureInput = () => {
@@ -211,7 +251,112 @@ export async function createCodexNativeSeat(
         content: 'Symposium native host tools are unavailable',
         isError: true,
       })),
-    onToolResultDurable: input.profileTools?.onToolResultDurable,
+    onToolResultDurable: input.observeDurableReviewToolResult
+      ? (name, arguments_, result, context) => {
+          if (observerCompletionClosing) {
+            observerVetoed = true;
+            return Promise.reject(new Error('Durable review observation after completion fence'));
+          }
+          const pending = (async () => {
+            const original = input.profileTools?.onToolResultDurable;
+            if (!original) throw new Error('Durable review owner callback unavailable');
+            const captured = structuredClone({ name, arguments_, result, context });
+            const assertCurrent = () => {
+              execution.signal.throwIfAborted();
+              if (observerVetoed) throw new Error('Durable review observer permanently vetoed');
+              input.assertDurableReviewToolCurrent!();
+              const attempt = input.resolveAttempt?.(execution.claimToken);
+              const controller = input.attemptRegistry?.get(execution.claimToken);
+              const observation = input.attemptRegistry?.observations.get(execution.claimToken);
+              const identity = observation?.identity;
+              if (
+                execution.seat.role !== 'reviewer' ||
+                name !== 'SymposiumReadSealedReviewPage' ||
+                !('version' in execution.provenance) ||
+                execution.provenance.version !== 3 ||
+                !('kind' in execution.provenance.artifact) ||
+                execution.provenance.artifact.kind !== 'sealed_reader' ||
+                controller?.state !== 'reserved' ||
+                controller.sessionId !== execution.sessionId ||
+                controller.sandboxName !== sandbox.sandboxName ||
+                controller.workdir !== sandbox.workdir ||
+                !isDeepStrictEqual(controller.artifact, execution.provenance.artifact) ||
+                attempt?.status !== 'executing' ||
+                attempt.claimToken !== execution.claimToken ||
+                attempt.deliveryId !== execution.deliveryId ||
+                attempt.seatId !== execution.seat.id ||
+                attempt.providerThreadId !== acceptedThreadId ||
+                attempt.providerTurnId !== acceptedTurnId ||
+                !isDeepStrictEqual(attempt.provenance, execution.provenance) ||
+                !identity ||
+                observation.status !== 'accepted' ||
+                observation.terminalConflict ||
+                identity.claimToken !== execution.claimToken ||
+                identity.sessionId !== execution.sessionId ||
+                identity.seatId !== execution.seat.id ||
+                identity.membershipGeneration !== execution.provenance.membershipGeneration ||
+                !isDeepStrictEqual(identity.accountBinding, binding) ||
+                !isDeepStrictEqual(identity.provenance, execution.provenance) ||
+                identity.providerThreadId !== acceptedThreadId ||
+                identity.providerTurnId !== acceptedTurnId ||
+                captured.context.turnId !== acceptedTurnId ||
+                !acceptedThreadId ||
+                !acceptedTurnId ||
+                captured.result.isError
+              )
+                throw new Error('Durable native review identity is no longer current');
+              const replay = input.store.replayToolResult(
+                symposiumSeatRuntimeId(execution),
+                binding,
+                execution.claimToken,
+                captured.context.callId,
+                {
+                  turnId: captured.context.turnId,
+                  toolName: captured.name,
+                  requestHash: createHash('sha256')
+                    .update(JSON.stringify(captured.arguments_))
+                    .digest('hex'),
+                },
+              );
+              if (
+                !replay ||
+                replay.content !== captured.result.content ||
+                replay.isError !== captured.result.isError
+              )
+                throw new Error('Durable native review result differs from retained replay');
+            };
+            try {
+              assertCurrent();
+              // Original owner validation must finish before observation, including replay.
+              await original(captured.name, captured.arguments_, captured.result, captured.context);
+              assertCurrent();
+              await input.observeDurableReviewToolResult!(
+                freezeObservation({
+                  sessionId: execution.sessionId,
+                  claimToken: execution.claimToken,
+                  deliveryId: execution.deliveryId,
+                  seatId: execution.seat.id,
+                  membershipGeneration: execution.provenance.membershipGeneration!,
+                  providerThreadId: acceptedThreadId!,
+                  providerTurnId: acceptedTurnId!,
+                  callId: captured.context.callId,
+                  toolName: captured.name,
+                  arguments: captured.arguments_,
+                  result: captured.result,
+                }),
+              );
+              assertCurrent();
+            } catch (error) {
+              observerVetoed = true;
+              throw error;
+            }
+          })();
+          pendingReviewObservers.add(pending);
+          const settled = () => pendingReviewObservers.delete(pending);
+          void pending.then(settled, settled);
+          return pending;
+        }
+      : input.profileTools?.onToolResultDurable,
     validateModel: (model, effort) => {
       if (model !== route.model || (effort ?? null) !== route.effort)
         throw new Error('Symposium model or effort changed before native turn');
@@ -235,6 +380,7 @@ export async function createCodexNativeSeat(
       : { type: 'externalSandbox', networkAccess: 'restricted' },
     verifyBinding: auth.verifyBinding,
     onProviderDispatch: (commandId) => {
+      if (observerVetoed) throw new Error('Durable review observer permanently vetoed');
       if (commandId !== execution.claimToken) throw new Error('Symposium command identity changed');
       captureInput();
       auth.beforeDispatch?.();
@@ -291,9 +437,31 @@ export async function createCodexNativeSeat(
     onError: (error) => rejectTerminal?.(error),
   };
   const closeAndConfirm = async (conversation: NativeCodexConversation) => {
+    observerCompletionClosing = true;
     conversation.close();
     if (controlled) await controlled.confirmStopped();
     else if (input.createConversation) await input.testConfirmStopped?.();
+  };
+  const awaitReviewObservers = async () => {
+    execution.signal.throwIfAborted();
+    if (pendingReviewObservers.size) {
+      let onAbort: (() => void) | undefined;
+      try {
+        await Promise.race([
+          Promise.all([...pendingReviewObservers]),
+          new Promise<never>((_resolve, reject) => {
+            onAbort = () => reject(execution.signal.reason ?? new Error('Native review aborted'));
+            execution.signal.addEventListener('abort', onAbort, { once: true });
+            if (execution.signal.aborted) onAbort();
+          }),
+        ]);
+      } finally {
+        if (onAbort) execution.signal.removeEventListener('abort', onAbort);
+      }
+    }
+    execution.signal.throwIfAborted();
+    input.assertDurableReviewToolCurrent!();
+    if (observerVetoed) throw new Error('Durable review observer permanently vetoed');
   };
   let conversation!: NativeCodexConversation;
   try {
@@ -340,6 +508,8 @@ export async function createCodexNativeSeat(
       ](symposiumSeatRuntimeId(execution), binding, previous, next);
     },
     async run(currentExecution, currentCallbacks) {
+      if (input.observeDurableReviewToolResult && (observerVetoed || observerCompletionClosing))
+        throw new Error('Durable review observer permanently vetoed or completed');
       if (currentExecution.claimToken !== execution.claimToken)
         throw new Error('Codex native attempt identity changed');
       callbacks = currentCallbacks;
@@ -361,6 +531,14 @@ export async function createCodexNativeSeat(
       const status = await completed;
       if (status !== 'completed') throw new Error('Codex native turn did not complete');
       await closeAndConfirm(conversation);
+      if (input.observeDurableReviewToolResult) {
+        try {
+          await awaitReviewObservers();
+        } catch (error) {
+          observerVetoed = true;
+          throw error;
+        }
+      }
       const output = content.join('\n\n');
       if (input.resolveAttempt) {
         if (!acceptedThreadId || !acceptedTurnId)
