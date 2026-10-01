@@ -1958,7 +1958,7 @@ it.each([
       membershipGeneration: 1,
       configRevision: 4,
       artifact: {
-        version: 1,
+        version: 1 as const,
         transitionId: 'initial',
         artifactGenerationId: 'generation',
         pointerRevision: 1,
