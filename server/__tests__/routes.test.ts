@@ -8,9 +8,18 @@ import { join } from 'path';
 import { tmpdir } from 'os';
 
 const mockRemoteArtifactRead = vi.hoisted(() => vi.fn());
+const mockRemoteArtifactFactory = vi.hoisted(() => vi.fn());
 vi.mock('../session-artifact-reader.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../session-artifact-reader.js')>();
-  return { ...actual, createSessionArtifactReader: () => mockRemoteArtifactRead };
+  return {
+    ...actual,
+    createSessionArtifactReader: (
+      deps: import('../session-artifact-reader.js').SessionArtifactReaderDependencies,
+    ) => {
+      mockRemoteArtifactFactory(deps);
+      return mockRemoteArtifactRead;
+    },
+  };
 });
 
 const TEST_REPO = join(tmpdir(), `mitzo-test-repo-${process.pid}`);
@@ -1985,5 +1994,76 @@ it.each(['sandbox-prefix-host-api-session', 'sandbox-prefix-host-subscription-se
       .set('Cookie', authCookie)
       .send({ path: file, content: original, expectedContent: original, sessionId });
     expect(res.status).toBe(200);
+  },
+);
+
+it.each(['openai', 'openai-codex'] as const)(
+  'uses the recorded model override for remote reads and guarded writes with %s',
+  async (provider) => {
+    const accounts = await import('../account-profiles.js');
+    const profiles = new accounts.AccountProfiles([]);
+    const load = vi.spyOn(accounts, 'loadAccountProfiles').mockReturnValue(profiles);
+    vi.spyOn(profiles, 'apiProfile').mockReturnValue({
+      credentialRef: { provider: 'keychain', service: 'test', account: 'test' },
+      sandboxProvider: 'test-provider',
+    });
+    vi.spyOn(profiles, 'codexProfile').mockReturnValue({
+      accountId: 'test',
+      accountLabel: 'Test',
+      email: 'test@example.com',
+      planType: 'plus',
+      sandboxProvider: 'test-provider',
+      sandboxProviderType: 'openai-codex-oauth',
+      sandboxProviderId: 'test-provider-id',
+      sandboxGrantId: 'test-grant',
+      model: 'default-model',
+    });
+    const binding = {
+      provider,
+      accountId: 'test',
+      accountLabel: 'Test',
+      model: 'default-model',
+      profileRevision: 'test',
+    };
+    const original = vi.mocked(eventStore.getSession).getMockImplementation();
+    vi.mocked(eventStore.getSession).mockImplementation(
+      () =>
+        ({
+          sessionId: 'override-session',
+          cwd: '/sandbox/workspaces/mgmt',
+          accountBinding: binding,
+          selectedModel: 'selected-model',
+        }) as ReturnType<typeof eventStore.getSession>,
+    );
+    try {
+      for (const endpoint of ['read', 'download', 'write']) {
+        mockRemoteArtifactRead.mockResolvedValueOnce({
+          path: '/sandbox/workspaces/mgmt/report.md',
+          bytes: Buffer.from('# Remote'),
+        });
+        const res =
+          endpoint === 'write'
+            ? await request(app).put('/api/files/write').set('Cookie', authCookie).send({
+                sessionId: 'override-session',
+                path: 'report.md',
+                expectedContent: '# Remote',
+                content: '# Edited',
+              })
+            : await request(app)
+                .get(`/api/files/${endpoint}`)
+                .set('Cookie', authCookie)
+                .query({ sessionId: 'override-session', path: 'report.md' });
+        expect(res.status).toBe(200);
+        const deps = mockRemoteArtifactFactory.mock
+          .lastCall![0] as import('../session-artifact-reader.js').SessionArtifactReaderDependencies;
+        expect(deps.currentRoute(binding)).toMatchObject({
+          model: 'selected-model',
+          provider: 'test-provider',
+        });
+      }
+    } finally {
+      load.mockRestore();
+      vi.mocked(eventStore.getSession).mockImplementation(original!);
+    }
   },
 );

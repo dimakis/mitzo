@@ -2487,14 +2487,15 @@ async function readRemoteSessionArtifact(
     readRuntime: (id, binding) => getCodexConversationStore().readArtifactRuntime(id, binding),
     currentRoute: (binding) => {
       const profiles = loadAccountProfiles();
+      const model = meta.selectedModel ?? binding.model;
       if (binding.provider === 'openai') {
         const profile = profiles.apiProfile(binding);
         if (!profile.sandboxProvider) throw Error('Sandbox provider unavailable');
-        return { kind: 'api', provider: profile.sandboxProvider, model: binding.model };
+        return { kind: 'api', provider: profile.sandboxProvider, model };
       }
       return selectedOpenShellAccountRoute({
         binding,
-        model: binding.model,
+        model,
         profile: profiles.codexProfile(binding),
       });
     },
