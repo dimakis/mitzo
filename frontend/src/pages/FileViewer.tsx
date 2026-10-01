@@ -181,8 +181,11 @@ function FileViewerDocument() {
             (editor.saving
               ? 'Saving…'
               : editor.dirty
-                ? 'Unsaved changes · draft kept on this device'
+                ? editor.draftStorageError
+                  ? 'Unsaved changes'
+                  : 'Unsaved changes · draft kept in this tab'
                 : 'All changes saved')}
+          {editor.draftStorageError && <span role="alert">{editor.draftStorageError}</span>}
           {editor.error && (
             <button
               type="button"

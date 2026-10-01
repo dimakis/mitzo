@@ -24,6 +24,7 @@ export function useFileEditor(
   const [editing, setEditing] = useState(false);
   const [editContent, setEditContent] = useState('');
   const [saving, setSaving] = useState(false);
+  const [draftStorageError, setDraftStorageError] = useState('');
   const [error, setError] = useState('');
   const [latestContent, setLatestContent] = useState<string | null>(null);
   const [reviewing, setReviewing] = useState(false);
@@ -50,8 +51,11 @@ export function useFileEditor(
     try {
       if (value === original) sessionStorage.removeItem(key);
       else sessionStorage.setItem(key, JSON.stringify({ base: original, content: value }));
+      setDraftStorageError('');
     } catch {
-      /* Editing remains available when storage is full or disabled. */
+      setDraftStorageError(
+        'Latest changes are not backed up. Keep this tab open or save the document before leaving.',
+      );
     }
   }
   function startEditing() {
@@ -143,6 +147,7 @@ export function useFileEditor(
       }
       try {
         sessionStorage.removeItem(requestKey);
+        setDraftStorageError('');
       } catch {
         /* Storage may be disabled. */
       }
@@ -158,6 +163,7 @@ export function useFileEditor(
     }
   }
   return {
+    draftStorageError,
     latestContent,
     reviewing,
     reviewLatest,

@@ -416,6 +416,8 @@ app.use('/api/capability-operations', authMiddleware, (req, res, next) => {
     return res.status(503).json({ error: 'Capability operations are not configured.' });
   return capabilityOperationsRouter(req, res, next);
 });
+// Two 5 MiB UTF-8 documents can each expand sixfold when JSON escapes control bytes.
+app.put('/api/files/write', authMiddleware, express.json({ limit: 60 * 1024 * 1024 + 64 * 1024 }));
 app.use(express.json({ limit: '10mb' }));
 
 const loginLimiter = rateLimit({
@@ -2903,11 +2905,18 @@ app.put('/api/files/write', async (req, res) => {
     return;
   }
   const { path: requestedPath, content, sessionId, expectedContent } = body.data;
+  if (expectedContent === undefined) {
+    res.status(409).json({ error: 'Reopen the document in the updated editor before saving.' });
+    return;
+  }
+  if (
+    Buffer.byteLength(content) > MAX_PREVIEW_BYTES ||
+    Buffer.byteLength(expectedContent) > MAX_PREVIEW_BYTES
+  ) {
+    res.status(413).json({ error: 'Document is too large to edit (5 MB maximum)' });
+    return;
+  }
   if (sessionId && isRemoteSessionArtifact(sessionId)) {
-    if (expectedContent === undefined) {
-      res.status(409).json({ error: 'Reopen the document in the updated editor before saving.' });
-      return;
-    }
     try {
       const file = await readRemoteSessionArtifact(sessionId, requestedPath, {
         content,

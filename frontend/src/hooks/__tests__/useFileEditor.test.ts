@@ -117,3 +117,17 @@ it('lets the user review the latest version and keep the draft against a new bas
     JSON.parse(vi.mocked(apiFetch).mock.calls.at(-1)![1]!.body as string).expectedContent,
   ).toBe('agent version');
 });
+
+it('reports failed draft backup and clears the warning after storage recovers', () => {
+  const { result } = editor();
+  act(() => result.current.startEditing());
+  const storage = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+    throw new DOMException('Quota exceeded', 'QuotaExceededError');
+  });
+  act(() => result.current.handleEditChange('draft without backup'));
+  expect(result.current.draftStorageError).toContain('not backed up');
+  expect(result.current.editContent).toBe('draft without backup');
+  storage.mockRestore();
+  act(() => result.current.handleEditChange('backed up now'));
+  expect(result.current.draftStorageError).toBe('');
+});

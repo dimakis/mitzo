@@ -957,7 +957,11 @@ describe('file routes', () => {
     const res = await request(app)
       .put('/api/files/write')
       .set('Cookie', authCookie)
-      .send({ path: filePath, content: 'updated content' });
+      .send({
+        path: filePath,
+        content: 'updated content',
+        expectedContent: readFileSync(filePath, 'utf8'),
+      });
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ ok: true, path: filePath });
   });
@@ -1000,7 +1004,7 @@ describe('file routes', () => {
     const res = await request(app)
       .put('/api/files/write')
       .set('Cookie', authCookie)
-      .send({ path: '/tmp/outside/file.txt', content: 'nope' });
+      .send({ path: '/tmp/outside/file.txt', content: 'nope', expectedContent: '' });
     expect(res.status).toBe(403);
   });
 
@@ -1892,7 +1896,30 @@ it.each(['host-api-session', 'host-subscription-session'])(
     const res = await request(app)
       .put('/api/files/write')
       .set('Cookie', authCookie)
-      .send({ path: 'test.txt', content: original, sessionId });
+      .send({ path: 'test.txt', content: original, expectedContent: original, sessionId });
     expect(res.status).toBe(200);
   },
 );
+
+it('refuses host writes without a baseline and preserves the file', async () => {
+  const path = join(TEST_REPO, 'unguarded.md');
+  writeFileSync(path, 'agent version');
+  const res = await request(app)
+    .put('/api/files/write')
+    .set('Cookie', authCookie)
+    .send({ path, content: 'legacy edit' });
+  expect(res.status).toBe(409);
+  expect(readFileSync(path, 'utf8')).toBe('agent version');
+});
+it('accepts two full-size documents including JSON control-character escaping', async () => {
+  const path = join(TEST_REPO, 'full-size.md');
+  const expectedContent = '\u0000'.repeat(5 * 1024 * 1024);
+  writeFileSync(path, expectedContent);
+  const content = '\u0001'.repeat(5 * 1024 * 1024);
+  const res = await request(app)
+    .put('/api/files/write')
+    .set('Cookie', authCookie)
+    .send({ path, content, expectedContent });
+  expect(res.status).toBe(200);
+  expect(readFileSync(path, 'utf8') === content).toBe(true);
+}, 15_000);

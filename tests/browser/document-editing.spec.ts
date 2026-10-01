@@ -104,3 +104,30 @@ test('edits HTML while preserving a sandboxed live preview', async ({ page }) =>
   ).toBeVisible();
   await expect(page.locator('iframe')).toHaveAttribute('sandbox', 'allow-scripts');
 });
+
+test('warns when unsaved changes cannot be backed up', async ({ page }) => {
+  await page.addInitScript(() => {
+    const store = Storage.prototype.setItem;
+    Storage.prototype.setItem = function (key, value) {
+      if (key.startsWith('mitzo-file-draft:'))
+        throw new DOMException('Storage full', 'QuotaExceededError');
+      return store.call(this, key, value);
+    };
+  });
+  await page.routeWebSocket('**/*', (socket) => socket.close());
+  await page.route('**/api/**', (route) => {
+    const url = new URL(route.request().url());
+    if (url.pathname === '/api/files/read')
+      return route.fulfill({ json: { path: 'report.md', content: '# Original', ext: '.md' } });
+    if (url.pathname === '/api/files/roots') return route.fulfill({ json: [] });
+    if (url.pathname === '/api/git/info')
+      return route.fulfill({ json: { branch: 'main', repoPath: '/workspace', worktrees: [] } });
+    return route.fulfill({ json: {} });
+  });
+  await page.goto('/files?path=report.md&sessionId=vertex');
+  await page.getByRole('button', { name: 'Edit', exact: true }).click();
+  await page.getByRole('textbox').fill('# Draft');
+  await expect(page.getByRole('alert')).toContainText('Latest changes are not backed up');
+  await expect(page.getByRole('status')).not.toContainText('draft kept');
+  await expect(page.getByRole('textbox')).toHaveValue('# Draft');
+});
