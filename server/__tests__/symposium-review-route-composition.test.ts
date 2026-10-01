@@ -1,5 +1,6 @@
-/** Real durable workflow/event owners, no native transport, admission or seal supplied.
- * These negative routes do not qualify a positive physical application lifecycle. */
+/** Real workflow/event owners. Negative routes supply no native admission or seal.
+ * The check/export unit explicitly uses synthetic trusted-host outputs; no test
+ * here qualifies a positive physical application lifecycle. */
 import { afterEach, expect, it, vi } from 'vitest';
 import { EventStore } from '../event-store.js';
 import { SymposiumReviewStore } from '../symposium-review-workflows.js';
@@ -180,4 +181,132 @@ it('rejects synthetic request revocation during the actual asynchronous route an
   expect(captured).toBeDefined();
   expect(authority.authorize(captured!, '')).toBeNull();
   expect(store.get('workflow')).toEqual(before);
+});
+
+it('records host criterion evidence before explicit record export finalizes the real workflow', async () => {
+  const { store, events } = fixture();
+  const hash = 'c'.repeat(64);
+  const selection = (seatId: string, role: 'coder' | 'reviewer') => ({
+    seatId,
+    role,
+    selectionId: seatId,
+    policyRevision: 'synthetic-unit-policy',
+    profileId: seatId,
+    profileRevision: 1,
+    accountId: seatId,
+    model: 'no-model',
+  });
+  // Unit-only trusted-host boundary: synthetic completed work/review/evidence,
+  // real store admission and record owners. No physical seal/native claim is supplied.
+  const implementation = {
+    version: 1 as const,
+    resultId: 'synthetic-result',
+    attemptId: 'synthetic-initial',
+    inputRevision: 'unit-source',
+    inputHash: hash,
+    artifactRevision: 'unit-commit',
+    artifactHash: hash,
+    summary: 'Synthetic unit result',
+    evidenceRefs: ['synthetic-work'],
+    completedAt: 1,
+  };
+  store.create({
+    workflowId: 'workflow',
+    owner: 'user',
+    sessionId: 'session',
+    implementation,
+    implementer: selection('coder', 'coder'),
+    reviewer: selection('reviewer', 'reviewer'),
+    acceptanceCriteria: ['unit criterion'],
+    limits: { maxReviewRounds: 2, maxTokens: 100, maxCostUsd: null },
+  });
+  expect(
+    store.admitAttempt({
+      workflowId: 'workflow',
+      attemptId: 'unit-review',
+      kind: 'review',
+      actorSeatId: 'reviewer',
+      artifactRevision: 'unit-commit',
+      artifactHash: hash,
+      enforcementId: 'synthetic-unit-enforcement',
+      maxTokens: 10,
+      maxCostUsd: null,
+    }).kind,
+  ).toBe('admitted');
+  store.recordReview({
+    workflowId: 'workflow',
+    reviewId: 'synthetic-review',
+    reviewerSeatId: 'reviewer',
+    kind: 'full',
+    artifactRevision: 'unit-commit',
+    artifactHash: hash,
+    findings: [],
+    resolvedFingerprints: [],
+    usage: { attemptId: 'unit-review', tokens: 1, costUsd: null },
+  });
+  const evidence: Parameters<SymposiumReviewStore['recordEvidence']>[1] = {
+    version: 1,
+    evidenceId: 'unit-check',
+    resultId: implementation.resultId,
+    criterion: 'unit criterion',
+    verdict: 'verified',
+    artifactRevision: 'unit-commit',
+    evidenceRefs: ['synthetic-check-output'],
+    checkedAt: 2,
+  };
+  const dispatch = vi.fn(async () => {
+    throw Error('No native dispatch allowed');
+  });
+  const host: import('../symposium-review-routes.js').SymposiumInteractiveReviewHost = {
+    currentArtifact: () => ({ revision: 'unit-commit', hash }),
+    completedImplementation: () => implementation,
+    selectRoles: () => {
+      throw Error('Role admission unexercised');
+    },
+    prepareAttempt: () => ({ kind: 'decision_required', code: 'unexercised' }),
+    receipt: () => null,
+    completedReview: () => null,
+    authorizeFix: () => null,
+    fixedArtifact: () => null,
+    evidence: (_context, id) => (id === evidence.evidenceId ? evidence : null),
+    runCriterionCheck: async (_context, workflowId, definitionId) => {
+      expect(workflowId).toBe('workflow');
+      expect(definitionId).toBe('unit-check');
+      return { evidenceId: evidence.evidenceId };
+    },
+    dispatch,
+  };
+  const routes = createReviewRouteHarness({
+    sessionId: 'session',
+    store: () => store,
+    host: () => host,
+    hasSession: (id) => Boolean(events.getSession(id)),
+  });
+  const artifact = { expectedArtifactRevision: 'unit-commit', expectedArtifactHash: hash };
+  const checked = await routes.post('/workflow/actions', {
+    ...artifact,
+    action: 'check',
+    definitionId: 'unit-check',
+  });
+  expect(checked).toMatchObject({ status: 200, body: { status: 'awaiting_evidence' } });
+  const exact = store.get('workflow')!.evidence;
+  expect(exact).toEqual([{ item: evidence, artifactHash: hash, source: 'host' }]);
+  const duplicate = await routes.post('/workflow/actions', {
+    ...artifact,
+    action: 'check',
+    definitionId: 'unit-check',
+  });
+  expect(duplicate).toEqual(checked);
+  expect(store.get('workflow')!.evidence).toEqual(exact);
+  const exported = await routes.post('/workflow/actions', { ...artifact, action: 'review-record' });
+  expect(exported).toMatchObject({
+    status: 200,
+    body: { kind: 'verified', publication: 'not_created' },
+  });
+  expect(store.get('workflow')!.status).toBe('verified');
+  const recordId = (exported.body as { record: { recordId: string } }).record.recordId;
+  const record = store.getReviewRecord('user', 'session', recordId)!;
+  expect(record).not.toBeNull();
+  expect(await routes.get(`/records/${recordId}`)).toMatchObject({ status: 200, body: record });
+  expect(dispatch).not.toHaveBeenCalled();
 });

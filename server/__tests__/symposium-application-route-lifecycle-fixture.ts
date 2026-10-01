@@ -168,13 +168,31 @@ export async function runPhysicalApplicationRoutes(deps: {
   ).toEqual(['initial', 'review', 'fix', 'delta']);
   const checked = await postAction({ action: 'check', definitionId: 'marker' });
   expect(checked.status, JSON.stringify(checked.body)).toBe(200);
-  expect(status(checked.body)).toBe('verified');
-  const exactCheck = deps.store().get('workflow')!.evidence;
+  expect(status(checked.body)).toBe('awaiting_evidence');
+  const checkedState = deps.store().get('workflow')!;
+  const exactCheck = checkedState.evidence;
+  expect(exactCheck).toHaveLength(1);
+  const evidence = exactCheck[0];
+  expect(evidence).toMatchObject({
+    source: 'host',
+    artifactHash: checkedState.artifactHash,
+    item: {
+      verdict: 'verified',
+      resultId: checkedState.currentResultId,
+      artifactRevision: checkedState.artifactRevision,
+      criterion: 'criterion.txt contains FIXED',
+    },
+  });
+  expect(evidence.item.evidenceRefs.length).toBeGreaterThan(0);
+  expect(
+    deps.host().evidence({ owner: 'user', sessionId: deps.sessionId }, evidence.item.evidenceId),
+  ).toEqual(evidence.item);
   expect((await postAction({ action: 'check', definitionId: 'marker' })).status).toBe(200);
   expect(deps.store().get('workflow')!.evidence).toEqual(exactCheck);
   const exported = await postAction({ action: 'review-record' });
   expect(exported.status, JSON.stringify(exported.body)).toBe(200);
   expect(exported.body).toMatchObject({ kind: 'verified', publication: 'not_created' });
+  expect(deps.store().get('workflow')!.status).toBe('verified');
   const recordId = (exported.body as { record: { recordId: string } }).record.recordId;
   const record = deps.store().getReviewRecord('user', deps.sessionId, recordId)!;
   expect(record).not.toBeNull();
