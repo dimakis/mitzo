@@ -2025,3 +2025,185 @@ it('fails closed on a conflicting terminal while the completion hook is pending'
   await Promise.resolve();
   expect(terminal).not.toHaveBeenCalled();
 });
+
+function startupFixture(
+  observeStartupConfig: (event: unknown, signal?: AbortSignal) => Promise<void> | void,
+  startupSignal?: AbortSignal,
+) {
+  const dir = mkdtempSync(join(tmpdir(), 'mitzo-startup-observer-'));
+  const store = new CodexConversationStore(join(dir, 'private.db'));
+  const config = { config: { nested: { marker: 'private-config' } } };
+  const requests: string[] = [];
+  let lifecycle!: CodexLifecycleTransport;
+  const c = new CodexConversation({
+    ownerKind: 'symposium',
+    conversationId: 'startup',
+    cwd: '/workspace',
+    runtimeCwd: '/sandbox/workspaces/mgmt',
+    profile: {
+      accountId: 'personal',
+      accountLabel: 'ChatGPT',
+      credentialRef: '/synthetic',
+      email: 'test@example.com',
+      planType: 'test',
+      model: 'test-model',
+    },
+    storedBinding: binding,
+    verifyBinding: async () => binding,
+    store,
+    systemPrompt: '',
+    tools: [],
+    emit: () => {},
+    executeTool: async () => ({ content: '', isError: false }),
+    createClient: (callbacks: CodexLifecycleTransport) => {
+      lifecycle = callbacks;
+      return {
+        initialize: async () => {},
+        close: () => {},
+        request: async (method: string) => {
+          requests.push(method);
+          if (method === 'config/read') return config;
+          return { thread: { id: 'startup-thread' }, model: 'test-model', modelProvider: 'openai' };
+        },
+      };
+    },
+    observeStartupConfig,
+    startupSignal,
+  } as ConstructorParameters<typeof CodexConversation>[0]);
+  cleanup.push(() => {
+    c.close();
+    store.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+  return {
+    c,
+    requests,
+    config,
+    transportClose: () => lifecycle.onClose(new Error('synthetic loss')),
+  };
+}
+
+it('awaits the same-client startup config observer before creating a provider thread', async () => {
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const observe = vi.fn(async () => held);
+  const { c, requests } = startupFixture(observe);
+  const init = c.initialize();
+  await vi.waitFor(() => expect(requests).toContain('config/read'));
+  expect(observe).toHaveBeenCalledOnce();
+  expect(requests).not.toContain('thread/start');
+  release();
+  await init;
+  expect(requests).toEqual(['config/read', 'thread/start']);
+});
+
+it('permanently rejects startup after an observer veto without creating a thread', async () => {
+  const { c, requests } = startupFixture(() => {
+    throw new Error('startup veto');
+  });
+  await expect(c.initialize()).rejects.toThrow('startup veto');
+  await expect(c.initialize()).rejects.toThrow('Startup observer permanently vetoed');
+  expect(requests).toEqual(['config/read']);
+});
+
+it('captures private startup config immutably without changing the transport response', async () => {
+  let observed: unknown;
+  const { c, config } = startupFixture((event) => {
+    observed = event;
+  });
+  await c.initialize();
+  const event = observed as { cwd: string; config: { nested: { marker: string } } };
+  expect(event.cwd).toBe('/sandbox/workspaces/mgmt');
+  expect(Object.isFrozen(event)).toBe(true);
+  expect(Object.isFrozen(event.config.nested)).toBe(true);
+  config.config.nested.marker = 'changed';
+  expect(event.config.nested.marker).toBe('private-config');
+});
+
+it('rejects transport close while startup observation is pending without creating a thread', async () => {
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const observer = vi.fn(async () => held);
+  const { c, requests } = startupFixture(observer);
+  const init = c.initialize();
+  await vi.waitFor(() => expect(observer).toHaveBeenCalledOnce());
+  await expect(c.initialize()).rejects.toThrow('already initializing');
+  c.close();
+  release();
+  await expect(init).rejects.toThrow('closed or replaced');
+  expect(requests).not.toContain('thread/start');
+});
+
+it('rejects oversized private startup response without exposing it to the observer', async () => {
+  const observer = vi.fn();
+  const { c, config, requests } = startupFixture(observer);
+  config.config.nested.marker = 'x'.repeat(256 * 1024);
+  await expect(c.initialize()).rejects.toThrow('private capture bound');
+  expect(observer).not.toHaveBeenCalled();
+  expect(requests).not.toContain('thread/start');
+});
+
+it('vetoes startup of a replacement transport before resuming a provider thread', async () => {
+  let observations = 0;
+  const { c, requests, transportClose } = startupFixture(() => {
+    if (++observations > 1) throw new Error('Replacement startup denied');
+  });
+  await c.initialize();
+  transportClose();
+  await expect(c.acknowledgeRecovery()).rejects.toThrow('Replacement startup denied');
+  expect(requests).toEqual(['config/read', 'thread/start', 'config/read']);
+  await expect(c.acknowledgeRecovery()).rejects.toThrow('Startup observer permanently vetoed');
+  expect(requests).not.toContain('thread/resume');
+});
+
+it.each(['close', 'abort', 'timeout'] as const)(
+  'cancels held startup observer immediately on %s without a late thread',
+  async (kind) => {
+    vi.useFakeTimers();
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const controller = new AbortController();
+    let deliveredSignal: AbortSignal | undefined;
+    const observe = vi.fn((_event, signal) => {
+      deliveredSignal = signal;
+      return held;
+    });
+    const { c, requests } = startupFixture(observe, controller.signal);
+    let rejected = false;
+    const init = c.initialize().catch(() => {
+      rejected = true;
+    });
+    try {
+      await vi.advanceTimersByTimeAsync(1);
+      expect(observe).toHaveBeenCalledOnce();
+      if (kind === 'close') c.close();
+      if (kind === 'abort') controller.abort();
+      await vi.advanceTimersByTimeAsync(kind === 'timeout' ? 30_000 : 1);
+      expect(rejected).toBe(true);
+      expect(deliveredSignal?.aborted).toBe(true);
+      expect(requests).not.toContain('thread/start');
+      release();
+      await init;
+      await vi.advanceTimersByTimeAsync(1);
+      expect(requests).not.toContain('thread/start');
+      await expect(c.initialize()).rejects.toThrow('permanently vetoed');
+    } finally {
+      release();
+      await init;
+      vi.useRealTimers();
+    }
+  },
+);
+
+it('keeps an undefined startup rejection fail-closed', async () => {
+  const { c, requests } = startupFixture(() => Promise.reject(undefined));
+  await expect(c.initialize()).rejects.toBeUndefined();
+  expect(requests).not.toContain('thread/start');
+  await expect(c.initialize()).rejects.toThrow('permanently vetoed');
+});

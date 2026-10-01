@@ -1,3 +1,5 @@
+import { EventEmitter } from 'node:events';
+import { PassThrough } from 'node:stream';
 import {
   createSymposiumApplicationDispatchPolicy,
   selectSymposiumApplicationClaim,
@@ -4259,4 +4261,107 @@ describe('trusted durable native review transport observer', () => {
       f.close();
     }
   });
+});
+
+describe('trusted native startup observation before provider thread', () => {
+  async function startupSeat(change: 'none' | 'claim' | 'owner' | 'abort') {
+    const work = fixture();
+    const controller = new AbortController();
+    work.input.signal = controller.signal;
+    const route = admitSymposiumSeatDispatch(work.facts, profiles, work.input, hostGrants);
+    const sandbox = {
+      sandboxName: 'startup-seat',
+      workdir: '/sandbox/workspaces/mgmt',
+      cli: 'openshell',
+      gateway: 'synthetic-gateway',
+      workspace: 'synthetic-workspace',
+      gatewayInsecure: false,
+    };
+    const child = Object.assign(new EventEmitter(), {
+      stdout: new PassThrough(),
+      stderr: new PassThrough(),
+      stdin: new PassThrough(),
+      kill: () => true,
+    });
+    const launch = vi.fn(() => ({ child, confirmStopped: async () => {} }));
+    const registry = new SymposiumAttemptRegistry(join(registryDirectory(), 'startup.db'), {
+      launch: launch as never,
+      confirm: async () => {},
+    });
+    let current = true;
+    let attempt = {
+      ...work.input,
+      status: 'executing',
+      provenance: work.input.provenance,
+      seatId: work.input.seat.id,
+      claimToken: work.input.claimToken,
+      deliveryId: work.input.deliveryId,
+    };
+    const observed = vi.fn(async (event: unknown) => {
+      expect(Object.isFrozen(event)).toBe(true);
+      if (change === 'claim') attempt = { ...attempt, deliveryId: 'changed-delivery' };
+      if (change === 'owner') current = false;
+      if (change === 'abort') controller.abort();
+    });
+    let options!: import('../codex-conversation.js').CodexConversationOptions;
+    let threadStarted = false;
+    try {
+      const result = createOpenAiCodexSeat({
+        sandbox,
+        route,
+        execution: work.input,
+        store: {} as never,
+        attemptRegistry: registry,
+        verifiedControllerCommand: SYMPOSIUM_CODEX_CONTROLLER_COMMAND,
+        resolveAttempt: () => attempt as never,
+        observeStartupConfig: observed,
+        assertStartupCurrent: () => {
+          if (!current) throw new Error('Startup owner revoked');
+        },
+        createConversation: (opts) => {
+          options = opts;
+          opts.createClient({
+            onNotification: () => {},
+            onRequest: async () => ({}),
+            onClose: () => {},
+          });
+          return {
+            initialize: async () => {
+              await opts.observeStartupConfig!({
+                cwd: sandbox.workdir,
+                config: Object.freeze({ marker: 'private' }),
+              });
+              threadStarted = true;
+            },
+            getThreadId: () => 'new-thread',
+            send: async () => {},
+            interrupt: async () => {},
+            close: () => {},
+          };
+        },
+      });
+      if (change === 'none') {
+        await result;
+        expect(threadStarted).toBe(true);
+      } else {
+        await expect(result).rejects.toThrow();
+        expect(threadStarted).toBe(false);
+      }
+      expect(launch).toHaveBeenCalledOnce();
+      expect(observed).toHaveBeenCalledOnce();
+      expect(registry.observations.get(work.input.claimToken)?.status).not.toBe('accepted');
+      if (change !== 'none')
+        await expect(
+          options.observeStartupConfig!({ cwd: sandbox.workdir, config: {} }),
+        ).rejects.toThrow('permanently vetoed');
+    } finally {
+      registry.close();
+    }
+  }
+  it.each(['none', 'claim', 'owner', 'abort'] as const)(
+    'checks original reserved startup before/after await: %s',
+    async (change) => {
+      await startupSeat(change);
+    },
+  );
 });

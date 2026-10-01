@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { context, SpanStatusCode, type Span } from '@opentelemetry/api';
 import { createHash } from 'node:crypto';
+import { performance } from 'node:perf_hooks';
 import { CodexUserInput } from './codex-user-input.js';
 import type { AccountBinding, MitzoMode } from '@mitzo/protocol';
 import type { ToolDefinition } from '@mitzo/harness';
@@ -30,6 +31,11 @@ interface Rpc {
   request(method: string, params: ObjectValue): Promise<unknown>;
   close(): void;
 }
+export interface CodexStartupConfigObservation {
+  readonly cwd: string;
+  readonly config: unknown;
+}
+
 export interface CodexConversationOptions {
   ownerKind?: 'ordinary' | 'symposium';
   conversationId: string;
@@ -65,6 +71,13 @@ export interface CodexConversationOptions {
     signal: AbortSignal,
   ) => Promise<string | void>;
   beforeComplete?: (signal: AbortSignal) => Promise<void>;
+  /** Private bounded trusted observer; must stop its reads when the supplied signal aborts. */
+  observeStartupConfig?: (
+    event: CodexStartupConfigObservation,
+    signal?: AbortSignal,
+  ) => Promise<void> | void;
+  /** Original execution cancellation; trusted construction only. */
+  startupSignal?: AbortSignal;
   beforeReconnect?: () => Promise<void>;
   reconnectGuard?: (work: () => Promise<void>) => Promise<void>;
   completionHookTimeoutMs?: number;
@@ -195,6 +208,9 @@ export class CodexConversation {
   private paused = false;
   private closed = false;
   private ready = false;
+  private startupObserverVetoed = false;
+  private startupObserverInitializing = false;
+  private startupObserverAbort?: AbortController;
   private pumping?: Promise<void>;
   private recovery?: Promise<void>;
   private automaticTransportRecoveryAttempted = false;
@@ -218,6 +234,7 @@ export class CodexConversation {
     // Invalidate every in-flight request owned by this transport. Its rejection
     // is recovery fallout, not a second fatal send failure.
     this.transportGeneration += 1;
+    this.startupObserverAbort?.abort(new Error('Startup transport is closed or replaced'));
     this.ready = false;
     const active = this.active;
     this.finishTurnSpan('failed', 'transport');
@@ -257,8 +274,76 @@ export class CodexConversation {
       ? this.opts.verifyBinding(this.client, stored)
       : verifyCodexAccount(this.client, this.opts.profile, stored);
   }
+  private async observeStartupConfig(config: unknown, startupGeneration: number) {
+    if (this.opts.observeStartupConfig) {
+      if (this.startupObserverVetoed) throw new Error('Startup observer permanently vetoed');
+      try {
+        if (this.closed || startupGeneration !== this.transportGeneration)
+          throw new Error('Startup transport is closed or replaced');
+        const encoded = JSON.stringify(config);
+        if (encoded === undefined || Buffer.byteLength(encoded) > 256 * 1024)
+          throw new Error('Startup configuration exceeds private capture bound');
+        const event = { cwd: this.opts.runtimeCwd ?? this.opts.cwd, config: JSON.parse(encoded) };
+        const freeze = (value: unknown, depth = 0): void => {
+          if (depth > 32) throw new Error('Startup configuration exceeds private depth bound');
+          if (value && typeof value === 'object') {
+            for (const child of Object.values(value)) freeze(child, depth + 1);
+            Object.freeze(value);
+          }
+        };
+        freeze(event);
+        const abort = new AbortController();
+        this.startupObserverAbort = abort;
+        const signal = this.opts.startupSignal
+          ? AbortSignal.any([abort.signal, this.opts.startupSignal])
+          : abort.signal;
+        const deadline = performance.now() + 30_000;
+        const timer = setTimeout(
+          () => abort.abort(new Error('Startup observer timed out')),
+          30_000,
+        );
+        try {
+          signal.throwIfAborted();
+          await new Promise<void>((resolve, reject) => {
+            const onAbort = () => reject(signal.reason ?? new Error('Startup observer aborted'));
+            signal.addEventListener('abort', onAbort, { once: true });
+            const pending = Promise.resolve().then(() => {
+              signal.throwIfAborted();
+              return this.opts.observeStartupConfig!(event, signal);
+            });
+            void pending.then(
+              () => {
+                signal.removeEventListener('abort', onAbort);
+                resolve();
+              },
+              (error) => {
+                signal.removeEventListener('abort', onAbort);
+                reject(error);
+              },
+            );
+            if (signal.aborted) onAbort();
+          });
+          if (performance.now() >= deadline) abort.abort(new Error('Startup observer timed out'));
+          signal.throwIfAborted();
+        } finally {
+          clearTimeout(timer);
+          if (this.startupObserverAbort === abort) this.startupObserverAbort = undefined;
+        }
+        if (this.closed || startupGeneration !== this.transportGeneration)
+          throw new Error('Startup transport is closed or replaced');
+      } catch (error) {
+        this.startupObserverVetoed = true;
+        throw error;
+      }
+    }
+  }
   async initialize() {
+    if (this.startupObserverVetoed) throw new Error('Startup observer permanently vetoed');
+    if (this.opts.observeStartupConfig && this.startupObserverInitializing)
+      throw new Error('Startup observation already initializing');
     if (this.ready) throw new Error('Codex conversation already initialized');
+    if (this.opts.observeStartupConfig) this.startupObserverInitializing = true;
+    const startupGeneration = this.transportGeneration;
     await this.client.initialize();
     this.binding = await this.verifyCurrentBinding(this.opts.storedBinding);
     const toolSurfaceRevision = this.toolSurfaceRevision();
@@ -277,6 +362,7 @@ export class CodexConversation {
         includeLayers: false,
       }),
     );
+    await this.observeStartupConfig(configResponse.config, startupGeneration);
     const runtimeConfig =
       this.opts.runtimeConfig ??
       codexRuntimeOverrides(configResponse.config, this.opts.profile.workspaceId);
@@ -325,6 +411,7 @@ export class CodexConversation {
       );
     this.resetMapper(this.threadId, !state.threadId);
     this.ready = true;
+    this.startupObserverInitializing = false;
     this.opts.emit({ type: 'system', subtype: 'init', session_id: this.opts.conversationId });
     this.opts.onQueueChange?.();
   }
@@ -530,6 +617,7 @@ export class CodexConversation {
     this.opts.onQueueChange?.();
     const client = this.createClient();
     this.client = client;
+    const startupGeneration = this.transportGeneration;
     try {
       await client.initialize();
       const binding = await this.verifyCurrentBinding(this.binding);
@@ -541,6 +629,7 @@ export class CodexConversation {
           includeLayers: false,
         }),
       );
+      await this.observeStartupConfig(configResponse.config, startupGeneration);
       const runtimeConfig =
         this.opts.runtimeConfig ??
         codexRuntimeOverrides(configResponse.config, this.opts.profile.workspaceId);
@@ -645,6 +734,7 @@ export class CodexConversation {
       );
       client = this.createClient();
       this.client = client;
+      const startupGeneration = this.transportGeneration;
       await client.initialize();
       const binding = await this.verifyCurrentBinding(this.binding);
       if (binding.profileRevision !== this.binding.profileRevision)
@@ -655,6 +745,7 @@ export class CodexConversation {
           includeLayers: false,
         }),
       );
+      await this.observeStartupConfig(configResponse.config, startupGeneration);
       const runtimeConfig =
         this.opts.runtimeConfig ??
         codexRuntimeOverrides(configResponse.config, this.opts.profile.workspaceId);
@@ -1404,6 +1495,7 @@ export class CodexConversation {
   close() {
     if (this.closed) return;
     this.closed = true;
+    this.startupObserverAbort?.abort(new Error('Startup transport is closed or replaced'));
     this.paused = true;
     this.finishTurnSpan('failed', 'close');
     if (this.active) this.opts.onProviderComplete?.(this.active.command.id, 'failed');

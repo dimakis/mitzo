@@ -1446,6 +1446,7 @@ export interface SymposiumSessionRuntimeDeps extends Omit<
   /** Must come from image/controller attestation; no default launcher is inferred. */
   verifiedCodexControllerCommand?: readonly string[];
   observeDurableReviewToolResult?: import('./symposium-codex-native.js').OpenAiCodexSeatInput['observeDurableReviewToolResult'];
+  observeStartupConfig?: import('./symposium-codex-native.js').OpenAiCodexSeatInput['observeStartupConfig'];
   openNative?: SymposiumOpenShellSeatExecutorDeps['openNative'];
   /** Explicit host attestation of exact OpenShell 0.1 seat isolation and attachment semantics. */
   perSeatSandboxVerified?: boolean;
@@ -1724,6 +1725,12 @@ export function createSymposiumSessionRuntime(deps: SymposiumSessionRuntimeDeps)
                     loadConversationHistory,
                     resolveAttempt,
                     profileTools,
+                    ...(deps.observeStartupConfig
+                      ? {
+                          observeStartupConfig: deps.observeStartupConfig,
+                          assertStartupCurrent: verifyNativeToolCurrent,
+                        }
+                      : {}),
                     attemptRegistry: deps.attemptRegistry,
                     verifiedControllerCommand: deps.verifiedCodexControllerCommand,
                     ...(input.execution.seat.role === 'reviewer' &&

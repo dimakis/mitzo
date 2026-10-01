@@ -74,6 +74,21 @@ function freezeObservation<T>(value: T): T {
 }
 
 export interface OpenAiCodexSeatInput {
+  /** Trusted constructor-only startup inspection, never a public configuration field. */
+  observeStartupConfig?: (
+    event: Readonly<{
+      sessionId: string;
+      claimToken: string;
+      deliveryId: string;
+      seatId: string;
+      membershipGeneration: number;
+      controllerClaimDigest: string;
+      cwd: string;
+      config: unknown;
+    }>,
+    signal: AbortSignal,
+  ) => Promise<void> | void;
+  assertStartupCurrent?: () => void;
   sandbox: ControlledAttemptSandbox;
   route: SymposiumSeatRoute;
   execution: SymposiumSeatExecution;
@@ -140,8 +155,27 @@ export async function createCodexNativeSeat(
       typeof input.profileTools?.onToolResultDurable !== 'function')
   )
     throw new Error('Durable review observer requires paired current owner capability');
+  if (
+    input.observeStartupConfig &&
+    (typeof input.observeStartupConfig !== 'function' ||
+      typeof input.assertStartupCurrent !== 'function' ||
+      !input.attemptRegistry ||
+      !input.resolveAttempt)
+  )
+    throw new Error('Startup observer requires paired original owner capability');
   const binding = execution.seat.accountBinding;
   if (!binding) throw new Error('Codex native seat lacks account binding');
+  const startupIdentity = structuredClone({
+    claimToken: execution.claimToken,
+    sessionId: execution.sessionId,
+    seatId: execution.seat.id,
+    deliveryId: execution.deliveryId,
+    provenance: execution.provenance,
+    accountBinding: binding,
+    sandboxName: sandbox.sandboxName,
+    workdir: sandbox.workdir,
+  });
+  let startupVetoed = false;
   let callbacks:
     | {
         beforeDispatch(providerThreadId?: string): void;
@@ -357,6 +391,69 @@ export async function createCodexNativeSeat(
           return pending;
         }
       : input.profileTools?.onToolResultDurable,
+    startupSignal: execution.signal,
+    observeStartupConfig: input.observeStartupConfig
+      ? async (event, startupSignal = execution.signal) => {
+          const assertCurrent = () => {
+            if (startupVetoed) throw new Error('Native startup observer permanently vetoed');
+            startupSignal.throwIfAborted();
+            execution.signal.throwIfAborted();
+            input.assertStartupCurrent!();
+            auth.launchIdentity?.assertCurrent();
+            const controller = input.attemptRegistry!.get(startupIdentity.claimToken);
+            const attempt = input.resolveAttempt!(startupIdentity.claimToken);
+            if (
+              !controlled ||
+              controller?.state !== 'reserved' ||
+              controller.claimToken !== startupIdentity.claimToken ||
+              controller.sessionId !== startupIdentity.sessionId ||
+              controller.sandboxName !== startupIdentity.sandboxName ||
+              controller.workdir !== startupIdentity.workdir ||
+              !isDeepStrictEqual(
+                controller.artifact ?? null,
+                'version' in startupIdentity.provenance && startupIdentity.provenance.version === 3
+                  ? startupIdentity.provenance.artifact
+                  : null,
+              ) ||
+              attempt?.status !== 'executing' ||
+              attempt.claimToken !== startupIdentity.claimToken ||
+              attempt.deliveryId !== startupIdentity.deliveryId ||
+              attempt.seatId !== startupIdentity.seatId ||
+              !isDeepStrictEqual(attempt.provenance, startupIdentity.provenance) ||
+              !isDeepStrictEqual(execution.seat.accountBinding, startupIdentity.accountBinding) ||
+              execution.claimToken !== startupIdentity.claimToken ||
+              execution.sessionId !== startupIdentity.sessionId ||
+              execution.deliveryId !== startupIdentity.deliveryId ||
+              execution.seat.id !== startupIdentity.seatId ||
+              !isDeepStrictEqual(execution.provenance, startupIdentity.provenance) ||
+              sandbox.sandboxName !== startupIdentity.sandboxName ||
+              sandbox.workdir !== startupIdentity.workdir ||
+              event.cwd !== startupIdentity.workdir
+            )
+              throw new Error('Original native startup binding changed');
+          };
+          try {
+            assertCurrent();
+            await input.observeStartupConfig!(
+              freezeObservation({
+                sessionId: startupIdentity.sessionId,
+                claimToken: startupIdentity.claimToken,
+                deliveryId: startupIdentity.deliveryId,
+                seatId: startupIdentity.seatId,
+                membershipGeneration: startupIdentity.provenance.membershipGeneration!,
+                controllerClaimDigest: controllerClaimDigest(startupIdentity.claimToken),
+                cwd: event.cwd,
+                config: event.config,
+              }),
+              startupSignal,
+            );
+            assertCurrent();
+          } catch (error) {
+            startupVetoed = true;
+            throw error;
+          }
+        }
+      : undefined,
     validateModel: (model, effort) => {
       if (model !== route.model || (effort ?? null) !== route.effort)
         throw new Error('Symposium model or effort changed before native turn');

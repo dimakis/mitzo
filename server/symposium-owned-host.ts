@@ -110,6 +110,7 @@ class LoginCancelledForShutdown extends Error {
 export interface OwnedSymposiumHostOptions {
   /** Trusted construction only; never read from persisted configuration or requests. */
   observeDurableReviewToolResult?: OpenAiCodexSeatInput['observeDurableReviewToolResult'];
+  observeStartupConfig?: OpenAiCodexSeatInput['observeStartupConfig'];
   criterionChecks?: readonly CheckDefinition[];
   publicationCredentials?: readonly PublicationCredentialRegistration[];
   gateway: OwnedSymposiumGatewayOptions;
@@ -674,6 +675,26 @@ export async function createOwnedSymposiumHost(
           assertCurrent();
         }
       : undefined;
+    const observeStartupConfig = options.observeStartupConfig
+      ? async (
+          event: Parameters<NonNullable<OpenAiCodexSeatInput['observeStartupConfig']>>[0],
+          signal: AbortSignal,
+        ) => {
+          const assertCurrent = () => {
+            if (stopped || draining || controllerPaused)
+              throw new Error('Original owned startup observer is no longer current');
+            signal.throwIfAborted();
+            currentProfiles();
+          };
+          assertCurrent();
+          await track(async () => {
+            assertCurrent();
+            await options.observeStartupConfig!(event, signal);
+            assertCurrent();
+          });
+          assertCurrent();
+        }
+      : undefined;
     const seatProof = createSymposiumSubscriptionSeatProof({
       facts: options.facts,
       currentProfiles,
@@ -1126,6 +1147,7 @@ export async function createOwnedSymposiumHost(
           });
         }),
       currentProfiles,
+      observeStartupConfig,
       observeDurableReviewToolResult,
       readNativeObservation,
       publicationCredentials: options.publicationCredentials,
