@@ -1297,6 +1297,7 @@ export function installSymposiumReaderAuthority(
 
 export function getSymposiumBootstrapDependencies() {
   return {
+    reviews: symposiumReviewStore,
     facts: eventStore,
     hostGrants: symposiumHostGrants,
     successorAuthority: createSymposiumSuccessorFixAuthority({
