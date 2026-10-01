@@ -14,11 +14,16 @@ import { createOwnedCriterionReceipts } from './symposium-criterion-receipts.js'
 import { createSealedInitialReviewTransition } from './symposium-trusted-initial-transition.js';
 import { createSealedFixReviewTransition } from './symposium-trusted-fix-transition.js';
 import { createSealedReaderReviewTransition } from './symposium-trusted-reader-transition.js';
-import { createSymposiumTrustedReviewHost } from './symposium-trusted-review-host.js';
+import {
+  type TrustedReviewCompletion,
+  createSymposiumTrustedReviewHost,
+} from './symposium-trusted-review-host.js';
 import { canonicalReviewJson } from './symposium-review-records.js';
 import {
   drainSymposiumRuntimeForArtifactSeal,
   isSymposiumRuntimeDrainedForSeal,
+  isSymposiumRuntimeSealingForFence,
+  isSymposiumRuntimeUnrelatedToClaim,
 } from './symposium-session-runtime.js';
 import { reconcileStoppedApplicationPreparation } from './symposium-stopped-preparation.js';
 
@@ -136,6 +141,147 @@ export function assertCompletedReaderClaimsSettled(
     throw new Error('Completed reader runtime still has unresolved work');
 }
 
+/** Read-only proof of an already cleaned historical reader. A review record is
+ * insufficient: keep exact physical owner rows, lease admission and lineage bound. */
+export function hasCompletedReaderCleanupProof(input: {
+  context: ReviewContext;
+  completion: TrustedReviewCompletion;
+  events: Pick<
+    EventStore,
+    | 'getActiveSymposiumConfig'
+    | 'getSymposiumSeatSandbox'
+    | 'getSymposiumSealedReaderAdmission'
+    | 'getSymposiumArtifactSealByFence'
+    | 'getSymposiumMembershipHistory'
+    | 'withSymposiumHistoricalArtifactSealSnapshot'
+  >;
+  registry: Pick<SymposiumAttemptRegistry, 'pending' | 'pendingPreparations'>;
+  sourceResult: {
+    artifactRevision: string;
+    artifactHash: string;
+    evidenceRefs: string[];
+    sealDigest: string;
+  } | null;
+  currentFence: string;
+  retainedUnrelated(): boolean;
+}): boolean {
+  try {
+    const { context, completion, events } = input;
+    const { attempt, execution, observation } = completion;
+    const provenance = execution.provenance;
+    if (
+      !provenance ||
+      !('version' in provenance) ||
+      provenance.version !== 3 ||
+      !('kind' in provenance.artifact) ||
+      provenance.artifact.kind !== 'sealed_reader' ||
+      observation.status !== 'completed' ||
+      observation.terminalConflict ||
+      observation.terminalAt === null
+    )
+      return false;
+    const reference = provenance.artifact;
+    const admission = events.getSymposiumSealedReaderAdmission(
+      context.sessionId,
+      reference.readerAdmissionId,
+    );
+    const row = events.getSymposiumSeatSandbox(
+      context.sessionId,
+      attempt.actorSeatId,
+      attempt.binding.membershipGeneration,
+    );
+    const originalSeal = events.getSymposiumArtifactSealByFence(reference.sealFenceId);
+    const currentSeal = events.getSymposiumArtifactSealByFence(input.currentFence);
+    const member = events
+      .getSymposiumMembershipHistory(context.sessionId)
+      .find(
+        (value) =>
+          value.seatId === attempt.actorSeatId &&
+          value.generation === attempt.binding.membershipGeneration,
+      );
+    if (
+      !admission?.receipt ||
+      canonicalReviewJson(admission.reference) !== canonicalReviewJson(reference) ||
+      admission.receipt.bindingDigest !== artifactAdmissionDigest(admission.binding) ||
+      admission.binding.sessionId !== context.sessionId ||
+      admission.binding.workflowId !== attempt.workflowId ||
+      admission.binding.reviewAttemptId !== attempt.attemptId ||
+      admission.binding.policyReservationId !== attempt.policyReservationId ||
+      admission.binding.seatId !== attempt.actorSeatId ||
+      admission.binding.readerMembershipGeneration !== attempt.binding.membershipGeneration ||
+      admission.binding.resultingConfigRevision !== attempt.binding.configRevision ||
+      admission.binding.sealFenceId !== reference.sealFenceId ||
+      admission.binding.artifactGenerationId !== reference.artifactGenerationId ||
+      !row ||
+      row.state !== 'stopped' ||
+      !row.creationCompleted ||
+      !row.physicalId ||
+      !row.sandboxName ||
+      canonicalReviewJson(row.artifact) !== canonicalReviewJson(reference) ||
+      !member ||
+      member.action !== 'sealed_reader' ||
+      member.state !== 'active' ||
+      member.reconciliation !== 'confirmed' ||
+      member.configRevision !== attempt.binding.configRevision ||
+      !originalSeal ||
+      originalSeal.selection.sessionId !== context.sessionId ||
+      originalSeal.selection.artifact.volumeGeneration !== reference.artifactGenerationId ||
+      !currentSeal ||
+      currentSeal.selection.sessionId !== context.sessionId ||
+      !input.sourceResult ||
+      !/^[a-f0-9]{64}$/.test(input.sourceResult.sealDigest) ||
+      admission.binding.sealDigest !==
+        createHash('sha256').update(JSON.stringify(originalSeal)).digest('hex') ||
+      input.sourceResult.artifactRevision !== attempt.artifactRevision ||
+      input.sourceResult.artifactHash !== attempt.artifactHash ||
+      canonicalReviewJson(input.sourceResult.evidenceRefs) !==
+        canonicalReviewJson([`artifact-seal:${reference.sealFenceId}`]) ||
+      !input.retainedUnrelated()
+    )
+      return false;
+    const config = events.getActiveSymposiumConfig(context.sessionId);
+    if (
+      createHash('sha256')
+        .update(
+          JSON.stringify({ ...config, revision: originalSeal.selection.expectedConfigRevision }),
+        )
+        .digest('hex') !== originalSeal.configDigest
+    )
+      return false;
+    if (currentSeal.fenceId !== originalSeal.fenceId) {
+      const capturedMember = currentSeal.memberships.find(
+        (value) => value.seatId === member.seatId && value.generation === member.generation,
+      );
+      if (
+        !capturedMember ||
+        capturedMember.state !== member.state ||
+        capturedMember.reconciliation !== member.reconciliation ||
+        capturedMember.bindingDigest !==
+          createHash('sha256').update(JSON.stringify(member.bindingKey)).digest('hex')
+      )
+        return false;
+    }
+    const pending = [...input.registry.pending(), ...input.registry.pendingPreparations()];
+    if (
+      pending.some(
+        (claim) =>
+          claim.sessionId === context.sessionId &&
+          (claim.claimToken === attempt.binding.claimToken ||
+            !claim.artifact ||
+            canonicalReviewJson(claim.artifact) === canonicalReviewJson(reference)),
+      )
+    )
+      return false;
+    let proven = false;
+    events.withSymposiumHistoricalArtifactSealSnapshot(currentSeal, () => {
+      proven = true;
+    });
+    return proven;
+  } catch {
+    return false;
+  }
+}
+
 /** Trusted parent-only composition. All missing physical dependencies fail closed
  * before any review route becomes available. No request can provide a callback. */
 export function createSymposiumProductionReviewComposition(deps: {
@@ -223,6 +369,41 @@ export function createSymposiumProductionReviewComposition(deps: {
           intent.selection.expectedConfigRevision !== completion.attempt.binding.configRevision
         )
           throw new Error('Retained review artifact seal identity changed');
+        if (
+          retained &&
+          isSymposiumRuntimeSealingForFence(
+            retained.runtime,
+            events,
+            host.artifactLeaseHost,
+            context.sessionId,
+            intent.fenceId,
+          )
+        ) {
+          const seal = await sealWithRetiredReviewRuntime({
+            current: runtime(context),
+            retained,
+            seal: (selected) =>
+              host.sealSessionArtifacts!(
+                {
+                  sessionId: context.sessionId,
+                  expectedConfigRevision: completion.attempt.binding.configRevision,
+                  idempotencyKey,
+                  repositoryPath: '.',
+                },
+                selected,
+                AbortSignal.timeout(600_000),
+              ),
+            retire: (selected) => deps.retireSealedRuntime(context.sessionId, selected),
+          });
+          return {
+            seal,
+            claimToken: completion.attempt.binding.claimToken,
+            operationId: canonicalReviewJson({
+              thread: completion.observation.identity.providerThreadId,
+              turn: completion.observation.identity.providerTurnId,
+            }),
+          };
+        }
         const seal = await host.requireCompletedArtifactSeal!(
           intent.fenceId,
           AbortSignal.timeout(120_000),
@@ -426,6 +607,48 @@ export function createSymposiumProductionReviewComposition(deps: {
       events,
       reviews,
       requireReviewPageCoverage: true,
+      readerCleanupComplete(context, completion) {
+        try {
+          const workflow = reviews.get(completion.attempt.workflowId);
+          const provenance = completion.execution.provenance;
+          if (
+            workflow?.owner !== context.owner ||
+            workflow.sessionId !== context.sessionId ||
+            !provenance ||
+            !('version' in provenance) ||
+            provenance.version !== 3 ||
+            !('kind' in provenance.artifact) ||
+            provenance.artifact.kind !== 'sealed_reader'
+          )
+            return false;
+          const sourceResult = artifacts.completedSourceResult(context, {
+            workflowId: completion.attempt.workflowId,
+            artifactRevision: completion.attempt.artifactRevision,
+            artifactHash: completion.attempt.artifactHash,
+            fenceId: provenance.artifact.sealFenceId,
+          });
+          const retained = deps.retainedRuntime(context.sessionId);
+          return hasCompletedReaderCleanupProof({
+            context,
+            completion,
+            events,
+            registry: host.attemptRegistry!,
+            sourceResult,
+            currentFence: currentFence(context, currentArtifact(context)),
+            retainedUnrelated: () =>
+              !retained ||
+              isSymposiumRuntimeUnrelatedToClaim(
+                retained.runtime,
+                events,
+                host.artifactLeaseHost,
+                context.sessionId,
+                completion.attempt.binding.claimToken,
+              ),
+          });
+        } catch {
+          return false;
+        }
+      },
       async retireCompletedReader(context, completion) {
         const provenance = completion.execution.provenance;
         if (

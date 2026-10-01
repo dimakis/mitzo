@@ -112,6 +112,55 @@ export function createOwnedReviewArtifactResults(
   return {
     close: () => db.close(),
     currentOrNull,
+    /** Only an immutable completed owner result may identify a retired reader's
+     * historical input. Never select the latest artifact as a history substitute. */
+    completedSourceResult(
+      context: ReviewContext,
+      input: {
+        workflowId: string;
+        artifactRevision: string;
+        artifactHash: string;
+        fenceId: string;
+      },
+    ): (Result & { sealDigest: string }) | null {
+      const rows = db
+        .prepare(
+          `SELECT * FROM symposium_review_artifact_results
+        WHERE session_id=? AND workflow_id=? AND fence_id=?
+          AND json_extract(result_json,'$.artifactRevision')=?
+          AND json_extract(result_json,'$.artifactHash')=?`,
+        )
+        .all(
+          context.sessionId,
+          input.workflowId,
+          input.fenceId,
+          input.artifactRevision,
+          input.artifactHash,
+        ) as Array<Record<string, unknown>>;
+      if (rows.length > 1) throw new Error('Historical completed source is ambiguous');
+      const row = rows[0];
+      if (!row) return null;
+      const value = WorkResultSchema.parse(JSON.parse(String(row.result_json)));
+      const sealDigest = String(row.seal_digest);
+      const expectedResultId = `review-result-${hash({
+        sessionId: context.sessionId,
+        attemptId: row.attempt_id,
+        claimToken: row.claim_token,
+        operationId: row.operation_id,
+        fenceId: input.fenceId,
+        sealDigest,
+      })}`;
+      if (
+        !/^[a-f0-9]{64}$/.test(sealDigest) ||
+        value.resultId !== expectedResultId ||
+        value.attemptId !== row.attempt_id ||
+        value.completedAt !== row.completed_at ||
+        canonicalReviewJson(value.evidenceRefs) !==
+          canonicalReviewJson([`artifact-seal:${input.fenceId}`])
+      )
+        throw new Error('Historical completed source binding changed');
+      return { ...value, sealDigest };
+    },
     currentResult(context: ReviewContext): Result | null {
       const row = db
         .prepare(

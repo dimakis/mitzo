@@ -77,6 +77,10 @@ import { PhysicalArtifactSealer } from '../symposium-physical-artifact-seal.js';
 import { ArtifactPodmanContext, ArtifactCommandNotDispatched } from '../symposium-artifact-host.js';
 import {
   isSymposiumRuntimeDrainedForSeal,
+  isSymposiumRuntimeSealingForFence,
+  drainSymposiumRuntimeForArtifactSeal,
+  withSymposiumRuntimeAcceptedClaim,
+  isSymposiumRuntimeUnrelatedToClaim,
   createSymposiumSessionRuntime,
 } from '../symposium-session-runtime.js';
 import { initializeSymposiumNativeHost } from '../symposium-native-host.js';
@@ -499,6 +503,7 @@ async function fixture(inspectionPaths = ['file'], streaming = true, independent
         inspectReserved: async () =>
           phase === 'Absent' ? undefined : { phase, id: physicalId, name: sandboxName },
         stop: async () => {
+          if ('failDrain' in state && state.failDrain) throw new Error('Original drain failed');
           phase = 'Stopped';
         },
         delete: async () => {
@@ -552,6 +557,51 @@ it.each(['missing', 'duplicate', 'foreign', 'malformed'] as const)(
       /Artifact census inspection changed|Artifact mount census is incomplete/,
     );
     expect(f.command.mock.calls.some(([args]) => args[0] === 'create')).toBe(false);
+  },
+);
+
+it.each(['drain', 'verification'] as const)(
+  'recovers only the exact pending physical seal after %s failure',
+  async (failure) => {
+    const f = await fixture();
+    if (failure === 'drain') Object.assign(f.state, { failDrain: true });
+    else f.state.extraMount = true;
+    await expect(f.sealer.seal(f.input, f.runtime, new AbortController().signal)).rejects.toThrow();
+    const intent = f.store.getSymposiumArtifactSealIntent('symposium', 'generation')!;
+    expect(intent.status).toBe('pending_unsealed');
+    expect(
+      isSymposiumRuntimeSealingForFence(f.runtime, f.store, f.host, 'symposium', intent.fenceId),
+    ).toBe(true);
+    expect(
+      isSymposiumRuntimeSealingForFence({}, f.store, f.host, 'symposium', intent.fenceId),
+    ).toBe(false);
+    expect(
+      isSymposiumRuntimeSealingForFence(f.runtime, f.store, {}, 'symposium', intent.fenceId),
+    ).toBe(false);
+    expect(
+      isSymposiumRuntimeSealingForFence(f.runtime, f.store, f.host, 'symposium', 'other'),
+    ).toBe(false);
+    if (failure === 'drain')
+      expect(
+        isSymposiumRuntimeDrainedForSeal(f.runtime, f.store, f.host, 'symposium', intent.fenceId),
+      ).toBe(false);
+    await expect(
+      drainSymposiumRuntimeForArtifactSeal(
+        f.runtime,
+        f.store,
+        f.host,
+        'symposium',
+        new AbortController().signal,
+        'other',
+      ),
+    ).rejects.toThrow('Artifact seal runtime fence changed');
+    Object.assign(f.state, { failDrain: false, extraMount: false });
+    const receipt = await f.sealer.seal(f.input, f.runtime, new AbortController().signal);
+    expect(receipt.fenceId).toBe(intent.fenceId);
+    expect(f.command.mock.calls.filter(([args]) => args[0] === 'create')).toHaveLength(1);
+    expect(
+      isSymposiumRuntimeDrainedForSeal(f.runtime, f.store, f.host, 'symposium', intent.fenceId),
+    ).toBe(true);
   },
 );
 
@@ -1749,3 +1799,119 @@ it('exports a sealed writer after a proven independent reader advances the confi
   await expect(f.sealer.checkCompletedArtifactFile(checkInput, signal)).rejects.toThrow();
   expect(f.command.mock.calls.filter(([args]) => args[0] === 'create')).toHaveLength(helperCount);
 });
+
+it('tracks exact native acceptance before a lost persistence response and distinguishes fresh runtimes', async () => {
+  const f = await fixture();
+  const input = {
+    claimToken: 'original-reader',
+    deliveryId: 'delivery',
+    seatId: 'reviewer',
+    providerThreadId: 'thread',
+    providerTurnId: 'turn',
+    acceptedAt: 12,
+  };
+  const provenance = {
+    version: 3,
+    seatId: 'reviewer',
+    membershipGeneration: 1,
+    configRevision: 4,
+    artifact: {
+      version: 1,
+      kind: 'sealed_reader',
+      readerAdmissionId: 'reader',
+      sealFenceId: 'fence',
+      artifactGenerationId: 'generation',
+      bindingDigest: 'a'.repeat(64),
+    },
+  };
+  const attempt = { ...input, provenance } as unknown as NonNullable<
+    ReturnType<typeof f.store.getSymposiumRecipientAttemptByClaimToken>
+  >;
+  const lookup = vi
+    .spyOn(f.store, 'getSymposiumRecipientAttemptByClaimToken')
+    .mockReturnValue(attempt);
+  vi.spyOn(f.store, 'getSymposiumDelivery').mockReturnValue({
+    sessionId: 'symposium',
+  } as NonNullable<ReturnType<typeof f.store.getSymposiumDelivery>>);
+  vi.spyOn(f.native.registry.observations, 'get').mockReturnValue({
+    identity: { ...input, sessionId: 'symposium', provenance },
+  } as unknown as NonNullable<ReturnType<typeof f.native.registry.observations.get>>);
+  expect(
+    isSymposiumRuntimeUnrelatedToClaim(f.runtime, f.store, f.host, 'symposium', input.claimToken),
+  ).toBe(true);
+  expect(
+    isSymposiumRuntimeUnrelatedToClaim({}, f.store, f.host, 'symposium', input.claimToken),
+  ).toBe(false);
+  expect(
+    isSymposiumRuntimeUnrelatedToClaim(f.runtime, f.store, {}, 'symposium', input.claimToken),
+  ).toBe(false);
+  const record = vi.fn(() => {
+    throw Error('Lost recordAccepted response');
+  });
+  expect(() => withSymposiumRuntimeAcceptedClaim(f.runtime, input, record)).toThrow(
+    'Lost recordAccepted response',
+  );
+  expect(
+    isSymposiumRuntimeUnrelatedToClaim(f.runtime, f.store, f.host, 'symposium', input.claimToken),
+  ).toBe(false);
+  expect(
+    isSymposiumRuntimeUnrelatedToClaim(f.runtime, f.store, f.host, 'symposium', 'other-reader'),
+  ).toBe(true);
+  record.mockClear();
+  expect(() =>
+    withSymposiumRuntimeAcceptedClaim(f.runtime, { ...input, providerTurnId: 'wrong' }, record),
+  ).toThrow('Native acceptance claim witness changed');
+  expect(record).not.toHaveBeenCalled();
+  expect(
+    isSymposiumRuntimeUnrelatedToClaim(f.runtime, f.store, f.host, 'symposium', 'other-reader'),
+  ).toBe(false);
+  lookup.mockReturnValue({ ...attempt, deliveryId: 'unrelated' });
+  expect(() =>
+    withSymposiumRuntimeAcceptedClaim(f.runtime, { ...input, claimToken: 'new' }, record),
+  ).toThrow('Native acceptance claim witness changed');
+});
+
+it('keeps verifier creation uncertainty blocked on original pending seal replay', async () => {
+  const f = await fixture();
+  f.state.failCreate = true;
+  await expect(f.sealer.seal(f.input, f.runtime, new AbortController().signal)).rejects.toThrow();
+  const intent = f.store.getSymposiumArtifactSealIntent('symposium', 'generation')!;
+  f.state.failCreate = false;
+  await expect(f.sealer.seal(f.input, f.runtime, new AbortController().signal)).rejects.toThrow(
+    'Artifact seal retained phase requires explicit reconciliation',
+  );
+  expect(f.command.mock.calls.filter(([args]) => args[0] === 'create')).toHaveLength(1);
+  expect(f.store.getSymposiumArtifactSealIntent('symposium', 'generation')?.fenceId).toBe(
+    intent.fenceId,
+  );
+});
+
+it.each(['lookup', 'mismatch'] as const)(
+  'invalidates unrelated-runtime evidence when native acceptance %s is uncertain',
+  async (failure) => {
+    const f = await fixture();
+    const input = {
+      claimToken: 'original-reader',
+      deliveryId: 'delivery',
+      seatId: 'reviewer',
+      providerThreadId: 'thread',
+      providerTurnId: 'turn',
+      acceptedAt: 12,
+    };
+    const lookup = vi.spyOn(f.store, 'getSymposiumRecipientAttemptByClaimToken');
+    if (failure === 'lookup')
+      lookup.mockImplementation(() => {
+        throw Error('Receipt lookup unavailable');
+      });
+    else lookup.mockReturnValue(undefined);
+    const record = vi.fn(() => true);
+    expect(
+      isSymposiumRuntimeUnrelatedToClaim(f.runtime, f.store, f.host, 'symposium', input.claimToken),
+    ).toBe(true);
+    expect(() => withSymposiumRuntimeAcceptedClaim(f.runtime, input, record)).toThrow();
+    expect(record).not.toHaveBeenCalled();
+    expect(
+      isSymposiumRuntimeUnrelatedToClaim(f.runtime, f.store, f.host, 'symposium', input.claimToken),
+    ).toBe(false);
+  },
+);

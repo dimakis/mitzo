@@ -18,6 +18,7 @@ import {
 import type { NativeTurnObservation } from '../symposium-native-observations.js';
 import type { SymposiumOrchestrator } from '../symposium-orchestrator.js';
 import { canonicalReviewJson } from '../symposium-review-records.js';
+import { SymposiumReviewCoordinator } from '../symposium-review-coordinator.js';
 const hash = 'a'.repeat(64),
   context = { owner: 'user', sessionId: 'session' };
 const seat = (id: string, role: string): SeatConfig => ({
@@ -526,10 +527,12 @@ it.each(['completed', 'malformed', 'coverage', 'drain-failed'] as const)(
         );
       expect(f.deps.artifacts.refresh).not.toHaveBeenCalled();
       if (mode === 'completed' || mode === 'drain-failed') {
-        expect(f.host.completedReview(context, 'review')).toMatchObject({ findings: [] });
+        if (mode === 'drain-failed') expect(f.host.completedReview(context, 'review')).toBeNull();
+        else expect(f.host.completedReview(context, 'review')).toMatchObject({ findings: [] });
         expect(f.deps.retireCompletedReader).toHaveBeenCalledOnce();
         const calls = vi.mocked(f.deps.retireCompletedReader).mock.calls.length;
-        expect(f.host.completedReview(context, 'review')).toMatchObject({ findings: [] });
+        if (mode === 'drain-failed') expect(f.host.completedReview(context, 'review')).toBeNull();
+        else expect(f.host.completedReview(context, 'review')).toMatchObject({ findings: [] });
         expect(f.deps.retireCompletedReader).toHaveBeenCalledTimes(calls);
       } else expect(f.deps.retireCompletedReader).not.toHaveBeenCalled();
       expect(f.runtime.deliver).toHaveBeenCalledOnce();
@@ -580,6 +583,220 @@ it('reconciles a completed initial operation on a later request after a lost res
     expect.objectContaining({ attempt: expect.objectContaining({ attemptId: 'initial' }) }),
   );
   f.reviews.close();
+});
+it('reconciles original reader cleanup after a lost response before exposing its review without redispatch', async () => {
+  const f = fixture('review');
+  const planned = prepare(f, 'review');
+  completed(f, planned, JSON.stringify({ findings: [], resolvedFingerprints: [] }));
+  const retire = vi.fn(async () => {});
+  retire.mockRejectedValueOnce(new Error('Original reader cleanup uncertain'));
+  f.deps.retireCompletedReader = retire;
+  const reopened = createSymposiumTrustedReviewHost(f.deps);
+  try {
+    await expect(reopened.refreshArtifact!(context)).rejects.toThrow(
+      'Original reader cleanup uncertain',
+    );
+    expect(reopened.completedReview(context, 'review')).toBeNull();
+    await reopened.refreshArtifact!(context);
+    expect(reopened.completedReview(context, 'review')).toMatchObject({ findings: [] });
+    await reopened.refreshArtifact!(context);
+    expect(retire).toHaveBeenCalledTimes(2);
+    expect(retire).toHaveBeenLastCalledWith(
+      context,
+      expect.objectContaining({
+        attempt: expect.objectContaining({
+          attemptId: planned.attemptId,
+          binding: planned.binding,
+        }),
+      }),
+    );
+    expect(f.runtime.deliver).not.toHaveBeenCalled();
+    expect(f.runtime.stageDelivery).toHaveBeenCalledOnce();
+    expect(f.deps.artifacts.refresh).not.toHaveBeenCalled();
+  } finally {
+    f.reviews.close();
+  }
+});
+it('requires cleanup despite generic settlement and a recorded review until exact physical absence is proven', async () => {
+  const f = fixture('review');
+  const planned = prepare(f, 'review');
+  completed(f, planned, JSON.stringify({ findings: [], resolvedFingerprints: [] }));
+  const retire = vi.fn(async () => {});
+  f.deps.retireCompletedReader = retire;
+  const host = createSymposiumTrustedReviewHost(f.deps);
+  try {
+    // A policy settlement is not a retirement receipt.
+    vi.spyOn(f.reviews, 'applicationWorkflowForSession').mockImplementation(() => ({
+      ...f.reviews.get('workflow')!,
+      applicationAttempts: f.reviews
+        .get('workflow')!
+        .applicationAttempts.map((item) => ({ ...item, settled: true })),
+    }));
+    expect(host.completedReview(context, 'review')).toBeNull();
+    await host.refreshArtifact!(context);
+    expect(retire).toHaveBeenCalledOnce();
+    const review = host.completedReview(context, 'review')!;
+    const coordinator = new SymposiumReviewCoordinator(f.reviews, host);
+    expect(
+      coordinator.recordReview(context, {
+        workflowId: 'workflow',
+        attemptId: 'review',
+        reviewId: review.reviewId,
+      }),
+    ).toMatchObject({ status: 'awaiting_evidence' });
+    retire.mockRejectedValue(new Error('Legacy recorded reader cleanup remains uncertain'));
+    const reopened = createSymposiumTrustedReviewHost(f.deps);
+    await expect(reopened.refreshArtifact!(context)).rejects.toThrow(
+      'Legacy recorded reader cleanup remains uncertain',
+    );
+    expect(reopened.completedReview(context, 'review')).toBeNull();
+    expect(retire).toHaveBeenCalledTimes(2);
+    f.deps.readerCleanupComplete = vi.fn(() => true);
+    await reopened.refreshArtifact!(context);
+    expect(reopened.completedReview(context, 'review')).toEqual(review);
+    expect(retire).toHaveBeenCalledTimes(2);
+    expect(f.deps.readerCleanupComplete).toHaveBeenCalledWith(
+      context,
+      expect.objectContaining({
+        attempt: expect.objectContaining({ attemptId: 'review', binding: planned.binding }),
+      }),
+    );
+    expect(f.runtime.deliver).not.toHaveBeenCalled();
+  } finally {
+    f.reviews.close();
+  }
+});
+it.each(['thread', 'turn', 'reader-fence'] as const)(
+  'rejects changed %s completion while original cleanup is in flight',
+  async (mode) => {
+    const f = fixture('review');
+    const planned = prepare(f, 'review');
+    const done = completed(f, planned, JSON.stringify({ findings: [], resolvedFingerprints: [] }));
+    let release!: () => void;
+    let entered!: () => void;
+    const started = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    f.deps.retireCompletedReader = vi.fn(async () => {
+      entered();
+      await new Promise<void>((resolve) => {
+        release = resolve;
+      });
+    });
+    const host = createSymposiumTrustedReviewHost(f.deps);
+    try {
+      const pending = host.refreshArtifact!(context);
+      await started;
+      expect(host.completedReview(context, 'review')).toBeNull();
+      if (mode === 'reader-fence') {
+        const provenance = {
+          ...done.execution.provenance,
+          version: 3,
+          artifact: { kind: 'sealed_reader', sealFenceId: 'different-fence' },
+        } as never;
+        done.execution.provenance = provenance;
+        done.observation.identity.provenance = provenance;
+      } else {
+        const key = mode === 'thread' ? 'providerThreadId' : 'providerTurnId';
+        done.execution[key] = 'changed';
+        done.observation.identity[key] = 'changed';
+      }
+      release();
+      await expect(pending).rejects.toThrow('Completed reader cleanup binding changed');
+      expect(host.completedReview(context, 'review')).toBeNull();
+      expect(f.deps.retireCompletedReader).toHaveBeenCalledOnce();
+      expect(f.runtime.deliver).not.toHaveBeenCalled();
+      expect(f.deps.artifacts.refresh).not.toHaveBeenCalled();
+    } finally {
+      f.reviews.close();
+    }
+  },
+);
+it('joins concurrent original dispatch and reader recovery on one exact cleanup', async () => {
+  const f = fixture('review');
+  const planned = prepare(f, 'review');
+  vi.spyOn(f.reviews, 'getApplicationPreparation').mockReturnValue({
+    status: 'bound',
+    policyReservationId: planned.policyReservationId,
+  } as never);
+  f.runtime.deliver.mockImplementation(async () => {
+    completed(f, planned, JSON.stringify({ findings: [], resolvedFingerprints: [] }));
+    return f.deliveries.get('delivery');
+  });
+  let release!: () => void;
+  let entered!: () => void;
+  const started = new Promise<void>((resolve) => {
+    entered = resolve;
+  });
+  f.deps.retireCompletedReader = vi.fn(async () => {
+    entered();
+    await new Promise<void>((resolve) => {
+      release = resolve;
+    });
+  });
+  try {
+    const dispatch = f.host.dispatch(context, {
+      kind: 'reserved_not_dispatched',
+      attemptId: 'review',
+      policyReservationId: planned.policyReservationId,
+      applicationAttempt: planned,
+      applicationDispatchEpoch: 0,
+      selection: f.reviews.get('workflow')!.reviewer,
+      artifactRevision: 'source',
+      artifactHash: hash,
+    });
+    await started;
+    const recovery = f.host.refreshArtifact!(context);
+    expect(f.host.completedReview(context, 'review')).toBeNull();
+    release();
+    await Promise.all([dispatch, recovery]);
+    expect(f.deps.retireCompletedReader).toHaveBeenCalledOnce();
+    expect(f.runtime.deliver).toHaveBeenCalledOnce();
+    expect(f.deps.artifacts.refresh).not.toHaveBeenCalled();
+    expect(f.host.completedReview(context, 'review')).toMatchObject({ findings: [] });
+  } finally {
+    f.reviews.close();
+  }
+});
+it('revokes cached reader completion when its current physical absence proof changes without adopting a new runtime', async () => {
+  const f = fixture('review');
+  const planned = prepare(f, 'review');
+  completed(f, planned, JSON.stringify({ findings: [], resolvedFingerprints: [] }));
+  let absent = true;
+  f.deps.readerCleanupComplete = vi.fn(() => absent);
+  f.deps.retireCompletedReader = vi.fn(async () => {});
+  const host = createSymposiumTrustedReviewHost(f.deps);
+  try {
+    await host.refreshArtifact!(context);
+    expect(host.completedReview(context, 'review')).toMatchObject({ findings: [] });
+    absent = false;
+    expect(host.completedReview(context, 'review')).toBeNull();
+    await expect(host.refreshArtifact!(context)).rejects.toThrow(
+      'Completed reader cleanup proof changed',
+    );
+    expect(f.deps.retireCompletedReader).toHaveBeenCalledOnce();
+    expect(f.runtime.deliver).not.toHaveBeenCalled();
+  } finally {
+    f.reviews.close();
+  }
+});
+it('does not cache successful reader cleanup when its post-callback physical proof is false', async () => {
+  const f = fixture('review');
+  const planned = prepare(f, 'review');
+  completed(f, planned, JSON.stringify({ findings: [], resolvedFingerprints: [] }));
+  f.deps.readerCleanupComplete = vi.fn(() => false);
+  f.deps.retireCompletedReader = vi.fn(async () => {});
+  const host = createSymposiumTrustedReviewHost(f.deps);
+  try {
+    await expect(host.refreshArtifact!(context)).rejects.toThrow(
+      'Completed reader cleanup proof changed',
+    );
+    expect(host.completedReview(context, 'review')).toBeNull();
+    expect(f.deps.retireCompletedReader).toHaveBeenCalledOnce();
+    expect(f.runtime.deliver).not.toHaveBeenCalled();
+  } finally {
+    f.reviews.close();
+  }
 });
 it('rejects a changed staged prompt before approving or dispatching', async () => {
   const f = fixture();

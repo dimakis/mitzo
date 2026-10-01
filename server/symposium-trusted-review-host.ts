@@ -59,6 +59,8 @@ export interface SymposiumTrustedReviewHostDeps {
     context: ReviewContext,
     completion: TrustedReviewCompletion,
   ): Promise<void>;
+  /** Exact physical absence/lineage proof; a legacy recorded review alone is insufficient. */
+  readerCleanupComplete?(context: ReviewContext, completion: TrustedReviewCompletion): boolean;
   registry: Pick<SymposiumAttemptRegistry, 'get' | 'observations'>;
   runtime(
     context: ReviewContext,
@@ -324,6 +326,119 @@ export function createSymposiumTrustedReviewHost(
       throw new Error('Trusted artifact result binding changed');
     return parsed;
   };
+  const parsedCompletedReview = (
+    context: ReviewContext,
+    attemptId: string,
+  ): ReturnType<SymposiumInteractiveReviewHost['completedReview']> => {
+    const done = completion(context, attemptId);
+    if (
+      !done ||
+      (done.attempt.kind !== 'review' && done.attempt.kind !== 'delta') ||
+      !done.execution.resultContent
+    )
+      return null;
+    let output: z.infer<typeof reviewOutput>;
+    try {
+      output = reviewOutput.parse(JSON.parse(done.execution.resultContent));
+    } catch {
+      return null;
+    }
+    // A clean review requires every sealed evidence page, including page zero in
+    // the prompt, to have been delivered to this exact attempt.
+    if (
+      deps.requireReviewPageCoverage &&
+      !output.failure &&
+      !deps.reviews.hasCompleteReviewPageCoverage(
+        done.attempt.workflowId,
+        attemptId,
+        output.lastPageChallenge,
+        done.observation.identity.accountBinding.provider !== 'anthropic-vertex',
+      )
+    )
+      return null;
+    return {
+      workflowId: done.attempt.workflowId,
+      reviewId: `review-${reviewRecordHash(canonicalReviewJson({ attemptId, output }))}`,
+      attemptId,
+      policyReservationId: done.attempt.policyReservationId,
+      reviewerSeatId: done.attempt.actorSeatId,
+      kind: done.attempt.kind === 'delta' ? 'delta' : 'full',
+      artifactRevision: done.attempt.artifactRevision,
+      artifactHash: done.attempt.artifactHash,
+      ...output,
+    };
+  };
+  const hasRecordedReview = (context: ReviewContext, done: TrustedReviewCompletion) => {
+    const review = parsedCompletedReview(context, done.attempt.attemptId);
+    if (!review) return false;
+    if (deps.retireCompletedReader && !deps.readerCleanupComplete?.(context, done)) return false;
+    return deps.reviews.history(done.attempt.workflowId).some((entry) => {
+      if (entry.action !== 'review_recorded') return false;
+      const record = z
+        .object({
+          reviewId: z.string(),
+          reviewerSeatId: z.string(),
+          artifactRevision: z.string(),
+          artifactHash: z.string(),
+          usage: z.object({ attemptId: z.string() }),
+        })
+        .safeParse(entry.detail);
+      return (
+        record.success &&
+        record.data.reviewId === review.reviewId &&
+        record.data.usage.attemptId === done.attempt.attemptId &&
+        record.data.reviewerSeatId === done.attempt.actorSeatId &&
+        record.data.artifactRevision === done.attempt.artifactRevision &&
+        record.data.artifactHash === done.attempt.artifactHash
+      );
+    });
+  };
+  const readerCleanupCompleted = new Set<string>();
+  const readerCleanupPending = new Map<string, Promise<void>>();
+  const cleanupIdentity = (done: TrustedReviewCompletion) =>
+    reviewRecordHash(
+      canonicalReviewJson({
+        workflowId: done.attempt.workflowId,
+        sessionId: done.observation.identity.sessionId,
+        attempt: done.attempt.attemptId,
+        binding: done.attempt.binding,
+        operationId: operation(done.observation),
+        provenance: done.execution.provenance,
+        result: done.execution.resultContent,
+      }),
+    );
+  const reconcileReaderCleanup = async (context: ReviewContext, done: TrustedReviewCompletion) => {
+    if (!parsedCompletedReview(context, done.attempt.attemptId))
+      throw new Error('Complete independent review evidence required for runtime retirement');
+    if (!deps.retireCompletedReader) return;
+    const key = cleanupIdentity(done);
+    if (readerCleanupCompleted.has(key)) {
+      if (deps.readerCleanupComplete && !deps.readerCleanupComplete(context, done))
+        throw new Error('Completed reader cleanup proof changed');
+      return;
+    }
+    const retained = readerCleanupPending.get(key);
+    if (retained) return retained;
+    const pending = (async () => {
+      await deps.retireCompletedReader!(context, done);
+      const current = completion(context, done.attempt.attemptId);
+      if (
+        !current ||
+        cleanupIdentity(current) !== key ||
+        !parsedCompletedReview(context, done.attempt.attemptId)
+      )
+        throw new Error('Completed reader cleanup binding changed');
+      if (deps.readerCleanupComplete && !deps.readerCleanupComplete(context, current))
+        throw new Error('Completed reader cleanup proof changed');
+      readerCleanupCompleted.add(key);
+    })();
+    readerCleanupPending.set(key, pending);
+    try {
+      await pending;
+    } finally {
+      if (readerCleanupPending.get(key) === pending) readerCleanupPending.delete(key);
+    }
+  };
   const host: SymposiumInteractiveReviewHost = {
     async refreshArtifact(context) {
       const prior = refreshTails.get(context.sessionId) ?? Promise.resolve();
@@ -334,10 +449,17 @@ export function createSymposiumTrustedReviewHost(
           if (!state) return;
           if (state.owner !== context.owner) throw new Error('Review workflow owner changed');
           for (const item of state.applicationAttempts) {
-            if (item.kind !== 'initial' && item.kind !== 'fix') continue;
             const done = completion(context, item.attemptId);
-            if (!done || deps.artifacts.result(context, done)) continue;
-            await deps.artifacts.refresh(context, done);
+            if (!done) continue;
+            if (item.kind === 'initial' || item.kind === 'fix') {
+              if (!deps.artifacts.result(context, done))
+                await deps.artifacts.refresh(context, done);
+            } else if (
+              (item.kind === 'review' || item.kind === 'delta') &&
+              !hasRecordedReview(context, done)
+            ) {
+              await reconcileReaderCleanup(context, done);
+            }
           }
         });
       refreshTails.set(context.sessionId, pending);
@@ -629,11 +751,7 @@ export function createSymposiumTrustedReviewHost(
         throw new Error('Trusted review completion unavailable; reconcile original operation');
       if (done.attempt.kind === 'initial' || done.attempt.kind === 'fix')
         await deps.artifacts.refresh(context, done);
-      else {
-        if (!this.completedReview(context, done.attempt.attemptId))
-          throw new Error('Complete independent review evidence required for runtime retirement');
-        await deps.retireCompletedReader?.(context, done);
-      }
+      else await reconcileReaderCleanup(context, done);
     },
     receipt(context, attemptId) {
       const done = completion(context, attemptId);
@@ -656,42 +774,17 @@ export function createSymposiumTrustedReviewHost(
     },
     completedReview(context, attemptId) {
       const done = completion(context, attemptId);
+      if (!done || (done.attempt.kind !== 'review' && done.attempt.kind !== 'delta')) return null;
+      if (done && deps.readerCleanupComplete && !deps.readerCleanupComplete(context, done))
+        return null;
       if (
-        !done ||
-        (done.attempt.kind !== 'review' && done.attempt.kind !== 'delta') ||
-        !done.execution.resultContent
+        deps.retireCompletedReader &&
+        done &&
+        !hasRecordedReview(context, done) &&
+        !readerCleanupCompleted.has(cleanupIdentity(done))
       )
         return null;
-      let output: z.infer<typeof reviewOutput>;
-      try {
-        output = reviewOutput.parse(JSON.parse(done.execution.resultContent));
-      } catch {
-        return null;
-      }
-      // A clean review requires every sealed evidence page, including page zero in
-      // the prompt, to have been delivered to this exact attempt.
-      if (
-        deps.requireReviewPageCoverage &&
-        !output.failure &&
-        !deps.reviews.hasCompleteReviewPageCoverage(
-          done.attempt.workflowId,
-          attemptId,
-          output.lastPageChallenge,
-          done.observation.identity.accountBinding.provider !== 'anthropic-vertex',
-        )
-      )
-        return null;
-      return {
-        workflowId: done.attempt.workflowId,
-        reviewId: `review-${reviewRecordHash(canonicalReviewJson({ attemptId, output }))}`,
-        attemptId,
-        policyReservationId: done.attempt.policyReservationId,
-        reviewerSeatId: done.attempt.actorSeatId,
-        kind: done.attempt.kind === 'delta' ? 'delta' : 'full',
-        artifactRevision: done.attempt.artifactRevision,
-        artifactHash: done.attempt.artifactHash,
-        ...output,
-      };
+      return parsedCompletedReview(context, attemptId);
     },
     initialResult: (context, id) => result(context, id, 'initial'),
     fixedArtifact: (context, id) => result(context, id, 'fix'),

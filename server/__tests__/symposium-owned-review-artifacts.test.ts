@@ -1,3 +1,7 @@
+import Database from 'better-sqlite3';
+import type { CompletedArtifactSeal } from '../symposium-physical-artifact-seal.js';
+import { canonicalReviewJson } from '../symposium-review-records.js';
+import { createHash } from 'node:crypto';
 import { expect, it, vi } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -120,6 +124,117 @@ it('retains an exact physical seal result and recovers it without model output',
     recovered.close();
     expect(sealCompleted).toHaveBeenCalledOnce();
   } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+it('retains the exact delta source after a second fix and rejects ambiguous or changed bindings', async () => {
+  // Offline receipt transport; the owner/journal are real, no model or physical proof invented.
+  const directory = mkdtempSync(join(tmpdir(), 'owned-review-history-'));
+  const path = join(directory, 'results.db');
+  const context = { owner: 'user', sessionId: 'session' };
+  const hash = (value: unknown) =>
+    createHash('sha256').update(canonicalReviewJson(value)).digest('hex');
+  const seals = new Map<string, CompletedArtifactSeal>();
+  let active!: CompletedArtifactSeal;
+  const ownerDeps: Parameters<typeof createOwnedReviewArtifactResults>[1] = {
+    sealCompleted: async (_context, completion) => ({
+      seal: active,
+      claimToken: completion.attempt.binding.claimToken,
+      operationId: JSON.stringify({ thread: 'thread', turn: completion.attempt.attemptId }),
+    }),
+    sealByFence: async (fence) => seals.get(fence)!,
+    sealIntent: (fence) => ({
+      fenceId: fence,
+      capturedAt: 10,
+      selection: { sessionId: 'session', artifact: { volumeGeneration: 'generation' } },
+    }),
+    volumeGeneration: () => 'generation',
+  };
+  const owner = createOwnedReviewArtifactResults(path, ownerDeps);
+  try {
+    for (const [index, kind] of ['initial', 'fix', 'fix'].entries()) {
+      const id = ['initial', 'fix1', 'fix2'][index];
+      active = {
+        kind: 'completed_artifact_seal',
+        version: 1,
+        sessionId: 'session',
+        fenceId: id,
+        git: {
+          commit: String(index + 1).repeat(40),
+          committedTreeDigest: String(index + 2).repeat(64),
+        },
+        completedAt: 20 + index,
+      } as unknown as CompletedArtifactSeal;
+      seals.set(id, active);
+      const completion = {
+        attempt: {
+          workflowId: 'workflow',
+          attemptId: id,
+          kind,
+          actorSeatId: 'coder',
+          artifactRevision: 'source',
+          artifactHash: 'a'.repeat(64),
+          binding: { claimToken: id, deliveryId: id },
+        },
+        execution: {
+          completedAt: 5,
+          status: 'delivered',
+          claimToken: id,
+          deliveryId: id,
+          seatId: 'coder',
+          providerThreadId: 'thread',
+          providerTurnId: id,
+        },
+        observation: {
+          status: 'completed',
+          terminalConflict: false,
+          terminalAt: 5,
+          identity: {
+            sessionId: 'session',
+            claimToken: id,
+            seatId: 'coder',
+            providerThreadId: 'thread',
+            providerTurnId: id,
+          },
+        },
+      };
+      await owner.refresh(context, completion as unknown as Parameters<typeof owner.refresh>[1]);
+    }
+    const source = {
+      workflowId: 'workflow',
+      artifactRevision: '2'.repeat(40),
+      artifactHash: '3'.repeat(64),
+      fenceId: 'fix1',
+    };
+    const delta1 = owner.completedSourceResult(context, source);
+    expect(delta1).toMatchObject({
+      attemptId: 'fix1',
+      artifactRevision: source.artifactRevision,
+      sealDigest: hash(seals.get('fix1')),
+    });
+    expect(owner.currentResult(context)?.attemptId).toBe('fix2');
+    expect(owner.completedSourceResult(context, { ...source, fenceId: 'fix2' })).toBeNull();
+    expect(owner.completedSourceResult({ ...context, sessionId: 'other' }, source)).toBeNull();
+    const db = new Database(path);
+    db.prepare(
+      "UPDATE symposium_review_artifact_results SET claim_token='changed' WHERE attempt_id='fix1'",
+    ).run();
+    expect(() => owner.completedSourceResult(context, source)).toThrow(
+      'Historical completed source binding changed',
+    );
+    db.prepare(
+      "UPDATE symposium_review_artifact_results SET claim_token='fix1' WHERE attempt_id='fix1'",
+    ).run();
+    db.exec(
+      "ALTER TABLE symposium_review_artifact_results RENAME TO retained_original; CREATE TABLE symposium_review_artifact_results AS SELECT * FROM retained_original; INSERT INTO symposium_review_artifact_results SELECT * FROM retained_original WHERE attempt_id='fix1'",
+    );
+    expect(() => owner.completedSourceResult(context, source)).toThrow(
+      'Historical completed source is ambiguous',
+    );
+    db.close();
+  } finally {
+    owner.close();
     rmSync(directory, { recursive: true, force: true });
   }
 });

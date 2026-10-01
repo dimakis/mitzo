@@ -3,6 +3,7 @@
  * reservations, claims, permits, controllers and filesystem/custody transitions are
  * real; account/gateway attestation, manager transport and model replies are synthetic.
  * Every disposable Podman container has network none; no provider call or publication. */
+import Database from 'better-sqlite3';
 import { expect, it, vi } from 'vitest';
 import express from 'express';
 import request from 'supertest';
@@ -355,18 +356,35 @@ it.skipIf(!physical)(
         exported.bundle,
         new AbortController().signal,
       );
+      let loseWriterStopResponse = true;
+      let loseReaderStopResponse = true;
+      let loseReaderRetirementResponse = true;
+      const injectedReaderFaults: string[] = [];
+      let losePreVerifierCensusResponse = false;
+      let armPreVerifierCensusResponse = true;
+      const injectedSealFaults: string[] = [];
       const copyCommand = async (
         args: readonly string[],
         maxOutputBytes = 16 * 1024 * 1024,
         input?: Buffer,
-      ) =>
-        execFileSync(process.env.MITZO_CONTRACT_PODMAN ?? 'podman', [...args], {
+      ) => {
+        const output = execFileSync(process.env.MITZO_CONTRACT_PODMAN ?? 'podman', [...args], {
           env: { HOME: process.env.HOME, PATH: process.env.PATH },
           input,
           encoding: 'utf8',
           timeout: 60000,
           maxBuffer: maxOutputBytes,
         });
+        if (
+          losePreVerifierCensusResponse &&
+          JSON.stringify(args) === JSON.stringify(['ps', '--all', '--no-trunc', '--format', 'json'])
+        ) {
+          losePreVerifierCensusResponse = false;
+          injectedSealFaults.push('pre-verifier census response lost');
+          throw Error('Injected lost pre-verifier census response');
+        }
+        return output;
+      };
       const gateway = {
         workspace,
         stateDirectory: root,
@@ -394,6 +412,10 @@ it.skipIf(!physical)(
             expect(all.some((row: { Id?: string; ID?: string }) => (row.Id ?? row.ID) === id)).toBe(
               false,
             );
+            if (dispatches === 1 && armPreVerifierCensusResponse) {
+              armPreVerifierCensusResponse = false;
+              losePreVerifierCensusResponse = true;
+            }
           },
         },
         new ArtifactPodmanContext(
@@ -614,8 +636,10 @@ it.skipIf(!physical)(
         };
       };
       let retained: ReturnType<typeof createSymposiumSessionRuntime> | null = null;
+      let runtimeCreations = 0;
       let dispatches = 0;
       let loseSealVerificationResponse = true;
+      let losePhysicalSealResponse = true;
       const policy = createSymposiumApplicationDispatchPolicy({
         store: reviews,
         observations: registry.observations,
@@ -634,6 +658,7 @@ it.skipIf(!physical)(
       });
       const getRuntime = () => {
         if (retained) return retained;
+        runtimeCreations += 1;
         retained = createSymposiumSessionRuntime({
           sessionId,
           store: events,
@@ -708,6 +733,16 @@ it.skipIf(!physical)(
               inspect(sandboxNameForConversation(runtimeId, 13)),
             stop: async (_runtimeId, id) => {
               await copyCommand(['stop', id]);
+              if (dispatches === 1 && loseWriterStopResponse) {
+                loseWriterStopResponse = false;
+                injectedSealFaults.push('original writer stop response lost');
+                throw Error('Injected lost original writer stop response');
+              }
+              if (dispatches === 2 && loseReaderStopResponse) {
+                loseReaderStopResponse = false;
+                injectedReaderFaults.push('original reader stop response lost');
+                throw Error('Injected lost original reader stop response');
+              }
             },
             delete: async (_runtimeId, id) => {
               await copyCommand(['rm', id]);
@@ -842,7 +877,10 @@ it.skipIf(!physical)(
               signal: AbortSignal,
             ) => {
               const seal = await sealer.seal(input, selected, signal);
-              if (dispatches === 1) throw Error('Injected lost physical seal response');
+              if (dispatches === 1 && losePhysicalSealResponse) {
+                losePhysicalSealResponse = false;
+                throw Error('Injected lost physical seal response');
+              }
               return seal;
             },
             requireCompletedArtifactSeal: async (fence: string, signal: AbortSignal) => {
@@ -951,6 +989,13 @@ it.skipIf(!physical)(
           retireSealedRuntime: (_id, selected) => {
             expect(selected).toBe(retained);
             retained = null;
+            if (dispatches === 2 && loseReaderRetirementResponse) {
+              loseReaderRetirementResponse = false;
+              injectedReaderFaults.push(
+                'original reader retirement callback response lost after eviction',
+              );
+              throw Error('Injected lost original reader retirement response');
+            }
           },
         });
       const context = { owner: 'user', sessionId };
@@ -1010,8 +1055,61 @@ it.skipIf(!physical)(
           return selected;
         };
         await expect(run('initial', 'initial')).rejects.toThrow(
+          'Symposium seat cleanup incomplete',
+        );
+        const writerMember = events.getLatestSymposiumMembership(sessionId, 'coder')!;
+        const writerReference = events.getSymposiumArtifactReference(
+          sessionId,
+          'coder',
+          writerMember.generation,
+        )!;
+        if ('kind' in writerReference) throw Error('Original writer reference required');
+        const originalSeal = events.getSymposiumArtifactSealIntent(
+          sessionId,
+          writerReference.artifactGenerationId,
+        )!;
+        const pendingSealJob = () => {
+          const db = new Database(database, { readonly: true });
+          try {
+            return db
+              .prepare(
+                'SELECT fence_id,phase,verifier_id,receipt_json FROM symposium_physical_seal_jobs',
+              )
+              .all();
+          } finally {
+            db.close();
+          }
+        };
+        expect(pendingSealJob()).toEqual([
+          {
+            fence_id: originalSeal.fenceId,
+            phase: 'draining',
+            verifier_id: null,
+            receipt_json: null,
+          },
+        ]);
+        await expect(composed.reviewHost.refreshArtifact!(context)).rejects.toThrow(
+          'Injected lost pre-verifier census response',
+        );
+        expect(pendingSealJob()).toEqual([
+          {
+            fence_id: originalSeal.fenceId,
+            phase: 'draining',
+            verifier_id: null,
+            receipt_json: null,
+          },
+        ]);
+        expect(retained).not.toBeNull();
+        await expect(composed.reviewHost.refreshArtifact!(context)).rejects.toThrow(
           'Injected lost physical seal response',
         );
+        expect(
+          events.getSymposiumArtifactSealIntent(sessionId, writerReference.artifactGenerationId)
+            ?.fenceId,
+        ).toBe(originalSeal.fenceId);
+        expect(pendingSealJob()).toMatchObject([
+          { fence_id: originalSeal.fenceId, phase: 'complete' },
+        ]);
         expect(dispatches).toBe(1);
         expect(retained).not.toBeNull();
         await expect(composed.reviewHost.refreshArtifact!(context)).rejects.toThrow(
@@ -1034,7 +1132,22 @@ it.skipIf(!physical)(
         expect(coordinator.recordInitialResult(context, 'workflow', 'initial')).toMatchObject({
           status: 'awaiting_review',
         });
-        await run('review', 'review');
+        await expect(run('review', 'review')).rejects.toThrow('Symposium seat cleanup incomplete');
+        expect(dispatches).toBe(2);
+        expect(retained).not.toBeNull();
+        const readerRuntimeCreations = runtimeCreations;
+        await expect(composed.reviewHost.refreshArtifact!(context)).rejects.toThrow(
+          'Injected lost original reader retirement response',
+        );
+        expect(retained).toBeNull();
+        await composed.reviewHost.refreshArtifact!(context);
+        expect(retained).toBeNull();
+        expect(runtimeCreations).toBe(readerRuntimeCreations);
+        expect(dispatches).toBe(2);
+        expect(
+          coordinator.recoverBoundTransition(context, 'workflow', 'review', 'review'),
+        ).toMatchObject({ kind: 'decision_required', code: 'attempt_already_dispatched' });
+
         const reviewed = composed.reviewHost.completedReview!(context, 'review')!;
         expect(
           coordinator.recordReview(context, {
@@ -1244,6 +1357,10 @@ it.skipIf(!physical)(
               selectedBefore,
               workflow: reviews.get('workflow'),
               recordHash: record.contentHash,
+              injectedSealFaults,
+              injectedReaderFaults,
+              runtimeCreations,
+              originalSealFenceId: originalSeal.fenceId,
               synthetic: [
                 'source session facts for disposable draft import',
                 'gateway identity and provider/account/grant attestation',

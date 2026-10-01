@@ -1,3 +1,4 @@
+import { canonicalReviewJson } from './symposium-review-records.js';
 import type { SubscriptionLaunchIdentity } from './symposium-subscription-identity.js';
 import type {
   SymposiumSeatPolicy,
@@ -1388,6 +1389,9 @@ const sealRuntimeBindings = new WeakMap<
     leaseHost: unknown;
     sessionId: string;
     drain: (signal: AbortSignal) => Promise<void>;
+    registry?: SymposiumAttemptRegistry;
+    acceptedClaims?: Set<string>;
+    attemptedSealFence?: string;
     drainedSealFence?: string;
   }
 >();
@@ -1418,8 +1422,91 @@ export async function drainSymposiumRuntimeForArtifactSeal(
 ): Promise<void> {
   assertSymposiumRuntimeForArtifactSeal(runtime, store, leaseHost, sessionId);
   const binding = sealRuntimeBindings.get(runtime)!;
+  if (sealFenceId) {
+    if (binding.attemptedSealFence && binding.attemptedSealFence !== sealFenceId)
+      throw new Error('Artifact seal runtime fence changed');
+    binding.attemptedSealFence = sealFenceId;
+  }
   await binding.drain(signal);
   if (sealFenceId) binding.drainedSealFence = sealFenceId;
+}
+
+/** Factory-only acceptance bookkeeping precedes the callback, whose response can
+ * be lost after persistence. The native journal and durable dispatch must agree. */
+export function withSymposiumRuntimeAcceptedClaim(
+  runtime: object,
+  input: Parameters<SymposiumSessionRuntimeDeps['recordAccepted']>[0],
+  record: SymposiumSessionRuntimeDeps['recordAccepted'],
+): boolean {
+  const binding = sealRuntimeBindings.get(runtime);
+  if (!binding) throw new Error('Native acceptance runtime custody unavailable');
+  if (binding.registry) {
+    try {
+      const attempt = binding.store.getSymposiumRecipientAttemptByClaimToken(input.claimToken);
+      const observation = binding.registry.observations.get(input.claimToken);
+      if (
+        !attempt ||
+        !observation ||
+        attempt.claimToken !== input.claimToken ||
+        attempt.deliveryId !== input.deliveryId ||
+        attempt.seatId !== input.seatId ||
+        binding.store.getSymposiumDelivery(input.deliveryId)?.sessionId !== binding.sessionId ||
+        observation.identity.sessionId !== binding.sessionId ||
+        observation.identity.claimToken !== input.claimToken ||
+        observation.identity.seatId !== input.seatId ||
+        observation.identity.providerThreadId !== input.providerThreadId ||
+        observation.identity.providerTurnId !== input.providerTurnId ||
+        !attempt.provenance ||
+        canonicalReviewJson(attempt.provenance) !==
+          canonicalReviewJson(observation.identity.provenance)
+      )
+        throw new Error('Native acceptance claim witness changed');
+      binding.acceptedClaims?.add(input.claimToken);
+    } catch (error) {
+      binding.acceptedClaims = undefined;
+      throw error;
+    }
+  }
+  return record(input);
+}
+
+/** This is only non-ownership evidence. Durable stopped reader and lineage proofs
+ * remain mandatory. Missing or legacy tracking capability proves nothing. */
+export function isSymposiumRuntimeUnrelatedToClaim(
+  runtime: object,
+  store: EventStore,
+  leaseHost: unknown,
+  sessionId: string,
+  claimToken: string,
+): boolean {
+  const binding = sealRuntimeBindings.get(runtime);
+  return (
+    !!binding &&
+    binding.store === store &&
+    binding.leaseHost === leaseHost &&
+    binding.sessionId === sessionId &&
+    !!binding.acceptedClaims &&
+    !binding.acceptedClaims.has(claimToken)
+  );
+}
+
+/** Pending seal replay is bound to the exact trusted drain attempt, even if
+ * that drain failed before confirming cleanup. It grants no completion proof. */
+export function isSymposiumRuntimeSealingForFence(
+  runtime: object,
+  store: EventStore,
+  leaseHost: unknown,
+  sessionId: string,
+  fenceId: string,
+): boolean {
+  const binding = sealRuntimeBindings.get(runtime);
+  return (
+    !!binding &&
+    binding.store === store &&
+    binding.leaseHost === leaseHost &&
+    binding.sessionId === sessionId &&
+    binding.attemptedSealFence === fenceId
+  );
 }
 
 /** A completed seal may lose its return value after its exact writer was drained.
@@ -1477,7 +1564,8 @@ export function createSymposiumSessionRuntime(deps: SymposiumSessionRuntimeDeps)
           hostGrants: deps.hostGrants,
           owner,
           verifyHostCapability: deps.verifyHostCapability,
-          recordAccepted: deps.recordAccepted,
+          recordAccepted: (input) =>
+            withSymposiumRuntimeAcceptedClaim(runtime, input, deps.recordAccepted),
           migrateThread: (claim, previous, next) =>
             deps.store.migrateSymposiumSeatThread(claim, previous, next),
           recordEvent,
@@ -1817,6 +1905,8 @@ export function createSymposiumSessionRuntime(deps: SymposiumSessionRuntimeDeps)
     leaseHost: deps.artifactLeaseHost,
     sessionId: deps.sessionId,
     drain: runtime.drain,
+    registry: deps.attemptRegistry,
+    acceptedClaims: deps.attemptRegistry ? new Set() : undefined,
   });
   return runtime;
 }

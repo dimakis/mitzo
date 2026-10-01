@@ -3,6 +3,7 @@ import { expect, it, vi } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import * as sessionRuntime from '../symposium-session-runtime.js';
 import { artifactAdmissionDigest } from '@mitzo/protocol/event-store';
 import {
   createSymposiumProductionReviewComposition,
@@ -10,6 +11,7 @@ import {
   historicalSealedResultCoderGeneration,
   sealWithRetiredReviewRuntime,
   assertCompletedReaderClaimsSettled,
+  hasCompletedReaderCleanupProof,
 } from '../symposium-production-review-composition.js';
 
 it('retires only the exact drained runtime after a physical seal completes', async () => {
@@ -233,7 +235,7 @@ it('reads the sealed coder pointer after a reviewer config transition without is
   ).toThrow('sealed coder pointer');
 });
 
-it('reconciles the exact retired writer seal after a lost response without allocating a runtime', async () => {
+async function exerciseWriterSealRecovery(pending: boolean) {
   // Offline receipt fixture; physical validity is covered by the opt-in application contract.
   const directory = mkdtempSync(join(tmpdir(), 'symposium-retired-seal-'));
   const context = { owner: 'user', sessionId: 'session' };
@@ -321,7 +323,12 @@ it('reconciles the exact retired writer seal after a lost response without alloc
     idempotencyKey: `review-seal-${createHash('sha256').update('initial').digest('hex')}`,
     artifact: { volumeGeneration: 'writer' },
   };
-  const intent = { fenceId: 'fence', capturedAt: 11, selection };
+  const intent = {
+    fenceId: 'fence',
+    capturedAt: 11,
+    status: 'pending_unsealed',
+    selection,
+  };
   const seal = {
     kind: 'completed_artifact_seal',
     version: 1,
@@ -349,10 +356,22 @@ it('reconciles the exact retired writer seal after a lost response without alloc
   const retire = vi.fn();
   const requireCompleted = vi.fn(async () => seal);
   requireCompleted.mockRejectedValueOnce(new Error('Lost completed-seal response'));
+  const original = { orchestrator: {}, runtime: {} };
   const runtime = vi.fn(() => {
+    if (pending) return original.orchestrator;
     throw Error('Must not allocate a replacement runtime');
   });
-  const sealSessionArtifacts = vi.fn();
+  const sealSessionArtifacts = vi.fn(
+    async (_input: unknown, _runtime: object, _signal: AbortSignal) => {
+      requireCompleted.mockResolvedValue(seal);
+      return seal;
+    },
+  );
+  if (pending) {
+    unrelatedRuntime = original;
+    requireCompleted.mockReset().mockRejectedValue(new Error('Artifact seal remains pending'));
+    sealSessionArtifacts.mockRejectedValueOnce(new Error('Original writer drain response lost'));
+  }
   const host = {
     gateway: { workspace: 'fixture' },
     sourceImport: {
@@ -441,11 +460,67 @@ it('reconciles the exact retired writer seal after a lost response without alloc
       retainedRuntime: () => unrelatedRuntime,
       retireSealedRuntime: retire,
     } as never);
+  const pendingMarker = pending
+    ? vi
+        .spyOn(sessionRuntime, 'isSymposiumRuntimeSealingForFence')
+        .mockImplementation(
+          (candidate, store, lease, session, fence) =>
+            candidate === original.runtime &&
+            Object.is(store, events) &&
+            lease === host.artifactLeaseHost &&
+            session === 'session' &&
+            fence === 'fence',
+        )
+    : null;
   let composed = compose();
   try {
     await expect(composed.reviewHost.refreshArtifact!(context)).rejects.toThrow(
-      'Lost completed-seal response',
+      pending ? 'Original writer drain response lost' : 'Lost completed-seal response',
     );
+    if (pending) {
+      expect(retire).not.toHaveBeenCalled();
+      for (const unavailable of [null, { orchestrator: {}, runtime: {} }]) {
+        unrelatedRuntime = unavailable;
+        await expect(composed.reviewHost.refreshArtifact!(context)).rejects.toThrow(
+          'Artifact seal remains pending',
+        );
+      }
+      unrelatedRuntime = { orchestrator: {}, runtime: original.runtime };
+      await expect(composed.reviewHost.refreshArtifact!(context)).rejects.toThrow(
+        'Exact retained native runtime required',
+      );
+      unrelatedRuntime = original;
+      pendingMarker!.mockReturnValueOnce(false);
+      await expect(composed.reviewHost.refreshArtifact!(context)).rejects.toThrow(
+        'Artifact seal remains pending',
+      );
+      for (const mismatch of ['key', 'config', 'generation', 'session'] as const) {
+        changed = mismatch;
+        await expect(composed.reviewHost.refreshArtifact!(context)).rejects.toThrow(
+          'Retained review artifact seal identity changed',
+        );
+      }
+      changed = null;
+      expect(sealSessionArtifacts).toHaveBeenCalledTimes(1);
+      expect(retire).not.toHaveBeenCalled();
+      await composed.reviewHost.refreshArtifact!(context);
+      expect(sealSessionArtifacts).toHaveBeenCalledTimes(2);
+      for (const call of sealSessionArtifacts.mock.calls) {
+        expect(call[0]).toEqual({
+          sessionId: 'session',
+          expectedConfigRevision: 2,
+          idempotencyKey: selection.idempotencyKey,
+          repositoryPath: '.',
+        });
+        expect(call[1]).toBe(original.runtime);
+      }
+      expect(retire).toHaveBeenCalledExactlyOnceWith('session', original.runtime);
+      expect(requireCompleted).toHaveBeenCalledTimes(4);
+      expect(requireCompleted.mock.invocationCallOrder[3]).toBeGreaterThan(
+        sealSessionArtifacts.mock.invocationCallOrder[1],
+      );
+      return;
+    }
     unrelatedRuntime = { orchestrator: {}, runtime: {} };
     for (const mismatch of ['key', 'config', 'generation', 'session'] as const) {
       changed = mismatch;
@@ -474,9 +549,18 @@ it('reconciles the exact retired writer seal after a lost response without alloc
     expect(retire).not.toHaveBeenCalled();
     expect(events.getSymposiumArtifactSealIntent).toHaveBeenCalledWith('session', 'writer');
   } finally {
+    pendingMarker?.mockRestore();
     composed.close();
     rmSync(directory, { recursive: true, force: true });
   }
+}
+
+it('reconciles the exact retired writer seal after a lost response without allocating a runtime', async () => {
+  await exerciseWriterSealRecovery(false);
+});
+
+it('resumes the original pending writer seal after a failed drain without a new request', async () => {
+  await exerciseWriterSealRecovery(true);
 });
 
 it('fences completed reader retirement on unresolved original claims and preparations', () => {
@@ -490,4 +574,173 @@ it('fences completed reader retirement on unresolved original claims and prepara
   expect(() => assertCompletedReaderClaimsSettled(registry, 'session')).not.toThrow();
   pending.mockReturnValue([{ sessionId: 'session' }] as never);
   expect(() => assertCompletedReaderClaimsSettled(registry, 'session')).toThrow('unresolved work');
+});
+
+it('requires exact stopped historical reader proof and preserves an unrelated fresh runtime', () => {
+  const reference = {
+    version: 1,
+    kind: 'sealed_reader',
+    readerAdmissionId: 'reader',
+    sealFenceId: 'old',
+    artifactGenerationId: 'old-generation',
+    bindingDigest: 'digest',
+  };
+  const binding = {
+    sessionId: 'session',
+    workflowId: 'workflow',
+    reviewAttemptId: 'review',
+    policyReservationId: 'policy',
+    seatId: 'reader',
+    readerMembershipGeneration: 2,
+    resultingConfigRevision: 3,
+    sealFenceId: 'old',
+    artifactGenerationId: 'old-generation',
+    sealDigest: 'a'.repeat(64),
+  };
+  const completion = {
+    attempt: {
+      workflowId: 'workflow',
+      attemptId: 'review',
+      actorSeatId: 'reader',
+      policyReservationId: 'policy',
+      artifactRevision: 'old-commit',
+      artifactHash: 'old-hash',
+      binding: { claimToken: 'claim', membershipGeneration: 2, configRevision: 3 },
+    },
+    execution: { provenance: { version: 3, artifact: reference } },
+    observation: { status: 'completed', terminalConflict: false, terminalAt: 12 },
+  };
+  let row: object | null = {
+    sessionId: 'session',
+    seatId: 'reader',
+    generation: 2,
+    state: 'stopped',
+    creationCompleted: true,
+    physicalId: 'exact-old-id',
+    sandboxName: 'exact-old-name',
+    artifact: reference,
+  };
+  let retainedUnrelated = true;
+  let revoked = false;
+  let missingMember = false;
+  let changedPolicy = false;
+  const snapshot = vi.fn((_intent: unknown, action: () => void) => {
+    if (revoked) throw Error('changed policy');
+    action();
+  });
+  const input = {
+    context: { owner: 'user', sessionId: 'session' },
+    completion,
+    events: {
+      getActiveSymposiumConfig: () => ({
+        revision: 5,
+        seats: changedPolicy ? ['changed-grant'] : [],
+      }),
+      getSymposiumSeatSandbox: () => row,
+      getSymposiumSealedReaderAdmission: () => ({
+        reference,
+        binding,
+        receipt: { bindingDigest: artifactAdmissionDigest(binding) },
+      }),
+      getSymposiumArtifactSealByFence: (fence: string) => ({
+        fenceId: fence,
+        configDigest: createHash('sha256')
+          .update(JSON.stringify({ revision: 2, seats: [] }))
+          .digest('hex'),
+        memberships: missingMember
+          ? []
+          : [
+              {
+                seatId: 'reader',
+                generation: 2,
+                state: 'active',
+                reconciliation: 'confirmed',
+                bindingDigest: createHash('sha256').update('{}').digest('hex'),
+              },
+            ],
+        selection: {
+          expectedConfigRevision: 2,
+          sessionId: 'session',
+          artifact: { volumeGeneration: fence === 'old' ? 'old-generation' : 'fresh-generation' },
+        },
+      }),
+      getSymposiumMembershipHistory: () => [
+        {
+          seatId: 'reader',
+          generation: 2,
+          action: 'sealed_reader',
+          state: 'active',
+          reconciliation: 'confirmed',
+          configRevision: 3,
+          bindingKey: {},
+        },
+      ],
+      withSymposiumHistoricalArtifactSealSnapshot: snapshot,
+    },
+    registry: { pending: () => [], pendingPreparations: () => [] },
+    sourceResult: {
+      artifactRevision: 'old-commit',
+      artifactHash: 'old-hash',
+      evidenceRefs: ['artifact-seal:old'],
+      sealDigest: 'a'.repeat(64),
+    },
+    currentFence: 'fresh',
+    retainedUnrelated: () => retainedUnrelated,
+  } as unknown as Parameters<typeof hasCompletedReaderCleanupProof>[0];
+  binding.sealDigest = createHash('sha256')
+    .update(JSON.stringify(input.events.getSymposiumArtifactSealByFence('old')))
+    .digest('hex');
+  expect(hasCompletedReaderCleanupProof(input)).toBe(true);
+  input.sourceResult!.sealDigest = 'different-physical-seal';
+  expect(hasCompletedReaderCleanupProof(input)).toBe(false);
+  input.sourceResult!.sealDigest = 'a'.repeat(64);
+  input.sourceResult!.evidenceRefs.push('artifact-seal:old');
+  expect(hasCompletedReaderCleanupProof(input)).toBe(false);
+  input.sourceResult!.evidenceRefs.pop();
+  const retainedSourceResult = input.sourceResult;
+  input.sourceResult = null;
+  expect(hasCompletedReaderCleanupProof(input)).toBe(false);
+  input.sourceResult = retainedSourceResult;
+  missingMember = true;
+  expect(hasCompletedReaderCleanupProof(input)).toBe(false);
+  missingMember = false;
+  changedPolicy = true;
+  expect(hasCompletedReaderCleanupProof(input)).toBe(false);
+  changedPolicy = false;
+  retainedUnrelated = false;
+  expect(hasCompletedReaderCleanupProof(input)).toBe(false);
+  retainedUnrelated = true;
+  row = null;
+  expect(hasCompletedReaderCleanupProof(input)).toBe(false);
+  row = {
+    sessionId: 'session',
+    seatId: 'reader',
+    generation: 2,
+    state: 'ready',
+    artifact: reference,
+  };
+  expect(hasCompletedReaderCleanupProof(input)).toBe(false);
+  row = {
+    sessionId: 'session',
+    seatId: 'reader',
+    generation: 2,
+    state: 'stopped',
+    creationCompleted: true,
+    physicalId: 'exact-old-id',
+    sandboxName: 'exact-old-name',
+    artifact: { ...reference, sealFenceId: 'changed' },
+  };
+  expect(hasCompletedReaderCleanupProof(input)).toBe(false);
+  row = {
+    sessionId: 'session',
+    seatId: 'reader',
+    generation: 2,
+    state: 'stopped',
+    creationCompleted: true,
+    physicalId: 'exact-old-id',
+    sandboxName: 'exact-old-name',
+    artifact: reference,
+  };
+  revoked = true;
+  expect(hasCompletedReaderCleanupProof(input)).toBe(false);
 });
