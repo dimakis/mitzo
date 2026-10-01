@@ -954,6 +954,7 @@ describe('production Symposium route to native runtime', () => {
             if (nativeSubscription)
               return createChatGptSubscriptionSeat({
                 ...input,
+                attemptRegistry: registry,
                 store: {} as never,
                 verifyPrivateAuth: async () => undefined,
                 createConversation: (opts) => ({
@@ -1020,6 +1021,18 @@ describe('production Symposium route to native runtime', () => {
                     workspace: runtimeConfig.workspace,
                     gatewayInsecure: runtimeConfig.gatewayInsecure,
                   },
+                });
+                // Fake API transport must persist the same verified acceptance journal
+                // as the actual native owner before invoking its parent receipt callback.
+                registry.observations.accept({
+                  claimToken: execution.claimToken,
+                  sessionId: execution.sessionId,
+                  seatId: execution.seat.id,
+                  membershipGeneration: execution.provenance.membershipGeneration!,
+                  accountBinding: execution.seat.accountBinding!,
+                  provenance: execution.provenance,
+                  providerThreadId: 'thread-1',
+                  providerTurnId: 'turn-restart',
                 });
                 callbacks.accepted('thread-1', 'turn-restart');
                 onEvent?.({
@@ -1090,6 +1103,18 @@ describe('production Symposium route to native runtime', () => {
       void runtime.orchestrator.deliver(delivery.deliveryId);
       await vi.waitFor(() => expect(dispatched).toBeDefined());
       const execution = dispatched!;
+      const acceptedObservation = registry.observations.get(execution.claimToken);
+      expect(acceptedObservation?.identity).toEqual({
+        claimToken: execution.claimToken,
+        sessionId: execution.sessionId,
+        seatId: execution.seat.id,
+        membershipGeneration: execution.provenance.membershipGeneration,
+        accountBinding: execution.seat.accountBinding,
+        provenance: execution.provenance,
+        providerThreadId: 'thread-1',
+        providerTurnId: 'turn-restart',
+      });
+
       expect(execution.seat.accountBinding?.provider).toBe(
         nativeSubscription ? 'openai-codex' : 'openai',
       );
@@ -1107,6 +1132,7 @@ describe('production Symposium route to native runtime', () => {
       store = new EventStore(path);
       expect(store.getSessionEvents('symposium')).toEqual(durableBeforeRestart);
       registry = new SymposiumAttemptRegistry(claimsPath, transport);
+      expect(registry.observations.get(execution.claimToken)).toEqual(acceptedObservation);
       const restarted = makeRuntime();
       const cancel = () =>
         restarted.orchestrator.cancel({
