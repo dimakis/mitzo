@@ -8,12 +8,10 @@ import { apiFetch } from '../../lib/api-fetch';
 vi.mock('../../lib/api-fetch', () => ({ apiFetch: vi.fn() }));
 afterEach(cleanup);
 beforeEach(() =>
-  vi
-    .mocked(apiFetch)
-    .mockResolvedValue({
-      ok: true,
-      json: async () => ({ content: 'Expanded document content' }),
-    } as Response),
+  vi.mocked(apiFetch).mockResolvedValue({
+    ok: true,
+    json: async () => ({ content: 'Expanded document content' }),
+  } as Response),
 );
 
 function Harness({ content, sessionId }: { content: string; sessionId: string }) {
