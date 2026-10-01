@@ -1,9 +1,11 @@
 # Voice Integration (Yapper)
 
-**Status:** Proposed
+**Status:** Historical April 2026 proposal
 **Date:** 2026-04-05
 **Depends on:** Yapper scaffold (#1), Yapper design doc implementation (#5)
 **Author:** Claude (with Dimitri)
+
+For the current speech-input implementation and rollout, see [Streaming speech input](streaming-stt.md). The client-direct transport, hold-to-talk interaction, and automatic read-aloud recommendations below describe the original proposal and are not the current behavior.
 
 ## Context
 

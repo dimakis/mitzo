@@ -52,6 +52,9 @@ export function useFileNavigation(
   const rootParam = searchParams.get('root') || '';
   const sessionId = searchParams.get('sessionId') || '';
   const isViewing = !!filePath;
+  const identity = JSON.stringify([filePath, sessionId]);
+  const [resolvedFile, setResolvedFile] = useState<{ identity: string; path: string } | null>(null);
+  const openedPath = resolvedFile?.identity === identity ? resolvedFile.path : filePath;
 
   const [content, setContent] = useState('');
   const [ext, setExt] = useState('');
@@ -95,6 +98,7 @@ export function useFileNavigation(
   }, []);
 
   useEffect(() => {
+    let disposed = false;
     setLoading(true);
     setError('');
 
@@ -112,11 +116,20 @@ export function useFileNavigation(
           return r.json();
         })
         .then((data) => {
+          if (disposed) return;
+          setResolvedFile({
+            identity,
+            path: typeof data.path === 'string' && data.path ? data.path : filePath,
+          });
           setContent(data.content);
           setExt(data.ext);
         })
-        .catch((err) => setError(err.message))
-        .finally(() => setLoading(false));
+        .catch((err) => {
+          if (!disposed) setError(err.message);
+        })
+        .finally(() => {
+          if (!disposed) setLoading(false);
+        });
     } else {
       apiFetch(`/api/files?${directoryParams.toString()}`)
         .then(async (r) => {
@@ -127,14 +140,22 @@ export function useFileNavigation(
           return r.json();
         })
         .then((data) => {
+          if (disposed) return;
           setEntries(data.entries);
           setCurrentDir(data.dir);
           setBrowserRoot(data.root);
         })
-        .catch((err) => setError(err.message))
-        .finally(() => setLoading(false));
+        .catch((err) => {
+          if (!disposed) setError(err.message);
+        })
+        .finally(() => {
+          if (!disposed) setLoading(false);
+        });
     }
-  }, [filePath, dirPath, isViewing, activeRoot, sessionId]);
+    return () => {
+      disposed = true;
+    };
+  }, [identity, filePath, dirPath, isViewing, activeRoot, sessionId]);
 
   function navigationParams(): Record<string, string> {
     const params: Record<string, string> = {};
@@ -171,8 +192,8 @@ export function useFileNavigation(
   function handleBack(dirty: boolean) {
     if (dirty && !confirm('Discard unsaved changes?')) return;
     if (isViewing) {
-      const lastSlash = filePath.lastIndexOf('/');
-      const parentDir = lastSlash < 0 ? '' : filePath.slice(0, lastSlash) || '/';
+      const lastSlash = openedPath.lastIndexOf('/');
+      const parentDir = lastSlash < 0 ? '' : openedPath.slice(0, lastSlash) || '/';
       const params = navigationParams();
       if (parentDir) params.dir = parentDir;
       setSearchParams(params);
@@ -203,7 +224,7 @@ export function useFileNavigation(
     roots,
     activeRoot,
     isViewing,
-    filePath,
+    filePath: openedPath,
     dirPath,
     sessionId,
   };

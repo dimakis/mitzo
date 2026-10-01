@@ -2192,7 +2192,10 @@ textarea:focus {
   font-size: var(--text-xs);
 }
 
-.code-block-wrapper:hover .code-block-copy {
+.code-block-wrapper:hover .code-block-copy,
+.code-block-wrapper:focus-within .code-block-copy,
+.mermaid-block:hover .code-block-copy,
+.mermaid-block:focus-within .code-block-copy {
   opacity: 1;
 }
 
@@ -2208,6 +2211,29 @@ textarea:focus {
   .code-block-copy {
     opacity: 0.5;
   }
+}
+
+/* ===== Mermaid Diagrams ===== */
+
+.mermaid-block {
+  position: relative;
+  margin: 0.5em 0;
+  border-radius: 6px;
+  background: var(--code-bg);
+  border: 1px solid var(--border);
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.mermaid-block-svg {
+  padding: 0.75rem;
+  display: flex;
+  justify-content: center;
+}
+
+.mermaid-block-svg svg {
+  max-width: 100%;
+  height: auto;
 }
 
 /* ===== Collapsible Messages ===== */
@@ -7359,4 +7385,159 @@ option {
   .symposium-profile-proposal {
     grid-template-columns: minmax(0, 1fr);
   }
+}
+
+/* File actions stay discoverable in cards and compact phone headers. */
+.share-btn--visible,
+.share-btn:focus-visible {
+  opacity: 1;
+  min-width: 2.25rem;
+  min-height: 2.25rem;
+  flex-shrink: 0;
+}
+
+.share-error {
+  color: var(--error, #f87171);
+  font-size: var(--text-xs);
+}
+
+.viewer-header,
+.md-preview-card-header {
+  flex-wrap: wrap;
+}
+
+.viewer-header-title {
+  flex: 1;
+}
+
+.viewer-header .share-error,
+.md-preview-card-header .share-error {
+  order: 10;
+  flex-basis: 100%;
+}
+
+@media (max-width: 480px) {
+  .viewer-header {
+    gap: 0.35rem;
+  }
+  .viewer-header-branch {
+    max-width: 5rem;
+  }
+}
+
+/* Document editing: keep controls reachable above the iOS keyboard. */
+.viewer-page {
+  height: 100dvh;
+  bottom: auto;
+}
+.viewer-content--editing {
+  display: flex;
+  overflow: hidden;
+}
+.document-editor {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  min-height: 0;
+}
+.document-editor-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  padding: 0.5rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+.document-editor-toolbar button {
+  min-height: 44px;
+  min-width: 44px;
+  padding: 0.4rem 0.6rem;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+}
+.document-editor-toolbar button[aria-pressed='true'] {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.document-editor-toolbar button:disabled {
+  opacity: 0.45;
+}
+.document-editor-modes {
+  display: flex;
+  gap: 0.25rem;
+}
+.document-editor-panes {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+.document-editor .viewer-editor {
+  width: 50%;
+  height: auto;
+  font-size: 16px;
+  line-height: 1.65;
+  tab-size: 2;
+}
+.document-editor-preview {
+  flex: 1;
+  min-width: 0;
+  overflow: auto;
+}
+.document-editor-preview .html-preview {
+  height: 100%;
+  min-height: 0;
+}
+.document-editor-footer,
+.document-editor-status {
+  padding: 0.45rem 0.75rem;
+  font-size: 0.8rem;
+  color: var(--text-dim);
+  background: var(--surface);
+}
+.document-editor-footer {
+  padding-bottom: max(0.45rem, env(safe-area-inset-bottom));
+}
+@media (max-width: 600px) {
+  .document-editor-toolbar {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    flex-shrink: 0;
+  }
+  .document-editor-toolbar button {
+    flex-shrink: 0;
+  }
+  .document-editor-panes {
+    flex-direction: column;
+  }
+  .document-editor .viewer-editor {
+    width: 100%;
+  }
+  .document-editor--split .viewer-editor,
+  .document-editor--split .document-editor-preview {
+    flex: 1;
+    height: 50%;
+  }
+  .viewer-header {
+    gap: 0.35rem;
+  }
+  .viewer-header-branch {
+    display: none;
+  }
+}
+.document-conflict {
+  max-height: 35%;
+  overflow: auto;
+  padding: 0.75rem;
+  border-bottom: 1px solid var(--border);
+}
+.document-conflict pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.document-conflict button,
+.document-editor-status button {
+  min-height: 44px;
+  margin-left: 0.5rem;
 }

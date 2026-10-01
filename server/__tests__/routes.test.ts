@@ -3,9 +3,24 @@ import type { Server } from 'node:http';
 import { listenOnLoopback, closeTestServer } from './loopback-test-server.js';
 import request from 'supertest';
 import Database from 'better-sqlite3';
-import { mkdirSync, writeFileSync, symlinkSync } from 'fs';
+import { mkdirSync, writeFileSync, readFileSync, symlinkSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
+
+const mockRemoteArtifactRead = vi.hoisted(() => vi.fn());
+const mockRemoteArtifactFactory = vi.hoisted(() => vi.fn());
+vi.mock('../session-artifact-reader.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../session-artifact-reader.js')>();
+  return {
+    ...actual,
+    createSessionArtifactReader: (
+      deps: import('../session-artifact-reader.js').SessionArtifactReaderDependencies,
+    ) => {
+      mockRemoteArtifactFactory(deps);
+      return mockRemoteArtifactRead;
+    },
+  };
+});
 
 const TEST_REPO = join(tmpdir(), `mitzo-test-repo-${process.pid}`);
 const SESSION_ARTIFACT_ROOT = join(`${TEST_REPO}-sessions`, 'artifact-session');
@@ -42,7 +57,7 @@ vi.mock('../chat.js', () => {
     BASE_REPO: repo,
     getRepoConfig: vi.fn(() => ({
       quickActions: [],
-      allowedPaths: [],
+      allowedPaths: ['/sandbox/host-repository'],
       roots: [
         { label: 'Main', path: repo },
         { label: 'Tools', path: '/some/tools' },
@@ -83,6 +98,7 @@ vi.mock('../chat.js', () => {
       setSessionState: vi.fn(),
       append: vi.fn(),
       getEventsAfter: vi.fn().mockReturnValue([]),
+      getLatestWorktreePath: vi.fn().mockReturnValue(null),
       searchSessions: vi.fn().mockReturnValue([
         {
           sessionId: 's1',
@@ -98,6 +114,37 @@ vi.mock('../chat.js', () => {
             sessionId: id,
             cwd: pjoin(`${repo}-sessions`, 'artifact-session'),
           };
+        }
+        if (id === 'remote-api-session' || id === 'remote-subscription-session') {
+          return {
+            sessionId: id,
+            cwd: '/sandbox/workspaces/mgmt',
+            accountBinding: { provider: id === 'remote-api-session' ? 'openai' : 'openai-codex' },
+          };
+        }
+        if (/^(unresolved|relative|host)-(api|subscription)-session$/.test(id)) {
+          return {
+            sessionId: id,
+            cwd: id.startsWith('host-')
+              ? repo
+              : id.startsWith('relative-')
+                ? 'relative/workspace'
+                : null,
+            accountBinding: { provider: id.includes('-api-') ? 'openai' : 'openai-codex' },
+          };
+        }
+        if (
+          id === 'sandbox-prefix-host-api-session' ||
+          id === 'sandbox-prefix-host-subscription-session'
+        ) {
+          return {
+            sessionId: id,
+            cwd: '/sandbox/host-repository',
+            accountBinding: { provider: id.includes('-api-') ? 'openai' : 'openai-codex' },
+          };
+        }
+        if (id === 'unbound-sandbox-session') {
+          return { sessionId: id, cwd: '/sandbox/unknown-workspace' };
         }
         if (id === 'untrusted-artifact-session') {
           return { sessionId: id, cwd: '/etc' };
@@ -186,6 +233,7 @@ Some body text here.
 `;
 
 beforeAll(async () => {
+  mockRemoteArtifactRead.mockRejectedValue(new Error('Workspace receipt unavailable'));
   mkdirSync(TEST_REPO, { recursive: true });
   writeFileSync(join(TEST_REPO, 'test.txt'), 'hello world');
   writeFileSync(join(TEST_REPO, 'oversized.txt'), Buffer.alloc(5 * 1024 * 1024 + 1, 'x'));
@@ -339,6 +387,7 @@ describe('bearer token auth', () => {
   let bearerToken: string;
 
   beforeAll(async () => {
+    mockRemoteArtifactRead.mockRejectedValue(new Error('Workspace receipt unavailable'));
     // Get a JWT from login response
     const res = await request(app)
       .post('/api/auth/login')
@@ -931,7 +980,11 @@ describe('file routes', () => {
     const res = await request(app)
       .put('/api/files/write')
       .set('Cookie', authCookie)
-      .send({ path: filePath, content: 'updated content' });
+      .send({
+        path: filePath,
+        content: 'updated content',
+        expectedContent: readFileSync(filePath, 'utf8'),
+      });
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ ok: true, path: filePath });
   });
@@ -974,7 +1027,7 @@ describe('file routes', () => {
     const res = await request(app)
       .put('/api/files/write')
       .set('Cookie', authCookie)
-      .send({ path: '/tmp/outside/file.txt', content: 'nope' });
+      .send({ path: '/tmp/outside/file.txt', content: 'nope', expectedContent: '' });
     expect(res.status).toBe(403);
   });
 
@@ -1737,5 +1790,439 @@ describe('mounted personal device login ownership', () => {
       .send({ expectedRevision: 1 });
     expect(rejectedDiscovery.status).toBe(409);
     expect(JSON.stringify(rejectedDiscovery.body)).not.toContain('private token');
+  });
+});
+
+describe('remote artifact fail closed', () => {
+  it.each(['remote-api-session', 'remote-subscription-session'])(
+    'never serves a same-named host file for %s',
+    async (sessionId) => {
+      for (const endpoint of ['read', 'download']) {
+        const res = await request(app)
+          .get(`/api/files/${endpoint}`)
+          .query({ path: 'test.txt', sessionId })
+          .set('Cookie', authCookie);
+        expect(res.status).toBe(409);
+        expect(res.body.error).toContain('workspace');
+        expect(JSON.stringify(res.body)).not.toContain('hello world');
+      }
+    },
+  );
+});
+
+it.each(['remote-api-session', 'remote-subscription-session'])(
+  'serves persisted remote Markdown bytes for %s on read and download',
+  async (sessionId) => {
+    for (const endpoint of ['read', 'download']) {
+      mockRemoteArtifactRead.mockResolvedValueOnce({
+        path: '/sandbox/workspaces/mgmt/report.md',
+        bytes: Buffer.from('# Remote report'),
+      });
+      const res = await request(app)
+        .get(`/api/files/${endpoint}`)
+        .query({ path: 'report.md', sessionId })
+        .set('Cookie', authCookie);
+      expect(res.status).toBe(200);
+      if (endpoint === 'read')
+        expect(res.body).toMatchObject({ content: '# Remote report', ext: '.md' });
+      else {
+        expect(res.headers['content-disposition']).toContain('report.md');
+        expect(res.body.toString()).toBe('# Remote report');
+      }
+      expect(mockRemoteArtifactRead).toHaveBeenLastCalledWith(
+        sessionId,
+        expect.objectContaining({
+          provider: sessionId === 'remote-api-session' ? 'openai' : 'openai-codex',
+        }),
+        '/sandbox/workspaces/mgmt',
+        'report.md',
+      );
+    }
+  },
+);
+
+it.each(['remote-api-session', 'remote-subscription-session'])(
+  'blocks host directory browsing and editing for %s',
+  async (sessionId) => {
+    for (const endpoint of ['/api/files', '/api/files/list']) {
+      const res = await request(app).get(endpoint).query({ sessionId }).set('Cookie', authCookie);
+      expect(res.status).toBe(409);
+      expect(res.body.error).toContain('workspace');
+      expect(res.body.entries).toBeUndefined();
+    }
+    const file = join(TEST_REPO, 'test.txt');
+    const original = readFileSync(file, 'utf8');
+    const res = await request(app)
+      .put('/api/files/write')
+      .set('Cookie', authCookie)
+      .send({ path: 'test.txt', content: 'remote editing must not hit host', sessionId });
+    expect(res.status).toBe(409);
+    expect(readFileSync(file, 'utf8')).toBe(original);
+  },
+);
+
+it('refuses stale host edits and preserves the agent version', async () => {
+  const path = join(TEST_REPO, 'conflict.md');
+  writeFileSync(path, 'agent version');
+  const res = await request(app)
+    .put('/api/files/write')
+    .set('Cookie', authCookie)
+    .send({ path, content: 'my edit', expectedContent: 'original' });
+  expect(res.status).toBe(409);
+  expect(readFileSync(path, 'utf8')).toBe('agent version');
+});
+it.each(['remote-api-session', 'remote-subscription-session'])(
+  'saves a guarded edit in %s without touching host files',
+  async (sessionId) => {
+    mockRemoteArtifactRead.mockResolvedValueOnce({
+      path: '/sandbox/workspaces/mgmt/report.md',
+      bytes: Buffer.alloc(0),
+    });
+    const res = await request(app)
+      .put('/api/files/write')
+      .set('Cookie', authCookie)
+      .send({ path: 'report.md', content: 'my edit', expectedContent: 'original', sessionId });
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ ok: true, path: '/sandbox/workspaces/mgmt/report.md' });
+  },
+);
+
+it.each([
+  'unresolved-api-session',
+  'unresolved-subscription-session',
+  'relative-api-session',
+  'relative-subscription-session',
+])('rejects all filesystem actions for unresolved OpenAI origin %s', async (sessionId) => {
+  for (const endpoint of [
+    '/api/files/read',
+    '/api/files/download',
+    '/api/files',
+    '/api/files/list',
+  ]) {
+    const res = await request(app)
+      .get(endpoint)
+      .query({ path: 'test.txt', sessionId })
+      .set('Cookie', authCookie);
+    expect(res.status).toBe(409);
+    expect(res.body.error).toContain('workspace');
+    expect(res.body.entries).toBeUndefined();
+  }
+  const file = join(TEST_REPO, 'test.txt');
+  const original = readFileSync(file, 'utf8');
+  const res = await request(app)
+    .put('/api/files/write')
+    .set('Cookie', authCookie)
+    .send({ path: 'test.txt', content: 'must not overwrite host', sessionId });
+  expect(res.status).toBe(409);
+  expect(readFileSync(file, 'utf8')).toBe(original);
+});
+
+it.each(['host-api-session', 'host-subscription-session'])(
+  'preserves configured absolute host workspace access for %s',
+  async (sessionId) => {
+    for (const endpoint of [
+      '/api/files/read',
+      '/api/files/download',
+      '/api/files',
+      '/api/files/list',
+    ]) {
+      const res = await request(app)
+        .get(endpoint)
+        .query({ path: 'test.txt', sessionId })
+        .set('Cookie', authCookie);
+      expect(res.status).toBe(200);
+    }
+    const original = readFileSync(join(TEST_REPO, 'test.txt'), 'utf8');
+    const res = await request(app)
+      .put('/api/files/write')
+      .set('Cookie', authCookie)
+      .send({ path: 'test.txt', content: original, expectedContent: original, sessionId });
+    expect(res.status).toBe(200);
+  },
+);
+
+it('refuses host writes without a baseline and preserves the file', async () => {
+  const path = join(TEST_REPO, 'unguarded.md');
+  writeFileSync(path, 'agent version');
+  const res = await request(app)
+    .put('/api/files/write')
+    .set('Cookie', authCookie)
+    .send({ path, content: 'legacy edit' });
+  expect(res.status).toBe(409);
+  expect(readFileSync(path, 'utf8')).toBe('agent version');
+});
+it('accepts two full-size documents including JSON control-character escaping', async () => {
+  const path = join(TEST_REPO, 'full-size.md');
+  const expectedContent = '\u0000'.repeat(5 * 1024 * 1024);
+  writeFileSync(path, expectedContent);
+  const content = '\u0001'.repeat(5 * 1024 * 1024);
+  const res = await request(app)
+    .put('/api/files/write')
+    .set('Cookie', authCookie)
+    .send({ path, content, expectedContent });
+  expect(res.status).toBe(200);
+  expect(readFileSync(path, 'utf8') === content).toBe(true);
+}, 15_000);
+it('refuses an unbound unconfigured sandbox origin without reading the host fallback', async () => {
+  for (const endpoint of [
+    '/api/files/read',
+    '/api/files/download',
+    '/api/files',
+    '/api/files/list',
+  ]) {
+    const res = await request(app)
+      .get(endpoint)
+      .query({ path: 'test.txt', sessionId: 'unbound-sandbox-session' })
+      .set('Cookie', authCookie);
+    expect(res.status).toBe(409);
+  }
+  const file = join(TEST_REPO, 'test.txt');
+  const original = readFileSync(file, 'utf8');
+  const res = await request(app).put('/api/files/write').set('Cookie', authCookie).send({
+    path: 'test.txt',
+    content: 'wrong origin',
+    expectedContent: original,
+    sessionId: 'unbound-sandbox-session',
+  });
+  expect(res.status).toBe(409);
+  expect(readFileSync(file, 'utf8')).toBe(original);
+});
+
+it.each(['sandbox-prefix-host-api-session', 'sandbox-prefix-host-subscription-session'])(
+  'honors configured host origin despite sandbox prefix for %s',
+  async (sessionId) => {
+    const file = join(TEST_REPO, 'test.txt');
+    for (const endpoint of ['/api/files/read', '/api/files/download']) {
+      const res = await request(app)
+        .get(endpoint)
+        .query({ path: file, sessionId })
+        .set('Cookie', authCookie);
+      expect(res.status).toBe(200);
+    }
+    for (const endpoint of ['/api/files/read', '/api/files', '/api/files/list']) {
+      const res = await request(app)
+        .get(endpoint)
+        .query({ path: 'missing.md', sessionId })
+        .set('Cookie', authCookie);
+      expect(res.status).toBe(404);
+    }
+    const original = readFileSync(file, 'utf8');
+    const res = await request(app)
+      .put('/api/files/write')
+      .set('Cookie', authCookie)
+      .send({ path: file, content: original, expectedContent: original, sessionId });
+    expect(res.status).toBe(200);
+  },
+);
+
+it.each(['openai', 'openai-codex'] as const)(
+  'uses the recorded model override for remote reads and guarded writes with %s',
+  async (provider) => {
+    const accounts = await import('../account-profiles.js');
+    const profiles = new accounts.AccountProfiles([]);
+    const load = vi.spyOn(accounts, 'loadAccountProfiles').mockReturnValue(profiles);
+    vi.spyOn(profiles, 'apiProfile').mockReturnValue({
+      credentialRef: { provider: 'keychain', service: 'test', account: 'test' },
+      sandboxProvider: 'test-provider',
+      sandboxProviderId: 'test-provider-id',
+    });
+    vi.spyOn(profiles, 'codexProfile').mockReturnValue({
+      accountId: 'test',
+      accountLabel: 'Test',
+      email: 'test@example.com',
+      planType: 'plus',
+      sandboxProvider: 'test-provider',
+      sandboxProviderType: 'openai-codex-oauth',
+      sandboxProviderId: 'test-provider-id',
+      sandboxGrantId: 'test-grant',
+      model: 'default-model',
+    });
+    const binding = {
+      provider,
+      accountId: 'test',
+      accountLabel: 'Test',
+      model: 'default-model',
+      profileRevision: 'test',
+    };
+    const original = vi.mocked(eventStore.getSession).getMockImplementation();
+    vi.mocked(eventStore.getSession).mockImplementation(
+      () =>
+        ({
+          sessionId: 'override-session',
+          cwd: '/sandbox/workspaces/mgmt',
+          accountBinding: binding,
+          selectedModel: 'selected-model',
+        }) as ReturnType<typeof eventStore.getSession>,
+    );
+    try {
+      for (const endpoint of ['read', 'download', 'write']) {
+        mockRemoteArtifactRead.mockResolvedValueOnce({
+          path: '/sandbox/workspaces/mgmt/report.md',
+          bytes: Buffer.from('# Remote'),
+        });
+        const res =
+          endpoint === 'write'
+            ? await request(app).put('/api/files/write').set('Cookie', authCookie).send({
+                sessionId: 'override-session',
+                path: 'report.md',
+                expectedContent: '# Remote',
+                content: '# Edited',
+              })
+            : await request(app)
+                .get(`/api/files/${endpoint}`)
+                .set('Cookie', authCookie)
+                .query({ sessionId: 'override-session', path: 'report.md' });
+        expect(res.status).toBe(200);
+        const deps = mockRemoteArtifactFactory.mock
+          .lastCall![0] as import('../session-artifact-reader.js').SessionArtifactReaderDependencies;
+        expect(deps.currentRoute(binding)).toMatchObject({
+          model: 'selected-model',
+          provider: 'test-provider',
+        });
+      }
+    } finally {
+      load.mockRestore();
+      vi.mocked(eventStore.getSession).mockImplementation(original!);
+    }
+  },
+);
+
+describe('repository links to session worktree artifacts', () => {
+  const worktree = join(TEST_REPO, '.claude', 'worktrees', 'posted-artifact');
+  const relativeFile = 'architecture/discussions/platform/openshell-redteam-ci-budget.md';
+  const postedPath = join(TEST_REPO, relativeFile);
+  const actualPath = join(worktree, relativeFile);
+  let original: typeof eventStore.getSession | undefined;
+  beforeAll(() => {
+    mkdirSync(join(worktree, 'architecture/discussions/platform'), { recursive: true });
+    writeFileSync(actualPath, '# Worktree document');
+    symlinkSync('/etc', join(worktree, 'outside'));
+  });
+  beforeEach(() => {
+    original = vi.mocked(eventStore.getSession).getMockImplementation();
+    vi.mocked(eventStore.getSession).mockImplementation((id) =>
+      id === 'posted-artifact'
+        ? ({ sessionId: id, cwd: worktree, wtId: 'posted-artifact' } as ReturnType<
+            typeof eventStore.getSession
+          >)
+        : original!(id),
+    );
+  });
+  afterEach(() => vi.mocked(eventStore.getSession).mockImplementation(original!));
+  it('opens and downloads a missing main-repository link from its originating worktree', async () => {
+    for (const endpoint of ['read', 'download']) {
+      const res = await request(app)
+        .get(`/api/files/${endpoint}`)
+        .set('Cookie', authCookie)
+        .query({ path: postedPath, sessionId: 'posted-artifact' });
+      expect(res.status).toBe(200);
+      if (endpoint === 'read')
+        expect(res.body).toMatchObject({ path: actualPath, content: '# Worktree document' });
+      else expect(res.text).toBe('# Worktree document');
+    }
+  });
+  it('saves the resolved worktree file with the original-content guard', async () => {
+    const res = await request(app).put('/api/files/write').set('Cookie', authCookie).send({
+      path: postedPath,
+      sessionId: 'posted-artifact',
+      expectedContent: '# Worktree document',
+      content: '# Updated worktree',
+    });
+    expect(res.status).toBe(200);
+    expect(res.body.path).toBe(actualPath);
+    expect(readFileSync(actualPath, 'utf8')).toBe('# Updated worktree');
+    writeFileSync(actualPath, '# Worktree document');
+  });
+  it('resolves a configured secondary repository through the recorded worktree ID', async () => {
+    const chat = await import('../chat.js');
+    const getConfig = vi.mocked(chat.getRepoConfig);
+    const originalConfig = getConfig.getMockImplementation()!;
+    const secondary = join(TEST_REPO, 'secondary-repo');
+    const secondaryWorktree = join(secondary, '.cursor', 'worktrees', 'posted-artifact');
+    mkdirSync(join(secondaryWorktree, 'outputs'), { recursive: true });
+    writeFileSync(join(secondaryWorktree, 'outputs/report.md'), '# Secondary artifact');
+    getConfig.mockImplementation(() => ({ ...originalConfig(), repos: { secondary } }));
+    try {
+      const res = await request(app)
+        .get('/api/files/read')
+        .set('Cookie', authCookie)
+        .query({ path: join(secondary, 'outputs/report.md'), sessionId: 'posted-artifact' });
+      expect(res.status).toBe(200);
+      expect(res.body).toMatchObject({
+        path: join(secondaryWorktree, 'outputs/report.md'),
+        content: '# Secondary artifact',
+      });
+      for (const dir of [join(secondaryWorktree, 'outputs'), secondaryWorktree]) {
+        const listing = await request(app)
+          .get('/api/files')
+          .set('Cookie', authCookie)
+          .query({ dir, sessionId: 'posted-artifact' });
+        expect(listing.status).toBe(200);
+        expect(listing.body).toMatchObject({ dir, root: secondaryWorktree });
+      }
+    } finally {
+      getConfig.mockImplementation(originalConfig);
+    }
+  });
+  it.each(['active', 'restarted'])(
+    'resolves the recorded secondary worktree after resume (%s)',
+    async (state) => {
+      const chat = await import('../chat.js');
+      const getConfig = vi.mocked(chat.getRepoConfig);
+      const originalConfig = getConfig.getMockImplementation()!;
+      const secondary = join(TEST_REPO, 'resumed-secondary');
+      const target = join(secondary, '.claude', 'worktrees', 'resumed-id');
+      mkdirSync(join(target, 'outputs'), { recursive: true });
+      writeFileSync(join(target, 'outputs/report.md'), '# Resumed artifact');
+      getConfig.mockImplementation(() => ({ ...originalConfig(), repos: { secondary } }));
+      const findSession = vi.mocked(chat.registry.findBySessionId);
+      const originalFind = findSession.getMockImplementation()!;
+      const events = vi.mocked(eventStore.getLatestWorktreePath);
+      const originalEvents = events.getMockImplementation();
+      if (state === 'active')
+        findSession.mockReturnValue({
+          session: {
+            worktreePaths: new Map([['secondary', { path: target, wtId: 'resumed-id' }]]),
+          },
+        } as ReturnType<typeof chat.registry.findBySessionId>);
+      else events.mockReturnValue(target);
+      try {
+        const res = await request(app)
+          .get('/api/files/read')
+          .set('Cookie', authCookie)
+          .query({ path: join(secondary, 'outputs/report.md'), sessionId: 'posted-artifact' });
+        expect(res.status).toBe(200);
+        expect(res.body.path).toBe(join(target, 'outputs/report.md'));
+      } finally {
+        getConfig.mockImplementation(originalConfig);
+        findSession.mockImplementation(originalFind);
+        if (originalEvents) events.mockImplementation(originalEvents);
+        else events.mockReturnValue(null);
+      }
+    },
+  );
+  it('does not guess a worktree without conversation identity', async () => {
+    const res = await request(app)
+      .get('/api/files/read')
+      .set('Cookie', authCookie)
+      .query({ path: postedPath });
+    expect(res.status).toBe(404);
+  });
+  it('preserves an existing explicit repository file', async () => {
+    writeFileSync(join(TEST_REPO, 'existing-main.md'), 'explicit main file');
+    writeFileSync(join(worktree, 'existing-main.md'), 'other worktree bytes');
+    const res = await request(app)
+      .get('/api/files/read')
+      .set('Cookie', authCookie)
+      .query({ path: join(TEST_REPO, 'existing-main.md'), sessionId: 'posted-artifact' });
+    expect(res.status).toBe(200);
+    expect(res.body.content).toBe('explicit main file');
+  });
+  it('refuses a candidate escaping the worktree through a symlink', async () => {
+    const res = await request(app)
+      .get('/api/files/read')
+      .set('Cookie', authCookie)
+      .query({ path: join(TEST_REPO, 'outside/passwd'), sessionId: 'posted-artifact' });
+    expect(res.status).toBe(404);
   });
 });

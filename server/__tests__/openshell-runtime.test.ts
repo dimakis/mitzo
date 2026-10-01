@@ -2791,3 +2791,15 @@ it.each(
     expect(run.mock.calls.some(([args]) => args.includes('upload'))).toBe(false);
   }
 });
+
+it('rejects a persisted artifact target name different from the inspected owned sandbox', async () => {
+  const sandbox = JSON.parse(ready());
+  sandbox.id = 'sandbox-id';
+  const manager = new OpenShellRuntimeManager(
+    config,
+    vi.fn().mockResolvedValue(JSON.stringify(sandbox)),
+  );
+  await expect(
+    manager.inspect('conversation', 'sandbox-id', new AbortController().signal, 'other-target'),
+  ).rejects.toThrow('target name changed');
+});

@@ -1,4 +1,5 @@
 import React from 'react';
+import { MarkdownCodeBlock } from '../components/MarkdownCodeBlock';
 import { defaultUrlTransform } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeRaw from 'rehype-raw';
@@ -10,12 +11,14 @@ import {
   decodeFilePathUrl,
   FILE_SCHEME,
   linkedArtifactPath,
+  remarkLocalMarkdownLinks,
 } from './file-paths';
 
 const sanitizeSchema = {
   ...defaultSchema,
   attributes: {
     ...defaultSchema.attributes,
+    code: [...(defaultSchema.attributes?.code ?? []), ['className', /^language-[\w-]+$/]],
     img: [...(defaultSchema.attributes?.img ?? []), 'width', 'height'],
   },
   protocols: {
@@ -28,10 +31,11 @@ const sanitizeSchema = {
 export const artifactUrlTransform = (url: string) =>
   url.startsWith(FILE_SCHEME) ? url : defaultUrlTransform(url);
 
-export const remarkPlugins: PluggableList = [remarkGfm];
+export const remarkPlugins: PluggableList = [remarkGfm, remarkLocalMarkdownLinks];
 export const rehypePlugins: PluggableList = [rehypeRaw, [rehypeSanitize, sanitizeSchema]];
 
 export const markdownComponents: Components = {
+  pre: MarkdownCodeBlock,
   table: ({ children, ...props }) => (
     <div className="table-scroll-wrapper">
       <table {...props}>{children}</table>

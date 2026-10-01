@@ -48,7 +48,7 @@ import type {
 } from '@mitzo/harness';
 import { execFileSync } from 'child_process';
 import { readFileSync, writeFileSync, mkdirSync, readdirSync, existsSync } from 'fs';
-import { join, resolve, dirname } from 'path';
+import { join, resolve, dirname, isAbsolute } from 'path';
 import { fileURLToPath } from 'url';
 import { resolveBundledMcpEntrypoint } from './mcp-entrypoint.js';
 import { createHash, randomUUID } from 'crypto';
@@ -647,7 +647,7 @@ function buildMcpAllowedTools(clientId?: string): string[] {
  * Build an on-demand worktree creation callback for the permission handler.
  * Maps an absolute path to a configured repo and creates a worktree if needed.
  */
-function buildOnDemandCreate(wtId: string): OnDemandCreateFn {
+function buildOnDemandCreate(wtId: string, clientId: string): OnDemandCreateFn {
   return async (absolutePath: string) => {
     const config = getRepoConfig();
     const allRepos: [string, string][] = [];
@@ -659,6 +659,17 @@ function buildOnDemandCreate(wtId: string): OnDemandCreateFn {
       if (!absolutePath.startsWith(repoPath + '/') && absolutePath !== repoPath) continue;
       try {
         const worktreePath = await createWorktreeAsync(wtId, repoPath);
+        const sessionId = registry.get(clientId)?.sessionId;
+        if (sessionId) {
+          eventStore.append(sessionId, 'worktree_opened', {
+            v: 2,
+            type: 'worktree_opened',
+            ts: Date.now(),
+            sessionId,
+            repoName: name,
+            path: worktreePath,
+          });
+        }
         return { repoName: name, worktreePath };
       } catch (err) {
         log.error('on-demand worktree creation failed', {
@@ -957,6 +968,8 @@ export async function startChat(
     clientMsgId?: string;
     onSessionResolved?: (sessionId: string) => void;
     onStartupAdmission?: (error?: unknown) => void;
+    onFirstEventOutcome?: (error?: Error) => void;
+    onTerminalOutcome?: (error?: Error) => void;
     telosTaskId?: string;
     agentName?: string;
     userIntent?: string;
@@ -1014,6 +1027,8 @@ async function _startChatInner(
     clientMsgId?: string;
     onSessionResolved?: (sessionId: string) => void;
     onStartupAdmission?: (error?: unknown) => void;
+    onFirstEventOutcome?: (error?: Error) => void;
+    onTerminalOutcome?: (error?: Error) => void;
     telosTaskId?: string;
     agentName?: string;
     userIntent?: string;
@@ -1265,7 +1280,6 @@ async function _startChatInner(
       return;
     }
   }
-  if (!apiKey && !gemini) options.onStartupAdmission?.();
 
   if (options.resume) {
     const validation =
@@ -1586,7 +1600,7 @@ async function _startChatInner(
         env: sessionEnv,
         mcpServers: allMcpServers,
         eventStore,
-        onDemandCreate: buildOnDemandCreate(wtId),
+        onDemandCreate: buildOnDemandCreate(wtId, clientId),
         onBootContext: (context) => {
           const message: BootContextMessage = { ...context, source: 'sandbox' };
           send(transport, { ...message, sessionId: conversationId });
@@ -1618,7 +1632,7 @@ async function _startChatInner(
         systemPrompt: systemPromptAppend,
         env: sessionEnv,
         mcpServers: allMcpServers,
-        onDemandCreate: buildOnDemandCreate(wtId),
+        onDemandCreate: buildOnDemandCreate(wtId, clientId),
       });
       if (!initialProviderAdmission) {
         throw new Error('Native provider startup is missing durable command admission');
@@ -1662,12 +1676,12 @@ async function _startChatInner(
             ...(Object.keys(allMcpServers).length > 0 ? { mcpServers: allMcpServers } : {}),
             hooks: buildSessionPermissionHooks(
               buildPermissionHandler(clientId, registry, {
-                onDemandCreate: buildOnDemandCreate(wtId),
+                onDemandCreate: buildOnDemandCreate(wtId, clientId),
               }),
               hooks,
             ),
             canUseTool: buildPermissionHandler(clientId, registry, {
-              onDemandCreate: buildOnDemandCreate(wtId),
+              onDemandCreate: buildOnDemandCreate(wtId, clientId),
             }),
           },
         }),
@@ -1699,6 +1713,9 @@ async function _startChatInner(
       );
     }
 
+    // The session is registered and the provider query is ready. Worktree and
+    // provider setup failures above must be reported before admitting a spawn.
+    if (!apiKey && !gemini) options.onStartupAdmission?.();
     await runQueryLoop(
       q as unknown as AsyncIterable<Record<string, unknown>>,
       clientId,
@@ -1708,6 +1725,8 @@ async function _startChatInner(
       options.resume || codexProfile || apiKey || gemini ? undefined : fullPrompt,
       {
         connRegistry: _connRegistry ?? undefined,
+        onFirstEventOutcome: options.onFirstEventOutcome,
+        onTerminalOutcome: options.onTerminalOutcome,
         initialClientMsgId: options.clientMsgId,
         initialImages: imagePreviews(options.images),
         initialContextBlocks: options.contextBlocks,
@@ -3820,6 +3839,28 @@ export function replayEventsToMessages(
   return messages;
 }
 
+/** Recover legacy workspace metadata without changing session identity or permissions. */
+async function recoverSessionWorkspace(sessionId: string, dirs = getSessionDirs()) {
+  if (eventStore.getSession(sessionId)?.cwd) return;
+  for (const dir of dirs) {
+    try {
+      const info = await getSessionInfo(sessionId, { dir });
+      if (typeof info?.cwd !== 'string' || !isAbsolute(info.cwd)) continue;
+      // Preserve a workspace recorded while the SDK lookup was in flight.
+      const current = eventStore.getSession(sessionId);
+      if (!current?.cwd)
+        eventStore.upsertSession({
+          sessionId,
+          cwd: info.cwd,
+          ...(current?.updatedAt !== undefined ? { updatedAt: current.updatedAt } : {}),
+        });
+      return;
+    } catch {
+      // Missing metadata must not prevent reading the saved transcript.
+    }
+  }
+}
+
 export async function getMessages(sessionId: string, throughSeq?: number) {
   // Primary: replay from durable event store
   const events =
@@ -3827,6 +3868,7 @@ export async function getMessages(sessionId: string, throughSeq?: number) {
       ? eventStore.getSessionEvents(sessionId)
       : eventStore.getSessionEventsThroughCursor(sessionId, throughSeq);
   if (events.length > 0) {
+    if (throughSeq === undefined) await recoverSessionWorkspace(sessionId);
     const session = eventStore.getSession(sessionId);
     return replayEventsToMessages(events, session?.initialPrompt ?? undefined);
   }
@@ -3842,7 +3884,10 @@ export async function getMessages(sessionId: string, throughSeq?: number) {
         dir,
         limit: SESSION_MESSAGES_LIMIT,
       })) as RawSdkMessage[];
-      if (rawMessages.length > 0) break;
+      if (rawMessages.length > 0) {
+        await recoverSessionWorkspace(sessionId, [dir]);
+        break;
+      }
     } catch {
       // Session not in this dir — try next
     }
@@ -3870,6 +3915,7 @@ export async function getSessionTranscript(sessionId: string) {
   const events = eventStore.getSessionEvents(sessionId);
   if (events.length === 0)
     return { messages: await getMessages(sessionId), current: null, currents: [], cursor: 0 };
+  await recoverSessionWorkspace(sessionId);
   const session = eventStore.getSession(sessionId);
   return {
     ...replayEventsToTranscript(events, session?.initialPrompt ?? undefined),

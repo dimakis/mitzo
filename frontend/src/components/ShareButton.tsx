@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { shareFile } from '../lib/share-file';
 
 interface ShareButtonProps {
@@ -10,6 +10,22 @@ interface ShareButtonProps {
 export function ShareButton({ filePath, sessionId, className }: ShareButtonProps) {
   const [state, setState] = useState<'idle' | 'busy' | 'done' | 'error'>('idle');
   const busyRef = useRef(false);
+  const timerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const [error, setError] = useState('');
+  const generationRef = useRef(0);
+  const mountedRef = useRef(false);
+  useEffect(() => {
+    mountedRef.current = true;
+    generationRef.current += 1;
+    busyRef.current = false;
+    setState('idle');
+    setError('');
+    return () => {
+      mountedRef.current = false;
+      generationRef.current += 1;
+      clearTimeout(timerRef.current);
+    };
+  }, [filePath, sessionId]);
 
   const handleShare = useCallback(
     async (e: React.MouseEvent) => {
@@ -17,17 +33,22 @@ export function ShareButton({ filePath, sessionId, className }: ShareButtonProps
       e.stopPropagation();
       if (busyRef.current) return;
 
+      const generation = generationRef.current;
+      clearTimeout(timerRef.current);
+      setError('');
       busyRef.current = true;
       setState('busy');
       try {
-        await (sessionId ? shareFile(filePath, sessionId) : shareFile(filePath));
-        setState('done');
-        setTimeout(() => setState('idle'), 1500);
-      } catch {
+        const initiated = await (sessionId ? shareFile(filePath, sessionId) : shareFile(filePath));
+        if (!mountedRef.current || generation !== generationRef.current) return;
+        setState(initiated ? 'done' : 'idle');
+        if (initiated) timerRef.current = setTimeout(() => setState('idle'), 1500);
+      } catch (err: unknown) {
+        if (!mountedRef.current || generation !== generationRef.current) return;
+        setError(err instanceof Error ? err.message : 'Could not share file. Try again.');
         setState('error');
-        setTimeout(() => setState('idle'), 2000);
       } finally {
-        busyRef.current = false;
+        if (generation === generationRef.current) busyRef.current = false;
       }
     },
     [filePath, sessionId],
@@ -46,14 +67,23 @@ export function ShareButton({ filePath, sessionId, className }: ShareButtonProps
     state === 'busy' ? '...' : state === 'done' ? '\u2713' : state === 'error' ? '!' : '\u21A6';
 
   return (
-    <button
-      className={`share-btn ${className ?? ''} ${state !== 'idle' ? `share-btn--${state}` : ''}`.trim()}
-      aria-label={label}
-      title={label}
-      onClick={handleShare}
-      disabled={state === 'busy'}
-    >
-      {icon}
-    </button>
+    <>
+      <button
+        type="button"
+        aria-busy={state === 'busy'}
+        className={`share-btn ${className ?? ''} ${state !== 'idle' ? `share-btn--${state}` : ''}`.trim()}
+        aria-label={label}
+        title={error || label}
+        onClick={handleShare}
+        disabled={state === 'busy'}
+      >
+        {icon}
+      </button>
+      {error && (
+        <span className="share-error" role="alert">
+          {error}
+        </span>
+      )}
+    </>
   );
 }

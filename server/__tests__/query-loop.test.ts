@@ -141,6 +141,126 @@ describe('runQueryLoop', () => {
     abortController = new AbortController();
   });
 
+  it('reports a provider failure before its first event exactly once', async () => {
+    const failingStream: AsyncIterable<Record<string, unknown>> = {
+      [Symbol.asyncIterator]: () => ({
+        next: async () => {
+          throw new Error('provider startup failed');
+        },
+      }),
+    };
+    const onFirstEventOutcome = vi.fn();
+
+    await runQueryLoop(failingStream, clientId, registry, abortController, undefined, undefined, {
+      onFirstEventOutcome,
+    });
+
+    expect(onFirstEventOutcome).toHaveBeenCalledTimes(1);
+    expect(onFirstEventOutcome).toHaveBeenCalledWith(
+      expect.objectContaining({ message: 'provider startup failed' }),
+    );
+  });
+
+  it('reports an empty provider stream as failed startup', async () => {
+    const onFirstEventOutcome = vi.fn();
+
+    await runQueryLoop(eventStream([]), clientId, registry, abortController, undefined, undefined, {
+      onFirstEventOutcome,
+    });
+
+    expect(onFirstEventOutcome).toHaveBeenCalledTimes(1);
+    expect(onFirstEventOutcome.mock.calls[0][0]).toBeInstanceOf(Error);
+  });
+
+  it('admits the first provider event exactly once', async () => {
+    const onFirstEventOutcome = vi.fn();
+
+    await runQueryLoop(
+      eventStream([{ type: 'result', session_id: 'sess-1' }]),
+      clientId,
+      registry,
+      abortController,
+      undefined,
+      undefined,
+      { onFirstEventOutcome },
+    );
+
+    expect(onFirstEventOutcome).toHaveBeenCalledOnce();
+    expect(onFirstEventOutcome).toHaveBeenCalledWith(undefined);
+  });
+
+  it('rejects an error result as the first event and reports terminal failure', async () => {
+    const onFirstEventOutcome = vi.fn();
+    const onTerminalOutcome = vi.fn();
+    await runQueryLoop(
+      eventStream([{ type: 'result', session_id: 'sess-1', is_error: true }]),
+      clientId,
+      registry,
+      abortController,
+      undefined,
+      undefined,
+      { onFirstEventOutcome, onTerminalOutcome },
+    );
+    expect(onFirstEventOutcome.mock.calls[0][0]).toBeInstanceOf(Error);
+    expect(onTerminalOutcome.mock.calls[0][0]).toBeInstanceOf(Error);
+  });
+
+  it('reports failure after an initialization event', async () => {
+    const failingStream: AsyncIterable<Record<string, unknown>> = {
+      [Symbol.asyncIterator]: () => {
+        let first = true;
+        return {
+          next: async () => {
+            if (first) {
+              first = false;
+              return { value: { type: 'system', session_id: 'sess-1' }, done: false };
+            }
+            throw new Error('provider failed after initialization');
+          },
+        };
+      },
+    };
+    const onFirstEventOutcome = vi.fn();
+    const onTerminalOutcome = vi.fn();
+    await runQueryLoop(failingStream, clientId, registry, abortController, undefined, undefined, {
+      onFirstEventOutcome,
+      onTerminalOutcome,
+    });
+    expect(onFirstEventOutcome).toHaveBeenCalledWith(undefined);
+    expect(onTerminalOutcome).toHaveBeenCalledWith(
+      expect.objectContaining({ message: 'provider failed after initialization' }),
+    );
+  });
+
+  it('reports an error result before the provider stream closes', async () => {
+    let releaseStream!: () => void;
+    const hangingStream = async function* () {
+      yield { type: 'system', session_id: 'sess-1' };
+      yield { type: 'result', session_id: 'sess-1', is_error: true };
+      await new Promise<void>((resolve) => {
+        releaseStream = resolve;
+      });
+    };
+    const onFirstEventOutcome = vi.fn();
+    const onTerminalOutcome = vi.fn();
+    const loop = runQueryLoop(
+      hangingStream(),
+      clientId,
+      registry,
+      abortController,
+      undefined,
+      undefined,
+      { onFirstEventOutcome, onTerminalOutcome },
+    );
+
+    await vi.waitFor(() => expect(onTerminalOutcome).toHaveBeenCalledOnce());
+    expect(onFirstEventOutcome).toHaveBeenCalledWith(undefined);
+    expect(onTerminalOutcome.mock.calls[0][0]).toBeInstanceOf(Error);
+    releaseStream();
+    await loop;
+    expect(onTerminalOutcome).toHaveBeenCalledOnce();
+  });
+
   it('emits message_start, block_start, block_delta, block_end, message_end, session_end for a text turn', async () => {
     const events: Record<string, unknown>[] = [
       { type: 'stream_event', event: { type: 'message_start', message: { id: 'msg-abc' } } },

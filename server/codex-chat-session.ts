@@ -33,6 +33,7 @@ import {
   openShellCodexRuntimeConfig,
   openShellRuntimeConfig,
   type OpenShellAccountRoute,
+  type OpenShellRuntime,
   type OpenShellBootContext,
 } from './openshell-runtime.js';
 import type { Connection } from './connections-store.js';
@@ -477,7 +478,7 @@ async function openCodexChatBound(
   const startupReservation = runtimeManager
     ? await sharedOpenShellLifecycleCoordinator.reserve(options.conversationId)
     : undefined;
-  let managedOpenShell;
+  let managedOpenShell: OpenShellRuntime | undefined;
   try {
     managedOpenShell = runtimeManager
       ? await runtimeManager.ensure(options.conversationId, options.session.abortController.signal)
@@ -684,6 +685,14 @@ async function openCodexChatBound(
     startupReservation?.();
     throw error;
   }
+  function persistArtifactRuntime() {
+    if (!runtimeManager || !managedOpenShell) return;
+    if (!managedOpenShell.sandboxId) throw new Error('OpenShell resource identity is unavailable');
+    privateStorage.setArtifactRuntime(options.conversationId, options.binding, {
+      runtime: { ...managedOpenShell, sandboxId: managedOpenShell.sandboxId },
+      route: selectedOpenShellAccountRoute(options),
+    });
+  }
   const hookRuntime = connectedOpenShell
     ? undefined
     : createNativeHooks(options.session.cwd!, options.conversationId, options.env, {
@@ -814,6 +823,7 @@ async function openCodexChatBound(
                 true,
               );
               Object.assign(managedOpenShell!, recovered);
+              persistArtifactRuntime();
             });
             if (managedCapabilityConnection && options.binding?.accountId)
               await capabilityTools.service?.recoverPendingForConversation(
@@ -1029,6 +1039,7 @@ async function openCodexChatBound(
       ? {
           onActivity: () => touchOpenShellLifecycle(options.conversationId),
           onThreadChanged: (threadId: string) => {
+            persistArtifactRuntime();
             registerOpenShellLifecycle(
               options.conversationId,
               managedOpenShell!,
@@ -1091,6 +1102,7 @@ async function openCodexChatBound(
     if (runtimeManager && managedOpenShell) {
       const threadId = runtime.getThreadId();
       if (!threadId) throw new Error('OpenShell provider thread was not initialized');
+      persistArtifactRuntime();
       registerOpenShellLifecycle(
         options.conversationId,
         managedOpenShell,

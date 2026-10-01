@@ -2,7 +2,71 @@ import Database from 'better-sqlite3';
 import { chmodSync, closeSync, openSync } from 'node:fs';
 import type { AccountBinding } from '@mitzo/protocol';
 import { z } from 'zod';
+import type { OpenShellRuntime, OpenShellAccountRoute } from './openshell-runtime.js';
+import { validateOpenShellCliEnvironment } from './openshell-cli-environment.js';
 import type { PersistedWebSearchGrant, WebSearchGrant } from './web-search-policy.js';
+
+export interface ArtifactRuntime {
+  runtime: OpenShellRuntime & { sandboxId: string };
+  route: OpenShellAccountRoute;
+}
+const RuntimeString = z
+  .string()
+  .min(1)
+  .max(4096)
+  .regex(/^[^\r\n\0]+$/);
+const ArtifactRuntimeSchema = z
+  .object({
+    runtime: z
+      .object({
+        sandboxName: RuntimeString,
+        sandboxId: RuntimeString,
+        resourceVersion: RuntimeString.optional(),
+        created: z.boolean().optional(),
+        workdir: RuntimeString.refine(
+          (value) => value.startsWith('/'),
+          'Invalid sandbox workspace',
+        ),
+        appServerCommand: z.enum([
+          '/sandbox/run-mitzo-app-server',
+          '/sandbox/run-mitzo-subscription-app-server',
+          '/usr/local/bin/symposium-subscription-app-server',
+        ]),
+        cli: RuntimeString,
+        gateway: RuntimeString,
+        workspace: RuntimeString,
+        gatewayEndpoint: RuntimeString.optional(),
+        gatewayInsecure: z.boolean(),
+        cliEnvironment: z
+          .record(z.string(), z.string())
+          .transform(validateOpenShellCliEnvironment)
+          .optional(),
+      })
+      .strict(),
+    route: z.discriminatedUnion('kind', [
+      z.object({ kind: z.literal('api'), provider: RuntimeString, model: RuntimeString }).strict(),
+      z
+        .object({
+          kind: z.literal('chatgpt-subscription-native'),
+          provider: RuntimeString,
+          providerType: z.literal('codex'),
+          providerId: RuntimeString,
+          model: RuntimeString,
+        })
+        .strict(),
+      z
+        .object({
+          kind: z.literal('chatgpt-subscription'),
+          provider: RuntimeString,
+          providerType: z.literal('openai-codex-oauth'),
+          providerId: RuntimeString,
+          grantId: RuntimeString,
+          model: RuntimeString,
+        })
+        .strict(),
+    ]),
+  })
+  .strict();
 
 const CommandInput = z
   .object({
@@ -126,6 +190,8 @@ export class CodexConversationStore {
       const conversationColumns = this.db
         .prepare('PRAGMA table_info(codex_conversations)')
         .all() as Array<{ name: string }>;
+      if (!conversationColumns.some((column) => column.name === 'artifact_runtime'))
+        this.db.exec('ALTER TABLE codex_conversations ADD COLUMN artifact_runtime TEXT');
       if (!conversationColumns.some((column) => column.name === 'owner_kind'))
         this.db.exec(
           "ALTER TABLE codex_conversations ADD COLUMN owner_kind TEXT CHECK(owner_kind IN ('ordinary','symposium'))",
@@ -245,6 +311,56 @@ export class CodexConversationStore {
       toolSurfaceRevision: row.toolSurfaceRevision,
       rolloverContext: row.rolloverContext,
     };
+  }
+  /** Private account-bound routing; never infer a sandbox from conversation IDs. */
+  readArtifactRuntime(id: string, binding: AccountBinding): ArtifactRuntime | null {
+    this.read(id, binding);
+    const row = this.db
+      .prepare('SELECT artifact_runtime FROM codex_conversations WHERE id=?')
+      .get(id) as { artifact_runtime: string | null };
+    return row.artifact_runtime === null
+      ? null
+      : ArtifactRuntimeSchema.parse(JSON.parse(row.artifact_runtime));
+  }
+  setArtifactRuntime(id: string, binding: AccountBinding, value: ArtifactRuntime): void {
+    this.db.transaction(() => {
+      this.read(id, binding);
+      // Explicit allowlist prevents later runtime additions from persisting credentials.
+      const {
+        sandboxName,
+        sandboxId,
+        resourceVersion,
+        created,
+        workdir,
+        appServerCommand,
+        cli,
+        gateway,
+        workspace,
+        gatewayEndpoint,
+        gatewayInsecure,
+        cliEnvironment,
+      } = value.runtime;
+      const safe = ArtifactRuntimeSchema.parse({
+        runtime: {
+          sandboxName,
+          sandboxId,
+          resourceVersion,
+          created,
+          workdir,
+          appServerCommand,
+          cli,
+          gateway,
+          workspace,
+          gatewayEndpoint,
+          gatewayInsecure,
+          cliEnvironment,
+        },
+        route: value.route,
+      });
+      this.db
+        .prepare('UPDATE codex_conversations SET artifact_runtime=? WHERE id=?')
+        .run(JSON.stringify(safe), id);
+    })();
   }
   readWebSearchGrant(id: string, b: AccountBinding): PersistedWebSearchGrant {
     const row = this.read(id, b);

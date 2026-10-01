@@ -6,14 +6,23 @@ import {
   artifactMarkdownComponents,
   artifactUrlTransform,
 } from '../lib/markdown-config';
+import { ShareButton } from '../components/ShareButton';
 import { MitzoLogo } from '../components/MitzoLogo';
 import { useFileNavigation } from '../hooks/useFileNavigation';
+import { useEditorViewport } from '../hooks/useEditorViewport';
 import { useFileEditor } from '../hooks/useFileEditor';
 import { useDocumentReader } from '../hooks/useDocumentReader';
+import { DocumentEditor } from '../components/DocumentEditor';
 import { HtmlPreview } from '../components/HtmlPreview';
 import { findArtifactCapabilityByExtension } from '@mitzo/protocol';
 
 export function FileViewer() {
+  const [params] = useSearchParams();
+  return <FileViewerDocument key={JSON.stringify([params.get('sessionId'), params.get('path')])} />;
+}
+
+function FileViewerDocument() {
+  const viewportRef = useEditorViewport();
   const [searchParams, setSearchParams] = useSearchParams();
   const routerNavigate = useNavigate();
   const location = useLocation();
@@ -44,13 +53,14 @@ export function FileViewer() {
     '';
 
   return (
-    <div className="viewer-page">
+    <div className="viewer-page" ref={viewportRef}>
       <header className="viewer-header">
         <MitzoLogo />
         {(state.isViewing || state.canGoUp || fromRoute) && (
           <button
             className="viewer-header-back"
             onClick={() => {
+              if (editor.saving) return;
               if (editor.dirty && !confirm('Discard unsaved changes?')) return;
               editor.resetEditor();
               if (fromRoute) {
@@ -67,6 +77,13 @@ export function FileViewer() {
 
         {displayBranch && <span className="viewer-header-branch">{displayBranch}</span>}
 
+        {state.isViewing && !editor.editing && (
+          <ShareButton
+            filePath={state.filePath}
+            sessionId={state.sessionId || undefined}
+            className="share-btn--visible viewer-header-share"
+          />
+        )}
         {state.isViewing && isMarkdown && !editor.editing && reader.available && (
           <button
             className={`viewer-header-action${reader.state !== 'idle' ? ' viewer-header-action--active' : ''}`}
@@ -87,7 +104,11 @@ export function FileViewer() {
           </button>
         )}
         {state.isViewing && isEditable && !editor.editing && (
-          <button className="viewer-header-action" onClick={editor.startEditing}>
+          <button
+            className="viewer-header-action"
+            onClick={editor.startEditing}
+            disabled={state.loading || !!state.error}
+          >
             Edit
           </button>
         )}
@@ -103,8 +124,9 @@ export function FileViewer() {
             <button
               className="viewer-header-action viewer-header-action--cancel"
               onClick={editor.cancelEditing}
+              disabled={editor.saving}
             >
-              Cancel
+              {editor.dirty ? 'Discard' : 'Done'}
             </button>
           </>
         )}
@@ -153,17 +175,62 @@ export function FileViewer() {
           </div>
         )}
 
-      <div className="viewer-content">
+      {editor.editing && (
+        <div className="document-editor-status" role="status">
+          {editor.error ||
+            (editor.saving
+              ? 'Saving…'
+              : editor.dirty
+                ? editor.draftStorageError
+                  ? 'Unsaved changes'
+                  : 'Unsaved changes · draft kept in this tab'
+                : 'All changes saved')}
+          {editor.draftStorageError && <span role="alert">{editor.draftStorageError}</span>}
+          {editor.error && (
+            <button
+              type="button"
+              onClick={editor.reviewLatest}
+              disabled={editor.saving || editor.reviewing}
+            >
+              {editor.reviewing ? 'Loading…' : 'Review latest version'}
+            </button>
+          )}
+        </div>
+      )}
+      {editor.editing && editor.latestContent !== null && editor.latestContent !== undefined && (
+        <section className="document-conflict" aria-label="Latest saved version">
+          <strong>Latest saved version</strong>
+          <pre>{editor.latestContent}</pre>
+          <button type="button" onClick={() => editor.resolveConflict(true, nav.setContent)}>
+            Use latest version
+          </button>
+          <button type="button" onClick={() => editor.resolveConflict(false, nav.setContent)}>
+            Keep my draft for next save
+          </button>
+        </section>
+      )}
+      <div className={`viewer-content${editor.editing ? ' viewer-content--editing' : ''}`}>
         {state.loading && <p className="viewer-status">Loading...</p>}
         {state.error && <p className="viewer-status viewer-status--error">{state.error}</p>}
 
         {!state.loading && !state.error && state.isViewing && editor.editing && (
-          <textarea
-            ref={editor.editorRef}
-            className="viewer-editor"
-            value={editor.editContent}
-            onChange={(e) => editor.handleEditChange(e.target.value)}
-            spellCheck={false}
+          <DocumentEditor
+            markdownComponents={artifactMarkdownComponents(
+              state.filePath,
+              state.sessionId || undefined,
+              location.pathname + location.search,
+              routerNavigate,
+            )}
+            urlTransform={artifactUrlTransform}
+            content={editor.editContent}
+            ext={state.ext}
+            onChange={editor.handleEditChange}
+            saving={editor.saving}
+            onSave={() => editor.saveFile(nav.setContent)}
+            undo={editor.undo}
+            redo={editor.redo}
+            canUndo={editor.canUndo}
+            canRedo={editor.canRedo}
           />
         )}
 

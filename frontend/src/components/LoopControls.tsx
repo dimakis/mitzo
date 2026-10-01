@@ -3,11 +3,32 @@ import type { LoopStatus } from '../types/task';
 import type { Task } from '../types/task';
 import { formatTokens } from '../lib/formatTokens';
 
+function requiresChat(goal: Task, spawnEnabled: boolean): boolean {
+  const needsReuse = (task: Task): boolean =>
+    task.children.some((child) => {
+      if (['done', 'skipped', 'failed', 'blocked'].includes(child.status)) return false;
+      if (
+        (child.stageType ?? 'agent_work') === 'agent_work' &&
+        (child.sessionPolicy === 'reuse' || (child.sessionPolicy === 'auto' && !spawnEnabled))
+      ) {
+        return true;
+      }
+      return needsReuse(child);
+    });
+
+  if (goal.children.length > 0) return needsReuse(goal);
+  return (
+    (goal.stageType ?? 'agent_work') === 'agent_work' &&
+    (goal.sessionPolicy === 'reuse' || (goal.sessionPolicy === 'auto' && !spawnEnabled))
+  );
+}
+
 interface LoopControlsProps {
   loopStatus: LoopStatus;
   goals: Task[];
   totalTokenUsage: number;
-  onStart: (goalId: string, specMode?: boolean) => void;
+  currentSessionId: string | null;
+  onStart: (goalId: string, specMode?: boolean, sessionId?: string) => void;
   onPause: () => void;
   onResume: () => void;
   onStop: () => void;
@@ -19,6 +40,7 @@ export function LoopControls({
   loopStatus,
   goals,
   totalTokenUsage,
+  currentSessionId,
   onStart,
   onPause,
   onResume,
@@ -29,8 +51,12 @@ export function LoopControls({
   const [pickerOpen, setPickerOpen] = useState(false);
   const [selectedGoalId, setSelectedGoalId] = useState('');
   const [specMode, setSpecMode] = useState(false);
+  const [useThisChat, setUseThisChat] = useState(false);
 
   const { state, progress, awaitingApproval } = loopStatus;
+  const selectedGoal = goals.find((goal) => goal.id === selectedGoalId);
+  const needsChat =
+    specMode || (selectedGoal ? requiresChat(selectedGoal, loopStatus.spawnEnabled) : false);
 
   // ── Idle: compact trigger / expanded picker ──
   if (state === 'idle') {
@@ -63,6 +89,15 @@ export function LoopControls({
             <label className="loop-controls-spec-toggle">
               <input
                 type="checkbox"
+                checked={useThisChat}
+                disabled={!currentSessionId}
+                onChange={(e) => setUseThisChat(e.target.checked)}
+              />
+              Use this chat for tasks
+            </label>
+            <label className="loop-controls-spec-toggle">
+              <input
+                type="checkbox"
                 checked={specMode}
                 onChange={(e) => setSpecMode(e.target.checked)}
               />
@@ -74,9 +109,13 @@ export function LoopControls({
             </button>
             <button
               className="loop-controls-btn loop-controls-btn--start"
-              disabled={!selectedGoalId}
+              disabled={!selectedGoalId || (needsChat && (!useThisChat || !currentSessionId))}
               onClick={() => {
-                onStart(selectedGoalId, specMode || undefined);
+                onStart(
+                  selectedGoalId,
+                  specMode || undefined,
+                  useThisChat ? (currentSessionId ?? undefined) : undefined,
+                );
                 setPickerOpen(false);
               }}
             >

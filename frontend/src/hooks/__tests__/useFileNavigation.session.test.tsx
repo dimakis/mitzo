@@ -28,6 +28,26 @@ beforeEach(() => {
 });
 
 describe('useFileNavigation session root', () => {
+  it.each([
+    'This sandbox is stopped. Resume the conversation to access its files.',
+    'This sandbox workspace is no longer available.',
+  ])('preserves server workspace guidance while reading: %s', async (message) => {
+    vi.mocked(apiFetch).mockImplementation((url) =>
+      String(url).startsWith('/api/files/read')
+        ? (Promise.resolve({
+            ok: false,
+            json: async () => ({ error: message }),
+            status: 409,
+          }) as never)
+        : (response([]) as never),
+    );
+    const { result } = renderHook(() =>
+      useFileNavigation(new URLSearchParams('path=report.md&sessionId=sandbox-session'), vi.fn()),
+    );
+    await waitFor(() => expect(result.current.state.error).toBe(message));
+    expect(result.current.state.loading).toBe(false);
+  });
+
   it('returns from a relative artifact to the session workspace', async () => {
     const { result } = renderHook(
       () => {
@@ -83,4 +103,51 @@ describe('useFileNavigation session root', () => {
     await waitFor(() => expect(result.current.state.currentDir).toBe('/session-workspace'));
     expect(result.current.state.canGoUp).toBe(false);
   });
+});
+
+it('retains the resolved file identity for editing and parent navigation', async () => {
+  const posted = '/base-repo/outputs/report.md';
+  const root = '/secondary-repo/.claude/worktrees/session-1';
+  const resolved = `${root}/outputs/report.md`;
+  vi.mocked(apiFetch).mockImplementation((url) =>
+    String(url).startsWith('/api/files/read')
+      ? (response({ content: '# Worktree', ext: '.md', path: resolved }) as never)
+      : (response({
+          dir: new URL(String(url), 'https://mitzo.test').searchParams.get('dir'),
+          root,
+          entries: [],
+        }) as never),
+  );
+  const { result } = renderHook(
+    () => {
+      const [params, setParams] = useSearchParams();
+      return useFileNavigation(params, setParams);
+    },
+    {
+      wrapper: ({ children }) => (
+        <MemoryRouter
+          initialEntries={['/files?path=' + encodeURIComponent(posted) + '&sessionId=session-1']}
+        >
+          {children}
+        </MemoryRouter>
+      ),
+    },
+  );
+  await waitFor(() => expect(result.current.state.content).toBe('# Worktree'));
+  expect(result.current.state.filePath).toBe(resolved);
+  act(() => result.current.handleBack(false));
+  await waitFor(() =>
+    expect(
+      vi.mocked(apiFetch).mock.calls.some(([url]) => {
+        const parsed = new URL(String(url), 'https://mitzo.test');
+        return (
+          parsed.pathname === '/api/files' && parsed.searchParams.get('dir') === `${root}/outputs`
+        );
+      }),
+    ).toBe(true),
+  );
+  await waitFor(() => expect(result.current.state.canGoUp).toBe(true));
+  act(() => result.current.goUp(false));
+  await waitFor(() => expect(result.current.state.currentDir).toBe(root));
+  expect(result.current.state.canGoUp).toBe(false);
 });

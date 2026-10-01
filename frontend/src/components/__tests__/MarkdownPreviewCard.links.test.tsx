@@ -5,6 +5,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { MarkdownPreviewCard } from '../MarkdownPreviewCard';
 import { apiFetch } from '../../lib/api-fetch';
 
+vi.mock('../../lib/share-file', () => ({ shareFile: vi.fn().mockResolvedValue(true) }));
+import { shareFile } from '../../lib/share-file';
+
 vi.mock('../../lib/api-fetch', () => ({ apiFetch: vi.fn() }));
 afterEach(cleanup);
 
@@ -14,6 +17,36 @@ function Location() {
 }
 
 describe('MarkdownPreviewCard links', () => {
+  it('shares a collapsed preview in its originating session', async () => {
+    render(
+      <MemoryRouter>
+        <MarkdownPreviewCard filePath="outputs/report.md" sessionId="old-session" />
+      </MemoryRouter>,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Share file' }));
+    await waitFor(() => expect(shareFile).toHaveBeenCalledWith('outputs/report.md', 'old-session'));
+    expect(screen.queryByText('Loading...')).toBeNull();
+  });
+
+  it.each([
+    'This sandbox is stopped. Resume the conversation to access its files.',
+    'This sandbox workspace is no longer available.',
+  ])('shows the server workspace guidance: %s', async (message) => {
+    vi.mocked(apiFetch).mockResolvedValue({
+      ok: false,
+      status: 409,
+      statusText: 'Conflict',
+      json: async () => ({ error: message }),
+    } as never);
+    render(
+      <MemoryRouter>
+        <MarkdownPreviewCard filePath="report.md" sessionId="sandbox-session" />
+      </MemoryRouter>,
+    );
+    fireEvent.click(screen.getByRole('button', { name: /report.md/ }));
+    expect(await screen.findByText(message)).toBeTruthy();
+  });
+
   it.each([
     ['[details](details.html)', 'outputs/details.html'],
     [
@@ -43,4 +76,38 @@ describe('MarkdownPreviewCard links', () => {
       expect(url.searchParams.get('sessionId')).toBe('session-1');
     });
   });
+});
+
+it('uses the resolved preview identity for sharing, Open and relative links', async () => {
+  const actual = '/repo/.claude/worktrees/session-1/outputs/report.md';
+  vi.mocked(apiFetch).mockResolvedValue({
+    ok: true,
+    json: async () => ({ path: actual, content: '[details](details.md)' }),
+  } as never);
+  render(
+    <MemoryRouter initialEntries={['/chat/session-1']}>
+      <MarkdownPreviewCard filePath="/repo/outputs/report.md" sessionId="session-1" />
+      <Location />
+    </MemoryRouter>,
+  );
+  fireEvent.click(screen.getByRole('button', { name: /report.md/ }));
+  await screen.findByRole('link', { name: 'details' });
+  fireEvent.click(screen.getByRole('button', { name: 'Share file' }));
+  await waitFor(() => expect(shareFile).toHaveBeenCalledWith(actual, 'session-1'));
+  fireEvent.click(screen.getByRole('button', { name: /^Open$/ }));
+  await waitFor(() =>
+    expect(
+      new URL(screen.getByTestId('location').textContent!, 'https://mitzo.test').searchParams.get(
+        'path',
+      ),
+    ).toBe(actual),
+  );
+  fireEvent.click(screen.getByRole('link', { name: 'details' }));
+  await waitFor(() =>
+    expect(
+      new URL(screen.getByTestId('location').textContent!, 'https://mitzo.test').searchParams.get(
+        'path',
+      ),
+    ).toBe('/repo/.claude/worktrees/session-1/outputs/details.md'),
+  );
 });
