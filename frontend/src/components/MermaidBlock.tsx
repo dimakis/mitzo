@@ -5,7 +5,9 @@ import { CopyButton } from './CopyButton';
 let renderQueue: Promise<unknown> = Promise.resolve();
 type Theme = 'dark' | 'light';
 const currentTheme = (): Theme =>
-  document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark';
+  typeof document !== 'undefined' && document.documentElement.getAttribute('data-theme') === 'light'
+    ? 'light'
+    : 'dark';
 
 function renderDiagram(id: string, code: string, theme: Theme, signal: AbortSignal) {
   const job = renderQueue.then(async () => {
@@ -31,7 +33,12 @@ function renderDiagram(id: string, code: string, theme: Theme, signal: AbortSign
       });
       const { svg } = await mermaid.render(id, code, container);
       // Also sanitize at the DOM boundary, independently of Mermaid's strict mode.
-      return signal.aborted ? null : DOMPurify.sanitize(svg);
+      return signal.aborted
+        ? null
+        : DOMPurify.sanitize(svg, {
+            ADD_TAGS: ['foreignObject'],
+            HTML_INTEGRATION_POINTS: { foreignobject: true },
+          });
     } finally {
       signal.removeEventListener('abort', remove);
       remove();

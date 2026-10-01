@@ -47,6 +47,17 @@ describe('MermaidBlock', () => {
     expect(view.container.innerHTML).not.toMatch(/onload|<script|javascript:/);
   });
 
+  it('preserves sanitized HTML diagram labels inside foreignObject', async () => {
+    renderDiagram.mockResolvedValue({
+      svg: '<svg><foreignObject><div xmlns="http://www.w3.org/1999/xhtml"><span>Label</span><img src="x" onerror="alert(1)"></div></foreignObject></svg>',
+    });
+    const view = render(createElement(MermaidBlock, { code }));
+    await waitFor(() => expect(view.container.querySelector('.mermaid-block-svg')).not.toBeNull());
+    expect(view.container.querySelector('foreignObject')).not.toBeNull();
+    expect(view.container.textContent).toContain('Label');
+    expect(view.container.innerHTML).not.toContain('onerror');
+  });
+
   it('keeps invalid source readable and removes the owned render container', async () => {
     renderDiagram.mockRejectedValue(new Error('parse error'));
     const view = render(createElement(MermaidBlock, { code: 'invalid{{{' }));
