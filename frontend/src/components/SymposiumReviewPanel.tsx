@@ -37,6 +37,8 @@ function ReviewPanel({ sessionId }: { sessionId: string }) {
   const [historyVersion, setHistoryVersion] = useState(0);
   const [available, setAvailable] = useState(false);
   const [stopAvailable, setStopAvailable] = useState(false);
+  const [cleanupAvailable, setCleanupAvailable] = useState(false);
+  const [cleanupResult, setCleanupResult] = useState('');
   const [applicationRun, setApplicationRun] = useState<InitialApplicationRun>({
     available: false,
     initialArtifact: null,
@@ -69,6 +71,7 @@ function ReviewPanel({ sessionId }: { sessionId: string }) {
       if (signal?.aborted) return;
       setAvailable(data.available);
       setStopAvailable(data.stopAvailable ?? data.available);
+      setCleanupAvailable(data.cleanupAvailable === true);
       setApplicationRun(data.applicationRun ?? { available: false, initialArtifact: null });
       setWorkflows(data.workflows);
       if (data.workflows.some((item: Workflow) => item.limits?.mode === 'application'))
@@ -90,6 +93,7 @@ function ReviewPanel({ sessionId }: { sessionId: string }) {
   async function action(path: string, body: unknown) {
     setBusy(true);
     setError('');
+    setCleanupResult('');
     setSavedRecordOpen(false);
     setRecord('');
     setRecordReference(null);
@@ -113,6 +117,10 @@ function ReviewPanel({ sessionId }: { sessionId: string }) {
         setWorkflowId(result.workflowId);
         setNewReview(false);
       }
+      if (result.semanticEvidenceAllowed === false && result.retryAllowed === false)
+        setCleanupResult(
+          `Original check cleanup: ${result.state}. No criterion evidence was recorded; retry is unavailable.`,
+        );
       if (result.publication === 'not_created') {
         setRecord(JSON.stringify(result.record, null, 2));
         if (
@@ -408,22 +416,24 @@ function ReviewPanel({ sessionId }: { sessionId: string }) {
           {workflow.acceptanceCriteria && workflow.acceptanceCriteria.length > 0 && (
             <section aria-label="Criterion verification">
               <h4>Criterion verification</h4>
+              {cleanupResult && <p role="status">{cleanupResult}</p>}
               <p>
                 Current result: {workflow.currentResultId ?? 'none'} · Artifact:{' '}
                 {workflow.artifactRevision} · SHA-256: {workflow.artifactHash}
               </p>
-              {workflow.status === 'awaiting_evidence' && criterionChecks.length > 0 && (
-                <label>
-                  <input
-                    type="checkbox"
-                    checked={confirmedArtifact}
-                    disabled={busy || !available || Boolean(pending)}
-                    onChange={(event) => setConfirmedArtifact(event.target.checked)}
-                  />
-                  Confirm exact artifact for criterion checks: {workflow.artifactRevision} ·
-                  SHA-256: {workflow.artifactHash}
-                </label>
-              )}
+              {(workflow.status === 'awaiting_evidence' || cleanupAvailable) &&
+                criterionChecks.length > 0 && (
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={confirmedArtifact}
+                      disabled={busy || (!available && !cleanupAvailable) || Boolean(pending)}
+                      onChange={(event) => setConfirmedArtifact(event.target.checked)}
+                    />
+                    Confirm exact artifact for criterion checks: {workflow.artifactRevision} ·
+                    SHA-256: {workflow.artifactHash}
+                  </label>
+                )}
               <ul>
                 {workflow.acceptanceCriteria.map((criterion) => {
                   const current = workflow.evidence
@@ -443,6 +453,19 @@ function ReviewPanel({ sessionId }: { sessionId: string }) {
                       <span>
                         {criterion}: {verdict}
                       </span>
+                      {registered?.kind === 'python-json-cases' && cleanupAvailable && (
+                        <button
+                          disabled={busy || Boolean(pending) || !confirmedArtifact}
+                          onClick={() =>
+                            void action(endpoint, {
+                              action: 'cleanup-check',
+                              definitionId: registered.id,
+                            })
+                          }
+                        >
+                          Reconcile original check cleanup: {criterion}
+                        </button>
+                      )}
                       {workflow.status === 'awaiting_evidence' && registered && (
                         <button
                           disabled={busy || !available || Boolean(pending) || !confirmedArtifact}

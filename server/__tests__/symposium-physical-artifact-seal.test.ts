@@ -2454,3 +2454,57 @@ it('real sealer cannot publish cleanup when a case appears after its final priva
     db.close();
   }
 });
+
+it('rechecks trusted cleanup authority after awaited stop before another inspect or removal', async () => {
+  const f = await fixture(),
+    signal = new AbortController().signal;
+  const seal = await f.sealer.seal(f.input, f.runtime, signal);
+  const input = {
+    fenceId: seal.fenceId,
+    operationId: 'revoked-cleanup-stop',
+    definition: {
+      id: 'zero',
+      criterion: 'Returns zero',
+      version: 1 as const,
+      kind: 'python-json-cases' as const,
+      path: 'main.py',
+      cases: [{ id: 'zero', input: null, expected: 0 }],
+    },
+  };
+  f.state.semanticLostStart = true;
+  await expect(f.sealer.checkCompletedArtifactSemantic(input, signal)).rejects.toThrow();
+  f.state.failDelete = false;
+  let current = true,
+    afterStop = 0;
+  const command = f.command.getMockImplementation()!;
+  f.command.mockImplementation(async (...args) => {
+    let result = args[0][0] === 'stop' ? '' : await command(...args);
+    if (args[0][0] === 'inspect') {
+      const rows = JSON.parse(result);
+      for (const row of rows) if (row.Id === 'e'.repeat(64)) row.State.Running = current;
+      result = JSON.stringify(rows);
+    }
+    if (args[0][0] === 'stop') {
+      current = false;
+      afterStop = f.command.mock.calls.length;
+    }
+    return result;
+  });
+  await expect(
+    f.sealer.reconcileCompletedArtifactSemantic(input, signal, () => {
+      if (!current) throw Error('cleanup request revoked');
+    }),
+  ).rejects.toThrow('cleanup request revoked');
+  expect(afterStop).toBeGreaterThan(0);
+  expect(f.command.mock.calls).toHaveLength(afterStop);
+  const db = new Database(f.host.snapshotDatabasePath());
+  try {
+    expect(
+      db
+        .prepare('SELECT state FROM symposium_seal_export_jobs WHERE operation_id=?')
+        .get(input.operationId),
+    ).toEqual({ state: 'in_progress' });
+  } finally {
+    db.close();
+  }
+});

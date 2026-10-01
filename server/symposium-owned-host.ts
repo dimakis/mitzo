@@ -1079,7 +1079,10 @@ export async function createOwnedSymposiumHost(
       async reconcileCompletedArtifactSemantic(
         input: Parameters<PhysicalArtifactSealer['reconcileCompletedArtifactSemantic']>[0],
         signal: AbortSignal,
+        assertCurrent?: () => void,
       ) {
+        signal.throwIfAborted();
+        assertCurrent?.();
         if (draining || stopped) throw new Error('Owned Symposium host is shutting down');
         if (!(options.facts instanceof EventStore))
           throw new Error('Artifact sealing requires the retained event store');
@@ -1090,7 +1093,18 @@ export async function createOwnedSymposiumHost(
           attemptRegistry: native!.registry,
           runtimeConfig,
         });
-        return track(() => artifactSealer!.reconcileCompletedArtifactSemantic(input, signal));
+        return track(async () => {
+          signal.throwIfAborted();
+          assertCurrent?.();
+          const receipt = await artifactSealer!.reconcileCompletedArtifactSemantic(
+            input,
+            signal,
+            assertCurrent,
+          );
+          signal.throwIfAborted();
+          assertCurrent?.();
+          return receipt;
+        });
       },
       async requireCompletedArtifactSeal(fenceId: string, signal: AbortSignal) {
         if (draining || stopped) throw new Error('Owned Symposium host is shutting down');

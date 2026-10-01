@@ -1826,27 +1826,45 @@ export class PhysicalArtifactSealer {
   async reconcileCompletedArtifactSemantic(
     input: { fenceId: string; operationId: string; definition: SemanticCriterionDefinition },
     signal: AbortSignal,
+    assertCurrent?: () => void,
   ) {
-    const seal = await this.requireCompletedForCleanup(input.fenceId, signal, input);
+    const current = () => {
+      signal.throwIfAborted();
+      assertCurrent?.();
+    };
+    const guarded = async <T>(operation: () => Promise<T>): Promise<T> => {
+      current();
+      const value = await operation();
+      current();
+      return value;
+    };
+    const seal = await guarded(() => this.requireCompletedForCleanup(input.fenceId, signal, input));
     const intent = this.deps.store.getSymposiumArtifactSealByFence(seal.fenceId)!;
-    return reconcileOwnedSemanticCriterion(
-      {
-        db: this.db,
-        command: this.command,
-        seal,
-        volume: intent.selection.artifact.volumeName,
-        image: TESTED_SYMPOSIUM_NATIVE_BUILD.image,
-        target: SYMPOSIUM_ARTIFACT_TARGET,
-        requireSeal: () => this.requireCompletedForCleanup(input.fenceId, signal, input),
-        custody: () => this.custody(),
-        checkFile: async () => {
-          throw Error('Cleanup cannot execute artifacts');
+    return guarded(() =>
+      reconcileOwnedSemanticCriterion(
+        {
+          db: this.db,
+          command: (...args) => guarded(() => this.command(...args)),
+          seal,
+          volume: intent.selection.artifact.volumeName,
+          image: TESTED_SYMPOSIUM_NATIVE_BUILD.image,
+          target: SYMPOSIUM_ARTIFACT_TARGET,
+          requireSeal: () =>
+            guarded(() => this.requireCompletedForCleanup(input.fenceId, signal, input)),
+          custody: () => guarded(() => this.custody()),
+          checkFile: async () => {
+            throw Error('Cleanup cannot execute artifacts');
+          },
+          withSnapshot: (operation) =>
+            this.deps.store.withSymposiumHistoricalArtifactSealSnapshot(intent, () => {
+              current();
+              operation();
+              current();
+            }),
         },
-        withSnapshot: (operation) =>
-          this.deps.store.withSymposiumHistoricalArtifactSealSnapshot(intent, operation),
-      },
-      input,
-      signal,
+        input,
+        signal,
+      ),
     );
   }
 

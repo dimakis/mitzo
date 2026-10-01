@@ -35,3 +35,23 @@ describe('request scoped review authorization', () => {
     expect(authority.authorize(context, 'fix')).toBeNull();
   });
 });
+
+it('retains cleanup request scope for before/after-await checks and rejects lost or serialized authority', async () => {
+  const authority = new SymposiumReviewActionAuthority();
+  const context = { owner: 'user', sessionId: 'session' };
+  let current = true;
+  const release = authority.bind(context, 'cleanup-check', () => {
+    if (!current) throw Error('revoked');
+  });
+  expect(() => authority.assertCurrent({ ...context }, 'cleanup-check')).toThrow();
+  expect(() => authority.assertCurrent(context, 'cleanup-check')).not.toThrow();
+  await Promise.resolve();
+  current = false;
+  expect(() => authority.assertCurrent(context, 'cleanup-check')).toThrow('revoked');
+  current = true;
+  expect(() => authority.assertCurrent(context, 'cleanup-check')).toThrow();
+  release();
+  expect(() => authority.assertCurrent(context, 'cleanup-check')).toThrow();
+  authority.bind(context, 'check', () => {});
+  expect(() => authority.assertCurrent(context, 'cleanup-check')).toThrow();
+});

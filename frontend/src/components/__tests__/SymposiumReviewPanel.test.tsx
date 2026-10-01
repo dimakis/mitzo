@@ -951,3 +951,59 @@ it('adds only the selected registered criterion to a new application run', async
     screen.getByText(/Free-form criteria require separate trusted host evidence/),
   ).toBeTruthy();
 });
+
+it('offers explicit original semantic cleanup during quarantine only after artifact confirmation', async () => {
+  const { symposiumReviewPreviewResponses } =
+    await import('../../preview/symposium-review-fixtures');
+  const workflow = {
+    ...symposiumReviewPreviewResponses.findings.workflows[0],
+    status: 'awaiting_evidence',
+    currentResultId: 'result-1',
+    acceptanceCriteria: ['Echo JSON'],
+    evidence: [],
+    applicationAttempts: [],
+    limits: policy,
+  };
+  const checks = [
+    { id: 'echo', criterion: 'Echo JSON', kind: 'python-json-cases', path: 'main.py' },
+  ];
+  vi.mocked(apiFetch).mockImplementation(async (_path, init) =>
+    response(
+      init?.method === 'POST'
+        ? { state: 'failed_cleaned', retryAllowed: false, semanticEvidenceAllowed: false }
+        : {
+            available: false,
+            cleanupAvailable: true,
+            workflows: [workflow],
+            criterionChecks: checks,
+          },
+    ),
+  );
+  render(<SymposiumReviewPanel sessionId="session" />);
+  const cleanup = await screen.findByRole('button', {
+    name: 'Reconcile original check cleanup: Echo JSON',
+  });
+  expect((cleanup as HTMLButtonElement).disabled).toBe(true);
+  expect(
+    (screen.getByRole('button', { name: 'Run registered check: Echo JSON' }) as HTMLButtonElement)
+      .disabled,
+  ).toBe(true);
+  fireEvent.click(screen.getByLabelText(/Confirm exact artifact for criterion checks/));
+  fireEvent.click(cleanup);
+  await waitFor(() =>
+    expect(apiFetch).toHaveBeenCalledWith(
+      '/api/sessions/session/symposium/reviews/preview-review/actions',
+      expect.objectContaining({
+        body: JSON.stringify({
+          action: 'cleanup-check',
+          definitionId: 'echo',
+          expectedArtifactRevision: workflow.artifactRevision,
+          expectedArtifactHash: workflow.artifactHash,
+        }),
+      }),
+    ),
+  );
+  expect(
+    await screen.findByText(/No criterion evidence was recorded; retry is unavailable/),
+  ).toBeTruthy();
+});

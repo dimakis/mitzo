@@ -70,7 +70,7 @@ export type ReviewWorkflow = {
 export type CriterionCheck = {
   id: string;
   criterion: string;
-  kind: 'file-sha256';
+  kind: 'file-sha256' | 'python-json-cases';
   path: string;
 };
 

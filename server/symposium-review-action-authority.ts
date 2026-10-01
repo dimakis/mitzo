@@ -26,6 +26,23 @@ export class SymposiumReviewActionAuthority {
     return () => this.requests.delete(context);
   }
 
+  assertCurrent(context: ReviewContext, action: 'cleanup-check'): void {
+    const request = this.requests.get(context);
+    if (
+      !request ||
+      request.action !== action ||
+      request.owner !== context.owner ||
+      request.sessionId !== context.sessionId
+    )
+      throw new Error('Current cleanup request authorization required');
+    try {
+      request.assertCurrent();
+    } catch (error) {
+      this.requests.delete(context);
+      throw error;
+    }
+  }
+
   authorize(context: ReviewContext, action: string): { authorizationId: string } | null {
     const request = this.requests.get(context);
     if (

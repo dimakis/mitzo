@@ -771,3 +771,125 @@ it('requires exact stopped historical reader proof and preserves an unrelated fr
 it('recovers the original pending writer seal after process-local runtime loss and artifact-store reopen', async () => {
   await exerciseWriterSealRecovery(true, true);
 });
+
+it('uses one original criterion identity for execution and cleanup without request scope drift', async () => {
+  const { criterionOperationId, runOriginalCriterionCleanup } =
+    await import('../symposium-production-review-composition.js');
+  const context = { owner: 'user', sessionId: 'session' };
+  const id = criterionOperationId(context, 'result', 'a'.repeat(64));
+  expect(id).toBe(
+    `criterion-${createHash('sha256')
+      .update(
+        (await import('../symposium-review-records.js')).canonicalReviewJson({
+          context,
+          resultId: 'result',
+          definitionDigest: 'a'.repeat(64),
+        }),
+      )
+      .digest('hex')}`,
+  );
+  const input = {
+    fenceId: 'original',
+    operationId: id,
+    definition: {
+      version: 1 as const,
+      kind: 'python-json-cases' as const,
+      id: 'check',
+      criterion: 'works',
+      path: 'main.py',
+      cases: [{ id: 'one', input: null, expected: null }],
+    },
+  };
+  const reconcile = vi.fn(async (_input: typeof input, _signal: AbortSignal) => ({
+    state: 'failed_cleaned' as const,
+    retryAllowed: false,
+  }));
+  const receipt = await runOriginalCriterionCleanup(() => input, reconcile);
+  expect(receipt).toMatchObject({ semanticEvidenceAllowed: false, retryAllowed: false });
+  expect(reconcile).toHaveBeenCalledTimes(1);
+  expect(reconcile.mock.calls[0][0]).toEqual(input);
+});
+it('rejects request loss and input changes after awaited original cleanup without returning evidence', async () => {
+  const { runOriginalCriterionCleanup } =
+    await import('../symposium-production-review-composition.js');
+  const input = {
+    fenceId: 'original',
+    operationId: 'original-op',
+    definition: {
+      version: 1 as const,
+      kind: 'python-json-cases' as const,
+      id: 'check',
+      criterion: 'works',
+      path: 'main.py',
+      cases: [{ id: 'one', input: null, expected: null }],
+    },
+  };
+  let current = true;
+  await expect(
+    runOriginalCriterionCleanup(
+      () => {
+        if (!current) throw Error('request revoked');
+        return input;
+      },
+      async () => {
+        current = false;
+        return { state: 'failed_cleaned', retryAllowed: false };
+      },
+    ),
+  ).rejects.toThrow('request revoked');
+  let binding = input;
+  await expect(
+    runOriginalCriterionCleanup(
+      () => binding,
+      async () => {
+        binding = { ...input, fenceId: 'changed' };
+        return { state: 'failed_cleaned', retryAllowed: false };
+      },
+    ),
+  ).rejects.toThrow('binding changed');
+  const stop = vi.fn();
+  await expect(
+    runOriginalCriterionCleanup(() => {
+      throw Error('unbound');
+    }, stop),
+  ).rejects.toThrow('unbound');
+  expect(stop).not.toHaveBeenCalled();
+});
+
+it('aborts original cleanup when held authorization becomes unavailable during an awaited effect', async () => {
+  const { runOriginalCriterionCleanup } =
+    await import('../symposium-production-review-composition.js');
+  const input = {
+    fenceId: 'original',
+    operationId: 'original-op',
+    definition: {
+      version: 1 as const,
+      kind: 'python-json-cases' as const,
+      id: 'check',
+      criterion: 'works',
+      path: 'main.py',
+      cases: [{ id: 'one', input: null, expected: null }],
+    },
+  };
+  let current = true;
+  vi.useFakeTimers();
+  try {
+    const promise = runOriginalCriterionCleanup(
+      () => {
+        if (!current) throw Error('revoked');
+        return input;
+      },
+      async (_input, signal) => {
+        current = false;
+        await new Promise((resolve) => setTimeout(resolve, 30));
+        expect(signal.aborted).toBe(true);
+        return { state: 'failed_cleaned', retryAllowed: false };
+      },
+    );
+    const rejected = expect(promise).rejects.toThrow();
+    await vi.advanceTimersByTimeAsync(30);
+    await rejected;
+  } finally {
+    vi.useRealTimers();
+  }
+});

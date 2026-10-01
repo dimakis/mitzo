@@ -114,6 +114,11 @@ export interface SymposiumTrustedReviewHostDeps {
     workflowId: string,
     definitionId: string,
   ): Promise<{ evidenceId: string }>;
+  cleanupCriterionCheck?(
+    context: ReviewContext,
+    workflowId: string,
+    definitionId: string,
+  ): Promise<{ state: string; retryAllowed: false; semanticEvidenceAllowed: false }>;
   criterionChecks?(): Array<{
     id: string;
     criterion: string;
@@ -802,6 +807,22 @@ export function createSymposiumTrustedReviewHost(
       if (!deps.runCriterionCheck) throw new Error('Trusted criterion check unavailable');
       return deps.runCriterionCheck(context, workflowId, definitionId);
     },
+    cleanupCriterionCheck: deps.cleanupCriterionCheck
+      ? async (context, workflowId, definitionId) => {
+          const before = workflow(context, workflowId);
+          if (!deps.cleanupCriterionCheck)
+            throw new Error('Original criterion cleanup unavailable');
+          const receipt = await deps.cleanupCriterionCheck(context, workflowId, definitionId);
+          const after = workflow(context, workflowId);
+          if (
+            after.currentResultId !== before.currentResultId ||
+            after.artifactRevision !== before.artifactRevision ||
+            after.artifactHash !== before.artifactHash
+          )
+            throw new Error('Cleanup workflow artifact changed');
+          return receipt;
+        }
+      : undefined,
     criterionChecks: () => deps.criterionChecks?.() ?? [],
     authorizeFix(input) {
       const state = workflow(input.context, input.workflowId);

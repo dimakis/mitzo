@@ -10,7 +10,10 @@ import type { SymposiumOrchestrator } from './symposium-orchestrator.js';
 import type { SymposiumReviewActionAuthority } from './symposium-review-action-authority.js';
 import type { ReviewContext } from './symposium-review-coordinator.js';
 import { createOwnedReviewArtifactResults } from './symposium-owned-review-artifacts.js';
-import { createOwnedCriterionReceipts } from './symposium-criterion-receipts.js';
+import {
+  SemanticCriterionDefinitionSchema,
+  createOwnedCriterionReceipts,
+} from './symposium-criterion-receipts.js';
 import { createSealedInitialReviewTransition } from './symposium-trusted-initial-transition.js';
 import { createSealedFixReviewTransition } from './symposium-trusted-fix-transition.js';
 import { createSealedReaderReviewTransition } from './symposium-trusted-reader-transition.js';
@@ -29,6 +32,42 @@ import { reconcileStoppedApplicationPreparation } from './symposium-stopped-prep
 
 type PhysicalHost = SymposiumProductionHost;
 type Identity = { revision: string; hash: string };
+
+/** Stable original operation identity shared by execution and cleanup. */
+export function criterionOperationId(
+  context: ReviewContext,
+  resultId: string,
+  definitionDigest: string,
+): string {
+  return `criterion-${createHash('sha256').update(canonicalReviewJson({ context, resultId, definitionDigest })).digest('hex')}`;
+}
+
+/** Request-owned cleanup controller: never executes a criterion or creates a helper. */
+export async function runOriginalCriterionCleanup(
+  select: () => Parameters<NonNullable<PhysicalHost['reconcileCompletedArtifactSemantic']>>[0],
+  reconcile: NonNullable<PhysicalHost['reconcileCompletedArtifactSemantic']>,
+) {
+  const input = select();
+  const controller = new AbortController();
+  const expiry = setTimeout(() => controller.abort(), 120_000);
+  const current = setInterval(() => {
+    try {
+      if (canonicalReviewJson(select()) !== canonicalReviewJson(input)) controller.abort();
+    } catch {
+      controller.abort();
+    }
+  }, 25);
+  try {
+    const receipt = await reconcile(input, controller.signal);
+    controller.signal.throwIfAborted();
+    if (canonicalReviewJson(select()) !== canonicalReviewJson(input))
+      throw new Error('Original semantic cleanup binding changed');
+    return { ...receipt, retryAllowed: false as const, semanticEvidenceAllowed: false as const };
+  } finally {
+    clearTimeout(expiry);
+    clearInterval(current);
+  }
+}
 
 /** A reviewer config advance makes the coder's admission historical. This
  * reads only the sealed pointer; fix dispatch still needs fresh child admission. */
@@ -510,9 +549,7 @@ export function createSymposiumProductionReviewComposition(deps: {
             };
           },
           async execute(context, result, definition, definitionDigest) {
-            const operationId = `criterion-${createHash('sha256')
-              .update(canonicalReviewJson({ context, resultId: result.resultId, definitionDigest }))
-              .digest('hex')}`;
+            const operationId = criterionOperationId(context, result.resultId, definitionDigest);
             const selected = {
               fenceId: result.evidenceRefs[0].slice('artifact-seal:'.length),
               operationId,
@@ -824,6 +861,66 @@ export function createSymposiumProductionReviewComposition(deps: {
             return { evidenceId: evidence.evidenceId };
           }
         : undefined,
+      cleanupCriterionCheck:
+        host.reconcileCompletedArtifactSemantic && host.criterionChecks
+          ? async (context, workflowId, definitionId) => {
+              const selected = () => {
+                deps.actionAuthority.assertCurrent(context, 'cleanup-check');
+                const state = reviews.get(workflowId);
+                const current = artifacts.currentResult(context);
+                const rawDefinition = host.criterionChecks!.find(
+                  (item) => item.id === definitionId,
+                );
+                if (
+                  !state ||
+                  state.owner !== context.owner ||
+                  state.sessionId !== context.sessionId ||
+                  !rawDefinition ||
+                  rawDefinition.kind !== 'python-json-cases' ||
+                  !state.acceptanceCriteria.includes(rawDefinition.criterion) ||
+                  !current ||
+                  current.resultId !== state.currentResultId ||
+                  current.artifactRevision !== state.artifactRevision ||
+                  current.artifactHash !== state.artifactHash ||
+                  current.evidenceRefs.length !== 1 ||
+                  !current.evidenceRefs[0].startsWith('artifact-seal:')
+                )
+                  throw new Error('Original registered semantic cleanup binding unavailable');
+                const fenceId = current.evidenceRefs[0].slice('artifact-seal:'.length);
+                const owned = artifacts.completedSourceResult(context, {
+                  workflowId,
+                  fenceId,
+                  artifactRevision: current.artifactRevision,
+                  artifactHash: current.artifactHash,
+                });
+                if (
+                  !owned ||
+                  owned.resultId !== current.resultId ||
+                  owned.attemptId !== current.attemptId ||
+                  owned.artifactRevision !== current.artifactRevision ||
+                  owned.artifactHash !== current.artifactHash
+                )
+                  throw new Error('Original owned semantic result unavailable');
+                const generation = historicalSealedResultCoderGeneration(events, context, current);
+                if (!generation) throw new Error('Original semantic generation unavailable');
+                const definition = SemanticCriterionDefinitionSchema.parse(rawDefinition);
+                const definitionDigest = createHash('sha256')
+                  .update(canonicalReviewJson(definition))
+                  .digest('hex');
+                return {
+                  fenceId,
+                  operationId: criterionOperationId(context, current.resultId, definitionDigest),
+                  definition,
+                };
+              };
+              return runOriginalCriterionCleanup(selected, (input, signal) =>
+                host.reconcileCompletedArtifactSemantic!(input, signal, () => {
+                  if (canonicalReviewJson(selected()) !== canonicalReviewJson(input))
+                    throw new Error('Original semantic cleanup binding changed');
+                }),
+              );
+            }
+          : undefined,
       criterionChecks: () =>
         checks
           ? host.criterionChecks!.map(({ id, criterion, kind, path }) => ({

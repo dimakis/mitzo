@@ -30,6 +30,11 @@ export interface SymposiumInteractiveReviewHost extends SymposiumReviewHost {
     workflowId: string,
     definitionId: string,
   ): Promise<{ evidenceId: string }>;
+  cleanupCriterionCheck?(
+    context: ReviewContext,
+    workflowId: string,
+    definitionId: string,
+  ): Promise<{ state: string; retryAllowed: false; semanticEvidenceAllowed: false }>;
   dispatch(
     context: ReviewContext,
     reservation: Extract<
@@ -73,6 +78,7 @@ const Action = z.discriminatedUnion('action', [
   }),
   z.strictObject({ ...artifact, action: z.literal('evidence'), evidenceId: Id }),
   z.strictObject({ ...artifact, action: z.literal('check'), definitionId: Id }),
+  z.strictObject({ ...artifact, action: z.literal('cleanup-check'), definitionId: Id }),
   z.strictObject({ ...artifact, action: z.literal('review-record') }),
   z.strictObject({
     ...artifact,
@@ -154,6 +160,7 @@ export function createSymposiumReviewRouter(deps: {
     res.json({
       available,
       stopAvailable: Boolean(host),
+      cleanupAvailable: Boolean(host?.cleanupCriterionCheck),
       applicationRun,
       workflows: deps.store.list(ctx.owner, ctx.sessionId),
       criterionChecks: host?.criterionChecks?.() ?? [],
@@ -288,10 +295,21 @@ export function createSymposiumReviewRouter(deps: {
       }
       const action = input.data;
       // Stop fences known work even when physical verification is unavailable.
-      if (action.action !== 'stop') await host.refreshArtifact?.(ctx);
+      if (action.action !== 'stop' && action.action !== 'cleanup-check')
+        await host.refreshArtifact?.(ctx);
       let result: unknown;
       if (action.action === 'stop') result = await coordinator.stop(ctx, workflowId);
-      else if (action.action === 'continue')
+      else if (action.action === 'cleanup-check') {
+        if (!host.cleanupCriterionCheck) throw new Error('Original check cleanup unavailable');
+        result = await host.cleanupCriterionCheck(ctx, workflowId, action.definitionId);
+        const after = coordinator.status(ctx, workflowId);
+        if (
+          after.currentResultId !== inspected.currentResultId ||
+          after.artifactRevision !== inspected.artifactRevision ||
+          after.artifactHash !== inspected.artifactHash
+        )
+          throw new Error('Cleanup workflow artifact changed');
+      } else if (action.action === 'continue')
         result = coordinator.continue(ctx, workflowId, action.limits, action.reason);
       else if (action.action === 'review-record') {
         const finalized = coordinator.exportRecord(ctx, workflowId);

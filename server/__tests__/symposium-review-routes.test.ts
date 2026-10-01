@@ -43,6 +43,7 @@ it('reports missing native review authority without creating a workflow or dispa
   expect((await request(app).get('/api/sessions/session/symposium/reviews')).body).toEqual({
     available: false,
     stopAvailable: false,
+    cleanupAvailable: false,
     applicationRun: {
       available: false,
       initialArtifact: null,
