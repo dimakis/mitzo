@@ -1029,6 +1029,7 @@ export interface SymposiumProductionHost {
     discoverModels?(id: string, revision: number, assertOperator: () => void): Promise<unknown>;
   };
   resolveSeatPolicy?: import('./symposium-owned-seat-policy.js').SymposiumSeatPolicySelector;
+  observeDurableReviewToolResult?: import('./symposium-codex-native.js').OpenAiCodexSeatInput['observeDurableReviewToolResult'];
   currentProfiles: () => AccountProfiles;
   verifySubscriptionPrivateAuth?: VerifySymposiumSubscriptionAuth;
   assertSubscriptionDispatch?: (input: Parameters<VerifySymposiumSubscriptionAuth>[0]) => void;
@@ -1186,6 +1187,7 @@ let symposiumRuntimeForSession: (sessionId: string) => SymposiumOrchestrator | n
       store: eventStore,
       profiles: host.currentProfiles(),
       currentProfiles: host.currentProfiles,
+      observeDurableReviewToolResult: host.observeDurableReviewToolResult,
       hostGrants: symposiumHostGrants,
       codexStore: getCodexConversationStore(),
       profileProposalStore: symposiumProfileProposalStore,

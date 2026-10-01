@@ -1,3 +1,4 @@
+import type { OpenAiCodexSeatInput } from './symposium-codex-native.js';
 import { assertOwnedSealedReaderCurrent } from './symposium-owned-reader-reference.js';
 import { artifactAdmissionDigest } from './event-store.js';
 import {
@@ -105,6 +106,8 @@ class LoginCancelledForShutdown extends Error {
 }
 
 export interface OwnedSymposiumHostOptions {
+  /** Trusted construction only; never read from persisted configuration or requests. */
+  observeDurableReviewToolResult?: OpenAiCodexSeatInput['observeDurableReviewToolResult'];
   criterionChecks?: readonly CheckDefinition[];
   publicationCredentials?: readonly PublicationCredentialRegistration[];
   gateway: OwnedSymposiumGatewayOptions;
@@ -140,6 +143,9 @@ export async function createOwnedSymposiumHost(
     execution: { timeout: number; input?: Buffer },
   ) => Promise<string>,
 ) {
+  const originalObserver = options.observeDurableReviewToolResult;
+  if (originalObserver !== undefined && typeof originalObserver !== 'function')
+    throw new Error('Owned native observer must be a trusted constructor callback');
   if (
     !isAbsolute(options.attestationPath) ||
     !isAbsolute(options.podman.executable) ||
@@ -517,6 +523,22 @@ export async function createOwnedSymposiumHost(
       if (!subscription) throw new Error('Subscription host is not initialized');
       return subscription.currentProfiles;
     };
+    const observeDurableReviewToolResult = originalObserver
+      ? async (event: Parameters<NonNullable<typeof originalObserver>>[0]) => {
+          const assertCurrent = () => {
+            if (stopped || draining || controllerPaused)
+              throw new Error('Original owned observer is no longer current');
+            currentProfiles(); // Original gateway custody and retained subscription owner.
+          };
+          assertCurrent();
+          await track(async () => {
+            assertCurrent();
+            await originalObserver(event);
+            assertCurrent();
+          });
+          assertCurrent();
+        }
+      : undefined;
     const seatProof = createSymposiumSubscriptionSeatProof({
       facts: options.facts,
       currentProfiles,
@@ -969,6 +991,7 @@ export async function createOwnedSymposiumHost(
           });
         }),
       currentProfiles,
+      observeDurableReviewToolResult,
       publicationCredentials: options.publicationCredentials,
       physical,
       attemptRegistry: native.registry,

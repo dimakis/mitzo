@@ -1,3 +1,5 @@
+import { EventStore } from '../event-store.js';
+import type { BootstrapTools } from '../symposium-owned-config.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createHash } from 'node:crypto';
 import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -103,6 +105,44 @@ function fixture() {
   return { root, filename, config, save, gateway, tools };
 }
 describe('explicit private owned startup configuration', () => {
+  it('plumbs only a constructor observer into the actual owned host, never persisted config', async () => {
+    const f = fixture();
+    const observer = vi.fn();
+    const facts = new EventStore(join(f.root, 'constructor-events.db'));
+    const host = await bootstrapConfiguredSymposiumHost(
+      f.filename,
+      {
+        facts,
+        hostGrants: { verifySeat: vi.fn() },
+        observeDurableReviewToolResult: observer,
+      },
+      f.tools as unknown as BootstrapTools,
+    );
+    expect(host.observeDurableReviewToolResult).toBeTypeOf('function');
+    expect(readOwnedSymposiumHostConfig(f.filename)).not.toHaveProperty(
+      'observeDurableReviewToolResult',
+    );
+    host.pauseController();
+    await expect(
+      host.observeDurableReviewToolResult!({
+        sessionId: 'session',
+        claimToken: 'claim',
+        deliveryId: 'delivery',
+        seatId: 'reader',
+        membershipGeneration: 1,
+        providerThreadId: 'thread',
+        providerTurnId: 'turn',
+        callId: 'call',
+        toolName: 'review',
+        arguments: {},
+        result: { content: '{}', isError: false },
+      }),
+    ).rejects.toThrow('no longer current');
+    expect(observer).not.toHaveBeenCalled();
+    host.stop();
+    facts.close();
+  });
+
   it('requires an explicit namespace but permits the exact empty Podman namespace', () => {
     const f = fixture();
     f.config.podman.sandboxNamespace = '';

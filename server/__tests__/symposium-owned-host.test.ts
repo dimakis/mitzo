@@ -1,4 +1,5 @@
 import Database from 'better-sqlite3';
+import type { DurableSymposiumReviewToolObservation } from '../symposium-codex-native.js';
 import { EventStore } from '../event-store.js';
 import { PhysicalArtifactSealer } from '../symposium-physical-artifact-seal.js';
 import * as discoveryCore from '../symposium-model-discovery.js';
@@ -1111,4 +1112,83 @@ it('carries semantic deadlines and bounded stdin into the real retained owned tr
   } finally {
     host.stop();
   }
+});
+
+const observerEvent: DurableSymposiumReviewToolObservation = Object.freeze({
+  sessionId: 'session',
+  claimToken: 'claim',
+  deliveryId: 'delivery',
+  seatId: 'reader',
+  membershipGeneration: 2,
+  providerThreadId: 'thread',
+  providerTurnId: 'turn',
+  callId: 'call',
+  toolName: 'review_page',
+  arguments: Object.freeze({ page: 0 }),
+  result: Object.freeze({ content: '{}', isError: false }),
+});
+describe('constructor-only original owned observer', () => {
+  it('pins the constructor callback before gateway launch awaits', async () => {
+    const f = fixture();
+    const original = vi.fn();
+    const replacement = vi.fn();
+    f.options.observeDurableReviewToolResult = original;
+    let release!: () => void;
+    const launching = createOwnedSymposiumHost(f.options, async () => {
+      await new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      return f.gateway as unknown as OwnedSymposiumGateway;
+    });
+    f.options.observeDurableReviewToolResult = replacement;
+    release();
+    const host = await launching;
+    await host.observeDurableReviewToolResult!(observerEvent);
+    expect(original).toHaveBeenCalledExactlyOnceWith(observerEvent);
+    expect(replacement).not.toHaveBeenCalled();
+    host.stop();
+  });
+
+  it('is absent for the ordinary default host', async () => {
+    const f = fixture();
+    const host = await createOwnedSymposiumHost(f.options, f.launch);
+    expect(host.observeDurableReviewToolResult).toBeUndefined();
+    host.stop();
+  });
+  it('routes the exact immutable native event through the original host callback', async () => {
+    const f = fixture();
+    const observer = vi.fn();
+    f.options.observeDurableReviewToolResult = observer;
+    const host = await createOwnedSymposiumHost(f.options, f.launch);
+    f.gateway.verifyCustody.mockClear();
+    await host.observeDurableReviewToolResult!(observerEvent);
+    expect(observer).toHaveBeenCalledExactlyOnceWith(observerEvent);
+    expect(f.gateway.verifyCustody.mock.calls.length).toBeGreaterThanOrEqual(2);
+    host.stop();
+  });
+  it.each(['custody', 'controller'] as const)(
+    'vetoes %s loss while the original observer awaits',
+    async (loss) => {
+      const f = fixture();
+      let release!: () => void;
+      f.options.observeDurableReviewToolResult = vi.fn(
+        () =>
+          new Promise<void>((resolve) => {
+            release = resolve;
+          }),
+      );
+      const host = await createOwnedSymposiumHost(f.options, f.launch);
+      const result = host.observeDurableReviewToolResult!(observerEvent);
+      if (loss === 'custody')
+        f.gateway.verifyCustody.mockImplementation(() => {
+          throw Error('original custody lost');
+        });
+      else host.pauseController();
+      release();
+      await expect(result).rejects.toThrow();
+      await expect(host.observeDurableReviewToolResult!(observerEvent)).rejects.toThrow();
+      expect(f.options.observeDurableReviewToolResult).toHaveBeenCalledOnce();
+      host.stop();
+    },
+  );
 });

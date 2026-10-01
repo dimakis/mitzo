@@ -1,7 +1,9 @@
-import 'dotenv/config';
 import { fork, type ChildProcess } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { dirname } from 'node:path';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import type { BootstrapTools } from './symposium-owned-config.js';
+import type { OwnedSymposiumHostOptions } from './symposium-owned-host.js';
 import { custodianAppEnvironment } from './symposium-custodian-launch.js';
 import { SymposiumCustodianController } from './symposium-custodian-controller.js';
 import { serveCustodianController, type CustodianChannel } from './symposium-custodian-ipc.js';
@@ -12,7 +14,17 @@ import {
 } from './symposium-custodian-retirement.js';
 
 /** Explicit fresh-owner entry point. No attach/reconstruct command exists. */
-async function main() {
+export interface SymposiumCustodianConstructorHooks {
+  bootstrapTools?: BootstrapTools;
+  observeDurableReviewToolResult?: OwnedSymposiumHostOptions['observeDurableReviewToolResult'];
+}
+export async function runSymposiumCustodian(hooks: SymposiumCustodianConstructorHooks = {}) {
+  const { bootstrapTools, observeDurableReviewToolResult } = hooks;
+  if (
+    observeDurableReviewToolResult !== undefined &&
+    typeof observeDurableReviewToolResult !== 'function'
+  )
+    throw Error('Custodian observer must be a trusted constructor callback');
   if (process.env.MITZO_SYMPOSIUM_CUSTODIAN_CONTROLLER || process.send)
     throw Error('Custodian must be launched as the independent owner');
   const filename = process.env.MITZO_SYMPOSIUM_OWNED_HOST_CONFIG;
@@ -24,7 +36,11 @@ async function main() {
   const { revokeAuthSession, registerAuthSession } = await import('./auth.js');
   const host = await bootstrapConfiguredSymposiumHost(
     filename,
-    engine.getSymposiumBootstrapDependencies(),
+    {
+      ...engine.getSymposiumBootstrapDependencies(),
+      observeDurableReviewToolResult,
+    },
+    bootstrapTools,
   );
   engine.installSymposiumProductionHost(host);
   const identity = randomUUID();
@@ -178,7 +194,16 @@ async function main() {
     process.exitCode = 1;
   }
 }
-void main().catch(() => {
-  process.stderr.write('Symposium custodian startup failed; no existing resources were adopted.\n');
-  process.exitCode = 1;
-});
+/** Importing this module cannot bootstrap a host or load app authentication. */
+export function isDirectSymposiumCustodianEntry(argvPath: string | undefined): boolean {
+  return !!argvPath && resolve(argvPath) === fileURLToPath(import.meta.url);
+}
+if (isDirectSymposiumCustodianEntry(process.argv[1]))
+  void import('dotenv/config')
+    .then(() => runSymposiumCustodian())
+    .catch(() => {
+      process.stderr.write(
+        'Symposium custodian startup failed; no existing resources were adopted.\n',
+      );
+      process.exitCode = 1;
+    });
