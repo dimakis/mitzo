@@ -261,8 +261,8 @@ export function useVoice(): UseVoiceReturn {
       else finalResolveRef.current?.(null);
       const text = await final;
       clearTimeout(timer);
-      finalResolveRef.current = null;
       if (captureId !== captureIdRef.current) return '';
+      finalResolveRef.current = null;
       if (text !== null) {
         setPartialTranscript('');
         client.close();
