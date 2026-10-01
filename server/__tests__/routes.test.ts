@@ -3,7 +3,7 @@ import type { Server } from 'node:http';
 import { listenOnLoopback, closeTestServer } from './loopback-test-server.js';
 import request from 'supertest';
 import Database from 'better-sqlite3';
-import { mkdirSync, writeFileSync, symlinkSync } from 'fs';
+import { mkdirSync, writeFileSync, readFileSync, symlinkSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 
@@ -1783,5 +1783,25 @@ it.each(['remote-api-session', 'remote-subscription-session'])(
         'report.md',
       );
     }
+  },
+);
+
+it.each(['remote-api-session', 'remote-subscription-session'])(
+  'blocks host directory browsing and editing for %s',
+  async (sessionId) => {
+    for (const endpoint of ['/api/files', '/api/files/list']) {
+      const res = await request(app).get(endpoint).query({ sessionId }).set('Cookie', authCookie);
+      expect(res.status).toBe(409);
+      expect(res.body.error).toContain('workspace');
+      expect(res.body.entries).toBeUndefined();
+    }
+    const file = join(TEST_REPO, 'test.txt');
+    const original = readFileSync(file, 'utf8');
+    const res = await request(app)
+      .put('/api/files/write')
+      .set('Cookie', authCookie)
+      .send({ path: 'test.txt', content: 'remote editing must not hit host', sessionId });
+    expect(res.status).toBe(409);
+    expect(readFileSync(file, 'utf8')).toBe(original);
   },
 );

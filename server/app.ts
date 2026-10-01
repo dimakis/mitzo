@@ -2651,6 +2651,16 @@ app.get('/api/files/roots', (_req, res) => {
 
 app.get('/api/files/list', (req, res) => {
   const sessionId = typeof req.query.sessionId === 'string' ? req.query.sessionId : undefined;
+  if (sessionId && isRemoteSessionArtifact(sessionId)) {
+    res
+      .status(409)
+      .json({
+        error:
+          'Directory browsing for this conversation’s sandbox workspace is unavailable. Open a file link in the conversation to view or download it.',
+      });
+    return;
+  }
+
   const allowed = createAllowedPathChecker(sessionId);
   const root = resolveRoot(
     req.query.root as string | undefined,
@@ -2695,6 +2705,16 @@ app.get('/api/files/list', (req, res) => {
 
 app.get('/api/files', (req, res) => {
   const sessionId = typeof req.query.sessionId === 'string' ? req.query.sessionId : undefined;
+  if (sessionId && isRemoteSessionArtifact(sessionId)) {
+    res
+      .status(409)
+      .json({
+        error:
+          'Directory browsing for this conversation’s sandbox workspace is unavailable. Open a file link in the conversation to view or download it.',
+      });
+    return;
+  }
+
   const allowed = createAllowedPathChecker(sessionId);
   const root = resolveRoot(
     req.query.root as string | undefined,
@@ -2876,6 +2896,16 @@ app.put('/api/files/write', (req, res) => {
     return;
   }
   const { path: requestedPath, content, sessionId } = body.data;
+  if (sessionId && isRemoteSessionArtifact(sessionId)) {
+    res
+      .status(409)
+      .json({
+        error:
+          'Editing this conversation’s sandbox workspace from the file viewer is unavailable. Ask the conversation to update the file.',
+      });
+    return;
+  }
+
   const filePath = resolveArtifactPath(requestedPath, sessionId);
   if (!isAllowedPath(filePath, sessionId)) {
     res.status(403).json({ error: 'Path not allowed' });
