@@ -137,7 +137,7 @@ describe('trusted artifact transport', () => {
   it('never dispatches an artifact read when persisted identity verification fails', async () => {
     const run = vi.fn<ArtifactCommandRunner>();
     const verify = vi.fn(async () => {
-      throw new Error('Sandbox is stopped or replaced');
+      throw Object.assign(new Error('Sandbox is stopped or replaced'), { status: 503 });
     });
     await expect(
       readOpenShellArtifact(runtime, 'report.md', verify, undefined, run),
@@ -153,7 +153,7 @@ describe('trusted artifact transport', () => {
     const verify = vi
       .fn<() => Promise<void>>()
       .mockResolvedValueOnce(undefined)
-      .mockRejectedValueOnce(new Error('Physical sandbox changed'));
+      .mockRejectedValueOnce(Object.assign(new Error('Physical sandbox changed'), { status: 503 }));
     await expect(
       readOpenShellArtifact(runtime, 'report.md', verify, undefined, run),
     ).rejects.toMatchObject({ status: 503 });
@@ -170,4 +170,22 @@ describe('trusted artifact transport', () => {
       ).rejects.toBeInstanceOf(Error);
     }
   });
+});
+
+it.each(['before', 'after'])('preserves actionable identity refusal %s reading', async (when) => {
+  const refusal = Object.assign(new Error('Resume this conversation to access its files'), {
+    status: 409,
+  });
+  const verify = vi.fn<() => Promise<void>>();
+  if (when === 'before') verify.mockRejectedValueOnce(refusal);
+  else verify.mockResolvedValueOnce(undefined).mockRejectedValueOnce(refusal);
+  const run = vi
+    .fn<ArtifactCommandRunner>()
+    .mockResolvedValue(
+      JSON.stringify({ path: '/sandbox/workspaces/mgmt/report.md', data: 'eA==' }),
+    );
+  await expect(readOpenShellArtifact(runtime, 'report.md', verify, undefined, run)).rejects.toBe(
+    refusal,
+  );
+  expect(run).toHaveBeenCalledTimes(when === 'before' ? 0 : 1);
 });

@@ -100,10 +100,10 @@ export async function readOpenShellArtifact(
     runtime.workdir,
     requestedPath,
   ]);
+  await verifyIdentity();
+  let result: { path: string; bytes: Buffer };
   try {
-    await verifyIdentity();
     const response: unknown = JSON.parse(await run(spec.command, spec.args, spec.env, signal));
-    await verifyIdentity();
     if (!response || typeof response !== 'object') throw new Error('Invalid artifact response');
     const value = response as Record<string, unknown>;
     if (value.error) {
@@ -125,9 +125,11 @@ export async function readOpenShellArtifact(
     if (bytes.toString('base64') !== value.data) throw new Error('Invalid artifact response');
     if (bytes.length > MAX_BYTES)
       throw new OpenShellArtifactReadError(413, 'File is too large (5 MB maximum)');
-    return { path: expected, bytes };
+    result = { path: expected, bytes };
   } catch (error) {
     if (error instanceof OpenShellArtifactReadError) throw error;
     throw new OpenShellArtifactReadError(503, 'Sandbox artifact unavailable');
   }
+  await verifyIdentity();
+  return result;
 }
