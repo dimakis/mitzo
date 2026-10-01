@@ -20,6 +20,7 @@ const mockEventStore = {
   listSessions: vi.fn().mockReturnValue([]),
   getEventsAfter: vi.fn().mockReturnValue([]),
   getSessionEvents: vi.fn().mockReturnValue([]),
+  getSessionEventsThroughCursor: vi.fn().mockReturnValue([]),
   markSessionInactive: vi.fn(),
   hideSession: vi.fn(),
   incrementPromptCount: vi.fn().mockReturnValue(1),
@@ -48,6 +49,8 @@ vi.mock('../mcp-config.js', () => ({
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mockEventStore.getSessionEvents.mockReturnValue([]);
+  mockEventStore.getSessionEventsThroughCursor.mockReturnValue([]);
 });
 
 describe('discoverSession', () => {
@@ -207,3 +210,49 @@ it('does not replace a recorded historical workspace with SDK metadata', async (
   expect(mockGetSessionInfo).not.toHaveBeenCalled();
   expect(mockUpsertSession).not.toHaveBeenCalled();
 });
+
+const savedEvents = [
+  { seq: 1, type: 'user_message', payload: { prompt: 'Saved request' }, timestamp: 1 },
+];
+
+it.each(['getMessages', 'getSessionTranscript'] as const)(
+  'recovers missing workspace for durable %s history',
+  async (method) => {
+    mockEventStore.getSessionEvents.mockReturnValue(savedEvents);
+    mockGetSession.mockReturnValue({
+      sessionId: 'persisted',
+      cwd: null,
+      accountBinding: { provider: 'anthropic' },
+      summary: 'Keep title',
+    });
+    mockGetSessionInfo.mockResolvedValue({ cwd: '/projects/existing-worktree' });
+    const chat = await import('../chat.js');
+    await chat[method]('persisted');
+    expect(mockUpsertSession).toHaveBeenCalledWith({
+      sessionId: 'persisted',
+      cwd: '/projects/existing-worktree',
+    });
+  },
+);
+
+it('does not look up mutable metadata for bounded durable history', async () => {
+  mockEventStore.getSessionEventsThroughCursor.mockReturnValue(savedEvents);
+  mockGetSession.mockReturnValue({ sessionId: 'persisted', cwd: null });
+  const { getMessages } = await import('../chat.js');
+  await getMessages('persisted', 1);
+  expect(mockGetSessionInfo).not.toHaveBeenCalled();
+  expect(mockUpsertSession).not.toHaveBeenCalled();
+});
+
+it.each([undefined, '', 'relative/worktree', 42])(
+  'ignores malformed recovered cwd %s',
+  async (cwd) => {
+    mockEventStore.getSessionEvents.mockReturnValue(savedEvents);
+    mockGetSession.mockReturnValue({ sessionId: 'persisted', cwd: null });
+    mockGetSessionInfo.mockResolvedValue({ cwd });
+    const { getMessages } = await import('../chat.js');
+    await getMessages('persisted');
+    expect(mockGetSessionInfo).toHaveBeenCalled();
+    expect(mockUpsertSession).not.toHaveBeenCalled();
+  },
+);
