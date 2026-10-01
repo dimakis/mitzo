@@ -148,6 +148,36 @@ describe('blobToFormData', () => {
   });
 });
 
+describe('completed batch recordings', () => {
+  it('returns captured audio after auto-stop rather than hanging', async () => {
+    vi.useFakeTimers();
+    const recorder = createRecorder(mockStream(), 'audio/webm');
+    recorder.start();
+    await vi.advanceTimersByTimeAsync(MAX_RECORDING_DURATION_MS + 1);
+    let blob: Blob | undefined;
+    recorder.stop().then((value) => {
+      blob = value;
+    });
+    await Promise.resolve();
+    expect(blob?.size).toBeGreaterThan(0);
+    vi.useRealTimers();
+  });
+
+  it('settles a pending stop when cancelled', async () => {
+    vi.useFakeTimers();
+    const recorder = createRecorder(mockStream(), 'audio/webm');
+    recorder.start();
+    let blob: Blob | undefined;
+    recorder.stop().then((value) => {
+      blob = value;
+    });
+    recorder.cancel();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(blob?.size).toBe(0);
+    vi.useRealTimers();
+  });
+});
+
 describe('createStreamingRecorder', () => {
   it('emits chunks via onChunk callback during recording', async () => {
     vi.useFakeTimers();
