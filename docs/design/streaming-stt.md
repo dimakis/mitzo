@@ -1,238 +1,65 @@
-# Streaming STT (Phase 3)
+# Streaming speech input
 
-**Status:** Proposed
-**Date:** 2026-04-05
-**Depends on:** Phase 1 — Batch STT (#105), Phase 2 — TTS Playback (#108)
-**Author:** Claude (with Dimitri)
+**Status:** Implemented; reliability and latency improvements in PR #688 and Yapper PR #13
+**Updated:** 2026-10-01
 
-## Context
+This replaces the April 2026 Phase 3 proposal. Streaming audio and live transcript previews already existed. The remaining delay came from inference scheduling, unused word timestamp work, the growing Whisper buffer, and incorrect recording finalization.
 
-Phases 1 and 2 delivered batch STT and TTS playback. Batch transcription works but has a noticeable delay (1-3s after release before text appears). Phase 3 replaces batch with streaming transcription — words appear in the input box as the user speaks, with a final transcript on release.
+## Current path
 
-**Constraint:** Streaming is a transport upgrade, not a protocol change. The v2 protocol, reducer, and server are untouched. The UI contract is the same: mic button → transcript → textarea.
+1. Tap the microphone to begin recording. MediaRecorder emits audio chunks every 250 ms, negotiating WebM/Opus, WebM, or MP4 on Safari/iOS.
+2. Mitzo proxies the audio WebSocket through `/api/yapper-ws/v1/transcribe/stream`. The client declares the container format before sending audio.
+3. Yapper decodes compressed audio into mono 16 kHz PCM. Whisper transcribes the accumulated audio after each second of received samples, returning a replacement partial transcript. This is periodic inference, not a native streaming model or a word-by-word guarantee.
+4. Mitzo displays partial text as a preview. A partial is never submitted as a completed voice message.
+5. On stop, the client waits for the recorder's final chunk and ordered Blob conversions before sending the text frame `END`. The final response listener is registered before sending `END`; its five-second timeout starts after `END`.
+6. Yapper reuses the latest transcript only when it already covers every received sample. Any remaining audio receives a final decode.
+7. If streaming is rejected, disconnects, or times out, Mitzo uses its complete batch recording rather than submitting an incomplete partial. Cancellation invalidates the capture, settles pending work, aborts batch requests, and releases recording resources.
 
-## Yapper Streaming Protocol
+Both streaming and HTTP batch inference run in worker threads and share the engine's inference lock. The lock must never be awaited synchronously on the server event loop. Streaming omits word timestamps because the current protocol exposes only text.
 
-### `WS /v1/transcribe/stream`
+The agent receives an ordinary text prompt. Audio does not change the agent message protocol, permissions, or event history.
 
-```
-1. Client opens WebSocket to /v1/transcribe/stream
-2. Client sends text frame: {"format": "webm/opus"}
-3. Client sends binary frames (audio chunks) during recording
-4. Client sends text frame: "END" on recording stop
-5. Server sends JSON frames:
-   - {"type": "partial", "text": "I wanted to"}       (every ~2s)
-   - {"type": "partial", "text": "I wanted to check"}  (revised)
-   - {"type": "final", "text": "I wanted to check the status."}
-```
+## Observed latency
 
-### Key behaviors
+An approved local test used `mlx-community/whisper-large-v3-turbo` and the public Whisper JFK fixture, paced as 250 ms PCM frames. On this Mac, for that 11-second recording:
 
-- **Partials overwrite, not append** — Whisper re-transcribes the entire accumulated buffer. Each partial replaces the previous one entirely.
-- **Format negotiation** — first text frame declares format. `webm/opus` triggers server-side ffmpeg decode. Omitting defaults to PCM.
-- **`END` must be a text frame** — binary frame with "END" content is treated as audio.
-- **No per-frame acknowledgment** — server accepts audio silently. Only error signal is WebSocket disconnect.
-- **No heartbeat** — not a problem for speech (continuous audio frames), but worth noting.
+- First partial: 3.273 seconds on the original engine, 1.415 seconds after the improvements.
+- Final response after capture: 0.826 seconds originally, 0.479 seconds after the improvements.
+- Longest event-loop heartbeat gap: 1.275 seconds originally, 0.025 seconds after the improvements.
+- The final transcript matched between versions.
 
-## Architecture
+The actual FastAPI PCM WebSocket route was also tested with a 10.75-second recording to exercise a final audio tail. It produced a partial at 1.411 seconds and a final transcript 0.455 seconds after capture ended.
 
-### What Changes
+These are measurements on one public recording, not browser/iPhone latency or general speech-accuracy guarantees. MediaRecorder buffering, codec decoding, network delay, speech content, and host load can change the result.
 
-```
-Phase 1 (batch):
-  MediaRecorder → stop → Blob → POST /v1/transcribe → transcript
+## Acceptance for this increment
 
-Phase 3 (streaming):
-  MediaRecorder → timeslice chunks → WS /v1/transcribe/stream → live partials
-                → stop → "END" → final transcript
-```
+- Final recorder data and asynchronous conversions precede `END`, preserving audio order.
+- A slow conversion does not consume the final-response timeout.
+- Cancellation settles a pending stop even if a conversion never finishes.
+- Stale callbacks and late batch results cannot affect a newer capture.
+- Streaming errors recover the complete recording.
+- MP4 is decoded from a pipe in an automated test, beyond merely accepting its format name.
+- Batch and streaming inference leave the event loop responsive.
+- A final tail is decoded; an unchanged buffer is not decoded twice.
+- Mocked regression tests, lint/type checks, applicable native/browser CI, and approved local speech validation pass.
 
-### Changes to `lib/audio.ts`
+## Revised rollout
 
-Add `createStreamingRecorder()` that uses `MediaRecorder.start(timeslice)` to emit chunks during recording instead of one blob at the end:
+### 1. Reliable, responsive dictation
 
-```typescript
-export interface StreamingRecorder {
-  start: () => void;
-  stop: () => void;
-  cancel: () => void;
-  onChunk: ((data: Blob) => void) | null;
-  onStop: (() => void) | null;
-}
+The changes above are the first increment. Merge and deploy through the usual release workflow, then verify microphone input and live previews on the deployed browser and iOS application. Preserve explicit read-aloud controls.
 
-export function createStreamingRecorder(
-  stream: MediaStream,
-  mimeType: string,
-  timesliceMs?: number,
-): StreamingRecorder;
-```
+### 2. Long utterances
 
-`timesliceMs` defaults to 250ms — frequent enough for low latency, infrequent enough to avoid overhead.
+Whisper still re-transcribes a growing buffer. Benchmark longer utterances and noisy conversational speech before selecting a bounded-window strategy. Evaluate overlapping windows with a stable committed prefix; verify that revisions, repeated phrases, silence, and boundary words do not lose or duplicate text. Every step remains test-first, and real model tests require the user's model-policy approval.
 
-### New: `lib/yapper-ws.ts`
+### 3. Streaming speech playback
 
-WebSocket client for Yapper's streaming transcription:
+Expose incremental Kokoro audio and consume it without waiting for a complete WAV. Begin synthesis on stable response phrases rather than a completed agent message. Keep queues bounded and stop obsolete playback immediately. This belongs to an explicit voice session; ordinary text chats retain manual read-aloud and do not resume automatic narration.
 
-```typescript
-export interface YapperStreamClient {
-  /** Send format declaration. Call once before sending audio. */
-  sendFormat: (format: string) => void;
-  /** Send an audio chunk (binary). */
-  sendAudio: (data: ArrayBuffer) => void;
-  /** Signal end of audio. Server will send final transcript. */
-  sendEnd: () => void;
-  /** Close the WebSocket. */
-  close: () => void;
-  /** Register callback for partial/final transcripts. */
-  onTranscript: ((event: { type: 'partial' | 'final'; text: string }) => void) | null;
-  /** Register callback for errors. */
-  onError: ((error: Event) => void) | null;
-}
+### 4. Conversation lifecycle and additional endpoints
 
-export function createYapperStreamClient(url: string): YapperStreamClient;
-```
+Add turn detection and speech interruption after both speech directions are reliable. Interrupting speech should stop playback and pending speech generation; it must not automatically cancel an unrelated coding task or tool operation. Reuse existing Mitzo sessions and permissions. Validate native iOS audio capture/routing, then CarPlay and room endpoints as separate increments with their own acceptance tests.
 
-Separated from the hook for testability. The WebSocket lifecycle is short-lived (one per recording session), not long-lived like the Mitzo chat connection.
-
-### Changes to `hooks/useVoice.ts`
-
-Add streaming mode alongside existing batch mode. The hook detects Yapper availability and uses streaming when the WebSocket endpoint is reachable:
-
-```typescript
-// New fields in UseVoiceReturn
-interface UseVoiceReturn {
-  // ... existing fields ...
-  partialTranscript: string; // Live preview during streaming recording
-  streamingSupported: boolean; // WS endpoint available
-}
-```
-
-The `startRecording()` flow becomes:
-
-```
-1. getUserMedia → stream
-2. Open WS to /v1/transcribe/stream
-3. Send format frame
-4. createStreamingRecorder(stream, mimeType, 250)
-5. onChunk → send binary to WS
-6. WS onTranscript → update partialTranscript state
-7. On stop: send "END", wait for final, return final text
-8. On cancel: close WS, discard
-```
-
-Batch mode remains as fallback if WebSocket connection fails.
-
-### Changes to `components/ChatInput.tsx`
-
-Show `partialTranscript` as live preview in the textarea during recording:
-
-- While `recording && partialTranscript`: show partial text in textarea (greyed/italic)
-- On final transcript: replace with final text (normal style)
-- User can still edit before sending
-
-### Changes to `components/MicButton.tsx`
-
-No changes needed — the button states (idle, recording, transcribing) are the same. The only difference is that "transcribing" state is much shorter (just the final transcript delay, not the full audio processing).
-
-## File Changes
-
-### New Files
-
-| File                                           | Purpose                                      |
-| ---------------------------------------------- | -------------------------------------------- |
-| `frontend/src/lib/yapper-ws.ts`                | WebSocket client for streaming transcription |
-| `frontend/src/lib/__tests__/yapper-ws.test.ts` | Tests for WS client                          |
-
-### Modified Files
-
-| File                                            | Change                                              |
-| ----------------------------------------------- | --------------------------------------------------- |
-| `frontend/src/lib/audio.ts`                     | Add `createStreamingRecorder()` with timeslice      |
-| `frontend/src/lib/__tests__/audio.test.ts`      | Tests for streaming recorder                        |
-| `frontend/src/hooks/useVoice.ts`                | Streaming recording flow, `partialTranscript` state |
-| `frontend/src/hooks/__tests__/useVoice.test.ts` | Streaming STT tests                                 |
-| `frontend/src/components/ChatInput.tsx`         | Live transcript preview during recording            |
-
-### Files NOT Modified
-
-- `server/*` — server never sees audio
-- `frontend/src/hooks/useChatMessages.ts` — reducer unchanged
-- `frontend/src/lib/tts.ts` — TTS module unchanged
-- `frontend/src/components/MicButton.tsx` — button states unchanged
-- `frontend/src/components/VoiceSettings.tsx` — TTS settings unchanged
-
-## Live Preview UX
-
-During streaming recording, the textarea shows the partial transcript in real-time:
-
-```
-State: Recording + partial available
-┌──────────────────────────────┐
-│ I wanted to check the...     │  ← greyed text, updating live
-└──────────────────────────────┘
-
-State: Final transcript received
-┌──────────────────────────────┐
-│ I wanted to check the status.│  ← normal text, editable
-└──────────────────────────────┘
-```
-
-The partial text is displayed but not set as the textarea `value` (to avoid cursor jumps). Instead, it's shown as a visual overlay or placeholder-like element that disappears when the final text lands.
-
-Implementation: a `<div>` overlay inside the input area that shows `partialTranscript` when recording, hidden otherwise. The final transcript is inserted into the actual textarea value.
-
-## Error Handling
-
-| Scenario                                  | Behavior                                                  |
-| ----------------------------------------- | --------------------------------------------------------- |
-| WS connection fails                       | Fall back to batch mode silently                          |
-| WS disconnects mid-recording              | Use accumulated partials as best-effort transcript        |
-| No partials received                      | Normal — short recordings may finish before first partial |
-| Format negotiation ignored (PCM fallback) | Works fine if Yapper has ffmpeg                           |
-
-## Implementation Plan (TDD)
-
-### Step 1: `lib/audio.ts` — streaming recorder (test-first)
-
-- `createStreamingRecorder()` with `timeslice` param
-- `onChunk` callback fires with each Blob chunk
-- `onStop` callback fires when recording ends
-- Auto-stop timer (reuse `MAX_RECORDING_DURATION_MS`)
-- Tests: chunk emission, stop, cancel, auto-stop
-
-### Step 2: `lib/yapper-ws.ts` — WebSocket client (test-first)
-
-- `createYapperStreamClient()` wrapping native WebSocket
-- `sendFormat()`, `sendAudio()`, `sendEnd()`, `close()`
-- `onTranscript` callback for partial/final events
-- `onError` callback
-- Tests with mock WebSocket: format frame, audio send, transcript events, error handling
-
-### Step 3: Extend `useVoice.ts` with streaming (test-first)
-
-- `partialTranscript` state, updated on each WS partial event
-- `streamingSupported` derived from WS connection test (or just always attempt, fallback on failure)
-- Modified `startRecording()` / `stopRecording()` to use streaming when available
-- Batch fallback on WS failure
-- Tests: streaming flow, fallback to batch, partial updates, cancel mid-stream
-
-### Step 4: Wire live preview into ChatInput
-
-- Overlay `<div>` showing `partialTranscript` during recording
-- Replace with final text on stop
-- CSS for live preview styling (greyed, italic)
-- Tests: preview visibility, final text insertion
-
-### Step 5: Full verification
-
-- Full test suite pass
-- Lint clean
-- Manual testing checklist
-
-Each step is test-first, committed atomically. Single PR at the end.
-
-## Open Questions
-
-1. **Timeslice value?** 250ms is a good balance. Too low (50ms) creates overhead; too high (1000ms) adds latency to partials. Can be tuned later.
-2. **Should streaming be the default or opt-in?** Recommendation: default when available, with batch as silent fallback. No user-facing toggle needed.
-3. **Partial display: overlay vs placeholder?** Overlay is cleaner — doesn't interfere with textarea state. Placeholder approach would require managing cursor position.
+This document is an engineering plan. No active Telos parent for the broader voice feature was found during the October 1 audit; older completed Yapper entries are not evidence that this rollout is complete.
