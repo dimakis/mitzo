@@ -1030,6 +1030,9 @@ export interface SymposiumProductionHost {
   };
   resolveSeatPolicy?: import('./symposium-owned-seat-policy.js').SymposiumSeatPolicySelector;
   observeDurableReviewToolResult?: import('./symposium-codex-native.js').OpenAiCodexSeatInput['observeDurableReviewToolResult'];
+  readNativeObservation?: (
+    claimToken: string,
+  ) => import('./symposium-native-observations.js').NativeTurnObservation;
   currentProfiles: () => AccountProfiles;
   verifySubscriptionPrivateAuth?: VerifySymposiumSubscriptionAuth;
   assertSubscriptionDispatch?: (input: Parameters<VerifySymposiumSubscriptionAuth>[0]) => void;
@@ -1298,6 +1301,11 @@ export function installSymposiumReaderAuthority(
 export function getSymposiumBootstrapDependencies() {
   return {
     reviews: symposiumReviewStore,
+    readNativeObservation: (claimToken: string) => {
+      const read = symposiumProductionHost?.readNativeObservation;
+      if (!read) throw new Error('Original native observation owner unavailable');
+      return read(claimToken);
+    },
     facts: eventStore,
     hostGrants: symposiumHostGrants,
     successorAuthority: createSymposiumSuccessorFixAuthority({

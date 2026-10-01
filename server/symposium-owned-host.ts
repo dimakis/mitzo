@@ -1,3 +1,5 @@
+import { isDeepStrictEqual } from 'node:util';
+import type { NativeTurnObservation } from './symposium-native-observations.js';
 import type { OpenAiCodexSeatInput } from './symposium-codex-native.js';
 import { assertOwnedSealedReaderCurrent } from './symposium-owned-reader-reference.js';
 import { artifactAdmissionDigest } from './event-store.js';
@@ -523,6 +525,139 @@ export async function createOwnedSymposiumHost(
       if (!subscription) throw new Error('Subscription host is not initialized');
       return subscription.currentProfiles;
     };
+    const readNativeObservation = (claimToken: string): NativeTurnObservation => {
+      if (stopped || draining || controllerPaused)
+        throw new Error('Original owned native reader is no longer current');
+      const profiles = currentProfiles();
+      if (!(options.facts instanceof EventStore) || typeof claimToken !== 'string' || !claimToken)
+        throw new Error('Original native observation owner unavailable');
+      const controller = native!.registry.get(claimToken);
+      const observation = native!.registry.observations.get(claimToken);
+      const identity = observation?.identity;
+      const attempt = options.facts.getSymposiumRecipientAttemptByClaimToken(claimToken);
+      if (
+        !identity ||
+        observation.status !== 'accepted' ||
+        observation.terminalAt !== null ||
+        observation.terminalConflict ||
+        controller?.state !== 'reserved' ||
+        controller.sessionId !== identity.sessionId ||
+        identity.claimToken !== claimToken ||
+        attempt?.status !== 'executing' ||
+        attempt.claimToken !== claimToken ||
+        attempt.seatId !== identity.seatId ||
+        attempt.providerThreadId !== identity.providerThreadId ||
+        attempt.providerTurnId !== identity.providerTurnId ||
+        !isDeepStrictEqual(attempt.provenance, identity.provenance) ||
+        !isDeepStrictEqual(
+          profiles.resolve(identity.accountBinding.accountId, identity.accountBinding.model),
+          identity.accountBinding,
+        )
+      )
+        throw new Error('Original accepted native claim is no longer current');
+      const config = options.facts.getActiveSymposiumConfig(identity.sessionId);
+      const seat = config.seats.find((value) => value.id === identity.seatId);
+      const membership = options.facts.getLatestSymposiumMembership(
+        identity.sessionId,
+        identity.seatId,
+      );
+      const admission = options.facts.getLatestSymposiumAdmission(
+        identity.sessionId,
+        identity.seatId,
+        config.revision,
+      );
+      if (
+        !seat ||
+        config.version !== 2 ||
+        config.state !== 'active' ||
+        config.revision !== identity.provenance.configRevision ||
+        membership?.state !== 'active' ||
+        membership.reconciliation !== 'confirmed' ||
+        membership.generation !== identity.membershipGeneration ||
+        admission?.decision !== 'admitted' ||
+        admission.membershipGeneration !== identity.membershipGeneration ||
+        admission.accountId !== identity.accountBinding.accountId ||
+        admission.provider !== identity.accountBinding.provider ||
+        admission.model !== identity.accountBinding.model ||
+        admission.accountProfileRevision !== identity.accountBinding.profileRevision ||
+        !isDeepStrictEqual(seat.accountBinding, identity.accountBinding)
+      )
+        throw new Error('Original native seat admission is no longer current');
+      const provenance = identity.provenance;
+      if (
+        'version' in provenance &&
+        (provenance.version === 2 || provenance.version === 3) &&
+        (provenance.seatLabel !== seat.name ||
+          provenance.seatRole !== seat.role ||
+          !isDeepStrictEqual(provenance.accountBinding, seat.accountBinding) ||
+          !isDeepStrictEqual(provenance.profileBinding, seat.profileBinding) ||
+          provenance.reasoningEffort !== (seat.reasoningEffort ?? null) ||
+          provenance.contextGrant.grantId !== seat.contextGrant?.grantId ||
+          provenance.contextGrant.revision !== seat.contextGrant.revision ||
+          provenance.authorityGrant.grantId !== seat.authorityGrant?.grantId ||
+          provenance.authorityGrant.revision !== seat.authorityGrant.revision ||
+          provenance.isolationDomainId !== seat.isolationRequest?.trustDomainId ||
+          provenance.isolationDomainRevision !== seat.isolationRequest.revision)
+      )
+        throw new Error('Original native provenance changed');
+      const delivery = options.facts.getSymposiumDelivery(attempt.deliveryId);
+      const recipient = delivery?.recipients.find((value) => value.seatId === identity.seatId);
+      if (
+        delivery?.sessionId !== identity.sessionId ||
+        delivery.status !== 'delivering' ||
+        recipient?.status !== 'executing' ||
+        recipient.idempotencyKey !== attempt.idempotencyKey ||
+        recipient.membershipGeneration !== identity.membershipGeneration
+      )
+        throw new Error('Original native delivery changed');
+      options.hostGrants.verifySeat({
+        sessionId: identity.sessionId,
+        seat,
+        membershipGeneration: identity.membershipGeneration,
+      });
+      const artifact =
+        'version' in identity.provenance && identity.provenance.version === 3
+          ? identity.provenance.artifact
+          : undefined;
+      if (!isDeepStrictEqual(controller.artifact, artifact))
+        throw new Error('Original native controller artifact changed');
+      options.facts.assertSymposiumArtifactWorkAllowed(identity.sessionId, artifact);
+      if (artifact) {
+        if (
+          !isDeepStrictEqual(
+            options.facts.getSymposiumArtifactReference(
+              identity.sessionId,
+              identity.seatId,
+              identity.membershipGeneration,
+            ),
+            artifact,
+          )
+        )
+          throw new Error('Original native artifact reference changed');
+        const sandbox = options.facts.getSymposiumSeatSandbox(
+          identity.sessionId,
+          identity.seatId,
+          identity.membershipGeneration,
+        );
+        if (
+          sandbox?.state !== 'ready' ||
+          sandbox.sandboxName !== controller.sandboxName ||
+          runtimeConfig.workdir !== controller.workdir ||
+          !isDeepStrictEqual(sandbox.artifact, artifact)
+        )
+          throw new Error('Original native sandbox is no longer current');
+      }
+      custody();
+      const snapshot = structuredClone(observation);
+      const freeze = (value: unknown): void => {
+        if (value && typeof value === 'object') {
+          for (const child of Object.values(value)) freeze(child);
+          Object.freeze(value);
+        }
+      };
+      freeze(snapshot);
+      return snapshot;
+    };
     const observeDurableReviewToolResult = originalObserver
       ? async (event: Parameters<NonNullable<typeof originalObserver>>[0]) => {
           const assertCurrent = () => {
@@ -992,6 +1127,7 @@ export async function createOwnedSymposiumHost(
         }),
       currentProfiles,
       observeDurableReviewToolResult,
+      readNativeObservation,
       publicationCredentials: options.publicationCredentials,
       physical,
       attemptRegistry: native.registry,

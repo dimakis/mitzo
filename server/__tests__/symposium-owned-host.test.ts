@@ -1,3 +1,4 @@
+import { AccountBindingSchema } from '@mitzo/protocol';
 import Database from 'better-sqlite3';
 import type { DurableSymposiumReviewToolObservation } from '../symposium-codex-native.js';
 import { EventStore } from '../event-store.js';
@@ -1189,6 +1190,208 @@ describe('constructor-only original owned observer', () => {
       await expect(host.observeDurableReviewToolResult!(observerEvent)).rejects.toThrow();
       expect(f.options.observeDurableReviewToolResult).toHaveBeenCalledOnce();
       host.stop();
+    },
+  );
+});
+
+describe('original native observation reader', () => {
+  it('reads only the original reserved accepted owner and refuses currentness loss', async () => {
+    const f = fixture();
+    const events = new EventStore(join(f.root, 'reader-facts.db'));
+    f.options.facts = events;
+    f.options.personal.workProfiles = [
+      {
+        id: 'work',
+        label: 'Synthetic work',
+        provider: 'openai',
+        credentialRef: { provider: 'keychain', service: 'synthetic', account: 'synthetic' },
+        sandboxProvider: 'synthetic-provider',
+        sandboxProviderId: 'synthetic-provider-id',
+        models: [{ id: 'luna', label: 'Synthetic Luna' }],
+      },
+    ];
+    const host = await createOwnedSymposiumHost(f.options, f.launch);
+    try {
+      const binding = AccountBindingSchema.parse(host.currentProfiles().resolve('work', 'luna'));
+      const artifact = {
+        version: 1 as const,
+        kind: 'sealed_reader' as const,
+        readerAdmissionId: 'original-reader',
+        artifactGenerationId: 'generation',
+        sealFenceId: 'original-fence',
+        bindingDigest: 'b'.repeat(64),
+      };
+      const provenance = {
+        version: 3 as const,
+        capturedAt: 1,
+        seatId: 'reader',
+        seatLabel: 'Reader',
+        seatRole: 'reviewer',
+        membershipGeneration: 2,
+        configRevision: 1,
+        accountProfileRevision: binding.profileRevision,
+        seatProfileRevision: 'profile-v1',
+        contextGrantRevision: 1,
+        authorityGrantRevision: 1,
+        isolationDomainId: 'domain',
+        isolationDomainRevision: 1,
+        accountBinding: binding,
+        reasoningEffort: null,
+        profileBinding: { profileId: 'reader-profile', profileRevision: 'profile-v1' },
+        contextGrant: { grantId: 'context', revision: 1 },
+        authorityGrant: { grantId: 'authority', revision: 1 },
+        artifact,
+      };
+      const identity = {
+        claimToken: 'original',
+        sessionId: 'session',
+        seatId: 'reader',
+        membershipGeneration: 2,
+        accountBinding: binding,
+        provenance,
+        providerThreadId: 'thread',
+        providerTurnId: 'turn',
+      };
+      host.attemptRegistry.reserve({
+        claimToken: 'original',
+        sessionId: 'session',
+        sandbox: { sandboxName: 'original-sandbox', workdir: '/sandbox/workspaces/mgmt' },
+        artifact,
+      });
+      host.attemptRegistry.observations.accept(identity);
+      // Synthetic current admission facts; original reservation/acceptance owner is REAL.
+      const seat = {
+        id: 'reader',
+        name: 'Reader',
+        role: 'reviewer',
+        systemPrompt: 'Read',
+        color: '#112233',
+        accountBinding: binding,
+        model: 'luna',
+        profileBinding: provenance.profileBinding,
+        contextGrant: {
+          ...provenance.contextGrant,
+          classification: 'work' as const,
+          sourceRefs: [],
+        },
+        authorityGrant: {
+          ...provenance.authorityGrant,
+          filesystem: 'read' as const,
+          tools: 'read' as const,
+          network: 'restricted' as const,
+        },
+        isolationRequest: {
+          trustDomainId: 'domain',
+          revision: 1,
+          placement: 'reuse-compatible' as const,
+        },
+      };
+      vi.spyOn(events, 'getActiveSymposiumConfig').mockReturnValue({
+        version: 2,
+        revision: 1,
+        state: 'active',
+        anchorSeatId: 'reader',
+        activeSeatCap: 3,
+        seats: [seat],
+        turnRules: { mode: 'directed', maxTurns: 8 },
+        interceptMode: 'manual',
+      });
+      vi.spyOn(events, 'getLatestSymposiumMembership').mockReturnValue({
+        seatId: 'reader',
+        sessionId: 'session',
+        generation: 2,
+        state: 'active',
+        reconciliation: 'confirmed',
+      } as ReturnType<EventStore['getLatestSymposiumMembership']>);
+      vi.spyOn(events, 'getLatestSymposiumAdmission').mockReturnValue({
+        decision: 'admitted',
+        membershipGeneration: 2,
+        accountId: binding.accountId,
+        provider: binding.provider,
+        model: binding.model,
+        accountProfileRevision: binding.profileRevision,
+      } as ReturnType<EventStore['getLatestSymposiumAdmission']>);
+      vi.spyOn(events, 'assertSymposiumArtifactWorkAllowed').mockImplementation(() => undefined);
+      vi.spyOn(events, 'getSymposiumArtifactReference').mockReturnValue(artifact);
+      vi.spyOn(events, 'getSymposiumSeatSandbox').mockReturnValue({
+        state: 'ready',
+        sandboxName: 'original-sandbox',
+        artifact,
+      } as ReturnType<EventStore['getSymposiumSeatSandbox']>);
+      const attempt = vi.spyOn(events, 'getSymposiumRecipientAttemptByClaimToken').mockReturnValue({
+        claimToken: 'original',
+        status: 'executing',
+        seatId: 'reader',
+        deliveryId: 'delivery',
+        idempotencyKey: 'delivery-key',
+        providerThreadId: 'thread',
+        providerTurnId: 'turn',
+        provenance,
+      } as ReturnType<EventStore['getSymposiumRecipientAttemptByClaimToken']>);
+      vi.spyOn(events, 'getSymposiumDelivery').mockReturnValue({
+        sessionId: 'session',
+        status: 'delivering',
+        recipients: [
+          {
+            seatId: 'reader',
+            status: 'executing',
+            idempotencyKey: 'delivery-key',
+            membershipGeneration: 2,
+          },
+        ],
+      } as ReturnType<EventStore['getSymposiumDelivery']>);
+      const originalRead = vi.spyOn(host.attemptRegistry.observations, 'get');
+      const read = host.readNativeObservation('original');
+      expect(originalRead).toHaveBeenCalledWith('original');
+      expect(read.identity).toEqual(identity);
+      expect(Object.isFrozen(read)).toBe(true);
+      expect(Object.isFrozen(read.identity.provenance)).toBe(true);
+      expect(() => host.readNativeObservation('unknown')).toThrow();
+      attempt.mockReturnValue(undefined);
+      expect(() => host.readNativeObservation('original')).toThrow();
+      attempt.mockReturnValue({
+        claimToken: 'original',
+        status: 'executing',
+        seatId: 'reader',
+        deliveryId: 'delivery',
+        providerThreadId: 'thread',
+        providerTurnId: 'turn',
+        provenance,
+      } as ReturnType<EventStore['getSymposiumRecipientAttemptByClaimToken']>);
+      const persisted = host.attemptRegistry.observations.get('original')!;
+      originalRead.mockReturnValue({
+        ...persisted,
+        identity: {
+          ...persisted.identity,
+          accountBinding: { ...binding, profileRevision: 'changed' },
+        },
+      });
+      expect(() => host.readNativeObservation('original')).toThrow();
+      originalRead.mockRestore();
+      host.attemptRegistry.markUncertain('original');
+      expect(() => host.readNativeObservation('original')).toThrow();
+      host.attemptRegistry.markConfirmed('original');
+      expect(() => host.readNativeObservation('original')).toThrow();
+    } finally {
+      host.stop();
+      events.close();
+    }
+  });
+  it.each(['custody', 'controller'] as const)(
+    'rejects %s loss before reading an original observation',
+    async (loss) => {
+      const f = fixture(),
+        host = await createOwnedSymposiumHost(f.options, f.launch);
+      try {
+        if (loss === 'custody')
+          f.gateway.verifyCustody.mockImplementation(() => {
+            throw Error('lost');
+          });
+        else if (loss === 'controller') host.pauseController();
+        expect(() => host.readNativeObservation('unknown')).toThrow();
+      } finally {
+        host.stop();
+      }
     },
   );
 });

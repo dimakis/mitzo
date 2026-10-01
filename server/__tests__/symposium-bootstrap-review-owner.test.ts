@@ -52,5 +52,9 @@ it('returns the exact existing real review owner already mounted by app, without
   expect(first.reviews).toBeInstanceOf(SymposiumReviewStore);
   expect(first.reviews).toBe(captured.stores[0]);
   expect(second.reviews).toBe(first.reviews);
+  expect(typeof first.readNativeObservation).toBe('function');
+  expect(() => first.readNativeObservation('unknown')).toThrow(
+    'Original native observation owner unavailable',
+  );
   expect(captured.effects).not.toHaveBeenCalled();
 });
