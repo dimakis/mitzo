@@ -1951,15 +1951,12 @@ it('refuses an unbound unconfigured sandbox origin without reading the host fall
   }
   const file = join(TEST_REPO, 'test.txt');
   const original = readFileSync(file, 'utf8');
-  const res = await request(app)
-    .put('/api/files/write')
-    .set('Cookie', authCookie)
-    .send({
-      path: 'test.txt',
-      content: 'wrong origin',
-      expectedContent: original,
-      sessionId: 'unbound-sandbox-session',
-    });
+  const res = await request(app).put('/api/files/write').set('Cookie', authCookie).send({
+    path: 'test.txt',
+    content: 'wrong origin',
+    expectedContent: original,
+    sessionId: 'unbound-sandbox-session',
+  });
   expect(res.status).toBe(409);
   expect(readFileSync(file, 'utf8')).toBe(original);
 });
