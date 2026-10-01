@@ -1,3 +1,7 @@
+import {
+  SemanticCheckStateReportSchema,
+  type SemanticCheckStateReport,
+} from './symposium-semantic-criterion-runner.js';
 import type { createSymposiumReviewPublicationPreflight } from './symposium-review-publication.js';
 import { Router, type Request, type Response } from 'express';
 import { randomUUID } from 'node:crypto';
@@ -30,6 +34,11 @@ export interface SymposiumInteractiveReviewHost extends SymposiumReviewHost {
     workflowId: string,
     definitionId: string,
   ): Promise<{ evidenceId: string }>;
+  getCriterionCheckState?(
+    context: ReviewContext,
+    workflowId: string,
+    definitionId: string,
+  ): Promise<SemanticCheckStateReport>;
   cleanupCriterionCheck?(
     context: ReviewContext,
     workflowId: string,
@@ -79,6 +88,7 @@ const Action = z.discriminatedUnion('action', [
   z.strictObject({ ...artifact, action: z.literal('evidence'), evidenceId: Id }),
   z.strictObject({ ...artifact, action: z.literal('check'), definitionId: Id }),
   z.strictObject({ ...artifact, action: z.literal('cleanup-check'), definitionId: Id }),
+  z.strictObject({ ...artifact, action: z.literal('check-state'), definitionId: Id }),
   z.strictObject({ ...artifact, action: z.literal('review-record') }),
   z.strictObject({
     ...artifact,
@@ -295,11 +305,35 @@ export function createSymposiumReviewRouter(deps: {
       }
       const action = input.data;
       // Stop fences known work even when physical verification is unavailable.
-      if (action.action !== 'stop' && action.action !== 'cleanup-check')
+      if (
+        action.action !== 'stop' &&
+        action.action !== 'cleanup-check' &&
+        action.action !== 'check-state'
+      )
         await host.refreshArtifact?.(ctx);
       let result: unknown;
       if (action.action === 'stop') result = await coordinator.stop(ctx, workflowId);
-      else if (action.action === 'cleanup-check') {
+      else if (action.action === 'check-state') {
+        if (!host.getCriterionCheckState) throw new Error('Original check state unavailable');
+        result = {
+          ...SemanticCheckStateReportSchema.parse(
+            await host.getCriterionCheckState(ctx, workflowId, action.definitionId),
+          ),
+          workflowId,
+          resultId: inspected.currentResultId,
+          artifactRevision: inspected.artifactRevision,
+          artifactHash: inspected.artifactHash,
+          definitionId: action.definitionId,
+        };
+        const after = coordinator.status(ctx, workflowId);
+        if (
+          after.currentResultId !== inspected.currentResultId ||
+          after.artifactRevision !== inspected.artifactRevision ||
+          after.artifactHash !== inspected.artifactHash
+        )
+          throw new Error('Check-state workflow artifact changed');
+        res.set('Cache-Control', 'no-store');
+      } else if (action.action === 'cleanup-check') {
         if (!host.cleanupCriterionCheck) throw new Error('Original check cleanup unavailable');
         result = await host.cleanupCriterionCheck(ctx, workflowId, action.definitionId);
         const after = coordinator.status(ctx, workflowId);
@@ -438,9 +472,14 @@ export function createSymposiumReviewRouter(deps: {
         )
         .json(result);
     } catch (error) {
-      res
-        .status(409)
-        .json({ error: error instanceof Error ? error.message : 'Review action failed' });
+      res.status(409).json({
+        error:
+          input.data.action === 'check-state'
+            ? 'Original quarantined check state unavailable'
+            : error instanceof Error
+              ? error.message
+              : 'Review action failed',
+      });
     }
   });
   return router;

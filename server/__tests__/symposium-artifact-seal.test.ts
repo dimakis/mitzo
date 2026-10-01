@@ -1,4 +1,6 @@
 import { afterEach, expect, it, vi } from 'vitest';
+import { spawnSync } from 'node:child_process';
+import { stopRetainedSealSandbox } from '../symposium-session-runtime.js';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -640,3 +642,162 @@ it('keeps generic artifact leasing fenced after seal; only an exact reader admis
     host.close();
   }
 });
+
+it('reclaims a dead original lifecycle owner only for the same pending seal cleanup', async () => {
+  const { first, second, path } = fixture();
+  const db = new Database(path);
+  db.prepare(
+    `INSERT INTO symposium_membership
+    (session_id,seat_id,generation,state,action,config_revision,binding_key,actor,reason,idempotency_key,occurred_at)
+    VALUES ('symposium','reviewer',1,'active','restore',4,'binding','director','test','membership',1)`,
+  ).run();
+  db.prepare(
+    `INSERT INTO symposium_membership_reconciliation VALUES ('symposium','reviewer',1,'confirmed')`,
+  ).run();
+  const reserved = first.reserveSymposiumSeatSandbox({
+    sessionId: 'symposium',
+    seatId: 'reviewer',
+    generation: 1,
+    runtimeId: 'runtime',
+    workspace: 'workspace',
+    providerName: 'provider',
+    providerId: 'provider-id',
+    providerType: 'openai',
+    model: 'gpt-test',
+  });
+  first.markSymposiumSeatSandboxCreationStarted(reserved);
+  first.confirmSymposiumSeatSandbox({
+    ...reserved,
+    sandboxName: 'sandbox',
+    physicalId: 'physical',
+  });
+  first.markSymposiumSeatSandboxCreationCompleted({ ...reserved, physicalId: 'physical' });
+  const record = first.getSymposiumSeatSandbox('symposium', 'reviewer', 1)!;
+  const seal = first.beginSymposiumArtifactSeal(selection);
+  const child = spawnSync(
+    process.execPath,
+    [
+      '--import',
+      'tsx',
+      '--input-type=module',
+      '-e',
+      `import { EventStore } from ${JSON.stringify(new URL('../../packages/protocol/src/event-store.ts', import.meta.url).href)};
+     const store = new EventStore(${JSON.stringify(path)});
+     if (!store.claimSymposiumSeatLifecycle('symposium','reviewer','dead-owner')) process.exit(2);
+     store.close();`,
+    ],
+    { timeout: 10000, maxBuffer: 65536 },
+  );
+  expect(child.error).toBeUndefined();
+  expect(child.status).toBe(0);
+  const original = second.getSymposiumSeatLifecycleFence('symposium', 'reviewer')!;
+  expect(original).toMatchObject({ token: 'dead-owner', owner: { pid: child.pid } });
+  expect(second.claimSymposiumSeatLifecycle('symposium', 'reviewer', 'new-admission')).toBe(false);
+  expect(
+    second.reclaimSymposiumSeatLifecycleForSeal({
+      record,
+      sealFenceId: 'wrong',
+      expectedToken: original.token,
+      token: 'cleanup',
+    }),
+  ).toBe(false);
+  expect(
+    second.reclaimSymposiumSeatLifecycleForSeal({
+      record: { ...record, physicalId: 'other' },
+      sealFenceId: seal.fenceId,
+      expectedToken: original.token,
+      token: 'cleanup',
+    }),
+  ).toBe(false);
+  expect(
+    second.reclaimSymposiumSeatLifecycleForSeal({
+      record,
+      sealFenceId: seal.fenceId,
+      expectedToken: 'other',
+      token: 'cleanup',
+    }),
+  ).toBe(false);
+  expect(
+    second.reclaimSymposiumSeatLifecycleForSeal({
+      record,
+      sealFenceId: seal.fenceId,
+      expectedToken: original.token,
+      token: 'cleanup',
+    }),
+  ).toBe(true);
+  expect(first.getSymposiumSeatLifecycleFence('symposium', 'reviewer')).toMatchObject({
+    token: 'cleanup',
+    owner: { pid: process.pid },
+  });
+  expect(() => first.releaseSymposiumSeatLifecycle('symposium', 'reviewer', 'dead-owner')).toThrow(
+    /changed/,
+  );
+  expect(
+    second.reclaimSymposiumSeatLifecycleForSeal({
+      record,
+      sealFenceId: seal.fenceId,
+      expectedToken: 'cleanup',
+      token: 'takeover',
+    }),
+  ).toBe(false);
+  expect(
+    db
+      .prepare('SELECT prior_token,token,seal_fence_id FROM symposium_seat_lifecycle_recoveries')
+      .all(),
+  ).toEqual([{ prior_token: 'dead-owner', token: 'cleanup', seal_fence_id: seal.fenceId }]);
+  first.releaseSymposiumSeatLifecycle('symposium', 'reviewer', 'cleanup');
+  db.prepare(
+    'INSERT INTO symposium_seat_lifecycle_fences(session_id,seat_id,token) VALUES (?,?,?)',
+  ).run('symposium', 'reviewer', 'legacy-unwitnessed');
+  expect(
+    second.reclaimSymposiumSeatLifecycleForSeal({
+      record,
+      sealFenceId: seal.fenceId,
+      expectedToken: 'legacy-unwitnessed',
+      token: 'cleanup-again',
+    }),
+  ).toBe(false);
+  expect(second.getSymposiumSeatLifecycleFence('symposium', 'reviewer')?.token).toBe(
+    'legacy-unwitnessed',
+  );
+  expect(first.getSymposiumArtifactSealByFence(seal.fenceId)?.status).toBe('pending_unsealed');
+  first.releaseSymposiumSeatLifecycle('symposium', 'reviewer', 'legacy-unwitnessed');
+  const another = spawnSync(
+    process.execPath,
+    [
+      '--import',
+      'tsx',
+      '--input-type=module',
+      '-e',
+      `import { EventStore } from ${JSON.stringify(new URL('../../packages/protocol/src/event-store.ts', import.meta.url).href)};
+     const store = new EventStore(${JSON.stringify(path)});
+     if (!store.claimSymposiumSeatLifecycle('symposium','reviewer','dead-cleanup')) process.exit(2);
+     store.close();`,
+    ],
+    { timeout: 10000, maxBuffer: 65536 },
+  );
+  expect(another.status).toBe(0);
+  let stopped = false;
+  const manager = {
+    inspect: vi.fn(async () => ({ phase: stopped ? 'Stopped' : 'Ready' })),
+    inspectReserved: vi.fn(async () => null),
+    stop: vi.fn(async () => {
+      stopped = true;
+    }),
+  };
+  await stopRetainedSealSandbox(
+    {
+      seatSandboxRegistry: second,
+      sealFenceId: seal.fenceId,
+      runtimeConfig: { workspace: 'workspace' },
+      managerFactory: () => manager,
+    } as unknown as Parameters<typeof stopRetainedSealSandbox>[0],
+    record,
+    new AbortController().signal,
+  );
+  expect(manager.stop).toHaveBeenCalledOnce();
+  expect(second.getSymposiumSeatSandbox('symposium', 'reviewer', 1)?.state).toBe('stopped');
+  expect(second.getSymposiumSeatLifecycleFence('symposium', 'reviewer')).toBeNull();
+  expect(second.getSymposiumArtifactSealByFence(seal.fenceId)?.status).toBe('pending_unsealed');
+  db.close();
+}, 15000);

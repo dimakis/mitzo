@@ -2644,3 +2644,87 @@ it.each(['pre-write', 'partial', 'request-revoked'])(
     }
   },
 );
+
+it('reports an unwitnessed original semantic check without requiring helper absence or mutating it', async () => {
+  const f = await fixture(),
+    signal = new AbortController().signal;
+  const seal = await f.sealer.seal(f.input, f.runtime, signal);
+  const input = {
+    fenceId: seal.fenceId,
+    operationId: 'semantic-quarantined-state',
+    definition: {
+      id: 'zero',
+      criterion: 'Returns zero',
+      version: 1 as const,
+      kind: 'python-json-cases' as const,
+      path: 'main.py',
+      cases: [{ id: 'zero', input: null, expected: 0 }],
+    },
+  };
+  f.state.semanticLostStart = true;
+  await expect(f.sealer.checkCompletedArtifactSemantic(input, signal)).rejects.toThrow(/reconcil/);
+  const db = new Database(f.host.snapshotDatabasePath());
+  try {
+    db.prepare(
+      "UPDATE symposium_seal_export_jobs SET container_id=NULL,cid_witness_json=NULL,state='create_uncertain' WHERE kind='semantic_case'",
+    ).run();
+    const snapshot = () =>
+      db.prepare('SELECT * FROM symposium_seal_export_jobs ORDER BY job_id').all();
+    const before = snapshot(),
+      commands = f.command.mock.calls.length;
+    const report = await f.sealer.getCompletedArtifactSemanticCheckState(input, signal, () => {});
+    expect(report).toMatchObject({
+      kind: 'quarantined-check-state',
+      operationId: input.operationId,
+      fenceId: seal.fenceId,
+      parentState: 'in_progress',
+      sourceCompatible: true,
+      cases: [
+        {
+          id: 'zero',
+          state: 'create_uncertain',
+          originalCidRetained: false,
+          witnessManifestRetained: false,
+        },
+      ],
+      retryAllowed: false,
+      executionAuthorized: false,
+      cleanupConfirmed: false,
+      semanticEvidenceAllowed: false,
+    });
+    expect(f.command.mock.calls).toHaveLength(commands);
+    expect(snapshot()).toEqual(before);
+    await expect(
+      f.sealer.getCompletedArtifactSemanticCheckState(input, signal, () => {
+        throw Error('revoked');
+      }),
+    ).rejects.toThrow('revoked');
+    await expect(
+      f.sealer.getCompletedArtifactSemanticCheckState(
+        { ...input, fenceId: 'a'.repeat(36) },
+        signal,
+        () => {},
+      ),
+    ).rejects.toThrow();
+    let custodyReads = 0;
+    f.gateway.verifyCustodyAsync.mockImplementation(async () => {
+      if (++custodyReads === 2)
+        db.prepare(
+          "UPDATE symposium_seal_export_jobs SET state='removed' WHERE kind='semantic_case'",
+        ).run();
+    });
+    expect(
+      (await f.sealer.getCompletedArtifactSemanticCheckState(input, signal, () => {})).cases[0]
+        .state,
+    ).toBe('removed');
+    const afterOtherOwner = snapshot();
+    f.gateway.verifyCustodyAsync.mockRejectedValue(Error('lost custody'));
+    await expect(
+      f.sealer.getCompletedArtifactSemanticCheckState(input, signal, () => {}),
+    ).rejects.toThrow('lost custody');
+    expect(f.command.mock.calls).toHaveLength(commands);
+    expect(snapshot()).toEqual(afterOtherOwner);
+  } finally {
+    db.close();
+  }
+});

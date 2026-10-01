@@ -1,3 +1,4 @@
+import type { SemanticCheckStateReport } from './symposium-semantic-criterion-runner.js';
 import { randomUUID, createHash } from 'node:crypto';
 import { z } from 'zod';
 import {
@@ -114,6 +115,11 @@ export interface SymposiumTrustedReviewHostDeps {
     workflowId: string,
     definitionId: string,
   ): Promise<{ evidenceId: string }>;
+  getCriterionCheckState?(
+    context: ReviewContext,
+    workflowId: string,
+    definitionId: string,
+  ): Promise<SemanticCheckStateReport>;
   cleanupCriterionCheck?(
     context: ReviewContext,
     workflowId: string,
@@ -807,6 +813,20 @@ export function createSymposiumTrustedReviewHost(
       if (!deps.runCriterionCheck) throw new Error('Trusted criterion check unavailable');
       return deps.runCriterionCheck(context, workflowId, definitionId);
     },
+    getCriterionCheckState: deps.getCriterionCheckState
+      ? async (context, workflowId, definitionId) => {
+          const before = workflow(context, workflowId);
+          const report = await deps.getCriterionCheckState!(context, workflowId, definitionId);
+          const after = workflow(context, workflowId);
+          if (
+            after.currentResultId !== before.currentResultId ||
+            after.artifactRevision !== before.artifactRevision ||
+            after.artifactHash !== before.artifactHash
+          )
+            throw new Error('Check-state workflow artifact changed');
+          return report;
+        }
+      : undefined,
     cleanupCriterionCheck: deps.cleanupCriterionCheck
       ? async (context, workflowId, definitionId) => {
           const before = workflow(context, workflowId);

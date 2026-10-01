@@ -64,6 +64,28 @@ function fixture() {
     cleanupCriterionCheck: cleanup,
     criterionChecks: () => [],
   } as unknown as SymposiumInteractiveReviewHost;
+  const checkState = vi.fn(async () => ({
+    kind: 'quarantined-check-state' as const,
+    nextAction: 'retain-original-operation-for-operator-disposition' as const,
+    operationId: 'original-check',
+    fenceId: 'original',
+    definitionDigest: hash,
+    parentState: 'in_progress',
+    sourceCompatible: true,
+    cases: [
+      {
+        id: 'case',
+        state: 'create_uncertain',
+        originalCidRetained: false,
+        witnessManifestRetained: false,
+      },
+    ],
+    retryAllowed: false as const,
+    executionAuthorized: false as const,
+    cleanupConfirmed: false as const,
+    semanticEvidenceAllowed: false as const,
+  }));
+  Object.assign(host, { getCriterionCheckState: checkState });
   const authority = new SymposiumReviewActionAuthority();
   let captured: ReviewContext | undefined;
   const app = createReviewRouteHarness({
@@ -82,7 +104,7 @@ function fixture() {
     expectedArtifactRevision: 'commit',
     expectedArtifactHash: hash,
   };
-  return { store, app, refresh, cleanup, body, authority, context: () => captured! };
+  return { store, app, refresh, cleanup, checkState, body, authority, context: () => captured! };
 }
 it('reconciles only explicit original cleanup while ordinary refresh is blocked without recording evidence', async () => {
   const f = fixture();
@@ -156,4 +178,108 @@ it('does not grant cleanup to an unauthenticated operator', async () => {
   );
   expect(response.status).toBe(403);
   expect(f.cleanup).not.toHaveBeenCalled();
+});
+
+it('exports original quarantine state through a separate authenticated read-only action without refresh, cleanup or evidence', async () => {
+  const f = fixture();
+  const before = f.store.get('workflow');
+  const response = await f.app.post('/workflow/actions', { ...f.body, action: 'check-state' });
+  expect(response.status).toBe(200);
+  expect(response.body).toMatchObject({
+    kind: 'quarantined-check-state',
+    operationId: 'original-check',
+    workflowId: 'workflow',
+    resultId: 'result',
+    artifactRevision: 'commit',
+    artifactHash: 'a'.repeat(64),
+    definitionId: 'registered',
+    retryAllowed: false,
+    executionAuthorized: false,
+    cleanupConfirmed: false,
+    semanticEvidenceAllowed: false,
+  });
+  expect(f.checkState).toHaveBeenCalledWith(
+    { owner: 'user', sessionId: 'session' },
+    'workflow',
+    'registered',
+  );
+  expect(f.cleanup).not.toHaveBeenCalled();
+  expect(f.refresh).not.toHaveBeenCalled();
+  expect(f.store.get('workflow')).toEqual(before);
+});
+it('refuses caller CID/operation adoption and stale artifact in check-state requests', async () => {
+  const f = fixture();
+  expect(
+    (
+      await f.app.post('/workflow/actions', {
+        ...f.body,
+        action: 'check-state',
+        operationId: 'replacement',
+      })
+    ).status,
+  ).toBe(400);
+  expect(
+    (
+      await f.app.post('/workflow/actions', {
+        ...f.body,
+        action: 'check-state',
+        expectedArtifactHash: 'b'.repeat(64),
+      })
+    ).status,
+  ).toBe(409);
+  expect(f.checkState).not.toHaveBeenCalled();
+});
+
+it('binds check-state to its live request, refuses serialized cleanup authority and post-response reuse', async () => {
+  const f = fixture();
+  const original = f.checkState.getMockImplementation()!;
+  f.checkState.mockImplementationOnce(async () => {
+    f.authority.assertCurrent(f.context(), 'check-state');
+    expect(() => f.authority.assertCurrent({ ...f.context() }, 'check-state')).toThrow();
+    expect(() => f.authority.assertCurrent(f.context(), 'cleanup-check')).toThrow();
+    return original();
+  });
+  expect((await f.app.post('/workflow/actions', { ...f.body, action: 'check-state' })).status).toBe(
+    200,
+  );
+  expect(() => f.authority.assertCurrent(f.context(), 'check-state')).toThrow();
+});
+it('refuses revoked, stale or private-extended check-state reports without publication', async () => {
+  const f = fixture();
+  const original = f.checkState.getMockImplementation()!;
+  f.checkState.mockImplementationOnce(async () => ({
+    ...(await original()),
+    privatePath: '/private/secret',
+  }));
+  const malformed = await f.app.post('/workflow/actions', { ...f.body, action: 'check-state' });
+  expect(malformed.status).toBe(409);
+  expect(JSON.stringify(malformed.body)).not.toContain('/private/secret');
+  f.checkState.mockImplementationOnce(async () => {
+    f.app.revoke();
+    f.authority.assertCurrent(f.context(), 'check-state');
+    return original();
+  });
+  await expect(
+    f.app.post('/workflow/actions', { ...f.body, action: 'check-state' }),
+  ).rejects.toThrow(/expired|revoked/);
+});
+it('refuses check-state when the persisted workflow changes during its awaited owner read', async () => {
+  const f = fixture();
+  const get = f.store.get.bind(f.store);
+  let reads = 0;
+  vi.spyOn(f.store, 'get').mockImplementation((id) => {
+    const state = get(id);
+    return ++reads > 1 && state ? { ...state, artifactHash: 'b'.repeat(64) } : state;
+  });
+  expect((await f.app.post('/workflow/actions', { ...f.body, action: 'check-state' })).status).toBe(
+    409,
+  );
+});
+
+it('never forwards private owner exception bytes from a quarantined state read', async () => {
+  const f = fixture();
+  f.checkState.mockRejectedValueOnce(Error('private journal raw secret payload'));
+  const response = await f.app.post('/workflow/actions', { ...f.body, action: 'check-state' });
+  expect(response.status).toBe(409);
+  expect(response.body).toEqual({ error: 'Original quarantined check state unavailable' });
 });

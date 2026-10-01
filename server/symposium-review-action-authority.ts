@@ -26,7 +26,7 @@ export class SymposiumReviewActionAuthority {
     return () => this.requests.delete(context);
   }
 
-  assertCurrent(context: ReviewContext, action: 'cleanup-check'): void {
+  assertCurrent(context: ReviewContext, action: 'cleanup-check' | 'check-state'): void {
     const request = this.requests.get(context);
     if (
       !request ||

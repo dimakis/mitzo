@@ -32,6 +32,7 @@ import {
 } from './symposium-artifact-host.js';
 import {
   inspectSemanticCleanupOwners,
+  inspectOwnedSemanticCheckState,
   reconcileOwnedSemanticCriterion,
   runOwnedSemanticCriterion,
 } from './symposium-semantic-criterion-runner.js';
@@ -1848,6 +1849,84 @@ export class PhysicalArtifactSealer {
     );
   }
 
+  /** Read-only original journal disposition. Unknown helpers do not become
+   * absent, cleaned or admissible merely because their retained state is reported. */
+  async getCompletedArtifactSemanticCheckState(
+    input: { fenceId: string; operationId: string; definition: SemanticCriterionDefinition },
+    signal: AbortSignal,
+    assertCurrent?: () => void,
+  ) {
+    const current = () => {
+      signal.throwIfAborted();
+      assertCurrent?.();
+    };
+    current();
+    if (!/^[a-f0-9-]{36}$/.test(input.fenceId)) throw Error('Artifact seal identity is invalid');
+    await this.custody();
+    current();
+    const read = () =>
+      this.db
+        .prepare(
+          "SELECT receipt_json,records_json,custody_digest FROM symposium_physical_seal_jobs WHERE fence_id=? AND phase='complete'",
+        )
+        .get(input.fenceId) as
+        { receipt_json: string; records_json: string; custody_digest: string } | undefined;
+    const row = read();
+    if (!row || row.custody_digest !== hash(this.deps.gateway.stateDirectory))
+      throw Error('Completed artifact seal custody is unavailable');
+    const receipt = JSON.parse(row.receipt_json) as CompletedArtifactSeal;
+    const intent = this.deps.store.getSymposiumArtifactSealByFence(input.fenceId);
+    const retention =
+      intent &&
+      this.deps.leaseHost.pendingArtifactRetention('podman', intent.selection.artifact.volumeName);
+    if (
+      !intent ||
+      !retention ||
+      receipt.kind !== 'completed_artifact_seal' ||
+      receipt.version !== 1 ||
+      receipt.fenceId !== input.fenceId ||
+      receipt.sessionId !== intent.selection.sessionId ||
+      receipt.custodyDigest !== row.custody_digest ||
+      receipt.intentDigest !== hash(JSON.stringify(intent)) ||
+      receipt.retentionDigest !== hash(JSON.stringify(retention)) ||
+      receipt.revocationDigest !== hash(row.records_json) ||
+      receipt.verifier.image !== TESTED_SYMPOSIUM_NATIVE_BUILD.image ||
+      receipt.verifier.codeDigest !== hash(ARTIFACT_GIT_VERIFIER)
+    )
+      throw Error('Completed artifact seal identity changed');
+    const snapshot = (operation: () => void) =>
+      this.deps.store.withSymposiumHistoricalArtifactSealSnapshot(intent, () => {
+        current();
+        if (
+          JSON.stringify(read()) !== JSON.stringify(row) ||
+          JSON.stringify(
+            this.deps.leaseHost.pendingArtifactRetention(
+              'podman',
+              intent.selection.artifact.volumeName,
+            ),
+          ) !== JSON.stringify(retention)
+        )
+          throw Error('Retained semantic report binding changed');
+        operation();
+        current();
+      });
+    await this.custody();
+    snapshot(() => {});
+    current();
+    const report = inspectOwnedSemanticCheckState(
+      {
+        db: this.db,
+        seal: receipt,
+        image: TESTED_SYMPOSIUM_NATIVE_BUILD.image,
+        withSnapshot: snapshot,
+      },
+      input,
+      current,
+    );
+    current();
+    return report;
+  }
+
   /** Exact original-ID retirement only; this never grants semantic evidence or admission. */
   async reconcileCompletedArtifactSemantic(
     input: { fenceId: string; operationId: string; definition: SemanticCriterionDefinition },
@@ -3034,6 +3113,7 @@ export class PhysicalArtifactSealer {
             runtimeConfig: this.deps.runtimeConfig,
             managerFactory: this.deps.cleanupManagerFactory,
             seatSandboxRegistry: store,
+            sealFenceId: intent.fenceId,
             artifactLeaseHost: leaseHost,
             artifactRequest: (sessionId, seatId, generation) => {
               const selected = records.find(

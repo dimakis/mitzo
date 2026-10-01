@@ -662,6 +662,59 @@ export function createSymposiumProductionReviewComposition(deps: {
         host.admitSuccessorArtifact!(request, binding, receipt, bundle, signal),
       runtime,
     });
+    const selectOriginalCheck = (
+      context: ReviewContext,
+      workflowId: string,
+      definitionId: string,
+      action: 'cleanup-check' | 'check-state',
+    ) => {
+      deps.actionAuthority.assertCurrent(context, action);
+      const state = reviews.get(workflowId);
+      const current = artifacts.currentResult(context);
+      const rawDefinition = host.criterionChecks!.find((item) => item.id === definitionId);
+      if (
+        !state ||
+        state.owner !== context.owner ||
+        state.sessionId !== context.sessionId ||
+        !rawDefinition ||
+        rawDefinition.kind !== 'python-json-cases' ||
+        !state.acceptanceCriteria.includes(rawDefinition.criterion) ||
+        !current ||
+        current.resultId !== state.currentResultId ||
+        current.artifactRevision !== state.artifactRevision ||
+        current.artifactHash !== state.artifactHash ||
+        current.evidenceRefs.length !== 1 ||
+        !current.evidenceRefs[0].startsWith('artifact-seal:')
+      )
+        throw new Error('Original registered semantic cleanup binding unavailable');
+      const fenceId = current.evidenceRefs[0].slice('artifact-seal:'.length);
+      const owned = artifacts.completedSourceResult(context, {
+        workflowId,
+        fenceId,
+        artifactRevision: current.artifactRevision,
+        artifactHash: current.artifactHash,
+      });
+      if (
+        !owned ||
+        owned.resultId !== current.resultId ||
+        owned.attemptId !== current.attemptId ||
+        owned.artifactRevision !== current.artifactRevision ||
+        owned.artifactHash !== current.artifactHash
+      )
+        throw new Error('Original owned semantic result unavailable');
+      const generation = historicalSealedResultCoderGeneration(events, context, current);
+      if (!generation) throw new Error('Original semantic generation unavailable');
+      const definition = SemanticCriterionDefinitionSchema.parse(rawDefinition);
+      const definitionDigest = createHash('sha256')
+        .update(canonicalReviewJson(definition))
+        .digest('hex');
+      return {
+        fenceId,
+        operationId: criterionOperationId(context, current.resultId, definitionDigest),
+        definition,
+      };
+    };
+
     const reviewHost = createSymposiumTrustedReviewHost({
       events,
       reviews,
@@ -861,58 +914,30 @@ export function createSymposiumProductionReviewComposition(deps: {
             return { evidenceId: evidence.evidenceId };
           }
         : undefined,
+      getCriterionCheckState:
+        host.getCompletedArtifactSemanticCheckState && host.criterionChecks
+          ? async (context, workflowId, definitionId) => {
+              const selected = () =>
+                selectOriginalCheck(context, workflowId, definitionId, 'check-state');
+              const input = selected();
+              const current = () => {
+                if (canonicalReviewJson(selected()) !== canonicalReviewJson(input))
+                  throw Error('Original check-state binding changed');
+              };
+              const report = await host.getCompletedArtifactSemanticCheckState!(
+                input,
+                AbortSignal.timeout(5000),
+                current,
+              );
+              current();
+              return report;
+            }
+          : undefined,
       cleanupCriterionCheck:
         host.reconcileCompletedArtifactSemantic && host.criterionChecks
           ? async (context, workflowId, definitionId) => {
-              const selected = () => {
-                deps.actionAuthority.assertCurrent(context, 'cleanup-check');
-                const state = reviews.get(workflowId);
-                const current = artifacts.currentResult(context);
-                const rawDefinition = host.criterionChecks!.find(
-                  (item) => item.id === definitionId,
-                );
-                if (
-                  !state ||
-                  state.owner !== context.owner ||
-                  state.sessionId !== context.sessionId ||
-                  !rawDefinition ||
-                  rawDefinition.kind !== 'python-json-cases' ||
-                  !state.acceptanceCriteria.includes(rawDefinition.criterion) ||
-                  !current ||
-                  current.resultId !== state.currentResultId ||
-                  current.artifactRevision !== state.artifactRevision ||
-                  current.artifactHash !== state.artifactHash ||
-                  current.evidenceRefs.length !== 1 ||
-                  !current.evidenceRefs[0].startsWith('artifact-seal:')
-                )
-                  throw new Error('Original registered semantic cleanup binding unavailable');
-                const fenceId = current.evidenceRefs[0].slice('artifact-seal:'.length);
-                const owned = artifacts.completedSourceResult(context, {
-                  workflowId,
-                  fenceId,
-                  artifactRevision: current.artifactRevision,
-                  artifactHash: current.artifactHash,
-                });
-                if (
-                  !owned ||
-                  owned.resultId !== current.resultId ||
-                  owned.attemptId !== current.attemptId ||
-                  owned.artifactRevision !== current.artifactRevision ||
-                  owned.artifactHash !== current.artifactHash
-                )
-                  throw new Error('Original owned semantic result unavailable');
-                const generation = historicalSealedResultCoderGeneration(events, context, current);
-                if (!generation) throw new Error('Original semantic generation unavailable');
-                const definition = SemanticCriterionDefinitionSchema.parse(rawDefinition);
-                const definitionDigest = createHash('sha256')
-                  .update(canonicalReviewJson(definition))
-                  .digest('hex');
-                return {
-                  fenceId,
-                  operationId: criterionOperationId(context, current.resultId, definitionDigest),
-                  definition,
-                };
-              };
+              const selected = () =>
+                selectOriginalCheck(context, workflowId, definitionId, 'cleanup-check');
               return runOriginalCriterionCleanup(selected, (input, signal) =>
                 host.reconcileCompletedArtifactSemantic!(input, signal, () => {
                   if (canonicalReviewJson(selected()) !== canonicalReviewJson(input))

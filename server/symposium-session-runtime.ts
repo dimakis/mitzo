@@ -421,7 +421,10 @@ type SeatSandboxRegistry = Pick<
   Partial<
     Pick<
       EventStore,
-      'recordSymposiumSeatSandboxTerminalCreate' | 'recordSymposiumSeatCreationDiagnostic'
+      | 'recordSymposiumSeatSandboxTerminalCreate'
+      | 'recordSymposiumSeatCreationDiagnostic'
+      | 'getSymposiumSeatLifecycleFence'
+      | 'reclaimSymposiumSeatLifecycleForSeal'
     >
   >;
 
@@ -571,11 +574,13 @@ async function withSymposiumSeatLifecycleFence<T>(
   seatId: string,
   signal: AbortSignal,
   operation: (token: string) => Promise<T>,
+  reclaimForOriginalSeal?: (token: string) => boolean,
 ): Promise<T> {
   const token = randomUUID();
   const deadline = Date.now() + 10_000;
   while (!registry.claimSymposiumSeatLifecycle(sessionId, seatId, token)) {
     signal.throwIfAborted();
+    if (reclaimForOriginalSeal?.(token)) break;
     if (Date.now() >= deadline)
       throw new Error('Symposium seat lifecycle fence requires reconciliation');
     await new Promise<void>((resolve, reject) => {
@@ -604,6 +609,8 @@ type CompletedSandboxCleanupDeps = Pick<
   'runtimeConfig' | 'managerFactory'
 > & {
   seatSandboxRegistry: SeatSandboxRegistry;
+  /** Only the trusted retained seal recovery path supplies its original deny fence. */
+  sealFenceId?: string;
   artifactLeaseHost?: SqliteArtifactLeaseHost;
   artifactRequest?: (
     sessionId: string,
@@ -711,6 +718,26 @@ export async function stopRetainedSealSandbox(
       });
       await stopCompletedSandbox(deps, current, manager, record.physicalId, signal);
     },
+    deps.sealFenceId &&
+      deps.seatSandboxRegistry.getSymposiumSeatLifecycleFence &&
+      deps.seatSandboxRegistry.reclaimSymposiumSeatLifecycleForSeal
+      ? (token) => {
+          signal.throwIfAborted();
+          const prior = deps.seatSandboxRegistry.getSymposiumSeatLifecycleFence!(
+            record.sessionId,
+            record.seatId,
+          );
+          return Boolean(
+            prior &&
+            deps.seatSandboxRegistry.reclaimSymposiumSeatLifecycleForSeal!({
+              record,
+              sealFenceId: deps.sealFenceId!,
+              expectedToken: prior.token,
+              token,
+            }),
+          );
+        }
+      : undefined,
   );
 }
 

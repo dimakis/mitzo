@@ -1008,6 +1008,7 @@ export interface SymposiumProductionHost {
   exportCompletedArtifactBundle?: CompletedPublicationHost['exportCompletedArtifactBundle'];
   checkCompletedArtifactFile?: import('./symposium-physical-artifact-seal.js').PhysicalArtifactSealer['checkCompletedArtifactFile'];
   reconcileCompletedArtifactSemantic?: import('./symposium-physical-artifact-seal.js').PhysicalArtifactSealer['reconcileCompletedArtifactSemantic'];
+  getCompletedArtifactSemanticCheckState?: import('./symposium-physical-artifact-seal.js').PhysicalArtifactSealer['getCompletedArtifactSemanticCheckState'];
   checkCompletedArtifactSemantic?: import('./symposium-physical-artifact-seal.js').PhysicalArtifactSealer['checkCompletedArtifactSemantic'];
   criterionChecks?: readonly import('./symposium-criterion-receipts.js').CheckDefinition[];
   runSandboxCreation?: SandboxCreationFence;

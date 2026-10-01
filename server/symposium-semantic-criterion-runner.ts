@@ -1,6 +1,7 @@
 /** Trusted host comparisons; artifact stdout is data and never authority.
  * Uses the sealer's retained command/custody/journal rather than a scheduler. */
 import type Database from 'better-sqlite3';
+import { z } from 'zod';
 import { createHash, randomUUID } from 'node:crypto';
 import { canonicalReviewJson } from './symposium-review-records.js';
 import {
@@ -970,4 +971,140 @@ export async function inspectSemanticCleanupOwners(
   if (unfinished.some((row) => !selected.has(row.job_id)))
     throw Error('Unrelated artifact operation blocks cleanup');
   return allowed;
+}
+
+const CheckJournalState = z.enum([
+  'in_progress',
+  'create_uncertain',
+  'created',
+  'start_uncertain',
+  'terminal',
+  'removed',
+  'complete',
+  'failed_cleaned',
+  'not_dispatched',
+  'not_journaled',
+]);
+export const SemanticCheckStateReportSchema = z.strictObject({
+  kind: z.literal('quarantined-check-state'),
+  nextAction: z.literal('retain-original-operation-for-operator-disposition'),
+  operationId: z.string().min(1).max(500),
+  fenceId: z.string().min(1).max(500),
+  definitionDigest: z.string().regex(/^[a-f0-9]{64}$/),
+  parentState: z.enum(['in_progress', 'complete', 'failed_cleaned']),
+  sourceCompatible: z.boolean(),
+  cases: z
+    .array(
+      z.strictObject({
+        id: z.string().min(1).max(500),
+        state: CheckJournalState,
+        originalCidRetained: z.boolean(),
+        witnessManifestRetained: z.boolean(),
+      }),
+    )
+    .min(1)
+    .max(8),
+  retryAllowed: z.literal(false),
+  executionAuthorized: z.literal(false),
+  cleanupConfirmed: z.literal(false),
+  semanticEvidenceAllowed: z.literal(false),
+});
+export type SemanticCheckStateReport = z.infer<typeof SemanticCheckStateReportSchema>;
+/** Journal observation only. No process census, witness read, cleanup or evidence authority. */
+export function inspectOwnedSemanticCheckState(
+  deps: Pick<SemanticRunnerDependencies, 'db' | 'seal' | 'image' | 'withSnapshot'>,
+  raw: { fenceId: string; operationId: string; definition: SemanticCriterionDefinition },
+  assertCurrent: () => void,
+): SemanticCheckStateReport {
+  const input = { ...raw, definition: SemanticCriterionDefinitionSchema.parse(raw.definition) };
+  const states = new Set([
+    'in_progress',
+    'create_uncertain',
+    'created',
+    'start_uncertain',
+    'terminal',
+    'removed',
+    'complete',
+    'failed_cleaned',
+    'not_dispatched',
+  ]);
+  const current = () => {
+    assertCurrent();
+    deps.withSnapshot(() => {});
+  };
+  current();
+  const report = deps.db.transaction(() => {
+    current();
+    const parents = deps.db
+      .prepare('SELECT * FROM symposium_seal_export_jobs WHERE operation_id=?')
+      .all(input.operationId) as Row[];
+    if (parents.length !== 1) throw Error('Original semantic check journal unavailable');
+    const parent = parents[0];
+    if (
+      parent.kind !== 'semantic' ||
+      parent.input_json !== canonicalReviewJson(input) ||
+      parent.fence_id !== input.fenceId ||
+      input.fenceId !== deps.seal.fenceId ||
+      parent.custody_digest !== deps.seal.custodyDigest ||
+      parent.helper_image !== deps.image ||
+      !parent.export_code_digest ||
+      !CID.test(parent.export_code_digest) ||
+      !['in_progress', 'complete', 'failed_cleaned'].includes(parent.state)
+    )
+      throw Error('Original semantic check binding changed');
+    const cases = input.definition.cases.map((item) => {
+      const rows = deps.db
+        .prepare('SELECT * FROM symposium_seal_export_jobs WHERE operation_id=?')
+        .all('semantic-case-' + hash({ input, id: item.id })) as Row[];
+      if (!rows.length)
+        return {
+          id: item.id,
+          state: 'not_journaled',
+          originalCidRetained: false,
+          witnessManifestRetained: false,
+        };
+      if (rows.length !== 1) throw Error('Original semantic case journal ambiguous');
+      const row = rows[0];
+      const retained = JSON.parse(row.input_json) as { sourceSha256?: unknown };
+      if (
+        row.kind !== 'semantic_case' ||
+        row.fence_id !== input.fenceId ||
+        row.custody_digest !== parent.custody_digest ||
+        row.helper_image !== parent.helper_image ||
+        row.export_code_digest !== parent.export_code_digest ||
+        row.container_name !== 'mitzo-semantic-' + row.job_id ||
+        typeof retained.sourceSha256 !== 'string' ||
+        !CID.test(retained.sourceSha256) ||
+        row.input_json !==
+          canonicalReviewJson({ input, caseId: item.id, sourceSha256: retained.sourceSha256 }) ||
+        !states.has(row.state) ||
+        (row.container_id !== null && !CID.test(row.container_id))
+      )
+        throw Error('Original semantic case binding changed');
+      return {
+        id: item.id,
+        state: row.state,
+        originalCidRetained: row.container_id !== null,
+        witnessManifestRetained:
+          typeof row.cid_witness_json === 'string' && row.cid_witness_json.length > 0,
+      };
+    });
+    current();
+    return {
+      kind: 'quarantined-check-state' as const,
+      nextAction: 'retain-original-operation-for-operator-disposition' as const,
+      operationId: input.operationId,
+      fenceId: input.fenceId,
+      definitionDigest: hash(input.definition),
+      parentState: parent.state,
+      sourceCompatible: parent.export_code_digest === runnerDigest(),
+      cases,
+      retryAllowed: false as const,
+      executionAuthorized: false as const,
+      cleanupConfirmed: false as const,
+      semanticEvidenceAllowed: false as const,
+    };
+  })();
+  current();
+  return SemanticCheckStateReportSchema.parse(report);
 }

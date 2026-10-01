@@ -279,6 +279,19 @@ replacement lease. Cleanup uses the retained sandbox and original lease identity
 after seat removal, suspension, or role changes; current authority is still required
 for new admission.
 
+Retained seal cleanup can reclaim a newly witnessed lifecycle fence only after
+its original process is absent in the same kernel boot and PID namespace. The
+transfer preserves the original token in a durable recovery record and keeps the
+seal's admission fence intact. Live or reused PIDs, unknown ownership, old fences
+without a process witness, and changed boot domains remain quarantined. This
+cleanup path does not restore a lost custodian or adopt its gateway.
+
+An authenticated `check-state` review action reports a quarantined semantic
+check's original operation, artifact binding and retained journal states. It
+preserves unknown container identities and witness availability for operator
+disposition. Reading this report leaves cleanup, execution and semantic evidence
+permissions closed.
+
 Production remains disabled by default. A trusted server bootstrap must install
 matching host attestation for the selected CLI, gateway, images, policy, provider
 profiles, seed and artifacts. Attestations must map each exact provider instance

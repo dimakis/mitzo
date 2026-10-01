@@ -1337,6 +1337,36 @@ export async function createOwnedSymposiumHost(
           return receipt;
         });
       },
+      async getCompletedArtifactSemanticCheckState(
+        input: Parameters<PhysicalArtifactSealer['getCompletedArtifactSemanticCheckState']>[0],
+        signal: AbortSignal,
+        assertCurrent?: () => void,
+      ) {
+        signal.throwIfAborted();
+        assertCurrent?.();
+        if (draining || stopped) throw new Error('Owned Symposium host is shutting down');
+        if (!(options.facts instanceof EventStore))
+          throw new Error('Artifact sealing requires the retained event store');
+        artifactSealer ??= new PhysicalArtifactSealer({
+          store: options.facts,
+          leaseHost: leaseHost!,
+          gateway,
+          attemptRegistry: native!.registry,
+          runtimeConfig,
+        });
+        return track(async () => {
+          signal.throwIfAborted();
+          assertCurrent?.();
+          const receipt = await artifactSealer!.getCompletedArtifactSemanticCheckState(
+            input,
+            signal,
+            assertCurrent,
+          );
+          signal.throwIfAborted();
+          assertCurrent?.();
+          return receipt;
+        });
+      },
       async requireCompletedArtifactSeal(fenceId: string, signal: AbortSignal) {
         if (draining || stopped) throw new Error('Owned Symposium host is shutting down');
         if (!(options.facts instanceof EventStore))

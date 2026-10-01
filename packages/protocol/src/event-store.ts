@@ -1,3 +1,8 @@
+import {
+  localSymposiumLifecycleOwner,
+  originalSymposiumLifecycleOwnerGone,
+  type SymposiumLifecycleOwner,
+} from './symposium-lifecycle-owner.js';
 import { artifactReaderReference } from './symposium-artifact-reader-proof.js';
 import { z } from 'zod';
 import {
@@ -1050,6 +1055,15 @@ export class EventStore {
         CREATE TABLE IF NOT EXISTS symposium_seat_lifecycle_fences (
           session_id TEXT NOT NULL, seat_id TEXT NOT NULL, token TEXT NOT NULL,
           PRIMARY KEY(session_id, seat_id)
+        );
+        CREATE TABLE IF NOT EXISTS symposium_seat_lifecycle_owners (
+          session_id TEXT NOT NULL, seat_id TEXT NOT NULL, token TEXT NOT NULL,
+          owner_json TEXT NOT NULL, PRIMARY KEY(session_id,seat_id)
+        );
+        CREATE TABLE IF NOT EXISTS symposium_seat_lifecycle_recoveries (
+          session_id TEXT NOT NULL, seat_id TEXT NOT NULL, prior_token TEXT NOT NULL,
+          token TEXT NOT NULL, seal_fence_id TEXT NOT NULL, prior_owner_json TEXT NOT NULL,
+          owner_json TEXT NOT NULL, PRIMARY KEY(session_id,seat_id,prior_token)
         );
         -- A seal intent is an enduring deny fence, never a completed artifact receipt.
         CREATE TABLE IF NOT EXISTS symposium_artifact_seal_intents (
@@ -3095,19 +3109,119 @@ export class EventStore {
   }
 
   claimSymposiumSeatLifecycle(sessionId: string, seatId: string, token: string): boolean {
-    const result = this.db!.prepare(
-      `INSERT OR IGNORE INTO symposium_seat_lifecycle_fences(session_id,seat_id,token)
-       VALUES(?,?,?)`,
-    ).run(sessionId, seatId, token);
-    return result.changes === 1;
+    return this.db!.transaction(() => {
+      const result = this.db!.prepare(
+        `INSERT OR IGNORE INTO symposium_seat_lifecycle_fences(session_id,seat_id,token) VALUES(?,?,?)`,
+      ).run(sessionId, seatId, token);
+      if (result.changes !== 1) return false;
+      const owner = localSymposiumLifecycleOwner();
+      // An unsupported host can retain a fence; it cannot manufacture recovery proof.
+      this.db!.prepare(
+        'DELETE FROM symposium_seat_lifecycle_owners WHERE session_id=? AND seat_id=?',
+      ).run(sessionId, seatId);
+      if (owner)
+        this.db!.prepare('INSERT INTO symposium_seat_lifecycle_owners VALUES (?,?,?,?)').run(
+          sessionId,
+          seatId,
+          token,
+          JSON.stringify(owner),
+        );
+      return true;
+    }).immediate();
+  }
+
+  getSymposiumSeatLifecycleFence(
+    sessionId: string,
+    seatId: string,
+  ): { token: string; owner: SymposiumLifecycleOwner | null } | null {
+    const row = this.db!.prepare(
+      `SELECT f.token,o.owner_json FROM symposium_seat_lifecycle_fences f
+      LEFT JOIN symposium_seat_lifecycle_owners o ON o.session_id=f.session_id AND o.seat_id=f.seat_id AND o.token=f.token
+      WHERE f.session_id=? AND f.seat_id=?`,
+    ).get(sessionId, seatId) as { token: string; owner_json: string | null } | undefined;
+    if (!row) return null;
+    let owner: SymposiumLifecycleOwner | null = null;
+    try {
+      if (row.owner_json) owner = JSON.parse(row.owner_json) as SymposiumLifecycleOwner;
+    } catch {
+      /* Legacy or corrupt proof never permits takeover. */
+    }
+    return { token: row.token, owner };
+  }
+
+  /** Cleanup-only transfer under the original enduring seal deny fence. Never
+   * clear an orphan for admission, infer death from age, or adopt legacy tokens. */
+  reclaimSymposiumSeatLifecycleForSeal(input: {
+    record: SymposiumSeatSandboxRecord;
+    sealFenceId: string;
+    expectedToken: string;
+    token: string;
+  }): boolean {
+    return this.db!.transaction(() => {
+      const { record, sealFenceId, expectedToken, token } = input;
+      const seal = this.getSymposiumArtifactSealByFence(sealFenceId);
+      const current = this.getSymposiumSeatSandbox(
+        record.sessionId,
+        record.seatId,
+        record.generation,
+      );
+      const fence = this.getSymposiumSeatLifecycleFence(record.sessionId, record.seatId);
+      const owner = localSymposiumLifecycleOwner();
+      if (
+        !seal ||
+        seal.status !== 'pending_unsealed' ||
+        seal.selection.sessionId !== record.sessionId ||
+        seal.selection.custody.workspaceId !== record.workspace ||
+        !current ||
+        !record.creationCompleted ||
+        !record.physicalId ||
+        !record.sandboxName ||
+        !['ready', 'stopped'].includes(current.state) ||
+        JSON.stringify({ ...record, state: current.state }) !== JSON.stringify(current) ||
+        this.getUnsettledSymposiumSeatExecutions(record.sessionId, record.seatId).length ||
+        !fence?.owner ||
+        fence.token !== expectedToken ||
+        !owner ||
+        !token ||
+        token === expectedToken ||
+        !originalSymposiumLifecycleOwnerGone(fence.owner)
+      )
+        return false;
+      const changed = this.db!.prepare(
+        `UPDATE symposium_seat_lifecycle_fences SET token=?
+        WHERE session_id=? AND seat_id=? AND token=?`,
+      ).run(token, record.sessionId, record.seatId, expectedToken);
+      if (changed.changes !== 1 || !originalSymposiumLifecycleOwnerGone(fence.owner))
+        throw new Error('Original lifecycle owner proof changed');
+      this.db!.prepare(
+        `INSERT INTO symposium_seat_lifecycle_recoveries VALUES (?,?,?,?,?,?,?)`,
+      ).run(
+        record.sessionId,
+        record.seatId,
+        expectedToken,
+        token,
+        sealFenceId,
+        JSON.stringify(fence.owner),
+        JSON.stringify(owner),
+      );
+      this.db!.prepare(
+        `UPDATE symposium_seat_lifecycle_owners SET token=?,owner_json=?
+        WHERE session_id=? AND seat_id=? AND token=?`,
+      ).run(token, JSON.stringify(owner), record.sessionId, record.seatId, expectedToken);
+      return true;
+    }).immediate();
   }
 
   releaseSymposiumSeatLifecycle(sessionId: string, seatId: string, token: string): void {
-    const result = this.db!.prepare(
-      `DELETE FROM symposium_seat_lifecycle_fences
-       WHERE session_id=? AND seat_id=? AND token=?`,
-    ).run(sessionId, seatId, token);
-    if (result.changes !== 1) throw new Error('Symposium seat lifecycle fence changed');
+    this.db!.transaction(() => {
+      const result = this.db!.prepare(
+        `DELETE FROM symposium_seat_lifecycle_fences WHERE session_id=? AND seat_id=? AND token=?`,
+      ).run(sessionId, seatId, token);
+      if (result.changes !== 1) throw new Error('Symposium seat lifecycle fence changed');
+      this.db!.prepare(
+        `DELETE FROM symposium_seat_lifecycle_owners WHERE session_id=? AND seat_id=? AND token=?`,
+      ).run(sessionId, seatId, token);
+    }).immediate();
   }
 
   reserveSymposiumSeatSandbox(

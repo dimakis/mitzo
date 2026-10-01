@@ -1166,3 +1166,83 @@ it.each(['late-original', 'revoked', 'fresh-inspect-drift', 'failed-removal', 'l
     }
   },
 );
+
+it('exports the original unwitnessed quarantined check without commands, mutation or favorable authority', async () => {
+  const f = fixture('lost-create');
+  const input = { fenceId: 'fence', operationId: 'semantic', definition };
+  try {
+    await expect(
+      runOwnedSemanticCriterion(f.deps, input, new AbortController().signal),
+    ).rejects.toThrow();
+    const before = f.db.prepare('SELECT * FROM symposium_seal_export_jobs ORDER BY job_id').all();
+    f.command.mockClear();
+    const { inspectOwnedSemanticCheckState } =
+      await import('../symposium-semantic-criterion-runner.js');
+    const report = inspectOwnedSemanticCheckState(f.deps, input, () => {});
+    expect(report).toMatchObject({
+      kind: 'quarantined-check-state',
+      operationId: 'semantic',
+      fenceId: 'fence',
+      retryAllowed: false,
+      executionAuthorized: false,
+      cleanupConfirmed: false,
+      semanticEvidenceAllowed: false,
+      parentState: 'in_progress',
+      sourceCompatible: true,
+    });
+    expect(report.cases).toEqual([
+      {
+        id: 'empty',
+        state: 'create_uncertain',
+        originalCidRetained: false,
+        witnessManifestRetained: false,
+      },
+      {
+        id: 'signed',
+        state: 'not_journaled',
+        originalCidRetained: false,
+        witnessManifestRetained: false,
+      },
+    ]);
+    expect(f.command).not.toHaveBeenCalled();
+    expect(f.db.prepare('SELECT * FROM symposium_seal_export_jobs ORDER BY job_id').all()).toEqual(
+      before,
+    );
+    expect(JSON.stringify(report)).not.toMatch(
+      /container_name|input_json|sourceSha256|receipt_json|cid_witness_json/,
+    );
+    expect(() =>
+      inspectOwnedSemanticCheckState(
+        f.deps,
+        { ...input, definition: { ...definition, path: 'other.py' } },
+        () => {},
+      ),
+    ).toThrow();
+    expect(() =>
+      inspectOwnedSemanticCheckState(f.deps, input, () => {
+        throw Error('revoked');
+      }),
+    ).toThrow('revoked');
+  } finally {
+    f.db.close();
+  }
+});
+it('preserves incompatible historical source and rejects malformed journal state in read-only reports', async () => {
+  const f = fixture('lost-create');
+  const input = { fenceId: 'fence', operationId: 'semantic', definition };
+  try {
+    await expect(
+      runOwnedSemanticCriterion(f.deps, input, new AbortController().signal),
+    ).rejects.toThrow();
+    const { inspectOwnedSemanticCheckState } =
+      await import('../symposium-semantic-criterion-runner.js');
+    f.db.prepare('UPDATE symposium_seal_export_jobs SET export_code_digest=?').run('a'.repeat(64));
+    expect(inspectOwnedSemanticCheckState(f.deps, input, () => {}).sourceCompatible).toBe(false);
+    f.db
+      .prepare("UPDATE symposium_seal_export_jobs SET state='invented' WHERE kind='semantic_case'")
+      .run();
+    expect(() => inspectOwnedSemanticCheckState(f.deps, input, () => {})).toThrow();
+  } finally {
+    f.db.close();
+  }
+});
