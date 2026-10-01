@@ -170,6 +170,7 @@ describe('legacy message artifact workspace', () => {
       cwd: null,
       summary: 'Custom title',
       isActive: false,
+      updatedAt: 12345,
     });
     mockGetSessionInfo.mockResolvedValue({
       sessionId: 'legacy',
@@ -180,6 +181,7 @@ describe('legacy message artifact workspace', () => {
     expect(mockUpsertSession).toHaveBeenCalledWith({
       sessionId: 'legacy',
       cwd: '/projects/original-worktree',
+      updatedAt: 12345,
     });
     expect(mockGetSessionInfo).toHaveBeenCalledWith(
       'legacy',
@@ -256,3 +258,18 @@ it.each([undefined, '', 'relative/worktree', 42])(
     expect(mockUpsertSession).not.toHaveBeenCalled();
   },
 );
+
+it('preserves a timestamp updated while legacy workspace metadata is being recovered', async () => {
+  mockEventStore.getSessionEvents.mockReturnValue(savedEvents);
+  mockGetSession
+    .mockReturnValueOnce({ sessionId: 'persisted', cwd: null, updatedAt: 12345 })
+    .mockReturnValue({ sessionId: 'persisted', cwd: null, updatedAt: 67890 });
+  mockGetSessionInfo.mockResolvedValue({ cwd: '/projects/existing-worktree' });
+  const { getMessages } = await import('../chat.js');
+  await getMessages('persisted');
+  expect(mockUpsertSession).toHaveBeenCalledWith({
+    sessionId: 'persisted',
+    cwd: '/projects/existing-worktree',
+    updatedAt: 67890,
+  });
+});

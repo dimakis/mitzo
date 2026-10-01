@@ -3836,8 +3836,13 @@ async function recoverSessionWorkspace(sessionId: string, dirs = getSessionDirs(
       const info = await getSessionInfo(sessionId, { dir });
       if (typeof info?.cwd !== 'string' || !isAbsolute(info.cwd)) continue;
       // Preserve a workspace recorded while the SDK lookup was in flight.
-      if (!eventStore.getSession(sessionId)?.cwd)
-        eventStore.upsertSession({ sessionId, cwd: info.cwd });
+      const current = eventStore.getSession(sessionId);
+      if (!current?.cwd)
+        eventStore.upsertSession({
+          sessionId,
+          cwd: info.cwd,
+          ...(current?.updatedAt !== undefined ? { updatedAt: current.updatedAt } : {}),
+        });
       return;
     } catch {
       // Missing metadata must not prevent reading the saved transcript.
