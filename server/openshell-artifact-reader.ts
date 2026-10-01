@@ -26,7 +26,7 @@ LIMIT = 5 * 1024 * 1024
 class Refusal(Exception): pass
 def refuse(reason): raise Refusal(reason)
 def private(parts):
- return any(p in ('.codex','.ssh','.aws','.mitzo','.claude','.claude.json','.config','.git','.netrc','.npmrc','.pypirc','.git-credentials','auth.json','credentials.json') or p.startswith('.env') or p.startswith('credential') for p in parts)
+ return any(p in ('.codex','.ssh','.aws','.cursor','.docker','.kube','.mitzo','.claude','.claude.json','.config','.git','.netrc','.npmrc','.pypirc','.git-credentials','auth.json','credentials.json') or p.startswith('.env') or p.startswith('credential') for p in parts)
 def read(root, requested):
  if not root.startswith('/') or root != os.path.normpath(root): refuse('forbidden')
  if not requested or '\\' in requested or any(ord(c)<32 or ord(c)==127 for c in requested): refuse('forbidden')

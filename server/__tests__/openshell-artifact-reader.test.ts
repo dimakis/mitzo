@@ -49,6 +49,9 @@ describe('workspace artifact helper', () => {
     '.codex/auth.json',
     '.env',
     '.config/gws/credentials.json',
+    '.cursor/mcp.json',
+    '.docker/config.json',
+    '.kube/config',
     '.git/config',
     String.raw`outputs\report.md`,
   ])('rejects private or escaping path %s', (path) => {
@@ -119,14 +122,12 @@ describe('trusted artifact transport', () => {
   });
   it('accepts the exact size boundary without recursive base64 validation', async () => {
     const bytes = Buffer.alloc(5 * 1024 * 1024, 255);
-    const run = vi
-      .fn<ArtifactCommandRunner>()
-      .mockResolvedValue(
-        JSON.stringify({
-          path: '/sandbox/workspaces/mgmt/report.md',
-          data: bytes.toString('base64'),
-        }),
-      );
+    const run = vi.fn<ArtifactCommandRunner>().mockResolvedValue(
+      JSON.stringify({
+        path: '/sandbox/workspaces/mgmt/report.md',
+        data: bytes.toString('base64'),
+      }),
+    );
     expect(
       (
         await readOpenShellArtifact(runtime, 'report.md', async () => {}, undefined, run)
