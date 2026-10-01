@@ -36,10 +36,8 @@ export function isOpenShellArtifactSession(
 ) {
   return Boolean(
     meta?.cwd &&
-    (meta.cwd.startsWith('/sandbox/') ||
-      (['openai', 'openai-codex'].includes(meta.accountBinding?.provider ?? '') &&
-        configuredWorkdir &&
-        meta.cwd === configuredWorkdir)),
+    ['openai', 'openai-codex'].includes(meta.accountBinding?.provider ?? '') &&
+    (meta.cwd.startsWith('/sandbox/') || (configuredWorkdir && meta.cwd === configuredWorkdir)),
   );
 }
 export function validateSessionArtifactRuntime(

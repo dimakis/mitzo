@@ -48,7 +48,7 @@ vi.mock('../chat.js', () => {
     BASE_REPO: repo,
     getRepoConfig: vi.fn(() => ({
       quickActions: [],
-      allowedPaths: [],
+      allowedPaths: ['/sandbox/host-repository'],
       roots: [
         { label: 'Main', path: repo },
         { label: 'Tools', path: '/some/tools' },
@@ -122,6 +122,19 @@ vi.mock('../chat.js', () => {
                 : null,
             accountBinding: { provider: id.includes('-api-') ? 'openai' : 'openai-codex' },
           };
+        }
+        if (
+          id === 'sandbox-prefix-host-api-session' ||
+          id === 'sandbox-prefix-host-subscription-session'
+        ) {
+          return {
+            sessionId: id,
+            cwd: '/sandbox/host-repository',
+            accountBinding: { provider: id.includes('-api-') ? 'openai' : 'openai-codex' },
+          };
+        }
+        if (id === 'unbound-sandbox-session') {
+          return { sessionId: id, cwd: '/sandbox/unknown-workspace' };
         }
         if (id === 'untrusted-artifact-session') {
           return { sessionId: id, cwd: '/etc' };
@@ -1923,3 +1936,57 @@ it('accepts two full-size documents including JSON control-character escaping', 
   expect(res.status).toBe(200);
   expect(readFileSync(path, 'utf8') === content).toBe(true);
 }, 15_000);
+it('refuses an unbound unconfigured sandbox origin without reading the host fallback', async () => {
+  for (const endpoint of [
+    '/api/files/read',
+    '/api/files/download',
+    '/api/files',
+    '/api/files/list',
+  ]) {
+    const res = await request(app)
+      .get(endpoint)
+      .query({ path: 'test.txt', sessionId: 'unbound-sandbox-session' })
+      .set('Cookie', authCookie);
+    expect(res.status).toBe(409);
+  }
+  const file = join(TEST_REPO, 'test.txt');
+  const original = readFileSync(file, 'utf8');
+  const res = await request(app)
+    .put('/api/files/write')
+    .set('Cookie', authCookie)
+    .send({
+      path: 'test.txt',
+      content: 'wrong origin',
+      expectedContent: original,
+      sessionId: 'unbound-sandbox-session',
+    });
+  expect(res.status).toBe(409);
+  expect(readFileSync(file, 'utf8')).toBe(original);
+});
+
+it.each(['sandbox-prefix-host-api-session', 'sandbox-prefix-host-subscription-session'])(
+  'honors configured host origin despite sandbox prefix for %s',
+  async (sessionId) => {
+    const file = join(TEST_REPO, 'test.txt');
+    for (const endpoint of ['/api/files/read', '/api/files/download']) {
+      const res = await request(app)
+        .get(endpoint)
+        .query({ path: file, sessionId })
+        .set('Cookie', authCookie);
+      expect(res.status).toBe(200);
+    }
+    for (const endpoint of ['/api/files/read', '/api/files', '/api/files/list']) {
+      const res = await request(app)
+        .get(endpoint)
+        .query({ path: 'missing.md', sessionId })
+        .set('Cookie', authCookie);
+      expect(res.status).toBe(404);
+    }
+    const original = readFileSync(file, 'utf8');
+    const res = await request(app)
+      .put('/api/files/write')
+      .set('Cookie', authCookie)
+      .send({ path: file, content: original, expectedContent: original, sessionId });
+    expect(res.status).toBe(200);
+  },
+);
