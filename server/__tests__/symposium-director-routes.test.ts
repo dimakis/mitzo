@@ -191,6 +191,56 @@ function fixture(
 }
 
 describe('Symposium director routes', () => {
+  it.each(['invalid', 'missing-session', 'unavailable'])(
+    'proves seat revision never started after an early %s refusal',
+    async (reason) => {
+      const { app, reviseSeat } = fixture();
+      const body = {
+        expectedRevision: 4,
+        seatId: 'new-reviewer',
+        name: 'New reviewer',
+        role: 'reviewer',
+        systemPrompt: 'Review only',
+        color: '#557733',
+        accountId: 'personal',
+        model: 'luna',
+        sharedBoundaryAcknowledged: true,
+      };
+      const response = await request(app)
+        .post(
+          `/api/sessions/${reason === 'missing-session' ? 'missing' : 'chat'}/symposium/seats/revise`,
+        )
+        .send(reason === 'invalid' ? {} : body);
+      expect(response.status).toBe(
+        reason === 'invalid' ? 400 : reason === 'missing-session' ? 404 : 503,
+      );
+      expect(response.body.seatMutation).toBe('not-started');
+      expect(reviseSeat).not.toHaveBeenCalled();
+    },
+  );
+
+  it('never provides no-mutation proof after entering seat revision', async () => {
+    const { app, store, reviseSeat } = fixture(true);
+    store.getActiveSymposiumConfig.mockReturnValue(activeStatusConfig as never);
+    reviseSeat.mockImplementationOnce(() => {
+      throw new Error('Write result unknown');
+    });
+    const response = await request(app).post('/api/sessions/chat/symposium/seats/revise').send({
+      expectedRevision: 4,
+      seatId: 'new-reviewer',
+      name: 'New reviewer',
+      role: 'reviewer',
+      systemPrompt: 'Review only',
+      color: '#557733',
+      accountId: 'personal',
+      model: 'luna',
+      sharedBoundaryAcknowledged: true,
+    });
+    expect(response.status).toBe(409);
+    expect(reviseSeat).toHaveBeenCalledOnce();
+    expect(response.body).not.toHaveProperty('seatMutation');
+  });
+
   it.each(['omitted', 'explicit', 'profile', 'new'])(
     'preserves custom seat guidance and permissions on revision: %s',
     async (mode) => {

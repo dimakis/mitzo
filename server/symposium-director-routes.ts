@@ -302,16 +302,21 @@ export function createSymposiumDirectorRouter(deps: SymposiumDirectorRouteDeps):
     if (!parsed.success) {
       res
         .status(400)
-        .json({ error: 'Invalid Symposium seat revision or boundary acknowledgement' });
+        .json({
+          error: 'Invalid Symposium seat revision or boundary acknowledgement',
+          seatMutation: 'not-started',
+        });
       return;
     }
     const sessionId = (req.params as { id: string }).id;
     if (!deps.store.getSession(sessionId)) {
-      res.status(404).json({ error: 'Session not found' });
+      res.status(404).json({ error: 'Session not found', seatMutation: 'not-started' });
       return;
     }
     if (!deps.getRuntime(sessionId)) {
-      res.status(503).json({ error: 'Symposium provider runtime is unavailable' });
+      res
+        .status(503)
+        .json({ error: 'Symposium provider runtime is unavailable', seatMutation: 'not-started' });
       return;
     }
     let mutationStarted = false;
