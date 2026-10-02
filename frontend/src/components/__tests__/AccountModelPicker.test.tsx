@@ -378,7 +378,7 @@ it('shows per-seat account ownership for Symposium without returning an ordinary
   } as Response);
   const onChange = vi.fn();
   render(<AccountModelPicker sessionId="symposium" preferredModel="" onChange={onChange} />);
-  await screen.findByText('Accounts and models are selected per seat in Director controls.');
+  await screen.findByText('Accounts and models are selected per seat in Review team & approvals.');
   expect(onChange.mock.calls.every(([value]) => value === null)).toBe(true);
   expect(apiFetch).toHaveBeenCalledTimes(1);
   expect(screen.queryByRole('combobox')).toBeNull();

@@ -7541,3 +7541,87 @@ option {
   min-height: 44px;
   margin-left: 0.5rem;
 }
+
+.symposium-review-help {
+  margin: 0.5rem 0;
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+
+.symposium-team-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 2.75rem;
+  width: 100%;
+  padding: 0.55rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--bg-secondary);
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.symposium-team-intro {
+  line-height: 1.5;
+}
+
+.symposium-director-panel h3 {
+  margin: 0.6rem 0 0;
+  font-size: 1rem;
+}
+
+.symposium-director-panel > ul > li {
+  padding: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 0.6rem;
+  background: var(--bg-secondary);
+  overflow-wrap: anywhere;
+}
+
+.symposium-director-panel > ul {
+  padding-left: 0;
+  list-style: none;
+}
+
+.symposium-advanced > summary {
+  padding-block: 0.65rem;
+  cursor: pointer;
+  color: var(--text-secondary);
+}
+
+.symposium-director-panel button {
+  border: 1px solid var(--border);
+  min-height: 2.75rem;
+  justify-self: start;
+  margin-block: 0.25rem;
+}
+
+.symposium-director-panel label {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  margin-block: 0.5rem;
+}
+
+.symposium-director-panel label:has(input[type='checkbox']) {
+  flex-direction: row;
+  align-items: center;
+}
+
+.symposium-director-panel input[type='checkbox'] {
+  width: 1.1rem;
+  height: 1.1rem;
+  flex: 0 0 1.1rem;
+}
+
+.symposium-director-panel fieldset {
+  padding: 0.75rem;
+}
+
+.symposium-director-panel legend {
+  font-weight: 600;
+  padding-inline: 0.3rem;
+}

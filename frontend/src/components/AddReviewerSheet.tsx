@@ -90,7 +90,12 @@ export function AddReviewerSheet({ sessionId }: { sessionId: string }) {
       </ReviewerSheetHost>
     );
   return (
-    <button type="button" onClick={flow.open}>
+    <button
+      type="button"
+      className="reviewer-trigger"
+      title="Ask a read-only AI agent to review your work"
+      onClick={flow.open}
+    >
       Add reviewer
     </button>
   );
@@ -355,7 +360,7 @@ function ReviewerForm({
         className="reviewer-sheet"
         role="dialog"
         aria-modal="true"
-        aria-label="Ask another agent"
+        aria-label="Add an AI reviewer"
         onKeyDown={(event) => {
           if (event.key === 'Escape' && !busy) onClose();
           if (event.key === 'Tab') {
@@ -382,7 +387,7 @@ function ReviewerForm({
         }}
       >
         <header>
-          <h2>Ask another agent</h2>
+          <h2>Add an AI reviewer</h2>
           <button type="button" disabled={busy} onClick={onClose}>
             Close
           </button>
@@ -390,8 +395,20 @@ function ReviewerForm({
         {done ? (
           <>
             <p role="status">
-              Reviewer added. The selected context is queued for approval in Director controls.
+              Reviewer added. Your request is waiting in Review team & approvals. Approve it, then
+              send it to start the review.
             </p>
+            <button
+              type="button"
+              onClick={() => {
+                onClose();
+                window.dispatchEvent(
+                  new CustomEvent('symposium-open-team', { detail: { sessionId } }),
+                );
+              }}
+            >
+              Go to review approvals
+            </button>
             <button type="button" onClick={onClose}>
               Done
             </button>
@@ -401,8 +418,21 @@ function ReviewerForm({
           </>
         ) : (
           <>
-            <p>Choose a saved profile and the account that will receive this review request.</p>
+            <p>
+              A reviewer checks your work and returns findings. It can read shared workspace files,
+              but cannot edit them.
+            </p>
+            <ol className="reviewer-workflow" aria-label="Review workflow">
+              <li>Choose a reviewer and describe what to check.</li>
+              <li>Approve the request, then send it in Review team &amp; approvals.</li>
+              <li>Read the results in Open review findings.</li>
+            </ol>
             <fieldset disabled={busy || locked}>
+              <h3>1. Choose your reviewer</h3>
+              <p>
+                A profile defines the reviewer's specialty. The account and model determine which AI
+                runs the review.
+              </p>
               <SymposiumProfilePicker
                 compact
                 requiredRole="reviewer"
@@ -422,8 +452,9 @@ function ReviewerForm({
                 }}
                 disabled={busy || locked}
               />
+              <h3>2. Set the review request</h3>
               <label>
-                Review package
+                What should the reviewer check?
                 <textarea
                   value={brief}
                   onChange={(event) => setBrief(event.target.value)}
@@ -431,7 +462,7 @@ function ReviewerForm({
                 />
               </label>
               <label>
-                Context package
+                Conversation context to share
                 <select
                   value={mode}
                   onChange={(event) => {
@@ -476,6 +507,7 @@ function ReviewerForm({
                   legacy turns without audience proof are excluded.
                 </p>
               )}
+              <h3>3. Confirm sharing</h3>
               <p>
                 The selected account receives the review package and chosen context only after
                 delivery approval. Shared workspace files remain governed by the read-only seat
@@ -487,8 +519,8 @@ function ReviewerForm({
                   checked={acknowledged}
                   onChange={(event) => setAcknowledged(event.target.checked)}
                 />
-                I acknowledge shared artifacts and the selected provider account’s retention
-                boundary.
+                I understand this reviewer can read shared workspace files, and its provider account
+                may retain the request and selected context.
               </label>
               {(crossAccount || !status?.config) && (
                 <label>
@@ -498,7 +530,7 @@ function ReviewerForm({
                     onChange={(event) => setTyped(event.target.value)}
                     placeholder={confirmation}
                   />
-                  <span>Required if this account differs from the conversation account.</span>
+                  <span>Type {confirmation} to allow sharing with a different account.</span>
                 </label>
               )}
             </fieldset>
@@ -510,11 +542,18 @@ function ReviewerForm({
               </p>
             )}
             {progress && <p role="status">{progress}</p>}
-            <button type="button" disabled={!ready || busy} onClick={() => void add()}>
-              Add reviewer and queue context
+            <button
+              type="button"
+              className="btn-primary"
+              disabled={!ready || busy}
+              onClick={() => void add()}
+            >
+              Add reviewer &amp; queue request
             </button>
             {error && (
-              <p role="alert">{error} Any configured seats remain visible in Director controls.</p>
+              <p role="alert">
+                {error} Any configured seats remain visible in Review team & approvals.
+              </p>
             )}
           </>
         )}

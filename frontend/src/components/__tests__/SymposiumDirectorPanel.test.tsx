@@ -112,12 +112,12 @@ afterEach(() => {
 it('shows distinct seat accounts and does not offer dispatch while runtime admission is pending', async () => {
   vi.mocked(apiFetch).mockResolvedValue(response(status(false)));
   render(<SymposiumDirectorPanel sessionId="session" />);
-  await userEvent.click(screen.getByRole('button', { name: 'Director controls' }));
+  await userEvent.click(screen.getByRole('button', { name: 'Review team & approvals' }));
   expect(await screen.findByText(/Claude work · claude-sonnet/)).toBeTruthy();
   expect(screen.getByText(/OpenAI work · gpt/)).toBeTruthy();
   expect(screen.getAllByText(/Pending runtime admission/)).toHaveLength(2);
   expect(
-    screen.getByRole('button', { name: 'Inject to selected seats' }).hasAttribute('disabled'),
+    screen.getByRole('button', { name: 'Queue message for approval' }).hasAttribute('disabled'),
   ).toBe(true);
   expect(screen.getAllByRole('button', { name: 'Suspend' })).toHaveLength(1);
   expect(screen.getByText(/Shared artifacts and provider account retention/)).toBeTruthy();
@@ -129,14 +129,14 @@ it('injects only explicitly selected admitted recipients', async () => {
     .mockResolvedValueOnce(response({ deliveryId: 'delivery-1' }))
     .mockResolvedValueOnce(response(status(true)));
   render(<SymposiumDirectorPanel sessionId="session" />);
-  await userEvent.click(screen.getByRole('button', { name: 'Director controls' }));
+  await userEvent.click(screen.getByRole('button', { name: 'Review team & approvals' }));
   await screen.findByText(/OpenAI work · gpt/);
   await userEvent.click(screen.getByRole('checkbox', { name: 'Send to Reviewer' }));
   await userEvent.type(
-    screen.getByRole('textbox', { name: 'Director message' }),
+    screen.getByRole('textbox', { name: 'Message for the selected agents' }),
     'Review this patch',
   );
-  await userEvent.click(screen.getByRole('button', { name: 'Inject to selected seats' }));
+  await userEvent.click(screen.getByRole('button', { name: 'Queue message for approval' }));
   await waitFor(() => expect(apiFetch).toHaveBeenCalledTimes(3));
   const [, request] = vi.mocked(apiFetch).mock.calls[1];
   expect(JSON.parse(String(request?.body))).toMatchObject({
@@ -154,7 +154,7 @@ it('adds a configured seat to a draft using a server-resolved account binding', 
     .mockResolvedValueOnce(response({ ok: true }))
     .mockResolvedValueOnce(response(draft));
   render(<SymposiumDirectorPanel sessionId="session" />);
-  await userEvent.click(screen.getByRole('button', { name: 'Director controls' }));
+  await userEvent.click(screen.getByRole('button', { name: 'Review team & approvals' }));
   await screen.findByText(/Draft — provider seats are not admitted/);
   await userEvent.type(screen.getByRole('textbox', { name: 'New seat name' }), 'Builder');
   await userEvent.type(screen.getByRole('textbox', { name: 'New seat ID' }), 'builder');
@@ -190,7 +190,7 @@ it('starts a draft from an existing conversation without sending a fabricated gr
     .mockResolvedValueOnce(response({ ...config, state: 'draft' }))
     .mockResolvedValueOnce(response({ ...status(false), config: { ...config, state: 'draft' } }));
   render(<SymposiumDirectorPanel sessionId="session" />);
-  await userEvent.click(screen.getByRole('button', { name: 'Director controls' }));
+  await userEvent.click(screen.getByRole('button', { name: 'Review team & approvals' }));
   await userEvent.click(await screen.findByRole('button', { name: 'Create draft Symposium' }));
   await waitFor(() => expect(apiFetch).toHaveBeenCalledTimes(3));
   const [, request] = vi.mocked(apiFetch).mock.calls[1];
@@ -204,7 +204,7 @@ it('activates a mixed-account draft only with explicit boundary acknowledgement 
     .mockResolvedValueOnce(response({ ...config, revision: 5 }))
     .mockResolvedValueOnce(response(status(false)));
   render(<SymposiumDirectorPanel sessionId="session" />);
-  await userEvent.click(screen.getByRole('button', { name: 'Director controls' }));
+  await userEvent.click(screen.getByRole('button', { name: 'Review team & approvals' }));
   await screen.findByText(/Draft — provider seats are not admitted/);
   const activate = screen.getByRole('button', { name: 'Activate roster' });
   expect(activate.hasAttribute('disabled')).toBe(true);
@@ -236,7 +236,7 @@ it('sends saved profile selection outside draft seat config only when host bindi
     .mockResolvedValueOnce(response({ ...config, revision: 5 }))
     .mockResolvedValueOnce(response(draft));
   render(<SymposiumDirectorPanel sessionId="session" />);
-  await userEvent.click(screen.getByRole('button', { name: 'Director controls' }));
+  await userEvent.click(screen.getByRole('button', { name: 'Review team & approvals' }));
   await screen.findByText(/Draft — provider seats are not admitted/);
   await userEvent.click(screen.getAllByRole('button', { name: 'Select saved profile' })[1]);
   await userEvent.click(
@@ -261,7 +261,7 @@ it('adds an active-roster seat through host grant revision without sending grant
     .mockResolvedValueOnce(response({ ...config, revision: 5 }))
     .mockResolvedValueOnce(response(status(true)));
   render(<SymposiumDirectorPanel sessionId="session" />);
-  await userEvent.click(screen.getByRole('button', { name: 'Director controls' }));
+  await userEvent.click(screen.getByRole('button', { name: 'Review team & approvals' }));
   await screen.findByText(/OpenAI work · gpt/);
   await userEvent.type(screen.getByRole('textbox', { name: 'New seat name' }), 'Builder');
   await userEvent.type(screen.getByRole('textbox', { name: 'New seat ID' }), 'builder');
@@ -300,14 +300,20 @@ it.each(['resolve', 'reject'] as const)(
       .mockReturnValueOnce(oldRequest)
       .mockResolvedValueOnce(response({ ...status(true), sessionId: 'next', config: null }));
     const { rerender } = render(<SymposiumDirectorPanel sessionId="session" />);
-    await userEvent.click(screen.getByRole('button', { name: 'Director controls' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Review team & approvals' }));
     rerender(<SymposiumDirectorPanel sessionId="next" />);
-    await screen.findByText('This conversation has no Symposium roster.');
+    await screen.findByText(
+      'No review team yet. Add a reviewer to get a second opinion on this conversation.',
+    );
     await act(async () => {
       if (completion === 'resolve') resolveOld(response(status(true)));
       else rejectOld(new Error('Old session failed'));
     });
-    expect(screen.getByText('This conversation has no Symposium roster.')).toBeTruthy();
+    expect(
+      screen.getByText(
+        'No review team yet. Add a reviewer to get a second opinion on this conversation.',
+      ),
+    ).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Suspend' })).toBeNull();
     expect(screen.queryByRole('alert')).toBeNull();
     expect(apiFetch).toHaveBeenLastCalledWith('/api/sessions/next/symposium', undefined);
@@ -319,15 +325,22 @@ it('clears the previous session roster and form state immediately on navigation'
     .mockResolvedValueOnce(response(status(true)))
     .mockResolvedValueOnce(response({ ...status(true), sessionId: 'next' }));
   const { rerender } = render(<SymposiumDirectorPanel sessionId="session" />);
-  await userEvent.click(screen.getByRole('button', { name: 'Director controls' }));
+  await userEvent.click(screen.getByRole('button', { name: 'Review team & approvals' }));
   await screen.findByText(/OpenAI work · gpt/);
   await userEvent.click(screen.getByRole('checkbox', { name: 'Send to Reviewer' }));
-  await userEvent.type(screen.getByRole('textbox', { name: 'Director message' }), 'Old message');
+  await userEvent.type(
+    screen.getByRole('textbox', { name: 'Message for the selected agents' }),
+    'Old message',
+  );
   rerender(<SymposiumDirectorPanel sessionId="next" />);
   expect(screen.queryByRole('button', { name: 'Suspend' })).toBeNull();
   await screen.findByText(/OpenAI work · gpt/);
   expect(
-    (screen.getByRole('textbox', { name: 'Director message' }) as HTMLTextAreaElement).value,
+    (
+      screen.getByRole('textbox', {
+        name: 'Message for the selected agents',
+      }) as HTMLTextAreaElement
+    ).value,
   ).toBe('');
   expect(
     (screen.getByRole('checkbox', { name: 'Send to Reviewer' }) as HTMLInputElement).checked,
@@ -351,14 +364,14 @@ it('refreshes externally queued deliveries without closing director controls', a
       }),
     );
   render(<SymposiumDirectorPanel sessionId="session" />);
-  await userEvent.click(screen.getByRole('button', { name: 'Director controls' }));
+  await userEvent.click(screen.getByRole('button', { name: 'Review team & approvals' }));
   await screen.findByText(/OpenAI work · gpt/);
   expect(screen.queryByRole('button', { name: 'Approve' })).toBeNull();
-  await userEvent.click(screen.getByRole('button', { name: 'Refresh director status' }));
+  await userEvent.click(screen.getByRole('button', { name: 'Refresh review team' }));
   expect(await screen.findByText('Queued from the audience composer')).toBeTruthy();
   expect(screen.getByRole('button', { name: 'Approve' })).toBeTruthy();
   expect(
-    screen.getByRole('button', { name: 'Director controls' }).getAttribute('aria-expanded'),
+    screen.getByRole('button', { name: 'Review team & approvals' }).getAttribute('aria-expanded'),
   ).toBe('true');
 });
 
@@ -373,15 +386,21 @@ it('keeps old mutation completion and its refresh isolated from the new session'
     .mockResolvedValueOnce(response({ ...status(true), sessionId: 'next', config: null }))
     .mockResolvedValueOnce(response(status(true)));
   const { rerender } = render(<SymposiumDirectorPanel sessionId="session" />);
-  await userEvent.click(screen.getByRole('button', { name: 'Director controls' }));
+  await userEvent.click(screen.getByRole('button', { name: 'Review team & approvals' }));
   await screen.findByText(/OpenAI work · gpt/);
   await userEvent.click(screen.getByRole('button', { name: 'Suspend' }));
   rerender(<SymposiumDirectorPanel sessionId="next" />);
-  await screen.findByText('This conversation has no Symposium roster.');
+  await screen.findByText(
+    'No review team yet. Add a reviewer to get a second opinion on this conversation.',
+  );
   await act(async () => {
     resolveMutation(response({ ok: true }));
   });
-  expect(screen.getByText('This conversation has no Symposium roster.')).toBeTruthy();
+  expect(
+    screen.getByText(
+      'No review team yet. Add a reviewer to get a second opinion on this conversation.',
+    ),
+  ).toBeTruthy();
   expect(screen.queryByRole('button', { name: 'Suspend' })).toBeNull();
   expect(
     screen.getByRole('button', { name: 'Create draft Symposium' }).hasAttribute('disabled'),
@@ -400,14 +419,14 @@ it('recovers shared files from a reopened saved draft without activating or disp
     return response(draft);
   });
   const mounted = render(<SymposiumDirectorPanel sessionId="session" />);
-  await userEvent.click(screen.getByRole('button', { name: 'Director controls' }));
+  await userEvent.click(screen.getByRole('button', { name: 'Review team & approvals' }));
   await userEvent.click(
     await screen.findByRole('button', { name: 'Prepare or retry shared files' }),
   );
   expect(await screen.findByText(/Shared files are still unavailable/)).toBeTruthy();
   mounted.unmount();
   render(<SymposiumDirectorPanel sessionId="session" />);
-  await userEvent.click(screen.getByRole('button', { name: 'Director controls' }));
+  await userEvent.click(screen.getByRole('button', { name: 'Review team & approvals' }));
   ready = true;
   await userEvent.click(
     await screen.findByRole('button', { name: 'Prepare or retry shared files' }),
@@ -435,7 +454,7 @@ it('keeps primary lifecycle controls unavailable while reviewer removal remains 
   );
   vi.mocked(apiFetch).mockResolvedValue(response(current));
   render(<SymposiumDirectorPanel sessionId="session" />);
-  await userEvent.click(screen.getByRole('button', { name: 'Director controls' }));
+  await userEvent.click(screen.getByRole('button', { name: 'Review team & approvals' }));
   const primary = within(
     (await screen.findByText('Primary', { selector: 'strong' })).closest('li')!,
   );
@@ -463,7 +482,7 @@ it('retains explicit admission for an anchor without membership after activation
   };
   vi.mocked(apiFetch).mockResolvedValue(response(unadmitted));
   render(<SymposiumDirectorPanel sessionId="session" />);
-  await userEvent.click(screen.getByRole('button', { name: 'Director controls' }));
+  await userEvent.click(screen.getByRole('button', { name: 'Review team & approvals' }));
   const anchor = within(
     (await screen.findByText('Architect', { selector: 'strong' })).closest('li')!,
   );
@@ -482,7 +501,7 @@ it('retains explicit admission for an anchor without membership after activation
 it('requires an explicit admitted primary selection and confirmation without changing seat permissions', async () => {
   vi.mocked(apiFetch).mockResolvedValue(response(status(true)));
   render(<SymposiumDirectorPanel sessionId="session" />);
-  await userEvent.click(screen.getByRole('button', { name: 'Director controls' }));
+  await userEvent.click(screen.getByRole('button', { name: 'Review team & approvals' }));
   const action = await screen.findByRole('button', { name: 'Transfer primary seat' });
   expect(action.hasAttribute('disabled')).toBe(true);
   await userEvent.selectOptions(screen.getByLabelText('New primary seat'), 'reviewer');
@@ -515,7 +534,7 @@ it('provides admission recovery after a saved transfer without silently moving p
     }),
   );
   render(<SymposiumDirectorPanel sessionId="session" />);
-  await userEvent.click(screen.getByRole('button', { name: 'Director controls' }));
+  await userEvent.click(screen.getByRole('button', { name: 'Review team & approvals' }));
   await userEvent.click(
     await screen.findByRole('button', { name: 'Recheck retained seat admissions' }),
   );
@@ -552,7 +571,7 @@ it('refreshes a partially saved primary transfer and repairs admissions at its n
     );
   });
   render(<SymposiumDirectorPanel sessionId="session" />);
-  await userEvent.click(screen.getByRole('button', { name: 'Director controls' }));
+  await userEvent.click(screen.getByRole('button', { name: 'Review team & approvals' }));
   await userEvent.selectOptions(await screen.findByLabelText('New primary seat'), 'reviewer');
   await userEvent.type(
     screen.getByLabelText('Type TRANSFER PRIMARY SEAT to confirm'),
@@ -572,7 +591,7 @@ it('does not offer retained admission recheck for pending membership or a curren
   const pending = status(false);
   vi.mocked(apiFetch).mockResolvedValue(response({ ...pending, runtimeAvailable: true }));
   const mounted = render(<SymposiumDirectorPanel sessionId="session" />);
-  await userEvent.click(screen.getByRole('button', { name: 'Director controls' }));
+  await userEvent.click(screen.getByRole('button', { name: 'Review team & approvals' }));
   await screen.findByText(/OpenAI work · gpt/);
   expect(screen.queryByRole('button', { name: 'Recheck retained seat admissions' })).toBeNull();
   mounted.unmount();
@@ -587,7 +606,7 @@ it('does not offer retained admission recheck for pending membership or a curren
     }),
   );
   render(<SymposiumDirectorPanel sessionId="session" />);
-  await userEvent.click(screen.getByRole('button', { name: 'Director controls' }));
+  await userEvent.click(screen.getByRole('button', { name: 'Review team & approvals' }));
   await screen.findByText(/OpenAI work · gpt/);
   expect(screen.queryByRole('button', { name: 'Recheck retained seat admissions' })).toBeNull();
 });
@@ -608,7 +627,7 @@ it('offers failed primary cleanup only from host capability and requires typed c
   };
   vi.mocked(apiFetch).mockResolvedValue(response(failed));
   render(<SymposiumDirectorPanel sessionId="session" />);
-  await userEvent.click(screen.getByRole('button', { name: 'Director controls' }));
+  await userEvent.click(screen.getByRole('button', { name: 'Review team & approvals' }));
   const button = await screen.findByRole('button', { name: 'Clean up failed seat' });
   expect(button.hasAttribute('disabled')).toBe(true);
   await userEvent.type(
@@ -647,14 +666,14 @@ it('resumes a durable failed cleanup after remount using the retained operation 
   };
   vi.mocked(apiFetch).mockResolvedValue(response(failed));
   const first = render(<SymposiumDirectorPanel sessionId="session" />);
-  await userEvent.click(screen.getByRole('button', { name: 'Director controls' }));
+  await userEvent.click(screen.getByRole('button', { name: 'Review team & approvals' }));
   await userEvent.type(
     await screen.findByLabelText('Type CLEAN UP FAILED SEAT for Architect'),
     'CLEAN UP FAILED SEAT',
   );
   first.unmount();
   render(<SymposiumDirectorPanel sessionId="session" />);
-  await userEvent.click(screen.getByRole('button', { name: 'Director controls' }));
+  await userEvent.click(screen.getByRole('button', { name: 'Review team & approvals' }));
   const button = await screen.findByRole('button', { name: 'Clean up failed seat' });
   expect(button.hasAttribute('disabled')).toBe(true);
   await userEvent.type(
@@ -701,7 +720,7 @@ it.each(['reauthorization_required', 'cleanup_fenced'])(
       }),
     );
     render(<SymposiumDirectorPanel sessionId="session" />);
-    await userEvent.click(screen.getByRole('button', { name: 'Director controls' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Review team & approvals' }));
     await screen.findByText(
       state === 'cleanup_fenced' ? /Cleanup is fenced/ : /Fresh app reauthorization is required/,
     );
@@ -757,7 +776,7 @@ it.each(['success', 'auth-rejected', 'auth-expired', 'handoff-rejected'])(
       });
     });
     render(<SymposiumDirectorPanel sessionId="session" />);
-    await userEvent.click(screen.getByRole('button', { name: 'Director controls' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Review team & approvals' }));
     const passphrase = await screen.findByLabelText('App passphrase for Architect cleanup');
     const action = screen.getByRole('button', { name: 'Authorize pending cleanup' });
     expect(action.hasAttribute('disabled')).toBe(true);
@@ -855,7 +874,7 @@ it('requires freshly typed cleanup confirmation after another session handoff an
     });
   });
   render(<SymposiumDirectorPanel sessionId="session" />);
-  await userEvent.click(screen.getByRole('button', { name: 'Director controls' }));
+  await userEvent.click(screen.getByRole('button', { name: 'Review team & approvals' }));
   await userEvent.type(
     await screen.findByLabelText('Type CLEAN UP FAILED SEAT for Architect'),
     'CLEAN UP FAILED SEAT',
@@ -864,7 +883,7 @@ it('requires freshly typed cleanup confirmation after another session handoff an
     screen.getByRole('button', { name: 'Clean up failed seat' }).hasAttribute('disabled'),
   ).toBe(false);
   phase = 'foreign';
-  await userEvent.click(screen.getByRole('button', { name: 'Refresh director status' }));
+  await userEvent.click(screen.getByRole('button', { name: 'Refresh review team' }));
   await userEvent.type(
     await screen.findByLabelText('App passphrase for Architect cleanup'),
     'fresh-passphrase',
@@ -924,7 +943,7 @@ it('drops the previous thinking level when a draft reviewer switches from Luna t
     .mockResolvedValueOnce(response({ ok: true }))
     .mockResolvedValueOnce(response(draft));
   render(<SymposiumDirectorPanel sessionId="session" />);
-  await userEvent.click(screen.getByRole('button', { name: 'Director controls' }));
+  await userEvent.click(screen.getByRole('button', { name: 'Review team & approvals' }));
   await screen.findByText(/Draft — provider seats are not admitted/);
   const reviewer = screen
     .getAllByRole('button', { name: 'Save seat model' })[1]
@@ -940,4 +959,26 @@ it('drops the previous thinking level when a draft reviewer switches from Luna t
   expect(updated).toMatchObject({ id: 'reviewer', model: binding.model, accountBinding: binding });
   expect(updated).not.toHaveProperty('reasoningEffort');
   expect(previous.reasoningEffort).toBe('low');
+});
+
+it('explains the approval workflow and opens only for a matching reviewer handoff', async () => {
+  vi.mocked(apiFetch).mockResolvedValue(response(status(true)));
+  render(<SymposiumDirectorPanel sessionId="session" />);
+  const trigger = screen.getByRole('button', { name: 'Review team & approvals' });
+  expect(trigger.getAttribute('aria-expanded')).toBe('false');
+  act(() =>
+    window.dispatchEvent(
+      new CustomEvent('symposium-open-team', { detail: { sessionId: 'other' } }),
+    ),
+  );
+  expect(trigger.getAttribute('aria-expanded')).toBe('false');
+  act(() =>
+    window.dispatchEvent(
+      new CustomEvent('symposium-open-team', { detail: { sessionId: 'session' } }),
+    ),
+  );
+  expect(trigger.getAttribute('aria-expanded')).toBe('true');
+  expect(await screen.findByText(/You direct the team/)).toBeTruthy();
+  expect(screen.getByRole('heading', { name: 'Review requests' })).toBeTruthy();
+  expect(screen.getByText(/No review requests yet/)).toBeTruthy();
 });

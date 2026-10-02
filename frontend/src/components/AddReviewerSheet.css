@@ -72,3 +72,28 @@
     padding-bottom: max(1.25rem, env(safe-area-inset-bottom));
   }
 }
+
+.reviewer-trigger {
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  padding: 0.55rem 0.8rem;
+  min-height: 2.75rem;
+  background: var(--bg-secondary);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.reviewer-workflow {
+  padding: 0.9rem 0.9rem 0.9rem 2rem;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 0.6rem;
+  line-height: 1.6;
+}
+
+.reviewer-sheet h3 {
+  margin: 1.4rem 0 0.5rem;
+  padding-top: 0.9rem;
+  border-top: 1px solid var(--border);
+  font-size: 1rem;
+}

@@ -1,5 +1,6 @@
 import { SymposiumSourceImportPanel } from './SymposiumSourceImportPanel';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { AddReviewerSheet } from './AddReviewerSheet';
+import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import type {
   SeatConfig,
   SymposiumConfig,
@@ -310,6 +311,14 @@ function SeatModelEditor({
 
 export function SymposiumDirectorPanel({ sessionId }: { sessionId: string }) {
   const [open, setOpen] = useState(false);
+  useEffect(() => {
+    const openTeam = (event: Event) => {
+      if ((event as CustomEvent<{ sessionId: string }>).detail?.sessionId === sessionId)
+        setOpen(true);
+    };
+    window.addEventListener('symposium-open-team', openTeam);
+    return () => window.removeEventListener('symposium-open-team', openTeam);
+  }, [sessionId]);
   // Keep visibility across navigation, but isolate all roster, form, and request state.
   return (
     <SessionDirectorPanel key={sessionId} sessionId={sessionId} open={open} setOpen={setOpen} />
@@ -325,6 +334,7 @@ function SessionDirectorPanel({
   open: boolean;
   setOpen: (value: (current: boolean) => boolean) => void;
 }) {
+  const panelId = useId();
   const [status, setStatus] = useState<DirectorStatus | null>(null);
   const [artifactMessage, setArtifactMessage] = useState('');
   const [loading, setLoading] = useState(false);
@@ -681,14 +691,27 @@ function SessionDirectorPanel({
   const admitted = status?.seats.filter((seat) => seat.admitted) ?? [];
   return (
     <section className="symposium-director" aria-label="Symposium director">
-      <button type="button" aria-expanded={open} onClick={() => setOpen((value) => !value)}>
-        Director controls
+      <button
+        type="button"
+        className="symposium-team-toggle"
+        aria-expanded={open}
+        aria-controls={panelId}
+        onClick={() => setOpen((value) => !value)}
+      >
+        <span aria-hidden="true">{open ? '▾' : '▸'}</span> Review team &amp; approvals
       </button>
       {open && (
-        <div className="symposium-director-panel">
-          <SymposiumSourceImportPanel key={sessionId} sessionId={sessionId} />
+        <div className="symposium-director-panel" id={panelId}>
+          <p className="symposium-team-intro">
+            You direct the team: choose which agents participate and what each receives. A seat is
+            one AI agent with its own profile, account and model.
+          </p>
+          <p>
+            Requests follow three steps: queue a request → approve its contents → send it to the
+            selected agents.
+          </p>
           <button type="button" disabled={loading || busy} onClick={() => void refresh()}>
-            Refresh director status
+            Refresh review team
           </button>
           {loading && <p role="status">Loading Symposium…</p>}
           {error && (
@@ -701,7 +724,10 @@ function SessionDirectorPanel({
           )}
           {status && !status.config && (
             <div>
-              <p>This conversation has no Symposium roster.</p>
+              <p>
+                No review team yet. Add a reviewer to get a second opinion on this conversation.
+              </p>
+              <AddReviewerSheet sessionId={sessionId} />
               <button type="button" disabled={busy} onClick={() => void createDraft()}>
                 Create draft Symposium
               </button>
@@ -709,6 +735,158 @@ function SessionDirectorPanel({
           )}
           {status?.config && (
             <>
+              <h3>Review requests</h3>
+              <p>
+                Approve allows the selected contents to be shared. Send approved request starts the
+                agent. You can edit the request before approval or cancel it.
+              </p>
+              {status.deliveries.length === 0 && (
+                <p>No review requests yet. Add a reviewer or queue a message below.</p>
+              )}
+              <ul>
+                {status.deliveries.map((delivery) => (
+                  <li key={delivery.deliveryId}>
+                    <strong>
+                      {delivery.recipientSeatIds
+                        .map(
+                          (id) => status.seats.find((seat) => seat.seatId === id)?.seat.name ?? id,
+                        )
+                        .join(', ')}
+                    </strong>{' '}
+                    ·{' '}
+                    {delivery.status === 'awaiting_intervention'
+                      ? 'Needs approval'
+                      : delivery.status === 'ready'
+                        ? 'Approved — ready to send'
+                        : delivery.status}
+                    <p>{delivery.deliveredContent ?? delivery.originalContent}</p>
+                    {delivery.status === 'awaiting_intervention' && (
+                      <>
+                        <button
+                          type="button"
+                          disabled={busy}
+                          className="btn-primary"
+                          onClick={() =>
+                            void mutate(
+                              `/deliveries/${encodeURIComponent(delivery.deliveryId)}/interventions`,
+                              { action: 'approve' },
+                            )
+                          }
+                        >
+                          Approve
+                        </button>
+                        <button
+                          type="button"
+                          disabled={busy}
+                          onClick={() =>
+                            void mutate(
+                              `/deliveries/${encodeURIComponent(delivery.deliveryId)}/interventions`,
+                              { action: 'drop', reason: 'Dropped by director' },
+                            )
+                          }
+                        >
+                          Discard request
+                        </button>
+                        <label>
+                          Edit request{' '}
+                          <textarea
+                            value={editContent}
+                            onChange={(event) => setEditContent(event.target.value)}
+                          />
+                        </label>
+                        <button
+                          type="button"
+                          disabled={busy || !editContent.trim()}
+                          onClick={() =>
+                            void mutate(
+                              `/deliveries/${encodeURIComponent(delivery.deliveryId)}/interventions`,
+                              { action: 'edit', content: editContent.trim() },
+                            )
+                          }
+                        >
+                          Edit and approve
+                        </button>
+                      </>
+                    )}
+                    {delivery.status === 'ready' && (
+                      <button
+                        type="button"
+                        disabled={busy || !status.runtimeAvailable}
+                        className="btn-primary"
+                        onClick={() =>
+                          void mutate(
+                            `/deliveries/${encodeURIComponent(delivery.deliveryId)}/dispatch`,
+                            {},
+                          )
+                        }
+                      >
+                        Send approved request
+                      </button>
+                    )}
+                    {!['delivered', 'dropped', 'cancelled'].includes(delivery.status) && (
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() =>
+                          void mutate(
+                            `/deliveries/${encodeURIComponent(delivery.deliveryId)}/cancel`,
+                            { reason: 'Stopped by director' },
+                          )
+                        }
+                      >
+                        Cancel request
+                      </button>
+                    )}
+                  </li>
+                ))}
+              </ul>
+              <fieldset disabled={busy || !status.runtimeAvailable || admitted.length === 0}>
+                <legend>Request another review or send a follow-up</legend>
+                <p>
+                  Select the agents who should receive this message. Queuing it creates a request
+                  for approval.
+                </p>
+                {admitted.map((seat) => (
+                  <label key={seat.seatId}>
+                    <input
+                      type="checkbox"
+                      aria-label={`Send to ${seat.seat.name}`}
+                      checked={selected.includes(seat.seatId)}
+                      onChange={() =>
+                        setSelected((current) =>
+                          current.includes(seat.seatId)
+                            ? current.filter((id) => id !== seat.seatId)
+                            : [...current, seat.seatId],
+                        )
+                      }
+                    />
+                    {seat.seat.name}
+                  </label>
+                ))}
+                <label>
+                  Message for the selected agents{' '}
+                  <textarea
+                    aria-label="Message for the selected agents"
+                    value={message}
+                    onChange={(event) => setMessage(event.target.value)}
+                  />
+                </label>
+                <button
+                  type="button"
+                  disabled={
+                    busy || !status.runtimeAvailable || selected.length === 0 || !message.trim()
+                  }
+                  onClick={() =>
+                    void mutate('/deliveries', {
+                      sourceSeatId: null,
+                      recipientSeatIds: selected,
+                      originalContent: message.trim(),
+                    })
+                  }
+                >
+                  Queue message for approval
+                </button>
+              </fieldset>
               <p>
                 Shared artifacts and provider account retention apply to every admitted seat.
                 Selected prompt delivery is separate from filesystem access.
@@ -847,6 +1025,11 @@ function SessionDirectorPanel({
                   </button>
                 </fieldset>
               )}
+              <h3>Team members</h3>
+              <p>
+                The primary agent handles the conversation. Reviewers provide read-only feedback.
+                Suspend pauses an agent; Remove takes it off the team.
+              </p>
               <ul className="symposium-roster">
                 {status.seats.map((seat) => (
                   <li key={seat.seatId}>
@@ -1035,7 +1218,11 @@ function SessionDirectorPanel({
               </ul>
               {status.config.version === 2 && (
                 <div className="symposium-new-seat">
-                  <h3>Configure another seat</h3>
+                  <h3>Configure another agent</h3>
+                  <p>
+                    For a second opinion, use Add reviewer. Use this setup for an architect or
+                    implementer with a different role.
+                  </p>
                   <label>
                     New seat name{' '}
                     <input
@@ -1099,135 +1286,12 @@ function SessionDirectorPanel({
                   </p>
                 </div>
               )}
-              <fieldset disabled={busy || !status.runtimeAvailable || admitted.length === 0}>
-                <legend>Direct a message</legend>
-                {admitted.map((seat) => (
-                  <label key={seat.seatId}>
-                    <input
-                      type="checkbox"
-                      aria-label={`Send to ${seat.seat.name}`}
-                      checked={selected.includes(seat.seatId)}
-                      onChange={() =>
-                        setSelected((current) =>
-                          current.includes(seat.seatId)
-                            ? current.filter((id) => id !== seat.seatId)
-                            : [...current, seat.seatId],
-                        )
-                      }
-                    />
-                    {seat.seat.name}
-                  </label>
-                ))}
-                <label>
-                  Director message{' '}
-                  <textarea
-                    aria-label="Director message"
-                    value={message}
-                    onChange={(event) => setMessage(event.target.value)}
-                  />
-                </label>
-                <button
-                  type="button"
-                  disabled={
-                    busy || !status.runtimeAvailable || selected.length === 0 || !message.trim()
-                  }
-                  onClick={() =>
-                    void mutate('/deliveries', {
-                      sourceSeatId: null,
-                      recipientSeatIds: selected,
-                      originalContent: message.trim(),
-                    })
-                  }
-                >
-                  Inject to selected seats
-                </button>
-              </fieldset>
-              <h3>Directed deliveries</h3>
-              <ul>
-                {status.deliveries.map((delivery) => (
-                  <li key={delivery.deliveryId}>
-                    <strong>{delivery.recipientSeatIds.join(', ')}</strong> · {delivery.status}
-                    <p>{delivery.deliveredContent ?? delivery.originalContent}</p>
-                    {delivery.status === 'awaiting_intervention' && (
-                      <>
-                        <button
-                          type="button"
-                          disabled={busy}
-                          onClick={() =>
-                            void mutate(
-                              `/deliveries/${encodeURIComponent(delivery.deliveryId)}/interventions`,
-                              { action: 'approve' },
-                            )
-                          }
-                        >
-                          Approve
-                        </button>
-                        <button
-                          type="button"
-                          disabled={busy}
-                          onClick={() =>
-                            void mutate(
-                              `/deliveries/${encodeURIComponent(delivery.deliveryId)}/interventions`,
-                              { action: 'drop', reason: 'Dropped by director' },
-                            )
-                          }
-                        >
-                          Drop
-                        </button>
-                        <label>
-                          Edit delivery{' '}
-                          <textarea
-                            value={editContent}
-                            onChange={(event) => setEditContent(event.target.value)}
-                          />
-                        </label>
-                        <button
-                          type="button"
-                          disabled={busy || !editContent.trim()}
-                          onClick={() =>
-                            void mutate(
-                              `/deliveries/${encodeURIComponent(delivery.deliveryId)}/interventions`,
-                              { action: 'edit', content: editContent.trim() },
-                            )
-                          }
-                        >
-                          Edit and approve
-                        </button>
-                      </>
-                    )}
-                    {delivery.status === 'ready' && (
-                      <button
-                        type="button"
-                        disabled={busy || !status.runtimeAvailable}
-                        onClick={() =>
-                          void mutate(
-                            `/deliveries/${encodeURIComponent(delivery.deliveryId)}/dispatch`,
-                            {},
-                          )
-                        }
-                      >
-                        Step delivery
-                      </button>
-                    )}
-                    {!['delivered', 'dropped', 'cancelled'].includes(delivery.status) && (
-                      <button
-                        type="button"
-                        disabled={busy}
-                        onClick={() =>
-                          void mutate(
-                            `/deliveries/${encodeURIComponent(delivery.deliveryId)}/cancel`,
-                            { reason: 'Stopped by director' },
-                          )
-                        }
-                      >
-                        Stop and dismiss
-                      </button>
-                    )}
-                  </li>
-                ))}
-              </ul>
             </>
           )}
+          <details className="symposium-advanced">
+            <summary>Advanced: import context from another conversation</summary>
+            <SymposiumSourceImportPanel key={sessionId} sessionId={sessionId} />
+          </details>
         </div>
       )}
     </section>
