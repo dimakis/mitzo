@@ -43,13 +43,21 @@ async function fetchFileBlob(
   filePath: string,
   sessionId?: string,
 ): Promise<{ blob: Blob; filename: string }> {
-  const res = await apiFetch(artifactApiUrl('download', filePath, sessionId));
+  const telos = /^\/api\/telos\/artifacts\/[a-f0-9]{32}(?:\?revision=[1-9]\d*)?$/.test(filePath);
+  const res = await apiFetch(telos ? filePath : artifactApiUrl('download', filePath, sessionId));
   if (!res.ok) {
     const body = await res.json().catch(() => ({ error: 'Download failed' }));
     throw new Error(body.error ?? `Download failed (${res.status})`);
   }
   const blob = await res.blob();
-  const filename = filenameFromPath(filePath);
+  const encodedName = telos
+    ? res.headers.get('Content-Disposition')?.match(/filename\*=UTF-8''([^;]+)/i)?.[1]
+    : undefined;
+  const filename = encodedName
+    ? filenameFromPath(decodeURIComponent(encodedName))
+    : telos
+      ? 'telos-document'
+      : filenameFromPath(filePath);
   return { blob, filename };
 }
 
@@ -138,4 +146,11 @@ export async function shareFile(filePath: string, sessionId?: string): Promise<b
     throw new Error('This device cannot share this file type. Open it in a browser to download.');
   }
   return saveBrowserFile(file);
+}
+
+/** Authenticated Telos bytes use the existing mobile share/browser download flow. */
+export async function shareTelosArtifact(url: string): Promise<boolean> {
+  if (!/^\/api\/telos\/artifacts\/[a-f0-9]{32}(?:\?revision=[1-9]\d*)?$/.test(url))
+    throw new Error('Invalid Telos artifact URL');
+  return shareFile(url);
 }

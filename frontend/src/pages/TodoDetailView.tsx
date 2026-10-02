@@ -4,6 +4,7 @@ import type { TodoItem, TodoData } from '../types/todo';
 import { sourceIcon, buildPrompt } from '../lib/todo-utils';
 import { PageHeader } from '../components/PageHeader';
 import { apiFetch } from '../lib/api-fetch';
+import { shareTelosArtifact } from '../lib/share-file';
 
 function urgencyLabel(urgency: number): string {
   if (urgency >= 0.8) return 'high';
@@ -110,7 +111,11 @@ export function TodoDetailView() {
   }
 
   function handleLinkClick(url: string) {
-    if (/^https?:\/\//i.test(url)) {
+    if (/^\/api\/telos\/artifacts\/[a-f0-9]{32}(?:\?revision=[1-9]\d*)?$/.test(url)) {
+      void shareTelosArtifact(url).catch((error: unknown) => {
+        setPromoteError(error instanceof Error ? error.message : 'Artifact download failed');
+      });
+    } else if (/^https?:\/\//i.test(url)) {
       handleSourceClick(url);
     } else {
       handlePathClick(url);

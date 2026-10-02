@@ -17,7 +17,13 @@ export function sourceIcon(type: string): string {
 
 export function buildPrompt(item: TodoItem): string {
   const hints = item.contextHints;
-  const lines: string[] = [`I want to work on this:`, '', `**${item.summary}**`, ''];
+  const lines: string[] = [
+    `I want to work on this:`,
+    '',
+    `**${item.summary}**`,
+    `Telos item ID: ${item.id}`,
+    '',
+  ];
 
   if (item.intent) lines.push('Outcome:', item.intent, '');
   if (item.rationale) lines.push('Why it matters:', item.rationale, '');
@@ -69,6 +75,7 @@ export function buildTodoContext(item: TodoItem): string {
   const hints = item.contextHints;
   const lines: string[] = [];
   lines.push(`Summary: ${item.summary}`);
+  lines.push(`Telos item ID: ${item.id}`);
   if (item.intent) lines.push(`Outcome: ${item.intent}`);
   if (item.rationale) lines.push(`Why: ${item.rationale}`);
   if (item.acceptanceCriteria?.length) {

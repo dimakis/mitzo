@@ -2,6 +2,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, cleanup, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
+import { shareTelosArtifact } from '../../lib/share-file';
+vi.mock('../../lib/share-file', () => ({ shareTelosArtifact: vi.fn().mockResolvedValue(true) }));
 import { TodoDetailView } from '../TodoDetailView';
 import type { TodoItem } from '../../types/todo';
 
@@ -148,6 +150,24 @@ describe('TodoDetailView', () => {
     const snippets = container.querySelectorAll('.todo-detail-source-snippet');
     expect(snippets[0]?.textContent).toContain('auth middleware fails to validate');
     expect(snippets[1]?.textContent).toContain('Related Jira ticket');
+  });
+
+  it('downloads Telos artifact links without resolving them as workspace paths', () => {
+    const url = '/api/telos/artifacts/' + 'a'.repeat(32) + '?revision=1';
+    const open = vi.spyOn(window, 'open').mockImplementation(() => null);
+    mockLocation.mockReturnValue({
+      state: { item: { ...fullItem, links: [{ type: 'artifact', url, title: 'Recovery spec' }] } },
+    });
+    render(
+      <MemoryRouter>
+        <TodoDetailView />
+      </MemoryRouter>,
+    );
+    fireEvent.click(screen.getByText('Recovery spec'));
+    expect(shareTelosArtifact).toHaveBeenCalledWith(url);
+    expect(open).not.toHaveBeenCalled();
+    expect(mockNavigate).not.toHaveBeenCalled();
+    open.mockRestore();
   });
 
   it('renders durable links and opens repo-relative links in the file viewer', () => {
