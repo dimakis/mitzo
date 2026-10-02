@@ -56,6 +56,7 @@ export function ChatView() {
   const storeInterruptMessage = useMitzoStore((s) => s.interruptMessage);
   const storeStopGeneration = useMitzoStore((s) => s.stopGeneration);
   const storeRespondToPermission = useMitzoStore((s) => s.respondToPermission);
+  const storeExpirePermission = useMitzoStore((s) => s.expirePermission);
   const storeSwitchSession = useMitzoStore((s) => s.switchSession);
   const storeNewSession = useMitzoStore((s) => s.newSession);
   const storeCloseSession = useMitzoStore((s) => s.closeSession);
@@ -398,6 +399,7 @@ export function ChatView() {
           running: messages.running,
           permission: messages.permission,
           onPermissionRespond: handlePermission,
+          onPermissionExpire: storeExpirePermission,
           scrollRef,
           progressByToolId,
           voice,

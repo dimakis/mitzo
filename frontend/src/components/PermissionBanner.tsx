@@ -15,6 +15,7 @@ interface Props {
   responseError?: string;
   expiresAt?: number;
   questions?: UserQuestion[];
+  onExpire?: (permId: string) => void;
   onRespond: (
     permId: string,
     decision: 'once' | 'always' | 'deny',
@@ -42,6 +43,7 @@ export function PermissionBanner({
   questions,
   expiresAt,
   onRespond,
+  onExpire,
 }: Props) {
   const [selections, setSelections] = useState<Map<string, string[]>>(() => new Map());
   const [written, setWritten] = useState<Map<string, string>>(() => new Map());
@@ -52,6 +54,8 @@ export function PermissionBanner({
   const [remaining, setRemaining] = useState(() =>
     Math.max(0, Math.ceil((deadline.at - Date.now()) / 1000)),
   );
+  const expireRef = useRef(onExpire);
+  expireRef.current = onExpire;
   const respondRef = useRef(onRespond);
   respondRef.current = onRespond;
   useEffect(() => {
@@ -61,6 +65,7 @@ export function PermissionBanner({
       setRemaining(seconds);
       if (seconds === 0 && !expired) {
         expired = true;
+        expireRef.current?.(permId);
         respondRef.current(permId, 'deny', toolName);
       }
     };

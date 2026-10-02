@@ -108,6 +108,7 @@ export interface MitzoStoreState {
   interruptMessage(text: string, opts?: SendMessageOptions): void;
   stopGeneration(): void;
   closeSession(): void;
+  expirePermission(permId: string): void;
   respondToPermission(
     permId: string,
     decision: 'once' | 'always' | 'deny',
@@ -570,6 +571,10 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
           if (restored.resyncRequired) throw new Error('Unsafe session-open transcript');
           set((s) => ({ messages: { ...restored, running: s.messages.running } }));
           connection.commitTranscriptCursor(id, cursor);
+          // REST and switch are independent requests. Rebase server retries
+          // on the transcript we installed, including any events stored
+          // between that REST boundary and the first switch/watch.
+          connection.send({ type: 'switch_session', sessionId: id, historyCursor: cursor });
         }
       } catch {
         if (request === historyRequest && get().sessions.active === id)
@@ -712,6 +717,12 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
         type: 'stop',
         sessionId: parserState.currentSessionId,
       });
+    },
+
+    expirePermission(permId: string) {
+      set((s) => ({
+        messages: messagesReducer(s.messages, { type: 'PERMISSION_TIMEOUT', permId }),
+      }));
     },
 
     respondToPermission(

@@ -43,6 +43,7 @@ export interface ChatAreaProps {
   onShareMessage?: (messageId: string, provenance?: SymposiumProvenance) => void;
   running: boolean;
   permission: PermissionRequest | null;
+  onPermissionExpire?: (permId: string) => void;
   onPermissionRespond: (
     permId: string,
     decision: 'once' | 'always' | 'deny',
@@ -94,6 +95,7 @@ export function ChatArea({
   running,
   permission,
   onPermissionRespond,
+  onPermissionExpire,
   scrollRef: externalScrollRef,
   progressByToolId,
   voice,
@@ -432,6 +434,7 @@ export function ChatArea({
           approvalScope={permission.approvalScope}
           responseError={permission.responseError}
           onRespond={onPermissionRespond}
+          onExpire={onPermissionExpire}
         />
       )}
     </>

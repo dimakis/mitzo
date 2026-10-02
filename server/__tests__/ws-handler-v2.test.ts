@@ -829,6 +829,28 @@ describe('handleSwitchSession', () => {
     expect(reset).not.toHaveBeenCalled();
   });
 
+  it('retries the gap between REST history and switch even without a subsequent live event', async () => {
+    const eventStore = mockEventStore();
+    eventStore.getSession.mockReturnValue({ sessionId: 'history-race', mode: 'agent' });
+    eventStore.captureReconnectState.mockReturnValue({ cursor: 42, events: [], cursorValid: true });
+    const ctx = createContext({
+      eventStore: eventStore as unknown as V2HandlerContext['eventStore'],
+    });
+    ctx.connRegistry.register('c1', mockTransport());
+    await handleSwitchSession('c1', { type: 'switch_session', sessionId: 'history-race' }, ctx);
+    const reset = vi.spyOn(ctx.connRegistry, 'resetCursor');
+    await handleSwitchSession(
+      'c1',
+      {
+        type: 'switch_session',
+        sessionId: 'history-race',
+        historyCursor: 40,
+      },
+      ctx,
+    );
+    expect(reset).toHaveBeenCalledWith('c1', 'history-race', 40);
+  });
+
   it('scopes unexpected discovery errors to the requested session', async () => {
     const ctx = createContext();
     const transport = mockTransport();

@@ -551,7 +551,11 @@ export async function handleSwitchSession(
       // Opening uses REST for the existing transcript. Seed a new watch at
       // that boundary so periodic sync cannot animate the entire history if
       // the REST read fails. Live events after this boundary remain retryable.
-      if (!ctx.connRegistry.get(connectionId)?.watchedSessions.has(msg.sessionId)) {
+      if (msg.historyCursor !== undefined) {
+        // This is the boundary the client actually installed, not a newer
+        // capture from the independently scheduled switch request.
+        ctx.connRegistry.resetCursor(connectionId, msg.sessionId, msg.historyCursor);
+      } else if (!ctx.connRegistry.get(connectionId)?.watchedSessions.has(msg.sessionId)) {
         const boundary = ctx.eventStore.captureReconnectState(msg.sessionId, 0, false);
         ctx.connRegistry.resetCursor(connectionId, msg.sessionId, boundary.cursor);
       }
