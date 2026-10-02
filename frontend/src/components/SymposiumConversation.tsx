@@ -169,6 +169,7 @@ export function SymposiumConversation({
     setPage({ items: [], nextSeq: null, queued: [] });
     if (!base) return;
     let cancelled = false;
+    let cancelRead: (() => void) | null = null;
     // Coalesce reads within this session only. A stalled retired request must
     // never delay the new session's status or its Stop controls.
     const statusQueue: { running: boolean; pending: (() => Promise<void>) | null } = {
@@ -182,8 +183,25 @@ export function SymposiumConversation({
         return;
       }
       statusQueue.running = true;
+      const controller = new AbortController();
+      let deadline: number | undefined;
+      // Bound the entire read, including JSON decoding. The race releases the
+      // queue even if a transport ignores abort; its late result cannot apply.
+      const expired = new Promise<never>((_, reject) => {
+        cancelRead = () => {
+          controller.abort();
+          reject(new Error('Symposium status request cancelled.'));
+        };
+        deadline = window.setTimeout(() => {
+          controller.abort();
+          reject(new Error('Symposium status request timed out.'));
+        }, 30_000);
+      });
       try {
-        const next = await readJson<Status>(`${base}/status`);
+        const next = await Promise.race([
+          readJson<Status>(`${base}/status`, { signal: controller.signal }),
+          expired,
+        ]);
         if (next.sessionId !== sessionId || !Array.isArray(next.seats) || !('config' in next))
           throw new Error('Symposium status is incomplete');
         if (!cancelled) {
@@ -198,6 +216,8 @@ export function SymposiumConversation({
           setStatusError(cause instanceof Error ? cause.message : 'Could not load Symposium');
         }
       } finally {
+        window.clearTimeout(deadline);
+        cancelRead = null;
         statusQueue.running = false;
         const pending = statusQueue.pending;
         statusQueue.pending = null;
@@ -211,6 +231,7 @@ export function SymposiumConversation({
     const timer = window.setInterval(() => void refresh(), 8000);
     return () => {
       cancelled = true;
+      cancelRead?.();
       if (statusQueue.pending === refresh) statusQueue.pending = null;
       window.clearInterval(timer);
       window.removeEventListener('symposium-roster-changed', onRosterChanged);

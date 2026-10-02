@@ -1194,6 +1194,70 @@ it('coalesces polling ticks and explicit events into one status read and one fol
   view.unmount();
 });
 
+it.each(['transport', 'body'] as const)(
+  'recovers a stalled status %s even when abort is ignored and discards its late result',
+  async (stallAt) => {
+    vi.useFakeTimers();
+    let finishStalled!: (value: unknown) => void;
+    let finishFresh!: (response: Response) => void;
+    const signals: (AbortSignal | null | undefined)[] = [];
+    let statusReads = 0;
+    vi.mocked(apiFetch).mockImplementation(async (url, init) => {
+      if (String(url).endsWith('/status')) {
+        statusReads++;
+        signals.push(init?.signal);
+        if (statusReads === 1) {
+          // Deliberately ignore AbortSignal to exercise the queue's own deadline.
+          const stalled = new Promise<unknown>((resolve) => {
+            finishStalled = resolve;
+          });
+          return stallAt === 'transport'
+            ? (stalled as Promise<Response>)
+            : ({ ok: true, json: () => stalled } as Response);
+        }
+        return new Promise<Response>((resolve) => {
+          finishFresh = resolve;
+        });
+      }
+      return json(String(url).includes('/perspectives') ? page : []);
+    });
+    const view = render(
+      <SymposiumConversation sessionId="session" chat={chat} ordinaryComposer={null} />,
+    );
+    await act(async () => {
+      window.dispatchEvent(new Event('symposium-deliveries-changed'));
+      window.dispatchEvent(new Event('symposium-roster-changed'));
+      await vi.advanceTimersByTimeAsync(29_999);
+    });
+    expect(statusReads).toBe(1);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1);
+    });
+    expect(statusReads).toBe(2);
+    expect(signals[0]?.aborted).toBe(true);
+    expect(signals[1]?.aborted).toBe(false);
+    expect(screen.getByText('Symposium status request timed out.')).toBeTruthy();
+    await act(async () => {
+      finishFresh(
+        json({ ...status, runtimeAvailable: true, deliveries: [directedDelivery('ready')] }),
+      );
+    });
+    fireEvent.click(screen.getByRole('tab', { name: 'Reviewer' }));
+    expect(
+      screen.getByRole('button', { name: 'Stop delivery to Architect, Reviewer' }),
+    ).toBeTruthy();
+    expect(screen.queryByText('Symposium status request timed out.')).toBeNull();
+    await act(async () => {
+      finishStalled(stallAt === 'transport' ? json(status) : status);
+    });
+    expect(
+      screen.getByRole('button', { name: 'Stop delivery to Architect, Reviewer' }),
+    ).toBeTruthy();
+    expect(statusReads).toBe(2);
+    view.unmount();
+  },
+);
+
 it('loads new-session Stop controls even when the retired status request never completes', async () => {
   const reads: string[] = [];
   const finish: ((response: Response) => void)[] = [];
