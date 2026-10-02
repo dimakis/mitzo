@@ -189,9 +189,11 @@ export function PermissionBanner({
             <p className="perm-banner-scope">
               {approvalScope === 'conversation'
                 ? 'This integration remains available to this conversation across reconnects and Mitzo restarts, until its sandbox is deleted or access is revoked.'
-                : server
-                  ? `Session allowance covers all ${server} tools.`
-                  : 'Session allowance covers this tool until the task ends.'}
+                : approvalScope === 'request'
+                  ? 'This approval covers only the displayed request. Another request needs its own approval.'
+                  : server
+                    ? `Session allowance covers all ${server} tools.`
+                    : 'Session allowance covers this tool until the task ends.'}
             </p>
           </>
         )}

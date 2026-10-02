@@ -238,6 +238,11 @@ describe('PermissionBanner', () => {
     );
     expect(screen.getByRole('button', { name: 'Allow Once' })).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Allow for session' })).toBeNull();
+    expect(
+      screen.getByText(
+        'This approval covers only the displayed request. Another request needs its own approval.',
+      ),
+    ).toBeTruthy();
   });
   it('accepts provider question IDs that match object prototype names', () => {
     const onRespond = vi.fn();
