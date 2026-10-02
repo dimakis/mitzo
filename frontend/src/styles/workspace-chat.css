@@ -1149,3 +1149,14 @@
     display: none;
   }
 }
+
+/* Launch review stays compact until the user asks to inspect the full prompt. */
+.chat-launch-prompt {
+  max-width: 100%;
+}
+.chat-launch-prompt p {
+  max-height: 12rem;
+  overflow: auto;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}

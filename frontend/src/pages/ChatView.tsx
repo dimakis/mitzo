@@ -384,7 +384,10 @@ export function ChatView() {
                 <p>
                   Which account and model should handle this task? Check Workspace above, then send.
                 </p>
-                <p>{launch.prompt}</p>
+                <details className="chat-launch-prompt">
+                  <summary>Review launch prompt</summary>
+                  <p>{launch.prompt}</p>
+                </details>
                 <button
                   disabled={!accountSelection || messages.running}
                   onClick={() => handleSend(launch.prompt)}
