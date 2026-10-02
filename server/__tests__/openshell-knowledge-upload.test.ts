@@ -138,14 +138,16 @@ it('adopts a verified knowledge view in a retained sandbox without replacing tas
   const ssh = vi.fn(async (args: readonly string[]) =>
     args.join(' ').includes('attest-knowledge-runtime.py')
       ? JSON.stringify(config.seedStackManifest.runtime)
-      : args.join(' ').includes('else')
-        ? String(present)
-        : JSON.stringify({
-            sourceCommit: 'a'.repeat(40),
-            payloadSha256: JSON.parse(
-              readFileSync(join(config.seed, '..', 'baseline.json'), 'utf8'),
-            ).payloadSha256,
-          }),
+      : args.join(' ').includes('knowledge-cache-status')
+        ? String(present && !damaged)
+        : args.join(' ').includes('os.path.lexists')
+          ? String(present)
+          : JSON.stringify({
+              sourceCommit: 'a'.repeat(40),
+              payloadSha256: JSON.parse(
+                readFileSync(join(config.seed, '..', 'baseline.json'), 'utf8'),
+              ).payloadSha256,
+            }),
   );
   const manager = new OpenShellRuntimeManager(config, run, undefined, ssh);
   const compile = vi.spyOn(manager, 'compileContext').mockResolvedValue({
@@ -195,7 +197,7 @@ it('adopts a verified knowledge view in a retained sandbox without replacing tas
     if (command.includes('attest-knowledge-runtime.py'))
       return JSON.stringify(config.seedStackManifest.runtime);
     if (command.includes('knowledge-cache-status')) return String(!damaged);
-    if (command.includes('else')) return String(present);
+    if (command.includes('os.path.lexists')) return String(present);
     if (command.includes('knowledge-cache-repair')) {
       damaged = false;
       return '';
