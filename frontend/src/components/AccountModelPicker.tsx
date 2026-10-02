@@ -266,6 +266,7 @@ export function AccountModelPicker({
             (attempt ? selectionRef.current : null) ??
             (scope === 'chat' && !legacy ? getDefaultAccountModel() : null);
           if (
+            !legacy &&
             previous &&
             !catalog.some(
               (a) => a.id === previous.accountId && a.models.some((m) => m.id === previous.model),

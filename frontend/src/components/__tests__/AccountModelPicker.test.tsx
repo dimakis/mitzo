@@ -820,3 +820,20 @@ it('requires confirmation before using the first account when no default is save
   fireEvent.click(screen.getByRole('button', { name: 'Use Work Vertex · Sonnet' }));
   expect(onChange).toHaveBeenLastCalledWith({ accountId: 'work', model: 'sonnet' });
 });
+
+it('can explicitly use legacy models after refreshing a selected account fails', async () => {
+  vi.mocked(apiFetch)
+    .mockResolvedValueOnce({ ok: true, json: async () => profiles } as Response)
+    .mockResolvedValueOnce({ ok: false } as Response)
+    .mockResolvedValueOnce({
+      ok: true,
+      json: async () => [{ id: 'sonnet', label: 'Sonnet' }],
+    } as Response);
+  const onChange = vi.fn();
+  render(<AccountModelPicker sessionId={null} preferredModel="sonnet" onChange={onChange} />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Use Work Vertex · Sonnet' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Refresh models' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Use legacy server account' }));
+  await screen.findByText('Legacy server account');
+  await waitFor(() => expect(onChange).toHaveBeenLastCalledWith({ model: 'sonnet' }));
+});
