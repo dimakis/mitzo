@@ -76,10 +76,16 @@ jobs:
               body.includes(`<!-- centaur:sha:${head} -->`) &&
               (latest.commit_id === undefined || latest.commit_id === head);
             const approved = current && latest.state !== 'DISMISSED' &&
-              body.includes('LGTM — no issues found.') &&
-              /\*\*Recommendation:\*\* `merge`/.test(body) &&
-              /^- New blocking findings: 0\s*$/m.test(body) &&
-              /^- Unresolved blocking findings: 0\s*$/m.test(body);
+              new RegExp(`^<!-- centaur:sha:${head} -->\\s*## Centaur Review\\s*` +
+                'LGTM — no issues found\\.\\s*### Convergence\\s*' +
+                '\\*\\*Recommendation:\\*\\* `merge`[^\\n]*\\n').test(body) &&
+              body.split('**Recommendation:**').length === 2 &&
+              body.split('## Centaur Review').length === 2 &&
+              body.split('<!-- centaur:sha:').length === 2 &&
+              body.split('New blocking findings:').length === 2 &&
+              body.split('Unresolved blocking findings:').length === 2 &&
+              /^- New blocking findings: 0[ \t]*$/m.test(body) &&
+              /^- Unresolved blocking findings: 0[ \t]*$/m.test(body);
             // A head advance must never receive a verdict computed for the old head.
             const {data: refreshed} = await github.rest.pulls.get({...repo, pull_number: number});
             if (refreshed.state !== 'open' || refreshed.head.sha !== head) continue;

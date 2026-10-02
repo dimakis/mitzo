@@ -3,7 +3,7 @@ import { Script } from 'node:vm';
 import { expect, it } from 'vitest';
 
 const head = 'a'.repeat(40);
-const body = `<!-- centaur:sha:${head} -->\n## Centaur Review\nLGTM — no issues found.\n**Recommendation:** \`merge\`\n- New blocking findings: 0\n- Unresolved blocking findings: 0\n`;
+const body = `<!-- centaur:sha:${head} -->\n## Centaur Review\nLGTM — no issues found.\n\n### Convergence\n**Recommendation:** \`merge\`\n- New blocking findings: 0\n- Unresolved blocking findings: 0\n`;
 const script = readFileSync('.github/workflows/centaur-gate.yml', 'utf8')
   .split('          script: |\n')[1]
   .split('\n')
@@ -118,4 +118,13 @@ it('normalizes configured GitHub reviewer capitalization', async () => {
       -1,
     )?.state,
   ).toBe('success');
+});
+
+it('rejects a quoted LGTM inside a blocking authoritative review', async () => {
+  const blocking = body
+    .replace('LGTM — no issues found.', 'Found issues.')
+    .replace('`merge`', '`fix`');
+  expect(
+    (await execute([{ ...review, body: blocking + '\n```\n' + body + '\n```\n' }])).at(-1)?.state,
+  ).toBe('failure');
 });
