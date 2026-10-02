@@ -21,6 +21,11 @@ export function createTelosArtifactRouter(options: {
       ['Telos item not found', 'Artifact not found'].includes(error.message)
     )
       return 404;
+    if (
+      error instanceof Error &&
+      error.message === 'Save request identity reused with different input'
+    )
+      return 409;
     if (error instanceof Error && error.message === 'Artifact exceeds 5 MB') return 413;
     return 503;
   };

@@ -69,6 +69,20 @@ describe('durable Telos artifacts', () => {
     expect(store.list({ itemId: 'task-b' })).toEqual([]);
     store.close();
   });
+  it('keeps delayed retries pinned after intervening edits and allows intentional reverts', () => {
+    const { path, store } = setup();
+    const first = store.save({ ...input, requestId: 'save-a' });
+    store.save({ ...input, requestId: 'save-b', bytes: Buffer.from('# Revised') });
+    store.close();
+    const next = new TelosArtifactStore(path);
+    expect(next.save({ ...input, requestId: 'save-a' })).toEqual(first);
+    expect(next.read(first.id).revision).toBe(2);
+    expect(() =>
+      next.save({ ...input, requestId: 'save-a', bytes: Buffer.from('different') }),
+    ).toThrow('Save request identity reused with different input');
+    expect(next.save({ ...input, requestId: 'intentional-revert' }).revision).toBe(3);
+    next.close();
+  });
   it('rejects nonexistent tasks, oversized documents, traversal filenames and absent stores', () => {
     const { path, store } = setup();
     expect(() => store.save({ ...input, itemId: 'missing' })).toThrow('Telos item not found');

@@ -34,7 +34,7 @@ function setup() {
       .post(`/api/internal/telos/artifacts/${operation}`)
       .set('X-Internal-Token', 'token')
       .set('X-Client-Id', client)
-      .send(input);
+      .send(operation === 'save' ? { requestId: 'save-spec', ...input } : input);
   return { app, call, readFile };
 }
 describe('Telos host artifact routes', () => {
@@ -57,6 +57,23 @@ describe('Telos host artifact routes', () => {
     expect(download.status).toBe(200);
     expect(download.headers['content-disposition']).toContain('attachment');
     expect(download.headers['cache-control']).toBe('private, no-store');
+  });
+  it('retains retry receipts after another save and rejects changed request input', async () => {
+    const { call } = setup();
+    const input = {
+      itemId: 't',
+      filename: 'spec.md',
+      title: 'Spec',
+      content: 'Original',
+      requestId: 'a',
+    };
+    const first = await call('save', input);
+    await call('save', { ...input, content: 'Revised', requestId: 'b' });
+    expect((await call('save', input)).body.artifact).toEqual(first.body.artifact);
+    expect((await call('read', { id: first.body.artifact.id })).body.artifact.content).toBe(
+      'Revised',
+    );
+    expect((await call('save', { ...input, content: 'Changed' })).status).toBe(409);
   });
   it('rejects missing credentials, unregistered sessions, caller provenance and invalid input', async () => {
     const { call, app, readFile } = setup();

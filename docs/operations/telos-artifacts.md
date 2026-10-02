@@ -14,13 +14,14 @@ health evidence belong in private case storage, not Telos.
    prior work absent because a local path does not exist.
 3. Write in the current workspace. Before handing off substantial documents,
    call `TelosSaveArtifact` with `itemId`, a stable `filename`, `title`, and either
-   a session workspace `path` or inline UTF-8 `content`. Files support binary bytes.
+   a unique `requestId` and a session workspace `path` or inline UTF-8 `content`. Files support binary bytes.
 4. A successful receipt supplies the artifact ID, revision, SHA-256, byte count,
    source session, source path and download URL. Include the ID and pinned revision
    in the handover. Failed saves do not prove persistence; preserve the local draft
    and report the error.
 5. Saving changed content with the same item and filename creates another immutable
-   revision. A repeated identical save returns the existing revision. Omitting a
+   revision. Reuse `requestId` only to retry the exact same save: it returns its original
+   receipt even after subsequent edits. Use a new ID for each edit or intentional revert. Omitting a
    revision when reading chooses the latest one; supplying a revision reads that
    exact historical document.
 
@@ -38,7 +39,7 @@ Telos SQLite database (`TELOS_DB_PATH`, otherwise the configured MGMT repository
 `command_center/data/smart_todo.db`). There is no sandbox-local database fallback.
 The existing `items` and `links` tables must exist. Each save atomically stores the
 revision and a link on the existing task. The database's normal backup must include
-this additional table; artifacts survive session closure and sandbox removal.
+the artifact revisions and save request tables; artifacts survive session closure and sandbox removal.
 
 The upload limit is 5 MiB per document. Search returns bounded latest-revision
 metadata and supports literal topic matching over task title, filename and document
@@ -50,7 +51,7 @@ base64; valid UTF-8 returns text. Authenticated download URLs are:
 
 Downloads use attachment disposition, private/no-store caching and nosniff headers.
 Mitzo does not execute uploaded HTML. The task detail page opens these links as
-server downloads, not workspace paths.
+authenticated downloads through `apiFetch`, using the mobile share sheet or browser file download.
 
 Internal routes require the host's internal token and an active registered client.
 The host supplies provenance; callers cannot choose another source session. Path

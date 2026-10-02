@@ -22,6 +22,7 @@ describe('Telos artifact tool contract', () => {
     vi.stubGlobal('fetch', fetch);
     expect(
       TelosSaveArtifactInput.safeParse({
+        requestId: 'save-spec',
         itemId: 't',
         filename: 's.md',
         title: 'Spec',
@@ -34,7 +35,7 @@ describe('Telos artifact tool contract', () => {
       'client',
       'token',
       'TelosSaveArtifact',
-      { itemId: 't', filename: '../s.md', title: 'Spec', content: 'text' },
+      { requestId: 'save-spec', itemId: 't', filename: '../s.md', title: 'Spec', content: 'text' },
     );
     expect(result.isError).toBe(true);
     expect(fetch).not.toHaveBeenCalled();
@@ -50,7 +51,13 @@ describe('Telos artifact tool contract', () => {
       .fn()
       .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true, artifact: receipt })));
     vi.stubGlobal('fetch', fetch);
-    const input = { itemId: 't', filename: 's.md', title: 'Spec', path: '/sandbox/spec.md' };
+    const input = {
+      requestId: 'save-spec',
+      itemId: 't',
+      filename: 's.md',
+      title: 'Spec',
+      path: '/sandbox/spec.md',
+    };
     const result = await executeTelosArtifactTool(
       'http://host',
       'client',

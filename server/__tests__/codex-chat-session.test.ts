@@ -353,6 +353,7 @@ it('does not advertise unavailable host tools to an OpenShell runtime', async ()
     }),
   );
   const artifactInput = {
+    requestId: 'save-spec',
     itemId: 'telos-live',
     filename: 'spec.md',
     title: 'Spec',

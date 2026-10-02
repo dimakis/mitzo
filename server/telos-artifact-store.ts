@@ -70,6 +70,11 @@ export class TelosArtifactStore {
         filename TEXT NOT NULL, title TEXT NOT NULL, sha256 TEXT NOT NULL, size INTEGER NOT NULL,
         bytes BLOB NOT NULL, session_id TEXT NOT NULL, source_path TEXT, created_at TEXT NOT NULL,
         PRIMARY KEY(id, revision));
+        CREATE TABLE IF NOT EXISTS telos_artifact_save_requests (
+          session_id TEXT NOT NULL, request_id TEXT NOT NULL, fingerprint TEXT NOT NULL,
+          artifact_id TEXT NOT NULL, revision INTEGER NOT NULL,
+          PRIMARY KEY(session_id, request_id),
+          FOREIGN KEY(artifact_id, revision) REFERENCES telos_artifact_revisions(id, revision));
         CREATE INDEX IF NOT EXISTS telos_artifacts_item ON telos_artifact_revisions(item_id);`);
     } catch (error) {
       this.db.close();
@@ -86,6 +91,7 @@ export class TelosArtifactStore {
     bytes: Buffer;
     sessionId: string;
     sourcePath?: string;
+    requestId?: string;
   }): TelosArtifactMetadata {
     artifactFilename.parse(input.filename);
     z.string().trim().min(1).max(200).parse(input.title);
@@ -95,50 +101,86 @@ export class TelosArtifactStore {
       .digest('hex')
       .slice(0, 32);
     const sha256 = createHash('sha256').update(input.bytes).digest('hex');
-    return this.db.transaction(() => {
-      if (!this.db.prepare('SELECT id FROM items WHERE id=?').get(input.itemId))
-        throw new Error('Telos item not found');
-      const previous = this.db
-        .prepare('SELECT * FROM telos_artifact_revisions WHERE id=? ORDER BY revision DESC LIMIT 1')
-        .get(id) as ArtifactRow | undefined;
-      if (previous?.sha256 === sha256 && previous.title === input.title) return metadata(previous);
-      const revision = (previous?.revision ?? 0) + 1;
-      const now = new Date().toISOString();
-      this.db
-        .prepare(
-          `INSERT INTO telos_artifact_revisions
-        (id, revision, item_id, filename, title, sha256, size, bytes, session_id, source_path, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        )
-        .run(
-          id,
-          revision,
+    const fingerprint = createHash('sha256')
+      .update(
+        JSON.stringify([
           input.itemId,
           input.filename,
           input.title,
           sha256,
-          input.bytes.length,
-          input.bytes,
-          input.sessionId,
           input.sourcePath ?? null,
-          now,
-        );
-      this.db
-        .prepare(
-          `INSERT OR REPLACE INTO links (id,item_id,type,url,title,description,created_at)
+        ]),
+      )
+      .digest('hex');
+    return this.db
+      .transaction(() => {
+        if (input.requestId) {
+          const saved = this.db
+            .prepare(
+              'SELECT fingerprint, artifact_id, revision FROM telos_artifact_save_requests WHERE session_id=? AND request_id=?',
+            )
+            .get(input.sessionId, input.requestId) as
+            { fingerprint: string; artifact_id: string; revision: number } | undefined;
+          if (saved) {
+            if (saved.fingerprint !== fingerprint)
+              throw new Error('Save request identity reused with different input');
+            return metadata(this.row(saved.artifact_id, saved.revision));
+          }
+        }
+        const remember = (receipt: TelosArtifactMetadata) => {
+          if (input.requestId)
+            this.db
+              .prepare('INSERT INTO telos_artifact_save_requests VALUES (?,?,?,?,?)')
+              .run(input.sessionId, input.requestId, fingerprint, receipt.id, receipt.revision);
+          return receipt;
+        };
+        if (!this.db.prepare('SELECT id FROM items WHERE id=?').get(input.itemId))
+          throw new Error('Telos item not found');
+        const previous = this.db
+          .prepare(
+            'SELECT * FROM telos_artifact_revisions WHERE id=? ORDER BY revision DESC LIMIT 1',
+          )
+          .get(id) as ArtifactRow | undefined;
+        if (previous?.sha256 === sha256 && previous.title === input.title)
+          return remember(metadata(previous));
+        const revision = (previous?.revision ?? 0) + 1;
+        const now = new Date().toISOString();
+        this.db
+          .prepare(
+            `INSERT INTO telos_artifact_revisions
+        (id, revision, item_id, filename, title, sha256, size, bytes, session_id, source_path, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          )
+          .run(
+            id,
+            revision,
+            input.itemId,
+            input.filename,
+            input.title,
+            sha256,
+            input.bytes.length,
+            input.bytes,
+            input.sessionId,
+            input.sourcePath ?? null,
+            now,
+          );
+        this.db
+          .prepare(
+            `INSERT OR REPLACE INTO links (id,item_id,type,url,title,description,created_at)
         VALUES (?,?,?,?,?,?,?)`,
-        )
-        .run(
-          `artifact-${id}`,
-          input.itemId,
-          'artifact',
-          `/api/telos/artifacts/${id}`,
-          input.title,
-          `Versioned Telos document: ${input.filename}`,
-          now,
-        );
-      return metadata(this.row(id, revision));
-    })();
+          )
+          .run(
+            `artifact-${id}`,
+            input.itemId,
+            'artifact',
+            `/api/telos/artifacts/${id}`,
+            input.title,
+            `Versioned Telos document: ${input.filename}`,
+            now,
+          );
+        return remember(metadata(this.row(id, revision)));
+      })
+      .immediate();
   }
   private row(id: string, revision?: number): ArtifactRow {
     const row =
