@@ -57,6 +57,8 @@ export interface CodexConversationOptions {
     turn: { providerPrompt: string; userIntent?: string; turnId: string },
     signal: AbortSignal,
   ) => Promise<string | void>;
+  /** Select verified project context at a safe boundary; never append it as user text. */
+  prepareSystemPrompt?: (signal: AbortSignal) => Promise<string | undefined>;
   beforeComplete?: (signal: AbortSignal) => Promise<void>;
   beforeReconnect?: () => Promise<void>;
   reconnectGuard?: (work: () => Promise<void>) => Promise<void>;
@@ -991,6 +993,43 @@ export class CodexConversation {
       this.validateModel(model, command.reasoningEffort);
       this.mapper?.setModel(model);
       await this.verifyCurrentBinding(this.binding);
+      active.abort.signal.throwIfAborted();
+      const systemPrompt = await this.opts.prepareSystemPrompt?.(active.abort.signal);
+      if (systemPrompt !== undefined && systemPrompt !== this.opts.systemPrompt) {
+        const response = z.object({ config: z.unknown() }).parse(
+          await this.client.request('config/read', {
+            cwd: this.opts.runtimeCwd ?? this.opts.cwd,
+            includeLayers: false,
+          }),
+        );
+        const config =
+          this.opts.runtimeConfig ??
+          codexRuntimeOverrides(response.config, this.opts.profile.workspaceId);
+        const modelProvider = this.opts.modelProvider ?? 'openai';
+        const state = this.opts.store.read(this.opts.conversationId, this.binding!);
+        this.mapper?.beginReconnectReplay();
+        const resumed = z
+          .object({
+            thread: z.object({ id: z.string() }),
+            model: z.string(),
+            modelProvider: z.string(),
+          })
+          .parse(
+            await this.client.request('thread/resume', {
+              threadId: this.threadId,
+              ...this.threadOptions(config, modelProvider, state),
+              developerInstructions: systemPrompt,
+              allowProviderModelFallback: false,
+            }),
+          );
+        if (
+          resumed.thread.id !== this.threadId ||
+          resumed.model !== this.binding!.model ||
+          resumed.modelProvider !== modelProvider
+        )
+          throw new Error('Knowledge refresh changed the provider execution binding');
+        this.opts.systemPrompt = systemPrompt;
+      }
       active.abort.signal.throwIfAborted();
       const preparedPrompt =
         (await this.opts.prepareTurn?.(
