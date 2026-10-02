@@ -133,14 +133,18 @@ it('adopts a verified knowledge view in a retained sandbox without replacing tas
       labels: { 'mitzo.conversation': owner, 'mitzo.account_provider': 'openai-work' },
     }),
   );
+  let present = false;
   const ssh = vi.fn(async (args: readonly string[]) =>
     args.join(' ').includes('attest-knowledge-runtime.py')
       ? JSON.stringify(config.seedStackManifest.runtime)
-      : JSON.stringify({
-          sourceCommit: 'a'.repeat(40),
-          payloadSha256: JSON.parse(readFileSync(join(config.seed, '..', 'baseline.json'), 'utf8'))
-            .payloadSha256,
-        }),
+      : args.join(' ').includes('else')
+        ? String(present)
+        : JSON.stringify({
+            sourceCommit: 'a'.repeat(40),
+            payloadSha256: JSON.parse(
+              readFileSync(join(config.seed, '..', 'baseline.json'), 'utf8'),
+            ).payloadSha256,
+          }),
   );
   const manager = new OpenShellRuntimeManager(config, run, undefined, ssh);
   const compile = vi.spyOn(manager, 'compileContext').mockResolvedValue({
@@ -167,7 +171,7 @@ it('adopts a verified knowledge view in a retained sandbox without replacing tas
   const first = await manager.adoptKnowledge(conversation, runtime, AbortSignal.timeout(5000));
   expect(first?.sourceCommit).toBe('a'.repeat(40));
   expect(first?.knowledgeRoot).toMatch(
-    /^\/sandbox\/workspaces\/knowledge\/publication-[^/]+\/mgmt$/,
+    /^\/sandbox\/workspaces\/knowledge\/knowledge-[a-f0-9]{64}\/mgmt$/,
   );
   expect(compile.mock.calls[0][0].workdir).toBe(first?.knowledgeRoot);
   const uploads = run.mock.calls.filter(([args]) => args.includes('upload'));
@@ -175,7 +179,13 @@ it('adopts a verified knowledge view in a retained sandbox without replacing tas
   expect(uploads[0][0].at(-1)).toBe('/sandbox/workspaces/knowledge');
   await manager.adoptKnowledge(conversation, runtime, AbortSignal.timeout(5000));
   expect(run.mock.calls.filter(([args]) => args.includes('upload'))).toHaveLength(1);
-  expect(ssh).toHaveBeenCalledTimes(4);
+  expect(ssh).toHaveBeenCalledTimes(7);
+  present = true;
+  const resumed = new OpenShellRuntimeManager(config, run, undefined, ssh);
+  vi.spyOn(resumed, 'compileContext').mockResolvedValue(await compile.mock.results[0].value);
+  const reused = await resumed.adoptKnowledge(conversation, runtime, AbortSignal.timeout(5000));
+  expect(reused?.knowledgeRoot).toBe(first?.knowledgeRoot);
+  expect(run.mock.calls.filter(([args]) => args.includes('upload'))).toHaveLength(1);
   expect(runtime.workdir).toBe('/sandbox/workspaces/mgmt');
 });
 

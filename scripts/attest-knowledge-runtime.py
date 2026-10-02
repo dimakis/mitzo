@@ -56,6 +56,16 @@ def main():
     if not args.fingerprints_only:
         if platform.system() != "Linux":
             parser.error("target attestation must run inside the Linux runtime image")
+        # The delivery recipe includes the inherited write boundary. A retained
+        # image without that boundary is incompatible, even with the compiler.
+        recipe_files = {name: hashlib.sha256(Path(path).read_bytes()).hexdigest()
+                        for name, path in {
+                            "compiler": str(args.recipe),
+                            "writeScope": "/usr/libexec/mitzo/knowledge-write-scope",
+                            "apiLauncher": "/sandbox/run-mitzo-app-server",
+                            "subscriptionLauncher": "/sandbox/run-mitzo-subscription-app-server",
+                        }.items()}
+        result["knowledgeRecipeSha256"] = hashlib.sha256(canonical(recipe_files)).hexdigest()
         inputs = {name: hashlib.sha256(Path(path).read_bytes()).hexdigest() for name, path in {
             "mgmt/pyproject.toml": "/opt/mgmt-deps/pyproject.toml",
             "mgmt/uv.lock": "/opt/mgmt-deps/uv.lock",

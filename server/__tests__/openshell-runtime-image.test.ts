@@ -68,6 +68,7 @@ describe('OpenShell runtime image builder', () => {
       writeFileSync(
         runner,
         readFileSync(source, 'utf8')
+          .replace('/usr/libexec/mitzo/knowledge-write-scope ', '')
           .replace('/sandbox/initialize-mitzo-workspace /sandbox/workspaces/mgmt', ':')
           .replaceAll('/etc/mitzo-codex-version', versionFile),
       );

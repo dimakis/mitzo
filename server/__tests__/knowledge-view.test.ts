@@ -1,16 +1,45 @@
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, chmodSync, realpathSync } from 'node:fs';
+import {
+  mkdtempSync,
+  mkdirSync,
+  writeFileSync,
+  rmSync,
+  chmodSync,
+  realpathSync,
+  utimesSync,
+  existsSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it } from 'vitest';
-import { knowledgeVerificationCommand, knowledgeViewManifest } from '../knowledge-view.js';
+import {
+  knowledgeVerificationCommand,
+  knowledgeViewManifest,
+  knowledgeCleanupCommand,
+} from '../knowledge-view.js';
 
 let root = '';
 afterEach(() => {
   if (root) rmSync(root, { recursive: true, force: true });
 });
 const sha = (bytes: string) => createHash('sha256').update(bytes).digest('hex');
+
+it('reclaims only expired unreferenced content-addressed sandbox views', () => {
+  root = realpathSync(mkdtempSync(join(tmpdir(), 'knowledge-retention-')));
+  const versions = Array.from({ length: 14 }, (_, i) => join(root, `knowledge-${sha(String(i))}`));
+  const old = new Date(Date.now() - 40 * 86400 * 1000);
+  for (const [i, path] of versions.entries()) {
+    mkdirSync(join(path, 'mgmt'), { recursive: true });
+    utimesSync(path, i < 10 ? new Date() : old, i < 10 ? new Date() : old);
+  }
+  writeFileSync(join(versions[11], '.pinned'), 'manual pin');
+  mkdirSync(join(root, 'publication-legacy'));
+  execFileSync('/bin/sh', ['-c', knowledgeCleanupCommand(join(versions[10], 'mgmt'))]);
+  expect(versions.slice(0, 12).every(existsSync)).toBe(true);
+  expect(versions.slice(12).some(existsSync)).toBe(false);
+  expect(existsSync(join(root, 'publication-legacy'))).toBe(true);
+});
 
 it('attests the exact knowledge lane while excluding portable Git administration', () => {
   const view = knowledgeViewManifest({

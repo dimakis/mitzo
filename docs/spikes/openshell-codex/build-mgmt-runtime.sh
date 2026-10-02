@@ -48,6 +48,7 @@ cp "$root/initialize-mitzo-workspace" "$context/initialize-mitzo-workspace"
 cp "$root/run-mgmt-notebook" "$context/run-mgmt-notebook"
 cp "$root/compile-mgmt-context.mjs" "$context/compile-mgmt-context.mjs"
 cp "$root/mitzo-checkpoint.py" "$context/mitzo-checkpoint.py"
+cp "$root/knowledge-write-scope.c" "$context/knowledge-write-scope.c"
 # Build from the exact reviewed source, never ambient node_modules bytes.
 compiler_commit="$(node --input-type=module -e 'import fs from "node:fs"; const pin=JSON.parse(fs.readFileSync(process.argv[1])).dependencies.contexgin; const match=/^github:dimakis\/contexgin#([a-f0-9]{40})$/.exec(pin); if(!match) throw new Error("ContexGin must be commit-pinned"); process.stdout.write(match[1]);' "$repo_root/package.json")"
 compiler_repo="$context/compiler.git"

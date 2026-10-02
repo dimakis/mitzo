@@ -10,7 +10,7 @@ fi
 # Authentication is substituted only in the Authorization header. Keep JSON
 # uncompressed so the streaming guard can reject real credential identities
 # in conversation data without mistaking documentation examples for secrets.
-exec codex app-server --stdio \
+exec /usr/libexec/mitzo/knowledge-write-scope codex app-server --stdio \
   -c 'model_provider="openshell"' \
   -c 'features.enable_request_compression=false' \
   -c 'model_providers.openshell={ name = "OpenShell", base_url = "https://api.openai.com/v1", env_key = "OPENAI_API_KEY", wire_api = "responses" }'

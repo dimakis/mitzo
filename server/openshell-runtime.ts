@@ -1,5 +1,10 @@
 import { verifyPreparedSeed } from '../scripts/verify-openshell-production.mjs';
-import { knowledgeVerificationCommand, knowledgeViewManifest } from './knowledge-view.js';
+import {
+  knowledgeVerificationCommand,
+  knowledgeViewManifest,
+  knowledgePresenceCommand,
+  knowledgeCleanupCommand,
+} from './knowledge-view.js';
 import { SYMPOSIUM_ARTIFACT_TARGET } from './symposium-artifact-lease.js';
 import {
   validateOpenShellCliEnvironment,
@@ -1598,13 +1603,25 @@ export class OpenShellRuntimeManager {
         // Portable Git belongs to the writable task root. It is deliberately
         // absent from this separately attested, versioned retrieval lane.
         rmSync(join(prepared.seed, '.git'), { recursive: true, force: true });
-        const parent = dirname(prepared.seed);
+        const parent = join(dirname(prepared.seed), `knowledge-${manifestSha256}`);
+        mkdirSync(parent);
+        renameSync(prepared.seed, join(parent, 'mgmt'));
         writeFileSync(join(parent, 'knowledge-view.json'), bytes);
         const destination = '/sandbox/workspaces/knowledge';
-        await this.run(
-          ['sandbox', ...this.base(), 'upload', runtime.sandboxName, parent, destination],
-          signal,
-        );
+        const remote = `${destination}/${basename(parent)}`;
+        const presence = openShellSshArgvProcessSpec(runtime, [
+          '/bin/sh',
+          '-c',
+          knowledgePresenceCommand(remote),
+        ]);
+        const present = (await this.runSsh(presence.args, signal)).trim();
+        if (present !== 'true' && present !== 'false')
+          throw new Error('Invalid knowledge presence response');
+        if (present === 'false')
+          await this.run(
+            ['sandbox', ...this.base(), 'upload', runtime.sandboxName, parent, destination],
+            signal,
+          );
         selection = {
           sourceCommit: view.sourceCommit,
           payloadSha256: view.payloadSha256,
@@ -1637,6 +1654,12 @@ export class OpenShellRuntimeManager {
       signal.throwIfAborted();
       const adopted: OpenShellKnowledgeSelection = { ...selection, context: selection.context };
       this.knowledgeViews.set(runtime.sandboxId, adopted);
+      const cleanup = openShellSshArgvProcessSpec(runtime, [
+        '/bin/sh',
+        '-c',
+        knowledgeCleanupCommand(adopted.knowledgeRoot),
+      ]);
+      await this.runSsh(cleanup.args, signal);
       return adopted;
     } finally {
       prepared.cleanup();

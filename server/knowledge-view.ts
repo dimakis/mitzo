@@ -18,6 +18,26 @@ function quote(value: string) {
   return `'${value.replaceAll("'", "'\\''")}'`;
 }
 
+export function knowledgePresenceCommand(root: string) {
+  return `/usr/bin/python3 -c ${quote("import pathlib,sys; print('true' if pathlib.Path(sys.argv[1]).exists() else 'false')")} ${quote(root)}`;
+}
+
+/** Sandbox-local caches have no checkpoint ownership. Keep the active view,
+ * manual pins, and at least ten previous views for thirty days. Unknown paths
+ * and legacy directories are deliberately outside this cleanup's authority. */
+export function knowledgeCleanupCommand(activeRoot: string) {
+  const script = `import pathlib,re,shutil,sys,time
+active=pathlib.Path(sys.argv[1]).parent
+root=active.parent
+assert root.resolve(strict=True)==root
+versions=[p for p in root.iterdir() if re.fullmatch(r'knowledge-[a-f0-9]{64}',p.name) and p.is_dir() and not p.is_symlink()]
+versions.sort(key=lambda p:p.stat().st_mtime,reverse=True)
+for p in versions[10:]:
+ if p!=active and not (p/'.pinned').exists() and time.time()-p.stat().st_mtime>30*86400:
+  shutil.rmtree(p)`;
+  return `/usr/bin/python3 -c ${quote(script)} ${quote(activeRoot)}`;
+}
+
 /** Verify uploaded bytes/modes against a host-verified immutable selection. */
 export function knowledgeVerificationCommand(root: string, manifestSha256: string) {
   if (!root.startsWith('/') || !/^[a-f0-9]{64}$/.test(manifestSha256))
