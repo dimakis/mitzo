@@ -11,11 +11,12 @@ import { fetchPublicPage } from './public-web-fetch.js';
 
 /** Every runtime uses the same permission and session identity boundary. */
 export function createWebAccessTool(
-  conversationId: string,
+  conversation: string | (() => string),
   registry: SessionRegistry,
   search: (query: string, signal: AbortSignal) => Promise<string>,
 ) {
   return async (input: unknown, signal: AbortSignal) => {
+    const conversationId = typeof conversation === 'function' ? conversation() : conversation;
     const owner = registry.findBySessionId(conversationId);
     if (!owner) return { content: 'Session unavailable', isError: true };
     const { clientId, session } = owner;

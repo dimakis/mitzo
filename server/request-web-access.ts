@@ -33,6 +33,18 @@ interface WebAccessDependencies {
   search(query: string, signal: AbortSignal): Promise<string>;
   fetchPage(url: string, signal: AbortSignal): Promise<string>;
 }
+export function withWebAbort<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const cancel = () => reject(new Error('Web request interrupted'));
+    if (signal.aborted) {
+      reject(new Error('Web request interrupted'));
+      void work.catch(() => {});
+      return;
+    }
+    signal.addEventListener('abort', cancel, { once: true });
+    work.then(resolve, reject).finally(() => signal.removeEventListener('abort', cancel));
+  });
+}
 
 /** Exact action approvals never become ambient networking or cross-account grants. */
 export async function executeWebAccess(
@@ -52,10 +64,13 @@ export async function executeWebAccess(
       return { content: decision.message ?? 'Web access declined', isError: true };
     if (!isDeepStrictEqual(decision.updatedInput, parsed.data) || !deps.isCurrent())
       return { content: 'Web access request changed during approval; retry', isError: true };
-    const content =
+    const operationSignal = AbortSignal.any([signal, AbortSignal.timeout(90_000)]);
+    const content = await withWebAbort(
       parsed.data.operation === 'search'
-        ? await deps.search(parsed.data.query, signal)
-        : await deps.fetchPage(parsed.data.url, signal);
+        ? deps.search(parsed.data.query, operationSignal)
+        : deps.fetchPage(parsed.data.url, operationSignal),
+      operationSignal,
+    );
     signal.throwIfAborted();
     return { content, isError: false };
   } catch {

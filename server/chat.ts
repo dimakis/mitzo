@@ -1677,7 +1677,7 @@ async function _startChatInner(
       );
       const webAccess = createWebAccessSdkServer(
         createWebAccessTool(
-          options.resume ?? newSdkSessionId ?? session.sessionId ?? '',
+          () => session.sessionId ?? options.resume ?? newSdkSessionId ?? '',
           registry,
           (query, signal) =>
             searchSdk(query, signal, {

@@ -2,6 +2,7 @@ import { lookup } from 'node:dns/promises';
 import { request } from 'node:https';
 import { isIP } from 'node:net';
 import { canonicalPublicDnsAddress } from './connections/iana-address-policy.js';
+import { withWebAbort } from './request-web-access.js';
 
 const MAX_BYTES = 128 * 1024;
 interface Address {
@@ -86,14 +87,7 @@ export async function fetchPublicPage(
   const origin = url.origin;
   for (let hop = 0; hop <= 3; hop++) {
     signal.throwIfAborted();
-    const addresses = await Promise.race([
-      deps.resolve(url.hostname),
-      new Promise<never>((_resolve, reject) => {
-        const onAbort = () => reject(new Error('Website read interrupted'));
-        signal.addEventListener('abort', onAbort, { once: true });
-        // The combined signal expires in 20 seconds even if DNS never returns.
-      }),
-    ]);
+    const addresses = await withWebAbort(deps.resolve(url.hostname), signal);
     signal.throwIfAborted();
     if (
       !addresses.length ||

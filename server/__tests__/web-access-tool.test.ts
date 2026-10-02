@@ -61,4 +61,18 @@ describe('shared web access tool wiring', () => {
     expect(await f.execute(input, new AbortController().signal)).toMatchObject({ isError: true });
     expect(f.search).not.toHaveBeenCalled();
   });
+  it('resolves legacy SDK conversation identity when the tool is called, after init', async () => {
+    const f = fixture();
+    let conversationId = '';
+    const registry = {
+      get: () => f.session,
+      findBySessionId: (id: string) =>
+        id === 'conversation' ? { clientId: f.session.clientId, session: f.session } : null,
+    } as unknown as SessionRegistry;
+    const execute = createWebAccessTool(() => conversationId, registry, f.search);
+    conversationId = 'conversation';
+    const input = { operation: 'search', query: 'q', reason: 'why' };
+    approve.mockResolvedValue({ behavior: 'allow', updatedInput: input });
+    expect(await execute(input, new AbortController().signal)).toMatchObject({ isError: false });
+  });
 });

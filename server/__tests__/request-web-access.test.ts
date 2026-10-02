@@ -2,6 +2,26 @@ import { describe, expect, it, vi } from 'vitest';
 import { executeWebAccess, WebAccessInput } from '../request-web-access.js';
 
 describe('account-independent web access boundary', () => {
+  it('ends a pending provider request on cancellation even if the transport never settles', async () => {
+    const input = { operation: 'search', query: 'q', reason: 'why' };
+    const abort = new AbortController();
+    let started!: () => void;
+    const dispatched = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    const result = executeWebAccess(input, abort.signal, {
+      isCurrent: () => true,
+      approve: async () => ({ behavior: 'allow', updatedInput: input }),
+      search: () => {
+        started();
+        return new Promise(() => {});
+      },
+      fetchPage: vi.fn(),
+    });
+    await dispatched;
+    abort.abort();
+    expect(await result).toMatchObject({ isError: true, content: 'Web access interrupted' });
+  }, 100);
   it('exposes search and website reads as different exact requests', () => {
     expect(
       WebAccessInput.safeParse({
