@@ -16,15 +16,22 @@ type Contract = {
 
 const fixture = fileURLToPath(
   new URL(
-    '../../docs/spikes/codex-web-search-policy/app-server-contract-0.153.4.json',
+    '../../docs/spikes/codex-web-search-policy/app-server-contract-0.160.0.json',
     import.meta.url,
   ),
 );
 const contract = JSON.parse(readFileSync(fixture, 'utf8')) as Contract;
 
 describe('pinned Codex native web-search contract', () => {
-  it('records the CLI version deployed by Mitzo', () => {
-    expect(contract.codexCliVersion).toBe('0.153.4');
+  it('records the CLI version deployed by OpenShell', () => {
+    expect(contract.codexCliVersion).toBe(
+      readFileSync(
+        fileURLToPath(
+          new URL('../../docs/spikes/openshell-codex/runtime-codex-version', import.meta.url),
+        ),
+        'utf8',
+      ).trim(),
+    );
   });
 
   it('fences retained OpenShell sandboxes at the reviewed CLI version', () => {
@@ -34,7 +41,8 @@ describe('pinned Codex native web-search contract', () => {
         'utf8',
       );
       expect(contents).toContain('$(codex --version)');
-      expect(contents).toContain(`codex-cli ${contract.codexCliVersion}`);
+      expect(contents).toContain('$(cat /etc/mitzo-codex-version)');
+      expect(contents).toContain('codex-cli $expected_codex_version');
     }
   });
 

@@ -4,7 +4,7 @@ Status: accepted contract spike for Telos outcome `11241b89c0aac3df`.
 
 ## Supported protocol
 
-Mitzo's host and OpenShell Codex runtimes are pinned to `codex-cli 0.153.4`.
+The ordinary OpenShell runtime is pinned by `docs/spikes/openshell-codex/runtime-codex-version` (currently `codex-cli 0.160.0`). The 0.160.0 fixture was regenerated offline from the production image; the search approval and lifecycle fields below are unchanged. The separately reviewed host/lifecycle probe retains its 0.153.4 pin.
 The host launcher runs `codex --version` and refuses to start if the executable
 does not match that exact reviewed version. The lifecycle probe performs the
 same check before opening app-server stdio.
@@ -14,9 +14,8 @@ The checked-in contract fixture was reduced from the schema emitted by:
 codex app-server generate-json-schema --experimental --out <temporary-directory>
 ```
 
-The production OpenShell image independently pins the same CLI version in
-`docs/spikes/openshell-codex/Dockerfile.mgmt-runtime`. Both sandbox app-server
-launchers also verify the exact version on every launch, so a retained sandbox
+The production OpenShell image installs from the shared version file. Both sandbox app-server
+launchers read that same image-owned file and verify the exact version on every launch, so a retained sandbox
 from an older image cannot cross this contract boundary silently.
 
 ## Finding
