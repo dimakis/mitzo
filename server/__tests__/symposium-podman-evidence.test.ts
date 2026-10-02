@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { LocalPodmanArtifactEvidence } from '../symposium-podman-evidence.js';
+import { symposiumReconciliationFailureCode } from '../symposium-reconciliation-error.js';
 
 const sandboxId = 'sbx-123';
 const sandboxName = 'seat-a';
@@ -238,9 +239,10 @@ describe('reviewed workload artifact ownership', () => {
     if (allowed)
       await expect(evidence.verifyMount(sandboxName, sandboxId, config)).resolves.toBeUndefined();
     else
-      await expect(evidence.verifyMount(sandboxName, sandboxId, config)).rejects.toThrow(
-        'identity or effective access',
-      );
+      await expect(evidence.verifyMount(sandboxName, sandboxId, config)).rejects.toMatchObject({
+        code: 'SEAT_MOUNT_ACCESS_PROOF_FAILED',
+        cause: { message: 'Artifact owner identity or effective access is not ready' },
+      });
     expect(native).toHaveBeenCalledWith(
       sandboxName,
       sandboxId,
@@ -280,7 +282,10 @@ describe('reviewed workload artifact ownership', () => {
         image,
         failed,
       ).verifyMount(sandboxName, sandboxId, writerConfig),
-    ).rejects.toThrow('native probe unavailable');
+    ).rejects.toMatchObject({
+      code: 'SEAT_MOUNT_NATIVE_ACCESS_FAILED',
+      cause: { message: 'native probe unavailable' },
+    });
   });
   it('rejects physical identity drift after native probe', async () => {
     const details = [{ ...inspected[0], Image: image }];
@@ -289,16 +294,21 @@ describe('reviewed workload artifact ownership', () => {
       .mockResolvedValueOnce(listed)
       .mockResolvedValueOnce(details)
       .mockResolvedValueOnce([{ ...details[0], Id: 'b'.repeat(64) }]);
-    await expect(
-      new LocalPodmanArtifactEvidence(
-        'symposium-1',
-        'gateway-local',
-        run,
-        undefined,
-        image,
-        vi.fn().mockResolvedValue(good),
-      ).verifyMount(sandboxName, sandboxId, config),
-    ).rejects.toThrow('physical identity changed');
+    const failure = await new LocalPodmanArtifactEvidence(
+      'symposium-1',
+      'gateway-local',
+      run,
+      undefined,
+      image,
+      vi.fn().mockResolvedValue(good),
+    )
+      .verifyMount(sandboxName, sandboxId, config)
+      .catch((error) => error);
+    expect(failure).toMatchObject({
+      code: 'SEAT_MOUNT_POSTCHECK_FAILED',
+      cause: { message: 'Artifact physical identity changed during native access probe' },
+    });
+    expect(symposiumReconciliationFailureCode(failure)).toBe('SEAT_MOUNT_POSTCHECK_FAILED');
   });
   it('rejects a different physical image before probing', async () => {
     const run = vi

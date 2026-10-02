@@ -1032,11 +1032,13 @@ export class SymposiumPerSeatSandboxOwner {
                     // Successful native creation is settled before any lease postcheck.
                     // A failed binding retains the original lease for explicit cleanup.
                     if (lease)
-                      this.deps.artifactLeaseHost!.bindSandbox(
-                        lease.token,
-                        lease.revision,
-                        receipt.sandboxName,
-                        receipt.sandboxId,
+                      atSymposiumReconciliationStage('SEAT_ARTIFACT_BINDING_FAILED', () =>
+                        this.deps.artifactLeaseHost!.bindSandbox(
+                          lease.token,
+                          lease.revision,
+                          receipt.sandboxName!,
+                          receipt.sandboxId!,
+                        ),
                       );
                   },
                 }
@@ -1051,7 +1053,9 @@ export class SymposiumPerSeatSandboxOwner {
               ? {
                   artifactDriverConfig,
                   verifyArtifactMount: (name, id, config) =>
-                    this.deps.artifactLeaseHost!.verifyPhysicalMount(name, id, config),
+                    atSymposiumReconciliationStageAsync('SEAT_MOUNT_VERIFICATION_FAILED', () =>
+                      this.deps.artifactLeaseHost!.verifyPhysicalMount(name, id, config),
+                    ),
                 }
               : {}),
           }),
@@ -1083,10 +1087,12 @@ export class SymposiumPerSeatSandboxOwner {
           )
             throw new Error('Recorded seat sandbox physical identity changed');
           if (lease) {
-            await this.deps.artifactLeaseHost!.verifyPhysicalMount(
-              reservation.sandboxName,
-              reservation.physicalId,
-              artifactDriverConfig!,
+            await atSymposiumReconciliationStageAsync('SEAT_MOUNT_VERIFICATION_FAILED', () =>
+              this.deps.artifactLeaseHost!.verifyPhysicalMount(
+                reservation.sandboxName!,
+                reservation.physicalId!,
+                artifactDriverConfig!,
+              ),
             );
           }
           if (seatPolicy) {
@@ -1195,16 +1201,20 @@ export class SymposiumPerSeatSandboxOwner {
           try {
             // A custom manager must attest the mount too. Duplicate attestation is
             // intentional; the host is the authoritative physical verifier.
-            await this.deps.artifactLeaseHost!.verifyPhysicalMount(
-              sandbox.sandboxName,
-              sandbox.sandboxId,
-              artifactDriverConfig!,
+            await atSymposiumReconciliationStageAsync('SEAT_MOUNT_VERIFICATION_FAILED', () =>
+              this.deps.artifactLeaseHost!.verifyPhysicalMount(
+                sandbox.sandboxName,
+                sandbox.sandboxId!,
+                artifactDriverConfig!,
+              ),
             );
-            this.deps.artifactLeaseHost!.bindSandbox(
-              lease.token,
-              lease.revision,
-              sandbox.sandboxName,
-              sandbox.sandboxId,
+            atSymposiumReconciliationStage('SEAT_ARTIFACT_BINDING_FAILED', () =>
+              this.deps.artifactLeaseHost!.bindSandbox(
+                lease.token,
+                lease.revision,
+                sandbox.sandboxName,
+                sandbox.sandboxId!,
+              ),
             );
           } catch (error) {
             diagnostic(true);

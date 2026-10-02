@@ -10,6 +10,10 @@ import { execFile } from 'node:child_process';
 import type { ArtifactDriverConfig, ArtifactLeaseRequest } from './symposium-artifact-lease.js';
 import type { ArtifactHostEvidence } from './symposium-artifact-host.js';
 import type { OwnedSymposiumGateway } from './symposium-owned-gateway.js';
+import {
+  atSymposiumReconciliationStage,
+  atSymposiumReconciliationStageAsync,
+} from './symposium-reconciliation-error.js';
 
 type PodmanCommand = (
   args: readonly string[],
@@ -174,47 +178,55 @@ export class LocalPodmanArtifactEvidence implements ArtifactHostEvidence {
               probeOwnedArtifactAccess(this.ownedGateway!, name, id, script, this.observeRuntime)
           : undefined);
       if (!nativeAccess) throw new Error('Native artifact identity probe is unavailable');
-      const probe = record(
-        await nativeAccess(
-          sandboxName,
-          sandboxId,
-          'set -eu; uid=$(/usr/bin/id -u); gid=$(/usr/bin/id -g); set -- $(/usr/bin/stat -c "%u %g %a" __ARTIFACT_TARGET__); readable=false; searchable=false; if test -r __ARTIFACT_TARGET__; then readable=true; fi; if test -x __ARTIFACT_TARGET__; then searchable=true; fi; writable=false; if test -w __ARTIFACT_TARGET__; then writable=true; fi; printf \'{"uid":%s,"gid":%s,"ownerUid":%s,"ownerGid":%s,"mode":"%s","writable":%s,"readable":%s,"searchable":%s}\\n\' "$uid" "$gid" "$1" "$2" "$3" "$writable" "$readable" "$searchable"'.replaceAll(
-            '__ARTIFACT_TARGET__',
-            target,
+      const probe = await atSymposiumReconciliationStageAsync(
+        'SEAT_MOUNT_NATIVE_ACCESS_FAILED',
+        async () =>
+          record(
+            await nativeAccess(
+              sandboxName,
+              sandboxId,
+              'set -eu; uid=$(/usr/bin/id -u); gid=$(/usr/bin/id -g); set -- $(/usr/bin/stat -c "%u %g %a" __ARTIFACT_TARGET__); readable=false; searchable=false; if test -r __ARTIFACT_TARGET__; then readable=true; fi; if test -x __ARTIFACT_TARGET__; then searchable=true; fi; writable=false; if test -w __ARTIFACT_TARGET__; then writable=true; fi; printf \'{"uid":%s,"gid":%s,"ownerUid":%s,"ownerGid":%s,"mode":"%s","writable":%s,"readable":%s,"searchable":%s}\\n\' "$uid" "$gid" "$1" "$2" "$3" "$writable" "$readable" "$searchable"'.replaceAll(
+                '__ARTIFACT_TARGET__',
+                target,
+              ),
+            ),
           ),
-        ),
       );
-      if (
-        probe.uid !== owner.uid ||
-        probe.gid !== owner.gid ||
-        probe.ownerUid !== owner.uid ||
-        probe.ownerGid !== owner.gid ||
-        typeof probe.mode !== 'string' ||
-        !/^[0-7]{3,4}$/.test(probe.mode) ||
-        (Number.parseInt(probe.mode, 8) & 0o022) !== 0 ||
-        probe.readable !== true ||
-        probe.searchable !== true ||
-        probe.writable !== !expected.read_only
-      )
-        throw new Error('Artifact owner identity or effective access is not ready');
-      const after = exactlyOne(
-        await run(['inspect', '--type', 'container', physicalId], 'podman-inspect'),
-      );
-      const afterLabels = labels(record(after.Config).Labels);
-      const afterMounts = Array.isArray(after.Mounts)
-        ? after.Mounts.map(record).filter((mount) => mount.Destination === target)
-        : [];
-      if (
-        (after.Id ?? after.ID) !== physicalId ||
-        Object.entries(required).some(([key, value]) => afterLabels[key] !== value) ||
-        record(after.State).Running !== true ||
-        after.Image !== inspected.Image ||
-        afterMounts.length !== 1 ||
-        afterMounts[0].Type !== 'volume' ||
-        afterMounts[0].Name !== expected.source ||
-        afterMounts[0].RW !== !expected.read_only
-      )
-        throw new Error('Artifact physical identity changed during native access probe');
+      atSymposiumReconciliationStage('SEAT_MOUNT_ACCESS_PROOF_FAILED', () => {
+        if (
+          probe.uid !== owner.uid ||
+          probe.gid !== owner.gid ||
+          probe.ownerUid !== owner.uid ||
+          probe.ownerGid !== owner.gid ||
+          typeof probe.mode !== 'string' ||
+          !/^[0-7]{3,4}$/.test(probe.mode) ||
+          (Number.parseInt(probe.mode, 8) & 0o022) !== 0 ||
+          probe.readable !== true ||
+          probe.searchable !== true ||
+          probe.writable !== !expected.read_only
+        )
+          throw new Error('Artifact owner identity or effective access is not ready');
+      });
+      await atSymposiumReconciliationStageAsync('SEAT_MOUNT_POSTCHECK_FAILED', async () => {
+        const after = exactlyOne(
+          await run(['inspect', '--type', 'container', physicalId], 'podman-inspect'),
+        );
+        const afterLabels = labels(record(after.Config).Labels);
+        const afterMounts = Array.isArray(after.Mounts)
+          ? after.Mounts.map(record).filter((mount) => mount.Destination === target)
+          : [];
+        if (
+          (after.Id ?? after.ID) !== physicalId ||
+          Object.entries(required).some(([key, value]) => afterLabels[key] !== value) ||
+          record(after.State).Running !== true ||
+          after.Image !== inspected.Image ||
+          afterMounts.length !== 1 ||
+          afterMounts[0].Type !== 'volume' ||
+          afterMounts[0].Name !== expected.source ||
+          afterMounts[0].RW !== !expected.read_only
+        )
+          throw new Error('Artifact physical identity changed during native access probe');
+      });
     }
   }
 

@@ -3151,7 +3151,14 @@ describe('per-seat artifact admission', () => {
       try {
         await expect(
           state.owner().ensure('symposium', 'reviewer', new AbortController().signal),
-        ).rejects.toThrow(options.failCreate ? 'create response lost' : 'physical mount mismatch');
+        ).rejects.toMatchObject(
+          options.failCreate
+            ? { message: 'create response lost' }
+            : {
+                code: 'SEAT_MOUNT_VERIFICATION_FAILED',
+                cause: { message: 'physical mount mismatch' },
+              },
+        );
         await expect(
           state.owner().ensure('symposium', 'reviewer', new AbortController().signal),
         ).rejects.toThrow('reservation changed');
@@ -3942,7 +3949,10 @@ describe('mixed personal subscription and work seat isolation', () => {
       });
       await expect(
         artifactOwner.ensure('symposium', 'personal', new AbortController().signal),
-      ).rejects.toThrow('binding rejected before persistence');
+      ).rejects.toMatchObject({
+        code: 'SEAT_ARTIFACT_BINDING_FAILED',
+        cause: { message: 'binding rejected before persistence' },
+      });
       const originalLease = await reserveLease.mock.results.at(-1)!.value;
       expect(leasedTerminalRecord).toHaveBeenCalledWith(
         expect.objectContaining({
