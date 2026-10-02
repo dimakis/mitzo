@@ -1,4 +1,10 @@
 import { verifyPreparedSeed } from '../scripts/verify-openshell-production.mjs';
+import {
+  knowledgeVerificationCommand,
+  knowledgeViewManifest,
+  knowledgePresenceCommand,
+  knowledgeCleanupCommand,
+} from './knowledge-view.js';
 import { SYMPOSIUM_ARTIFACT_TARGET } from './symposium-artifact-lease.js';
 import {
   validateOpenShellCliEnvironment,
@@ -18,10 +24,10 @@ import {
   rmSync,
   writeFileSync,
 } from 'node:fs';
-import { isAbsolute, join } from 'node:path';
+import { basename, dirname, isAbsolute, join } from 'node:path';
 import { z } from 'zod';
 import type { McpServerConfig } from './mcp-config.js';
-import { openShellSshProcessSpec } from './codex-app-server-client.js';
+import { openShellSshArgvProcessSpec, openShellSshProcessSpec } from './codex-app-server-client.js';
 import { codexPrivateDirectory } from './codex-private-path.js';
 import type { ArtifactDriverConfig } from './symposium-artifact-lease.js';
 
@@ -82,6 +88,14 @@ const BootContext = z.object({
   fullMarkdown: z.string(),
 });
 export type OpenShellBootContext = z.infer<typeof BootContext>;
+
+export interface OpenShellKnowledgeSelection {
+  sourceCommit: string;
+  payloadSha256: string;
+  knowledgeRoot: string;
+  manifestSha256: string;
+  context: OpenShellBootContext;
+}
 
 export interface OpenShellRuntime {
   sandboxName: string;
@@ -486,6 +500,7 @@ function legacySandboxNameForConversation(conversationHash: string) {
 export class OpenShellRuntimeManager {
   private run: Run;
   private runSsh: Run;
+  private knowledgeViews = new Map<string, OpenShellKnowledgeSelection>();
 
   constructor(
     private config: BoundOpenShellRuntimeConfig,
@@ -1521,6 +1536,134 @@ export class OpenShellRuntimeManager {
       }
       await this.waitForReady(runtime.sandboxName, owner, signal);
     });
+  }
+
+  /** Called only at admission or between turns, under the owning lifecycle fence. */
+  async adoptKnowledge(
+    conversationId: string,
+    runtime: OpenShellRuntime,
+    signal: AbortSignal,
+  ): Promise<OpenShellKnowledgeSelection | undefined> {
+    const baselinePath = join(this.config.seed, '..', 'baseline.json');
+    if (!existsSync(baselinePath)) return undefined;
+    const selected = JSON.parse(readFileSync(baselinePath, 'utf8')) as Record<string, unknown>;
+    if (!Object.hasOwn(selected, 'runtimeBaseCommit')) return undefined;
+    if (!runtime.sandboxId)
+      throw new Error('Knowledge adoption requires a physical sandbox identity');
+    const prepared = prepareOpenShellSeed(this.config);
+    try {
+      const baseline = JSON.parse(readFileSync(join(prepared.seed, '..', 'baseline.json'), 'utf8'));
+      const view = knowledgeViewManifest(baseline);
+      const bytes = JSON.stringify(view);
+      const manifestSha256 = createHash('sha256').update(bytes).digest('hex');
+      let selection:
+        | (Omit<OpenShellKnowledgeSelection, 'context'> & { context?: OpenShellBootContext })
+        | undefined = this.knowledgeViews.get(runtime.sandboxId);
+      const current = await this.ownedSandbox(conversationId, runtime.sandboxId, signal);
+      if (current.phase !== 'Ready' || current.name !== runtime.sandboxName)
+        throw new Error('Knowledge sandbox is not Ready');
+      // Retained task sandboxes may still run an older image. Verify their
+      // actual protected compiler and frozen runtime inputs before adoption.
+      const contract = this.config.seedStackManifest?.runtime as Record<string, unknown>;
+      if (
+        !/^[a-f0-9]{40}$/.test(String(contract?.knowledgeCompilerCommit)) ||
+        !/^[a-f0-9]{64}$/.test(String(contract?.runtimeInputsSha256))
+      )
+        throw new Error(
+          'Runtime is incompatible with published knowledge: runtime attestation pins are missing',
+        );
+      const attestationSpec = openShellSshArgvProcessSpec(runtime, [
+        '/opt/mgmt-venv/bin/python',
+        '-I',
+        '/usr/libexec/mitzo/attest-knowledge-runtime.py',
+        '--compiler-commit',
+        String(contract.knowledgeCompilerCommit),
+      ]);
+      let actual: Record<string, unknown>;
+      try {
+        actual = JSON.parse(await this.runSsh(attestationSpec.args, signal));
+      } catch (error) {
+        throw new Error(
+          'Runtime is incompatible with published knowledge; a compatible retained-runtime migration is required',
+          { cause: error },
+        );
+      }
+      for (const field of [
+        'knowledgeSchemaVersion',
+        'knowledgeCompilerSha256',
+        'knowledgeRecipeSha256',
+        'runtimeInputsSha256',
+        'targetPlatform',
+        'targetMarkerEnvironmentB64',
+      ]) {
+        if (actual[field] !== contract[field])
+          throw new Error(`Runtime is incompatible with published knowledge: ${field} differs`);
+      }
+      if (!selection || selection.manifestSha256 !== manifestSha256) {
+        // Portable Git belongs to the writable task root. It is deliberately
+        // absent from this separately attested, versioned retrieval lane.
+        rmSync(join(prepared.seed, '.git'), { recursive: true, force: true });
+        const parent = join(dirname(prepared.seed), `knowledge-${manifestSha256}`);
+        mkdirSync(parent);
+        renameSync(prepared.seed, join(parent, 'mgmt'));
+        writeFileSync(join(parent, 'knowledge-view.json'), bytes);
+        const destination = '/sandbox/workspaces/knowledge';
+        const remote = `${destination}/${basename(parent)}`;
+        const presence = openShellSshArgvProcessSpec(runtime, [
+          '/bin/sh',
+          '-c',
+          knowledgePresenceCommand(remote),
+        ]);
+        const present = (await this.runSsh(presence.args, signal)).trim();
+        if (present !== 'true' && present !== 'false')
+          throw new Error('Invalid knowledge presence response');
+        if (present === 'false')
+          await this.run(
+            ['sandbox', ...this.base(), 'upload', runtime.sandboxName, parent, destination],
+            signal,
+          );
+        selection = {
+          sourceCommit: view.sourceCommit,
+          payloadSha256: view.payloadSha256,
+          manifestSha256,
+          knowledgeRoot: `${destination}/${basename(parent)}/mgmt`,
+        };
+      }
+      const after = await this.ownedSandbox(conversationId, runtime.sandboxId, signal);
+      if (after.phase !== 'Ready' || after.name !== runtime.sandboxName)
+        throw new Error('Knowledge sandbox changed during upload');
+      const spec = openShellSshArgvProcessSpec(runtime, [
+        '/bin/sh',
+        '-c',
+        knowledgeVerificationCommand(dirname(selection.knowledgeRoot), manifestSha256),
+      ]);
+      const receipt = JSON.parse(await this.runSsh(spec.args, signal));
+      if (
+        receipt.sourceCommit !== selection.sourceCommit ||
+        receipt.payloadSha256 !== selection.payloadSha256
+      )
+        throw new Error('Knowledge verification returned another publication');
+      if (!selection.context)
+        selection.context = await this.compileContext(
+          { ...runtime, workdir: selection.knowledgeRoot },
+          signal,
+        );
+      const verified = await this.ownedSandbox(conversationId, runtime.sandboxId, signal);
+      if (verified.phase !== 'Ready' || verified.name !== runtime.sandboxName)
+        throw new Error('Knowledge sandbox changed during verification');
+      signal.throwIfAborted();
+      const adopted: OpenShellKnowledgeSelection = { ...selection, context: selection.context };
+      this.knowledgeViews.set(runtime.sandboxId, adopted);
+      const cleanup = openShellSshArgvProcessSpec(runtime, [
+        '/bin/sh',
+        '-c',
+        knowledgeCleanupCommand(adopted.knowledgeRoot),
+      ]);
+      await this.runSsh(cleanup.args, signal);
+      return adopted;
+    } finally {
+      prepared.cleanup();
+    }
   }
 
   async compileContext(runtime: OpenShellRuntime, signal: AbortSignal) {

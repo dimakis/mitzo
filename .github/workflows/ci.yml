@@ -109,6 +109,14 @@ jobs:
         # Fix: run `npm install` in a Linux container and commit that lockfile.
         run: npm install --no-audit
 
+      - name: Verify native knowledge write boundary
+        run: |
+          gcc -O2 -Wall -Wextra -Werror docs/spikes/openshell-codex/knowledge-write-scope.c -o "$RUNNER_TEMP/knowledge-write-scope"
+          sudo install -d /usr/libexec/mitzo
+          sudo install -m 0755 "$RUNNER_TEMP/knowledge-write-scope" /usr/libexec/mitzo/knowledge-write-scope
+          sudo install -d -o "$USER" /sandbox
+          python3 -I docs/spikes/openshell-codex/knowledge-write-scope-smoke.py
+
       - name: Build workspace packages
         run: npx tsc -b packages/protocol packages/harness packages/client
 

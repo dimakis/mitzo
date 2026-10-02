@@ -82,3 +82,40 @@ The 30 September regression run at MGMT `65bf11312b5919082f17c3c2347849e9a7a3ad3
 The immutable [MGMT workflow](https://github.com/dimakis/mgmt/blob/65bf11312b5919082f17c3c2347849e9a7a3ad36/.github/workflows/ci.yml) provisions the actual publisher and exact consumer checkouts, primes the pinned isolated parser environments, and runs both entrypoints with offline execution selected. Its aggregate `CI` job requires `knowledge-publication` to succeed; skipped or cancelled publication cannot satisfy it. The [owned pytest fixture](https://github.com/dimakis/mgmt/blob/65bf11312b5919082f17c3c2347849e9a7a3ad36/tests/test_openshell_publication_contract.py) exercises actual generation, publication, builder extraction, production verification and runtime admission. It also tests parser contamination, Git metadata/dates/attributes/default XDG ignores, full versus shallow history, replacement refs, ignored manifest injection, missing inputs, draft source, compatibility drift and tampering while preserving the prior promotion.
 
 Independent reviewers need read access to both exact checkouts and the authenticated CI result to verify this cross-repository proof. A public-only checkout with network disabled cannot inspect private publisher sources or hosted CI links; absence of those inputs is a review-evidence limitation, not successful execution of the paired test. Local manual review may provide both private checkouts and fetched CI evidence without copying private sources into this public repository.
+
+## Ordinary Codex adoption implementation
+
+The implementation adds `OpenShellRuntimeManager.adoptKnowledge` at the ordinary
+Codex turn admission boundary. It selects through the existing publication
+verifier, copies a private verified selection to a separate versioned sandbox
+knowledge root, removes portable task Git from that view, verifies exact uploaded
+file bytes and modes, and compiles through the reviewed ContexGin entrypoint.
+Physical sandbox identity and ownership are checked before and after delivery.
+The Codex adapter delivers the selected compiled context through the public
+`turn/start.additionalContext` application-context field on the same provider
+thread. Selection happens between completed turns; queued user messages remain
+unchanged. This also works before the first turn, when the native thread has no
+persisted rollout and cannot be resumed.
+
+Native app-server launchers apply an inherited Landlock write boundary: task
+files, private provider state and temporary files remain writable, while the
+knowledge lane cannot be modified by an agent or its background descendants.
+Actual runtime recipe attestation includes this boundary and both launchers.
+Knowledge caches use content-addressed paths and reuse verified copies across
+manager restarts. Sandbox-local cleanup retains active and manually pinned views,
+at least ten recent copies, and copies younger than thirty days; publisher
+versions and checkpoint artifacts are outside that cleanup's authority.
+
+The compiler pin is ContexGin `683f9007db686e710ed9a5410468fe33df1c5382`, which
+reads tracked `AGENTS.md` once and uses it ahead of legacy `CLAUDE.md`. Runtime
+staging builds this exact source with frozen dependencies and fingerprints the
+installed dependency closure and context recipe. Target markers are observed
+inside the built image and the canonical resolution-contract helper computes the
+runtime projection. These are runtime release inputs, not invented seed hashes.
+
+This is implemented consumer support, not production enrollment evidence. The
+legacy deployed lock has no dynamic contract. A reviewed compatible image/lock,
+a supervised MGMT publisher, and consumer selection at its current publication
+are required before enabling it. Host, Responses, Claude and Symposium adoption
+remain separate enrollment work. No task checkout, draft, checkpoint or old
+worktree is rebased by knowledge publication.

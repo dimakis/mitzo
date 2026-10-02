@@ -443,6 +443,37 @@ it('advertises reviewed per-chat provider grants to a managed OpenShell runtime'
       }),
     ]);
     expect(mocks.conversationOptions?.systemPrompt).toContain('GrantIntegrationAccess');
+    const adoption = vi
+      .spyOn(OpenShellRuntimeManager.prototype, 'adoptKnowledge')
+      .mockResolvedValue({
+        sourceCommit: 'a'.repeat(40),
+        payloadSha256: 'b'.repeat(64),
+        manifestSha256: 'c'.repeat(64),
+        knowledgeRoot: '/sandbox/workspaces/knowledge/revision/mgmt',
+        context: {
+          type: 'boot_context',
+          scope: 'sandbox',
+          sourceCount: 1,
+          tokenCount: 2,
+          tokenBudget: 12000,
+          sources: [],
+          included: [],
+          trimmed: [],
+          fullMarkdown: 'Fresh knowledge B',
+        },
+      });
+    const prepareContext = mocks.conversationOptions?.prepareSystemPrompt as (
+      signal: AbortSignal,
+    ) => Promise<string>;
+    const refreshed = await prepareContext(AbortSignal.timeout(5000));
+    expect(refreshed).toContain('Fresh knowledge B');
+    expect(refreshed).toContain('/sandbox/workspaces/knowledge/revision/mgmt');
+    expect(refreshed).toContain('GrantIntegrationAccess');
+    expect(adoption).toHaveBeenCalledWith(
+      'conversation',
+      expect.objectContaining({ sandboxId: 'verified-resource' }),
+      expect.any(AbortSignal),
+    );
     expect(mocks.conversationOptions?.systemPrompt).toContain(
       'Mitzo preflights explicit requests for grantable integrations',
     );

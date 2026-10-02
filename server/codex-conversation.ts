@@ -57,6 +57,8 @@ export interface CodexConversationOptions {
     turn: { providerPrompt: string; userIntent?: string; turnId: string },
     signal: AbortSignal,
   ) => Promise<string | void>;
+  /** Select verified project context at a safe boundary; never append it as user text. */
+  prepareSystemPrompt?: (signal: AbortSignal) => Promise<string | undefined>;
   beforeComplete?: (signal: AbortSignal) => Promise<void>;
   beforeReconnect?: () => Promise<void>;
   reconnectGuard?: (work: () => Promise<void>) => Promise<void>;
@@ -992,6 +994,20 @@ export class CodexConversation {
       this.mapper?.setModel(model);
       await this.verifyCurrentBinding(this.binding);
       active.abort.signal.throwIfAborted();
+      const systemPrompt = await this.opts.prepareSystemPrompt?.(active.abort.signal);
+      // Native threads have no persisted rollout before their first turn.
+      // Deliver the selection through the public per-turn application context
+      // contract, preserving both provider identity and unchanged user input.
+      const additionalContext: Record<
+        string,
+        { kind: 'application' | 'untrusted'; value: string }
+      > = {};
+      if (systemPrompt !== undefined)
+        additionalContext['mitzo.published-project-context'] = {
+          kind: 'application',
+          value: systemPrompt,
+        };
+      active.abort.signal.throwIfAborted();
       const preparedPrompt =
         (await this.opts.prepareTurn?.(
           { providerPrompt: command.prompt, userIntent: command.intent, turnId: command.id },
@@ -1004,6 +1020,15 @@ export class CodexConversation {
       active.span.setAttribute('gen_ai.request.model', model);
       const state = this.opts.store.read(this.opts.conversationId, this.binding!);
       const rolloverContext = state.threadId === this.threadId ? state.rolloverContext : null;
+      if (rolloverContext)
+        additionalContext[
+          this.opts.providerThreadLifecycle === 'attempt'
+            ? 'mitzo.attempt-home-continuity'
+            : 'mitzo.tool-surface-rollover'
+        ] = {
+          kind: 'untrusted',
+          value: rolloverContext,
+        };
       const result = z.object({ turn: z.object({ id: z.string() }) }).parse(
         await this.client.request('turn/start', {
           threadId: this.threadId,
@@ -1019,18 +1044,7 @@ export class CodexConversation {
           approvalPolicy: 'never',
           sandboxPolicy: this.opts.turnSandboxPolicy ?? { type: 'readOnly' },
           ...(command.reasoningEffort ? { effort: command.reasoningEffort } : {}),
-          ...(rolloverContext
-            ? {
-                additionalContext: {
-                  [this.opts.providerThreadLifecycle === 'attempt'
-                    ? 'mitzo.attempt-home-continuity'
-                    : 'mitzo.tool-surface-rollover']: {
-                    kind: 'untrusted',
-                    value: rolloverContext,
-                  },
-                },
-              }
-            : {}),
+          ...(Object.keys(additionalContext).length ? { additionalContext } : {}),
         }),
       );
       if (this.active === active) {

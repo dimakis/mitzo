@@ -17,6 +17,39 @@ const binding = {
   model: 'test-model',
   profileRevision: 'chatgpt:test@example.com:test',
 };
+
+it('delivers accepted application context only between turns and preserves the provider thread', async () => {
+  let knowledge = 'context A';
+  const prepare = vi.fn(async () => knowledge);
+  const args: Parameters<typeof setup> = [];
+  args[13] = prepare;
+  const { c, callbacks, requests } = await setup(...args);
+  await c.send({ id: 'knowledge-a', prompt: 'first task' });
+  const first = requests.find((r) => r.method === 'turn/start');
+  expect(first?.params.additionalContext).toEqual({
+    'mitzo.published-project-context': { kind: 'application', value: 'context A' },
+  });
+  knowledge = 'context B';
+  await c.send({ id: 'knowledge-b', prompt: 'continue' });
+  expect(prepare).toHaveBeenCalledTimes(1);
+  callbacks.onNotification('turn/completed', {
+    threadId: 'provider-thread',
+    turn: { id: 'turn-1', status: 'completed' },
+  });
+  await vi.waitFor(() => expect(requests.filter((r) => r.method === 'turn/start')).toHaveLength(2));
+  expect(requests.filter((r) => r.method === 'thread/resume')).toHaveLength(0);
+  const turns = requests.filter((r) => r.method === 'turn/start');
+  expect(turns.map((r) => r.params.additionalContext)).toEqual([
+    { 'mitzo.published-project-context': { kind: 'application', value: 'context A' } },
+    { 'mitzo.published-project-context': { kind: 'application', value: 'context B' } },
+  ]);
+  expect(turns.every((r) => r.params.threadId === 'provider-thread')).toBe(true);
+  expect(requests.filter((r) => r.method === 'thread/start')).toHaveLength(1);
+  expect(requests.filter((r) => r.method === 'turn/start').map((r) => r.params.input)).toEqual([
+    [{ type: 'text', text: 'first task' }],
+    [{ type: 'text', text: 'continue' }],
+  ]);
+});
 afterEach(() => {
   vi.restoreAllMocks();
   cleanup.splice(0).forEach((f) => f());
@@ -121,6 +154,7 @@ async function setup(
     turnId: string,
     status: 'completed' | 'interrupted' | 'failed',
   ) => void,
+  prepareSystemPrompt?: (signal: AbortSignal) => Promise<string | undefined>,
 ) {
   const dir = mkdtempSync(join(tmpdir(), 'mitzo-codex-'));
   const store = existingStore ?? new CodexConversationStore(join(dir, 'private.db'));
@@ -199,6 +233,7 @@ async function setup(
     completionHookTimeoutMs,
     beforeReconnect,
     prepareTurn,
+    prepareSystemPrompt,
     onProviderDispatch,
     onProviderComplete,
     onProviderAccepted,

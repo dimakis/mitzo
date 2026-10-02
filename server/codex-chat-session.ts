@@ -763,6 +763,15 @@ async function openCodexChatBound(
         connectionRevision: managedCapabilityConnection.revision,
       });
   }
+  const baseSystemPrompt =
+    options.systemPrompt +
+    `\nWhen the user asks you to build a reusable Symposium agent profile in this conversation, use ${SYMPOSIUM_PROPOSE_PROFILE_TOOL} to submit portable guidance for review. The tool only drafts a proposal; tell the user to edit and save it in Mitzo. Do not include credentials, transcript text, session or machine paths, account bindings, or runtime grants.\n` +
+    (connectedOpenShell
+      ? `\nOpenShell contains the provider loop and its built-in tools. Use those tools directly inside the supplied sandbox workspace. Current Mitzo mode: ${options.session.mode}. In Agent or Auto mode, a user request to edit that workspace is the required approval: execute it without asking again. Use ${TELOS_CREATE_OUTCOME_TOOL} for durable Telos capture; never use a sandbox-local todo script for persistent Telos work.${integrationTools.length ? ` Mitzo preflights explicit requests for grantable integrations before the turn begins. If you discover that you need a grantable service which the user did not request explicitly, call ${GRANT_INTEGRATION_TOOL} before using it. A CLI being installed does not mean its provider is attached, and a tunnel error from an unattached provider is not evidence of a gateway outage.` : ''}\n`
+      : HOST_TOOL_INSTRUCTIONS) +
+    (managedConnection?.templateId === 'jira-readonly'
+      ? '\nThis sandbox has verified read-only Jira access to https://redhat.atlassian.net. Use the scoped API base in JIRA_URL (not the browser site URL). Use the provider-approved /usr/bin/python3 or curl with JIRA_URL, JIRA_EMAIL, and the gateway-managed JIRA_API_TOKEN placeholder for Basic authorization. Never print credential values. Writes are denied by the gateway policy.\n'
+      : '');
   const runtime = new CodexConversation({
     conversationId: options.conversationId,
     cwd: options.session.cwd!,
@@ -774,21 +783,26 @@ async function openCodexChatBound(
       ? 'openshell-runtime-config-v1'
       : `codex-cli:${SUPPORTED_CODEX_CLI_VERSION}`,
     getMode: () => options.session.mode,
-    systemPrompt:
-      options.systemPrompt +
-      `\nWhen the user asks you to build a reusable Symposium agent profile in this conversation, use ${SYMPOSIUM_PROPOSE_PROFILE_TOOL} to submit portable guidance for review. The tool only drafts a proposal; tell the user to edit and save it in Mitzo. Do not include credentials, transcript text, session or machine paths, account bindings, or runtime grants.\n` +
-      (connectedOpenShell
-        ? `\nOpenShell contains the provider loop and its built-in tools. Use those tools directly inside the supplied sandbox workspace. Current Mitzo mode: ${options.session.mode}. In Agent or Auto mode, a user request to edit that workspace is the required approval: execute it without asking again. Use ${TELOS_CREATE_OUTCOME_TOOL} for durable Telos capture; never use a sandbox-local todo script for persistent Telos work.${integrationTools.length ? ` Mitzo preflights explicit requests for grantable integrations before the turn begins. If you discover that you need a grantable service which the user did not request explicitly, call ${GRANT_INTEGRATION_TOOL} before using it. A CLI being installed does not mean its provider is attached, and a tunnel error from an unattached provider is not evidence of a gateway outage.` : ''}\n`
-        : HOST_TOOL_INSTRUCTIONS) +
-      (managedConnection?.templateId === 'jira-readonly'
-        ? '\nThis sandbox has verified read-only Jira access to https://redhat.atlassian.net. Use the scoped API base in JIRA_URL (not the browser site URL). Use the provider-approved /usr/bin/python3 or curl with JIRA_URL, JIRA_EMAIL, and the gateway-managed JIRA_API_TOKEN placeholder for Basic authorization. Never print credential values. Writes are denied by the gateway policy.\n'
-        : '') +
-      (startup.context ? `\n\n${startup.context}` : ''),
+    systemPrompt: baseSystemPrompt + (startup.context ? `\n\n${startup.context}` : ''),
     beforeComplete: async (signal) => {
       await hooks?.run('Stop', { stop_hook_active: false }, signal);
     },
     ...(runtimeManager
       ? {
+          prepareSystemPrompt: async (signal: AbortSignal) =>
+            sharedOpenShellLifecycleCoordinator.admit(options.conversationId, async () => {
+              const selected = await runtimeManager.adoptKnowledge(
+                options.conversationId,
+                managedOpenShell!,
+                signal,
+              );
+              if (!selected) return undefined;
+              options.onBootContext?.(selected.context);
+              return (
+                baseSystemPrompt +
+                `\n\n# Published MGMT knowledge\nAccepted source: ${selected.sourceCommit}\nBundle: ${selected.payloadSha256}\nRead shared project instructions from ${selected.knowledgeRoot}/AGENTS.md. Search and read accepted knowledge under ${selected.knowledgeRoot}/memory/. This published view supersedes older accepted knowledge in the task checkout. Keep edits and new observations in the writable task workspace; do not modify the published knowledge view. A local commit is not evidence of publication or adoption elsewhere.\n\n${selected.context.fullMarkdown}`
+              );
+            }),
           reconnectGuard: connectionService
             ? (work: () => Promise<void>) =>
                 connectionService.withAccountRuntimes(

@@ -48,9 +48,19 @@ cp "$root/initialize-mitzo-workspace" "$context/initialize-mitzo-workspace"
 cp "$root/run-mgmt-notebook" "$context/run-mgmt-notebook"
 cp "$root/compile-mgmt-context.mjs" "$context/compile-mgmt-context.mjs"
 cp "$root/mitzo-checkpoint.py" "$context/mitzo-checkpoint.py"
-mkdir -p "$context/contexgin/dist"
-cp "$repo_root/node_modules/contexgin/package.json" "$context/contexgin/package.json"
-cp -R "$repo_root/node_modules/contexgin/dist/." "$context/contexgin/dist/"
+cp "$root/knowledge-write-scope.c" "$context/knowledge-write-scope.c"
+# Build from the exact reviewed source, never ambient node_modules bytes.
+compiler_commit="$(node --input-type=module -e 'import fs from "node:fs"; const pin=JSON.parse(fs.readFileSync(process.argv[1])).dependencies.contexgin; const match=/^github:dimakis\/contexgin#([a-f0-9]{40})$/.exec(pin); if(!match) throw new Error("ContexGin must be commit-pinned"); process.stdout.write(match[1]);' "$repo_root/package.json")"
+compiler_repo="$context/compiler.git"
+git init --bare --quiet "$compiler_repo"
+git -C "$compiler_repo" fetch --quiet --no-tags https://github.com/dimakis/contexgin.git "$compiler_commit"
+mkdir -p "$context/compiler_source" "$context/contexgin/dist"
+git -C "$compiler_repo" archive "$compiler_commit" | tar -x -C "$context/compiler_source"
+(cd "$context/compiler_source" && npm ci --ignore-scripts --no-audit --no-fund && npm run build)
+cp "$context/compiler_source/package.json" "$context/compiler_source/package-lock.json" "$context/contexgin/"
+cp -R "$context/compiler_source/dist/." "$context/contexgin/dist/"
+cp "$repo_root/scripts/attest-knowledge-runtime.py" "$context/attest-knowledge-runtime.py"
+rm -rf "$compiler_repo" "$context/compiler_source"
 cp "$mgmt_repo/pyproject.toml" "$context/pyproject.toml"
 cp "$mgmt_repo/uv.lock" "$context/uv.lock"
 mkdir -p "$context/jira_process"
@@ -60,6 +70,7 @@ podman build --pull=never \
   --build-arg "OPENSHELL_BASE_IMAGE=$base_image" \
   --build-arg "MITZO_SOURCE_COMMIT=$mitzo_source_commit" \
   --build-arg "MGMT_SOURCE_COMMIT=$mgmt_source_commit" \
+  --build-arg "KNOWLEDGE_COMPILER_COMMIT=$compiler_commit" \
   --tag "$tag" "$context"
 codex_version="$(cat "$root/runtime-codex-version")"
 test "$(podman run --rm --network none --entrypoint /usr/bin/codex "$tag" --version)" = "codex-cli $codex_version"
