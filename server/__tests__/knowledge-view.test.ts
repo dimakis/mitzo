@@ -17,6 +17,8 @@ import {
   knowledgeVerificationCommand,
   knowledgeViewManifest,
   knowledgeCleanupCommand,
+  knowledgeCacheStatusCommand,
+  knowledgeCacheRepairCommand,
 } from '../knowledge-view.js';
 
 let root = '';
@@ -71,6 +73,11 @@ it.each(['content', 'mode', 'extra', 'symlink', 'manifest'])(
     writeFileSync(join(root, 'knowledge-view.json'), bytes);
     const command = knowledgeVerificationCommand(root, sha(bytes));
     expect(() => execFileSync('/bin/sh', ['-c', command])).not.toThrow();
+    expect(
+      execFileSync('/bin/sh', ['-c', knowledgeCacheStatusCommand(root, sha(bytes))], {
+        encoding: 'utf8',
+      }).trim(),
+    ).toBe('true');
     if (tamper === 'content') writeFileSync(note, 'draft');
     if (tamper === 'mode') chmodSync(note, 0o755);
     if (tamper === 'extra') writeFileSync(join(root, 'mgmt/injected.md'), 'extra');
@@ -79,5 +86,18 @@ it.each(['content', 'mode', 'extra', 'symlink', 'manifest'])(
       execFileSync('ln', ['-s', note, join(root, 'mgmt/injected.md')]);
     }
     expect(() => execFileSync('/bin/sh', ['-c', command], { stdio: 'pipe' })).toThrow();
+    expect(
+      execFileSync('/bin/sh', ['-c', knowledgeCacheStatusCommand(root, sha(bytes))], {
+        encoding: 'utf8',
+      }).trim(),
+    ).toBe('false');
   },
 );
+
+it.each([
+  '/sandbox/workspaces/mgmt',
+  '/tmp/knowledge-' + 'a'.repeat(64),
+  '/sandbox/workspaces/knowledge/../mgmt',
+])('never repairs a task or unrelated path: %s', (path) => {
+  expect(() => knowledgeCacheRepairCommand(path)).toThrow();
+});
