@@ -16,6 +16,7 @@ async function execute(
   current = head,
   next = current,
   reviewer = '',
+  event: Record<string, unknown> = { pull_request: { number: 704 } },
 ) {
   const statuses: { state: string; sha: string; context: string }[] = [];
   let reads = 0;
@@ -24,20 +25,26 @@ async function execute(
       pulls: {
         get: async () => ({ data: { state: 'open', head: { sha: reads++ ? next : current } } }),
         listReviews: 'reviews',
+        list: 'pulls',
       },
       issues: { listComments: 'comments' },
       repos: {
         createCommitStatus: async (status: (typeof statuses)[number]) => statuses.push(status),
       },
     },
-    paginate: async (endpoint: string) => (endpoint === 'reviews' ? records : []),
+    paginate: async (endpoint: string) =>
+      endpoint === 'reviews'
+        ? records
+        : endpoint === 'pulls'
+          ? [{ number: 704, head: { ref: 'topic', repo: { full_name: 'fork/mitzo' } } }]
+          : [],
   };
   await new Script(`(async () => {${script}})()`).runInNewContext({
     github,
     process: { env: { CENTAUR_REVIEWER_LOGIN: reviewer } },
     context: {
       repo: { owner: 'dimakis', repo: 'mitzo' },
-      payload: { pull_request: { number: 704 } },
+      payload: event,
     },
   });
   return statuses;
@@ -81,4 +88,24 @@ it('accepts only the configured trusted Centaur publishing account', async () =>
     )?.state,
   ).toBe('success');
   expect((await execute([review], head, head, 'centaur-bot')).at(-1)?.state).toBe('pending');
+});
+
+it('resolves fork review signals through canonical PR metadata', async () => {
+  const statuses = await execute([review], head, head, '', {
+    workflow_run: {
+      pull_requests: [],
+      head_repository: { full_name: 'fork/mitzo' },
+      head_branch: 'topic',
+    },
+  });
+  expect(statuses.at(-1)?.state).toBe('success');
+});
+
+it('separates PR-controlled review signals from trusted status writes', () => {
+  const gate = readFileSync('.github/workflows/centaur-gate.yml', 'utf8');
+  const signal = readFileSync('.github/workflows/centaur-review-signal.yml', 'utf8');
+  expect(gate).not.toContain('  pull_request_review:');
+  expect(gate).toContain('workflows: [Centaur review signal]');
+  expect(signal).not.toContain('statuses: write');
+  expect(signal).not.toContain('actions/checkout');
 });

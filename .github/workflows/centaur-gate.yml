@@ -3,8 +3,9 @@ name: Centaur merge gate
 on:
   pull_request_target:
     types: [opened, synchronize, reopened]
-  pull_request_review:
-    types: [submitted, edited, dismissed]
+  workflow_run:
+    workflows: [Centaur review signal]
+    types: [completed]
   issue_comment:
     types: [created, edited, deleted]
   workflow_dispatch:
@@ -19,7 +20,7 @@ permissions:
   statuses: write
 
 concurrency:
-  group: centaur-${{ github.event.pull_request.number || github.event.issue.number || inputs.pr_number }}
+  group: centaur-${{ github.event.pull_request.number || github.event.issue.number || inputs.pr_number || github.event.workflow_run.pull_requests[0].number || format('{0}:{1}', github.event.workflow_run.head_repository.full_name, github.event.workflow_run.head_branch) }}
   cancel-in-progress: true
 
 jobs:
@@ -33,12 +34,24 @@ jobs:
           CENTAUR_REVIEWER_LOGIN: ${{ vars.CENTAUR_REVIEWER_LOGIN || github.repository_owner }}
         with:
           script: |
-            const number = context.payload.pull_request?.number ??
-              context.payload.issue?.number ?? Number(context.payload.inputs?.pr_number);
-            if (!Number.isSafeInteger(number) || number <= 0) throw new Error('Invalid PR');
             const repo = {owner: context.repo.owner, repo: context.repo.repo};
+            const signal = context.payload.workflow_run;
+            let numbers = signal ? (signal.pull_requests || []).map(pr => pr.number) : [
+              context.payload.pull_request?.number ?? context.payload.issue?.number ??
+              Number(context.payload.inputs?.pr_number)];
+            // Fork run metadata can omit pull_requests. Resolve only canonical
+            // open PRs matching the run's source repository and branch.
+            if (signal && numbers.length === 0) {
+              const candidates = await github.paginate(github.rest.pulls.list,
+                {...repo, state: 'open', per_page: 100});
+              numbers = candidates.filter(pr => pr.head.repo?.full_name === signal.head_repository?.full_name &&
+                pr.head.ref === signal.head_branch).map(pr => pr.number);
+            }
+            if (numbers.length === 0) throw new Error('Unable to resolve review signal');
+            for (const number of new Set(numbers)) {
+            if (!Number.isSafeInteger(number) || number <= 0) throw new Error('Invalid PR');
             const {data: pr} = await github.rest.pulls.get({...repo, pull_number: number});
-            if (pr.state !== 'open') return;
+            if (pr.state !== 'open') continue;
             const head = pr.head.sha;
             await github.rest.repos.createCommitStatus({...repo, sha: head,
               context: 'Centaur final LGTM', state: 'pending',
@@ -64,10 +77,11 @@ jobs:
               /^- Unresolved blocking findings: 0\s*$/m.test(body);
             // A head advance must never receive a verdict computed for the old head.
             const {data: refreshed} = await github.rest.pulls.get({...repo, pull_number: number});
-            if (refreshed.state !== 'open' || refreshed.head.sha !== head) return;
+            if (refreshed.state !== 'open' || refreshed.head.sha !== head) continue;
             await github.rest.repos.createCommitStatus({...repo, sha: head,
               context: 'Centaur final LGTM',
               state: approved ? 'success' : current ? 'failure' : 'pending',
               description: approved ? 'Final Centaur LGTM for this commit' :
                 current ? 'Centaur findings or invalid approval block merge' :
                 'Waiting for final Centaur review of this commit'});
+            }
