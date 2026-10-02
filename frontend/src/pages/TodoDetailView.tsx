@@ -110,7 +110,10 @@ export function TodoDetailView() {
   }
 
   function handleLinkClick(url: string) {
-    if (/^https?:\/\//i.test(url)) {
+    if (
+      /^https?:\/\//i.test(url) ||
+      /^\/api\/telos\/artifacts\/[a-f0-9]{32}(?:\?revision=[1-9]\d*)?$/.test(url)
+    ) {
       handleSourceClick(url);
     } else {
       handlePathClick(url);
