@@ -9,11 +9,5 @@ export function ResponsiveChatView() {
   const desktop = useIsDesktop();
   const sessionId = useMitzoStore((state) => state.sessions.active);
   const screen = desktop ? <DesktopChatView /> : <ChatView />;
-  return sessionId ? (
-    <ReviewerSheetHost key={sessionId} sessionId={sessionId}>
-      {screen}
-    </ReviewerSheetHost>
-  ) : (
-    screen
-  );
+  return <ReviewerSheetHost sessionId={sessionId}>{screen}</ReviewerSheetHost>;
 }
