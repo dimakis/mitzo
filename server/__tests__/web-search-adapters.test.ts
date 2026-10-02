@@ -1,3 +1,4 @@
+import type { query } from '@anthropic-ai/claude-agent-sdk';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { searchOpenAI, searchGemini, searchSdk } from '../web-search-adapters.js';
 afterEach(() => vi.unstubAllGlobals());
@@ -104,7 +105,7 @@ describe('selected-account native search adapters', () => {
     expect(fetch).toHaveBeenCalledTimes(1);
   });
   it('restricts SDK search to WebSearch on the exact account environment and selected model', async () => {
-    const sdk = vi.fn(() =>
+    const sdk = vi.fn((_options: Parameters<typeof query>[0]) =>
       (async function* () {
         yield {
           type: 'assistant',

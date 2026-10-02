@@ -18,7 +18,7 @@ describe('shared web access tool wiring', () => {
       accountBinding: { accountId: 'a', provider: 'openai', model: 'm', profileRevision: '1' },
     } as unknown as ManagedSession;
     const registry = {
-      findBySessionId: () => ({ clientId: session.clientId, session }),
+      findBySessionId: () => ({ clientId: 'owner', session }),
       get: () => session,
     } as unknown as SessionRegistry;
     const search = vi.fn().mockResolvedValue('answer');
@@ -67,7 +67,7 @@ describe('shared web access tool wiring', () => {
     const registry = {
       get: () => f.session,
       findBySessionId: (id: string) =>
-        id === 'conversation' ? { clientId: f.session.clientId, session: f.session } : null,
+        id === 'conversation' ? { clientId: 'owner', session: f.session } : null,
     } as unknown as SessionRegistry;
     const execute = createWebAccessTool(() => conversationId, registry, f.search);
     conversationId = 'conversation';
