@@ -982,3 +982,42 @@ it('explains the approval workflow and opens only for a matching reviewer handof
   expect(screen.getByRole('heading', { name: 'Review requests' })).toBeTruthy();
   expect(screen.getByText(/No review requests yet/)).toBeTruthy();
 });
+
+it('refreshes queued requests on a matching handoff when the panel is already open', async () => {
+  const initial = status(true);
+  const updated = {
+    ...initial,
+    deliveries: [
+      {
+        deliveryId: 'new-review',
+        recipientSeatIds: ['reviewer'],
+        status: 'awaiting_intervention',
+        originalContent: 'Review the newly added reviewer request',
+      },
+    ],
+  };
+  vi.mocked(apiFetch)
+    .mockResolvedValueOnce(response(initial))
+    .mockResolvedValueOnce(response(updated));
+  render(<SymposiumDirectorPanel sessionId="session" />);
+  await userEvent.click(screen.getByRole('button', { name: 'Review team & approvals' }));
+  await screen.findByText(/No review requests yet/);
+  act(() =>
+    window.dispatchEvent(
+      new CustomEvent('symposium-open-team', {
+        detail: { sessionId: 'other' },
+      }),
+    ),
+  );
+  expect(apiFetch).toHaveBeenCalledTimes(1);
+  act(() =>
+    window.dispatchEvent(
+      new CustomEvent('symposium-open-team', {
+        detail: { sessionId: 'session' },
+      }),
+    ),
+  );
+  expect(await screen.findByText(updated.deliveries[0].originalContent)).toBeTruthy();
+  expect(screen.getByRole('button', { name: 'Approve' })).toBeTruthy();
+  expect(apiFetch).toHaveBeenCalledTimes(2);
+});

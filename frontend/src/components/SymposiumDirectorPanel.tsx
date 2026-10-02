@@ -311,14 +311,6 @@ function SeatModelEditor({
 
 export function SymposiumDirectorPanel({ sessionId }: { sessionId: string }) {
   const [open, setOpen] = useState(false);
-  useEffect(() => {
-    const openTeam = (event: Event) => {
-      if ((event as CustomEvent<{ sessionId: string }>).detail?.sessionId === sessionId)
-        setOpen(true);
-    };
-    window.addEventListener('symposium-open-team', openTeam);
-    return () => window.removeEventListener('symposium-open-team', openTeam);
-  }, [sessionId]);
   // Keep visibility across navigation, but isolate all roster, form, and request state.
   return (
     <SessionDirectorPanel key={sessionId} sessionId={sessionId} open={open} setOpen={setOpen} />
@@ -405,6 +397,16 @@ function SessionDirectorPanel({
       refreshGeneration.current += 1;
     };
   }, [sessionId, open, refresh]);
+
+  useEffect(() => {
+    const openTeam = (event: Event) => {
+      if ((event as CustomEvent<{ sessionId: string }>).detail?.sessionId !== sessionId) return;
+      if (open) void refresh();
+      else setOpen(() => true);
+    };
+    window.addEventListener('symposium-open-team', openTeam);
+    return () => window.removeEventListener('symposium-open-team', openTeam);
+  }, [sessionId, open, refresh, setOpen]);
 
   async function mutate(path: string, payload: Record<string, unknown>, method = 'POST') {
     if (busy) return;

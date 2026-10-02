@@ -143,7 +143,8 @@ creation are eligible; private asides, queued inputs, and legacy turns without
 audience proof are excluded. Edited deliveries contribute their delivered text.
 The three setup sections explain the reviewer profile/account, the request and
 conversation context, and sharing consent. After adding a reviewer, use **Go to
-review approvals** to open this conversation's team panel. Requests appear before
+review approvals** to open and refresh this conversation's team panel, including
+when it is already open. Requests appear before
 team configuration, with agent names and **Needs approval** or **Approved — ready
 to send** status. Choose **Approve** (or **Edit and approve**), then **Send approved
 request** to start the review. Use **Open review findings** for the results.
