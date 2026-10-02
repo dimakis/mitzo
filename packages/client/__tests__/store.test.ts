@@ -3060,6 +3060,7 @@ it('removes the rejected optimistic launch before retrying without duplicating i
   lastWs.simulateMessage({ type: 'session_id', sessionId: 'target', clientMsgId: rejectedId });
   lastWs.simulateMessage({ type: 'error', clientMsgId: rejectedId, error: 'Startup failed' });
   expect(store.getState().messages.messages.some((m) => m.messageId === rejectedId)).toBe(false);
+  expect(store.getState().sendPendingSession()).toBe(false);
   store.getState().sendPendingSession();
   const retryId = store.getState().messages.messages.at(-1)!.messageId;
   lastWs.simulateMessage({
@@ -3072,7 +3073,7 @@ it('removes the rejected optimistic launch before retrying without duplicating i
   expect(store.getState().pendingSession).toBeNull();
 });
 
-it('retries a navigated failed launch in a dedicated draft with its original selection', async () => {
+it('requires a dedicated draft and confirmation before retrying a navigated failed launch', async () => {
   const store = createReadyStore();
   store.getState().setPendingSession({ prompt: 'Launch', context: 'Telos', telosTaskId: 'task' });
   store.getState().sendPendingSession({ accountId: 'personal', model: 'luna', cwd: '/original' });
@@ -3081,7 +3082,11 @@ it('retries a navigated failed launch in a dedicated draft with its original sel
   await store.getState().switchSession('unrelated-b');
   lastWs.simulateMessage({ type: 'error', clientMsgId: id, error: 'Startup failed' });
   expect(store.getState().sessions.active).toBe('unrelated-b');
-  store.getState().sendPendingSession({ accountId: 'work', model: 'other', cwd: '/unrelated' });
+  expect(
+    store.getState().sendPendingSession({ accountId: 'work', model: 'other', cwd: '/unrelated' }),
+  ).toBe(false);
+  expect(lastWs.parsedSent().filter((m) => m.type === 'send')).toHaveLength(1);
+  store.getState().sendPendingSession({ accountId: 'personal', model: 'luna', cwd: '/original' });
   expect(
     lastWs
       .parsedSent()
@@ -3126,4 +3131,39 @@ it('retires the first launch foreground assignment when a replacement opens in t
   });
   expect(store.getState().pendingSession?.prompt).toBe('Launch B');
   expect(store.getState().pendingSessionSending).toBe(true);
+});
+
+it('retires a dismissed launch before a later launch opens in its unassigned draft', () => {
+  const store = createReadyStore();
+  store.getState().setPendingSession({ prompt: 'A', context: 'A' });
+  store.getState().sendPendingSession();
+  const a = store.getState().messages.messages.at(-1)!.messageId;
+  store.getState().clearPendingSession();
+  store.getState().setPendingSession({ prompt: 'B', context: 'B' });
+  lastWs.simulateMessage({ type: 'session_id', sessionId: 'session-a', clientMsgId: a });
+  expect(store.getState().sessions.active).toBeNull();
+  store.getState().sendPendingSession();
+  expect(
+    lastWs
+      .parsedSent()
+      .filter((m) => m.type === 'send')
+      .at(-1),
+  ).toMatchObject({ sessionId: null, prompt: 'B' });
+});
+
+it('returns a navigated unsent launch to a draft for account confirmation before sending', async () => {
+  const store = createReadyStore();
+  store.getState().setPendingSession({ prompt: 'Launch', context: 'Telos', telosTaskId: 'task' });
+  await store.getState().switchSession('unrelated');
+  expect(store.getState().sendPendingSession({ accountId: 'work', model: 'other' })).toBe(false);
+  expect(lastWs.parsedSent().filter((m) => m.type === 'send')).toHaveLength(0);
+  expect(store.getState().sessions.active).toBeNull();
+  expect(store.getState().pendingSession?.prompt).toBe('Launch');
+  store.getState().sendPendingSession({ accountId: 'personal', model: 'luna' });
+  expect(
+    lastWs
+      .parsedSent()
+      .filter((m) => m.type === 'send')
+      .at(-1),
+  ).toMatchObject({ sessionId: null, accountId: 'personal', model: 'luna', telosTaskId: 'task' });
 });

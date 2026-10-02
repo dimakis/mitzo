@@ -261,9 +261,12 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
   let recoveryInFlight = false;
   const pendingOptimisticMessageIds = new Set<string>();
   const deliveryObservers = new Map<string, NonNullable<SendMessageOptions['onDelivery']>>();
-  let failedLaunchRetry: { pending: PendingSession; options: SendMessageOptions } | undefined;
+  let launchGeneration = 0;
   const deliverySessions = new Map<string, string>();
-  const unassignedDeliveries = new Map<string, number>();
+  const unassignedDeliveries = new Map<
+    string,
+    { historyRequest: number; launchGeneration: number }
+  >();
   const hasPendingDelivery = (sessionId: string) =>
     [...deliverySessions.values()].includes(sessionId);
   function settleDelivery(id: string, status: 'accepted' | 'failed' | 'uncertain') {
@@ -669,7 +672,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
         deliveryObservers.set(clientMsgId, opts.onDelivery);
         if (parserState.currentSessionId)
           deliverySessions.set(clientMsgId, parserState.currentSessionId);
-        else unassignedDeliveries.set(clientMsgId, historyRequest);
+        else unassignedDeliveries.set(clientMsgId, { historyRequest, launchGeneration });
       }
 
       const buildPayload = (): Record<string, unknown> => {
@@ -996,27 +999,36 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     setPendingSession(ps: PendingSession) {
       // Replacing a launch owns a new draft and retires any earlier assignment.
       if (get().pendingSession) get().newSession();
-      failedLaunchRetry = undefined;
+      ++launchGeneration;
       set({ pendingSession: ps, pendingSessionSending: false });
     },
 
     clearPendingSession() {
-      failedLaunchRetry = undefined;
+      const ownsUnassignedDraft =
+        !get().sessions.active &&
+        [...unassignedDeliveries.values()].some(
+          (origin) =>
+            origin.historyRequest === historyRequest &&
+            origin.launchGeneration === launchGeneration,
+        );
+      ++launchGeneration;
+      if (ownsUnassignedDraft) get().newSession();
       set({ pendingSession: null, pendingSessionSending: false });
     },
 
     sendPendingSession(opts) {
       const pending = get().pendingSession;
       if (!pending || get().pendingSessionSending) return false;
-      const retry = failedLaunchRetry?.pending === pending ? failedLaunchRetry : undefined;
-      const selection = retry?.options ?? {
+      // A carried preview must be reviewed in its own draft before account confirmation.
+      if (get().sessions.active) {
+        get().newSession();
+        return false;
+      }
+      const selection = {
         ...opts,
         model: opts?.model ?? get().config.modelId ?? undefined,
         mode: opts?.mode ?? get().config.mode,
       };
-      // A failed attempt is retried in its own draft, never in a chat selected meanwhile.
-      if (retry) get().newSession();
-      failedLaunchRetry = undefined;
       // Each attempt has a distinct identity, so stale receipts cannot dismiss a replacement.
       const launch = { ...pending };
       set({ pendingSession: launch, pendingSessionSending: true });
@@ -1028,9 +1040,8 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
         ...(launch.agentName ? { agentName: launch.agentName } : {}),
         onDelivery(status) {
           if (get().pendingSession !== launch) return;
-          if (status === 'accepted') get().clearPendingSession();
+          if (status === 'accepted') set({ pendingSession: null, pendingSessionSending: false });
           else if (status === 'failed') {
-            failedLaunchRetry = { pending: launch, options: selection };
             queued = false;
             set({ pendingSessionSending: false });
           }
@@ -1059,7 +1070,9 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
   }));
 
   function bindLaunchAssignment(id: string, sessionId: string, consume = true): boolean {
-    const foreground = unassignedDeliveries.get(id) === historyRequest;
+    const origin = unassignedDeliveries.get(id);
+    const foreground =
+      origin?.historyRequest === historyRequest && origin?.launchGeneration === launchGeneration;
     // HTTP delivery can precede session_id. Retain the draft identity until that event.
     if (consume) unassignedDeliveries.delete(id);
     if (deliveryObservers.has(id)) deliverySessions.set(id, sessionId);

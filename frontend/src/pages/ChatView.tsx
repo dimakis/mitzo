@@ -182,6 +182,7 @@ export function ChatView() {
     ctxBlocks?: string[],
     launching = false,
   ): boolean {
+    if (launching && activeSessionId) return sendLaunch();
     if (!activeSessionId && !accountSelection) return false;
     // For new sessions (no activeSessionId) the store bootstraps a WS on
     // demand inside sendMessage(), so we must not block on connection status.
@@ -398,10 +399,12 @@ export function ChatView() {
                   <p>{launch.prompt}</p>
                 </details>
                 <button
-                  disabled={!accountSelection || messages.running || launchSending}
+                  disabled={
+                    launchSending || (!activeSessionId && (!accountSelection || messages.running))
+                  }
                   onClick={() => handleSend(launch.prompt, undefined, undefined, true)}
                 >
-                  Send launch prompt
+                  {activeSessionId ? 'Review launch in new chat' : 'Send launch prompt'}
                 </button>
                 <button onClick={dismissLaunch}>Dismiss launch</button>
               </div>

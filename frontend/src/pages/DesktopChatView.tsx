@@ -170,6 +170,7 @@ export function DesktopChatView() {
     ctxBlocks?: string[],
     launching = false,
   ): boolean {
+    if (launching && activeSessionId) return sendLaunch();
     if (!activeSessionId && !accountSelection) return false;
     if (activeSessionId && connection.status !== 'connected') {
       storeDispatchMessages({ type: 'CONNECTION_LOST' });
@@ -363,10 +364,13 @@ export function DesktopChatView() {
                       <p>{launch.prompt}</p>
                     </details>
                     <button
-                      disabled={!accountSelection || messages.running || launchSending}
+                      disabled={
+                        launchSending ||
+                        (!activeSessionId && (!accountSelection || messages.running))
+                      }
                       onClick={() => handleSend(launch.prompt, undefined, undefined, true)}
                     >
-                      Send launch prompt
+                      {activeSessionId ? 'Review launch in new chat' : 'Send launch prompt'}
                     </button>
                     <button onClick={dismissLaunch}>Dismiss launch</button>
                   </div>

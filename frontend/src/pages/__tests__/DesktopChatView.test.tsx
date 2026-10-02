@@ -577,3 +577,53 @@ it('adopts a target assigned in the same render batch as clearing the previous c
     expect(screen.getByTestId('location').textContent).toBe('/chat/target-session'),
   );
 });
+
+it('reviews a carried launch in its own desktop draft before confirming the account and sending', async () => {
+  vi.mocked(fetch).mockImplementation(
+    async (url) =>
+      ({
+        ok: true,
+        json: async () =>
+          String(url).endsWith('/symposium')
+            ? { sessionId: 'unrelated', seats: [], config: null }
+            : String(url).includes('/accounts')
+              ? [
+                  {
+                    id: 'personal',
+                    label: 'Personal ChatGPT',
+                    models: [{ id: 'luna', label: 'Luna' }],
+                  },
+                ]
+              : [],
+      }) as Response,
+  );
+  const store = createTestStore();
+  const sendMessage = vi.fn();
+  store.setState({
+    sessions: { ...store.getState().sessions, active: 'unrelated' },
+    pendingSession: { prompt: 'Launch', context: 'Telos', telosTaskId: 'task' },
+    sendMessage,
+  });
+  function Location() {
+    return <div data-testid="location">{useLocation().pathname}</div>;
+  }
+  render(
+    <MemoryRouter initialEntries={['/chat/unrelated']}>
+      <MitzoStoreProvider value={store}>
+        <Location />
+        <Routes>
+          <Route path="/chat/:sessionId?" element={<DesktopChatView />} />
+        </Routes>
+      </MitzoStoreProvider>
+    </MemoryRouter>,
+  );
+  fireEvent.click(await screen.findByRole('button', { name: 'Review launch in new chat' }));
+  await waitFor(() => expect(screen.getByTestId('location').textContent).toBe('/chat'));
+  expect(sendMessage).not.toHaveBeenCalled();
+  fireEvent.click(await screen.findByRole('button', { name: 'Use Personal ChatGPT · Luna' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Send launch prompt' }));
+  expect(sendMessage).toHaveBeenCalledExactlyOnceWith(
+    'Launch',
+    expect.objectContaining({ accountId: 'personal', model: 'luna', telosTaskId: 'task' }),
+  );
+});
