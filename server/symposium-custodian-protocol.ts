@@ -15,6 +15,7 @@ const operations = {
   'publication.publish': ['POST', '/api/sessions/:sessionId/symposium/publication/publish'],
   'custody.status': ['GET', '/api/symposium/custody'],
   'director.status': ['GET', '/api/sessions/:sessionId/symposium'],
+  'director.durableStatus': ['GET', '/api/sessions/:sessionId/symposium/status'],
   'director.contextTurns': ['GET', '/api/sessions/:sessionId/symposium/context-turns'],
   'director.contextPackage': ['POST', '/api/sessions/:sessionId/symposium/context-package'],
   'director.perspectives': ['GET', '/api/sessions/:sessionId/symposium/perspectives'],

@@ -32,6 +32,30 @@ const config = {
   interceptMode: 'manual' as const,
 };
 
+const activeStatusConfig = {
+  ...config,
+  seats: config.seats.map((seat) => ({
+    ...seat,
+    accountBinding: {
+      accountId: 'personal',
+      accountLabel: 'Personal',
+      provider: 'openai-codex',
+      model: seat.model,
+      profileRevision: 'profile-1',
+    },
+    profileBinding: { profileId: seat.id, profileRevision: 'seat-1' },
+    contextGrant: { grantId: 'context-1', revision: 1, classification: 'personal', sourceRefs: [] },
+    authorityGrant: {
+      grantId: 'authority-1',
+      revision: 1,
+      filesystem: 'read',
+      tools: 'read',
+      network: 'restricted',
+    },
+    isolationRequest: { trustDomainId: 'shared', revision: 1, placement: 'reuse-compatible' },
+  })),
+};
+
 function fixture(
   runtimeAvailable = false,
   custodianClient?: CustodianClient,
@@ -62,6 +86,7 @@ function fixture(
     getSymposiumMembershipHistory: vi.fn(() => [membership]),
     getSymposiumAdmissions: vi.fn(() => []),
     getSymposiumDeliveries: vi.fn(() => []),
+    getSymposiumSeatSandbox: vi.fn(() => undefined),
     getSymposiumDelivery: vi.fn((id: string) =>
       id === 'delivery-1'
         ? { deliveryId: id, sessionId: 'chat', status: 'awaiting_intervention' }
@@ -160,6 +185,178 @@ function fixture(
 }
 
 describe('Symposium director routes', () => {
+  it('projects durable roster and failure facts without evaluating runtime authority', async () => {
+    const artifactReady = vi.fn(() => {
+      throw new Error('physical verification must not run');
+    });
+    const { app, store, getRuntime, orchestrator, activateDraft, reviseSeat } = fixture(
+      true,
+      undefined,
+      artifactReady,
+    );
+    getRuntime.mockImplementation(() => {
+      throw new Error('runtime gate must not run');
+    });
+    store.getSession.mockReturnValue({
+      sessionId: 'chat',
+      sessionType: 'symposium',
+      symposiumConfig: JSON.stringify(activeStatusConfig),
+      symposiumRevision: 4,
+    });
+    store.getSymposiumMembershipHistory.mockReturnValue([
+      {
+        sessionId: 'chat',
+        seatId: 'reviewer',
+        generation: 2,
+        state: 'active',
+        action: 'admit',
+        configRevision: 4,
+        reconciliation: 'confirmed',
+      },
+    ]);
+    store.getSymposiumAdmissions.mockReturnValue([
+      { seatId: 'reviewer', configRevision: 4, decision: 'admitted', membershipGeneration: 2 },
+    ] as never);
+    store.getSymposiumSeatSandbox.mockReturnValue({
+      state: 'reserved',
+      creationPhase: 'mount',
+      creationFailureCode: 'SEAT_MOUNT_FAILED',
+      // These ownership secrets must never be copied into the projection.
+      physicalId: 'private-physical-id',
+      runtimeId: 'private-runtime-id',
+    } as never);
+    const response = await request(app).get('/api/sessions/chat/symposium/status');
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({
+      statusMode: 'durable',
+      runtimeVerification: 'not_checked',
+      runtimeAvailable: false,
+      reservedSeats: 1,
+      capacityRemaining: 2,
+    });
+    expect(response.body.seats[1]).toMatchObject({
+      seatId: 'reviewer',
+      admitted: false,
+      admissionRecorded: true,
+      savedRuntimeState: 'reserved',
+      creationDiagnostic: { phase: 'mount', code: 'SEAT_MOUNT_FAILED', canCleanup: false },
+    });
+    expect(response.body.seats.every((seat: { admitted: boolean }) => !seat.admitted)).toBe(true);
+    expect(JSON.stringify(response.body)).not.toMatch(
+      /private-|recoveryIdempotencyKey|recoveryAuthorization/,
+    );
+    expect(getRuntime).not.toHaveBeenCalled();
+    expect(artifactReady).not.toHaveBeenCalled();
+    expect(orchestrator.creationDiagnostic).not.toHaveBeenCalled();
+    expect(orchestrator.transitionMembership).not.toHaveBeenCalled();
+    expect(orchestrator.refreshActiveAdmissions).not.toHaveBeenCalled();
+    expect(orchestrator.stageDelivery).not.toHaveBeenCalled();
+    expect(orchestrator.deliver).not.toHaveBeenCalled();
+    expect(activateDraft).not.toHaveBeenCalled();
+    expect(reviseSeat).not.toHaveBeenCalled();
+    expect(store.setSymposiumConfig).not.toHaveBeenCalled();
+    expect(store.getSymposiumSeatSandbox).toHaveBeenCalledExactlyOnceWith('chat', 'reviewer', 2);
+  });
+
+  it.each(['revision', 'generation', 'reconciliation', 'membership', 'draft'])(
+    'does not project a current admission receipt after %s mismatch',
+    async (mismatch) => {
+      const { app, store, getRuntime } = fixture();
+      store.getSession.mockReturnValue({
+        sessionId: 'chat',
+        sessionType: 'symposium',
+        symposiumConfig: JSON.stringify({
+          ...activeStatusConfig,
+          state: mismatch === 'draft' ? 'draft' : 'active',
+        }),
+        symposiumRevision: 4,
+      });
+      store.getSymposiumMembershipHistory.mockReturnValue([
+        {
+          sessionId: 'chat',
+          seatId: 'reviewer',
+          generation: 2,
+          state: mismatch === 'membership' ? 'suspended' : 'active',
+          action: 'admit',
+          configRevision: 4,
+          reconciliation: mismatch === 'reconciliation' ? 'pending' : 'confirmed',
+        },
+      ] as never);
+      store.getSymposiumAdmissions.mockReturnValue([
+        {
+          seatId: 'reviewer',
+          configRevision: mismatch === 'revision' ? 3 : 4,
+          decision: 'admitted',
+          membershipGeneration: mismatch === 'generation' ? 1 : 2,
+        },
+      ] as never);
+      const response = await request(app).get('/api/sessions/chat/symposium/status');
+      expect(response.status).toBe(200);
+      expect(response.body.seats[1]).toMatchObject({ admitted: false, admissionRecorded: false });
+      expect(getRuntime).not.toHaveBeenCalled();
+    },
+  );
+
+  it('keeps a saved Ready sandbox and admitted receipt separate from executable authority', async () => {
+    const artifactReady = vi.fn(() => true);
+    const { app, store, getRuntime, orchestrator } = fixture(true, undefined, artifactReady);
+    store.getSession.mockReturnValue({
+      sessionId: 'chat',
+      sessionType: 'symposium',
+      symposiumConfig: JSON.stringify(activeStatusConfig),
+      symposiumRevision: 4,
+    });
+    store.getSymposiumMembershipHistory.mockReturnValue([
+      {
+        sessionId: 'chat',
+        seatId: 'reviewer',
+        generation: 2,
+        state: 'active',
+        action: 'admit',
+        configRevision: 4,
+        reconciliation: 'confirmed',
+      },
+    ]);
+    store.getSymposiumAdmissions.mockReturnValue([
+      { seatId: 'reviewer', configRevision: 4, decision: 'admitted', membershipGeneration: 2 },
+    ] as never);
+    store.getSymposiumSeatSandbox.mockReturnValue({ state: 'ready' } as never);
+    const response = await request(app).get('/api/sessions/chat/symposium/status');
+    expect(response.status).toBe(200);
+    expect(response.body.seats[1]).toMatchObject({
+      admissionRecorded: true,
+      savedRuntimeState: 'ready',
+      admitted: false,
+      creationDiagnostic: null,
+    });
+    expect(response.body.runtimeAvailable).toBe(false);
+    expect(getRuntime).not.toHaveBeenCalled();
+    expect(artifactReady).not.toHaveBeenCalled();
+    expect(orchestrator.creationDiagnostic).not.toHaveBeenCalled();
+  });
+
+  it('returns ordinary session metadata without requesting a runtime or roster', async () => {
+    const { app, store, getRuntime } = fixture();
+    store.getSession.mockReturnValue({
+      sessionId: 'chat',
+      sessionType: 'chat',
+      symposiumConfig: null,
+      symposiumRevision: 0,
+    } as never);
+    const response = await request(app).get('/api/sessions/chat/symposium/status');
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({
+      config: null,
+      seats: [],
+      runtimeAvailable: false,
+      runtimeVerification: 'not_checked',
+      statusMode: 'durable',
+      reservedSeats: 0,
+    });
+    expect(getRuntime).not.toHaveBeenCalled();
+    expect(store.getSymposiumSeatSandbox).not.toHaveBeenCalled();
+    expect(store.getSymposiumMembershipHistory).not.toHaveBeenCalled();
+  });
   it('does not report a provider-admitted sealed source seat as executable', async () => {
     const ready = vi.fn(() => false);
     const { app, store, orchestrator } = fixture(true, undefined, ready);

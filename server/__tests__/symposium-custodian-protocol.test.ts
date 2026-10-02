@@ -6,6 +6,19 @@ import {
 } from '../symposium-custodian-protocol.js';
 
 describe('finite custodian protocol', () => {
+  it('routes the durable director projection through one exact read-only operation', () => {
+    const path = '/api/sessions/s-1/symposium/status';
+    expect(selectCustodianOperation('GET', path)).toEqual({
+      operation: 'director.durableStatus',
+      sessionId: 's-1',
+    });
+    expect(custodianRoute({ operation: 'director.durableStatus', sessionId: 's-1' })).toEqual({
+      method: 'GET',
+      path,
+    });
+    expect(selectCustodianOperation('POST', path)).toBeNull();
+    expect(selectCustodianOperation('GET', `${path}/extra`)).toBeNull();
+  });
   it('maps supported routes to semantic operations without accepting arbitrary paths', () => {
     expect(
       selectCustodianOperation('POST', '/api/sessions/s-1/symposium/deliveries/d-1/dispatch'),
