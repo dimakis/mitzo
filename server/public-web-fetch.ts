@@ -41,6 +41,7 @@ function send(url: URL, address: Address, signal: AbortSignal): Promise<Page> {
       url,
       {
         method: 'GET',
+        family: address.family,
         agent: false,
         signal,
         headers: {
