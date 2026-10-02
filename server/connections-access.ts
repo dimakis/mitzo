@@ -115,9 +115,8 @@ export async function readConnectionsAccess(
       billing: account.billing,
       models: account.models.map((model) => ({ id: model.id, label: model.label })),
     };
-    row.actions = [
-      { id: 'account-controls', label: 'Open account controls', href: '/connections' },
-    ];
+    row.verification.reason =
+      'Configured account profile only. Credential controls are unavailable here; sign-in and effective access have not been checked.';
     result.resources.push(row);
   }
   const managed = (value<Connection[]>('managed') ?? []).filter((c) => !c.archivedAt);

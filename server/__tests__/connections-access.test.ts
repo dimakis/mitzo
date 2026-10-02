@@ -56,6 +56,8 @@ describe('nonsecret Connections & access inventory', () => {
     expect(new Set(result.resources.map((r) => r.id)).size).toBe(result.resources.length);
     const account = result.resources.find((r) => r.kind === 'ai-account')!;
     expect(account.status).toBe('configured');
+    expect(account.actions).toEqual([]);
+    expect(account.verification.reason).toContain('Credential controls are unavailable');
     expect(account.verification.state).toBe('unverified');
     expect(account.verification.verifiedAt).toBeNull();
     const managed = result.resources.find((r) => r.kind === 'managed-connection')!;
