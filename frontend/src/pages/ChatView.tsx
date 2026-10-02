@@ -58,6 +58,7 @@ export function ChatView() {
   const storeRespondToPermission = useMitzoStore((s) => s.respondToPermission);
   const storeExpirePermission = useMitzoStore((s) => s.expirePermission);
   const storeSwitchSession = useMitzoStore((s) => s.switchSession);
+  const chatDraftRevision = useMitzoStore((s) => s.chatDraftRevision);
   const storeNewSession = useMitzoStore((s) => s.newSession);
   const storeCloseSession = useMitzoStore((s) => s.closeSession);
   const storeSetMode = useMitzoStore((s) => s.setMode);
@@ -260,6 +261,7 @@ export function ChatView() {
         >
           <div className="chat-account-bar">
             <AccountModelPicker
+              key={chatDraftRevision}
               disabled={messages.running}
               sessionId={activeSessionId}
               preferredModel={modelState}

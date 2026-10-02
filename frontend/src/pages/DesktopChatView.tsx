@@ -48,6 +48,7 @@ export function DesktopChatView() {
   const storeRespondToPermission = useMitzoStore((s) => s.respondToPermission);
   const storeExpirePermission = useMitzoStore((s) => s.expirePermission);
   const storeSwitchSession = useMitzoStore((s) => s.switchSession);
+  const chatDraftRevision = useMitzoStore((s) => s.chatDraftRevision);
   const storeNewSession = useMitzoStore((s) => s.newSession);
   const storeCloseSession = useMitzoStore((s) => s.closeSession);
   const storeSetMode = useMitzoStore((s) => s.setMode);
@@ -258,6 +259,7 @@ export function DesktopChatView() {
                 </span>
               )}
               <AccountModelPicker
+                key={chatDraftRevision}
                 sessionId={activeSessionId}
                 preferredModel={modelState}
                 onChange={selectAccount}

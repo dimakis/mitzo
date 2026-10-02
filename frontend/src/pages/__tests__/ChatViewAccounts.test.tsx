@@ -400,3 +400,27 @@ it('groups web search settings under the existing header disclosure', async () =
   fireEvent.click(screen.getByRole('button', { name: /Workspace controls/ }));
   expect(settings.closest('[hidden]')).toBeNull();
 });
+
+it('requires a fresh account confirmation when New chat replaces an unsent draft', async () => {
+  localStorage.removeItem('mitzo-default-account-model');
+  vi.mocked(apiFetch).mockResolvedValue({
+    ok: true,
+    json: async () => [
+      { id: 'personal', label: 'Personal', models: [{ id: 'luna', label: 'Luna' }] },
+    ],
+  } as Response);
+  const store = createTestStore();
+  render(
+    <MitzoStoreProvider value={store}>
+      <MemoryRouter initialEntries={['/chat']}>
+        <ChatView />
+      </MemoryRouter>
+    </MitzoStoreProvider>,
+  );
+  const workspace = screen.getByRole('button', { name: /Workspace controls/ });
+  if (workspace.getAttribute('aria-expanded') === 'false') fireEvent.click(workspace);
+  fireEvent.click(await screen.findByRole('button', { name: 'Use Personal · Luna' }));
+  expect(screen.queryByRole('button', { name: 'Use Personal · Luna' })).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'New chat' }));
+  expect(await screen.findByRole('button', { name: 'Use Personal · Luna' })).toBeTruthy();
+});
