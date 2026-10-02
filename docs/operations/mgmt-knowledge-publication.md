@@ -102,7 +102,13 @@ files, private provider state and temporary files remain writable, while the
 knowledge lane cannot be modified by an agent or its background descendants.
 Actual runtime recipe attestation includes this boundary and both launchers.
 Knowledge caches use content-addressed paths and reuse verified copies across
-manager restarts. Sandbox-local cleanup retains active and manually pinned views,
+manager restarts. Reuse first verifies the complete view, including file modes.
+A damaged selected cache is replaced from the verified publication at a safe
+turn boundary under the physical sandbox ownership fence; cached compiled context
+is discarded and the replacement is verified before compilation. Repair is limited
+to that exact content-addressed directory, preserving task data and unrelated
+versions. Metadata-only changes such as chmod cannot permanently strand admission.
+Sandbox-local cleanup retains active and manually pinned views,
 at least ten recent copies, and copies younger than thirty days; publisher
 versions and checkpoint artifacts are outside that cleanup's authority.
 
@@ -119,3 +125,43 @@ a supervised MGMT publisher, and consumer selection at its current publication
 are required before enabling it. Host, Responses, Claude and Symposium adoption
 remain separate enrollment work. No task checkout, draft, checkpoint or old
 worktree is rebased by knowledge publication.
+
+## Pluggable knowledge stores
+
+The product direction is a configurable knowledge-store source in Mitzo. Git is
+its first adapter, and MGMT is its first format adapter, rather than a permanent
+hardcoded dependency on one user's repository. The publisher's existing
+`sourceUrl` already selects a different Git remote; the current implementation
+still requires canonical `main`, the MGMT layout, and a compatible MGMT
+runtime baseline available in the source history. It is not a generic-store
+integration. The product adapter must separate the store revision from Mitzo’s
+application/runtime source revision, so changing stores does not require forking
+the MGMT application or fabricating runtime compatibility hashes.
+
+A future source configuration identifies a store, source kind, Git URL and
+accepted ref, credential reference, format adapter, and permitted session scope.
+Credentials remain host-side references rather than values inside publications.
+Each adapter must produce the same immutable, verified knowledge view with an
+exact source revision, digest, instruction/retrieval inputs, and compatibility
+contract. Other Git formats and non-Git stores can join through that contract.
+A source's documents cannot change host configuration or publication authority.
+Writes remain drafts in their owning store until that store's acceptance policy
+is satisfied; multiple stores require explicit precedence and a recorded coherent
+selection rather than silently mixing revisions.
+
+Persistence has separate owners: Git retains accepted source history; the
+publisher retains immutable bundles, indexes, and durable reconciliation receipts;
+Mitzo records selection and model-context delivery without replacing task Git or
+provider history. The current one-minute reconciliation is eventual freshness,
+not instantaneous propagation. A seamless admission contract must request a
+fresh canonical observation and wait for its verified publication when necessary.
+Webhooks can wake reconciliation, but polling and retry must recover missed events.
+New sessions then select that publication; retained sessions adopt it only at a
+safe turn boundary. Generic adapters, admission freshness barriers, and broader
+consumer enrollment remain future work, not capabilities implied by this ADR.
+
+## Approval status identity provisioning
+
+The status writer requires a dedicated GitHub App installed on this repository, with commit-status write, pull-request read and issue read permissions. Set `CENTAUR_STATUS_APP_ID` as a repository variable. Put `CENTAUR_STATUS_APP_PRIVATE_KEY` **only** in the `centaur-status-writer` environment. Restrict that environment's deployment branches to the default branch (`main`); do not allow pull-request refs or feature branches. Do not duplicate the key in repository or organization secrets. Bind the required `Centaur final LGTM` status to this dedicated App's actual numeric application ID, never the GitHub Actions App or any source. Verify these settings and a real status before claiming enforcement. Until provisioned, the workflow fails closed and the guarded CLI remains the manual gate.
+
+The default-branch writer rechecks pushes, review comments and manual dispatches; a five-minute scheduled reconciliation covers review submissions, edits and dismissals without running PR-controlled code with the App credential. All triggers share one non-cancelling repository queue to prevent overlapping verdict writes. This has eventual review freshness; it does not claim an atomic lock between a new review and GitHub's merge operation.

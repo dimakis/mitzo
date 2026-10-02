@@ -19,7 +19,34 @@ function quote(value: string) {
 }
 
 export function knowledgePresenceCommand(root: string) {
-  return `/usr/bin/python3 -c ${quote("import pathlib,sys; print('true' if pathlib.Path(sys.argv[1]).exists() else 'false')")} ${quote(root)}`;
+  return `/usr/bin/python3 -c ${quote("import os,sys; print('true' if os.path.lexists(sys.argv[1]) else 'false')")} ${quote(root)}`;
+}
+
+/** A failed verification is a cache miss; SSH/transport errors still fail admission. */
+export function knowledgeCacheStatusCommand(root: string, manifestSha256: string) {
+  const command = knowledgeVerificationCommand(root, manifestSha256);
+  const script = `# knowledge-cache-status
+import subprocess
+result=subprocess.run(['/bin/sh','-c',${JSON.stringify(command)}],capture_output=True)
+print('true' if result.returncode==0 else 'false')`;
+  return `/usr/bin/python3 -c ${quote(script)}`;
+}
+
+/** Remove only the selected invalid, content-addressed cache under its fixed root. */
+export function knowledgeCacheRepairCommand(root: string) {
+  if (!/^\/sandbox\/workspaces\/knowledge\/knowledge-[a-f0-9]{64}$/.test(root))
+    throw new Error('Invalid knowledge cache repair path');
+  const script = `# knowledge-cache-repair
+import pathlib,shutil,sys
+p=pathlib.Path(sys.argv[1])
+assert p.parent.resolve(strict=True)==p.parent, 'knowledge cache parent changed'
+if p.is_symlink():
+ p.unlink()
+elif p.is_dir():
+ shutil.rmtree(p)
+elif p.exists():
+ p.unlink()`;
+  return `/usr/bin/python3 -c ${quote(script)} ${quote(root)}`;
 }
 
 /** Sandbox-local caches have no checkpoint ownership. Keep the active view,

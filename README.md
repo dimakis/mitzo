@@ -560,8 +560,10 @@ production locks lack this dynamic attestation, so this lane remains blocked
 until the Stage 2 context contract and compatible runtime baseline are released.
 Retained ordinary Codex chats can select a verified publication between turns,
 copy it into a separate versioned knowledge directory, and refresh the existing
-provider thread's developer instructions. Their writable task Git and checkpoint
-history remain intact. The pinned ContexGin compiler includes tracked `AGENTS.md`.
+provider thread's per-turn application context. Their writable task Git and checkpoint
+history remain intact. Cached views are verified before reuse; a damaged selected
+cache is replaced from the verified publication before compilation, preserving
+task files and unrelated versions. The pinned ContexGin compiler includes tracked `AGENTS.md`.
 Runtime staging fingerprints the installed compiler dependency closure and recipe
 and observes the target Python markers inside the image. These paths require a
 reviewed dynamic runtime lock and enrollment at `publications/current/mgmt`;
@@ -771,3 +773,5 @@ An uncertain sealed publication can be verified after fresh app authentication w
 custodian and credential handle remain retained. The explicit exact-operation action performs
 read-only reconciliation; it never reissues Create PR, replaces an approval, or reconstructs
 credentials after custodian loss. See [publication recovery](docs/operations/symposium-sealed-publication-authority.md#fresh-app-authentication-and-read-only-recovery).
+
+The `Centaur merge gate` workflow publishes a `Centaur final LGTM` commit status. Main branch protection requires it alongside CI: only a final Centaur LGTM with a merge recommendation and zero blockers for the current head passes. Pushes invalidate old approvals; review edits and dismissals recheck the status. A review-cycle limit requires an explicit final review, never a bypass. The workflow executes no pull-request code with its status-write token.

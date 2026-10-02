@@ -3,6 +3,8 @@ import {
   knowledgeVerificationCommand,
   knowledgeViewManifest,
   knowledgePresenceCommand,
+  knowledgeCacheStatusCommand,
+  knowledgeCacheRepairCommand,
   knowledgeCleanupCommand,
 } from './knowledge-view.js';
 import { SYMPOSIUM_ARTIFACT_TARGET } from './symposium-artifact-lease.js';
@@ -1599,6 +1601,19 @@ export class OpenShellRuntimeManager {
         if (actual[field] !== contract[field])
           throw new Error(`Runtime is incompatible with published knowledge: ${field} differs`);
       }
+      const remoteRoot = `/sandbox/workspaces/knowledge/knowledge-${manifestSha256}`;
+      const cacheProbe = openShellSshArgvProcessSpec(runtime, [
+        '/bin/sh',
+        '-c',
+        knowledgeCacheStatusCommand(remoteRoot, manifestSha256),
+      ]);
+      const validCache = (await this.runSsh(cacheProbe.args, signal)).trim();
+      if (validCache !== 'true' && validCache !== 'false')
+        throw new Error('Invalid knowledge cache verification response');
+      if (validCache === 'false') {
+        this.knowledgeViews.delete(runtime.sandboxId);
+        selection = undefined;
+      }
       if (!selection || selection.manifestSha256 !== manifestSha256) {
         // Portable Git belongs to the writable task root. It is deliberately
         // absent from this separately attested, versioned retrieval lane.
@@ -1617,11 +1632,23 @@ export class OpenShellRuntimeManager {
         const present = (await this.runSsh(presence.args, signal)).trim();
         if (present !== 'true' && present !== 'false')
           throw new Error('Invalid knowledge presence response');
-        if (present === 'false')
+        if (validCache === 'false') {
+          const repairOwner = await this.ownedSandbox(conversationId, runtime.sandboxId, signal);
+          if (repairOwner.phase !== 'Ready' || repairOwner.name !== runtime.sandboxName)
+            throw new Error('Knowledge sandbox changed before cache repair');
+          if (present === 'true') {
+            const repair = openShellSshArgvProcessSpec(runtime, [
+              '/bin/sh',
+              '-c',
+              knowledgeCacheRepairCommand(remote),
+            ]);
+            await this.runSsh(repair.args, signal);
+          }
           await this.run(
             ['sandbox', ...this.base(), 'upload', runtime.sandboxName, parent, destination],
             signal,
           );
+        }
         selection = {
           sourceCommit: view.sourceCommit,
           payloadSha256: view.payloadSha256,
