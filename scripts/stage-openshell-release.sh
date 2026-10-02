@@ -65,8 +65,8 @@ NODE
 attestation_dir="$(mktemp -d "${TMPDIR:-/tmp}/mitzo-runtime-attestation.XXXXXX")"
 trap 'rm -rf "$attestation_dir"' EXIT
 compiler_commit="$(podman image inspect "$image" --format '{{index .Labels "io.mitzo.knowledge-compiler-commit"}}')"
-podman run --rm --network none "$image" /opt/mgmt-venv/bin/python \
-  /sandbox/attest-knowledge-runtime.py --compiler-commit "$compiler_commit" > "$attestation_dir/contract.json"
+podman run --rm --network none "$image" /opt/mgmt-venv/bin/python -I \
+  /usr/libexec/mitzo/attest-knowledge-runtime.py --compiler-commit "$compiler_commit" > "$attestation_dir/contract.json"
 contract_field() {
   node -e 'process.stdout.write(String(require(process.argv[1])[process.argv[2]]))' "$attestation_dir/contract.json" "$1"
 }

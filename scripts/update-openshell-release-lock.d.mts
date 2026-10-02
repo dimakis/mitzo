@@ -16,6 +16,7 @@ export interface ReleasePinsInput {
     knowledgeRecipeSha256: string;
     dependencyProjectionSha256: string;
     jiraRuntimeInputsSha256: string;
+    runtimeInputsSha256: string;
     targetPlatform: string;
     targetMarkerEnvironmentB64: string;
   };

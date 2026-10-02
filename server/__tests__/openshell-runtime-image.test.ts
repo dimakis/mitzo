@@ -138,7 +138,7 @@ describe('OpenShell runtime image builder', () => {
     expect(dockerfile).toContain('npm ci --omit=dev --ignore-scripts');
     expect(dockerfile).toContain('ln -sf /usr/lib/googleworkspace-cli');
     expect(dockerfile).toContain(
-      'COPY attest-knowledge-runtime.py /sandbox/attest-knowledge-runtime.py',
+      'COPY attest-knowledge-runtime.py /usr/libexec/mitzo/attest-knowledge-runtime.py',
     );
   });
 

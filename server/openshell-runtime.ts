@@ -1557,6 +1557,43 @@ export class OpenShellRuntimeManager {
       const current = await this.ownedSandbox(conversationId, runtime.sandboxId, signal);
       if (current.phase !== 'Ready' || current.name !== runtime.sandboxName)
         throw new Error('Knowledge sandbox is not Ready');
+      // Retained task sandboxes may still run an older image. Verify their
+      // actual protected compiler and frozen runtime inputs before adoption.
+      const contract = this.config.seedStackManifest?.runtime as Record<string, unknown>;
+      if (
+        !/^[a-f0-9]{40}$/.test(String(contract?.knowledgeCompilerCommit)) ||
+        !/^[a-f0-9]{64}$/.test(String(contract?.runtimeInputsSha256))
+      )
+        throw new Error(
+          'Runtime is incompatible with published knowledge: runtime attestation pins are missing',
+        );
+      const attestationSpec = openShellSshArgvProcessSpec(runtime, [
+        '/opt/mgmt-venv/bin/python',
+        '-I',
+        '/usr/libexec/mitzo/attest-knowledge-runtime.py',
+        '--compiler-commit',
+        String(contract.knowledgeCompilerCommit),
+      ]);
+      let actual: Record<string, unknown>;
+      try {
+        actual = JSON.parse(await this.runSsh(attestationSpec.args, signal));
+      } catch (error) {
+        throw new Error(
+          'Runtime is incompatible with published knowledge; a compatible retained-runtime migration is required',
+          { cause: error },
+        );
+      }
+      for (const field of [
+        'knowledgeSchemaVersion',
+        'knowledgeCompilerSha256',
+        'knowledgeRecipeSha256',
+        'runtimeInputsSha256',
+        'targetPlatform',
+        'targetMarkerEnvironmentB64',
+      ]) {
+        if (actual[field] !== contract[field])
+          throw new Error(`Runtime is incompatible with published knowledge: ${field} differs`);
+      }
       if (!selection || selection.manifestSha256 !== manifestSha256) {
         // Portable Git belongs to the writable task root. It is deliberately
         // absent from this separately attested, versioned retrieval lane.

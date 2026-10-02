@@ -52,6 +52,7 @@ export function updateReleasePins({
       'knowledgeRecipeSha256',
       'dependencyProjectionSha256',
       'jiraRuntimeInputsSha256',
+      'runtimeInputsSha256',
     ]) {
       invariant(
         /^[a-f0-9]{64}$/.test(knowledgeContract[field]),
@@ -69,6 +70,7 @@ export function updateReleasePins({
       'knowledgeRecipeSha256',
       'dependencyProjectionSha256',
       'jiraRuntimeInputsSha256',
+      'runtimeInputsSha256',
       'targetPlatform',
       'targetMarkerEnvironmentB64',
     ]) {

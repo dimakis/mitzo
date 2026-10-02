@@ -381,7 +381,7 @@ describe('OpenShell production bundle validation', () => {
     expect(stage).toContain('build-mgmt-runtime.sh');
     expect(stage).toContain('prepare-mgmt-seed.sh');
     expect(stage).toContain('podman run --rm --network none');
-    expect(stage).toContain('/sandbox/attest-knowledge-runtime.py');
+    expect(stage).toContain('/usr/libexec/mitzo/attest-knowledge-runtime.py');
     expect(stage).toContain('runtime-resolution-contract.py');
     expect(stage).toContain('export MGMT_DYNAMIC_SEED=1');
     expect(stage.indexOf('export MGMT_DYNAMIC_SEED=1')).toBeLessThan(

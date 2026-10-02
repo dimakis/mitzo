@@ -30,6 +30,7 @@ const contract = {
   knowledgeRecipeSha256: hash,
   dependencyProjectionSha256: hash,
   jiraRuntimeInputsSha256: hash,
+  runtimeInputsSha256: hash,
   targetPlatform: 'linux/arm64',
   targetMarkerEnvironmentB64: Buffer.from(JSON.stringify(marker)).toString('base64'),
 };

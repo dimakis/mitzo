@@ -56,6 +56,8 @@ function publication() {
     mgmtSourceCommit: source,
     dependencyProjectionSha256: payload.runtimeDependencyProjectionSha256,
     knowledgeSchemaVersion: 1,
+    knowledgeCompilerCommit: 'f'.repeat(40),
+    runtimeInputsSha256: '0'.repeat(64),
     knowledgeCompilerSha256: payload.knowledgeCompilerSha256,
     knowledgeRecipeSha256: payload.knowledgeRecipeSha256,
     targetPlatform: 'linux/amd64',
@@ -131,12 +133,14 @@ it('adopts a verified knowledge view in a retained sandbox without replacing tas
       labels: { 'mitzo.conversation': owner, 'mitzo.account_provider': 'openai-work' },
     }),
   );
-  const ssh = vi.fn(async () =>
-    JSON.stringify({
-      sourceCommit: 'a'.repeat(40),
-      payloadSha256: JSON.parse(readFileSync(join(config.seed, '..', 'baseline.json'), 'utf8'))
-        .payloadSha256,
-    }),
+  const ssh = vi.fn(async (args: readonly string[]) =>
+    args.join(' ').includes('attest-knowledge-runtime.py')
+      ? JSON.stringify(config.seedStackManifest.runtime)
+      : JSON.stringify({
+          sourceCommit: 'a'.repeat(40),
+          payloadSha256: JSON.parse(readFileSync(join(config.seed, '..', 'baseline.json'), 'utf8'))
+            .payloadSha256,
+        }),
   );
   const manager = new OpenShellRuntimeManager(config, run, undefined, ssh);
   const compile = vi.spyOn(manager, 'compileContext').mockResolvedValue({
@@ -171,8 +175,50 @@ it('adopts a verified knowledge view in a retained sandbox without replacing tas
   expect(uploads[0][0].at(-1)).toBe('/sandbox/workspaces/knowledge');
   await manager.adoptKnowledge(conversation, runtime, AbortSignal.timeout(5000));
   expect(run.mock.calls.filter(([args]) => args.includes('upload'))).toHaveLength(1);
-  expect(ssh).toHaveBeenCalledTimes(2);
+  expect(ssh).toHaveBeenCalledTimes(4);
   expect(runtime.workdir).toBe('/sandbox/workspaces/mgmt');
+});
+
+it('refuses knowledge adoption by an incompatible retained runtime before uploading', async () => {
+  const config = publication();
+  const conversation = 'retained-chat';
+  const name = `mitzo-${digest(conversation).slice(0, 13)}`;
+  const run = vi.fn(async (_args: readonly string[]) =>
+    JSON.stringify({
+      name,
+      id: 'physical-id',
+      workspace: 'mitzo',
+      phase: 'Ready',
+      labels: {
+        'mitzo.conversation': digest(conversation).slice(0, 63),
+        'mitzo.account_provider': 'openai-work',
+      },
+    }),
+  );
+  const ssh = vi.fn(async () =>
+    JSON.stringify({
+      ...config.seedStackManifest.runtime,
+      knowledgeCompilerSha256: '0'.repeat(64),
+    }),
+  );
+  const manager = new OpenShellRuntimeManager(config, run, undefined, ssh);
+  await expect(
+    manager.adoptKnowledge(
+      conversation,
+      {
+        sandboxName: name,
+        sandboxId: 'physical-id',
+        workdir: '/sandbox/workspaces/mgmt',
+        appServerCommand: '/sandbox/run-mitzo-app-server',
+        cli: 'openshell',
+        gateway: 'local',
+        workspace: 'mitzo',
+        gatewayInsecure: false,
+      },
+      AbortSignal.timeout(5000),
+    ),
+  ).rejects.toThrow(/incompatible.*knowledge/i);
+  expect(run.mock.calls.some(([args]) => args.includes('upload'))).toBe(false);
 });
 
 it.each([false, true])(

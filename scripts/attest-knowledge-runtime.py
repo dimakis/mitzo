@@ -56,6 +56,13 @@ def main():
     if not args.fingerprints_only:
         if platform.system() != "Linux":
             parser.error("target attestation must run inside the Linux runtime image")
+        inputs = {name: hashlib.sha256(Path(path).read_bytes()).hexdigest() for name, path in {
+            "mgmt/pyproject.toml": "/opt/mgmt-deps/pyproject.toml",
+            "mgmt/uv.lock": "/opt/mgmt-deps/uv.lock",
+            "jira/pyproject.toml": "/opt/mgmt-jira-runtime/pyproject.toml",
+            "jira/uv.lock": "/opt/mgmt-jira-runtime/uv.lock",
+        }.items()}
+        result["runtimeInputsSha256"] = hashlib.sha256(canonical(inputs)).hexdigest()
         from packaging.markers import default_environment
         architecture = {"aarch64": "arm64", "x86_64": "amd64"}.get(platform.machine())
         if architecture is None:
