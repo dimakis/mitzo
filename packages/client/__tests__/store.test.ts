@@ -3167,3 +3167,25 @@ it('returns a navigated unsent launch to a draft for account confirmation before
       .at(-1),
   ).toMatchObject({ sessionId: null, accountId: 'personal', model: 'luna', telosTaskId: 'task' });
 });
+
+it.each([false, true])(
+  'keeps an offscreen launch startup failure out of the selected running chat (assigned: %s)',
+  async (assigned) => {
+    const store = createReadyStore();
+    store.getState().setPendingSession({ prompt: 'Launch', context: 'Telos' });
+    store.getState().sendPendingSession();
+    const a = store.getState().messages.messages.at(-1)!.messageId;
+    if (assigned)
+      lastWs.simulateMessage({ type: 'session_id', sessionId: 'launch-a', clientMsgId: a });
+    await store.getState().switchSession('running-b');
+    store.getState().dispatchMessages({ type: 'USER_SEND', text: 'B', clientMsgId: 'b-message' });
+    const before = store.getState().messages;
+    for (let duplicate = 0; duplicate < 2; duplicate++) {
+      lastWs.simulateMessage({ type: 'error', clientMsgId: a, error: 'Startup failed' });
+      expect(store.getState().messages).toEqual(before);
+      expect(store.getState().sendError).toBeNull();
+    }
+    expect(store.getState().pendingSessionSending).toBe(false);
+    expect(store.getState().sessions.active).toBe('running-b');
+  },
+);

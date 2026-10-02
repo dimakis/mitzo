@@ -263,6 +263,12 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
   const deliveryObservers = new Map<string, NonNullable<SendMessageOptions['onDelivery']>>();
   let launchGeneration = 0;
   const deliverySessions = new Map<string, string>();
+  // Keep recent command origins after receipts settle so duplicate errors stay scoped.
+  const deliveryOrigins = new Map<
+    string,
+    { historyRequest: number; launchGeneration: number; sessionId?: string }
+  >();
+
   const unassignedDeliveries = new Map<
     string,
     { historyRequest: number; launchGeneration: number }
@@ -670,6 +676,16 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       pendingOptimisticMessageIds.add(clientMsgId);
       if (opts?.onDelivery) {
         deliveryObservers.set(clientMsgId, opts.onDelivery);
+        deliveryOrigins.set(clientMsgId, {
+          historyRequest,
+          launchGeneration,
+          sessionId: parserState.currentSessionId,
+        });
+        for (const id of deliveryOrigins.keys()) {
+          if (deliveryOrigins.size <= 256) break;
+          if (!deliveryObservers.has(id)) deliveryOrigins.delete(id);
+        }
+
         if (parserState.currentSessionId)
           deliverySessions.set(clientMsgId, parserState.currentSessionId);
         else unassignedDeliveries.set(clientMsgId, { historyRequest, launchGeneration });
@@ -1076,6 +1092,9 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     // HTTP delivery can precede session_id. Retain the draft identity until that event.
     if (consume) unassignedDeliveries.delete(id);
     if (deliveryObservers.has(id)) deliverySessions.set(id, sessionId);
+    const errorOrigin = deliveryOrigins.get(id);
+    if (errorOrigin) errorOrigin.sessionId = sessionId;
+
     connection.trackSeq(sessionId, connection.getLastSeq(sessionId));
     return foreground;
   }
@@ -1085,8 +1104,11 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
   const callbacks: ProtocolCallbacks = {
     onSessionAssigned(sessionId: string) {
       parserState.currentSessionId = sessionId;
-      for (const id of pendingOptimisticMessageIds)
+      for (const id of pendingOptimisticMessageIds) {
         if (deliveryObservers.has(id)) deliverySessions.set(id, sessionId);
+        const origin = deliveryOrigins.get(id);
+        if (origin && !origin.sessionId) origin.sessionId = sessionId;
+      }
       connection.trackSeq(sessionId, connection.getLastSeq(sessionId));
       store.setState((s) => ({
         sessions: { ...s.sessions, active: sessionId },
@@ -1251,8 +1273,17 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
 
     // Startup rejection may arrive after session_id. Only the matching command
     // can release its launch; unrelated runtime errors are not delivery receipts.
-    if (!options.sseConfig && msg.type === 'error' && typeof msg.clientMsgId === 'string') {
-      settleDelivery(msg.clientMsgId, 'failed');
+    if (msg.type === 'error' && typeof msg.clientMsgId === 'string') {
+      const origin = deliveryOrigins.get(msg.clientMsgId);
+      const offscreen =
+        origin &&
+        (origin.sessionId
+          ? origin.sessionId !== parserState.currentSessionId
+          : origin.historyRequest !== historyRequest ||
+            origin.launchGeneration !== launchGeneration);
+      if (!options.sseConfig) settleDelivery(msg.clientMsgId, 'failed');
+      // Release its preview without applying the error to an unrelated running chat.
+      if (offscreen) return true;
     }
     // The native WebSocket path confirms delivery through the persisted echo.
     // A pre-assignment startup error is a definitive rejection on that path.
