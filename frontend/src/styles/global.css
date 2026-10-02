@@ -7263,13 +7263,68 @@ option {
   margin: 0;
 }
 
-.symposium-director-panel label {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-  margin-right: 0.5rem;
+.symposium-director button {
+  min-height: 2.5rem;
+  padding: 0.5rem 0.8rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
 }
 
+.symposium-director button:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+.symposium-director button:disabled {
+  cursor: default;
+}
+
+.symposium-director button.btn-primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.symposium-director-panel label {
+  display: grid;
+  justify-content: stretch;
+  gap: 0.4rem;
+  margin: 0;
+  min-width: 0;
+}
+
+.symposium-director-panel label:has(input[type='checkbox']) {
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-start;
+  gap: 0.6rem;
+}
+
+.symposium-director-panel input[type='checkbox'] {
+  flex: 0 0 1.1rem;
+  width: 1.1rem;
+  height: 1.1rem;
+  margin: 0.15rem 0 0;
+}
+
+.symposium-director-panel label:has(input[type='checkbox']) span {
+  flex: 1;
+  text-align: left;
+}
+
+.symposium-advanced-controls {
+  border-top: 1px solid var(--border);
+  padding-top: 0.6rem;
+}
+
+.symposium-advanced-content {
+  margin-top: 0.6rem;
+}
+
+.symposium-director-panel select,
 .symposium-director-panel textarea,
 .symposium-director-panel input:not([type='checkbox']) {
   max-width: 100%;

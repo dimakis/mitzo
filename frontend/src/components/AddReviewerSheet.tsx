@@ -225,7 +225,9 @@ function ReviewerForm({
   const sourceAccountId = status?.config
     ? anchor?.accountBinding?.accountId
     : status?.ordinaryAccountId;
-  const crossAccount = Boolean(sourceAccountId && selection?.accountId !== sourceAccountId);
+  const crossAccount = Boolean(
+    sourceAccountId && selection?.accountId && selection.accountId !== sourceAccountId,
+  );
   const ready = Boolean(
     status &&
     sourceAccountId &&
@@ -248,6 +250,7 @@ function ReviewerForm({
   async function add() {
     if (!ready || !selection || (!generic && !profile) || busy) return;
     setBusy(true);
+    setProgress('Preparing the agent and its message context…');
     setError('');
     let reviewerMutationAttempted = false;
     try {
@@ -370,6 +373,9 @@ function ReviewerForm({
           },
           ...boundary,
         });
+      setProgress(
+        'Connecting agent — checking its account and workspace access. This may take several minutes.',
+      );
       await request(`${base}/admissions/refresh`, { expectedRevision: config.revision });
       current = await request<Status>(base);
       // Existing isolated sessions stay isolated; new anchors are admitted through the same host boundary.
@@ -488,6 +494,7 @@ function ReviewerForm({
                 : 'Choose a saved profile and the account that will receive this review request.'}
             </p>
             <fieldset disabled={busy || locked}>
+              {generic && <h3>Guidance</h3>}
               {generic && (
                 <p>
                   Load a saved profile to copy its versioned guidance into this form. Edits apply to
@@ -569,6 +576,23 @@ function ReviewerForm({
                       />
                     </label>
                   </fieldset>
+                  {profileLoading && <p role="status">Loading saved guidance…</p>}
+                </>
+              )}
+              {generic && <h3>Account and model</h3>}
+              <AccountModelPicker
+                scope="symposium"
+                requireExplicitSelection
+                sessionId={null}
+                preferredModel=""
+                onChange={(next) => {
+                  if (!lockedRef.current) setSelection(next);
+                }}
+                disabled={busy || locked}
+              />
+              {generic && (
+                <>
+                  <h3>Access</h3>
                   <label>
                     Agent permissions
                     <select
@@ -590,19 +614,9 @@ function ReviewerForm({
                     Network access is restricted. The host verifies the requested permissions before
                     admitting the agent.
                   </p>
-                  {profileLoading && <p role="status">Loading saved guidance…</p>}
                 </>
               )}
-              <AccountModelPicker
-                scope="symposium"
-                requireExplicitSelection
-                sessionId={null}
-                preferredModel=""
-                onChange={(next) => {
-                  if (!lockedRef.current) setSelection(next);
-                }}
-                disabled={busy || locked}
-              />
+              {generic && <h3>Message and context</h3>}
               <label>
                 {generic ? 'Initial message' : 'Review package'}
                 <textarea
@@ -667,10 +681,12 @@ function ReviewerForm({
                   checked={acknowledged}
                   onChange={(event) => setAcknowledged(event.target.checked)}
                 />
-                I acknowledge shared artifacts and the selected provider account’s retention
-                boundary.
+                <span>
+                  I understand this agent can access shared files within its permissions, and its
+                  provider account may retain the message and chosen context.
+                </span>
               </label>
-              {(crossAccount || !status?.config) && (
+              {crossAccount && (
                 <label>
                   Cross-account confirmation
                   <input
@@ -690,11 +706,20 @@ function ReviewerForm({
               </p>
             )}
             {progress && <p role="status">{progress}</p>}
-            <button type="button" disabled={!ready || busy} onClick={() => void add()}>
-              {generic ? 'Add agent and queue message' : 'Add reviewer and queue context'}
+            <button
+              className="btn-primary"
+              type="button"
+              disabled={!ready || busy}
+              onClick={() => void add()}
+            >
+              {busy
+                ? 'Connecting agent…'
+                : generic
+                  ? 'Add agent and queue message'
+                  : 'Add reviewer and queue context'}
             </button>
             {error && (
-              <p role="alert">{error} Any configured seats remain visible in Director controls.</p>
+              <p role="alert">{error} Any configured seats remain visible in Agent settings.</p>
             )}
           </>
         )}

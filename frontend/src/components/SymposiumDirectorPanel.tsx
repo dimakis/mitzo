@@ -1,5 +1,5 @@
 import { SymposiumSourceImportPanel } from './SymposiumSourceImportPanel';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import type {
   SeatConfig,
   SymposiumConfig,
@@ -11,6 +11,18 @@ import type {
 import { apiFetch } from '../lib/api-fetch';
 import { AccountModelPicker, type AccountSelection } from './AccountModelPicker';
 import { SymposiumProfilePicker, type SymposiumProfileSelection } from './SymposiumProfilePicker';
+
+function AdvancedControls({ label, children }: { label: string; children: ReactNode }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="symposium-advanced-controls">
+      <button type="button" aria-expanded={open} onClick={() => setOpen(!open)}>
+        {label}
+      </button>
+      {open && <div className="symposium-advanced-content">{children}</div>}
+    </div>
+  );
+}
 
 interface DirectorSeat {
   seatId: string;
@@ -277,17 +289,22 @@ function SeatModelEditor({
             checked={boundaryAcknowledged}
             onChange={(event) => setBoundaryAcknowledged(event.target.checked)}
           />
-          I understand the shared artifacts and provider account retention boundary.
+          <span>
+            I understand this agent can access shared files within its permissions, and its provider
+            account may retain messages.
+          </span>
         </label>
       )}
-      <label>
-        Cross-account confirmation{' '}
-        <input
-          value={typedConfirmation}
-          onChange={(event) => setTypedConfirmation(event.target.value)}
-          placeholder={confirmation}
-        />
-      </label>
+      {selection?.accountId && selection.accountId !== anchorAccountId(config) && (
+        <label>
+          Cross-account confirmation{' '}
+          <input
+            value={typedConfirmation}
+            onChange={(event) => setTypedConfirmation(event.target.value)}
+            placeholder={confirmation}
+          />
+        </label>
+      )}
       <button
         type="button"
         disabled={
@@ -299,7 +316,7 @@ function SeatModelEditor({
         }
         onClick={() => void save()}
       >
-        Save seat model
+        Save account and model
       </button>
       {active && <span>Suspend this seat before changing its account or model.</span>}
       {anchor && <span>The anchor keeps this conversation's account binding.</span>}
@@ -485,9 +502,7 @@ function SessionDirectorPanel({
           'Shared files are still unavailable. Your draft is saved; retry here when ready.',
         );
       await refresh();
-      setArtifactMessage(
-        'Shared files are ready. Review your choices before activating the roster.',
-      );
+      setArtifactMessage('Shared files are ready. Review your choices before enabling agents.');
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Could not prepare shared files');
     } finally {
@@ -682,15 +697,21 @@ function SessionDirectorPanel({
   return (
     <section className="symposium-director" aria-label="Symposium director">
       <button type="button" aria-expanded={open} onClick={() => setOpen((value) => !value)}>
-        Director controls
+        Agent settings
       </button>
       {open && (
         <div className="symposium-director-panel">
           <SymposiumSourceImportPanel key={sessionId} sessionId={sessionId} />
           <button type="button" disabled={loading || busy} onClick={() => void refresh()}>
-            Refresh director status
+            Refresh status
           </button>
-          {loading && <p role="status">Loading Symposium…</p>}
+          {loading && <p role="status">Checking agent status…</p>}
+          {busy && (
+            <p role="status">
+              Working on your request… Connecting an agent can take several minutes while its
+              account and workspace access are checked.
+            </p>
+          )}
           {error && (
             <p role="alert">
               {error}{' '}
@@ -701,21 +722,21 @@ function SessionDirectorPanel({
           )}
           {status && !status.config && (
             <div>
-              <p>This conversation has no Symposium roster.</p>
+              <p>This conversation has no agents configured.</p>
               <button type="button" disabled={busy} onClick={() => void createDraft()}>
-                Create draft Symposium
+                Set up agents
               </button>
             </div>
           )}
           {status?.config && (
             <>
               <p>
-                Shared artifacts and provider account retention apply to every admitted seat.
-                Selected prompt delivery is separate from filesystem access.
+                Agents can access shared workspace files within their permissions. Their provider
+                account may retain messages. Choosing message context does not restrict file access.
               </p>
               <p>
                 {status.config.state === 'draft'
-                  ? 'Draft — provider seats are not admitted.'
+                  ? 'Draft — agents are not enabled yet.'
                   : `${status.reservedSeats} of ${status.config.version === 2 ? status.config.activeSeatCap : 2} seats reserved.`}
               </p>
               {status.config.state === 'draft' && (
@@ -725,15 +746,15 @@ function SessionDirectorPanel({
                     disabled={busy || loading}
                     onClick={() => void prepareArtifacts()}
                   >
-                    Prepare or retry shared files
+                    Prepare shared workspace
                   </button>
                   {artifactMessage && <p role="status">{artifactMessage}</p>}
                 </div>
               )}
               {!status.runtimeAvailable && (
                 <p role="status">
-                  Provider runtime unavailable. Admission and dispatch remain pending; revocation
-                  and cancellation stay available.
+                  The agent service is unavailable. Agents cannot connect or receive messages yet.
+                  You can still revoke access or stop deliveries.
                 </p>
               )}
               {status.config.state === 'active' &&
@@ -760,18 +781,26 @@ function SessionDirectorPanel({
                   checked={boundaryAcknowledged}
                   onChange={(event) => setBoundaryAcknowledged(event.target.checked)}
                 />
-                I acknowledge the shared artifacts and provider account retention boundary.
+                <span>
+                  I understand these agents can access shared files within their permissions, and
+                  their provider accounts may retain messages.
+                </span>
               </label>
-              <label>
-                To add a seat on another account, type {confirmation}:{' '}
-                <input
-                  value={typedConfirmation}
-                  onChange={(event) => setTypedConfirmation(event.target.value)}
-                />
-              </label>
+              {(crossesAnchorAccount(status.config) ||
+                (newSeatSelection?.accountId &&
+                  newSeatSelection.accountId !== anchorAccountId(status.config))) && (
+                <label>
+                  To use another account, type {confirmation}:{' '}
+                  <input
+                    value={typedConfirmation}
+                    onChange={(event) => setTypedConfirmation(event.target.value)}
+                  />
+                </label>
+              )}
               {status.config.state === 'draft' && (
                 <button
                   type="button"
+                  className="btn-primary"
                   disabled={
                     busy ||
                     !boundaryAcknowledged ||
@@ -779,73 +808,79 @@ function SessionDirectorPanel({
                   }
                   onClick={() => void activateRoster()}
                 >
-                  Activate roster
+                  Enable agents
                 </button>
               )}
               {status.config.version === 2 && status.config.state === 'active' && (
-                <fieldset disabled={busy || !status.runtimeAvailable}>
-                  <legend>Transfer primary seat</legend>
-                  <p>
-                    Select an admitted seat to own conversation routing. Its permissions stay
-                    unchanged. Transfer first, then remove the old writer and wait for cleanup
-                    before adding a replacement writer.
-                  </p>
-                  <label>
-                    New primary seat
-                    <select
-                      value={primarySelection}
-                      onChange={(event) => setPrimarySelection(event.target.value)}
-                    >
-                      <option value="">Select a seat</option>
-                      {status.seats
-                        .filter(
-                          (seat) =>
-                            seat.seatId !==
-                              (status.config?.version === 2 ? status.config.anchorSeatId : '') &&
-                            seat.admitted &&
-                            seat.membership?.state === 'active' &&
-                            seat.membership.reconciliation === 'confirmed',
+                <AdvancedControls label="Change conversation owner">
+                  <fieldset disabled={busy || !status.runtimeAvailable}>
+                    <legend>Transfer primary seat</legend>
+                    <p>
+                      Select an admitted seat to own conversation routing. Its permissions stay
+                      unchanged. Transfer first, then remove the old writer and wait for cleanup
+                      before adding a replacement writer.
+                    </p>
+                    <label>
+                      New primary seat
+                      <select
+                        value={primarySelection}
+                        onChange={(event) => setPrimarySelection(event.target.value)}
+                      >
+                        <option value="">Select a seat</option>
+                        {status.seats
+                          .filter(
+                            (seat) =>
+                              seat.seatId !==
+                                (status.config?.version === 2 ? status.config.anchorSeatId : '') &&
+                              seat.admitted &&
+                              seat.membership?.state === 'active' &&
+                              seat.membership.reconciliation === 'confirmed',
+                          )
+                          .map((seat) => (
+                            <option key={seat.seatId} value={seat.seatId}>
+                              {seat.seat.name} ({seat.seat.accountBinding?.accountLabel};{' '}
+                              {seat.seat.model})
+                            </option>
+                          ))}
+                      </select>
+                    </label>
+                    <label>
+                      Type TRANSFER PRIMARY SEAT to confirm
+                      <input
+                        value={primaryConfirmation}
+                        onChange={(event) => setPrimaryConfirmation(event.target.value)}
+                      />
+                    </label>
+                    <button
+                      type="button"
+                      disabled={
+                        !primarySelection || primaryConfirmation !== 'TRANSFER PRIMARY SEAT'
+                      }
+                      onClick={() => {
+                        const target = status.seats.find(
+                          (seat) => seat.seatId === primarySelection,
+                        );
+                        if (
+                          status.config?.version !== 2 ||
+                          !target?.admitted ||
+                          target.membership?.state !== 'active' ||
+                          target.membership.reconciliation !== 'confirmed'
                         )
-                        .map((seat) => (
-                          <option key={seat.seatId} value={seat.seatId}>
-                            {seat.seat.name} ({seat.seat.accountBinding?.accountLabel};{' '}
-                            {seat.seat.model})
-                          </option>
-                        ))}
-                    </select>
-                  </label>
-                  <label>
-                    Type TRANSFER PRIMARY SEAT to confirm
-                    <input
-                      value={primaryConfirmation}
-                      onChange={(event) => setPrimaryConfirmation(event.target.value)}
-                    />
-                  </label>
-                  <button
-                    type="button"
-                    disabled={!primarySelection || primaryConfirmation !== 'TRANSFER PRIMARY SEAT'}
-                    onClick={() => {
-                      const target = status.seats.find((seat) => seat.seatId === primarySelection);
-                      if (
-                        status.config?.version !== 2 ||
-                        !target?.admitted ||
-                        target.membership?.state !== 'active' ||
-                        target.membership.reconciliation !== 'confirmed'
-                      )
-                        return;
-                      void mutate('/primary/transfer', {
-                        fromSeatId: status.config.anchorSeatId,
-                        toSeatId: target.seatId,
-                        expectedRevision: status.config.revision,
-                        expectedGeneration: target.membership.generation,
-                        reason: 'Explicit primary transfer by director',
-                        confirmation: primaryConfirmation,
-                      });
-                    }}
-                  >
-                    Transfer primary seat
-                  </button>
-                </fieldset>
+                          return;
+                        void mutate('/primary/transfer', {
+                          fromSeatId: status.config.anchorSeatId,
+                          toSeatId: target.seatId,
+                          expectedRevision: status.config.revision,
+                          expectedGeneration: target.membership.generation,
+                          reason: 'Explicit primary transfer by director',
+                          confirmation: primaryConfirmation,
+                        });
+                      }}
+                    >
+                      Transfer primary seat
+                    </button>
+                  </fieldset>
+                </AdvancedControls>
               )}
               <ul className="symposium-roster">
                 {status.seats.map((seat) => (
@@ -972,7 +1007,11 @@ function SessionDirectorPanel({
                           )
                         }
                       >
-                        {seat.membership?.state === 'suspended' ? 'Restore' : 'Add seat'}
+                        {busy
+                          ? 'Working…'
+                          : seat.membership?.state === 'suspended'
+                            ? 'Resume agent'
+                            : 'Enable agent'}
                       </button>
                     )}
                     {seat.membership?.state !== 'active' && (
@@ -1034,70 +1073,72 @@ function SessionDirectorPanel({
                 ))}
               </ul>
               {status.config.version === 2 && (
-                <div className="symposium-new-seat">
-                  <h3>Configure another seat</h3>
-                  <label>
-                    New seat name{' '}
-                    <input
-                      aria-label="New seat name"
-                      value={newSeatName}
-                      onChange={(event) => setNewSeatName(event.target.value)}
-                    />
-                  </label>
-                  <label>
-                    New seat ID{' '}
-                    <input
-                      aria-label="New seat ID"
-                      value={newSeatId}
-                      onChange={(event) => setNewSeatId(event.target.value)}
-                    />
-                  </label>
-                  <label>
-                    Role{' '}
-                    <select
-                      value={newSeatRole}
-                      onChange={(event) => setNewSeatRole(event.target.value)}
-                    >
-                      <option value="architect">Architect</option>
-                      <option value="reviewer">Reviewer</option>
-                      <option value="implementer">Implementer</option>
-                    </select>
-                  </label>
-                  <AccountModelPicker
-                    scope="symposium"
-                    sessionId={null}
-                    preferredModel={status.config.seats[0]?.model ?? ''}
-                    onChange={setNewSeatSelection}
-                    disabled={busy}
-                  />
-                  {status.profileBindingEnforced && (
-                    <SymposiumProfilePicker
-                      value={newSeatProfile}
-                      onChange={setNewSeatProfile}
+                <AdvancedControls label="Configure agents manually">
+                  <div className="symposium-new-seat">
+                    <h3>Configure an agent manually</h3>
+                    <label>
+                      New seat name{' '}
+                      <input
+                        aria-label="New seat name"
+                        value={newSeatName}
+                        onChange={(event) => setNewSeatName(event.target.value)}
+                      />
+                    </label>
+                    <label>
+                      New seat ID{' '}
+                      <input
+                        aria-label="New seat ID"
+                        value={newSeatId}
+                        onChange={(event) => setNewSeatId(event.target.value)}
+                      />
+                    </label>
+                    <label>
+                      Role{' '}
+                      <select
+                        value={newSeatRole}
+                        onChange={(event) => setNewSeatRole(event.target.value)}
+                      >
+                        <option value="architect">Architect</option>
+                        <option value="reviewer">Reviewer</option>
+                        <option value="implementer">Implementer</option>
+                      </select>
+                    </label>
+                    <AccountModelPicker
+                      scope="symposium"
+                      sessionId={null}
+                      preferredModel={status.config.seats[0]?.model ?? ''}
+                      onChange={setNewSeatSelection}
                       disabled={busy}
                     />
-                  )}
-                  <button
-                    type="button"
-                    disabled={
-                      busy ||
-                      !newSeatName.trim() ||
-                      !newSeatId.trim() ||
-                      !newSeatSelection?.accountId ||
-                      (status.config.state === 'active' &&
-                        (!boundaryAcknowledged ||
-                          (newSeatSelection.accountId !== anchorAccountId(status.config) &&
-                            typedConfirmation !== confirmation)))
-                    }
-                    onClick={() => void addConfiguredSeat()}
-                  >
-                    Add configured seat
-                  </button>
-                  <p>
-                    Configured seats remain pending until runtime grants and provider admission are
-                    verified.
-                  </p>
-                </div>
+                    {status.profileBindingEnforced && (
+                      <SymposiumProfilePicker
+                        value={newSeatProfile}
+                        onChange={setNewSeatProfile}
+                        disabled={busy}
+                      />
+                    )}
+                    <button
+                      type="button"
+                      disabled={
+                        busy ||
+                        !newSeatName.trim() ||
+                        !newSeatId.trim() ||
+                        !newSeatSelection?.accountId ||
+                        (status.config.state === 'active' &&
+                          (!boundaryAcknowledged ||
+                            (newSeatSelection.accountId !== anchorAccountId(status.config) &&
+                              typedConfirmation !== confirmation)))
+                      }
+                      onClick={() => void addConfiguredSeat()}
+                    >
+                      Save agent configuration
+                    </button>
+                    <p>
+                      Saving adds this agent to the configuration. It can receive messages only
+                      after the host verifies its access and enables it.
+                    </p>
+                  </div>
+                </AdvancedControls>
               )}
               <fieldset disabled={busy || !status.runtimeAvailable || admitted.length === 0}>
                 <legend>Direct a message</legend>
@@ -1115,7 +1156,7 @@ function SessionDirectorPanel({
                         )
                       }
                     />
-                    {seat.seat.name}
+                    <span>{seat.seat.name}</span>
                   </label>
                 ))}
                 <label>
@@ -1128,6 +1169,7 @@ function SessionDirectorPanel({
                 </label>
                 <button
                   type="button"
+                  className="btn-primary"
                   disabled={
                     busy || !status.runtimeAvailable || selected.length === 0 || !message.trim()
                   }
@@ -1139,7 +1181,7 @@ function SessionDirectorPanel({
                     })
                   }
                 >
-                  Inject to selected seats
+                  Queue message for selected agents
                 </button>
               </fieldset>
               <h3>Directed deliveries</h3>
@@ -1206,7 +1248,7 @@ function SessionDirectorPanel({
                           )
                         }
                       >
-                        Step delivery
+                        Send approved message
                       </button>
                     )}
                     {!['delivered', 'dropped', 'cancelled'].includes(delivery.status) && (

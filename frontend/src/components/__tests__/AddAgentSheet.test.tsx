@@ -320,3 +320,37 @@ it('does not clear a newer pending profile selection when an older request fails
   );
   expect(screen.getByLabelText('Selected profile')).toHaveTextContent('writer:3');
 });
+
+it('groups configuration clearly and hides confirmation for the conversation account', async () => {
+  mockRequests();
+  render(<AddAgentSheet sessionId="session" />);
+  fireEvent.click(screen.getByRole('button', { name: 'Add agent' }));
+  fireEvent.click(await screen.findByText('Choose account'));
+  for (const name of ['Guidance', 'Account and model', 'Access', 'Message and context']) {
+    expect(screen.getByRole('heading', { name })).toBeInTheDocument();
+  }
+  expect(
+    screen.queryByRole('textbox', { name: /Cross-account confirmation/ }),
+  ).not.toBeInTheDocument();
+});
+
+it('explains a pending connection while runtime verification is still in flight', async () => {
+  mockRequests();
+  const normal = vi.mocked(apiFetch).getMockImplementation()!;
+  let finish!: (response: Response) => void;
+  const admission = new Promise<Response>((resolve) => {
+    finish = resolve;
+  });
+  vi.mocked(apiFetch).mockImplementation((url, init) =>
+    String(url).endsWith('/admissions/refresh') ? admission : normal(url, init),
+  );
+  render(<AddAgentSheet sessionId="session" />);
+  await fill();
+  fireEvent.click(screen.getByRole('button', { name: 'Add agent and queue message' }));
+  expect(
+    await screen.findByText(/Connecting agent — checking its account and workspace access/),
+  ).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Connecting agent…' })).toBeDisabled();
+  await act(async () => finish(new Response(JSON.stringify({}))));
+  expect(await screen.findByText(/Agent added/)).toBeInTheDocument();
+});

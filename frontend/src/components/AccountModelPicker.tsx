@@ -193,7 +193,7 @@ export function AccountModelPicker({
         const data = await response.json();
         if (disposed) return;
         if (sessionId && data.sessionType === 'symposium') {
-          setBindingLabel('Accounts and models are selected per seat in Director controls.');
+          setBindingLabel('Choose each agent’s account and model in Agent settings.');
           setFixedSummary({ profile: 'Symposium', model: 'Accounts and models per seat' });
           setFixedSession(true);
           return;
