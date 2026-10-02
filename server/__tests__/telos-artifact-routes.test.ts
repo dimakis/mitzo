@@ -5,7 +5,7 @@ import Database from 'better-sqlite3';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createTelosArtifactRouter } from '../telos-artifact-routes.js';
+import { createTelosArtifactRouter, telosArtifactSaveJson } from '../telos-artifact-routes.js';
 const dirs: string[] = [];
 afterEach(() => {
   for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
@@ -20,7 +20,15 @@ function setup() {
   db.close();
   const readFile = vi.fn(async () => ({ path: '/sandbox/spec.md', bytes: Buffer.from('# Spec') }));
   const app = express();
-  app.use(express.json());
+  app.post(
+    '/api/internal/telos/artifacts/save',
+    (req, res, next) => {
+      if (req.headers['x-internal-token'] !== 'token') return res.sendStatus(401);
+      next();
+    },
+    telosArtifactSaveJson,
+  );
+  app.use(express.json({ limit: '10mb' }));
   app.use(
     createTelosArtifactRouter({
       dbPath: () => path,
@@ -57,6 +65,27 @@ describe('Telos host artifact routes', () => {
     expect(download.status).toBe(200);
     expect(download.headers['content-disposition']).toContain('attachment');
     expect(download.headers['cache-control']).toBe('private, no-store');
+  });
+  it('saves a 5 MiB inline document with worst-case JSON expansion and enforces decoded byte limits', async () => {
+    const { call } = setup();
+    const content = '\u0000'.repeat(5 * 1024 * 1024);
+    const saved = await call('save', {
+      itemId: 't',
+      filename: 'controls.txt',
+      title: 'Controls',
+      content,
+    });
+    expect(saved.status).toBe(200);
+    expect(saved.body.artifact.size).toBe(Buffer.byteLength(content));
+    const read = await call('read', { id: saved.body.artifact.id });
+    expect(read.body.artifact.content).toBe(content);
+    const oversized = await call('save', {
+      itemId: 't',
+      filename: 'unicode.txt',
+      title: 'Unicode',
+      content: 'é'.repeat(3 * 1024 * 1024),
+    });
+    expect(oversized.status).toBe(413);
   });
   it('retains retry receipts after another save and rejects changed request input', async () => {
     const { call } = setup();

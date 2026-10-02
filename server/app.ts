@@ -1,5 +1,5 @@
 import { OPEN_SHELL_ARTIFACT_HELPER } from './openshell-artifact-reader.js';
-import { createTelosArtifactRouter } from './telos-artifact-routes.js';
+import { createTelosArtifactRouter, telosArtifactSaveJson } from './telos-artifact-routes.js';
 import { writeHostArtifact } from './host-artifact-writer.js';
 import { writeOpenShellArtifact } from './artifact-writer.js';
 import { custodianPublicationApproval } from './symposium-custodian-authority.js';
@@ -419,6 +419,8 @@ app.use('/api/capability-operations', authMiddleware, (req, res, next) => {
 });
 // Two 5 MiB UTF-8 documents can each expand sixfold when JSON escapes control bytes.
 app.put('/api/files/write', authMiddleware, express.json({ limit: 60 * 1024 * 1024 + 64 * 1024 }));
+// Authenticate before accepting the expanded JSON envelope; decoded document bytes remain capped at 5 MiB.
+app.post('/api/internal/telos/artifacts/save', authMiddleware, telosArtifactSaveJson);
 app.use(express.json({ limit: '10mb' }));
 
 const loginLimiter = rateLimit({

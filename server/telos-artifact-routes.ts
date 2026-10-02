@@ -1,10 +1,13 @@
-import { Router, type Request } from 'express';
-import { TelosArtifactStore } from './telos-artifact-store.js';
+import { Router, json, type Request } from 'express';
+import { TelosArtifactStore, MAX_TELOS_ARTIFACT_BYTES } from './telos-artifact-store.js';
 import {
   TelosSaveArtifactInput,
   TelosFindArtifactsInput,
   TelosReadArtifactInput,
 } from './telos-artifact-tools.js';
+
+// A UTF-8 control byte can become six JSON bytes (\\u0000); leave bounded metadata room.
+export const telosArtifactSaveJson = json({ limit: 6 * MAX_TELOS_ARTIFACT_BYTES + 64 * 1024 });
 
 export function createTelosArtifactRouter(options: {
   dbPath(): string;
