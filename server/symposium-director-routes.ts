@@ -300,12 +300,10 @@ export function createSymposiumDirectorRouter(deps: SymposiumDirectorRouteDeps):
   router.post('/seats/revise', (req, res) => {
     const parsed = ReviseSeatBody.safeParse(req.body);
     if (!parsed.success) {
-      res
-        .status(400)
-        .json({
-          error: 'Invalid Symposium seat revision or boundary acknowledgement',
-          seatMutation: 'not-started',
-        });
+      res.status(400).json({
+        error: 'Invalid Symposium seat revision or boundary acknowledgement',
+        seatMutation: 'not-started',
+      });
       return;
     }
     const sessionId = (req.params as { id: string }).id;
