@@ -1,11 +1,24 @@
 import { describe, it, expect } from 'vitest';
-import { readConnectionsAccess, inventoryIdentity } from '../connections-access.js';
+import {
+  readConnectionsAccess,
+  inventoryIdentity,
+  type ConnectionsAccessSources,
+} from '../connections-access.js';
+import type { Connection } from '../connections-store.js';
+import type { PersonalConnection } from '../symposium-personal-connections.js';
 
 const connection = {
   id: 'same',
   ownerId: 'operator',
   label: 'Same label',
   templateId: 'jira-readonly',
+  templateVersion: 1,
+  publicConfig: {},
+  gatewayProviderId: null,
+  submittedEmail: '',
+  errorCode: null,
+  createdAt: 0,
+  updatedAt: 100,
   gateway: 'primary',
   workspace: 'default',
   gatewayProviderName: 'managed-jira',
@@ -18,30 +31,31 @@ const connection = {
   archivedAt: null,
   credentialRef: '/private/secret',
   token: 'SECRET',
+} satisfies Connection & { credentialRef: string; token: string };
+const account = {
+  id: 'same',
+  label: 'Same label',
+  provider: 'openai',
+  billing: 'openai-api',
+  models: [{ id: 'luna', label: 'Luna' }],
+  modelDiscovery: { updatedAt: 999, stale: false },
+  capabilities: { streaming: true, tools: true, images: false },
+  credentialRef: '/secret',
+} satisfies ReturnType<NonNullable<ConnectionsAccessSources['accounts']>>[number] & {
+  credentialRef: string;
 };
 const sources = () => ({
-  accounts: () => [
+  accounts: () => [account],
+  managed: () => [connection],
+  personal: () => [
     {
       id: 'same',
       label: 'Same label',
-      provider: 'openai',
-      billing: 'openai-api',
-      models: [{ id: 'luna', label: 'Luna' }],
-      modelDiscovery: { updatedAt: 999, stale: false },
-      credentialRef: '/secret',
-    },
+      revision: 1,
+      state: 'connected',
+      account: { email: 'personal@example.com', planType: 'plus' },
+    } satisfies PersonalConnection,
   ],
-  managed: () => [connection] as never,
-  personal: () =>
-    [
-      {
-        id: 'same',
-        label: 'Same label',
-        revision: 1,
-        state: 'connected',
-        account: { email: 'personal@example.com', planType: 'plus' },
-      },
-    ] as never,
   legacy: async () => [
     { name: 'managed-jira', type: 'jira' },
     { name: 'other', type: 'custom' },
@@ -108,7 +122,7 @@ describe('nonsecret Connections & access inventory', () => {
   it('does not deduplicate across gateway/workspace or hide Google during an unavailable observation', async () => {
     const result = await readConnectionsAccess({
       ...sources(),
-      managed: () => [{ ...connection, gateway: 'other', gatewayProviderName: 'other' }] as never,
+      managed: () => [{ ...connection, gateway: 'other', gatewayProviderName: 'other' }],
       google: async () => ({ health: 'unavailable', expiresAt: null, slidesEditing: false }),
     });
     expect(

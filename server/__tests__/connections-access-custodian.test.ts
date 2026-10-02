@@ -2,7 +2,9 @@ import { describe, it, expect, vi } from 'vitest';
 import { personalInventorySource } from '../connections-access-custodian.js';
 import { readConnectionsAccess } from '../connections-access.js';
 import { revokeAuthSession } from '../auth.js';
-const metadata = {
+import type { PersonalConnection } from '../symposium-personal-connections.js';
+import type { CustodianClient } from '../symposium-custodian-proxy.js';
+const metadata: PersonalConnection = {
   id: 'personal_one',
   label: 'Personal',
   revision: 1,
@@ -16,7 +18,10 @@ const auth = () => ({
 describe('custodian personal metadata inventory', () => {
   it('uses existing personal.list with verified browser authority and never falls back to local ownership', async () => {
     const session = auth();
-    const invoke = vi.fn(async () => ({ status: 200, body: { connections: [metadata] } }));
+    const invoke = vi.fn<CustodianClient['request']>(async () => ({
+      status: 200,
+      body: { connections: [metadata] },
+    }));
     const local = vi.fn(() => []);
     const personal = personalInventorySource(
       session,
@@ -55,7 +60,7 @@ describe('custodian personal metadata inventory', () => {
     const session = auth();
     let release!: () => void;
     const invalidate = vi.fn();
-    const invoke = vi.fn(async () => {
+    const invoke = vi.fn<CustodianClient['request']>(async () => {
       await new Promise<void>((resolve) => {
         release = resolve;
       });
@@ -73,7 +78,7 @@ describe('custodian personal metadata inventory', () => {
   });
   it('bounds a hung owner and supplies an aborted signal while retaining unrelated sources', async () => {
     let observedSignal: AbortSignal | undefined;
-    const invoke = vi.fn(async (_input: unknown, _approval: unknown, signal?: AbortSignal) => {
+    const invoke = vi.fn<CustodianClient['request']>(async (_input, _approval, signal) => {
       observedSignal = signal;
       return new Promise<never>(() => {});
     });
