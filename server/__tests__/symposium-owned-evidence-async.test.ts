@@ -244,3 +244,71 @@ it('forwards trusted full-build selection to its original worker and rejects req
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+it('actual worker serialization excludes original trusted runtime observer without mutating host config', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'evidence-runtime-observer-'));
+  try {
+    const f = fixture(root);
+    const observeRuntime = vi.fn();
+    f.config.observeRuntime = observeRuntime;
+    let wireConfig: unknown;
+    const collect = createOwnedEvidenceCollector(
+      f.config,
+      'https://localhost:1234',
+      f.physical,
+      f.custody,
+      (_source, options) => {
+        wireConfig = options.workerData.config;
+        return new Worker(
+          `const {workerData,parentPort}=require('node:worker_threads');
+          if(Object.hasOwn(workerData.config,'observeRuntime'))throw Error('Trusted callback crossed worker wire');
+          parentPort.postMessage({candidate:{fixture:true}});`,
+          { ...options, eval: true },
+        );
+      },
+    );
+    expect(await collect(selection)).toEqual({ fixture: true });
+    expect(wireConfig).not.toHaveProperty('observeRuntime');
+    expect(wireConfig).toMatchObject({
+      cli: f.config.cli,
+      workspace: f.config.workspace,
+      cliEnvironment: f.config.cliEnvironment,
+    });
+    expect(f.config.observeRuntime).toBe(observeRuntime);
+    f.config.observeRuntime({
+      kind: 'ensure-phase',
+      phase: 'sandbox-current',
+      stage: 'start',
+      elapsedMs: 0,
+      error: 'none',
+    });
+    expect(observeRuntime).toHaveBeenCalledOnce();
+    expect(f.custody.verifyCustodyAsync.mock.calls.length).toBeGreaterThanOrEqual(3);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it('worker serialization still refuses unrelated function fields instead of broad callback filtering', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'evidence-unknown-function-'));
+  try {
+    const f = fixture(root);
+    f.config.observeRuntime = vi.fn();
+    Object.assign(f.config, { unknownWireCallback: () => {} });
+    const collect = createOwnedEvidenceCollector(
+      f.config,
+      'https://localhost:1234',
+      f.physical,
+      f.custody,
+      (_source, options) =>
+        new Worker(
+          `require('node:worker_threads').parentPort.postMessage({candidate:{fixture:true}});`,
+          { ...options, eval: true },
+        ),
+    );
+    await expect(collect(selection)).rejects.toMatchObject({ name: 'DataCloneError' });
+    expect(f.config.observeRuntime).toBeTypeOf('function');
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});

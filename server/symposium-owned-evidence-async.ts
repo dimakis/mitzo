@@ -21,7 +21,7 @@ import {
 
 type Physical = Omit<LocalSymposiumPhysicalOptions, 'ownedGateway' | 'captureClaudeProvider'>;
 export interface OwnedEvidenceWorkerData {
-  config: OpenShellRuntimeConfig;
+  config: Omit<OpenShellRuntimeConfig, 'observeRuntime'>;
   endpoint: string;
   physical: Physical;
   selection: unknown;
@@ -116,6 +116,9 @@ export function createOwnedEvidenceCollector(
         source ? './symposium-owned-evidence-worker.ts' : './symposium-owned-evidence-worker.js',
         import.meta.url,
       ).href;
+      // Trusted observation belongs to the original host runtime, never the worker wire.
+      const workerConfig = { ...config };
+      delete workerConfig.observeRuntime;
       const worker = spawnWorker(
         source
           ? `const { workerData } = require('node:worker_threads'); require(workerData.loader).register(); require(require('node:url').fileURLToPath(workerData.module));`
@@ -123,7 +126,7 @@ export function createOwnedEvidenceCollector(
         {
           eval: true,
           workerData: {
-            config,
+            config: workerConfig,
             ...(buildSelection === undefined ? {} : { buildSelection }),
             endpoint,
             physical,
