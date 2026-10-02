@@ -30,6 +30,8 @@ it('loads accounts and models from the server and emits explicit selection', asy
   const onChange = vi.fn();
   render(<AccountModelPicker sessionId={null} preferredModel="sonnet" onChange={onChange} />);
   await screen.findByText('Work Vertex');
+  expect(onChange.mock.calls.every(([selection]) => selection === null)).toBe(true);
+  fireEvent.click(screen.getByRole('button', { name: 'Use Work Vertex · Sonnet' }));
   await waitFor(() =>
     expect(onChange).toHaveBeenCalledWith({ accountId: 'work', model: 'sonnet' }),
   );
@@ -76,6 +78,7 @@ it('retries a failed account request without changing billing routes', async () 
   await screen.findByRole('alert');
   expect(onChange).not.toHaveBeenCalledWith(expect.objectContaining({ model: expect.any(String) }));
   fireEvent.click(screen.getByRole('button', { name: 'Retry accounts' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Use Work Vertex · Sonnet' }));
   await waitFor(() =>
     expect(onChange).toHaveBeenLastCalledWith({ accountId: 'work', model: 'sonnet' }),
   );
@@ -154,6 +157,7 @@ it('saves a subscription alias without changing the selected account or model', 
   const onChange = vi.fn();
   render(<AccountModelPicker sessionId={null} preferredModel="sonnet" onChange={onChange} />);
   await screen.findByLabelText('Account');
+  fireEvent.click(screen.getByRole('button', { name: 'Use Work Vertex · Sonnet' }));
   fireEvent.click(screen.getByRole('button', { name: 'Edit account alias' }));
   fireEvent.change(screen.getByLabelText('Account alias'), {
     target: { value: 'My work subscription' },
@@ -233,6 +237,7 @@ it('offers model-specific thinking choices and resets them when changing model',
   const onChange = vi.fn();
   render(<AccountModelPicker sessionId={null} preferredModel="gpt-a" onChange={onChange} />);
   const thinking = await screen.findByLabelText('Thinking');
+  fireEvent.click(screen.getByRole('button', { name: 'Use ChatGPT · GPT A' }));
   fireEvent.change(thinking, { target: { value: 'low' } });
   expect(onChange).toHaveBeenLastCalledWith({
     accountId: 'personal',
@@ -804,4 +809,14 @@ it('does not silently fall back to work when the saved default is unavailable', 
   expect(onChange.mock.calls.every(([selection]) => selection === null)).toBe(true);
   fireEvent.change(screen.getByLabelText('Account'), { target: { value: 'other' } });
   expect(onChange).toHaveBeenLastCalledWith({ accountId: 'other', model: 'haiku' });
+});
+
+it('requires confirmation before using the first account when no default is saved', async () => {
+  vi.mocked(apiFetch).mockResolvedValue({ ok: true, json: async () => profiles } as Response);
+  const onChange = vi.fn();
+  render(<AccountModelPicker sessionId={null} preferredModel="sonnet" onChange={onChange} />);
+  await screen.findByText('Work Vertex');
+  expect(onChange.mock.calls.every(([selection]) => selection === null)).toBe(true);
+  fireEvent.click(screen.getByRole('button', { name: 'Use Work Vertex · Sonnet' }));
+  expect(onChange).toHaveBeenLastCalledWith({ accountId: 'work', model: 'sonnet' });
 });

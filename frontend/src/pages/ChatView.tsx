@@ -53,7 +53,6 @@ export function ChatView() {
   const modeChangeReady = useMitzoStore((s) => s.modeChangeReady);
 
   // Select individual action functions — stable references
-  const storeSendMessage = useMitzoStore((s) => s.sendMessage);
   const storeInterruptMessage = useMitzoStore((s) => s.interruptMessage);
   const storeStopGeneration = useMitzoStore((s) => s.stopGeneration);
   const storeRespondToPermission = useMitzoStore((s) => s.respondToPermission);
@@ -70,7 +69,12 @@ export function ChatView() {
   const bootContext = useMitzoStore((s) => s.messages.bootContext);
   const progressByToolId = useProgressByToolId();
 
-  const { launch, dismissLaunch } = usePendingLaunch();
+  const {
+    launch,
+    launchSending,
+    dismissLaunch,
+    sendMessage: storeSendMessage,
+  } = usePendingLaunch();
 
   const connected = connection.status === 'connected';
 
@@ -183,21 +187,17 @@ export function ChatView() {
     voice.stopSpeaking();
     // Codex supports per-turn model changes. The server ignores these fields for
     // sessions bound to other providers and rejects cross-account rebinding.
-    if (launch) storeDispatchMessages({ type: 'SET_SESSION_CONTEXT', context: launch.context });
-    storeSendMessage(text, {
+    const queued = storeSendMessage(text, {
       images,
       contextBlocks: ctxBlocks,
-      ...(launch?.telosTaskId ? { telosTaskId: launch.telosTaskId } : {}),
-      ...(launch?.agentName ? { agentName: launch.agentName } : {}),
       ...(accountSelection ?? {}),
       mode,
       cwd: searchParams.get('cwd') ?? undefined,
       extraTools: searchParams.get('extraTools') ?? undefined,
       ...(!activeSessionId && !isolation ? { isolation: false } : {}),
     });
-    dismissLaunch();
     forceScrollToBottom();
-    return true;
+    return queued;
   }
 
   function handleInterrupt(text: string, images?: ImageAttachment[], ctxBlocks?: string[]): void {
@@ -389,7 +389,7 @@ export function ChatView() {
                   <p>{launch.prompt}</p>
                 </details>
                 <button
-                  disabled={!accountSelection || messages.running}
+                  disabled={!accountSelection || messages.running || launchSending}
                   onClick={() => handleSend(launch.prompt)}
                 >
                   Send launch prompt

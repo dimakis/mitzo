@@ -52,6 +52,8 @@ import { messageIdentity } from './message-identity.js';
 // ─── Store state ─────────────────────────────────────────────────────────────
 
 export interface SendMessageOptions {
+  /** Local delivery observer; never included in the wire payload. */
+  onDelivery?: (status: 'accepted' | 'failed' | 'uncertain') => void;
   accountId?: string;
   contextBlocks?: string[];
   images?: ImageAttachment[];
@@ -255,6 +257,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
   let historyAbort: AbortController | undefined;
   let recoveryInFlight = false;
   const pendingOptimisticMessageIds = new Set<string>();
+  const deliveryObservers = new Map<string, NonNullable<SendMessageOptions['onDelivery']>>();
   let boundedRestore:
     | {
         sessionId: string;
@@ -497,6 +500,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       connection.trackSeq(id, connection.getLastSeq(id));
       connection.clearPendingSends();
       pendingOptimisticMessageIds.clear();
+      deliveryObservers.clear();
 
       set((s) => ({
         sessions: { ...s.sessions, active: id },
@@ -600,6 +604,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       parserState.currentSessionId = undefined;
       connection.clearPendingSends();
       pendingOptimisticMessageIds.clear();
+      deliveryObservers.clear();
       connection.send({ type: 'switch_session', sessionId: null });
       set({
         sessions: { ...get().sessions, active: null },
@@ -620,6 +625,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     sendMessage(text: string, opts?: SendMessageOptions) {
       const clientMsgId = `user-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       pendingOptimisticMessageIds.add(clientMsgId);
+      if (opts?.onDelivery) deliveryObservers.set(clientMsgId, opts.onDelivery);
 
       const buildPayload = (): Record<string, unknown> => {
         const msg: Record<string, unknown> = {
@@ -670,7 +676,16 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
         awaitingSessionId = false;
         set({ modeChangeReady: true });
       }
-      if (!sent) set({ sendError: 'Message could not be queued. Please retry.' });
+      if (!sent) {
+        set((s) => ({
+          sendError: 'Message could not be queued. Please retry.',
+          messages: !parserState.currentSessionId
+            ? messagesReducer(s.messages, { type: 'SESSION_STATE_CHANGED', state: 'idle' })
+            : s.messages,
+        }));
+        deliveryObservers.delete(clientMsgId);
+        opts?.onDelivery?.('failed');
+      }
     },
 
     interruptMessage(text: string, opts?: SendMessageOptions) {
@@ -1035,6 +1050,17 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       msg.type === '_send_uncertain' ||
       msg.type === '_send_accepted'
     ) {
+      if (typeof msg.clientMsgId === 'string' && msg.type !== '_send_pending') {
+        const status =
+          msg.type === '_send_accepted'
+            ? 'accepted'
+            : msg.type === '_send_failed'
+              ? 'failed'
+              : 'uncertain';
+        const observer = deliveryObservers.get(msg.clientMsgId);
+        if (status !== 'uncertain') deliveryObservers.delete(msg.clientMsgId);
+        observer?.(status);
+      }
       if (msg.type === '_send_failed' && typeof msg.clientMsgId === 'string')
         pendingOptimisticMessageIds.delete(msg.clientMsgId);
       const visible = store
@@ -1048,6 +1074,10 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
           awaitingSessionId = false;
           store.setState({ modeChangeReady: true });
         }
+        if (msg.type === '_send_failed' && !parserState.currentSessionId)
+          store.setState((s) => ({
+            messages: messagesReducer(s.messages, { type: 'SESSION_STATE_CHANGED', state: 'idle' }),
+          }));
         store.setState({
           sendError:
             msg.type === '_send_failed' || msg.type === '_send_uncertain'

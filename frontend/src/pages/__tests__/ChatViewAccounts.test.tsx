@@ -180,6 +180,7 @@ it.each(['before', 'after'])(
     expect(screen.getByText('Review this task')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Retry accounts' }));
     await screen.findByText('Work');
+    fireEvent.click(screen.getByRole('button', { name: 'Use Work · Sonnet' }));
     expect(sendMessage).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole('button', { name: 'Send launch prompt' }));
     await waitFor(() =>
@@ -208,6 +209,9 @@ it('reviews distinct launches with identical prompt text before sending', async 
     </MitzoStoreProvider>,
   );
   await screen.findByText('Work');
+  if (screen.getByRole('button', { name: /^Workspace/ }).getAttribute('aria-expanded') === 'false')
+    fireEvent.click(screen.getByRole('button', { name: /^Workspace/ }));
+  fireEvent.click(screen.getByRole('button', { name: 'Use Work · Sonnet' }));
   for (const telosTaskId of ['task-a', 'task-b']) {
     act(() =>
       store

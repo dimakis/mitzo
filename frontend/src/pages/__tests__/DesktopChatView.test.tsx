@@ -375,6 +375,8 @@ it('uses the account catalog on desktop and sends the explicit subscription choi
   );
   await screen.findByLabelText('Account');
   expect((screen.getByLabelText('Model') as HTMLSelectElement).value).toBe('luna');
+  fireEvent.click(screen.getByRole('button', { name: /^Workspace/ }));
+  fireEvent.click(screen.getByRole('button', { name: 'Use My subscription · Luna' }));
   fireEvent.click(screen.getByText('Test send'));
   expect(store.getState().sendMessage).toHaveBeenCalledWith(
     'hello',

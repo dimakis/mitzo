@@ -33,6 +33,8 @@ export function DesktopChatView() {
 
   // Store state
   const messages = useMessages();
+  const sendError = useMitzoStore((s) => s.sendError);
+  const sendStatus = useMitzoStore((s) => s.sendStatus);
   const historyLoading = useMitzoStore((s) => s.historyLoading);
   const historyError = useMitzoStore((s) => s.historyError);
   const connection = useConnection();
@@ -41,7 +43,6 @@ export function DesktopChatView() {
   const modeChangeReady = useMitzoStore((s) => s.modeChangeReady);
 
   // Select individual action functions — stable references, no new-object trap
-  const storeSendMessage = useMitzoStore((s) => s.sendMessage);
   const storeInterruptMessage = useMitzoStore((s) => s.interruptMessage);
   const storeStopGeneration = useMitzoStore((s) => s.stopGeneration);
   const storeRespondToPermission = useMitzoStore((s) => s.respondToPermission);
@@ -58,7 +59,12 @@ export function DesktopChatView() {
   const bootContext = useMitzoStore((s) => s.messages.bootContext);
   const progressByToolId = useProgressByToolId();
 
-  const { launch, dismissLaunch } = usePendingLaunch();
+  const {
+    launch,
+    launchSending,
+    dismissLaunch,
+    sendMessage: storeSendMessage,
+  } = usePendingLaunch();
 
   const connected = connection.status === 'connected';
 
@@ -163,21 +169,17 @@ export function DesktopChatView() {
       return false;
     }
     voice.stopSpeaking();
-    if (launch) storeDispatchMessages({ type: 'SET_SESSION_CONTEXT', context: launch.context });
-    storeSendMessage(text, {
+    const queued = storeSendMessage(text, {
       images,
       contextBlocks: ctxBlocks,
-      ...(launch?.telosTaskId ? { telosTaskId: launch.telosTaskId } : {}),
-      ...(launch?.agentName ? { agentName: launch.agentName } : {}),
       ...(accountSelection ?? {}),
       mode,
       cwd: searchParams.get('cwd') ?? undefined,
       extraTools: searchParams.get('extraTools') ?? undefined,
       ...(!activeSessionId && !isolation ? { isolation: false } : {}),
     });
-    dismissLaunch();
     forceScrollToBottom();
-    return true;
+    return queued;
   }
 
   function handleInterrupt(text: string, images?: ImageAttachment[], ctxBlocks?: string[]): void {
@@ -302,6 +304,9 @@ export function DesktopChatView() {
             </div>
           </WorkspaceControls>
 
+          {(sendError || sendStatus) && (
+            <div role={sendError ? 'alert' : 'status'}>{sendError || sendStatus}</div>
+          )}
           {(historyLoading || (sessionId && sessionId !== activeSessionId)) && (
             <div role="status">Loading conversation…</div>
           )}
@@ -349,7 +354,7 @@ export function DesktopChatView() {
                       <p>{launch.prompt}</p>
                     </details>
                     <button
-                      disabled={!accountSelection || messages.running}
+                      disabled={!accountSelection || messages.running || launchSending}
                       onClick={() => handleSend(launch.prompt)}
                     >
                       Send launch prompt

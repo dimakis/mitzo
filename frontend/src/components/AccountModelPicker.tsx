@@ -74,6 +74,7 @@ export function AccountModelPicker({
   onSummaryChange?: (summary: WorkspaceSummary | null) => void;
 }) {
   const sessionId = scope === 'chat' ? requestedSessionId : null;
+  const [needsConfirmation, setNeedsConfirmation] = useState(false);
   const [savedDefault, setSavedDefault] = useState(getDefaultAccountModel);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [selection, setSelection] = useState<AccountSelection | null>(null);
@@ -286,9 +287,11 @@ export function AccountModelPicker({
             { ...next, reasoningEffort: previous?.reasoningEffort },
             first,
           );
+          const confirm = scope === 'chat' && !legacy && (!previous || needsConfirmation);
+          setNeedsConfirmation(confirm);
           setDraftUnavailable(false);
           setSelection(selected);
-          callbacks.current.onChange(explicitSelection ? null : selected);
+          callbacks.current.onChange(explicitSelection || confirm ? null : selected);
         }
       })
       .catch((err: unknown) => {
@@ -391,6 +394,7 @@ export function AccountModelPicker({
               nextAccount,
             );
             setDraftUnavailable(false);
+            setNeedsConfirmation(false);
             setSelection(next);
             onChange(explicitSelection ? null : next);
           }}
@@ -477,7 +481,7 @@ export function AccountModelPicker({
           );
           setDraftUnavailable(false);
           setSelection(next);
-          onChange(explicitSelection ? null : next);
+          onChange(explicitSelection || needsConfirmation ? null : next);
         }}
       >
         {!account.models.some((m) => m.id === selection.model) && (
@@ -501,7 +505,7 @@ export function AccountModelPicker({
             const next = { ...selection };
             next.reasoningEffort = e.target.value || null;
             setSelection(next);
-            onChange(explicitSelection ? null : next);
+            onChange(explicitSelection || needsConfirmation ? null : next);
           }}
         >
           <option value="">Model default</option>
@@ -517,7 +521,7 @@ export function AccountModelPicker({
       {account.modelDiscovery?.stale && (
         <span role="status">Model refresh failed. Showing the last available list.</span>
       )}
-      {explicitSelection && (
+      {(explicitSelection || needsConfirmation) && (
         <button
           type="button"
           disabled={
@@ -526,8 +530,10 @@ export function AccountModelPicker({
             !account.models.some((model) => model.id === selection.model)
           }
           onClick={() => {
-            if (!draftUnavailable && account.models.some((model) => model.id === selection.model))
+            if (!draftUnavailable && account.models.some((model) => model.id === selection.model)) {
+              setNeedsConfirmation(false);
               onChange(selection);
+            }
           }}
         >
           Use {account.label} ·{' '}

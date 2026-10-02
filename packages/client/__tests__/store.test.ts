@@ -2868,3 +2868,14 @@ it('advances the permission queue locally when expiry denial loses to server tim
   expect(store.getState().messages.permission?.permId).toBe('valid');
   expect(store.getState().messages.permissionQueue).toEqual([]);
 });
+
+it('reports launch delivery for the matching HTTP acknowledgement only', () => {
+  const store = createReadyStore();
+  const onDelivery = vi.fn();
+  store.getState().sendMessage('Launch', { onDelivery });
+  const id = store.getState().messages.messages.at(-1)!.messageId;
+  lastWs.simulateMessage({ type: '_send_accepted', clientMsgId: 'unrelated', sessionId: 'other' });
+  expect(onDelivery).not.toHaveBeenCalled();
+  lastWs.simulateMessage({ type: '_send_accepted', clientMsgId: id, sessionId: 'target' });
+  expect(onDelivery).toHaveBeenCalledExactlyOnceWith('accepted');
+});
