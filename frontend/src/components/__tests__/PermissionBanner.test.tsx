@@ -232,6 +232,18 @@ describe('PermissionBanner', () => {
     expect(onRespond).toHaveBeenCalledWith('p1', 'once', 'GrantIntegrationAccess');
   });
 
+  it('offers only a one-time approval for exact web requests', () => {
+    render(
+      <PermissionBanner {...defaultProps} toolName="RequestWebAccess" approvalScope="request" />,
+    );
+    expect(screen.getByRole('button', { name: 'Allow Once' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Allow for session' })).toBeNull();
+    expect(
+      screen.getByText(
+        'This approval covers only the displayed request. Another request needs its own approval.',
+      ),
+    ).toBeTruthy();
+  });
   it('accepts provider question IDs that match object prototype names', () => {
     const onRespond = vi.fn();
     render(

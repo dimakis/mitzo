@@ -1,6 +1,14 @@
 import { localHttpBaseUrl, localServerUsesTls } from './local-server-url.js';
 import { TELOS_ARTIFACT_INSTRUCTIONS } from './telos-artifact-tools.js';
 import { requireCustodianOrdinaryRuntime } from './custodian-ordinary-runtime.js';
+import {
+  createWebAccessSdkServer,
+  webAccessSdkPermission,
+  WEB_ACCESS_SDK_TOOL,
+} from './web-access-sdk.js';
+import { createWebAccessTool } from './web-access-tool.js';
+import { WEB_ACCESS_INSTRUCTIONS } from './request-web-access.js';
+import { searchSdk } from './web-search-adapters.js';
 import { custodianControllerMode, custodianOwnerMode } from './symposium-custodian-mode.js';
 import { permissionRevision, type ResumePermission } from './session-permission-revision.js';
 import { GoogleAuth } from 'google-auth-library';
@@ -1387,6 +1395,7 @@ async function _startChatInner(
     sessionAllowList: new Set<string>(),
     worktreePath,
     agentName,
+    ...(accountBinding ? { accountBinding } : {}),
     // Set sessionId early so pre-assistant events are persisted (iOS reconnect).
     ...((options.resume ?? options.initialSessionId)
       ? { sessionId: options.resume ?? options.initialSessionId }
@@ -1661,7 +1670,25 @@ async function _startChatInner(
         makeUserMessage(fullPrompt, 'now', initialMessageId, initialProviderAdmission),
       );
       options.onStartupAdmission?.();
-    } else
+    } else {
+      const decide = webAccessSdkPermission(
+        buildPermissionHandler(clientId, registry, {
+          onDemandCreate: buildOnDemandCreate(wtId, clientId),
+        }),
+      );
+      const webAccess = createWebAccessSdkServer(
+        createWebAccessTool(
+          () => session.sessionId ?? options.resume ?? newSdkSessionId ?? '',
+          registry,
+          (query, signal) =>
+            searchSdk(query, signal, {
+              env: sessionEnv,
+              cwd,
+              model: parseModelSpec(session.model ?? accountBinding?.model ?? '').model,
+            }),
+        ),
+        abortController.signal,
+      );
       q = adaptSdkQuery(
         query({
           prompt: inputQueue as AsyncIterable<SDKUserMessage>,
@@ -1674,27 +1701,22 @@ async function _startChatInner(
             systemPrompt: {
               type: 'preset',
               preset: 'claude_code',
-              append: systemPromptAppend,
+              append: systemPromptAppend + WEB_ACCESS_INSTRUCTIONS,
             },
             permissionMode: MODE_TO_SDK[session.mode] as 'plan' | 'default',
-            allowedTools: [...mcpAllowed, ...extraTools],
+            allowedTools: [...mcpAllowed, ...extraTools, WEB_ACCESS_SDK_TOOL],
+            disallowedTools: ['WebSearch', 'WebFetch'],
             thinking: resolveThinking(options.model),
             ...(options.model ? { model: parseModelSpec(options.model).model } : {}),
             ...(resolvedResume ? { resume: resolvedResume } : {}),
             ...(newSdkSessionId ? { sessionId: newSdkSessionId } : {}),
-            ...(Object.keys(allMcpServers).length > 0 ? { mcpServers: allMcpServers } : {}),
-            hooks: buildSessionPermissionHooks(
-              buildPermissionHandler(clientId, registry, {
-                onDemandCreate: buildOnDemandCreate(wtId, clientId),
-              }),
-              hooks,
-            ),
-            canUseTool: buildPermissionHandler(clientId, registry, {
-              onDemandCreate: buildOnDemandCreate(wtId, clientId),
-            }),
+            mcpServers: { ...allMcpServers, 'mitzo-web-access': webAccess },
+            hooks: buildSessionPermissionHooks(decide, hooks),
+            canUseTool: decide,
           },
         }),
       );
+    }
 
     session.queryInstance = q;
 

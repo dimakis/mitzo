@@ -19,6 +19,12 @@ import { isDeepStrictEqual } from 'node:util';
 import { codexPrivateDirectory } from './codex-private-path.js';
 import type { AccountBinding, ProviderAttemptToken } from '@mitzo/protocol';
 import { buildPermissionHandler, type ManagedSession, type SessionRegistry } from '@mitzo/harness';
+import {
+  webAccessDefinition,
+  REQUEST_WEB_ACCESS,
+  WEB_ACCESS_INSTRUCTIONS,
+} from './request-web-access.js';
+import { createWebAccessTool } from './web-access-tool.js';
 import { connectCodexMcpTools } from './codex-mcp-tools.js';
 import { AsyncQueue } from './async-queue.js';
 import {
@@ -777,6 +783,7 @@ async function openCodexChatBound(
   }
   const baseSystemPrompt =
     options.systemPrompt +
+    WEB_ACCESS_INSTRUCTIONS +
     `\nWhen the user asks you to build a reusable Symposium agent profile in this conversation, use ${SYMPOSIUM_PROPOSE_PROFILE_TOOL} to submit portable guidance for review. The tool only drafts a proposal; tell the user to edit and save it in Mitzo. Do not include credentials, transcript text, session or machine paths, account bindings, or runtime grants.\n` +
     (connectedOpenShell
       ? `\nOpenShell contains the provider loop and its built-in tools. Use those tools directly inside the supplied sandbox workspace. Current Mitzo mode: ${options.session.mode}. In Agent or Auto mode, a user request to edit that workspace is the required approval: execute it without asking again. ${TELOS_ARTIFACT_INSTRUCTIONS} Use ${TELOS_CREATE_OUTCOME_TOOL} for durable Telos capture; never use a sandbox-local todo script for persistent Telos work.${integrationTools.length ? ` Mitzo preflights explicit requests for grantable integrations before the turn begins. If you discover that you need a grantable service which the user did not request explicitly, call ${GRANT_INTEGRATION_TOOL} before using it. A CLI being installed does not mean its provider is attached, and a tunnel error from an unattached provider is not evidence of a gateway outage.` : ''}\n`
@@ -784,7 +791,7 @@ async function openCodexChatBound(
     (managedConnection?.templateId === 'jira-readonly'
       ? '\nThis sandbox has verified read-only Jira access to https://redhat.atlassian.net. Use the scoped API base in JIRA_URL (not the browser site URL). Use the provider-approved /usr/bin/python3 or curl with JIRA_URL, JIRA_EMAIL, and the gateway-managed JIRA_API_TOKEN placeholder for Basic authorization. Never print credential values. Writes are denied by the gateway policy.\n'
       : '');
-  const runtime = new CodexConversation({
+  const runtime: CodexConversation = new CodexConversation({
     conversationId: options.conversationId,
     cwd: options.session.cwd!,
     profile: options.profile,
@@ -864,12 +871,13 @@ async function openCodexChatBound(
       loadAccountProfiles().validateModel(options.binding, model, reasoningEffort);
     },
     tools: connectedOpenShell
-      ? [...openShellHostTools, ...capabilityTools.definitions]
+      ? [...openShellHostTools, ...capabilityTools.definitions, webAccessDefinition]
       : [
           symposiumProposeProfileDefinition,
           ...nativeToolDefinitions,
           ...mcp.definitions,
           ...capabilityTools.definitions,
+          webAccessDefinition,
         ],
     displayToolName: mcp.displayName,
     createClient: (callbacks) =>
@@ -1057,6 +1065,11 @@ async function openCodexChatBound(
       if (openShell && runtimeManager && managedOpenShell && name === GRANT_INTEGRATION_TOOL) {
         const provider = typeof input.provider === 'string' ? input.provider : '';
         return requestIntegrationAccess(provider, signal);
+      }
+      if (name === REQUEST_WEB_ACCESS) {
+        return createWebAccessTool(options.conversationId, options.registry, (query, signal) =>
+          runtime.searchWeb(query, signal),
+        )(input, signal);
       }
       return (
         hooks?.executeTool(mcp.displayName(name), input, signal, async (input, forcePrompt) => {
