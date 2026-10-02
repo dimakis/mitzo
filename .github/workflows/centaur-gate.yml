@@ -1,0 +1,70 @@
+name: Centaur merge gate
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened]
+  pull_request_review:
+    types: [submitted, edited, dismissed]
+  issue_comment:
+    types: [created, edited, deleted]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: Pull request to recheck
+        required: true
+
+permissions:
+  contents: read
+  pull-requests: read
+  statuses: write
+
+concurrency:
+  group: centaur-${{ github.event.pull_request.number || github.event.issue.number || inputs.pr_number }}
+  cancel-in-progress: true
+
+jobs:
+  centaur:
+    if: github.event_name != 'issue_comment' || github.event.issue.pull_request
+    runs-on: ubuntu-latest
+    steps:
+      # No checkout or execution of pull-request code with the status-write token.
+      - uses: actions/github-script@v9
+        with:
+          script: |
+            const number = context.payload.pull_request?.number ??
+              context.payload.issue?.number ?? Number(context.payload.inputs?.pr_number);
+            if (!Number.isSafeInteger(number) || number <= 0) throw new Error('Invalid PR');
+            const repo = {owner: context.repo.owner, repo: context.repo.repo};
+            const {data: pr} = await github.rest.pulls.get({...repo, pull_number: number});
+            if (pr.state !== 'open') return;
+            const head = pr.head.sha;
+            await github.rest.repos.createCommitStatus({...repo, sha: head,
+              context: 'Centaur final LGTM', state: 'pending',
+              description: 'Checking final Centaur review for this commit'});
+            const reviews = await github.paginate(github.rest.pulls.listReviews,
+              {...repo, pull_number: number, per_page: 100});
+            const comments = await github.paginate(github.rest.issues.listComments,
+              {...repo, issue_number: number, per_page: 100});
+            const reports = [...reviews, ...comments].filter(r =>
+              r.user?.login === context.repo.owner && r.body?.includes('## Centaur Review'));
+            reports.sort((a, b) => (a.submitted_at || a.created_at || '')
+              .localeCompare(b.submitted_at || b.created_at || ''));
+            const latest = reports.at(-1);
+            const body = latest?.body || '';
+            const current = /^[a-f0-9]{40}$/.test(head) &&
+              body.includes(`<!-- centaur:sha:${head} -->`) &&
+              (latest.commit_id === undefined || latest.commit_id === head);
+            const approved = current && latest.state !== 'DISMISSED' &&
+              body.includes('LGTM — no issues found.') &&
+              /\*\*Recommendation:\*\* `merge`/.test(body) &&
+              /^- New blocking findings: 0\s*$/m.test(body) &&
+              /^- Unresolved blocking findings: 0\s*$/m.test(body);
+            // A head advance must never receive a verdict computed for the old head.
+            const {data: refreshed} = await github.rest.pulls.get({...repo, pull_number: number});
+            if (refreshed.state !== 'open' || refreshed.head.sha !== head) return;
+            await github.rest.repos.createCommitStatus({...repo, sha: head,
+              context: 'Centaur final LGTM',
+              state: approved ? 'success' : current ? 'failure' : 'pending',
+              description: approved ? 'Final Centaur LGTM for this commit' :
+                current ? 'Centaur findings or invalid approval block merge' :
+                'Waiting for final Centaur review of this commit'});

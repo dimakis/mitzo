@@ -773,3 +773,5 @@ An uncertain sealed publication can be verified after fresh app authentication w
 custodian and credential handle remain retained. The explicit exact-operation action performs
 read-only reconciliation; it never reissues Create PR, replaces an approval, or reconstructs
 credentials after custodian loss. See [publication recovery](docs/operations/symposium-sealed-publication-authority.md#fresh-app-authentication-and-read-only-recovery).
+
+The `Centaur merge gate` workflow publishes a `Centaur final LGTM` commit status. Main branch protection requires it alongside CI: only a final Centaur LGTM with a merge recommendation and zero blockers for the current head passes. Pushes invalidate old approvals; review edits and dismissals recheck the status. A review-cycle limit requires an explicit final review, never a bypass. The workflow executes no pull-request code with its status-write token.

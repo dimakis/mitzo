@@ -9,3 +9,5 @@ Green CI is insufficient to merge. Require Centaur's final LGTM and `merge` reco
 Production activation requires reviewed, accepted sources. A publication is distinct from consumer adoption: verify the selected knowledge and actual runtime before delivering it between turns. Keep published knowledge separate from writable task roots. Repair only the selected invalid content-addressed knowledge cache under its owning sandbox's lifecycle fence; preserve task data and unrelated views.
 
 Tests that make real model calls must explicitly use a supported Luna model. State the exact model and charged account before live tests; obtain approval if Luna is unavailable or another model is required.
+
+The `Centaur merge gate` GitHub workflow publishes the commit-specific `Centaur final LGTM` status from the latest trusted Centaur report. Branch protection must require this status alongside CI. It rechecks after pushes, review submissions/edits/dismissals, and fallback review comments; missing or stale reports remain pending, and blocking or dismissed reports fail. Changing a branch protection is distinct from landing the workflow; verify both before claiming enforcement.
