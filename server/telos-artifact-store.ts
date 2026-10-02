@@ -7,8 +7,13 @@ export const artifactFilename = z
   .string()
   .min(1)
   .max(200)
-  .regex(/^[^/\\\x00-\x1f\x7f]+$/)
-  .refine((name) => name !== '.' && name !== '..');
+  .regex(/^[^/\\]+$/)
+  .refine(
+    (name) =>
+      name !== '.' &&
+      name !== '..' &&
+      [...name].every((c) => c.charCodeAt(0) >= 32 && c.charCodeAt(0) !== 127),
+  );
 export interface TelosArtifactMetadata {
   id: string;
   itemId: string;

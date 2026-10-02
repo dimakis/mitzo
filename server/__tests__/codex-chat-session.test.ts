@@ -282,11 +282,15 @@ it('does not advertise unavailable host tools to an OpenShell runtime', async ()
   expect(mocks.conversationOptions?.runtimeConfig).toEqual({ web_search: 'disabled' });
   expect(mocks.conversationOptions?.tools).toEqual([
     expect.objectContaining({ name: 'TelosCreateOutcome' }),
+    expect.objectContaining({ name: 'TelosSaveArtifact' }),
+    expect.objectContaining({ name: 'TelosFindArtifacts' }),
+    expect.objectContaining({ name: 'TelosReadArtifact' }),
     expect.objectContaining({ name: 'SymposiumProposeProfile' }),
   ]);
   expect(mocks.conversationOptions?.systemPrompt).toContain(
     'never use a sandbox-local todo script',
   );
+  expect(mocks.conversationOptions?.systemPrompt).toContain('TelosFindArtifacts');
   expect(mocks.connect).not.toHaveBeenCalled();
   await expect(chat.setPermissionMode?.('agent')).resolves.toBeUndefined();
   await expect(chat.setPermissionMode?.('ask')).rejects.toThrow('Ask mode');
@@ -348,6 +352,26 @@ it('does not advertise unavailable host tools to an OpenShell runtime', async ()
       headers: expect.objectContaining({ 'X-Client-Id': 'client' }),
     }),
   );
+  const artifactInput = {
+    itemId: 'telos-live',
+    filename: 'spec.md',
+    title: 'Spec',
+    path: '/sandbox/spec.md',
+  };
+  const receipt = { ok: true, artifact: { id: 'a'.repeat(32), revision: 1, sha256: 'hash' } };
+  mocks.permissionHandler.mockResolvedValueOnce({ behavior: 'allow', updatedInput: artifactInput });
+  fetch.mockResolvedValueOnce(new Response(JSON.stringify(receipt)));
+  expect(
+    await executeTool('TelosSaveArtifact', artifactInput, new AbortController().signal),
+  ).toEqual({ content: JSON.stringify(receipt), isError: false });
+  expect(fetch).toHaveBeenLastCalledWith(
+    'http://localhost:3101/api/internal/telos/artifacts/save',
+    expect.anything(),
+  );
+  mocks.permissionHandler.mockResolvedValueOnce({ behavior: 'deny', message: 'Denied' });
+  expect(
+    await executeTool('TelosSaveArtifact', artifactInput, new AbortController().signal),
+  ).toEqual({ content: 'Denied', isError: true });
   mocks.useTls = false;
   chat.close();
   vi.unstubAllGlobals();
@@ -432,6 +456,9 @@ it('advertises reviewed per-chat provider grants to a managed OpenShell runtime'
     );
     expect(mocks.conversationOptions?.tools).toEqual([
       expect.objectContaining({ name: 'TelosCreateOutcome' }),
+      expect.objectContaining({ name: 'TelosSaveArtifact' }),
+      expect.objectContaining({ name: 'TelosFindArtifacts' }),
+      expect.objectContaining({ name: 'TelosReadArtifact' }),
       expect.objectContaining({ name: 'SymposiumProposeProfile' }),
       expect.objectContaining({
         name: 'GrantIntegrationAccess',

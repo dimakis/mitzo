@@ -1,4 +1,12 @@
 #!/usr/bin/env node
+import {
+  telosArtifactDefinitions,
+  telosSaveArtifactShape,
+  telosFindArtifactsShape,
+  telosReadArtifactShape,
+  executeTelosArtifactTool,
+  type TelosArtifactToolName,
+} from './telos-artifact-tools.js';
 /** Telos MCP server — safe, structured outcome creation through Mitzo's internal API. */
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
@@ -27,7 +35,7 @@ server.registerTool(
       'Create one durable Telos outcome with an explicit result, rationale, evidence criteria, and ordered milestone children. This mutates Telos and requires user approval.',
     inputSchema: telosOutcomeShape,
   },
-  async (input) => {
+  async (input: Record<string, unknown>) => {
     const result = await executeTelosCreateOutcome(baseUrl, clientId, token, input);
     return {
       content: [{ type: 'text' as const, text: result.content }],
@@ -36,4 +44,23 @@ server.registerTool(
   },
 );
 
+for (const definition of telosArtifactDefinitions) {
+  const name = definition.name as TelosArtifactToolName;
+  const shape = {
+    TelosSaveArtifact: telosSaveArtifactShape,
+    TelosFindArtifacts: telosFindArtifactsShape,
+    TelosReadArtifact: telosReadArtifactShape,
+  }[name];
+  server.registerTool(
+    name,
+    { description: definition.description, inputSchema: shape },
+    async (input: Record<string, unknown>) => {
+      const result = await executeTelosArtifactTool(baseUrl, clientId, token, name, input);
+      return {
+        content: [{ type: 'text' as const, text: result.content }],
+        ...(result.isError ? { isError: true } : {}),
+      };
+    },
+  );
+}
 await server.connect(new StdioServerTransport());

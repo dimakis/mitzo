@@ -1,3 +1,5 @@
+import { localHttpBaseUrl, localServerUsesTls } from './local-server-url.js';
+import { TELOS_ARTIFACT_INSTRUCTIONS } from './telos-artifact-tools.js';
 import { requireCustodianOrdinaryRuntime } from './custodian-ordinary-runtime.js';
 import { custodianControllerMode, custodianOwnerMode } from './symposium-custodian-mode.js';
 import { permissionRevision, type ResumePermission } from './session-permission-revision.js';
@@ -756,12 +758,18 @@ function buildTaskMcpServer(clientId: string): Record<string, McpServerConfig> |
 }
 
 function buildTelosMcpServer(clientId: string): Record<string, McpServerConfig> {
-  const port = process.env.PORT || '3100';
+  const port = Number.parseInt(process.env.PORT || '3100', 10);
   const entrypoint = resolveBundledMcpEntrypoint(import.meta.url, 'telos-mcp-server');
   return {
     [TELOS_MCP_SERVER_NAME]: {
       command: entrypoint.command,
-      args: [...entrypoint.args, '--base-url', `http://localhost:${port}`, '--client-id', clientId],
+      args: [
+        ...entrypoint.args,
+        '--base-url',
+        localHttpBaseUrl(port, localServerUsesTls()),
+        '--client-id',
+        clientId,
+      ],
       env: { MITZO_INTERNAL_TOKEN: INTERNAL_TOKEN },
     },
   };
@@ -1499,6 +1507,7 @@ async function _startChatInner(
   const systemPromptAppend =
     'This is Mitzo, a mobile chat interface. The user is on their phone.\n' +
     SESSION_PERMISSION_INSTRUCTIONS +
+    TELOS_ARTIFACT_INSTRUCTIONS +
     '- Read operations are fine without asking.\n' +
     '- Keep responses concise — small screen.\n' +
     '- Read CLAUDE.md and .cursor/rules/ for project context before doing substantive work.' +
