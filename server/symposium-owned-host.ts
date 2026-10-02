@@ -1013,7 +1013,7 @@ export async function createOwnedSymposiumHost(
           ? { readerAdmissionId: reader.binding.readerAdmissionId }
           : {}),
         access:
-          seat.role === 'reviewer' ||
+          (!seat.authorityRequest && seat.role === 'reviewer') ||
           seat.authorityGrant.filesystem !== 'write' ||
           seat.authorityGrant.tools !== 'write'
             ? 'reviewer'

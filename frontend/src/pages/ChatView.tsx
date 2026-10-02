@@ -1,5 +1,5 @@
 import { SymposiumReviewEntry } from '../components/SymposiumReviewPanel';
-import { AddReviewerSheet } from '../components/AddReviewerSheet';
+import { AddAgentSheet } from '../components/AddReviewerSheet';
 import { NewSymposium } from '../components/NewSymposium';
 import { PermissionModePicker } from '../components/PermissionModePicker';
 import { StatusBar } from '../components/StatusBar';
@@ -343,7 +343,7 @@ export function ChatView() {
               running={messages.running}
             />
             <div className="workspace-session-actions">
-              {activeSessionId && <AddReviewerSheet sessionId={activeSessionId} />}
+              {activeSessionId && <AddAgentSheet sessionId={activeSessionId} />}
               {activeSessionId && (
                 <SymposiumReviewEntry key={activeSessionId} sessionId={activeSessionId} />
               )}

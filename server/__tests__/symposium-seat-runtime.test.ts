@@ -34,6 +34,7 @@ import {
 } from '../openshell-runtime.js';
 import {
   admitSymposiumSeatDispatch,
+  supportsSymposiumSeatCapability,
   symposiumSeatRuntimeId,
   type SymposiumDispatchFacts,
 } from '../symposium-seat-runtime.js';
@@ -2649,6 +2650,59 @@ describe('last native Symposium dispatch fence', () => {
       effort: null,
       readOnly: true,
     });
+  });
+  it.each(['agent', 'domain-specialist', 'reviewer'])(
+    'uses granted permissions for explicit %s seats while preserving role attribution',
+    (role) => {
+      for (const mode of ['read', 'write'] as const) {
+        const work = fixture();
+        const custom: SeatConfig = {
+          ...seat,
+          role,
+          authorityRequest: { filesystem: mode, tools: mode, network: 'restricted' },
+          authorityGrant: { ...seat.authorityGrant, filesystem: mode, tools: mode },
+        };
+        work.setConfig({ ...config, seats: [custom] });
+        const provenance = { ...work.input.provenance, seatRole: role };
+        expect(
+          admitSymposiumSeatDispatch(
+            work.facts,
+            profiles,
+            { ...work.input, seat: custom, provenance },
+            hostGrants,
+          ),
+        ).toMatchObject({ readOnly: mode === 'read', provider: 'openai-work' });
+        expect(supportsSymposiumSeatCapability(custom, new Set(['reviewer']))).toBe(
+          mode === 'read',
+        );
+        expect(supportsSymposiumSeatCapability(custom, new Set(['implementer']))).toBe(
+          mode === 'write',
+        );
+      }
+    },
+  );
+  it('dispatches with the approved read ceiling even when the custom agent requested write', () => {
+    const work = fixture();
+    const custom: SeatConfig = {
+      ...seat,
+      role: 'agent',
+      authorityRequest: { filesystem: 'write', tools: 'write', network: 'restricted' },
+    };
+    work.setConfig({ ...config, seats: [custom] });
+    expect(
+      admitSymposiumSeatDispatch(
+        work.facts,
+        profiles,
+        {
+          ...work.input,
+          seat: custom,
+          provenance: { ...work.input.provenance, seatRole: 'agent' },
+        },
+        hostGrants,
+      ),
+    ).toMatchObject({ readOnly: true });
+    expect(supportsSymposiumSeatCapability(custom, new Set(['implementer']))).toBe(false);
+    expect(supportsSymposiumSeatCapability(custom, new Set(['reviewer']))).toBe(true);
   });
   it('rejects revocation or provider refusal that happens after the earlier claim', () => {
     const work = fixture();

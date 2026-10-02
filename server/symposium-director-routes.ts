@@ -12,6 +12,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import {
   AccountBindingSchema,
+  SeatAuthorityRequestSchema,
   SymposiumConfigSchema,
   type SeatConfig,
   type ValidAccountBinding,
@@ -95,6 +96,9 @@ const ReviseSeatBody = z.strictObject({
   name: z.string().trim().min(1),
   role: z.string().regex(/^[a-z][a-z0-9_-]{0,63}$/),
   systemPrompt: z.string(),
+  expectedOutput: z.string().trim().min(1).optional(),
+  acceptanceCriteria: z.array(z.string().trim().min(1)).min(1).optional(),
+  authorityRequest: SeatAuthorityRequestSchema.optional(),
   color: z.string().regex(/^#[0-9a-fA-F]{6}$/),
   accountId: z.string().trim().min(1),
   model: z.string().trim().min(1),
@@ -332,6 +336,9 @@ export function createSymposiumDirectorRouter(deps: SymposiumDirectorRouteDeps):
         name: input.name,
         role: input.role,
         systemPrompt: input.systemPrompt,
+        ...(input.expectedOutput ? { expectedOutput: input.expectedOutput } : {}),
+        ...(input.acceptanceCriteria ? { acceptanceCriteria: input.acceptanceCriteria } : {}),
+        ...(input.authorityRequest ? { authorityRequest: input.authorityRequest } : {}),
         color: input.color,
         model: input.model,
         accountBinding: binding,

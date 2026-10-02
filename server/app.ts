@@ -1312,9 +1312,10 @@ const symposiumHostGrants = new SymposiumHostGrants(join(BASE_REPO || '.', '.mit
       classification: 'mixed' as const,
       sourceRefs: contextSourceRefs,
       authority: {
-        filesystem: writable ? ('write' as const) : ('read' as const),
-        tools: writable ? ('write' as const) : ('read' as const),
-        network: 'restricted' as const,
+        filesystem:
+          seat.authorityRequest?.filesystem ?? (writable ? ('write' as const) : ('read' as const)),
+        tools: seat.authorityRequest?.tools ?? (writable ? ('write' as const) : ('read' as const)),
+        network: seat.authorityRequest?.network ?? ('restricted' as const),
       },
     };
   },

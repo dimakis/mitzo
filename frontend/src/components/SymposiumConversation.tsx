@@ -3,6 +3,7 @@ import type {
   FinishedMessage,
   StreamingMessage,
   SymposiumConfig,
+  SymposiumDeliveryRecord,
   SymposiumProvenance,
 } from '@mitzo/protocol';
 import { apiFetch } from '../lib/api-fetch';
@@ -31,6 +32,8 @@ type PerspectivePage = { items: PerspectiveItem[]; nextSeq: number | null; queue
 type Status = {
   sessionId: string;
   config: SymposiumConfig | null;
+  deliveries?: SymposiumDeliveryRecord[];
+  runtimeAvailable?: boolean;
   seats: {
     seatId: string;
     seat: Omit<SeatProfileSeed, 'seatId'>;
@@ -97,14 +100,32 @@ export function SymposiumConversation({
   ordinaryComposer: ReactNode;
 }) {
   const [status, setStatus] = useState<Status | null>(null);
+  const [statusFresh, setStatusFresh] = useState(false);
   const [selected, setSelected] = useState('all');
   const [page, setPage] = useState<PerspectivePage>({ items: [], nextSeq: null, queued: [] });
   const [pageFor, setPageFor] = useState('');
   const [error, setError] = useState('');
+  const [statusError, setStatusError] = useState('');
   const [share, setShare] = useState<Authored | null>(null);
   const [excerpt, setExcerpt] = useState('');
   const [shareRecipients, setShareRecipients] = useState<string[]>([]);
   const [shareBusy, setShareBusy] = useState(false);
+  const [deliveryActions, setDeliveryActions] = useState<
+    Record<
+      string,
+      {
+        approve?: boolean;
+        send?: boolean;
+        stop?: boolean;
+        stopRequested?: boolean;
+        notice: string;
+        dispatchUncertain?: boolean;
+        sendRequested?: boolean;
+      }
+    >
+  >({});
+  const activeActions = useRef(new Set<string>());
+  const dispatchRequests = useRef(new Set<string>());
   const [seatSeed, setSeatSeed] = useState<SeatProfileSeed | null>(null);
   // Keep every uncertain request until its response is confirmed, including when
   // the operator changes audiences or revisits an excerpt.
@@ -118,8 +139,10 @@ export function SymposiumConversation({
     setShare(null);
     setShareBusy(false);
     setStatus(null);
+    setStatusFresh(false);
     setPageFor('');
     setError('');
+    setStatusError('');
     setSelected('all');
     setSeatSeed(null);
     setPage({ items: [], nextSeq: null, queued: [] });
@@ -130,22 +153,29 @@ export function SymposiumConversation({
         const next = await readJson<Status>(base);
         if (next.sessionId !== sessionId || !Array.isArray(next.seats) || !('config' in next))
           throw new Error('Symposium status is incomplete');
-        if (!cancelled) setStatus(next);
+        if (!cancelled) {
+          setStatus(next);
+          setStatusFresh(true);
+          setStatusError('');
+        }
       } catch (cause) {
         if (!cancelled) {
-          setStatus(null);
-          setError(cause instanceof Error ? cause.message : 'Could not load Symposium');
+          setStatus((current) => (current?.sessionId === sessionId ? current : null));
+          setStatusFresh(false);
+          setStatusError(cause instanceof Error ? cause.message : 'Could not load Symposium');
         }
       }
     };
     void refresh();
     const onRosterChanged = () => void refresh();
     window.addEventListener('symposium-roster-changed', onRosterChanged);
+    window.addEventListener('symposium-deliveries-changed', onRosterChanged);
     const timer = window.setInterval(() => void refresh(), 8000);
     return () => {
       cancelled = true;
       window.clearInterval(timer);
       window.removeEventListener('symposium-roster-changed', onRosterChanged);
+      window.removeEventListener('symposium-deliveries-changed', onRosterChanged);
     };
   }, [base, sessionId]);
 
@@ -189,10 +219,13 @@ export function SymposiumConversation({
       }
     };
     void refresh();
+    const onDeliveriesChanged = () => void refresh();
+    window.addEventListener('symposium-deliveries-changed', onDeliveriesChanged);
     const timer = window.setInterval(() => void refresh(), 5000);
     return () => {
       cancelled = true;
       window.clearInterval(timer);
+      window.removeEventListener('symposium-deliveries-changed', onDeliveriesChanged);
     };
   }, [base, selected, configRevision]);
 
@@ -253,6 +286,7 @@ export function SymposiumConversation({
         }),
       });
       if (retryKeys.current.get(fingerprint) === key) retryKeys.current.delete(fingerprint);
+      window.dispatchEvent(new Event('symposium-deliveries-changed'));
       return true;
     },
     [base],
@@ -292,6 +326,7 @@ export function SymposiumConversation({
       if (sessionEpoch.current === epoch) {
         setShare(null);
         setError('');
+        window.dispatchEvent(new Event('symposium-deliveries-changed'));
       }
     } catch (cause) {
       if (sessionEpoch.current === epoch)
@@ -300,6 +335,92 @@ export function SymposiumConversation({
       if (sessionEpoch.current === epoch) setShareBusy(false);
     }
   }, [base, share, excerpt, shareRecipients]);
+  const controlDelivery = async (deliveryId: string, action: 'approve' | 'send' | 'stop') => {
+    const identity = `${base}:${deliveryId}`;
+    const actionIdentity = `${identity}:${action}`;
+    if (activeActions.current.has(actionIdentity)) return;
+    if (action === 'send' && dispatchRequests.current.has(identity)) return;
+    if (action === 'send') dispatchRequests.current.add(identity);
+    activeActions.current.add(actionIdentity);
+    const epoch = sessionEpoch.current;
+    setDeliveryActions((old) => ({
+      ...old,
+      [identity]: {
+        ...old[identity],
+        [action]: true,
+        ...(action === 'send' ? { sendRequested: true } : {}),
+        ...(action === 'stop' ? { stopRequested: true } : {}),
+        notice:
+          action === 'stop'
+            ? 'Stopping… awaiting cancellation confirmation.'
+            : action === 'send'
+              ? 'Sending… awaiting delivery confirmation.'
+              : 'Approving…',
+      },
+    }));
+    const fingerprint = `${identity}:${action}`;
+    const key = retryKeys.current.get(fingerprint) ?? crypto.randomUUID();
+    if (action !== 'send') retryKeys.current.set(fingerprint, key);
+    try {
+      await readJson(
+        `${base}/deliveries/${encodeURIComponent(deliveryId)}/${action === 'approve' ? 'interventions' : action === 'send' ? 'dispatch' : 'cancel'}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(
+            action === 'approve'
+              ? { action: 'approve', idempotencyKey: key }
+              : action === 'stop'
+                ? { reason: 'Stopped from conversation', idempotencyKey: key }
+                : {},
+          ),
+        },
+      );
+      retryKeys.current.delete(fingerprint);
+      if (sessionEpoch.current === epoch) {
+        setDeliveryActions((old) => ({
+          ...old,
+          [identity]: {
+            ...old[identity],
+            [action]: false,
+            notice:
+              action === 'send' && old[identity]?.stopRequested
+                ? old[identity].notice
+                : action === 'stop'
+                  ? 'Cancellation recorded. Provider work may still be finishing; history is preserved.'
+                  : action === 'send'
+                    ? 'Send request completed. See delivery status below.'
+                    : 'Approved. Choose Send to execute.',
+          },
+        }));
+        window.dispatchEvent(new Event('symposium-deliveries-changed'));
+      }
+    } catch (cause) {
+      if (sessionEpoch.current === epoch) {
+        const detail = cause instanceof Error ? cause.message : 'Request failed';
+        setDeliveryActions((old) => ({
+          ...old,
+          [identity]: {
+            ...old[identity],
+            [action]: false,
+            dispatchUncertain: action === 'send' || old[identity]?.dispatchUncertain,
+            notice:
+              action === 'send' && old[identity]?.stopRequested
+                ? old[identity].notice
+                : action === 'send'
+                  ? `Send outcome is uncertain. Do not resend; check delivery status or Stop. ${detail}`
+                  : action === 'stop'
+                    ? `Stop is unconfirmed. Check status or retry Stop. ${detail}`
+                    : `Approval is unconfirmed. Check status or retry approval. ${detail}`,
+          },
+        }));
+        window.dispatchEvent(new Event('symposium-deliveries-changed'));
+      }
+    } finally {
+      activeActions.current.delete(actionIdentity);
+    }
+  };
+
   const startShare = useCallback(
     (messageId: string, provenance?: SymposiumProvenance) => {
       const matches = items.filter(
@@ -323,7 +444,11 @@ export function SymposiumConversation({
     return (
       <>
         <ChatArea {...chat} />
-        {error ? <div role="alert">{error}</div> : <div role="status">Loading Symposium…</div>}
+        {statusError || error ? (
+          <div role="alert">{statusError || error}</div>
+        ) : (
+          <div role="status">Loading Symposium…</div>
+        )}
       </>
     );
   if (!status?.config)
@@ -369,7 +494,13 @@ export function SymposiumConversation({
           onSeatSeedDone={() => setSeatSeed(null)}
         />
       )}
-      {error && <div role="alert">{error}</div>}
+      {(statusError || error) && <div role="alert">{statusError || error}</div>}
+      {!statusFresh && (
+        <p role="status">
+          Delivery status could not be refreshed. New approvals and sending are paused; Stop remains
+          available.
+        </p>
+      )}
       {visiblePage.nextSeq !== null && (
         <div role="status">Showing the first 2,000 durable events. More history is available.</div>
       )}
@@ -394,6 +525,108 @@ export function SymposiumConversation({
               </p>
             ))}
         </aside>
+      )}
+      {(status.deliveries ?? []).filter(
+        (delivery) => selected === 'all' || delivery.recipientSeatIds.includes(selected),
+      ).length > 0 && (
+        <section aria-label="Conversation deliveries">
+          <strong>Delivery review and execution</strong>
+          {(status.deliveries ?? [])
+            .filter(
+              (delivery) => selected === 'all' || delivery.recipientSeatIds.includes(selected),
+            )
+            .map((delivery) => {
+              const state = deliveryActions[`${base}:${delivery.deliveryId}`];
+              const terminal = ['delivered', 'dropped', 'cancelled'].includes(delivery.status);
+              const untouchedRecipients =
+                delivery.recipients.length > 0 &&
+                delivery.recipients.every((recipient) => recipient.status === 'pending');
+              const recipientNames = delivery.recipientSeatIds
+                .map((id) => seats.find((seat) => seat.id === id)?.name ?? id)
+                .join(', ');
+              return (
+                <article key={delivery.deliveryId} aria-label={`Delivery to ${recipientNames}`}>
+                  <details open={!terminal}>
+                    <summary>
+                      To {recipientNames} · {delivery.status}
+                    </summary>
+                    <p>Original: {delivery.originalContent}</p>
+                    {delivery.deliveredContent !== null && (
+                      <p>Approved content: {delivery.deliveredContent}</p>
+                    )}
+                    {delivery.recipients.map((recipient) => (
+                      <p key={recipient.seatId}>
+                        {seats.find((seat) => seat.id === recipient.seatId)?.name ??
+                          recipient.seatId}
+                        : {recipient.status}
+                      </p>
+                    ))}
+                    {state?.notice && <p role="status">{state.notice}</p>}
+                    {delivery.status === 'cancelled' && !state?.notice && (
+                      <p role="status">
+                        Cancellation recorded. Provider cleanup is not confirmed by this receipt.
+                        History is preserved.
+                      </p>
+                    )}
+                    {delivery.status === 'awaiting_intervention' && (
+                      <button
+                        type="button"
+                        disabled={!statusFresh || state?.approve || state?.send || state?.stop}
+                        onClick={() => void controlDelivery(delivery.deliveryId, 'approve')}
+                      >
+                        Approve delivery to {recipientNames}
+                      </button>
+                    )}
+                    {delivery.status === 'ready' && (
+                      <button
+                        type="button"
+                        disabled={
+                          state?.approve ||
+                          state?.send ||
+                          state?.stop ||
+                          state?.stopRequested ||
+                          state?.sendRequested ||
+                          state?.dispatchUncertain ||
+                          !statusFresh ||
+                          !untouchedRecipients ||
+                          !status.runtimeAvailable
+                        }
+                        onClick={() => void controlDelivery(delivery.deliveryId, 'send')}
+                      >
+                        Send to {recipientNames}
+                      </button>
+                    )}
+                    {delivery.status === 'ready' && !untouchedRecipients && (
+                      <p role="status">
+                        Recipient execution has already started or needs recovery. Sending again is
+                        unavailable here.
+                      </p>
+                    )}
+                    {delivery.status === 'ready' && !status.runtimeAvailable && (
+                      <p role="status">Provider runtime is unavailable. Sending is paused.</p>
+                    )}
+                    {delivery.status === 'recovery_required' && (
+                      <p role="status">
+                        Delivery needs recovery. Sending again is unavailable here.
+                      </p>
+                    )}
+                    {!terminal && (
+                      <button
+                        type="button"
+                        disabled={state?.stop}
+                        onClick={() => void controlDelivery(delivery.deliveryId, 'stop')}
+                      >
+                        Stop delivery to {recipientNames}
+                      </button>
+                    )}
+                    {!terminal && delivery.recipientSeatIds.length > 1 && (
+                      <p>Stop applies to this entire delivery and all named recipients.</p>
+                    )}
+                  </details>
+                </article>
+              );
+            })}
+        </section>
       )}
       {share && (
         <section className="symposium-share-preview" aria-label="Share excerpt preview">
@@ -447,7 +680,10 @@ export function SymposiumConversation({
               : seatName
         }
         recipients={recipients}
-        enabled={recipients.length > 0}
+        enabled={statusFresh && recipients.length > 0}
+        disabledReason={
+          !statusFresh ? 'Status refresh is pending. Your draft stays here.' : undefined
+        }
         onQueue={queue}
       />
     </SymposiumPerspectiveTabs>

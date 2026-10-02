@@ -254,12 +254,13 @@ export class SymposiumHostGrants {
     );
     // A portable role cannot raise the approved seat's executable authority.
     if (
+      !seat.authorityRequest &&
       selected?.role === 'coder' &&
       (authorization.authority.filesystem !== 'write' || authorization.authority.tools !== 'write')
     )
       throw new Error('Coder profile exceeds the approved seat authority ceiling');
     const authority =
-      selected && selected.role !== 'coder'
+      !seat.authorityRequest && selected && selected.role !== 'coder'
         ? {
             ...authorization.authority,
             filesystem:
@@ -272,6 +273,23 @@ export class SymposiumHostGrants {
                 : authorization.authority.tools,
           }
         : authorization.authority;
+    // Explicit user choices are independent of role guidance, but can only
+    // attenuate the host's approved ceiling. They never establish authority alone.
+    const requested = seat.authorityRequest;
+    const permissionRank = { none: 0, read: 1, write: 2 };
+    const effectiveAuthority = requested
+      ? {
+          filesystem:
+            permissionRank[requested.filesystem] < permissionRank[authority.filesystem]
+              ? requested.filesystem
+              : authority.filesystem,
+          tools:
+            permissionRank[requested.tools] < permissionRank[authority.tools]
+              ? requested.tools
+              : authority.tools,
+          network: authority.network,
+        }
+      : authority;
     const id = randomUUID();
     const profileHash = createHash('sha256')
       .update(
@@ -299,7 +317,7 @@ export class SymposiumHostGrants {
         classification: authorization.classification,
         sourceRefs: authorization.sourceRefs,
       },
-      authorityGrant: { grantId: `authority:${id}`, revision: 1, ...authority },
+      authorityGrant: { grantId: `authority:${id}`, revision: 1, ...effectiveAuthority },
       isolationRequest,
     };
   }

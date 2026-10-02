@@ -1,4 +1,5 @@
 // Imported only by ui-preview.html. No real accounts, messages, or services are contacted.
+import { symposiumAgentPreviewResponse } from './symposium-agent-fixtures';
 import { account, metadata, sessions } from './fixtures';
 import {
   symposiumReviewPreviewResponses,
@@ -162,6 +163,25 @@ window.fetch = async (input, init) => {
             ...(deviceState === 'idle' ? {} : { attemptId: deviceAttemptId }),
           },
     );
+  }
+  if (/^\/api\/sessions\/preview-[13]\/symposium(?:\/|$)/.test(url.pathname)) {
+    let body: Record<string, unknown> = {};
+    if (method === 'POST') {
+      try {
+        const parsed: unknown =
+          init?.body !== undefined
+            ? JSON.parse(String(init.body))
+            : input instanceof Request
+              ? await input.clone().json()
+              : {};
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return denied();
+        body = parsed as Record<string, unknown>;
+      } catch {
+        return denied();
+      }
+    }
+    const simulated = symposiumAgentPreviewResponse(url.pathname, method, body);
+    if (simulated) return simulated;
   }
   if (method !== 'GET') return denied();
   if (url.pathname === '/api/connections')

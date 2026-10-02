@@ -443,7 +443,7 @@ it('shows reconnecting in collapsed workspace settings when disconnected', () =>
   expect(toggle.textContent).toContain('Reconnecting');
 });
 
-it('offers the shared reviewer entry for an active desktop conversation', () => {
+it('offers the shared agent entry for an active desktop conversation', () => {
   const store = createMockStore();
   store.setState((state) => ({ sessions: { ...state.sessions, active: 'active-session' } }));
   render(
@@ -453,9 +453,9 @@ it('offers the shared reviewer entry for an active desktop conversation', () => 
       </MitzoStoreProvider>
     </MemoryRouter>,
   );
-  expect(screen.queryByRole('button', { name: 'Add reviewer' })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Add agent' })).toBeNull();
   fireEvent.click(screen.getByRole('button', { name: /Workspace controls/ }));
-  expect(screen.getByRole('button', { name: 'Add reviewer' })).toBeTruthy();
+  expect(screen.getByRole('button', { name: 'Add agent' })).toBeTruthy();
 });
 
 it('shows the profile, model and thinking in the collapsed workspace header', async () => {

@@ -411,6 +411,55 @@ describe('Symposium director routes', () => {
     expect(uncertain.status).toBe(409);
     expect(uncertain.body).not.toHaveProperty('seatMutation');
   });
+  it('accepts custom configuration without a saved profile and resolves its account on the host', async () => {
+    const { app, store, reviseSeat } = fixture(true);
+    store.getActiveSymposiumConfig.mockReturnValue({
+      ...config,
+      seats: config.seats.map((seat) => ({
+        ...seat,
+        accountBinding: {
+          accountId: 'claude-work',
+          accountLabel: 'Claude',
+          provider: 'anthropic-vertex',
+          model: seat.model,
+          profileRevision: 'rev-1',
+        },
+      })),
+    } as never);
+    const authorityRequest = { filesystem: 'read', tools: 'read', network: 'restricted' };
+    const response = await request(app)
+      .post('/api/sessions/chat/symposium/seats/revise')
+      .send({
+        expectedRevision: 4,
+        seatId: 'specialist',
+        name: 'Domain specialist',
+        role: 'agent',
+        systemPrompt: 'Explain tradeoffs',
+        expectedOutput: 'Recommendation',
+        acceptanceCriteria: ['Identify uncertainty'],
+        authorityRequest,
+        color: '#557733',
+        accountId: 'claude-work',
+        model: 'claude-sonnet',
+        reasoningEffort: 'high',
+        contextSourceRefs: [],
+        sharedBoundaryAcknowledged: true,
+      });
+    expect(response.status).toBe(200);
+    expect(reviseSeat).toHaveBeenCalledWith(
+      expect.objectContaining({
+        contextSourceRefs: [],
+        seat: expect.objectContaining({
+          role: 'agent',
+          expectedOutput: 'Recommendation',
+          acceptanceCriteria: ['Identify uncertainty'],
+          authorityRequest,
+          accountBinding: expect.objectContaining({ accountId: 'claude-work' }),
+        }),
+      }),
+    );
+    expect(reviseSeat.mock.calls[0]?.[0]).not.toHaveProperty('profileSelection');
+  });
   it.each(['reviewer', 'new-seat'])(
     'does not mint or reissue %s grants without a runtime',
     async (seatId) => {

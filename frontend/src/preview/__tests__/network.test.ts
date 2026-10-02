@@ -17,9 +17,13 @@ it('returns an array for the desktop inbox consumer on a fresh preview load', as
   expect(await response.json()).toEqual([]);
 });
 
-it('provides deterministic three-seat and ordinary fallback fixtures', async () => {
+it('provides a two-seat Add agent scenario, three-seat review scenario and ordinary fallback fixtures', async () => {
   const status = await (await window.fetch('/api/sessions/preview-1/symposium')).json();
-  expect(status.seats).toHaveLength(3);
+  expect(status.seats).toHaveLength(2);
+  expect(status.capacityRemaining).toBe(1);
+  const fullRoster = await (await window.fetch('/api/sessions/preview-3/symposium')).json();
+  expect(fullRoster.seats).toHaveLength(3);
+  expect(fullRoster.capacityRemaining).toBe(0);
   expect(status.profileBindingEnforced).toBe(true);
   const all = await (
     await window.fetch('/api/sessions/preview-1/symposium/perspectives?kind=all')
@@ -265,4 +269,110 @@ it('uses a fresh device identity for retry and rejects cancellation of the previ
     ).json(),
   ).toMatchObject({ state: 'unknown' });
   expect(upstreamFetch).not.toHaveBeenCalled();
+});
+
+it('simulates custom Add agent, approve, send and Stop entirely within preview fixtures', async () => {
+  const base = '/api/sessions/preview-1/symposium';
+  const post = async (suffix: string, body: unknown) =>
+    window.fetch(`${base}/${suffix}`, { method: 'POST', body: JSON.stringify(body) });
+  const before = await (await window.fetch(base)).json();
+  const authorityRequest = { filesystem: 'read', tools: 'read', network: 'restricted' };
+  const revised = await post('seats/revise', {
+    expectedRevision: before.config.revision,
+    seatId: 'preview-custom',
+    name: 'Custom analyst',
+    role: 'domain-specialist',
+    systemPrompt: 'Analyze supplied evidence',
+    expectedOutput: 'Findings',
+    acceptanceCriteria: ['Name assumptions'],
+    authorityRequest,
+    color: '#665599',
+    accountId: 'preview',
+    model: 'preview-model',
+    reasoningEffort: 'medium',
+    sharedBoundaryAcknowledged: true,
+    crossAccountConfirmation: 'ADD CROSS-ACCOUNT SEAT',
+  });
+  expect(revised.ok).toBe(true);
+  expect((await revised.json()).seats.at(-1)).toMatchObject({
+    role: 'domain-specialist',
+    authorityRequest,
+    expectedOutput: 'Findings',
+  });
+  await post('admissions/refresh', {});
+  await post('membership', { seatId: 'preview-custom', action: 'admit' });
+  expect(await (await post('context-package', { mode: 'independent' })).json()).toMatchObject({
+    content: '',
+    simulated: true,
+  });
+  const queued = await (
+    await post('deliveries', {
+      sourceSeatId: null,
+      recipientSeatIds: ['preview-custom'],
+      originalContent: 'Agent request:\nInspect this evidence',
+      idempotencyKey: 'preview-agent-request',
+    })
+  ).json();
+  expect(queued.status).toBe('awaiting_intervention');
+  const replay = await (
+    await post('deliveries', {
+      recipientSeatIds: ['preview-custom'],
+      originalContent: queued.originalContent,
+      idempotencyKey: queued.idempotencyKey,
+    })
+  ).json();
+  expect(replay.deliveryId).toBe(queued.deliveryId);
+  expect(
+    (
+      await (
+        await post(`deliveries/${queued.deliveryId}/interventions`, {
+          action: 'approve',
+          idempotencyKey: 'approve',
+        })
+      ).json()
+    ).status,
+  ).toBe('ready');
+  expect((await (await post(`deliveries/${queued.deliveryId}/dispatch`, {})).json()).status).toBe(
+    'delivering',
+  );
+  const stopped = await (
+    await post(`deliveries/${queued.deliveryId}/cancel`, {
+      idempotencyKey: 'stop',
+      reason: 'Stop UI simulation',
+    })
+  ).json();
+  expect(stopped.status).toBe('cancelled');
+  expect(stopped.recipients[0].status).toBe('cancelled');
+  const status = await (await window.fetch(base)).json();
+  expect(status.simulated).toBe(true);
+  expect(status.deliveries).toHaveLength(1);
+  expect(status.config.activeSeatCap).toBe(3);
+  expect(status.capacityRemaining).toBe(0);
+  const fourth = await post('seats/revise', {
+    expectedRevision: status.config.revision,
+    seatId: 'fourth',
+    name: 'Fourth',
+    role: 'agent',
+    systemPrompt: 'Extra agent',
+    expectedOutput: 'Report',
+    acceptanceCriteria: ['Evidence'],
+    authorityRequest,
+    color: '#665599',
+    accountId: 'preview',
+    model: 'preview-model',
+    sharedBoundaryAcknowledged: true,
+    crossAccountConfirmation: 'ADD CROSS-ACCOUNT SEAT',
+  });
+  expect(fourth.status).toBe(409);
+  expect((await fourth.json()).error).toMatch(/capacity/i);
+
+  expect(
+    (
+      await window.fetch('/api/sessions/preview-2/symposium/seats/revise', {
+        method: 'POST',
+        body: '{}',
+      })
+    ).status,
+  ).toBe(405);
+  expect((await post('unknown-native-action', {})).status).toBe(405);
 });

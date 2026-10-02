@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { apiFetch } from '../../lib/api-fetch';
 import { SymposiumConversation } from '../SymposiumConversation';
 import { SymposiumProfileProposals } from '../SymposiumProfileProposals';
@@ -566,4 +566,248 @@ it('simplifies after the last reviewer is removed but keeps isolated delivery ro
         ),
     ).toBe(true),
   );
+});
+
+const directedDelivery = (deliveryStatus = 'awaiting_intervention') => ({
+  deliveryId: 'review-delivery',
+  recipientSeatIds: ['architect', 'reviewer'],
+  originalContent: 'Original request',
+  deliveredContent: 'Reviewed request',
+  status: deliveryStatus,
+  recipients: [
+    { seatId: 'architect', status: 'pending' },
+    { seatId: 'reviewer', status: 'pending' },
+  ],
+});
+
+it('approves explicitly, refreshes status, then sends the reviewed delivery once', async () => {
+  let delivery = directedDelivery();
+  vi.mocked(apiFetch).mockImplementation(async (url, init) => {
+    if (String(url).endsWith('/interventions')) {
+      expect(JSON.parse(String(init?.body))).toMatchObject({
+        action: 'approve',
+        idempotencyKey: expect.any(String),
+      });
+      delivery = { ...delivery, status: 'ready' };
+      return json(delivery);
+    }
+    if (String(url).endsWith('/dispatch')) return json(delivery);
+    return json(
+      String(url).includes('/profile-proposals')
+        ? []
+        : String(url).includes('/perspectives')
+          ? page
+          : { ...status, runtimeAvailable: true, deliveries: [delivery] },
+    );
+  });
+  render(<SymposiumConversation sessionId="session" chat={chat} ordinaryComposer={null} />);
+  fireEvent.click(
+    await screen.findByRole('button', { name: 'Approve delivery to Architect, Reviewer' }),
+  );
+  const send = await screen.findByRole('button', { name: 'Send to Architect, Reviewer' });
+  expect(
+    vi.mocked(apiFetch).mock.calls.filter(([url]) => String(url).endsWith('/dispatch')),
+  ).toHaveLength(0);
+  expect(screen.getByText('Original: Original request')).toBeTruthy();
+  expect(screen.getByText('Approved content: Reviewed request')).toBeTruthy();
+  fireEvent.click(send);
+  await screen.findByText('Send request completed. See delivery status below.');
+  fireEvent.click(send);
+  expect(
+    vi.mocked(apiFetch).mock.calls.filter(([url]) => String(url).endsWith('/dispatch')),
+  ).toHaveLength(1);
+});
+
+it('keeps Stop usable while dispatch awaits completion and names every recipient from a seat tab', async () => {
+  let finishSend!: (response: Response) => void;
+  let finishStop!: (response: Response) => void;
+  vi.mocked(apiFetch).mockImplementation(async (url) => {
+    if (String(url).endsWith('/dispatch'))
+      return new Promise<Response>((resolve) => {
+        finishSend = resolve;
+      });
+    if (String(url).endsWith('/cancel'))
+      return new Promise<Response>((resolve) => {
+        finishStop = resolve;
+      });
+    return json(
+      String(url).includes('/profile-proposals')
+        ? []
+        : String(url).includes('/perspectives')
+          ? page
+          : { ...status, runtimeAvailable: true, deliveries: [directedDelivery('ready')] },
+    );
+  });
+  render(<SymposiumConversation sessionId="session" chat={chat} ordinaryComposer={null} />);
+  fireEvent.click(await screen.findByRole('tab', { name: 'Reviewer' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Send to Architect, Reviewer' }));
+  const stop = screen.getByRole('button', { name: 'Stop delivery to Architect, Reviewer' });
+  expect(stop.hasAttribute('disabled')).toBe(false);
+  expect(
+    screen.getByText('Stop applies to this entire delivery and all named recipients.'),
+  ).toBeTruthy();
+  fireEvent.click(stop);
+  await screen.findByText('Stopping… awaiting cancellation confirmation.');
+  finishStop(json({}));
+  await screen.findByText(
+    'Cancellation recorded. Provider work may still be finishing; history is preserved.',
+  );
+  finishSend(json({}));
+  await waitFor(() =>
+    expect(screen.queryByText('Send request completed. See delivery status below.')).toBeNull(),
+  );
+  expect(
+    vi.mocked(apiFetch).mock.calls.filter(([url]) => String(url).endsWith('/cancel')),
+  ).toHaveLength(1);
+});
+
+it('blocks uncertain dispatch repeats and retries only explicit idempotent Stop', async () => {
+  vi.mocked(apiFetch).mockImplementation(async (url) => {
+    if (String(url).endsWith('/dispatch') || String(url).endsWith('/cancel'))
+      throw new Error('Response lost');
+    return json(
+      String(url).includes('/profile-proposals')
+        ? []
+        : String(url).includes('/perspectives')
+          ? page
+          : { ...status, runtimeAvailable: true, deliveries: [directedDelivery('ready')] },
+    );
+  });
+  render(<SymposiumConversation sessionId="session" chat={chat} ordinaryComposer={null} />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Send to Architect, Reviewer' }));
+  await screen.findByText(/Send outcome is uncertain/);
+  fireEvent.click(screen.getByRole('button', { name: 'Send to Architect, Reviewer' }));
+  expect(
+    vi.mocked(apiFetch).mock.calls.filter(([url]) => String(url).endsWith('/dispatch')),
+  ).toHaveLength(1);
+  const stop = screen.getByRole('button', { name: 'Stop delivery to Architect, Reviewer' });
+  fireEvent.click(stop);
+  await screen.findByText(/Stop is unconfirmed/);
+  await waitFor(() => expect(stop.hasAttribute('disabled')).toBe(false));
+  fireEvent.click(stop);
+  await waitFor(() =>
+    expect(
+      vi.mocked(apiFetch).mock.calls.filter(([url]) => String(url).endsWith('/cancel')),
+    ).toHaveLength(2),
+  );
+  const bodies = vi
+    .mocked(apiFetch)
+    .mock.calls.filter(([url]) => String(url).endsWith('/cancel'))
+    .map(([, init]) => JSON.parse(String(init?.body)));
+  expect(bodies[0].idempotencyKey).toBe(bodies[1].idempotencyKey);
+});
+
+it('hides unrelated delivery content from a seat and pauses Send without a runtime', async () => {
+  vi.mocked(apiFetch).mockImplementation(async (url) =>
+    json(
+      String(url).includes('/profile-proposals')
+        ? []
+        : String(url).includes('/perspectives')
+          ? page
+          : {
+              ...status,
+              runtimeAvailable: false,
+              deliveries: [
+                directedDelivery('ready'),
+                {
+                  ...directedDelivery(),
+                  deliveryId: 'private',
+                  recipientSeatIds: ['architect'],
+                  originalContent: 'Architect private input',
+                },
+              ],
+            },
+    ),
+  );
+  render(<SymposiumConversation sessionId="session" chat={chat} ordinaryComposer={null} />);
+  fireEvent.click(await screen.findByRole('tab', { name: 'Reviewer' }));
+  const section = await screen.findByRole('region', { name: 'Conversation deliveries' });
+  expect(within(section).queryByText('Original: Architect private input')).toBeNull();
+  expect(
+    screen.getByRole('button', { name: 'Send to Architect, Reviewer' }).hasAttribute('disabled'),
+  ).toBe(true);
+  expect(screen.getByText('Provider runtime is unavailable. Sending is paused.')).toBeTruthy();
+});
+
+it('uses durable recipient execution evidence to block Send after reload', async () => {
+  const delivery = {
+    ...directedDelivery('ready'),
+    recipients: [{ seatId: 'reviewer', status: 'recovery_required' }],
+  };
+  vi.mocked(apiFetch).mockImplementation(async (url) =>
+    json(
+      String(url).includes('/profile-proposals')
+        ? []
+        : String(url).includes('/perspectives')
+          ? page
+          : { ...status, runtimeAvailable: true, deliveries: [delivery] },
+    ),
+  );
+  render(<SymposiumConversation sessionId="session" chat={chat} ordinaryComposer={null} />);
+  const send = await screen.findByRole('button', { name: 'Send to Architect, Reviewer' });
+  expect(send.hasAttribute('disabled')).toBe(true);
+  fireEvent.click(send);
+  expect(
+    vi.mocked(apiFetch).mock.calls.filter(([url]) => String(url).endsWith('/dispatch')),
+  ).toHaveLength(0);
+  expect(screen.getByText(/Recipient execution has already started/)).toBeTruthy();
+  expect(
+    screen
+      .getByRole('button', { name: 'Stop delivery to Architect, Reviewer' })
+      .hasAttribute('disabled'),
+  ).toBe(false);
+});
+
+it('collapses terminal receipts and distinguishes recorded cancellation from provider cleanup', async () => {
+  vi.mocked(apiFetch).mockImplementation(async (url) =>
+    json(
+      String(url).includes('/profile-proposals')
+        ? []
+        : String(url).includes('/perspectives')
+          ? page
+          : { ...status, deliveries: [directedDelivery('cancelled')] },
+    ),
+  );
+  render(<SymposiumConversation sessionId="session" chat={chat} ordinaryComposer={null} />);
+  const receipt = await screen.findByText('To Architect, Reviewer · cancelled');
+  expect(receipt.closest('details')?.hasAttribute('open')).toBe(false);
+  expect(screen.getByText(/Provider cleanup is not confirmed by this receipt/)).toBeTruthy();
+  expect(screen.queryByRole('button', { name: 'Send to Architect, Reviewer' })).toBeNull();
+});
+
+it('retains Stop during an in-flight dispatch when a status refresh fails', async () => {
+  let statusUnavailable = false;
+  let finishSend!: (response: Response) => void;
+  vi.mocked(apiFetch).mockImplementation(async (url) => {
+    if (String(url).endsWith('/dispatch'))
+      return new Promise<Response>((resolve) => {
+        finishSend = resolve;
+      });
+    if (String(url).endsWith('/cancel')) return json({});
+    if (String(url).endsWith('/symposium') && statusUnavailable)
+      throw new Error('Status temporarily unavailable');
+    return json(
+      String(url).includes('/profile-proposals')
+        ? []
+        : String(url).includes('/perspectives')
+          ? page
+          : { ...status, runtimeAvailable: true, deliveries: [directedDelivery('ready')] },
+    );
+  });
+  render(<SymposiumConversation sessionId="session" chat={chat} ordinaryComposer={null} />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Send to Architect, Reviewer' }));
+  statusUnavailable = true;
+  window.dispatchEvent(new Event('symposium-deliveries-changed'));
+  await screen.findByText('Status temporarily unavailable');
+  expect(screen.getByText(/New approvals and sending are paused/)).toBeTruthy();
+  const stop = screen.getByRole('button', { name: 'Stop delivery to Architect, Reviewer' });
+  expect(stop.hasAttribute('disabled')).toBe(false);
+  fireEvent.click(stop);
+  await screen.findByText(
+    'Cancellation recorded. Provider work may still be finishing; history is preserved.',
+  );
+  expect(
+    vi.mocked(apiFetch).mock.calls.filter(([url]) => String(url).endsWith('/cancel')),
+  ).toHaveLength(1);
+  finishSend(json({}));
 });

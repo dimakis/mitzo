@@ -61,6 +61,7 @@ import {
 } from './openshell-runtime.js';
 import {
   admitSymposiumSeatDispatch,
+  supportsSymposiumSeatCapability,
   type SymposiumDispatchFacts,
   type SymposiumHostGrantVerifier,
 } from './symposium-seat-runtime.js';
@@ -1738,7 +1739,7 @@ export function createSymposiumSessionRuntime(deps: SymposiumSessionRuntimeDeps)
                   });
               };
               const reviewPages =
-                input.execution.seat.role === 'reviewer'
+                !input.execution.seat.authorityRequest && input.execution.seat.role === 'reviewer'
                   ? deps.reviewStore
                     ? createSymposiumNativeReviewTool({
                         reviews: deps.reviewStore,
@@ -1749,7 +1750,8 @@ export function createSymposiumSessionRuntime(deps: SymposiumSessionRuntimeDeps)
                   : undefined;
               const profileTools =
                 reviewPages ??
-                (deps.profileProposalStore && input.execution.seat.role !== 'reviewer'
+                (deps.profileProposalStore &&
+                (input.execution.seat.authorityRequest || input.execution.seat.role !== 'reviewer')
                   ? createSymposiumNativeProfileTools({
                       store: deps.profileProposalStore,
                       catalogStore: deps.profileCatalogStore,
@@ -1794,7 +1796,8 @@ export function createSymposiumSessionRuntime(deps: SymposiumSessionRuntimeDeps)
                       : {}),
                     attemptRegistry: deps.attemptRegistry,
                     verifiedControllerCommand: deps.verifiedCodexControllerCommand,
-                    ...(input.execution.seat.role === 'reviewer' &&
+                    ...(!input.execution.seat.authorityRequest &&
+                    input.execution.seat.role === 'reviewer' &&
                     deps.observeDurableReviewToolResult
                       ? {
                           observeDurableReviewToolResult: deps.observeDurableReviewToolResult,
@@ -1821,6 +1824,7 @@ export function createSymposiumSessionRuntime(deps: SymposiumSessionRuntimeDeps)
                       route: input.route,
                       loadConversationHistory,
                       reviewPages:
+                        !input.execution.seat.authorityRequest &&
                         input.execution.seat.role === 'reviewer'
                           ? (reviewPages ??
                             (() => {
@@ -1885,10 +1889,7 @@ export function createSymposiumSessionRuntime(deps: SymposiumSessionRuntimeDeps)
       const capability = deps.verifyHostCapability?.();
       const seat = config.seats.find((candidate) => candidate.id === seatId);
       if (!seat) throw new Error('Symposium seat is no longer configured');
-      if (
-        deps.allowedSeatRoles &&
-        !deps.allowedSeatRoles.has(seat.role as 'implementer' | 'coder' | 'reviewer')
-      )
+      if (deps.allowedSeatRoles && !supportsSymposiumSeatCapability(seat, deps.allowedSeatRoles))
         throw new Error('Symposium seat role is outside the verified native capability');
       const membership = deps.store.getLatestSymposiumMembership(sessionId, seatId);
       if (membership?.generation !== generation || membership.state !== 'active')
@@ -1906,7 +1907,7 @@ export function createSymposiumSessionRuntime(deps: SymposiumSessionRuntimeDeps)
       )
         throw new Error('Symposium account provider is outside the verified native capability');
       if (
-        (seat.role === 'reviewer' ||
+        ((!seat.authorityRequest && seat.role === 'reviewer') ||
           seat.authorityGrant?.filesystem !== 'write' ||
           seat.authorityGrant?.tools !== 'write') &&
         !(binding.provider === 'openai'
@@ -1957,9 +1958,7 @@ export function createSymposiumSessionRuntime(deps: SymposiumSessionRuntimeDeps)
       );
       if (
         deps.allowedSeatRoles &&
-        active.some(
-          (seat) => !deps.allowedSeatRoles!.has(seat.role as 'implementer' | 'coder' | 'reviewer'),
-        )
+        active.some((seat) => !supportsSymposiumSeatCapability(seat, deps.allowedSeatRoles!))
       )
         throw new Error('Symposium seat role is outside the verified native capability');
       if (

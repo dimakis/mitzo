@@ -5,12 +5,14 @@ export function SymposiumAudienceComposer({
   audienceLabel,
   recipients,
   enabled,
+  disabledReason,
   onQueue,
 }: {
   audience: string;
   audienceLabel: string;
   recipients: string[];
   enabled: boolean;
+  disabledReason?: string;
   onQueue: (recipientSeatIds: string[], content: string) => Promise<boolean>;
 }) {
   const [drafts, setDrafts] = useState<Record<string, string>>({});
@@ -54,7 +56,11 @@ export function SymposiumAudienceComposer({
       <button type="submit" disabled={!canQueue}>
         Queue for approval
       </button>
-      {!enabled && <span role="status">Provider admission is pending. Your draft stays here.</span>}
+      {!enabled && (
+        <span role="status">
+          {disabledReason ?? 'Provider admission is pending. Your draft stays here.'}
+        </span>
+      )}
       {error && <span role="alert">{error}</span>}
     </form>
   );

@@ -92,7 +92,7 @@ export type SymposiumProfileRecipe = z.infer<typeof SymposiumProfileRecipeSchema
 /** Portable role guidance only. Runtime identity and grants remain session-scoped. */
 export const SymposiumProfileDefinitionSchema = z.strictObject({
   name: z.string().trim().min(1),
-  role: z.enum(['planner', 'architect', 'coder', 'reviewer', 'research', 'synthesis']),
+  role: z.string().regex(/^[a-z][a-z0-9_-]{0,63}$/),
   instructions: z.string().trim().min(1),
   expectedOutput: z.string().trim().min(1),
   acceptanceCriteria: z.array(z.string().trim().min(1)).min(1),
@@ -107,6 +107,17 @@ export const ContextGrantSchema = z.strictObject({
   classification: z.enum(['public', 'personal', 'work', 'mixed']),
   sourceRefs: z.array(z.string().trim().min(1)),
 });
+
+/** Requested permissions are advisory until the host issues an immutable grant. */
+export const SeatAuthorityRequestSchema = z
+  .strictObject({
+    filesystem: z.enum(['read', 'write']),
+    tools: z.enum(['read', 'write']),
+    network: z.literal('restricted'),
+  })
+  .refine((request) => request.filesystem === request.tools, {
+    message: 'Native seats require matching filesystem and tool permissions',
+  });
 
 export const AuthorityGrantSchema = z.strictObject({
   grantId: z.string().trim().min(1),
@@ -176,6 +187,7 @@ export const SeatConfigSchema = z
     role: z.string().regex(/^[a-z][a-z0-9_-]{0,63}$/),
     reasoningEffort: z.string().trim().min(1).optional(),
     accountBinding: AccountBindingSchema.optional(),
+    authorityRequest: SeatAuthorityRequestSchema.optional(),
     profileBinding: ProfileBindingSchema.optional(),
     contextGrant: ContextGrantSchema.optional(),
     authorityGrant: AuthorityGrantSchema.optional(),

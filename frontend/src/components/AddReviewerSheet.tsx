@@ -1,6 +1,10 @@
 import { createPortal } from 'react-dom';
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
-import type { SymposiumConfig, ValidAccountBinding } from '@mitzo/protocol';
+import type {
+  SymposiumConfig,
+  SymposiumProfileDefinition,
+  ValidAccountBinding,
+} from '@mitzo/protocol';
 import { apiFetch } from '../lib/api-fetch';
 import { AccountModelPicker, type AccountSelection } from './AccountModelPicker';
 import { SymposiumProfilePicker, type SymposiumProfileSelection } from './SymposiumProfilePicker';
@@ -37,21 +41,27 @@ async function request<T>(path: string, body?: unknown, method = 'POST'): Promis
   const result = await response.json();
   if (!response.ok)
     throw new ReviewerRequestError(
-      result.error || 'Reviewer request failed',
+      result.error || 'Agent request failed',
       result.seatMutation === 'not-started',
     );
   return result as T;
 }
 
-const ReviewerFlowContext = createContext<{ sessionId: string; open(): void } | null>(null);
+const ReviewerFlowContext = createContext<{
+  sessionId: string;
+  generic: boolean;
+  open(): void;
+} | null>(null);
 
 /** Owns the form above responsive screen wrappers so viewport changes preserve retries. */
 export function ReviewerSheetHost({
   sessionId,
   children,
+  generic = true,
 }: {
   sessionId: string;
   children: ReactNode;
+  generic?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [visited, setVisited] = useState(false);
@@ -60,6 +70,7 @@ export function ReviewerSheetHost({
     <ReviewerFlowContext.Provider
       value={{
         sessionId,
+        generic,
         open: () => {
           setVisited(true);
           setOpen(true);
@@ -72,6 +83,7 @@ export function ReviewerSheetHost({
           <ReviewerForm
             key={`${sessionId}:${attempt}`}
             open={open}
+            generic={generic}
             sessionId={sessionId}
             onClose={() => setOpen(false)}
             onAnother={() => setAttempt((value) => value + 1)}
@@ -83,15 +95,31 @@ export function ReviewerSheetHost({
 }
 export function AddReviewerSheet({ sessionId }: { sessionId: string }) {
   const flow = useContext(ReviewerFlowContext);
-  if (!flow || flow.sessionId !== sessionId)
+  if (!flow || flow.sessionId !== sessionId || flow.generic)
     return (
-      <ReviewerSheetHost sessionId={sessionId}>
+      <ReviewerSheetHost sessionId={sessionId} generic={false}>
         <AddReviewerSheet sessionId={sessionId} />
       </ReviewerSheetHost>
     );
   return (
-    <button type="button" onClick={flow.open}>
+    <button type="button" onClick={() => flow.open()}>
       Add reviewer
+    </button>
+  );
+}
+
+/** Generic conversation seat entry point; legacy reviewer callers remain supported. */
+export function AddAgentSheet({ sessionId }: { sessionId: string }) {
+  const flow = useContext(ReviewerFlowContext);
+  if (!flow || flow.sessionId !== sessionId || !flow.generic)
+    return (
+      <ReviewerSheetHost sessionId={sessionId}>
+        <AddAgentSheet sessionId={sessionId} />
+      </ReviewerSheetHost>
+    );
+  return (
+    <button type="button" onClick={flow.open}>
+      Add agent
     </button>
   );
 }
@@ -101,11 +129,13 @@ function ReviewerForm({
   onClose,
   open,
   onAnother,
+  generic = false,
 }: {
   sessionId: string;
   onClose(): void;
   open: boolean;
   onAnother(): void;
+  generic?: boolean;
 }) {
   const base = `/api/sessions/${encodeURIComponent(sessionId)}/symposium`;
   const dialog = useRef<HTMLElement>(null);
@@ -120,6 +150,22 @@ function ReviewerForm({
   const [status, setStatus] = useState<Status | null>(null);
   const [selection, setSelection] = useState<AccountSelection | null>(null);
   const [profile, setProfile] = useState<SymposiumProfileSelection | null>(null);
+  const [name, setName] = useState('');
+  const [role, setRole] = useState('agent');
+  const [instructions, setInstructions] = useState('');
+  const [expectedOutput, setExpectedOutput] = useState('');
+  const [criteria, setCriteria] = useState('');
+  const [profileLoading, setProfileLoading] = useState(false);
+  const profileLoad = useRef(0);
+  const [authority, setAuthority] = useState({
+    filesystem: 'read',
+    tools: 'read',
+    network: 'restricted',
+  } as {
+    filesystem: 'read' | 'write';
+    tools: 'read' | 'write';
+    network: 'restricted';
+  });
   const [mode, setMode] = useState<Mode>('independent');
   const [brief, setBrief] = useState('');
   const [summary, setSummary] = useState('');
@@ -138,7 +184,10 @@ function ReviewerForm({
   };
   const [progress, setProgress] = useState('');
   const packageSnapshot = useRef<{ content: string } | null>(null);
-  const operation = useRef({ seatId: `reviewer-${crypto.randomUUID()}`, key: crypto.randomUUID() });
+  const operation = useRef({
+    seatId: `${generic ? 'agent' : 'reviewer'}-${crypto.randomUUID()}`,
+    key: crypto.randomUUID(),
+  });
   useEffect(() => {
     if (!open) return;
     let live = true;
@@ -181,7 +230,14 @@ function ReviewerForm({
     status &&
     sourceAccountId &&
     (!status.config || status.runtimeAvailable) &&
-    profile &&
+    (generic
+      ? name.trim() &&
+        /^[a-z][a-z0-9_-]{0,63}$/.test(role) &&
+        instructions.trim() &&
+        expectedOutput.trim() &&
+        criteria.trim() &&
+        !profileLoading
+      : profile) &&
     selection?.accountId &&
     brief.trim() &&
     acknowledged &&
@@ -190,15 +246,18 @@ function ReviewerForm({
     (mode !== 'selected-turns' || turnIds.length),
   );
   async function add() {
-    if (!ready || !selection || !profile || busy) return;
+    if (!ready || !selection || (!generic && !profile) || busy) return;
     setBusy(true);
     setError('');
     let reviewerMutationAttempted = false;
     try {
-      const selectedProfile = await request<{ definition: { role: string } }>(
-        `/api/symposium/profiles/${encodeURIComponent(profile.profileId)}/${profile.revision}`,
-      );
-      if (selectedProfile.definition?.role !== 'reviewer')
+      const selectedProfile =
+        !generic && profile
+          ? await request<{ definition: { role: string } }>(
+              `/api/symposium/profiles/${encodeURIComponent(profile.profileId)}/${profile.revision}`,
+            )
+          : null;
+      if (!generic && selectedProfile?.definition?.role !== 'reviewer')
         throw new Error('Choose a profile with the reviewer role.');
       const context =
         packageSnapshot.current ??
@@ -214,13 +273,13 @@ function ReviewerForm({
         if (!current.ordinaryAccountId)
           throw new Error('Conversation account binding is unavailable');
         if (current.ordinaryAccountId !== selection.accountId && typed !== confirmation)
-          throw new Error('Confirm the cross-account transfer before binding the reviewer');
+          throw new Error('Confirm the cross-account transfer before binding the agent');
         config = await request<SymposiumConfig>(`${base}/draft`, {
           expectedAccountId: current.ordinaryAccountId,
         });
       }
       if (config.version !== 2)
-        throw new Error('This roster must be upgraded before adding a reviewer');
+        throw new Error('This roster must be upgraded before adding an agent');
       const configuredAnchorId = config.anchorSeatId;
       const configuredAnchor = config.seats.find((seat) => seat.id === configuredAnchorId);
       if (
@@ -228,7 +287,7 @@ function ReviewerForm({
         configuredAnchor.accountBinding.accountId !== selection.accountId &&
         typed !== confirmation
       )
-        throw new Error('Confirm the cross-account transfer before binding the reviewer');
+        throw new Error('Confirm the cross-account transfer before binding the agent');
       packageSnapshot.current = context;
       setLocked(true);
       const boundary = {
@@ -236,6 +295,19 @@ function ReviewerForm({
         ...(typed === confirmation ? { crossAccountConfirmation: confirmation } : {}),
       };
       const seatId = operation.current.seatId;
+      const guidance = generic
+        ? {
+            name: name.trim(),
+            role,
+            systemPrompt: instructions.trim(),
+            expectedOutput: expectedOutput.trim(),
+            acceptanceCriteria: criteria
+              .split('\n')
+              .map((line) => line.trim())
+              .filter(Boolean),
+            authorityRequest: authority,
+          }
+        : { name: 'Reviewer', role: 'reviewer', systemPrompt: '' };
       reviewerMutationAttempted = config.seats.some((seat) => seat.id === seatId);
       if (!reviewerMutationAttempted) {
         if (config.state === 'active') {
@@ -243,14 +315,12 @@ function ReviewerForm({
           config = await request<SymposiumConfig>(`${base}/seats/revise`, {
             expectedRevision: config.revision,
             seatId,
-            name: 'Reviewer',
-            role: 'reviewer',
-            systemPrompt: '',
+            ...guidance,
             color: '#665599',
             accountId: selection.accountId,
             model: selection.model,
             ...(selection.reasoningEffort ? { reasoningEffort: selection.reasoningEffort } : {}),
-            profileSelection: profile,
+            ...(!generic && profile ? { profileSelection: profile } : {}),
             contextSourceRefs: [],
             ...boundary,
           });
@@ -272,9 +342,7 @@ function ReviewerForm({
                   ...config.seats,
                   {
                     id: seatId,
-                    name: 'Reviewer',
-                    role: 'reviewer',
-                    systemPrompt: '',
+                    ...guidance,
                     color: '#665599',
                     model: selection.model,
                     accountBinding: binding,
@@ -289,12 +357,17 @@ function ReviewerForm({
           );
         }
       }
-      setProgress(`Reviewer configured (${operation.current.seatId}). Admission pending.`);
+      setProgress(
+        `${generic ? 'Agent' : 'Reviewer'} configured (${operation.current.seatId}). Admission pending.`,
+      );
       if (config.state === 'draft')
         config = await request<SymposiumConfig>(`${base}/activate`, {
           expectedRevision: config.revision,
           contextSourceRefs: [],
-          profileSelections: { ...current.initialProfileSelections, [seatId]: profile },
+          profileSelections: {
+            ...current.initialProfileSelections,
+            ...(!generic && profile ? { [seatId]: profile } : {}),
+          },
           ...boundary,
         });
       await request(`${base}/admissions/refresh`, { expectedRevision: config.revision });
@@ -308,24 +381,30 @@ function ReviewerForm({
           action: membership?.state === 'suspended' ? 'restore' : 'admit',
           expectedGeneration: membership?.generation ?? 0,
           configRevision: config.revision,
-          reason: 'Add reviewer',
+          reason: generic ? 'Add agent' : 'Add reviewer',
           idempotencyKey: `${operation.current.key}:${id}`,
           ...boundary,
         });
       }
       setProgress(
-        `Reviewer admitted. Context not queued (${seatId}). Retry uses this seat and the same package.`,
+        `${generic ? 'Agent' : 'Reviewer'} admitted. Context not queued (${seatId}). Retry uses this seat and the same package.`,
       );
       await request(`${base}/deliveries`, {
         sourceSeatId: null,
         recipientSeatIds: [seatId],
-        originalContent: `Review request (read-only):\n${brief.trim()}${context.content ? `\n\n${context.content}` : ''}`,
+        originalContent: `${generic ? 'Agent request:' : 'Review request (read-only):'}\n${brief.trim()}${context.content ? `\n\n${context.content}` : ''}`,
         idempotencyKey: `${operation.current.key}:context`,
       });
       setDone(true);
       window.dispatchEvent(new Event('symposium-roster-changed'));
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Could not add reviewer');
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : generic
+            ? 'Could not add agent'
+            : 'Could not add reviewer',
+      );
       const refreshed = await request<Status>(base).catch(() => null);
       setStatus(refreshed);
       // Absence alone does not exclude an in-flight write after a lost response.
@@ -355,7 +434,7 @@ function ReviewerForm({
         className="reviewer-sheet"
         role="dialog"
         aria-modal="true"
-        aria-label="Ask another agent"
+        aria-label={generic ? 'Add agent' : 'Ask another agent'}
         onKeyDown={(event) => {
           if (event.key === 'Escape' && !busy) onClose();
           if (event.key === 'Tab') {
@@ -382,7 +461,7 @@ function ReviewerForm({
         }}
       >
         <header>
-          <h2>Ask another agent</h2>
+          <h2>{generic ? 'Add agent' : 'Ask another agent'}</h2>
           <button type="button" disabled={busy} onClick={onClose}>
             Close
           </button>
@@ -390,28 +469,123 @@ function ReviewerForm({
         {done ? (
           <>
             <p role="status">
-              Reviewer added. The selected context is queued for approval in Director controls.
+              {generic
+                ? 'Agent added. The selected context is queued. Approve and send it in the conversation.'
+                : 'Reviewer added. The selected context is queued for approval in Director controls.'}
             </p>
             <button type="button" onClick={onClose}>
               Done
             </button>
             <button type="button" onClick={onAnother}>
-              Add another reviewer
+              {generic ? 'Add another agent' : 'Add another reviewer'}
             </button>
           </>
         ) : (
           <>
-            <p>Choose a saved profile and the account that will receive this review request.</p>
+            <p>
+              {generic
+                ? 'Define an agent and choose its account. A saved profile can supply guidance; permissions are chosen here.'
+                : 'Choose a saved profile and the account that will receive this review request.'}
+            </p>
             <fieldset disabled={busy || locked}>
+              {generic && (
+                <p>
+                  Load a saved profile to copy its versioned guidance into this form. Edits apply to
+                  this agent only; account and permissions are selected separately.
+                </p>
+              )}
               <SymposiumProfilePicker
                 compact
-                requiredRole="reviewer"
+                requiredRole={generic ? undefined : 'reviewer'}
                 value={profile}
                 onChange={(next) => {
-                  if (!lockedRef.current) setProfile(next);
+                  if (lockedRef.current) return;
+                  setProfile(next);
+                  if (!generic) return;
+                  const load = ++profileLoad.current;
+                  setProfileLoading(Boolean(next));
+                  if (!next) return;
+                  void request<{ definition: SymposiumProfileDefinition }>(
+                    `/api/symposium/profiles/${encodeURIComponent(next.profileId)}/${next.revision}`,
+                  )
+                    .then(({ definition }) => {
+                      if (load !== profileLoad.current || lockedRef.current) return;
+                      setName(definition.name);
+                      setRole(definition.role);
+                      setInstructions(definition.instructions);
+                      setExpectedOutput(definition.expectedOutput);
+                      setCriteria(definition.acceptanceCriteria.join('\n'));
+                      // This is a local copy. Catalog identity cannot overwrite custom seat guidance.
+                    })
+                    .catch((cause: Error) => {
+                      if (load === profileLoad.current) setError(cause.message);
+                    })
+                    .finally(() => {
+                      if (load === profileLoad.current) setProfileLoading(false);
+                    });
                 }}
                 disabled={busy || locked}
               />
+              {generic && (
+                <>
+                  <label>
+                    Agent name
+                    <input value={name} onChange={(event) => setName(event.target.value)} />
+                  </label>
+                  <label>
+                    Agent role
+                    <input
+                      value={role}
+                      onChange={(event) => setRole(event.target.value)}
+                      pattern="[a-z][a-z0-9_-]{0,63}"
+                    />
+                  </label>
+                  <label>
+                    Agent instructions
+                    <textarea
+                      value={instructions}
+                      onChange={(event) => setInstructions(event.target.value)}
+                    />
+                  </label>
+                  <label>
+                    Agent expected output
+                    <textarea
+                      value={expectedOutput}
+                      onChange={(event) => setExpectedOutput(event.target.value)}
+                    />
+                  </label>
+                  <label>
+                    Agent acceptance criteria
+                    <textarea
+                      value={criteria}
+                      onChange={(event) => setCriteria(event.target.value)}
+                      placeholder="One criterion per line"
+                    />
+                  </label>
+                  <label>
+                    Agent permissions
+                    <select
+                      value={authority.filesystem}
+                      onChange={(event) => {
+                        const permission = event.target.value as 'read' | 'write';
+                        setAuthority({
+                          filesystem: permission,
+                          tools: permission,
+                          network: 'restricted',
+                        });
+                      }}
+                    >
+                      <option value="read">Read-only workspace and tools</option>
+                      <option value="write">Read and write workspace and tools</option>
+                    </select>
+                  </label>
+                  <p>
+                    Network access is restricted. The host verifies the requested permissions before
+                    admitting the agent.
+                  </p>
+                  {profileLoading && <p role="status">Loading saved guidance…</p>}
+                </>
+              )}
               <AccountModelPicker
                 scope="symposium"
                 requireExplicitSelection
@@ -423,11 +597,11 @@ function ReviewerForm({
                 disabled={busy || locked}
               />
               <label>
-                Review package
+                {generic ? 'Initial message' : 'Review package'}
                 <textarea
                   value={brief}
                   onChange={(event) => setBrief(event.target.value)}
-                  placeholder="Objective and acceptance criteria; repository instructions; current diff and relevant source; test results; selected decisions. Include only what this reviewer should receive."
+                  placeholder="Describe the task and include only the material this agent should receive."
                 />
               </label>
               <label>
@@ -439,7 +613,7 @@ function ReviewerForm({
                     setError('');
                   }}
                 >
-                  <option value="independent">Independent — review package only</option>
+                  <option value="independent">Independent — initial message only</option>
                   <option value="summary">Summary — written by you</option>
                   <option value="selected-turns">Selected shared turns</option>
                   <option value="full-context">
@@ -477,9 +651,8 @@ function ReviewerForm({
                 </p>
               )}
               <p>
-                The selected account receives the review package and chosen context only after
-                delivery approval. Shared workspace files remain governed by the read-only seat
-                boundary.
+                The selected account receives the initial message and chosen context after delivery
+                approval. Shared workspace access follows the seat permissions.
               </p>
               <label>
                 <input
@@ -511,7 +684,7 @@ function ReviewerForm({
             )}
             {progress && <p role="status">{progress}</p>}
             <button type="button" disabled={!ready || busy} onClick={() => void add()}>
-              Add reviewer and queue context
+              {generic ? 'Add agent and queue message' : 'Add reviewer and queue context'}
             </button>
             {error && (
               <p role="alert">{error} Any configured seats remain visible in Director controls.</p>

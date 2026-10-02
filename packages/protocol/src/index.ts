@@ -188,6 +188,7 @@ export {
   SymposiumProfileRecipeSchema,
   ContextGrantSchema,
   AuthorityGrantSchema,
+  SeatAuthorityRequestSchema,
   IsolationRequestSchema,
   SymposiumProvenanceSchema,
   SymposiumProvenanceV2Schema,

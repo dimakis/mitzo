@@ -133,17 +133,23 @@ not activate a seat or satisfy the separate runtime admission gate. See the
 Ordinary chat send/interrupt routes cannot execute a configured Symposium, and
 converting an existing ordinary conversation requires stopping it first.
 
-Use **Add reviewer** in an existing conversation to choose a saved profile,
-account/model, and an explicit review package (objective, acceptance criteria,
-repository instructions, relevant diff/source, tests, and selected decisions).
-Independent review is the default and includes no earlier conversation. Optional
+Use **Add agent** in an existing conversation to define custom guidance, a role
+label, expected output and acceptance criteria without first saving a profile.
+Optionally load a saved profile revision as an editable copy of its guidance.
+Choose the account/model/thinking level and read-only or read/write permissions
+separately; profile guidance does not grant authority. Independent context is the
+default and includes no earlier conversation. Optional
 context choices are an operator-written summary, selected shared excerpts, or
 all proven shared excerpts. Only delivered broadcasts to every active member at
 creation are eligible; private asides, queued inputs, and legacy turns without
 audience proof are excluded. Edited deliveries contribute their delivered text.
-The package is queued for approval, never automatically dispatched. Context
+The package is queued for approval, never automatically dispatched. Approve,
+Send and Stop are available in the conversation. Stop applies to all recipients
+of the named delivery and stays available during sending or a failed status
+refresh. Uncertain sends are not automatically repeated; cancellation records
+do not establish physical provider cleanup. Context
 source grants default to empty; a reference does not itself load conversation
-history. Shared workspace access remains governed by the read-only host grant.
+history. Shared workspace access remains governed by the host-issued grant.
 
 Adding a reviewer can prepare a stopped ordinary conversation's isolated roster,
 but admission still requires the verified runtime. Roster changes revalidate
