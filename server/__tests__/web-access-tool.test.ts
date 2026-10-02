@@ -18,7 +18,7 @@ describe('shared web access tool wiring', () => {
       accountBinding: { accountId: 'a', provider: 'openai', model: 'm', profileRevision: '1' },
     } as unknown as ManagedSession;
     const registry = {
-      findBySessionId: () => session,
+      findBySessionId: () => ({ clientId: session.clientId, session }),
       get: () => session,
     } as unknown as SessionRegistry;
     const search = vi.fn().mockResolvedValue('answer');

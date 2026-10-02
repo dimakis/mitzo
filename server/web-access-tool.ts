@@ -16,14 +16,15 @@ export function createWebAccessTool(
   search: (query: string, signal: AbortSignal) => Promise<string>,
 ) {
   return async (input: unknown, signal: AbortSignal) => {
-    const session = registry.findBySessionId(conversationId);
-    if (!session) return { content: 'Session unavailable', isError: true };
-    const clientId = session.clientId;
+    const owner = registry.findBySessionId(conversationId);
+    if (!owner) return { content: 'Session unavailable', isError: true };
+    const { clientId, session } = owner;
     const binding = structuredClone(session.accountBinding);
     const model = session.model;
     const isCurrent = () =>
       registry.get(clientId) === session &&
-      registry.findBySessionId(conversationId) === session &&
+      registry.findBySessionId(conversationId)?.session === session &&
+      registry.findBySessionId(conversationId)?.clientId === clientId &&
       isDeepStrictEqual(session.accountBinding, binding) &&
       session.model === model &&
       effectivePermissionMode(session) !== 'ask' &&
