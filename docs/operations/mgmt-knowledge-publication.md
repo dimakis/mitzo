@@ -125,3 +125,34 @@ a supervised MGMT publisher, and consumer selection at its current publication
 are required before enabling it. Host, Responses, Claude and Symposium adoption
 remain separate enrollment work. No task checkout, draft, checkpoint or old
 worktree is rebased by knowledge publication.
+
+## Pluggable knowledge stores
+
+The product direction is a configurable knowledge-store source in Mitzo. Git is
+its first adapter, and MGMT is its first format adapter, rather than a permanent
+hardcoded dependency on one user's repository. The publisher's existing
+`sourceUrl` already selects a different Git remote; the current implementation
+still requires canonical `main` and the MGMT layout and is not a generic-store
+integration.
+
+A future source configuration identifies a store, source kind, Git URL and
+accepted ref, credential reference, format adapter, and permitted session scope.
+Credentials remain host-side references rather than values inside publications.
+Each adapter must produce the same immutable, verified knowledge view with an
+exact source revision, digest, instruction/retrieval inputs, and compatibility
+contract. Other Git formats and non-Git stores can join through that contract.
+A source's documents cannot change host configuration or publication authority.
+Writes remain drafts in their owning store until that store's acceptance policy
+is satisfied; multiple stores require explicit precedence and a recorded coherent
+selection rather than silently mixing revisions.
+
+Persistence has separate owners: Git retains accepted source history; the
+publisher retains immutable bundles, indexes, and durable reconciliation receipts;
+Mitzo records selection and model-context delivery without replacing task Git or
+provider history. The current one-minute reconciliation is eventual freshness,
+not instantaneous propagation. A seamless admission contract must request a
+fresh canonical observation and wait for its verified publication when necessary.
+Webhooks can wake reconciliation, but polling and retry must recover missed events.
+New sessions then select that publication; retained sessions adopt it only at a
+safe turn boundary. Generic adapters, admission freshness barriers, and broader
+consumer enrollment remain future work, not capabilities implied by this ADR.
