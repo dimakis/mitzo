@@ -42,16 +42,14 @@ describe('selected-account native search adapters', () => {
     });
   });
   it('never returns a model answer without a search receipt', async () => {
-    const fetch = vi
-      .fn()
-      .mockResolvedValue(
-        new Response(
-          JSON.stringify({
-            status: 'completed',
-            output: [{ type: 'message', content: [{ type: 'output_text', text: 'guess' }] }],
-          }),
-        ),
-      );
+    const fetch = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          status: 'completed',
+          output: [{ type: 'message', content: [{ type: 'output_text', text: 'guess' }] }],
+        }),
+      ),
+    );
     vi.stubGlobal('fetch', fetch);
     await expect(
       searchOpenAI('Revenue', new AbortController().signal, 'key', 'model'),
@@ -59,25 +57,23 @@ describe('selected-account native search adapters', () => {
     expect(fetch).toHaveBeenCalledTimes(1);
   });
   it('uses the explicit Vertex project, region, token and model, with no function tools', async () => {
-    const fetch = vi
-      .fn()
-      .mockResolvedValue(
-        new Response(
-          JSON.stringify({
-            candidates: [
-              {
-                finishReason: 'STOP',
-                content: { parts: [{ text: 'Answer' }] },
-                groundingMetadata: {
-                  webSearchQueries: ['Revenue'],
-                  groundingChunks: [{ web: { uri: 'https://www.revenue.ie/', title: 'Revenue' } }],
-                  searchEntryPoint: { renderedContent: '<div>Google suggestions</div>' },
-                },
+    const fetch = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          candidates: [
+            {
+              finishReason: 'STOP',
+              content: { parts: [{ text: 'Answer' }] },
+              groundingMetadata: {
+                webSearchQueries: ['Revenue'],
+                groundingChunks: [{ web: { uri: 'https://www.revenue.ie/', title: 'Revenue' } }],
+                searchEntryPoint: { renderedContent: '<div>Google suggestions</div>' },
               },
-            ],
-          }),
-        ),
-      );
+            },
+          ],
+        }),
+      ),
+    );
     vi.stubGlobal('fetch', fetch);
     const output = await searchGemini(
       'Revenue',
@@ -134,6 +130,8 @@ describe('selected-account native search adapters', () => {
       env,
       model: 'selected-claude',
       tools: ['WebSearch'],
+      strictMcpConfig: true,
+      mcpServers: {},
       settingSources: [],
       maxTurns: 3,
     });

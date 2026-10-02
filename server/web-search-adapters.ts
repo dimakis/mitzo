@@ -170,6 +170,8 @@ export async function searchSdk(
         abortController: abort,
         settingSources: [],
         tools: ['WebSearch'],
+        strictMcpConfig: true,
+        mcpServers: {},
         allowedTools: ['WebSearch'],
         maxTurns: 3,
         persistSession: false,
