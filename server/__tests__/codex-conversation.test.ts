@@ -700,6 +700,46 @@ it('checks thread and turn identity, rejects unknown tools, and executes a dupli
   });
   expect(execute).toHaveBeenCalledOnce();
 });
+it.each(['functions', '', null, undefined])(
+  'dispatches declared host tools with protocol namespace %s',
+  async (namespace) => {
+    const { c, callbacks, execute } = await setup();
+    await c.send({ id: 'namespace', prompt: 'read' });
+    const result = await callbacks.onRequest(
+      'item/tool/call',
+      {
+        threadId: 'provider-thread',
+        turnId: 'turn-1',
+        callId: 'namespaced-call',
+        namespace,
+        tool: 'Read',
+        arguments: { file_path: 'note' },
+      },
+      new AbortController().signal,
+    );
+    expect(result).toMatchObject({ success: true });
+    expect(execute).toHaveBeenCalledWith('Read', { file_path: 'note' }, expect.any(AbortSignal), {
+      callId: 'namespaced-call',
+      turnId: 'turn-1',
+    });
+    await expect(
+      callbacks.onRequest(
+        'item/tool/call',
+        {
+          threadId: 'provider-thread',
+          turnId: 'turn-1',
+          callId: 'unknown-call',
+          namespace,
+          tool: 'Unknown',
+          arguments: {},
+        },
+        new AbortController().signal,
+      ),
+    ).rejects.toThrow('tool');
+    expect(execute).toHaveBeenCalledOnce();
+  },
+);
+
 it('interrupts the current turn, keeps queued follow-ups paused, and cancels a pending host tool', async () => {
   const { c, callbacks, execute, requests } = await setup();
   await c.send({ id: 'a', prompt: 'read' });

@@ -127,7 +127,8 @@ const ToolCall = z.object({
   threadId: z.string(),
   turnId: z.string(),
   callId: z.string().min(1),
-  namespace: z.null().optional(),
+  // Codex code-mode dispatch can supply a string namespace for flat host tools.
+  namespace: z.string().nullable().optional(),
   tool: z.string(),
   arguments: z.record(z.string(), z.unknown()),
 });
