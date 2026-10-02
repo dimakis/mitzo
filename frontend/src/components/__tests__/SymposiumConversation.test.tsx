@@ -528,11 +528,23 @@ describe('SymposiumConversation', () => {
 });
 
 it('simplifies after the last reviewer is removed but keeps isolated delivery routing', async () => {
+  let expanded = false;
   vi.mocked(apiFetch).mockImplementation(async (url) => {
-    if (String(url).endsWith('/symposium'))
+    if (String(url).endsWith('/status'))
       return json({
         sessionId: 'chat',
         config: { version: 2, revision: 8, state: 'active', anchorSeatId: 'architect' },
+        deliveries: [
+          {
+            deliveryId: 'anchor-delivery',
+            recipientSeatIds: ['architect'],
+            originalContent: 'Continue',
+            deliveredContent: 'Continue',
+            status: 'ready',
+            recipients: [{ seatId: 'architect', status: 'pending' }],
+          },
+        ],
+        runtimeAvailable: true,
         seats: [
           {
             seatId: 'architect',
@@ -543,8 +555,8 @@ it('simplifies after the last reviewer is removed but keeps isolated delivery ro
           {
             seatId: 'reviewer',
             seat: { name: 'Reviewer' },
-            admitted: false,
-            membership: { state: 'removed' },
+            admitted: expanded,
+            membership: { state: expanded ? 'active' : 'removed' },
           },
         ],
       });
@@ -560,6 +572,14 @@ it('simplifies after the last reviewer is removed but keeps isolated delivery ro
   );
   await screen.findByLabelText('Message for Architect');
   expect(screen.queryByRole('tablist')).toBeNull();
+  expect(await screen.findByRole('button', { name: 'Send to Architect' })).toBeTruthy();
+  expect(
+    vi
+      .mocked(apiFetch)
+      .mock.calls.some(
+        ([url]) => String(url).includes('kind=seat') && String(url).includes('seatId=architect'),
+      ),
+  ).toBe(true);
   expect(screen.queryByText('Ordinary send')).toBeNull();
   expect(screen.queryByRole('button', { name: 'Choose agent recipient' })).toBeNull();
   fireEvent.change(screen.getByLabelText('Message for Architect'), {
@@ -577,6 +597,13 @@ it('simplifies after the last reviewer is removed but keeps isolated delivery ro
         ),
     ).toBe(true),
   );
+  expanded = true;
+  window.dispatchEvent(new Event('symposium-roster-changed'));
+  const anchorTab = await screen.findByRole('tab', { name: 'Architect' });
+  expect(anchorTab.getAttribute('aria-selected')).toBe('true');
+  expect(screen.getByRole('button', { name: 'Send to Architect' })).toBeTruthy();
+  fireEvent.click(screen.getByRole('tab', { name: 'All' }));
+  expect(screen.queryByRole('button', { name: 'Send to Architect' })).toBeNull();
 });
 
 const directedDelivery = (deliveryStatus = 'awaiting_intervention') => ({
@@ -590,6 +617,43 @@ const directedDelivery = (deliveryStatus = 'awaiting_intervention') => ({
     { seatId: 'reviewer', status: 'pending' },
   ],
 });
+
+it.each(['awaiting_intervention', 'ready', 'executing', 'recovery_required'])(
+  'keeps All receipts readable without delivery mutations for %s',
+  async (deliveryStatus) => {
+    vi.mocked(apiFetch).mockImplementation(async (url) =>
+      json(
+        String(url).includes('/profile-proposals')
+          ? []
+          : String(url).includes('/perspectives')
+            ? page
+            : { ...status, runtimeAvailable: true, deliveries: [directedDelivery(deliveryStatus)] },
+      ),
+    );
+    render(<SymposiumConversation sessionId="session" chat={chat} ordinaryComposer={null} />);
+    await screen.findByRole('article', { name: 'Delivery to Architect, Reviewer' });
+    expect(screen.getByText('Original: Original request')).toBeTruthy();
+    expect(screen.getByText('Approved content: Reviewed request')).toBeTruthy();
+    expect(
+      screen.queryByRole('button', { name: /^(Approve delivery|Send to|Stop delivery)/ }),
+    ).toBeNull();
+    fireEvent.click(screen.getByRole('tab', { name: 'Reviewer' }));
+    expect(
+      await screen.findByRole('button', { name: 'Stop delivery to Architect, Reviewer' }),
+    ).toBeTruthy();
+    if (deliveryStatus === 'awaiting_intervention')
+      expect(
+        screen.getByRole('button', { name: 'Approve delivery to Architect, Reviewer' }),
+      ).toBeTruthy();
+    if (deliveryStatus === 'ready')
+      expect(screen.getByRole('button', { name: 'Send to Architect, Reviewer' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('tab', { name: 'All' }));
+    expect(
+      screen.queryByRole('button', { name: /^(Approve delivery|Send to|Stop delivery)/ }),
+    ).toBeNull();
+    expect(vi.mocked(apiFetch).mock.calls.some(([, init]) => init?.method === 'POST')).toBe(false);
+  },
+);
 
 it('approves explicitly, refreshes status, then sends the reviewed delivery once', async () => {
   let delivery = directedDelivery();
@@ -612,6 +676,7 @@ it('approves explicitly, refreshes status, then sends the reviewed delivery once
     );
   });
   render(<SymposiumConversation sessionId="session" chat={chat} ordinaryComposer={null} />);
+  fireEvent.click(await screen.findByRole('tab', { name: 'Reviewer' }));
   fireEvent.click(
     await screen.findByRole('button', { name: 'Approve delivery to Architect, Reviewer' }),
   );
@@ -652,6 +717,10 @@ it('keeps Stop usable while dispatch awaits completion and names every recipient
   render(<SymposiumConversation sessionId="session" chat={chat} ordinaryComposer={null} />);
   fireEvent.click(await screen.findByRole('tab', { name: 'Reviewer' }));
   fireEvent.click(await screen.findByRole('button', { name: 'Send to Architect, Reviewer' }));
+  fireEvent.click(screen.getByRole('tab', { name: 'All' }));
+  expect(screen.queryByRole('button', { name: 'Stop delivery to Architect, Reviewer' })).toBeNull();
+  expect(screen.getByText('Original: Original request')).toBeTruthy();
+  fireEvent.click(screen.getByRole('tab', { name: 'Reviewer' }));
   const stop = screen.getByRole('button', { name: 'Stop delivery to Architect, Reviewer' });
   expect(stop.hasAttribute('disabled')).toBe(false);
   expect(
@@ -685,6 +754,7 @@ it('blocks uncertain dispatch repeats and retries only explicit idempotent Stop'
     );
   });
   render(<SymposiumConversation sessionId="session" chat={chat} ordinaryComposer={null} />);
+  fireEvent.click(await screen.findByRole('tab', { name: 'Reviewer' }));
   fireEvent.click(await screen.findByRole('button', { name: 'Send to Architect, Reviewer' }));
   await screen.findByText(/Send outcome is uncertain/);
   fireEvent.click(screen.getByRole('button', { name: 'Send to Architect, Reviewer' }));
@@ -756,6 +826,7 @@ it('uses durable recipient execution evidence to block Send after reload', async
     ),
   );
   render(<SymposiumConversation sessionId="session" chat={chat} ordinaryComposer={null} />);
+  fireEvent.click(await screen.findByRole('tab', { name: 'Reviewer' }));
   const send = await screen.findByRole('button', { name: 'Send to Architect, Reviewer' });
   expect(send.hasAttribute('disabled')).toBe(true);
   fireEvent.click(send);
@@ -801,7 +872,7 @@ it('retains Stop during an in-flight dispatch when a status refresh fails', asyn
         finishSend = resolve;
       });
     if (String(url).endsWith('/cancel')) return json({});
-    if (String(url).endsWith('/symposium') && statusUnavailable)
+    if (String(url).endsWith('/status') && statusUnavailable)
       throw new Error('Status temporarily unavailable');
     return json(
       String(url).includes('/profile-proposals')
@@ -812,6 +883,7 @@ it('retains Stop during an in-flight dispatch when a status refresh fails', asyn
     );
   });
   render(<SymposiumConversation sessionId="session" chat={chat} ordinaryComposer={null} />);
+  fireEvent.click(await screen.findByRole('tab', { name: 'Reviewer' }));
   fireEvent.click(await screen.findByRole('button', { name: 'Send to Architect, Reviewer' }));
   statusUnavailable = true;
   window.dispatchEvent(new Event('symposium-deliveries-changed'));
@@ -878,7 +950,7 @@ it('coalesces polling ticks and explicit events into one status read and one fol
   const finish: ((response: Response) => void)[] = [];
   let statusReads = 0;
   vi.mocked(apiFetch).mockImplementation(async (url) => {
-    if (String(url).endsWith('/symposium')) {
+    if (String(url).endsWith('/status')) {
       statusReads++;
       if (statusReads <= 2) return new Promise<Response>((resolve) => finish.push(resolve));
       return json(status);
@@ -913,7 +985,7 @@ it('serializes status reads across session changes and ignores the retired respo
   const reads: string[] = [];
   const finish: ((response: Response) => void)[] = [];
   vi.mocked(apiFetch).mockImplementation(async (url) => {
-    if (String(url).endsWith('/symposium')) {
+    if (String(url).endsWith('/status')) {
       reads.push(String(url));
       return new Promise<Response>((resolve) => finish.push(resolve));
     }
@@ -923,14 +995,61 @@ it('serializes status reads across session changes and ignores the retired respo
     <SymposiumConversation sessionId="session" chat={chat} ordinaryComposer={null} />,
   );
   view.rerender(<SymposiumConversation sessionId="other" chat={chat} ordinaryComposer={null} />);
-  expect(reads).toEqual(['/api/sessions/session/symposium']);
+  expect(reads).toEqual(['/api/sessions/session/symposium/status']);
   await act(async () => {
     finish[0](json(status));
   });
-  expect(reads).toEqual(['/api/sessions/session/symposium', '/api/sessions/other/symposium']);
+  expect(reads).toEqual([
+    '/api/sessions/session/symposium/status',
+    '/api/sessions/other/symposium/status',
+  ]);
   expect(screen.queryByRole('tab', { name: 'Reviewer' })).toBeNull();
   await act(async () => {
     finish[1](json({ ...status, sessionId: 'other' }));
   });
   expect(screen.getByRole('tab', { name: 'Reviewer' })).toBeTruthy();
+});
+
+it('can request a send from durable status and keeps runtime refusal explicit without retrying', async () => {
+  const durable = {
+    ...status,
+    runtimeVerification: 'not_checked',
+    runtimeAvailable: false,
+    seats: status.seats.map((seat) => ({
+      ...seat,
+      admitted: false,
+      admissionRecorded: true,
+      savedRuntimeState: 'ready',
+      membership: { state: 'active', reconciliation: 'confirmed' },
+    })),
+    deliveries: [
+      {
+        deliveryId: 'saved-delivery',
+        recipientSeatIds: ['reviewer'],
+        status: 'ready',
+        originalContent: 'Review this',
+        deliveredContent: 'Review this',
+        recipients: [{ seatId: 'reviewer', status: 'pending' }],
+      },
+    ],
+  };
+  vi.mocked(apiFetch).mockImplementation(async (url) =>
+    String(url).endsWith('/dispatch')
+      ? ({ ok: false, json: async () => ({ error: 'Agent service unavailable' }) } as Response)
+      : json(String(url).includes('/perspectives') ? page : durable),
+  );
+  render(<SymposiumConversation sessionId="session" chat={chat} ordinaryComposer={null} />);
+  fireEvent.click(await screen.findByRole('tab', { name: 'Reviewer' }));
+  const send = await screen.findByRole('button', { name: 'Send to Reviewer' });
+  expect(send.hasAttribute('disabled')).toBe(false);
+  fireEvent.click(send);
+  expect(await screen.findByText(/Agent service unavailable/)).toBeTruthy();
+  expect(
+    vi.mocked(apiFetch).mock.calls.filter(([url]) => String(url).endsWith('/dispatch')),
+  ).toHaveLength(1);
+  expect(
+    vi
+      .mocked(apiFetch)
+      .mock.calls.some(([url]) => String(url) === '/api/sessions/session/symposium'),
+  ).toBe(false);
 });

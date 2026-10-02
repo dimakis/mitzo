@@ -1,3 +1,4 @@
+import { canRequestAgent, canRequestRuntime } from '../lib/symposium-status';
 import { SeatLabel } from './SeatLabel';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type {
@@ -35,16 +36,24 @@ type Status = {
   config: SymposiumConfig | null;
   deliveries?: SymposiumDeliveryRecord[];
   runtimeAvailable?: boolean;
+  runtimeVerification?: string;
   seats: {
     seatId: string;
     seat: Omit<SeatProfileSeed, 'seatId'>;
     admitted: boolean;
-    membership?: { state: string } | null;
+    admissionRecorded?: boolean;
+    savedRuntimeState?: string | null;
+    creationDiagnostic?: unknown;
+    membership?: { state: string; reconciliation?: string } | null;
   }[];
 };
 
 async function readJson<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await apiFetch(url, init);
+  if (response.status === 404 && url.endsWith('/status'))
+    throw new Error(
+      'This server does not support saved agent status. Update the server before continuing.',
+    );
   const body = (await response.json()) as T & { error?: string };
   if (!response.ok) throw new Error(body.error || `Request failed (${response.status})`);
   return body;
@@ -166,7 +175,7 @@ export function SymposiumConversation({
       }
       statusQueue.running = true;
       try {
-        const next = await readJson<Status>(base);
+        const next = await readJson<Status>(`${base}/status`);
         if (next.sessionId !== sessionId || !Array.isArray(next.seats) || !('config' in next))
           throw new Error('Symposium status is incomplete');
         if (!cancelled) {
@@ -261,24 +270,24 @@ export function SymposiumConversation({
     [status],
   );
   const admitted = useMemo(
-    () => status?.seats?.filter((seat) => seat.admitted).map((seat) => seat.seatId) ?? [],
+    () => status?.seats?.filter(canRequestAgent).map((seat) => seat.seatId) ?? [],
     [status],
   );
   const anchorSeatId = status?.config?.version === 2 ? status.config.anchorSeatId : undefined;
   const compact = Boolean(
     status?.config?.version === 2 &&
     status.config.state === 'active' &&
-    status.seats.some((seat) => seat.seatId === anchorSeatId && seat.admitted) &&
+    status.seats.some((seat) => seat.seatId === anchorSeatId && canRequestAgent(seat)) &&
     status.seats
       .filter((seat) => seat.seatId !== anchorSeatId)
       .every((seat) => seat.membership?.state === 'removed'),
   );
   useEffect(() => {
-    if (compact) {
-      setSelected('all');
+    if (compact && anchorSeatId) {
+      setSelected(anchorSeatId);
       setShare(null);
     }
-  }, [compact]);
+  }, [compact, anchorSeatId]);
   const recipients =
     compact && anchorSeatId
       ? admitted.filter((seatId) => seatId === anchorSeatId)
@@ -368,6 +377,14 @@ export function SymposiumConversation({
     }
   }, [base, share, excerpt, shareRecipients]);
   const controlDelivery = async (deliveryId: string, action: 'approve' | 'send' | 'stop') => {
+    if (
+      selected === 'all' ||
+      !status?.deliveries?.some(
+        (delivery) =>
+          delivery.deliveryId === deliveryId && delivery.recipientSeatIds.includes(selected),
+      )
+    )
+      return;
     const identity = `${base}:${deliveryId}`;
     const actionIdentity = `${identity}:${action}`;
     if (activeActions.current.has(actionIdentity)) return;
@@ -553,7 +570,7 @@ export function SymposiumConversation({
       {!statusFresh && (
         <p role="status">
           Delivery status could not be refreshed. New approvals and sending are paused; Stop remains
-          available.
+          available in the recipient agent stream.
         </p>
       )}
       {visiblePage.nextSeq !== null && (
@@ -647,7 +664,7 @@ export function SymposiumConversation({
                               receipt. History is preserved.
                             </p>
                           )}
-                          {delivery.status === 'awaiting_intervention' && (
+                          {selected !== 'all' && delivery.status === 'awaiting_intervention' && (
                             <button
                               type="button"
                               disabled={
@@ -658,7 +675,7 @@ export function SymposiumConversation({
                               Approve delivery to {recipientNames}
                             </button>
                           )}
-                          {delivery.status === 'ready' && (
+                          {selected !== 'all' && delivery.status === 'ready' && (
                             <button
                               type="button"
                               disabled={
@@ -670,7 +687,7 @@ export function SymposiumConversation({
                                 state?.dispatchUncertain ||
                                 !statusFresh ||
                                 !untouchedRecipients ||
-                                !status.runtimeAvailable
+                                !canRequestRuntime(status)
                               }
                               onClick={() => void controlDelivery(delivery.deliveryId, 'send')}
                             >
@@ -683,7 +700,7 @@ export function SymposiumConversation({
                               again is unavailable here.
                             </p>
                           )}
-                          {delivery.status === 'ready' && !status.runtimeAvailable && (
+                          {delivery.status === 'ready' && !canRequestRuntime(status) && (
                             <p role="status">Provider runtime is unavailable. Sending is paused.</p>
                           )}
                           {delivery.status === 'recovery_required' && (
@@ -691,7 +708,7 @@ export function SymposiumConversation({
                               Delivery needs recovery. Sending again is unavailable here.
                             </p>
                           )}
-                          {!terminal && (
+                          {selected !== 'all' && !terminal && (
                             <button
                               type="button"
                               disabled={state?.stop}
@@ -700,9 +717,11 @@ export function SymposiumConversation({
                               Stop delivery to {recipientNames}
                             </button>
                           )}
-                          {!terminal && delivery.recipientSeatIds.length > 1 && (
-                            <p>Stop applies to this entire delivery and all named recipients.</p>
-                          )}
+                          {selected !== 'all' &&
+                            !terminal &&
+                            delivery.recipientSeatIds.length > 1 && (
+                              <p>Stop applies to this entire delivery and all named recipients.</p>
+                            )}
                         </details>
                       </article>
                     );
