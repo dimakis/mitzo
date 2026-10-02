@@ -3,10 +3,12 @@ FROM ${OPENSHELL_BASE_IMAGE}
 ARG OPENSHELL_BASE_IMAGE
 ARG MITZO_SOURCE_COMMIT
 ARG MGMT_SOURCE_COMMIT
+ARG KNOWLEDGE_COMPILER_COMMIT
 
 LABEL io.mitzo.openshell.base-image="${OPENSHELL_BASE_IMAGE}" \
       io.mitzo.source-commit="${MITZO_SOURCE_COMMIT}" \
-      io.mitzo.mgmt-source-commit="${MGMT_SOURCE_COMMIT}"
+      io.mitzo.mgmt-source-commit="${MGMT_SOURCE_COMMIT}" \
+      io.mitzo.knowledge-compiler-commit="${KNOWLEDGE_COMPILER_COMMIT}"
 
 USER root
 RUN npm install --global @openai/codex@0.156.1 \
@@ -14,7 +16,6 @@ RUN npm install --global @openai/codex@0.156.1 \
     && ln -s /usr/lib/googleworkspace-cli/node_modules/@googleworkspace/cli/run-gws.js /usr/bin/gws
 COPY pyproject.toml uv.lock /opt/mgmt-deps/
 RUN cd /opt/mgmt-deps \
-    && uv lock --no-cache \
     && UV_PROJECT_ENVIRONMENT=/opt/mgmt-venv uv sync --no-cache --frozen --no-dev --no-install-project
 COPY jira_process/pyproject.toml jira_process/uv.lock /opt/mgmt-jira-runtime/
 RUN cd /opt/mgmt-jira-runtime \
@@ -42,6 +43,8 @@ COPY run-mgmt-notebook /sandbox/run-mgmt-notebook
 COPY compile-mgmt-context.mjs /sandbox/compile-mgmt-context.mjs
 COPY mitzo-checkpoint.py /sandbox/mitzo-checkpoint.py
 COPY contexgin /usr/lib/contexgin
+RUN cd /usr/lib/contexgin && npm ci --omit=dev --ignore-scripts --no-audit --no-fund
+COPY attest-knowledge-runtime.py /sandbox/attest-knowledge-runtime.py
 RUN chmod 0755 /sandbox/run-mitzo-app-server /sandbox/run-mitzo-subscription-app-server /sandbox/initialize-mitzo-workspace /sandbox/run-mgmt-notebook /sandbox/compile-mgmt-context.mjs /sandbox/mitzo-checkpoint.py \
     && chmod -R a+rX /usr/lib/contexgin \
     && chown sandbox:sandbox /sandbox/run-mitzo-app-server /sandbox/run-mitzo-subscription-app-server

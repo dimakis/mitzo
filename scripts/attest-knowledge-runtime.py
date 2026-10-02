@@ -21,6 +21,9 @@ def canonical(value):
 def fingerprint(root, commit):
     files = []
     for path in sorted(root.rglob("*")):
+        # npm binary shims are unused by the Node library entry point.
+        if "node_modules/.bin/" in path.relative_to(root).as_posix():
+            continue
         if path.is_symlink():
             raise ValueError(f"compiler contains a symlink: {path.relative_to(root)}")
         if path.is_file():
@@ -57,8 +60,8 @@ def main():
         architecture = {"aarch64": "arm64", "x86_64": "amd64"}.get(platform.machine())
         if architecture is None:
             parser.error("unsupported runtime architecture")
-        result["knowledgeTargetPlatform"] = f"linux/{architecture}"
-        result["knowledgeTargetMarkerEnvironmentBase64"] = base64.b64encode(
+        result["targetPlatform"] = f"linux/{architecture}"
+        result["targetMarkerEnvironmentB64"] = base64.b64encode(
             canonical(default_environment())
         ).decode()
     print(json.dumps(result, sort_keys=True))
