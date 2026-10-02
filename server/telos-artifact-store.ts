@@ -141,7 +141,12 @@ export class TelosArtifactStore {
             'SELECT * FROM telos_artifact_revisions WHERE id=? ORDER BY revision DESC LIMIT 1',
           )
           .get(id) as ArtifactRow | undefined;
-        if (previous?.sha256 === sha256 && previous.title === input.title)
+        if (
+          previous?.sha256 === sha256 &&
+          previous.title === input.title &&
+          previous.session_id === input.sessionId &&
+          previous.source_path === (input.sourcePath ?? null)
+        )
           return remember(metadata(previous));
         const revision = (previous?.revision ?? 0) + 1;
         const now = new Date().toISOString();

@@ -69,6 +69,43 @@ describe('durable Telos artifacts', () => {
     expect(store.list({ itemId: 'task-b' })).toEqual([]);
     store.close();
   });
+  it('records later-session and changed-path provenance even for identical content', () => {
+    const { path, store } = setup();
+    const first = store.save({ ...input, requestId: 'save-a' });
+    const laterInput = {
+      ...input,
+      sessionId: 'session-b',
+      sourcePath: '/workspace/spec.md',
+      requestId: 'save-b',
+    };
+    const later = store.save(laterInput);
+    expect(later).toMatchObject({
+      id: first.id,
+      revision: 2,
+      sessionId: 'session-b',
+      sourcePath: '/workspace/spec.md',
+    });
+    expect(store.save({ ...laterInput, requestId: 'identical-again' })).toEqual(later);
+    const moved = store.save({
+      ...laterInput,
+      sourcePath: '/workspace/moved.md',
+      requestId: 'save-moved',
+    });
+    expect(moved).toMatchObject({ revision: 3, sourcePath: '/workspace/moved.md' });
+    expect(store.read(first.id, 1)).toMatchObject({
+      sessionId: 'session-a',
+      sourcePath: '/sandbox/spec.md',
+    });
+    expect(store.save({ ...input, requestId: 'save-a' })).toEqual(first);
+    expect(store.read(first.id).revision).toBe(3);
+    store.close();
+    const next = new TelosArtifactStore(path);
+    expect(next.read(first.id, 2)).toMatchObject({
+      sessionId: 'session-b',
+      sourcePath: '/workspace/spec.md',
+    });
+    next.close();
+  });
   it('keeps delayed retries pinned after intervening edits and allows intentional reverts', () => {
     const { path, store } = setup();
     const first = store.save({ ...input, requestId: 'save-a' });

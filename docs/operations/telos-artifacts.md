@@ -20,7 +20,8 @@ health evidence belong in private case storage, not Telos.
    in the handover. Failed saves do not prove persistence; preserve the local draft
    and report the error.
 5. Saving changed content with the same item and filename creates another immutable
-   revision. Reuse `requestId` only to retry the exact same save: it returns its original
+   revision, including when identical bytes are saved from a different source session or path
+   so provenance is retained. Reuse `requestId` only to retry the exact same save: it returns its original
    receipt even after subsequent edits. Use a new ID for each edit or intentional revert. Omitting a
    revision when reading chooses the latest one; supplying a revision reads that
    exact historical document.
