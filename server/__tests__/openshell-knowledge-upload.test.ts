@@ -117,6 +117,64 @@ function digest(content: string) {
   return createHash('sha256').update(content).digest('hex');
 }
 
+it('adopts a verified knowledge view in a retained sandbox without replacing task files', async () => {
+  const config = publication();
+  const conversation = 'retained-chat';
+  const owner = digest(conversation).slice(0, 63);
+  const name = `mitzo-${digest(conversation).slice(0, 13)}`;
+  const run = vi.fn(async () =>
+    JSON.stringify({
+      name,
+      id: 'physical-id',
+      workspace: 'mitzo',
+      phase: 'Ready',
+      labels: { 'mitzo.conversation': owner, 'mitzo.account_provider': 'openai-work' },
+    }),
+  );
+  const ssh = vi.fn(async () =>
+    JSON.stringify({
+      sourceCommit: 'a'.repeat(40),
+      payloadSha256: JSON.parse(readFileSync(join(config.seed, '..', 'baseline.json'), 'utf8'))
+        .payloadSha256,
+    }),
+  );
+  const manager = new OpenShellRuntimeManager(config, run, undefined, ssh);
+  const compile = vi.spyOn(manager, 'compileContext').mockResolvedValue({
+    type: 'boot_context',
+    scope: 'sandbox',
+    sourceCount: 1,
+    tokenCount: 2,
+    tokenBudget: 12000,
+    sources: [],
+    included: [],
+    trimmed: [],
+    fullMarkdown: 'Accepted context',
+  });
+  const runtime = {
+    sandboxName: name,
+    sandboxId: 'physical-id',
+    workdir: '/sandbox/workspaces/mgmt',
+    appServerCommand: '/sandbox/run-mitzo-app-server' as const,
+    cli: 'openshell',
+    gateway: 'local',
+    workspace: 'mitzo',
+    gatewayInsecure: false,
+  };
+  const first = await manager.adoptKnowledge(conversation, runtime, AbortSignal.timeout(5000));
+  expect(first?.sourceCommit).toBe('a'.repeat(40));
+  expect(first?.knowledgeRoot).toMatch(
+    /^\/sandbox\/workspaces\/knowledge\/publication-[^/]+\/mgmt$/,
+  );
+  expect(compile.mock.calls[0][0].workdir).toBe(first?.knowledgeRoot);
+  const uploads = run.mock.calls.filter(([args]) => args.includes('upload'));
+  expect(uploads).toHaveLength(1);
+  expect(uploads[0][0].at(-1)).toBe('/sandbox/workspaces/knowledge');
+  await manager.adoptKnowledge(conversation, runtime, AbortSignal.timeout(5000));
+  expect(run.mock.calls.filter(([args]) => args.includes('upload'))).toHaveLength(1);
+  expect(ssh).toHaveBeenCalledTimes(2);
+  expect(runtime.workdir).toBe('/sandbox/workspaces/mgmt');
+});
+
 it.each([false, true])(
   'ordinary ensure uploads the selected dynamic version through phased=%s creation',
   async (phased) => {

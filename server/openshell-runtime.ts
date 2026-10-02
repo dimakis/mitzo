@@ -1,4 +1,5 @@
 import { verifyPreparedSeed } from '../scripts/verify-openshell-production.mjs';
+import { knowledgeVerificationCommand, knowledgeViewManifest } from './knowledge-view.js';
 import { SYMPOSIUM_ARTIFACT_TARGET } from './symposium-artifact-lease.js';
 import {
   validateOpenShellCliEnvironment,
@@ -18,10 +19,10 @@ import {
   rmSync,
   writeFileSync,
 } from 'node:fs';
-import { isAbsolute, join } from 'node:path';
+import { basename, dirname, isAbsolute, join } from 'node:path';
 import { z } from 'zod';
 import type { McpServerConfig } from './mcp-config.js';
-import { openShellSshProcessSpec } from './codex-app-server-client.js';
+import { openShellSshArgvProcessSpec, openShellSshProcessSpec } from './codex-app-server-client.js';
 import { codexPrivateDirectory } from './codex-private-path.js';
 import type { ArtifactDriverConfig } from './symposium-artifact-lease.js';
 
@@ -82,6 +83,14 @@ const BootContext = z.object({
   fullMarkdown: z.string(),
 });
 export type OpenShellBootContext = z.infer<typeof BootContext>;
+
+export interface OpenShellKnowledgeSelection {
+  sourceCommit: string;
+  payloadSha256: string;
+  knowledgeRoot: string;
+  manifestSha256: string;
+  context: OpenShellBootContext;
+}
 
 export interface OpenShellRuntime {
   sandboxName: string;
@@ -486,6 +495,7 @@ function legacySandboxNameForConversation(conversationHash: string) {
 export class OpenShellRuntimeManager {
   private run: Run;
   private runSsh: Run;
+  private knowledgeViews = new Map<string, OpenShellKnowledgeSelection>();
 
   constructor(
     private config: BoundOpenShellRuntimeConfig,
@@ -1521,6 +1531,74 @@ export class OpenShellRuntimeManager {
       }
       await this.waitForReady(runtime.sandboxName, owner, signal);
     });
+  }
+
+  /** Called only at admission or between turns, under the owning lifecycle fence. */
+  async adoptKnowledge(
+    conversationId: string,
+    runtime: OpenShellRuntime,
+    signal: AbortSignal,
+  ): Promise<OpenShellKnowledgeSelection | undefined> {
+    const baselinePath = join(this.config.seed, '..', 'baseline.json');
+    if (!existsSync(baselinePath)) return undefined;
+    const selected = JSON.parse(readFileSync(baselinePath, 'utf8')) as Record<string, unknown>;
+    if (!Object.hasOwn(selected, 'runtimeBaseCommit')) return undefined;
+    if (!runtime.sandboxId)
+      throw new Error('Knowledge adoption requires a physical sandbox identity');
+    const prepared = prepareOpenShellSeed(this.config);
+    try {
+      const baseline = JSON.parse(readFileSync(join(prepared.seed, '..', 'baseline.json'), 'utf8'));
+      const view = knowledgeViewManifest(baseline);
+      const bytes = JSON.stringify(view);
+      const manifestSha256 = createHash('sha256').update(bytes).digest('hex');
+      let selection = this.knowledgeViews.get(runtime.sandboxId);
+      const current = await this.ownedSandbox(conversationId, runtime.sandboxId, signal);
+      if (current.phase !== 'Ready' || current.name !== runtime.sandboxName)
+        throw new Error('Knowledge sandbox is not Ready');
+      if (!selection || selection.manifestSha256 !== manifestSha256) {
+        // Portable Git belongs to the writable task root. It is deliberately
+        // absent from this separately attested, versioned retrieval lane.
+        rmSync(join(prepared.seed, '.git'), { recursive: true, force: true });
+        const parent = dirname(prepared.seed);
+        writeFileSync(join(parent, 'knowledge-view.json'), bytes);
+        const destination = '/sandbox/workspaces/knowledge';
+        await this.run(
+          ['sandbox', ...this.base(), 'upload', runtime.sandboxName, parent, destination],
+          signal,
+        );
+        selection = {
+          sourceCommit: view.sourceCommit,
+          payloadSha256: view.payloadSha256,
+          manifestSha256,
+          knowledgeRoot: `${destination}/${basename(parent)}/mgmt`,
+          context: undefined as unknown as OpenShellBootContext,
+        };
+      }
+      const after = await this.ownedSandbox(conversationId, runtime.sandboxId, signal);
+      if (after.phase !== 'Ready' || after.name !== runtime.sandboxName)
+        throw new Error('Knowledge sandbox changed during upload');
+      const spec = openShellSshArgvProcessSpec(runtime, [
+        '/bin/sh',
+        '-c',
+        knowledgeVerificationCommand(dirname(selection.knowledgeRoot), manifestSha256),
+      ]);
+      const receipt = JSON.parse(await this.runSsh(spec.args, signal));
+      if (
+        receipt.sourceCommit !== selection.sourceCommit ||
+        receipt.payloadSha256 !== selection.payloadSha256
+      )
+        throw new Error('Knowledge verification returned another publication');
+      if (!selection.context)
+        selection.context = await this.compileContext(
+          { ...runtime, workdir: selection.knowledgeRoot },
+          signal,
+        );
+      signal.throwIfAborted();
+      this.knowledgeViews.set(runtime.sandboxId, selection);
+      return selection;
+    } finally {
+      prepared.cleanup();
+    }
   }
 
   async compileContext(runtime: OpenShellRuntime, signal: AbortSignal) {
