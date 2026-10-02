@@ -155,6 +155,7 @@ import { DEFAULT_AGENT_NAME, GIT_BRANCH_TIMEOUT_MS } from './constants.js';
 import { isValidInternalToken } from './internal-token.js';
 import { createConnectionsRouter } from './connections-router.js';
 import { createConnectionsAccessRouter } from './connections-access-router.js';
+import { personalInventorySource } from './connections-access-custodian.js';
 import { createCapabilityOperationsRouter } from './connections/capabilities/router.js';
 import { capabilityApprovalForConversation } from './connections/capabilities/approval.js';
 import { getLiveCapabilityConversationBinding } from './capability-conversation-binding.js';
@@ -2109,7 +2110,7 @@ app.get('/api/symposium/accounts', (_req, res) => {
 app.use(
   '/api/connections-access',
   operatorAuthMiddleware,
-  createConnectionsAccessRouter(() => {
+  createConnectionsAccessRouter((auth) => {
     const runtime = getConnectionsRuntime();
     return {
       accounts: () =>
@@ -2130,9 +2131,13 @@ app.use(
               : {}),
           }
         : {}),
-      ...(symposiumProductionHost?.personalConnections
-        ? { personal: () => symposiumProductionHost!.personalConnections!.list() }
-        : {}),
+      personal: personalInventorySource(
+        auth,
+        custodianControllerClient,
+        symposiumProductionHost?.personalConnections
+          ? () => symposiumProductionHost!.personalConnections!.list()
+          : undefined,
+      ),
     };
   }),
 );

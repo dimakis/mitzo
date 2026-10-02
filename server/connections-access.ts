@@ -11,7 +11,7 @@ import type {
 export interface ConnectionsAccessSources {
   accounts?: () => ReturnType<AccountProfiles['catalog']>;
   managed?: () => Connection[];
-  personal?: () => PersonalConnection[];
+  personal?: (signal: AbortSignal) => PersonalConnection[] | Promise<PersonalConnection[]>;
   google?: (signal: AbortSignal) => Promise<GoogleWorkspaceHealth>;
   legacy?: () => Promise<Array<{ name: string; type: string }>>;
   gateway?: string;
