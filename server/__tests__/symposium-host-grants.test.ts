@@ -420,6 +420,49 @@ it('uses explicit approved authority independently of a saved profile role', () 
   });
 });
 
+it('keeps a paused custom seat read-only when applying a coder profile under a writer host ceiling', () => {
+  grants.close();
+  const deps = makeDeps();
+  deps.authorizeSeat.mockImplementation(({ contextSourceRefs }) => ({
+    classification: 'mixed',
+    sourceRefs: contextSourceRefs,
+    authority: { filesystem: 'write', tools: 'write', network: 'restricted' },
+  }));
+  grants = new SymposiumHostGrants(join(directory, 'events.db'), deps);
+  config.seats[2].role = 'coder';
+  config.seats[2].authorityRequest = { filesystem: 'read', tools: 'read', network: 'restricted' };
+  grants.activate({ sessionId: 'chat', expectedRevision: 1, actor: 'owner' });
+  active = false;
+  const prior = config.seats[2];
+  const result = grants.reviseSeat({
+    sessionId: 'chat',
+    expectedRevision: 2,
+    actor: 'owner',
+    seat: {
+      id: prior.id,
+      name: prior.name,
+      role: prior.role,
+      systemPrompt: prior.systemPrompt,
+      color: prior.color,
+      model: prior.model,
+      accountBinding: prior.accountBinding,
+      authorityRequest: prior.authorityRequest,
+    },
+    profileSelection: { profileId: 'owner-coder', revision: 1 },
+  });
+  expect(result.seats[2]).toMatchObject({
+    role: 'coder',
+    expectedOutput: 'Working patch',
+    acceptanceCriteria: ['Focused checks pass'],
+    authorityRequest: { filesystem: 'read', tools: 'read', network: 'restricted' },
+    authorityGrant: { filesystem: 'read', tools: 'read', network: 'restricted' },
+  });
+  active = true; // Verify the reissued grant after the seat is explicitly restored.
+  expect(() =>
+    grants.verifySeat({ sessionId: 'chat', seat: result.seats[2], membershipGeneration: 1 }),
+  ).not.toThrow();
+});
+
 it.each([
   { filesystem: 'none', tools: 'none', network: 'restricted' },
   { filesystem: 'read', tools: 'read', network: 'none' },

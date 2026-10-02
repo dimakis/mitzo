@@ -321,6 +321,7 @@ export function createSymposiumDirectorRouter(deps: SymposiumDirectorRouteDeps):
       const anchor = current.seats.find((seat) => seat.id === current.anchorSeatId);
       if (!anchor?.accountBinding) throw new Error('Anchor account binding is unavailable');
       const input = parsed.data;
+      const prior = current.seats.find((seat) => seat.id === input.seatId);
       const binding = deps.resolveSelection(input.accountId, input.model, input.reasoningEffort);
       if (
         input.seatId === current.anchorSeatId &&
@@ -337,9 +338,17 @@ export function createSymposiumDirectorRouter(deps: SymposiumDirectorRouteDeps):
         name: input.name,
         role: input.role,
         systemPrompt: input.systemPrompt,
-        ...(input.expectedOutput ? { expectedOutput: input.expectedOutput } : {}),
-        ...(input.acceptanceCriteria ? { acceptanceCriteria: input.acceptanceCriteria } : {}),
-        ...(input.authorityRequest ? { authorityRequest: input.authorityRequest } : {}),
+        // Older editors omit these optional fields. Omission preserves the
+        // existing request/guidance; it must not select role-based authority.
+        ...((input.expectedOutput ?? prior?.expectedOutput) !== undefined
+          ? { expectedOutput: input.expectedOutput ?? prior?.expectedOutput }
+          : {}),
+        ...((input.acceptanceCriteria ?? prior?.acceptanceCriteria) !== undefined
+          ? { acceptanceCriteria: input.acceptanceCriteria ?? prior?.acceptanceCriteria }
+          : {}),
+        ...((input.authorityRequest ?? prior?.authorityRequest) !== undefined
+          ? { authorityRequest: input.authorityRequest ?? prior?.authorityRequest }
+          : {}),
         color: input.color,
         model: input.model,
         accountBinding: binding,

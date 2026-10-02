@@ -185,6 +185,63 @@ function fixture(
 }
 
 describe('Symposium director routes', () => {
+  it.each(['omitted', 'explicit', 'profile', 'new'])(
+    'preserves custom seat guidance and permissions on revision: %s',
+    async (mode) => {
+      const { app, store, reviseSeat } = fixture(true);
+      const prior = {
+        ...activeStatusConfig.seats[1],
+        role: 'coder',
+        expectedOutput: 'Evidence only',
+        acceptanceCriteria: ['Do not edit files'],
+        authorityRequest: { filesystem: 'read', tools: 'read', network: 'restricted' },
+      };
+      store.getActiveSymposiumConfig.mockReturnValue({
+        ...activeStatusConfig,
+        seats: [activeStatusConfig.seats[0], prior],
+      } as never);
+      const replacement = {
+        expectedOutput: 'Updated evidence',
+        acceptanceCriteria: ['Cite paths'],
+        authorityRequest: { filesystem: 'write', tools: 'write', network: 'restricted' },
+      };
+      const response = await request(app)
+        .post('/api/sessions/chat/symposium/seats/revise')
+        .send({
+          expectedRevision: 4,
+          seatId: mode === 'new' ? 'new-agent' : prior.id,
+          name: prior.name,
+          role: prior.role,
+          systemPrompt: prior.systemPrompt,
+          color: prior.color,
+          accountId: 'personal',
+          model: 'changed-model',
+          sharedBoundaryAcknowledged: true,
+          ...(mode === 'explicit' ? replacement : {}),
+          ...(mode === 'profile'
+            ? { profileSelection: { profileId: 'owner-coder', revision: 1 } }
+            : {}),
+        });
+      expect(response.status).toBe(200);
+      const revised = reviseSeat.mock.calls[0]?.[0]?.seat;
+      if (mode === 'new') {
+        for (const field of ['expectedOutput', 'acceptanceCriteria', 'authorityRequest'])
+          expect(revised).not.toHaveProperty(field);
+      } else {
+        expect(revised).toMatchObject(
+          mode === 'explicit'
+            ? replacement
+            : {
+                expectedOutput: prior.expectedOutput,
+                acceptanceCriteria: prior.acceptanceCriteria,
+                authorityRequest: prior.authorityRequest,
+              },
+        );
+      }
+      for (const field of ['profileBinding', 'contextGrant', 'authorityGrant', 'isolationRequest'])
+        expect(revised).not.toHaveProperty(field);
+    },
+  );
   it('projects durable roster and failure facts without evaluating runtime authority', async () => {
     const artifactReady = vi.fn(() => {
       throw new Error('physical verification must not run');
