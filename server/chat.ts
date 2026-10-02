@@ -3298,6 +3298,13 @@ function replaySingleEventsToTranscript(
   const pendingResults = new Map<string, Array<Record<string, unknown>>>();
   const pendingBlocks = new Map<string, string[]>();
   const toolOwners = new Map<string, Set<string>>();
+  const recordedToolIds = new Set(
+    events.flatMap((event) =>
+      event.type === 'block_end' && typeof event.payload.toolId === 'string'
+        ? [event.payload.toolId]
+        : [],
+    ),
+  );
   let activeMessageId: string | null = null;
   for (const event of events) {
     const p = event.payload;
@@ -3311,6 +3318,16 @@ function replaySingleEventsToTranscript(
           throw new Error('Ambiguous or unattributed late tool result in stored transcript');
         messageId = owners?.size === 1 ? [...owners][0] : activeMessageId;
       }
+      // Resumed legacy providers may repeat results for calls absent from
+      // the durable stream. There is no block to display them on. Leave the
+      // stored event intact and restore the rest of the conversation.
+      if (
+        !messageId &&
+        event.seatId === undefined &&
+        event.symposiumProvenance === undefined &&
+        !recordedToolIds.has(p.toolId)
+      )
+        continue;
       if (!messageId)
         throw new Error('Ambiguous or unattributed late tool result in stored transcript');
       const key = JSON.stringify([messageId, p.toolId]);

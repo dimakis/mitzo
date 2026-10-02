@@ -809,6 +809,74 @@ describe('handleUnwatch', () => {
 // ─── handleSwitchSession ─────────────────────────────────────────────────────
 
 describe('handleSwitchSession', () => {
+  it('starts a newly watched session at the REST history boundary instead of syncing from zero', async () => {
+    const eventStore = mockEventStore();
+    eventStore.getSession.mockReturnValue({ sessionId: 'long-session', mode: 'agent' });
+    eventStore.captureReconnectState.mockReturnValue({
+      cursor: 7000,
+      events: [],
+      cursorValid: true,
+    });
+    const ctx = createContext({
+      eventStore: eventStore as unknown as V2HandlerContext['eventStore'],
+    });
+    ctx.connRegistry.register('c1', mockTransport());
+    const reset = vi.spyOn(ctx.connRegistry, 'resetCursor');
+    await handleSwitchSession('c1', { type: 'switch_session', sessionId: 'long-session' }, ctx);
+    expect(reset).toHaveBeenCalledWith('c1', 'long-session', 7000);
+    reset.mockClear();
+    await handleSwitchSession('c1', { type: 'switch_session', sessionId: 'long-session' }, ctx);
+    expect(reset).not.toHaveBeenCalled();
+  });
+
+  it('retries the REST-to-switch gap even when the session ended and no subsequent live event arrives', async () => {
+    const eventStore = mockEventStore();
+    eventStore.getSession.mockReturnValue({ sessionId: 'history-race', mode: 'agent' });
+    eventStore.captureReconnectState.mockReturnValue({ cursor: 42, events: [], cursorValid: true });
+    const ctx = createContext({
+      eventStore: eventStore as unknown as V2HandlerContext['eventStore'],
+    });
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+    await handleSwitchSession('c1', { type: 'switch_session', sessionId: 'history-race' }, ctx);
+    const reset = vi.spyOn(ctx.connRegistry, 'resetCursor');
+    await handleSwitchSession(
+      'c1',
+      {
+        type: 'switch_session',
+        sessionId: 'history-race',
+        historyCursor: 40,
+      },
+      ctx,
+    );
+    expect(reset).toHaveBeenCalledWith('c1', 'history-race', 40);
+    // No later live event arrives to expose a gap. Periodic sync alone must
+    // deliver both events that occurred after REST captured its boundary.
+    ctx.connRegistry.setEventStore({
+      isSessionActive: () => false,
+      getEventsAfter: (_id, afterSeq) =>
+        [41, 42]
+          .filter((seq) => seq > afterSeq)
+          .map((seq) => ({
+            seq,
+            type: 'message_end',
+            sessionId: 'history-race',
+            payload: { messageId: `m${seq}` },
+          })),
+    });
+    vi.useFakeTimers();
+    try {
+      ctx.connRegistry.startPeriodicSync();
+      vi.advanceTimersByTime(5000);
+      expect(
+        transport.sent.filter((event) => event.type === 'message_end').map((event) => event.seq),
+      ).toEqual([41, 42]);
+    } finally {
+      ctx.connRegistry.stopPeriodicSync();
+      vi.useRealTimers();
+    }
+  });
+
   it('scopes unexpected discovery errors to the requested session', async () => {
     const ctx = createContext();
     const transport = mockTransport();

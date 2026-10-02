@@ -75,6 +75,45 @@ describe('PermissionBanner', () => {
     expect(onRespond).toHaveBeenCalledWith('p1', 'deny', 'Bash');
   });
 
+  it('removes the expired card even when the timeout response is rejected', () => {
+    const onRespond = vi.fn();
+    const { rerender } = render(
+      <PermissionBanner {...defaultProps} onRespond={onRespond} expiresAt={Date.now() + 1000} />,
+    );
+    act(() => vi.advanceTimersByTime(1000));
+    rerender(
+      <PermissionBanner
+        {...defaultProps}
+        onRespond={onRespond}
+        expiresAt={Date.now()}
+        responseError="Could not submit the permission response (409)."
+      />,
+    );
+    expect(screen.queryByLabelText('Approval required')).toBeNull();
+  });
+
+  it('does not show an expired request restored from history', () => {
+    render(<PermissionBanner {...defaultProps} expiresAt={Date.now() - 1000} />);
+    expect(screen.queryByLabelText('Approval required')).toBeNull();
+  });
+
+  it('removes the permission from local state before submitting the timeout denial', () => {
+    const calls: string[] = [];
+    const onExpire = vi.fn(() => calls.push('expire'));
+    const onRespond = vi.fn(() => calls.push('deny'));
+    render(
+      <PermissionBanner
+        {...defaultProps}
+        expiresAt={Date.now() + 1000}
+        onExpire={onExpire}
+        onRespond={onRespond}
+      />,
+    );
+    act(() => vi.advanceTimersByTime(1000));
+    expect(onExpire).toHaveBeenCalledExactlyOnceWith('p1');
+    expect(calls).toEqual(['expire', 'deny']);
+  });
+
   it('renders all action buttons with correct CSS classes', () => {
     render(<PermissionBanner {...defaultProps} />);
     expect(document.querySelector('.perm-banner-btn--once')).toBeTruthy();

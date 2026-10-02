@@ -37,7 +37,7 @@ Symposium director status resolves the verified runtime once per request and reu
 - **Task board** — recursive multi-session task orchestration with spec mode, completion summaries, and verification hooks
 - **Durable Telos capture** — agents can create approved outcomes in live Telos; OpenShell sessions execute the write through a trusted host tool so credentials and persistence stay outside the sandbox
 - **Worktree sandbox** — opt-in git worktree isolation per session, multi-repo support via `.mitzo.json`
-- **Session resilience** — phone sleeps, WS drops, session survives. Reattach on reconnect. Message snapshot recovery for iOS silent drops.
+- **Session resilience** — phone sleeps, WS drops, session survives. Reattach on reconnect. Message snapshot recovery for iOS silent drops. Session opening coordinates live replay with the restored history cursor; expired approvals clear locally so later requests remain accessible.
 - **Durable inactivity closeout** — automatic closeout is admitted once per detach episode before runtime dispatch. Exact retries and restart recovery never repeat paid provider work. See [closeout admission](docs/design/closeout-admission.md).
 - **Closeout live canary** — an opt-in Luna-only harness validates one durable closeout attempt against an isolated controller and explicit billing account. See [closeout live canary](docs/operations/closeout-live-canary.md).
 - **iOS app** — native wrapper via Capacitor with push notifications and home-screen install

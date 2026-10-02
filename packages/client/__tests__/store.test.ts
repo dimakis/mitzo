@@ -2842,3 +2842,29 @@ it('keeps a second prompt visible after responding to the first', async () => {
   lastWs.simulateMessage({ type: 'permission_resolved', permId: 'p1', sessionId: 'test-session' });
   expect(store.getState().messages.permission?.permId).toBe('p2');
 });
+
+it('coordinates the server watch with the installed REST cursor', async () => {
+  const transport = mockTransport();
+  (transport.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
+    ok: true,
+    json: async () => ({ messages: [], current: null, cursor: 40 }),
+  });
+  const store = createReadyStore(transport);
+  await store.getState().switchSession('history-race');
+  expect(lastWs.parsedSent()).toContainEqual({
+    type: 'switch_session',
+    sessionId: 'history-race',
+    historyCursor: 40,
+  });
+});
+
+it('advances the permission queue locally when expiry denial loses to server timeout', () => {
+  const store = createReadyStore();
+  const request = (permId: string) => ({ permId, toolName: 'Bash', toolInput: 'echo ok' });
+  store.getState().dispatchMessages({ type: 'PERMISSION_REQUEST', payload: request('expired') });
+  store.getState().dispatchMessages({ type: 'PERMISSION_REQUEST', payload: request('valid') });
+  store.getState().expirePermission('expired');
+  lastWs.simulateMessage({ type: 'permission_response_rejected', permId: 'expired', error: '409' });
+  expect(store.getState().messages.permission?.permId).toBe('valid');
+  expect(store.getState().messages.permissionQueue).toEqual([]);
+});
