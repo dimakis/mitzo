@@ -7,12 +7,14 @@ function mimeFromExt(filename: string): string {
   const ext = filename.split('.').pop()?.toLowerCase() ?? '';
   const map: Record<string, string> = {
     md: 'text/markdown',
+    mdx: 'text/markdown',
     txt: 'text/plain',
     json: 'application/json',
     yaml: 'application/x-yaml',
     yml: 'application/x-yaml',
     csv: 'text/csv',
     html: 'text/html',
+    htm: 'text/html',
     css: 'text/css',
     js: 'text/javascript',
     ts: 'text/typescript',
@@ -51,6 +53,39 @@ async function fetchFileBlob(
   return { blob, filename };
 }
 
+/** Prefer the extension for known types; servers may serve Markdown as plain text. */
+async function fetchFile(filePath: string, sessionId?: string): Promise<File> {
+  const { blob, filename } = await fetchFileBlob(filePath, sessionId);
+  const extensionMime = mimeFromExt(filename);
+  const mime =
+    extensionMime !== 'application/octet-stream' ? extensionMime : blob.type || extensionMime;
+  return new File([blob], filename, { type: mime });
+}
+
+function saveBrowserFile(file: File): boolean {
+  const url = URL.createObjectURL(file);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = file.name;
+  try {
+    document.body.appendChild(a);
+    a.click();
+  } finally {
+    document.body.removeChild(a);
+    // Keep bytes available until the browser has consumed the download URL.
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+  return true;
+}
+
+/** Explicit download never attempts the system share sheet. */
+export async function downloadFile(filePath: string, sessionId?: string): Promise<boolean> {
+  if (Capacitor.isNativePlatform()) {
+    throw new Error('Open this file in a browser to download, or use Share to save it.');
+  }
+  return saveBrowserFile(await fetchFile(filePath, sessionId));
+}
+
 // Keep at most one prepared file briefly so a second tap can share synchronously
 // if fetching the bytes outlasted the browser's transient user activation.
 let retry: { key: string; file: File; expires: number } | undefined;
@@ -67,10 +102,7 @@ export async function shareFile(filePath: string, sessionId?: string): Promise<b
     file = retry.file;
   } else {
     retry = undefined;
-    const { blob, filename } = await fetchFileBlob(filePath, sessionId);
-    const mime =
-      !blob.type || blob.type === 'application/octet-stream' ? mimeFromExt(filename) : blob.type;
-    file = new File([blob], filename, { type: mime });
+    file = await fetchFile(filePath, sessionId);
     // Navigation may start another file while these bytes are downloading.
     if (generation !== operationGeneration) return false;
   }
@@ -105,17 +137,5 @@ export async function shareFile(filePath: string, sessionId?: string): Promise<b
   if (Capacitor.isNativePlatform()) {
     throw new Error('This device cannot share this file type. Open it in a browser to download.');
   }
-  const url = URL.createObjectURL(file);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = file.name;
-  try {
-    document.body.appendChild(a);
-    a.click();
-  } finally {
-    document.body.removeChild(a);
-    // Give the browser time to consume the URL before releasing its bytes.
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-  }
-  return true;
+  return saveBrowserFile(file);
 }
