@@ -2903,3 +2903,18 @@ it('releases a WebSocket launch for retry when startup fails before assignment',
   expect(onDelivery).toHaveBeenCalledExactlyOnceWith('failed');
   expect(store.getState().messages.running).toBe(false);
 });
+
+it('releases only the matching launch when startup fails after assignment', () => {
+  const store = createReadyStore();
+  const onDelivery = vi.fn();
+  store.getState().sendMessage('Launch', { onDelivery });
+  const id = store.getState().messages.messages.at(-1)!.messageId;
+  lastWs.simulateMessage({ type: 'error', clientMsgId: 'other', error: 'Other startup rejected' });
+  expect(onDelivery).not.toHaveBeenCalled();
+  lastWs.simulateMessage({ type: 'session_id', sessionId: 'target' });
+  lastWs.simulateMessage({ type: 'error', clientMsgId: 'other', error: 'Other startup rejected' });
+  expect(onDelivery).not.toHaveBeenCalled();
+  lastWs.simulateMessage({ type: 'error', clientMsgId: id, error: 'Startup rejected' });
+  expect(onDelivery).toHaveBeenCalledExactlyOnceWith('failed');
+  expect(store.getState().messages.running).toBe(false);
+});

@@ -9,7 +9,7 @@ Claude Code on your phone. A self-hosted web UI built on the [Agent SDK](https:/
 
 Expand **Workspace** in chat to choose the account and model. **Make default for new chats** saves that pair (and thinking setting) on this browser; **Clear new-chat default** removes it. Existing conversations keep their bound account. When no default is saved, select an account or confirm the suggested account with **Use** before sending. If a saved account or model is unavailable, choose a replacement explicitly.
 
-Telos **Open in Chat** and **Start Session** open a launch preview with Workspace expanded. Review the account and model, then select **Send launch prompt**. The chat follows the session created for that launch and keeps its Telos context and task identity. The preview stays available until delivery is confirmed; a failed send can be retried with the same task context.
+Telos **Open in Chat** and **Start Session** open a launch preview with Workspace expanded. Review the account and model, then select **Send launch prompt**. The chat follows the session created for that launch and keeps its Telos context and task identity. The preview stays available until delivery is confirmed through the HTTP receipt or a matching persisted WebSocket user-message echo; a failed send can be retried with the same task context.
 
 ## Features
 

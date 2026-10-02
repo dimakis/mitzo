@@ -1159,9 +1159,21 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       }
     }
 
+    // Startup rejection may arrive after session_id. Only the matching command
+    // can release its launch; unrelated runtime errors are not delivery receipts.
+    if (!options.sseConfig && msg.type === 'error' && typeof msg.clientMsgId === 'string') {
+      const observer = deliveryObservers.get(msg.clientMsgId);
+      deliveryObservers.delete(msg.clientMsgId);
+      observer?.('failed');
+    }
     // The native WebSocket path confirms delivery through the persisted echo.
     // A pre-assignment startup error is a definitive rejection on that path.
-    if (!options.sseConfig && msg.type === 'error' && !parserState.currentSessionId) {
+    if (
+      !options.sseConfig &&
+      msg.type === 'error' &&
+      typeof msg.clientMsgId !== 'string' &&
+      !parserState.currentSessionId
+    ) {
       const observers = [...deliveryObservers.values()];
       deliveryObservers.clear();
       for (const observer of observers) observer('failed');

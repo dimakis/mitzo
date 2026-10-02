@@ -2131,6 +2131,7 @@ describe('handleSendV2 routing', () => {
     expect(transport.sent).toContainEqual({
       type: 'error',
       error: 'Session is not accepting input. Please retry.',
+      clientMsgId: 'cmsg-1',
     });
   });
 
@@ -5255,4 +5256,27 @@ describe('Symposium ordinary transport fence', () => {
     expect(interruptChat).toHaveBeenCalledTimes(interrupts);
     expect(ctx.sessionRegistry.findBySessionId).not.toHaveBeenCalled();
   });
+});
+
+it('correlates a startup rejection with the send even after session assignment', async () => {
+  const ctx = createContext();
+  const transport = mockTransport();
+  ctx.connRegistry.register('startup-conn', transport);
+  vi.mocked(startChat).mockImplementationOnce(async () => {
+    transport.send({ type: 'session_id', sessionId: 'startup-session' });
+    throw new Error('Could not persist initial prompt');
+  });
+  await handleSendV2(
+    'startup-conn',
+    transport,
+    { type: 'send', sessionId: null, prompt: 'Launch', clientMsgId: 'launch-id' },
+    ctx,
+  );
+  expect(transport.sent).toContainEqual(
+    expect.objectContaining({
+      type: 'error',
+      clientMsgId: 'launch-id',
+      error: 'Could not persist initial prompt',
+    }),
+  );
 });

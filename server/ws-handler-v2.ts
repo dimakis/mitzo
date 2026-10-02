@@ -1049,6 +1049,7 @@ export function handleSendV2(
           }).catch((err: unknown) =>
             transport.send({
               type: 'error',
+              clientMsgId: msg.clientMsgId,
               error: err instanceof Error ? err.message : 'Session startup failed',
             }),
           );
@@ -1104,6 +1105,7 @@ export function handleSendV2(
           }).catch((err: unknown) =>
             transport.send({
               type: 'error',
+              clientMsgId: msg.clientMsgId,
               error: err instanceof Error ? err.message : 'Session startup failed',
             }),
           );
@@ -1116,6 +1118,7 @@ export function handleSendV2(
         span.setStatus({ code: SpanStatusCode.ERROR, message });
         transport.send({
           type: 'error',
+          clientMsgId: msg.clientMsgId,
           error: err instanceof Error ? err.message : 'Send failed',
         });
         if (
