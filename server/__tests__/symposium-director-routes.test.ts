@@ -2,7 +2,10 @@ import { describe, expect, it, vi } from 'vitest';
 import express from 'express';
 import request from 'supertest';
 import { createCustodianProxy, type CustodianClient } from '../symposium-custodian-proxy.js';
-import { createSymposiumDirectorRouter } from '../symposium-director-routes.js';
+import {
+  createSymposiumDirectorRouter,
+  type SymposiumDirectorRouteDeps,
+} from '../symposium-director-routes.js';
 
 const config = {
   version: 2 as const,
@@ -123,7 +126,10 @@ function fixture(
   const validateSelection = vi.fn();
   const validateActiveConfig = vi.fn();
   const activateDraft = vi.fn(() => ({ ...config, revision: 5, state: 'active' as const }));
-  const reviseSeat = vi.fn((_input?: unknown) => ({ ...config, revision: 5 }));
+  const reviseSeat = vi.fn((_input: Parameters<SymposiumDirectorRouteDeps['reviseSeat']>[0]) => ({
+    ...config,
+    revision: 5,
+  }));
   const getPerspective = vi.fn(() => ({
     items: [
       {
