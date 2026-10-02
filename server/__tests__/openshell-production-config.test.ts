@@ -380,6 +380,14 @@ describe('OpenShell production bundle validation', () => {
     expect(stage).toContain('HEAD $head is not current origin/main $main');
     expect(stage).toContain('build-mgmt-runtime.sh');
     expect(stage).toContain('prepare-mgmt-seed.sh');
+    expect(stage).toContain('podman run --rm --network none');
+    expect(stage).toContain('/sandbox/attest-knowledge-runtime.py');
+    expect(stage).toContain('runtime-resolution-contract.py');
+    expect(stage).toContain('export MGMT_DYNAMIC_SEED=1');
+    expect(stage.indexOf('export MGMT_DYNAMIC_SEED=1')).toBeLessThan(
+      stage.indexOf('"$repo_root/docs/spikes/openshell-codex/prepare-mgmt-seed.sh"'),
+    );
+
     expect(stage).toContain('legacy todo skill survived in prepared seed');
     expect(stage).toContain('policy_digest=');
     expect(stage).toContain('update-openshell-release-lock.mjs');

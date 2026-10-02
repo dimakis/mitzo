@@ -60,6 +60,45 @@ for (const [key, value] of Object.entries(expected)) {
 }
 NODE
 
+# Observe the installed compiler and the Python actually used by the frozen
+# runtime. Host Python/architecture and caller-provided hashes are not evidence.
+attestation_dir="$(mktemp -d "${TMPDIR:-/tmp}/mitzo-runtime-attestation.XXXXXX")"
+trap 'rm -rf "$attestation_dir"' EXIT
+compiler_commit="$(podman image inspect "$image" --format '{{index .Labels "io.mitzo.knowledge-compiler-commit"}}')"
+podman run --rm --network none "$image" /opt/mgmt-venv/bin/python \
+  /sandbox/attest-knowledge-runtime.py --compiler-commit "$compiler_commit" > "$attestation_dir/contract.json"
+contract_field() {
+  node -e 'process.stdout.write(String(require(process.argv[1])[process.argv[2]]))' "$attestation_dir/contract.json" "$1"
+}
+export MGMT_DYNAMIC_SEED=1
+export MGMT_KNOWLEDGE_SCHEMA_VERSION="$(contract_field knowledgeSchemaVersion)"
+export MGMT_KNOWLEDGE_COMPILER_SHA256="$(contract_field knowledgeCompilerSha256)"
+export MGMT_KNOWLEDGE_RECIPE_SHA256="$(contract_field knowledgeRecipeSha256)"
+export MGMT_RUNTIME_BASE_IMAGE="$base_image"
+export MGMT_RUNTIME_TARGET_PLATFORM="$(contract_field targetPlatform)"
+export MGMT_RUNTIME_TARGET_MARKER_ENVIRONMENT_B64="$(contract_field targetMarkerEnvironmentB64)"
+export MGMT_RUNTIME_DEPENDENCY_PROJECTION_SHA256="$(uv run --isolated --no-project --with tomli==2.2.1 --with packaging==24.2 python -I \
+  "$repo_root/docs/spikes/openshell-codex/runtime-resolution-contract.py" \
+  --pyproject "$mgmt_repo/pyproject.toml" --lock "$mgmt_repo/uv.lock" \
+  --base-image "$base_image" --target-platform "$MGMT_RUNTIME_TARGET_PLATFORM" \
+  --target-marker-environment-b64 "$MGMT_RUNTIME_TARGET_MARKER_ENVIRONMENT_B64" --sha256)"
+export MGMT_JIRA_RUNTIME_INPUTS_SHA256="$(python3 - "$mgmt_repo" <<'PYJIRA'
+import hashlib, json, pathlib, sys
+root = pathlib.Path(sys.argv[1]) / 'jira_process'
+files = {name: hashlib.sha256((root / name).read_bytes()).hexdigest() for name in ('pyproject.toml', 'uv.lock')}
+print(hashlib.sha256(json.dumps(files, sort_keys=True, separators=(',', ':')).encode()).hexdigest())
+PYJIRA
+)"
+node --input-type=module - "$attestation_dir/contract.json" <<'NODE'
+import {readFileSync,writeFileSync} from 'node:fs';
+const path = process.argv[2];
+const contract = JSON.parse(readFileSync(path,'utf8'));
+contract.dependencyProjectionSha256 = process.env.MGMT_RUNTIME_DEPENDENCY_PROJECTION_SHA256;
+contract.jiraRuntimeInputsSha256 = process.env.MGMT_JIRA_RUNTIME_INPUTS_SHA256;
+writeFileSync(path, JSON.stringify(contract));
+NODE
+(cd "$mgmt_repo" && uv run --isolated --no-project --with PyYAML==6.0.2 python -I memory/scripts/build_index.py --attest-source)
+
 "$repo_root/docs/spikes/openshell-codex/prepare-mgmt-seed.sh" "$mgmt_repo" "$seed_output"
 BASELINE="$seed_output/baseline.json" MGMT_COMMIT="$mgmt_commit" node - <<'NODE'
 const baseline = require(process.env.BASELINE);
@@ -73,7 +112,7 @@ test ! -e "$seed_output/mgmt/.agents/skills/todo/SKILL.md" \
   exit 3
 }
 node "$repo_root/scripts/update-openshell-release-lock.mjs" \
-  "$image" "$digest" "$mitzo_commit" "$mgmt_commit" "$policy_digest"
+  "$image" "$digest" "$mitzo_commit" "$mgmt_commit" "$policy_digest" "$attestation_dir/contract.json"
 
 (
   cd "$repo_root"
