@@ -1,3 +1,4 @@
+import { usePendingLaunch } from '../hooks/usePendingLaunch';
 import { SymposiumReviewEntry } from '../components/SymposiumReviewPanel';
 import { AddReviewerSheet } from '../components/AddReviewerSheet';
 import { NewSymposium } from '../components/NewSymposium';
@@ -65,12 +66,11 @@ export function ChatView() {
   const storeDispatchMessages = useMitzoStore((s) => s.dispatchMessages);
   const connectionId = useMitzoStore((s) => s.connection.clientId);
   const storeFetchSessionMeta = useMitzoStore((s) => s.fetchSessionMeta);
-  const pendingSession = useMitzoStore((s) => s.pendingSession);
-  const setPendingSession = useMitzoStore((s) => s.setPendingSession);
-  const clearPendingSession = useMitzoStore((s) => s.clearPendingSession);
   const sessionContext = useMitzoStore((s) => s.messages.sessionContext);
   const bootContext = useMitzoStore((s) => s.messages.bootContext);
   const progressByToolId = useProgressByToolId();
+
+  const { launch, dismissLaunch } = usePendingLaunch();
 
   const connected = connection.status === 'connected';
 
@@ -111,19 +111,20 @@ export function ChatView() {
   }, []);
 
   const awaitingNewSession = useRef(false);
+  const clearedSessionId = useRef<string | null>(null);
   const resetFailedDraftOnMount = useRef(
     !sessionId && !activeSessionId && !messages.running && messages.messages.length > 0,
   );
 
   // Sync route param → store session
   useEffect(() => {
-    awaitingNewSession.current = !sessionId && !activeSessionId;
+    awaitingNewSession.current = !sessionId;
+    clearedSessionId.current = !sessionId ? activeSessionId : null;
     if (sessionId && sessionId !== activeSessionId) {
       storeSwitchSession(sessionId);
     } else if (!sessionId && (activeSessionId || resetFailedDraftOnMount.current)) {
-      // Keep the guard false for this render: the URL-sync effect below still
-      // sees the stale active ID and must not navigate back to it. The render
-      // after newSession clears the store arms the guard for the replacement ID.
+      // Ignore the old ID while waiting for the new one, even when reset and
+      // assignment are batched without an intermediate render.
       storeNewSession();
     }
   }, [sessionId]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -149,7 +150,12 @@ export function ChatView() {
   // When store assigns a session (new conversation), update URL
   useEffect(() => {
     if (!sessionId && !activeSessionId) awaitingNewSession.current = true;
-    if (activeSessionId && !sessionId && awaitingNewSession.current) {
+    if (
+      activeSessionId &&
+      activeSessionId !== clearedSessionId.current &&
+      !sessionId &&
+      awaitingNewSession.current
+    ) {
       awaitingNewSession.current = false;
       navigate(`/chat/${activeSessionId}`, { replace: true });
     }
@@ -161,34 +167,6 @@ export function ChatView() {
       storeFetchSessionMeta(sessionId);
     }
   }, [sessionId]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Auto-send pending session (from "Start Session" on inbox/todo items)
-  const pendingConsumed = useRef<typeof pendingSession>(null);
-  const [pausedLaunch, setPausedLaunch] = useState<typeof pendingSession>(null);
-  const accountUnavailable = useCallback(() => {
-    if (pendingSession) {
-      setPausedLaunch(pendingSession);
-      clearPendingSession();
-    }
-  }, [pendingSession, clearPendingSession]);
-  useEffect(() => {
-    if (!pendingSession || !accountSelection) return;
-    // Guard against double-consumption of the same pending session
-    const key = pendingSession;
-    if (pendingConsumed.current === key) return;
-    pendingConsumed.current = key;
-    // Set the context block for display
-    storeDispatchMessages({ type: 'SET_SESSION_CONTEXT', context: pendingSession.context });
-    // Auto-send the prompt
-    storeSendMessage(pendingSession.prompt, {
-      ...(accountSelection ?? {}),
-      mode,
-      ...(pendingSession.telosTaskId ? { telosTaskId: pendingSession.telosTaskId } : {}),
-      ...(pendingSession.agentName ? { agentName: pendingSession.agentName } : {}),
-    });
-    clearPendingSession();
-    forceScrollToBottom();
-  }, [pendingSession, accountSelection]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Actions ──────────────────────────────────────────────────────────────
 
@@ -205,15 +183,19 @@ export function ChatView() {
     voice.stopSpeaking();
     // Codex supports per-turn model changes. The server ignores these fields for
     // sessions bound to other providers and rejects cross-account rebinding.
+    if (launch) storeDispatchMessages({ type: 'SET_SESSION_CONTEXT', context: launch.context });
     storeSendMessage(text, {
       images,
       contextBlocks: ctxBlocks,
+      ...(launch?.telosTaskId ? { telosTaskId: launch.telosTaskId } : {}),
+      ...(launch?.agentName ? { agentName: launch.agentName } : {}),
       ...(accountSelection ?? {}),
       mode,
       cwd: searchParams.get('cwd') ?? undefined,
       extraTools: searchParams.get('extraTools') ?? undefined,
       ...(!activeSessionId && !isolation ? { isolation: false } : {}),
     });
+    dismissLaunch();
     forceScrollToBottom();
     return true;
   }
@@ -265,6 +247,7 @@ export function ChatView() {
           </button>
         </div>
         <WorkspaceControls
+          attention={!!launch}
           summary={workspaceSummary}
           status={!connected ? 'Reconnecting' : messages.running ? 'Working' : 'Ready'}
         >
@@ -275,7 +258,6 @@ export function ChatView() {
               preferredModel={modelState}
               onChange={selectAccount}
               onSummaryChange={setWorkspaceSummary}
-              onUnavailable={accountUnavailable}
             />
           </div>
           <header className="chat-header">
@@ -397,20 +379,19 @@ export function ChatView() {
         }}
         ordinaryComposer={
           <>
-            {pausedLaunch && (
+            {launch && (
               <div role="status" className="chat-account-bar">
-                <p>Launch paused. Select an account before sending.</p>
-                <p>{pausedLaunch.prompt}</p>
+                <p>
+                  Which account and model should handle this task? Check Workspace above, then send.
+                </p>
+                <p>{launch.prompt}</p>
                 <button
                   disabled={!accountSelection || messages.running}
-                  onClick={() => {
-                    setPendingSession(pausedLaunch);
-                    setPausedLaunch(null);
-                  }}
+                  onClick={() => handleSend(launch.prompt)}
                 >
                   Send launch prompt
                 </button>
-                <button onClick={() => setPausedLaunch(null)}>Dismiss launch</button>
+                <button onClick={dismissLaunch}>Dismiss launch</button>
               </div>
             )}
             <CodexQueueStatus sessionId={activeSessionId} />

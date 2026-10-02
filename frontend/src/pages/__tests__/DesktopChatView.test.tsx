@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
-import { render, screen, within, cleanup, fireEvent, act } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { render, screen, within, cleanup, fireEvent, act, waitFor } from '@testing-library/react';
+import { MemoryRouter, Routes, Route, useLocation } from 'react-router-dom';
 import { createStore } from 'zustand/vanilla';
 import { MitzoStoreProvider } from '@mitzo/client/hooks';
 import type { MitzoStoreState } from '@mitzo/client';
@@ -492,4 +492,77 @@ it('groups web search settings under the existing header disclosure', async () =
   expect(settings.closest('[hidden]')).toBeTruthy();
   fireEvent.click(screen.getByRole('button', { name: /Workspace controls/ }));
   expect(settings.closest('[hidden]')).toBeNull();
+});
+
+it('reviews a Telos launch, sends the chosen account once, and follows its assigned session', async () => {
+  const store = createMockStore();
+  const launch = {
+    prompt: 'Review Telos task',
+    context: 'Task context',
+    telosTaskId: 'task-a',
+    agentName: 'mitzo-telos',
+  };
+  store.setState({
+    pendingSession: launch,
+    clearPendingSession: () => store.setState({ pendingSession: null }),
+  });
+  function Location() {
+    return <div data-testid="location">{useLocation().pathname}</div>;
+  }
+  render(
+    <MemoryRouter initialEntries={['/chat']}>
+      <MitzoStoreProvider value={store}>
+        <Location />
+        <Routes>
+          <Route path="/chat/:sessionId?" element={<DesktopChatView />} />
+        </Routes>
+      </MitzoStoreProvider>
+    </MemoryRouter>,
+  );
+  await screen.findByRole('button', { name: 'Send launch prompt' });
+  expect(store.getState().sendMessage).not.toHaveBeenCalled();
+  expect(screen.getByRole('combobox', { name: 'Account' })).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: 'Send launch prompt' }));
+  expect(store.getState().sendMessage).toHaveBeenCalledExactlyOnceWith(
+    'Review Telos task',
+    expect.objectContaining({
+      accountId: 'test',
+      model: 'luna',
+      telosTaskId: 'task-a',
+      agentName: 'mitzo-telos',
+    }),
+  );
+  expect(store.getState().messages.sessionContext).toBe('Task context');
+  act(() => store.setState((s) => ({ sessions: { ...s.sessions, active: 'target-session' } })));
+  await waitFor(() =>
+    expect(screen.getByTestId('location').textContent).toBe('/chat/target-session'),
+  );
+  expect(store.getState().sessions.active).toBe('target-session');
+});
+
+it('adopts a target assigned in the same render batch as clearing the previous chat', async () => {
+  const store = createMockStore();
+  store.setState({
+    sessions: { ...store.getState().sessions, active: 'old-session' },
+    newSession: () => {
+      store.setState((s) => ({ sessions: { ...s.sessions, active: null } }));
+      store.setState((s) => ({ sessions: { ...s.sessions, active: 'target-session' } }));
+    },
+  });
+  function Location() {
+    return <div data-testid="location">{useLocation().pathname}</div>;
+  }
+  render(
+    <MemoryRouter initialEntries={['/chat']}>
+      <MitzoStoreProvider value={store}>
+        <Location />
+        <Routes>
+          <Route path="/chat/:sessionId?" element={<DesktopChatView />} />
+        </Routes>
+      </MitzoStoreProvider>
+    </MemoryRouter>,
+  );
+  await waitFor(() =>
+    expect(screen.getByTestId('location').textContent).toBe('/chat/target-session'),
+  );
 });

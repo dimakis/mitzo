@@ -5,6 +5,12 @@ Claude Code on your phone. A self-hosted web UI built on the [Agent SDK](https:/
 <!-- ![Home Screen](docs/screenshots/home.png) -->
 <!-- ![Chat with Tools](docs/screenshots/chat-tools.png) -->
 
+### New chat account and model
+
+Expand **Workspace** in chat to choose the account and model. **Make default for new chats** saves that pair (and thinking setting) on this browser; **Clear new-chat default** removes it. Existing conversations keep their bound account. If a saved account or model is unavailable, choose a replacement explicitly.
+
+Telos **Open in Chat** and **Start Session** open a launch preview with Workspace expanded. Review the account and model, then select **Send launch prompt**. The chat follows the session created for that launch and keeps its Telos context and task identity.
+
 ## Features
 
 The dormant [Symposium artifact snapshot observer](docs/features/symposium-artifact-snapshots.md) records bounded host observations; it does not yet enable automated review or publication.

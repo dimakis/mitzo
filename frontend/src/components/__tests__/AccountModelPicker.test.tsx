@@ -6,6 +6,7 @@ import { apiFetch } from '../../lib/api-fetch';
 vi.mock('../../lib/api-fetch', () => ({ apiFetch: vi.fn() }));
 afterEach(() => {
   cleanup();
+  localStorage.clear();
   vi.resetAllMocks();
 });
 const profiles = [
@@ -773,4 +774,34 @@ it('invalidates both selected pickers while device reconnect is pending and reta
   expect(b).toHaveBeenLastCalledWith(null);
   expect(first.getByRole('button', { name: 'Cancel sign-in' })).toBeTruthy();
   expect((first.getByRole('button', { name: 'Connect' }) as HTMLButtonElement).disabled).toBe(true);
+});
+
+it('saves an explicit account and model default and restores it instead of catalog order', async () => {
+  vi.mocked(apiFetch).mockResolvedValue({ ok: true, json: async () => profiles } as Response);
+  const onChange = vi.fn();
+  const first = render(
+    <AccountModelPicker sessionId={null} preferredModel="sonnet" onChange={onChange} />,
+  );
+  await screen.findByLabelText('Account');
+  fireEvent.change(screen.getByLabelText('Account'), { target: { value: 'other' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Make default for new chats' }));
+  first.unmount();
+  render(<AccountModelPicker sessionId={null} preferredModel="sonnet" onChange={onChange} />);
+  await waitFor(() =>
+    expect(onChange).toHaveBeenLastCalledWith({ accountId: 'other', model: 'haiku' }),
+  );
+});
+
+it('does not silently fall back to work when the saved default is unavailable', async () => {
+  localStorage.setItem(
+    'mitzo-default-account-model',
+    JSON.stringify({ accountId: 'missing', model: 'luna' }),
+  );
+  vi.mocked(apiFetch).mockResolvedValue({ ok: true, json: async () => profiles } as Response);
+  const onChange = vi.fn();
+  render(<AccountModelPicker sessionId={null} preferredModel="sonnet" onChange={onChange} />);
+  await screen.findByRole('alert');
+  expect(onChange.mock.calls.every(([selection]) => selection === null)).toBe(true);
+  fireEvent.change(screen.getByLabelText('Account'), { target: { value: 'other' } });
+  expect(onChange).toHaveBeenLastCalledWith({ accountId: 'other', model: 'haiku' });
 });

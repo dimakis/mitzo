@@ -1,3 +1,4 @@
+import { getDefaultAccountModel, setDefaultAccountModel } from '../lib/account-preference';
 import { SymposiumPersonalConnections } from './SymposiumPersonalConnections';
 import { useEffect, useRef, useState } from 'react';
 import { z } from 'zod';
@@ -73,6 +74,7 @@ export function AccountModelPicker({
   onSummaryChange?: (summary: WorkspaceSummary | null) => void;
 }) {
   const sessionId = scope === 'chat' ? requestedSessionId : null;
+  const [savedDefault, setSavedDefault] = useState(getDefaultAccountModel);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [selection, setSelection] = useState<AccountSelection | null>(null);
   const selectionRef = useRef(selection);
@@ -259,9 +261,10 @@ export function AccountModelPicker({
             return;
           }
           setAccounts(catalog);
-          const previous = attempt ? selectionRef.current : null;
+          const previous =
+            (attempt ? selectionRef.current : null) ??
+            (scope === 'chat' && !legacy ? getDefaultAccountModel() : null);
           if (
-            scope === 'symposium' &&
             previous &&
             !catalog.some(
               (a) => a.id === previous.accountId && a.models.some((m) => m.id === previous.model),
@@ -530,6 +533,35 @@ export function AccountModelPicker({
           Use {account.label} ·{' '}
           {account.models.find((model) => model.id === selection.model)?.label ?? selection.model}
         </button>
+      )}
+      {scope === 'chat' && !sessionId && !legacy && (
+        <>
+          <button
+            disabled={disabled || draftUnavailable}
+            onClick={() => {
+              setDefaultAccountModel(selection);
+              setSavedDefault(selection);
+            }}
+          >
+            Make default for new chats
+          </button>
+          {savedDefault && (
+            <button
+              disabled={disabled}
+              onClick={() => {
+                setDefaultAccountModel(null);
+                setSavedDefault(null);
+              }}
+            >
+              Clear new-chat default
+            </button>
+          )}
+          <span>
+            {savedDefault
+              ? 'Saved default for new chats on this browser.'
+              : 'No saved account default. Review the account before sending.'}
+          </span>
+        </>
       )}
       {scope === 'chat' && !legacy && (
         <button disabled={disabled} onClick={() => setAttempt((n) => n + 1)}>

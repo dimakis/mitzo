@@ -1,7 +1,8 @@
+import { useMitzoStore } from '@mitzo/client/hooks';
 import { useNavigate, useLocation, useParams } from 'react-router-dom';
 import { useEffect, useState } from 'react';
 import type { TodoItem, TodoData } from '../types/todo';
-import { sourceIcon, buildPrompt } from '../lib/todo-utils';
+import { sourceIcon, buildPrompt, buildTodoContext } from '../lib/todo-utils';
 import { PageHeader } from '../components/PageHeader';
 import { apiFetch } from '../lib/api-fetch';
 import { shareTelosArtifact } from '../lib/share-file';
@@ -24,6 +25,7 @@ function findInTree(items: TodoItem[], id: string): TodoItem | undefined {
 
 export function TodoDetailView() {
   const navigate = useNavigate();
+  const setPendingSession = useMitzoStore((s) => s.setPendingSession);
   const location = useLocation();
   const { id } = useParams<{ id: string }>();
   const stateItem = (location.state as { item?: TodoItem } | null)?.item;
@@ -88,7 +90,12 @@ export function TodoDetailView() {
   function handleOpenChat() {
     const prompt = buildPrompt(currentItem);
     const params = new URLSearchParams();
-    params.set('prompt', prompt);
+    setPendingSession({
+      prompt,
+      context: buildTodoContext(currentItem),
+      telosTaskId: currentItem.id,
+      agentName: 'mitzo-telos',
+    });
     params.set('extraTools', 'Bash');
     navigate(`/chat?${params.toString()}`);
   }

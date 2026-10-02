@@ -1,3 +1,4 @@
+import { usePendingLaunch } from '../hooks/usePendingLaunch';
 import { SymposiumReviewEntry } from '../components/SymposiumReviewPanel';
 import { AddReviewerSheet } from '../components/AddReviewerSheet';
 import { NewSymposium } from '../components/NewSymposium';
@@ -57,6 +58,8 @@ export function DesktopChatView() {
   const bootContext = useMitzoStore((s) => s.messages.bootContext);
   const progressByToolId = useProgressByToolId();
 
+  const { launch, dismissLaunch } = usePendingLaunch();
+
   const connected = connection.status === 'connected';
 
   // Local model state — persisted to localStorage, sent in payload
@@ -96,13 +99,15 @@ export function DesktopChatView() {
   }, []);
 
   const awaitingNewSession = useRef(false);
+  const clearedSessionId = useRef<string | null>(null);
   const resetFailedDraftOnMount = useRef(
     !sessionId && !activeSessionId && !messages.running && messages.messages.length > 0,
   );
 
   // Sync route param → store session
   useEffect(() => {
-    awaitingNewSession.current = !sessionId && !activeSessionId;
+    awaitingNewSession.current = !sessionId;
+    clearedSessionId.current = !sessionId ? activeSessionId : null;
     if (sessionId && sessionId !== activeSessionId) {
       storeSwitchSession(sessionId);
     } else if (!sessionId && (activeSessionId || resetFailedDraftOnMount.current)) {
@@ -131,7 +136,12 @@ export function DesktopChatView() {
   // When store assigns a session (new conversation), update URL
   useEffect(() => {
     if (!sessionId && !activeSessionId) awaitingNewSession.current = true;
-    if (activeSessionId && !sessionId && awaitingNewSession.current) {
+    if (
+      activeSessionId &&
+      activeSessionId !== clearedSessionId.current &&
+      !sessionId &&
+      awaitingNewSession.current
+    ) {
       awaitingNewSession.current = false;
       navigate(`/chat/${activeSessionId}`, { replace: true });
     }
@@ -153,15 +163,19 @@ export function DesktopChatView() {
       return false;
     }
     voice.stopSpeaking();
+    if (launch) storeDispatchMessages({ type: 'SET_SESSION_CONTEXT', context: launch.context });
     storeSendMessage(text, {
       images,
       contextBlocks: ctxBlocks,
+      ...(launch?.telosTaskId ? { telosTaskId: launch.telosTaskId } : {}),
+      ...(launch?.agentName ? { agentName: launch.agentName } : {}),
       ...(accountSelection ?? {}),
       mode,
       cwd: searchParams.get('cwd') ?? undefined,
       extraTools: searchParams.get('extraTools') ?? undefined,
       ...(!activeSessionId && !isolation ? { isolation: false } : {}),
     });
+    dismissLaunch();
     forceScrollToBottom();
     return true;
   }
@@ -211,6 +225,7 @@ export function DesktopChatView() {
       center={
         <div className="desktop-chat-center workspace-chat">
           <WorkspaceControls
+            attention={!!launch}
             summary={workspaceSummary}
             status={
               !connected
@@ -323,6 +338,22 @@ export function DesktopChatView() {
             }}
             ordinaryComposer={
               <>
+                {launch && (
+                  <div role="status" className="chat-account-bar">
+                    <p>
+                      Which account and model should handle this task? Check Workspace above, then
+                      send.
+                    </p>
+                    <p>{launch.prompt}</p>
+                    <button
+                      disabled={!accountSelection || messages.running}
+                      onClick={() => handleSend(launch.prompt)}
+                    >
+                      Send launch prompt
+                    </button>
+                    <button onClick={dismissLaunch}>Dismiss launch</button>
+                  </div>
+                )}
                 <CodexQueueStatus sessionId={activeSessionId} />
                 <ChatInput
                   sendDisabledReason={

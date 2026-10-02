@@ -192,7 +192,7 @@ it.each(['before', 'after'])(
   },
 );
 
-it('sends distinct launches with identical prompt text', async () => {
+it('reviews distinct launches with identical prompt text before sending', async () => {
   vi.mocked(apiFetch).mockResolvedValue({
     ok: true,
     json: async () => [{ id: 'work', label: 'Work', models: [{ id: 'sonnet', label: 'Sonnet' }] }],
@@ -214,6 +214,8 @@ it('sends distinct launches with identical prompt text', async () => {
         .getState()
         .setPendingSession({ prompt: 'Review this task', context: telosTaskId, telosTaskId }),
     );
+    await screen.findByRole('button', { name: 'Send launch prompt' });
+    fireEvent.click(screen.getByRole('button', { name: 'Send launch prompt' }));
     await waitFor(() =>
       expect(sendMessage).toHaveBeenCalledWith(
         'Review this task',
