@@ -120,6 +120,31 @@ describe('durable Telos artifacts', () => {
     expect(next.save({ ...input, requestId: 'intentional-revert' }).revision).toBe(3);
     next.close();
   });
+  it('persists request intent hashes across store connections and scopes them by session', () => {
+    const { path, store } = setup();
+    const first = store.save({
+      ...input,
+      requestId: 'path-save',
+      requestInputHash: 'original-intent',
+    });
+    store.close();
+    const next = new TelosArtifactStore(path);
+    expect(next.retryReceipt(input.sessionId, 'path-save', 'original-intent')).toEqual(first);
+    expect(next.retryReceipt('another-session', 'path-save', 'original-intent')).toBeUndefined();
+    expect(() => next.retryReceipt(input.sessionId, 'path-save', 'changed-intent')).toThrow(
+      'Save request identity reused with different input',
+    );
+    expect(
+      next.save({
+        ...input,
+        bytes: Buffer.from('Changed file after another request completed'),
+        requestId: 'path-save',
+        requestInputHash: 'original-intent',
+      }),
+    ).toEqual(first);
+    expect(next.read(first.id).revision).toBe(1);
+    next.close();
+  });
   it('rejects nonexistent tasks, oversized documents, traversal filenames and absent stores', () => {
     const { path, store } = setup();
     expect(() => store.save({ ...input, itemId: 'missing' })).toThrow('Telos item not found');

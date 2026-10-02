@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { Router, json, type Request } from 'express';
 import { TelosArtifactStore, MAX_TELOS_ARTIFACT_BYTES } from './telos-artifact-store.js';
 import {
@@ -58,12 +59,19 @@ export function createTelosArtifactRouter(options: {
         store = new TelosArtifactStore(options.dbPath());
         if (operation === 'save') {
           const input = TelosSaveArtifactInput.parse(parsed.data);
+          const requestInputHash = createHash('sha256').update(JSON.stringify(input)).digest('hex');
+          const receipt = store.retryReceipt(sessionId, input.requestId, requestInputHash);
+          if (receipt) {
+            res.json({ ok: true, artifact: receipt });
+            return;
+          }
           const file =
             input.path !== undefined
               ? await options.readFile(sessionId, input.path)
               : { bytes: Buffer.from(input.content!, 'utf8'), path: undefined };
           const artifact = store.save({
             ...input,
+            requestInputHash,
             bytes: file.bytes,
             sourcePath: file.path,
             sessionId,

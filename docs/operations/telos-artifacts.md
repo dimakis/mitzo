@@ -22,7 +22,7 @@ health evidence belong in private case storage, not Telos.
 5. Saving changed content with the same item and filename creates another immutable
    revision, including when identical bytes are saved from a different source session or path
    so provenance is retained. Reuse `requestId` only to retry the exact same save: it returns its original
-   receipt even after subsequent edits. Use a new ID for each edit or intentional revert. Omitting a
+   receipt even after subsequent edits or cleanup of the uploaded workspace file. Use a new ID for each edit or intentional revert. Omitting a
    revision when reading chooses the latest one; supplying a revision reads that
    exact historical document.
 
@@ -40,7 +40,7 @@ Telos SQLite database (`TELOS_DB_PATH`, otherwise the configured MGMT repository
 `command_center/data/smart_todo.db`). There is no sandbox-local database fallback.
 The existing `items` and `links` tables must exist. Each save atomically stores the
 revision and a link on the existing task. The database's normal backup must include
-the artifact revisions and save request tables; artifacts survive session closure and sandbox removal.
+the artifact revisions, save request and request input hash tables; artifacts survive session closure and sandbox removal.
 
 The upload limit is 5 MiB per document. Search returns bounded latest-revision
 metadata and supports literal topic matching over task title, filename and document

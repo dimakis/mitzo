@@ -75,6 +75,10 @@ export class TelosArtifactStore {
           artifact_id TEXT NOT NULL, revision INTEGER NOT NULL,
           PRIMARY KEY(session_id, request_id),
           FOREIGN KEY(artifact_id, revision) REFERENCES telos_artifact_revisions(id, revision));
+        CREATE TABLE IF NOT EXISTS telos_artifact_request_inputs (
+          session_id TEXT NOT NULL, request_id TEXT NOT NULL, input_sha256 TEXT NOT NULL,
+          PRIMARY KEY(session_id, request_id),
+          FOREIGN KEY(session_id, request_id) REFERENCES telos_artifact_save_requests(session_id, request_id));
         CREATE INDEX IF NOT EXISTS telos_artifacts_item ON telos_artifact_revisions(item_id);`);
     } catch (error) {
       this.db.close();
@@ -84,6 +88,26 @@ export class TelosArtifactStore {
   close() {
     this.db.close();
   }
+  /** Match the submitted request, not mutable workspace bytes, before reading a path. */
+  retryReceipt(
+    sessionId: string,
+    requestId: string,
+    inputHash: string,
+  ): TelosArtifactMetadata | undefined {
+    const saved = this.db
+      .prepare(
+        `SELECT i.input_sha256, r.artifact_id, r.revision
+      FROM telos_artifact_request_inputs i JOIN telos_artifact_save_requests r
+      ON r.session_id=i.session_id AND r.request_id=i.request_id
+      WHERE i.session_id=? AND i.request_id=?`,
+      )
+      .get(sessionId, requestId) as
+      { input_sha256: string; artifact_id: string; revision: number } | undefined;
+    if (!saved) return undefined;
+    if (saved.input_sha256 !== inputHash)
+      throw new Error('Save request identity reused with different input');
+    return metadata(this.row(saved.artifact_id, saved.revision));
+  }
   save(input: {
     itemId: string;
     filename: string;
@@ -92,6 +116,7 @@ export class TelosArtifactStore {
     sessionId: string;
     sourcePath?: string;
     requestId?: string;
+    requestInputHash?: string;
   }): TelosArtifactMetadata {
     artifactFilename.parse(input.filename);
     z.string().trim().min(1).max(200).parse(input.title);
@@ -114,6 +139,14 @@ export class TelosArtifactStore {
       .digest('hex');
     return this.db
       .transaction(() => {
+        if (input.requestId && input.requestInputHash) {
+          const receipt = this.retryReceipt(
+            input.sessionId,
+            input.requestId,
+            input.requestInputHash,
+          );
+          if (receipt) return receipt;
+        }
         if (input.requestId) {
           const saved = this.db
             .prepare(
@@ -132,6 +165,10 @@ export class TelosArtifactStore {
             this.db
               .prepare('INSERT INTO telos_artifact_save_requests VALUES (?,?,?,?,?)')
               .run(input.sessionId, input.requestId, fingerprint, receipt.id, receipt.revision);
+          if (input.requestId && input.requestInputHash)
+            this.db
+              .prepare('INSERT INTO telos_artifact_request_inputs VALUES (?,?,?)')
+              .run(input.sessionId, input.requestId, input.requestInputHash);
           return receipt;
         };
         if (!this.db.prepare('SELECT id FROM items WHERE id=?').get(input.itemId))

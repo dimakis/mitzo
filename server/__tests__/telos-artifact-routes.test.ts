@@ -87,6 +87,31 @@ describe('Telos host artifact routes', () => {
     });
     expect(oversized.status).toBe(413);
   });
+  it('recovers path-upload receipts before touching files that changed or disappeared', async () => {
+    const { call, readFile } = setup();
+    const input = {
+      itemId: 't',
+      filename: 'spec.md',
+      title: 'Spec',
+      path: '/sandbox/spec.md',
+      requestId: 'path-save',
+    };
+    const first = await call('save', input);
+    expect(first.status).toBe(200);
+    readFile.mockResolvedValue({ path: '/sandbox/spec.md', bytes: Buffer.from('Changed locally') });
+    const editedRetry = await call('save', input);
+    expect(editedRetry.status).toBe(200);
+    expect(editedRetry.body.artifact).toEqual(first.body.artifact);
+    readFile.mockRejectedValue(new Error('File removed'));
+    const deletedRetry = await call('save', input);
+    expect(deletedRetry.status).toBe(200);
+    expect(deletedRetry.body.artifact).toEqual(first.body.artifact);
+    expect(readFile).toHaveBeenCalledTimes(1);
+    expect((await call('save', { ...input, path: '/other.md' })).status).toBe(409);
+    expect((await call('save', { ...input, title: 'Changed title' })).status).toBe(409);
+    expect(readFile).toHaveBeenCalledTimes(1);
+    expect((await call('read', { id: first.body.artifact.id })).body.artifact.revision).toBe(1);
+  });
   it('retains retry receipts after another save and rejects changed request input', async () => {
     const { call } = setup();
     const input = {
