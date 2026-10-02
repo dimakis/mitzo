@@ -99,19 +99,17 @@ export async function searchCodex(
     if (thread.model !== options.model || thread.modelProvider !== options.modelProvider)
       throw new Error('Search route changed');
     threadId = thread.thread.id;
-    const start = z
-      .object({ turn: z.object({ id: z.string() }) })
-      .parse(
-        await step(
-          client.request('turn/start', {
-            threadId,
-            model: options.model,
-            input: [{ type: 'text', text: query }],
-            approvalPolicy: 'never',
-            sandboxPolicy: { type: 'readOnly' },
-          }),
-        ),
-      );
+    const start = z.object({ turn: z.object({ id: z.string() }) }).parse(
+      await step(
+        client.request('turn/start', {
+          threadId,
+          model: options.model,
+          input: [{ type: 'text', text: query }],
+          approvalPolicy: 'never',
+          sandboxPolicy: { type: 'readOnly' },
+        }),
+      ),
+    );
     const terminal = await completed;
     const turn = turns.get(start.turn.id);
     if (

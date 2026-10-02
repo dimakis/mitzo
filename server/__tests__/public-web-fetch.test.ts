@@ -38,13 +38,11 @@ describe('approved credential-free public website reads', () => {
     expect(output).toContain('<h1>Revenue</h1>');
   });
   it('requires a new approval for a redirect to another origin', async () => {
-    const send = vi
-      .fn()
-      .mockResolvedValue({
-        status: 302,
-        headers: { location: 'https://other.example/' },
-        body: '',
-      });
+    const send = vi.fn().mockResolvedValue({
+      status: 302,
+      headers: { location: 'https://other.example/' },
+      body: '',
+    });
     await expect(
       fetchPublicPage('https://example.com/', new AbortController().signal, {
         resolve: publicDns,
