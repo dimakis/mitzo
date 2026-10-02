@@ -155,12 +155,6 @@ export function SymposiumConversation({
   // the operator changes audiences or revisits an excerpt.
   const retryKeys = useRef(new Map<string, string>());
   const sessionEpoch = useRef(0);
-  // Keep one status read across effect replacements. Events and polling ticks
-  // collapse into a single follow-up for the most recently requested session.
-  const statusRead = useRef<{ running: boolean; pending: (() => Promise<void>) | null }>({
-    running: false,
-    pending: null,
-  });
   const base = sessionId ? `/api/sessions/${encodeURIComponent(sessionId)}/symposium` : '';
   const configRevision = status?.config?.revision;
 
@@ -179,7 +173,12 @@ export function SymposiumConversation({
     setPage({ items: [], nextSeq: null, queued: [] });
     if (!base) return;
     let cancelled = false;
-    const statusQueue = statusRead.current;
+    // Coalesce reads within this session only. A stalled retired request must
+    // never delay the new session's status or its Stop controls.
+    const statusQueue: { running: boolean; pending: (() => Promise<void>) | null } = {
+      running: false,
+      pending: null,
+    };
     const refresh = async () => {
       if (cancelled) return;
       if (statusQueue.running) {

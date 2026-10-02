@@ -1027,7 +1027,7 @@ it('coalesces polling ticks and explicit events into one status read and one fol
   view.unmount();
 });
 
-it('serializes status reads across session changes and ignores the retired response', async () => {
+it('loads new-session Stop controls even when the retired status request never completes', async () => {
   const reads: string[] = [];
   const finish: ((response: Response) => void)[] = [];
   vi.mocked(apiFetch).mockImplementation(async (url) => {
@@ -1040,20 +1040,35 @@ it('serializes status reads across session changes and ignores the retired respo
   const view = render(
     <SymposiumConversation sessionId="session" chat={chat} ordinaryComposer={null} />,
   );
+  window.dispatchEvent(new Event('symposium-deliveries-changed'));
   view.rerender(<SymposiumConversation sessionId="other" chat={chat} ordinaryComposer={null} />);
-  expect(reads).toEqual(['/api/sessions/session/symposium/status']);
-  await act(async () => {
-    finish[0](json(status));
-  });
   expect(reads).toEqual([
     '/api/sessions/session/symposium/status',
     '/api/sessions/other/symposium/status',
   ]);
-  expect(screen.queryByRole('tab', { name: 'Reviewer' })).toBeNull();
   await act(async () => {
-    finish[1](json({ ...status, sessionId: 'other' }));
+    finish[1](
+      json({
+        ...status,
+        sessionId: 'other',
+        runtimeAvailable: true,
+        seats: status.seats.map((seat) => ({ ...seat, seat: { name: `Other ${seat.seat.name}` } })),
+        deliveries: [directedDelivery('ready')],
+      }),
+    );
   });
-  expect(screen.getByRole('tab', { name: 'Reviewer' })).toBeTruthy();
+  fireEvent.click(screen.getByRole('tab', { name: 'Other Reviewer' }));
+  expect(
+    await screen.findByRole('button', { name: 'Stop delivery to Other Architect, Other Reviewer' }),
+  ).toBeTruthy();
+  await act(async () => {
+    finish[0](json(status));
+  });
+  expect(
+    screen.getByRole('button', { name: 'Stop delivery to Other Architect, Other Reviewer' }),
+  ).toBeTruthy();
+  expect(screen.queryByRole('tab', { name: 'Reviewer' })).toBeNull();
+  expect(reads).toHaveLength(2);
 });
 
 it('can request a send from durable status and keeps runtime refusal explicit without retrying', async () => {
