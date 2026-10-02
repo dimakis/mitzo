@@ -889,3 +889,23 @@ it.each([false, true])(
     }
   },
 );
+
+it('requires confirmation after clearing the default even across catalog refresh', async () => {
+  localStorage.setItem(
+    'mitzo-default-account-model',
+    JSON.stringify({ accountId: 'other', model: 'haiku' }),
+  );
+  vi.mocked(apiFetch).mockResolvedValue({ ok: true, json: async () => profiles } as Response);
+  const onChange = vi.fn();
+  render(<AccountModelPicker sessionId={null} preferredModel="sonnet" onChange={onChange} />);
+  await waitFor(() =>
+    expect(onChange).toHaveBeenLastCalledWith({ accountId: 'other', model: 'haiku' }),
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Clear new-chat default' }));
+  expect(onChange).toHaveBeenLastCalledWith(null);
+  expect(screen.getByRole('button', { name: /Use .*Haiku/ })).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: 'Refresh models' }));
+  await waitFor(() => expect(onChange).toHaveBeenLastCalledWith(null));
+  fireEvent.click(await screen.findByRole('button', { name: /Use .*Haiku/ }));
+  expect(onChange).toHaveBeenLastCalledWith({ accountId: 'other', model: 'haiku' });
+});

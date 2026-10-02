@@ -219,6 +219,12 @@ it('reviews distinct launches with identical prompt text before sending', async 
         .setPendingSession({ prompt: 'Review this task', context: telosTaskId, telosTaskId }),
     );
     await screen.findByRole('button', { name: 'Send launch prompt' });
+    if (telosTaskId === 'task-b') {
+      expect(
+        (screen.getByRole('button', { name: 'Send launch prompt' }) as HTMLButtonElement).disabled,
+      ).toBe(true);
+      fireEvent.click(await screen.findByRole('button', { name: 'Use Work · Sonnet' }));
+    }
     fireEvent.click(screen.getByRole('button', { name: 'Send launch prompt' }));
     await waitFor(() =>
       expect(sendMessage).toHaveBeenCalledWith(

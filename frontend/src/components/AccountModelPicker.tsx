@@ -564,6 +564,8 @@ function SessionAccountModelPicker({
               onClick={() => {
                 setDefaultAccountModel(null);
                 setSavedDefault(null);
+                setNeedsConfirmation(true);
+                onChange(null);
               }}
             >
               Clear new-chat default

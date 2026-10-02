@@ -3097,3 +3097,33 @@ it('retries a navigated failed launch in a dedicated draft with its original sel
   });
   expect(store.getState().sessions.active).toBeNull();
 });
+
+it('retires the first launch foreground assignment when a replacement opens in the draft', () => {
+  const store = createReadyStore();
+  store.getState().setPendingSession({ prompt: 'Launch A', context: 'A', telosTaskId: 'task-a' });
+  store.getState().sendPendingSession();
+  const a = store.getState().messages.messages.at(-1)!.messageId;
+  store.getState().setPendingSession({ prompt: 'Launch B', context: 'B', telosTaskId: 'task-b' });
+  lastWs.simulateMessage({ type: 'session_id', sessionId: 'session-a', clientMsgId: a });
+  expect(store.getState().sessions.active).toBeNull();
+  expect(store.getState().messages.messages).toHaveLength(0);
+  store.getState().sendPendingSession();
+  expect(
+    lastWs
+      .parsedSent()
+      .filter((m) => m.type === 'send')
+      .at(-1),
+  ).toMatchObject({
+    sessionId: null,
+    prompt: 'Launch B',
+    telosTaskId: 'task-b',
+  });
+  lastWs.simulateMessage({
+    type: 'user_message',
+    sessionId: 'session-a',
+    messageId: a,
+    text: 'Launch A',
+  });
+  expect(store.getState().pendingSession?.prompt).toBe('Launch B');
+  expect(store.getState().pendingSessionSending).toBe(true);
+});

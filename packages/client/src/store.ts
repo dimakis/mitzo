@@ -994,6 +994,8 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     // ── Pending session actions ────────────────────────────────────────
 
     setPendingSession(ps: PendingSession) {
+      // Replacing a launch owns a new draft and retires any earlier assignment.
+      if (get().pendingSession) get().newSession();
       failedLaunchRetry = undefined;
       set({ pendingSession: ps, pendingSessionSending: false });
     },
