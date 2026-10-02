@@ -75,17 +75,15 @@ export function createTelosArtifactRouter(options: {
         }
       } catch (error) {
         const status = errorStatus(error);
-        res
-          .status(status)
-          .json({
-            ok: false,
-            error:
-              status === 503
-                ? 'Telos artifact service unavailable'
-                : error instanceof Error
-                  ? error.message
-                  : 'Telos artifact request failed',
-          });
+        res.status(status).json({
+          ok: false,
+          error:
+            status === 503
+              ? 'Telos artifact service unavailable'
+              : error instanceof Error
+                ? error.message
+                : 'Telos artifact request failed',
+        });
       } finally {
         store?.close();
       }
