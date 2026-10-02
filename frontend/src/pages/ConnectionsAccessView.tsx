@@ -127,14 +127,26 @@ export function ConnectionsAccessView() {
   const [inventory, setInventory] = useState<ConnectionsAccessInventory | null>(null);
   const [error, setError] = useState(false);
   const [attempt, setAttempt] = useState(0);
+  const [loading, setLoading] = useState(true);
+  function refresh() {
+    setLoading(true);
+    if (!inventory) setError(false);
+    setAttempt((value) => value + 1);
+  }
   useEffect(() => {
     const controller = new AbortController();
     getConnectionsAccess(controller.signal)
       .then((result) => {
-        if (!controller.signal.aborted) setInventory(result);
+        if (!controller.signal.aborted) {
+          setInventory(result);
+          setError(false);
+        }
       })
       .catch(() => {
         if (!controller.signal.aborted) setError(true);
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoading(false);
       });
     return () => controller.abort();
   }, [attempt]);
@@ -153,19 +165,23 @@ export function ConnectionsAccessView() {
       </p>
       {error ? (
         <div role="alert" className="access-source-notice">
-          <p>Connections & access could not be loaded.</p>
-          <button
-            className="workspace-text-link"
-            onClick={() => {
-              setError(false);
-              setAttempt((value) => value + 1);
-            }}
-          >
+          <p>
+            {inventory
+              ? 'Showing older results. Current access could not be refreshed.'
+              : 'Connections & access could not be loaded.'}
+          </p>
+          <button className="workspace-text-link" disabled={loading} onClick={refresh}>
             Try again
           </button>
         </div>
-      ) : (
-        !inventory && <p role="status">Loading connections & access…</p>
+      ) : null}
+      {loading && (
+        <p role="status">{inventory ? 'Refreshing access…' : 'Loading connections & access…'}</p>
+      )}
+      {inventory && (
+        <button className="workspace-text-link" disabled={loading} onClick={refresh}>
+          Refresh access
+        </button>
       )}
       {inventory && (
         <>

@@ -4,6 +4,8 @@ import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { ConnectionsAccessView } from '../ConnectionsAccessView';
 import { getConnectionsAccess } from '../../lib/connections-access-api';
+import type { ConnectionsAccessInventory } from '../../types/connections-access';
+import { act } from 'react';
 
 vi.mock('../../lib/connections-access-api', () => ({ getConnectionsAccess: vi.fn() }));
 afterEach(cleanup);
@@ -101,4 +103,94 @@ it('offers retry after a failed inventory read, without losing management naviga
     await screen.findByText('No AI accounts were reported by available sources.'),
   ).toBeTruthy();
   expect(getConnectionsAccess).toHaveBeenCalledTimes(2);
+});
+
+it('refreshes unavailable sources while retaining loaded rows and replaces recovered source state', async () => {
+  const current: ConnectionsAccessInventory = {
+    generatedAt: 1,
+    sources: [
+      {
+        id: 'google' as const,
+        state: 'unavailable' as const,
+        reason: 'Google source is unavailable.',
+      },
+    ],
+    resources: [
+      {
+        id: 'account',
+        kind: 'ai-account' as const,
+        section: 'accounts' as const,
+        owner: 'accounts',
+        nativeId: 'work',
+        gateway: null,
+        workspace: null,
+        label: 'Work account',
+        provider: 'OpenAI',
+        status: 'configured',
+        revision: null,
+        accountIdentity: null,
+        verification: { state: 'unverified' as const, verifiedAt: null, reason: null },
+        access: {
+          summary: 'Configured model access',
+          desiredAccountIds: [],
+          observedAttachments: null,
+          appliesTo: 'New conversations',
+        },
+        actions: [],
+        details: {},
+      },
+    ],
+  };
+  let recover!: (value: ConnectionsAccessInventory) => void;
+  vi.mocked(getConnectionsAccess)
+    .mockResolvedValueOnce(current)
+    .mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          recover = resolve;
+        }),
+    );
+  render(
+    <MemoryRouter>
+      <ConnectionsAccessView />
+    </MemoryRouter>,
+  );
+  await screen.findByRole('article', { name: 'Work account' });
+  fireEvent.click(screen.getByRole('button', { name: 'Refresh access' }));
+  expect(screen.getByText('Refreshing access…')).toBeTruthy();
+  expect(
+    (screen.getByRole('button', { name: 'Refresh access' }) as HTMLButtonElement).disabled,
+  ).toBe(true);
+  expect(screen.getByRole('article', { name: 'Work account' })).toBeTruthy();
+  await act(async () =>
+    recover({
+      ...current,
+      generatedAt: 2,
+      sources: [{ id: 'google', state: 'available', reason: null }],
+    }),
+  );
+  await screen.findByText('No services were reported by available sources.');
+  await vi.waitFor(() => expect(screen.queryByText('Google source is unavailable.')).toBeNull());
+  expect(screen.getByRole('article', { name: 'Work account' })).toBeTruthy();
+});
+
+it('marks retained inventory as older when a refresh fails and allows recovery', async () => {
+  vi.mocked(getConnectionsAccess)
+    .mockResolvedValueOnce({ generatedAt: 1, sources: [], resources: [] })
+    .mockRejectedValueOnce(new Error('Unavailable'))
+    .mockResolvedValueOnce({ generatedAt: 2, sources: [], resources: [] });
+  render(
+    <MemoryRouter>
+      <ConnectionsAccessView />
+    </MemoryRouter>,
+  );
+  await screen.findByText('No AI accounts were reported by available sources.');
+  fireEvent.click(screen.getByRole('button', { name: 'Refresh access' }));
+  expect((await screen.findByRole('alert')).textContent).toContain(
+    'Showing older results. Current access could not be refreshed.',
+  );
+  expect(screen.getByRole('heading', { name: 'AI accounts' })).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+  await vi.waitFor(() => expect(screen.queryByRole('alert')).toBeNull());
+  expect(getConnectionsAccess).toHaveBeenCalledTimes(3);
 });
