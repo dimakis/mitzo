@@ -5,6 +5,7 @@ import type {
   SymposiumProfileDefinition,
   ValidAccountBinding,
 } from '@mitzo/protocol';
+import { canRequestRuntime } from '../lib/symposium-status';
 import { apiFetch } from '../lib/api-fetch';
 import { AccountModelPicker, type AccountSelection } from './AccountModelPicker';
 import { SymposiumProfilePicker, type SymposiumProfileSelection } from './SymposiumProfilePicker';
@@ -14,6 +15,7 @@ type Status = {
   config: SymposiumConfig | null;
   ordinaryAccountId?: string | null;
   runtimeAvailable: boolean;
+  runtimeVerification?: string;
   initialProfileSelections?: Record<string, SymposiumProfileSelection>;
   seats: { seatId: string; membership: { state: string; generation: number } | null }[];
 };
@@ -38,6 +40,11 @@ async function request<T>(path: string, body?: unknown, method = 'POST'): Promis
           body: JSON.stringify(body),
         },
   );
+  if (response.status === 404 && path.endsWith('/status'))
+    throw new ReviewerRequestError(
+      'This server does not support saved agent status. Update the server before continuing.',
+      false,
+    );
   const result = await response.json();
   if (!response.ok)
     throw new ReviewerRequestError(
@@ -177,6 +184,7 @@ function ReviewerForm({
   const [typed, setTyped] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [errorDetail, setErrorDetail] = useState('');
   const [done, setDone] = useState(false);
   const [locked, updateLocked] = useState(false);
   const lockedRef = useRef(false);
@@ -194,7 +202,7 @@ function ReviewerForm({
     if (!open) return;
     let live = true;
     setStatus(null);
-    request<Status>(base)
+    request<Status>(`${base}/status`)
       .then((next) => {
         if (live) setStatus(next);
       })
@@ -233,7 +241,7 @@ function ReviewerForm({
   const ready = Boolean(
     status &&
     sourceAccountId &&
-    (!status.config || status.runtimeAvailable) &&
+    (!status.config || canRequestRuntime(status)) &&
     (generic
       ? name.trim() &&
         /^[a-z][a-z0-9_-]{0,63}$/.test(role) &&
@@ -252,7 +260,9 @@ function ReviewerForm({
     setBusy(true);
     setProgress('Preparing the agent and its message context…');
     setError('');
+    setErrorDetail('');
     let reviewerMutationAttempted = false;
+    let deliveryCreationAttempted = false;
     try {
       const selectedProfile =
         !generic && profile
@@ -269,7 +279,7 @@ function ReviewerForm({
           ...(mode === 'summary' ? { summary } : {}),
           ...(mode === 'selected-turns' ? { turnIds } : {}),
         }));
-      let current = await request<Status>(base);
+      let current = await request<Status>(`${base}/status`);
       let config = current.config;
       if (!config) {
         setStatus(current);
@@ -364,9 +374,7 @@ function ReviewerForm({
           );
         }
       }
-      setProgress(
-        `${generic ? 'Agent' : 'Reviewer'} configured (${operation.current.seatId}). Admission pending.`,
-      );
+      setProgress(`${generic ? 'Agent' : 'Reviewer'} configured. Checking its connection…`);
       if (config.state === 'draft')
         config = await request<SymposiumConfig>(`${base}/activate`, {
           expectedRevision: config.revision,
@@ -381,7 +389,7 @@ function ReviewerForm({
         'Connecting agent — checking its account and workspace access. This may take several minutes.',
       );
       await request(`${base}/admissions/refresh`, { expectedRevision: config.revision });
-      current = await request<Status>(base);
+      current = await request<Status>(`${base}/status`);
       // Existing isolated sessions stay isolated; new anchors are admitted through the same host boundary.
       for (const id of [config.version === 2 ? config.anchorSeatId : config.seats[0].id, seatId]) {
         const membership = current.seats.find((seat) => seat.seatId === id)?.membership;
@@ -397,8 +405,9 @@ function ReviewerForm({
         });
       }
       setProgress(
-        `${generic ? 'Agent' : 'Reviewer'} admitted. Context not queued (${seatId}). Retry uses this seat and the same package.`,
+        `${generic ? 'Agent' : 'Reviewer'} setup completed. Requesting message approval…`,
       );
+      deliveryCreationAttempted = true;
       await request(`${base}/deliveries`, {
         sourceSeatId: null,
         recipientSeatIds: [seatId],
@@ -408,14 +417,13 @@ function ReviewerForm({
       setDone(true);
       window.dispatchEvent(new Event('symposium-roster-changed'));
     } catch (cause) {
+      setErrorDetail(cause instanceof Error ? cause.message : 'Agent request failed');
       setError(
-        cause instanceof Error
-          ? cause.message
-          : generic
-            ? 'Could not add agent'
-            : 'Could not add reviewer',
+        cause instanceof ReviewerRequestError && cause.noSeatMutation && !deliveryCreationAttempted
+          ? 'Couldn’t connect this agent. Your choices are still in this form; no message was sent.'
+          : 'The request couldn’t be completed. Check the agent’s details before retrying.',
       );
-      const refreshed = await request<Status>(base).catch(() => null);
+      const refreshed = await request<Status>(`${base}/status`).catch(() => null);
       setStatus(refreshed);
       // Absence alone does not exclude an in-flight write after a lost response.
       if (
@@ -724,7 +732,7 @@ function ReviewerForm({
                 </label>
               )}
             </fieldset>
-            {!status?.runtimeAvailable && (
+            {(!status || !canRequestRuntime(status)) && (
               <p role="status">
                 {status?.config
                   ? 'This agent can’t connect yet. Your choices stay in this form.'
@@ -745,7 +753,15 @@ function ReviewerForm({
                   : 'Add reviewer and queue context'}
             </button>
             {error && (
-              <p role="alert">{error} Any configured seats remain visible in Agent settings.</p>
+              <div role="alert">
+                <p>{error}</p>
+                {errorDetail && (
+                  <details>
+                    <summary>Technical details</summary>
+                    <p>{errorDetail}</p>
+                  </details>
+                )}
+              </div>
             )}
           </>
         )}

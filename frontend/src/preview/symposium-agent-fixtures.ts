@@ -56,6 +56,21 @@ export function symposiumAgentPreviewResponse(
       { error: 'Unsupported simulated agent request', simulated: true },
       { status: 405 },
     );
+  if (suffix === 'status' && method === 'GET') {
+    const saved = statusFor(sessionId, fixture);
+    return Response.json({
+      ...saved,
+      statusMode: 'durable',
+      runtimeVerification: 'not_checked',
+      runtimeAvailable: false,
+      seats: saved.seats.map((seat) => ({
+        ...seat,
+        admitted: false,
+        admissionRecorded: seat.admitted,
+        savedRuntimeState: seat.admitted ? 'ready' : null,
+      })),
+    });
+  }
   if (!suffix && method === 'GET') return Response.json(statusFor(sessionId, fixture));
   if (method !== 'POST') return null;
   if (suffix === 'context-package') {

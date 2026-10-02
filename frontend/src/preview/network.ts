@@ -247,7 +247,7 @@ window.fetch = async (input, init) => {
     });
   if (/^\/api\/symposium\/profiles\/preview-(?:architect|implementer)\/1$/.test(url.pathname))
     return Response.json({ definition: previewProposal.definition });
-  if (/^\/api\/sessions\/[^/]+\/symposium(?:\/perspectives)?$/.test(url.pathname)) {
+  if (/^\/api\/sessions\/[^/]+\/symposium(?:\/(?:perspectives|status))?$/.test(url.pathname)) {
     const sessionId = url.pathname.split('/')[3];
     if (url.pathname.endsWith('/perspectives'))
       return Response.json(symposiumPerspective(url.searchParams.get('seatId')));
@@ -257,6 +257,9 @@ window.fetch = async (input, init) => {
       sessionId,
       config: null,
       ordinaryAccountId: account.id,
+      ...(url.pathname.endsWith('/status')
+        ? { simulated: true, statusMode: 'durable', runtimeVerification: 'not_checked' }
+        : {}),
       seats: [],
       runtimeAvailable: false,
       profileBindingEnforced: false,

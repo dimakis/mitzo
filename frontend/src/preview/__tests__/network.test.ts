@@ -387,3 +387,27 @@ it('resolves the offered saved reviewer revision with the same guidance used by 
   expect(loaded.definition).toEqual(offered.definition);
   expect(loaded).toMatchObject({ profileId: offered.profileId, revision: offered.revision });
 });
+
+it('projects simulated durable status without claiming live verification', async () => {
+  const status = await (await window.fetch('/api/sessions/preview-1/symposium/status')).json();
+  expect(status).toMatchObject({
+    simulated: true,
+    statusMode: 'durable',
+    runtimeVerification: 'not_checked',
+    runtimeAvailable: false,
+  });
+  expect(status.seats).toHaveLength(2);
+  expect(
+    status.seats.every(
+      (seat: { admitted: boolean; admissionRecorded: boolean }) =>
+        !seat.admitted && seat.admissionRecorded,
+    ),
+  ).toBe(true);
+  const ordinary = await (await window.fetch('/api/sessions/preview-2/symposium/status')).json();
+  expect(ordinary).toMatchObject({
+    config: null,
+    statusMode: 'durable',
+    runtimeVerification: 'not_checked',
+    runtimeAvailable: false,
+  });
+});

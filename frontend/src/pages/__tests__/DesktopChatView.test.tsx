@@ -502,7 +502,7 @@ it('replaces ordinary workspace actions and Ready with per-agent guidance for Sy
         json: async () =>
           String(url).endsWith('/meta')
             ? { sessionType: 'symposium' }
-            : String(url).endsWith('/symposium')
+            : String(url).endsWith('/status')
               ? { sessionId: 'native-chat', config: null, seats: [] }
               : [],
       }) as Response,
@@ -561,7 +561,7 @@ it('retains the ordinary Close action after ordinary session metadata loads', as
                   model: 'luna',
                 },
               }
-            : String(url).endsWith('/symposium')
+            : String(url).endsWith('/status')
               ? { sessionId: 'ordinary-chat', config: null, seats: [] }
               : [],
       }) as Response,
@@ -597,7 +597,7 @@ it('does not reuse ordinary controls while switching to an unclassified session'
                 model: 'luna',
               },
             }
-          : String(url).endsWith('/symposium')
+          : String(url).endsWith('/status')
             ? {
                 sessionId: String(url).includes('/next-chat/') ? 'next-chat' : 'ordinary-chat',
                 config: null,

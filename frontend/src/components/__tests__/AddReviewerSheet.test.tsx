@@ -69,7 +69,7 @@ it('adds a read-only reviewer with empty history grants and queues only the expl
     const path = String(url);
     if (path.startsWith('/api/symposium/profiles/'))
       return new Response(JSON.stringify({ definition: { role: 'reviewer' } }));
-    if (path.endsWith('/symposium'))
+    if (path.endsWith('/status'))
       return new Response(
         JSON.stringify({
           config,
@@ -180,7 +180,7 @@ it('retains an admitted reviewer and frozen context across close/reopen after qu
     const path = String(url);
     if (path.startsWith('/api/symposium/profiles/'))
       return new Response(JSON.stringify({ definition: { role: 'reviewer' } }));
-    if (path.endsWith('/symposium'))
+    if (path.endsWith('/status'))
       return new Response(
         JSON.stringify({
           config,
@@ -216,7 +216,7 @@ it('retains an admitted reviewer and frozen context across close/reopen after qu
   );
   const finishEarlierProfileSave = profilePicker.onChange;
   fireEvent.click(screen.getByRole('button', { name: 'Add reviewer and queue context' }));
-  await screen.findByText(/Reviewer admitted. Context not queued/);
+  await screen.findByText(/Reviewer setup completed. Requesting message approval/);
   // Catalog invalidation is an effect callback even inside a disabled fieldset.
   act(() => accountPicker.onChange?.(null));
   act(() => finishEarlierProfileSave?.({ profileId: 'review', revision: 2 }));
@@ -354,7 +354,7 @@ it('rejects a non-reviewer profile before converting an ordinary conversation', 
         JSON.stringify(
           String(url).startsWith('/api/symposium/profiles/')
             ? { definition: { role: 'coder' } }
-            : String(url).endsWith('/symposium')
+            : String(url).endsWith('/status')
               ? { config: null, ordinaryAccountId: 'a', seats: [], runtimeAvailable: true }
               : { content: '' },
         ),
@@ -391,7 +391,7 @@ it.each(['active', 'draft', 'draft-config'])(
       const path = String(url);
       if (path.startsWith('/api/symposium/profiles/'))
         return new Response(JSON.stringify({ definition: { role: 'reviewer' } }));
-      if (path.endsWith('/symposium'))
+      if (path.endsWith('/status'))
         return new Response(JSON.stringify({ config, runtimeAvailable: true, seats: [] }));
       if (path.endsWith('/context-package')) return new Response(JSON.stringify({ content: '' }));
       if (state === 'draft-config' && path.endsWith('/selection'))
@@ -432,7 +432,7 @@ it('keeps a lost mutation response frozen when a temporarily absent seat may com
     const path = String(url);
     if (path.startsWith('/api/symposium/profiles/'))
       return new Response(JSON.stringify({ definition: { role: 'reviewer' } }));
-    if (path.endsWith('/symposium'))
+    if (path.endsWith('/status'))
       return new Response(JSON.stringify({ config, runtimeAvailable: true, seats: [] }));
     if (path.endsWith('/context-package')) return new Response(JSON.stringify({ content: '' }));
     lateSeat = JSON.parse(String(init?.body)).seatId;

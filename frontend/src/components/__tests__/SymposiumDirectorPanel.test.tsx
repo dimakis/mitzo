@@ -320,7 +320,7 @@ it.each(['resolve', 'reject'] as const)(
     expect(screen.getByText('This conversation has no agents configured.')).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Suspend' })).toBeNull();
     expect(screen.queryByRole('alert')).toBeNull();
-    expect(apiFetch).toHaveBeenLastCalledWith('/api/sessions/next/symposium', undefined);
+    expect(apiFetch).toHaveBeenLastCalledWith('/api/sessions/next/symposium/status', undefined);
   },
 );
 
@@ -1007,3 +1007,195 @@ it('shows a compact failed agent card without exposing recovery operations', asy
     vi.mocked(apiFetch).mock.calls.every(([, init]) => !init?.method || init.method === 'GET'),
   ).toBe(true);
 });
+
+it('offers recorded agents as request targets without claiming a fresh connection', async () => {
+  const durable = {
+    ...status(true),
+    statusMode: 'durable',
+    runtimeVerification: 'not_checked',
+    runtimeAvailable: false,
+    seats: status(true).seats.map((seat, index) => ({
+      ...seat,
+      admitted: false,
+      admissionRecorded: index === 1,
+      savedRuntimeState: 'ready',
+    })),
+  };
+  vi.mocked(apiFetch).mockResolvedValue(response(durable));
+  render(<SymposiumDirectorPanel sessionId="session" />);
+  await userEvent.click(screen.getByRole('button', { name: 'Agents' }));
+  expect(await screen.findByText('Added')).toBeTruthy();
+  expect(screen.queryByText('Connected')).toBeNull();
+  await userEvent.click(screen.getByRole('button', { name: 'Advanced and troubleshooting' }));
+  expect(screen.queryByRole('checkbox', { name: 'Send to Architect' })).toBeNull();
+  await userEvent.click(screen.getByRole('checkbox', { name: 'Send to Reviewer' }));
+  await userEvent.type(screen.getByRole('textbox', { name: 'Director message' }), 'Review this');
+  await userEvent.click(screen.getByRole('button', { name: 'Queue message for selected agents' }));
+  expect(
+    vi
+      .mocked(apiFetch)
+      .mock.calls.some(
+        ([url, init]) => String(url).endsWith('/deliveries') && init?.method === 'POST',
+      ),
+  ).toBe(true);
+  expect(
+    vi
+      .mocked(apiFetch)
+      .mock.calls.some(([url, init]) => String(url) === '/api/sessions/session/symposium' && !init),
+  ).toBe(false);
+});
+
+it.each(['unrecorded', 'stopped', 'pending', 'failed'])(
+  'does not offer %s saved agents as message targets',
+  async (condition) => {
+    const durable = {
+      ...status(true),
+      statusMode: 'durable',
+      runtimeVerification: 'not_checked',
+      runtimeAvailable: false,
+      seats: status(true).seats.map((seat) => ({
+        ...seat,
+        admitted: false,
+        admissionRecorded: condition !== 'unrecorded',
+        savedRuntimeState: condition === 'stopped' ? 'stopped' : 'ready',
+        membership: {
+          ...seat.membership,
+          reconciliation: condition === 'pending' ? 'pending' : 'confirmed',
+        },
+        ...(condition === 'failed'
+          ? { creationDiagnostic: { phase: 'mount', code: 'FAILED', canCleanup: false } }
+          : {}),
+      })),
+    };
+    vi.mocked(apiFetch).mockResolvedValue(response(durable));
+    render(<SymposiumDirectorPanel sessionId="session" />);
+    await userEvent.click(screen.getByRole('button', { name: 'Agents' }));
+    await screen.findByRole('listitem', { name: 'Architect agent' });
+    expect(screen.queryByText('Connected')).toBeNull();
+    await userEvent.click(screen.getByRole('button', { name: 'Advanced and troubleshooting' }));
+    expect(screen.queryByRole('checkbox', { name: 'Send to Reviewer' })).toBeNull();
+    expect(
+      screen
+        .getByRole('button', { name: 'Queue message for selected agents' })
+        .hasAttribute('disabled'),
+    ).toBe(true);
+  },
+);
+
+it('checks failure details only on request and discards a reply after newer durable status', async () => {
+  const initial = status(true);
+  const durable = {
+    ...initial,
+    statusMode: 'durable',
+    runtimeVerification: 'not_checked',
+    runtimeAvailable: false,
+    seats: initial.seats.map((seat) => ({
+      ...seat,
+      admitted: false,
+      admissionRecorded: false,
+      savedRuntimeState: 'reserved',
+      creationDiagnostic: { phase: 'mount', code: 'SEAT_MOUNT_FAILED', canCleanup: false },
+    })),
+  };
+  let finish!: (value: Response) => void;
+  const check = new Promise<Response>((resolve) => {
+    finish = resolve;
+  });
+  vi.mocked(apiFetch).mockImplementation((url) =>
+    String(url).endsWith('/status') ? Promise.resolve(response(durable)) : check,
+  );
+  render(<SymposiumDirectorPanel sessionId="session" />);
+  await userEvent.click(screen.getByRole('button', { name: 'Agents' }));
+  const card = await screen.findByRole('listitem', { name: 'Architect agent' });
+  expect(apiFetch).toHaveBeenCalledTimes(1);
+  await userEvent.click(within(card).getByRole('button', { name: 'View details' }));
+  expect(within(card).getByText('Checking connection details…')).toBeTruthy();
+  expect(screen.getByRole('button', { name: 'Refresh status' }).hasAttribute('disabled')).toBe(
+    false,
+  );
+  expect(within(card).queryByRole('button', { name: 'Clean up failed seat' })).toBeNull();
+  await userEvent.click(screen.getByRole('button', { name: 'Refresh status' }));
+  await waitFor(() => expect(within(card).queryByText('Checking connection details…')).toBeNull());
+  await act(async () =>
+    finish(
+      response({
+        ...durable,
+        seats: durable.seats.map((seat) => ({
+          ...seat,
+          creationDiagnostic: { ...seat.creationDiagnostic, canCleanup: true },
+        })),
+      }),
+    ),
+  );
+  expect(within(card).queryByRole('button', { name: 'Clean up failed seat' })).toBeNull();
+  expect(
+    vi
+      .mocked(apiFetch)
+      .mock.calls.filter(([url]) => String(url) === '/api/sessions/session/symposium'),
+  ).toHaveLength(1);
+});
+
+it('keeps rejected detail checks local and never retries them automatically', async () => {
+  const initial = status(true);
+  const durable = {
+    ...initial,
+    statusMode: 'durable',
+    runtimeVerification: 'not_checked',
+    runtimeAvailable: false,
+    seats: initial.seats.map((seat) => ({
+      ...seat,
+      admitted: false,
+      creationDiagnostic: { phase: 'mount', code: 'FAILED', canCleanup: false },
+    })),
+  };
+  vi.mocked(apiFetch).mockImplementation(async (url) =>
+    String(url).endsWith('/status')
+      ? response(durable)
+      : ({ ok: false, json: async () => ({ error: 'Proof is unavailable' }) } as Response),
+  );
+  render(<SymposiumDirectorPanel sessionId="session" />);
+  await userEvent.click(screen.getByRole('button', { name: 'Agents' }));
+  const card = await screen.findByRole('listitem', { name: 'Architect agent' });
+  await userEvent.click(within(card).getByRole('button', { name: 'View details' }));
+  expect(await within(card).findByText('Couldn’t check connection details.')).toBeTruthy();
+  expect(within(card).queryByRole('button', { name: 'Clean up failed seat' })).toBeNull();
+  expect(apiFetch).toHaveBeenCalledTimes(2);
+});
+
+it.each(['wrong-session', 'durable-projection'])(
+  'does not accept %s as checked cleanup proof',
+  async (kind) => {
+    const initial = status(true);
+    const durable = {
+      ...initial,
+      statusMode: 'durable',
+      runtimeVerification: 'not_checked',
+      runtimeAvailable: false,
+      seats: initial.seats.map((seat) => ({
+        ...seat,
+        admitted: false,
+        creationDiagnostic: { phase: 'mount', code: 'FAILED', canCleanup: false },
+      })),
+    };
+    const checked = {
+      ...durable,
+      sessionId: kind === 'wrong-session' ? 'other' : 'session',
+      statusMode: kind === 'durable-projection' ? 'durable' : undefined,
+      runtimeVerification: kind === 'durable-projection' ? 'not_checked' : undefined,
+      seats: durable.seats.map((seat) => ({
+        ...seat,
+        creationDiagnostic: { ...seat.creationDiagnostic, canCleanup: true },
+      })),
+    };
+    vi.mocked(apiFetch).mockImplementation(async (url) =>
+      response(String(url).endsWith('/status') ? durable : checked),
+    );
+    render(<SymposiumDirectorPanel sessionId="session" />);
+    await userEvent.click(screen.getByRole('button', { name: 'Agents' }));
+    const card = await screen.findByRole('listitem', { name: 'Architect agent' });
+    await userEvent.click(within(card).getByRole('button', { name: 'View details' }));
+    expect(await within(card).findByText('Couldn’t check connection details.')).toBeTruthy();
+    expect(within(card).queryByRole('button', { name: 'Clean up failed seat' })).toBeNull();
+    expect(apiFetch).toHaveBeenCalledTimes(2);
+  },
+);

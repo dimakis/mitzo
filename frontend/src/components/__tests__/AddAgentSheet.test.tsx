@@ -62,7 +62,7 @@ function mockRequests({ draft = false, failDelivery = false } = {}) {
           },
         }),
       );
-    if (path.endsWith('/symposium'))
+    if (path.endsWith('/status'))
       return new Response(
         JSON.stringify({
           config,
@@ -388,4 +388,100 @@ it('adds an agent with only name and instructions while optional guidance stays 
   });
   expect(payload).not.toHaveProperty('expectedOutput');
   expect(payload).not.toHaveProperty('acceptanceCriteria');
+});
+
+it('allows an explicit add request from durable status without treating skipped verification as offline', async () => {
+  mockRequests();
+  const normal = vi.mocked(apiFetch).getMockImplementation()!;
+  vi.mocked(apiFetch).mockImplementation(async (url, init) => {
+    const response = await normal(url, init);
+    if (String(url).endsWith('/status'))
+      return new Response(
+        JSON.stringify({
+          ...(await response.json()),
+          statusMode: 'durable',
+          runtimeVerification: 'not_checked',
+          runtimeAvailable: false,
+        }),
+      );
+    return response;
+  });
+  render(<AddAgentSheet sessionId="session" />);
+  await fill();
+  fireEvent.click(screen.getByRole('button', { name: 'Add agent and queue message' }));
+  await screen.findByText(/Agent added/);
+  expect(
+    vi
+      .mocked(apiFetch)
+      .mock.calls.some(([url]) => String(url) === '/api/sessions/session/symposium'),
+  ).toBe(false);
+  expect(
+    vi.mocked(apiFetch).mock.calls.some(([url]) => String(url).endsWith('/seats/revise')),
+  ).toBe(true);
+});
+
+it.each([true, false])(
+  'distinguishes a proven pre-mutation refusal from an uncertain add outcome (proof=%s)',
+  async (proof) => {
+    mockRequests();
+    const normal = vi.mocked(apiFetch).getMockImplementation()!;
+    vi.mocked(apiFetch).mockImplementation(async (url, init) =>
+      String(url).endsWith('/seats/revise')
+        ? new Response(
+            JSON.stringify({
+              error: 'Host unavailable',
+              ...(proof ? { seatMutation: 'not-started' } : {}),
+            }),
+            { status: 503 },
+          )
+        : normal(url, init),
+    );
+    render(<AddAgentSheet sessionId="session" />);
+    await fill();
+    fireEvent.click(screen.getByRole('button', { name: 'Add agent and queue message' }));
+    const alert = await screen.findByRole('alert');
+    if (proof)
+      expect(alert).toHaveTextContent(
+        'Couldn’t connect this agent. Your choices are still in this form; no message was sent.',
+      );
+    else expect(alert).not.toHaveTextContent('no message was sent');
+    expect(
+      vi.mocked(apiFetch).mock.calls.filter(([url]) => String(url).endsWith('/seats/revise')),
+    ).toHaveLength(1);
+  },
+);
+
+it('reports unsupported saved status without falling back to physical checks', async () => {
+  vi.mocked(apiFetch).mockResolvedValue(
+    new Response(JSON.stringify({ error: 'Not found' }), { status: 404 }),
+  );
+  render(<AddAgentSheet sessionId="session" />);
+  fireEvent.click(screen.getByRole('button', { name: 'Add agent' }));
+  expect(await screen.findByRole('alert')).toHaveTextContent(
+    'This server does not support saved agent status',
+  );
+  expect(vi.mocked(apiFetch).mock.calls.map(([url]) => url)).toEqual([
+    '/api/sessions/session/symposium/status',
+  ]);
+});
+
+it('does not claim no message was sent after delivery creation was attempted', async () => {
+  mockRequests();
+  const normal = vi.mocked(apiFetch).getMockImplementation()!;
+  vi.mocked(apiFetch).mockImplementation(async (url, init) =>
+    String(url).endsWith('/deliveries')
+      ? new Response(
+          JSON.stringify({ error: 'Queue outcome unknown', seatMutation: 'not-started' }),
+          { status: 503 },
+        )
+      : normal(url, init),
+  );
+  render(<AddAgentSheet sessionId="session" />);
+  await fill();
+  fireEvent.click(screen.getByRole('button', { name: 'Add agent and queue message' }));
+  expect(await screen.findByRole('alert')).not.toHaveTextContent('no message was sent');
+  expect(screen.queryByText(/Context not queued/)).not.toBeInTheDocument();
+  expect(
+    vi.mocked(apiFetch).mock.calls.filter(([url]) => String(url).endsWith('/deliveries')),
+  ).toHaveLength(1);
 });

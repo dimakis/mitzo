@@ -1,3 +1,4 @@
+import { canRequestAgent, canRequestRuntime } from '../lib/symposium-status';
 import { SeatLabel } from './SeatLabel';
 import { SymposiumSourceImportPanel } from './SymposiumSourceImportPanel';
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
@@ -13,11 +14,26 @@ import { apiFetch } from '../lib/api-fetch';
 import { AccountModelPicker, type AccountSelection } from './AccountModelPicker';
 import { SymposiumProfilePicker, type SymposiumProfileSelection } from './SymposiumProfilePicker';
 
-function AdvancedControls({ label, children }: { label: string; children: ReactNode }) {
+function AdvancedControls({
+  label,
+  children,
+  onOpen,
+}: {
+  label: string;
+  children: ReactNode;
+  onOpen?: () => void;
+}) {
   const [open, setOpen] = useState(false);
   return (
     <div className="symposium-advanced-controls">
-      <button type="button" aria-expanded={open} onClick={() => setOpen(!open)}>
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={() => {
+          if (!open) onOpen?.();
+          setOpen(!open);
+        }}
+      >
         {label}
       </button>
       {open && <div className="symposium-advanced-content">{children}</div>}
@@ -30,6 +46,8 @@ interface DirectorSeat {
   seat: SeatConfig;
   membership: SymposiumMembershipRecord | null;
   admitted: boolean;
+  admissionRecorded?: boolean;
+  savedRuntimeState?: string | null;
   creationDiagnostic?: {
     phase: string;
     code: string;
@@ -51,6 +69,8 @@ interface DirectorStatus {
   config: SymposiumConfig | null;
   seats: DirectorSeat[];
   runtimeAvailable: boolean;
+  statusMode?: string;
+  runtimeVerification?: string;
   profileBindingEnforced?: boolean;
   initialProfileSelections?: Record<string, SymposiumProfileSelection>;
   reservedSeats: number;
@@ -85,6 +105,10 @@ function anchorAccountId(config: SymposiumConfig): string | undefined {
 
 async function readJson<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await apiFetch(path, init);
+  if (response.status === 404 && path.endsWith('/status'))
+    throw new Error(
+      'This server does not support saved agent status. Update the server before continuing.',
+    );
   const body = (await response.json()) as T & { error?: string };
   if (!response.ok) throw new Error(body.error || `Request failed (${response.status})`);
   return body;
@@ -345,6 +369,9 @@ function SessionDirectorPanel({
 }) {
   const [status, setStatus] = useState<DirectorStatus | null>(null);
   const [artifactMessage, setArtifactMessage] = useState('');
+  const [detailChecks, setDetailChecks] = useState<
+    Record<string, { pending: boolean; error?: string }>
+  >({});
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -372,15 +399,20 @@ function SessionDirectorPanel({
     async (preservedError?: string) => {
       const generation = ++refreshGeneration.current;
       setLoading(true);
+      setDetailChecks({});
+      setCleanupConfirmation({});
       try {
-        const next = await readJson<DirectorStatus>(base);
+        const next = await readJson<DirectorStatus>(`${base}/status`);
         if (generation !== refreshGeneration.current) return;
         setStatus(next);
+        setDetailChecks({});
         // Typed cleanup consent belongs to the status the operator inspected.
         setCleanupConfirmation({});
         setProfileSelections((current) => ({ ...next.initialProfileSelections, ...current }));
         setSelected((current) =>
-          current.filter((id) => next.seats.some((seat) => seat.seatId === id && seat.admitted)),
+          current.filter((id) =>
+            next.seats.some((seat) => seat.seatId === id && canRequestAgent(seat)),
+          ),
         );
         setError(preservedError ?? '');
       } catch (cause) {
@@ -413,6 +445,55 @@ function SessionDirectorPanel({
       refreshGeneration.current += 1;
     };
   }, [sessionId, open, refresh]);
+
+  async function checkDetails(seat: DirectorSeat) {
+    if (
+      status?.statusMode !== 'durable' ||
+      !seat.creationDiagnostic ||
+      detailChecks[seat.seatId]?.pending
+    )
+      return;
+    const epoch = refreshGeneration.current;
+    const revision = status.config?.revision;
+    const generation = seat.membership?.generation;
+    setDetailChecks((old) => ({ ...old, [seat.seatId]: { pending: true } }));
+    setCleanupConfirmation((old) => ({ ...old, [seat.seatId]: '' }));
+    try {
+      const checked = await readJson<DirectorStatus>(base);
+      if (epoch !== refreshGeneration.current) return;
+      const exact = checked.seats.find((item) => item.seatId === seat.seatId);
+      if (
+        checked.sessionId !== sessionId ||
+        checked.statusMode === 'durable' ||
+        checked.runtimeVerification === 'not_checked' ||
+        !exact ||
+        checked.config?.revision !== revision ||
+        exact?.membership?.generation !== generation
+      )
+        throw new Error('Agent details changed. Refresh the agent list before continuing.');
+      setStatus(
+        (current) =>
+          current && {
+            ...current,
+            seats: current.seats.map((item) =>
+              item.seatId === seat.seatId
+                ? { ...item, creationDiagnostic: exact.creationDiagnostic }
+                : item,
+            ),
+          },
+      );
+      setDetailChecks((old) => ({ ...old, [seat.seatId]: { pending: false } }));
+    } catch (cause) {
+      if (epoch !== refreshGeneration.current) return;
+      setDetailChecks((old) => ({
+        ...old,
+        [seat.seatId]: {
+          pending: false,
+          error: cause instanceof Error ? cause.message : 'Could not check connection details',
+        },
+      }));
+    }
+  }
 
   async function mutate(path: string, payload: Record<string, unknown>, method = 'POST') {
     if (busy) return;
@@ -694,7 +775,7 @@ function SessionDirectorPanel({
     });
   }
 
-  const admitted = status?.seats.filter((seat) => seat.admitted) ?? [];
+  const admitted = status?.seats.filter(canRequestAgent) ?? [];
   return (
     <section className="symposium-director" aria-label="Symposium director">
       <button type="button" aria-expanded={open} onClick={() => setOpen((value) => !value)}>
@@ -746,8 +827,11 @@ function SessionDirectorPanel({
                       <span className="symposium-agent-state">
                         {seat.creationDiagnostic
                           ? 'Couldn’t connect this agent'
-                          : seat.admitted
-                            ? 'Connected'
+                          : canRequestAgent(seat)
+                            ? status.statusMode === 'durable' ||
+                              seat.admissionRecorded !== undefined
+                              ? 'Added'
+                              : 'Connected'
                             : seat.membership?.state === 'suspended'
                               ? 'Paused'
                               : seat.membership?.state === 'removed'
@@ -765,7 +849,7 @@ function SessionDirectorPanel({
                       </span>
                     </div>
                     {seat.creationDiagnostic && <p>Workspace setup failed. No message was sent.</p>}
-                    {seat.admitted &&
+                    {canRequestAgent(seat) &&
                       seat.seatId !==
                         (status.config!.version === 2
                           ? status.config!.anchorSeatId
@@ -787,8 +871,23 @@ function SessionDirectorPanel({
                           </button>
                         </div>
                       )}
-                    <AdvancedControls label="View details">
+                    <AdvancedControls label="View details" onOpen={() => void checkDetails(seat)}>
                       <div className="symposium-agent-details">
+                        {detailChecks[seat.seatId]?.pending && (
+                          <p role="status">Checking connection details…</p>
+                        )}
+                        {detailChecks[seat.seatId]?.error && (
+                          <div role="alert">
+                            <p>Couldn’t check connection details.</p>
+                            <details>
+                              <summary>Technical details</summary>
+                              {detailChecks[seat.seatId].error}
+                            </details>
+                            <button type="button" onClick={() => void checkDetails(seat)}>
+                              Try checking again
+                            </button>
+                          </div>
+                        )}
                         <strong>{seat.seat.name}</strong> · {seat.seat.role} ·{' '}
                         {seat.seat.accountBinding?.accountLabel ?? 'Account unknown'} ·{' '}
                         {seat.seat.model}
@@ -802,82 +901,84 @@ function SessionDirectorPanel({
                               ? 'Cleanup required'
                               : 'Pending runtime admission'}
                         </span>
-                        {seat.creationDiagnostic && (
-                          <div role="status">
-                            Creation failed during {seat.creationDiagnostic.phase}:{' '}
-                            {seat.creationDiagnostic.code}.
-                            {seat.creationDiagnostic.canCleanup ? (
-                              <>
-                                <p>
-                                  Clean up this failed sandbox. The seat will be suspended; Restore
-                                  requires a separate action.
-                                </p>
-                                <label>
-                                  Type CLEAN UP FAILED SEAT for {seat.seat.name}
-                                  <input
-                                    value={cleanupConfirmation[seat.seatId] ?? ''}
-                                    onChange={(event) =>
-                                      setCleanupConfirmation({
-                                        ...cleanupConfirmation,
-                                        [seat.seatId]: event.target.value,
+                        {seat.creationDiagnostic &&
+                          !detailChecks[seat.seatId]?.pending &&
+                          !detailChecks[seat.seatId]?.error && (
+                            <div role="status">
+                              Creation failed during {seat.creationDiagnostic.phase}:{' '}
+                              {seat.creationDiagnostic.code}.
+                              {seat.creationDiagnostic.canCleanup ? (
+                                <>
+                                  <p>
+                                    Clean up this failed sandbox. The seat will be suspended;
+                                    Restore requires a separate action.
+                                  </p>
+                                  <label>
+                                    Type CLEAN UP FAILED SEAT for {seat.seat.name}
+                                    <input
+                                      value={cleanupConfirmation[seat.seatId] ?? ''}
+                                      onChange={(event) =>
+                                        setCleanupConfirmation({
+                                          ...cleanupConfirmation,
+                                          [seat.seatId]: event.target.value,
+                                        })
+                                      }
+                                    />
+                                  </label>
+                                  <button
+                                    type="button"
+                                    disabled={
+                                      busy ||
+                                      cleanupConfirmation[seat.seatId] !== 'CLEAN UP FAILED SEAT'
+                                    }
+                                    onClick={() =>
+                                      void mutate('/creation/recover', {
+                                        seatId: seat.seatId,
+                                        expectedRevision: status.config!.revision,
+                                        expectedGeneration: seat.membership!.generation,
+                                        confirmation: cleanupConfirmation[seat.seatId],
+                                        ...(seat.creationDiagnostic?.recoveryIdempotencyKey
+                                          ? {
+                                              idempotencyKey:
+                                                seat.creationDiagnostic.recoveryIdempotencyKey,
+                                            }
+                                          : {}),
                                       })
                                     }
-                                  />
-                                </label>
-                                <button
-                                  type="button"
-                                  disabled={
-                                    busy ||
-                                    cleanupConfirmation[seat.seatId] !== 'CLEAN UP FAILED SEAT'
-                                  }
-                                  onClick={() =>
-                                    void mutate('/creation/recover', {
-                                      seatId: seat.seatId,
-                                      expectedRevision: status.config!.revision,
-                                      expectedGeneration: seat.membership!.generation,
-                                      confirmation: cleanupConfirmation[seat.seatId],
-                                      ...(seat.creationDiagnostic?.recoveryIdempotencyKey
-                                        ? {
-                                            idempotencyKey:
-                                              seat.creationDiagnostic.recoveryIdempotencyKey,
-                                          }
-                                        : {}),
-                                    })
-                                  }
-                                >
-                                  Clean up failed seat
-                                </button>
-                              </>
-                            ) : seat.creationDiagnostic.recoveryAuthorization?.state ===
-                              'reauthorization_required' ? (
-                              <CreationRecoveryAuthorization
-                                key={`${sessionId}:${seat.seatId}:${seat.membership!.generation}:${status.config!.revision}:${seat.creationDiagnostic.recoveryAuthorization.operationId}:${seat.creationDiagnostic.recoveryAuthorization.revision}`}
-                                sessionId={sessionId}
-                                seat={seat}
-                                revision={status.config!.revision}
-                                onSaved={async () => {
-                                  setCleanupConfirmation((current) => ({
-                                    ...current,
-                                    [seat.seatId]: '',
-                                  }));
-                                  await refresh();
-                                }}
-                              />
-                            ) : seat.creationDiagnostic.recoveryAuthorization?.state ===
-                              'cleanup_fenced' ? (
-                              <p>
-                                Cleanup is fenced: physical work may still be running or its outcome
-                                is uncertain. Automatic retry and authorization transfer are
-                                unavailable.
-                              </p>
-                            ) : (
-                              <p>
-                                Exact retained creation proof is unavailable. Host recovery is
-                                required.
-                              </p>
-                            )}
-                          </div>
-                        )}
+                                  >
+                                    Clean up failed seat
+                                  </button>
+                                </>
+                              ) : seat.creationDiagnostic.recoveryAuthorization?.state ===
+                                'reauthorization_required' ? (
+                                <CreationRecoveryAuthorization
+                                  key={`${sessionId}:${seat.seatId}:${seat.membership!.generation}:${status.config!.revision}:${seat.creationDiagnostic.recoveryAuthorization.operationId}:${seat.creationDiagnostic.recoveryAuthorization.revision}`}
+                                  sessionId={sessionId}
+                                  seat={seat}
+                                  revision={status.config!.revision}
+                                  onSaved={async () => {
+                                    setCleanupConfirmation((current) => ({
+                                      ...current,
+                                      [seat.seatId]: '',
+                                    }));
+                                    await refresh();
+                                  }}
+                                />
+                              ) : seat.creationDiagnostic.recoveryAuthorization?.state ===
+                                'cleanup_fenced' ? (
+                                <p>
+                                  Cleanup is fenced: physical work may still be running or its
+                                  outcome is uncertain. Automatic retry and authorization transfer
+                                  are unavailable.
+                                </p>
+                              ) : (
+                                <p>
+                                  Exact retained creation proof is unavailable. Host recovery is
+                                  required.
+                                </p>
+                              )}
+                            </div>
+                          )}
                         {status.config?.version === 2 &&
                         seat.seatId === status.config.anchorSeatId &&
                         seat.membership?.state === 'active' ? (
@@ -906,7 +1007,7 @@ function SessionDirectorPanel({
                         ) : (
                           <button
                             type="button"
-                            disabled={busy || !status.runtimeAvailable || !boundaryAcknowledged}
+                            disabled={busy || !canRequestRuntime(status) || !boundaryAcknowledged}
                             onClick={() =>
                               transition(
                                 seat,
@@ -1009,7 +1110,7 @@ function SessionDirectorPanel({
                     {artifactMessage && <p role="status">{artifactMessage}</p>}
                   </div>
                 )}
-                {!status.runtimeAvailable && (
+                {!canRequestRuntime(status) && (
                   <p role="status">
                     The agent service is unavailable. Agents cannot connect or receive messages yet.
                     You can still revoke access or stop deliveries.
@@ -1027,7 +1128,7 @@ function SessionDirectorPanel({
                   ) && (
                     <button
                       type="button"
-                      disabled={busy || !status.runtimeAvailable}
+                      disabled={busy || !canRequestRuntime(status)}
                       onClick={() => void refreshAdmissions()}
                     >
                       Recheck retained seat admissions
@@ -1071,7 +1172,7 @@ function SessionDirectorPanel({
                 )}
                 {status.config.version === 2 && status.config.state === 'active' && (
                   <AdvancedControls label="Change conversation owner">
-                    <fieldset disabled={busy || !status.runtimeAvailable}>
+                    <fieldset disabled={busy || !canRequestRuntime(status)}>
                       <legend>Transfer primary seat</legend>
                       <p>
                         Select an admitted seat to own conversation routing. Its permissions stay
@@ -1092,7 +1193,7 @@ function SessionDirectorPanel({
                                   (status.config?.version === 2
                                     ? status.config.anchorSeatId
                                     : '') &&
-                                seat.admitted &&
+                                canRequestAgent(seat) &&
                                 seat.membership?.state === 'active' &&
                                 seat.membership.reconciliation === 'confirmed',
                             )
@@ -1122,7 +1223,8 @@ function SessionDirectorPanel({
                           );
                           if (
                             status.config?.version !== 2 ||
-                            !target?.admitted ||
+                            !target ||
+                            !canRequestAgent(target) ||
                             target.membership?.state !== 'active' ||
                             target.membership.reconciliation !== 'confirmed'
                           )
@@ -1211,7 +1313,7 @@ function SessionDirectorPanel({
                     </div>
                   </AdvancedControls>
                 )}
-                <fieldset disabled={busy || !status.runtimeAvailable || admitted.length === 0}>
+                <fieldset disabled={busy || !canRequestRuntime(status) || admitted.length === 0}>
                   <legend>Direct a message</legend>
                   {admitted.map((seat) => (
                     <label key={seat.seatId}>
@@ -1242,7 +1344,7 @@ function SessionDirectorPanel({
                     type="button"
                     className="btn-primary"
                     disabled={
-                      busy || !status.runtimeAvailable || selected.length === 0 || !message.trim()
+                      busy || !canRequestRuntime(status) || selected.length === 0 || !message.trim()
                     }
                     onClick={() =>
                       void mutate('/deliveries', {
@@ -1311,7 +1413,7 @@ function SessionDirectorPanel({
                       {delivery.status === 'ready' && (
                         <button
                           type="button"
-                          disabled={busy || !status.runtimeAvailable}
+                          disabled={busy || !canRequestRuntime(status)}
                           onClick={() =>
                             void mutate(
                               `/deliveries/${encodeURIComponent(delivery.deliveryId)}/dispatch`,

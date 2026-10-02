@@ -404,7 +404,7 @@ it('hides ordinary suspend and permission controls on the mobile Symposium surfa
         json: async () =>
           String(url).endsWith('/meta')
             ? { sessionType: 'symposium' }
-            : String(url).endsWith('/symposium')
+            : String(url).endsWith('/status')
               ? { sessionId: 'native-chat', config: null, seats: [] }
               : [],
       }) as Response,
