@@ -28,6 +28,7 @@ export interface SymposiumCustodianConstructorHooks {
   observeDurableReviewToolResult?: OwnedSymposiumHostOptions['observeDurableReviewToolResult'];
   observeStartupConfig?: OwnedSymposiumHostOptions['observeStartupConfig'];
   observePrelaunch?: OwnedSymposiumHostOptions['observePrelaunch'];
+  observeRuntime?: OwnedSymposiumHostOptions['observeRuntime'];
   observeController?: (
     identity: Readonly<OriginalSymposiumControllerIdentity>,
     assertCurrent: () => void,
@@ -39,6 +40,7 @@ export async function runSymposiumCustodian(hooks: SymposiumCustodianConstructor
     observeDurableReviewToolResult,
     observeStartupConfig,
     observePrelaunch,
+    observeRuntime,
     observeController,
     admissionBuildSelection,
   } = hooks;
@@ -51,6 +53,8 @@ export async function runSymposiumCustodian(hooks: SymposiumCustodianConstructor
     throw Error('Startup observer must be a trusted constructor callback');
   if (observePrelaunch !== undefined && typeof observePrelaunch !== 'function')
     throw Error('Prelaunch observer must be a trusted constructor callback');
+  if (observeRuntime !== undefined && typeof observeRuntime !== 'function')
+    throw Error('Runtime observer must be a trusted constructor callback');
   if (observeController !== undefined && typeof observeController !== 'function')
     throw Error('Controller observer must be a trusted constructor callback');
   if (admissionBuildSelection !== undefined && admissionBuildSelection !== 'local-854b-b20-v1')
@@ -71,6 +75,7 @@ export async function runSymposiumCustodian(hooks: SymposiumCustodianConstructor
       observeDurableReviewToolResult,
       observeStartupConfig,
       observePrelaunch,
+      ...(observeRuntime === undefined ? {} : { observeRuntime }),
       ...(admissionBuildSelection === undefined ? {} : { admissionBuildSelection }),
     },
     bootstrapTools,

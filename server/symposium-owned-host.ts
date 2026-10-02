@@ -120,6 +120,7 @@ export interface OwnedSymposiumHostOptions {
   observeDurableReviewToolResult?: OpenAiCodexSeatInput['observeDurableReviewToolResult'];
   observeStartupConfig?: OpenAiCodexSeatInput['observeStartupConfig'];
   observePrelaunch?: OpenAiCodexSeatInput['observePrelaunch'];
+  observeRuntime?: OpenShellRuntimeConfig['observeRuntime'];
   criterionChecks?: readonly CheckDefinition[];
   publicationCredentials?: readonly PublicationCredentialRegistration[];
   gateway: OwnedSymposiumGatewayOptions;
@@ -261,6 +262,7 @@ export async function createOwnedSymposiumHost(
       : options.personal.workProfiles;
     custody();
     const runtimeConfig: OpenShellRuntimeConfig = {
+      ...(options.observeRuntime ? { observeRuntime: options.observeRuntime } : {}),
       cli: gateway.cli,
       gateway: gateway.gateway,
       workspace: gateway.workspace,

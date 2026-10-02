@@ -1568,3 +1568,24 @@ it('public draft candidate derives original Work API scope/ready mapping without
     host.stop();
   }
 });
+
+it('retains only explicit constructor runtime diagnostics without invoking them as custody or readiness', async () => {
+  const f = fixture();
+  const observeRuntime = vi.fn();
+  const host = await createOwnedSymposiumHost({ ...f.options, observeRuntime }, f.launch);
+  try {
+    expect(host.runtimeConfig.observeRuntime).toBe(observeRuntime);
+    expect(observeRuntime).not.toHaveBeenCalled();
+  } finally {
+    await host.stop();
+  }
+});
+it('default runtime config has no observation callback', async () => {
+  const f = fixture();
+  const host = await createOwnedSymposiumHost(f.options, f.launch);
+  try {
+    expect(Object.hasOwn(host.runtimeConfig, 'observeRuntime')).toBe(false);
+  } finally {
+    await host.stop();
+  }
+});

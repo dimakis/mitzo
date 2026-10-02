@@ -77,6 +77,7 @@ it.each([undefined, 'local-854b-b20-v1'] as const)(
     const observer = vi.fn();
     const startup = vi.fn();
     const prelaunch = vi.fn();
+    const runtime = vi.fn();
     const entry = await import('../symposium-custodian-main.js');
     // Vitest workers themselves have IPC; remove only this synthetic process marker.
     const descriptor = Object.getOwnPropertyDescriptor(process, 'send');
@@ -87,6 +88,7 @@ it.each([undefined, 'local-854b-b20-v1'] as const)(
           observeDurableReviewToolResult: observer,
           observeStartupConfig: startup,
           observePrelaunch: prelaunch,
+          observeRuntime: runtime,
           ...(admissionBuildSelection === undefined ? {} : { admissionBuildSelection }),
         }),
       ).rejects.toThrow('stop-before-any-child');
@@ -101,6 +103,7 @@ it.each([undefined, 'local-854b-b20-v1'] as const)(
         observeDurableReviewToolResult: observer,
         observeStartupConfig: startup,
         observePrelaunch: prelaunch,
+        observeRuntime: runtime,
         ...(admissionBuildSelection === undefined ? {} : { admissionBuildSelection }),
       },
       undefined,

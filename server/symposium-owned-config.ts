@@ -25,6 +25,7 @@ type Dependencies = Pick<
   | 'observeDurableReviewToolResult'
   | 'observeStartupConfig'
   | 'observePrelaunch'
+  | 'observeRuntime'
   | 'admissionBuildSelection'
 >;
 export interface BootstrapTools {
