@@ -2967,3 +2967,35 @@ it('permits retry when navigation cancels a launch that was never transmitted', 
   expect(store.getState().pendingSessionSending).toBe(false);
   expect(store.getState().pendingSession?.prompt).toBe('Queued launch');
 });
+
+it('retains an offscreen launch reconnect subscription and reconciles its persisted receipt', async () => {
+  const transport = mockTransport();
+  const store = createReadyStore(transport);
+  store.getState().setPendingSession({ prompt: 'Launch', context: 'Telos' });
+  store.getState().sendPendingSession();
+  const id = store.getState().messages.messages.at(-1)!.messageId;
+  lastWs.simulateMessage({ type: 'session_id', sessionId: 'launch-session' });
+  store.getState().newSession();
+  const previousSocket = lastWs;
+  store.getState().forceReconnect();
+  await vi.waitFor(() => expect(lastWs).not.toBe(previousSocket));
+  lastWs.completeHandshake();
+  expect(lastWs.parsedSent().find((m) => m.type === 'reconnect')).toMatchObject({
+    sessions: expect.arrayContaining([{ sessionId: 'launch-session', lastSeq: 0 }]),
+  });
+  (transport.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
+    ok: true,
+    json: async () => ({
+      messages: [{ messageId: id, role: 'user', text: 'Launch', blocks: [], timestamp: 1 }],
+      cursor: 3,
+    }),
+  });
+  lastWs.simulateMessage({
+    type: 'session_reconnect_snapshot',
+    sessionId: 'launch-session',
+    cursor: 3,
+    state: 'idle',
+  });
+  await vi.waitFor(() => expect(store.getState().pendingSession).toBeNull());
+  expect(store.getState().messages.messages).toHaveLength(0);
+});
