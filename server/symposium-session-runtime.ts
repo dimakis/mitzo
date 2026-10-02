@@ -1,4 +1,8 @@
 import { canonicalReviewJson } from './symposium-review-records.js';
+import {
+  atSymposiumReconciliationStage,
+  atSymposiumReconciliationStageAsync,
+} from './symposium-reconciliation-error.js';
 import type { SubscriptionLaunchIdentity } from './symposium-subscription-identity.js';
 import type {
   SymposiumSeatPolicy,
@@ -855,16 +859,17 @@ export class SymposiumPerSeatSandboxOwner {
         });
         if (binding.type === 'google-vertex-ai' && !seatPolicy)
           throw new Error('Owned Vertex seat policy unavailable');
-        const verifySeatCapability = () => {
-          seatPolicy?.verify();
-          const capability = this.deps.verifyHostCapability?.();
-          verifyClaudeSeatCapability(this.deps, sessionId, seatId, capability);
-          if (capability)
-            assertSymposiumAttestedProvider(capability, {
-              ...binding,
-              workspace: this.deps.runtimeConfig.workspace,
-            });
-        };
+        const verifySeatCapability = () =>
+          atSymposiumReconciliationStage('SEAT_CAPABILITY_RECHECK_FAILED', () => {
+            seatPolicy?.verify();
+            const capability = this.deps.verifyHostCapability?.();
+            verifyClaudeSeatCapability(this.deps, sessionId, seatId, capability);
+            if (capability)
+              assertSymposiumAttestedProvider(capability, {
+                ...binding,
+                workspace: this.deps.runtimeConfig.workspace,
+              });
+          });
         // A queued ensure may run long after admission or provider reconciliation.
         verifySeatCapability();
         const reservation = this.deps.seatSandboxRegistry!.reserveSymposiumSeatSandbox({
@@ -895,41 +900,51 @@ export class SymposiumPerSeatSandboxOwner {
           (!reservation.creationCompleted || !reservation.physicalId || !reservation.sandboxName)
         )
           throw new Error('Recorded seat sandbox requires reconciliation');
-        const lease = artifactRequest
-          ? reservation.state === 'ready'
-            ? await this.deps.artifactLeaseHost!.requireBoundSandboxLease(
-                artifactRequest,
-                reservation.sandboxName!,
-                reservation.physicalId!,
-              )
-            : artifactRequest.readerAdmissionId
-              ? await (async () => {
-                  const reference = this.deps.artifactReferenceStore?.getSymposiumArtifactReference(
-                    sessionId,
-                    seatId,
-                    snapshot.generation,
-                  );
-                  if (
-                    !reference ||
-                    !('kind' in reference) ||
-                    reference.kind !== 'sealed_reader' ||
-                    reference.readerAdmissionId !== artifactRequest.readerAdmissionId ||
-                    reference.artifactGenerationId !== artifactRequest.volumeGeneration
+        const lease = await atSymposiumReconciliationStageAsync(
+          'SEAT_ARTIFACT_LEASE_FAILED',
+          async () =>
+            artifactRequest
+              ? reservation.state === 'ready'
+                ? await this.deps.artifactLeaseHost!.requireBoundSandboxLease(
+                    artifactRequest,
+                    reservation.sandboxName!,
+                    reservation.physicalId!,
                   )
-                    throw new Error('Current confirmed sealed reader reference required');
-                  return acquireConfirmedSealedReaderLease(
-                    this.deps.artifactLeaseHost!,
-                    this.deps.artifactReferenceStore!,
-                    sessionId,
-                    reference,
-                  );
-                })()
-              : await acquireSymposiumArtifactLease(this.deps.artifactLeaseHost!, artifactRequest)
-          : undefined;
+                : artifactRequest.readerAdmissionId
+                  ? await (async () => {
+                      const reference =
+                        this.deps.artifactReferenceStore?.getSymposiumArtifactReference(
+                          sessionId,
+                          seatId,
+                          snapshot.generation,
+                        );
+                      if (
+                        !reference ||
+                        !('kind' in reference) ||
+                        reference.kind !== 'sealed_reader' ||
+                        reference.readerAdmissionId !== artifactRequest.readerAdmissionId ||
+                        reference.artifactGenerationId !== artifactRequest.volumeGeneration
+                      )
+                        throw new Error('Current confirmed sealed reader reference required');
+                      return acquireConfirmedSealedReaderLease(
+                        this.deps.artifactLeaseHost!,
+                        this.deps.artifactReferenceStore!,
+                        sessionId,
+                        reference,
+                      );
+                    })()
+                  : await acquireSymposiumArtifactLease(
+                      this.deps.artifactLeaseHost!,
+                      artifactRequest,
+                    )
+              : undefined,
+        );
         const artifactDriverConfig = lease
-          ? await artifactDriverConfigForLease(this.deps.artifactLeaseHost!, lease)
+          ? await atSymposiumReconciliationStageAsync('SEAT_ARTIFACT_VERIFICATION_FAILED', () =>
+              artifactDriverConfigForLease(this.deps.artifactLeaseHost!, lease),
+            )
           : undefined;
-        snapshot.verify();
+        atSymposiumReconciliationStage('SEAT_CAPABILITY_RECHECK_FAILED', () => snapshot.verify());
         let physicalDispatch: (() => void) | undefined;
         let terminalSettled: (() => void) | undefined;
         let creationPhase: 'create' | 'upload' | 'provider' | 'mount' = 'provider';
@@ -942,105 +957,105 @@ export class SymposiumPerSeatSandboxOwner {
             phase: creationPhase,
             failed,
           });
-        const manager = (
-          this.deps.managerFactory ?? ((config) => new OpenShellRuntimeManager(config))
-        )({
-          ...this.deps.runtimeConfig,
-          ...(seatPolicy ? { policy: seatPolicy.path } : {}),
-          ...(this.deps.runSandboxCreation
-            ? {
-                beforeSandboxCreate: () => {
-                  if (!physicalDispatch) throw new Error('Missing sandbox dispatch fence');
-                  physicalDispatch();
-                },
-              }
-            : {}),
-          ...(this.deps.runSandboxCreation &&
-          this.deps.runtimeConfig.cliContract === 'v0.1' &&
-          ['chatgpt-subscription-native', 'api'].includes(snapshot.account.kind) &&
-          this.deps.seatSandboxRegistry!.recordSymposiumSeatSandboxTerminalCreate
-            ? {
-                onSandboxCreationPhase: (phase) => {
-                  creationPhase = phase;
-                  diagnostic(false);
-                },
-                onSandboxCreateSettled: (receipt) => {
-                  if (!terminalSettled) throw new Error('Missing terminal create fence');
-                  if (
-                    receipt.workspace !== this.deps.runtimeConfig.workspace ||
-                    receipt.accountProvider !== snapshot.account.provider
-                  )
-                    throw new Error('Terminal create receipt binding changed');
-                  if (!receipt.sandboxName || !receipt.sandboxId)
-                    throw new Error('Missing terminal create identity');
-                  const identity = {
-                    sandboxName: receipt.sandboxName,
-                    sandboxId: receipt.sandboxId,
-                  };
-                  const original = this.terminalCreates.get(snapshot.runtimeId);
-                  if (
-                    original &&
-                    (original.sandboxName !== identity.sandboxName ||
-                      original.sandboxId !== identity.sandboxId)
-                  )
-                    throw new Error('Terminal create identity changed');
-                  // Keep the actual original response locally even if its durable write fails.
-                  // This does not complete the durable row or reconstruct cleanup authority.
-                  if (!original)
-                    this.terminalCreates.set(snapshot.runtimeId, {
-                      ...identity,
-                      ...(lease ? { lease: structuredClone(lease) } : {}),
+        const manager = atSymposiumReconciliationStage('SEAT_MANAGER_SETUP_FAILED', () =>
+          (this.deps.managerFactory ?? ((config) => new OpenShellRuntimeManager(config)))({
+            ...this.deps.runtimeConfig,
+            ...(seatPolicy ? { policy: seatPolicy.path } : {}),
+            ...(this.deps.runSandboxCreation
+              ? {
+                  beforeSandboxCreate: () => {
+                    if (!physicalDispatch) throw new Error('Missing sandbox dispatch fence');
+                    physicalDispatch();
+                  },
+                }
+              : {}),
+            ...(this.deps.runSandboxCreation &&
+            this.deps.runtimeConfig.cliContract === 'v0.1' &&
+            ['chatgpt-subscription-native', 'api'].includes(snapshot.account.kind) &&
+            this.deps.seatSandboxRegistry!.recordSymposiumSeatSandboxTerminalCreate
+              ? {
+                  onSandboxCreationPhase: (phase) => {
+                    creationPhase = phase;
+                    diagnostic(false);
+                  },
+                  onSandboxCreateSettled: (receipt) => {
+                    if (!terminalSettled) throw new Error('Missing terminal create fence');
+                    if (
+                      receipt.workspace !== this.deps.runtimeConfig.workspace ||
+                      receipt.accountProvider !== snapshot.account.provider
+                    )
+                      throw new Error('Terminal create receipt binding changed');
+                    if (!receipt.sandboxName || !receipt.sandboxId)
+                      throw new Error('Missing terminal create identity');
+                    const identity = {
+                      sandboxName: receipt.sandboxName,
+                      sandboxId: receipt.sandboxId,
+                    };
+                    const original = this.terminalCreates.get(snapshot.runtimeId);
+                    if (
+                      original &&
+                      (original.sandboxName !== identity.sandboxName ||
+                        original.sandboxId !== identity.sandboxId)
+                    )
+                      throw new Error('Terminal create identity changed');
+                    // Keep the actual original response locally even if its durable write fails.
+                    // This does not complete the durable row or reconstruct cleanup authority.
+                    if (!original)
+                      this.terminalCreates.set(snapshot.runtimeId, {
+                        ...identity,
+                        ...(lease ? { lease: structuredClone(lease) } : {}),
+                      });
+                    this.deps.seatSandboxRegistry!.recordSymposiumSeatSandboxTerminalCreate!({
+                      sessionId,
+                      seatId,
+                      generation: snapshot.generation,
+                      runtimeId: snapshot.runtimeId,
+                      sandboxName: receipt.sandboxName,
+                      physicalId: receipt.sandboxId,
+                      settlementReceiptV1: {
+                        physicalProof: 'unavailable',
+                        ...(lease
+                          ? {
+                              // Match the exact original artifact owner's request bytes.
+                              leaseRequestSha256: createHash('sha256')
+                                .update(JSON.stringify(lease.request))
+                                .digest('hex'),
+                              leaseTokenSha256: createHash('sha256')
+                                .update(lease.token)
+                                .digest('hex'),
+                              leaseRevision: lease.revision,
+                            }
+                          : {}),
+                      },
                     });
-                  this.deps.seatSandboxRegistry!.recordSymposiumSeatSandboxTerminalCreate!({
-                    sessionId,
-                    seatId,
-                    generation: snapshot.generation,
-                    runtimeId: snapshot.runtimeId,
-                    sandboxName: receipt.sandboxName,
-                    physicalId: receipt.sandboxId,
-                    settlementReceiptV1: {
-                      physicalProof: 'unavailable',
-                      ...(lease
-                        ? {
-                            // Match the exact original artifact owner's request bytes.
-                            leaseRequestSha256: createHash('sha256')
-                              .update(JSON.stringify(lease.request))
-                              .digest('hex'),
-                            leaseTokenSha256: createHash('sha256')
-                              .update(lease.token)
-                              .digest('hex'),
-                            leaseRevision: lease.revision,
-                          }
-                        : {}),
-                    },
-                  });
-                  terminalSettled();
-                  // Successful native creation is settled before any lease postcheck.
-                  // A failed binding retains the original lease for explicit cleanup.
-                  if (lease)
-                    this.deps.artifactLeaseHost!.bindSandbox(
-                      lease.token,
-                      lease.revision,
-                      receipt.sandboxName,
-                      receipt.sandboxId,
-                    );
-                },
-              }
-            : {}),
-          account: snapshot.account,
-          accountProviderBindings: snapshot.bindings,
-          verifyAccountProviderUnion: () => {
-            verifySeatCapability();
-            snapshot.verify();
-          },
-          ...(artifactDriverConfig
-            ? {
-                artifactDriverConfig,
-                verifyArtifactMount: (name, id, config) =>
-                  this.deps.artifactLeaseHost!.verifyPhysicalMount(name, id, config),
-              }
-            : {}),
-        });
+                    terminalSettled();
+                    // Successful native creation is settled before any lease postcheck.
+                    // A failed binding retains the original lease for explicit cleanup.
+                    if (lease)
+                      this.deps.artifactLeaseHost!.bindSandbox(
+                        lease.token,
+                        lease.revision,
+                        receipt.sandboxName,
+                        receipt.sandboxId,
+                      );
+                  },
+                }
+              : {}),
+            account: snapshot.account,
+            accountProviderBindings: snapshot.bindings,
+            verifyAccountProviderUnion: () => {
+              verifySeatCapability();
+              snapshot.verify();
+            },
+            ...(artifactDriverConfig
+              ? {
+                  artifactDriverConfig,
+                  verifyArtifactMount: (name, id, config) =>
+                    this.deps.artifactLeaseHost!.verifyPhysicalMount(name, id, config),
+                }
+              : {}),
+          }),
+        );
         verifySeatCapability();
         if (reservation.state === 'ready') {
           if (
@@ -1165,11 +1180,12 @@ export class SymposiumPerSeatSandboxOwner {
             throw new Error('OpenShell seat sandbox has no physical identity');
           return created;
         };
-        const verifyBeforeCreate = () => {
-          signal.throwIfAborted();
-          verifySeatCapability();
-          snapshot.verify();
-        };
+        const verifyBeforeCreate = () =>
+          atSymposiumReconciliationStage('SEAT_CAPABILITY_RECHECK_FAILED', () => {
+            signal.throwIfAborted();
+            verifySeatCapability();
+            snapshot.verify();
+          });
         const sandbox = this.deps.runSandboxCreation
           ? await this.deps.runSandboxCreation(verifyBeforeCreate, create)
           : await create();

@@ -14,6 +14,7 @@ import { randomUUID } from 'node:crypto';
 import type { EventStore } from './event-store.js';
 import type { SymposiumCreationRecoveryRequest } from '@mitzo/protocol/event-store';
 import { createLogger } from './logger.js';
+import { symposiumReconciliationFailureCode } from './symposium-reconciliation-error.js';
 
 const log = createLogger('symposium-orchestrator');
 const sharedReconciliationQueues = new WeakMap<EventStore, Map<string, Promise<void>>>();
@@ -400,12 +401,13 @@ export class SymposiumOrchestrator {
         record.generation,
         'confirmed',
       );
-    } catch {
+    } catch (error) {
       log.warn('Symposium membership cleanup requires recovery', {
         sessionId,
         seatId,
         reason:
           record.state === 'active' ? 'admission_reconcile_failed' : 'revocation_reconcile_failed',
+        failureCode: symposiumReconciliationFailureCode(error),
       });
       return this.store.markSymposiumMembershipReconciled(
         sessionId,
