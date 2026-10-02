@@ -355,6 +355,31 @@ it('retries a failed load after the active turn finishes', async () => {
   expect(screen.queryByRole('alert')).toBeNull();
 });
 
+it('recovers when the pending load fails just after the active turn finishes', async () => {
+  let complete: (value: Response) => void = () => {};
+  vi.mocked(apiFetch)
+    .mockImplementationOnce(
+      () =>
+        new Promise<Response>((resolve) => {
+          complete = resolve;
+        }),
+    )
+    .mockResolvedValue(response('unresolved', 0));
+  const props = {
+    sessionId: 'session-1',
+    mode: 'agent' as const,
+    connected: true,
+    connectionId: 'owner-1',
+  };
+  const { rerender } = render(<WebSearchConsent {...props} running />);
+  rerender(<WebSearchConsent {...props} running={false} />);
+  await act(async () => {
+    complete({ ok: false, status: 403 } as Response);
+  });
+  await screen.findByRole('button', { name: 'Web search permission: Choose' });
+  expect(apiFetch).toHaveBeenCalledTimes(2);
+});
+
 it('distinguishes an invalid response from a connection failure', async () => {
   vi.mocked(apiFetch).mockResolvedValue({ ok: true, json: async () => ({}) } as Response);
   render(

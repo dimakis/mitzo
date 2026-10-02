@@ -35,13 +35,15 @@ export function WebSearchConsent({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [reload, setReload] = useState(0);
-  const previouslyRunning = useRef(running);
+  const previousTurn = useRef({ sessionId, running });
+  const pendingTurnRetry = useRef(false);
   const canRefresh = !!consent || !!error;
 
   useEffect(() => {
     setConsent(null);
     setOpen(false);
     setError('');
+    pendingTurnRetry.current = false;
   }, [sessionId]);
 
   useEffect(() => {
@@ -86,6 +88,7 @@ export function WebSearchConsent({
             throw new WebAccessLoadError('The server returned an invalid web access setting.');
           }
           if (!cancelled) {
+            pendingTurnRetry.current = false;
             setConsent(value);
             setError('');
           }
@@ -123,10 +126,16 @@ export function WebSearchConsent({
   }, [sessionId, connected, connectionId, reload]);
 
   useEffect(() => {
-    const finished = previouslyRunning.current && !running;
-    previouslyRunning.current = running;
-    if (finished && error && connected && connectionId) setReload((value) => value + 1);
-  }, [running, error, connected, connectionId]);
+    const finished =
+      previousTurn.current.sessionId === sessionId && previousTurn.current.running && !running;
+    previousTurn.current = { sessionId, running };
+    // Keep one retry available if a still-pending read fails after turn completion.
+    if (finished && (!consent || error)) pendingTurnRetry.current = true;
+    if (!running && error && pendingTurnRetry.current && connected && connectionId) {
+      pendingTurnRetry.current = false;
+      setReload((value) => value + 1);
+    }
+  }, [sessionId, running, consent, error, connected, connectionId]);
 
   useEffect(() => {
     if (!sessionId || !connected || !connectionId || !canRefresh || saving) return;
