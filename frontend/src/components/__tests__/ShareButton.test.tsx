@@ -5,9 +5,10 @@ import userEvent from '@testing-library/user-event';
 
 vi.mock('../../lib/share-file', () => ({
   shareFile: vi.fn(),
+  downloadFile: vi.fn(),
 }));
 
-import { shareFile } from '../../lib/share-file';
+import { shareFile, downloadFile } from '../../lib/share-file';
 import { ShareButton } from '../ShareButton';
 
 const mockShareFile = vi.mocked(shareFile);
@@ -23,6 +24,15 @@ describe('ShareButton', () => {
     const btn = screen.getByRole('button', { name: 'Share file' });
     expect(btn).toBeTruthy();
     expect(btn.textContent).toBe('\u21A6');
+  });
+
+  it('offers a separate browser download action', async () => {
+    vi.mocked(downloadFile).mockResolvedValue(true);
+    render(<ShareButton filePath="report.md" sessionId="session-1" />);
+    await userEvent.click(screen.getByRole('button', { name: 'Download file' }));
+    expect(downloadFile).toHaveBeenCalledWith('report.md', 'session-1');
+    expect(screen.getByRole('button', { name: 'Downloaded' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Share file' })).toBeTruthy();
   });
 
   it('shows done state after successful share', async () => {
