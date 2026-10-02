@@ -3,6 +3,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import process from 'node:process';
 import { fileURLToPath, URL } from 'node:url';
+import { validateRuntimeMarkerEnvironment } from './verify-openshell-production.mjs';
 
 const repoRoot = resolve(fileURLToPath(new URL('..', import.meta.url)));
 
@@ -18,6 +19,7 @@ export function updateReleasePins({
   mitzoCommit,
   mgmtCommit,
   policyDigest,
+  knowledgeContract,
 }) {
   invariant(
     /^[^\s:]+(?:\/[^\s:]+)*:[^\s:]+$/.test(image) && !/:(?:latest|dev)$/.test(image),
@@ -39,6 +41,41 @@ export function updateReleasePins({
     mitzoSourceCommit: mitzoCommit,
     mgmtSourceCommit: mgmtCommit,
   });
+  if (knowledgeContract !== undefined) {
+    invariant(knowledgeContract.knowledgeSchemaVersion === 1, 'unsupported knowledge schema');
+    invariant(
+      /^[a-f0-9]{40}$/.test(knowledgeContract.knowledgeCompilerCommit),
+      'compiler must be commit-pinned',
+    );
+    for (const field of [
+      'knowledgeCompilerSha256',
+      'knowledgeRecipeSha256',
+      'dependencyProjectionSha256',
+      'jiraRuntimeInputsSha256',
+    ]) {
+      invariant(
+        /^[a-f0-9]{64}$/.test(knowledgeContract[field]),
+        `missing runtime attestation: ${field}`,
+      );
+    }
+    validateRuntimeMarkerEnvironment(
+      knowledgeContract.targetMarkerEnvironmentB64,
+      knowledgeContract.targetPlatform,
+    );
+    for (const field of [
+      'knowledgeSchemaVersion',
+      'knowledgeCompilerCommit',
+      'knowledgeCompilerSha256',
+      'knowledgeRecipeSha256',
+      'dependencyProjectionSha256',
+      'jiraRuntimeInputsSha256',
+      'targetPlatform',
+      'targetMarkerEnvironmentB64',
+    ]) {
+      nextManifest.runtime[field] = knowledgeContract[field];
+    }
+    delete nextManifest.runtime.seedPayloadSha256;
+  }
   nextManifest.policy.sha256 = policyDigest;
 
   const imageLine = /^MITZO_OPENSHELL_IMAGE=.*$/m;
@@ -48,7 +85,7 @@ export function updateReleasePins({
 }
 
 export function main(argv = process.argv.slice(2)) {
-  const [image, digest, mitzoCommit, mgmtCommit, policyDigest] = argv;
+  const [image, digest, mitzoCommit, mgmtCommit, policyDigest, contractPath] = argv;
   invariant(
     image && digest && mitzoCommit && mgmtCommit && policyDigest,
     'usage: update-openshell-release-lock IMAGE DIGEST MITZO_COMMIT MGMT_COMMIT POLICY_SHA256',
@@ -65,6 +102,7 @@ export function main(argv = process.argv.slice(2)) {
     mitzoCommit,
     mgmtCommit,
     policyDigest,
+    knowledgeContract: contractPath ? JSON.parse(readFileSync(contractPath, 'utf8')) : undefined,
   });
   writeFileSync(manifestPath, `${JSON.stringify(updated.manifest, null, 2)}\n`);
   writeFileSync(environmentPath, updated.environment);
