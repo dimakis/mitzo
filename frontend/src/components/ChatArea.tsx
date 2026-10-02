@@ -1,3 +1,5 @@
+import { SeatLabel } from './SeatLabel';
+import { seatAccentColor } from '../lib/seat-color';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { UserBubble, TextBubble } from './MessageBubble';
 import { ThinkingBlock } from './ThinkingBlock';
@@ -62,14 +64,18 @@ function SeatAttribution({ provenance }: { provenance?: SymposiumProvenance }) {
   if (!('version' in provenance) || (provenance.version !== 2 && provenance.version !== 3)) {
     return (
       <div className="chat-seat-attribution">
-        {provenance.seatId.charAt(0).toUpperCase() + provenance.seatId.slice(1)} seat · account and
-        model unknown
+        <SeatLabel
+          seatId={provenance.seatId}
+          name={`${provenance.seatId.charAt(0).toUpperCase() + provenance.seatId.slice(1)} seat · account and model unknown`}
+        />
       </div>
     );
   }
   return (
     <div className="chat-seat-attribution" aria-label={`Seat ${provenance.seatLabel}`}>
-      <strong>{provenance.seatLabel}</strong>
+      <strong>
+        <SeatLabel seatId={provenance.seatId} name={provenance.seatLabel} />
+      </strong>
       <span>{provenance.seatRole}</span>
       <span>{provenance.accountBinding.accountLabel}</span>
       <span>{provenance.accountBinding.model}</span>
@@ -275,6 +281,7 @@ export function ChatArea({
               <article
                 key={`context:${item.deliveryId}:${item.attemptId}`}
                 className="msg-turn symposium-context-card"
+                style={{ borderLeft: `3px solid ${seatAccentColor(item.recipientSeatId)}` }}
               >
                 <strong>
                   {item.receipt === 'received'

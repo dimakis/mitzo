@@ -359,6 +359,7 @@ describe('SymposiumConversation', () => {
       />,
     );
     expect(screen.queryByText('Ordinary send')).toBeNull();
+
     finish(json({ sessionId: 'session', config: null, seats: [] }));
     expect(await screen.findByText('Ordinary send')).toBeTruthy();
   });
@@ -551,6 +552,7 @@ it('simplifies after the last reviewer is removed but keeps isolated delivery ro
   await screen.findByLabelText('Message for Architect');
   expect(screen.queryByRole('tablist')).toBeNull();
   expect(screen.queryByText('Ordinary send')).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Choose agent recipient' })).toBeNull();
   fireEvent.change(screen.getByLabelText('Message for Architect'), {
     target: { value: 'Continue' },
   });
@@ -769,7 +771,12 @@ it('collapses terminal receipts and distinguishes recorded cancellation from pro
     ),
   );
   render(<SymposiumConversation sessionId="session" chat={chat} ordinaryComposer={null} />);
-  const receipt = await screen.findByText('To Architect, Reviewer · cancelled');
+  const receipt = (
+    await screen.findByRole('article', { name: 'Delivery to Architect, Reviewer' })
+  ).querySelector('summary')!;
+  expect(receipt.textContent?.replace(/\s+/g, ' ').trim()).toBe(
+    'To Architect, Reviewer · cancelled',
+  );
   expect(receipt.closest('details')?.hasAttribute('open')).toBe(false);
   expect(screen.getByText(/Provider cleanup is not confirmed by this receipt/)).toBeTruthy();
   expect(screen.queryByRole('button', { name: 'Send to Architect, Reviewer' })).toBeNull();
@@ -810,4 +817,48 @@ it('retains Stop during an in-flight dispatch when a status refresh fails', asyn
     vi.mocked(apiFetch).mock.calls.filter(([url]) => String(url).endsWith('/cancel')),
   ).toHaveLength(1);
   finishSend(json({}));
+});
+
+it('keeps All as a read-only timeline and directs the composer only to a selected agent ID', async () => {
+  vi.mocked(apiFetch).mockImplementation(async (url) =>
+    json(String(url).includes('/perspectives') ? page : status),
+  );
+  render(
+    <SymposiumConversation
+      sessionId="session"
+      chat={chat}
+      ordinaryComposer={<div>Ordinary composer</div>}
+    />,
+  );
+  await screen.findByRole('tab', { name: 'All' });
+  expect(screen.queryByRole('textbox', { name: /Message for/ })).toBeNull();
+  fireEvent.click(screen.getByRole('tab', { name: 'Reviewer' }));
+  expect(await screen.findByRole('textbox', { name: 'Message for Reviewer' })).toBeTruthy();
+});
+
+it('offers @ recipients only for admitted agents, excluding removed history from targeting', async () => {
+  vi.mocked(apiFetch).mockImplementation(async (url) =>
+    json(
+      String(url).includes('/perspectives')
+        ? page
+        : {
+            ...status,
+            seats: [
+              ...status.seats,
+              {
+                seatId: 'removed',
+                seat: { name: 'Former reviewer', role: 'reviewer' },
+                admitted: false,
+                membership: { state: 'removed' },
+              },
+            ],
+          },
+    ),
+  );
+  render(<SymposiumConversation sessionId="session" chat={chat} ordinaryComposer={<div />} />);
+  fireEvent.click(await screen.findByRole('tab', { name: 'Architect' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Choose agent recipient' }));
+  const picker = screen.getByRole('region', { name: 'Agent recipients' });
+  expect(within(picker).queryByRole('button', { name: /Former reviewer/ })).toBeNull();
+  expect(within(picker).getByRole('button', { name: 'Reviewer' })).toBeTruthy();
 });

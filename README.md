@@ -151,6 +151,11 @@ do not establish physical provider cleanup. Context
 source grants default to empty; a reference does not itself load conversation
 history. Shared workspace access remains governed by the host-issued grant.
 
+Each agent has a stable color accent alongside its name. **All** is a read-only
+combined timeline; write in a named agent's stream. Type `@` or choose **Switch
+agent** to select a recipient and switch streams. Drafts stay with their agent,
+and recipient selection never dispatches a message automatically.
+
 Adding a reviewer can prepare a stopped ordinary conversation's isolated roster,
 but admission still requires the verified runtime. Roster changes revalidate
 existing confirmed seats at the new configuration revision without resetting
@@ -158,7 +163,8 @@ their membership generations or sandbox identity. A partially completed setup
 remains visible in Director controls. Removing the last reviewer simplifies the
 composer while preserving durable membership history and isolated routing; it
 never switches the session back to ordinary execution. The development-only
-`ui-preview.html` includes read-only reviewer choices for visual checks.
+`ui-preview.html` includes isolated simulated Add agent and delivery controls for
+visual checks, with no model calls.
 
 Portable profiles save immutable revisions of guidance, expected output, and
 acceptance criteria. Select an exact revision for a seat, or export/import its

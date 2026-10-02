@@ -1,3 +1,4 @@
+import { SeatLabel } from './SeatLabel';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type {
   FinishedMessage,
@@ -230,7 +231,12 @@ export function SymposiumConversation({
   }, [base, selected, configRevision]);
 
   const seats = useMemo(
-    () => status?.seats?.map(({ seatId, seat }) => ({ id: seatId, name: seat.name })) ?? [],
+    () =>
+      status?.seats?.map(({ seatId, seat }) => ({
+        id: seatId,
+        name: seat.name,
+        role: seat.role,
+      })) ?? [],
     [status],
   );
   const admitted = useMemo(
@@ -253,7 +259,12 @@ export function SymposiumConversation({
     }
   }, [compact]);
   const recipients =
-    selected === 'all' ? admitted : admitted.filter((seatId) => seatId === selected);
+    compact && anchorSeatId
+      ? admitted.filter((seatId) => seatId === anchorSeatId)
+      : admitted.filter((seatId) => seatId === selected);
+  const recipientChoices = seats.filter(
+    (seat) => admitted.includes(seat.id) && (!compact || seat.id === anchorSeatId),
+  );
   const seatName = seats.find((seat) => seat.id === selected)?.name ?? selected;
   const visiblePage =
     pageFor === `${base}:${selected}` ? page : { items: [], queued: [], nextSeq: null };
@@ -548,7 +559,17 @@ export function SymposiumConversation({
                 <article key={delivery.deliveryId} aria-label={`Delivery to ${recipientNames}`}>
                   <details open={!terminal}>
                     <summary>
-                      To {recipientNames} · {delivery.status}
+                      To{' '}
+                      {delivery.recipientSeatIds.map((id, index) => (
+                        <span key={id}>
+                          {index > 0 && ', '}
+                          <SeatLabel
+                            seatId={id}
+                            name={seats.find((seat) => seat.id === id)?.name ?? id}
+                          />
+                        </span>
+                      ))}{' '}
+                      · {delivery.status}
                     </summary>
                     <p>Original: {delivery.originalContent}</p>
                     {delivery.deliveredContent !== null && (
@@ -556,8 +577,13 @@ export function SymposiumConversation({
                     )}
                     {delivery.recipients.map((recipient) => (
                       <p key={recipient.seatId}>
-                        {seats.find((seat) => seat.id === recipient.seatId)?.name ??
-                          recipient.seatId}
+                        <SeatLabel
+                          seatId={recipient.seatId}
+                          name={
+                            seats.find((seat) => seat.id === recipient.seatId)?.name ??
+                            recipient.seatId
+                          }
+                        />
                         : {recipient.status}
                       </p>
                     ))}
@@ -671,7 +697,17 @@ export function SymposiumConversation({
         </section>
       )}
       <SymposiumAudienceComposer
-        audience={selected}
+        audience={compact && anchorSeatId ? anchorSeatId : selected}
+        seats={recipientChoices}
+        onSelectRecipient={
+          recipientChoices.length > 1
+            ? (id) => {
+                if (!recipientChoices.some((seat) => seat.id === id)) return;
+                setSelected(id);
+                setShare(null);
+              }
+            : undefined
+        }
         audienceLabel={
           compact
             ? (seats.find((seat) => seat.id === anchorSeatId)?.name ?? 'builder')

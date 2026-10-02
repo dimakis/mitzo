@@ -1756,7 +1756,7 @@ textarea:focus {
   font-size: var(--text-xs);
 }
 
-.chat-seat-attribution span::before {
+.chat-seat-attribution > span:not(.symposium-seat-label)::before {
   content: '·';
   margin-right: 0.35rem;
 }
@@ -7540,4 +7540,31 @@ option {
 .document-editor-status button {
   min-height: 44px;
   margin-left: 0.5rem;
+}
+
+.symposium-seat-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.symposium-seat-accent {
+  display: inline-block;
+  width: 0.65rem;
+  height: 0.65rem;
+  flex: 0 0 0.65rem;
+  border-radius: 50%;
+  outline: 1px solid currentColor;
+  outline-offset: 1px;
+}
+.symposium-recipient-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  padding: 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 0.6rem;
+}
+.symposium-recipient-picker p {
+  width: 100%;
+  margin: 0;
 }
