@@ -3,9 +3,13 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { apiFetch } from '../../lib/api-fetch';
 import { SymposiumConversation } from '../SymposiumConversation';
+import { ChatInput } from '../ChatInput';
 import { SymposiumProfileProposals } from '../SymposiumProfileProposals';
 
-vi.mock('../../lib/api-fetch', () => ({ apiFetch: vi.fn() }));
+vi.mock('../SessionTray', () => ({ SessionTray: () => null }));
+vi.mock('../SlashPicker', () => ({ SlashPicker: () => null }));
+
+vi.mock('../../lib/api-fetch', () => ({ apiFetch: vi.fn(), getApiBaseUrl: () => '' }));
 vi.mock('../ChatArea', () => ({
   ChatArea: ({
     messages,
@@ -39,6 +43,7 @@ vi.mock('../ChatArea', () => ({
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
+  localStorage.clear();
 });
 
 const status = {
@@ -112,6 +117,57 @@ const chat = {
 };
 
 describe('SymposiumConversation', () => {
+  it('does not dispatch or remove persisted queued input while session type is pending', async () => {
+    const queued = JSON.stringify([{ text: 'queued follow-up', contextBlocks: [] }]);
+    localStorage.setItem('mitzo-queue-session', queued);
+    let finish!: (value: Response) => void;
+    vi.mocked(apiFetch).mockImplementationOnce(
+      () =>
+        new Promise<Response>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    vi.mocked(apiFetch).mockImplementation(async () => json([]));
+    const onSend = vi.fn(() => true);
+    const view = (running: boolean) => (
+      <SymposiumConversation
+        sessionId="session"
+        chat={{ ...chat, running }}
+        ordinaryComposer={
+          <ChatInput sessionId="session" running={running} onSend={onSend} onStop={() => {}} />
+        }
+      />
+    );
+    const { rerender } = render(view(true));
+    rerender(view(false));
+    expect(onSend).not.toHaveBeenCalled();
+    expect(localStorage.getItem('mitzo-queue-session')).toBe(queued);
+    finish(json({ sessionId: 'session', config: null, seats: [] }));
+    await screen.findByText('queued follow-up');
+    expect(onSend).not.toHaveBeenCalled();
+    expect(localStorage.getItem('mitzo-queue-session')).toBe(queued);
+    rerender(view(true));
+    rerender(view(false));
+    expect(onSend).toHaveBeenCalledExactlyOnceWith('queued follow-up', undefined, undefined);
+    expect(localStorage.getItem('mitzo-queue-session')).toBeNull();
+  });
+
+  it('keeps a disabled input visible while session kind is being checked', () => {
+    vi.mocked(apiFetch).mockReturnValue(new Promise(() => {}));
+    render(
+      <SymposiumConversation
+        sessionId="session"
+        chat={chat}
+        ordinaryComposer={<button>Ordinary send</button>}
+      />,
+    );
+    expect(
+      (screen.getByRole('textbox', { name: 'Message Mitzo' }) as HTMLTextAreaElement).disabled,
+    ).toBe(true);
+    expect(screen.queryByText('Ordinary send')).toBeNull();
+    expect(screen.queryByText('Loading Symposium…')).toBeNull();
+  });
+
   it('reviews a fake agent tool proposal in an ordinary existing conversation before saving', async () => {
     const proposal = {
       proposalId: 'proposal-1',
@@ -358,9 +414,14 @@ describe('SymposiumConversation', () => {
         ordinaryComposer={<button>Ordinary send</button>}
       />,
     );
+    expect(
+      (screen.getByRole('button', { name: 'Send message' }) as HTMLButtonElement).disabled,
+    ).toBe(true);
     expect(screen.queryByText('Ordinary send')).toBeNull();
     finish(json({ sessionId: 'session', config: null, seats: [] }));
-    expect(await screen.findByText('Ordinary send')).toBeTruthy();
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Ordinary send' }).closest('[inert]')).toBeNull(),
+    );
   });
 
   it('shows durable received context and only the selected seat reply while keeping queued input separate', async () => {

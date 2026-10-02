@@ -36,7 +36,7 @@ export function relativeArtifactPath(href: string): string | null {
 export function absoluteMarkdownArtifactPath(href: string): string | null {
   const explicitFileUri = /^file:\/\/(?:localhost)?(?=\/)/i.test(href);
   const local = href.replace(/^file:\/\/(?:localhost)?(?=\/)/i, '');
-  if (!local.startsWith('/') || local.startsWith('//')) return null;
+  if ((!local.startsWith('/') && !local.startsWith('~/')) || local.startsWith('//')) return null;
   try {
     const path = decodeURIComponent(local.split(/[?#]/, 1)[0]).replace(/:\d+(?::\d+)?$/, '');
     if (
@@ -78,6 +78,8 @@ export function linkedArtifactPath(href: string, containingFile: string): string
   if (absolutePath) return absolutePath;
   const relative = relativeArtifactPath(href);
   if (!relative) return null;
+  // Home shorthand is rooted on the artifact host, regardless of file type.
+  if (relative.startsWith('~/')) return relative;
 
   const base = containingFile.slice(0, containingFile.lastIndexOf('/') + 1);
   const joined = `${base}${relative}`;
@@ -199,19 +201,20 @@ export interface FilePathMatch {
 export function detectFilePaths(text: string): FilePathMatch[] {
   // Match paths: absolute (/...) or relative (./... or ../...)
   // Path chars: word chars, hyphens, dots, @, slashes — no spaces (too greedy)
-  const pathPattern = /(?<!\w)(?:(?:\.\.?)?\/[\w./@-]+(?:\/[\w./@-]+)*)/g;
+  const pathPattern = /(?<!\w)(?:(?:~|\.\.?)?\/[\w./@-]+(?:\/[\w./@-]+)*)/g;
 
+  // Exclude entire URLs, including path/query segments that resemble home paths.
+  const urlRanges = [...text.matchAll(/https?:\/\/[^\s<>"`]+/gi)].map((match) => [
+    match.index,
+    match.index + match[0].length,
+  ]);
   const matches: FilePathMatch[] = [];
 
   for (const match of text.matchAll(pathPattern)) {
     const raw = match[0];
     const start = match.index;
 
-    // Check that the character before isn't part of a URL scheme
-    if (start > 0) {
-      const before = text.slice(Math.max(0, start - 8), start);
-      if (/https?:\/?\/?$/.test(before)) continue;
-    }
+    if (urlRanges.some(([from, to]) => start >= from && start < to)) continue;
 
     // Strip trailing punctuation that's likely sentence-end
     const cleaned = raw.replace(/[.,;:!?)]+$/, '');
