@@ -169,7 +169,7 @@ it('adds a configured seat to a draft using a server-resolved account binding', 
     .mockResolvedValueOnce(response(draft));
   render(<SymposiumDirectorPanel sessionId="session" />);
   await openAdvancedSettings();
-  await screen.findByText(/Draft — agents are not enabled yet/);
+  await screen.findByText(/Your setup is saved. Agents cannot run/);
   await userEvent.click(screen.getByText('Configure agents manually'));
   await userEvent.type(screen.getByRole('textbox', { name: 'New seat name' }), 'Builder');
   await userEvent.type(screen.getByRole('textbox', { name: 'New seat ID' }), 'builder');
@@ -220,7 +220,7 @@ it('activates a mixed-account draft only with explicit boundary acknowledgement 
     .mockResolvedValueOnce(response(status(false)));
   render(<SymposiumDirectorPanel sessionId="session" />);
   await openAdvancedSettings();
-  await screen.findByText(/Draft — agents are not enabled yet/);
+  await screen.findByText(/Your setup is saved. Agents cannot run/);
   const activate = screen.getByRole('button', { name: 'Enable agents' });
   expect(activate.hasAttribute('disabled')).toBe(true);
   await userEvent.click(screen.getByRole('checkbox', { name: /I understand these agents/ }));
@@ -250,7 +250,7 @@ it('sends saved profile selection outside draft seat config only when host bindi
     .mockResolvedValueOnce(response(draft));
   render(<SymposiumDirectorPanel sessionId="session" />);
   await openAdvancedSettings();
-  await screen.findByText(/Draft — agents are not enabled yet/);
+  await screen.findByText(/Your setup is saved. Agents cannot run/);
   await userEvent.click(screen.getAllByRole('button', { name: 'Select saved profile' })[1]);
   await userEvent.click(screen.getByRole('checkbox', { name: /I understand these agents/ }));
   await userEvent.type(
@@ -931,7 +931,7 @@ it('drops the previous thinking level when a draft reviewer switches from Luna t
     .mockResolvedValueOnce(response(draft));
   render(<SymposiumDirectorPanel sessionId="session" />);
   await openAdvancedSettings();
-  await screen.findByText(/Draft — agents are not enabled yet/);
+  await screen.findByText(/Your setup is saved. Agents cannot run/);
   const reviewer = screen
     .getAllByRole('button', { name: 'Save account and model' })[1]
     .closest('.symposium-seat-selection') as HTMLElement;
@@ -1264,3 +1264,52 @@ it.each(['model', 'profile'] as const)(
     expect(JSON.parse(String(init?.body))).not.toHaveProperty('authorityGrant');
   },
 );
+
+it('shows saved setup in order without opening troubleshooting and keeps enabling behind consent', async () => {
+  vi.mocked(apiFetch).mockResolvedValue(
+    response({ ...status(false), config: { ...config, state: 'draft' } }),
+  );
+  render(<SymposiumDirectorPanel sessionId="session" />);
+  await userEvent.click(screen.getByRole('button', { name: 'Agents' }));
+  const setup = await screen.findByRole('region', { name: 'Finish agent setup' });
+  expect(
+    within(setup).getByText('Your setup is saved. Agents cannot run until you enable them.'),
+  ).toBeTruthy();
+  expect(
+    within(setup)
+      .getAllByRole('heading')
+      .map((heading) => heading.textContent),
+  ).toEqual([
+    'Finish agent setup',
+    '1. Prepare the workspace',
+    '2. Review access',
+    '3. Enable agents',
+  ]);
+  expect(within(setup).getByRole('button', { name: 'Prepare shared workspace' })).toBeTruthy();
+  const enable = within(setup).getByRole('button', { name: 'Enable agents' });
+  expect(enable.hasAttribute('disabled')).toBe(true);
+  await userEvent.click(within(setup).getByRole('checkbox', { name: /I understand these agents/ }));
+  expect(enable.hasAttribute('disabled')).toBe(true);
+  await userEvent.type(
+    within(setup).getByRole('textbox', { name: /To use another account/ }),
+    'ADD CROSS-ACCOUNT SEAT',
+  );
+  expect(enable.hasAttribute('disabled')).toBe(false);
+  expect(
+    screen
+      .getByRole('button', { name: 'Advanced and troubleshooting' })
+      .getAttribute('aria-expanded'),
+  ).toBe('false');
+});
+
+it('distinguishes saved agents awaiting enablement from their connected provider accounts', async () => {
+  vi.mocked(apiFetch).mockResolvedValue(
+    response({ ...status(false), config: { ...config, state: 'draft' } }),
+  );
+  render(<SymposiumDirectorPanel sessionId="session" />);
+  await userEvent.click(screen.getByRole('button', { name: 'Agents' }));
+  const reviewer = await screen.findByRole('listitem', { name: 'Reviewer agent' });
+  expect(within(reviewer).getByText('Not enabled')).toBeTruthy();
+  expect(within(reviewer).queryByText('Not connected')).toBeNull();
+  expect(within(reviewer).getByText('Account: OpenAI work')).toBeTruthy();
+});

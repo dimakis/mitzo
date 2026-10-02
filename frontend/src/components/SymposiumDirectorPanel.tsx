@@ -1,3 +1,4 @@
+import './SymposiumDirectorPanel.css';
 import { canRequestAgent, canRequestRuntime } from '../lib/symposium-status';
 import { SeatLabel } from './SeatLabel';
 import { SymposiumSourceImportPanel } from './SymposiumSourceImportPanel';
@@ -588,7 +589,7 @@ function SessionDirectorPanel({
       );
       if (result.state !== 'ready')
         throw new Error(
-          'Shared files are still unavailable. Your draft is saved; retry here when ready.',
+          'Shared files are still unavailable. Your setup is saved; retry here when ready.',
         );
       await refresh();
       setArtifactMessage('Shared files are ready. Review your choices before enabling agents.');
@@ -789,6 +790,33 @@ function SessionDirectorPanel({
     });
   }
 
+  const accessConsent = status?.config ? (
+    <div className="symposium-access-consent">
+      <label>
+        <input
+          type="checkbox"
+          checked={boundaryAcknowledged}
+          onChange={(event) => setBoundaryAcknowledged(event.target.checked)}
+        />
+        <span>
+          I understand these agents can access shared files within their permissions, and their
+          provider accounts may retain messages.
+        </span>
+      </label>
+      {(crossesAnchorAccount(status.config) ||
+        (newSeatSelection?.accountId &&
+          newSeatSelection.accountId !== anchorAccountId(status.config))) && (
+        <label>
+          To use another account, type {confirmation}:{' '}
+          <input
+            value={typedConfirmation}
+            onChange={(event) => setTypedConfirmation(event.target.value)}
+          />
+        </label>
+      )}
+    </div>
+  ) : null;
+
   const admitted = status?.seats.filter(canRequestAgent) ?? [];
   return (
     <section className="symposium-director" aria-label="Symposium director">
@@ -821,16 +849,68 @@ function SessionDirectorPanel({
           {status && !status.config && (
             <div>
               <p>This conversation has no agents configured.</p>
+              <button
+                type="button"
+                className="btn-primary"
+                disabled={busy}
+                onClick={() => void createDraft()}
+              >
+                Set up agents
+              </button>
               <AdvancedControls label="Advanced and troubleshooting">
                 <SymposiumSourceImportPanel key={sessionId} sessionId={sessionId} />
-                <button type="button" disabled={busy} onClick={() => void createDraft()}>
-                  Set up agents
-                </button>
               </AdvancedControls>
             </div>
           )}
           {status?.config && (
             <>
+              {status.config.state === 'draft' && (
+                <section className="symposium-setup" aria-label="Finish agent setup">
+                  <div className="symposium-setup-heading">
+                    <h3>Finish agent setup</h3>
+                    <p>Your setup is saved. Agents cannot run until you enable them.</p>
+                  </div>
+                  <ol className="symposium-setup-steps">
+                    <li>
+                      <h4>1. Prepare the workspace</h4>
+                      <p>Prepare shared files for this conversation.</p>
+                      <button
+                        type="button"
+                        disabled={busy || loading}
+                        onClick={() => void prepareArtifacts()}
+                      >
+                        Prepare shared workspace
+                      </button>
+                      {artifactMessage && <p role="status">{artifactMessage}</p>}
+                    </li>
+                    <li>
+                      <h4>2. Review access</h4>
+                      <p>Choosing message context does not restrict file access.</p>
+                      {accessConsent}
+                    </li>
+                    <li>
+                      <h4>3. Enable agents</h4>
+                      <p>
+                        The host checks each agent’s account and workspace access before it can
+                        receive messages.
+                      </p>
+                      <button
+                        type="button"
+                        className="btn-primary"
+                        disabled={
+                          busy ||
+                          !boundaryAcknowledged ||
+                          (crossesAnchorAccount(status.config) &&
+                            typedConfirmation !== confirmation)
+                        }
+                        onClick={() => void activateRoster()}
+                      >
+                        Enable agents
+                      </button>
+                    </li>
+                  </ol>
+                </section>
+              )}
               <ul className="symposium-roster">
                 {status.seats.map((seat) => (
                   <li key={seat.seatId} aria-label={`${seat.seat.name} agent`}>
@@ -850,7 +930,9 @@ function SessionDirectorPanel({
                               ? 'Paused'
                               : seat.membership?.state === 'removed'
                                 ? 'Removed'
-                                : 'Not connected'}
+                                : status.config!.state === 'draft'
+                                  ? 'Not enabled'
+                                  : 'Not connected'}
                       </span>
                     </div>
                     <div className="symposium-agent-model">
@@ -1102,27 +1184,17 @@ function SessionDirectorPanel({
               </ul>
               <AdvancedControls label="Advanced and troubleshooting">
                 <SymposiumSourceImportPanel key={sessionId} sessionId={sessionId} />
-                <p>
-                  Agents can access shared workspace files within their permissions. Their provider
-                  account may retain messages. Choosing message context does not restrict file
-                  access.
-                </p>
-                <p>
-                  {status.config.state === 'draft'
-                    ? 'Draft — agents are not enabled yet.'
-                    : `${status.reservedSeats} of ${status.config.version === 2 ? status.config.activeSeatCap : 2} seats reserved.`}
-                </p>
-                {status.config.state === 'draft' && (
-                  <div>
-                    <button
-                      type="button"
-                      disabled={busy || loading}
-                      onClick={() => void prepareArtifacts()}
-                    >
-                      Prepare shared workspace
-                    </button>
-                    {artifactMessage && <p role="status">{artifactMessage}</p>}
-                  </div>
+                {status.config.state === 'active' && (
+                  <p>
+                    Agents can access shared workspace files within their permissions. Choosing
+                    message context does not restrict file access.
+                  </p>
+                )}
+                {status.config.state === 'active' && (
+                  <p>
+                    {status.reservedSeats} of{' '}
+                    {status.config.version === 2 ? status.config.activeSeatCap : 2} seats reserved.
+                  </p>
                 )}
                 {!canRequestRuntime(status) && (
                   <p role="status">
@@ -1148,42 +1220,7 @@ function SessionDirectorPanel({
                       Recheck retained seat admissions
                     </button>
                   )}
-                <label>
-                  <input
-                    type="checkbox"
-                    checked={boundaryAcknowledged}
-                    onChange={(event) => setBoundaryAcknowledged(event.target.checked)}
-                  />
-                  <span>
-                    I understand these agents can access shared files within their permissions, and
-                    their provider accounts may retain messages.
-                  </span>
-                </label>
-                {(crossesAnchorAccount(status.config) ||
-                  (newSeatSelection?.accountId &&
-                    newSeatSelection.accountId !== anchorAccountId(status.config))) && (
-                  <label>
-                    To use another account, type {confirmation}:{' '}
-                    <input
-                      value={typedConfirmation}
-                      onChange={(event) => setTypedConfirmation(event.target.value)}
-                    />
-                  </label>
-                )}
-                {status.config.state === 'draft' && (
-                  <button
-                    type="button"
-                    className="btn-primary"
-                    disabled={
-                      busy ||
-                      !boundaryAcknowledged ||
-                      (crossesAnchorAccount(status.config) && typedConfirmation !== confirmation)
-                    }
-                    onClick={() => void activateRoster()}
-                  >
-                    Enable agents
-                  </button>
-                )}
+                {status.config.state === 'active' && accessConsent}
                 {status.config.version === 2 && status.config.state === 'active' && (
                   <AdvancedControls label="Change conversation owner">
                     <fieldset disabled={busy || !canRequestRuntime(status)}>

@@ -1,0 +1,127 @@
+.symposium-director .symposium-director-panel {
+  gap: 0.85rem;
+  font-size: 0.875rem;
+  line-height: 1.5;
+  min-width: 0;
+  padding-block: 0.65rem;
+}
+
+.symposium-director .symposium-director-panel h3,
+.symposium-director .symposium-director-panel h4 {
+  margin: 0;
+  font-size: 0.95rem;
+  line-height: 1.4;
+  font-weight: 600;
+}
+
+.symposium-director .symposium-director-panel button {
+  width: fit-content;
+  max-width: 100%;
+  justify-self: start;
+  min-height: 2.25rem;
+  padding: 0.4rem 0.7rem;
+  margin-left: 0;
+  font-size: 0.8125rem;
+  line-height: 1.3;
+  font-weight: 500;
+  text-align: left;
+}
+
+.symposium-director .symposium-director-panel button:disabled {
+  opacity: 0.5;
+}
+
+.symposium-director .symposium-advanced-content {
+  display: grid;
+  gap: 0.85rem;
+  min-width: 0;
+}
+
+.symposium-director .symposium-director-panel fieldset {
+  margin: 0;
+  padding: 0.85rem;
+}
+
+.symposium-director .symposium-director-panel input:not([type='checkbox']),
+.symposium-director .symposium-director-panel textarea,
+.symposium-director .symposium-director-panel select {
+  box-sizing: border-box;
+  min-width: 0;
+  width: 100%;
+  min-height: 2.25rem;
+  padding: 0.5rem 0.6rem;
+  font: inherit;
+}
+
+.symposium-director .symposium-director-panel input[type='checkbox'] {
+  appearance: none;
+  display: block;
+  flex: 0 0 1.125rem;
+  width: 1.125rem;
+  height: 1.125rem;
+  min-height: 0;
+  padding: 0;
+  margin: 0.15rem 0 0;
+  border: 1px solid var(--text-dim);
+  border-radius: 0.25rem;
+  background: var(--bg);
+  cursor: pointer;
+}
+
+.symposium-director .symposium-director-panel input[type='checkbox']:checked {
+  background-color: var(--accent);
+  border-color: var(--accent);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 18 18'%3E%3Cpath fill='none' stroke='white' stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='m4 9 3 3 7-7'/%3E%3C/svg%3E");
+}
+
+.symposium-director .symposium-director-panel :focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+.symposium-director .symposium-setup {
+  display: grid;
+  gap: 1rem;
+  padding: 1rem;
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  background: var(--surface);
+  min-width: 0;
+}
+
+.symposium-director .symposium-setup-heading,
+.symposium-director .symposium-access-consent {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.symposium-director .symposium-setup-heading p,
+.symposium-director .symposium-setup-steps > li > p {
+  color: var(--text-dim);
+}
+
+.symposium-director .symposium-setup-steps {
+  display: grid;
+  gap: 1rem;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.symposium-director .symposium-setup-steps > li {
+  display: grid;
+  gap: 0.5rem;
+  min-width: 0;
+  line-height: 1.5;
+}
+
+.symposium-director .symposium-setup-steps > li + li {
+  border-top: 1px solid var(--border);
+  padding-top: 1rem;
+}
+
+@media (forced-colors: active) {
+  .symposium-director .symposium-director-panel input[type='checkbox'] {
+    appearance: auto;
+  }
+}

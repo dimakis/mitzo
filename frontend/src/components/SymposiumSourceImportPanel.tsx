@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { apiFetch } from '../lib/api-fetch';
 import type { SourcePreview, SourceStatus } from '../types/symposium-source';
+import './SymposiumSourceImportPanel.css';
 const confirmation = 'IMPORT COMMITTED REPOSITORY HISTORY';
 function retainedSeal(status: SourceStatus | null) {
   const artifact = status?.artifact;
@@ -43,6 +44,7 @@ async function read<T>(url: string, body?: unknown, csrf?: string): Promise<T> {
   return value as T;
 }
 export function SymposiumSourceImportPanel({ sessionId }: { sessionId: string }) {
+  const panelId = useId();
   const [open, setOpen] = useState(false),
     [status, setStatus] = useState<SourceStatus | null>(null),
     [busy, setBusy] = useState(false),
@@ -187,18 +189,24 @@ export function SymposiumSourceImportPanel({ sessionId }: { sessionId: string })
   }
   const recoverableSeal = retainedSeal(status);
   return (
-    <section aria-label="Local repository source">
+    <section className="symposium-source-import" aria-label="Local repository source">
       <button
         type="button"
+        aria-expanded={open}
+        aria-controls={panelId}
+        aria-describedby={`${panelId}-help`}
         onClick={() => {
           setOpen(!open);
           if (!open) void refresh();
         }}
       >
-        Import local repository
+        Add repository to shared workspace
       </button>
+      <p id={`${panelId}-help`} className="symposium-source-help">
+        Optional for code tasks. You can chat without adding a repository.
+      </p>
       {open && (
-        <>
+        <div id={panelId} className="symposium-source-content">
           {error && <p role="alert">{error}</p>}
           {message && <p role="status">{message}</p>}
           {!status ? (
@@ -253,10 +261,17 @@ export function SymposiumSourceImportPanel({ sessionId }: { sessionId: string })
           ) : (
             <fieldset disabled={busy}>
               <p>
-                Import committed history from one configured local repository before seat admission.
-                The local base may differ from GitHub: this action does not fetch. Limit: 8 MiB
-                bundle and 64 MiB expanded history. Unsupported paths or known credentials are
-                rejected.
+                Copies committed files and their Git history into the agents’ shared workspace.
+                Uncommitted local changes are excluded. Add the repository before admitting agents
+                if they need to work on its code.
+              </p>
+              <p className="symposium-source-help">
+                Uses the locally recorded default branch and creates a new feature branch in the
+                shared workspace. This does not fetch from or publish to GitHub.
+              </p>
+              <p className="symposium-source-help">
+                Limit: 8 MiB bundle and 64 MiB expanded history. Unsupported paths or known
+                credentials are rejected.
               </p>
               <label>
                 Configured local repository
@@ -346,7 +361,7 @@ export function SymposiumSourceImportPanel({ sessionId }: { sessionId: string })
               )}
             </fieldset>
           )}
-        </>
+        </div>
       )}
     </section>
   );
