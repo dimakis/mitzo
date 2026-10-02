@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { searchCodex } from './codex-approved-search.js';
 import { context, SpanStatusCode, type Span } from '@opentelemetry/api';
 import { createHash } from 'node:crypto';
 import { CodexUserInput } from './codex-user-input.js';
@@ -371,6 +372,36 @@ export class CodexConversation {
   getWebSearchGrant(): PersistedWebSearchGrant {
     if (!this.binding) throw new Error('Codex account binding unavailable');
     return this.opts.store.readWebSearchGrant(this.opts.conversationId, this.binding);
+  }
+  /** Explicit per-request approval is performed by the host tool before entering here. */
+  async searchWeb(query: string, signal: AbortSignal): Promise<string> {
+    if (
+      this.closed ||
+      !this.ready ||
+      !this.binding ||
+      this.webSearchDeploymentCeiling !== 'live' ||
+      this.opts.getMode?.() === 'ask'
+    )
+      throw new Error('Search is unavailable on this deployment or session');
+    const binding = this.binding;
+    return searchCodex(query, signal, {
+      createClient: this.opts.createClient,
+      verify: async (client) => {
+        const current = this.opts.verifyBinding
+          ? await this.opts.verifyBinding(client, binding)
+          : await verifyCodexAccount(client, this.opts.profile, binding);
+        if (
+          current.accountId !== binding.accountId ||
+          current.profileRevision !== binding.profileRevision
+        )
+          throw new Error('Search account binding changed');
+      },
+      model: this.active?.command.model ?? binding.model,
+      modelProvider: this.opts.modelProvider ?? 'openai',
+      cwd: this.opts.runtimeCwd ?? this.opts.cwd,
+      runtimeConfig: this.opts.runtimeConfig,
+      workspaceId: this.opts.profile.workspaceId,
+    });
   }
   queue() {
     if (!this.binding) return [];

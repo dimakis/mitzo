@@ -286,6 +286,7 @@ it('does not advertise unavailable host tools to an OpenShell runtime', async ()
     expect.objectContaining({ name: 'TelosFindArtifacts' }),
     expect.objectContaining({ name: 'TelosReadArtifact' }),
     expect.objectContaining({ name: 'SymposiumProposeProfile' }),
+    expect.objectContaining({ name: 'RequestWebAccess' }),
   ]);
   expect(mocks.conversationOptions?.systemPrompt).toContain(
     'never use a sandbox-local todo script',
@@ -469,7 +470,11 @@ it('advertises reviewed per-chat provider grants to a managed OpenShell runtime'
           }),
         }),
       }),
+      expect.objectContaining({ name: 'RequestWebAccess' }),
     ]);
+    expect(mocks.conversationOptions?.tools).toEqual(
+      expect.arrayContaining([expect.objectContaining({ name: 'RequestWebAccess' })]),
+    );
     expect(mocks.conversationOptions?.systemPrompt).toContain('GrantIntegrationAccess');
     const adoption = vi
       .spyOn(OpenShellRuntimeManager.prototype, 'adoptKnowledge')
