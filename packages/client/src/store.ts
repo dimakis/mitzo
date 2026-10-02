@@ -268,6 +268,16 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
   function settleDelivery(id: string, status: 'accepted' | 'failed' | 'uncertain') {
     const observer = deliveryObservers.get(id);
     const sessionId = deliverySessions.get(id);
+    if (observer && status === 'failed') {
+      pendingOptimisticMessageIds.delete(id);
+      store.setState((s) => ({
+        messages: {
+          ...s.messages,
+          messages: s.messages.messages.filter((m) => m.messageId !== id),
+        },
+      }));
+    }
+
     if (status !== 'uncertain') {
       if (status === 'failed') unassignedDeliveries.delete(id);
       deliveryObservers.delete(id);
@@ -1120,6 +1130,9 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       msg.type === '_send_uncertain' ||
       msg.type === '_send_accepted'
     ) {
+      const visible = store
+        .getState()
+        .messages.messages.some((m) => m.messageId === msg.clientMsgId);
       if (
         msg.type === '_send_accepted' &&
         typeof msg.sessionId === 'string' &&
@@ -1140,9 +1153,6 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       }
       if (msg.type === '_send_failed' && typeof msg.clientMsgId === 'string')
         pendingOptimisticMessageIds.delete(msg.clientMsgId);
-      const visible = store
-        .getState()
-        .messages.messages.some((m) => m.messageId === msg.clientMsgId);
       if (visible) {
         if (
           awaitingSessionId &&

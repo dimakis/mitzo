@@ -652,7 +652,9 @@ export function handleSendV2(
           : undefined;
         let emitSkillInvoked = () => {};
         let skillInvoked = false;
+        let startupAdmitted = false;
         const onStartupAdmission = (error?: unknown) => {
+          startupAdmitted = !error;
           if (error) rejectStartupAdmission?.(error);
           else {
             if (!skillInvoked) {
@@ -661,6 +663,15 @@ export function handleSendV2(
             }
             resolveStartupAdmission?.();
           }
+        };
+        const startupTransport: SessionTransport = {
+          isOpen: () => transport.isOpen(),
+          send: (event) =>
+            transport.send(
+              event.type === 'session_id' || (event.type === 'error' && !startupAdmitted)
+                ? { ...event, clientMsgId: msg.clientMsgId }
+                : event,
+            ),
         };
         const storedMeta = msg.sessionId ? ctx.eventStore.getSession(msg.sessionId) : undefined;
         const storedBinding = storedMeta?.accountBinding;
@@ -1029,7 +1040,7 @@ export function handleSendV2(
           ctx.connRegistry.watch(connectionId, sessionId);
           ctx.connRegistry.setActive(connectionId, sessionId);
           span.setAttribute('routing.decision', 'resume');
-          startChat(transport, sessionClientId, prompt, {
+          startChat(startupTransport, sessionClientId, prompt, {
             resume: sessionId,
             cwd: validatedCwd,
             model: effectiveSelection.model,
@@ -1087,13 +1098,6 @@ export function handleSendV2(
           const onSessionResolved = (resolvedId: string) => {
             ctx.connRegistry.watch(connectionId, resolvedId);
             ctx.connRegistry.setActive(connectionId, resolvedId);
-          };
-          const startupTransport: SessionTransport = {
-            isOpen: () => transport.isOpen(),
-            send: (event) =>
-              transport.send(
-                event.type === 'session_id' ? { ...event, clientMsgId: msg.clientMsgId } : event,
-              ),
           };
           startChat(startupTransport, sessionClientId, prompt, {
             initialSessionId: delivery?.initialSessionId,

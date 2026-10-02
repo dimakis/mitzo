@@ -3051,3 +3051,23 @@ it('does not select an offscreen launch when assignment follows its HTTP receipt
   lastWs.simulateMessage({ type: 'session_id', clientMsgId: id, sessionId: 'late-launch' });
   expect(store.getState().sessions.active).toBeNull();
 });
+
+it('removes the rejected optimistic launch before retrying without duplicating its prompt', () => {
+  const store = createReadyStore();
+  store.getState().setPendingSession({ prompt: 'Launch', context: 'Telos' });
+  store.getState().sendPendingSession();
+  const rejectedId = store.getState().messages.messages.at(-1)!.messageId;
+  lastWs.simulateMessage({ type: 'session_id', sessionId: 'target', clientMsgId: rejectedId });
+  lastWs.simulateMessage({ type: 'error', clientMsgId: rejectedId, error: 'Startup failed' });
+  expect(store.getState().messages.messages.some((m) => m.messageId === rejectedId)).toBe(false);
+  store.getState().sendPendingSession();
+  const retryId = store.getState().messages.messages.at(-1)!.messageId;
+  lastWs.simulateMessage({
+    type: 'user_message',
+    sessionId: 'target',
+    messageId: retryId,
+    text: 'Launch',
+  });
+  expect(store.getState().messages.messages.filter((m) => m.role === 'user')).toHaveLength(1);
+  expect(store.getState().pendingSession).toBeNull();
+});

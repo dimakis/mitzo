@@ -5179,7 +5179,7 @@ describe('resumed session permission authority', () => {
       ctx,
     );
     expect(startChat).toHaveBeenCalledWith(
-      transport,
+      expect.objectContaining({ send: expect.any(Function), isOpen: expect.any(Function) }),
       'c1:sess-1',
       'continue',
       expect.objectContaining({
@@ -5209,7 +5209,7 @@ describe('resumed session permission authority', () => {
       ctx,
     );
     expect(startChat).toHaveBeenCalledWith(
-      transport,
+      expect.objectContaining({ send: expect.any(Function), isOpen: expect.any(Function) }),
       'c1:sess-1',
       'continue',
       expect.objectContaining({ resumePermission: { mode: 'ask', revision: undefined } }),
@@ -5299,6 +5299,32 @@ it('correlates a delayed new-session assignment with its original launch command
     expect.objectContaining({
       type: 'session_id',
       sessionId: 'startup-session',
+      clientMsgId: 'launch-id',
+    }),
+  );
+});
+
+it('correlates a caught startup error after assigning the launch session', async () => {
+  const ctx = createContext();
+  const transport = mockTransport();
+  ctx.connRegistry.register('startup-conn', transport);
+  vi.mocked(startChat).mockImplementationOnce(
+    async (startupTransport, _clientId, _prompt, options) => {
+      startupTransport.send({ type: 'session_id', sessionId: 'startup-session' });
+      options?.onStartupAdmission?.(new Error('Startup failed'));
+      startupTransport.send({ type: 'error', error: 'Startup failed' });
+    },
+  );
+  await handleSendV2(
+    'startup-conn',
+    transport,
+    { type: 'send', sessionId: null, prompt: 'Launch', clientMsgId: 'launch-id' },
+    ctx,
+  );
+  expect(transport.sent).toContainEqual(
+    expect.objectContaining({
+      type: 'error',
+      error: 'Startup failed',
       clientMsgId: 'launch-id',
     }),
   );
