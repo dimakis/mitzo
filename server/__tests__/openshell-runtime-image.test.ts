@@ -53,7 +53,11 @@ describe('OpenShell runtime image builder', () => {
     const root = mkdtempSync(join(tmpdir(), 'mitzo-codex-version-'));
     const versionFile = join(root, 'version');
     const codex = join(root, 'codex');
-    writeFileSync(versionFile, '0.160.0\n');
+    const pinnedVersion = readFileSync(
+      resolve('docs/spikes/openshell-codex/runtime-codex-version'),
+      'utf8',
+    ).trim();
+    writeFileSync(versionFile, pinnedVersion + '\n');
     writeFileSync(
       codex,
       '#!/bin/sh\nif [ "$1" = --version ]; then echo "codex-cli $TEST_CODEX_VERSION"; else echo APP_SERVER_STARTED; fi\n',
@@ -72,8 +76,8 @@ describe('OpenShell runtime image builder', () => {
           encoding: 'utf8',
           env: { ...process.env, PATH: `${root}:${process.env.PATH}`, TEST_CODEX_VERSION: version },
         });
-      expect(launch('0.160.0').stdout).toContain('APP_SERVER_STARTED');
-      const mismatch = launch('0.153.4');
+      expect(launch(pinnedVersion).stdout).toContain('APP_SERVER_STARTED');
+      const mismatch = launch('0.0.0');
       expect(mismatch.status).not.toBe(0);
       expect(mismatch.stdout).not.toContain('APP_SERVER_STARTED');
     }

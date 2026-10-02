@@ -6,12 +6,18 @@ import { JIRA_API_ENDPOINT } from './connections-gateway.js';
 import { applicationVersion } from './application-version.js';
 import { spawn, spawnSync } from 'node:child_process';
 import { z } from 'zod';
+import { readFileSync } from 'node:fs';
 import type { EventEmitter } from 'node:events';
 import type { Readable, Writable } from 'node:stream';
 import { isAbsolute, posix } from 'node:path';
 import { codexRuntimeOverrides } from './codex-runtime-policy.js';
 
-export const SUPPORTED_CODEX_CLI_VERSION = '0.153.4';
+export const SUPPORTED_CODEX_CLI_VERSION = readFileSync(
+  new URL('../docs/spikes/openshell-codex/runtime-codex-version', import.meta.url),
+  'utf8',
+).trim();
+if (!/^\d+\.\d+\.\d+$/.test(SUPPORTED_CODEX_CLI_VERSION))
+  throw new Error('Invalid Codex runtime version pin');
 
 export function assertSupportedCodexCliVersion(output: string): void {
   const version = /^codex-cli\s+(\S+)\s*$/.exec(output)?.[1];

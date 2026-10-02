@@ -4,7 +4,7 @@ Status: accepted contract spike for Telos outcome `11241b89c0aac3df`.
 
 ## Supported protocol
 
-The ordinary OpenShell runtime is pinned by `docs/spikes/openshell-codex/runtime-codex-version` (currently `codex-cli 0.160.0`). The 0.160.0 fixture was regenerated offline from the production image; the search approval and lifecycle fields below are unchanged. The separately reviewed host/lifecycle probe retains its 0.153.4 pin.
+The ordinary OpenShell runtime is pinned by `docs/spikes/openshell-codex/runtime-codex-version` (currently `codex-cli 0.160.0`). The 0.160.0 fixture was regenerated offline from the production image; the search approval and lifecycle fields below are unchanged. Host validation and the lifecycle probe read the same pin. The runtime builder automatically regenerates the stable `app-server-contract.json` fixture from the built image without networking.
 The host launcher runs `codex --version` and refuses to start if the executable
 does not match that exact reviewed version. The lifecycle probe performs the
 same check before opening app-server stdio.

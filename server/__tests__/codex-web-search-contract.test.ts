@@ -15,10 +15,7 @@ type Contract = {
 };
 
 const fixture = fileURLToPath(
-  new URL(
-    '../../docs/spikes/codex-web-search-policy/app-server-contract-0.160.0.json',
-    import.meta.url,
-  ),
+  new URL('../../docs/spikes/codex-web-search-policy/app-server-contract.json', import.meta.url),
 );
 const contract = JSON.parse(readFileSync(fixture, 'utf8')) as Contract;
 

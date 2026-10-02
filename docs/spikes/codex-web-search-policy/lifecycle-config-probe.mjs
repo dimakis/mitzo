@@ -1,10 +1,13 @@
 import { spawn, spawnSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import readline from 'node:readline';
 
-const supportedCodexVersion = '0.153.4';
+const supportedCodexVersion = readFileSync(
+  new URL('../openshell-codex/runtime-codex-version', import.meta.url),
+  'utf8',
+).trim();
 const version = spawnSync('codex', ['--version'], { encoding: 'utf8', timeout: 5000 });
 if (
   version.error ||
