@@ -1080,7 +1080,10 @@ export function createSymposiumDirectorRouter(deps: SymposiumDirectorRouteDeps):
     }
     const runtime = deps.getRuntime(sessionId);
     if (!runtime) {
-      res.status(503).json({ error: 'Symposium provider runtime is unavailable' });
+      res.status(503).json({
+        error: 'Symposium provider runtime is unavailable',
+        dispatch: 'not-started',
+      });
       return;
     }
     try {

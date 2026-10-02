@@ -741,6 +741,52 @@ it('keeps Stop usable while dispatch awaits completion and names every recipient
   ).toHaveLength(1);
 });
 
+it.each([true, false])(
+  'releases a rejected Send only with explicit no-dispatch proof: %s',
+  async (provenNotStarted) => {
+    let attempts = 0;
+    vi.mocked(apiFetch).mockImplementation(async (url) => {
+      if (String(url).endsWith('/dispatch')) {
+        attempts += 1;
+        if (attempts === 1)
+          return {
+            ok: false,
+            status: 503,
+            json: async () => ({
+              error: 'Symposium provider runtime is unavailable',
+              ...(provenNotStarted ? { dispatch: 'not-started' } : {}),
+            }),
+          } as Response;
+        return json({});
+      }
+      return json(
+        String(url).includes('/profile-proposals')
+          ? []
+          : String(url).includes('/perspectives')
+            ? page
+            : { ...status, runtimeAvailable: true, deliveries: [directedDelivery('ready')] },
+      );
+    });
+    render(<SymposiumConversation sessionId="session" chat={chat} ordinaryComposer={null} />);
+    fireEvent.click(await screen.findByRole('tab', { name: 'Reviewer' }));
+    const send = await screen.findByRole('button', { name: 'Send to Architect, Reviewer' });
+    fireEvent.click(send);
+    if (provenNotStarted) {
+      await screen.findByText(/Send did not start/);
+      await waitFor(() => expect(send.hasAttribute('disabled')).toBe(false));
+      expect(attempts).toBe(1);
+      fireEvent.click(send);
+      await screen.findByText('Send request completed. See delivery status below.');
+      expect(attempts).toBe(2);
+    } else {
+      await screen.findByText(/Send outcome is uncertain/);
+      expect(send.hasAttribute('disabled')).toBe(true);
+      fireEvent.click(send);
+      expect(attempts).toBe(1);
+    }
+  },
+);
+
 it('blocks uncertain dispatch repeats and retries only explicit idempotent Stop', async () => {
   vi.mocked(apiFetch).mockImplementation(async (url) => {
     if (String(url).endsWith('/dispatch') || String(url).endsWith('/cancel'))

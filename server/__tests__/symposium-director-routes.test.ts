@@ -1113,6 +1113,25 @@ describe('Symposium director routes', () => {
     });
   });
 
+  it('proves dispatch did not start only when the runtime was unavailable before delivery', async () => {
+    const absent = fixture();
+    const rejected = await request(absent.app).post(
+      '/api/sessions/chat/symposium/deliveries/delivery-1/dispatch',
+    );
+    expect(rejected.status).toBe(503);
+    expect(rejected.body.dispatch).toBe('not-started');
+    expect(absent.orchestrator.deliver).not.toHaveBeenCalled();
+
+    const available = fixture(true);
+    available.orchestrator.deliver.mockRejectedValueOnce(new Error('Provider response lost'));
+    const uncertain = await request(available.app).post(
+      '/api/sessions/chat/symposium/deliveries/delivery-1/dispatch',
+    );
+    expect(uncertain.status).toBe(409);
+    expect(uncertain.body).not.toHaveProperty('dispatch');
+    expect(available.orchestrator.deliver).toHaveBeenCalledOnce();
+  });
+
   it('scopes edit/step/cancel to this conversation and fences cancellation without runtime', async () => {
     const { app, orchestrator } = fixture();
     const foreign = await request(app)

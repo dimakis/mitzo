@@ -48,14 +48,27 @@ type Status = {
   }[];
 };
 
+class SymposiumRequestError extends Error {
+  constructor(
+    message: string,
+    readonly dispatchNotStarted: boolean,
+  ) {
+    super(message);
+  }
+}
+
 async function readJson<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await apiFetch(url, init);
   if (response.status === 404 && url.endsWith('/status'))
     throw new Error(
       'This server does not support saved agent status. Update the server before continuing.',
     );
-  const body = (await response.json()) as T & { error?: string };
-  if (!response.ok) throw new Error(body.error || `Request failed (${response.status})`);
+  const body = (await response.json()) as T & { error?: string; dispatch?: unknown };
+  if (!response.ok)
+    throw new SymposiumRequestError(
+      body.error || `Request failed (${response.status})`,
+      body.dispatch === 'not-started',
+    );
   return body;
 }
 
@@ -447,17 +460,25 @@ export function SymposiumConversation({
     } catch (cause) {
       if (sessionEpoch.current === epoch) {
         const detail = cause instanceof Error ? cause.message : 'Request failed';
+        const dispatchNotStarted =
+          action === 'send' && cause instanceof SymposiumRequestError && cause.dispatchNotStarted;
+        if (dispatchNotStarted) dispatchRequests.current.delete(identity);
         setDeliveryActions((old) => ({
           ...old,
           [identity]: {
             ...old[identity],
             [action]: false,
-            dispatchUncertain: action === 'send' || old[identity]?.dispatchUncertain,
+            ...(dispatchNotStarted ? { sendRequested: false, dispatchUncertain: false } : {}),
+            ...(!dispatchNotStarted
+              ? { dispatchUncertain: action === 'send' || old[identity]?.dispatchUncertain }
+              : {}),
             notice:
               action === 'send' && old[identity]?.stopRequested
                 ? old[identity].notice
                 : action === 'send'
-                  ? `Send outcome is uncertain. Do not resend; check delivery status or Stop. ${detail}`
+                  ? dispatchNotStarted
+                    ? `Send did not start. Check the connection, then choose Send again. ${detail}`
+                    : `Send outcome is uncertain. Do not resend; check delivery status or Stop. ${detail}`
                   : action === 'stop'
                     ? `Stop is unconfirmed. Check status or retry Stop. ${detail}`
                     : `Approval is unconfirmed. Check status or retry approval. ${detail}`,
