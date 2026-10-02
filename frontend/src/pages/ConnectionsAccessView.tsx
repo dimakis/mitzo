@@ -4,8 +4,9 @@ import { WorkspacePageHeading } from '../components/WorkspacePageHeading';
 import { getConnectionsAccess } from '../lib/connections-access-api';
 import type { AccessResource, ConnectionsAccessInventory } from '../types/connections-access';
 
-const sourceLabels = {
+const sourceLabels: Record<ConnectionsAccessInventory['sources'][number]['id'], string> = {
   accounts: 'AI accounts',
+  symposiumAccounts: 'Symposium AI accounts',
   managed: 'Managed services',
   personal: 'Personal accounts',
   google: 'Google Workspace',
@@ -28,6 +29,13 @@ function ResourceCard({ resource }: { resource: AccessResource }) {
         <h3>{resource.label}</h3>
         <span className="workspace-muted">{resource.provider}</span>
       </header>
+      {resource.kind === 'ai-account' &&
+        (resource.owner === 'account-profiles' ||
+          resource.owner === 'symposium-account-profiles') && (
+          <p className="workspace-muted">
+            {resource.owner === 'symposium-account-profiles' ? 'Symposium' : 'Ordinary chats'}
+          </p>
+        )}
       <dl className="access-resource-facts">
         <div>
           <dt>Account</dt>

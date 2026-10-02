@@ -194,3 +194,67 @@ it('marks retained inventory as older when a refresh fails and allows recovery',
   await vi.waitFor(() => expect(screen.queryByRole('alert')).toBeNull());
   expect(getConnectionsAccess).toHaveBeenCalledTimes(3);
 });
+
+it('distinguishes ordinary and Symposium accounts with the same native profile ID', async () => {
+  const profile = {
+    kind: 'ai-account' as const,
+    section: 'accounts' as const,
+    nativeId: 'work',
+    gateway: null,
+    workspace: null,
+    label: 'Work account',
+    provider: 'OpenAI',
+    status: 'configured',
+    revision: null,
+    accountIdentity: null,
+    verification: { state: 'unverified' as const, verifiedAt: null, reason: null },
+    access: {
+      summary: 'Configured models',
+      desiredAccountIds: [],
+      observedAttachments: null,
+      appliesTo: 'New conversations',
+    },
+    actions: [],
+    details: {},
+  };
+  vi.mocked(getConnectionsAccess).mockResolvedValue({
+    generatedAt: 1,
+    sources: [],
+    resources: [
+      { ...profile, id: 'primary/work', owner: 'account-profiles' },
+      { ...profile, id: 'symposium/work', owner: 'symposium-account-profiles' },
+    ],
+  });
+  render(
+    <MemoryRouter>
+      <ConnectionsAccessView />
+    </MemoryRouter>,
+  );
+  const accounts = await screen.findAllByRole('article', { name: 'Work account' });
+  expect(accounts).toHaveLength(2);
+  expect(within(accounts[0]).getByText('Ordinary chats')).toBeTruthy();
+  expect(within(accounts[1]).getByText('Symposium')).toBeTruthy();
+  expect(within(accounts[0]).getByText('account-profiles')).toBeTruthy();
+  expect(within(accounts[1]).getByText('symposium-account-profiles')).toBeTruthy();
+});
+
+it('names an unavailable Symposium catalog separately from ordinary AI accounts', async () => {
+  vi.mocked(getConnectionsAccess).mockResolvedValue({
+    generatedAt: 1,
+    resources: [],
+    sources: [
+      {
+        id: 'symposiumAccounts',
+        state: 'unavailable',
+        reason: 'This source could not be checked. Retry later.',
+      },
+    ],
+  });
+  render(
+    <MemoryRouter>
+      <ConnectionsAccessView />
+    </MemoryRouter>,
+  );
+  expect(await screen.findByText('Symposium AI accounts: Source unavailable')).toBeTruthy();
+  expect(screen.getByRole('button', { name: 'Refresh access' })).toBeTruthy();
+});
