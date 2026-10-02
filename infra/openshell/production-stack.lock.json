@@ -9,16 +9,25 @@
     }
   },
   "runtime": {
-    "image": "localhost/mitzo-mgmt-runtime:codex-01600-unified-20261002",
-    "digest": "sha256:b89016abe4c17850ee31e2c4613697f6a4871356953952b0edcdb4fdfb8db624",
-    "mitzoSourceCommit": "e4b2b7ed657b1f12a1766d25a663c9053d08f9b8",
-    "mgmtSourceCommit": "bf59b38188eb9cbfbceb3ddbf5d669fe212445d9",
-    "baseImage": "ghcr.io/nvidia/openshell-community/sandboxes/base@sha256:aeef1c63f00e2913ea002ccb3aaf925f338b5c5d70e63576f0d95c16a138044e",
+    "image": "localhost/mitzo-mgmt-runtime:knowledge-745021c0-f6e02e5f-20261002",
+    "digest": "sha256:da00dd108a9c3495aa8484629e92d507e19773644fe3f451f0045c5dc772986f",
+    "mitzoSourceCommit": "745021c0428c76a4cc8cca1bce89fe930654d3c2",
+    "mgmtSourceCommit": "f6e02e5f5cadf7af1208ebee8569a16602fc49cc",
+    "baseImage": "localhost/mitzo-mgmt-runtime:codex-01600-unified-20261002@sha256:b89016abe4c17850ee31e2c4613697f6a4871356953952b0edcdb4fdfb8db624",
     "requiredBinaries": [
       "/usr/bin/codex",
       "/usr/bin/gws",
       "/usr/bin/gh"
-    ]
+    ],
+    "knowledgeSchemaVersion": 1,
+    "knowledgeCompilerCommit": "683f9007db686e710ed9a5410468fe33df1c5382",
+    "knowledgeCompilerSha256": "6f50bb22c7d26651d1c24c78f2d4005eff1e1e022d28d64f84c6a9ed30b64ec6",
+    "knowledgeRecipeSha256": "0afb76417f609033df73ca2982373745b2336e492801714ab9a4e19bbeb9e5a5",
+    "dependencyProjectionSha256": "75c05a9884930184656deb70a37199d3df741f5458bb5909252547f9b52020ff",
+    "jiraRuntimeInputsSha256": "822e64aed1f2bb442f38f1ebe8a5e7cdc7487718d50f37e132d7933b5cfe047b",
+    "runtimeInputsSha256": "9b5abd71ee61a00d496f2baac6eda04bb14c637c00e4289b1f283c456f4be481",
+    "targetPlatform": "linux/arm64",
+    "targetMarkerEnvironmentB64": "eyJpbXBsZW1lbnRhdGlvbl9uYW1lIjoiY3B5dGhvbiIsImltcGxlbWVudGF0aW9uX3ZlcnNpb24iOiIzLjE0LjMiLCJvc19uYW1lIjoicG9zaXgiLCJwbGF0Zm9ybV9tYWNoaW5lIjoiYWFyY2g2NCIsInBsYXRmb3JtX3B5dGhvbl9pbXBsZW1lbnRhdGlvbiI6IkNQeXRob24iLCJwbGF0Zm9ybV9yZWxlYXNlIjoiNi4xNS4xMC0yMDAuZmM0Mi5hYXJjaDY0IiwicGxhdGZvcm1fc3lzdGVtIjoiTGludXgiLCJwbGF0Zm9ybV92ZXJzaW9uIjoiIzEgU01QIFBSRUVNUFRfRFlOQU1JQyBGcmkgQXVnIDE1IDE2OjMyOjQwIFVUQyAyMDI1IiwicHl0aG9uX2Z1bGxfdmVyc2lvbiI6IjMuMTQuMyIsInB5dGhvbl92ZXJzaW9uIjoiMy4xNCIsInN5c19wbGF0Zm9ybSI6ImxpbnV4In0="
   },
   "policy": {
     "sha256": "57584efe1027eb445d85320e0a424dfc9b304abbef793a1da33b0089e1a42673"
