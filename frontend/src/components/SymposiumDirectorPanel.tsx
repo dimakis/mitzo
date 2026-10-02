@@ -479,6 +479,8 @@ function SessionDirectorPanel({
         exact?.membership?.generation !== generation
       )
         throw new Error('Agent details changed. Refresh the agent list before continuing.');
+      if (!checked.runtimeAvailable || !exact.creationDiagnostic)
+        throw new Error('Current creation proof is unavailable. The saved failure is retained.');
       setStatus(
         (current) =>
           current && {
@@ -997,84 +999,83 @@ function SessionDirectorPanel({
                               ? 'Cleanup required'
                               : 'Pending runtime admission'}
                         </span>
-                        {seat.creationDiagnostic &&
-                          !detailChecks[seat.seatId]?.pending &&
-                          !detailChecks[seat.seatId]?.error && (
-                            <div role="status">
-                              Creation failed during {seat.creationDiagnostic.phase}:{' '}
-                              {seat.creationDiagnostic.code}.
-                              {seat.creationDiagnostic.canCleanup ? (
-                                <>
-                                  <p>
-                                    Clean up this failed sandbox. The seat will be suspended;
-                                    Restore requires a separate action.
-                                  </p>
-                                  <label>
-                                    Type CLEAN UP FAILED SEAT for {seat.seat.name}
-                                    <input
-                                      value={cleanupConfirmation[seat.seatId] ?? ''}
-                                      onChange={(event) =>
-                                        setCleanupConfirmation({
-                                          ...cleanupConfirmation,
-                                          [seat.seatId]: event.target.value,
-                                        })
-                                      }
-                                    />
-                                  </label>
-                                  <button
-                                    type="button"
-                                    disabled={
-                                      busy ||
-                                      cleanupConfirmation[seat.seatId] !== 'CLEAN UP FAILED SEAT'
-                                    }
-                                    onClick={() =>
-                                      void mutate('/creation/recover', {
-                                        seatId: seat.seatId,
-                                        expectedRevision: status.config!.revision,
-                                        expectedGeneration: seat.membership!.generation,
-                                        confirmation: cleanupConfirmation[seat.seatId],
-                                        ...(seat.creationDiagnostic?.recoveryIdempotencyKey
-                                          ? {
-                                              idempotencyKey:
-                                                seat.creationDiagnostic.recoveryIdempotencyKey,
-                                            }
-                                          : {}),
+                        {seat.creationDiagnostic && !detailChecks[seat.seatId]?.pending && (
+                          <div role="status">
+                            Creation failed during {seat.creationDiagnostic.phase}:{' '}
+                            {seat.creationDiagnostic.code}.
+                            {seat.creationDiagnostic.canCleanup &&
+                            !detailChecks[seat.seatId]?.error ? (
+                              <>
+                                <p>
+                                  Clean up this failed sandbox. The seat will be suspended; Restore
+                                  requires a separate action.
+                                </p>
+                                <label>
+                                  Type CLEAN UP FAILED SEAT for {seat.seat.name}
+                                  <input
+                                    value={cleanupConfirmation[seat.seatId] ?? ''}
+                                    onChange={(event) =>
+                                      setCleanupConfirmation({
+                                        ...cleanupConfirmation,
+                                        [seat.seatId]: event.target.value,
                                       })
                                     }
-                                  >
-                                    Clean up failed seat
-                                  </button>
-                                </>
-                              ) : seat.creationDiagnostic.recoveryAuthorization?.state ===
-                                'reauthorization_required' ? (
-                                <CreationRecoveryAuthorization
-                                  key={`${sessionId}:${seat.seatId}:${seat.membership!.generation}:${status.config!.revision}:${seat.creationDiagnostic.recoveryAuthorization.operationId}:${seat.creationDiagnostic.recoveryAuthorization.revision}`}
-                                  sessionId={sessionId}
-                                  seat={seat}
-                                  revision={status.config!.revision}
-                                  onSaved={async () => {
-                                    setCleanupConfirmation((current) => ({
-                                      ...current,
-                                      [seat.seatId]: '',
-                                    }));
-                                    await refresh();
-                                  }}
-                                />
-                              ) : seat.creationDiagnostic.recoveryAuthorization?.state ===
-                                'cleanup_fenced' ? (
-                                <p>
-                                  Cleanup is fenced: physical work may still be running or its
-                                  outcome is uncertain. Automatic retry and authorization transfer
-                                  are unavailable.
-                                </p>
-                              ) : (
-                                <p>
-                                  Exact retained creation proof is unavailable. Host recovery is
-                                  required.
-                                </p>
-                              )}
-                            </div>
-                          )}
+                                  />
+                                </label>
+                                <button
+                                  type="button"
+                                  disabled={
+                                    busy ||
+                                    cleanupConfirmation[seat.seatId] !== 'CLEAN UP FAILED SEAT'
+                                  }
+                                  onClick={() =>
+                                    void mutate('/creation/recover', {
+                                      seatId: seat.seatId,
+                                      expectedRevision: status.config!.revision,
+                                      expectedGeneration: seat.membership!.generation,
+                                      confirmation: cleanupConfirmation[seat.seatId],
+                                      ...(seat.creationDiagnostic?.recoveryIdempotencyKey
+                                        ? {
+                                            idempotencyKey:
+                                              seat.creationDiagnostic.recoveryIdempotencyKey,
+                                          }
+                                        : {}),
+                                    })
+                                  }
+                                >
+                                  Clean up failed seat
+                                </button>
+                              </>
+                            ) : seat.creationDiagnostic.recoveryAuthorization?.state ===
+                                'reauthorization_required' && !detailChecks[seat.seatId]?.error ? (
+                              <CreationRecoveryAuthorization
+                                key={`${sessionId}:${seat.seatId}:${seat.membership!.generation}:${status.config!.revision}:${seat.creationDiagnostic.recoveryAuthorization.operationId}:${seat.creationDiagnostic.recoveryAuthorization.revision}`}
+                                sessionId={sessionId}
+                                seat={seat}
+                                revision={status.config!.revision}
+                                onSaved={async () => {
+                                  setCleanupConfirmation((current) => ({
+                                    ...current,
+                                    [seat.seatId]: '',
+                                  }));
+                                  await refresh();
+                                }}
+                              />
+                            ) : seat.creationDiagnostic.recoveryAuthorization?.state ===
+                              'cleanup_fenced' ? (
+                              <p>
+                                Cleanup is fenced: physical work may still be running or its outcome
+                                is uncertain. Automatic retry and authorization transfer are
+                                unavailable.
+                              </p>
+                            ) : (
+                              <p>
+                                Exact retained creation proof is unavailable. Host recovery is
+                                required.
+                              </p>
+                            )}
+                          </div>
+                        )}
                         {status.config?.version === 2 &&
                         seat.seatId === status.config.anchorSeatId &&
                         seat.membership?.state === 'active' ? (

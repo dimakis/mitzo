@@ -1162,29 +1162,41 @@ it('keeps rejected detail checks local and never retries them automatically', as
   expect(apiFetch).toHaveBeenCalledTimes(2);
 });
 
-it.each(['wrong-session', 'durable-projection'])(
-  'does not accept %s as checked cleanup proof',
-  async (kind) => {
-    const initial = status(true);
+it.each(['missing', 'null', 'unavailable', 'current'])(
+  'retains saved creation failure unless the detail check returns a current diagnostic (%s)',
+  async (diagnostic) => {
+    const initial = status(false);
     const durable = {
       ...initial,
       statusMode: 'durable',
       runtimeVerification: 'not_checked',
-      runtimeAvailable: false,
       seats: initial.seats.map((seat) => ({
         ...seat,
-        admitted: false,
-        creationDiagnostic: { phase: 'mount', code: 'FAILED', canCleanup: false },
+        creationDiagnostic: {
+          phase: 'mount',
+          code: 'SEAT_MOUNT_FAILED',
+          canCleanup: diagnostic === 'unavailable',
+          recoveryAuthorization: {
+            operationId: 'recovery-operation',
+            revision: 2,
+            state: 'cleanup_fenced',
+          },
+        },
       })),
     };
     const checked = {
-      ...durable,
-      sessionId: kind === 'wrong-session' ? 'other' : 'session',
-      statusMode: kind === 'durable-projection' ? 'durable' : undefined,
-      runtimeVerification: kind === 'durable-projection' ? 'not_checked' : undefined,
-      seats: durable.seats.map((seat) => ({
+      ...initial,
+      runtimeAvailable: diagnostic !== 'unavailable',
+      seats: initial.seats.map((seat) => ({
         ...seat,
-        creationDiagnostic: { ...seat.creationDiagnostic, canCleanup: true },
+        ...(diagnostic === 'missing'
+          ? {}
+          : {
+              creationDiagnostic:
+                diagnostic === 'null'
+                  ? null
+                  : { phase: 'mount', code: 'SEAT_MOUNT_FAILED', canCleanup: true },
+            }),
       })),
     };
     vi.mocked(apiFetch).mockImplementation(async (url) =>
@@ -1194,11 +1206,71 @@ it.each(['wrong-session', 'durable-projection'])(
     await userEvent.click(screen.getByRole('button', { name: 'Agents' }));
     const card = await screen.findByRole('listitem', { name: 'Architect agent' });
     await userEvent.click(within(card).getByRole('button', { name: 'View details' }));
-    expect(await within(card).findByText('Couldn’t check connection details.')).toBeTruthy();
-    expect(within(card).queryByRole('button', { name: 'Clean up failed seat' })).toBeNull();
+    await waitFor(() =>
+      expect(within(card).queryByText('Checking connection details…')).toBeNull(),
+    );
+    expect(within(card).getByText('Workspace setup failed. No message was sent.')).toBeTruthy();
+    expect(within(card).getByText(/Creation failed during mount: SEAT_MOUNT_FAILED/)).toBeTruthy();
+    if (diagnostic === 'current') {
+      expect(within(card).getByRole('button', { name: 'Clean up failed seat' })).toBeTruthy();
+      expect(within(card).queryByText(/Cleanup is fenced:/)).toBeNull();
+    } else {
+      expect(within(card).getByText(/Cleanup is fenced:/)).toBeTruthy();
+      expect(within(card).getByText('Couldn’t check connection details.')).toBeTruthy();
+      expect(within(card).queryByRole('button', { name: 'Clean up failed seat' })).toBeNull();
+    }
     expect(apiFetch).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(apiFetch).mock.calls.every(([, init]) => !init?.method)).toBe(true);
   },
 );
+
+it.each([
+  'wrong-session',
+  'durable-projection',
+  'wrong-revision',
+  'wrong-generation',
+  'wrong-seat',
+])('does not accept %s as checked cleanup proof', async (kind) => {
+  const initial = status(true);
+  const durable = {
+    ...initial,
+    statusMode: 'durable',
+    runtimeVerification: 'not_checked',
+    runtimeAvailable: false,
+    seats: initial.seats.map((seat) => ({
+      ...seat,
+      admitted: false,
+      creationDiagnostic: { phase: 'mount', code: 'FAILED', canCleanup: false },
+    })),
+  };
+  const checked = {
+    ...durable,
+    runtimeAvailable: true,
+    sessionId: kind === 'wrong-session' ? 'other' : 'session',
+    statusMode: kind === 'durable-projection' ? 'durable' : undefined,
+    runtimeVerification: kind === 'durable-projection' ? 'not_checked' : undefined,
+    config: { ...durable.config, revision: kind === 'wrong-revision' ? 5 : 4 },
+    seats: durable.seats.map((seat) => ({
+      ...seat,
+      seatId: kind === 'wrong-seat' ? `other-${seat.seatId}` : seat.seatId,
+      membership: { ...seat.membership, generation: kind === 'wrong-generation' ? 2 : 1 },
+      creationDiagnostic: { ...seat.creationDiagnostic, canCleanup: true },
+    })),
+  };
+  vi.mocked(apiFetch).mockImplementation(async (url) =>
+    response(String(url).endsWith('/status') ? durable : checked),
+  );
+  render(<SymposiumDirectorPanel sessionId="session" />);
+  await userEvent.click(screen.getByRole('button', { name: 'Agents' }));
+  const card = await screen.findByRole('listitem', { name: 'Architect agent' });
+  await userEvent.click(within(card).getByRole('button', { name: 'View details' }));
+  expect(await within(card).findByText('Couldn’t check connection details.')).toBeTruthy();
+  expect(
+    within(card).getByText('Agent details changed. Refresh the agent list before continuing.'),
+  ).toBeTruthy();
+  expect(within(card).queryByRole('button', { name: 'Clean up failed seat' })).toBeNull();
+  expect(apiFetch).toHaveBeenCalledTimes(2);
+});
 
 it.each(['model', 'profile'] as const)(
   'preserves explicit read-only authority and custom guidance when editing a paused coder %s',
