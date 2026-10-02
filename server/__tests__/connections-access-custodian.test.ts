@@ -1,5 +1,8 @@
 import { describe, it, expect, vi } from 'vitest';
-import { personalInventorySource } from '../connections-access-custodian.js';
+import {
+  personalInventorySource,
+  symposiumAccountsInventorySource,
+} from '../connections-access-custodian.js';
 import { readConnectionsAccess } from '../connections-access.js';
 import { revokeAuthSession } from '../auth.js';
 import type { PersonalConnection } from '../symposium-personal-connections.js';
@@ -88,4 +91,53 @@ describe('custodian personal metadata inventory', () => {
     expect(result.sources.find((s) => s.id === 'personal')!.state).toBe('unavailable');
     expect(result.sources.find((s) => s.id === 'accounts')!.state).toBe('available');
   });
+});
+
+it('reads current Symposium catalog using existing account.catalog custody operation, without local fallback', async () => {
+  const session = auth();
+  const catalog = [
+    {
+      id: 'dynamic',
+      label: 'Dynamic account',
+      provider: 'openai' as const,
+      billing: 'openai-api',
+      models: [{ id: 'dynamic-model', label: 'Dynamic model' }],
+      modelDiscovery: { stale: false },
+      capabilities: { streaming: true, tools: true, images: false },
+    },
+  ];
+  const invoke = vi.fn<CustodianClient['request']>(async () => ({ status: 200, body: catalog }));
+  const local = vi.fn(() => []);
+  const symposiumAccounts = symposiumAccountsInventorySource(
+    session,
+    { request: invoke, invalidate: vi.fn() },
+    local,
+  )!;
+  const inventory = await readConnectionsAccess({ symposiumAccounts });
+  expect(invoke.mock.calls[0][0]).toMatchObject({
+    operation: 'account.catalog',
+    body: {},
+    query: {},
+    authorization: session,
+  });
+  expect(local).not.toHaveBeenCalled();
+  expect(inventory.resources[0].owner).toBe('symposium-account-profiles');
+  expect(inventory.resources[0].details.models).toEqual(catalog[0].models);
+});
+it('marks unavailable custodian Symposium catalog as unavailable without controller-local fallback', async () => {
+  const local = vi.fn(() => []);
+  const symposiumAccounts = symposiumAccountsInventorySource(
+    auth(),
+    {
+      request: vi.fn(async () => ({ status: 503, body: { error: 'SECRET' } })),
+      invalidate: vi.fn(),
+    },
+    local,
+  )!;
+  const inventory = await readConnectionsAccess({ symposiumAccounts });
+  expect(inventory.sources.find((source) => source.id === 'symposiumAccounts')!.state).toBe(
+    'unavailable',
+  );
+  expect(local).not.toHaveBeenCalled();
+  expect(JSON.stringify(inventory)).not.toContain('SECRET');
 });

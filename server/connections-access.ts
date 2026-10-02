@@ -10,6 +10,9 @@ import type {
 
 export interface ConnectionsAccessSources {
   accounts?: () => ReturnType<AccountProfiles['catalog']>;
+  symposiumAccounts?: (
+    signal: AbortSignal,
+  ) => ReturnType<AccountProfiles['catalog']> | Promise<ReturnType<AccountProfiles['catalog']>>;
   managed?: () => Connection[];
   personal?: (signal: AbortSignal) => PersonalConnection[] | Promise<PersonalConnection[]>;
   google?: (signal: AbortSignal) => Promise<GoogleWorkspaceHealth>;
@@ -70,7 +73,14 @@ export async function readConnectionsAccess(
 ): Promise<ConnectionsAccessInventory> {
   const now = options.now ?? Date.now();
   const result: ConnectionsAccessInventory = { generatedAt: now, resources: [], sources: [] };
-  const keys = ['accounts', 'managed', 'personal', 'google', 'legacy'] as const;
+  const keys = [
+    'accounts',
+    'symposiumAccounts',
+    'managed',
+    'personal',
+    'google',
+    'legacy',
+  ] as const;
   const reads = await Promise.all(
     keys.map(async (id) => {
       const read = input[id];
@@ -108,16 +118,27 @@ export async function readConnectionsAccess(
     });
   const value = <T>(id: (typeof keys)[number]) =>
     reads.find((r) => r.id === id)?.value as T | undefined;
-  for (const account of value<ReturnType<AccountProfiles['catalog']>>('accounts') ?? []) {
-    const row = base('ai-account', 'account-profiles', account.id, account.label, account.provider);
-    row.access.summary = 'Configured models; sign-in and effective access not checked';
-    row.details = {
-      billing: account.billing,
-      models: account.models.map((model) => ({ id: model.id, label: model.label })),
-    };
-    row.verification.reason =
-      'Configured account profile only. Credential controls are unavailable here; sign-in and effective access have not been checked.';
-    result.resources.push(row);
+  for (const source of ['accounts', 'symposiumAccounts'] as const) {
+    for (const account of value<ReturnType<AccountProfiles['catalog']>>(source) ?? []) {
+      const row = base(
+        'ai-account',
+        source === 'accounts' ? 'account-profiles' : 'symposium-account-profiles',
+        account.id,
+        account.label,
+        account.provider,
+      );
+      row.access.summary =
+        source === 'accounts'
+          ? 'Configured models; sign-in and effective access not checked'
+          : 'Configured Symposium models; sign-in and effective access not checked';
+      row.details = {
+        billing: account.billing,
+        models: account.models.map((model) => ({ id: model.id, label: model.label })),
+      };
+      row.verification.reason =
+        'Configured account profile only. Credential controls are unavailable here; sign-in and effective access have not been checked.';
+      result.resources.push(row);
+    }
   }
   const managed = (value<Connection[]>('managed') ?? []).filter((c) => !c.archivedAt);
   for (const connection of managed) {

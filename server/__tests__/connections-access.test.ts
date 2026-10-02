@@ -134,3 +134,42 @@ describe('nonsecret Connections & access inventory', () => {
     expect(result.sources.find((s) => s.id === 'google')!.state).toBe('unavailable');
   });
 });
+
+it('includes the current Symposium catalog with owner-scoped identity even when native account IDs match', async () => {
+  const inventory = await readConnectionsAccess({
+    ...sources(),
+    symposiumAccounts: () => [
+      {
+        ...account,
+        label: 'Dynamic Symposium',
+        models: [{ id: 'dynamic-model', label: 'Dynamic model' }],
+      },
+    ],
+  });
+  const accounts = inventory.resources.filter((row) => row.kind === 'ai-account');
+  expect(accounts).toHaveLength(2);
+  expect(accounts.map((row) => row.owner)).toEqual([
+    'account-profiles',
+    'symposium-account-profiles',
+  ]);
+  expect(new Set(accounts.map((row) => row.id)).size).toBe(2);
+  expect(accounts[1].nativeId).toBe(accounts[0].nativeId);
+  expect(accounts[1].details.models).toEqual([{ id: 'dynamic-model', label: 'Dynamic model' }]);
+  expect(inventory.sources.find((source) => source.id === 'symposiumAccounts')!.state).toBe(
+    'available',
+  );
+});
+it('reports Symposium catalog failure independently from the available primary catalog', async () => {
+  const inventory = await readConnectionsAccess({
+    ...sources(),
+    symposiumAccounts: () => {
+      throw new Error('SECRET');
+    },
+  });
+  expect(inventory.sources.find((source) => source.id === 'symposiumAccounts')!.state).toBe(
+    'unavailable',
+  );
+  expect(inventory.resources.some((row) => row.owner === 'account-profiles')).toBe(true);
+  expect(inventory.resources.some((row) => row.owner === 'symposium-account-profiles')).toBe(false);
+  expect(JSON.stringify(inventory)).not.toContain('SECRET');
+});

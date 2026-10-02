@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { registerAuthSession, type AuthSession } from './auth.js';
+import { CatalogModel } from './model-catalog.js';
 import type { CustodianClient } from './symposium-custodian-proxy.js';
 import type { ConnectionsAccessSources } from './connections-access.js';
 
@@ -28,14 +29,35 @@ const metadata = z.object({
     .max(100),
 });
 
-/** The caller supplies middleware-verified authority, never a browser body/token.
- * Controller mode always uses the closed existing personal.list operation. */
-export function personalInventorySource(
+const accountCatalog = z
+  .array(
+    z.object({
+      id: z.string().regex(/^[A-Za-z0-9_-]+$/),
+      label: z.string().min(1),
+      provider: z.enum(['openai', 'anthropic-vertex', 'google-vertex', 'openai-codex']),
+      billing: z.string(),
+      models: z.array(CatalogModel),
+      modelDiscovery: z.object({ updatedAt: z.number().optional(), stale: z.boolean() }),
+      capabilities: z.object({ streaming: z.boolean(), tools: z.boolean(), images: z.boolean() }),
+    }),
+  )
+  .transform((accounts) =>
+    accounts.map((account) => ({
+      ...account,
+      modelDiscovery: {
+        updatedAt: account.modelDiscovery.updatedAt,
+        stale: account.modelDiscovery.stale,
+      },
+    })),
+  );
+
+/** Closed existing metadata operations; authorization stays with the retained owner. */
+function custodianInventorySource<T>(
   auth: AuthSession,
-  client?: CustodianClient,
-  local?: ConnectionsAccessSources['personal'],
-): ConnectionsAccessSources['personal'] {
-  if (!client) return local;
+  client: CustodianClient,
+  operation: 'personal.list' | 'account.catalog',
+  parse: (body: unknown) => T,
+): (signal: AbortSignal) => Promise<T> {
   return async (signal) => {
     const invalidation = new AbortController();
     const current = AbortSignal.any([signal, invalidation.signal]);
@@ -56,7 +78,7 @@ export function personalInventorySource(
       const response = await Promise.race([
         client.request(
           {
-            operation: 'personal.list',
+            operation,
             requestId: randomUUID(),
             body: {},
             query: {},
@@ -73,10 +95,37 @@ export function personalInventorySource(
       ]);
       assertCurrent();
       if (response.status !== 200) throw new Error('Personal inventory unavailable');
-      return metadata.parse(response.body).connections;
+      return parse(response.body);
     } finally {
       if (stop) current.removeEventListener('abort', stop);
       unregister();
     }
   };
+}
+
+/** Middleware-verified browser authority only, never a request body or token. */
+export function personalInventorySource(
+  auth: AuthSession,
+  client?: CustodianClient,
+  local?: ConnectionsAccessSources['personal'],
+): ConnectionsAccessSources['personal'] {
+  return client
+    ? custodianInventorySource(
+        auth,
+        client,
+        'personal.list',
+        (body) => metadata.parse(body).connections,
+      )
+    : local;
+}
+export function symposiumAccountsInventorySource(
+  auth: AuthSession,
+  client?: CustodianClient,
+  local?: ConnectionsAccessSources['symposiumAccounts'],
+): ConnectionsAccessSources['symposiumAccounts'] {
+  return client
+    ? custodianInventorySource(auth, client, 'account.catalog', (body) =>
+        accountCatalog.parse(body),
+      )
+    : local;
 }

@@ -155,7 +155,10 @@ import { DEFAULT_AGENT_NAME, GIT_BRANCH_TIMEOUT_MS } from './constants.js';
 import { isValidInternalToken } from './internal-token.js';
 import { createConnectionsRouter } from './connections-router.js';
 import { createConnectionsAccessRouter } from './connections-access-router.js';
-import { personalInventorySource } from './connections-access-custodian.js';
+import {
+  personalInventorySource,
+  symposiumAccountsInventorySource,
+} from './connections-access-custodian.js';
 import { createCapabilityOperationsRouter } from './connections/capabilities/router.js';
 import { capabilityApprovalForConversation } from './connections/capabilities/approval.js';
 import { getLiveCapabilityConversationBinding } from './capability-conversation-binding.js';
@@ -2131,6 +2134,13 @@ app.use(
               : {}),
           }
         : {}),
+      symposiumAccounts: symposiumAccountsInventorySource(
+        auth,
+        custodianControllerClient,
+        symposiumProductionHost
+          ? () => symposiumProductionHost!.currentProfiles().catalog()
+          : undefined,
+      ),
       personal: personalInventorySource(
         auth,
         custodianControllerClient,

@@ -41,7 +41,7 @@ export interface ConnectionsAccessInventory {
   generatedAt: number;
   resources: AccessResource[];
   sources: Array<{
-    id: 'accounts' | 'managed' | 'personal' | 'google' | 'legacy';
+    id: 'accounts' | 'symposiumAccounts' | 'managed' | 'personal' | 'google' | 'legacy';
     state: 'available' | 'unavailable' | 'not-configured';
     reason: string | null;
   }>;
