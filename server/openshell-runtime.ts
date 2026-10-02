@@ -129,6 +129,19 @@ export type OpenShellRuntimeObservation = Readonly<
       outputBytes: number | null;
     }
   | {
+      kind: 'native-command';
+      operation: 'native-identity' | 'native-ssh-probe';
+      stage: 'terminal';
+      elapsedMs: number;
+      exitCode: number | null;
+      signal: 'SIGTERM' | 'SIGKILL' | 'SIGINT' | 'other' | null;
+      error: 'none' | 'max-buffer' | 'nonzero' | 'spawn' | 'terminated' | 'unknown';
+      stdoutAvailable: boolean;
+      stdoutBytes: number | null;
+      stderrAvailable: boolean;
+      stderrBytes: number | null;
+    }
+  | {
       kind: 'ensure-phase';
       phase: OpenShellEnsurePhase;
       stage: 'start' | 'fulfilled' | 'rejected';
@@ -165,6 +178,66 @@ function observeRuntime(
 }
 function elapsedObservation(started: number): number {
   return Math.min(2_147_483_647, Math.max(0, Math.floor(performance.now() - started)));
+}
+
+/** Observe the original native execFile callback before parsing; no output text is retained. */
+export function observeNativeMountCommand(
+  observer: OpenShellRuntimeConfig['observeRuntime'],
+  operation: 'native-identity' | 'native-ssh-probe',
+  started: number,
+  error: unknown,
+  stdout: unknown,
+  stderr: unknown,
+): void {
+  if (!observer) return;
+  try {
+    const e = error as { code?: unknown; signal?: unknown } | null;
+    const code = e?.code;
+    const signal = e?.signal;
+    const exitCode = !error
+      ? 0
+      : typeof code === 'number' && Number.isInteger(code) && code >= 1 && code <= 255
+        ? code
+        : null;
+    const bytes = (value: unknown) =>
+      typeof value === 'string'
+        ? Buffer.byteLength(value)
+        : Buffer.isBuffer(value)
+          ? value.length
+          : null;
+    const stdoutBytes = bytes(stdout),
+      stderrBytes = bytes(stderr);
+    observeRuntime(observer, {
+      kind: 'native-command',
+      operation,
+      stage: 'terminal',
+      elapsedMs: elapsedObservation(started),
+      exitCode,
+      signal:
+        signal == null
+          ? null
+          : signal === 'SIGTERM' || signal === 'SIGKILL' || signal === 'SIGINT'
+            ? signal
+            : 'other',
+      error: !error
+        ? 'none'
+        : code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER'
+          ? 'max-buffer'
+          : exitCode !== null
+            ? 'nonzero'
+            : signal != null
+              ? 'terminated'
+              : code === 'ENOENT' || code === 'EACCES'
+                ? 'spawn'
+                : 'unknown',
+      stdoutAvailable: stdoutBytes !== null,
+      stdoutBytes,
+      stderrAvailable: stderrBytes !== null,
+      stderrBytes,
+    });
+  } catch {
+    /* Diagnostic projection failure preserves the original callback result/error. */
+  }
 }
 
 /** Finite observation only; preserves the original transport and JSON parse errors. */
