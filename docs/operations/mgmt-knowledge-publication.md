@@ -91,8 +91,11 @@ verifier, copies a private verified selection to a separate versioned sandbox
 knowledge root, removes portable task Git from that view, verifies exact uploaded
 file bytes and modes, and compiles through the reviewed ContexGin entrypoint.
 Physical sandbox identity and ownership are checked before and after delivery.
-The Codex adapter refreshes developer instructions by resuming the same provider
-thread between completed turns; queued user messages remain unchanged.
+The Codex adapter delivers the selected compiled context through the public
+`turn/start.additionalContext` application-context field on the same provider
+thread. Selection happens between completed turns; queued user messages remain
+unchanged. This also works before the first turn, when the native thread has no
+persisted rollout and cannot be resumed.
 
 Native app-server launchers apply an inherited Landlock write boundary: task
 files, private provider state and temporary files remain writable, while the

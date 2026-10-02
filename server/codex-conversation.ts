@@ -995,41 +995,18 @@ export class CodexConversation {
       await this.verifyCurrentBinding(this.binding);
       active.abort.signal.throwIfAborted();
       const systemPrompt = await this.opts.prepareSystemPrompt?.(active.abort.signal);
-      if (systemPrompt !== undefined && systemPrompt !== this.opts.systemPrompt) {
-        const response = z.object({ config: z.unknown() }).parse(
-          await this.client.request('config/read', {
-            cwd: this.opts.runtimeCwd ?? this.opts.cwd,
-            includeLayers: false,
-          }),
-        );
-        const config =
-          this.opts.runtimeConfig ??
-          codexRuntimeOverrides(response.config, this.opts.profile.workspaceId);
-        const modelProvider = this.opts.modelProvider ?? 'openai';
-        const state = this.opts.store.read(this.opts.conversationId, this.binding!);
-        this.mapper?.beginReconnectReplay();
-        const resumed = z
-          .object({
-            thread: z.object({ id: z.string() }),
-            model: z.string(),
-            modelProvider: z.string(),
-          })
-          .parse(
-            await this.client.request('thread/resume', {
-              threadId: this.threadId,
-              ...this.threadOptions(config, modelProvider, state),
-              developerInstructions: systemPrompt,
-              allowProviderModelFallback: false,
-            }),
-          );
-        if (
-          resumed.thread.id !== this.threadId ||
-          resumed.model !== this.binding!.model ||
-          resumed.modelProvider !== modelProvider
-        )
-          throw new Error('Knowledge refresh changed the provider execution binding');
-        this.opts.systemPrompt = systemPrompt;
-      }
+      // Native threads have no persisted rollout before their first turn.
+      // Deliver the selection through the public per-turn application context
+      // contract, preserving both provider identity and unchanged user input.
+      const additionalContext: Record<
+        string,
+        { kind: 'application' | 'untrusted'; value: string }
+      > = {};
+      if (systemPrompt !== undefined)
+        additionalContext['mitzo.published-project-context'] = {
+          kind: 'application',
+          value: systemPrompt,
+        };
       active.abort.signal.throwIfAborted();
       const preparedPrompt =
         (await this.opts.prepareTurn?.(
@@ -1043,6 +1020,15 @@ export class CodexConversation {
       active.span.setAttribute('gen_ai.request.model', model);
       const state = this.opts.store.read(this.opts.conversationId, this.binding!);
       const rolloverContext = state.threadId === this.threadId ? state.rolloverContext : null;
+      if (rolloverContext)
+        additionalContext[
+          this.opts.providerThreadLifecycle === 'attempt'
+            ? 'mitzo.attempt-home-continuity'
+            : 'mitzo.tool-surface-rollover'
+        ] = {
+          kind: 'untrusted',
+          value: rolloverContext,
+        };
       const result = z.object({ turn: z.object({ id: z.string() }) }).parse(
         await this.client.request('turn/start', {
           threadId: this.threadId,
@@ -1058,18 +1044,7 @@ export class CodexConversation {
           approvalPolicy: 'never',
           sandboxPolicy: this.opts.turnSandboxPolicy ?? { type: 'readOnly' },
           ...(command.reasoningEffort ? { effort: command.reasoningEffort } : {}),
-          ...(rolloverContext
-            ? {
-                additionalContext: {
-                  [this.opts.providerThreadLifecycle === 'attempt'
-                    ? 'mitzo.attempt-home-continuity'
-                    : 'mitzo.tool-surface-rollover']: {
-                    kind: 'untrusted',
-                    value: rolloverContext,
-                  },
-                },
-              }
-            : {}),
+          ...(Object.keys(additionalContext).length ? { additionalContext } : {}),
         }),
       );
       if (this.active === active) {
