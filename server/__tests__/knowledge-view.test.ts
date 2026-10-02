@@ -4,6 +4,7 @@ import {
   mkdtempSync,
   mkdirSync,
   writeFileSync,
+  readFileSync,
   rmSync,
   chmodSync,
   realpathSync,
