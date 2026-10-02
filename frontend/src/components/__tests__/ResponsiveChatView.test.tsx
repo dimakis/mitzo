@@ -43,14 +43,14 @@ it('keeps the shared reviewer draft open across desktop/mobile wrapper changes',
   vi.mocked(useIsDesktop).mockReturnValue(true);
   const { rerender } = render(<ResponsiveChatView />);
   fireEvent.click(screen.getByRole('button', { name: 'Add reviewer' }));
-  fireEvent.change(screen.getByLabelText('Review package'), {
+  fireEvent.change(screen.getByLabelText('What should the reviewer check?'), {
     target: { value: 'Preserve this review package' },
   });
   vi.mocked(useIsDesktop).mockReturnValue(false);
   rerender(<ResponsiveChatView />);
   expect(screen.getByRole('dialog')).toBeTruthy();
-  expect((screen.getByLabelText('Review package') as HTMLTextAreaElement).value).toBe(
-    'Preserve this review package',
-  );
+  expect(
+    (screen.getByLabelText('What should the reviewer check?') as HTMLTextAreaElement).value,
+  ).toBe('Preserve this review package');
   expect(screen.getAllByRole('button', { name: 'Add reviewer' })).toHaveLength(1);
 });

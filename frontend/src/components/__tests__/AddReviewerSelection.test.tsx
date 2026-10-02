@@ -46,11 +46,11 @@ it('keeps submission disabled with the real picker until the user confirms accou
   fireEvent.click(screen.getByRole('button', { name: 'Add reviewer' }));
   await screen.findByRole('button', { name: 'Use Personal account · Luna' });
   fireEvent.click(screen.getByText('Choose profile'));
-  fireEvent.change(screen.getByLabelText('Review package'), {
+  fireEvent.change(screen.getByLabelText('What should the reviewer check?'), {
     target: { value: 'Review this diff' },
   });
   fireEvent.click(screen.getByRole('checkbox'));
-  const submit = screen.getByRole('button', { name: 'Add reviewer and queue context' });
+  const submit = screen.getByRole('button', { name: 'Add reviewer & queue request' });
   expect(submit).toBeDisabled();
   fireEvent.click(screen.getByRole('button', { name: 'Use Personal account · Luna' }));
   await waitFor(() => expect(submit).toBeEnabled());

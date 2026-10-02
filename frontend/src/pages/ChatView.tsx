@@ -342,6 +342,12 @@ export function ChatView() {
               connectionId={connectionId}
               running={messages.running}
             />
+            {activeSessionId && (
+              <p className="symposium-review-help">
+                AI review · Add a read-only reviewer, approve and send its request, then read the
+                findings.
+              </p>
+            )}
             <div className="workspace-session-actions">
               {activeSessionId && <AddReviewerSheet sessionId={activeSessionId} />}
               {activeSessionId && (
