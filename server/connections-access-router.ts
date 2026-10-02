@@ -1,5 +1,5 @@
 import express from 'express';
-import type { AuthSession } from './auth.js';
+import { registerAuthSession, type AuthSession } from './auth.js';
 import { recentAuthorizationSession } from './connections-router.js';
 import { readConnectionsAccess, type ConnectionsAccessSources } from './connections-access.js';
 
@@ -12,7 +12,21 @@ export function createConnectionsAccessRouter(
     res.set('Cache-Control', 'no-store');
     const auth = recentAuthorizationSession(res);
     if (!auth) return;
-    return res.json(await readConnectionsAccess(sources(auth)));
+    let invalidated = false;
+    const unregister = registerAuthSession(auth, () => {
+      invalidated = true;
+    });
+    const forbidden = () =>
+      res.status(403).json({ error: 'Operator authorization expired or revoked' });
+    try {
+      if (invalidated || auth.expiresAt <= Date.now()) return forbidden();
+      const inventory = await readConnectionsAccess(sources(auth));
+      // A source can finish before another; keep browser authority through the response.
+      if (invalidated || auth.expiresAt <= Date.now()) return forbidden();
+      return res.json(inventory);
+    } finally {
+      unregister();
+    }
   });
   return router;
 }
