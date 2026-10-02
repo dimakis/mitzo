@@ -2274,7 +2274,7 @@ describe('handleSendV2 routing', () => {
 
     expect(startChat).toHaveBeenCalledTimes(1);
     expect(startChat).toHaveBeenCalledWith(
-      transport,
+      expect.objectContaining({ send: expect.any(Function), isOpen: expect.any(Function) }),
       expect.any(String),
       'hi',
       expect.objectContaining({ cwd: '/tmp/test-repo' }),
@@ -3045,6 +3045,7 @@ describe('handleSendV2 state-based routing', () => {
     expect(transport.sent).toContainEqual({
       type: 'session_id',
       sessionId: 'native-initial-retry',
+      clientMsgId: 'initial-retry',
     });
     expect(ctx.connRegistry.get('c1')?.watchedSessions.has('native-initial-retry')).toBe(true);
     expect(ctx.connRegistry.get('c1')?.activeSession).toBe('native-initial-retry');
@@ -5277,6 +5278,28 @@ it('correlates a startup rejection with the send even after session assignment',
       type: 'error',
       clientMsgId: 'launch-id',
       error: 'Could not persist initial prompt',
+    }),
+  );
+});
+
+it('correlates a delayed new-session assignment with its original launch command', async () => {
+  const ctx = createContext();
+  const transport = mockTransport();
+  ctx.connRegistry.register('startup-conn', transport);
+  vi.mocked(startChat).mockImplementationOnce(async (startupTransport) => {
+    startupTransport.send({ type: 'session_id', sessionId: 'startup-session' });
+  });
+  await handleSendV2(
+    'startup-conn',
+    transport,
+    { type: 'send', sessionId: null, prompt: 'Launch', clientMsgId: 'launch-id' },
+    ctx,
+  );
+  expect(transport.sent).toContainEqual(
+    expect.objectContaining({
+      type: 'session_id',
+      sessionId: 'startup-session',
+      clientMsgId: 'launch-id',
     }),
   );
 });

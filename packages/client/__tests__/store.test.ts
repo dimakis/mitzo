@@ -2999,3 +2999,55 @@ it('retains an offscreen launch reconnect subscription and reconciles its persis
   await vi.waitFor(() => expect(store.getState().pendingSession).toBeNull());
   expect(store.getState().messages.messages).toHaveLength(0);
 });
+
+it.each(['new', 'switch'] as const)(
+  'tracks a launch assigned after %s navigation without changing the selected chat',
+  async (navigation) => {
+    const transport = mockTransport();
+    const store = createReadyStore(transport);
+    store.getState().setPendingSession({ prompt: 'Launch', context: 'Telos' });
+    store.getState().sendPendingSession();
+    const id = store.getState().messages.messages.at(-1)!.messageId;
+    if (navigation === 'new') store.getState().newSession();
+    else await store.getState().switchSession('other-session');
+    const selected = store.getState().sessions.active;
+    lastWs.simulateMessage({ type: 'session_id', sessionId: 'late-launch', clientMsgId: id });
+    expect(store.getState().sessions.active).toBe(selected);
+    const previousSocket = lastWs;
+    store.getState().forceReconnect();
+    await vi.waitFor(() => expect(lastWs).not.toBe(previousSocket));
+    lastWs.completeHandshake();
+    expect(lastWs.parsedSent().find((m) => m.type === 'reconnect')).toMatchObject({
+      sessions: expect.arrayContaining([{ sessionId: 'late-launch', lastSeq: 0 }]),
+    });
+    (transport.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        messages: [{ messageId: id, role: 'user', text: 'Launch', blocks: [], timestamp: 1 }],
+        cursor: 3,
+      }),
+    });
+    lastWs.simulateMessage({
+      type: 'session_reconnect_snapshot',
+      sessionId: 'late-launch',
+      cursor: 3,
+      state: 'idle',
+    });
+    await vi.waitFor(() => expect(store.getState().pendingSession).toBeNull());
+    expect(store.getState().sessions.active).toBe(selected);
+    expect(store.getState().messages.messages).toHaveLength(0);
+  },
+);
+
+it('does not select an offscreen launch when assignment follows its HTTP receipt', () => {
+  const store = createReadyStore();
+  store.getState().setPendingSession({ prompt: 'Launch', context: 'Telos' });
+  store.getState().sendPendingSession();
+  const id = store.getState().messages.messages.at(-1)!.messageId;
+  store.getState().newSession();
+  lastWs.simulateMessage({ type: '_send_accepted', clientMsgId: id, sessionId: 'late-launch' });
+  expect(store.getState().pendingSession).toBeNull();
+  expect(store.getState().sessions.active).toBeNull();
+  lastWs.simulateMessage({ type: 'session_id', clientMsgId: id, sessionId: 'late-launch' });
+  expect(store.getState().sessions.active).toBeNull();
+});

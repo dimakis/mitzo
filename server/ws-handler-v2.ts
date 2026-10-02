@@ -794,6 +794,7 @@ export function handleSendV2(
                           commandTransport.send({
                             type: 'session_id',
                             sessionId: commandSessionId,
+                            clientMsgId: msg.clientMsgId,
                           });
                           if (ctx.eventStore.getSessionState(commandSessionId) !== 'ENDED')
                             ctx.eventStore.setSessionState(commandSessionId, 'ENDED', {
@@ -1074,7 +1075,11 @@ export function handleSendV2(
             });
             ctx.connRegistry.watch(connectionId, startupSessionId);
             ctx.connRegistry.setActive(connectionId, startupSessionId);
-            transport.send({ type: 'session_id', sessionId: startupSessionId });
+            transport.send({
+              type: 'session_id',
+              sessionId: startupSessionId,
+              clientMsgId: msg.clientMsgId,
+            });
             return;
           }
           const sessionClientId = `${connectionId}:new-${randomUUID().slice(0, 8)}`;
@@ -1083,7 +1088,14 @@ export function handleSendV2(
             ctx.connRegistry.watch(connectionId, resolvedId);
             ctx.connRegistry.setActive(connectionId, resolvedId);
           };
-          startChat(transport, sessionClientId, prompt, {
+          const startupTransport: SessionTransport = {
+            isOpen: () => transport.isOpen(),
+            send: (event) =>
+              transport.send(
+                event.type === 'session_id' ? { ...event, clientMsgId: msg.clientMsgId } : event,
+              ),
+          };
+          startChat(startupTransport, sessionClientId, prompt, {
             initialSessionId: delivery?.initialSessionId,
             cwd: validatedCwd,
             model: effectiveSelection.model,

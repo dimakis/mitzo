@@ -262,12 +262,14 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
   const pendingOptimisticMessageIds = new Set<string>();
   const deliveryObservers = new Map<string, NonNullable<SendMessageOptions['onDelivery']>>();
   const deliverySessions = new Map<string, string>();
+  const unassignedDeliveries = new Map<string, number>();
   const hasPendingDelivery = (sessionId: string) =>
     [...deliverySessions.values()].includes(sessionId);
   function settleDelivery(id: string, status: 'accepted' | 'failed' | 'uncertain') {
     const observer = deliveryObservers.get(id);
     const sessionId = deliverySessions.get(id);
     if (status !== 'uncertain') {
+      if (status === 'failed') unassignedDeliveries.delete(id);
       deliveryObservers.delete(id);
       deliverySessions.delete(id);
     }
@@ -656,6 +658,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
         deliveryObservers.set(clientMsgId, opts.onDelivery);
         if (parserState.currentSessionId)
           deliverySessions.set(clientMsgId, parserState.currentSessionId);
+        else unassignedDeliveries.set(clientMsgId, historyRequest);
       }
 
       const buildPayload = (): Record<string, unknown> => {
@@ -1030,6 +1033,15 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     },
   }));
 
+  function bindLaunchAssignment(id: string, sessionId: string, consume = true): boolean {
+    const foreground = unassignedDeliveries.get(id) === historyRequest;
+    // HTTP delivery can precede session_id. Retain the draft identity until that event.
+    if (consume) unassignedDeliveries.delete(id);
+    if (deliveryObservers.has(id)) deliverySessions.set(id, sessionId);
+    connection.trackSeq(sessionId, connection.getLastSeq(sessionId));
+    return foreground;
+  }
+
   // ── WS → store wiring ──────────────────────────────────────────────────
 
   const callbacks: ProtocolCallbacks = {
@@ -1108,6 +1120,15 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       msg.type === '_send_uncertain' ||
       msg.type === '_send_accepted'
     ) {
+      if (
+        msg.type === '_send_accepted' &&
+        typeof msg.sessionId === 'string' &&
+        typeof msg.clientMsgId === 'string' &&
+        unassignedDeliveries.has(msg.clientMsgId)
+      ) {
+        const foreground = bindLaunchAssignment(msg.clientMsgId, msg.sessionId, false);
+        if (foreground) callbacks.onSessionAssigned(msg.sessionId);
+      }
       if (typeof msg.clientMsgId === 'string' && msg.type !== '_send_pending') {
         const status =
           msg.type === '_send_accepted'
@@ -1178,6 +1199,17 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     }
 
     const eventSessionId = msg.sessionId as string | undefined;
+    if (msg.type === 'session_id' && typeof eventSessionId === 'string') {
+      // Correlated assignments survive navigation; only their original draft may be selected.
+      const id =
+        typeof msg.clientMsgId === 'string'
+          ? msg.clientMsgId
+          : [...unassignedDeliveries.keys()].find((id) => pendingOptimisticMessageIds.has(id));
+      if (id && unassignedDeliveries.has(id)) {
+        const foreground = bindLaunchAssignment(id, eventSessionId);
+        if (!foreground) return true;
+      }
+    }
 
     // Startup rejection may arrive after session_id. Only the matching command
     // can release its launch; unrelated runtime errors are not delivery receipts.
