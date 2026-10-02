@@ -11,7 +11,12 @@ const script = readFileSync('.github/workflows/centaur-gate.yml', 'utf8')
   .join('\n');
 const review = { user: { login: 'dimakis' }, body, commit_id: head, state: 'COMMENTED' };
 
-async function execute(records: Partial<typeof review>[], current = head, next = current) {
+async function execute(
+  records: Partial<typeof review>[],
+  current = head,
+  next = current,
+  reviewer = '',
+) {
   const statuses: { state: string; sha: string; context: string }[] = [];
   let reads = 0;
   const github = {
@@ -29,6 +34,7 @@ async function execute(records: Partial<typeof review>[], current = head, next =
   };
   await new Script(`(async () => {${script}})()`).runInNewContext({
     github,
+    process: { env: { CENTAUR_REVIEWER_LOGIN: reviewer } },
     context: {
       repo: { owner: 'dimakis', repo: 'mitzo' },
       payload: { pull_request: { number: 704 } },
@@ -66,4 +72,13 @@ it('never carries an older approval onto a new head', async () => {
   expect((await execute([review], head, 'b'.repeat(40))).some((s) => s.state === 'success')).toBe(
     false,
   );
+});
+
+it('accepts only the configured trusted Centaur publishing account', async () => {
+  expect(
+    (await execute([{ ...review, user: { login: 'centaur-bot' } }], head, head, 'centaur-bot')).at(
+      -1,
+    )?.state,
+  ).toBe('success');
+  expect((await execute([review], head, head, 'centaur-bot')).at(-1)?.state).toBe('pending');
 });

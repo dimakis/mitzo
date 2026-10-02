@@ -11,3 +11,5 @@ Production activation requires reviewed, accepted sources. A publication is dist
 Tests that make real model calls must explicitly use a supported Luna model. State the exact model and charged account before live tests; obtain approval if Luna is unavailable or another model is required.
 
 The `Centaur merge gate` GitHub workflow publishes the commit-specific `Centaur final LGTM` status from the latest trusted Centaur report. Branch protection must require this status alongside CI. It rechecks after pushes, review submissions/edits/dismissals, and fallback review comments; missing or stale reports remain pending, and blocking or dismissed reports fail. Changing a branch protection is distinct from landing the workflow; verify both before claiming enforcement.
+
+For a separate Centaur publishing account, configure the GitHub repository variable `CENTAUR_REVIEWER_LOGIN`; keep it consistent with Mitzo’s `trusted_reviewer`/host `CENTAUR_REVIEWER_LOGIN`. The MGMT CLI and shepherd also honor that host variable (the CLI permits an explicit `--centaur-author`). Otherwise the repository owner is the trusted publishing account.
