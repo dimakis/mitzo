@@ -37,7 +37,7 @@ describe('shared web access tool wiring', () => {
     expect(approve.mock.calls[0][2]).toMatchObject({
       forcePrompt: true,
       allowSessionGrant: false,
-      approvalScope: 'session',
+      approvalScope: 'request',
     });
   });
   it('does not expose search in Ask mode', async () => {

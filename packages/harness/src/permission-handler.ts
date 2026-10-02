@@ -135,7 +135,7 @@ export function buildPermissionHandler(
       forcePrompt?: boolean;
       /** Allow a forced prompt to honor an explicit session-wide grant. */
       allowSessionGrant?: boolean;
-      approvalScope?: 'session' | 'conversation';
+      approvalScope?: 'session' | 'conversation' | 'request';
       /**
        * A server-owned control-plane approval (for example, attaching a
        * reviewed integration) may bypass a skill's model-tool ceiling. It

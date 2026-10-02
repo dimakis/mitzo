@@ -11,7 +11,7 @@ interface Props {
   description?: string;
   displayName?: string;
   tier?: ToolTier;
-  approvalScope?: 'session' | 'conversation';
+  approvalScope?: 'session' | 'conversation' | 'request';
   responseError?: string;
   expiresAt?: number;
   questions?: UserQuestion[];
@@ -219,7 +219,7 @@ export function PermissionBanner({
             >
               {approvalScope === 'conversation' ? 'Grant to conversation' : 'Allow Once'}
             </button>
-            {approvalScope !== 'conversation' && (
+            {approvalScope !== 'conversation' && approvalScope !== 'request' && (
               <button
                 className="perm-banner-btn perm-banner-btn--always"
                 disabled={remaining === 0}

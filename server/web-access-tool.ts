@@ -38,7 +38,7 @@ export function createWebAccessTool(
           toolUseID: randomUUID(),
           forcePrompt: true,
           allowSessionGrant: false,
-          approvalScope: 'session',
+          approvalScope: 'request',
           title:
             request.operation === 'search' ? 'Allow this web search?' : 'Allow this website read?',
           description:
