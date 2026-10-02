@@ -1,16 +1,49 @@
+import { observeMountJson, type OpenShellMountJsonOperation } from './openshell-runtime.js';
+import { digestSymposiumSeedTree } from './symposium-production-gate.js';
+import {
+  collectSessionOwnedAdmissionEvidence,
+  SessionEvidenceBinding,
+} from './symposium-owned-evidence.js';
+import type { SymposiumOwnedBuildSelection } from './symposium-owned-runtime-contract.js';
+import { isDeepStrictEqual } from 'node:util';
+import type { NativeTurnObservation } from './symposium-native-observations.js';
+import type { OpenAiCodexSeatInput } from './symposium-codex-native.js';
+import { assertOwnedSealedReaderCurrent } from './symposium-owned-reader-reference.js';
+import { artifactAdmissionDigest } from './event-store.js';
+import {
+  ArtifactAdmissionReferenceV1Schema,
+  type ArtifactAdmissionReferenceV1,
+  type ArtifactReaderReferenceV1,
+  type ArtifactReaderAdmissionBindingV1,
+  type ArtifactAdmissionBindingV1,
+} from '@mitzo/protocol';
 import { createOwnedSeatPolicySelector } from './symposium-owned-seat-policy.js';
 import {
   captureSymposiumWorkVertexProvider,
   captureSymposiumWorkVertexProviderAsync,
 } from './symposium-work-vertex-provider.js';
 import { createSymposiumSourceHost } from './symposium-source-service.js';
+import {
+  sealImportedSourceArtifact,
+  requireCompletedImportedSourceSeal,
+  initialSourceExportReceipt,
+  type InitialSourceExportReceipt,
+} from './symposium-source-artifact-seal.js';
 import type { PublicationCredentialRegistration } from './symposium-publication-registration.js';
-import { withOwnedArtifactSuccessor } from './symposium-owned-successor.js';
+import type { CheckDefinition } from './symposium-criterion-receipts.js';
+import {
+  withOwnedArtifactSuccessor,
+  confirmOwnedArtifactSuccessor,
+} from './symposium-owned-successor.js';
 import {
   assertSuccessorFixAuthority,
   type SuccessorFixAuthority,
 } from './symposium-artifact-successor-authority.js';
-import type { ArtifactGenerationRequest } from './symposium-artifact-generations.js';
+import {
+  readArtifactAdmissionReceipt,
+  inspectStoppedSuccessorOperation,
+  type ArtifactGenerationRequest,
+} from './symposium-artifact-generations.js';
 import type { SuccessorArtifactExportReceipt } from './symposium-physical-artifact-seal.js';
 import { REVIEWED_SYMPOSIUM_OWNED_RUNTIME } from './symposium-owned-runtime-contract.js';
 import { artifactGitContract, createArtifactGitVolume } from './symposium-artifact-initializer.js';
@@ -47,7 +80,7 @@ import {
   type SessionArtifactPreparation,
 } from './symposium-session-artifacts.js';
 import { DeviceLoginCleanupError } from './symposium-device-login.js';
-import { execFile } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { chmodSync, lstatSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
 import { EventStore } from '@mitzo/protocol/event-store';
@@ -60,6 +93,7 @@ import {
   SqliteArtifactLeaseHost,
   ArtifactPodmanContext,
   ArtifactCommandNotDispatched,
+  classifySemanticAttachedNonzero,
 } from './symposium-artifact-host.js';
 import { LocalPodmanArtifactEvidence } from './symposium-podman-evidence.js';
 import { LocalSymposiumProductionPhysicalProof } from './symposium-production-physical.js';
@@ -81,6 +115,14 @@ class LoginCancelledForShutdown extends Error {
 }
 
 export interface OwnedSymposiumHostOptions {
+  /** Trusted constructor only; persisted/request configuration cannot choose builds. */
+  admissionBuildSelection?: SymposiumOwnedBuildSelection;
+  /** Trusted construction only; never read from persisted configuration or requests. */
+  observeDurableReviewToolResult?: OpenAiCodexSeatInput['observeDurableReviewToolResult'];
+  observeStartupConfig?: OpenAiCodexSeatInput['observeStartupConfig'];
+  observePrelaunch?: OpenAiCodexSeatInput['observePrelaunch'];
+  observeRuntime?: OpenShellRuntimeConfig['observeRuntime'];
+  criterionChecks?: readonly CheckDefinition[];
   publicationCredentials?: readonly PublicationCredentialRegistration[];
   gateway: OwnedSymposiumGatewayOptions;
   /** Absolute evidence destination. It may be absent until real provisioning
@@ -93,6 +135,10 @@ export interface OwnedSymposiumHostOptions {
   hostGrants: SymposiumHostGrantVerifier;
   /** Trusted construction only; unavailable until a real current review/fix authority exists. */
   successorAuthority?: SuccessorFixAuthority;
+  readerAuthority?: {
+    assertAdmissionCurrent(binding: ArtifactReaderAdmissionBindingV1): true;
+    assertAdmissionStaged(binding: ArtifactReaderAdmissionBindingV1): true;
+  };
   artifacts: readonly { sessionId: string; volumeName: string; volumeGeneration: string }[];
 }
 
@@ -111,6 +157,14 @@ export async function createOwnedSymposiumHost(
     execution: { timeout: number; input?: Buffer },
   ) => Promise<string>,
 ) {
+  if (
+    options.admissionBuildSelection !== undefined &&
+    options.admissionBuildSelection !== 'local-854b-b20-v1'
+  )
+    throw Error('Owned full-build selection is not reviewed');
+  const originalObserver = options.observeDurableReviewToolResult;
+  if (originalObserver !== undefined && typeof originalObserver !== 'function')
+    throw new Error('Owned native observer must be a trusted constructor callback');
   if (
     !isAbsolute(options.attestationPath) ||
     !isAbsolute(options.podman.executable) ||
@@ -164,6 +218,11 @@ export async function createOwnedSymposiumHost(
   let subscription: ReturnType<typeof createPersonalSubscriptionHost> | undefined;
   let sessionArtifacts: SymposiumSessionArtifacts | undefined;
   let stopped = false;
+  const prelaunchInspections = new Set<AbortController>();
+  const abortPrelaunchInspections = () => {
+    for (const inspection of prelaunchInspections)
+      inspection.abort(new Error('Original owned prelaunch owner is shutting down'));
+  };
   let draining = false;
   let controllerPaused = false;
   const pendingHostOperations = new Set<Promise<unknown>>();
@@ -172,6 +231,13 @@ export async function createOwnedSymposiumHost(
     if (draining) return Promise.reject(new Error('Owned Symposium host is shutting down'));
     if (controllerPaused)
       return Promise.reject(new Error('Owned Symposium controller unavailable'));
+    const promise = operation();
+    pendingHostOperations.add(promise);
+    void promise.finally(() => pendingHostOperations.delete(promise)).catch(() => {});
+    return promise;
+  };
+  const trackCleanup = <T>(operation: () => Promise<T>): Promise<T> => {
+    if (stopped) return Promise.reject(new Error('Owned Symposium host stopped'));
     const promise = operation();
     pendingHostOperations.add(promise);
     void promise.finally(() => pendingHostOperations.delete(promise)).catch(() => {});
@@ -197,6 +263,7 @@ export async function createOwnedSymposiumHost(
       : options.personal.workProfiles;
     custody();
     const runtimeConfig: OpenShellRuntimeConfig = {
+      ...(options.observeRuntime ? { observeRuntime: options.observeRuntime } : {}),
       cli: gateway.cli,
       gateway: gateway.gateway,
       workspace: gateway.workspace,
@@ -219,11 +286,27 @@ export async function createOwnedSymposiumHost(
       maxOutputBytes = 2 * 1024 * 1024,
       deferPostCustody = false,
       input?: Buffer,
+      timeoutMs?: number,
     ): Promise<string> => {
+      if (
+        timeoutMs !== undefined &&
+        (!Number.isInteger(timeoutMs) ||
+          timeoutMs < 1 ||
+          timeoutMs > 5000 ||
+          (input && timeoutMs > 5000))
+      )
+        throw new Error('Owned semantic deadline is invalid');
+      // An 8 MiB source bundle expands to base64 plus JSON; only the exact
+      // retained helper output reads need the seal verifier's 16 MiB bound.
+      const sealVerifierRead =
+        !input &&
+        ((args.length === 3 && args[0] === 'start' && args[1] === '--attach') ||
+          (args.length === 2 && args[0] === 'logs')) &&
+        /^[a-f0-9]{64}$/.test(args.at(-1) ?? '');
       if (
         !Number.isSafeInteger(maxOutputBytes) ||
         maxOutputBytes < 1 ||
-        maxOutputBytes > 12 * 1024 * 1024
+        maxOutputBytes > (sealVerifierRead ? 16 : 12) * 1024 * 1024
       )
         throw new Error('Owned Podman output bound is invalid');
       try {
@@ -231,10 +314,12 @@ export async function createOwnedSymposiumHost(
       } catch (error) {
         throw new ArtifactCommandNotDispatched(error);
       }
-      const timeout = args[0] === 'start' && args[1] === '--attach' ? 60_000 : 15_000;
+      const timeout =
+        timeoutMs ?? (args[0] === 'start' && args[1] === '--attach' ? 60_000 : 15_000);
       const text = podmanCommand
         ? await podmanCommand(args, { timeout, ...(input ? { input } : {}) })
         : await new Promise<string>((resolve, reject) => {
+            let stdinFailed = false;
             const child = execFile(
               options.podman.executable,
               [...args],
@@ -245,38 +330,132 @@ export async function createOwnedSymposiumHost(
                 // a 20-second bundle phase); the transport must outlive that bound.
                 timeout,
                 maxBuffer: maxOutputBytes,
+                ...(timeoutMs === undefined ? {} : { killSignal: 'SIGKILL' as const }),
               },
               (error, stdout) => {
-                if (error) reject(new Error('Owned Podman operation failed'));
+                if (error)
+                  reject(
+                    classifySemanticAttachedNonzero(
+                      args,
+                      input,
+                      error,
+                      stdout,
+                      maxOutputBytes,
+                      stdinFailed,
+                    ) ?? new Error('Owned Podman operation failed'),
+                  );
                 else resolve(stdout);
               },
             );
             // Errors are sanitized; artifact bytes never enter arguments, logs or error causes.
-            child.stdin?.on('error', () => reject(new Error('Owned Podman stdin failed')));
+            child.stdin?.on('error', () => {
+              stdinFailed = true;
+              reject(new Error('Owned Podman stdin failed'));
+            });
             child.stdin?.end(input);
           });
       if (!deferPostCustody) custody();
       return text;
     };
-    const podman = async (args: readonly string[]): Promise<unknown> =>
-      JSON.parse(await podmanText(args));
+    const podmanStream = async (
+      args: readonly string[],
+      onChunk: (chunk: Buffer) => void,
+    ): Promise<void> => {
+      if (
+        args.length !== 3 ||
+        args[0] !== 'start' ||
+        args[1] !== '--attach' ||
+        !/^[a-f0-9]{64}$/.test(args[2])
+      )
+        throw new Error('Owned Podman streaming command is invalid');
+      try {
+        custody();
+      } catch (error) {
+        throw new ArtifactCommandNotDispatched(error);
+      }
+      // Test transports are already bounded in-memory mocks. The production path
+      // consumes stdout incrementally so a complete sealed review never enters a
+      // Node string, an execFile buffer, stderr, or a command argument.
+      const maximumBytes = 32768 * (48 * 1024 + 2) + 2 * 1024 * 1024;
+      if (podmanCommand) {
+        const output = await podmanCommand(args, { timeout: 60_000 });
+        if (Buffer.byteLength(output, 'utf8') > maximumBytes)
+          throw new Error('Owned Podman stream exceeded bound');
+        onChunk(Buffer.from(output, 'utf8'));
+        custody();
+        return;
+      }
+      const child = spawn(options.podman.executable, [...args], {
+        env: podmanEnv,
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+      const closed = new Promise<number | null>((resolve, reject) => {
+        child.once('error', () => reject(new Error('Owned Podman stream failed')));
+        child.once('close', (code) => resolve(code));
+      });
+      let timedOut = false;
+      const deadline = setTimeout(() => {
+        timedOut = true;
+        child.kill('SIGKILL');
+      }, 60_000);
+      child.stderr.resume();
+      let bytes = 0;
+      try {
+        for await (const chunk of child.stdout) {
+          bytes += chunk.length;
+          if (bytes > maximumBytes) throw new Error('Owned Podman stream exceeded bound');
+          onChunk(chunk);
+        }
+        if ((await closed) !== 0 || timedOut) throw new Error('Owned Podman stream failed');
+        custody();
+      } catch {
+        child.kill('SIGKILL');
+        await closed.catch(() => undefined);
+        throw new Error('Owned Podman stream failed');
+      } finally {
+        clearTimeout(deadline);
+      }
+    };
+    const podman = async (
+      args: readonly string[],
+      observation?: OpenShellMountJsonOperation,
+    ): Promise<unknown> =>
+      observation
+        ? observeMountJson(options.observeRuntime, observation, () => podmanText(args))
+        : JSON.parse(await podmanText(args));
     const artifactEvidence = new LocalPodmanArtifactEvidence(
       gateway.workspace,
       options.podman.sandboxNamespace,
       podman,
       gateway,
       options.gateway.workloadImage,
+      undefined,
+      options.observeRuntime,
     );
     leaseHost = new SqliteArtifactLeaseHost(
       leasePath,
       artifactEvidence,
       new ArtifactPodmanContext(
-        (args, max, input) => podmanText(args, max, false, input),
-        (args, maxOutputBytes, input) => podmanText(args, maxOutputBytes, true, input),
+        (args, max, input, timeoutMs) => podmanText(args, max, false, input, timeoutMs),
+        (args, maxOutputBytes, input, timeoutMs) =>
+          podmanText(args, maxOutputBytes, true, input, timeoutMs),
+        podmanStream,
       ),
       gateway,
     );
     chmodSync(leasePath, 0o600);
+    if (options.facts instanceof EventStore) {
+      artifactSealer = new PhysicalArtifactSealer({
+        store: options.facts,
+        leaseHost,
+        gateway,
+        attemptRegistry: native.registry,
+        runtimeConfig,
+      });
+      // A new gateway never inherits old seal custody. Dispose only completed
+      // stream caches whose old journal and removed helper are still provable.
+      await artifactSealer.releaseAbandonedReadyReviewStreams();
+    }
     // Session identities survive fresh gateway launches. Retain their reservations
     // in the stable private parent, while recording launch custody in every row.
     const parent = lstatSync(options.gateway.stateParent);
@@ -376,6 +555,218 @@ export async function createOwnedSymposiumHost(
       if (!subscription) throw new Error('Subscription host is not initialized');
       return subscription.currentProfiles;
     };
+    const readNativeObservation = (claimToken: string): NativeTurnObservation => {
+      if (stopped || draining || controllerPaused)
+        throw new Error('Original owned native reader is no longer current');
+      const profiles = currentProfiles();
+      if (!(options.facts instanceof EventStore) || typeof claimToken !== 'string' || !claimToken)
+        throw new Error('Original native observation owner unavailable');
+      const controller = native!.registry.get(claimToken);
+      const observation = native!.registry.observations.get(claimToken);
+      const identity = observation?.identity;
+      const attempt = options.facts.getSymposiumRecipientAttemptByClaimToken(claimToken);
+      if (
+        !identity ||
+        observation.status !== 'accepted' ||
+        observation.terminalAt !== null ||
+        observation.terminalConflict ||
+        controller?.state !== 'reserved' ||
+        controller.sessionId !== identity.sessionId ||
+        identity.claimToken !== claimToken ||
+        attempt?.status !== 'executing' ||
+        attempt.claimToken !== claimToken ||
+        attempt.seatId !== identity.seatId ||
+        attempt.providerThreadId !== identity.providerThreadId ||
+        attempt.providerTurnId !== identity.providerTurnId ||
+        !isDeepStrictEqual(attempt.provenance, identity.provenance) ||
+        !isDeepStrictEqual(
+          profiles.resolve(identity.accountBinding.accountId, identity.accountBinding.model),
+          identity.accountBinding,
+        )
+      )
+        throw new Error('Original accepted native claim is no longer current');
+      const config = options.facts.getActiveSymposiumConfig(identity.sessionId);
+      const seat = config.seats.find((value) => value.id === identity.seatId);
+      const membership = options.facts.getLatestSymposiumMembership(
+        identity.sessionId,
+        identity.seatId,
+      );
+      const admission = options.facts.getLatestSymposiumAdmission(
+        identity.sessionId,
+        identity.seatId,
+        config.revision,
+      );
+      if (
+        !seat ||
+        config.version !== 2 ||
+        config.state !== 'active' ||
+        config.revision !== identity.provenance.configRevision ||
+        membership?.state !== 'active' ||
+        membership.reconciliation !== 'confirmed' ||
+        membership.generation !== identity.membershipGeneration ||
+        admission?.decision !== 'admitted' ||
+        admission.membershipGeneration !== identity.membershipGeneration ||
+        admission.accountId !== identity.accountBinding.accountId ||
+        admission.provider !== identity.accountBinding.provider ||
+        admission.model !== identity.accountBinding.model ||
+        admission.accountProfileRevision !== identity.accountBinding.profileRevision ||
+        !isDeepStrictEqual(seat.accountBinding, identity.accountBinding)
+      )
+        throw new Error('Original native seat admission is no longer current');
+      const provenance = identity.provenance;
+      if (
+        'version' in provenance &&
+        (provenance.version === 2 || provenance.version === 3) &&
+        (provenance.seatLabel !== seat.name ||
+          provenance.seatRole !== seat.role ||
+          !isDeepStrictEqual(provenance.accountBinding, seat.accountBinding) ||
+          !isDeepStrictEqual(provenance.profileBinding, seat.profileBinding) ||
+          provenance.reasoningEffort !== (seat.reasoningEffort ?? null) ||
+          provenance.contextGrant.grantId !== seat.contextGrant?.grantId ||
+          provenance.contextGrant.revision !== seat.contextGrant.revision ||
+          provenance.authorityGrant.grantId !== seat.authorityGrant?.grantId ||
+          provenance.authorityGrant.revision !== seat.authorityGrant.revision ||
+          provenance.isolationDomainId !== seat.isolationRequest?.trustDomainId ||
+          provenance.isolationDomainRevision !== seat.isolationRequest.revision)
+      )
+        throw new Error('Original native provenance changed');
+      const delivery = options.facts.getSymposiumDelivery(attempt.deliveryId);
+      const recipient = delivery?.recipients.find((value) => value.seatId === identity.seatId);
+      if (
+        delivery?.sessionId !== identity.sessionId ||
+        delivery.status !== 'delivering' ||
+        recipient?.status !== 'executing' ||
+        recipient.idempotencyKey !== attempt.idempotencyKey ||
+        recipient.membershipGeneration !== identity.membershipGeneration
+      )
+        throw new Error('Original native delivery changed');
+      options.hostGrants.verifySeat({
+        sessionId: identity.sessionId,
+        seat,
+        membershipGeneration: identity.membershipGeneration,
+      });
+      const artifact =
+        'version' in identity.provenance && identity.provenance.version === 3
+          ? identity.provenance.artifact
+          : undefined;
+      if (!isDeepStrictEqual(controller.artifact, artifact))
+        throw new Error('Original native controller artifact changed');
+      options.facts.assertSymposiumArtifactWorkAllowed(identity.sessionId, artifact);
+      if (artifact) {
+        if (
+          !isDeepStrictEqual(
+            options.facts.getSymposiumArtifactReference(
+              identity.sessionId,
+              identity.seatId,
+              identity.membershipGeneration,
+            ),
+            artifact,
+          )
+        )
+          throw new Error('Original native artifact reference changed');
+        const sandbox = options.facts.getSymposiumSeatSandbox(
+          identity.sessionId,
+          identity.seatId,
+          identity.membershipGeneration,
+        );
+        if (
+          sandbox?.state !== 'ready' ||
+          sandbox.sandboxName !== controller.sandboxName ||
+          runtimeConfig.workdir !== controller.workdir ||
+          !isDeepStrictEqual(sandbox.artifact, artifact)
+        )
+          throw new Error('Original native sandbox is no longer current');
+      }
+      custody();
+      const snapshot = structuredClone(observation);
+      const freeze = (value: unknown): void => {
+        if (value && typeof value === 'object') {
+          for (const child of Object.values(value)) freeze(child);
+          Object.freeze(value);
+        }
+      };
+      freeze(snapshot);
+      return snapshot;
+    };
+    const observeDurableReviewToolResult = originalObserver
+      ? async (event: Parameters<NonNullable<typeof originalObserver>>[0]) => {
+          const assertCurrent = () => {
+            if (stopped || draining || controllerPaused)
+              throw new Error('Original owned observer is no longer current');
+            currentProfiles(); // Original gateway custody and retained subscription owner.
+          };
+          assertCurrent();
+          await track(async () => {
+            assertCurrent();
+            await originalObserver(event);
+            assertCurrent();
+          });
+          assertCurrent();
+        }
+      : undefined;
+    const observeStartupConfig = options.observeStartupConfig
+      ? async (
+          event: Parameters<NonNullable<OpenAiCodexSeatInput['observeStartupConfig']>>[0],
+          signal: AbortSignal,
+        ) => {
+          const assertCurrent = () => {
+            if (stopped || draining || controllerPaused)
+              throw new Error('Original owned startup observer is no longer current');
+            signal.throwIfAborted();
+            currentProfiles();
+          };
+          assertCurrent();
+          await track(async () => {
+            assertCurrent();
+            await options.observeStartupConfig!(event, signal);
+            assertCurrent();
+          });
+          assertCurrent();
+        }
+      : undefined;
+    const observePrelaunch = options.observePrelaunch
+      ? async (
+          event: Parameters<NonNullable<OpenAiCodexSeatInput['observePrelaunch']>>[0],
+          signal: AbortSignal,
+        ) => {
+          const abort = new AbortController();
+          const onAbort = () => abort.abort(signal.reason);
+          signal.addEventListener('abort', onAbort, { once: true });
+          if (signal.aborted) onAbort();
+          prelaunchInspections.add(abort);
+          let rejectAbort: (() => void) | undefined;
+          const assertCurrent = () => {
+            if (stopped || draining || controllerPaused)
+              throw new Error('Original owned prelaunch observer is no longer current');
+            abort.signal.throwIfAborted();
+            currentProfiles();
+          };
+          try {
+            assertCurrent();
+            await track(async () => {
+              assertCurrent();
+              await Promise.race([
+                Promise.resolve().then(() => {
+                  assertCurrent();
+                  return options.observePrelaunch!(event, abort.signal);
+                }),
+                new Promise<never>((_resolve, reject) => {
+                  rejectAbort = () => reject(abort.signal.reason ?? new Error('Prelaunch aborted'));
+                  abort.signal.addEventListener('abort', rejectAbort, { once: true });
+                  if (abort.signal.aborted) rejectAbort();
+                }),
+              ]);
+              assertCurrent();
+            });
+            assertCurrent();
+          } finally {
+            signal.removeEventListener('abort', onAbort);
+            if (rejectAbort) abort.signal.removeEventListener('abort', rejectAbort);
+            prelaunchInspections.delete(abort);
+            abort.abort(new Error('Prelaunch inspection closed'));
+          }
+        }
+      : undefined;
     const seatProof = createSymposiumSubscriptionSeatProof({
       facts: options.facts,
       currentProfiles,
@@ -421,6 +812,7 @@ export async function createOwnedSymposiumHost(
           namespace: options.podman.sandboxNamespace,
           environment: { ...gateway.managementEnvironment },
           configPins: [{ path: gatewayConfigPath, sha256: gatewayConfigDigest, mode: 0o400 }],
+          launchIdentity: proof.launchIdentity,
           attestGateway: async () => {
             custody();
           },
@@ -466,6 +858,56 @@ export async function createOwnedSymposiumHost(
         return { result, models, recover };
       },
     );
+    const assertArtifactAdmissionCurrent = (
+      sessionId: string,
+      reference: ArtifactAdmissionReferenceV1 | ArtifactReaderReferenceV1,
+      phase: 'delivery' | 'execution' = 'execution',
+    ): void => {
+      custody();
+      if (!(options.facts instanceof EventStore))
+        throw new Error('Artifact admission requires retained EventStore');
+      if ('kind' in reference && reference.kind === 'sealed_reader') {
+        assertOwnedSealedReaderCurrent(
+          {
+            store: options.facts,
+            leaseHost: leaseHost!,
+            workspace: gateway.workspace,
+            custodyDigest: createHash('sha256').update(gateway.stateDirectory).digest('hex'),
+            assertAuthority(binding) {
+              const assertAuthority =
+                phase === 'delivery'
+                  ? options.readerAuthority?.assertAdmissionStaged
+                  : options.readerAuthority?.assertAdmissionCurrent;
+              if (assertAuthority?.(binding) !== true)
+                throw new Error('Current reader policy authority required');
+              return true;
+            },
+          },
+          sessionId,
+          reference,
+        );
+        return;
+      }
+      const successorReference = ArtifactAdmissionReferenceV1Schema.parse(reference);
+      const binding = options.facts.assertSymposiumArtifactAdmissionCurrent(
+        sessionId,
+        successorReference,
+      );
+      if (
+        binding.workspaceId !== gateway.workspace ||
+        binding.custodyDigest !== createHash('sha256').update(gateway.stateDirectory).digest('hex')
+      )
+        throw new Error('Successor custody changed');
+      const retained = options.facts.getSymposiumArtifactAdmission(
+        sessionId,
+        successorReference.transitionId,
+      );
+      const receipt = readArtifactAdmissionReceipt(leaseHost!.snapshotDatabasePath(), binding);
+      if (artifactAdmissionDigest(retained?.receipt) !== artifactAdmissionDigest(receipt))
+        throw new Error('Successor owner receipts differ');
+      if (options.successorAuthority?.assertAdmissionCurrent?.(binding) !== true)
+        throw new Error('Current successor policy authority required');
+    };
     const artifactRequest = (
       sessionId: string,
       seatId: string,
@@ -475,12 +917,40 @@ export async function createOwnedSymposiumHost(
       if (draining && purpose === 'admission')
         throw new Error('Owned Symposium host is shutting down');
       custody();
-      const mapped =
-        purpose === 'cleanup'
-          ? (artifacts.get(sessionId) ?? sessionArtifacts!.getRetained(sessionId))
-          : artifacts.has(sessionId)
-            ? null
-            : sessionArtifacts!.claimAdmission(sessionId);
+      const reference =
+        options.facts instanceof EventStore
+          ? options.facts.getSymposiumArtifactReference(sessionId, seatId, generation)
+          : null;
+      const successor =
+        reference && !('kind' in reference) && options.facts instanceof EventStore
+          ? options.facts.getSymposiumArtifactAdmission(sessionId, reference.transitionId)
+          : null;
+      const reader =
+        reference &&
+        'kind' in reference &&
+        reference.kind === 'sealed_reader' &&
+        options.facts instanceof EventStore
+          ? options.facts.getSymposiumSealedReaderAdmission(sessionId, reference.readerAdmissionId)
+          : null;
+      if (purpose === 'admission' && reference)
+        assertArtifactAdmissionCurrent(sessionId, reference);
+      const mapped = reader?.receipt
+        ? {
+            sessionId,
+            volumeName: reader.binding.volumeName,
+            volumeGeneration: reader.binding.artifactGenerationId,
+          }
+        : successor?.receipt
+          ? {
+              sessionId,
+              volumeName: successor.binding.childVolumeName,
+              volumeGeneration: successor.binding.childGenerationId,
+            }
+          : purpose === 'cleanup'
+            ? (artifacts.get(sessionId) ?? sessionArtifacts!.getRetained(sessionId))
+            : artifacts.has(sessionId)
+              ? null
+              : sessionArtifacts!.claimAdmission(sessionId);
       if (purpose === 'cleanup') {
         const record = options.facts.getSymposiumSeatSandbox(sessionId, seatId, generation);
         if (
@@ -539,6 +1009,9 @@ export async function createOwnedSymposiumHost(
         seatId,
         workspaceId: gateway.workspace,
         driver: 'podman',
+        ...(reader?.receipt && purpose === 'admission'
+          ? { readerAdmissionId: reader.binding.readerAdmissionId }
+          : {}),
         access:
           seat.role === 'reviewer' ||
           seat.authorityGrant.filesystem !== 'write' ||
@@ -619,6 +1092,8 @@ export async function createOwnedSymposiumHost(
           await gateway.verifyGatewayDriverConfigAsync(...args);
         },
       },
+      undefined,
+      options.admissionBuildSelection,
     );
     const getArtifactSealer = () => {
       if (draining || stopped) throw new Error('Owned Symposium host is shutting down');
@@ -634,7 +1109,7 @@ export async function createOwnedSymposiumHost(
     };
     const withSuccessor = <T>(
       request: ArtifactGenerationRequest,
-      exported: SuccessorArtifactExportReceipt,
+      exported: SuccessorArtifactExportReceipt | InitialSourceExportReceipt,
       bundle: Buffer,
       run: Parameters<typeof withOwnedArtifactSuccessor<T>>[4],
     ) => {
@@ -646,6 +1121,11 @@ export async function createOwnedSymposiumHost(
           leaseHost: leaseHost!,
           sessionArtifacts: sessionArtifacts!,
           sealer: getArtifactSealer(),
+          sourceOwner: artifactOwner,
+          sourceProof: {
+            assertNoNativeClaims: (sessionId) => sourceSealDeps().assertNoNativeClaims(sessionId),
+            command: leaseHost!.snapshotCommand(),
+          },
         },
         request,
         exported,
@@ -661,11 +1141,162 @@ export async function createOwnedSymposiumHost(
       hostGrants: options.hostGrants,
       currentProfiles,
     });
+    const sourceSealDeps = () => ({
+      artifacts: sessionArtifacts!,
+      owner: artifactOwner,
+      workspace: gateway.workspace,
+      custody: async () => {
+        // The outer tracked import/seal operation was admitted before drain.
+        // Drain waits for it; only track() rejects newly submitted work.
+        if (stopped) throw new Error('Owned Symposium host stopped');
+        await gateway.verifyCustodyAsync();
+      },
+      assertNoNativeClaims: (selectedSession: string) => {
+        if (!(options.facts instanceof EventStore))
+          throw new Error('Imported source seal requires retained EventStore');
+        if (
+          native!.registry.hasSessionClaims(selectedSession) ||
+          options.facts.getSymposiumDeliveries(selectedSession).length ||
+          options.facts.listSymposiumSessionSandboxes(selectedSession).length
+        )
+          throw new Error('Imported source has prior native work');
+        const selected = sessionArtifacts!.sourceSealStatus(selectedSession);
+        if (!selected || leaseHost!.sealLeaseIdentities('podman', selected.volumeName).length)
+          throw new Error('Imported source has retained artifact leases');
+      },
+      command: leaseHost!.snapshotCommand(),
+    });
+    const sealSource = (sessionId: string, operationId: string, signal: AbortSignal) =>
+      sealImportedSourceArtifact(sourceSealDeps(), sessionId, operationId, signal);
+    const collectSessionEvidence = (selection: unknown, assertRequestCurrent?: () => void) =>
+      track(() =>
+        collectSessionOwnedAdmissionEvidence(selection, {
+          readCurrent: (input) => {
+            assertRequestCurrent?.();
+            if (stopped || draining || controllerPaused)
+              throw new Error('Original admission owner unavailable');
+            custody();
+            const session = options.facts.getSession?.(input.sessionId);
+            const config = session?.symposiumConfig
+              ? SymposiumConfigSchema.safeParse(JSON.parse(session.symposiumConfig))
+              : null;
+            if (
+              session?.sessionType !== 'symposium' ||
+              !config?.success ||
+              config.data.state !== 'draft' ||
+              config.data.revision !== input.configRevision
+            )
+              throw new Error('Current original Symposium draft revision required');
+            const profiles = currentProfiles();
+            const primary = config.data.seats.find((seat) => seat.id === 'primary');
+            if (
+              !primary ||
+              primary.accountBinding?.provider !== 'openai' ||
+              input.providerInstances.length !== 1
+            )
+              throw new Error('Original current Work API provider required');
+            const profile = profiles.apiProfile(primary.accountBinding);
+            const instance = input.providerInstances[0];
+            if (
+              profile.sandboxProvider !== instance.name ||
+              profile.sandboxProviderId !== instance.id ||
+              instance.type !== 'openai' ||
+              instance.profileName !== 'openai'
+            )
+              throw new Error('Original current Work API provider required');
+            const mapping = sessionArtifacts!.getReady(input.sessionId);
+            if (!mapping) throw new Error('Original ready artifact mapping unavailable');
+            return { volumeName: mapping.volumeName, volumeGeneration: mapping.volumeGeneration };
+          },
+          inspectCurrent: async (input, mapping) => {
+            assertRequestCurrent?.();
+            custody();
+            assertSessionArtifactVolume(
+              gateway.workspace,
+              { sessionId: input.sessionId, ...mapping },
+              await leaseHost!.inspectVolume(mapping.volumeName, 'podman'),
+            );
+            custody();
+            assertRequestCurrent?.();
+          },
+          collect: (input) => collectExplicitEvidence(input, assertRequestCurrent),
+          verifyCandidate: (candidate) => {
+            custody();
+            if (
+              candidate.seedTreeSha256 !== digestSymposiumSeedTree(runtimeConfig.seed) ||
+              candidate.policySha256 !==
+                createHash('sha256').update(readFileSync(runtimeConfig.policy)).digest('hex')
+            )
+              throw new Error('Original admission local input changed');
+          },
+        }),
+      );
     return {
+      criterionChecks: options.criterionChecks,
       resolveSeatPolicy,
       gateway,
       runtimeConfig,
       attestationPath: options.attestationPath,
+      admissionBuildSelection: options.admissionBuildSelection,
+      collectSessionAdmissionEvidence: collectSessionEvidence,
+      collectSessionAdmissionCandidate: async (raw: unknown, assertRequestCurrent: () => void) => {
+        const binding = SessionEvidenceBinding.parse(raw);
+        if (typeof assertRequestCurrent !== 'function')
+          throw Error('Original request authority required');
+        const select = () => {
+          assertRequestCurrent();
+          if (stopped || draining || controllerPaused)
+            throw Error('Original admission owner unavailable');
+          custody();
+          const session = options.facts.getSession?.(binding.sessionId);
+          const config = session?.symposiumConfig
+            ? SymposiumConfigSchema.parse(JSON.parse(session.symposiumConfig))
+            : null;
+          if (
+            session?.sessionType !== 'symposium' ||
+            config?.state !== 'draft' ||
+            config.revision !== binding.configRevision
+          )
+            throw Error('Current original Symposium draft revision required');
+          const roles = [...new Set(config.seats.map((seat) => seat.role))];
+          if (!roles.length || roles.some((role) => role !== 'coder' && role !== 'reviewer'))
+            throw Error('Only Work API coder/reviewer draft roles supported');
+          const primary = config.seats.find((seat) => seat.id === 'primary');
+          if (primary?.accountBinding?.provider !== 'openai')
+            throw Error('Original Work API primary required');
+          const profiles = currentProfiles();
+          const profile = profiles.apiProfile(primary.accountBinding);
+          for (const seat of config.seats) {
+            if (seat.accountBinding?.provider !== 'openai')
+              throw Error('Only Work API draft accounts supported');
+            const selected = profiles.apiProfile(seat.accountBinding);
+            if (
+              selected.sandboxProvider !== profile.sandboxProvider ||
+              selected.sandboxProviderId !== profile.sandboxProviderId
+            )
+              throw Error('Only the original primary Work API provider is supported');
+          }
+          return {
+            ...binding,
+            providerInstances: [
+              {
+                name: profile.sandboxProvider,
+                id: profile.sandboxProviderId,
+                type: 'openai' as const,
+                profileName: 'openai' as const,
+              },
+            ],
+            allowedRoles: roles as ('coder' | 'reviewer')[],
+            allowedAccountProviders: ['openai' as const],
+          };
+        };
+        const original = select();
+        const assertCurrent = () => {
+          if (JSON.stringify(select()) !== JSON.stringify(original))
+            throw Error('Original session evidence selection changed');
+        };
+        return collectSessionEvidence(original, assertCurrent);
+      },
       collectAdmissionEvidence: (selection: unknown) =>
         track(() => {
           const personal = PersonalEvidenceSelection.safeParse(selection);
@@ -713,6 +1344,10 @@ export async function createOwnedSymposiumHost(
           });
         }),
       currentProfiles,
+      observeStartupConfig,
+      observePrelaunch,
+      observeDurableReviewToolResult,
+      readNativeObservation,
       publicationCredentials: options.publicationCredentials,
       physical,
       attemptRegistry: native.registry,
@@ -748,6 +1383,138 @@ export async function createOwnedSymposiumHost(
         });
         return track(() => artifactSealer!.exportCompletedArtifactBundle(input, signal));
       },
+      async exportCompletedReviewContext(
+        input: Parameters<PhysicalArtifactSealer['exportCompletedReviewContext']>[0],
+        signal: AbortSignal,
+      ) {
+        if (draining || stopped) throw new Error('Owned Symposium host is shutting down');
+        if (!(options.facts instanceof EventStore))
+          throw new Error('Artifact sealing requires the retained event store');
+        artifactSealer ??= new PhysicalArtifactSealer({
+          store: options.facts,
+          leaseHost: leaseHost!,
+          gateway,
+          attemptRegistry: native!.registry,
+          runtimeConfig,
+        });
+        return track(() => artifactSealer!.exportCompletedReviewContext(input, signal));
+      },
+      async releaseCompletedReviewStream(
+        input: Parameters<PhysicalArtifactSealer['releaseCompletedReviewStream']>[0],
+      ) {
+        if (stopped) throw new Error('Owned Symposium host stopped');
+        if (!artifactSealer) throw new Error('Artifact sealer unavailable for exact cleanup');
+        return trackCleanup(() => artifactSealer!.releaseCompletedReviewStream(input));
+      },
+      async releaseReadyReviewStream(
+        input: Parameters<PhysicalArtifactSealer['releaseReadyReviewStream']>[0],
+      ) {
+        if (stopped) throw new Error('Owned Symposium host stopped');
+        if (!artifactSealer) throw new Error('Artifact sealer unavailable for exact cleanup');
+        return trackCleanup(() => artifactSealer!.releaseReadyReviewStream(input));
+      },
+      async releaseStoppedReadyReviewStream(
+        input: Parameters<PhysicalArtifactSealer['releaseStoppedReadyReviewStream']>[0],
+      ) {
+        if (stopped) throw new Error('Owned Symposium host stopped');
+        if (!artifactSealer) throw new Error('Artifact sealer unavailable for exact cleanup');
+        return trackCleanup(() => artifactSealer!.releaseStoppedReadyReviewStream(input));
+      },
+      trackApplicationTransition<T>(operation: () => Promise<T>): Promise<T> {
+        return track(operation);
+      },
+      async checkCompletedArtifactFile(
+        input: Parameters<PhysicalArtifactSealer['checkCompletedArtifactFile']>[0],
+        signal: AbortSignal,
+      ) {
+        if (draining || stopped) throw new Error('Owned Symposium host is shutting down');
+        if (!(options.facts instanceof EventStore))
+          throw new Error('Artifact sealing requires the retained event store');
+        artifactSealer ??= new PhysicalArtifactSealer({
+          store: options.facts,
+          leaseHost: leaseHost!,
+          gateway,
+          attemptRegistry: native!.registry,
+          runtimeConfig,
+        });
+        return track(() => artifactSealer!.checkCompletedArtifactFile(input, signal));
+      },
+      async checkCompletedArtifactSemantic(
+        input: Parameters<PhysicalArtifactSealer['checkCompletedArtifactSemantic']>[0],
+        signal: AbortSignal,
+      ) {
+        if (draining || stopped) throw new Error('Owned Symposium host is shutting down');
+        if (!(options.facts instanceof EventStore))
+          throw new Error('Artifact sealing requires the retained event store');
+        artifactSealer ??= new PhysicalArtifactSealer({
+          store: options.facts,
+          leaseHost: leaseHost!,
+          gateway,
+          attemptRegistry: native!.registry,
+          runtimeConfig,
+        });
+        return track(() => artifactSealer!.checkCompletedArtifactSemantic(input, signal));
+      },
+      async reconcileCompletedArtifactSemantic(
+        input: Parameters<PhysicalArtifactSealer['reconcileCompletedArtifactSemantic']>[0],
+        signal: AbortSignal,
+        assertCurrent?: () => void,
+      ) {
+        signal.throwIfAborted();
+        assertCurrent?.();
+        if (draining || stopped) throw new Error('Owned Symposium host is shutting down');
+        if (!(options.facts instanceof EventStore))
+          throw new Error('Artifact sealing requires the retained event store');
+        artifactSealer ??= new PhysicalArtifactSealer({
+          store: options.facts,
+          leaseHost: leaseHost!,
+          gateway,
+          attemptRegistry: native!.registry,
+          runtimeConfig,
+        });
+        return track(async () => {
+          signal.throwIfAborted();
+          assertCurrent?.();
+          const receipt = await artifactSealer!.reconcileCompletedArtifactSemantic(
+            input,
+            signal,
+            assertCurrent,
+          );
+          signal.throwIfAborted();
+          assertCurrent?.();
+          return receipt;
+        });
+      },
+      async getCompletedArtifactSemanticCheckState(
+        input: Parameters<PhysicalArtifactSealer['getCompletedArtifactSemanticCheckState']>[0],
+        signal: AbortSignal,
+        assertCurrent?: () => void,
+      ) {
+        signal.throwIfAborted();
+        assertCurrent?.();
+        if (draining || stopped) throw new Error('Owned Symposium host is shutting down');
+        if (!(options.facts instanceof EventStore))
+          throw new Error('Artifact sealing requires the retained event store');
+        artifactSealer ??= new PhysicalArtifactSealer({
+          store: options.facts,
+          leaseHost: leaseHost!,
+          gateway,
+          attemptRegistry: native!.registry,
+          runtimeConfig,
+        });
+        return track(async () => {
+          signal.throwIfAborted();
+          assertCurrent?.();
+          const receipt = await artifactSealer!.getCompletedArtifactSemanticCheckState(
+            input,
+            signal,
+            assertCurrent,
+          );
+          signal.throwIfAborted();
+          assertCurrent?.();
+          return receipt;
+        });
+      },
       async requireCompletedArtifactSeal(fenceId: string, signal: AbortSignal) {
         if (draining || stopped) throw new Error('Owned Symposium host is shutting down');
         if (!(options.facts instanceof EventStore))
@@ -778,6 +1545,14 @@ export async function createOwnedSymposiumHost(
         });
         return track(() => artifactSealer!.seal(input, runtime, signal));
       },
+      async recoverPendingArtifactSeal(
+        input: PhysicalArtifactSealInput,
+        claimToken: string,
+        signal: AbortSignal,
+      ) {
+        if (draining || stopped) throw new Error('Owned Symposium host is shutting down');
+        return track(() => getArtifactSealer().recoverPendingSeal(input, claimToken, signal));
+      },
       async exportSuccessorArtifactBundle(
         input: Parameters<PhysicalArtifactSealer['exportSuccessorArtifactBundle']>[0],
         signal: AbortSignal,
@@ -786,7 +1561,7 @@ export async function createOwnedSymposiumHost(
       },
       async copySuccessorArtifact(
         request: ArtifactGenerationRequest,
-        exported: SuccessorArtifactExportReceipt,
+        exported: SuccessorArtifactExportReceipt | InitialSourceExportReceipt,
         bundle: Buffer,
         signal: AbortSignal,
       ) {
@@ -799,7 +1574,7 @@ export async function createOwnedSymposiumHost(
       async activateSuccessorArtifact(
         request: ArtifactGenerationRequest,
         generationId: string,
-        exported: SuccessorArtifactExportReceipt,
+        exported: SuccessorArtifactExportReceipt | InitialSourceExportReceipt,
         bundle: Buffer,
         signal: AbortSignal,
       ) {
@@ -809,15 +1584,131 @@ export async function createOwnedSymposiumHost(
           ),
         );
       },
+      assertArtifactAdmissionCurrent,
+      async admitSuccessorArtifact(
+        request: ArtifactGenerationRequest,
+        binding: ArtifactAdmissionBindingV1,
+        exported: SuccessorArtifactExportReceipt | InitialSourceExportReceipt,
+        bundle: Buffer,
+        signal: AbortSignal,
+      ) {
+        return track(() =>
+          withSuccessor(request, exported, bundle, async (_copier, ledger) => {
+            signal.throwIfAborted();
+            if (!(options.facts instanceof EventStore))
+              throw new Error('Successor admission requires retained EventStore');
+            return confirmOwnedArtifactSuccessor(
+              options.facts,
+              ledger,
+              binding,
+              (selected) => {
+                custody();
+                signal.throwIfAborted();
+                if (options.successorAuthority?.assertAdmissionCurrent?.(selected) !== true)
+                  throw new Error('Current successor policy authority required');
+                return true;
+              },
+              (selected) => {
+                const source = requireCompletedImportedSourceSeal(
+                  sessionArtifacts!,
+                  artifactOwner,
+                  selected.sessionId,
+                );
+                if (
+                  selected.sourceSealId !== source.receipt.operationId ||
+                  selected.parentGenerationId !== source.receipt.volumeGeneration ||
+                  selected.parentSealDigest !== source.digest
+                )
+                  throw new Error('Initial admission source proof changed');
+                sourceSealDeps().assertNoNativeClaims(selected.sessionId);
+                return true;
+              },
+            );
+          }),
+        );
+      },
+      inspectStoppedSuccessorOperation(
+        selected: Parameters<typeof inspectStoppedSuccessorOperation>[1],
+      ) {
+        if (stopped) return null;
+        gateway.verifyCustody();
+        return inspectStoppedSuccessorOperation(leaseHost!.snapshotDatabasePath(), selected);
+      },
       artifactLeaseHost: leaseHost,
       artifactRequest,
+      preinitialSource(sessionId: string) {
+        custody();
+        const status = sessionArtifacts!.sourceImportStatus(sessionId);
+        if (
+          ['empty', 'unprepared'].includes(status.state) &&
+          !sessionArtifacts!.sourceSealStatus(sessionId)
+        )
+          return false;
+        const source = requireCompletedImportedSourceSeal(
+          sessionArtifacts!,
+          artifactOwner,
+          sessionId,
+        );
+        if (!(options.facts instanceof EventStore))
+          throw new Error('Imported source bootstrap requires retained EventStore');
+        const config = options.facts.getActiveSymposiumConfig(sessionId);
+        if (config.version !== 2 || config.state !== 'active')
+          throw new Error('Active imported source configuration required');
+        for (const seat of config.seats) {
+          const member = options.facts.getLatestSymposiumMembership(sessionId, seat.id);
+          if (
+            member?.state === 'active' &&
+            options.facts.getSymposiumArtifactReference(sessionId, seat.id, member.generation)
+          )
+            return false;
+        }
+        sourceSealDeps().assertNoNativeClaims(sessionId);
+        return source.receipt.sessionId === sessionId;
+      },
+      artifactReady(sessionId: string, seatId: string, generation: number) {
+        custody();
+        const status = sessionArtifacts!.sourceImportStatus(sessionId);
+        if (
+          ['empty', 'unprepared'].includes(status.state) &&
+          !sessionArtifacts!.sourceSealStatus(sessionId)
+        )
+          return true;
+        requireCompletedImportedSourceSeal(sessionArtifacts!, artifactOwner, sessionId);
+        if (!(options.facts instanceof EventStore)) return false;
+        const reference = options.facts.getSymposiumArtifactReference(
+          sessionId,
+          seatId,
+          generation,
+        );
+        if (!reference) return false;
+        try {
+          assertArtifactAdmissionCurrent(sessionId, reference, 'delivery');
+          return true;
+        } catch {
+          return false;
+        }
+      },
       ensureSessionArtifacts,
       sourceImport: {
         status: sourceImporter.status,
         import: (...args: Parameters<typeof sourceImporter.import>) =>
-          track(() => sourceImporter.import(...args)),
+          track(async () => {
+            const imported = await sourceImporter.import(...args);
+            await sealSource(args[0].sessionId, imported.operationId, new AbortController().signal);
+            return imported;
+          }),
+        seal: (sessionId: string, operationId: string, signal: AbortSignal) =>
+          track(() => sealSource(sessionId, operationId, signal)),
+        requireSeal: (sessionId: string) =>
+          requireCompletedImportedSourceSeal(sessionArtifacts!, artifactOwner, sessionId),
+        initialExport: (sessionId: string, operationId: string) =>
+          initialSourceExportReceipt(
+            requireCompletedImportedSourceSeal(sessionArtifacts!, artifactOwner, sessionId),
+            operationId,
+          ),
       },
       verifySubscriptionPrivateAuth: subscription.verifyPrivateAuth,
+      captureSubscriptionLaunchIdentity: subscription.captureLaunchIdentity,
       assertSubscriptionDispatch: (
         ...args: Parameters<NonNullable<typeof subscription>['assertPrivateAuth']>
       ) => {
@@ -858,10 +1749,12 @@ export async function createOwnedSymposiumHost(
 
       pauseController() {
         controllerPaused = true;
+        abortPrelaunchInspections();
         workspaceLifecycle.pauseController();
       },
       async quiesceController(signal: AbortSignal) {
         controllerPaused = true;
+        abortPrelaunchInspections();
         workspaceLifecycle.pauseController();
         // Retain the original provider/login owner. Only an unfinished login is
         // cancelled; a completed personal connection is never invalidated here.
@@ -889,10 +1782,12 @@ export async function createOwnedSymposiumHost(
       },
       beginShutdown() {
         draining = true;
+        abortPrelaunchInspections();
         workspaceLifecycle.beginDrain();
       },
       async drain(signal: AbortSignal) {
         draining = true;
+        abortPrelaunchInspections();
         workspaceLifecycle.beginDrain();
         const pending = await Promise.allSettled([...pendingHostOperations]);
         let failed = pending.some(
@@ -912,6 +1807,11 @@ export async function createOwnedSymposiumHost(
           failed = true;
         }
         signal.throwIfAborted();
+        // Whole application transitions have settled, including their exact
+        // cleanup attempts. Reclaim any ready stream before an uncertain drain
+        // can prevent the normal closeAfterDrain path.
+        await artifactSealer?.releaseAbandonedReadyReviewStreams();
+        signal.throwIfAborted();
         if (failed) throw new Error('Host operation did not settle cleanly');
       },
       markShutdownUncertain() {
@@ -920,9 +1820,12 @@ export async function createOwnedSymposiumHost(
       },
       async closeAfterDrain(signal: AbortSignal) {
         signal.throwIfAborted();
+        await artifactSealer?.releaseAbandonedReadyReviewStreams();
+        signal.throwIfAborted();
         await gateway.stopAndWait(signal);
         signal.throwIfAborted();
         stopped = true;
+        abortPrelaunchInspections();
         subscription!.invalidate();
         native!.registry.close();
         artifactSealer?.close();
@@ -932,6 +1835,7 @@ export async function createOwnedSymposiumHost(
       stop() {
         if (stopped) return;
         stopped = true;
+        abortPrelaunchInspections();
         try {
           void Promise.resolve(login?.cancel()).catch(() => {
             loginQuarantined = true;

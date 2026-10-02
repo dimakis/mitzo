@@ -1,20 +1,24 @@
 import { ARTIFACT_GIT_SUCCESSOR_IMPORT } from '../symposium-artifact-git-successor-import.js';
 import { afterEach, expect, it } from 'vitest';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { ARTIFACT_GIT_VERIFIER } from '../symposium-artifact-git-verifier.js';
 import {
   ARTIFACT_GIT_EXPORT,
   ARTIFACT_INSPECTION_MAX_OUTPUT_BYTES,
+  ARTIFACT_REVIEW_CONTEXT_MAX_BYTES,
+  ARTIFACT_REVIEW_BATCH_PAGES,
+  ARTIFACT_REVIEW_CONTEXT_MAX_OUTPUT_BYTES,
 } from '../symposium-artifact-git-export.js';
 import { SYMPOSIUM_ARTIFACT_TARGET } from '../symposium-artifact-lease.js';
 const roots: string[] = [];
 afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
-function fixture(populate?: (root: string) => void) {
+function fixture(populate?: (root: string) => void, basePopulate?: (root: string) => void) {
   const root = mkdtempSync(join(tmpdir(), 'sealed-git-export-'));
   roots.push(root);
   const git = (...args: string[]) =>
@@ -24,6 +28,7 @@ function fixture(populate?: (root: string) => void) {
   git('config', 'user.email', 'test@example.invalid');
   git('config', 'remote.origin.url', 'https://github.com/example/repo.git');
   writeFileSync(join(root, 'base.txt'), 'BASE');
+  basePopulate?.(root);
   git('add', '.');
   git('-c', 'commit.gpgsign=false', 'commit', '-qm', 'base');
   git('update-ref', 'refs/remotes/origin/main', 'HEAD');
@@ -52,11 +57,34 @@ function fixture(populate?: (root: string) => void) {
     python(ARTIFACT_GIT_EXPORT, [
       JSON.stringify({ baseBranch: 'main', expected: proof, ...input }),
     ]);
+  const runWithExportCode = (code: string, input: Record<string, unknown>) =>
+    python(code, [JSON.stringify({ baseBranch: 'main', expected: proof, ...input })]);
+  const streamReview = () =>
+    execFileSync(
+      'python3',
+      [
+        '-I',
+        '-c',
+        ARTIFACT_GIT_EXPORT.replace(
+          `root='${SYMPOSIUM_ARTIFACT_TARGET}'`,
+          `root=${JSON.stringify(root)}`,
+        ),
+        '.',
+        JSON.stringify({ kind: 'review_stream', baseBranch: 'main', expected: proof }),
+      ],
+      { stdio: 'pipe', maxBuffer: 32 * 1024 * 1024 },
+    )
+      .toString()
+      .trimEnd()
+      .split('\n')
+      .map((line) => ({ marker: line[0], value: JSON.parse(line.slice(1)), raw: line.slice(1) }));
   return {
     root,
     git,
     proof,
     run,
+    runWithExportCode,
+    streamReview,
     refreshProof: () => Object.assign(proof, python(ARTIFACT_GIT_VERIFIER, [])),
   };
 }
@@ -92,6 +120,380 @@ it('inspects the sealed branch and exports a bounded reconstructable bundle', ()
   } finally {
     rmSync(path);
   }
+});
+it('exports canonical bounded changed-path evidence with exact identities', () => {
+  const f = fixture();
+  const result = f.run({ kind: 'review_context' });
+  const context = JSON.parse(result.context);
+  expect(Buffer.byteLength(result.context)).toBeLessThanOrEqual(ARTIFACT_REVIEW_CONTEXT_MAX_BYTES);
+  expect(result.contextSha256).toBe(createHash('sha256').update(result.context).digest('hex'));
+  expect(context).toMatchObject({
+    version: 2,
+    sourceOid: f.proof.commit,
+    baseOid: f.git('rev-parse', 'refs/remotes/origin/main').trim(),
+    committedTreeDigest: f.proof.committedTreeDigest,
+    manifestDigest: f.proof.manifestDigest,
+    files: [
+      {
+        path: 'feature.txt',
+        status: 'present',
+        representation: 'content',
+        content: 'FEATURE',
+        complete: true,
+      },
+    ],
+  });
+  expect(context).not.toHaveProperty('manifest');
+  expect(context.files[0].diff).toBeNull();
+  expect(context.files[0].diffTruncated).toBe(false);
+});
+it('reviews a sealed feature against its merge base after origin/main advances', () => {
+  const f = fixture();
+  const sharedBase = f.git('rev-parse', 'refs/remotes/origin/main').trim();
+  f.git('checkout', '-q', 'main');
+  writeFileSync(join(f.root, 'base.txt'), 'MAIN ONLY');
+  writeFileSync(join(f.root, 'main.txt'), 'MAIN ONLY');
+  f.git('add', '.');
+  f.git('-c', 'commit.gpgsign=false', 'commit', '-qm', 'advance main');
+  f.git('update-ref', 'refs/remotes/origin/main', 'HEAD');
+  f.git('checkout', '-q', 'feature');
+
+  const result = f.run({ kind: 'review_context' });
+  const context = JSON.parse(result.context);
+  expect(context.baseOid).toBe(sharedBase);
+  expect(context.sourceOid).toBe(f.proof.commit);
+  expect(context.files).toEqual([
+    expect.objectContaining({ path: 'feature.txt', status: 'present', content: 'FEATURE' }),
+  ]);
+  expect(context.files[0].content).toBe('FEATURE');
+  expect(result.context).not.toContain('MAIN ONLY');
+});
+it('keeps a moderately sized changed file complete by choosing one representation', () => {
+  const f = fixture((root) => writeFileSync(join(root, 'medium.txt'), 'M'.repeat(25 * 1024)));
+  const result = f.run({ kind: 'review_context' });
+  const context = JSON.parse(result.context);
+  const file = context.files.find((entry: { path: string }) => entry.path === 'medium.txt');
+  expect(Buffer.byteLength(result.context)).toBeLessThanOrEqual(ARTIFACT_REVIEW_CONTEXT_MAX_BYTES);
+  expect(context.omittedPathCount).toBe(0);
+  expect(file).toMatchObject({
+    bytes: 25 * 1024,
+    representation: 'content',
+    complete: true,
+    contentTruncated: false,
+    diffTruncated: false,
+    diff: null,
+  });
+  expect(file.content).toHaveLength(25 * 1024);
+});
+it('includes removed lines when a modified file has shorter target content', () => {
+  const f = fixture(
+    (root) => writeFileSync(join(root, 'base.txt'), 'NEW\n'),
+    (root) => writeFileSync(join(root, 'base.txt'), 'OLD SECRET LINE\nOLD SECOND LINE\n'),
+  );
+  const context = JSON.parse(f.run({ kind: 'review_context' }).context);
+  const file = context.files.find((entry: { path: string }) => entry.path === 'base.txt');
+  expect(file).toMatchObject({
+    representation: 'diff',
+    complete: true,
+    content: null,
+    diffTruncated: false,
+  });
+  expect(file.diff).toContain('-OLD SECRET LINE');
+  expect(file.diff).toContain('-OLD SECOND LINE');
+  expect(file.diff).toContain('+NEW');
+});
+it('uses a literal pathspec for a deleted filename with Git magic syntax', () => {
+  const name = ':(icase)secret.txt';
+  const f = fixture(
+    (root) => unlinkSync(join(root, name)),
+    (root) => writeFileSync(join(root, name), 'SECRET'),
+  );
+  const context = JSON.parse(f.run({ kind: 'review_context' }).context);
+  const deleted = context.files.find((file: { path: string }) => file.path === name);
+  expect(deleted).toMatchObject({
+    status: 'deleted',
+    baseMode: '100644',
+    representation: 'diff',
+    complete: true,
+  });
+  expect(deleted.diff).toContain('-SECRET');
+});
+it('carries the prior mode when target content is the shorter complete representation', () => {
+  const f = fixture(
+    (root) => chmodSync(join(root, 'mode.sh'), 0o755),
+    (root) => writeFileSync(join(root, 'mode.sh'), 'echo ok\n'),
+  );
+  const context = JSON.parse(f.run({ kind: 'review_context' }).context);
+  expect(context.files.find((file: { path: string }) => file.path === 'mode.sh')).toMatchObject({
+    status: 'present',
+    baseMode: '100644',
+    mode: '100755',
+    complete: true,
+  });
+});
+it('truncates a large changed file without losing its sealed identity', () => {
+  const f = fixture((root) =>
+    writeFileSync(join(root, 'large.txt'), 'X'.repeat(ARTIFACT_REVIEW_CONTEXT_MAX_BYTES)),
+  );
+  const result = f.run({ kind: 'review_context' });
+  const context = JSON.parse(result.context);
+  expect(Buffer.byteLength(result.context)).toBeLessThanOrEqual(ARTIFACT_REVIEW_CONTEXT_MAX_BYTES);
+  expect(context.files.find((file: { path: string }) => file.path === 'large.txt')).toMatchObject({
+    bytes: ARTIFACT_REVIEW_CONTEXT_MAX_BYTES,
+    representation: 'partial',
+    complete: false,
+    contentTruncated: true,
+    diffTruncated: false,
+  });
+});
+it('exports a large changed diff as complete, identity-bound pages', () => {
+  const f = fixture((root) =>
+    writeFileSync(join(root, 'large.txt'), 'X'.repeat(ARTIFACT_REVIEW_CONTEXT_MAX_BYTES * 2)),
+  );
+  const exported = f.run({ kind: 'review_context', page: 0 });
+  const first = JSON.parse(exported.context);
+  expect(exported.pagesSha256).toBe(
+    createHash('sha256').update(JSON.stringify(exported.pages)).digest('hex'),
+  );
+  expect(first.version).toBe(3);
+  expect(first.pageCount).toBeGreaterThan(1);
+  const pages = (exported.pages as string[]).map((encoded, page) => {
+    expect(Buffer.byteLength(encoded)).toBeLessThanOrEqual(ARTIFACT_REVIEW_CONTEXT_MAX_BYTES);
+    const context = JSON.parse(encoded) as {
+      segments: Array<{
+        path: string;
+        segmentIndex: number;
+        data: string;
+        selectedBytes: number;
+        selectedSha256: string;
+      }>;
+    };
+    expect(context).toMatchObject({
+      pageIndex: page,
+      pageCount: first.pageCount,
+      evidenceSha256: first.evidenceSha256,
+      sourceOid: first.sourceOid,
+      baseOid: first.baseOid,
+    });
+    return context;
+  });
+  const segments = pages
+    .flatMap((page) => page.segments)
+    .filter((segment) => segment.path === 'large.txt');
+  expect(segments.map((segment) => segment.segmentIndex)).toEqual(
+    Array.from({ length: segments.length }, (_, index) => index),
+  );
+  const complete = segments.map((segment) => segment.data).join('');
+  expect(Buffer.byteLength(complete)).toBe(segments[0].selectedBytes);
+  expect(createHash('sha256').update(complete).digest('hex')).toBe(segments[0].selectedSha256);
+  expect(complete).toContain('X'.repeat(ARTIFACT_REVIEW_CONTEXT_MAX_BYTES));
+});
+it('keeps UTF-8 boundaries, JSON escapes, and empty content stable across paged replays', () => {
+  const content = 'é'.repeat(9000) + '"\\\n' + '💡'.repeat(500);
+  const f = fixture((root) => {
+    writeFileSync(join(root, 'unicode.txt'), content);
+    writeFileSync(join(root, 'empty.txt'), '');
+  });
+  const first = f.run({ kind: 'review_context', page: 0 });
+  const again = f.run({ kind: 'review_context', page: 0 });
+  expect(again.pagesSha256).toBe(first.pagesSha256);
+  expect(again.pages).toEqual(first.pages);
+  const segments = (first.pages as string[]).flatMap((encoded) => JSON.parse(encoded).segments);
+  expect(
+    segments
+      .filter((part: { path: string }) => part.path === 'unicode.txt')
+      .map((part: { data: string }) => part.data)
+      .join(''),
+  ).toBe(content);
+  expect(segments.find((part: { path: string }) => part.path === 'empty.txt')).toMatchObject({
+    data: '',
+    selectedBytes: 0,
+    segmentCount: 1,
+  });
+});
+it('exports a complete endpoint diff larger than the shared Git read ceiling', () => {
+  const line = 'A'.repeat(15) + '\n';
+  const replacement = 'B'.repeat(15) + '\n';
+  // Leave room for the fixture's other tracked file under the 64 MiB tree cap.
+  const count = (32 * 1024 * 1024) / 16 - 1;
+  const f = fixture(
+    (root) => writeFileSync(join(root, 'base.txt'), replacement.repeat(count)),
+    (root) => writeFileSync(join(root, 'base.txt'), line.repeat(count)),
+  );
+  const first = f.run({ kind: 'review_context', page: 0 });
+  const page = JSON.parse(first.context);
+  const segment = page.segments.find((part: { path: string }) => part.path === 'base.txt');
+  expect(segment).toMatchObject({
+    representation: 'diff',
+    selectedBytes: expect.any(Number),
+    selectedSha256: expect.stringMatching(/^[a-f0-9]{64}$/),
+  });
+  expect(segment.selectedBytes).toBeGreaterThan(64 * 1024 * 1024);
+  expect(segment.selectedBytes).toBe(segment.diffBytes);
+  expect(page.changedPathCount).toBe(2);
+  expect(page.pageCount).toBeGreaterThan(first.pages.length);
+}, 180_000);
+it('pages two large replacement diffs beyond the helper memory budget', () => {
+  const old = ('A'.repeat(15) + '\n').repeat((31 * 1024 * 1024) / 16);
+  const next = ('B'.repeat(15) + '\n').repeat((31 * 1024 * 1024) / 16);
+  const f = fixture(
+    (root) => {
+      writeFileSync(join(root, 'a.txt'), next);
+      writeFileSync(join(root, 'b.txt'), next);
+    },
+    (root) => {
+      writeFileSync(join(root, 'a.txt'), old);
+      writeFileSync(join(root, 'b.txt'), old);
+    },
+  );
+  const started = Date.now();
+  const first = f.run({ kind: 'review_context', page: 0 });
+  const firstPage = JSON.parse(first.context);
+  const firstSegments = (first.pages as string[]).flatMap(
+    (encoded) => JSON.parse(encoded).segments,
+  );
+  expect(firstSegments[0]).toMatchObject({ path: 'a.txt', representation: 'diff' });
+  expect(firstSegments[0].selectedBytes).toBeGreaterThan(64 * 1024 * 1024);
+  expect(firstPage.pageCount).toBeGreaterThan(ARTIFACT_REVIEW_BATCH_PAGES);
+  expect(Date.now() - started).toBeLessThan(60_000);
+  const laterPageIndex =
+    Math.floor((firstPage.pageCount - 1) / ARTIFACT_REVIEW_BATCH_PAGES) *
+    ARTIFACT_REVIEW_BATCH_PAGES;
+  const laterStarted = Date.now();
+  const later = f.run({ kind: 'review_context', page: laterPageIndex });
+  const laterSegments = (later.pages as string[]).flatMap(
+    (encoded) => JSON.parse(encoded).segments,
+  );
+  expect(
+    laterSegments.some(
+      (part: { path: string; representation: string }) =>
+        part.path === 'b.txt' && part.representation === 'diff',
+    ),
+  ).toBe(true);
+  expect(later.pagesSha256).toBe(first.pagesSha256);
+  expect(Date.now() - laterStarted).toBeLessThan(60_000);
+}, 180_000);
+it('uses one diff deadline across multiple changed paths', () => {
+  const f = fixture((root) => {
+    writeFileSync(join(root, 'a.txt'), 'A');
+    writeFileSync(join(root, 'b.txt'), 'B');
+  });
+  const code = ARTIFACT_GIT_EXPORT.replace(
+    'review_diff_deadline=time.monotonic()+40',
+    'review_diff_deadline=time.monotonic()+1',
+  ).replace(
+    'def review_diff(path,base,target,keep_limit,allow_unretained,consumer=None):',
+    "def review_diff(path,base,target,keep_limit,allow_unretained,consumer=None):\n if path=='b.txt': time.sleep(1.2)",
+  );
+  expect(() => f.runWithExportCode(code, { kind: 'review_context', page: 0 })).toThrow(
+    'review diff time bound',
+  );
+});
+it('streams each complete sealed page once with bounded exact frames and a terminal digest', () => {
+  const content = 'streamed line\n'.repeat(100_000);
+  const f = fixture((root) => writeFileSync(join(root, 'streamed.txt'), content));
+  const frames = f.streamReview();
+  const header = frames[0];
+  const footer = frames.at(-1)!;
+  const pageFrames = frames.slice(1, -1);
+  expect(header.marker).toBe('H');
+  expect(footer.marker).toBe('F');
+  expect(header.value.proof).toEqual(f.proof);
+  expect(footer.value.proof).toEqual(f.proof);
+  expect(pageFrames.length).toBeGreaterThan(ARTIFACT_REVIEW_BATCH_PAGES);
+  expect(pageFrames).toHaveLength(header.value.pageCount);
+  expect(footer.value.pageCount).toBe(header.value.pageCount);
+  expect(footer.value.evidenceSha256).toBe(header.value.evidenceSha256);
+  const pages = pageFrames.map((frame, index) => {
+    expect(frame.marker).toBe('P');
+    expect(Buffer.byteLength(frame.raw)).toBeLessThanOrEqual(ARTIFACT_REVIEW_CONTEXT_MAX_BYTES);
+    expect(frame.value.pageIndex).toBe(index);
+    expect(frame.value.pageCount).toBe(pageFrames.length);
+    expect(frame.value.evidenceSha256).toBe(header.value.evidenceSha256);
+    return frame.raw;
+  });
+  expect(createHash('sha256').update(JSON.stringify(pages)).digest('hex')).toBe(
+    footer.value.pagesSha256,
+  );
+  const reconstructed = pageFrames
+    .flatMap((frame) => frame.value.segments)
+    .filter((segment) => segment.path === 'streamed.txt')
+    .map((segment) => segment.data)
+    .join('');
+  expect(reconstructed).toBe(content);
+});
+it('retrieves more than 1 MiB of changed evidence through bounded sealed batches', () => {
+  const content = 'X'.repeat(2500 * 1024);
+  const f = fixture((root) => writeFileSync(join(root, 'large.txt'), content));
+  const first = f.run({ kind: 'review_context', page: 0 });
+  const firstPage = JSON.parse(first.context);
+  expect(firstPage.pageCount).toBeGreaterThan(64);
+  const pages = [...first.pages] as string[];
+  expect(Buffer.byteLength(JSON.stringify(first))).toBeLessThan(
+    ARTIFACT_REVIEW_CONTEXT_MAX_OUTPUT_BYTES,
+  );
+  for (
+    let offset = ARTIFACT_REVIEW_BATCH_PAGES;
+    offset < firstPage.pageCount;
+    offset += ARTIFACT_REVIEW_BATCH_PAGES
+  ) {
+    const batch = f.run({ kind: 'review_context', page: offset });
+    expect(Buffer.byteLength(JSON.stringify(batch))).toBeLessThan(
+      ARTIFACT_REVIEW_CONTEXT_MAX_OUTPUT_BYTES,
+    );
+    expect(batch.pagesSha256).toBe(first.pagesSha256);
+    expect(JSON.parse(batch.context).pageIndex).toBe(offset);
+    pages.push(...batch.pages);
+  }
+  expect(pages).toHaveLength(firstPage.pageCount);
+  expect(createHash('sha256').update(JSON.stringify(pages)).digest('hex')).toBe(first.pagesSha256);
+  const segments = pages
+    .flatMap((encoded) => JSON.parse(encoded).segments)
+    .filter((part) => part.path === 'large.txt');
+  expect(segments.map((part) => part.data).join('')).toBe(content);
+}, 120_000);
+it('pages many changed paths without omitting one', () => {
+  const f = fixture((root) => {
+    for (let i = 0; i < 100; i++)
+      writeFileSync(join(root, `changed-${String(i).padStart(3, '0')}.txt`), 'X'.repeat(1000));
+  });
+  const exported = f.run({ kind: 'review_context', page: 0 });
+  const first = JSON.parse(exported.context);
+  const paths = new Set<string>();
+  for (const encoded of exported.pages) {
+    const context = JSON.parse(encoded);
+    for (const segment of context.segments) paths.add(segment.path);
+  }
+  expect(paths.size).toBe(first.changedPathCount);
+  expect(paths.has('changed-099.txt')).toBe(true);
+}, 60_000);
+it('does not require the whole tracked manifest in a small change review', () => {
+  const f = fixture(undefined, (root) => {
+    for (let i = 0; i < 250; i++)
+      writeFileSync(join(root, `unchanged-${String(i).padStart(3, '0')}.txt`), 'UNCHANGED');
+  });
+  const context = JSON.parse(f.run({ kind: 'review_context' }).context);
+  expect(context.trackedFileCount).toBe(252);
+  expect(context.changedPathCount).toBe(1);
+  expect(context.omittedPathCount).toBe(0);
+  expect(context.files).toHaveLength(1);
+  expect(context).not.toHaveProperty('manifest');
+}, 60_000);
+it('reports omitted paths when changed-path evidence fills the bounded payload', () => {
+  const f = fixture((root) => {
+    for (let i = 0; i < 100; i++)
+      writeFileSync(join(root, `changed-${String(i).padStart(3, '0')}.txt`), 'X'.repeat(1000));
+  });
+  const result = f.run({ kind: 'review_context' });
+  const context = JSON.parse(result.context);
+  expect(Buffer.byteLength(result.context)).toBeLessThanOrEqual(ARTIFACT_REVIEW_CONTEXT_MAX_BYTES);
+  expect(context.changedPathCount).toBe(101);
+  expect(context.omittedPathCount).toBeGreaterThan(0);
+  expect(context.files.length + context.omittedPathCount).toBe(context.changedPathCount);
+}, 60_000);
+it('rejects binary changed content in the sealed review artifact', () => {
+  const f = fixture((root) => writeFileSync(join(root, 'binary.dat'), Buffer.from([0, 1, 2])));
+  expect(() => f.run({ kind: 'review_context' })).toThrow();
 });
 it('exports selected successor refs without prerequisites into a fresh repository', () => {
   const f = fixture();

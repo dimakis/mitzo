@@ -47,14 +47,18 @@ reference, not public disclosure or attachment of the full authenticated history
 
 ## Required next work
 
-- The native ReviewHost must collect terminal result, structured findings, actual
-  token/cost usage and host verification evidence from the same native attempt,
-  enforcement identity, seat generation and artifact revision/hash. Process cleanup
-  and provider acceptance alone do not establish terminal execution evidence.
-- The user must choose concrete review-round, token and cost limits. That choice
-  does not establish native enforcement: the host must prove hard remaining limits
-  before admission and keep uncertain attempts reserved. An unanswered budget
-  question cannot be replaced with guessed limits or estimated usage.
+- The native ReviewHost must collect terminal result, structured findings and host
+  verification evidence from the same native attempt, claim identity, seat
+  generation and artifact revision/hash. Observed token/cost usage remains
+  explicitly partial or unknown when final accounting is unavailable. Process
+  cleanup and provider acceptance alone do not establish terminal execution evidence.
+- The user must choose concrete application limits for host turns, review cycles,
+  deadline, user stop, no progress and explicit continuation. Persisted reservations
+  fence admission and keep uncertain attempts charged until exact-operation
+  reconciliation. Missing selections cannot be replaced with guessed limits or
+  estimated usage. Guaranteed native token/spend caps and mandatory final usage
+  totals are deferred under the
+  [current acceptance contract](symposium-integrated-acceptance.md#application-policy-contract).
 - Bootstrap must resolve the current physically admitted builder and its sandbox,
   exact artifact lease, account/profile revisions and live GitHub connection/grant.
   These dependencies cannot come from an HTTP body, model finding or saved record.

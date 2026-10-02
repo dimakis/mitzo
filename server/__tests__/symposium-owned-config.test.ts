@@ -1,3 +1,6 @@
+import { OwnedSymposiumConfigSchema } from '../symposium-owned-config-schema.js';
+import { EventStore } from '../event-store.js';
+import type { BootstrapTools } from '../symposium-owned-config.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createHash } from 'node:crypto';
 import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -103,6 +106,123 @@ function fixture() {
   return { root, filename, config, save, gateway, tools };
 }
 describe('explicit private owned startup configuration', () => {
+  it('does not invoke queued prelaunch inspection after synchronous owner pause', async () => {
+    const f = fixture();
+    const inspect = vi.fn();
+    const facts = new EventStore(join(f.root, 'queued-prelaunch.db'));
+    const host = await bootstrapConfiguredSymposiumHost(
+      f.filename,
+      { facts, hostGrants: { verifySeat: vi.fn() }, observePrelaunch: inspect },
+      f.tools as unknown as BootstrapTools,
+    );
+    const pending = host.observePrelaunch!(
+      {
+        sessionId: 'session',
+        claimToken: 'claim',
+        deliveryId: 'delivery',
+        seatId: 'reader',
+        membershipGeneration: 1,
+        controllerClaimDigest: 'a'.repeat(64),
+        cwd: '/sandbox/workspaces/mgmt',
+      },
+      new AbortController().signal,
+    );
+    const rejected = expect(pending).rejects.toThrow();
+    host.pauseController();
+    await rejected;
+    expect(inspect).not.toHaveBeenCalled();
+    host.stop();
+    facts.close();
+  });
+
+  it('plumbs only a constructor observer into the actual owned host, never persisted config', async () => {
+    const f = fixture();
+    const observer = vi.fn();
+    const startup = vi.fn();
+    const prelaunch = vi.fn();
+    const facts = new EventStore(join(f.root, 'constructor-events.db'));
+    const host = await bootstrapConfiguredSymposiumHost(
+      f.filename,
+      {
+        facts,
+        hostGrants: { verifySeat: vi.fn() },
+        observeDurableReviewToolResult: observer,
+        observeStartupConfig: startup,
+        observePrelaunch: prelaunch,
+      },
+      f.tools as unknown as BootstrapTools,
+    );
+    expect(host.observeDurableReviewToolResult).toBeTypeOf('function');
+    expect(readOwnedSymposiumHostConfig(f.filename)).not.toHaveProperty(
+      'observeDurableReviewToolResult',
+    );
+    expect(host.observeStartupConfig).toBeTypeOf('function');
+    expect(host.observePrelaunch).toBeTypeOf('function');
+    expect(readOwnedSymposiumHostConfig(f.filename)).not.toHaveProperty('observePrelaunch');
+    expect(readOwnedSymposiumHostConfig(f.filename)).not.toHaveProperty('observeStartupConfig');
+    let entered!: () => void;
+    const enteredPromise = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    prelaunch.mockImplementation(async (_event, signal) => {
+      entered();
+      await new Promise<void>((resolve) =>
+        signal.addEventListener('abort', () => resolve(), { once: true }),
+      );
+    });
+    const pendingInspection = host.observePrelaunch!(
+      {
+        sessionId: 'session',
+        claimToken: 'claim',
+        deliveryId: 'delivery',
+        seatId: 'reader',
+        membershipGeneration: 1,
+        controllerClaimDigest: 'a'.repeat(64),
+        cwd: '/sandbox/workspaces/mgmt',
+      },
+      new AbortController().signal,
+    );
+    const rejected = expect(pendingInspection).rejects.toThrow();
+    await enteredPromise;
+    host.pauseController();
+    await rejected;
+    expect(prelaunch).toHaveBeenCalledOnce();
+    await expect(
+      host.observeStartupConfig!(
+        {
+          sessionId: 'session',
+          claimToken: 'claim',
+          deliveryId: 'delivery',
+          seatId: 'reader',
+          membershipGeneration: 1,
+          controllerClaimDigest: 'a'.repeat(64),
+          cwd: '/sandbox/workspaces/mgmt',
+          config: {},
+        },
+        new AbortController().signal,
+      ),
+    ).rejects.toThrow('no longer current');
+    expect(startup).not.toHaveBeenCalled();
+    await expect(
+      host.observeDurableReviewToolResult!({
+        sessionId: 'session',
+        claimToken: 'claim',
+        deliveryId: 'delivery',
+        seatId: 'reader',
+        membershipGeneration: 1,
+        providerThreadId: 'thread',
+        providerTurnId: 'turn',
+        callId: 'call',
+        toolName: 'review',
+        arguments: {},
+        result: { content: '{}', isError: false },
+      }),
+    ).rejects.toThrow('no longer current');
+    expect(observer).not.toHaveBeenCalled();
+    host.stop();
+    facts.close();
+  });
+
   it('requires an explicit namespace but permits the exact empty Podman namespace', () => {
     const f = fixture();
     f.config.podman.sandboxNamespace = '';
@@ -316,4 +436,66 @@ it('rejects a later broad Vertex profile override before any gateway or credenti
     ),
   ).rejects.toThrow('endpointless');
   expect(f.tools.launch).not.toHaveBeenCalled();
+});
+
+it('admits only the finite optional operator proxy configuration and rejects bypass/credential fields', () => {
+  const f = fixture();
+  const proxy = {
+    url: 'https://proxy.example:18443',
+    caBundle: '/absolute/public-ca.pem',
+    caBundleSha256: 'a'.repeat(64),
+  };
+  const configured = (upstreamProxy: unknown) => ({
+    ...f.config,
+    gateway: { ...f.config.gateway, upstreamProxy },
+  });
+  expect(OwnedSymposiumConfigSchema.parse(configured(proxy)).gateway.upstreamProxy).toEqual(proxy);
+  expect(OwnedSymposiumConfigSchema.parse(f.config).gateway.upstreamProxy).toBeUndefined();
+  for (const invalid of [
+    null,
+    { ...proxy, url: 'http://user:password@proxy.example:18443' },
+    { ...proxy, url: 'https://proxy.example:18443/path' },
+    { ...proxy, caBundle: 'relative' },
+    { ...proxy, caBundleSha256: 'bad' },
+    { ...proxy, no_proxy: '*' },
+    { ...proxy, proxy_auth_file: '/secret' },
+  ])
+    expect(OwnedSymposiumConfigSchema.safeParse(configured(invalid)).success).toBe(false);
+});
+
+it('admits only optional same-network operator supervisor selection in the private schema', () => {
+  const f = fixture();
+  const selected = (supervisorNetwork: unknown, network = f.config.gateway.network) => ({
+    ...f.config,
+    gateway: { ...f.config.gateway, network, supervisorNetwork },
+  });
+  expect(OwnedSymposiumConfigSchema.parse(selected('network')).gateway).toHaveProperty(
+    'supervisorNetwork',
+    'network',
+  );
+  expect(OwnedSymposiumConfigSchema.parse(f.config).gateway).not.toHaveProperty(
+    'supervisorNetwork',
+  );
+  for (const value of [
+    'foreign',
+    null,
+    '',
+    'host',
+    'none',
+    'bridge',
+    'private',
+    'pasta',
+    'slirp4netns',
+    'container:other',
+    '-bad',
+    'with space',
+    'a,b',
+  ]) {
+    expect(OwnedSymposiumConfigSchema.safeParse(selected(value)).success).toBe(false);
+    if (typeof value === 'string' && value !== 'foreign')
+      expect(OwnedSymposiumConfigSchema.safeParse(selected(value, value)).success).toBe(false);
+  }
+  expect(
+    OwnedSymposiumConfigSchema.safeParse({ ...f.config, supervisorNetwork: 'network' }).success,
+  ).toBe(false);
 });

@@ -1,3 +1,4 @@
+import { DiscoveryNativeMetadataFailure } from './symposium-discovery-diagnostics.js';
 import type { DiscoveryOperations } from './symposium-model-discovery.js';
 
 /** A retained host capability; a caller cannot substitute a provider or stale login receipt.
@@ -47,7 +48,7 @@ export function guardDiscoveryOperations(
         if (method === 'account/read') {
           const account = (value as { account?: { type?: unknown } })?.account;
           if (account?.type !== 'chatgpt')
-            throw new Error('Native discovery runtime is not authenticated with ChatGPT');
+            throw new DiscoveryNativeMetadataFailure('account_authentication');
         }
         return value;
       },

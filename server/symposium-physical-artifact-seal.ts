@@ -1,32 +1,75 @@
+import { SemanticCidWitnessOwner } from './symposium-semantic-cid-witness.js';
+import {
+  ArtifactReaderReferenceV1Schema,
+  type ArtifactReaderReferenceV1,
+  type ArtifactAdmissionReferenceV1,
+} from '@mitzo/protocol';
 import { canonicalReviewJson, reviewRecordHash } from './symposium-review-records.js';
 import {
   ARTIFACT_GIT_EXPORT,
   ARTIFACT_INSPECTION_MAX_OUTPUT_BYTES,
+  ARTIFACT_REVIEW_CONTEXT_MAX_BYTES,
+  ARTIFACT_REVIEW_CONTEXT_MAX_OUTPUT_BYTES,
+  ARTIFACT_REVIEW_MAX_PAGES,
+  ARTIFACT_REVIEW_BATCH_PAGES,
 } from './symposium-artifact-git-export.js';
 import type { GithubSandboxInspection } from './connections/capabilities/github-publish-pr.js';
 import { assertSessionArtifactVolume } from './symposium-session-artifacts.js';
 import { SYMPOSIUM_ARTIFACT_TARGET } from './symposium-artifact-lease.js';
 import Database from 'better-sqlite3';
 import { createHash, randomUUID } from 'node:crypto';
+import { isDeepStrictEqual } from 'node:util';
 import { z } from 'zod';
 import { EventStore } from './event-store.js';
+type SymposiumArtifactSealIntent = NonNullable<
+  ReturnType<EventStore['getSymposiumArtifactSealIntent']>
+>;
 import type { SymposiumSeatSandboxRecord } from '@mitzo/protocol/event-store';
 import {
   SqliteArtifactLeaseHost,
   ArtifactCommandNotDispatched,
+  type ArtifactPodmanStream,
 } from './symposium-artifact-host.js';
+import {
+  inspectSemanticCleanupOwners,
+  inspectOwnedSemanticCheckState,
+  reconcileOwnedSemanticCriterion,
+  runOwnedSemanticCriterion,
+} from './symposium-semantic-criterion-runner.js';
+import type { SemanticCriterionDefinition } from './symposium-criterion-receipts.js';
+import type { ArtifactPodmanCommand } from './symposium-artifact-host.js';
 import type { OwnedSymposiumGateway } from './symposium-owned-gateway.js';
 import type { SymposiumAttemptRegistry } from './symposium-attempt-registry.js';
+import { controlledAttemptRoute } from './symposium-attempt-transport.js';
 import {
   assertSymposiumRuntimeForArtifactSeal,
   drainSymposiumRuntimeForArtifactSeal,
+  stopRetainedSealSandbox,
 } from './symposium-session-runtime.js';
 import { OpenShellRuntimeManager, type OpenShellRuntimeConfig } from './openshell-runtime.js';
 import { TESTED_SYMPOSIUM_NATIVE_BUILD } from './symposium-production-gate.js';
 import { ARTIFACT_GIT_VERIFIER } from './symposium-artifact-git-verifier.js';
 
 const hash = (value: string) => createHash('sha256').update(value).digest('hex');
+// The only pre-pin reviewed export helper identity. Keep this pair frozen when
+// the current build changes; unknown legacy rows require manual recovery.
+const LEGACY_REVIEW_EXPORT_BUILD = {
+  image: 'sha256:a5a5302f2443c02f24506248883b9d22f070f58b288f898ac69a547b653e2161',
+  codeDigest: '62309c1134d93b43d82e55ef0ec4db8dfdefb84693d0857ab7584a3c6601d982',
+} as const;
 const oid = z.string().regex(/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/);
+const criterionCheckReceiptSchema = z.strictObject({
+  executionId: z.string().uuid(),
+  sealFenceId: z.string(),
+  sealDigest: z.string().regex(/^[a-f0-9]{64}$/),
+  artifactRevision: oid,
+  artifactHash: z.string().regex(/^[a-f0-9]{64}$/),
+  observedSha256: z
+    .string()
+    .regex(/^[a-f0-9]{64}$/)
+    .nullable(),
+  completedAt: z.number().int().nonnegative(),
+});
 const gitProofSchema = z.strictObject({
   version: z.literal(1),
   commit: oid,
@@ -108,6 +151,31 @@ export interface SuccessorArtifactExportReceipt {
   };
 }
 
+export interface CompletedArtifactReviewContext {
+  context: string;
+  pages?: Array<{ context: string; receipt: CompletedArtifactReviewContext['receipt'] }>;
+  receipt: {
+    version: 1;
+    mode: 'review_context';
+    jobId: string;
+    operationId: string;
+    sealFenceId: string;
+    sealDigest: string;
+    intentDigest: string;
+    artifactRevision: string;
+    artifactHash: string;
+    baseOid: string;
+    sourceOid: string;
+    contextSha256: string;
+    pageIndex?: number;
+    pageCount?: number;
+    evidenceSha256?: string;
+    pagesSha256?: string;
+    completedAt: number;
+    helper: SuccessorArtifactExportReceipt['helper'];
+  };
+}
+
 /** Concrete host-only operation. No request route installs it and no model runs here.
  * Stable pending locks never imply reconstructed custody on a new gateway lifetime.
  */
@@ -142,8 +210,16 @@ function parseSealedBundle(value: Record<string, unknown>, maxBytes: number): Bu
 }
 
 export class PhysicalArtifactSealer {
+  private cidWitness?: SemanticCidWitnessOwner;
+  private semanticCidWitness() {
+    return (this.cidWitness ??= new SemanticCidWitnessOwner(
+      this.deps.leaseHost.snapshotDatabasePath(),
+    ));
+  }
   private readonly db: Database.Database;
-  private readonly command: (args: readonly string[], maxOutputBytes?: number) => Promise<string>;
+  private readonly activeReviewStreams = new Set<string>();
+  private readonly command: ArtifactPodmanCommand;
+  private readonly stream?: ArtifactPodmanStream;
   constructor(
     private readonly deps: {
       store: EventStore;
@@ -151,10 +227,22 @@ export class PhysicalArtifactSealer {
       gateway: OwnedSymposiumGateway;
       attemptRegistry: SymposiumAttemptRegistry;
       runtimeConfig: OpenShellRuntimeConfig;
+      /** Constructor-owned lifecycle transport; production uses the normal manager. */
+      cleanupManagerFactory?: Parameters<typeof stopRetainedSealSandbox>[0]['managerFactory'];
+      /** Requires matching activated generation ledger receipt, not EventStore alone. */
+      assertSuccessorAdmissionCurrent?: (
+        sessionId: string,
+        reference: ArtifactAdmissionReferenceV1,
+      ) => true;
     },
   ) {
     deps.leaseHost.requireSnapshotGateway(deps.gateway);
     this.command = deps.leaseHost.snapshotCommand();
+    try {
+      this.stream = deps.leaseHost.snapshotStream();
+    } catch {
+      /* Legacy test host. */
+    }
     this.db = new Database(deps.leaseHost.snapshotDatabasePath());
     this.db.pragma('journal_mode=WAL');
     this.db.pragma('synchronous=FULL');
@@ -171,6 +259,40 @@ export class PhysicalArtifactSealer {
       )
     )
       this.db.exec('ALTER TABLE symposium_seal_export_jobs ADD COLUMN receipt_json TEXT');
+    const exportColumns = this.db.pragma('table_info(symposium_seal_export_jobs)') as {
+      name: string;
+    }[];
+    if (!exportColumns.some((row) => row.name === 'cid_witness_json'))
+      this.db.exec('ALTER TABLE symposium_seal_export_jobs ADD COLUMN cid_witness_json TEXT');
+    if (!exportColumns.some((row) => row.name === 'helper_image'))
+      this.db.exec('ALTER TABLE symposium_seal_export_jobs ADD COLUMN helper_image TEXT');
+    if (!exportColumns.some((row) => row.name === 'export_code_digest'))
+      this.db.exec('ALTER TABLE symposium_seal_export_jobs ADD COLUMN export_code_digest TEXT');
+    if (!exportColumns.some((row) => row.name === 'review_build_version'))
+      this.db.exec(
+        'ALTER TABLE symposium_seal_export_jobs ADD COLUMN review_build_version INTEGER',
+      );
+    this.db.exec(`CREATE TABLE IF NOT EXISTS symposium_review_streams(
+      fence_id TEXT NOT NULL, operation_id TEXT NOT NULL, job_id TEXT NOT NULL,
+      input_json TEXT NOT NULL, seal_digest TEXT NOT NULL, header_json TEXT,
+      receipt_json TEXT, ready INTEGER NOT NULL DEFAULT 0, started_at INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY(fence_id,operation_id));
+      CREATE TABLE IF NOT EXISTS symposium_review_stream_pages(
+      fence_id TEXT NOT NULL, operation_id TEXT NOT NULL, page_index INTEGER NOT NULL,
+      context TEXT NOT NULL, context_sha256 TEXT NOT NULL,
+      PRIMARY KEY(fence_id,operation_id,page_index));
+      CREATE TABLE IF NOT EXISTS symposium_review_stream_tombstones(
+      fence_id TEXT NOT NULL, operation_id TEXT NOT NULL, input_json TEXT NOT NULL,
+      seal_digest TEXT NOT NULL, pages_sha256 TEXT NOT NULL,
+      evidence_sha256 TEXT NOT NULL, PRIMARY KEY(fence_id,operation_id));`);
+    if (
+      !(this.db.pragma('table_info(symposium_review_streams)') as { name: string }[]).some(
+        (row) => row.name === 'started_at',
+      )
+    )
+      this.db.exec(
+        'ALTER TABLE symposium_review_streams ADD COLUMN started_at INTEGER NOT NULL DEFAULT 0',
+      );
   }
   close() {
     this.db.close();
@@ -183,6 +305,7 @@ export class PhysicalArtifactSealer {
     const rows: unknown = JSON.parse(
       await this.command(['ps', '--all', '--no-trunc', '--format', 'json']),
     );
+    if (Date.now() - started > 20000) throw new Error('Artifact census exceeded time bound');
     if (!Array.isArray(rows) || rows.length > 128)
       throw new Error('Artifact volume census is unavailable');
     const ids = rows.map((row) => {
@@ -192,39 +315,73 @@ export class PhysicalArtifactSealer {
     });
     if (new Set(ids).size !== ids.length)
       throw new Error('Artifact census contains duplicate identities');
-    const result: Array<{
-      id: string;
-      mounts: Array<{ Type: string; Name?: string; RW: boolean }>;
-    }> = [];
-    for (const id of ids) {
-      if (Date.now() - started > 20000) throw new Error('Artifact census exceeded time bound');
-      const inspected: unknown = JSON.parse(await this.command(['inspect', id]));
+    if (!ids.length) return [];
+    // One Podman round trip for the bounded census. Per-container CLI launches can
+    // exhaust the physical seal deadline on a shared VM before any mount is checked.
+    const inspected: unknown = JSON.parse(
+      await this.command(['inspect', '--type', 'container', ...ids], 12 * 1024 * 1024),
+    );
+    if (Date.now() - started > 20000) throw new Error('Artifact census exceeded time bound');
+    if (!Array.isArray(inspected) || inspected.length !== ids.length)
+      throw new Error('Artifact census inspection changed');
+    const expected = new Set(ids);
+    const observed = new Map<string, Array<{ Type: string; Name?: string; RW: boolean }>>();
+    for (const row of inspected) {
       if (
-        !Array.isArray(inspected) ||
-        inspected.length !== 1 ||
-        inspected[0].Id !== id ||
-        !Array.isArray(inspected[0].Mounts)
+        !row ||
+        typeof row !== 'object' ||
+        !containerId.test(row.Id) ||
+        !expected.has(row.Id) ||
+        observed.has(row.Id) ||
+        !Array.isArray(row.Mounts)
       )
         throw new Error('Artifact census inspection changed');
-      const mounts = inspected[0].Mounts;
-      for (const mount of mounts)
+      for (const mount of row.Mounts)
         if (
+          !mount ||
           typeof mount.Type !== 'string' ||
           typeof mount.RW !== 'boolean' ||
           (mount.Type === 'volume' && typeof mount.Name !== 'string')
         )
           throw new Error('Artifact mount census is incomplete');
-      result.push({ id, mounts });
+      observed.set(row.Id, row.Mounts);
+    }
+    const result: Array<{
+      id: string;
+      mounts: Array<{ Type: string; Name?: string; RW: boolean }>;
+    }> = [];
+    for (const id of ids) {
+      result.push({ id, mounts: observed.get(id)! });
     }
     return result;
   }
-  private async noVolumeMounts(volume: string) {
+  private async noVolumeMounts(volume: string, allowedReadOnlyIds = new Set<string>()) {
     if (
       (await this.census()).some((row) =>
-        row.mounts.some((m) => m.Type === 'volume' && m.Name === volume),
+        row.mounts.some(
+          (m) =>
+            m.Type === 'volume' && m.Name === volume && (m.RW || !allowedReadOnlyIds.has(row.id)),
+        ),
       )
     )
-      throw new Error('Artifact volume still has physical mounts');
+      throw new Error('Artifact volume still has unauthorized physical mounts');
+  }
+  private async noVerifierName(name: string) {
+    const rows: unknown = JSON.parse(
+      await this.command(['ps', '--all', '--no-trunc', '--format', 'json']),
+    );
+    if (!Array.isArray(rows) || rows.length > 128)
+      throw new Error('Artifact verifier name census is unavailable');
+    for (const row of rows) {
+      const names = row?.Names;
+      if (
+        typeof names !== 'string' &&
+        !(Array.isArray(names) && names.every((value) => typeof value === 'string'))
+      )
+        throw new Error('Artifact verifier name census is incomplete');
+      if ((Array.isArray(names) ? names : [names]).includes(name))
+        throw new Error('Artifact verifier name is already occupied');
+    }
   }
   private async absent(records: SymposiumSeatSandboxRecord[], signal: AbortSignal) {
     for (const record of records) {
@@ -241,7 +398,131 @@ export class PhysicalArtifactSealer {
         throw new Error('Artifact writer gateway absence changed');
     }
   }
+  private verifiedOtherGeneration(
+    reference: ArtifactAdmissionReferenceV1 | ArtifactReaderReferenceV1 | undefined,
+    parent: SymposiumArtifactSealIntent,
+  ): boolean {
+    if (
+      !reference ||
+      ArtifactReaderReferenceV1Schema.safeParse(reference).success ||
+      reference.artifactGenerationId === parent.selection.artifact.volumeGeneration
+    )
+      return false;
+    try {
+      const binding = this.deps.store.assertSymposiumArtifactAdmissionCurrent(
+        parent.selection.sessionId,
+        reference as ArtifactAdmissionReferenceV1,
+      );
+      if (
+        this.deps.assertSuccessorAdmissionCurrent?.(
+          parent.selection.sessionId,
+          reference as ArtifactAdmissionReferenceV1,
+        ) !== true
+      )
+        return false;
+      return (
+        binding.kind !== 'initial' &&
+        binding.parentFenceId === parent.fenceId &&
+        binding.parentGenerationId === parent.selection.artifact.volumeGeneration
+      );
+    } catch {
+      return false;
+    }
+  }
+  private verifiedSealedReader(
+    reference: ArtifactAdmissionReferenceV1 | ArtifactReaderReferenceV1 | undefined,
+    parent: SymposiumArtifactSealIntent,
+  ): boolean {
+    if (!reference || !ArtifactReaderReferenceV1Schema.safeParse(reference).success) return false;
+    try {
+      const binding = this.deps.store.assertSymposiumSealedReaderAdmissionCurrent(
+        parent.selection.sessionId,
+        reference as ArtifactReaderReferenceV1,
+      );
+      const admission = this.deps.store.getSymposiumSealedReaderAdmission(
+        binding.sessionId,
+        binding.readerAdmissionId,
+      );
+      const lease = this.deps.leaseHost
+        .sealLeaseIdentities('podman', binding.volumeName)
+        .find((row) => row.request.readerAdmissionId === binding.readerAdmissionId);
+      return Boolean(
+        admission?.receipt &&
+        lease &&
+        binding.sealFenceId === parent.fenceId &&
+        binding.artifactGenerationId === parent.selection.artifact.volumeGeneration &&
+        admission.receipt.leaseTokenHash === lease.tokenHash &&
+        admission.receipt.leaseRevision === lease.revision &&
+        lease.request.access === 'reviewer',
+      );
+    } catch {
+      return false;
+    }
+  }
+  private allowedSealedReaderLeases(parent: SymposiumArtifactSealIntent): Set<string> {
+    const allowed = new Set<string>();
+    const leases = this.deps.leaseHost.sealLeaseIdentities(
+      'podman',
+      parent.selection.artifact.volumeName,
+    );
+    for (const lease of leases) {
+      if (lease.request.access !== 'reviewer' || !lease.request.readerAdmissionId)
+        throw new Error('Completed artifact has unauthorized lease');
+      const admission = this.deps.store.getSymposiumSealedReaderAdmission(
+        parent.selection.sessionId,
+        lease.request.readerAdmissionId,
+      );
+      if (
+        !admission ||
+        admission.binding.sealFenceId !== parent.fenceId ||
+        admission.binding.artifactGenerationId !== parent.selection.artifact.volumeGeneration ||
+        admission.binding.volumeName !== parent.selection.artifact.volumeName ||
+        lease.request.seatId !== admission.binding.seatId
+      )
+        throw new Error('Completed artifact reader lease changed');
+      if (!admission.receipt) {
+        if (lease.creationStarted || lease.sandboxId || lease.sandboxName)
+          throw new Error('Unconfirmed reader lease cannot create a sandbox');
+        continue;
+      }
+      if (
+        admission.receipt.leaseTokenHash !== lease.tokenHash ||
+        admission.receipt.leaseRevision !== lease.revision
+      )
+        throw new Error('Completed artifact reader lease receipt changed');
+      this.deps.store.assertSymposiumSealedReaderAdmissionCurrent(
+        parent.selection.sessionId,
+        admission.reference,
+      );
+      if (lease.creationStarted && !lease.sandboxId)
+        throw new Error('Reader sandbox creation unresolved');
+      if (lease.sandboxId) {
+        const current = this.deps.store.getSymposiumSeatSandbox(
+          parent.selection.sessionId,
+          admission.binding.seatId,
+          admission.binding.readerMembershipGeneration,
+        );
+        if (
+          !current ||
+          current.state !== 'ready' ||
+          current.physicalId !== lease.sandboxId ||
+          current.artifact?.bindingDigest !== admission.reference.bindingDigest
+        )
+          throw new Error('Reader runtime identity changed');
+        allowed.add(lease.sandboxId);
+      }
+    }
+    return allowed;
+  }
   async requireCompleted(fenceId: string, signal: AbortSignal): Promise<CompletedArtifactSeal> {
+    return this.requireCompletedForCleanup(fenceId, signal);
+  }
+  private async requireCompletedForCleanup(
+    fenceId: string,
+    signal: AbortSignal,
+    semantic?: { fenceId: string; operationId: string; definition: SemanticCriterionDefinition },
+    assertCurrent?: () => void,
+  ): Promise<CompletedArtifactSeal> {
     if (!/^[a-f0-9-]{36}$/.test(fenceId)) throw new Error('Artifact seal identity is invalid');
     signal.throwIfAborted();
     await this.custody();
@@ -252,7 +533,7 @@ export class PhysicalArtifactSealer {
     if (!row || row.custody_digest !== hash(this.deps.gateway.stateDirectory))
       throw new Error('Completed artifact seal custody is unavailable');
     const receipt = JSON.parse(row.receipt_json) as CompletedArtifactSeal;
-    const intent = this.deps.store.getSymposiumArtifactSealIntent(receipt.sessionId);
+    const intent = this.deps.store.getSymposiumArtifactSealByFence(receipt.fenceId);
     if (
       !intent ||
       receipt.fenceId !== fenceId ||
@@ -274,16 +555,21 @@ export class PhysicalArtifactSealer {
       'podman',
       intent.selection.artifact.volumeName,
     );
-    if (
-      !retention ||
-      receipt.retentionDigest !== hash(JSON.stringify(retention)) ||
-      this.deps.leaseHost.sealLeaseIdentities('podman', intent.selection.artifact.volumeName).length
-    )
+    if (!retention || receipt.retentionDigest !== hash(JSON.stringify(retention)))
       throw new Error('Completed artifact retention changed');
+    this.allowedSealedReaderLeases(intent);
     const records = JSON.parse(row.records_json) as SymposiumSeatSandboxRecord[];
     if (
       receipt.revocationDigest !== hash(JSON.stringify(records)) ||
-      this.deps.attemptRegistry.pending().some((row) => row.sessionId === receipt.sessionId)
+      [
+        ...this.deps.attemptRegistry.pending(),
+        ...this.deps.attemptRegistry.pendingPreparations(),
+      ].some(
+        (row) =>
+          row.sessionId === receipt.sessionId &&
+          !this.verifiedOtherGeneration(row.artifact, intent) &&
+          !this.verifiedSealedReader(row.artifact, intent),
+      )
     )
       throw new Error('Completed artifact revocation changed');
     for (const record of records) {
@@ -295,17 +581,66 @@ export class PhysicalArtifactSealer {
       if (
         current?.state !== 'stopped' ||
         current.physicalId !== record.physicalId ||
-        this.deps.store.getUnsettledSymposiumSeatExecutions(record.sessionId, record.seatId).length
+        this.deps.store
+          .getUnsettledSymposiumSeatExecutions(record.sessionId, record.seatId)
+          .some((attempt) => {
+            const native = attempt.claimToken
+              ? this.deps.attemptRegistry.get(attempt.claimToken)
+              : undefined;
+            return (
+              !this.verifiedOtherGeneration(native?.artifact, intent) &&
+              !this.verifiedSealedReader(native?.artifact, intent)
+            );
+          })
       )
         throw new Error('Completed artifact terminal cleanup changed');
     }
     await this.absent(records, signal);
-    await this.noVolumeMounts(intent.selection.artifact.volumeName);
+    const allowed = this.allowedSealedReaderLeases(intent);
+    if (semantic) {
+      const current = () => {
+        signal.throwIfAborted();
+        assertCurrent?.();
+      };
+      const guarded = async <T>(operation: () => Promise<T>) => {
+        current();
+        const value = await operation();
+        current();
+        return value;
+      };
+      const owned = await inspectSemanticCleanupOwners(
+        {
+          db: this.db,
+          cidWitness: this.semanticCidWitness(),
+          command: (...args) => guarded(() => this.command(...args)),
+          seal: receipt,
+          volume: intent.selection.artifact.volumeName,
+          image: TESTED_SYMPOSIUM_NATIVE_BUILD.image,
+          target: SYMPOSIUM_ARTIFACT_TARGET,
+          requireSeal: async () => {
+            throw Error('Cleanup qualification cannot grant a seal');
+          },
+          custody: () => guarded(() => this.custody()),
+          checkFile: async () => {
+            throw Error('Cleanup qualification cannot execute artifacts');
+          },
+          withSnapshot: (operation) =>
+            this.deps.store.withSymposiumHistoricalArtifactSealSnapshot(intent, () => {
+              current();
+              operation();
+              current();
+            }),
+        },
+        semantic,
+      );
+      for (const id of owned) allowed.add(id);
+    }
+    await this.noVolumeMounts(intent.selection.artifact.volumeName, allowed);
     if ((await this.census()).some((row) => row.id === receipt.verifier.id))
       throw new Error('Completed artifact verifier remains');
     await this.custody();
     signal.throwIfAborted();
-    this.deps.store.withSymposiumArtifactSealSnapshot(intent, () => {});
+    this.deps.store.withSymposiumHistoricalArtifactSealSnapshot(intent, () => {});
     return structuredClone(receipt);
   }
 
@@ -315,6 +650,1342 @@ export class PhysicalArtifactSealer {
   ): Promise<GithubSandboxInspection> {
     const value = await this.exportOperation({ ...input, kind: 'inspect' }, signal);
     return sealedInspectionSchema.parse(value.inspection);
+  }
+
+  async exportCompletedReviewContext(
+    input: { fenceId: string; operationId: string; baseBranch: string; page?: number },
+    signal: AbortSignal,
+  ): Promise<CompletedArtifactReviewContext> {
+    if (input.page !== undefined) {
+      if (!this.stream) throw new Error('Sealed review streaming transport unavailable');
+      return this.exportStreamedReviewContext(input, signal);
+    }
+    const value = await this.exportOperation({ ...input, kind: 'review_context' }, signal);
+    return {
+      context: value.context as string,
+      receipt: value.receipt as CompletedArtifactReviewContext['receipt'],
+      ...(Array.isArray(value.pages)
+        ? {
+            pages: (value.pages as string[]).map((context, index) => ({
+              context,
+              receipt: {
+                ...(value.receipt as CompletedArtifactReviewContext['receipt']),
+                contextSha256: hash(context),
+                pageIndex: input.page! + index,
+              },
+            })),
+          }
+        : {}),
+    };
+  }
+
+  /** Called only after the reviewer store durably retains and verifies every
+   * page. A compact immutable digest remains to police any later replay. */
+  async releaseCompletedReviewStream(input: {
+    fenceId: string;
+    operationId: string;
+    pagesSha256: string;
+  }): Promise<void> {
+    if (!/^[a-f0-9]{64}$/.test(input.pagesSha256))
+      throw new Error('Sealed review stream release digest is invalid');
+    this.db
+      .transaction(() => {
+        const tombstone = this.db
+          .prepare(
+            'SELECT input_json,seal_digest,pages_sha256,evidence_sha256 FROM symposium_review_stream_tombstones WHERE fence_id=? AND operation_id=?',
+          )
+          .get(input.fenceId, input.operationId) as
+          | {
+              input_json: string;
+              seal_digest: string;
+              pages_sha256: string;
+              evidence_sha256: string;
+            }
+          | undefined;
+        const row = this.db
+          .prepare(
+            'SELECT job_id,input_json,seal_digest,receipt_json,ready FROM symposium_review_streams WHERE fence_id=? AND operation_id=?',
+          )
+          .get(input.fenceId, input.operationId) as
+          | {
+              job_id: string;
+              input_json: string;
+              seal_digest: string;
+              receipt_json: string | null;
+              ready: number;
+            }
+          | undefined;
+        if (tombstone && tombstone.pages_sha256 !== input.pagesSha256)
+          throw new Error('Sealed review stream release changed');
+        if (tombstone && !row) return;
+        if (!row || row.ready !== 1 || !row.receipt_json)
+          throw new Error('Completed sealed review stream unavailable for release');
+        const receipt = JSON.parse(row.receipt_json) as CompletedArtifactReviewContext['receipt'];
+        const job = this.db
+          .prepare('SELECT state,receipt_json FROM symposium_seal_export_jobs WHERE job_id=?')
+          .get(row.job_id) as { state: string; receipt_json: string | null } | undefined;
+        const count = this.db
+          .prepare(
+            'SELECT COUNT(*) AS count FROM symposium_review_stream_pages WHERE fence_id=? AND operation_id=?',
+          )
+          .get(input.fenceId, input.operationId) as { count: number };
+        if (
+          !job ||
+          job.state !== 'complete' ||
+          job.receipt_json !== row.receipt_json ||
+          receipt.pagesSha256 !== input.pagesSha256 ||
+          (tombstone &&
+            (row.input_json !== tombstone.input_json ||
+              row.seal_digest !== tombstone.seal_digest ||
+              receipt.evidenceSha256 !== tombstone.evidence_sha256)) ||
+          count.count !== receipt.pageCount
+        )
+          throw new Error('Completed sealed review stream changed before release');
+        if (!tombstone)
+          this.db
+            .prepare('INSERT INTO symposium_review_stream_tombstones VALUES(?,?,?,?,?,?)')
+            .run(
+              input.fenceId,
+              input.operationId,
+              row.input_json,
+              row.seal_digest,
+              input.pagesSha256,
+              receipt.evidenceSha256,
+            );
+        this.db
+          .prepare('DELETE FROM symposium_review_stream_pages WHERE fence_id=? AND operation_id=?')
+          .run(input.fenceId, input.operationId);
+        this.db
+          .prepare(
+            'DELETE FROM symposium_review_streams WHERE fence_id=? AND operation_id=? AND ready=1',
+          )
+          .run(input.fenceId, input.operationId);
+      })
+      .immediate();
+  }
+
+  /** Recovers a completed stream whose page-zero response failed after the
+   * ready commit. The exact completed journal supplies the digest, so the
+   * caller need not have received any page or receipt. */
+  async releaseReadyReviewStream(input: {
+    fenceId: string;
+    operationId: string;
+    baseBranch: string;
+  }): Promise<void> {
+    if (
+      !/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/.test(input.operationId) ||
+      !/^[A-Za-z0-9][A-Za-z0-9._/-]{0,254}$/.test(input.baseBranch)
+    )
+      throw new Error('Sealed review stream release operation is invalid');
+    const seal = await this.requireCompleted(input.fenceId, AbortSignal.timeout(120_000));
+    const sealDigest = reviewRecordHash(canonicalReviewJson(seal));
+    const exactInputJson = JSON.stringify({
+      fenceId: input.fenceId,
+      operationId: input.operationId,
+      baseBranch: input.baseBranch,
+      kind: 'review_stream',
+    });
+    const validSelection = (raw: string) => raw === exactInputJson;
+    this.db
+      .transaction(() => {
+        const tombstone = this.db
+          .prepare(
+            'SELECT input_json,seal_digest,pages_sha256,evidence_sha256 FROM symposium_review_stream_tombstones WHERE fence_id=? AND operation_id=?',
+          )
+          .get(input.fenceId, input.operationId) as
+          | {
+              input_json: string;
+              seal_digest: string;
+              pages_sha256: string;
+              evidence_sha256: string;
+            }
+          | undefined;
+        const row = this.db
+          .prepare(
+            'SELECT job_id,input_json,seal_digest,header_json,receipt_json,ready FROM symposium_review_streams WHERE fence_id=? AND operation_id=?',
+          )
+          .get(input.fenceId, input.operationId) as
+          | {
+              job_id: string;
+              input_json: string;
+              seal_digest: string;
+              header_json: string | null;
+              receipt_json: string | null;
+              ready: number;
+            }
+          | undefined;
+        if (tombstone) {
+          if (
+            tombstone.seal_digest !== sealDigest ||
+            !validSelection(tombstone.input_json) ||
+            !/^[a-f0-9]{64}$/.test(tombstone.pages_sha256) ||
+            !/^[a-f0-9]{64}$/.test(tombstone.evidence_sha256)
+          )
+            throw new Error('Sealed review stream release tombstone changed');
+          if (!row) return;
+        }
+        if (
+          !row ||
+          row.ready !== 1 ||
+          !row.receipt_json ||
+          !row.header_json ||
+          row.seal_digest !== sealDigest
+        )
+          throw new Error('Completed sealed review stream unavailable for recovery release');
+        const header = JSON.parse(row.header_json) as Record<string, unknown>;
+        const receipt = JSON.parse(row.receipt_json) as CompletedArtifactReviewContext['receipt'];
+        const job = this.db
+          .prepare(
+            'SELECT state,kind,input_json,receipt_json,result_hash FROM symposium_seal_export_jobs WHERE job_id=? AND fence_id=? AND operation_id=?',
+          )
+          .get(row.job_id, input.fenceId, input.operationId) as
+          | {
+              state: string;
+              kind: string;
+              input_json: string;
+              receipt_json: string | null;
+              result_hash: string | null;
+            }
+          | undefined;
+        if (
+          !job ||
+          job.state !== 'complete' ||
+          job.kind !== 'review_stream' ||
+          job.input_json !== row.input_json ||
+          job.receipt_json !== row.receipt_json ||
+          job.result_hash !== receipt.pagesSha256 ||
+          !validSelection(row.input_json) ||
+          receipt.jobId !== row.job_id ||
+          receipt.operationId !== input.operationId ||
+          receipt.sealFenceId !== input.fenceId ||
+          receipt.sealDigest !== sealDigest ||
+          receipt.artifactRevision !== seal.git.commit ||
+          receipt.artifactHash !== seal.git.committedTreeDigest ||
+          receipt.sourceOid !== seal.git.commit ||
+          receipt.baseOid !== header.baseOid ||
+          receipt.pageCount !== header.pageCount ||
+          receipt.evidenceSha256 !== header.evidenceSha256 ||
+          !/^[a-f0-9]{64}$/.test(receipt.pagesSha256 ?? '') ||
+          !/^[a-f0-9]{64}$/.test(receipt.evidenceSha256 ?? '') ||
+          (tombstone &&
+            (row.input_json !== tombstone.input_json ||
+              row.seal_digest !== tombstone.seal_digest ||
+              receipt.pagesSha256 !== tombstone.pages_sha256 ||
+              receipt.evidenceSha256 !== tombstone.evidence_sha256))
+        )
+          throw new Error('Completed sealed review stream journal changed');
+        if (!tombstone)
+          this.db
+            .prepare('INSERT INTO symposium_review_stream_tombstones VALUES(?,?,?,?,?,?)')
+            .run(
+              input.fenceId,
+              input.operationId,
+              row.input_json,
+              row.seal_digest,
+              receipt.pagesSha256,
+              receipt.evidenceSha256,
+            );
+        this.db
+          .prepare('DELETE FROM symposium_review_stream_pages WHERE fence_id=? AND operation_id=?')
+          .run(input.fenceId, input.operationId);
+        const deleted = this.db
+          .prepare(
+            'DELETE FROM symposium_review_streams WHERE fence_id=? AND operation_id=? AND ready=1',
+          )
+          .run(input.fenceId, input.operationId);
+        if (deleted.changes !== 1)
+          throw new Error('Completed sealed review stream release changed');
+      })
+      .immediate();
+  }
+
+  /** A stopped preparation may not have started export. Absence is the only
+   * idempotent no-op; a present incomplete or mismatched stream fails closed. */
+  async releaseStoppedReadyReviewStream(input: {
+    fenceId: string;
+    operationId: string;
+    baseBranch: string;
+  }): Promise<void> {
+    const row = this.db
+      .prepare('SELECT ready FROM symposium_review_streams WHERE fence_id=? AND operation_id=?')
+      .get(input.fenceId, input.operationId) as { ready: number } | undefined;
+    const tombstone = this.db
+      .prepare(
+        'SELECT input_json FROM symposium_review_stream_tombstones WHERE fence_id=? AND operation_id=?',
+      )
+      .get(input.fenceId, input.operationId) as { input_json: string } | undefined;
+    if (!row && !tombstone) return;
+    if (!row && tombstone) {
+      if (tombstone.input_json !== JSON.stringify({ ...input, kind: 'review_stream' }))
+        throw new Error('Stopped sealed review stream tombstone changed');
+      return;
+    }
+    if (row && row.ready !== 1) throw new Error('Stopped sealed review stream is incomplete');
+    await this.releaseReadyReviewStream(input);
+  }
+
+  /** Reconcile complete streams left by a stopped or crashed owner. Each row is
+   * checked against its exact sealed selection and export journal before deletion. */
+  async releaseAbandonedReadyReviewStreams(): Promise<void> {
+    const rows = this.db
+      .prepare(
+        'SELECT fence_id,operation_id,input_json FROM symposium_review_streams WHERE ready=1 ORDER BY fence_id,operation_id LIMIT 257',
+      )
+      .all() as Array<{ fence_id: string; operation_id: string; input_json: string }>;
+    if (rows.length > 256) throw new Error('Abandoned sealed review stream count exceeds bound');
+    for (const row of rows) {
+      const key = `${row.fence_id}:${row.operation_id}`;
+      if (this.activeReviewStreams.has(key))
+        throw new Error('Active sealed review stream cannot be reclaimed');
+      let selected: Record<string, unknown>;
+      try {
+        selected = JSON.parse(row.input_json) as Record<string, unknown>;
+      } catch {
+        throw new Error('Abandoned sealed review stream selection changed');
+      }
+      if (
+        selected.kind !== 'review_stream' ||
+        selected.fenceId !== row.fence_id ||
+        selected.operationId !== row.operation_id ||
+        typeof selected.baseBranch !== 'string'
+      )
+        throw new Error('Abandoned sealed review stream selection changed');
+      const sealJob = this.db
+        .prepare('SELECT custody_digest FROM symposium_physical_seal_jobs WHERE fence_id=?')
+        .get(row.fence_id) as { custody_digest: string } | undefined;
+      if (!sealJob) throw new Error('Abandoned sealed review stream seal missing');
+      if (sealJob.custody_digest === hash(this.deps.gateway.stateDirectory)) {
+        await this.releaseReadyReviewStream({
+          fenceId: row.fence_id,
+          operationId: row.operation_id,
+          baseBranch: selected.baseBranch,
+        });
+      } else {
+        await this.releaseHistoricalReadyReviewStream(row);
+      }
+    }
+  }
+
+  /** Old gateway seal custody cannot be re-admitted on this gateway. This only
+   * disposes its completed cache after independent journal and helper checks. */
+  private async releaseHistoricalReadyReviewStream(row: {
+    fence_id: string;
+    operation_id: string;
+    input_json: string;
+  }): Promise<void> {
+    await this.custody();
+    const inventory = await this.census();
+    const preflight = this.db
+      .prepare(
+        'SELECT job_id,receipt_json FROM symposium_review_streams WHERE fence_id=? AND operation_id=? AND ready=1',
+      )
+      .get(row.fence_id, row.operation_id) as
+      | {
+          job_id: string;
+          receipt_json: string | null;
+        }
+      | undefined;
+    if (!preflight?.receipt_json) throw new Error('Historical sealed review stream unavailable');
+    const preflightReceipt = JSON.parse(
+      preflight.receipt_json,
+    ) as CompletedArtifactReviewContext['receipt'];
+    if (preflightReceipt.helper?.name !== `mitzo-seal-export-${preflight.job_id}`)
+      throw new Error('Historical sealed review helper identity changed');
+    await this.noVerifierName(preflightReceipt.helper.name);
+    await this.custody();
+    this.db
+      .transaction(() => {
+        const staged = this.db
+          .prepare(
+            'SELECT job_id,input_json,seal_digest,header_json,receipt_json,ready FROM symposium_review_streams WHERE fence_id=? AND operation_id=?',
+          )
+          .get(row.fence_id, row.operation_id) as
+          | {
+              job_id: string;
+              input_json: string;
+              seal_digest: string;
+              header_json: string | null;
+              receipt_json: string | null;
+              ready: number;
+            }
+          | undefined;
+        const sealJob = this.db
+          .prepare(
+            'SELECT custody_digest,phase,receipt_json FROM symposium_physical_seal_jobs WHERE fence_id=?',
+          )
+          .get(row.fence_id) as
+          | {
+              custody_digest: string;
+              phase: string;
+              receipt_json: string | null;
+            }
+          | undefined;
+        const exportJob =
+          staged &&
+          (this.db
+            .prepare(
+              'SELECT kind,state,input_json,custody_digest,receipt_json,result_hash,container_id,container_name,helper_image,export_code_digest,review_build_version FROM symposium_seal_export_jobs WHERE job_id=? AND fence_id=? AND operation_id=?',
+            )
+            .get(staged.job_id, row.fence_id, row.operation_id) as
+            | {
+                kind: string;
+                state: string;
+                input_json: string;
+                custody_digest: string;
+                receipt_json: string | null;
+                result_hash: string | null;
+                container_id: string | null;
+                container_name: string;
+                helper_image: string | null;
+                export_code_digest: string | null;
+                review_build_version: number | null;
+              }
+            | undefined);
+        if (
+          !staged ||
+          staged.ready !== 1 ||
+          staged.input_json !== row.input_json ||
+          !staged.header_json ||
+          !staged.receipt_json ||
+          !sealJob ||
+          sealJob.phase !== 'complete' ||
+          !sealJob.receipt_json ||
+          !exportJob ||
+          exportJob.kind !== 'review_stream' ||
+          exportJob.state !== 'complete' ||
+          exportJob.input_json !== staged.input_json ||
+          exportJob.receipt_json !== staged.receipt_json ||
+          exportJob.custody_digest !== sealJob.custody_digest ||
+          sealJob.custody_digest === hash(this.deps.gateway.stateDirectory)
+        )
+          throw new Error('Historical sealed review stream journal changed');
+        const seal = JSON.parse(sealJob.receipt_json) as CompletedArtifactSeal;
+        const receipt = JSON.parse(
+          staged.receipt_json,
+        ) as CompletedArtifactReviewContext['receipt'];
+        const header = JSON.parse(staged.header_json) as {
+          pageCount: number;
+          evidenceSha256: string;
+          baseOid: string;
+          sourceOid: string;
+          proof: unknown;
+        };
+        const intent = this.deps.store.getSymposiumArtifactSealByFence(row.fence_id);
+        const selected = JSON.parse(row.input_json) as {
+          baseBranch: string;
+          fenceId: string;
+          operationId: string;
+          kind: string;
+        };
+        const expectedBuild =
+          exportJob?.review_build_version === 2
+            ? exportJob.helper_image && exportJob.export_code_digest
+              ? { image: exportJob.helper_image, codeDigest: exportJob.export_code_digest }
+              : null
+            : exportJob?.review_build_version === null &&
+                exportJob.helper_image === null &&
+                exportJob.export_code_digest === null &&
+                receipt.version === 1 &&
+                receipt.mode === 'review_context'
+              ? LEGACY_REVIEW_EXPORT_BUILD
+              : null;
+        if (
+          !intent ||
+          seal.fenceId !== row.fence_id ||
+          seal.intentDigest !== hash(JSON.stringify(intent)) ||
+          seal.custodyDigest !== sealJob.custody_digest ||
+          intent.selection.custody.gatewayLaunchDigest !== sealJob.custody_digest ||
+          receipt.sealFenceId !== row.fence_id ||
+          receipt.operationId !== row.operation_id ||
+          receipt.jobId !== staged.job_id ||
+          receipt.sealDigest !== hash(canonicalReviewJson(seal)) ||
+          staged.seal_digest !== receipt.sealDigest ||
+          receipt.intentDigest !== seal.intentDigest ||
+          receipt.artifactRevision !== seal.git.commit ||
+          receipt.artifactHash !== seal.git.committedTreeDigest ||
+          receipt.sourceOid !== seal.git.commit ||
+          receipt.baseOid !== header.baseOid ||
+          header.sourceOid !== seal.git.commit ||
+          canonicalReviewJson(gitProofSchema.parse(header.proof)) !==
+            canonicalReviewJson(seal.git) ||
+          receipt.pageCount !== header.pageCount ||
+          !Number.isSafeInteger(receipt.pageCount) ||
+          receipt.pageCount < 1 ||
+          receipt.pageCount > ARTIFACT_REVIEW_MAX_PAGES ||
+          receipt.evidenceSha256 !== header.evidenceSha256 ||
+          canonicalReviewJson(header) !== staged.header_json ||
+          canonicalReviewJson(receipt) !== staged.receipt_json ||
+          exportJob.result_hash !== receipt.pagesSha256 ||
+          !/^[a-f0-9]{64}$/.test(receipt.pagesSha256 ?? '') ||
+          !/^[a-f0-9]{64}$/.test(receipt.evidenceSha256 ?? '') ||
+          !receipt.helper?.removed ||
+          receipt.helper.terminalExitCode !== 0 ||
+          !containerId.test(receipt.helper.id) ||
+          receipt.helper.id !== exportJob.container_id ||
+          receipt.helper.name !== exportJob.container_name ||
+          !expectedBuild ||
+          receipt.helper.image !== expectedBuild.image ||
+          receipt.helper.image !== seal.verifier.image ||
+          receipt.helper.codeDigest !== expectedBuild.codeDigest ||
+          inventory.some((item) => item.id === receipt.helper?.id) ||
+          selected.fenceId !== row.fence_id ||
+          selected.operationId !== row.operation_id ||
+          selected.kind !== 'review_stream' ||
+          !/^[A-Za-z0-9][A-Za-z0-9._/-]{0,254}$/.test(selected.baseBranch) ||
+          row.input_json !==
+            JSON.stringify({
+              fenceId: row.fence_id,
+              operationId: row.operation_id,
+              baseBranch: selected.baseBranch,
+              kind: 'review_stream',
+            })
+        )
+          throw new Error('Historical sealed review stream identity changed');
+        const digest = createHash('sha256').update('[');
+        let count = 0;
+        for (const page of this.db
+          .prepare(
+            'SELECT page_index,context,context_sha256 FROM symposium_review_stream_pages WHERE fence_id=? AND operation_id=? ORDER BY page_index',
+          )
+          .iterate(row.fence_id, row.operation_id) as Iterable<{
+          page_index: number;
+          context: string;
+          context_sha256: string;
+        }>) {
+          const parsed = JSON.parse(page.context) as Record<string, unknown>;
+          if (
+            page.page_index !== count ||
+            page.context_sha256 !== hash(page.context) ||
+            Buffer.byteLength(page.context, 'utf8') > ARTIFACT_REVIEW_CONTEXT_MAX_BYTES ||
+            canonicalReviewJson(parsed) !== page.context ||
+            parsed.version !== 3 ||
+            parsed.scope !== 'sealed-changed-path-pages' ||
+            parsed.pageIndex !== count ||
+            parsed.pageCount !== receipt.pageCount ||
+            parsed.evidenceSha256 !== receipt.evidenceSha256 ||
+            parsed.sourceOid !== seal.git.commit ||
+            parsed.baseOid !== receipt.baseOid ||
+            parsed.baseBranch !== selected.baseBranch ||
+            parsed.committedTreeDigest !== seal.git.committedTreeDigest ||
+            parsed.manifestDigest !== seal.git.manifestDigest ||
+            parsed.trackedFileCount !== seal.git.entries
+          )
+            throw new Error('Historical sealed review page changed');
+          if (count === 0 && page.context_sha256 !== receipt.contextSha256)
+            throw new Error('Historical sealed review first page changed');
+          if (count) digest.update(',');
+          digest.update(canonicalReviewJson(page.context));
+          count++;
+        }
+        digest.update(']');
+        if (count !== receipt.pageCount || digest.digest('hex') !== receipt.pagesSha256)
+          throw new Error('Historical sealed review page set changed');
+        const tombstone = this.db
+          .prepare(
+            'SELECT input_json,seal_digest,pages_sha256,evidence_sha256 FROM symposium_review_stream_tombstones WHERE fence_id=? AND operation_id=?',
+          )
+          .get(row.fence_id, row.operation_id) as
+          | {
+              input_json: string;
+              seal_digest: string;
+              pages_sha256: string;
+              evidence_sha256: string;
+            }
+          | undefined;
+        if (tombstone) {
+          if (
+            tombstone.input_json !== staged.input_json ||
+            tombstone.seal_digest !== staged.seal_digest ||
+            tombstone.pages_sha256 !== receipt.pagesSha256 ||
+            tombstone.evidence_sha256 !== receipt.evidenceSha256
+          )
+            throw new Error('Historical sealed review stream tombstone changed');
+        } else
+          this.db
+            .prepare('INSERT INTO symposium_review_stream_tombstones VALUES(?,?,?,?,?,?)')
+            .run(
+              row.fence_id,
+              row.operation_id,
+              staged.input_json,
+              staged.seal_digest,
+              receipt.pagesSha256,
+              receipt.evidenceSha256,
+            );
+        this.db
+          .prepare('DELETE FROM symposium_review_stream_pages WHERE fence_id=? AND operation_id=?')
+          .run(row.fence_id, row.operation_id);
+        const removed = this.db
+          .prepare(
+            'DELETE FROM symposium_review_streams WHERE fence_id=? AND operation_id=? AND ready=1',
+          )
+          .run(row.fence_id, row.operation_id);
+        if (removed.changes !== 1)
+          throw new Error('Historical sealed review stream release changed');
+      })
+      .immediate();
+  }
+
+  /** One exact helper pass produces the entire sealed page set. SQLite rows are
+   * invisible until the footer, terminal exit, helper deletion, and custody have
+   * all been proved. Subsequent 16-page reads never start another helper. */
+  private async exportStreamedReviewContext(
+    input: { fenceId: string; operationId: string; baseBranch: string; page?: number },
+    signal: AbortSignal,
+  ): Promise<CompletedArtifactReviewContext> {
+    const page = input.page!;
+    if (
+      !Number.isSafeInteger(page) ||
+      page < 0 ||
+      page >= ARTIFACT_REVIEW_MAX_PAGES ||
+      page % ARTIFACT_REVIEW_BATCH_PAGES !== 0 ||
+      !/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/.test(input.operationId) ||
+      !/^[A-Za-z0-9][A-Za-z0-9._/-]{0,254}$/.test(input.baseBranch)
+    )
+      throw new Error('Sealed review stream selection is invalid');
+    const suffix = page === 0 ? '' : `-p${page}`;
+    if (suffix && !input.operationId.endsWith(suffix))
+      throw new Error('Sealed review stream operation changed');
+    const root = suffix ? input.operationId.slice(0, -suffix.length) : input.operationId;
+    const activeKey = `${input.fenceId}:${root}`;
+    const seal = await this.requireCompleted(input.fenceId, signal);
+    const sealDigest = reviewRecordHash(canonicalReviewJson(seal));
+    const rootInput = {
+      fenceId: input.fenceId,
+      operationId: root,
+      baseBranch: input.baseBranch,
+      kind: 'review_stream',
+    };
+    const inputJson = JSON.stringify(rootInput);
+    const tombstone = this.db
+      .prepare(
+        'SELECT input_json,seal_digest,pages_sha256,evidence_sha256 FROM symposium_review_stream_tombstones WHERE fence_id=? AND operation_id=?',
+      )
+      .get(input.fenceId, root) as
+      | { input_json: string; seal_digest: string; pages_sha256: string; evidence_sha256: string }
+      | undefined;
+    if (tombstone && (tombstone.input_json !== inputJson || tombstone.seal_digest !== sealDigest))
+      throw new Error('Sealed review stream replay identity changed');
+    type StreamRow = {
+      job_id: string;
+      input_json: string;
+      seal_digest: string;
+      header_json: string | null;
+      receipt_json: string | null;
+      ready: number;
+      started_at: number;
+    };
+    const readRow = () =>
+      this.db
+        .prepare(
+          'SELECT job_id,input_json,seal_digest,header_json,receipt_json,ready,started_at FROM symposium_review_streams WHERE fence_id=? AND operation_id=?',
+        )
+        .get(input.fenceId, root) as StreamRow | undefined;
+    const readBatch = (): CompletedArtifactReviewContext => {
+      const row = readRow();
+      if (
+        !row ||
+        row.ready !== 1 ||
+        row.input_json !== inputJson ||
+        row.seal_digest !== sealDigest ||
+        !row.receipt_json ||
+        !row.header_json
+      )
+        throw new Error('Completed sealed review stream unavailable');
+      const journal = this.db
+        .prepare('SELECT state,kind,receipt_json FROM symposium_seal_export_jobs WHERE job_id=?')
+        .get(row.job_id) as
+        { state: string; kind: string; receipt_json: string | null } | undefined;
+      if (
+        !journal ||
+        journal.state !== 'complete' ||
+        journal.kind !== 'review_stream' ||
+        journal.receipt_json !== row.receipt_json
+      )
+        throw new Error('Completed sealed review stream journal changed');
+      const header = JSON.parse(row.header_json) as { pageCount: number; evidenceSha256: string };
+      const stable = JSON.parse(row.receipt_json) as CompletedArtifactReviewContext['receipt'];
+      if (
+        page >= header.pageCount ||
+        stable.pageCount !== header.pageCount ||
+        stable.evidenceSha256 !== header.evidenceSha256 ||
+        stable.sealDigest !== sealDigest
+      )
+        throw new Error('Sealed review stream identity changed');
+      const found = this.db
+        .prepare(
+          'SELECT page_index,context,context_sha256 FROM symposium_review_stream_pages WHERE fence_id=? AND operation_id=? AND page_index>=? AND page_index<? ORDER BY page_index',
+        )
+        .all(input.fenceId, root, page, page + ARTIFACT_REVIEW_BATCH_PAGES) as Array<{
+        page_index: number;
+        context: string;
+        context_sha256: string;
+      }>;
+      if (found.length !== Math.min(ARTIFACT_REVIEW_BATCH_PAGES, header.pageCount - page))
+        throw new Error('Sealed review page set changed');
+      const pages = found.map((item, offset) => {
+        if (
+          item.page_index !== page + offset ||
+          item.context_sha256 !== hash(item.context) ||
+          Buffer.byteLength(item.context, 'utf8') > ARTIFACT_REVIEW_CONTEXT_MAX_BYTES
+        )
+          throw new Error('Sealed review page changed');
+        return {
+          context: item.context,
+          receipt: {
+            ...stable,
+            operationId: input.operationId,
+            contextSha256: item.context_sha256,
+            pageIndex: item.page_index,
+          },
+        };
+      });
+      return { context: pages[0].context, receipt: pages[0].receipt, pages };
+    };
+    const existing = readRow();
+    if (existing) {
+      if (existing.input_json !== inputJson || existing.seal_digest !== sealDigest)
+        throw new Error('Sealed review stream replay identity changed');
+      if (existing.ready === 1) return readBatch();
+      if (this.activeReviewStreams.has(activeKey) || existing.started_at > Date.now() - 90_000)
+        throw new Error('Sealed review stream is in progress');
+      // A crash can leave only an unready staging row. Reconcile the exact
+      // journaled helper, prove physical absence, then discard those rows and
+      // derive afresh. No unready row is ever served to the reviewer.
+      if (page !== 0) throw new Error('Sealed review stream requires page-zero recovery');
+      await this.reconcileReviewStream(input.fenceId, root, existing.job_id, signal);
+    }
+    if (page !== 0) throw new Error('Sealed review stream must start at page zero');
+    const intent = this.deps.store.getSymposiumArtifactSealByFence(seal.fenceId)!;
+    const volume = intent.selection.artifact.volumeName;
+    const jobId = randomUUID();
+    const name = `mitzo-seal-export-${jobId}`;
+    signal.throwIfAborted();
+    await this.custody();
+    this.db
+      .transaction(() => {
+        if (
+          this.db
+            .prepare(
+              "SELECT 1 FROM symposium_seal_export_jobs WHERE fence_id=? AND state NOT IN ('complete','failed_cleaned','not_dispatched')",
+            )
+            .get(input.fenceId)
+        )
+          throw new Error('Sealed export requires helper reconciliation');
+        this.db
+          .prepare(
+            'INSERT INTO symposium_review_streams(fence_id,operation_id,job_id,input_json,seal_digest,started_at) VALUES(?,?,?,?,?,?)',
+          )
+          .run(input.fenceId, root, jobId, inputJson, sealDigest, Date.now());
+        this.db
+          .prepare(
+            'INSERT INTO symposium_seal_export_jobs(job_id,fence_id,operation_id,kind,input_json,custody_digest,state,container_name,helper_image,export_code_digest,review_build_version) VALUES(?,?,?,?,?,?,?,?,?,?,2)',
+          )
+          .run(
+            jobId,
+            input.fenceId,
+            root,
+            'review_stream',
+            inputJson,
+            seal.custodyDigest,
+            'create_uncertain',
+            name,
+            TESTED_SYMPOSIUM_NATIVE_BUILD.image,
+            hash(ARTIFACT_GIT_EXPORT),
+          );
+      })
+      .immediate();
+    this.activeReviewStreams.add(activeKey);
+    let id: string | undefined;
+    let removed = false;
+    const verify = async () => {
+      const found: unknown = JSON.parse(await this.command(['inspect', id!]));
+      if (!Array.isArray(found) || found.length !== 1)
+        throw new Error('Sealed review helper identity changed');
+      const c = found[0];
+      if (
+        c.Id !== id ||
+        c.Config?.Labels?.['mitzo.artifact-export-job'] !== jobId ||
+        c.ImageName !== TESTED_SYMPOSIUM_NATIVE_BUILD.image ||
+        c.Config?.User !== 'sandbox' ||
+        c.HostConfig?.NetworkMode !== 'none' ||
+        c.HostConfig?.ReadonlyRootfs !== true ||
+        c.HostConfig?.Privileged !== false ||
+        !Array.isArray(c.Mounts) ||
+        c.Mounts.length !== 1 ||
+        c.Mounts[0].Type !== 'volume' ||
+        c.Mounts[0].Name !== volume ||
+        c.Mounts[0].Destination !== SYMPOSIUM_ARTIFACT_TARGET ||
+        c.Mounts[0].RW !== false
+      )
+        throw new Error('Sealed review helper isolation changed');
+      return c;
+    };
+    const cleanup = async () => {
+      const c = await verify();
+      if (c.State?.Running !== false) await this.command(['stop', '--time', '1', id!]);
+      if ((await verify()).State?.Running !== false)
+        throw new Error('Sealed review helper stop is uncertain');
+      await this.command(['rm', id!]);
+      if ((await this.census()).some((entry) => entry.id === id))
+        throw new Error('Sealed review helper deletion is uncertain');
+      this.db
+        .prepare("UPDATE symposium_seal_export_jobs SET state='removed' WHERE job_id=?")
+        .run(jobId);
+      removed = true;
+    };
+    try {
+      const created = (
+        await this.command([
+          'create',
+          '--pull=never',
+          '--name',
+          name,
+          '--label',
+          `mitzo.artifact-export-job=${jobId}`,
+          '--network=none',
+          '--read-only',
+          '--cap-drop=ALL',
+          '--security-opt=no-new-privileges',
+          '--user',
+          'sandbox',
+          '--pids-limit=32',
+          '--memory=256m',
+          '--cpus=1',
+          '--mount',
+          `type=volume,src=${volume},dst=${SYMPOSIUM_ARTIFACT_TARGET},readonly`,
+          '--entrypoint=/usr/bin/python3',
+          TESTED_SYMPOSIUM_NATIVE_BUILD.image,
+          '-I',
+          '-c',
+          ARTIFACT_GIT_EXPORT,
+          seal.repositoryPath,
+          JSON.stringify({ ...rootInput, expected: seal.git }),
+        ])
+      ).trim();
+      if (!containerId.test(created))
+        throw new Error('Sealed review helper create outcome is uncertain');
+      id = created;
+      this.db
+        .prepare(
+          "UPDATE symposium_seal_export_jobs SET state='created',container_id=? WHERE job_id=?",
+        )
+        .run(id, jobId);
+      await verify();
+      signal.throwIfAborted();
+      await this.custody();
+      let pending = Buffer.alloc(0);
+      let header:
+        | {
+            proof: unknown;
+            pageCount: number;
+            evidenceSha256: string;
+            sourceOid: string;
+            baseOid: string;
+          }
+        | undefined;
+      let footer:
+        | { proof: unknown; pageCount: number; evidenceSha256: string; pagesSha256: string }
+        | undefined;
+      let count = 0;
+      const staged: Array<{ index: number; context: string; sha256: string }> = [];
+      const insertPage = this.db.prepare(
+        'INSERT INTO symposium_review_stream_pages(fence_id,operation_id,page_index,context,context_sha256) VALUES(?,?,?,?,?)',
+      );
+      const flush = () => {
+        if (!staged.length) return;
+        this.db
+          .transaction(() => {
+            for (const item of staged)
+              insertPage.run(input.fenceId, root, item.index, item.context, item.sha256);
+          })
+          .immediate();
+        staged.length = 0;
+      };
+      const digest = createHash('sha256');
+      digest.update('[');
+      const frame = (line: Buffer) => {
+        if (line.length < 2 || line.length > ARTIFACT_REVIEW_CONTEXT_MAX_OUTPUT_BYTES)
+          throw new Error('Sealed review stream frame bound changed');
+        const marker = String.fromCharCode(line[0]);
+        const value = line.subarray(1).toString('utf8');
+        if (marker === 'H' && !header && count === 0) {
+          const parsed = JSON.parse(value);
+          if (
+            canonicalReviewJson(gitProofSchema.parse(parsed.proof)) !==
+              canonicalReviewJson(seal.git) ||
+            !Number.isSafeInteger(parsed.pageCount) ||
+            parsed.pageCount < 1 ||
+            parsed.pageCount > ARTIFACT_REVIEW_MAX_PAGES ||
+            !/^[a-f0-9]{64}$/.test(parsed.evidenceSha256) ||
+            parsed.sourceOid !== seal.git.commit ||
+            !oid.safeParse(parsed.baseOid).success
+          )
+            throw new Error('Sealed review stream header changed');
+          header = parsed;
+          this.db
+            .prepare(
+              'UPDATE symposium_review_streams SET header_json=? WHERE fence_id=? AND operation_id=?',
+            )
+            .run(canonicalReviewJson(parsed), input.fenceId, root);
+        } else if (marker === 'P' && header && !footer) {
+          if (
+            Buffer.byteLength(value, 'utf8') > ARTIFACT_REVIEW_CONTEXT_MAX_BYTES ||
+            count >= header.pageCount
+          )
+            throw new Error('Sealed review page bound changed');
+          const parsed = JSON.parse(value);
+          if (
+            canonicalReviewJson(parsed) !== value ||
+            parsed.version !== 3 ||
+            parsed.scope !== 'sealed-changed-path-pages' ||
+            parsed.pageIndex !== count ||
+            parsed.pageCount !== header.pageCount ||
+            parsed.evidenceSha256 !== header.evidenceSha256 ||
+            parsed.sourceOid !== seal.git.commit ||
+            parsed.baseOid !== header.baseOid ||
+            parsed.baseBranch !== input.baseBranch ||
+            parsed.committedTreeDigest !== seal.git.committedTreeDigest ||
+            parsed.manifestDigest !== seal.git.manifestDigest ||
+            parsed.trackedFileCount !== seal.git.entries ||
+            !Array.isArray(parsed.segments) ||
+            parsed.segments.length === 0
+          )
+            throw new Error('Sealed review page identity changed');
+          digest.update(count ? ',' : '');
+          digest.update(JSON.stringify(value));
+          staged.push({ index: count, context: value, sha256: hash(value) });
+          if (staged.length === ARTIFACT_REVIEW_BATCH_PAGES) flush();
+          count++;
+        } else if (marker === 'F' && header && !footer && count === header.pageCount) {
+          const parsed = JSON.parse(value);
+          digest.update(']');
+          if (
+            canonicalReviewJson(gitProofSchema.parse(parsed.proof)) !==
+              canonicalReviewJson(seal.git) ||
+            parsed.pageCount !== count ||
+            parsed.evidenceSha256 !== header.evidenceSha256 ||
+            parsed.pagesSha256 !== digest.digest('hex')
+          )
+            throw new Error('Sealed review stream footer changed');
+          footer = parsed;
+        } else throw new Error('Sealed review stream frame order changed');
+      };
+      await this.stream!(['start', '--attach', id], (chunk) => {
+        for (let offset = 0; offset < chunk.length; offset += 64 * 1024) {
+          pending = Buffer.concat([pending, chunk.subarray(offset, offset + 64 * 1024)]);
+          let newline: number;
+          while ((newline = pending.indexOf(10)) >= 0) {
+            frame(pending.subarray(0, newline));
+            pending = pending.subarray(newline + 1);
+          }
+          if (pending.length > ARTIFACT_REVIEW_CONTEXT_MAX_OUTPUT_BYTES)
+            throw new Error('Sealed review stream frame bound changed');
+        }
+      });
+      if (pending.length || !header || !footer)
+        throw new Error('Sealed review stream is incomplete');
+      if (
+        tombstone &&
+        (footer.pagesSha256 !== tombstone.pages_sha256 ||
+          header.evidenceSha256 !== tombstone.evidence_sha256)
+      )
+        throw new Error('Sealed review stream replay changed');
+      flush();
+      const terminal = await verify();
+      if (terminal.State?.Running !== false || terminal.State?.ExitCode !== 0)
+        throw new Error('Sealed review stream terminal success is unconfirmed');
+      this.db
+        .prepare("UPDATE symposium_seal_export_jobs SET state='terminal' WHERE job_id=?")
+        .run(jobId);
+      const terminalId = id;
+      await cleanup();
+      id = undefined;
+      const current = await this.requireCompleted(input.fenceId, signal);
+      if (canonicalReviewJson(current) !== canonicalReviewJson(seal))
+        throw new Error('Sealed review stream custody changed');
+      const first = this.db
+        .prepare(
+          'SELECT context,context_sha256 FROM symposium_review_stream_pages WHERE fence_id=? AND operation_id=? AND page_index=0',
+        )
+        .get(input.fenceId, root) as { context: string; context_sha256: string } | undefined;
+      if (!first) throw new Error('Sealed review stream first page missing');
+      const stable: CompletedArtifactReviewContext['receipt'] = {
+        version: 1,
+        mode: 'review_context',
+        jobId,
+        operationId: root,
+        sealFenceId: seal.fenceId,
+        sealDigest,
+        intentDigest: seal.intentDigest,
+        artifactRevision: seal.git.commit,
+        artifactHash: seal.git.committedTreeDigest,
+        baseOid: header.baseOid,
+        sourceOid: seal.git.commit,
+        contextSha256: first.context_sha256,
+        pageIndex: 0,
+        pageCount: header.pageCount,
+        evidenceSha256: header.evidenceSha256,
+        pagesSha256: footer.pagesSha256,
+        completedAt: Date.now(),
+        helper: {
+          id: terminalId!,
+          name,
+          image: TESTED_SYMPOSIUM_NATIVE_BUILD.image,
+          codeDigest: hash(ARTIFACT_GIT_EXPORT),
+          terminalExitCode: 0,
+          removed: true,
+        },
+      };
+      this.deps.store.withSymposiumArtifactSealSnapshot(intent, () => {
+        this.db
+          .transaction(() => {
+            const changed = this.db
+              .prepare(
+                "UPDATE symposium_seal_export_jobs SET state='complete',result_hash=?,receipt_json=? WHERE job_id=? AND state='removed'",
+              )
+              .run(footer!.pagesSha256, canonicalReviewJson(stable), jobId);
+            if (changed.changes !== 1) throw new Error('Sealed review stream journal changed');
+            const ready = this.db
+              .prepare(
+                'UPDATE symposium_review_streams SET receipt_json=?,ready=1 WHERE fence_id=? AND operation_id=? AND job_id=? AND ready=0',
+              )
+              .run(canonicalReviewJson(stable), input.fenceId, root, jobId);
+            if (ready.changes !== 1) throw new Error('Sealed review stream staging changed');
+          })
+          .immediate();
+      });
+      const completed = readBatch();
+      this.activeReviewStreams.delete(activeKey);
+      return completed;
+    } catch (error) {
+      if (!id && error instanceof ArtifactCommandNotDispatched)
+        this.db
+          .prepare(
+            "UPDATE symposium_seal_export_jobs SET state='not_dispatched' WHERE job_id=? AND state='create_uncertain' AND container_id IS NULL",
+          )
+          .run(jobId);
+      if (id && !removed) {
+        try {
+          await cleanup();
+        } catch {
+          /* Exact helper remains journaled. */
+        }
+      }
+      if (removed && readRow()?.ready !== 1) {
+        this.db
+          .transaction(() => {
+            this.db
+              .prepare(
+                'DELETE FROM symposium_review_stream_pages WHERE fence_id=? AND operation_id=?',
+              )
+              .run(input.fenceId, root);
+            this.db
+              .prepare(
+                'DELETE FROM symposium_review_streams WHERE fence_id=? AND operation_id=? AND ready=0',
+              )
+              .run(input.fenceId, root);
+            this.db
+              .prepare(
+                "UPDATE symposium_seal_export_jobs SET state='failed_cleaned' WHERE job_id=? AND state='removed'",
+              )
+              .run(jobId);
+          })
+          .immediate();
+      }
+      this.activeReviewStreams.delete(activeKey);
+      // eslint-disable-next-line preserve-caught-error -- Stream frames may contain private artifact bytes.
+      throw new Error(
+        'Sealed review stream failed; retained helper state may require reconciliation',
+      );
+    }
+  }
+
+  private async reconcileReviewStream(
+    fenceId: string,
+    root: string,
+    jobId: string,
+    signal: AbortSignal,
+  ): Promise<void> {
+    const intent = this.deps.store.getSymposiumArtifactSealByFence(fenceId);
+    if (!intent) throw new Error('Sealed review stream fence changed');
+    const volume = intent.selection.artifact.volumeName;
+    const job = this.db
+      .prepare(
+        'SELECT state,kind,container_name,container_id FROM symposium_seal_export_jobs WHERE job_id=? AND fence_id=? AND operation_id=?',
+      )
+      .get(jobId, fenceId, root) as
+      | { state: string; kind: string; container_name: string; container_id: string | null }
+      | undefined;
+    if (!job || job.kind !== 'review_stream' || job.container_name !== `mitzo-seal-export-${jobId}`)
+      throw new Error('Sealed review stream journal changed');
+    const rows: unknown = JSON.parse(
+      await this.command(['ps', '--all', '--no-trunc', '--format', 'json']),
+    );
+    if (!Array.isArray(rows) || rows.length > 128)
+      throw new Error('Sealed review stream census unavailable');
+    const matching = rows.filter((row) => {
+      const names = row?.Names;
+      return (Array.isArray(names) ? names : [names]).includes(job.container_name);
+    });
+    if (matching.length > 1) throw new Error('Ambiguous sealed review helper identity');
+    const foundId = matching.length === 1 ? String(matching[0].Id ?? matching[0].ID ?? '') : null;
+    if (
+      foundId &&
+      (!containerId.test(foundId) || (job.container_id && job.container_id !== foundId))
+    )
+      throw new Error('Sealed review helper identity changed');
+    if (foundId) {
+      const inspected: unknown = JSON.parse(await this.command(['inspect', foundId]));
+      if (
+        !Array.isArray(inspected) ||
+        inspected.length !== 1 ||
+        inspected[0].Id !== foundId ||
+        inspected[0].Config?.Labels?.['mitzo.artifact-export-job'] !== jobId ||
+        inspected[0].ImageName !== TESTED_SYMPOSIUM_NATIVE_BUILD.image ||
+        inspected[0].Config?.User !== 'sandbox' ||
+        inspected[0].HostConfig?.NetworkMode !== 'none' ||
+        inspected[0].HostConfig?.ReadonlyRootfs !== true ||
+        inspected[0].HostConfig?.Privileged !== false ||
+        !Array.isArray(inspected[0].Mounts) ||
+        inspected[0].Mounts.length !== 1 ||
+        inspected[0].Mounts[0].Type !== 'volume' ||
+        inspected[0].Mounts[0].Name !== volume ||
+        inspected[0].Mounts[0].Destination !== SYMPOSIUM_ARTIFACT_TARGET ||
+        inspected[0].Mounts[0].RW !== false
+      )
+        throw new Error('Sealed review helper isolation changed');
+      if (inspected[0].State?.Running !== false)
+        await this.command(['stop', '--time', '1', foundId]);
+      await this.command(['rm', foundId]);
+    } else if (
+      job.container_id &&
+      (await this.census()).some((entry) => entry.id === job.container_id)
+    ) {
+      throw new Error('Sealed review helper name changed');
+    }
+    if (
+      (await this.census()).some((entry) => entry.id === foundId || entry.id === job.container_id)
+    )
+      throw new Error('Sealed review helper deletion is uncertain');
+    await this.requireCompleted(fenceId, signal);
+    this.db
+      .transaction(() => {
+        this.db
+          .prepare('DELETE FROM symposium_review_stream_pages WHERE fence_id=? AND operation_id=?')
+          .run(fenceId, root);
+        const removed = this.db
+          .prepare(
+            'DELETE FROM symposium_review_streams WHERE fence_id=? AND operation_id=? AND job_id=? AND ready=0',
+          )
+          .run(fenceId, root, jobId);
+        if (removed.changes !== 1) throw new Error('Sealed review stream recovery changed');
+        this.db
+          .prepare(
+            "UPDATE symposium_seal_export_jobs SET state='failed_cleaned' WHERE job_id=? AND state!='complete'",
+          )
+          .run(jobId);
+      })
+      .immediate();
+  }
+
+  /** A fresh credential-free helper recomputes the sealed committed manifest and
+   * returns only one file digest. Its journal and terminal container identity are
+   * retained with the execution receipt; absence is a failed check, not a guess. */
+  async checkCompletedArtifactFile(
+    input: { fenceId: string; operationId: string; path: string },
+    signal: AbortSignal,
+  ): Promise<{
+    executionId: string;
+    sealFenceId: string;
+    sealDigest: string;
+    artifactRevision: string;
+    artifactHash: string;
+    observedSha256: string | null;
+    completedAt: number;
+  }> {
+    const value = await this.exportOperation(
+      {
+        fenceId: input.fenceId,
+        operationId: input.operationId,
+        kind: 'check',
+        checkPath: input.path,
+      },
+      signal,
+    );
+    const checked = criterionCheckReceiptSchema.parse(value.checkReceipt);
+    return checked;
+  }
+
+  /** Behavioral outputs are compared in the trusted host, never by artifact code. */
+  async checkCompletedArtifactSemantic(
+    input: { fenceId: string; operationId: string; definition: SemanticCriterionDefinition },
+    signal: AbortSignal,
+  ) {
+    const seal = await this.requireCompleted(input.fenceId, signal);
+    const intent = this.deps.store.getSymposiumArtifactSealByFence(seal.fenceId)!;
+    return runOwnedSemanticCriterion(
+      {
+        db: this.db,
+        cidWitness: this.semanticCidWitness(),
+        command: this.command,
+        seal,
+        volume: intent.selection.artifact.volumeName,
+        image: TESTED_SYMPOSIUM_NATIVE_BUILD.image,
+        target: SYMPOSIUM_ARTIFACT_TARGET,
+        requireSeal: () => this.requireCompleted(input.fenceId, signal),
+        custody: () => this.custody(),
+        checkFile: async (path, operationId) =>
+          (
+            await this.checkCompletedArtifactFile(
+              { fenceId: input.fenceId, operationId, path },
+              signal,
+            )
+          ).observedSha256,
+        withSnapshot: (operation) =>
+          this.deps.store.withSymposiumHistoricalArtifactSealSnapshot(intent, operation),
+      },
+      input,
+      signal,
+    );
+  }
+
+  /** Read-only original journal disposition. Unknown helpers do not become
+   * absent, cleaned or admissible merely because their retained state is reported. */
+  async getCompletedArtifactSemanticCheckState(
+    input: { fenceId: string; operationId: string; definition: SemanticCriterionDefinition },
+    signal: AbortSignal,
+    assertCurrent?: () => void,
+  ) {
+    const current = () => {
+      signal.throwIfAborted();
+      assertCurrent?.();
+    };
+    current();
+    if (!/^[a-f0-9-]{36}$/.test(input.fenceId)) throw Error('Artifact seal identity is invalid');
+    await this.custody();
+    current();
+    const read = () =>
+      this.db
+        .prepare(
+          "SELECT receipt_json,records_json,custody_digest,verifier_id FROM symposium_physical_seal_jobs WHERE fence_id=? AND phase='complete'",
+        )
+        .get(input.fenceId) as
+        | {
+            receipt_json: string;
+            records_json: string;
+            custody_digest: string;
+            verifier_id: string | null;
+          }
+        | undefined;
+    const row = read();
+    if (!row || row.custody_digest !== hash(this.deps.gateway.stateDirectory))
+      throw Error('Completed artifact seal custody is unavailable');
+    const receipt = JSON.parse(row.receipt_json) as CompletedArtifactSeal;
+    const intent = this.deps.store.getSymposiumArtifactSealByFence(input.fenceId);
+    const retention =
+      intent &&
+      this.deps.leaseHost.pendingArtifactRetention('podman', intent.selection.artifact.volumeName);
+    if (
+      !intent ||
+      !retention ||
+      receipt.kind !== 'completed_artifact_seal' ||
+      receipt.version !== 1 ||
+      receipt.fenceId !== input.fenceId ||
+      receipt.sessionId !== intent.selection.sessionId ||
+      receipt.custodyDigest !== row.custody_digest ||
+      receipt.intentDigest !== hash(JSON.stringify(intent)) ||
+      receipt.retentionDigest !== hash(JSON.stringify(retention)) ||
+      receipt.revocationDigest !== hash(row.records_json) ||
+      !receipt.verifier ||
+      receipt.verifier.id !== row.verifier_id ||
+      !/^[a-f0-9]{64}$/.test(receipt.verifier.id) ||
+      !/^sha256:[a-f0-9]{64}$/.test(receipt.verifier.image) ||
+      !/^[a-f0-9]{64}$/.test(receipt.verifier.codeDigest)
+    )
+      throw Error('Completed artifact seal identity changed');
+    const snapshot = (operation: () => void) =>
+      this.deps.store.withSymposiumHistoricalArtifactSealSnapshot(intent, () => {
+        current();
+        if (
+          JSON.stringify(read()) !== JSON.stringify(row) ||
+          JSON.stringify(
+            this.deps.leaseHost.pendingArtifactRetention(
+              'podman',
+              intent.selection.artifact.volumeName,
+            ),
+          ) !== JSON.stringify(retention)
+        )
+          throw Error('Retained semantic report binding changed');
+        operation();
+        current();
+      });
+    await this.custody();
+    snapshot(() => {});
+    current();
+    const report = inspectOwnedSemanticCheckState(
+      {
+        db: this.db,
+        seal: receipt,
+        image: TESTED_SYMPOSIUM_NATIVE_BUILD.image,
+        sealSourceCompatible:
+          receipt.verifier.image === TESTED_SYMPOSIUM_NATIVE_BUILD.image &&
+          receipt.verifier.codeDigest === hash(ARTIFACT_GIT_VERIFIER),
+        withSnapshot: snapshot,
+      },
+      input,
+      current,
+    );
+    current();
+    return report;
+  }
+
+  /** Exact original-ID retirement only; this never grants semantic evidence or admission. */
+  async reconcileCompletedArtifactSemantic(
+    input: { fenceId: string; operationId: string; definition: SemanticCriterionDefinition },
+    signal: AbortSignal,
+    assertCurrent?: () => void,
+  ) {
+    const current = () => {
+      signal.throwIfAborted();
+      assertCurrent?.();
+    };
+    const guarded = async <T>(operation: () => Promise<T>): Promise<T> => {
+      current();
+      const value = await operation();
+      current();
+      return value;
+    };
+    const seal = await guarded(() =>
+      this.requireCompletedForCleanup(input.fenceId, signal, input, current),
+    );
+    const intent = this.deps.store.getSymposiumArtifactSealByFence(seal.fenceId)!;
+    return guarded(() =>
+      reconcileOwnedSemanticCriterion(
+        {
+          db: this.db,
+          cidWitness: this.semanticCidWitness(),
+          command: (...args) => guarded(() => this.command(...args)),
+          seal,
+          volume: intent.selection.artifact.volumeName,
+          image: TESTED_SYMPOSIUM_NATIVE_BUILD.image,
+          target: SYMPOSIUM_ARTIFACT_TARGET,
+          requireSeal: () =>
+            guarded(() => this.requireCompletedForCleanup(input.fenceId, signal, input, current)),
+          custody: () => guarded(() => this.custody()),
+          checkFile: async () => {
+            throw Error('Cleanup cannot execute artifacts');
+          },
+          withSnapshot: (operation) =>
+            this.deps.store.withSymposiumHistoricalArtifactSealSnapshot(intent, () => {
+              current();
+              operation();
+              current();
+            }),
+        },
+        input,
+        signal,
+      ),
+    );
   }
 
   async exportCompletedArtifactBundle(
@@ -388,11 +2059,13 @@ export class PhysicalArtifactSealer {
     raw: {
       fenceId: string;
       operationId: string;
-      baseBranch: string;
-      kind: 'inspect' | 'bundle' | 'successor';
+      baseBranch?: string;
+      kind: 'inspect' | 'bundle' | 'successor' | 'check' | 'review_context';
       sourceBranch?: string;
       sourceOid?: string;
       maxBytes?: number;
+      checkPath?: string;
+      page?: number;
     },
     signal: AbortSignal,
   ): Promise<Record<string, unknown>> {
@@ -400,8 +2073,11 @@ export class PhysicalArtifactSealer {
       .strictObject({
         fenceId: z.string(),
         operationId: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/),
-        baseBranch: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._/-]{0,254}$/),
-        kind: z.enum(['inspect', 'bundle', 'successor']),
+        baseBranch: z
+          .string()
+          .regex(/^[A-Za-z0-9][A-Za-z0-9._/-]{0,254}$/)
+          .optional(),
+        kind: z.enum(['inspect', 'bundle', 'successor', 'check', 'review_context']),
         sourceBranch: z
           .string()
           .regex(/^[A-Za-z0-9][A-Za-z0-9._/-]{0,254}$/)
@@ -413,14 +2089,115 @@ export class PhysicalArtifactSealer {
           .min(1)
           .max(8 * 1024 * 1024)
           .optional(),
+        checkPath: z
+          .string()
+          .regex(/^[A-Za-z0-9_.-]+(?:\/[A-Za-z0-9_.-]+)*$/)
+          .max(512)
+          .optional(),
+        page: z.number().int().min(0).max(65535).optional(),
       })
       .parse(raw);
-    if (input.kind !== 'inspect' && (!input.sourceBranch || !input.sourceOid || !input.maxBytes))
+    if (
+      input.kind === 'check' &&
+      (!input.checkPath ||
+        input.checkPath.split('/').some((part) => part === '.' || part === '..' || part === '.git'))
+    )
+      throw new Error('Criterion check path is invalid');
+    if (
+      input.kind !== 'inspect' &&
+      input.kind !== 'check' &&
+      input.kind !== 'review_context' &&
+      (!input.sourceBranch || !input.sourceOid || !input.maxBytes)
+    )
       throw new Error('Sealed bundle selection is incomplete');
+    if (input.kind !== 'check' && !input.baseBranch)
+      throw new Error('Sealed export base branch is unavailable');
     const receipt = await this.requireCompleted(input.fenceId, signal);
     if (input.sourceOid && input.sourceOid !== receipt.git.commit)
       throw new Error('Sealed bundle commit changed');
-    const intent = this.deps.store.getSymposiumArtifactSealIntent(receipt.sessionId)!;
+    if (input.kind === 'check') {
+      // Operation IDs bind the complete selection globally, including the seal.
+      // A lost caller response must not create another completed check helper.
+      const prior = this.db
+        .prepare('SELECT * FROM symposium_seal_export_jobs WHERE operation_id=?')
+        .all(input.operationId) as Array<{
+        job_id: string;
+        fence_id: string;
+        kind: string;
+        input_json: string;
+        custody_digest: string;
+        state: string;
+        receipt_json: string | null;
+        result_hash: string | null;
+      }>;
+      if (
+        prior.some(
+          (job) =>
+            job.kind !== 'check' ||
+            job.fence_id !== input.fenceId ||
+            job.input_json !== JSON.stringify(input),
+        )
+      )
+        throw new Error('Criterion check operation identity changed');
+      if (prior.length) {
+        if (prior.length !== 1 || prior[0].state !== 'complete' || !prior[0].receipt_json)
+          throw new Error('Criterion check requires original operation reconciliation');
+        const job = prior[0];
+        const checked = criterionCheckReceiptSchema.parse(JSON.parse(job.receipt_json!));
+        if (
+          checked.executionId !== job.job_id ||
+          checked.sealFenceId !== receipt.fenceId ||
+          checked.sealDigest !== reviewRecordHash(canonicalReviewJson(receipt)) ||
+          checked.artifactRevision !== receipt.git.commit ||
+          checked.artifactHash !== receipt.git.committedTreeDigest ||
+          job.custody_digest !== receipt.custodyDigest ||
+          job.result_hash !== hash(canonicalReviewJson(checked))
+        )
+          throw new Error('Retained criterion check binding changed');
+        const intent = this.deps.store.getSymposiumArtifactSealByFence(receipt.fenceId)!;
+        signal.throwIfAborted();
+        this.deps.store.withSymposiumHistoricalArtifactSealSnapshot(intent, () => {});
+        return { checkReceipt: checked };
+      }
+    }
+    const priorReviewJobs =
+      input.kind === 'review_context'
+        ? (this.db
+            .prepare(
+              'SELECT kind,state,input_json,receipt_json FROM symposium_seal_export_jobs WHERE fence_id=? AND operation_id=?',
+            )
+            .all(input.fenceId, input.operationId) as Array<{
+            kind: string;
+            state: string;
+            input_json: string;
+            receipt_json: string | null;
+          }>)
+        : [];
+    if (
+      priorReviewJobs.some(
+        (job) =>
+          job.kind !== 'review_context' ||
+          job.input_json !== JSON.stringify(input) ||
+          (job.state === 'complete' && !job.receipt_json),
+      )
+    )
+      throw new Error('Sealed review context operation identity changed');
+    const priorReviewReceipts = priorReviewJobs
+      .filter((job) => job.state === 'complete')
+      .map((job) => JSON.parse(job.receipt_json!) as CompletedArtifactReviewContext['receipt']);
+    if (
+      priorReviewReceipts.some(
+        (prior) =>
+          prior.contextSha256 !== priorReviewReceipts[0].contextSha256 ||
+          prior.pagesSha256 !== priorReviewReceipts[0].pagesSha256 ||
+          prior.sealDigest !== priorReviewReceipts[0].sealDigest ||
+          prior.baseOid !== priorReviewReceipts[0].baseOid ||
+          prior.sourceOid !== priorReviewReceipts[0].sourceOid,
+      )
+    )
+      throw new Error('Sealed review context replay history changed');
+    const priorReviewReceipt = priorReviewReceipts[0];
+    const intent = this.deps.store.getSymposiumArtifactSealByFence(receipt.fenceId)!;
     const volume = intent.selection.artifact.volumeName;
     const jobId = randomUUID(),
       name = `mitzo-seal-export-${jobId}`;
@@ -429,6 +2206,16 @@ export class PhysicalArtifactSealer {
     signal.throwIfAborted();
     this.db
       .transaction(() => {
+        // Custody verification above yields. Another caller may have completed
+        // this operation since the first lookup; reserve it again under SQLite's
+        // write lock before creating a helper, including completed history.
+        if (
+          input.kind === 'check' &&
+          this.db
+            .prepare('SELECT 1 FROM symposium_seal_export_jobs WHERE operation_id=?')
+            .get(input.operationId)
+        )
+          throw new Error('Criterion check requires original operation reconciliation');
         if (
           this.db
             .prepare(
@@ -457,9 +2244,11 @@ export class PhysicalArtifactSealer {
     let helperDeleted = false;
     let helperRemovalObserved = false;
     const outputLimit =
-      input.kind !== 'inspect'
-        ? Math.ceil((input.maxBytes! * 4) / 3) + 16384
-        : ARTIFACT_INSPECTION_MAX_OUTPUT_BYTES;
+      input.kind === 'review_context'
+        ? ARTIFACT_REVIEW_CONTEXT_MAX_OUTPUT_BYTES
+        : input.kind !== 'inspect' && input.kind !== 'check'
+          ? Math.ceil((input.maxBytes! * 4) / 3) + 16384
+          : ARTIFACT_INSPECTION_MAX_OUTPUT_BYTES;
     const verify = async () => {
       const found: unknown = JSON.parse(await this.command(['inspect', id!]));
       if (!Array.isArray(found) || found.length !== 1)
@@ -547,7 +2336,190 @@ export class PhysicalArtifactSealer {
       )
         throw new Error('Exported Git proof differs from seal');
       if (input.kind === 'inspect') sealedInspectionSchema.parse(value.inspection);
-      else parseSealedBundle(value, input.maxBytes!);
+      else if (input.kind === 'check') {
+        if (
+          value.checkPath !== input.checkPath ||
+          (value.observedSha256 !== null &&
+            !z
+              .string()
+              .regex(/^[a-f0-9]{64}$/)
+              .safeParse(value.observedSha256).success)
+        )
+          throw new Error('Criterion check output changed');
+      } else if (input.kind === 'review_context') {
+        if (
+          typeof value.context !== 'string' ||
+          Buffer.byteLength(value.context, 'utf8') > ARTIFACT_REVIEW_CONTEXT_MAX_BYTES ||
+          value.contextSha256 !== hash(value.context)
+        )
+          throw new Error('Sealed review context integrity changed');
+        if (input.page !== undefined) {
+          if (
+            !Array.isArray(value.pages) ||
+            value.pages.length === 0 ||
+            value.pages.length > ARTIFACT_REVIEW_BATCH_PAGES ||
+            value.pages.some(
+              (page) =>
+                typeof page !== 'string' ||
+                Buffer.byteLength(page, 'utf8') > ARTIFACT_REVIEW_CONTEXT_MAX_BYTES,
+            ) ||
+            value.pages[0] !== value.context ||
+            !z
+              .string()
+              .regex(/^[a-f0-9]{64}$/)
+              .safeParse(value.pagesSha256).success
+          )
+            throw new Error('Sealed review page bundle changed');
+          const context = z
+            .strictObject({
+              version: z.literal(3),
+              scope: z.literal('sealed-changed-path-pages'),
+              sourceOid: oid,
+              baseOid: oid,
+              sourceBranch: z.string(),
+              baseBranch: z.string(),
+              committedTreeDigest: z.string().regex(/^[a-f0-9]{64}$/),
+              manifestDigest: z.string().regex(/^[a-f0-9]{64}$/),
+              trackedFileCount: z.number().int().nonnegative(),
+              changedPathCount: z.number().int().positive().max(500),
+              evidenceSha256: z.string().regex(/^[a-f0-9]{64}$/),
+              pageIndex: z.number().int().min(0).max(65535),
+              pageCount: z.number().int().min(1).max(ARTIFACT_REVIEW_MAX_PAGES),
+              segments: z
+                .array(
+                  z.strictObject({
+                    path: z.string(),
+                    status: z.enum(['present', 'deleted']),
+                    baseMode: z.enum(['100644', '100755']).nullable(),
+                    mode: z.enum(['100644', '100755']).nullable(),
+                    sha256: z
+                      .string()
+                      .regex(/^[a-f0-9]{64}$/)
+                      .nullable(),
+                    bytes: z.number().int().nonnegative().nullable(),
+                    representation: z.enum(['diff', 'content', 'absent']),
+                    diffSha256: z.string().regex(/^[a-f0-9]{64}$/),
+                    diffBytes: z.number().int().nonnegative(),
+                    selectedSha256: z.string().regex(/^[a-f0-9]{64}$/),
+                    selectedBytes: z.number().int().nonnegative(),
+                    segmentIndex: z.number().int().nonnegative(),
+                    segmentCount: z.number().int().positive(),
+                    data: z.string(),
+                    segmentSha256: z.string().regex(/^[a-f0-9]{64}$/),
+                  }),
+                )
+                .min(1),
+            })
+            .parse(JSON.parse(value.context));
+          if (
+            canonicalReviewJson(context) !== value.context ||
+            context.sourceOid !== receipt.git.commit ||
+            context.baseBranch !== input.baseBranch ||
+            context.committedTreeDigest !== receipt.git.committedTreeDigest ||
+            context.manifestDigest !== receipt.git.manifestDigest ||
+            context.trackedFileCount !== receipt.git.entries ||
+            context.pageIndex !== input.page ||
+            context.pageIndex >= context.pageCount ||
+            value.pages.length !==
+              Math.min(ARTIFACT_REVIEW_BATCH_PAGES, context.pageCount - input.page) ||
+            context.segments.some(
+              (segment) =>
+                segment.segmentIndex >= segment.segmentCount ||
+                segment.segmentSha256 !== hash(segment.data) ||
+                (segment.status === 'present'
+                  ? segment.sha256 === null || segment.mode === null || segment.bytes === null
+                  : segment.sha256 !== null || segment.mode !== null || segment.bytes !== null) ||
+                (segment.representation === 'absent' &&
+                  (segment.status !== 'deleted' ||
+                    segment.data !== '' ||
+                    segment.selectedBytes !== 0)),
+            )
+          )
+            throw new Error('Sealed review page selection changed');
+        } else {
+          const context = z
+            .strictObject({
+              version: z.literal(2),
+              scope: z.literal('bounded-changed-path-evidence'),
+              sourceOid: oid,
+              baseOid: oid,
+              sourceBranch: z.string(),
+              baseBranch: z.string(),
+              committedTreeDigest: z.string().regex(/^[a-f0-9]{64}$/),
+              manifestDigest: z.string().regex(/^[a-f0-9]{64}$/),
+              trackedFileCount: z.number().int().nonnegative(),
+              changedPathCount: z.number().int().positive().max(500),
+              omittedPathCount: z.number().int().nonnegative().max(500),
+              files: z
+                .array(
+                  z.strictObject({
+                    path: z.string(),
+                    status: z.enum(['present', 'deleted']),
+                    baseMode: z.enum(['100644', '100755']).nullable(),
+                    mode: z.enum(['100644', '100755']).nullable(),
+                    sha256: z
+                      .string()
+                      .regex(/^[a-f0-9]{64}$/)
+                      .nullable(),
+                    bytes: z.number().int().nonnegative().nullable(),
+                    representation: z.enum(['diff', 'content', 'absent', 'partial']),
+                    complete: z.boolean(),
+                    content: z.string().nullable(),
+                    contentTruncated: z.boolean(),
+                    diff: z.string().nullable(),
+                    diffSha256: z.string().regex(/^[a-f0-9]{64}$/),
+                    diffBytes: z.number().int().nonnegative(),
+                    diffTruncated: z.boolean(),
+                  }),
+                )
+                .min(1)
+                .max(500),
+            })
+            .parse(JSON.parse(value.context));
+          if (
+            canonicalReviewJson(context) !== value.context ||
+            context.sourceOid !== receipt.git.commit ||
+            context.baseBranch !== input.baseBranch ||
+            context.committedTreeDigest !== receipt.git.committedTreeDigest ||
+            context.manifestDigest !== receipt.git.manifestDigest ||
+            context.trackedFileCount !== receipt.git.entries ||
+            context.files.length + context.omittedPathCount !== context.changedPathCount ||
+            new Set(context.files.map((file) => file.path)).size !== context.files.length ||
+            context.files.some((file) =>
+              file.status === 'present'
+                ? file.sha256 === null || file.mode === null || file.bytes === null
+                : file.sha256 !== null || file.mode !== null || file.bytes !== null,
+            ) ||
+            context.files.some((file) =>
+              file.representation === 'content' && file.complete
+                ? file.content === null ||
+                  file.sha256 !== hash(file.content) ||
+                  file.bytes !== Buffer.byteLength(file.content) ||
+                  file.diff !== null ||
+                  file.contentTruncated ||
+                  file.diffTruncated
+                : file.representation === 'diff' && file.complete
+                  ? file.diff === null ||
+                    file.content !== null ||
+                    file.diffSha256 !== hash(file.diff) ||
+                    file.diffBytes !== Buffer.byteLength(file.diff) ||
+                    file.contentTruncated ||
+                    file.diffTruncated
+                  : file.representation === 'absent' && file.complete
+                    ? file.status !== 'deleted' ||
+                      file.content !== null ||
+                      file.diff !== null ||
+                      file.diffBytes !== 0 ||
+                      file.contentTruncated ||
+                      file.diffTruncated
+                    : file.representation !== 'partial' ||
+                      file.complete ||
+                      (!file.contentTruncated && !file.diffTruncated),
+            )
+          )
+            throw new Error('Sealed review context selection changed');
+        }
+      } else parseSealedBundle(value, input.maxBytes!);
       this.db
         .prepare("UPDATE symposium_seal_export_jobs SET state='terminal' WHERE job_id=?")
         .run(jobId);
@@ -559,6 +2531,7 @@ export class PhysicalArtifactSealer {
       if (JSON.stringify(current) !== JSON.stringify(receipt))
         throw new Error('Sealed export custody changed');
       let successorReceipt: SuccessorArtifactExportReceipt | undefined;
+      let reviewContextReceipt: CompletedArtifactReviewContext['receipt'] | undefined;
       if (input.kind === 'successor') {
         const selection = successorSelectionSchema.parse(value.selection);
         if (
@@ -589,19 +2562,94 @@ export class PhysicalArtifactSealer {
           },
         };
       }
-      this.deps.store.withSymposiumArtifactSealSnapshot(intent, () => {
+      if (input.kind === 'review_context') {
+        const context = JSON.parse(value.context as string) as {
+          baseOid: string;
+          sourceOid: string;
+          pageCount?: number;
+          evidenceSha256?: string;
+        };
+        reviewContextReceipt = {
+          version: 1,
+          mode: 'review_context',
+          jobId,
+          operationId: input.operationId,
+          sealFenceId: receipt.fenceId,
+          sealDigest: reviewRecordHash(canonicalReviewJson(receipt)),
+          intentDigest: receipt.intentDigest,
+          artifactRevision: receipt.git.commit,
+          artifactHash: receipt.git.committedTreeDigest,
+          baseOid: context.baseOid,
+          sourceOid: context.sourceOid,
+          contextSha256: value.contextSha256 as string,
+          ...(input.page !== undefined
+            ? {
+                pageIndex: input.page,
+                pageCount: context.pageCount!,
+                evidenceSha256: context.evidenceSha256!,
+                pagesSha256: value.pagesSha256 as string,
+              }
+            : {}),
+          completedAt: Date.now(),
+          helper: {
+            id: terminalId!,
+            name,
+            image: TESTED_SYMPOSIUM_NATIVE_BUILD.image,
+            codeDigest: hash(ARTIFACT_GIT_EXPORT),
+            terminalExitCode: 0,
+            removed: true,
+          },
+        };
+        if (
+          priorReviewReceipt &&
+          (priorReviewReceipt.contextSha256 !== reviewContextReceipt.contextSha256 ||
+            priorReviewReceipt.pagesSha256 !== reviewContextReceipt.pagesSha256 ||
+            priorReviewReceipt.sealDigest !== reviewContextReceipt.sealDigest ||
+            priorReviewReceipt.baseOid !== reviewContextReceipt.baseOid ||
+            priorReviewReceipt.sourceOid !== reviewContextReceipt.sourceOid)
+        )
+          throw new Error('Sealed review context replay changed');
+      }
+      const checkReceipt =
+        input.kind === 'check'
+          ? criterionCheckReceiptSchema.parse({
+              executionId: jobId,
+              sealFenceId: receipt.fenceId,
+              sealDigest: reviewRecordHash(canonicalReviewJson(receipt)),
+              artifactRevision: receipt.git.commit,
+              artifactHash: receipt.git.committedTreeDigest,
+              observedSha256: value.observedSha256,
+              completedAt: Date.now(),
+            })
+          : undefined;
+      this.deps.store.withSymposiumHistoricalArtifactSealSnapshot(intent, () => {
         const updated = this.db
           .prepare(
             "UPDATE symposium_seal_export_jobs SET state='complete',result_hash=?,receipt_json=? WHERE job_id=? AND state='removed'",
           )
           .run(
-            hash(output),
-            successorReceipt ? canonicalReviewJson(successorReceipt) : null,
+            checkReceipt ? hash(canonicalReviewJson(checkReceipt)) : hash(output),
+            successorReceipt
+              ? canonicalReviewJson(successorReceipt)
+              : reviewContextReceipt
+                ? canonicalReviewJson(reviewContextReceipt)
+                : checkReceipt
+                  ? canonicalReviewJson(checkReceipt)
+                  : null,
             jobId,
           );
         if (updated.changes !== 1) throw new Error('Sealed export journal changed');
       });
-      return successorReceipt ? { ...value, receipt: successorReceipt } : value;
+      return reviewContextReceipt
+        ? { ...value, receipt: reviewContextReceipt }
+        : successorReceipt
+          ? { ...value, receipt: successorReceipt }
+          : input.kind === 'check'
+            ? {
+                ...value,
+                checkReceipt,
+              }
+            : value;
     } catch (error) {
       if (!id && error instanceof ArtifactCommandNotDispatched) {
         this.db
@@ -640,78 +2688,254 @@ export class PhysicalArtifactSealer {
     signal: AbortSignal,
   ): Promise<CompletedArtifactSeal> {
     const input = inputSchema.parse(raw);
+    assertSymposiumRuntimeForArtifactSeal(
+      runtime,
+      this.deps.store,
+      this.deps.leaseHost,
+      input.sessionId,
+    );
+    return this.sealOperation(input, runtime, signal);
+  }
+
+  /** Restart recovery is limited to one already-journaled original seal drain. */
+  async recoverPendingSeal(
+    raw: PhysicalArtifactSealInput,
+    claimToken: string,
+    signal: AbortSignal,
+  ) {
+    return this.sealOperation(raw, undefined, signal, claimToken);
+  }
+
+  private async sealOperation(
+    raw: PhysicalArtifactSealInput,
+    runtime: object | undefined,
+    signal: AbortSignal,
+    recoveryClaimToken?: string,
+  ): Promise<CompletedArtifactSeal> {
+    const input = inputSchema.parse(raw);
     signal.throwIfAborted();
     await this.custody();
     const { store, leaseHost, gateway } = this.deps;
-    assertSymposiumRuntimeForArtifactSeal(runtime, store, leaseHost, input.sessionId);
+    if (runtime) assertSymposiumRuntimeForArtifactSeal(runtime, store, leaseHost, input.sessionId);
     const custodyDigest = hash(gateway.stateDirectory);
     const config = store.getActiveSymposiumConfig(input.sessionId);
     if (config.version !== 2 || config.revision !== input.expectedConfigRevision)
       throw new Error('Artifact seal configuration is stale');
     const allRecords = store.listSymposiumSessionSandboxes(input.sessionId);
-    const activeRecords = allRecords.filter((row) => row.state !== 'stopped');
-    const writerRecords = activeRecords.filter(
-      (row) =>
-        config.seats.find((s) => s.id === row.seatId)?.authorityGrant?.filesystem === 'write',
-    );
-    if (writerRecords.length !== 1)
-      throw new Error('Artifact seal requires one exact retained writer');
-    const writerRecord = writerRecords[0];
-    const request = leaseHost.retainedCleanupRequest(writerRecord);
-    if (!request || request.access !== 'writer' || request.driver !== 'podman')
-      throw new Error('Artifact writer lease unavailable');
-    const leases = leaseHost.sealLeaseIdentities(request.driver, request.volumeName);
-    const writer = leases.find(
-      (row) => row.sandboxId === writerRecord.physicalId && row.request.access === 'writer',
-    );
-    if (!writer) throw new Error('Artifact seal writer lease identity changed');
-    const intent = store.beginSymposiumArtifactSeal({
-      sessionId: input.sessionId,
-      expectedConfigRevision: input.expectedConfigRevision,
-      idempotencyKey: input.idempotencyKey,
-      custody: { workspaceId: gateway.workspace, gatewayLaunchDigest: custodyDigest },
-      artifact: {
-        driver: 'podman',
-        volumeName: request.volumeName,
-        volumeGeneration: request.volumeGeneration,
-        leaseRevision: writer.revision,
-        leaseTokenHash: writer.tokenHash,
-      },
-    });
-    if (intent.selection.custody.gatewayLaunchDigest !== custodyDigest)
-      throw new Error('Artifact seal belongs to another gateway custody');
-    const retention = leaseHost.beginPendingArtifactRetention(store, input.sessionId);
-    // All leases, including old generations/readers, must match a completed physical create.
-    const leasedRecords = leases.map((lease) => {
-      const matches = allRecords.filter(
-        (r) =>
-          r.sandboxName === lease.sandboxName &&
-          r.physicalId === lease.sandboxId &&
-          r.seatId === lease.request.seatId &&
-          r.workspace === lease.request.workspaceId,
-      );
+    const requestJson = JSON.stringify(input);
+    const retainedJobs = this.db
+      .prepare('SELECT * FROM symposium_physical_seal_jobs WHERE request_json=?')
+      .all(requestJson) as Array<{
+      fence_id: string;
+      custody_digest: string;
+      phase: string;
+      records_json: string;
+      verifier_name: string;
+      verifier_id: string | null;
+      receipt_json: string | null;
+    }>;
+    if (retainedJobs.length > 1) throw new Error('Artifact seal retained identity is ambiguous');
+    const retained = retainedJobs[0];
+    let request: NonNullable<ReturnType<SqliteArtifactLeaseHost['retainedCleanupRequest']>>;
+    let intent: SymposiumArtifactSealIntent;
+    let retention: NonNullable<ReturnType<SqliteArtifactLeaseHost['pendingArtifactRetention']>>;
+    let records: SymposiumSeatSandboxRecord[];
+    let verifierName: string;
+    if (retained) {
+      intent = store.getSymposiumArtifactSealByFence(retained.fence_id)!;
       if (
-        lease.request.sessionId !== input.sessionId ||
-        lease.request.volumeGeneration !== request.volumeGeneration ||
-        !lease.creationStarted ||
-        !lease.sandboxId ||
-        lease.intendedSandboxName !== lease.sandboxName ||
-        matches.length !== 1 ||
-        !matches[0].creationCompleted
+        !intent ||
+        retained.custody_digest !== custodyDigest ||
+        intent.selection.sessionId !== input.sessionId ||
+        intent.selection.expectedConfigRevision !== input.expectedConfigRevision ||
+        intent.selection.idempotencyKey !== input.idempotencyKey ||
+        intent.selection.custody.workspaceId !== gateway.workspace ||
+        intent.selection.custody.gatewayLaunchDigest !== custodyDigest ||
+        intent.selection.artifact.driver !== 'podman' ||
+        !/^mitzo-seal-[a-f0-9-]{36}$/.test(retained.verifier_name)
       )
-        throw new Error('Artifact seal has orphan or uncertain lease identity');
-      return matches[0];
-    });
-    if (
-      activeRecords.some(
+        throw new Error('Artifact seal retained identity changed');
+      if (retained.phase === 'complete') return this.requireCompleted(retained.fence_id, signal);
+      if (
+        intent.status !== 'pending_unsealed' ||
+        retained.phase !== 'draining' ||
+        retained.verifier_id !== null ||
+        retained.receipt_json !== null
+      )
+        throw new Error('Artifact seal retained phase requires explicit reconciliation');
+      const parsed: unknown = JSON.parse(retained.records_json);
+      if (!Array.isArray(parsed) || !parsed.length)
+        throw new Error('Artifact seal retained writer records are invalid');
+      records = parsed as SymposiumSeatSandboxRecord[];
+      const writerRecords = records.filter(
         (row) =>
-          !leasedRecords.some((r) => r.seatId === row.seatId && r.generation === row.generation),
+          config.seats.find((seat) => seat.id === row.seatId)?.authorityGrant?.filesystem ===
+          'write',
+      );
+      if (writerRecords.length !== 1)
+        throw new Error('Artifact seal retained writer identity changed');
+      const writerRecord = writerRecords[0];
+      request = leaseHost.retainedCleanupRequest(writerRecord)!;
+      retention = leaseHost.pendingArtifactRetention(
+        'podman',
+        intent.selection.artifact.volumeName,
+      )!;
+      const released = this.db
+        .prepare(
+          'SELECT token,revision,request_json,sandbox_name,sandbox_id FROM symposium_artifact_release_receipts WHERE sandbox_name=? AND sandbox_id=?',
+        )
+        .all(writerRecord.sandboxName, writerRecord.physicalId) as Array<{
+        token: string;
+        revision: string;
+        request_json: string;
+        sandbox_name: string;
+        sandbox_id: string;
+      }>;
+      const live = leaseHost
+        .sealLeaseIdentities('podman', intent.selection.artifact.volumeName)
+        .filter(
+          (row) =>
+            row.sandboxName === writerRecord.sandboxName &&
+            row.sandboxId === writerRecord.physicalId,
+        );
+      const exactReleased =
+        released.length === 1 &&
+        released[0].revision === intent.selection.artifact.leaseRevision &&
+        hash(released[0].token) === intent.selection.artifact.leaseTokenHash &&
+        released[0].request_json === JSON.stringify(request);
+      const exactLive =
+        live.length === 1 &&
+        live[0].revision === intent.selection.artifact.leaseRevision &&
+        live[0].tokenHash === intent.selection.artifact.leaseTokenHash &&
+        isDeepStrictEqual(live[0].request, request) &&
+        live[0].creationStarted &&
+        live[0].intendedSandboxName === writerRecord.sandboxName;
+      if (
+        !request ||
+        request.access !== 'writer' ||
+        request.driver !== 'podman' ||
+        request.sessionId !== input.sessionId ||
+        request.workspaceId !== gateway.workspace ||
+        request.volumeName !== intent.selection.artifact.volumeName ||
+        request.volumeGeneration !== intent.selection.artifact.volumeGeneration ||
+        !retention ||
+        retention.status !== 'pending_unsealed' ||
+        retention.fenceId !== intent.fenceId ||
+        !isDeepStrictEqual(retention.intent, intent) ||
+        retention.writerSandboxId !== writerRecord.physicalId ||
+        retention.writerSandboxName !== writerRecord.sandboxName ||
+        exactReleased === exactLive ||
+        allRecords.filter((row) => row.creationStarted).length !== records.length ||
+        records.some((record) => {
+          const current = allRecords.find(
+            (row) => row.seatId === record.seatId && row.generation === record.generation,
+          );
+          return (
+            !current ||
+            !record.creationCompleted ||
+            !record.physicalId ||
+            !record.sandboxName ||
+            !isDeepStrictEqual({ ...record, state: current.state }, current)
+          );
+        })
       )
-    )
-      throw new Error('Artifact seal has an unaccounted seat sandbox');
-    const records = allRecords.filter((row) => row.creationStarted);
-    if (records.some((row) => !row.creationCompleted || !row.physicalId || !row.sandboxName))
-      throw new Error('Artifact seal includes uncertain prior creation');
+        throw new Error('Artifact seal retained physical identity changed');
+      verifierName = retained.verifier_name;
+    } else {
+      if (!runtime)
+        throw new Error(
+          'Original artifact seal drain unavailable; reconcile the original operation',
+        );
+      const activeRecords = allRecords.filter((row) => row.state !== 'stopped');
+      const writerRecords = activeRecords.filter(
+        (row) =>
+          config.seats.find((s) => s.id === row.seatId)?.authorityGrant?.filesystem === 'write',
+      );
+      if (writerRecords.length !== 1)
+        throw new Error('Artifact seal requires one exact retained writer');
+      const writerRecord = writerRecords[0];
+      const selected = leaseHost.retainedCleanupRequest(writerRecord);
+      if (!selected || selected.access !== 'writer' || selected.driver !== 'podman')
+        throw new Error('Artifact writer lease unavailable');
+      request = selected;
+      const leases = leaseHost.sealLeaseIdentities(request.driver, request.volumeName);
+      const writer = leases.find(
+        (row) => row.sandboxId === writerRecord.physicalId && row.request.access === 'writer',
+      );
+      if (!writer) throw new Error('Artifact seal writer lease identity changed');
+      intent = store.beginSymposiumArtifactSeal({
+        sessionId: input.sessionId,
+        expectedConfigRevision: input.expectedConfigRevision,
+        idempotencyKey: input.idempotencyKey,
+        custody: { workspaceId: gateway.workspace, gatewayLaunchDigest: custodyDigest },
+        artifact: {
+          driver: 'podman',
+          volumeName: request.volumeName,
+          volumeGeneration: request.volumeGeneration,
+          leaseRevision: writer.revision,
+          leaseTokenHash: writer.tokenHash,
+        },
+      });
+      if (intent.selection.custody.gatewayLaunchDigest !== custodyDigest)
+        throw new Error('Artifact seal belongs to another gateway custody');
+      retention = leaseHost.beginPendingArtifactRetention(
+        store,
+        input.sessionId,
+        request.volumeGeneration,
+      );
+      // All leases, including old generations/readers, must match a completed physical create.
+      const leasedRecords = leases.map((lease) => {
+        const matches = allRecords.filter(
+          (r) =>
+            r.sandboxName === lease.sandboxName &&
+            r.physicalId === lease.sandboxId &&
+            r.seatId === lease.request.seatId &&
+            r.workspace === lease.request.workspaceId,
+        );
+        if (
+          lease.request.sessionId !== input.sessionId ||
+          lease.request.volumeGeneration !== request.volumeGeneration ||
+          !lease.creationStarted ||
+          !lease.sandboxId ||
+          lease.intendedSandboxName !== lease.sandboxName ||
+          matches.length !== 1 ||
+          !matches[0].creationCompleted
+        )
+          throw new Error('Artifact seal has orphan or uncertain lease identity');
+        return matches[0];
+      });
+      if (
+        activeRecords.some(
+          (row) =>
+            !leasedRecords.some((r) => r.seatId === row.seatId && r.generation === row.generation),
+        )
+      )
+        throw new Error('Artifact seal has an unaccounted seat sandbox');
+      records = allRecords.filter((row) => row.creationStarted);
+      if (records.some((row) => !row.creationCompleted || !row.physicalId || !row.sandboxName))
+        throw new Error('Artifact seal includes uncertain prior creation');
+      verifierName = `mitzo-seal-${randomUUID()}`;
+      this.db
+        .transaction(() => {
+          if (
+            this.db
+              .prepare('SELECT 1 FROM symposium_physical_seal_jobs WHERE fence_id=?')
+              .get(intent.fenceId)
+          )
+            throw new Error('Artifact seal has retained work; explicit recovery is required');
+          this.db
+            .prepare('INSERT INTO symposium_physical_seal_jobs VALUES(?,?,?,?,?,?,NULL,NULL)')
+            .run(
+              intent.fenceId,
+              requestJson,
+              custodyDigest,
+              'draining',
+              JSON.stringify(records),
+              verifierName,
+            );
+        })
+        .immediate();
+    }
     const membershipSnapshot = () =>
       [
         ...new Map(
@@ -729,28 +2953,6 @@ export class PhysicalArtifactSealer {
           bindingDigest: hash(JSON.stringify(member.bindingKey)),
         }))
         .sort((a, b) => a.seatId.localeCompare(b.seatId));
-    const requestJson = JSON.stringify(input);
-    const verifierName = `mitzo-seal-${randomUUID()}`;
-    this.db
-      .transaction(() => {
-        if (
-          this.db
-            .prepare('SELECT 1 FROM symposium_physical_seal_jobs WHERE fence_id=?')
-            .get(intent.fenceId)
-        )
-          throw new Error('Artifact seal has retained work; explicit recovery is required');
-        this.db
-          .prepare('INSERT INTO symposium_physical_seal_jobs VALUES(?,?,?,?,?,?,NULL,NULL)')
-          .run(
-            intent.fenceId,
-            requestJson,
-            custodyDigest,
-            'draining',
-            JSON.stringify(records),
-            verifierName,
-          );
-      })
-      .immediate();
     const check = async () => {
       signal.throwIfAborted();
       await this.custody();
@@ -764,8 +2966,9 @@ export class PhysicalArtifactSealer {
         await leaseHost.inspectVolume(request.volumeName, 'podman'),
       );
       if (
-        JSON.stringify(store.getSymposiumArtifactSealIntent(input.sessionId)) !==
-          JSON.stringify(intent) ||
+        JSON.stringify(
+          store.getSymposiumArtifactSealIntent(input.sessionId, request.volumeGeneration),
+        ) !== JSON.stringify(intent) ||
         JSON.stringify(leaseHost.pendingArtifactRetention('podman', request.volumeName)) !==
           JSON.stringify(retention) ||
         hash(JSON.stringify(store.getActiveSymposiumConfig(input.sessionId))) !==
@@ -775,7 +2978,174 @@ export class PhysicalArtifactSealer {
         throw new Error('Artifact seal identity changed');
     };
     await check();
-    await drainSymposiumRuntimeForArtifactSeal(runtime, store, leaseHost, input.sessionId, signal);
+    // The durable phase may precede or follow physical cleanup. Replaying the
+    // exact retained runtime drain reconciles only its original seat identities.
+    let assertRestartProof: (() => void) | undefined;
+    if (runtime) {
+      await drainSymposiumRuntimeForArtifactSeal(
+        runtime,
+        store,
+        leaseHost,
+        input.sessionId,
+        signal,
+        intent.fenceId,
+      );
+    } else {
+      const registry = this.deps.attemptRegistry;
+      const proof = () => {
+        const native = recoveryClaimToken ? registry.get(recoveryClaimToken) : undefined;
+        const observation = recoveryClaimToken
+          ? registry.observations.get(recoveryClaimToken)
+          : undefined;
+        const attempt = recoveryClaimToken
+          ? store.getSymposiumRecipientAttemptByClaimToken(recoveryClaimToken)
+          : undefined;
+        const identity = observation?.identity;
+        const original =
+          identity &&
+          records.find(
+            (row) =>
+              row.seatId === identity.seatId && row.generation === identity.membershipGeneration,
+          );
+        const provenance = identity?.provenance;
+        if (
+          !recoveryClaimToken ||
+          !native ||
+          !observation ||
+          observation.status !== 'completed' ||
+          !Number.isSafeInteger(observation.terminalAt) ||
+          observation.terminalAt === null ||
+          observation.terminalConflict ||
+          !identity ||
+          identity.sessionId !== input.sessionId ||
+          !original ||
+          original.seatId !== request.seatId ||
+          config.seats.find((seat) => seat.id === original.seatId)?.authorityGrant?.filesystem !==
+            'write' ||
+          !attempt ||
+          attempt.status !== 'delivered' ||
+          store.getSymposiumDelivery(attempt.deliveryId)?.sessionId !== input.sessionId ||
+          attempt.seatId !== original.seatId ||
+          attempt.providerThreadId !== identity.providerThreadId ||
+          attempt.providerTurnId !== identity.providerTurnId ||
+          !isDeepStrictEqual(attempt.provenance, provenance) ||
+          !provenance ||
+          !('version' in provenance) ||
+          provenance.version !== 3 ||
+          provenance.configRevision !== input.expectedConfigRevision ||
+          provenance.artifact.artifactGenerationId !== intent.selection.artifact.volumeGeneration ||
+          native.sessionId !== input.sessionId ||
+          native.sandboxName !== original.sandboxName ||
+          native.claimToken !== recoveryClaimToken ||
+          identity.claimToken !== recoveryClaimToken ||
+          attempt.claimToken !== recoveryClaimToken ||
+          !isDeepStrictEqual(
+            identity.accountBinding,
+            config.seats.find((seat) => seat.id === original.seatId)?.accountBinding,
+          ) ||
+          provenance.seatId !== original.seatId ||
+          provenance.membershipGeneration !== original.generation ||
+          native.workdir !== this.deps.runtimeConfig.workdir ||
+          !isDeepStrictEqual(
+            controlledAttemptRoute(native),
+            controlledAttemptRoute({
+              ...this.deps.runtimeConfig,
+              sandboxName: original.sandboxName!,
+              workdir: this.deps.runtimeConfig.workdir,
+            }),
+          ) ||
+          !isDeepStrictEqual(native.artifact, provenance.artifact) ||
+          registry.pendingPreparations().some((row) => row.sessionId === input.sessionId) ||
+          registry
+            .pending()
+            .some(
+              (row) => row.sessionId === input.sessionId && row.claimToken !== recoveryClaimToken,
+            ) ||
+          store.listSymposiumSessionSandboxes(input.sessionId).filter((row) => row.creationStarted)
+            .length !== records.length ||
+          records.some((row) => {
+            const current = store.getSymposiumSeatSandbox(
+              row.sessionId,
+              row.seatId,
+              row.generation,
+            );
+            return !current || !isDeepStrictEqual({ ...row, state: current.state }, current);
+          }) ||
+          records.some(
+            (row) =>
+              !['ready', 'stopped'].includes(
+                store.getSymposiumSeatSandbox(row.sessionId, row.seatId, row.generation)?.state ??
+                  '',
+              ),
+          ) ||
+          records.some((row) =>
+            store
+              .getUnsettledSymposiumSeatExecutions(input.sessionId, row.seatId)
+              .some((value) => value.claimToken !== recoveryClaimToken),
+          )
+        )
+          throw new Error(
+            'Original seal claim cleanup proof unavailable; reconcile the original seal operation',
+          );
+        return {
+          native: { ...native, state: 'confirmed' },
+          observation,
+          attempt: {
+            attemptId: attempt.attemptId,
+            idempotencyKey: attempt.idempotencyKey,
+            claimToken: attempt.claimToken,
+            deliveryId: attempt.deliveryId,
+            status: attempt.status,
+            seatId: attempt.seatId,
+            providerThreadId: attempt.providerThreadId,
+            providerTurnId: attempt.providerTurnId,
+            provenance: attempt.provenance,
+          },
+        };
+      };
+      const originalProof = canonicalReviewJson(proof());
+      assertRestartProof = () => {
+        if (canonicalReviewJson(proof()) !== originalProof)
+          throw new Error(
+            'Original seal claim cleanup identity changed; reconcile the original seal operation',
+          );
+      };
+      const attempt = proof().attempt;
+      // The registry confirms only the exact persisted controller launch; never
+      // infer process termination from losing the application runtime object.
+      await registry.recover(recoveryClaimToken!);
+      await check();
+      assertRestartProof();
+      if (registry.get(recoveryClaimToken!)?.state !== 'confirmed')
+        throw new Error('Original seal controller cleanup remains unconfirmed');
+      store.confirmSymposiumAttemptCleanup(attempt.attemptId, attempt.idempotencyKey);
+      for (const record of records) {
+        await stopRetainedSealSandbox(
+          {
+            runtimeConfig: this.deps.runtimeConfig,
+            managerFactory: this.deps.cleanupManagerFactory,
+            seatSandboxRegistry: store,
+            sealFenceId: intent.fenceId,
+            artifactLeaseHost: leaseHost,
+            artifactRequest: (sessionId, seatId, generation) => {
+              const selected = records.find(
+                (row) =>
+                  row.sessionId === sessionId &&
+                  row.seatId === seatId &&
+                  row.generation === generation,
+              );
+              const cleanup = selected && leaseHost.retainedCleanupRequest(selected);
+              if (!cleanup) throw new Error('Original seal lease cleanup proof unavailable');
+              return cleanup;
+            },
+          },
+          record,
+          signal,
+        );
+        await check();
+        assertRestartProof();
+      }
+    }
     const drained = () => {
       for (const seat of new Set([
         ...config.seats.map((s) => s.id),
@@ -785,7 +3155,10 @@ export class PhysicalArtifactSealer {
           throw new Error('Artifact seal has unsettled attempts');
       if (
         leaseHost.sealLeaseIdentities('podman', request.volumeName).length ||
-        this.deps.attemptRegistry.pending().some((row) => row.sessionId === input.sessionId)
+        this.deps.attemptRegistry.pending().some((row) => row.sessionId === input.sessionId) ||
+        this.deps.attemptRegistry
+          .pendingPreparations()
+          .some((row) => row.sessionId === input.sessionId)
       )
         throw new Error('Artifact seal drain is incomplete');
       for (const record of records) {
@@ -807,11 +3180,18 @@ export class PhysicalArtifactSealer {
     await this.absent(records, signal);
     await this.noVolumeMounts(request.volumeName);
     await check();
-    this.db
+    await this.noVerifierName(verifierName);
+    assertRestartProof?.();
+    // A resumed seal and an overlapping original handler compete for this one
+    // durable transition. Only the winner may create the physical verifier.
+    const claimed = this.db
       .prepare(
-        "UPDATE symposium_physical_seal_jobs SET phase='verifier_create_uncertain' WHERE fence_id=?",
+        "UPDATE symposium_physical_seal_jobs SET phase='verifier_create_uncertain' WHERE fence_id=? AND phase='draining' AND request_json=? AND custody_digest=? AND verifier_id IS NULL AND receipt_json IS NULL",
       )
-      .run(intent.fenceId);
+      .run(intent.fenceId, requestJson, custodyDigest);
+    if (claimed.changes !== 1)
+      throw new Error('Artifact seal verifier creation is already claimed or uncertain');
+    await this.noVerifierName(verifierName);
     const created = (
       await this.command([
         'create',

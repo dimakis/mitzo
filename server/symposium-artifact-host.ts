@@ -1,3 +1,6 @@
+import type { ArtifactReaderAdmissionBindingV1, ArtifactReaderReferenceV1 } from '@mitzo/protocol';
+import { artifactAdmissionDigest } from '@mitzo/protocol/event-store';
+import { assertSessionArtifactVolume } from './symposium-session-artifacts.js';
 import { SYMPOSIUM_ARTIFACT_TARGET } from './symposium-artifact-lease.js';
 import Database from 'better-sqlite3';
 import { resolve } from 'node:path';
@@ -56,15 +59,86 @@ export class ArtifactCommandNotDispatched extends Error {
   }
 }
 
+/** Captured terminal transport outcome only; never an ownership or success receipt. */
+export class ArtifactCommandTerminalNonzero extends Error {
+  readonly containerId: string;
+  readonly exitCode: number;
+  readonly stdoutCapturedBytes: number;
+  #stdout: string;
+  constructor(containerId: string, exitCode: number, stdout: string) {
+    super('Artifact attached command returned nonzero');
+    if (
+      !/^[a-f0-9]{64}$/.test(containerId) ||
+      !Number.isInteger(exitCode) ||
+      exitCode < 1 ||
+      exitCode > 255 ||
+      typeof stdout !== 'string' ||
+      Buffer.byteLength(stdout) > 16 * 1024 * 1024
+    )
+      throw new Error('Invalid captured artifact terminal outcome');
+    this.name = 'ArtifactCommandTerminalNonzero';
+    this.containerId = containerId;
+    this.exitCode = exitCode;
+    this.stdoutCapturedBytes = Buffer.byteLength(stdout);
+    this.#stdout = stdout;
+  }
+  capturedStdout(): string {
+    return this.#stdout;
+  }
+}
+/** The retained callback alone supplies actual bounded stdout; generic failures stay unknown. */
+export function classifySemanticAttachedNonzero(
+  args: readonly string[],
+  input: Buffer | undefined,
+  error: unknown,
+  stdout: unknown,
+  maxOutputBytes: number,
+  stdinFailed = false,
+): ArtifactCommandTerminalNonzero | undefined {
+  if (
+    !(error instanceof Error) ||
+    stdinFailed ||
+    !Buffer.isBuffer(input) ||
+    args.length !== 4 ||
+    args[0] !== 'start' ||
+    args[1] !== '--attach' ||
+    args[2] !== '--interactive' ||
+    !/^[a-f0-9]{64}$/.test(args[3]) ||
+    typeof stdout !== 'string' ||
+    !Number.isSafeInteger(maxOutputBytes) ||
+    maxOutputBytes < 1 ||
+    maxOutputBytes > 16 * 1024 * 1024 ||
+    Buffer.byteLength(stdout) > maxOutputBytes
+  )
+    return undefined;
+  const outcome = error as Error & { code?: unknown; killed?: unknown; signal?: unknown };
+  if (
+    !Number.isInteger(outcome.code) ||
+    typeof outcome.code !== 'number' ||
+    outcome.code < 1 ||
+    outcome.code > 255 ||
+    outcome.killed ||
+    outcome.signal
+  )
+    return undefined;
+  return new ArtifactCommandTerminalNonzero(args[3], outcome.code, stdout);
+}
+
 export type ArtifactPodmanCommand = (
   args: readonly string[],
   maxOutputBytes?: number,
   input?: Buffer,
+  timeoutMs?: number,
 ) => Promise<string>;
+export type ArtifactPodmanStream = (
+  args: readonly string[],
+  onChunk: (chunk: Buffer) => void,
+) => Promise<void>;
 export class ArtifactPodmanContext {
   constructor(
     private readonly command: ArtifactPodmanCommand,
     private readonly terminalCommand = command,
+    private readonly terminalStream?: ArtifactPodmanStream,
   ) {}
   async inspect(driver: ArtifactDriver, name: string): Promise<unknown> {
     if (driver !== 'podman' || !safeName.test(name))
@@ -74,7 +148,15 @@ export class ArtifactPodmanContext {
   verifierCommand(): ArtifactPodmanCommand {
     // Successful create/removal must reach the caller journal before post-command custody checks.
     // The retained command still checks custody before dispatch. Other reads keep both checks.
-    return async (args, maxOutputBytes, input) => {
+    return async (args, maxOutputBytes, input, timeoutMs) => {
+      if (
+        timeoutMs !== undefined &&
+        (!Number.isInteger(timeoutMs) ||
+          timeoutMs < 1 ||
+          timeoutMs > 5000 ||
+          (input && timeoutMs > 5000))
+      )
+        throw new Error('Artifact execution deadline is invalid');
       if (
         input &&
         (input.length < 1 ||
@@ -91,7 +173,20 @@ export class ArtifactPodmanContext {
           input
           ? this.terminalCommand
           : this.command
-      )(args, maxOutputBytes, input);
+      )(args, maxOutputBytes, input, ...(timeoutMs === undefined ? [] : [timeoutMs]));
+    };
+  }
+  verifierStream(): ArtifactPodmanStream {
+    if (!this.terminalStream) throw new Error('Artifact streaming transport unavailable');
+    return (args, onChunk) => {
+      if (
+        args.length !== 3 ||
+        args[0] !== 'start' ||
+        args[1] !== '--attach' ||
+        !/^[a-f0-9]{64}$/.test(args[2])
+      )
+        throw new Error('Artifact streaming command is invalid');
+      return this.terminalStream!(args, onChunk);
     };
   }
 }
@@ -242,6 +337,12 @@ export class SqliteArtifactLeaseHost implements ArtifactLeaseHost {
     return this.podmanContext.verifierCommand();
   }
 
+  snapshotStream(): ArtifactPodmanStream {
+    if (!this.podmanContext)
+      throw new Error('Artifact snapshot requires the lease host Podman context');
+    return this.podmanContext.verifierStream();
+  }
+
   close(): void {
     this.db.close();
   }
@@ -287,8 +388,9 @@ export class SqliteArtifactLeaseHost implements ArtifactLeaseHost {
   beginPendingArtifactRetention(
     store: Pick<EventStore, 'getSymposiumArtifactSealIntent'>,
     sessionId: string,
+    generation?: string,
   ): PendingArtifactRetention {
-    const intent = store.getSymposiumArtifactSealIntent(sessionId);
+    const intent = store.getSymposiumArtifactSealIntent(sessionId, generation);
     if (!intent || intent.status !== 'pending_unsealed' || intent.selection.sessionId !== sessionId)
       throw new Error('Pending artifact retention requires the durable session seal intent');
     const intentJson = JSON.stringify(intent);
@@ -391,6 +493,154 @@ export class SqliteArtifactLeaseHost implements ArtifactLeaseHost {
         .get(driver, volumeName)
     )
       throw new Error('Artifact volume has pending retention; new leases are fenced');
+  }
+
+  /** Narrow retained-generation exception. Generic reserve remains fenced. */
+  async reserveSealedReaderLease(
+    store: Pick<
+      EventStore,
+      'getSymposiumSealedReaderAdmission' | 'getSymposiumArtifactSealByFence'
+    >,
+    binding: ArtifactReaderAdmissionBindingV1,
+    assertCompleted: (binding: ArtifactReaderAdmissionBindingV1) => Promise<true>,
+  ): Promise<ArtifactLease> {
+    const request: ArtifactLeaseRequest = {
+      sessionId: binding.sessionId,
+      workspaceId: binding.workspaceId,
+      seatId: binding.seatId,
+      volumeName: binding.volumeName,
+      volumeGeneration: binding.artifactGenerationId,
+      driver: 'podman',
+      access: 'reviewer',
+      readerAdmissionId: binding.readerAdmissionId,
+    };
+    if ((await assertCompleted(binding)) !== true)
+      throw new Error('Completed sealed artifact required');
+    const intent = store.getSymposiumSealedReaderAdmission(
+      binding.sessionId,
+      binding.readerAdmissionId,
+    );
+    const seal = store.getSymposiumArtifactSealByFence(binding.sealFenceId);
+    if (
+      !intent ||
+      intent.receipt ||
+      artifactAdmissionDigest(intent.binding) !== artifactAdmissionDigest(binding) ||
+      !seal ||
+      seal.selection.sessionId !== binding.sessionId ||
+      seal.selection.artifact.volumeGeneration !== binding.artifactGenerationId ||
+      seal.selection.artifact.volumeName !== binding.volumeName ||
+      createHash('sha256').update(JSON.stringify(seal)).digest('hex') !== binding.sealDigest
+    )
+      throw new Error('Exact pending sealed reader required');
+    const volume = await this.inspectVolume(binding.volumeName, 'podman');
+    assertSessionArtifactVolume(
+      binding.workspaceId,
+      {
+        sessionId: binding.sessionId,
+        volumeName: binding.volumeName,
+        volumeGeneration: binding.artifactGenerationId,
+      },
+      volume,
+    );
+    const retention = this.pendingArtifactRetention('podman', binding.volumeName);
+    if (
+      !retention ||
+      retention.fenceId !== binding.sealFenceId ||
+      JSON.stringify(retention.intent) !== JSON.stringify(seal)
+    )
+      throw new Error('Exact retained artifact fence required');
+    return this.db
+      .transaction(() => {
+        const latest = this.pendingArtifactRetention('podman', binding.volumeName);
+        const pending = store.getSymposiumSealedReaderAdmission(
+          binding.sessionId,
+          binding.readerAdmissionId,
+        );
+        if (
+          !latest ||
+          latest.fenceId !== binding.sealFenceId ||
+          !pending ||
+          pending.receipt ||
+          artifactAdmissionDigest(pending.binding) !== artifactAdmissionDigest(binding)
+        )
+          throw new Error('Reader admission changed before lease reservation');
+        const requestJson = JSON.stringify(request);
+        const existing = this.db
+          .prepare(
+            'SELECT * FROM symposium_artifact_leases WHERE driver=? AND volume_name=? AND request_json=?',
+          )
+          .all('podman', binding.volumeName, requestJson) as LeaseRow[];
+        if (existing.length > 1) throw new Error('Duplicate reader lease identity');
+        if (existing.length === 1)
+          return { token: existing[0].token, revision: existing[0].revision, request };
+        const token = randomUUID(),
+          revision = randomUUID();
+        this.db
+          .prepare(
+            `INSERT INTO symposium_artifact_leases(token,revision,driver,volume_name,access,request_json,creation_started,created_at)
+        VALUES(?,?,'podman',?,'reviewer',?,0,?)`,
+          )
+          .run(token, revision, binding.volumeName, requestJson, Date.now());
+        return { token, revision, request };
+      })
+      .immediate();
+  }
+
+  /** Reopen an already confirmed sealed-reader lease; no new reservation is possible here. */
+  async requireConfirmedSealedReaderLease(
+    store: Pick<
+      EventStore,
+      'assertSymposiumSealedReaderAdmissionCurrent' | 'getSymposiumSealedReaderAdmission'
+    >,
+    sessionId: string,
+    reference: ArtifactReaderReferenceV1,
+  ): Promise<ArtifactLease> {
+    const binding = store.assertSymposiumSealedReaderAdmissionCurrent(sessionId, reference);
+    const admission = store.getSymposiumSealedReaderAdmission(
+      binding.sessionId,
+      binding.readerAdmissionId,
+    );
+    if (!admission?.receipt || admission.receipt.access !== 'reviewer')
+      throw new Error('Confirmed sealed reader receipt required');
+    const rows = this.db
+      .prepare('SELECT * FROM symposium_artifact_leases WHERE driver=? AND volume_name=?')
+      .all('podman', binding.volumeName) as LeaseRow[];
+    const matches = rows.filter((row) => {
+      const request = JSON.parse(row.request_json) as ArtifactLeaseRequest;
+      return request.readerAdmissionId === binding.readerAdmissionId;
+    });
+    if (matches.length !== 1) throw new Error('Exact confirmed reader lease unavailable');
+    const row = matches[0],
+      request = JSON.parse(row.request_json) as ArtifactLeaseRequest;
+    if (
+      request.access !== 'reviewer' ||
+      request.sessionId !== binding.sessionId ||
+      request.workspaceId !== binding.workspaceId ||
+      request.seatId !== binding.seatId ||
+      request.volumeGeneration !== binding.artifactGenerationId ||
+      request.volumeName !== binding.volumeName ||
+      createHash('sha256').update(row.token).digest('hex') !== admission.receipt.leaseTokenHash ||
+      row.revision !== admission.receipt.leaseRevision
+    )
+      throw new Error('Confirmed reader lease identity changed');
+    const volume = await this.inspectVolume(binding.volumeName, 'podman');
+    assertSessionArtifactVolume(
+      binding.workspaceId,
+      {
+        sessionId: binding.sessionId,
+        volumeName: binding.volumeName,
+        volumeGeneration: binding.artifactGenerationId,
+      },
+      volume,
+    );
+    // Recheck after physical I/O before returning a token to the sandbox owner.
+    const current = this.db
+      .prepare('SELECT * FROM symposium_artifact_leases WHERE token=?')
+      .get(row.token) as LeaseRow | undefined;
+    store.assertSymposiumSealedReaderAdmissionCurrent(binding.sessionId, reference);
+    if (!current || current.revision !== row.revision || current.request_json !== row.request_json)
+      throw new Error('Confirmed reader lease changed during inspection');
+    return { token: row.token, revision: row.revision, request };
   }
 
   async reserve(request: ArtifactLeaseRequest): Promise<ArtifactLease> {

@@ -1766,6 +1766,23 @@ describe('mounted personal device login ownership', () => {
       1,
       expect.any(Function),
     );
+    for (const [status, code] of [
+      ['failed', 422],
+      ['reconciliation_required', 409],
+    ] as const) {
+      personalConnections.discoverModels.mockResolvedValueOnce({
+        status,
+        inference: false,
+        models: [],
+      });
+      const failedDiscovery = await request(app)
+        .post(endpoint)
+        .set('Cookie', first)
+        .send({ expectedRevision: 1 });
+      expect(failedDiscovery.status).toBe(code);
+      expect(failedDiscovery.body).toMatchObject({ status, inference: false });
+      expect(failedDiscovery.headers['cache-control']).toBe('no-store');
+    }
     personalConnections.discoverModels.mockRejectedValueOnce(new Error('private token'));
     const rejectedDiscovery = await request(app)
       .post(endpoint)

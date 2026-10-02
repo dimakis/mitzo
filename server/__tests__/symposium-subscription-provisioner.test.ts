@@ -66,6 +66,36 @@ function fixture() {
 }
 
 describe('owned subscription provisioning', () => {
+  it('keeps launch identity private and rejects changed receipt/provider/binding authority', async () => {
+    const f = fixture();
+    await f.service.complete(f.begin());
+    const discovery = f.service.captureDiscovery();
+    const input = {
+      execution: { seat: { accountBinding: f.binding } },
+      route: {
+        kind: 'chatgpt-subscription-native',
+        model: f.binding.model,
+        provider: discovery.provider.name,
+        providerId: discovery.provider.id,
+        profile: { model: f.binding.model, email: 'personal@example.invalid', planType: 'pro' },
+      },
+    } as never;
+    const launch = f.service.captureLaunchIdentity(input);
+    expect(launch.accountId).toBe('actual-account');
+    expect(() => launch.assertCurrent()).not.toThrow();
+    expect(JSON.stringify(discovery)).not.toContain('actual-account');
+    expect(JSON.stringify(f.binding)).not.toContain('actual-account');
+    const changed = structuredClone(input) as unknown as { route: { providerId: string } };
+    changed.route.providerId = 'replacement-provider';
+    expect(() => f.service.captureLaunchIdentity(changed as never)).toThrow('receipt');
+    discovery.publishBinding({ ...f.binding, profileRevision: 'new-revision' });
+    expect(() => launch.assertCurrent()).toThrow('receipt');
+    const metadata = discovery.launchIdentity;
+    expect(() => metadata()).toThrow('receipt changed');
+    f.service.invalidate();
+    expect(() => launch.assertCurrent()).toThrow('receipt');
+  });
+
   it('exchanges fresh PKCE login, verifies identity and provisions with secrets only in environment', async () => {
     const f = fixture();
     const result = await f.service.complete(f.begin());

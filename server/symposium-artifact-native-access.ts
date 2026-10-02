@@ -1,3 +1,8 @@
+import {
+  observeMountJson,
+  observeNativeMountCommand,
+  type OpenShellRuntimeConfig,
+} from './openshell-runtime.js';
 import { REVIEWED_SYMPOSIUM_OWNED_RUNTIME } from './symposium-owned-runtime-contract.js';
 import { execFile } from 'node:child_process';
 import { openShellSshArgvProcessSpec } from './codex-app-server-client.js';
@@ -14,14 +19,22 @@ export async function probeOwnedArtifactAccess(
   name: string,
   id: string,
   script: string,
+  observer?: OpenShellRuntimeConfig['observeRuntime'],
 ): Promise<unknown> {
-  const run = (command: string, args: readonly string[], env: NodeJS.ProcessEnv) =>
+  const run = (
+    command: string,
+    args: readonly string[],
+    env: NodeJS.ProcessEnv,
+    operation: 'native-identity' | 'native-ssh-probe',
+  ) =>
     new Promise<string>((resolve, reject) => {
+      const started = observer ? performance.now() : 0;
       execFile(
         command,
         [...args],
         { env, timeout: 15000, maxBuffer: 16384, encoding: 'utf8' },
-        (error, stdout) => {
+        (error, stdout, stderr) => {
+          observeNativeMountCommand(observer, operation, started, error, stdout, stderr);
           if (error) reject(new Error('Native artifact access probe failed'));
           else resolve(stdout);
         },
@@ -29,8 +42,8 @@ export async function probeOwnedArtifactAccess(
     });
   const identity = async () => {
     gateway.verifyCustody();
-    const row = JSON.parse(
-      await run(
+    const row = (await observeMountJson(observer, 'native-identity', () =>
+      run(
         gateway.cli,
         [
           'sandbox',
@@ -44,8 +57,9 @@ export async function probeOwnedArtifactAccess(
           'json',
         ],
         gateway.managementEnvironment,
+        'native-identity',
       ),
-    );
+    )) as Record<string, unknown>;
     gateway.verifyCustody();
     if (
       row.id !== id ||
@@ -68,7 +82,9 @@ export async function probeOwnedArtifactAccess(
     ['/bin/bash', '-c', script],
     {},
   );
-  const result = JSON.parse(await run(spec.command, spec.args, spec.env));
+  const result = await observeMountJson(observer, 'native-ssh-probe', () =>
+    run(spec.command, spec.args, spec.env, 'native-ssh-probe'),
+  );
   await identity();
   return result;
 }

@@ -12,6 +12,11 @@ import {
   type ArtifactGenerationRequest,
 } from '../symposium-artifact-generations.js';
 import { canonicalReviewJson, reviewRecordHash } from '../symposium-review-records.js';
+import { ArtifactAdmissionBindingV1Schema } from '@mitzo/protocol';
+import {
+  assertSuccessorFixAuthority,
+  type SuccessorFixAuthority,
+} from '../symposium-artifact-successor-authority.js';
 const dirs: string[] = [];
 const dbs: Database.Database[] = [];
 afterEach(() => {
@@ -103,6 +108,23 @@ function copied() {
   f.store.recordCopy(context, f.intent.generationId, receipt(f.intent));
   return f;
 }
+it('recovers only the exact verified copy receipt and never an uncertain dispatch', () => {
+  const pending = prepared();
+  expect(pending.store.claimCopy(context, pending.intent.generationId)).toBe(true);
+  expect(pending.store.verifiedCopy(context, pending.intent.generationId)).toBeNull();
+  expect(pending.store.claimCopy(context, pending.intent.generationId)).toBe(false);
+  const complete = copied();
+  expect(complete.store.verifiedCopy(context, complete.intent.generationId)).toEqual(
+    receipt(complete.intent),
+  );
+  expect(complete.store.claimCopy(context, complete.intent.generationId)).toBe(false);
+  expect(() =>
+    complete.store.verifiedCopy(
+      { ...context, custodyDigest: 'c'.repeat(64) },
+      complete.intent.generationId,
+    ),
+  ).toThrow();
+});
 it('keeps parent byte-identical through copy and child pointer activation', () => {
   const f = copied();
   const before = f.store.historical(context, 'initial');
@@ -480,4 +502,221 @@ it('retains ordered physical effects across reopen without granting retry or act
       proofDigest: hash,
     }),
   ).toThrow();
+});
+it('retains an exact admission receipt with pointer CAS and rejects unconfirmed identity substitution', () => {
+  const f = copied();
+  const binding = {
+    version: 1 as const,
+    transitionId: 'transition',
+    operationId: request.operationId,
+    sessionId: request.sessionId,
+    workspaceId: request.workspace,
+    custodyDigest: request.custodyDigest,
+    parentGenerationId: request.parentGenerationId,
+    parentFenceId: 'fence',
+    parentSealDigest: request.parentSealDigest,
+    childGenerationId: f.intent.generationId,
+    childVolumeName: f.intent.volumeName,
+    copyReceiptDigest: reviewRecordHash(canonicalReviewJson(receipt(f.intent))),
+    expectedPointerRevision: 0,
+    activatedPointerRevision: 1,
+    workflowId: request.workflowId,
+    fixAttemptId: request.fixAttemptId,
+    policyReservationId: 'reservation',
+    seatId: request.seatId,
+    actor: request.actor,
+    expectedConfigRevision: 1,
+    resultingConfigRevision: 2,
+    predecessorMembershipGeneration: 1,
+    successorMembershipGeneration: 2,
+    accountBinding: {
+      accountId: 'personal',
+      accountLabel: 'Personal',
+      provider: 'openai-codex' as const,
+      model: 'luna-fixture',
+      profileRevision: '1',
+    },
+    profileBinding: { profileId: request.profileId, profileRevision: request.profileRevision },
+    contextGrant: { grantId: 'context', revision: 1 },
+    authorityGrant: { grantId: request.authorityGrantId, revision: 1 },
+    findingFingerprints: request.findingFingerprints,
+  };
+  expect(() =>
+    f.store.activateAdmission(binding, () => {
+      throw Error('intent absent');
+    }),
+  ).toThrow('intent absent');
+  expect(f.store.active(context).generationId).toBe('initial');
+  const activation = f.store.activateAdmission(binding, () => true);
+  expect(f.open().store.requireAdmission(binding)).toEqual(activation);
+  expect(f.store.activateAdmission(binding, () => true)).toEqual(activation);
+  expect(() => f.store.requireAdmission({ ...binding, policyReservationId: 'other' })).toThrow();
+});
+it('admits an imported parent only for the exact initial attempt and selected authority', () => {
+  const f = fixture();
+  f.store.registerInitial(initial);
+  const { fixAttemptId: _fixAttemptId, findingFingerprints: _findings, ...common } = request;
+  void _fixAttemptId;
+  void _findings;
+  const accountBinding = {
+    accountId: 'personal',
+    accountLabel: 'Personal',
+    provider: 'openai-codex' as const,
+    model: 'luna-fixture',
+    profileRevision: '1',
+  };
+  const initialRequest: ArtifactGenerationRequest = {
+    ...common,
+    kind: 'initial',
+    sourceSealId: 'source-seal',
+    initialAttemptId: 'first-attempt',
+    policyReservationId: 'initial-reservation',
+    expectedConfigRevision: 1,
+    predecessorMembershipGeneration: 1,
+    accountBinding,
+    contextGrant: { grantId: 'context', revision: 1 },
+  };
+  const intent = f.store.reserve(initialRequest);
+  f.store.claimCopy(context, intent.generationId);
+  f.store.bindHelper(context, intent.generationId, receipt(intent).helperId);
+  f.store.recordCopy(context, intent.generationId, receipt(intent));
+  const binding = ArtifactAdmissionBindingV1Schema.parse({
+    version: 1,
+    kind: 'initial',
+    transitionId: 'initial-transition',
+    operationId: initialRequest.operationId,
+    sessionId: initialRequest.sessionId,
+    workspaceId: initialRequest.workspace,
+    custodyDigest: initialRequest.custodyDigest,
+    parentGenerationId: initialRequest.parentGenerationId,
+    parentSealDigest: initialRequest.parentSealDigest,
+    sourceSealId: initialRequest.sourceSealId,
+    childGenerationId: intent.generationId,
+    childVolumeName: intent.volumeName,
+    copyReceiptDigest: reviewRecordHash(canonicalReviewJson(receipt(intent))),
+    expectedPointerRevision: 0,
+    activatedPointerRevision: 1,
+    workflowId: initialRequest.workflowId,
+    initialAttemptId: initialRequest.initialAttemptId,
+    policyReservationId: initialRequest.policyReservationId,
+    seatId: initialRequest.seatId,
+    actor: initialRequest.actor,
+    expectedConfigRevision: 1,
+    resultingConfigRevision: 2,
+    predecessorMembershipGeneration: 1,
+    successorMembershipGeneration: 2,
+    accountBinding,
+    profileBinding: { profileId: 'profile', profileRevision: '1' },
+    contextGrant: initialRequest.contextGrant,
+    authorityGrant: { grantId: initialRequest.authorityGrantId, revision: 1 },
+  });
+  expect(() =>
+    ArtifactAdmissionBindingV1Schema.parse({ ...binding, findingFingerprints: [hash] }),
+  ).toThrow();
+  expect(() =>
+    f.store.activateAdmission({ ...binding, initialAttemptId: 'wrong' } as never, () => true),
+  ).toThrow('mismatch');
+  expect(() =>
+    f.store.activateAdmission({ ...binding, policyReservationId: 'wrong' }, () => true),
+  ).toThrow('mismatch');
+  expect(() =>
+    f.store.activateAdmission(
+      { ...binding, accountBinding: { ...accountBinding, model: 'other' } },
+      () => true,
+    ),
+  ).toThrow('mismatch');
+  const activation = f.store.activateAdmission(binding, () => true);
+  expect(f.store.requireAdmission(binding)).toEqual(activation);
+  expect(f.store.historical(context, 'initial').initial).toEqual(initial);
+});
+it('requires a retained initial policy reservation with distinct account and coder profile revisions', () => {
+  const { fixAttemptId: _fixAttemptId, findingFingerprints: _findings, ...common } = request;
+  void _fixAttemptId;
+  void _findings;
+  const initialRequest: ArtifactGenerationRequest = {
+    ...common,
+    kind: 'initial',
+    sourceSealId: 'source-seal',
+    initialAttemptId: 'first-attempt',
+    policyReservationId: 'reservation',
+    expectedConfigRevision: 1,
+    predecessorMembershipGeneration: 1,
+    accountBinding: {
+      accountId: 'personal',
+      accountLabel: 'Personal',
+      provider: 'openai-codex',
+      model: 'luna-fixture',
+      profileRevision: hash,
+    },
+    contextGrant: { grantId: 'context', revision: 1 },
+  };
+  const state = {
+    limits: { mode: 'application' },
+    status: 'awaiting_initial',
+    implementation: null,
+    sessionId: 'session',
+    owner: 'owner',
+    initialArtifact: { revision: oid, hash },
+    implementer: {
+      seatId: 'writer',
+      accountId: 'personal',
+      model: 'luna-fixture',
+      profileId: 'profile',
+      profileRevision: 1,
+    },
+    applicationAttempts: [],
+    applicationPreparations: [
+      {
+        kind: 'initial',
+        status: 'preparing',
+        workflowId: 'workflow',
+        attemptId: 'first-attempt',
+        policyReservationId: 'reservation',
+        sourceSealId: 'source-seal',
+        actorSeatId: 'writer',
+        artifactRevision: oid,
+        artifactHash: hash,
+        transitionId: 'transition',
+        seal: {
+          fenceId: 'source-seal',
+          artifactGenerationId: 'initial',
+          volumeName: 'source-volume',
+          sealDigest: hash,
+          artifactRevision: oid,
+          artifactHash: hash,
+        },
+        from: { configRevision: 1, membershipGeneration: 1 },
+        to: { configRevision: 2, membershipGeneration: 2 },
+        expectedSelection: {
+          accountId: 'personal',
+          model: 'luna-fixture',
+          profileId: 'profile',
+          profileRevision: '1',
+          accountProfileRevision: hash,
+        },
+      },
+    ],
+  };
+  const authority = {
+    workflows: { get: () => state },
+    assertCurrent: () => true as const,
+  } as unknown as SuccessorFixAuthority;
+  expect(assertSuccessorFixAuthority(authority, initialRequest)).toBe(true);
+  expect(() =>
+    assertSuccessorFixAuthority(authority, {
+      ...initialRequest,
+      accountBinding: { ...initialRequest.accountBinding, profileRevision: 'different' },
+    }),
+  ).toThrow('initial attempt');
+  expect(() =>
+    assertSuccessorFixAuthority(authority, { ...initialRequest, profileRevision: 'different' }),
+  ).toThrow('initial attempt');
+  expect(() =>
+    assertSuccessorFixAuthority(authority, { ...initialRequest, policyReservationId: 'other' }),
+  ).toThrow('initial attempt');
+  expect(() =>
+    assertSuccessorFixAuthority(authority, { ...initialRequest, expectedConfigRevision: 2 }),
+  ).toThrow('initial attempt');
+  state.applicationPreparations[0].status = 'bound';
+  expect(() => assertSuccessorFixAuthority(authority, initialRequest)).toThrow('initial attempt');
 });

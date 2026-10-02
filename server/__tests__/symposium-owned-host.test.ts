@@ -1,4 +1,8 @@
+import { AccountBindingSchema } from '@mitzo/protocol';
 import Database from 'better-sqlite3';
+import type { DurableSymposiumReviewToolObservation } from '../symposium-codex-native.js';
+import { EventStore } from '../event-store.js';
+import { PhysicalArtifactSealer } from '../symposium-physical-artifact-seal.js';
 import * as discoveryCore from '../symposium-model-discovery.js';
 import * as discoveryCreation from '../symposium-discovery-creation.js';
 import * as evidenceCollector from '../symposium-owned-evidence-async.js';
@@ -6,6 +10,7 @@ import { SymposiumPerSeatSandboxOwner } from '../symposium-session-runtime.js';
 import { sandboxNameForConversation } from '../openshell-runtime.js';
 import * as personalHost from '../symposium-personal-host.js';
 import * as discoveryHost from '../symposium-model-discovery-host.js';
+import * as sourceSeal from '../symposium-source-artifact-seal.js';
 import { readSymposiumProductionAttestation } from '../symposium-production-gate.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -93,6 +98,48 @@ function fixture() {
   return { root, gateway, options, launch, seat, membership };
 }
 describe('explicit owned Symposium host composition', () => {
+  it('sweeps abandoned ready review streams before exposing a fresh owner', async () => {
+    const f = fixture();
+    const events = new EventStore(join(f.root, 'facts.db'));
+    f.options.facts = events;
+    const sweep = vi.spyOn(PhysicalArtifactSealer.prototype, 'releaseAbandonedReadyReviewStreams');
+    try {
+      const host = await createOwnedSymposiumHost(f.options, f.launch);
+      expect(sweep).toHaveBeenCalledOnce();
+      host.stop();
+    } finally {
+      events.close();
+    }
+  });
+  it('waits for a whole application transition before shutdown stream sweep', async () => {
+    const f = fixture();
+    const events = new EventStore(join(f.root, 'facts.db'));
+    f.options.facts = events;
+    const sweep = vi.spyOn(PhysicalArtifactSealer.prototype, 'releaseAbandonedReadyReviewStreams');
+    try {
+      const host = await createOwnedSymposiumHost(f.options, f.launch);
+      let settle!: () => void;
+      const running = host.trackApplicationTransition(
+        () =>
+          new Promise<void>((resolve) => {
+            settle = resolve;
+          }),
+      );
+      host.beginShutdown();
+      const signal = new AbortController().signal;
+      const draining = host.drain(signal);
+      await Promise.resolve();
+      expect(sweep).toHaveBeenCalledTimes(1); // startup only
+      settle();
+      await running;
+      await draining;
+      expect(sweep).toHaveBeenCalledTimes(2); // drained transition
+      await host.closeAfterDrain(signal);
+      expect(sweep).toHaveBeenCalledTimes(3);
+    } finally {
+      events.close();
+    }
+  });
   it('fences admission and keeps custody stores readable until exact gateway exit completes', async () => {
     const f = fixture();
     let exited!: () => void;
@@ -111,6 +158,7 @@ describe('explicit owned Symposium host composition', () => {
     await host.drain(signal);
     const closing = host.closeAfterDrain(signal);
     expect(() => host.currentProfiles()).not.toThrow();
+    await vi.waitFor(() => expect(f.gateway.stopAndWait).toHaveBeenCalledOnce());
     exited();
     await closing;
     expect(() => host.currentProfiles()).toThrow('stopped');
@@ -161,6 +209,37 @@ describe('explicit owned Symposium host composition', () => {
     f.seat.role = 'reviewer';
     expect(() => host.artifactRequest('session', 'seat', 2)).toThrow('mapping');
     host.stop();
+  });
+  it('keeps an incomplete imported source out of bootstrap and execution readiness', async () => {
+    const f = fixture();
+    const host = await createOwnedSymposiumHost(f.options, f.launch);
+    const db = new Database(join(f.root, 'session-artifacts.db'));
+    try {
+      expect(host.preinitialSource('session')).toBe(false);
+      expect(host.artifactReady('session', 'seat', 2)).toBe(true);
+      db.prepare(
+        `INSERT INTO symposium_session_artifacts
+        (session_id,workspace,custody,volume_name,generation,state,source_import_json,source_seal_json)
+        VALUES (?,?,?,?,?,'ready',?,?)`,
+      ).run(
+        'session',
+        'workspace',
+        f.root,
+        'source-volume',
+        'source-generation',
+        JSON.stringify({ receipt: { operationId: 'import' } }),
+        JSON.stringify({ state: 'pending' }),
+      );
+      expect(() => host.preinitialSource('session')).toThrow('completed source seal');
+      expect(() => host.artifactReady('session', 'seat', 2)).toThrow('completed source seal');
+      f.gateway.verifyCustody.mockImplementation(() => {
+        throw new Error('custody lost');
+      });
+      expect(() => host.artifactReady('session', 'seat', 2)).toThrow('custody lost');
+    } finally {
+      db.close();
+      host.stop();
+    }
   });
   it.each(['suspended', 'removed'])(
     'retains exact artifact cleanup identity after %s and role replacement',
@@ -403,6 +482,8 @@ it('provisions a new draft through owned argv and makes its checked mapping avai
   const host = await createOwnedSymposiumHost(f.options, f.launch, undefined, command);
   try {
     expect(await host.ensureSessionArtifacts('new-session')).toEqual({ state: 'ready' });
+    expect(host.preinitialSource('new-session')).toBe(false);
+    expect(host.artifactReady('new-session', 'seat', 2)).toBe(true);
     expect(host.sourceImport.status('new-session')).toMatchObject({
       available: true,
       admissionIssued: false,
@@ -826,6 +907,37 @@ it('passes bounded successor stdin through the owned transport with the attached
   }
 });
 
+it('dispatches the bounded source seal verifier export without widening other Podman commands', async () => {
+  const f = fixture();
+  const command = vi.fn(async () => 'sealed-export');
+  const host = await createOwnedSymposiumHost(f.options, f.launch, undefined, command);
+  try {
+    const snapshot = host.artifactLeaseHost.snapshotCommand();
+    const helperId = 'a'.repeat(64);
+    const sealBound = 16 * 1024 * 1024;
+    await expect(snapshot(['start', '--attach', helperId], sealBound)).resolves.toBe(
+      'sealed-export',
+    );
+    await expect(snapshot(['logs', helperId], sealBound)).resolves.toBe('sealed-export');
+    expect(command).toHaveBeenNthCalledWith(1, ['start', '--attach', helperId], {
+      timeout: 60_000,
+    });
+    expect(command).toHaveBeenNthCalledWith(2, ['logs', helperId], { timeout: 15_000 });
+    await expect(snapshot(['inspect', helperId], sealBound)).rejects.toThrow(
+      'Owned Podman output bound is invalid',
+    );
+    await expect(snapshot(['start', '--attach', 'not-an-id'], sealBound)).rejects.toThrow(
+      'Owned Podman output bound is invalid',
+    );
+    await expect(snapshot(['start', '--attach', helperId], sealBound + 1)).rejects.toThrow(
+      'Owned Podman output bound is invalid',
+    );
+    expect(command).toHaveBeenCalledTimes(2);
+  } finally {
+    await host.stop();
+  }
+});
+
 it('keeps the production successor capability unavailable without a trusted fix authority', async () => {
   const f = fixture();
   const command = vi.fn(async () => 'unexpected');
@@ -848,12 +960,21 @@ it('keeps the production successor capability unavailable without a trusted fix 
 it('waits for the entire source import receipt lifecycle during shutdown between command boundaries', async () => {
   const source = await import('../symposium-source-service.js');
   const f = fixture();
-  let entered!: () => void, release!: () => void;
+  let entered!: () => void,
+    release!: () => void,
+    sealEntered!: () => void,
+    sealRelease!: () => void;
   const started = new Promise<void>((resolve) => {
     entered = resolve;
   });
   const gate = new Promise<void>((resolve) => {
     release = resolve;
+  });
+  const sealing = new Promise<void>((resolve) => {
+    sealEntered = resolve;
+  });
+  const sealGate = new Promise<void>((resolve) => {
+    sealRelease = resolve;
   });
   let receiptPersisted = false;
   vi.spyOn(source, 'createSymposiumSourceHost').mockReturnValue({
@@ -862,8 +983,13 @@ it('waits for the entire source import receipt lifecycle during shutdown between
       entered();
       await gate;
       receiptPersisted = true;
-      return {} as never;
+      return { operationId: 'import-operation' } as never;
     },
+  });
+  vi.spyOn(sourceSeal, 'sealImportedSourceArtifact').mockImplementation(async () => {
+    sealEntered();
+    await sealGate;
+    return {} as never;
   });
   const host = await createOwnedSymposiumHost(f.options, f.launch);
   const operation = host.sourceImport.import({} as never, () => {});
@@ -877,6 +1003,9 @@ it('waits for the entire source import receipt lifecycle during shutdown between
   await new Promise((resolve) => setTimeout(resolve, 5));
   expect(f.gateway.stopAndWait).not.toHaveBeenCalled();
   release();
+  await sealing;
+  expect(f.gateway.stopAndWait).not.toHaveBeenCalled();
+  sealRelease();
   await operation;
   await stopping;
   expect(receiptPersisted).toBe(true);
@@ -961,5 +1090,502 @@ it('quarantines failed cleanup of a login allocated after controller pause', asy
     expect(f.gateway.stopAndWait).not.toHaveBeenCalled();
   } finally {
     host.stop();
+  }
+});
+
+it('carries semantic deadlines and bounded stdin into the real retained owned transport while legacy defaults remain unchanged', async () => {
+  const f = fixture();
+  const command = vi.fn(async () => 'bounded output');
+  const host = await createOwnedSymposiumHost(f.options, f.launch, undefined, command);
+  try {
+    const retained = host.artifactLeaseHost!.snapshotCommand(),
+      cid = 'a'.repeat(64),
+      input = Buffer.from('[]\n');
+    await retained(['start', '--attach', '--interactive', cid], 16384, input, 5000);
+    expect(command).toHaveBeenLastCalledWith(['start', '--attach', '--interactive', cid], {
+      timeout: 5000,
+      input,
+    });
+    await retained(['inspect', cid], 16384, undefined, 1234);
+    expect(command).toHaveBeenLastCalledWith(['inspect', cid], { timeout: 1234 });
+    await retained(['start', '--attach', cid]);
+    expect(command).toHaveBeenLastCalledWith(['start', '--attach', cid], { timeout: 60000 });
+  } finally {
+    host.stop();
+  }
+});
+
+const observerEvent: DurableSymposiumReviewToolObservation = Object.freeze({
+  sessionId: 'session',
+  claimToken: 'claim',
+  deliveryId: 'delivery',
+  seatId: 'reader',
+  membershipGeneration: 2,
+  providerThreadId: 'thread',
+  providerTurnId: 'turn',
+  callId: 'call',
+  toolName: 'review_page',
+  arguments: Object.freeze({ page: 0 }),
+  result: Object.freeze({ content: '{}', isError: false }),
+});
+describe('constructor-only original owned observer', () => {
+  it('pins the constructor callback before gateway launch awaits', async () => {
+    const f = fixture();
+    const original = vi.fn();
+    const replacement = vi.fn();
+    f.options.observeDurableReviewToolResult = original;
+    let release!: () => void;
+    const launching = createOwnedSymposiumHost(f.options, async () => {
+      await new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      return f.gateway as unknown as OwnedSymposiumGateway;
+    });
+    f.options.observeDurableReviewToolResult = replacement;
+    release();
+    const host = await launching;
+    await host.observeDurableReviewToolResult!(observerEvent);
+    expect(original).toHaveBeenCalledExactlyOnceWith(observerEvent);
+    expect(replacement).not.toHaveBeenCalled();
+    host.stop();
+  });
+
+  it('is absent for the ordinary default host', async () => {
+    const f = fixture();
+    const host = await createOwnedSymposiumHost(f.options, f.launch);
+    expect(host.observeDurableReviewToolResult).toBeUndefined();
+    host.stop();
+  });
+  it('routes the exact immutable native event through the original host callback', async () => {
+    const f = fixture();
+    const observer = vi.fn();
+    f.options.observeDurableReviewToolResult = observer;
+    const host = await createOwnedSymposiumHost(f.options, f.launch);
+    f.gateway.verifyCustody.mockClear();
+    await host.observeDurableReviewToolResult!(observerEvent);
+    expect(observer).toHaveBeenCalledExactlyOnceWith(observerEvent);
+    expect(f.gateway.verifyCustody.mock.calls.length).toBeGreaterThanOrEqual(2);
+    host.stop();
+  });
+  it.each(['custody', 'controller'] as const)(
+    'vetoes %s loss while the original observer awaits',
+    async (loss) => {
+      const f = fixture();
+      let release!: () => void;
+      f.options.observeDurableReviewToolResult = vi.fn(
+        () =>
+          new Promise<void>((resolve) => {
+            release = resolve;
+          }),
+      );
+      const host = await createOwnedSymposiumHost(f.options, f.launch);
+      const result = host.observeDurableReviewToolResult!(observerEvent);
+      if (loss === 'custody')
+        f.gateway.verifyCustody.mockImplementation(() => {
+          throw Error('original custody lost');
+        });
+      else host.pauseController();
+      release();
+      await expect(result).rejects.toThrow();
+      await expect(host.observeDurableReviewToolResult!(observerEvent)).rejects.toThrow();
+      expect(f.options.observeDurableReviewToolResult).toHaveBeenCalledOnce();
+      host.stop();
+    },
+  );
+});
+
+describe('original native observation reader', () => {
+  it('reads only the original reserved accepted owner and refuses currentness loss', async () => {
+    const f = fixture();
+    const events = new EventStore(join(f.root, 'reader-facts.db'));
+    f.options.facts = events;
+    f.options.personal.workProfiles = [
+      {
+        id: 'work',
+        label: 'Synthetic work',
+        provider: 'openai',
+        credentialRef: { provider: 'keychain', service: 'synthetic', account: 'synthetic' },
+        sandboxProvider: 'synthetic-provider',
+        sandboxProviderId: 'synthetic-provider-id',
+        models: [{ id: 'luna', label: 'Synthetic Luna' }],
+      },
+    ];
+    const host = await createOwnedSymposiumHost(f.options, f.launch);
+    try {
+      const binding = AccountBindingSchema.parse(host.currentProfiles().resolve('work', 'luna'));
+      const artifact = {
+        version: 1 as const,
+        kind: 'sealed_reader' as const,
+        readerAdmissionId: 'original-reader',
+        artifactGenerationId: 'generation',
+        sealFenceId: 'original-fence',
+        bindingDigest: 'b'.repeat(64),
+      };
+      const provenance = {
+        version: 3 as const,
+        capturedAt: 1,
+        seatId: 'reader',
+        seatLabel: 'Reader',
+        seatRole: 'reviewer',
+        membershipGeneration: 2,
+        configRevision: 1,
+        accountProfileRevision: binding.profileRevision,
+        seatProfileRevision: 'profile-v1',
+        contextGrantRevision: 1,
+        authorityGrantRevision: 1,
+        isolationDomainId: 'domain',
+        isolationDomainRevision: 1,
+        accountBinding: binding,
+        reasoningEffort: null,
+        profileBinding: { profileId: 'reader-profile', profileRevision: 'profile-v1' },
+        contextGrant: { grantId: 'context', revision: 1 },
+        authorityGrant: { grantId: 'authority', revision: 1 },
+        artifact,
+      };
+      const identity = {
+        claimToken: 'original',
+        sessionId: 'session',
+        seatId: 'reader',
+        membershipGeneration: 2,
+        accountBinding: binding,
+        provenance,
+        providerThreadId: 'thread',
+        providerTurnId: 'turn',
+      };
+      host.attemptRegistry.reserve({
+        claimToken: 'original',
+        sessionId: 'session',
+        sandbox: { sandboxName: 'original-sandbox', workdir: '/sandbox/workspaces/mgmt' },
+        artifact,
+      });
+      host.attemptRegistry.observations.accept(identity);
+      // Synthetic current admission facts; original reservation/acceptance owner is REAL.
+      const seat = {
+        id: 'reader',
+        name: 'Reader',
+        role: 'reviewer',
+        systemPrompt: 'Read',
+        color: '#112233',
+        accountBinding: binding,
+        model: 'luna',
+        profileBinding: provenance.profileBinding,
+        contextGrant: {
+          ...provenance.contextGrant,
+          classification: 'work' as const,
+          sourceRefs: [],
+        },
+        authorityGrant: {
+          ...provenance.authorityGrant,
+          filesystem: 'read' as const,
+          tools: 'read' as const,
+          network: 'restricted' as const,
+        },
+        isolationRequest: {
+          trustDomainId: 'domain',
+          revision: 1,
+          placement: 'reuse-compatible' as const,
+        },
+      };
+      vi.spyOn(events, 'getActiveSymposiumConfig').mockReturnValue({
+        version: 2,
+        revision: 1,
+        state: 'active',
+        anchorSeatId: 'reader',
+        activeSeatCap: 3,
+        seats: [seat],
+        turnRules: { mode: 'directed', maxTurns: 8 },
+        interceptMode: 'manual',
+      });
+      vi.spyOn(events, 'getLatestSymposiumMembership').mockReturnValue({
+        seatId: 'reader',
+        sessionId: 'session',
+        generation: 2,
+        state: 'active',
+        reconciliation: 'confirmed',
+      } as ReturnType<EventStore['getLatestSymposiumMembership']>);
+      vi.spyOn(events, 'getLatestSymposiumAdmission').mockReturnValue({
+        decision: 'admitted',
+        membershipGeneration: 2,
+        accountId: binding.accountId,
+        provider: binding.provider,
+        model: binding.model,
+        accountProfileRevision: binding.profileRevision,
+      } as ReturnType<EventStore['getLatestSymposiumAdmission']>);
+      vi.spyOn(events, 'assertSymposiumArtifactWorkAllowed').mockImplementation(() => undefined);
+      vi.spyOn(events, 'getSymposiumArtifactReference').mockReturnValue(artifact);
+      vi.spyOn(events, 'getSymposiumSeatSandbox').mockReturnValue({
+        state: 'ready',
+        sandboxName: 'original-sandbox',
+        artifact,
+      } as ReturnType<EventStore['getSymposiumSeatSandbox']>);
+      const attempt = vi.spyOn(events, 'getSymposiumRecipientAttemptByClaimToken').mockReturnValue({
+        claimToken: 'original',
+        status: 'executing',
+        seatId: 'reader',
+        deliveryId: 'delivery',
+        idempotencyKey: 'delivery-key',
+        providerThreadId: 'thread',
+        providerTurnId: 'turn',
+        provenance,
+      } as ReturnType<EventStore['getSymposiumRecipientAttemptByClaimToken']>);
+      vi.spyOn(events, 'getSymposiumDelivery').mockReturnValue({
+        sessionId: 'session',
+        status: 'delivering',
+        recipients: [
+          {
+            seatId: 'reader',
+            status: 'executing',
+            idempotencyKey: 'delivery-key',
+            membershipGeneration: 2,
+          },
+        ],
+      } as ReturnType<EventStore['getSymposiumDelivery']>);
+      const originalRead = vi.spyOn(host.attemptRegistry.observations, 'get');
+      const read = host.readNativeObservation('original');
+      expect(originalRead).toHaveBeenCalledWith('original');
+      expect(read.identity).toEqual(identity);
+      expect(Object.isFrozen(read)).toBe(true);
+      expect(Object.isFrozen(read.identity.provenance)).toBe(true);
+      expect(() => host.readNativeObservation('unknown')).toThrow();
+      attempt.mockReturnValue(undefined);
+      expect(() => host.readNativeObservation('original')).toThrow();
+      attempt.mockReturnValue({
+        claimToken: 'original',
+        status: 'executing',
+        seatId: 'reader',
+        deliveryId: 'delivery',
+        providerThreadId: 'thread',
+        providerTurnId: 'turn',
+        provenance,
+      } as ReturnType<EventStore['getSymposiumRecipientAttemptByClaimToken']>);
+      const persisted = host.attemptRegistry.observations.get('original')!;
+      originalRead.mockReturnValue({
+        ...persisted,
+        identity: {
+          ...persisted.identity,
+          accountBinding: { ...binding, profileRevision: 'changed' },
+        },
+      });
+      expect(() => host.readNativeObservation('original')).toThrow();
+      originalRead.mockRestore();
+      host.attemptRegistry.markUncertain('original');
+      expect(() => host.readNativeObservation('original')).toThrow();
+      host.attemptRegistry.markConfirmed('original');
+      expect(() => host.readNativeObservation('original')).toThrow();
+    } finally {
+      host.stop();
+      events.close();
+    }
+  });
+  it.each(['custody', 'controller'] as const)(
+    'rejects %s loss before reading an original observation',
+    async (loss) => {
+      const f = fixture(),
+        host = await createOwnedSymposiumHost(f.options, f.launch);
+      try {
+        if (loss === 'custody')
+          f.gateway.verifyCustody.mockImplementation(() => {
+            throw Error('lost');
+          });
+        else if (loss === 'controller') host.pauseController();
+        expect(() => host.readNativeObservation('unknown')).toThrow();
+      } finally {
+        host.stop();
+      }
+    },
+  );
+});
+
+it('public draft candidate derives original Work API scope/ready mapping without issuing admission', async () => {
+  const f = fixture();
+  mkdirSync(join(f.root, 'seed'));
+  f.options.runtime.seed = join(f.root, 'seed');
+  f.options.personal.workProfiles = [
+    {
+      id: 'work',
+      label: 'Synthetic work',
+      provider: 'openai',
+      credentialRef: { provider: 'keychain', service: 'synthetic', account: 'synthetic' },
+      sandboxProvider: 'original-provider',
+      sandboxProviderId: 'original-provider-id',
+      models: [{ id: 'luna', label: 'Synthetic Luna' }],
+    },
+  ];
+  let config!: import('@mitzo/protocol').SymposiumConfig;
+  f.options.facts.getSession = vi.fn((id: string) =>
+    id === 'public-session'
+      ? ({ sessionType: 'symposium', symposiumConfig: JSON.stringify(config) } as never)
+      : null,
+  );
+  let volume: {
+    Name: string;
+    Driver: string;
+    Options: object;
+    Labels: Record<string, string>;
+  } | null = null;
+  const command = vi.fn(async (args: readonly string[]) => {
+    if (args[0] === 'volume' && args[1] === 'ls') return JSON.stringify(volume ? [volume] : []);
+    if (args[0] === 'volume' && args[1] === 'inspect') return JSON.stringify([volume]);
+    if (args[0] === 'volume' && args[1] === 'create') {
+      const labels: Record<string, string> = {};
+      args.forEach((v, i) => {
+        if (v === '--label') {
+          const [key, ...parts] = args[i + 1].split('=');
+          labels[key] = parts.join('=');
+        }
+      });
+      volume = { Name: args.at(-1)!, Driver: 'local', Options: {}, Labels: labels };
+      return volume.Name;
+    }
+    if (args[0] === 'create') return 'a'.repeat(64);
+    if (args[0] === 'start') return 'MITZO_GIT_INITIALIZED_V1';
+    if (args[0] === 'rm') return 'a'.repeat(64);
+    throw Error('Unexpected synthetic boundary command');
+  });
+  const collect = vi.fn(async (_selection: unknown, current?: () => void) => {
+    current?.();
+    return { seedTreeSha256: readSeed(), policySha256: readPolicy() } as never;
+  });
+  const { digestSymposiumSeedTree } = await import('../symposium-production-gate.js');
+  const { createHash } = await import('node:crypto');
+  const readSeed = () => digestSymposiumSeedTree(f.options.runtime.seed);
+  const readPolicy = () =>
+    createHash('sha256').update(readFileSync(f.options.runtime.policy)).digest('hex');
+  vi.spyOn(evidenceCollector, 'createOwnedEvidenceCollector').mockReturnValue(collect);
+  const host = await createOwnedSymposiumHost(f.options, f.launch, undefined, command);
+  try {
+    const binding = AccountBindingSchema.parse(host.currentProfiles().resolve('work', 'luna'));
+    config = {
+      version: 2,
+      revision: 1,
+      state: 'draft',
+      anchorSeatId: 'primary',
+      activeSeatCap: 3,
+      seats: [
+        {
+          id: 'primary',
+          name: 'Coder',
+          role: 'coder',
+          model: 'luna',
+          systemPrompt: 'Build',
+          color: '#335577',
+          accountBinding: binding,
+        },
+      ],
+      turnRules: { mode: 'directed', maxTurns: 8 },
+      interceptMode: 'manual',
+    };
+    expect(await host.ensureSessionArtifacts('public-session')).toEqual({ state: 'ready' });
+    const current = vi.fn();
+    const result = await host.collectSessionAdmissionCandidate(
+      { sessionId: 'public-session', configRevision: 1 },
+      current,
+    );
+    await result.assertCurrent();
+    expect(collect.mock.calls[0][0]).toMatchObject({
+      providerInstances: [
+        {
+          name: 'original-provider',
+          id: 'original-provider-id',
+          type: 'openai',
+          profileName: 'openai',
+        },
+      ],
+      allowedRoles: ['coder'],
+      allowedAccountProviders: ['openai'],
+      artifactVolume: { name: volume!.Name },
+    });
+    expect(host.sourceImport.status('public-session')).toMatchObject({
+      available: true,
+      admissionIssued: false,
+    });
+    await expect(
+      host.collectSessionAdmissionCandidate({ sessionId: 'other', configRevision: 1 }, current),
+    ).rejects.toThrow();
+    await expect(
+      host.collectSessionAdmissionCandidate(
+        { sessionId: 'public-session', configRevision: 2 },
+        current,
+      ),
+    ).rejects.toThrow();
+    config.seats[0].role = 'planner';
+    await expect(
+      host.collectSessionAdmissionCandidate(
+        { sessionId: 'public-session', configRevision: 1 },
+        current,
+      ),
+    ).rejects.toThrow('roles');
+    config.seats[0].role = 'coder';
+    config.seats.push({
+      ...config.seats[0],
+      id: 'reader',
+      role: 'reviewer',
+      accountBinding: undefined,
+    });
+    await expect(
+      host.collectSessionAdmissionCandidate(
+        { sessionId: 'public-session', configRevision: 1 },
+        current,
+      ),
+    ).rejects.toThrow('accounts');
+    config.seats.pop();
+    collect.mockImplementationOnce(async () => {
+      config.revision = 2;
+      return { seedTreeSha256: readSeed(), policySha256: readPolicy() } as never;
+    });
+    await expect(
+      host.collectSessionAdmissionCandidate(
+        { sessionId: 'public-session', configRevision: 1 },
+        current,
+      ),
+    ).rejects.toThrow('revision');
+    config.revision = 1;
+    const profiles = host.currentProfiles();
+    const actualProfile = profiles.apiProfile(binding);
+    const profileRead = vi.spyOn(Object.getPrototypeOf(profiles) as typeof profiles, 'apiProfile');
+    collect.mockImplementationOnce(async () => {
+      profileRead.mockReturnValue({ ...actualProfile, sandboxProviderId: 'foreign-id' });
+      return { seedTreeSha256: readSeed(), policySha256: readPolicy() } as never;
+    });
+    await expect(
+      host.collectSessionAdmissionCandidate(
+        { sessionId: 'public-session', configRevision: 1 },
+        current,
+      ),
+    ).rejects.toThrow('selection changed');
+    profileRead.mockRestore();
+    collect.mockImplementationOnce(async () => {
+      host.pauseController();
+      return {} as never;
+    });
+    await expect(
+      host.collectSessionAdmissionCandidate(
+        { sessionId: 'public-session', configRevision: 1 },
+        current,
+      ),
+    ).rejects.toThrow('unavailable');
+  } finally {
+    host.stop();
+  }
+});
+
+it('retains only explicit constructor runtime diagnostics without invoking them as custody or readiness', async () => {
+  const f = fixture();
+  const observeRuntime = vi.fn();
+  const host = await createOwnedSymposiumHost({ ...f.options, observeRuntime }, f.launch);
+  try {
+    expect(host.runtimeConfig.observeRuntime).toBe(observeRuntime);
+    expect(observeRuntime).not.toHaveBeenCalled();
+  } finally {
+    await host.stop();
+  }
+});
+it('default runtime config has no observation callback', async () => {
+  const f = fixture();
+  const host = await createOwnedSymposiumHost(f.options, f.launch);
+  try {
+    expect(Object.hasOwn(host.runtimeConfig, 'observeRuntime')).toBe(false);
+  } finally {
+    await host.stop();
   }
 });

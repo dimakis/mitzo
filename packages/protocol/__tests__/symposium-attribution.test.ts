@@ -181,7 +181,7 @@ describe('immutable Symposium attribution', () => {
         /provenance|snapshot/i,
       );
   });
-  it('requires a complete v2 snapshot for new events in a v2 session', () => {
+  it('requires a complete v2 or v3 snapshot for new events in a v2 session', () => {
     const store = open();
     admitBoth(store);
     const {
@@ -196,8 +196,19 @@ describe('immutable Symposium attribution', () => {
       authorityGrant,
       ...legacy
     } = snapshot('reviewer', 100);
+    void [
+      version,
+      seatLabel,
+      seatRole,
+      capturedAt,
+      accountBinding,
+      reasoningEffort,
+      profileBinding,
+      contextGrant,
+      authorityGrant,
+    ];
     expect(() => store.appendSymposium('chat', 'message_start', {}, legacy)).toThrow(
-      /v2 snapshot/i,
+      /v2 or v3 snapshot/i,
     );
   });
   it('adds snapshot columns to a database with historical recipient attempts', () => {

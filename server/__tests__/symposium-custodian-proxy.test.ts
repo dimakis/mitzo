@@ -67,6 +67,99 @@ it('does not accept caller actor/proof, invalid JWT, internal credentials, or mi
   ).toBe(400);
   expect(invoke).not.toHaveBeenCalled();
 });
+it('requires recent authorization before forwarding exact source seal recovery', async () => {
+  const invoke = vi.fn(async () => ({ status: 200, body: { seal: { state: 'complete' } } }));
+  const app = express();
+  app.use(express.json(), authMiddleware);
+  app.post('/reauthorize', ...recentAppReauthorizationHandlers());
+  app.use(createCustodianProxy({ request: invoke, invalidate: vi.fn() }));
+  const token = (await login(process.env.AUTH_PASSPHRASE!))!;
+  const path = '/api/sessions/s1/symposium/source/seal/recover';
+  const body = { expectedRevision: 4, expectedGeneration: 'volume-gen', operationId: 'import-1' };
+  expect(
+    (await request(app).post(path).set('Authorization', `Bearer ${token}`).send(body)).status,
+  ).toBe(403);
+  expect(invoke).not.toHaveBeenCalled();
+  const reauth = await request(app)
+    .post('/reauthorize')
+    .set('Authorization', `Bearer ${token}`)
+    .send({ passphrase: process.env.AUTH_PASSPHRASE });
+  expect(reauth.status).toBe(200);
+  expect(
+    (
+      await request(app)
+        .post(path)
+        .set('Authorization', `Bearer ${token}`)
+        .set('X-CSRF-Token', reauth.body.csrf)
+        .send(body)
+    ).status,
+  ).toBe(200);
+  expect(invoke).toHaveBeenCalledWith(
+    expect.objectContaining({
+      operation: 'source.sealRecover',
+      sessionId: 's1',
+      body,
+      authorization: expect.objectContaining({ recentUntil: reauth.body.expiresAt }),
+    }),
+    undefined,
+    expect.any(AbortSignal),
+  );
+});
+it('forwards only authenticated, bounded review operations with session and record scope', async () => {
+  const invoke = vi.fn(async (_input: unknown) => ({ status: 200, body: { ok: true } }));
+  const app = express();
+  app.use(express.json({ limit: '2mb' }));
+  app.use(createCustodianProxy({ request: invoke, invalidate: vi.fn() }));
+  const token = (await login(process.env.AUTH_PASSPHRASE!))!;
+  const base = '/api/sessions/s1/symposium/reviews';
+  const cases = [
+    ['GET', base, 'review.list', undefined],
+    ['POST', `${base}/application-runs`, 'review.startApplication', undefined],
+    ['GET', `${base}/flow`, 'review.workflow', 'flow'],
+    ['POST', `${base}/flow/actions`, 'review.action', 'flow'],
+    ['GET', `${base}/records/record`, 'review.record', 'record'],
+    [
+      'POST',
+      `${base}/records/record/publication-preflight`,
+      'review.publicationPreflight',
+      'record',
+    ],
+  ] as const;
+  for (const [method, path, operation, resourceId] of cases) {
+    const response = await request(app)
+      [method.toLowerCase() as 'get' | 'post'](path)
+      .set('Authorization', `Bearer ${token}`)
+      .send(method === 'POST' ? { expectedArtifactRevision: '1' } : undefined);
+    expect(response.status).toBe(200);
+    expect(invoke.mock.lastCall?.[0]).toMatchObject({
+      operation,
+      sessionId: 's1',
+      ...(resourceId ? { resourceId } : {}),
+    });
+  }
+  const calls = invoke.mock.calls.length;
+  expect((await request(app).get(base)).status).toBe(403);
+  expect(
+    (
+      await request(app)
+        .post(`${base}/application-runs`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ actor: 'forged' })
+    ).status,
+  ).toBe(400);
+  expect(
+    (
+      await request(app)
+        .post(`${base}/flow/actions`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ acceptanceCriteria: 'x'.repeat(1_048_577) })
+    ).status,
+  ).toBe(400);
+  expect(
+    (await request(app).post(base).set('Authorization', `Bearer ${token}`).send({})).status,
+  ).toBe(400);
+  expect(invoke).toHaveBeenCalledTimes(calls);
+});
 it('forwards logout invalidation while a semantic request is in flight', async () => {
   const invalidate = vi.fn();
   let complete!: () => void;

@@ -39,6 +39,10 @@ it.each(['missing', 'generation', 'owner', 'mount'])(
     expect(
       command.mock.calls.every(([args]) => ['volume', 'ps', 'inspect'].includes(args[0])),
     ).toBe(true);
+    if (change === 'mount')
+      expect(command.mock.calls.find(([args]) => args[0] === 'ps')?.[0]).toContain(
+        `volume=${mapping.volumeName}`,
+      );
   },
 );
 it('accepts only original volume and no other mounts, allowing its exact retained helper', async () => {
@@ -64,4 +68,53 @@ it('accepts only original volume and no other mounts, allowing its exact retaine
   await expect(
     assertSourceVolume({ mapping, workspace: 'workspace', owner, command, helperId: helper }),
   ).resolves.toBeUndefined();
+  expect(command.mock.calls.find(([args]) => args[0] === 'ps')?.[0]).toContain(
+    `volume=${mapping.volumeName}`,
+  );
+});
+
+it('does not inspect an unrelated container deleted after a global census', async () => {
+  const command = vi.fn(async (args: readonly string[]) => {
+    if (args[0] === 'volume')
+      return JSON.stringify([
+        {
+          Name: mapping.volumeName,
+          Driver: 'local',
+          Options: {},
+          Labels: artifactVolumeLabels('workspace', mapping),
+          UID: 998,
+          GID: 998,
+        },
+      ]);
+    if (args[0] === 'ps')
+      return JSON.stringify(
+        args.includes(`volume=${mapping.volumeName}`) ? [] : [{ Id: 'f'.repeat(64) }],
+      );
+    throw Error('unrelated container disappeared before inspect');
+  });
+  await expect(
+    assertSourceVolume({ mapping, workspace: 'workspace', owner, command }),
+  ).resolves.toBeUndefined();
+  expect(command.mock.calls.some(([args]) => args[0] === 'inspect')).toBe(false);
+});
+
+it('fails closed when a container selected by exact volume disappears before inspect', async () => {
+  const command = vi.fn(async (args: readonly string[]) => {
+    if (args[0] === 'volume')
+      return JSON.stringify([
+        {
+          Name: mapping.volumeName,
+          Driver: 'local',
+          Options: {},
+          Labels: artifactVolumeLabels('workspace', mapping),
+          UID: 998,
+          GID: 998,
+        },
+      ]);
+    if (args[0] === 'ps') return JSON.stringify([{ Id: 'f'.repeat(64) }]);
+    throw Error('same-volume container disappeared before inspect');
+  });
+  await expect(
+    assertSourceVolume({ mapping, workspace: 'workspace', owner, command }),
+  ).rejects.toThrow('same-volume container disappeared');
 });

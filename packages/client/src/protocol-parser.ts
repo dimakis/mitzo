@@ -213,8 +213,9 @@ export function parseServerMessage(
 
     case 'session_takeover':
       // Takeover is a connection-local control message. Older servers could
-      // persist it with a sequence number; replay must not affect this client.
-      if (typeof msg.seq === 'number') break;
+      // persist live notices with a sequence number. The transport identifies
+      // actual reconnect replay independently of that durable sequence.
+      if (msg.replayed === true) break;
       // Server unwatches the old client after takeover, so no subsequent
       // session_state_changed event will arrive — clear running inline.
       result.messagesActions.push({ type: 'SESSION_STATE_CHANGED', state: 'idle' });

@@ -1,3 +1,4 @@
+import { nativeRoutingMessages, type NativeRoutingFailure } from './codex-native-diagnostics.js';
 import {
   validateOpenShellCliEnvironment,
   type OpenShellCliEnvironment,
@@ -50,6 +51,7 @@ interface Pending {
 }
 
 export type CodexRequestErrorCategory =
+  | NativeRoutingFailure
   | 'thread_state'
   | 'provider_transport'
   | 'context_limit'
@@ -58,7 +60,9 @@ export type CodexRequestErrorCategory =
   | 'invalid_request'
   | 'unknown';
 
-function requestErrorCategory(message: string): CodexRequestErrorCategory {
+function requestErrorCategory(message: string, method: string): CodexRequestErrorCategory {
+  if (method === 'account/read' && Object.hasOwn(nativeRoutingMessages, message))
+    return nativeRoutingMessages[message as keyof typeof nativeRoutingMessages];
   if (/(?:active turn|turn.*(?:running|in progress)|thread.*busy)/i.test(message))
     return 'thread_state';
   if (/(?:stream.*disconnect|connection.*(?:closed|lost)|transport)/i.test(message))
@@ -81,6 +85,20 @@ export class CodexRequestError extends Error {
   ) {
     super('Codex request failed; check configuration and retry');
     this.name = 'CodexRequestError';
+  }
+}
+
+/** Local transport failures carry only a fixed reason, never a provider frame. */
+export class CodexTransportError extends Error {
+  constructor(readonly category: 'timeout' | 'connection' | 'protocol') {
+    super(
+      {
+        timeout: 'Codex request timed out; retry explicitly',
+        connection: 'Codex connection closed',
+        protocol: 'Invalid Codex protocol',
+      }[category],
+    );
+    this.name = 'CodexTransportError';
   }
 }
 
@@ -390,7 +408,7 @@ export class CodexAppServerClient {
   }
 
   request(method: string, params: JsonObject): Promise<unknown> {
-    if (this.closed) return Promise.reject(new Error('Codex connection closed'));
+    if (this.closed) return Promise.reject(new CodexTransportError('connection'));
     if (!this.ready) return Promise.reject(new Error('Codex connection not initialized'));
     const allowed = this.loginOnly
       ? ['account/read', 'account/login/start', 'account/login/cancel']
@@ -417,7 +435,7 @@ export class CodexAppServerClient {
     return this.sendRequest(method, params);
   }
 
-  close(error = new Error('Codex connection closed')) {
+  close(error: Error = new CodexTransportError('connection')) {
     if (this.closed) return;
     this.closed = true;
     this.ready = false;
@@ -434,11 +452,11 @@ export class CodexAppServerClient {
   }
 
   private sendRequest(method: string, params: JsonObject): Promise<unknown> {
-    if (this.closed) return Promise.reject(new Error('Codex connection closed'));
+    if (this.closed) return Promise.reject(new CodexTransportError('connection'));
     const id = ++this.sequence;
     return new Promise((resolve, reject) => {
       const timer = setTimeout(
-        () => this.close(new Error('Codex request timed out; retry explicitly')),
+        () => this.close(new CodexTransportError('timeout')),
         this.timeoutMs,
       );
       this.pending.set(id, { method, resolve, reject, timer });
@@ -451,7 +469,7 @@ export class CodexAppServerClient {
   }
 
   private write(value: JsonObject) {
-    if (this.closed) throw new Error('Codex connection closed');
+    if (this.closed) throw new CodexTransportError('connection');
     this.child.stdin.write(JSON.stringify(value) + '\n');
   }
 
@@ -526,19 +544,22 @@ export class CodexAppServerClient {
           request.reject(
             new CodexRequestError(
               request.method,
-              requestErrorCategory(parsed.success ? (parsed.data.message ?? '') : ''),
+              requestErrorCategory(
+                parsed.success ? (parsed.data.message ?? '') : '',
+                request.method,
+              ),
               parsed.success ? parsed.data.code : undefined,
             ),
           );
         } else if ('result' in message) request.resolve(message.result);
         else {
-          request.reject(new Error('Invalid Codex protocol'));
+          request.reject(new CodexTransportError('protocol'));
           throw new Error();
         }
       }
       if (this.buffer.length > this.maxFrameBytes) throw new Error();
     } catch {
-      this.close(new Error('Invalid Codex protocol'));
+      this.close(new CodexTransportError('protocol'));
     }
   }
 }

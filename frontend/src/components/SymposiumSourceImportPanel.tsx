@@ -2,6 +2,28 @@ import { useEffect, useRef, useState } from 'react';
 import { apiFetch } from '../lib/api-fetch';
 import type { SourcePreview, SourceStatus } from '../types/symposium-source';
 const confirmation = 'IMPORT COMMITTED REPOSITORY HISTORY';
+function retainedSeal(status: SourceStatus | null) {
+  const artifact = status?.artifact;
+  const operationId = artifact?.receipt?.operationId;
+  if (
+    artifact?.state !== 'imported' ||
+    artifact.admissionIssued ||
+    !(
+      artifact.sourceSeal === null ||
+      (artifact.sourceSeal?.state === 'pending' && artifact.sourceSeal.operationId === operationId)
+    ) ||
+    !Number.isSafeInteger(status?.expectedRevision) ||
+    (status?.expectedRevision ?? 0) < 1 ||
+    !artifact.volumeGeneration ||
+    !operationId
+  )
+    return null;
+  return {
+    expectedRevision: status!.expectedRevision,
+    expectedGeneration: artifact.volumeGeneration,
+    operationId,
+  };
+}
 async function read<T>(url: string, body?: unknown, csrf?: string): Promise<T> {
   const response = await apiFetch(
     url,
@@ -120,6 +142,50 @@ export function SymposiumSourceImportPanel({ sessionId }: { sessionId: string })
       if (active.current) setBusy(false);
     }
   }
+  async function recoverSeal() {
+    if (busy || !passphrase || !retainedSeal(status)) return;
+    const secret = passphrase;
+    setPassphrase('');
+    setBusy(true);
+    setError('');
+    setMessage('');
+    try {
+      const latest = await read<SourceStatus>(base);
+      if (!active.current) return;
+      setStatus(latest);
+      const retained = retainedSeal(latest);
+      if (!retained) throw Error('Retained source seal changed. Refresh source status.');
+      const auth = await read<{ csrf: string; expiresAt: number }>(base + '/reauthorize', {
+        passphrase: secret,
+      });
+      if (!active.current) return;
+      if (!auth.csrf || !Number.isFinite(auth.expiresAt) || auth.expiresAt <= Date.now())
+        throw Error('Recent app authorization expired. Enter the passphrase again.');
+      const result = await read<{ seal: { state: string; operationId: string } }>(
+        base + '/seal/recover',
+        retained,
+        auth.csrf,
+      );
+      if (!active.current) return;
+      if (result.seal?.state !== 'complete' || result.seal.operationId !== retained.operationId)
+        throw Error('Source seal result is uncertain. Refresh source status.');
+      setStatus((current) =>
+        current
+          ? { ...current, artifact: { ...current.artifact, sourceSeal: result.seal } }
+          : current,
+      );
+      await refresh();
+      if (active.current) setMessage('Source seal completed for the retained import.');
+    } catch (cause) {
+      if (active.current) {
+        setError(cause instanceof Error ? cause.message : 'Source seal outcome is uncertain');
+        await refresh();
+      }
+    } finally {
+      if (active.current) setBusy(false);
+    }
+  }
+  const recoverableSeal = retainedSeal(status);
   return (
     <section aria-label="Local repository source">
       <button
@@ -138,17 +204,52 @@ export function SymposiumSourceImportPanel({ sessionId }: { sessionId: string })
           {!status ? (
             <p>Loading source readiness…</p>
           ) : !status.artifact?.available ? (
-            <p>
-              {status.artifact?.state === 'imported'
-                ? 'Committed source has already been imported.'
-                : status.artifact?.admissionIssued
-                  ? 'Source import is unavailable because admission permission was already issued.'
-                  : ['failed', 'uncertain', 'recovery_required'].includes(
-                        status.artifact?.state ?? '',
-                      )
-                    ? `${status.artifact?.state === 'failed' ? 'The source helper exited with a failure.' : status.artifact?.state === 'uncertain' ? 'The source helper outcome is unknown.' : 'The source import is incomplete.'} The volume and receipts are retained for inspection; automatic retry and restart recovery are unavailable.`
-                    : 'Source import is unavailable. An unused initialized volume with current host custody is required.'}
-            </p>
+            <>
+              <p>
+                {status.artifact?.state === 'imported'
+                  ? recoverableSeal
+                    ? 'Committed source was imported, but its source seal is pending or has not started. Recover the retained seal before admission.'
+                    : status.artifact.sourceSeal?.state === 'complete'
+                      ? 'Committed source has already been imported and sealed.'
+                      : 'Committed source has already been imported, but retained seal recovery is unavailable from this status. Refresh source status.'
+                  : status.artifact?.admissionIssued
+                    ? 'Source import is unavailable because admission permission was already issued.'
+                    : ['failed', 'uncertain', 'recovery_required'].includes(
+                          status.artifact?.state ?? '',
+                        )
+                      ? `${status.artifact?.state === 'failed' ? 'The source helper exited with a failure.' : status.artifact?.state === 'uncertain' ? 'The source helper outcome is unknown.' : 'The source import is incomplete.'} The volume and receipts are retained for inspection; automatic retry and restart recovery are unavailable.`
+                      : 'Source import is unavailable. An unused initialized volume with current host custody is required.'}
+              </p>
+              {status.artifact?.state === 'imported' && (
+                <button type="button" disabled={busy} onClick={() => void refresh()}>
+                  Refresh source status
+                </button>
+              )}
+              {recoverableSeal && (
+                <fieldset disabled={busy}>
+                  <p>
+                    Recovery resumes the original imported source seal. It does not import history
+                    again.
+                  </p>
+                  <label>
+                    App passphrase for source seal recovery
+                    <input
+                      type="password"
+                      autoComplete="current-password"
+                      value={passphrase}
+                      onChange={(event) => setPassphrase(event.target.value)}
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    disabled={busy || !passphrase}
+                    onClick={() => void recoverSeal()}
+                  >
+                    Recover retained source seal
+                  </button>
+                </fieldset>
+              )}
+            </>
           ) : (
             <fieldset disabled={busy}>
               <p>

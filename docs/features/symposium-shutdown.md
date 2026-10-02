@@ -20,7 +20,10 @@ restart. Personal connections require the existing reauthentication/revision che
 active seats are never silently rebound. This change does not adopt an old gateway,
 copy credentials, reconcile old artifact custody into a new host, or provide
 same-session artifact continuation. Cross-custody artifact recovery is a separate
-explicit design. It does not enable native review dispatch or relax hard-budget gates.
+explicit design. It does not enable native review dispatch or relax application-policy,
+account/model acceptance or physical custody gates. The
+[current acceptance contract](symposium-integrated-acceptance.md#application-policy-contract)
+defers guaranteed native token/spend caps and mandatory final usage totals.
 
 Validation uses mocked processes, native setup, and temporary local ledgers. It covers
 concurrent setup and queued creation, repeated shutdown, partial cleanup, deadline

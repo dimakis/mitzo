@@ -86,6 +86,146 @@ describe('SseConnection', () => {
     vi.useRealTimers();
   });
 
+  it.each(['reconnected', 'session_resumed'])(
+    'distinguishes sequenced live takeovers from replay ending with %s',
+    async (completion) => {
+      const fetch = vi.fn().mockResolvedValue({ ok: true } as Response);
+      const conn = new SseConnection(createConfig({ fetch }));
+      const received: Record<string, unknown>[] = [];
+      conn.onMessage((message) => {
+        received.push(message);
+        return true;
+      });
+      try {
+        conn.connect();
+        const first = lastES();
+        first._emit('welcome', { connectionId: 'conn-1' });
+        first._emit('message', {
+          type: 'session_takeover',
+          sessionId: 's1',
+          seq: 5,
+          replayed: true,
+        });
+        expect(received.at(-1)).toMatchObject({ type: 'session_takeover', replayed: false });
+        conn.checkAndReconnect(true);
+        const second = lastES();
+        second._emit('welcome', { connectionId: 'conn-2' });
+        await Promise.resolve();
+        await Promise.resolve();
+        second._emit('message', {
+          type: 'session_takeover',
+          sessionId: 's1',
+          seq: 6,
+          replayed: false,
+        });
+        expect(received.at(-1)).toMatchObject({ type: 'session_takeover', replayed: true });
+        second._emit('message', { type: 'session_takeover', sessionId: 's1' });
+        expect(received.at(-1)).toMatchObject({ type: 'session_takeover', replayed: false });
+        second._emit('message', {
+          type: completion,
+          sessionId: 's1',
+          sessions: [{ sessionId: 's1' }],
+        });
+        second._emit('message', { type: 'session_takeover', sessionId: 's1', seq: 7 });
+        expect(received.at(-1)).toMatchObject({ type: 'session_takeover', replayed: false });
+        expect(conn.getLastSeq('s1')).toBe(7);
+      } finally {
+        conn.disconnect();
+      }
+    },
+  );
+
+  it('retains replay classification through chained buffering and acknowledges the applied cursor', async () => {
+    const fetch = vi.fn().mockResolvedValue(Response.json({ applied: true }));
+    const conn = new SseConnection(createConfig({ fetch }));
+    const received: Record<string, unknown>[] = [];
+    conn.onMessage((message) => {
+      received.push(message);
+      return true;
+    });
+    try {
+      conn.connect();
+      const first = lastES();
+      first._emit('welcome', { connectionId: 'conn-1' });
+      conn.trackSeq('s1', 5);
+      conn.checkAndReconnect(true);
+      const second = lastES();
+      second._emit('welcome', { connectionId: 'conn-2' });
+      await Promise.resolve();
+      await Promise.resolve();
+      second._emit('message', {
+        type: 'session_takeover',
+        sessionId: 's1',
+        seq: 6,
+        prevSessionSeq: 5,
+      });
+      expect(received.filter((message) => message.type === 'session_takeover')).toHaveLength(0);
+      second._emit('message', { type: 'session_switched', sessionId: 's1' });
+      expect(received.filter((message) => message.type === 'session_takeover')).toHaveLength(0);
+      expect(conn.getLastSeq('s1')).toBe(5);
+      second._emit('message', {
+        type: 'session_takeover',
+        sessionId: 's1',
+        seq: 7,
+        prevSessionSeq: 6,
+      });
+      expect(received.filter((message) => message.type === 'session_takeover')).toHaveLength(0);
+
+      second._emit('message', {
+        type: 'session_reconnect_snapshot',
+        sessionId: 's1',
+        cursor: 5,
+        offerId: 'snapshot',
+      });
+      conn.acknowledgeReconnectSnapshot('s1', 5, 'snapshot');
+      await vi.waitFor(() => expect(conn.getLastSeq('s1')).toBe(7));
+      expect(received.at(-1)).toMatchObject({ type: 'session_takeover', replayed: true });
+      await vi.waitFor(() =>
+        expect(
+          fetch.mock.calls.some(
+            ([, init]) =>
+              JSON.parse(String(init?.body)).type === 'session_event_applied' &&
+              JSON.parse(String(init?.body)).seq === 7,
+          ),
+        ).toBe(true),
+      );
+      second._emit('message', {
+        type: 'session_takeover',
+        sessionId: 's1',
+        seq: 8,
+        prevSessionSeq: 7,
+      });
+      expect(received.at(-1)).toMatchObject({ type: 'session_takeover', replayed: false });
+      expect(conn.getLastSeq('s1')).toBe(8);
+    } finally {
+      conn.disconnect();
+    }
+  });
+
+  it('keeps an unacknowledged snapshot timeout after session resumed', () => {
+    const conn = new SseConnection(createConfig());
+    conn.onMessage(() => true);
+    conn.connect();
+    const es = lastES();
+    es._emit('welcome', { connectionId: 'conn-1' });
+    const resync = vi.spyOn(conn, 'checkAndReconnect').mockImplementation(() => {});
+    try {
+      es._emit('message', {
+        type: 'session_reconnect_snapshot',
+        sessionId: 's1',
+        cursor: 5,
+        offerId: 'snapshot',
+      });
+      es._emit('message', { type: 'session_resumed', sessionId: 's1' });
+      expect(resync).not.toHaveBeenCalled();
+      vi.advanceTimersByTime(30_001);
+      expect(resync).toHaveBeenCalledWith(true);
+      expect(conn.getLastSeq('s1')).toBe(0);
+    } finally {
+      conn.disconnect();
+    }
+  });
+
   it('reconnects when the applied snapshot POST loses its response after server acceptance', async () => {
     const fetch = vi.fn().mockRejectedValue(new Error('response lost'));
     const conn = new SseConnection(createConfig({ fetch }));

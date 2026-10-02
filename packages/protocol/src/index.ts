@@ -226,3 +226,7 @@ export type {
   SymposiumMembershipState,
   SymposiumReconciliationStatus,
 } from './symposium.js';
+export * from './symposium-artifact-admission.js';
+export { SymposiumProvenanceV3Schema } from './symposium.js';
+
+export * from './symposium-artifact-reader.js';

@@ -1,9 +1,15 @@
+import type { OriginalProcessObserver } from './symposium-original-process-retention.js';
 import { SYMPOSIUM_ARTIFACT_TARGET } from './symposium-artifact-lease.js';
 import { open, lstat } from 'node:fs/promises';
 import { constants } from 'node:fs';
 import { execFile, spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import { createHash, X509Certificate } from 'node:crypto';
 import {
+  closeSync,
+  fchmodSync,
+  fstatSync,
+  openSync,
+  readSync,
   chmodSync,
   lstatSync,
   mkdirSync,
@@ -29,6 +35,8 @@ export interface OwnedSymposiumGatewayOptions {
   cliSha256: string;
   /** Reviewed public roots for provider HTTPS, combined with the private issuer CA. */
   systemCaBundle: string;
+  /** Trusted operator configuration; only the existing corporate CONNECT proxy adapter. */
+  upstreamProxy?: { url: string; caBundle: string; caBundleSha256: string };
   /** Host-owned, private parent directory. Each launch allocates new isolated state. */
   stateParent: string;
   gateway: string;
@@ -36,6 +44,8 @@ export interface OwnedSymposiumGatewayOptions {
   port: number;
   podmanSocket: string;
   network: string;
+  /** Operator-only opt-in; must select the same owned named network. */
+  supervisorNetwork?: string;
   workloadImage: string;
   sandboxRuntimeImage: string;
   supervisorImage: string;
@@ -49,6 +59,83 @@ export interface OwnedSymposiumGatewayOptions {
   };
   /** JWTs authenticate supervisors without issuing them management certificates. */
   jwt: { signingKey: string; publicKey: string; kid: string };
+}
+
+/** Trusted driver selector only; actual network ownership is separately established. */
+export function isOwnedSymposiumSupervisorNetwork(value: string, network: string): boolean {
+  return (
+    typeof value === 'string' &&
+    id.test(value) &&
+    value === network &&
+    !['host', 'none', 'bridge', 'private', 'slirp4netns', 'pasta'].includes(value)
+  );
+}
+
+/** Shared with private file configuration admission; credentials and bypasses are forbidden. */
+export function isOwnedSymposiumProxyUrl(value: string): boolean {
+  if (typeof value !== 'string' || value.length > 2048) return false;
+  const match = /^(https?):\/\/(\[[0-9a-fA-F:.]+\]|[A-Za-z0-9][A-Za-z0-9.-]*):([0-9]{1,5})$/.exec(
+    value,
+  );
+  if (!match || Number(match[3]) < 1 || Number(match[3]) > 65535) return false;
+  try {
+    const url = new URL(value);
+    return !url.username && !url.password && !url.search && !url.hash && url.pathname === '/';
+  } catch {
+    return false;
+  }
+}
+function pinnedProxyCa(input: NonNullable<OwnedSymposiumGatewayOptions['upstreamProxy']>): Buffer {
+  if (
+    !isOwnedSymposiumProxyUrl(input.url) ||
+    !digest.test(input.caBundleSha256) ||
+    !isAbsolute(input.caBundle)
+  )
+    throw new Error('Invalid owned upstream proxy configuration');
+  const fd = openSync(input.caBundle, constants.O_RDONLY | constants.O_NOFOLLOW);
+  try {
+    const before = fstatSync(fd);
+    if (!before.isFile() || before.nlink !== 1 || before.size < 1 || before.size > 128 * 1024)
+      throw Error();
+    const bounded = Buffer.alloc(128 * 1024 + 1);
+    let size = 0;
+    while (size < bounded.length) {
+      const count = readSync(fd, bounded, size, bounded.length - size, null);
+      if (!count) break;
+      size += count;
+    }
+    const after = fstatSync(fd),
+      named = lstatSync(input.caBundle);
+    if (
+      size !== before.size ||
+      after.size !== before.size ||
+      after.mtimeMs !== before.mtimeMs ||
+      after.ctimeMs !== before.ctimeMs ||
+      named.isSymbolicLink() ||
+      !named.isFile() ||
+      named.dev !== before.dev ||
+      named.ino !== before.ino ||
+      named.nlink !== 1
+    )
+      throw Error();
+    const bytes = bounded.subarray(0, size);
+    if (
+      hash(bytes) !== input.caBundleSha256 ||
+      !/^-----BEGIN CERTIFICATE-----\r?\n(?:[A-Za-z0-9+/=]+\r?\n)+-----END CERTIFICATE-----\r?\n?$/.test(
+        bytes.toString('ascii'),
+      )
+    )
+      throw Error();
+    const cert = new X509Certificate(bytes),
+      now = Date.now();
+    if (!cert.ca || !(Date.parse(cert.validFrom) <= now && now < Date.parse(cert.validTo)))
+      throw Error();
+    return Buffer.from(bytes);
+  } catch {
+    throw new Error('Owned upstream proxy CA must be bounded, pinned and currently valid');
+  } finally {
+    closeSync(fd);
+  }
 }
 
 interface HostOperations {
@@ -202,10 +289,25 @@ export class OwnedSymposiumGateway {
   static async launch(
     options: OwnedSymposiumGatewayOptions,
     operations: HostOperations = host,
+    observeOriginalProcess?: OriginalProcessObserver,
   ): Promise<OwnedSymposiumGateway> {
-    options = { ...options, tls: { ...options.tls }, jwt: { ...options.jwt } };
+    if (observeOriginalProcess !== undefined && typeof observeOriginalProcess !== 'function')
+      throw Error('Process observer must be a trusted constructor callback');
+    if (
+      options.upstreamProxy !== undefined &&
+      (!options.upstreamProxy || typeof options.upstreamProxy !== 'object')
+    )
+      throw new Error('Invalid owned upstream proxy configuration');
+    options = {
+      ...options,
+      tls: { ...options.tls },
+      jwt: { ...options.jwt },
+      upstreamProxy: options.upstreamProxy ? { ...options.upstreamProxy } : undefined,
+    };
     if (
       ![options.gateway, options.workspace, options.network].every((value) => id.test(value)) ||
+      (options.supervisorNetwork !== undefined &&
+        !isOwnedSymposiumSupervisorNetwork(options.supervisorNetwork, options.network)) ||
       !Number.isInteger(options.port) ||
       options.port < 1024 ||
       options.port > 65535 ||
@@ -217,6 +319,7 @@ export class OwnedSymposiumGateway {
       !isAbsolute(options.podmanSocket)
     )
       throw new Error('Invalid owned gateway launch identity');
+    const proxyCa = options.upstreamProxy ? pinnedProxyCa(options.upstreamProxy) : undefined;
     privateDirectory(options.stateParent);
     if (operations.listenerPid(options.port) !== null)
       throw new Error('Dedicated gateway port is already occupied');
@@ -250,10 +353,19 @@ export class OwnedSymposiumGateway {
     const files = new Map<string, { sha256: string; mode: number }>();
     const freeze = (name: string, bytes: Buffer, mode = 0o400) => {
       const path = join(root, name);
-      writeFileSync(path, bytes, { mode, flag: 'wx' });
+      const fd = openSync(path, 'wx', mode);
+      try {
+        writeFileSync(fd, bytes);
+        fchmodSync(fd, mode);
+      } finally {
+        closeSync(fd);
+      }
       files.set(path, { sha256: hash(bytes), mode });
       return path;
     };
+    // Public trust anchors cross a read-only file bind to a distinct supervisor UID.
+    // The private launch directory and all credential file modes remain unchanged.
+    const proxyCaPath = proxyCa ? freeze('upstream-proxy-ca.pem', proxyCa, 0o444) : undefined;
     const executable = freeze('openshell-gateway', binary, 0o500);
     const cli = freeze('openshell', cliBytes, 0o500);
     const publicRoots = regularBytes(options.systemCaBundle);
@@ -324,9 +436,9 @@ client_ca_path = ${q(tls.clientCa)}
 [openshell.drivers.podman]
 allow_driver_config = true
 enable_bind_mounts = false
-socket_path = ${q(options.podmanSocket)}
+${options.upstreamProxy ? `https_proxy = ${q(options.upstreamProxy.url)}\nproxy_ca_bundle = ${q(proxyCaPath!)}\n` : ''}socket_path = ${q(options.podmanSocket)}
 network_name = ${q(options.network)}
-grpc_endpoint = ${q(`https://host.containers.internal:${options.port}`)}
+${options.supervisorNetwork !== undefined ? `supervisor_network_name = ${q(options.supervisorNetwork)}\n` : ''}grpc_endpoint = ${q(`https://host.containers.internal:${options.port}`)}
 default_image = ${q(options.workloadImage)}
 image_pull_policy = "never"
 sandbox_runtime_image = ${q(options.sandboxRuntimeImage)}
@@ -369,6 +481,13 @@ enabled = true
       }),
     );
     try {
+      const observed: unknown = observeOriginalProcess?.('gateway', child, () =>
+        owned.verifyFilesAndProcess(),
+      );
+      if (observed !== undefined) {
+        void Promise.resolve(observed).catch(() => {});
+        throw Error('Process observer must be synchronous');
+      }
       const deadline = Date.now() + 15_000;
       while (true) {
         owned.verifyFilesAndProcess();
@@ -553,12 +672,27 @@ enabled = true
   ): Promise<void> {
     if (gateway !== this.gateway || workspace !== this.workspace || driver !== 'podman')
       throw new Error('Artifact request differs from owned gateway identity');
-    await this.verifyFilesAndProcessAsync();
-    const pid = this.operations.listenerPidAsync
-      ? await this.operations.listenerPidAsync(this.port)
-      : this.operations.listenerPid(this.port);
-    await this.verifyFilesAndProcessAsync();
-    if (pid !== this.child.pid) throw new Error('Gateway endpoint belongs to a different process');
+    // The host rotates its own short-lived management token by atomic rename.
+    // A rotation between awaited file reads is safe to re-observe, but every
+    // other custody drift still fails closed. Never dispatch from a mixed view.
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const token = this.tokenSha256;
+      try {
+        await this.verifyFilesAndProcessAsync();
+        const pid = this.operations.listenerPidAsync
+          ? await this.operations.listenerPidAsync(this.port)
+          : this.operations.listenerPid(this.port);
+        await this.verifyFilesAndProcessAsync();
+        if (pid !== this.child.pid)
+          throw new Error('Gateway endpoint belongs to a different process');
+        if (this.tokenSha256 !== token)
+          throw new Error('Management token changed during observation');
+        return;
+      } catch (error) {
+        if (attempt === 0 && token && this.tokenSha256 !== token) continue;
+        throw error;
+      }
+    }
   }
 
   verifyCustody(): void {

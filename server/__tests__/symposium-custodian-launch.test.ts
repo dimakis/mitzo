@@ -47,6 +47,39 @@ it('passes explicit app configuration without provider secrets or a second owned
     expect(env[key]).toBeUndefined();
 });
 
+it('forwards the explicit Jaeger OTLP endpoint into a tracing-capable child without provider credentials', async () => {
+  const { spawnSync } = await import('node:child_process');
+  const env = custodianAppEnvironment({
+    PATH: process.env.PATH,
+    OTEL_EXPORTER_OTLP_ENDPOINT: 'http://127.0.0.1:4318',
+    GOOGLE_APPLICATION_CREDENTIALS: '/private/work-adc.json',
+    OPENAI_API_KEY: 'private-api-key',
+    MITZO_SYMPOSIUM_OWNED_HOST_CONFIG: '/private/owned-host.json',
+  });
+  expect(env.OTEL_EXPORTER_OTLP_ENDPOINT).toBe('http://127.0.0.1:4318');
+  expect(env.GOOGLE_APPLICATION_CREDENTIALS).toBeUndefined();
+  expect(env.OPENAI_API_KEY).toBeUndefined();
+  expect(env.MITZO_SYMPOSIUM_OWNED_HOST_CONFIG).toBeUndefined();
+
+  const child = spawnSync(
+    process.execPath,
+    [
+      '--import',
+      'tsx',
+      '--input-type=module',
+      '-e',
+      `const {tracer}=await import('./server/tracing.ts');
+       const span=tracer.startSpan('test.custodian.jaeger-startup');
+       const traceId=span.spanContext().traceId; span.end();
+       if (!/^[a-f0-9]{32}$/.test(traceId) || /^0+$/.test(traceId)) process.exit(2);
+       process.stdout.write('tracing-ready'); process.exit(0);`,
+    ],
+    { cwd: process.cwd(), env: { ...env, NODE_ENV: 'test' }, encoding: 'utf8', timeout: 15000 },
+  );
+  expect(child.status).toBe(0);
+  expect(child.stdout).toContain('tracing-ready');
+});
+
 it('rotates app authentication for every child while retaining the configured login passphrase', () => {
   const source = { AUTH_SECRET: 'old-parent-signing-secret', AUTH_PASSPHRASE: 'test-passphrase' };
   const first = custodianAppEnvironment(source);

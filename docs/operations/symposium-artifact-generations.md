@@ -63,8 +63,11 @@ The session-wide seal fence remains closed, and the review workflow artifact is
 not advanced. Generation-aware session mapping/admission, successor fence
 capabilities, fresh per-generation sandboxes and historical cleanup remain future
 work. Pointer movement must not be treated as writer ownership migration or a
-complete accepted-fix lifecycle. Real native hard-budget enforcement and final
-usage accounting remain required; this change does not relax them.
+complete accepted-fix lifecycle. This describes the original ledger-only slice;
+current workflow prerequisites follow the
+[integrated acceptance contract](../features/symposium-integrated-acceptance.md#application-policy-contract).
+Persisted application limits remain required, while guaranteed native token/spend
+caps and mandatory final usage totals are deferred.
 
 Reopening in the same custody retains receipts and uncertainties. A new gateway
 custody cannot adopt the old operation. Downgrading to code unaware of these new

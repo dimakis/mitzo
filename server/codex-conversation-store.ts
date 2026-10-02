@@ -170,10 +170,23 @@ export class CodexConversationStore {
         UNIQUE(conversation_id,id));
       CREATE TABLE IF NOT EXISTS codex_tools (
         conversation_id TEXT NOT NULL, command_id TEXT NOT NULL, call_id TEXT NOT NULL,
+        turn_id TEXT, tool_name TEXT, request_hash TEXT, result_content TEXT, result_is_error INTEGER,
         PRIMARY KEY(conversation_id,call_id),
         FOREIGN KEY(conversation_id,command_id) REFERENCES codex_commands(conversation_id,id));
       CREATE INDEX IF NOT EXISTS codex_commands_queue_status ON codex_commands(conversation_id,status,sequence);`);
     this.db.transaction(() => {
+      const toolColumns = this.db.prepare('PRAGMA table_info(codex_tools)').all() as Array<{
+        name: string;
+      }>;
+      for (const [name, type] of [
+        ['turn_id', 'TEXT'],
+        ['tool_name', 'TEXT'],
+        ['request_hash', 'TEXT'],
+        ['result_content', 'TEXT'],
+        ['result_is_error', 'INTEGER'],
+      ] as const)
+        if (!toolColumns.some((column) => column.name === name))
+          this.db.exec(`ALTER TABLE codex_tools ADD COLUMN ${name} ${type}`);
       const conversationColumns = this.db
         .prepare('PRAGMA table_info(codex_conversations)')
         .all() as Array<{ name: string }>;
@@ -794,7 +807,13 @@ export class CodexConversationStore {
           .run(recoveryStrategy, id);
     })();
   }
-  claimTool(id: string, b: AccountBinding, commandId: string, callId: string): boolean {
+  claimTool(
+    id: string,
+    b: AccountBinding,
+    commandId: string,
+    callId: string,
+    identity?: { turnId: string; toolName: string; requestHash: string },
+  ): boolean {
     return this.db.transaction(() => {
       this.read(id, b);
       if (
@@ -805,9 +824,105 @@ export class CodexConversationStore {
         return false;
       if (!this.commands(id, b).some((c) => c.id === commandId && c.status === 'running'))
         throw new Error('Codex command is not running');
-      this.db.prepare('INSERT INTO codex_tools VALUES (?,?,?)').run(id, commandId, callId);
+      this.db
+        .prepare(
+          `INSERT INTO codex_tools
+        (conversation_id,command_id,call_id,turn_id,tool_name,request_hash)
+        VALUES (?,?,?,?,?,?)`,
+        )
+        .run(
+          id,
+          commandId,
+          callId,
+          identity?.turnId ?? null,
+          identity?.toolName ?? null,
+          identity?.requestHash ?? null,
+        );
       return true;
     })();
+  }
+  /** A completed host result is persisted before it is exposed to the transport.
+   * A duplicate RPC can replay exactly the same result after a lost response. */
+  recordToolResult(
+    id: string,
+    b: AccountBinding,
+    commandId: string,
+    callId: string,
+    identity: { turnId: string; toolName: string; requestHash: string },
+    result: { content: string; isError: boolean },
+  ): void {
+    this.db.transaction(() => {
+      this.read(id, b);
+      const row = this.db
+        .prepare(
+          `SELECT command_id,turn_id,tool_name,request_hash,result_content,result_is_error
+        FROM codex_tools WHERE conversation_id=? AND call_id=?`,
+        )
+        .get(id, callId) as
+        | {
+            command_id: string;
+            turn_id: string | null;
+            tool_name: string | null;
+            request_hash: string | null;
+            result_content: string | null;
+            result_is_error: number | null;
+          }
+        | undefined;
+      if (
+        !row ||
+        row.command_id !== commandId ||
+        row.turn_id !== identity.turnId ||
+        row.tool_name !== identity.toolName ||
+        row.request_hash !== identity.requestHash
+      )
+        throw new Error('Codex tool result identity changed');
+      if (row.result_content !== null) {
+        if (row.result_content !== result.content || row.result_is_error !== Number(result.isError))
+          throw new Error('Codex tool result changed');
+        return;
+      }
+      this.db
+        .prepare(
+          `UPDATE codex_tools SET result_content=?,result_is_error=?
+        WHERE conversation_id=? AND command_id=? AND call_id=?`,
+        )
+        .run(result.content, Number(result.isError), id, commandId, callId);
+    })();
+  }
+  replayToolResult(
+    id: string,
+    b: AccountBinding,
+    commandId: string,
+    callId: string,
+    identity: { turnId: string; toolName: string; requestHash: string },
+  ): { content: string; isError: boolean } | null {
+    this.read(id, b);
+    const row = this.db
+      .prepare(
+        `SELECT command_id,turn_id,tool_name,request_hash,result_content,result_is_error
+      FROM codex_tools WHERE conversation_id=? AND call_id=?`,
+      )
+      .get(id, callId) as
+      | {
+          command_id: string;
+          turn_id: string | null;
+          tool_name: string | null;
+          request_hash: string | null;
+          result_content: string | null;
+          result_is_error: number | null;
+        }
+      | undefined;
+    if (
+      !row ||
+      row.command_id !== commandId ||
+      row.turn_id !== identity.turnId ||
+      row.tool_name !== identity.toolName ||
+      row.request_hash !== identity.requestHash
+    )
+      throw new Error('Codex tool replay identity changed');
+    return row.result_content === null
+      ? null
+      : { content: row.result_content, isError: row.result_is_error === 1 };
   }
   recoverAtStartup(ownerKind?: 'ordinary' | 'symposium') {
     this.db.transaction(() => {

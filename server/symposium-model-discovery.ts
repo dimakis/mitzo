@@ -1,5 +1,7 @@
 import {
+  classifyDiscoveryFailure,
   DiscoveryCommandFailure,
+  DiscoveryNativeMetadataFailure,
   DiscoveryDiagnosticSchema,
   type DiscoveryDiagnostic,
 } from './symposium-discovery-diagnostics.js';
@@ -190,9 +192,7 @@ async function runExclusiveDiscovery(
     const diagnostic = DiscoveryDiagnosticSchema.parse({
       stage,
       createDispatch,
-      ...(error instanceof DiscoveryCommandFailure
-        ? error.detail
-        : { failureClass: 'operation-failed', commandDispatch: 'not-observed' }),
+      ...classifyDiscoveryFailure(error),
       recordedAt: new Date().toISOString(),
     });
     let diagnosticPersisted = false;
@@ -293,8 +293,8 @@ async function runExclusiveDiscovery(
       stage = 'account-read';
       const account = z
         .object({ account: z.object({ type: z.literal('chatgpt') }) })
-        .parse(await client.request('account/read', { refreshToken: false }));
-      void account;
+        .safeParse(await client.request('account/read', { refreshToken: false }));
+      if (!account.success) throw new DiscoveryNativeMetadataFailure('account_schema');
       stage = 'model-list';
       let pages = 0;
       let expired = false;

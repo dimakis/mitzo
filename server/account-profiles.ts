@@ -49,6 +49,7 @@ const CodexProfile = z
     provider: z.literal('openai-codex'),
     nativeAuth: z.literal('sandbox-chatgpt').optional(),
     nativeCatalogRevision: z.number().int().positive().optional(),
+    nativeCatalogStale: z.boolean().optional(),
     credentialRef: z.string().refine(isAbsolute).optional(),
     email: z.string().min(1),
     planType: z.string().min(1),
@@ -234,7 +235,14 @@ export class AccountProfiles {
               ? profile.models
               : (discovered?.models ?? profile.models),
           ),
-          modelDiscovery: { updatedAt: discovered?.updatedAt, stale: !!discovered?.error },
+          modelDiscovery: {
+            updatedAt: discovered?.updatedAt,
+            stale:
+              !!discovered?.error ||
+              (profile.provider === 'openai-codex' &&
+                profile.nativeAuth === 'sandbox-chatgpt' &&
+                (!profile.nativeCatalogRevision || !!profile.nativeCatalogStale)),
+          },
           capabilities: {
             streaming: provider !== 'google-vertex',
             tools: true,

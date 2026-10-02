@@ -32,7 +32,11 @@ const config = {
   interceptMode: 'manual' as const,
 };
 
-function fixture(runtimeAvailable = false, custodianClient?: CustodianClient) {
+function fixture(
+  runtimeAvailable = false,
+  custodianClient?: CustodianClient,
+  artifactReady?: (sessionId: string, seatId: string, generation: number) => boolean,
+) {
   const membership = {
     sessionId: 'chat',
     seatId: 'reviewer',
@@ -129,6 +133,7 @@ function fixture(runtimeAvailable = false, custodianClient?: CustodianClient) {
     createSymposiumDirectorRouter({
       store: store as never,
       getRuntime,
+      artifactReady,
       getSafetyOrchestrator: () => orchestrator as never,
       validateSelection,
       validateActiveConfig,
@@ -155,6 +160,36 @@ function fixture(runtimeAvailable = false, custodianClient?: CustodianClient) {
 }
 
 describe('Symposium director routes', () => {
+  it('does not report a provider-admitted sealed source seat as executable', async () => {
+    const ready = vi.fn(() => false);
+    const { app, store, orchestrator } = fixture(true, undefined, ready);
+    store.getSymposiumMembershipHistory.mockReturnValue([
+      {
+        sessionId: 'chat',
+        seatId: 'reviewer',
+        generation: 2,
+        state: 'active',
+        action: 'admit',
+        configRevision: 4,
+        reconciliation: 'confirmed',
+      },
+    ]);
+    store.getSymposiumAdmissions.mockReturnValue([
+      {
+        seatId: 'reviewer',
+        configRevision: 4,
+        decision: 'admitted',
+        membershipGeneration: 2,
+      },
+    ] as never);
+    orchestrator.creationDiagnostic.mockReturnValue(null as never);
+    const response = await request(app).get('/api/sessions/chat/symposium');
+    expect(response.status).toBe(200);
+    expect(
+      response.body.seats.find((seat: { seatId: string }) => seat.seatId === 'reviewer'),
+    ).toMatchObject({ admitted: false });
+    expect(ready).toHaveBeenCalledWith('chat', 'reviewer', 2);
+  });
   it('resolves one fresh runtime per status request and preserves each seat diagnostic', async () => {
     const { app, getRuntime, orchestrator } = fixture(true);
     const first = await request(app).get('/api/sessions/chat/symposium');
