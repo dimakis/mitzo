@@ -1395,6 +1395,7 @@ async function _startChatInner(
     sessionAllowList: new Set<string>(),
     worktreePath,
     agentName,
+    ...(accountBinding ? { accountBinding } : {}),
     // Set sessionId early so pre-assistant events are persisted (iOS reconnect).
     ...((options.resume ?? options.initialSessionId)
       ? { sessionId: options.resume ?? options.initialSessionId }

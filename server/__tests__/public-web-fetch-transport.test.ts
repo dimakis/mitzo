@@ -31,7 +31,12 @@ describe('public website HTTPS transport', () => {
   it('pins one address family and does not pass cookies, credentials, proxies or pooled sockets', async () => {
     wire.responseBytes = 2;
     await fetchPublicPage('https://example.com/', new AbortController().signal);
-    expect(wire.options).toMatchObject({ method: 'GET', family: 4, agent: false });
+    expect(wire.options).toMatchObject({
+      method: 'GET',
+      family: 4,
+      agent: false,
+      rejectUnauthorized: true,
+    });
     const headers = wire.options!.headers as Record<string, string>;
     expect(Object.keys(headers).sort()).toEqual(['Accept', 'Accept-Encoding', 'User-Agent']);
     expect(headers['Accept-Encoding']).toBe('identity');
