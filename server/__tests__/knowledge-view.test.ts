@@ -101,3 +101,23 @@ it.each([
 ])('never repairs a task or unrelated path: %s', (path) => {
   expect(() => knowledgeCacheRepairCommand(path)).toThrow();
 });
+
+it.each(['file', 'directory', 'symlink'])(
+  'repairs only the selected invalid %s cache entry',
+  (kind) => {
+    root = realpathSync(mkdtempSync(join(tmpdir(), 'knowledge-repair-')));
+    const cache = join(root, 'knowledge-' + sha('selected'));
+    const task = join(root, 'task-data');
+    writeFileSync(task, 'preserve');
+    if (kind === 'file') writeFileSync(cache, 'invalid');
+    if (kind === 'directory') mkdirSync(cache);
+    if (kind === 'symlink') execFileSync('ln', ['-s', task, cache]);
+    // Relocate the fixed sandbox prefix into this disposable local fixture.
+    const command = knowledgeCacheRepairCommand(
+      '/sandbox/workspaces/knowledge/knowledge-' + sha('selected'),
+    ).replaceAll('/sandbox/workspaces/knowledge', root);
+    execFileSync('/bin/sh', ['-c', command], { stdio: 'pipe' });
+    expect(existsSync(cache)).toBe(false);
+    expect(readFileSync(task, 'utf8')).toBe('preserve');
+  },
+);

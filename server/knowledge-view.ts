@@ -42,9 +42,10 @@ p=pathlib.Path(sys.argv[1])
 assert p.parent.resolve(strict=True)==p.parent, 'knowledge cache parent changed'
 if p.is_symlink():
  p.unlink()
+elif p.is_dir():
+ shutil.rmtree(p)
 elif p.exists():
- assert p.is_dir(), 'knowledge cache is not a directory'
- shutil.rmtree(p)`;
+ p.unlink()`;
   return `/usr/bin/python3 -c ${quote(script)} ${quote(root)}`;
 }
 
