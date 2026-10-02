@@ -97,6 +97,7 @@ export interface MitzoStoreState {
 
   // Pending session (for "Start Session" from inbox/todo)
   pendingSession: PendingSession | null;
+  pendingSessionSending: boolean;
 
   // Current server-issued transport identity; never persisted across reconnect.
   getTransportConnectionId(): string | null;
@@ -149,6 +150,7 @@ export interface MitzoStoreState {
   // Actions — pending session
   setPendingSession(ps: PendingSession): void;
   clearPendingSession(): void;
+  sendPendingSession(opts?: SendMessageOptions): boolean;
 
   // Actions — lifecycle
   invalidateAuthentication(): void;
@@ -462,6 +464,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     historyError: null,
     modeChangeReady: true,
     pendingSession: null,
+    pendingSessionSending: false,
 
     // ── Actions ──────────────────────────────────────────────────────────
 
@@ -950,11 +953,37 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     // ── Pending session actions ────────────────────────────────────────
 
     setPendingSession(ps: PendingSession) {
-      set({ pendingSession: ps });
+      set({ pendingSession: ps, pendingSessionSending: false });
     },
 
     clearPendingSession() {
-      set({ pendingSession: null });
+      set({ pendingSession: null, pendingSessionSending: false });
+    },
+
+    sendPendingSession(opts) {
+      const pending = get().pendingSession;
+      if (!pending || get().pendingSessionSending) return false;
+      // Each attempt has a distinct identity, so stale receipts cannot dismiss a replacement.
+      const launch = { ...pending };
+      set({ pendingSession: launch, pendingSessionSending: true });
+      get().dispatchMessages({ type: 'SET_SESSION_CONTEXT', context: launch.context });
+      let queued = true;
+      get().sendMessage(launch.prompt, {
+        ...opts,
+        ...(launch.telosTaskId ? { telosTaskId: launch.telosTaskId } : {}),
+        ...(launch.agentName ? { agentName: launch.agentName } : {}),
+        onDelivery(status) {
+          if (get().pendingSession !== launch) return;
+          if (status === 'accepted') get().clearPendingSession();
+          else if (status === 'failed') {
+            queued = false;
+            set({ pendingSessionSending: false });
+          }
+          // Uncertain delivery remains locked until its matching receipt arrives.
+          opts?.onDelivery?.(status);
+        },
+      });
+      return queued;
     },
 
     invalidateAuthentication() {

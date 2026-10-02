@@ -77,3 +77,53 @@ it('sends ordinary text without consuming or attaching a pending launch', () => 
   expect(result.current.launch).toEqual(launch);
   expect(result.current.launchSending).toBe(false);
 });
+
+it.each(['sending', 'uncertain'] as const)(
+  'keeps a %s launch across chat unmounts until its receipt arrives',
+  (status) => {
+    const store = createTestStore();
+    const launch = { prompt: 'Handle task', context: 'Task context', telosTaskId: 'task' };
+    let receipt: SendMessageOptions['onDelivery'];
+    const send = vi.fn((_text: string, opts?: SendMessageOptions) => {
+      receipt = opts?.onDelivery;
+    });
+    store.setState({ pendingSession: launch, sendMessage: send });
+    const wrapper = ({ children }: { children: React.ReactNode }) => (
+      <MitzoStoreProvider value={store}>{children}</MitzoStoreProvider>
+    );
+    const first = renderHook(usePendingLaunch, { wrapper });
+    act(() => first.result.current.sendLaunch());
+    if (status === 'uncertain') act(() => receipt!('uncertain'));
+    first.unmount();
+    const second = renderHook(usePendingLaunch, { wrapper });
+    expect(second.result.current.launch).toEqual(launch);
+    expect(second.result.current.launchSending).toBe(true);
+    act(() => second.result.current.sendLaunch());
+    expect(send).toHaveBeenCalledTimes(1);
+    act(() => receipt!('accepted'));
+    expect(second.result.current.launch).toBeNull();
+    expect(store.getState().pendingSession).toBeNull();
+  },
+);
+
+it('ignores a dismissed launch receipt after another launch replaces it', () => {
+  const store = createTestStore();
+  const launch = { prompt: 'First', context: 'First context' };
+  let receipt: SendMessageOptions['onDelivery'];
+  store.setState({
+    pendingSession: launch,
+    sendMessage: (_text, opts) => {
+      receipt = opts?.onDelivery;
+    },
+  });
+  const { result } = renderHook(usePendingLaunch, {
+    wrapper: ({ children }) => <MitzoStoreProvider value={store}>{children}</MitzoStoreProvider>,
+  });
+  act(() => result.current.sendLaunch());
+  act(() => result.current.dismissLaunch());
+  const replacement = { prompt: 'Second', context: 'Second context' };
+  act(() => store.getState().setPendingSession(replacement));
+  act(() => receipt!('accepted'));
+  expect(store.getState().pendingSession).toEqual(replacement);
+  expect(result.current.launch).toEqual(replacement);
+});

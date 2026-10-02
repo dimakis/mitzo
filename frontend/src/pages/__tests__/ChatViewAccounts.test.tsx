@@ -176,7 +176,7 @@ it.each(['before', 'after'])(
       act(() =>
         store.getState().setPendingSession({ prompt: 'Review this task', context: 'Task context' }),
       );
-    await waitFor(() => expect(store.getState().pendingSession).toBeNull());
+    await waitFor(() => expect(store.getState().pendingSession?.prompt).toBe('Review this task'));
     expect(screen.getByText('Review this task')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Retry accounts' }));
     await screen.findByText('Work');

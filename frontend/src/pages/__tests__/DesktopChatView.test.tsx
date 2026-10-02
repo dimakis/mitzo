@@ -2,9 +2,8 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { render, screen, within, cleanup, fireEvent, act, waitFor } from '@testing-library/react';
 import { MemoryRouter, Routes, Route, useLocation } from 'react-router-dom';
-import { createStore } from 'zustand/vanilla';
+import { createTestStore } from '../../test-utils/createTestStore';
 import { MitzoStoreProvider } from '@mitzo/client/hooks';
-import type { MitzoStoreState } from '@mitzo/client';
 import { INITIAL_MESSAGES_STATE, messagesReducer } from '@mitzo/client';
 
 const voiceMocks = vi.hoisted(() => ({
@@ -117,7 +116,8 @@ vi.mock('../../hooks/useVoice', () => ({
 import { DesktopChatView } from '../DesktopChatView';
 
 function createMockStore() {
-  const store = createStore<MitzoStoreState>(() => ({
+  const store = createTestStore();
+  store.setState({
     getTransportConnectionId: () => null,
     sessions: { list: [], active: null, loading: false },
     messages: INITIAL_MESSAGES_STATE,
@@ -193,7 +193,7 @@ function createMockStore() {
     forceReconnect: vi.fn(),
     sendSuspend: vi.fn(),
     closeSession: vi.fn().mockResolvedValue(undefined),
-  }));
+  });
   store.setState({
     dispatchMessages: (action) =>
       store.setState((state) => ({ messages: messagesReducer(state.messages, action) })),
