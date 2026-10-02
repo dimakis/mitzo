@@ -41,6 +41,7 @@ jobs:
       # No checkout or execution of pull-request code with the status-write token.
       - uses: actions/github-script@v9
         env:
+          CENTAUR_STATUS_APP_LOGIN: ${{ steps.status-token.outputs.app-slug }}[bot]
           CENTAUR_REVIEWER_LOGIN: ${{ vars.CENTAUR_REVIEWER_LOGIN || github.repository_owner }}
         with:
           github-token: ${{ steps.status-token.outputs.token }}
@@ -58,9 +59,6 @@ jobs:
             const {data: pr} = await github.rest.pulls.get({...repo, pull_number: number});
             if (pr.state !== 'open') continue;
             const head = pr.head.sha;
-            await github.rest.repos.createCommitStatus({...repo, sha: head,
-              context: 'Centaur final LGTM', state: 'pending',
-              description: 'Checking final Centaur review for this commit'});
             const reviews = await github.paginate(github.rest.pulls.listReviews,
               {...repo, pull_number: number, per_page: 100});
             const comments = await github.paginate(github.rest.issues.listComments,
@@ -89,9 +87,18 @@ jobs:
             // A head advance must never receive a verdict computed for the old head.
             const {data: refreshed} = await github.rest.pulls.get({...repo, pull_number: number});
             if (refreshed.state !== 'open' || refreshed.head.sha !== head) continue;
+            const state = approved ? 'success' : current ? 'failure' : 'pending';
+            const appLogin = process.env.CENTAUR_STATUS_APP_LOGIN;
+            if (!appLogin) throw new Error('Missing dedicated status App identity');
+            const statuses = await github.paginate(github.rest.repos.listCommitStatuses,
+              {...repo, ref: head, per_page: 100});
+            // The API returns newest first. Ignore statuses from other identities;
+            // branch protection is bound to our dedicated App, not their statuses.
+            const previous = statuses.find(s => s.context === 'Centaur final LGTM' &&
+              s.creator?.login?.toLowerCase() === appLogin.toLowerCase());
+            if (previous?.state === state) continue;
             await github.rest.repos.createCommitStatus({...repo, sha: head,
-              context: 'Centaur final LGTM',
-              state: approved ? 'success' : current ? 'failure' : 'pending',
+              context: 'Centaur final LGTM', state,
               description: approved ? 'Final Centaur LGTM for this commit' :
                 current ? 'Centaur findings or invalid approval block merge' :
                 'Waiting for final Centaur review of this commit'});

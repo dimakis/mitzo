@@ -17,6 +17,7 @@ async function execute(
   next = current,
   reviewer = '',
   event: Record<string, unknown> = { pull_request: { number: 704 } },
+  previous: { state: string; context: string; creator: { login: string } }[] = [],
 ) {
   const statuses: { state: string; sha: string; context: string }[] = [];
   let reads = 0;
@@ -29,19 +30,24 @@ async function execute(
       },
       issues: { listComments: 'comments' },
       repos: {
+        listCommitStatuses: 'statuses',
         createCommitStatus: async (status: (typeof statuses)[number]) => statuses.push(status),
       },
     },
     paginate: async (endpoint: string) =>
-      endpoint === 'reviews'
-        ? records
-        : endpoint === 'pulls'
-          ? [{ number: 704, head: { ref: 'topic', repo: { full_name: 'fork/mitzo' } } }]
-          : [],
+      endpoint === 'statuses'
+        ? previous
+        : endpoint === 'reviews'
+          ? records
+          : endpoint === 'pulls'
+            ? [{ number: 704, head: { ref: 'topic', repo: { full_name: 'fork/mitzo' } } }]
+            : [],
   };
   await new Script(`(async () => {${script}})()`).runInNewContext({
     github,
-    process: { env: { CENTAUR_REVIEWER_LOGIN: reviewer } },
+    process: {
+      env: { CENTAUR_STATUS_APP_LOGIN: 'centaur-status[bot]', CENTAUR_REVIEWER_LOGIN: reviewer },
+    },
     context: {
       repo: { owner: 'dimakis', repo: 'mitzo' },
       payload: event,
@@ -52,7 +58,7 @@ async function execute(
 
 it('sets the required status only for a final current-head Centaur approval', async () => {
   const statuses = await execute([review]);
-  expect(statuses.map((s) => s.state)).toEqual(['pending', 'success']);
+  expect(statuses.map((s) => s.state)).toEqual(['success']);
   expect(statuses.every((s) => s.sha === head && s.context === 'Centaur final LGTM')).toBe(true);
 });
 
@@ -127,4 +133,29 @@ it('rejects a quoted LGTM inside a blocking authoritative review', async () => {
   expect(
     (await execute([{ ...review, body: blocking + '\n```\n' + body + '\n```\n' }])).at(-1)?.state,
   ).toBe('failure');
+});
+
+const prior = (state: string, login = 'centaur-status[bot]') => ({
+  state,
+  context: 'Centaur final LGTM',
+  creator: { login },
+});
+it('does not consume status quota for unchanged periodic verdicts', async () => {
+  expect(await execute([review], head, head, '', {}, [prior('success')])).toEqual([]);
+  expect(await execute([], head, head, '', {}, [prior('pending')])).toEqual([]);
+});
+it('replaces prior approval when a blocking review arrives', async () => {
+  expect(
+    (
+      await execute([{ ...review, body: body.replace('`merge`', '`fix`') }], head, head, '', {}, [
+        prior('success'),
+      ])
+    ).at(-1)?.state,
+  ).toBe('failure');
+});
+it('ignores foreign status identities when deciding whether to publish', async () => {
+  expect(
+    (await execute([review], head, head, '', {}, [prior('success', 'github-actions[bot]')])).at(-1)
+      ?.state,
+  ).toBe('success');
 });
