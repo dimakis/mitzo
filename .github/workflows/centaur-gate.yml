@@ -3,9 +3,8 @@ name: Centaur merge gate
 on:
   pull_request_target:
     types: [opened, synchronize, reopened]
-  workflow_run:
-    workflows: [Centaur review signal]
-    types: [completed]
+  schedule:
+    - cron: '*/5 * * * *'
   issue_comment:
     types: [created, edited, deleted]
   workflow_dispatch:
@@ -17,37 +16,43 @@ on:
 permissions:
   contents: read
   pull-requests: read
-  statuses: write
 
+# One queue for every event, including periodic reconciliation of fork reviews.
 concurrency:
-  group: centaur-${{ github.event.pull_request.number || github.event.issue.number || inputs.pr_number || github.event.workflow_run.pull_requests[0].number || format('{0}:{1}', github.event.workflow_run.head_repository.full_name, github.event.workflow_run.head_branch) }}
-  cancel-in-progress: true
+  group: centaur-status-writer
+  cancel-in-progress: false
 
 jobs:
   centaur:
     if: github.event_name != 'issue_comment' || github.event.issue.pull_request
     runs-on: ubuntu-latest
+    # This environment MUST allow deployment only from the default branch.
+    # Its dedicated App key must never be a repository-level secret.
+    environment: centaur-status-writer
     steps:
+      - uses: actions/create-github-app-token@v2
+        id: status-token
+        with:
+          app-id: ${{ vars.CENTAUR_STATUS_APP_ID }}
+          private-key: ${{ secrets.CENTAUR_STATUS_APP_PRIVATE_KEY }}
+          permission-statuses: write
+          permission-pull-requests: read
+          permission-issues: read
       # No checkout or execution of pull-request code with the status-write token.
       - uses: actions/github-script@v9
         env:
           CENTAUR_REVIEWER_LOGIN: ${{ vars.CENTAUR_REVIEWER_LOGIN || github.repository_owner }}
         with:
+          github-token: ${{ steps.status-token.outputs.token }}
           script: |
             const repo = {owner: context.repo.owner, repo: context.repo.repo};
-            const signal = context.payload.workflow_run;
-            let numbers = signal ? (signal.pull_requests || []).map(pr => pr.number) : [
-              context.payload.pull_request?.number ?? context.payload.issue?.number ??
+            let numbers = [context.payload.pull_request?.number ?? context.payload.issue?.number ??
               Number(context.payload.inputs?.pr_number)];
-            // Fork run metadata can omit pull_requests. Resolve only canonical
-            // open PRs matching the run's source repository and branch.
-            if (signal && numbers.length === 0) {
+            if (!numbers[0]) {
               const candidates = await github.paginate(github.rest.pulls.list,
                 {...repo, state: 'open', per_page: 100});
-              numbers = candidates.filter(pr => pr.head.repo?.full_name === signal.head_repository?.full_name &&
-                pr.head.ref === signal.head_branch).map(pr => pr.number);
+              numbers = candidates.map(pr => pr.number);
             }
-            if (numbers.length === 0) throw new Error('Unable to resolve review signal');
             for (const number of new Set(numbers)) {
             if (!Number.isSafeInteger(number) || number <= 0) throw new Error('Invalid PR');
             const {data: pr} = await github.rest.pulls.get({...repo, pull_number: number});

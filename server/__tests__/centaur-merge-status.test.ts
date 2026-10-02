@@ -101,13 +101,15 @@ it('resolves fork review signals through canonical PR metadata', async () => {
   expect(statuses.at(-1)?.state).toBe('success');
 });
 
-it('separates PR-controlled review signals from trusted status writes', () => {
+it('isolates the status identity and serializes every trigger', () => {
   const gate = readFileSync('.github/workflows/centaur-gate.yml', 'utf8');
-  const signal = readFileSync('.github/workflows/centaur-review-signal.yml', 'utf8');
   expect(gate).not.toContain('  pull_request_review:');
-  expect(gate).toContain('workflows: [Centaur review signal]');
-  expect(signal).not.toContain('statuses: write');
-  expect(signal).not.toContain('actions/checkout');
+  expect(gate).not.toContain('  workflow_run:');
+  expect(gate).toContain('environment: centaur-status-writer');
+  expect(gate).toContain('actions/create-github-app-token@v2');
+  expect(gate).toContain('github-token: ${{ steps.status-token.outputs.token }}');
+  expect(gate).toContain('group: centaur-status-writer');
+  expect(gate).toContain('cancel-in-progress: false');
 });
 
 it('normalizes configured GitHub reviewer capitalization', async () => {

@@ -159,3 +159,9 @@ Webhooks can wake reconciliation, but polling and retry must recover missed even
 New sessions then select that publication; retained sessions adopt it only at a
 safe turn boundary. Generic adapters, admission freshness barriers, and broader
 consumer enrollment remain future work, not capabilities implied by this ADR.
+
+## Approval status identity provisioning
+
+The status writer requires a dedicated GitHub App installed on this repository, with commit-status write, pull-request read and issue read permissions. Set `CENTAUR_STATUS_APP_ID` as a repository variable. Put `CENTAUR_STATUS_APP_PRIVATE_KEY` **only** in the `centaur-status-writer` environment. Restrict that environment's deployment branches to the default branch (`main`); do not allow pull-request refs or feature branches. Do not duplicate the key in repository or organization secrets. Bind the required `Centaur final LGTM` status to this dedicated App's actual numeric application ID, never the GitHub Actions App or any source. Verify these settings and a real status before claiming enforcement. Until provisioned, the workflow fails closed and the guarded CLI remains the manual gate.
+
+The default-branch writer rechecks pushes, review comments and manual dispatches; a five-minute scheduled reconciliation covers review submissions, edits and dismissals without running PR-controlled code with the App credential. All triggers share one non-cancelling repository queue to prevent overlapping verdict writes. This has eventual review freshness; it does not claim an atomic lock between a new review and GitHub's merge operation.
