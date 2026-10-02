@@ -74,6 +74,7 @@ export function ChatView() {
     launchSending,
     dismissLaunch,
     sendMessage: storeSendMessage,
+    sendLaunch,
   } = usePendingLaunch();
 
   const connected = connection.status === 'connected';
@@ -174,7 +175,12 @@ export function ChatView() {
 
   // ── Actions ──────────────────────────────────────────────────────────────
 
-  function handleSend(text: string, images?: ImageAttachment[], ctxBlocks?: string[]): boolean {
+  function handleSend(
+    text: string,
+    images?: ImageAttachment[],
+    ctxBlocks?: string[],
+    launching = false,
+  ): boolean {
     if (!activeSessionId && !accountSelection) return false;
     // For new sessions (no activeSessionId) the store bootstraps a WS on
     // demand inside sendMessage(), so we must not block on connection status.
@@ -187,7 +193,7 @@ export function ChatView() {
     voice.stopSpeaking();
     // Codex supports per-turn model changes. The server ignores these fields for
     // sessions bound to other providers and rejects cross-account rebinding.
-    const queued = storeSendMessage(text, {
+    const options = {
       images,
       contextBlocks: ctxBlocks,
       ...(accountSelection ?? {}),
@@ -195,7 +201,8 @@ export function ChatView() {
       cwd: searchParams.get('cwd') ?? undefined,
       extraTools: searchParams.get('extraTools') ?? undefined,
       ...(!activeSessionId && !isolation ? { isolation: false } : {}),
-    });
+    };
+    const queued = launching ? sendLaunch(options) : storeSendMessage(text, options);
     forceScrollToBottom();
     return queued;
   }
@@ -390,7 +397,7 @@ export function ChatView() {
                 </details>
                 <button
                   disabled={!accountSelection || messages.running || launchSending}
-                  onClick={() => handleSend(launch.prompt)}
+                  onClick={() => handleSend(launch.prompt, undefined, undefined, true)}
                 >
                   Send launch prompt
                 </button>

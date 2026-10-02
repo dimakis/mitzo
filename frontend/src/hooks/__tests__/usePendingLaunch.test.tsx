@@ -23,13 +23,13 @@ it('retains a failed launch, retries its identity, and dismisses only after acce
   const { result } = renderHook(usePendingLaunch, {
     wrapper: ({ children }) => <MitzoStoreProvider value={store}>{children}</MitzoStoreProvider>,
   });
-  act(() => result.current.sendMessage('Handle task', { accountId: 'personal', model: 'luna' }));
+  act(() => result.current.sendLaunch({ accountId: 'personal', model: 'luna' }));
   expect(result.current.launch).toEqual(launch);
   expect(result.current.launchSending).toBe(true);
   act(() => callbacks[0]('failed'));
   expect(result.current.launch).toEqual(launch);
   expect(result.current.launchSending).toBe(false);
-  act(() => result.current.sendMessage('Handle task', { accountId: 'personal', model: 'luna' }));
+  act(() => result.current.sendLaunch({ accountId: 'personal', model: 'luna' }));
   expect(send).toHaveBeenLastCalledWith(
     'Handle task',
     expect.objectContaining({
@@ -57,9 +57,23 @@ it('returns false and preserves the prompt when sending cannot queue', () => {
   });
   let sent: boolean | undefined;
   act(() => {
-    sent = result.current.sendMessage(launch.prompt);
+    sent = result.current.sendLaunch();
   });
   expect(sent).toBe(false);
+  expect(result.current.launch).toEqual(launch);
+  expect(result.current.launchSending).toBe(false);
+});
+
+it('sends ordinary text without consuming or attaching a pending launch', () => {
+  const store = createTestStore();
+  const launch = { prompt: 'Handle task', context: 'Task context', telosTaskId: 'task' };
+  const send = vi.fn();
+  store.setState({ pendingSession: launch, sendMessage: send });
+  const { result } = renderHook(usePendingLaunch, {
+    wrapper: ({ children }) => <MitzoStoreProvider value={store}>{children}</MitzoStoreProvider>,
+  });
+  act(() => result.current.sendMessage('Unrelated question', { accountId: 'personal' }));
+  expect(send).toHaveBeenCalledWith('Unrelated question', { accountId: 'personal' });
   expect(result.current.launch).toEqual(launch);
   expect(result.current.launchSending).toBe(false);
 });

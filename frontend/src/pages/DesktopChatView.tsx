@@ -64,6 +64,7 @@ export function DesktopChatView() {
     launchSending,
     dismissLaunch,
     sendMessage: storeSendMessage,
+    sendLaunch,
   } = usePendingLaunch();
 
   const connected = connection.status === 'connected';
@@ -162,14 +163,19 @@ export function DesktopChatView() {
 
   // ── Actions ──────────────────────────────────────────────────────────────
 
-  function handleSend(text: string, images?: ImageAttachment[], ctxBlocks?: string[]): boolean {
+  function handleSend(
+    text: string,
+    images?: ImageAttachment[],
+    ctxBlocks?: string[],
+    launching = false,
+  ): boolean {
     if (!activeSessionId && !accountSelection) return false;
     if (activeSessionId && connection.status !== 'connected') {
       storeDispatchMessages({ type: 'CONNECTION_LOST' });
       return false;
     }
     voice.stopSpeaking();
-    const queued = storeSendMessage(text, {
+    const options = {
       images,
       contextBlocks: ctxBlocks,
       ...(accountSelection ?? {}),
@@ -177,7 +183,8 @@ export function DesktopChatView() {
       cwd: searchParams.get('cwd') ?? undefined,
       extraTools: searchParams.get('extraTools') ?? undefined,
       ...(!activeSessionId && !isolation ? { isolation: false } : {}),
-    });
+    };
+    const queued = launching ? sendLaunch(options) : storeSendMessage(text, options);
     forceScrollToBottom();
     return queued;
   }
@@ -355,7 +362,7 @@ export function DesktopChatView() {
                     </details>
                     <button
                       disabled={!accountSelection || messages.running || launchSending}
-                      onClick={() => handleSend(launch.prompt)}
+                      onClick={() => handleSend(launch.prompt, undefined, undefined, true)}
                     >
                       Send launch prompt
                     </button>

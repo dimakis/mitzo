@@ -27,17 +27,18 @@ export function usePendingLaunch() {
     setLaunch(null);
   }
   function sendMessage(text: string, opts?: SendMessageOptions): boolean {
-    if (!launch) {
-      storeSend(text, opts);
-      return true;
-    }
+    storeSend(text, opts);
+    return true;
+  }
+  function sendLaunch(opts?: SendMessageOptions): boolean {
+    if (!launch) return false;
     if (inFlight.current) return false;
     const currentAttempt = ++attempt.current;
     inFlight.current = true;
     setLaunchSending(true);
     dispatch({ type: 'SET_SESSION_CONTEXT', context: launch.context });
     let queued = true;
-    storeSend(text, {
+    storeSend(launch.prompt, {
       ...opts,
       ...(launch.telosTaskId ? { telosTaskId: launch.telosTaskId } : {}),
       ...(launch.agentName ? { agentName: launch.agentName } : {}),
@@ -54,5 +55,5 @@ export function usePendingLaunch() {
     });
     return queued;
   }
-  return { launch, launchSending, dismissLaunch, sendMessage };
+  return { launch, launchSending, dismissLaunch, sendMessage, sendLaunch };
 }
