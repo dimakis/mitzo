@@ -137,7 +137,7 @@ function createMockStore() {
     },
     workload: { items: [], profiles: [] },
     inbox: { items: [], count: 0 },
-    calendar: { events: [], sprints: [], loading: false },
+    calendar: { events: [], sprints: [] },
     todos: { items: [], profiles: [] },
     config: { contextBlocks: {}, skills: [], mode: 'agent', modelId: 'claude-sonnet-4-6' },
     tokens: {
