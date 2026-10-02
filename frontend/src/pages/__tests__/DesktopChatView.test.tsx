@@ -162,6 +162,7 @@ function createMockStore() {
     interruptMessage: vi.fn(),
     stopGeneration: vi.fn(),
     respondToPermission: vi.fn(),
+    expirePermission: vi.fn(),
     setMode: vi.fn(),
     setModel: vi.fn(),
     loadSessions: vi.fn().mockResolvedValue(undefined),

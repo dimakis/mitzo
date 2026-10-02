@@ -836,7 +836,8 @@ describe('handleSwitchSession', () => {
     const ctx = createContext({
       eventStore: eventStore as unknown as V2HandlerContext['eventStore'],
     });
-    ctx.connRegistry.register('c1', mockTransport());
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
     await handleSwitchSession('c1', { type: 'switch_session', sessionId: 'history-race' }, ctx);
     const reset = vi.spyOn(ctx.connRegistry, 'resetCursor');
     await handleSwitchSession(
@@ -849,6 +850,30 @@ describe('handleSwitchSession', () => {
       ctx,
     );
     expect(reset).toHaveBeenCalledWith('c1', 'history-race', 40);
+    // No later live event arrives to expose a gap. Periodic sync alone must
+    // deliver both events that occurred after REST captured its boundary.
+    ctx.connRegistry.setEventStore({
+      getEventsAfter: (_id, afterSeq) =>
+        [41, 42]
+          .filter((seq) => seq > afterSeq)
+          .map((seq) => ({
+            seq,
+            type: 'message_end',
+            sessionId: 'history-race',
+            payload: { messageId: `m${seq}` },
+          })),
+    });
+    vi.useFakeTimers();
+    try {
+      ctx.connRegistry.startPeriodicSync();
+      vi.advanceTimersByTime(5000);
+      expect(
+        transport.sent.filter((event) => event.type === 'message_end').map((event) => event.seq),
+      ).toEqual([41, 42]);
+    } finally {
+      ctx.connRegistry.stopPeriodicSync();
+      vi.useRealTimers();
+    }
   });
 
   it('scopes unexpected discovery errors to the requested session', async () => {
