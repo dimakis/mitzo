@@ -59,7 +59,20 @@ export function DesktopChatView() {
   const connected = connection.status === 'connected';
 
   // Local model state — persisted to localStorage, sent in payload
-  const [workspaceSummary, setWorkspaceSummary] = useState<WorkspaceSummary | null>(null);
+  const [summaryForSession, setSummaryForSession] = useState<{
+    sessionId: string | null;
+    summary: WorkspaceSummary | null;
+  } | null>(null);
+  const workspaceSummary =
+    summaryForSession?.sessionId === activeSessionId ? summaryForSession.summary : null;
+  const setWorkspaceSummary = useCallback(
+    (summary: WorkspaceSummary | null) => {
+      setSummaryForSession({ sessionId: activeSessionId, summary });
+    },
+    [activeSessionId],
+  );
+  const isSymposium = workspaceSummary?.sessionType === 'symposium';
+  const ordinaryControls = !activeSessionId || workspaceSummary?.sessionType === 'chat';
   const [accountSelection, setAccountSelection] = useState<AccountSelection | null>(null);
   const [modelState, setModelState] = useState(getPreferredModel);
   const setModel = useCallback(
@@ -212,13 +225,17 @@ export function DesktopChatView() {
           <WorkspaceControls
             summary={workspaceSummary}
             status={
-              !connected
-                ? 'Reconnecting'
-                : messages.running
-                  ? 'Working'
-                  : activeSessionId
-                    ? 'Ready'
-                    : 'New chat'
+              isSymposium
+                ? 'Agent chat'
+                : activeSessionId && !ordinaryControls
+                  ? 'Loading conversation settings'
+                  : !connected
+                    ? 'Reconnecting'
+                    : messages.running
+                      ? 'Working'
+                      : activeSessionId
+                        ? 'Ready'
+                        : 'New chat'
             }
           >
             <header className="desktop-chat-header">
@@ -239,46 +256,54 @@ export function DesktopChatView() {
                 onSummaryChange={setWorkspaceSummary}
                 disabled={messages.running}
               />
-              <PermissionModePicker
-                mode={mode}
-                onChange={handleModeChange}
-                disabled={modeChangeReady === false}
-              />
-              {!activeSessionId && (
-                <button
-                  className={`isolation-toggle${isolation ? ' isolation-toggle--active' : ''}`}
-                  onClick={() => setIsolation((v) => !v)}
-                  title={isolation ? 'Worktree isolation: ON' : 'Worktree isolation: OFF'}
-                >
-                  {isolation ? '\u{1f512}' : '\u{1f513}'}
-                </button>
+              {ordinaryControls && (
+                <>
+                  <PermissionModePicker
+                    mode={mode}
+                    onChange={handleModeChange}
+                    disabled={modeChangeReady === false}
+                  />
+                  {!activeSessionId && (
+                    <button
+                      className={`isolation-toggle${isolation ? ' isolation-toggle--active' : ''}`}
+                      onClick={() => setIsolation((v) => !v)}
+                      title={isolation ? 'Worktree isolation: ON' : 'Worktree isolation: OFF'}
+                    >
+                      {isolation ? '\u{1f512}' : '\u{1f513}'}
+                    </button>
+                  )}
+                  {activeSessionId && (
+                    <button
+                      className="session-close-btn"
+                      onClick={() => {
+                        if (ordinaryControls) storeCloseSession();
+                      }}
+                      title="Close session"
+                    >
+                      &times;
+                    </button>
+                  )}
+                  <VoiceSettings
+                    ttsAvailable={voice.ttsAvailable}
+                    voices={voice.voices}
+                    selectedVoice={voice.selectedVoice}
+                    onVoiceChange={voice.setVoice}
+                  />
+                </>
               )}
-              {activeSessionId && (
-                <button
-                  className="session-close-btn"
-                  onClick={storeCloseSession}
-                  title="Close session"
-                >
-                  &times;
-                </button>
-              )}
-              <VoiceSettings
-                ttsAvailable={voice.ttsAvailable}
-                voices={voice.voices}
-                selectedVoice={voice.selectedVoice}
-                onVoiceChange={voice.setVoice}
-              />
             </header>
 
             <div className="workspace-session-settings">
-              <WebSearchConsent
-                key={activeSessionId ?? 'new'}
-                sessionId={activeSessionId}
-                mode={mode}
-                connected={connected}
-                connectionId={connectionId}
-                running={messages.running}
-              />
+              {ordinaryControls && (
+                <WebSearchConsent
+                  key={activeSessionId ?? 'new'}
+                  sessionId={activeSessionId}
+                  mode={mode}
+                  connected={connected}
+                  connectionId={connectionId}
+                  running={messages.running}
+                />
+              )}
               <div className="workspace-session-actions">
                 {activeSessionId && <AddAgentSheet sessionId={activeSessionId} />}
                 {activeSessionId && (

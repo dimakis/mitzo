@@ -95,6 +95,7 @@ function mockRequests({ draft = false, failDelivery = false } = {}) {
 async function fill() {
   fireEvent.click(screen.getByRole('button', { name: 'Add agent' }));
   fireEvent.click(await screen.findByText('Choose account'));
+  fireEvent.click(screen.getByRole('button', { name: 'Output and advanced guidance (optional)' }));
   for (const [label, value] of [
     ['Agent name', 'Analyst'],
     ['Agent instructions', 'Investigate the supplied data'],
@@ -149,6 +150,7 @@ it('loads a versioned profile as editable guidance with independent session perm
   mockRequests();
   render(<AddAgentSheet sessionId="chat" />);
   await fill();
+  fireEvent.click(screen.getByRole('button', { name: 'Use a saved profile' }));
   fireEvent.click(screen.getByText('Load saved profile'));
   await waitFor(() => expect(screen.getByLabelText('Agent name')).toHaveValue('Writer'));
   expect(screen.getByLabelText('Agent permissions')).toHaveValue('read');
@@ -202,8 +204,10 @@ it('locks copied guidance during a delayed profile response and permits edits af
   );
   render(<AddAgentSheet sessionId="chat" />);
   await fill();
+  fireEvent.click(screen.getByRole('button', { name: 'Use a saved profile' }));
   fireEvent.click(screen.getByText('Load saved profile'));
   await screen.findByText('Loading saved guidance…');
+  // Expand before loading so all fields can be checked while disabled.
   for (const label of [
     'Agent name',
     'Agent role',
@@ -250,6 +254,7 @@ it('clears a failed profile selection visibly before permitting the preserved cu
   );
   render(<AddAgentSheet sessionId="chat" />);
   await fill();
+  fireEvent.click(screen.getByRole('button', { name: 'Use a saved profile' }));
   fireEvent.click(screen.getByText('Load saved profile'));
   await waitFor(() =>
     expect(screen.getByLabelText('Selected profile')).toHaveTextContent('Custom guidance'),
@@ -290,6 +295,7 @@ it('does not clear a newer pending profile selection when an older request fails
   );
   render(<AddAgentSheet sessionId="chat" />);
   await fill();
+  fireEvent.click(screen.getByRole('button', { name: 'Use a saved profile' }));
   fireEvent.click(screen.getByText('Load saved profile'));
   fireEvent.click(screen.getByText('Load newer saved profile'));
   await act(async () => {
@@ -353,4 +359,33 @@ it('explains a pending connection while runtime verification is still in flight'
   expect(screen.getByRole('button', { name: 'Connecting agent…' })).toBeDisabled();
   await act(async () => finish(new Response(JSON.stringify({}))));
   expect(await screen.findByText(/Agent added/)).toBeInTheDocument();
+});
+
+it('adds an agent with only name and instructions while optional guidance stays collapsed', async () => {
+  mockRequests();
+  render(<AddAgentSheet sessionId="session" />);
+  fireEvent.click(screen.getByRole('button', { name: 'Add agent' }));
+  fireEvent.click(await screen.findByText('Choose account'));
+  expect(screen.queryByLabelText('Agent role')).not.toBeInTheDocument();
+  expect(screen.queryByLabelText('Agent expected output')).not.toBeInTheDocument();
+  expect(screen.queryByText('Load saved profile')).not.toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText('Agent name'), { target: { value: 'Data analyst' } });
+  fireEvent.change(screen.getByLabelText('Agent instructions'), {
+    target: { value: 'Explain the provided data' },
+  });
+  fireEvent.change(screen.getByLabelText('Initial message'), { target: { value: 'Summarize it' } });
+  fireEvent.click(screen.getByRole('checkbox'));
+  fireEvent.click(screen.getByRole('button', { name: 'Add agent and queue message' }));
+  await screen.findByText(/Agent added/);
+  const [, init] = vi
+    .mocked(apiFetch)
+    .mock.calls.find(([url]) => String(url).endsWith('/seats/revise'))!;
+  const payload = JSON.parse(String(init?.body));
+  expect(payload).toMatchObject({
+    name: 'Data analyst',
+    role: 'agent',
+    systemPrompt: 'Explain the provided data',
+  });
+  expect(payload).not.toHaveProperty('expectedOutput');
+  expect(payload).not.toHaveProperty('acceptanceCriteria');
 });

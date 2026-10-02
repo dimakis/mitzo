@@ -156,6 +156,8 @@ function ReviewerForm({
   const [expectedOutput, setExpectedOutput] = useState('');
   const [criteria, setCriteria] = useState('');
   const [profileLoading, setProfileLoading] = useState(false);
+  const [showProfile, setShowProfile] = useState(false);
+  const [showOptionalGuidance, setShowOptionalGuidance] = useState(false);
   const profileLoad = useRef(0);
   const [authority, setAuthority] = useState({
     filesystem: 'read',
@@ -236,8 +238,6 @@ function ReviewerForm({
       ? name.trim() &&
         /^[a-z][a-z0-9_-]{0,63}$/.test(role) &&
         instructions.trim() &&
-        expectedOutput.trim() &&
-        criteria.trim() &&
         !profileLoading
       : profile) &&
     selection?.accountId &&
@@ -303,11 +303,15 @@ function ReviewerForm({
             name: name.trim(),
             role,
             systemPrompt: instructions.trim(),
-            expectedOutput: expectedOutput.trim(),
-            acceptanceCriteria: criteria
-              .split('\n')
-              .map((line) => line.trim())
-              .filter(Boolean),
+            ...(expectedOutput.trim() ? { expectedOutput: expectedOutput.trim() } : {}),
+            ...(criteria.trim()
+              ? {
+                  acceptanceCriteria: criteria
+                    .split('\n')
+                    .map((line) => line.trim())
+                    .filter(Boolean),
+                }
+              : {}),
             authorityRequest: authority,
           }
         : { name: 'Reviewer', role: 'reviewer', systemPrompt: '' };
@@ -490,54 +494,11 @@ function ReviewerForm({
           <>
             <p>
               {generic
-                ? 'Define an agent and choose its account. A saved profile can supply guidance; permissions are chosen here.'
+                ? 'Give this agent a name and tell it what to do.'
                 : 'Choose a saved profile and the account that will receive this review request.'}
             </p>
             <fieldset disabled={busy || locked}>
               {generic && <h3>Guidance</h3>}
-              {generic && (
-                <p>
-                  Load a saved profile to copy its versioned guidance into this form. Edits apply to
-                  this agent only; account and permissions are selected separately.
-                </p>
-              )}
-              <SymposiumProfilePicker
-                compact
-                requiredRole={generic ? undefined : 'reviewer'}
-                value={profile}
-                onChange={(next) => {
-                  if (lockedRef.current) return;
-                  setProfile(next);
-                  if (!generic) return;
-                  setError('');
-                  const load = ++profileLoad.current;
-                  setProfileLoading(Boolean(next));
-                  if (!next) return;
-                  void request<{ definition: SymposiumProfileDefinition }>(
-                    `/api/symposium/profiles/${encodeURIComponent(next.profileId)}/${next.revision}`,
-                  )
-                    .then(({ definition }) => {
-                      if (load !== profileLoad.current || lockedRef.current) return;
-                      setName(definition.name);
-                      setRole(definition.role);
-                      setInstructions(definition.instructions);
-                      setExpectedOutput(definition.expectedOutput);
-                      setCriteria(definition.acceptanceCriteria.join('\n'));
-                      // This is a local copy. Catalog identity cannot overwrite custom seat guidance.
-                    })
-                    .catch((cause: Error) => {
-                      if (load !== profileLoad.current || lockedRef.current) return;
-                      setProfile(null);
-                      setError(
-                        `Could not load saved profile: ${cause.message}. Existing custom guidance was kept; choose a profile again or continue with these custom fields.`,
-                      );
-                    })
-                    .finally(() => {
-                      if (load === profileLoad.current) setProfileLoading(false);
-                    });
-                }}
-                disabled={busy || locked}
-              />
               {generic && (
                 <>
                   <fieldset disabled={profileLoading}>
@@ -546,38 +507,100 @@ function ReviewerForm({
                       <input value={name} onChange={(event) => setName(event.target.value)} />
                     </label>
                     <label>
-                      Agent role
-                      <input
-                        value={role}
-                        onChange={(event) => setRole(event.target.value)}
-                        pattern="[a-z][a-z0-9_-]{0,63}"
-                      />
-                    </label>
-                    <label>
                       Agent instructions
                       <textarea
                         value={instructions}
                         onChange={(event) => setInstructions(event.target.value)}
                       />
                     </label>
-                    <label>
-                      Agent expected output
-                      <textarea
-                        value={expectedOutput}
-                        onChange={(event) => setExpectedOutput(event.target.value)}
-                      />
-                    </label>
-                    <label>
-                      Agent acceptance criteria
-                      <textarea
-                        value={criteria}
-                        onChange={(event) => setCriteria(event.target.value)}
-                        placeholder="One criterion per line"
-                      />
-                    </label>
+                    <button
+                      type="button"
+                      aria-expanded={showOptionalGuidance}
+                      onClick={() => setShowOptionalGuidance(!showOptionalGuidance)}
+                    >
+                      Output and advanced guidance (optional)
+                    </button>
+                    {showOptionalGuidance && (
+                      <div>
+                        <label>
+                          Agent role
+                          <input
+                            value={role}
+                            onChange={(event) => setRole(event.target.value)}
+                            pattern="[a-z][a-z0-9_-]{0,63}"
+                          />
+                        </label>
+                        <label>
+                          Agent expected output
+                          <textarea
+                            value={expectedOutput}
+                            onChange={(event) => setExpectedOutput(event.target.value)}
+                          />
+                        </label>
+                        <label>
+                          Agent acceptance criteria
+                          <textarea
+                            value={criteria}
+                            onChange={(event) => setCriteria(event.target.value)}
+                            placeholder="One criterion per line"
+                          />
+                        </label>
+                      </div>
+                    )}
                   </fieldset>
                   {profileLoading && <p role="status">Loading saved guidance…</p>}
                 </>
+              )}
+              {generic && (
+                <button
+                  type="button"
+                  aria-expanded={showProfile}
+                  onClick={() => setShowProfile(!showProfile)}
+                >
+                  Use a saved profile
+                </button>
+              )}
+              {(!generic || showProfile) && (
+                <div>
+                  {generic && <p>Copy saved guidance, then adjust it for this agent.</p>}
+                  <SymposiumProfilePicker
+                    compact
+                    requiredRole={generic ? undefined : 'reviewer'}
+                    value={profile}
+                    onChange={(next) => {
+                      if (lockedRef.current) return;
+                      setProfile(next);
+                      if (!generic) return;
+                      setError('');
+                      const load = ++profileLoad.current;
+                      setProfileLoading(Boolean(next));
+                      if (!next) return;
+                      void request<{ definition: SymposiumProfileDefinition }>(
+                        `/api/symposium/profiles/${encodeURIComponent(next.profileId)}/${next.revision}`,
+                      )
+                        .then(({ definition }) => {
+                          if (load !== profileLoad.current || lockedRef.current) return;
+                          setName(definition.name);
+                          setRole(definition.role);
+                          setInstructions(definition.instructions);
+                          setExpectedOutput(definition.expectedOutput);
+                          setCriteria(definition.acceptanceCriteria.join('\n'));
+                          // This is a local copy. Catalog identity cannot overwrite custom seat guidance.
+                        })
+                        .catch((cause: Error) => {
+                          if (load !== profileLoad.current || lockedRef.current) return;
+                          setProfile(null);
+                          setError(
+                            `Could not load saved profile: ${cause.message}. Existing custom guidance was kept; choose a profile again or continue with these custom fields.`,
+                          );
+                        })
+                        .finally(() => {
+                          if (load === profileLoad.current) setProfileLoading(false);
+                        });
+                    }}
+                    disabled={busy || locked}
+                  />
+                </div>
               )}
               {generic && <h3>Account and model</h3>}
               <AccountModelPicker
@@ -610,13 +633,17 @@ function ReviewerForm({
                       <option value="write">Read and write workspace and tools</option>
                     </select>
                   </label>
+                  <p>Read-only is the default. Network access is restricted.</p>
+                </>
+              )}
+              {generic && (
+                <>
+                  <h3>Message and context</h3>
                   <p>
-                    Network access is restricted. The host verifies the requested permissions before
-                    admitting the agent.
+                    Recipient: <strong>{name.trim() || 'Your new agent'}</strong>
                   </p>
                 </>
               )}
-              {generic && <h3>Message and context</h3>}
               <label>
                 {generic ? 'Initial message' : 'Review package'}
                 <textarea
@@ -672,8 +699,7 @@ function ReviewerForm({
                 </p>
               )}
               <p>
-                The selected account receives the initial message and chosen context after delivery
-                approval. Shared workspace access follows the seat permissions.
+                Only this agent receives the message and selected context after you approve sending.
               </p>
               <label>
                 <input

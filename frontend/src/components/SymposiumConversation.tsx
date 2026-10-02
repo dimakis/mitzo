@@ -103,6 +103,7 @@ export function SymposiumConversation({
   const [status, setStatus] = useState<Status | null>(null);
   const [statusFresh, setStatusFresh] = useState(false);
   const [selected, setSelected] = useState('all');
+  const [profilesOpen, setProfilesOpen] = useState(false);
   const [page, setPage] = useState<PerspectivePage>({ items: [], nextSeq: null, queued: [] });
   const [pageFor, setPageFor] = useState('');
   const [error, setError] = useState('');
@@ -152,6 +153,7 @@ export function SymposiumConversation({
     setStatusError('');
     setSelected('all');
     setSeatSeed(null);
+    setProfilesOpen(false);
     setPage({ items: [], nextSeq: null, queued: [] });
     if (!base) return;
     let cancelled = false;
@@ -485,7 +487,18 @@ export function SymposiumConversation({
     return (
       <>
         {chat && <ChatArea {...chat} />}
-        {sessionId && <SymposiumProfileProposals key={sessionId} sessionId={sessionId} />}
+        {sessionId && (
+          <div className="symposium-profile-tools">
+            <button
+              type="button"
+              aria-expanded={profilesOpen}
+              onClick={() => setProfilesOpen(!profilesOpen)}
+            >
+              Profiles and advanced guidance
+            </button>
+            {profilesOpen && <SymposiumProfileProposals key={sessionId} sessionId={sessionId} />}
+          </div>
+        )}
         {ordinaryComposer}
       </>
     );
@@ -500,30 +513,42 @@ export function SymposiumConversation({
       }}
     >
       <p className="symposium-boundary-note">
-        Each seat receives explicitly granted context with its own account and tool authority. An
-        aside goes only to its named recipients.
+        Messages go to the agents you select. File access follows each agent’s permissions.
       </p>
-      {selected !== 'all' && status.seats.find((seat) => seat.seatId === selected) && (
+      <div className="symposium-profile-tools">
         <button
           type="button"
-          onClick={() =>
-            setSeatSeed({
-              seatId: selected,
-              ...status.seats.find((seat) => seat.seatId === selected)!.seat,
-            })
-          }
+          aria-expanded={profilesOpen}
+          onClick={() => setProfilesOpen(!profilesOpen)}
         >
-          Draft reusable profile from this seat
+          Profiles and advanced guidance
         </button>
-      )}
-      {sessionId && (
-        <SymposiumProfileProposals
-          key={sessionId}
-          sessionId={sessionId}
-          seatSeed={seatSeed}
-          onSeatSeedDone={() => setSeatSeed(null)}
-        />
-      )}
+        {profilesOpen && (
+          <>
+            {selected !== 'all' && status.seats.find((seat) => seat.seatId === selected) && (
+              <button
+                type="button"
+                onClick={() =>
+                  setSeatSeed({
+                    seatId: selected,
+                    ...status.seats.find((seat) => seat.seatId === selected)!.seat,
+                  })
+                }
+              >
+                Draft reusable profile from this seat
+              </button>
+            )}
+            {sessionId && (
+              <SymposiumProfileProposals
+                key={sessionId}
+                sessionId={sessionId}
+                seatSeed={seatSeed}
+                onSeatSeedDone={() => setSeatSeed(null)}
+              />
+            )}
+          </>
+        )}
+      </div>
       {(statusError || error) && <div role="alert">{statusError || error}</div>}
       {!statusFresh && (
         <p role="status">

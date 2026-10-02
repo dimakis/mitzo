@@ -144,6 +144,7 @@ describe('SymposiumConversation', () => {
         ordinaryComposer={<button>Ordinary send</button>}
       />,
     );
+    fireEvent.click(await screen.findByRole('button', { name: 'Profiles and advanced guidance' }));
     const instructions = await screen.findByRole('textbox', { name: 'Instructions' });
     expect(screen.getByText('Ordinary send')).toBeTruthy();
     expect(
@@ -211,6 +212,7 @@ describe('SymposiumConversation', () => {
       return json({ sessionId: 'session', config: null, seats: [] });
     });
     render(<SymposiumConversation sessionId="session" chat={chat} ordinaryComposer={null} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Profiles and advanced guidance' }));
     const save = await screen.findByRole('button', { name: 'Save reusable profile' });
     await waitFor(() => expect(save.hasAttribute('disabled')).toBe(false));
     fireEvent.click(save);
@@ -240,11 +242,10 @@ describe('SymposiumConversation', () => {
       ),
     );
     render(<SymposiumConversation sessionId="session" chat={chat} ordinaryComposer={null} />);
-    await waitFor(() =>
-      expect(
-        vi.mocked(apiFetch).mock.calls.some(([url]) => String(url).includes('/profile-proposals')),
-      ).toBe(true),
-    );
+    await screen.findByRole('button', { name: 'Profiles and advanced guidance' });
+    expect(
+      vi.mocked(apiFetch).mock.calls.some(([url]) => String(url).includes('/profile-proposals')),
+    ).toBe(false);
     expect(screen.queryByText(/Codex-backed agent/)).toBeNull();
     expect(screen.queryByRole('complementary', { name: 'Reusable profile drafts' })).toBeNull();
   });
@@ -336,6 +337,10 @@ describe('SymposiumConversation', () => {
       />,
     );
     fireEvent.click(await screen.findByRole('tab', { name: 'Architect' }));
+    expect(
+      screen.queryByRole('button', { name: 'Draft reusable profile from this seat' }),
+    ).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Profiles and advanced guidance' }));
     fireEvent.click(
       await screen.findByRole('button', { name: 'Draft reusable profile from this seat' }),
     );

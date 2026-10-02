@@ -1,3 +1,4 @@
+import { SeatLabel } from './SeatLabel';
 import { SymposiumSourceImportPanel } from './SymposiumSourceImportPanel';
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import type {
@@ -697,11 +698,10 @@ function SessionDirectorPanel({
   return (
     <section className="symposium-director" aria-label="Symposium director">
       <button type="button" aria-expanded={open} onClick={() => setOpen((value) => !value)}>
-        Agent settings
+        Agents
       </button>
       {open && (
         <div className="symposium-director-panel">
-          <SymposiumSourceImportPanel key={sessionId} sessionId={sessionId} />
           <button type="button" disabled={loading || busy} onClick={() => void refresh()}>
             Refresh status
           </button>
@@ -713,561 +713,633 @@ function SessionDirectorPanel({
             </p>
           )}
           {error && (
-            <p role="alert">
-              {error}{' '}
-              <button type="button" onClick={() => void refresh()}>
-                Retry
-              </button>
-            </p>
+            <div role="alert">
+              <p>The request couldn’t be completed.</p>
+              <AdvancedControls label="View request error">
+                <p>{error}</p>
+                <button type="button" onClick={() => void refresh()}>
+                  Refresh status
+                </button>
+              </AdvancedControls>
+            </div>
           )}
           {status && !status.config && (
             <div>
               <p>This conversation has no agents configured.</p>
-              <button type="button" disabled={busy} onClick={() => void createDraft()}>
-                Set up agents
-              </button>
+              <AdvancedControls label="Advanced and troubleshooting">
+                <SymposiumSourceImportPanel key={sessionId} sessionId={sessionId} />
+                <button type="button" disabled={busy} onClick={() => void createDraft()}>
+                  Set up agents
+                </button>
+              </AdvancedControls>
             </div>
           )}
           {status?.config && (
             <>
-              <p>
-                Agents can access shared workspace files within their permissions. Their provider
-                account may retain messages. Choosing message context does not restrict file access.
-              </p>
-              <p>
-                {status.config.state === 'draft'
-                  ? 'Draft — agents are not enabled yet.'
-                  : `${status.reservedSeats} of ${status.config.version === 2 ? status.config.activeSeatCap : 2} seats reserved.`}
-              </p>
-              {status.config.state === 'draft' && (
-                <div>
-                  <button
-                    type="button"
-                    disabled={busy || loading}
-                    onClick={() => void prepareArtifacts()}
-                  >
-                    Prepare shared workspace
-                  </button>
-                  {artifactMessage && <p role="status">{artifactMessage}</p>}
-                </div>
-              )}
-              {!status.runtimeAvailable && (
-                <p role="status">
-                  The agent service is unavailable. Agents cannot connect or receive messages yet.
-                  You can still revoke access or stop deliveries.
-                </p>
-              )}
-              {status.config.state === 'active' &&
-                status.seats.some(
-                  (seat) =>
-                    seat.membership?.state === 'active' &&
-                    seat.membership.reconciliation === 'confirmed' &&
-                    !seat.admitted &&
-                    (!seat.admission ||
-                      seat.admission.configRevision !== status.config?.revision ||
-                      seat.admission.membershipGeneration !== seat.membership.generation),
-                ) && (
-                  <button
-                    type="button"
-                    disabled={busy || !status.runtimeAvailable}
-                    onClick={() => void refreshAdmissions()}
-                  >
-                    Recheck retained seat admissions
-                  </button>
-                )}
-              <label>
-                <input
-                  type="checkbox"
-                  checked={boundaryAcknowledged}
-                  onChange={(event) => setBoundaryAcknowledged(event.target.checked)}
-                />
-                <span>
-                  I understand these agents can access shared files within their permissions, and
-                  their provider accounts may retain messages.
-                </span>
-              </label>
-              {(crossesAnchorAccount(status.config) ||
-                (newSeatSelection?.accountId &&
-                  newSeatSelection.accountId !== anchorAccountId(status.config))) && (
-                <label>
-                  To use another account, type {confirmation}:{' '}
-                  <input
-                    value={typedConfirmation}
-                    onChange={(event) => setTypedConfirmation(event.target.value)}
-                  />
-                </label>
-              )}
-              {status.config.state === 'draft' && (
-                <button
-                  type="button"
-                  className="btn-primary"
-                  disabled={
-                    busy ||
-                    !boundaryAcknowledged ||
-                    (crossesAnchorAccount(status.config) && typedConfirmation !== confirmation)
-                  }
-                  onClick={() => void activateRoster()}
-                >
-                  Enable agents
-                </button>
-              )}
-              {status.config.version === 2 && status.config.state === 'active' && (
-                <AdvancedControls label="Change conversation owner">
-                  <fieldset disabled={busy || !status.runtimeAvailable}>
-                    <legend>Transfer primary seat</legend>
-                    <p>
-                      Select an admitted seat to own conversation routing. Its permissions stay
-                      unchanged. Transfer first, then remove the old writer and wait for cleanup
-                      before adding a replacement writer.
-                    </p>
-                    <label>
-                      New primary seat
-                      <select
-                        value={primarySelection}
-                        onChange={(event) => setPrimarySelection(event.target.value)}
-                      >
-                        <option value="">Select a seat</option>
-                        {status.seats
-                          .filter(
-                            (seat) =>
-                              seat.seatId !==
-                                (status.config?.version === 2 ? status.config.anchorSeatId : '') &&
-                              seat.admitted &&
-                              seat.membership?.state === 'active' &&
-                              seat.membership.reconciliation === 'confirmed',
-                          )
-                          .map((seat) => (
-                            <option key={seat.seatId} value={seat.seatId}>
-                              {seat.seat.name} ({seat.seat.accountBinding?.accountLabel};{' '}
-                              {seat.seat.model})
-                            </option>
-                          ))}
-                      </select>
-                    </label>
-                    <label>
-                      Type TRANSFER PRIMARY SEAT to confirm
-                      <input
-                        value={primaryConfirmation}
-                        onChange={(event) => setPrimaryConfirmation(event.target.value)}
-                      />
-                    </label>
-                    <button
-                      type="button"
-                      disabled={
-                        !primarySelection || primaryConfirmation !== 'TRANSFER PRIMARY SEAT'
-                      }
-                      onClick={() => {
-                        const target = status.seats.find(
-                          (seat) => seat.seatId === primarySelection,
-                        );
-                        if (
-                          status.config?.version !== 2 ||
-                          !target?.admitted ||
-                          target.membership?.state !== 'active' ||
-                          target.membership.reconciliation !== 'confirmed'
-                        )
-                          return;
-                        void mutate('/primary/transfer', {
-                          fromSeatId: status.config.anchorSeatId,
-                          toSeatId: target.seatId,
-                          expectedRevision: status.config.revision,
-                          expectedGeneration: target.membership.generation,
-                          reason: 'Explicit primary transfer by director',
-                          confirmation: primaryConfirmation,
-                        });
-                      }}
-                    >
-                      Transfer primary seat
-                    </button>
-                  </fieldset>
-                </AdvancedControls>
-              )}
               <ul className="symposium-roster">
                 {status.seats.map((seat) => (
-                  <li key={seat.seatId}>
-                    <strong>{seat.seat.name}</strong> · {seat.seat.role} ·{' '}
-                    {seat.seat.accountBinding?.accountLabel ?? 'Account unknown'} ·{' '}
-                    {seat.seat.model}
-                    {seat.seat.reasoningEffort ? ` · ${seat.seat.reasoningEffort}` : ''}
-                    <span>
-                      {' '}
-                      ·{' '}
-                      {seat.admitted
-                        ? 'Admitted'
-                        : seat.membership?.reconciliation === 'recovery_required'
-                          ? 'Cleanup required'
-                          : 'Pending runtime admission'}
-                    </span>
-                    {seat.creationDiagnostic && (
-                      <div role="status">
-                        Creation failed during {seat.creationDiagnostic.phase}:{' '}
-                        {seat.creationDiagnostic.code}.
-                        {seat.creationDiagnostic.canCleanup ? (
-                          <>
-                            <p>
-                              Clean up this failed sandbox. The seat will be suspended; Restore
-                              requires a separate action.
-                            </p>
-                            <label>
-                              Type CLEAN UP FAILED SEAT for {seat.seat.name}
-                              <input
-                                value={cleanupConfirmation[seat.seatId] ?? ''}
-                                onChange={(event) =>
-                                  setCleanupConfirmation({
-                                    ...cleanupConfirmation,
-                                    [seat.seatId]: event.target.value,
-                                  })
-                                }
-                              />
-                            </label>
-                            <button
-                              type="button"
-                              disabled={
-                                busy || cleanupConfirmation[seat.seatId] !== 'CLEAN UP FAILED SEAT'
-                              }
-                              onClick={() =>
-                                void mutate('/creation/recover', {
-                                  seatId: seat.seatId,
-                                  expectedRevision: status.config!.revision,
-                                  expectedGeneration: seat.membership!.generation,
-                                  confirmation: cleanupConfirmation[seat.seatId],
-                                  ...(seat.creationDiagnostic?.recoveryIdempotencyKey
-                                    ? {
-                                        idempotencyKey:
-                                          seat.creationDiagnostic.recoveryIdempotencyKey,
-                                      }
-                                    : {}),
-                                })
-                              }
-                            >
-                              Clean up failed seat
-                            </button>
-                          </>
-                        ) : seat.creationDiagnostic.recoveryAuthorization?.state ===
-                          'reauthorization_required' ? (
-                          <CreationRecoveryAuthorization
-                            key={`${sessionId}:${seat.seatId}:${seat.membership!.generation}:${status.config!.revision}:${seat.creationDiagnostic.recoveryAuthorization.operationId}:${seat.creationDiagnostic.recoveryAuthorization.revision}`}
-                            sessionId={sessionId}
-                            seat={seat}
-                            revision={status.config!.revision}
-                            onSaved={async () => {
-                              setCleanupConfirmation((current) => ({
-                                ...current,
-                                [seat.seatId]: '',
-                              }));
-                              await refresh();
-                            }}
-                          />
-                        ) : seat.creationDiagnostic.recoveryAuthorization?.state ===
-                          'cleanup_fenced' ? (
-                          <p>
-                            Cleanup is fenced: physical work may still be running or its outcome is
-                            uncertain. Automatic retry and authorization transfer are unavailable.
-                          </p>
-                        ) : (
-                          <p>
-                            Exact retained creation proof is unavailable. Host recovery is required.
-                          </p>
-                        )}
-                      </div>
-                    )}
-                    {status.config?.version === 2 &&
-                    seat.seatId === status.config.anchorSeatId &&
-                    seat.membership?.state === 'active' ? (
-                      <span>
+                  <li key={seat.seatId} aria-label={`${seat.seat.name} agent`}>
+                    <div className="symposium-agent-heading">
+                      <strong>
+                        <SeatLabel seatId={seat.seatId} name={seat.seat.name} />
+                      </strong>
+                      <span className="symposium-agent-state">
                         {seat.creationDiagnostic
-                          ? 'Failed seat cleanup preserves the primary role and account binding.'
-                          : 'Transfer primary ownership before suspending, removing, or rebinding this seat.'}
+                          ? 'Couldn’t connect this agent'
+                          : seat.admitted
+                            ? 'Connected'
+                            : seat.membership?.state === 'suspended'
+                              ? 'Paused'
+                              : seat.membership?.state === 'removed'
+                                ? 'Removed'
+                                : 'Not connected'}
                       </span>
-                    ) : seat.membership?.state === 'active' ? (
-                      <>
-                        <button
-                          type="button"
-                          disabled={busy}
-                          onClick={() => transition(seat, 'suspend')}
-                        >
-                          Suspend
-                        </button>
-                        <button
-                          type="button"
-                          disabled={busy}
-                          onClick={() => transition(seat, 'remove')}
-                        >
-                          Remove
-                        </button>
-                      </>
-                    ) : (
-                      <button
-                        type="button"
-                        disabled={busy || !status.runtimeAvailable || !boundaryAcknowledged}
-                        onClick={() =>
-                          transition(
-                            seat,
-                            seat.membership?.state === 'suspended' ? 'restore' : 'admit',
-                          )
-                        }
-                      >
-                        {busy
-                          ? 'Working…'
-                          : seat.membership?.state === 'suspended'
-                            ? 'Resume agent'
-                            : 'Enable agent'}
-                      </button>
-                    )}
-                    {seat.membership?.state !== 'active' && (
-                      <SeatModelEditor
-                        sessionId={sessionId}
-                        seat={seat}
-                        config={status.config!}
-                        profileSelection={
-                          profileSelections[seat.seatId] ??
-                          (seat.seat.profileBinding &&
-                          !seat.seat.profileBinding.profileId.startsWith('host-profile:')
-                            ? {
-                                profileId: seat.seat.profileBinding.profileId,
-                                revision: Number(seat.seat.profileBinding.profileRevision),
-                              }
-                            : null)
-                        }
-                        onSaved={refresh}
-                      />
-                    )}
-                    {status.profileBindingEnforced && (
-                      <div>
-                        {seat.seat.profileBinding && (
-                          <p>
-                            Bound profile: {seat.seat.profileBinding.profileId} · v
-                            {seat.seat.profileBinding.profileRevision}
-                          </p>
-                        )}
-                        <SymposiumProfilePicker
-                          value={profileSelections[seat.seatId] ?? null}
-                          onChange={(selection) =>
-                            setProfileSelections((current) => {
-                              const next = { ...current };
-                              if (selection) next[seat.seatId] = selection;
-                              else delete next[seat.seatId];
-                              return next;
-                            })
-                          }
-                          disabled={
-                            busy ||
-                            (status.config!.state === 'active' &&
-                              seat.membership?.state === 'active')
-                          }
-                        />
-                        {status.config!.state === 'active' && profileSelections[seat.seatId] && (
+                    </div>
+                    <div className="symposium-agent-model">
+                      <span>
+                        Account: {seat.seat.accountBinding?.accountLabel ?? 'Not selected'}
+                      </span>
+                      <span>
+                        Model: {seat.seat.model}
+                        {seat.seat.reasoningEffort ? ` · ${seat.seat.reasoningEffort}` : ''}
+                      </span>
+                    </div>
+                    {seat.creationDiagnostic && <p>Workspace setup failed. No message was sent.</p>}
+                    {seat.admitted &&
+                      seat.seatId !==
+                        (status.config!.version === 2
+                          ? status.config!.anchorSeatId
+                          : status.config!.seats[0]?.id) && (
+                        <div className="symposium-agent-actions">
                           <button
                             type="button"
-                            disabled={
-                              busy || !boundaryAcknowledged || seat.membership?.state === 'active'
-                            }
-                            onClick={() => void applyProfile(seat)}
+                            disabled={busy}
+                            onClick={() => transition(seat, 'suspend')}
                           >
-                            Apply selected profile
+                            Pause agent
+                          </button>
+                          <button
+                            type="button"
+                            disabled={busy}
+                            onClick={() => transition(seat, 'remove')}
+                          >
+                            Remove agent
+                          </button>
+                        </div>
+                      )}
+                    <AdvancedControls label="View details">
+                      <div className="symposium-agent-details">
+                        <strong>{seat.seat.name}</strong> · {seat.seat.role} ·{' '}
+                        {seat.seat.accountBinding?.accountLabel ?? 'Account unknown'} ·{' '}
+                        {seat.seat.model}
+                        {seat.seat.reasoningEffort ? ` · ${seat.seat.reasoningEffort}` : ''}
+                        <span>
+                          {' '}
+                          ·{' '}
+                          {seat.admitted
+                            ? 'Admitted'
+                            : seat.membership?.reconciliation === 'recovery_required'
+                              ? 'Cleanup required'
+                              : 'Pending runtime admission'}
+                        </span>
+                        {seat.creationDiagnostic && (
+                          <div role="status">
+                            Creation failed during {seat.creationDiagnostic.phase}:{' '}
+                            {seat.creationDiagnostic.code}.
+                            {seat.creationDiagnostic.canCleanup ? (
+                              <>
+                                <p>
+                                  Clean up this failed sandbox. The seat will be suspended; Restore
+                                  requires a separate action.
+                                </p>
+                                <label>
+                                  Type CLEAN UP FAILED SEAT for {seat.seat.name}
+                                  <input
+                                    value={cleanupConfirmation[seat.seatId] ?? ''}
+                                    onChange={(event) =>
+                                      setCleanupConfirmation({
+                                        ...cleanupConfirmation,
+                                        [seat.seatId]: event.target.value,
+                                      })
+                                    }
+                                  />
+                                </label>
+                                <button
+                                  type="button"
+                                  disabled={
+                                    busy ||
+                                    cleanupConfirmation[seat.seatId] !== 'CLEAN UP FAILED SEAT'
+                                  }
+                                  onClick={() =>
+                                    void mutate('/creation/recover', {
+                                      seatId: seat.seatId,
+                                      expectedRevision: status.config!.revision,
+                                      expectedGeneration: seat.membership!.generation,
+                                      confirmation: cleanupConfirmation[seat.seatId],
+                                      ...(seat.creationDiagnostic?.recoveryIdempotencyKey
+                                        ? {
+                                            idempotencyKey:
+                                              seat.creationDiagnostic.recoveryIdempotencyKey,
+                                          }
+                                        : {}),
+                                    })
+                                  }
+                                >
+                                  Clean up failed seat
+                                </button>
+                              </>
+                            ) : seat.creationDiagnostic.recoveryAuthorization?.state ===
+                              'reauthorization_required' ? (
+                              <CreationRecoveryAuthorization
+                                key={`${sessionId}:${seat.seatId}:${seat.membership!.generation}:${status.config!.revision}:${seat.creationDiagnostic.recoveryAuthorization.operationId}:${seat.creationDiagnostic.recoveryAuthorization.revision}`}
+                                sessionId={sessionId}
+                                seat={seat}
+                                revision={status.config!.revision}
+                                onSaved={async () => {
+                                  setCleanupConfirmation((current) => ({
+                                    ...current,
+                                    [seat.seatId]: '',
+                                  }));
+                                  await refresh();
+                                }}
+                              />
+                            ) : seat.creationDiagnostic.recoveryAuthorization?.state ===
+                              'cleanup_fenced' ? (
+                              <p>
+                                Cleanup is fenced: physical work may still be running or its outcome
+                                is uncertain. Automatic retry and authorization transfer are
+                                unavailable.
+                              </p>
+                            ) : (
+                              <p>
+                                Exact retained creation proof is unavailable. Host recovery is
+                                required.
+                              </p>
+                            )}
+                          </div>
+                        )}
+                        {status.config?.version === 2 &&
+                        seat.seatId === status.config.anchorSeatId &&
+                        seat.membership?.state === 'active' ? (
+                          <span>
+                            {seat.creationDiagnostic
+                              ? 'Failed seat cleanup preserves the primary role and account binding.'
+                              : 'Transfer primary ownership before suspending, removing, or rebinding this seat.'}
+                          </span>
+                        ) : seat.membership?.state === 'active' ? (
+                          <>
+                            <button
+                              type="button"
+                              disabled={busy}
+                              onClick={() => transition(seat, 'suspend')}
+                            >
+                              Suspend
+                            </button>
+                            <button
+                              type="button"
+                              disabled={busy}
+                              onClick={() => transition(seat, 'remove')}
+                            >
+                              Remove
+                            </button>
+                          </>
+                        ) : (
+                          <button
+                            type="button"
+                            disabled={busy || !status.runtimeAvailable || !boundaryAcknowledged}
+                            onClick={() =>
+                              transition(
+                                seat,
+                                seat.membership?.state === 'suspended' ? 'restore' : 'admit',
+                              )
+                            }
+                          >
+                            {busy
+                              ? 'Working…'
+                              : seat.membership?.state === 'suspended'
+                                ? 'Resume agent'
+                                : 'Enable agent'}
                           </button>
                         )}
+                        {seat.membership?.state !== 'active' && (
+                          <SeatModelEditor
+                            sessionId={sessionId}
+                            seat={seat}
+                            config={status.config!}
+                            profileSelection={
+                              profileSelections[seat.seatId] ??
+                              (seat.seat.profileBinding &&
+                              !seat.seat.profileBinding.profileId.startsWith('host-profile:')
+                                ? {
+                                    profileId: seat.seat.profileBinding.profileId,
+                                    revision: Number(seat.seat.profileBinding.profileRevision),
+                                  }
+                                : null)
+                            }
+                            onSaved={refresh}
+                          />
+                        )}
+                        {status.profileBindingEnforced && (
+                          <div>
+                            {seat.seat.profileBinding && (
+                              <p>
+                                Bound profile: {seat.seat.profileBinding.profileId} · v
+                                {seat.seat.profileBinding.profileRevision}
+                              </p>
+                            )}
+                            <SymposiumProfilePicker
+                              compact
+                              value={profileSelections[seat.seatId] ?? null}
+                              onChange={(selection) =>
+                                setProfileSelections((current) => {
+                                  const next = { ...current };
+                                  if (selection) next[seat.seatId] = selection;
+                                  else delete next[seat.seatId];
+                                  return next;
+                                })
+                              }
+                              disabled={
+                                busy ||
+                                (status.config!.state === 'active' &&
+                                  seat.membership?.state === 'active')
+                              }
+                            />
+                            {status.config!.state === 'active' &&
+                              profileSelections[seat.seatId] && (
+                                <button
+                                  type="button"
+                                  disabled={
+                                    busy ||
+                                    !boundaryAcknowledged ||
+                                    seat.membership?.state === 'active'
+                                  }
+                                  onClick={() => void applyProfile(seat)}
+                                >
+                                  Apply selected profile
+                                </button>
+                              )}
+                          </div>
+                        )}
                       </div>
-                    )}
+                    </AdvancedControls>
                   </li>
                 ))}
               </ul>
-              {status.config.version === 2 && (
-                <AdvancedControls label="Configure agents manually">
-                  <div className="symposium-new-seat">
-                    <h3>Configure an agent manually</h3>
-                    <label>
-                      New seat name{' '}
-                      <input
-                        aria-label="New seat name"
-                        value={newSeatName}
-                        onChange={(event) => setNewSeatName(event.target.value)}
-                      />
-                    </label>
-                    <label>
-                      New seat ID{' '}
-                      <input
-                        aria-label="New seat ID"
-                        value={newSeatId}
-                        onChange={(event) => setNewSeatId(event.target.value)}
-                      />
-                    </label>
-                    <label>
-                      Role{' '}
-                      <select
-                        value={newSeatRole}
-                        onChange={(event) => setNewSeatRole(event.target.value)}
-                      >
-                        <option value="architect">Architect</option>
-                        <option value="reviewer">Reviewer</option>
-                        <option value="implementer">Implementer</option>
-                      </select>
-                    </label>
-                    <AccountModelPicker
-                      scope="symposium"
-                      sessionId={null}
-                      preferredModel={status.config.seats[0]?.model ?? ''}
-                      onChange={setNewSeatSelection}
-                      disabled={busy}
-                    />
-                    {status.profileBindingEnforced && (
-                      <SymposiumProfilePicker
-                        value={newSeatProfile}
-                        onChange={setNewSeatProfile}
-                        disabled={busy}
-                      />
-                    )}
+              <AdvancedControls label="Advanced and troubleshooting">
+                <SymposiumSourceImportPanel key={sessionId} sessionId={sessionId} />
+                <p>
+                  Agents can access shared workspace files within their permissions. Their provider
+                  account may retain messages. Choosing message context does not restrict file
+                  access.
+                </p>
+                <p>
+                  {status.config.state === 'draft'
+                    ? 'Draft — agents are not enabled yet.'
+                    : `${status.reservedSeats} of ${status.config.version === 2 ? status.config.activeSeatCap : 2} seats reserved.`}
+                </p>
+                {status.config.state === 'draft' && (
+                  <div>
                     <button
                       type="button"
-                      disabled={
-                        busy ||
-                        !newSeatName.trim() ||
-                        !newSeatId.trim() ||
-                        !newSeatSelection?.accountId ||
-                        (status.config.state === 'active' &&
-                          (!boundaryAcknowledged ||
-                            (newSeatSelection.accountId !== anchorAccountId(status.config) &&
-                              typedConfirmation !== confirmation)))
-                      }
-                      onClick={() => void addConfiguredSeat()}
+                      disabled={busy || loading}
+                      onClick={() => void prepareArtifacts()}
                     >
-                      Save agent configuration
+                      Prepare shared workspace
                     </button>
-                    <p>
-                      Saving adds this agent to the configuration. It can receive messages only
-                      after the host verifies its access and enables it.
-                    </p>
+                    {artifactMessage && <p role="status">{artifactMessage}</p>}
                   </div>
-                </AdvancedControls>
-              )}
-              <fieldset disabled={busy || !status.runtimeAvailable || admitted.length === 0}>
-                <legend>Direct a message</legend>
-                {admitted.map((seat) => (
-                  <label key={seat.seatId}>
-                    <input
-                      type="checkbox"
-                      aria-label={`Send to ${seat.seat.name}`}
-                      checked={selected.includes(seat.seatId)}
-                      onChange={() =>
-                        setSelected((current) =>
-                          current.includes(seat.seatId)
-                            ? current.filter((id) => id !== seat.seatId)
-                            : [...current, seat.seatId],
-                        )
-                      }
-                    />
-                    <span>{seat.seat.name}</span>
-                  </label>
-                ))}
+                )}
+                {!status.runtimeAvailable && (
+                  <p role="status">
+                    The agent service is unavailable. Agents cannot connect or receive messages yet.
+                    You can still revoke access or stop deliveries.
+                  </p>
+                )}
+                {status.config.state === 'active' &&
+                  status.seats.some(
+                    (seat) =>
+                      seat.membership?.state === 'active' &&
+                      seat.membership.reconciliation === 'confirmed' &&
+                      !seat.admitted &&
+                      (!seat.admission ||
+                        seat.admission.configRevision !== status.config?.revision ||
+                        seat.admission.membershipGeneration !== seat.membership.generation),
+                  ) && (
+                    <button
+                      type="button"
+                      disabled={busy || !status.runtimeAvailable}
+                      onClick={() => void refreshAdmissions()}
+                    >
+                      Recheck retained seat admissions
+                    </button>
+                  )}
                 <label>
-                  Director message{' '}
-                  <textarea
-                    aria-label="Director message"
-                    value={message}
-                    onChange={(event) => setMessage(event.target.value)}
+                  <input
+                    type="checkbox"
+                    checked={boundaryAcknowledged}
+                    onChange={(event) => setBoundaryAcknowledged(event.target.checked)}
                   />
+                  <span>
+                    I understand these agents can access shared files within their permissions, and
+                    their provider accounts may retain messages.
+                  </span>
                 </label>
-                <button
-                  type="button"
-                  className="btn-primary"
-                  disabled={
-                    busy || !status.runtimeAvailable || selected.length === 0 || !message.trim()
-                  }
-                  onClick={() =>
-                    void mutate('/deliveries', {
-                      sourceSeatId: null,
-                      recipientSeatIds: selected,
-                      originalContent: message.trim(),
-                    })
-                  }
-                >
-                  Queue message for selected agents
-                </button>
-              </fieldset>
-              <h3>Directed deliveries</h3>
-              <ul>
-                {status.deliveries.map((delivery) => (
-                  <li key={delivery.deliveryId}>
-                    <strong>{delivery.recipientSeatIds.join(', ')}</strong> · {delivery.status}
-                    <p>{delivery.deliveredContent ?? delivery.originalContent}</p>
-                    {delivery.status === 'awaiting_intervention' && (
-                      <>
-                        <button
-                          type="button"
-                          disabled={busy}
-                          onClick={() =>
-                            void mutate(
-                              `/deliveries/${encodeURIComponent(delivery.deliveryId)}/interventions`,
-                              { action: 'approve' },
-                            )
-                          }
+                {(crossesAnchorAccount(status.config) ||
+                  (newSeatSelection?.accountId &&
+                    newSeatSelection.accountId !== anchorAccountId(status.config))) && (
+                  <label>
+                    To use another account, type {confirmation}:{' '}
+                    <input
+                      value={typedConfirmation}
+                      onChange={(event) => setTypedConfirmation(event.target.value)}
+                    />
+                  </label>
+                )}
+                {status.config.state === 'draft' && (
+                  <button
+                    type="button"
+                    className="btn-primary"
+                    disabled={
+                      busy ||
+                      !boundaryAcknowledged ||
+                      (crossesAnchorAccount(status.config) && typedConfirmation !== confirmation)
+                    }
+                    onClick={() => void activateRoster()}
+                  >
+                    Enable agents
+                  </button>
+                )}
+                {status.config.version === 2 && status.config.state === 'active' && (
+                  <AdvancedControls label="Change conversation owner">
+                    <fieldset disabled={busy || !status.runtimeAvailable}>
+                      <legend>Transfer primary seat</legend>
+                      <p>
+                        Select an admitted seat to own conversation routing. Its permissions stay
+                        unchanged. Transfer first, then remove the old writer and wait for cleanup
+                        before adding a replacement writer.
+                      </p>
+                      <label>
+                        New primary seat
+                        <select
+                          value={primarySelection}
+                          onChange={(event) => setPrimarySelection(event.target.value)}
                         >
-                          Approve
-                        </button>
-                        <button
-                          type="button"
-                          disabled={busy}
-                          onClick={() =>
-                            void mutate(
-                              `/deliveries/${encodeURIComponent(delivery.deliveryId)}/interventions`,
-                              { action: 'drop', reason: 'Dropped by director' },
+                          <option value="">Select a seat</option>
+                          {status.seats
+                            .filter(
+                              (seat) =>
+                                seat.seatId !==
+                                  (status.config?.version === 2
+                                    ? status.config.anchorSeatId
+                                    : '') &&
+                                seat.admitted &&
+                                seat.membership?.state === 'active' &&
+                                seat.membership.reconciliation === 'confirmed',
                             )
-                          }
-                        >
-                          Drop
-                        </button>
-                        <label>
-                          Edit delivery{' '}
-                          <textarea
-                            value={editContent}
-                            onChange={(event) => setEditContent(event.target.value)}
-                          />
-                        </label>
-                        <button
-                          type="button"
-                          disabled={busy || !editContent.trim()}
-                          onClick={() =>
-                            void mutate(
-                              `/deliveries/${encodeURIComponent(delivery.deliveryId)}/interventions`,
-                              { action: 'edit', content: editContent.trim() },
-                            )
-                          }
-                        >
-                          Edit and approve
-                        </button>
-                      </>
-                    )}
-                    {delivery.status === 'ready' && (
+                            .map((seat) => (
+                              <option key={seat.seatId} value={seat.seatId}>
+                                {seat.seat.name} ({seat.seat.accountBinding?.accountLabel};{' '}
+                                {seat.seat.model})
+                              </option>
+                            ))}
+                        </select>
+                      </label>
+                      <label>
+                        Type TRANSFER PRIMARY SEAT to confirm
+                        <input
+                          value={primaryConfirmation}
+                          onChange={(event) => setPrimaryConfirmation(event.target.value)}
+                        />
+                      </label>
                       <button
                         type="button"
-                        disabled={busy || !status.runtimeAvailable}
-                        onClick={() =>
-                          void mutate(
-                            `/deliveries/${encodeURIComponent(delivery.deliveryId)}/dispatch`,
-                            {},
-                          )
+                        disabled={
+                          !primarySelection || primaryConfirmation !== 'TRANSFER PRIMARY SEAT'
                         }
+                        onClick={() => {
+                          const target = status.seats.find(
+                            (seat) => seat.seatId === primarySelection,
+                          );
+                          if (
+                            status.config?.version !== 2 ||
+                            !target?.admitted ||
+                            target.membership?.state !== 'active' ||
+                            target.membership.reconciliation !== 'confirmed'
+                          )
+                            return;
+                          void mutate('/primary/transfer', {
+                            fromSeatId: status.config.anchorSeatId,
+                            toSeatId: target.seatId,
+                            expectedRevision: status.config.revision,
+                            expectedGeneration: target.membership.generation,
+                            reason: 'Explicit primary transfer by director',
+                            confirmation: primaryConfirmation,
+                          });
+                        }}
                       >
-                        Send approved message
+                        Transfer primary seat
                       </button>
-                    )}
-                    {!['delivered', 'dropped', 'cancelled'].includes(delivery.status) && (
-                      <button
-                        type="button"
+                    </fieldset>
+                  </AdvancedControls>
+                )}
+                {status.config.version === 2 && (
+                  <AdvancedControls label="Configure agents manually">
+                    <div className="symposium-new-seat">
+                      <h3>Configure an agent manually</h3>
+                      <label>
+                        New seat name{' '}
+                        <input
+                          aria-label="New seat name"
+                          value={newSeatName}
+                          onChange={(event) => setNewSeatName(event.target.value)}
+                        />
+                      </label>
+                      <label>
+                        New seat ID{' '}
+                        <input
+                          aria-label="New seat ID"
+                          value={newSeatId}
+                          onChange={(event) => setNewSeatId(event.target.value)}
+                        />
+                      </label>
+                      <label>
+                        Role{' '}
+                        <select
+                          value={newSeatRole}
+                          onChange={(event) => setNewSeatRole(event.target.value)}
+                        >
+                          <option value="architect">Architect</option>
+                          <option value="reviewer">Reviewer</option>
+                          <option value="implementer">Implementer</option>
+                        </select>
+                      </label>
+                      <AccountModelPicker
+                        scope="symposium"
+                        sessionId={null}
+                        preferredModel={status.config.seats[0]?.model ?? ''}
+                        onChange={setNewSeatSelection}
                         disabled={busy}
-                        onClick={() =>
-                          void mutate(
-                            `/deliveries/${encodeURIComponent(delivery.deliveryId)}/cancel`,
-                            { reason: 'Stopped by director' },
+                      />
+                      {status.profileBindingEnforced && (
+                        <SymposiumProfilePicker
+                          compact
+                          value={newSeatProfile}
+                          onChange={setNewSeatProfile}
+                          disabled={busy}
+                        />
+                      )}
+                      <button
+                        type="button"
+                        disabled={
+                          busy ||
+                          !newSeatName.trim() ||
+                          !newSeatId.trim() ||
+                          !newSeatSelection?.accountId ||
+                          (status.config.state === 'active' &&
+                            (!boundaryAcknowledged ||
+                              (newSeatSelection.accountId !== anchorAccountId(status.config) &&
+                                typedConfirmation !== confirmation)))
+                        }
+                        onClick={() => void addConfiguredSeat()}
+                      >
+                        Save agent configuration
+                      </button>
+                      <p>
+                        Saving adds this agent to the configuration. It can receive messages only
+                        after the host verifies its access and enables it.
+                      </p>
+                    </div>
+                  </AdvancedControls>
+                )}
+                <fieldset disabled={busy || !status.runtimeAvailable || admitted.length === 0}>
+                  <legend>Direct a message</legend>
+                  {admitted.map((seat) => (
+                    <label key={seat.seatId}>
+                      <input
+                        type="checkbox"
+                        aria-label={`Send to ${seat.seat.name}`}
+                        checked={selected.includes(seat.seatId)}
+                        onChange={() =>
+                          setSelected((current) =>
+                            current.includes(seat.seatId)
+                              ? current.filter((id) => id !== seat.seatId)
+                              : [...current, seat.seatId],
                           )
                         }
-                      >
-                        Stop and dismiss
-                      </button>
-                    )}
-                  </li>
-                ))}
-              </ul>
+                      />
+                      <span>{seat.seat.name}</span>
+                    </label>
+                  ))}
+                  <label>
+                    Director message{' '}
+                    <textarea
+                      aria-label="Director message"
+                      value={message}
+                      onChange={(event) => setMessage(event.target.value)}
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    className="btn-primary"
+                    disabled={
+                      busy || !status.runtimeAvailable || selected.length === 0 || !message.trim()
+                    }
+                    onClick={() =>
+                      void mutate('/deliveries', {
+                        sourceSeatId: null,
+                        recipientSeatIds: selected,
+                        originalContent: message.trim(),
+                      })
+                    }
+                  >
+                    Queue message for selected agents
+                  </button>
+                </fieldset>
+                <h3>Directed deliveries</h3>
+                <ul>
+                  {status.deliveries.map((delivery) => (
+                    <li key={delivery.deliveryId}>
+                      <strong>{delivery.recipientSeatIds.join(', ')}</strong> · {delivery.status}
+                      <p>{delivery.deliveredContent ?? delivery.originalContent}</p>
+                      {delivery.status === 'awaiting_intervention' && (
+                        <>
+                          <button
+                            type="button"
+                            disabled={busy}
+                            onClick={() =>
+                              void mutate(
+                                `/deliveries/${encodeURIComponent(delivery.deliveryId)}/interventions`,
+                                { action: 'approve' },
+                              )
+                            }
+                          >
+                            Approve
+                          </button>
+                          <button
+                            type="button"
+                            disabled={busy}
+                            onClick={() =>
+                              void mutate(
+                                `/deliveries/${encodeURIComponent(delivery.deliveryId)}/interventions`,
+                                { action: 'drop', reason: 'Dropped by director' },
+                              )
+                            }
+                          >
+                            Drop
+                          </button>
+                          <label>
+                            Edit delivery{' '}
+                            <textarea
+                              value={editContent}
+                              onChange={(event) => setEditContent(event.target.value)}
+                            />
+                          </label>
+                          <button
+                            type="button"
+                            disabled={busy || !editContent.trim()}
+                            onClick={() =>
+                              void mutate(
+                                `/deliveries/${encodeURIComponent(delivery.deliveryId)}/interventions`,
+                                { action: 'edit', content: editContent.trim() },
+                              )
+                            }
+                          >
+                            Edit and approve
+                          </button>
+                        </>
+                      )}
+                      {delivery.status === 'ready' && (
+                        <button
+                          type="button"
+                          disabled={busy || !status.runtimeAvailable}
+                          onClick={() =>
+                            void mutate(
+                              `/deliveries/${encodeURIComponent(delivery.deliveryId)}/dispatch`,
+                              {},
+                            )
+                          }
+                        >
+                          Send approved message
+                        </button>
+                      )}
+                      {!['delivered', 'dropped', 'cancelled'].includes(delivery.status) && (
+                        <button
+                          type="button"
+                          disabled={busy}
+                          onClick={() =>
+                            void mutate(
+                              `/deliveries/${encodeURIComponent(delivery.deliveryId)}/cancel`,
+                              { reason: 'Stopped by director' },
+                            )
+                          }
+                        >
+                          Stop and dismiss
+                        </button>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </AdvancedControls>
             </>
           )}
         </div>

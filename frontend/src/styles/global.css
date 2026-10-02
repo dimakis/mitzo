@@ -7353,6 +7353,73 @@ option {
   margin-left: 0.35rem;
 }
 
+.symposium-director-panel .symposium-roster {
+  list-style: none;
+  padding: 0;
+  gap: 0.6rem;
+}
+
+.symposium-director-panel .symposium-roster > li {
+  display: grid;
+  gap: 0.4rem;
+  padding: 0.8rem;
+  border: 1px solid var(--border);
+  border-radius: 0.6rem;
+  background: var(--surface);
+  line-height: 1.4;
+}
+
+.symposium-agent-heading,
+.symposium-agent-model,
+.symposium-agent-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem 0.8rem;
+}
+
+.symposium-agent-heading {
+  justify-content: space-between;
+}
+
+.symposium-agent-model,
+.symposium-agent-state {
+  color: var(--text-dim);
+  font-size: 0.85rem;
+}
+
+.symposium-agent-model span {
+  overflow-wrap: anywhere;
+}
+
+.symposium-roster > li > .symposium-advanced-controls {
+  padding: 0;
+  border: 0;
+}
+
+.symposium-roster > li > .symposium-advanced-controls > button {
+  padding: 0.2rem 0.5rem;
+  min-height: 2rem;
+  margin: 0;
+  background: transparent;
+}
+
+.symposium-agent-details {
+  display: grid;
+  gap: 0.6rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--border);
+}
+
+.symposium-profile-tools > button {
+  margin: 0.35rem 0.75rem;
+  padding: 0.3rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  color: var(--text-dim);
+  background: transparent;
+}
+
 .symposium-seat-selection {
   display: grid;
   gap: 0.4rem;

@@ -104,6 +104,18 @@ const status = (admitted: boolean) => ({
   })),
 });
 
+async function openAdvancedSettings() {
+  const agents = screen.getByRole('button', { name: 'Agents' });
+  if (agents.getAttribute('aria-expanded') !== 'true') await userEvent.click(agents);
+  await waitFor(() => expect(screen.queryByText('Checking agent status…')).toBeNull());
+  const advanced = screen.queryByRole('button', { name: 'Advanced and troubleshooting' });
+  if (!advanced) return;
+  if (advanced.getAttribute('aria-expanded') !== 'true') await userEvent.click(advanced);
+  for (const details of screen.queryAllByRole('button', { name: 'View details' })) {
+    if (details.getAttribute('aria-expanded') !== 'true') await userEvent.click(details);
+  }
+}
+
 afterEach(() => {
   cleanup();
   vi.resetAllMocks();
@@ -112,7 +124,7 @@ afterEach(() => {
 it('shows distinct seat accounts and does not offer dispatch while runtime admission is pending', async () => {
   vi.mocked(apiFetch).mockResolvedValue(response(status(false)));
   render(<SymposiumDirectorPanel sessionId="session" />);
-  await userEvent.click(screen.getByRole('button', { name: 'Agent settings' }));
+  await openAdvancedSettings();
   expect(await screen.findByText(/Claude work · claude-sonnet/)).toBeTruthy();
   expect(screen.getByText(/OpenAI work · gpt/)).toBeTruthy();
   expect(screen.getAllByText(/Pending runtime admission/)).toHaveLength(2);
@@ -131,7 +143,7 @@ it('injects only explicitly selected admitted recipients', async () => {
     .mockResolvedValueOnce(response({ deliveryId: 'delivery-1' }))
     .mockResolvedValueOnce(response(status(true)));
   render(<SymposiumDirectorPanel sessionId="session" />);
-  await userEvent.click(screen.getByRole('button', { name: 'Agent settings' }));
+  await openAdvancedSettings();
   await screen.findByText(/OpenAI work · gpt/);
   await userEvent.click(screen.getByRole('checkbox', { name: 'Send to Reviewer' }));
   await userEvent.type(
@@ -156,7 +168,7 @@ it('adds a configured seat to a draft using a server-resolved account binding', 
     .mockResolvedValueOnce(response({ ok: true }))
     .mockResolvedValueOnce(response(draft));
   render(<SymposiumDirectorPanel sessionId="session" />);
-  await userEvent.click(screen.getByRole('button', { name: 'Agent settings' }));
+  await openAdvancedSettings();
   await screen.findByText(/Draft — agents are not enabled yet/);
   await userEvent.click(screen.getByText('Configure agents manually'));
   await userEvent.type(screen.getByRole('textbox', { name: 'New seat name' }), 'Builder');
@@ -193,7 +205,7 @@ it('starts a draft from an existing conversation without sending a fabricated gr
     .mockResolvedValueOnce(response({ ...config, state: 'draft' }))
     .mockResolvedValueOnce(response({ ...status(false), config: { ...config, state: 'draft' } }));
   render(<SymposiumDirectorPanel sessionId="session" />);
-  await userEvent.click(screen.getByRole('button', { name: 'Agent settings' }));
+  await openAdvancedSettings();
   await userEvent.click(await screen.findByRole('button', { name: 'Set up agents' }));
   await waitFor(() => expect(apiFetch).toHaveBeenCalledTimes(3));
   const [, request] = vi.mocked(apiFetch).mock.calls[1];
@@ -207,7 +219,7 @@ it('activates a mixed-account draft only with explicit boundary acknowledgement 
     .mockResolvedValueOnce(response({ ...config, revision: 5 }))
     .mockResolvedValueOnce(response(status(false)));
   render(<SymposiumDirectorPanel sessionId="session" />);
-  await userEvent.click(screen.getByRole('button', { name: 'Agent settings' }));
+  await openAdvancedSettings();
   await screen.findByText(/Draft — agents are not enabled yet/);
   const activate = screen.getByRole('button', { name: 'Enable agents' });
   expect(activate.hasAttribute('disabled')).toBe(true);
@@ -237,7 +249,7 @@ it('sends saved profile selection outside draft seat config only when host bindi
     .mockResolvedValueOnce(response({ ...config, revision: 5 }))
     .mockResolvedValueOnce(response(draft));
   render(<SymposiumDirectorPanel sessionId="session" />);
-  await userEvent.click(screen.getByRole('button', { name: 'Agent settings' }));
+  await openAdvancedSettings();
   await screen.findByText(/Draft — agents are not enabled yet/);
   await userEvent.click(screen.getAllByRole('button', { name: 'Select saved profile' })[1]);
   await userEvent.click(screen.getByRole('checkbox', { name: /I understand these agents/ }));
@@ -260,7 +272,7 @@ it('adds an active-roster seat through host grant revision without sending grant
     .mockResolvedValueOnce(response({ ...config, revision: 5 }))
     .mockResolvedValueOnce(response(status(true)));
   render(<SymposiumDirectorPanel sessionId="session" />);
-  await userEvent.click(screen.getByRole('button', { name: 'Agent settings' }));
+  await openAdvancedSettings();
   await screen.findByText(/OpenAI work · gpt/);
   await userEvent.click(screen.getByText('Configure agents manually'));
   await userEvent.type(screen.getByRole('textbox', { name: 'New seat name' }), 'Builder');
@@ -298,7 +310,7 @@ it.each(['resolve', 'reject'] as const)(
       .mockReturnValueOnce(oldRequest)
       .mockResolvedValueOnce(response({ ...status(true), sessionId: 'next', config: null }));
     const { rerender } = render(<SymposiumDirectorPanel sessionId="session" />);
-    await userEvent.click(screen.getByRole('button', { name: 'Agent settings' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Agents' }));
     rerender(<SymposiumDirectorPanel sessionId="next" />);
     await screen.findByText('This conversation has no agents configured.');
     await act(async () => {
@@ -317,12 +329,13 @@ it('clears the previous session roster and form state immediately on navigation'
     .mockResolvedValueOnce(response(status(true)))
     .mockResolvedValueOnce(response({ ...status(true), sessionId: 'next' }));
   const { rerender } = render(<SymposiumDirectorPanel sessionId="session" />);
-  await userEvent.click(screen.getByRole('button', { name: 'Agent settings' }));
+  await openAdvancedSettings();
   await screen.findByText(/OpenAI work · gpt/);
   await userEvent.click(screen.getByRole('checkbox', { name: 'Send to Reviewer' }));
   await userEvent.type(screen.getByRole('textbox', { name: 'Director message' }), 'Old message');
   rerender(<SymposiumDirectorPanel sessionId="next" />);
   expect(screen.queryByRole('button', { name: 'Suspend' })).toBeNull();
+  await openAdvancedSettings();
   await screen.findByText(/OpenAI work · gpt/);
   expect(
     (screen.getByRole('textbox', { name: 'Director message' }) as HTMLTextAreaElement).value,
@@ -349,15 +362,13 @@ it('refreshes externally queued deliveries without closing director controls', a
       }),
     );
   render(<SymposiumDirectorPanel sessionId="session" />);
-  await userEvent.click(screen.getByRole('button', { name: 'Agent settings' }));
+  await openAdvancedSettings();
   await screen.findByText(/OpenAI work · gpt/);
   expect(screen.queryByRole('button', { name: 'Approve' })).toBeNull();
   await userEvent.click(screen.getByRole('button', { name: 'Refresh status' }));
   expect(await screen.findByText('Queued from the audience composer')).toBeTruthy();
   expect(screen.getByRole('button', { name: 'Approve' })).toBeTruthy();
-  expect(screen.getByRole('button', { name: 'Agent settings' }).getAttribute('aria-expanded')).toBe(
-    'true',
-  );
+  expect(screen.getByRole('button', { name: 'Agents' }).getAttribute('aria-expanded')).toBe('true');
 });
 
 it('keeps old mutation completion and its refresh isolated from the new session', async () => {
@@ -371,7 +382,7 @@ it('keeps old mutation completion and its refresh isolated from the new session'
     .mockResolvedValueOnce(response({ ...status(true), sessionId: 'next', config: null }))
     .mockResolvedValueOnce(response(status(true)));
   const { rerender } = render(<SymposiumDirectorPanel sessionId="session" />);
-  await userEvent.click(screen.getByRole('button', { name: 'Agent settings' }));
+  await openAdvancedSettings();
   await screen.findByText(/OpenAI work · gpt/);
   await userEvent.click(screen.getByRole('button', { name: 'Suspend' }));
   rerender(<SymposiumDirectorPanel sessionId="next" />);
@@ -381,6 +392,7 @@ it('keeps old mutation completion and its refresh isolated from the new session'
   });
   expect(screen.getByText('This conversation has no agents configured.')).toBeTruthy();
   expect(screen.queryByRole('button', { name: 'Suspend' })).toBeNull();
+  await openAdvancedSettings();
   expect(screen.getByRole('button', { name: 'Set up agents' }).hasAttribute('disabled')).toBe(
     false,
   );
@@ -398,12 +410,13 @@ it('recovers shared files from a reopened saved draft without activating or disp
     return response(draft);
   });
   const mounted = render(<SymposiumDirectorPanel sessionId="session" />);
-  await userEvent.click(screen.getByRole('button', { name: 'Agent settings' }));
+  await openAdvancedSettings();
   await userEvent.click(await screen.findByRole('button', { name: 'Prepare shared workspace' }));
+  await userEvent.click(await screen.findByRole('button', { name: 'View request error' }));
   expect(await screen.findByText(/Shared files are still unavailable/)).toBeTruthy();
   mounted.unmount();
   render(<SymposiumDirectorPanel sessionId="session" />);
-  await userEvent.click(screen.getByRole('button', { name: 'Agent settings' }));
+  await openAdvancedSettings();
   ready = true;
   await userEvent.click(await screen.findByRole('button', { name: 'Prepare shared workspace' }));
   expect(await screen.findByText(/Shared files are ready/)).toBeTruthy();
@@ -427,7 +440,7 @@ it('keeps primary lifecycle controls unavailable while reviewer removal remains 
   );
   vi.mocked(apiFetch).mockResolvedValue(response(current));
   render(<SymposiumDirectorPanel sessionId="session" />);
-  await userEvent.click(screen.getByRole('button', { name: 'Agent settings' }));
+  await openAdvancedSettings();
   const primary = within(
     (await screen.findByText('Primary', { selector: 'strong' })).closest('li')!,
   );
@@ -455,7 +468,7 @@ it('retains explicit admission for an anchor without membership after activation
   };
   vi.mocked(apiFetch).mockResolvedValue(response(unadmitted));
   render(<SymposiumDirectorPanel sessionId="session" />);
-  await userEvent.click(screen.getByRole('button', { name: 'Agent settings' }));
+  await openAdvancedSettings();
   const anchor = within(
     (await screen.findByText('Architect', { selector: 'strong' })).closest('li')!,
   );
@@ -472,7 +485,7 @@ it('retains explicit admission for an anchor without membership after activation
 it('requires an explicit admitted primary selection and confirmation without changing seat permissions', async () => {
   vi.mocked(apiFetch).mockResolvedValue(response(status(true)));
   render(<SymposiumDirectorPanel sessionId="session" />);
-  await userEvent.click(screen.getByRole('button', { name: 'Agent settings' }));
+  await openAdvancedSettings();
   await userEvent.click(await screen.findByText('Change conversation owner'));
   const action = await screen.findByRole('button', { name: 'Transfer primary seat' });
   expect(action.hasAttribute('disabled')).toBe(true);
@@ -506,7 +519,7 @@ it('provides admission recovery after a saved transfer without silently moving p
     }),
   );
   render(<SymposiumDirectorPanel sessionId="session" />);
-  await userEvent.click(screen.getByRole('button', { name: 'Agent settings' }));
+  await openAdvancedSettings();
   await userEvent.click(
     await screen.findByRole('button', { name: 'Recheck retained seat admissions' }),
   );
@@ -543,7 +556,7 @@ it('refreshes a partially saved primary transfer and repairs admissions at its n
     );
   });
   render(<SymposiumDirectorPanel sessionId="session" />);
-  await userEvent.click(screen.getByRole('button', { name: 'Agent settings' }));
+  await openAdvancedSettings();
   await userEvent.click(await screen.findByText('Change conversation owner'));
   await userEvent.selectOptions(await screen.findByLabelText('New primary seat'), 'reviewer');
   await userEvent.type(
@@ -551,6 +564,7 @@ it('refreshes a partially saved primary transfer and repairs admissions at its n
     'TRANSFER PRIMARY SEAT',
   );
   await userEvent.click(screen.getByRole('button', { name: 'Transfer primary seat' }));
+  await userEvent.click(await screen.findByRole('button', { name: 'View request error' }));
   expect(await screen.findByText(failure, { exact: false })).toBeTruthy();
   await userEvent.click(
     await screen.findByRole('button', { name: 'Recheck retained seat admissions' }),
@@ -564,7 +578,7 @@ it('does not offer retained admission recheck for pending membership or a curren
   const pending = status(false);
   vi.mocked(apiFetch).mockResolvedValue(response({ ...pending, runtimeAvailable: true }));
   const mounted = render(<SymposiumDirectorPanel sessionId="session" />);
-  await userEvent.click(screen.getByRole('button', { name: 'Agent settings' }));
+  await openAdvancedSettings();
   await screen.findByText(/OpenAI work · gpt/);
   expect(screen.queryByRole('button', { name: 'Recheck retained seat admissions' })).toBeNull();
   mounted.unmount();
@@ -579,7 +593,7 @@ it('does not offer retained admission recheck for pending membership or a curren
     }),
   );
   render(<SymposiumDirectorPanel sessionId="session" />);
-  await userEvent.click(screen.getByRole('button', { name: 'Agent settings' }));
+  await openAdvancedSettings();
   await screen.findByText(/OpenAI work · gpt/);
   expect(screen.queryByRole('button', { name: 'Recheck retained seat admissions' })).toBeNull();
 });
@@ -600,7 +614,7 @@ it('offers failed primary cleanup only from host capability and requires typed c
   };
   vi.mocked(apiFetch).mockResolvedValue(response(failed));
   render(<SymposiumDirectorPanel sessionId="session" />);
-  await userEvent.click(screen.getByRole('button', { name: 'Agent settings' }));
+  await openAdvancedSettings();
   const button = await screen.findByRole('button', { name: 'Clean up failed seat' });
   expect(button.hasAttribute('disabled')).toBe(true);
   await userEvent.type(
@@ -639,14 +653,14 @@ it('resumes a durable failed cleanup after remount using the retained operation 
   };
   vi.mocked(apiFetch).mockResolvedValue(response(failed));
   const first = render(<SymposiumDirectorPanel sessionId="session" />);
-  await userEvent.click(screen.getByRole('button', { name: 'Agent settings' }));
+  await openAdvancedSettings();
   await userEvent.type(
     await screen.findByLabelText('Type CLEAN UP FAILED SEAT for Architect'),
     'CLEAN UP FAILED SEAT',
   );
   first.unmount();
   render(<SymposiumDirectorPanel sessionId="session" />);
-  await userEvent.click(screen.getByRole('button', { name: 'Agent settings' }));
+  await openAdvancedSettings();
   const button = await screen.findByRole('button', { name: 'Clean up failed seat' });
   expect(button.hasAttribute('disabled')).toBe(true);
   await userEvent.type(
@@ -693,7 +707,7 @@ it.each(['reauthorization_required', 'cleanup_fenced'])(
       }),
     );
     render(<SymposiumDirectorPanel sessionId="session" />);
-    await userEvent.click(screen.getByRole('button', { name: 'Agent settings' }));
+    await openAdvancedSettings();
     await screen.findByText(
       state === 'cleanup_fenced' ? /Cleanup is fenced/ : /Fresh app reauthorization is required/,
     );
@@ -749,7 +763,7 @@ it.each(['success', 'auth-rejected', 'auth-expired', 'handoff-rejected'])(
       });
     });
     render(<SymposiumDirectorPanel sessionId="session" />);
-    await userEvent.click(screen.getByRole('button', { name: 'Agent settings' }));
+    await openAdvancedSettings();
     const passphrase = await screen.findByLabelText('App passphrase for Architect cleanup');
     const action = screen.getByRole('button', { name: 'Authorize pending cleanup' });
     expect(action.hasAttribute('disabled')).toBe(true);
@@ -847,7 +861,7 @@ it('requires freshly typed cleanup confirmation after another session handoff an
     });
   });
   render(<SymposiumDirectorPanel sessionId="session" />);
-  await userEvent.click(screen.getByRole('button', { name: 'Agent settings' }));
+  await openAdvancedSettings();
   await userEvent.type(
     await screen.findByLabelText('Type CLEAN UP FAILED SEAT for Architect'),
     'CLEAN UP FAILED SEAT',
@@ -916,7 +930,7 @@ it('drops the previous thinking level when a draft reviewer switches from Luna t
     .mockResolvedValueOnce(response({ ok: true }))
     .mockResolvedValueOnce(response(draft));
   render(<SymposiumDirectorPanel sessionId="session" />);
-  await userEvent.click(screen.getByRole('button', { name: 'Agent settings' }));
+  await openAdvancedSettings();
   await screen.findByText(/Draft — agents are not enabled yet/);
   const reviewer = screen
     .getAllByRole('button', { name: 'Save account and model' })[1]
@@ -949,12 +963,47 @@ it('keeps account confirmation and manual administration out of same-account set
   }));
   vi.mocked(apiFetch).mockResolvedValue(response(sameAccount));
   render(<SymposiumDirectorPanel sessionId="session" />);
-  await userEvent.click(screen.getByRole('button', { name: 'Agent settings' }));
-  await screen.findByText(/Claude work · claude-sonnet/);
+  await userEvent.click(screen.getByRole('button', { name: 'Agents' }));
+  await screen.findByRole('listitem', { name: 'Architect agent' });
   expect(screen.queryByRole('textbox', { name: /To use another account/ })).toBeNull();
   expect(screen.queryByRole('textbox', { name: 'New seat name' })).toBeNull();
   expect(screen.queryByRole('button', { name: 'Transfer primary seat' })).toBeNull();
+  await userEvent.click(screen.getByRole('button', { name: 'Advanced and troubleshooting' }));
   await userEvent.click(screen.getByText('Configure agents manually'));
   await userEvent.click(screen.getAllByRole('button', { name: 'Select OpenAI model' }).at(-1)!);
   expect(screen.getByRole('textbox', { name: /To use another account/ })).toBeTruthy();
+});
+
+it('shows a compact failed agent card without exposing recovery operations', async () => {
+  const initial = status(true);
+  vi.mocked(apiFetch).mockResolvedValue(
+    response({
+      ...initial,
+      seats: initial.seats.map((seat, index) =>
+        index
+          ? seat
+          : {
+              ...seat,
+              admitted: false,
+              creationDiagnostic: { phase: 'mount', code: 'SEAT_MOUNT_FAILED', canCleanup: true },
+            },
+      ),
+    }),
+  );
+  render(<SymposiumDirectorPanel sessionId="session" />);
+  await userEvent.click(screen.getByRole('button', { name: 'Agents' }));
+  const card = await screen.findByRole('listitem', { name: 'Architect agent' });
+  expect(within(card).getByText('Couldn’t connect this agent')).toBeTruthy();
+  expect(within(card).getByText('Workspace setup failed. No message was sent.')).toBeTruthy();
+  expect(screen.queryByText(/SEAT_MOUNT_FAILED/)).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Clean up failed seat' })).toBeNull();
+  expect(screen.queryByRole('textbox', { name: 'Director message' })).toBeNull();
+  await userEvent.click(within(card).getByRole('button', { name: 'View details' }));
+  expect(within(card).getByText(/SEAT_MOUNT_FAILED/)).toBeTruthy();
+  expect(
+    within(card).getByRole('button', { name: 'Clean up failed seat' }).hasAttribute('disabled'),
+  ).toBe(true);
+  expect(
+    vi.mocked(apiFetch).mock.calls.every(([, init]) => !init?.method || init.method === 'GET'),
+  ).toBe(true);
 });

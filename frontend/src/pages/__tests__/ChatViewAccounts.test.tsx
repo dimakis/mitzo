@@ -394,3 +394,44 @@ it('groups web search settings under the existing header disclosure', async () =
   fireEvent.click(screen.getByRole('button', { name: /Workspace controls/ }));
   expect(settings.closest('[hidden]')).toBeNull();
 });
+
+it('hides ordinary suspend and permission controls on the mobile Symposium surface', async () => {
+  localStorage.setItem('mitzo-workspace-controls-expanded', '1');
+  vi.mocked(apiFetch).mockImplementation(
+    async (url) =>
+      ({
+        ok: true,
+        json: async () =>
+          String(url).endsWith('/meta')
+            ? { sessionType: 'symposium' }
+            : String(url).endsWith('/symposium')
+              ? { sessionId: 'native-chat', config: null, seats: [] }
+              : [],
+      }) as Response,
+  );
+  const store = createTestStore();
+  const closeSession = vi.fn();
+  store.setState({
+    sessions: { ...store.getState().sessions, active: 'native-chat' },
+    closeSession,
+    fetchSessionMeta: async () => {},
+  });
+  render(
+    <MemoryRouter initialEntries={['/chat/native-chat']}>
+      <MitzoStoreProvider value={store}>
+        <Routes>
+          <Route path="/chat/:sessionId" element={<ChatView />} />
+        </Routes>
+      </MitzoStoreProvider>
+    </MemoryRouter>,
+  );
+  await screen.findByText('Symposium');
+  expect(screen.queryByRole('button', { name: 'Ask' })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Auto' })).toBeNull();
+  expect(screen.queryByTitle('Close session')).toBeNull();
+  expect(screen.queryByTestId('web-search-connection')).toBeNull();
+  expect(screen.queryByText('Ready')).toBeNull();
+  expect(screen.getByText('Agent chat')).toBeTruthy();
+  expect(screen.queryByText(/Each agent has its own account/)).toBeNull();
+  expect(closeSession).not.toHaveBeenCalled();
+});
