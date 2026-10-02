@@ -82,6 +82,7 @@ describe('Telos host artifact routes', () => {
     const oversized = await call('save', {
       itemId: 't',
       filename: 'unicode.txt',
+      requestId: 'oversized-unicode',
       title: 'Unicode',
       content: 'é'.repeat(3 * 1024 * 1024),
     });
