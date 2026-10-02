@@ -560,8 +560,10 @@ production locks lack this dynamic attestation, so this lane remains blocked
 until the Stage 2 context contract and compatible runtime baseline are released.
 Retained ordinary Codex chats can select a verified publication between turns,
 copy it into a separate versioned knowledge directory, and refresh the existing
-provider thread's developer instructions. Their writable task Git and checkpoint
-history remain intact. The pinned ContexGin compiler includes tracked `AGENTS.md`.
+provider thread's per-turn application context. Their writable task Git and checkpoint
+history remain intact. Cached views are verified before reuse; a damaged selected
+cache is replaced from the verified publication before compilation, preserving
+task files and unrelated versions. The pinned ContexGin compiler includes tracked `AGENTS.md`.
 Runtime staging fingerprints the installed compiler dependency closure and recipe
 and observes the target Python markers inside the image. These paths require a
 reviewed dynamic runtime lock and enrollment at `publications/current/mgmt`;

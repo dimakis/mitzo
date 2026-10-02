@@ -102,7 +102,13 @@ files, private provider state and temporary files remain writable, while the
 knowledge lane cannot be modified by an agent or its background descendants.
 Actual runtime recipe attestation includes this boundary and both launchers.
 Knowledge caches use content-addressed paths and reuse verified copies across
-manager restarts. Sandbox-local cleanup retains active and manually pinned views,
+manager restarts. Reuse first verifies the complete view, including file modes.
+A damaged selected cache is replaced from the verified publication at a safe
+turn boundary under the physical sandbox ownership fence; cached compiled context
+is discarded and the replacement is verified before compilation. Repair is limited
+to that exact content-addressed directory, preserving task data and unrelated
+versions. Metadata-only changes such as chmod cannot permanently strand admission.
+Sandbox-local cleanup retains active and manually pinned views,
 at least ten recent copies, and copies younger than thirty days; publisher
 versions and checkpoint artifacts are outside that cleanup's authority.
 
