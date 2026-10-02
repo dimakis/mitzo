@@ -45,7 +45,11 @@ import {
 } from './symposium-publication-artifact.js';
 import { createPublicationRouter } from './symposium-publication-routes.js';
 import { capabilityOperationStore } from './capability-operation-owner.js';
-import { ownedEvidenceHandler } from './symposium-owned-evidence.js';
+import {
+  ownedEvidenceHandler,
+  sessionOwnedEvidenceHandler,
+  sessionEvidenceRequestAuthority,
+} from './symposium-owned-evidence.js';
 
 import type { SandboxCreationFence } from './symposium-workspace-lifecycle.js';
 import type { ConnectionSelection, PersonalConnection } from './symposium-personal-connections.js';
@@ -1023,6 +1027,10 @@ export interface SymposiumProductionHost {
   runtimeConfig: OpenShellRuntimeConfig;
   attestationPath: string;
   admissionBuildSelection?: import('./symposium-owned-runtime-contract.js').SymposiumOwnedBuildSelection;
+  collectSessionAdmissionCandidate?: (
+    binding: { sessionId: string; configRevision: number },
+    assertCurrent: () => void,
+  ) => Promise<import('./symposium-owned-evidence.js').SessionOwnedEvidenceCapability>;
   collectSessionAdmissionEvidence?: (
     selection: unknown,
   ) => Promise<import('./symposium-owned-evidence.js').SessionOwnedEvidenceCapability>;
@@ -2196,6 +2204,21 @@ app.post(
   '/api/symposium/admission-evidence',
   operatorAuthMiddleware,
   ownedEvidenceHandler(() => symposiumProductionHost?.collectAdmissionEvidence),
+);
+app.post(
+  '/api/symposium/sessions/:sessionId/admission-evidence',
+  operatorAuthMiddleware,
+  sessionOwnedEvidenceHandler(
+    () => symposiumProductionHost?.collectSessionAdmissionCandidate,
+    (req, res) =>
+      sessionEvidenceRequestAuthority(req, res, {
+        session: res.locals.authSession as AuthSession | undefined,
+        hasSession: (id) =>
+          (!custodianOwnerMode || retainedCustodianSessions.has(id)) &&
+          eventStore.getSession(id)?.sessionType === 'symposium',
+        register: registerAuthSession,
+      }),
+  ),
 );
 app.get('/api/symposium/personal/connections', operatorAuthMiddleware, (_req, res) => {
   res.setHeader('Cache-Control', 'no-store');

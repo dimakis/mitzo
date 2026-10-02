@@ -52,7 +52,21 @@ export function createOwnedEvidenceCollector(
 ) {
   let active = false;
   let uncertain = false;
-  return async (selection: unknown): Promise<SymposiumProductionAttestation> => {
+  return async (
+    selection: unknown,
+    assertRequestCurrent?: () => void,
+  ): Promise<SymposiumProductionAttestation> => {
+    let requestVetoed = false;
+    const assertRequest = () => {
+      if (requestVetoed) throw Error('Original evidence request authority lost');
+      try {
+        assertRequestCurrent?.();
+      } catch (error) {
+        requestVetoed = true;
+        throw error;
+      }
+    };
+    assertRequest();
     const parsed = OwnedEvidenceSelection.parse(selection);
     if (uncertain) throw new Error('Evidence worker cleanup requires operator recovery');
     if (active) throw new Error('Admission evidence collection already in progress');
@@ -94,7 +108,9 @@ export function createOwnedEvidenceCollector(
       }
     };
     try {
+      assertRequest();
       await custody.verifyCustodyAsync();
+      assertRequest();
       const source = import.meta.url.endsWith('.ts');
       const module = new URL(
         source ? './symposium-owned-evidence-worker.ts' : './symposium-owned-evidence-worker.js',
@@ -124,6 +140,7 @@ export function createOwnedEvidenceCollector(
         let ok = false;
         let receipt: SymposiumWorkVertexReceipt | undefined;
         try {
+          assertRequest();
           if (message.method === 'claude') {
             const request = WorkerVertexRequest.parse(message);
             receipt = await capture(request.args[0]);
@@ -141,6 +158,7 @@ export function createOwnedEvidenceCollector(
               ...(message.args as [string, string, 'podman' | 'docker']),
             );
           else throw new Error('Unknown custody operation');
+          assertRequest();
           ok = true;
         } catch {
           /* Worker receives no private diagnostic output. */
@@ -175,13 +193,17 @@ export function createOwnedEvidenceCollector(
           } else if (!result) reject(new OwnedEvidenceVerificationError(failurePhase));
           else
             void (async () => {
+              assertRequest();
               await custody.verifyCustodyAsync();
+              assertRequest();
               for (const id of selected.keys()) {
                 const before = receipts.get(id);
                 if (!before || JSON.stringify(await capture(id)) !== JSON.stringify(before))
                   throw Error('Evidence provider changed after physical probe');
               }
+              assertRequest();
               await custody.verifyCustodyAsync();
+              assertRequest();
               resolve(result!);
             })().catch(() => reject(Error('Evidence retained custody could not be verified')));
         });

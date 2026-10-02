@@ -3,8 +3,10 @@ import {
   type SymposiumOwnedBuildSelection,
 } from './symposium-owned-runtime-contract.js';
 import { z } from 'zod';
+import { custodianRequestAuthority } from './symposium-custodian-authority.js';
+import type { AuthSession } from './auth.js';
 import { PersonalEvidenceSelection } from './symposium-personal-evidence.js';
-import type { RequestHandler } from 'express';
+import type { Request, Response, RequestHandler } from 'express';
 import { createHash } from 'node:crypto';
 import { lstatSync, readFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
@@ -113,6 +115,86 @@ export async function collectSessionOwnedAdmissionEvidence(
   };
   freeze(candidate);
   return { candidate, assertCurrent };
+}
+/** Public scope contains no physical/provider/build authority. */
+export const SessionEvidenceRequest = z.strictObject({
+  configRevision: z.number().int().positive(),
+});
+export const SessionEvidenceBinding = SessionEvidenceRequest.extend({
+  sessionId: identifier,
+}).strict();
+/** Same live interactive session and private dispatcher identity, never JSON authority. */
+export function sessionEvidenceRequestAuthority(
+  req: Request,
+  res: Response,
+  dependencies: {
+    session: AuthSession | undefined;
+    hasSession(sessionId: string): boolean;
+    register(session: AuthSession, revoked: () => void): () => void;
+  },
+): () => void {
+  const session = dependencies.session;
+  if (!session || !dependencies.hasSession(String(req.params.sessionId)))
+    throw Error('Original authenticated session required');
+  const retained = custodianRequestAuthority(req);
+  let current = true;
+  const unregister = dependencies.register(session, () => {
+    current = false;
+  });
+  const close = () => {
+    current = false;
+    unregister();
+  };
+  res.once('finish', close);
+  res.once('close', close);
+  return () => {
+    try {
+      if (!current || res.writableEnded || session.expiresAt <= Date.now())
+        throw Error('Session evidence authorization expired');
+      if (retained && custodianRequestAuthority(req)?.id !== retained.id)
+        throw Error('Custodian evidence authority changed');
+    } catch (error) {
+      current = false;
+      throw error;
+    }
+  };
+}
+export function sessionOwnedEvidenceHandler(
+  resolve: () =>
+    | ((
+        binding: z.infer<typeof SessionEvidenceBinding>,
+        assertCurrent: () => void,
+      ) => Promise<SessionOwnedEvidenceCapability>)
+    | undefined,
+  authorize: (req: Request, res: Response) => () => void,
+): RequestHandler {
+  return async (req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    const input = SessionEvidenceRequest.safeParse(req.body);
+    const binding = input.success
+      ? SessionEvidenceBinding.safeParse({ ...input.data, sessionId: req.params.sessionId })
+      : null;
+    if (!binding?.success || Object.keys(req.query).length) {
+      res.status(400).json({ error: 'Provide the exact current session configuration revision.' });
+      return;
+    }
+    const collect = resolve();
+    if (!collect) {
+      res.status(503).json({ error: 'Owned session evidence collection is unavailable.' });
+      return;
+    }
+    try {
+      const assertCurrent = authorize(req, res);
+      assertCurrent();
+      const capability = await collect(binding.data, assertCurrent);
+      assertCurrent();
+      await capability.assertCurrent();
+      assertCurrent();
+      res.json({ candidate: capability.candidate, activated: false });
+    } catch {
+      res.status(409).json({ error: 'Current original session evidence could not be verified.' });
+    }
+  };
 }
 type Invoke = NonNullable<Parameters<typeof verifySymposiumProductionGate>[3]>;
 export const invokeOwnedEvidenceCli: Invoke = (cli, args, environment) => {

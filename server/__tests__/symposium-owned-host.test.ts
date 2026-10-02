@@ -1395,3 +1395,176 @@ describe('original native observation reader', () => {
     },
   );
 });
+
+it('public draft candidate derives original Work API scope/ready mapping without issuing admission', async () => {
+  const f = fixture();
+  mkdirSync(join(f.root, 'seed'));
+  f.options.runtime.seed = join(f.root, 'seed');
+  f.options.personal.workProfiles = [
+    {
+      id: 'work',
+      label: 'Synthetic work',
+      provider: 'openai',
+      credentialRef: { provider: 'keychain', service: 'synthetic', account: 'synthetic' },
+      sandboxProvider: 'original-provider',
+      sandboxProviderId: 'original-provider-id',
+      models: [{ id: 'luna', label: 'Synthetic Luna' }],
+    },
+  ];
+  let config!: import('@mitzo/protocol').SymposiumConfig;
+  f.options.facts.getSession = vi.fn((id: string) =>
+    id === 'public-session'
+      ? ({ sessionType: 'symposium', symposiumConfig: JSON.stringify(config) } as never)
+      : null,
+  );
+  let volume: {
+    Name: string;
+    Driver: string;
+    Options: object;
+    Labels: Record<string, string>;
+  } | null = null;
+  const command = vi.fn(async (args: readonly string[]) => {
+    if (args[0] === 'volume' && args[1] === 'ls') return JSON.stringify(volume ? [volume] : []);
+    if (args[0] === 'volume' && args[1] === 'inspect') return JSON.stringify([volume]);
+    if (args[0] === 'volume' && args[1] === 'create') {
+      const labels: Record<string, string> = {};
+      args.forEach((v, i) => {
+        if (v === '--label') {
+          const [key, ...parts] = args[i + 1].split('=');
+          labels[key] = parts.join('=');
+        }
+      });
+      volume = { Name: args.at(-1)!, Driver: 'local', Options: {}, Labels: labels };
+      return volume.Name;
+    }
+    if (args[0] === 'create') return 'a'.repeat(64);
+    if (args[0] === 'start') return 'MITZO_GIT_INITIALIZED_V1';
+    if (args[0] === 'rm') return 'a'.repeat(64);
+    throw Error('Unexpected synthetic boundary command');
+  });
+  const collect = vi.fn(async (_selection: unknown, current?: () => void) => {
+    current?.();
+    return { seedTreeSha256: readSeed(), policySha256: readPolicy() } as never;
+  });
+  const { digestSymposiumSeedTree } = await import('../symposium-production-gate.js');
+  const { createHash } = await import('node:crypto');
+  const readSeed = () => digestSymposiumSeedTree(f.options.runtime.seed);
+  const readPolicy = () =>
+    createHash('sha256').update(readFileSync(f.options.runtime.policy)).digest('hex');
+  vi.spyOn(evidenceCollector, 'createOwnedEvidenceCollector').mockReturnValue(collect);
+  const host = await createOwnedSymposiumHost(f.options, f.launch, undefined, command);
+  try {
+    const binding = AccountBindingSchema.parse(host.currentProfiles().resolve('work', 'luna'));
+    config = {
+      version: 2,
+      revision: 1,
+      state: 'draft',
+      anchorSeatId: 'primary',
+      activeSeatCap: 3,
+      seats: [
+        {
+          id: 'primary',
+          name: 'Coder',
+          role: 'coder',
+          model: 'luna',
+          systemPrompt: 'Build',
+          color: '#335577',
+          accountBinding: binding,
+        },
+      ],
+      turnRules: { mode: 'directed', maxTurns: 8 },
+      interceptMode: 'manual',
+    };
+    expect(await host.ensureSessionArtifacts('public-session')).toEqual({ state: 'ready' });
+    const current = vi.fn();
+    const result = await host.collectSessionAdmissionCandidate(
+      { sessionId: 'public-session', configRevision: 1 },
+      current,
+    );
+    await result.assertCurrent();
+    expect(collect.mock.calls[0][0]).toMatchObject({
+      providerInstances: [
+        {
+          name: 'original-provider',
+          id: 'original-provider-id',
+          type: 'openai',
+          profileName: 'openai',
+        },
+      ],
+      allowedRoles: ['coder'],
+      allowedAccountProviders: ['openai'],
+      artifactVolume: { name: volume!.Name },
+    });
+    expect(host.sourceImport.status('public-session')).toMatchObject({
+      available: true,
+      admissionIssued: false,
+    });
+    await expect(
+      host.collectSessionAdmissionCandidate({ sessionId: 'other', configRevision: 1 }, current),
+    ).rejects.toThrow();
+    await expect(
+      host.collectSessionAdmissionCandidate(
+        { sessionId: 'public-session', configRevision: 2 },
+        current,
+      ),
+    ).rejects.toThrow();
+    config.seats[0].role = 'planner';
+    await expect(
+      host.collectSessionAdmissionCandidate(
+        { sessionId: 'public-session', configRevision: 1 },
+        current,
+      ),
+    ).rejects.toThrow('roles');
+    config.seats[0].role = 'coder';
+    config.seats.push({
+      ...config.seats[0],
+      id: 'reader',
+      role: 'reviewer',
+      accountBinding: undefined,
+    });
+    await expect(
+      host.collectSessionAdmissionCandidate(
+        { sessionId: 'public-session', configRevision: 1 },
+        current,
+      ),
+    ).rejects.toThrow('accounts');
+    config.seats.pop();
+    collect.mockImplementationOnce(async () => {
+      config.revision = 2;
+      return { seedTreeSha256: readSeed(), policySha256: readPolicy() } as never;
+    });
+    await expect(
+      host.collectSessionAdmissionCandidate(
+        { sessionId: 'public-session', configRevision: 1 },
+        current,
+      ),
+    ).rejects.toThrow('revision');
+    config.revision = 1;
+    const profiles = host.currentProfiles();
+    const actualProfile = profiles.apiProfile(binding);
+    const profileRead = vi.spyOn(Object.getPrototypeOf(profiles) as typeof profiles, 'apiProfile');
+    collect.mockImplementationOnce(async () => {
+      profileRead.mockReturnValue({ ...actualProfile, sandboxProviderId: 'foreign-id' });
+      return { seedTreeSha256: readSeed(), policySha256: readPolicy() } as never;
+    });
+    await expect(
+      host.collectSessionAdmissionCandidate(
+        { sessionId: 'public-session', configRevision: 1 },
+        current,
+      ),
+    ).rejects.toThrow('selection changed');
+    profileRead.mockRestore();
+    collect.mockImplementationOnce(async () => {
+      host.pauseController();
+      return {} as never;
+    });
+    await expect(
+      host.collectSessionAdmissionCandidate(
+        { sessionId: 'public-session', configRevision: 1 },
+        current,
+      ),
+    ).rejects.toThrow('unavailable');
+  } finally {
+    host.stop();
+  }
+});

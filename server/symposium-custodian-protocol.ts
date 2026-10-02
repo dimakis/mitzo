@@ -75,6 +75,7 @@ const operations = {
   'personal.login': ['POST', '/api/symposium/personal/login'],
   'personal.cancelLogin': ['POST', '/api/symposium/personal/login/cancel'],
   'account.catalog': ['GET', '/api/symposium/accounts'],
+  'session.admissionEvidence': ['POST', '/api/symposium/sessions/:sessionId/admission-evidence'],
   'admission.evidence': ['POST', '/api/symposium/admission-evidence'],
   'profile.list': ['GET', '/api/symposium/profiles'],
   'profile.create': ['POST', '/api/symposium/profiles'],
