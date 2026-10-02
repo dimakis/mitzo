@@ -1199,3 +1199,68 @@ it.each(['wrong-session', 'durable-projection'])(
     expect(apiFetch).toHaveBeenCalledTimes(2);
   },
 );
+
+it.each(['model', 'profile'] as const)(
+  'preserves explicit read-only authority and custom guidance when editing a paused coder %s',
+  async (edit) => {
+    const initial = status(true);
+    const guidance = {
+      role: 'coder',
+      systemPrompt: 'Inspect the code without making changes',
+      expectedOutput: 'A concise code report',
+      acceptanceCriteria: ['Explain the evidence', 'Leave files unchanged'],
+      authorityRequest: { filesystem: 'read', tools: 'read', network: 'restricted' },
+    };
+    const customSeats = initial.config.seats.map((seat, index) =>
+      index ? { ...seat, ...guidance } : seat,
+    );
+    const paused = {
+      ...initial,
+      profileBindingEnforced: true,
+      config: { ...initial.config, seats: customSeats },
+      seats: initial.seats.map((seat, index) =>
+        index
+          ? {
+              ...seat,
+              seat: customSeats[index],
+              admitted: false,
+              membership: { ...seat.membership, state: 'suspended' },
+            }
+          : seat,
+      ),
+    };
+    vi.mocked(apiFetch).mockImplementation(async (url) =>
+      response(String(url).endsWith('/seats/revise') ? { ...paused.config, revision: 5 } : paused),
+    );
+    render(<SymposiumDirectorPanel sessionId="session" />);
+    await openAdvancedSettings();
+    const reviewer = within(screen.getByRole('listitem', { name: 'Reviewer agent' }));
+    if (edit === 'model') {
+      await userEvent.click(reviewer.getByRole('button', { name: 'Select OpenAI model' }));
+      await userEvent.click(reviewer.getByRole('checkbox', { name: /I understand this agent/ }));
+      await userEvent.type(
+        reviewer.getByLabelText('Cross-account confirmation'),
+        'ADD CROSS-ACCOUNT SEAT',
+      );
+      await userEvent.click(reviewer.getByRole('button', { name: 'Save account and model' }));
+    } else {
+      await userEvent.click(reviewer.getByRole('button', { name: 'Select saved profile' }));
+      await userEvent.click(screen.getByRole('checkbox', { name: /I understand these agents/ }));
+      await userEvent.type(
+        screen.getByRole('textbox', { name: /To use another account/ }),
+        'ADD CROSS-ACCOUNT SEAT',
+      );
+      await userEvent.click(reviewer.getByRole('button', { name: 'Apply selected profile' }));
+    }
+    await waitFor(() =>
+      expect(
+        vi.mocked(apiFetch).mock.calls.some(([url]) => String(url).endsWith('/seats/revise')),
+      ).toBe(true),
+    );
+    const [, init] = vi
+      .mocked(apiFetch)
+      .mock.calls.find(([url]) => String(url).endsWith('/seats/revise'))!;
+    expect(JSON.parse(String(init?.body))).toMatchObject({ seatId: 'reviewer', ...guidance });
+    expect(JSON.parse(String(init?.body))).not.toHaveProperty('authorityGrant');
+  },
+);

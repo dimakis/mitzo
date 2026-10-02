@@ -249,6 +249,13 @@ function SeatModelEditor({
             name: seat.seat.name,
             role: seat.seat.role,
             systemPrompt: seat.seat.systemPrompt,
+            ...(seat.seat.authorityRequest ? { authorityRequest: seat.seat.authorityRequest } : {}),
+            ...(seat.seat.expectedOutput !== undefined
+              ? { expectedOutput: seat.seat.expectedOutput }
+              : {}),
+            ...(seat.seat.acceptanceCriteria !== undefined
+              ? { acceptanceCriteria: seat.seat.acceptanceCriteria }
+              : {}),
             color: seat.seat.color,
             accountId: selection.accountId,
             model: selection.model,
@@ -737,6 +744,13 @@ function SessionDirectorPanel({
           name: seat.seat.name,
           role: seat.seat.role,
           systemPrompt: seat.seat.systemPrompt,
+          ...(seat.seat.authorityRequest ? { authorityRequest: seat.seat.authorityRequest } : {}),
+          ...(seat.seat.expectedOutput !== undefined
+            ? { expectedOutput: seat.seat.expectedOutput }
+            : {}),
+          ...(seat.seat.acceptanceCriteria !== undefined
+            ? { acceptanceCriteria: seat.seat.acceptanceCriteria }
+            : {}),
           color: seat.seat.color,
           accountId: binding.accountId,
           model: seat.seat.model,
