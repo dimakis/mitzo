@@ -109,3 +109,11 @@ it('separates PR-controlled review signals from trusted status writes', () => {
   expect(signal).not.toContain('statuses: write');
   expect(signal).not.toContain('actions/checkout');
 });
+
+it('normalizes configured GitHub reviewer capitalization', async () => {
+  expect(
+    (await execute([{ ...review, user: { login: 'Centaur-Bot' } }], head, head, 'CENTAUR-BOT')).at(
+      -1,
+    )?.state,
+  ).toBe('success');
+});

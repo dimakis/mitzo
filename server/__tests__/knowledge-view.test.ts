@@ -16,6 +16,7 @@ import { join } from 'node:path';
 import { afterEach, expect, it } from 'vitest';
 import {
   knowledgeVerificationCommand,
+  knowledgePresenceCommand,
   knowledgeViewManifest,
   knowledgeCleanupCommand,
   knowledgeCacheStatusCommand,
@@ -103,7 +104,7 @@ it.each([
   expect(() => knowledgeCacheRepairCommand(path)).toThrow();
 });
 
-it.each(['file', 'directory', 'symlink'])(
+it.each(['file', 'directory', 'symlink', 'dangling-symlink'])(
   'repairs only the selected invalid %s cache entry',
   (kind) => {
     root = realpathSync(mkdtempSync(join(tmpdir(), 'knowledge-repair-')));
@@ -113,6 +114,10 @@ it.each(['file', 'directory', 'symlink'])(
     if (kind === 'file') writeFileSync(cache, 'invalid');
     if (kind === 'directory') mkdirSync(cache);
     if (kind === 'symlink') execFileSync('ln', ['-s', task, cache]);
+    if (kind === 'dangling-symlink') execFileSync('ln', ['-s', join(root, 'absent-target'), cache]);
+    expect(
+      execFileSync('/bin/sh', ['-c', knowledgePresenceCommand(cache)], { encoding: 'utf8' }).trim(),
+    ).toBe('true');
     // Relocate the fixed sandbox prefix into this disposable local fixture.
     const command = knowledgeCacheRepairCommand(
       '/sandbox/workspaces/knowledge/knowledge-' + sha('selected'),

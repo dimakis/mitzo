@@ -60,9 +60,9 @@ jobs:
               {...repo, pull_number: number, per_page: 100});
             const comments = await github.paginate(github.rest.issues.listComments,
               {...repo, issue_number: number, per_page: 100});
-            const reviewer = process.env.CENTAUR_REVIEWER_LOGIN?.trim() || context.repo.owner;
+            const reviewer = (process.env.CENTAUR_REVIEWER_LOGIN?.trim() || context.repo.owner).toLowerCase();
             const reports = [...reviews, ...comments].filter(r =>
-              r.user?.login === reviewer && r.body?.includes('## Centaur Review'));
+              r.user?.login?.toLowerCase() === reviewer && r.body?.includes('## Centaur Review'));
             reports.sort((a, b) => (a.submitted_at || a.created_at || '')
               .localeCompare(b.submitted_at || b.created_at || ''));
             const latest = reports.at(-1);

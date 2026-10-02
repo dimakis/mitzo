@@ -132,8 +132,11 @@ The product direction is a configurable knowledge-store source in Mitzo. Git is
 its first adapter, and MGMT is its first format adapter, rather than a permanent
 hardcoded dependency on one user's repository. The publisher's existing
 `sourceUrl` already selects a different Git remote; the current implementation
-still requires canonical `main` and the MGMT layout and is not a generic-store
-integration.
+still requires canonical `main`, the MGMT layout, and a compatible MGMT
+runtime baseline available in the source history. It is not a generic-store
+integration. The product adapter must separate the store revision from Mitzo’s
+application/runtime source revision, so changing stores does not require forking
+the MGMT application or fabricating runtime compatibility hashes.
 
 A future source configuration identifies a store, source kind, Git URL and
 accepted ref, credential reference, format adapter, and permitted session scope.

@@ -19,7 +19,7 @@ function quote(value: string) {
 }
 
 export function knowledgePresenceCommand(root: string) {
-  return `/usr/bin/python3 -c ${quote("import pathlib,sys; print('true' if pathlib.Path(sys.argv[1]).exists() else 'false')")} ${quote(root)}`;
+  return `/usr/bin/python3 -c ${quote("import os,sys; print('true' if os.path.lexists(sys.argv[1]) else 'false')")} ${quote(root)}`;
 }
 
 /** A failed verification is a cache miss; SSH/transport errors still fail admission. */
