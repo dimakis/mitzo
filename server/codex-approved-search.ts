@@ -46,11 +46,21 @@ export async function searchCodex(
       }
       if (method !== 'item/completed' || typeof params.turnId !== 'string') return;
       const item = z
-        .object({ type: z.string(), text: z.string().optional() })
+        .object({
+          type: z.string(),
+          text: z.string().optional(),
+          status: z.string().optional(),
+          error: z.unknown().optional(),
+        })
         .safeParse(params.item);
       if (!item.success) return;
       const turn = turns.get(params.turnId) ?? { searched: false, text: [] };
-      if (item.data.type === 'webSearch') turn.searched = true;
+      if (
+        item.data.type === 'webSearch' &&
+        item.data.status === 'completed' &&
+        item.data.error == null
+      )
+        turn.searched = true;
       if (item.data.type === 'agentMessage' && item.data.text) turn.text.push(item.data.text);
       turns.set(params.turnId, turn);
     },
@@ -71,7 +81,13 @@ export async function searchCodex(
       .object({ config: z.unknown() })
       .parse(await step(client.request('config/read', { cwd: options.cwd, includeLayers: false })));
     const config = {
-      ...options.runtimeConfig,
+      // Provider routing survives, but runtime-injected MCP definitions cannot enter
+      // a thread approved only for search. Inherited servers are disabled below.
+      ...Object.fromEntries(
+        Object.entries(options.runtimeConfig ?? {}).filter(
+          ([key]) => key !== 'mcp_servers' && !key.startsWith('mcp_servers.'),
+        ),
+      ),
       ...codexRuntimeOverrides(configuration.config, options.workspaceId),
       web_search: 'live',
       'features.code_mode_host': false,

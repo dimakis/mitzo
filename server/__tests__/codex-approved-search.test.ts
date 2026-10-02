@@ -6,6 +6,7 @@ function fixture(
   status = 'completed',
   searched = true,
   answer = 'Answer [Revenue](https://www.revenue.ie/)',
+  searchItem: Record<string, unknown> = { status: 'completed' },
 ) {
   let callbacks: CodexLifecycleTransport;
   const request = vi.fn(async (method: string, params: Record<string, unknown>) => {
@@ -21,7 +22,7 @@ function fixture(
         callbacks.onNotification('item/completed', {
           threadId: 'search-thread',
           turnId: 'search-turn',
-          item: { type: 'webSearch', id: 'search-item' },
+          item: { type: 'webSearch', id: 'search-item', ...searchItem },
         });
       callbacks.onNotification('item/completed', {
         threadId: 'unrelated',
@@ -70,7 +71,13 @@ describe('approved Codex search on the bound runtime', () => {
       model: 'selected-model',
       modelProvider: 'openshell',
       cwd: '/workspace',
-      runtimeConfig: { 'features.shell_tool': true },
+      runtimeConfig: {
+        'features.shell_tool': true,
+        'mcp_servers.sandbox.command': 'executable',
+        'mcp_servers.sandbox.enabled': true,
+        mcp_servers: { nested: { command: 'executable', enabled: true } },
+        'model_providers.openshell.base_url': 'https://provider.example',
+      },
     });
     expect(result).toContain('Revenue');
     expect(result).not.toContain('wrong');
@@ -86,6 +93,11 @@ describe('approved Codex search on the bound runtime', () => {
         'mcp_servers.inherited.enabled': false,
       },
     });
+    const config = params.config as Record<string, unknown>;
+    expect(config).not.toHaveProperty('mcp_servers');
+    expect(config).not.toHaveProperty('mcp_servers.sandbox.command');
+    expect(config).not.toHaveProperty('mcp_servers.sandbox.enabled');
+    expect(config['model_providers.openshell.base_url']).toBe('https://provider.example');
     expect(f.request.mock.calls.some(([method]) => method === 'thread/resume')).toBe(false);
     expect(f.close).toHaveBeenCalledTimes(1);
   });
@@ -104,6 +116,23 @@ describe('approved Codex search on the bound runtime', () => {
       }),
     ).rejects.toThrow();
     expect(f.close).toHaveBeenCalledTimes(1);
+  });
+  it.each([
+    { status: 'failed' },
+    { status: 'inProgress' },
+    {},
+    { status: 'completed', error: { message: 'search failed' } },
+  ])('rejects an unsuccessful search item %j even with a sourced answer', async (item) => {
+    const f = fixture('completed', true, 'Answer https://www.revenue.ie/', item);
+    await expect(
+      searchCodex('q', new AbortController().signal, {
+        createClient: f.createClient,
+        verify: f.verify,
+        model: 'model',
+        modelProvider: 'openai',
+        cwd: '/tmp',
+      }),
+    ).rejects.toThrow('receipt');
   });
   it('never starts a thread when account verification fails', async () => {
     const f = fixture();
