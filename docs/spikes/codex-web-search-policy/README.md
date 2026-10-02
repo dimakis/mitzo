@@ -61,6 +61,12 @@ Authenticated chat clients read the current grant and revision through
 Deny through `POST /api/chat/web-search-consent`. Updates are owner-bound,
 revision-checked, accepted only between turns, and applied by reopening the
 provider thread with freshly resolved lifecycle configuration.
+The chat header's expanded settings contain **Web search permission**. The
+control retries transient connection and server failures within its bounded
+attachment window, and retries a failed load when the active turn finishes.
+Persistent failures distinguish connection errors, rejected HTTP requests, and
+invalid consent responses; **Refresh setting** remains available. These read
+retries do not grant access or start a model turn.
 If exact-query approval is required later, Mitzo must disable native search and
 provide a brokered `WebSearch` tool/backend that it controls before dispatch.
 
