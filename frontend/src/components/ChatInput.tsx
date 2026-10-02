@@ -383,6 +383,11 @@ export function ChatInput({
           placeholder={running ? 'Type to queue or interrupt...' : 'Message Mitzo...'}
           rows={1}
         />
+        {tokenState && tokenState.turnIndex > 0 && (
+          <div className="composer-info">
+            <TokenBar tokenState={tokenState} />
+          </div>
+        )}
         <div className="composer-toolbar">
           <div
             className="chat-input-command-strip"
@@ -424,7 +429,6 @@ export function ChatInput({
               onChange={handleFileChange}
               className="sr-only"
             />
-            {tokenState && <TokenBar tokenState={tokenState} />}
           </div>
           <div className="composer-actions">
             {micProps && <MicButton {...micProps} />}

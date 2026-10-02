@@ -36,6 +36,29 @@ const noop = () => true;
 const noopVoid = () => {};
 
 describe('ChatInput command strip', () => {
+  it('keeps context information out of the action row and preserves expandable details', () => {
+    const { container } = render(
+      <ChatInput
+        onSend={noop}
+        onStop={noopVoid}
+        running={false}
+        tokenState={{
+          agentContext: 5000,
+          contextCeiling: 200000,
+          sessionTotal: 9000,
+          numTurns: 2,
+          turnIndex: 1,
+          numCompactions: 0,
+        }}
+      />,
+    );
+    const usage = screen.getByRole('button', { name: 'Token usage' });
+    expect(usage.closest('.composer-toolbar')).toBeNull();
+    expect(usage.closest('.composer-info')).toBeTruthy();
+    fireEvent.click(usage);
+    expect(screen.getByText('Agent context').closest('.composer-info')).toBeTruthy();
+    expect(container.querySelector('.composer-toolbar')?.querySelector('textarea')).toBeNull();
+  });
   it('keeps image attachment directly available while retaining the session tray source action', () => {
     render(<ChatInput onSend={noop} onStop={noopVoid} running={false} />);
     expect(screen.getByTitle('Skills')).toBeTruthy();
