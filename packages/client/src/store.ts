@@ -261,6 +261,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
   let recoveryInFlight = false;
   const pendingOptimisticMessageIds = new Set<string>();
   const deliveryObservers = new Map<string, NonNullable<SendMessageOptions['onDelivery']>>();
+  let failedLaunchRetry: { pending: PendingSession; options: SendMessageOptions } | undefined;
   const deliverySessions = new Map<string, string>();
   const unassignedDeliveries = new Map<string, number>();
   const hasPendingDelivery = (sessionId: string) =>
@@ -993,29 +994,41 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     // ── Pending session actions ────────────────────────────────────────
 
     setPendingSession(ps: PendingSession) {
+      failedLaunchRetry = undefined;
       set({ pendingSession: ps, pendingSessionSending: false });
     },
 
     clearPendingSession() {
+      failedLaunchRetry = undefined;
       set({ pendingSession: null, pendingSessionSending: false });
     },
 
     sendPendingSession(opts) {
       const pending = get().pendingSession;
       if (!pending || get().pendingSessionSending) return false;
+      const retry = failedLaunchRetry?.pending === pending ? failedLaunchRetry : undefined;
+      const selection = retry?.options ?? {
+        ...opts,
+        model: opts?.model ?? get().config.modelId ?? undefined,
+        mode: opts?.mode ?? get().config.mode,
+      };
+      // A failed attempt is retried in its own draft, never in a chat selected meanwhile.
+      if (retry) get().newSession();
+      failedLaunchRetry = undefined;
       // Each attempt has a distinct identity, so stale receipts cannot dismiss a replacement.
       const launch = { ...pending };
       set({ pendingSession: launch, pendingSessionSending: true });
       get().dispatchMessages({ type: 'SET_SESSION_CONTEXT', context: launch.context });
       let queued = true;
       get().sendMessage(launch.prompt, {
-        ...opts,
+        ...selection,
         ...(launch.telosTaskId ? { telosTaskId: launch.telosTaskId } : {}),
         ...(launch.agentName ? { agentName: launch.agentName } : {}),
         onDelivery(status) {
           if (get().pendingSession !== launch) return;
           if (status === 'accepted') get().clearPendingSession();
           else if (status === 'failed') {
+            failedLaunchRetry = { pending: launch, options: selection };
             queued = false;
             set({ pendingSessionSending: false });
           }

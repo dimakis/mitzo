@@ -3071,3 +3071,29 @@ it('removes the rejected optimistic launch before retrying without duplicating i
   expect(store.getState().messages.messages.filter((m) => m.role === 'user')).toHaveLength(1);
   expect(store.getState().pendingSession).toBeNull();
 });
+
+it('retries a navigated failed launch in a dedicated draft with its original selection', async () => {
+  const store = createReadyStore();
+  store.getState().setPendingSession({ prompt: 'Launch', context: 'Telos', telosTaskId: 'task' });
+  store.getState().sendPendingSession({ accountId: 'personal', model: 'luna', cwd: '/original' });
+  const id = store.getState().messages.messages.at(-1)!.messageId;
+  lastWs.simulateMessage({ type: 'session_id', sessionId: 'launch-a', clientMsgId: id });
+  await store.getState().switchSession('unrelated-b');
+  lastWs.simulateMessage({ type: 'error', clientMsgId: id, error: 'Startup failed' });
+  expect(store.getState().sessions.active).toBe('unrelated-b');
+  store.getState().sendPendingSession({ accountId: 'work', model: 'other', cwd: '/unrelated' });
+  expect(
+    lastWs
+      .parsedSent()
+      .filter((m) => m.type === 'send')
+      .at(-1),
+  ).toMatchObject({
+    sessionId: null,
+    accountId: 'personal',
+    model: 'luna',
+    cwd: '/original',
+    telosTaskId: 'task',
+    prompt: 'Launch',
+  });
+  expect(store.getState().sessions.active).toBeNull();
+});

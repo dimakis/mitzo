@@ -5329,3 +5329,29 @@ it('correlates a caught startup error after assigning the launch session', async
     }),
   );
 });
+
+it('correlates an SDK startup error after admission but before initial prompt delivery', async () => {
+  const ctx = createContext();
+  const transport = mockTransport();
+  ctx.connRegistry.register('startup-conn', transport);
+  vi.mocked(startChat).mockImplementationOnce(
+    async (startupTransport, _clientId, _prompt, options) => {
+      startupTransport.send({ type: 'session_id', sessionId: 'startup-session' });
+      options?.onStartupAdmission?.();
+      startupTransport.send({ type: 'error', error: 'SDK startup failed' });
+    },
+  );
+  await handleSendV2(
+    'startup-conn',
+    transport,
+    { type: 'send', sessionId: null, prompt: 'Launch', clientMsgId: 'launch-id' },
+    ctx,
+  );
+  expect(transport.sent).toContainEqual(
+    expect.objectContaining({
+      type: 'error',
+      error: 'SDK startup failed',
+      clientMsgId: 'launch-id',
+    }),
+  );
+});

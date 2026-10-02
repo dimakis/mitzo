@@ -652,9 +652,8 @@ export function handleSendV2(
           : undefined;
         let emitSkillInvoked = () => {};
         let skillInvoked = false;
-        let startupAdmitted = false;
+        let initialPromptDelivered = false;
         const onStartupAdmission = (error?: unknown) => {
-          startupAdmitted = !error;
           if (error) rejectStartupAdmission?.(error);
           else {
             if (!skillInvoked) {
@@ -666,12 +665,15 @@ export function handleSendV2(
         };
         const startupTransport: SessionTransport = {
           isOpen: () => transport.isOpen(),
-          send: (event) =>
+          send: (event) => {
+            if (event.type === 'user_message' && event.messageId === msg.clientMsgId)
+              initialPromptDelivered = true;
             transport.send(
-              event.type === 'session_id' || (event.type === 'error' && !startupAdmitted)
+              event.type === 'session_id' || (event.type === 'error' && !initialPromptDelivered)
                 ? { ...event, clientMsgId: msg.clientMsgId }
                 : event,
-            ),
+            );
+          },
         };
         const storedMeta = msg.sessionId ? ctx.eventStore.getSession(msg.sessionId) : undefined;
         const storedBinding = storedMeta?.accountBinding;
