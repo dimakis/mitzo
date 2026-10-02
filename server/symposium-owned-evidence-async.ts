@@ -1,3 +1,4 @@
+import type { SymposiumOwnedBuildSelection } from './symposium-owned-runtime-contract.js';
 import {
   WorkerVertexRequest,
   parseWorkerVertexReceipt,
@@ -25,6 +26,7 @@ export interface OwnedEvidenceWorkerData {
   physical: Physical;
   selection: unknown;
   custodyPort: MessagePort;
+  buildSelection?: SymposiumOwnedBuildSelection;
   signal: SharedArrayBuffer;
 }
 interface RetainedCustody {
@@ -46,6 +48,7 @@ export function createOwnedEvidenceCollector(
   custody: RetainedCustody,
   spawnWorker: (source: string, options: WorkerOptions) => Worker = (source, options) =>
     new Worker(source, options),
+  buildSelection?: SymposiumOwnedBuildSelection,
 ) {
   let active = false;
   let uncertain = false;
@@ -105,6 +108,7 @@ export function createOwnedEvidenceCollector(
           eval: true,
           workerData: {
             config,
+            ...(buildSelection === undefined ? {} : { buildSelection }),
             endpoint,
             physical,
             selection: parsed,

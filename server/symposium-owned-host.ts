@@ -1,3 +1,6 @@
+import { digestSymposiumSeedTree } from './symposium-production-gate.js';
+import { collectSessionOwnedAdmissionEvidence } from './symposium-owned-evidence.js';
+import type { SymposiumOwnedBuildSelection } from './symposium-owned-runtime-contract.js';
 import { isDeepStrictEqual } from 'node:util';
 import type { NativeTurnObservation } from './symposium-native-observations.js';
 import type { OpenAiCodexSeatInput } from './symposium-codex-native.js';
@@ -108,6 +111,8 @@ class LoginCancelledForShutdown extends Error {
 }
 
 export interface OwnedSymposiumHostOptions {
+  /** Trusted constructor only; persisted/request configuration cannot choose builds. */
+  admissionBuildSelection?: SymposiumOwnedBuildSelection;
   /** Trusted construction only; never read from persisted configuration or requests. */
   observeDurableReviewToolResult?: OpenAiCodexSeatInput['observeDurableReviewToolResult'];
   observeStartupConfig?: OpenAiCodexSeatInput['observeStartupConfig'];
@@ -147,6 +152,11 @@ export async function createOwnedSymposiumHost(
     execution: { timeout: number; input?: Buffer },
   ) => Promise<string>,
 ) {
+  if (
+    options.admissionBuildSelection !== undefined &&
+    options.admissionBuildSelection !== 'local-854b-b20-v1'
+  )
+    throw Error('Owned full-build selection is not reviewed');
   const originalObserver = options.observeDurableReviewToolResult;
   if (originalObserver !== undefined && typeof originalObserver !== 'function')
     throw new Error('Owned native observer must be a trusted constructor callback');
@@ -1069,6 +1079,8 @@ export async function createOwnedSymposiumHost(
           await gateway.verifyGatewayDriverConfigAsync(...args);
         },
       },
+      undefined,
+      options.admissionBuildSelection,
     );
     const getArtifactSealer = () => {
       if (draining || stopped) throw new Error('Owned Symposium host is shutting down');
@@ -1149,6 +1161,67 @@ export async function createOwnedSymposiumHost(
       gateway,
       runtimeConfig,
       attestationPath: options.attestationPath,
+      admissionBuildSelection: options.admissionBuildSelection,
+      collectSessionAdmissionEvidence: (selection: unknown) =>
+        track(() =>
+          collectSessionOwnedAdmissionEvidence(selection, {
+            readCurrent: (input) => {
+              if (stopped || draining || controllerPaused)
+                throw new Error('Original admission owner unavailable');
+              custody();
+              const session = options.facts.getSession?.(input.sessionId);
+              const config = session?.symposiumConfig
+                ? SymposiumConfigSchema.safeParse(JSON.parse(session.symposiumConfig))
+                : null;
+              if (
+                session?.sessionType !== 'symposium' ||
+                !config?.success ||
+                config.data.state !== 'draft' ||
+                config.data.revision !== input.configRevision
+              )
+                throw new Error('Current original Symposium draft revision required');
+              const profiles = currentProfiles();
+              const primary = config.data.seats.find((seat) => seat.id === 'primary');
+              if (
+                !primary ||
+                primary.accountBinding?.provider !== 'openai' ||
+                input.providerInstances.length !== 1
+              )
+                throw new Error('Original current Work API provider required');
+              const profile = profiles.apiProfile(primary.accountBinding);
+              const instance = input.providerInstances[0];
+              if (
+                profile.sandboxProvider !== instance.name ||
+                profile.sandboxProviderId !== instance.id ||
+                instance.type !== 'openai' ||
+                instance.profileName !== 'openai'
+              )
+                throw new Error('Original current Work API provider required');
+              const mapping = sessionArtifacts!.getReady(input.sessionId);
+              if (!mapping) throw new Error('Original ready artifact mapping unavailable');
+              return { volumeName: mapping.volumeName, volumeGeneration: mapping.volumeGeneration };
+            },
+            inspectCurrent: async (input, mapping) => {
+              custody();
+              assertSessionArtifactVolume(
+                gateway.workspace,
+                { sessionId: input.sessionId, ...mapping },
+                await leaseHost!.inspectVolume(mapping.volumeName, 'podman'),
+              );
+              custody();
+            },
+            collect: collectExplicitEvidence,
+            verifyCandidate: (candidate) => {
+              custody();
+              if (
+                candidate.seedTreeSha256 !== digestSymposiumSeedTree(runtimeConfig.seed) ||
+                candidate.policySha256 !==
+                  createHash('sha256').update(readFileSync(runtimeConfig.policy)).digest('hex')
+              )
+                throw new Error('Original admission local input changed');
+            },
+          }),
+        ),
       collectAdmissionEvidence: (selection: unknown) =>
         track(() => {
           const personal = PersonalEvidenceSelection.safeParse(selection);

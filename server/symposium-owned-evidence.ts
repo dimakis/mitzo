@@ -1,4 +1,7 @@
-import { reviewedSymposiumOwnedRuntime } from './symposium-owned-runtime-contract.js';
+import {
+  reviewedSymposiumOwnedBuild,
+  type SymposiumOwnedBuildSelection,
+} from './symposium-owned-runtime-contract.js';
 import { z } from 'zod';
 import { PersonalEvidenceSelection } from './symposium-personal-evidence.js';
 import type { RequestHandler } from 'express';
@@ -47,6 +50,70 @@ export const OwnedEvidenceSelection = z
       .max(3),
   })
   .strict();
+export const SessionOwnedEvidenceSelection = OwnedEvidenceSelection.omit({ artifactVolume: true })
+  .extend({
+    sessionId: identifier,
+    configRevision: z.number().int().positive(),
+  })
+  .strict();
+export type SessionOwnedEvidenceInput = z.infer<typeof SessionOwnedEvidenceSelection>;
+export interface SessionOwnedEvidenceCapability {
+  candidate: SymposiumProductionAttestation;
+  assertCurrent(): Promise<void>;
+}
+/** Constructor-owned draft mapping only. Collection does not issue artifact admission. */
+export async function collectSessionOwnedAdmissionEvidence(
+  raw: unknown,
+  dependencies: {
+    readCurrent(input: SessionOwnedEvidenceInput): { volumeName: string; volumeGeneration: string };
+    inspectCurrent(
+      input: SessionOwnedEvidenceInput,
+      mapping: { volumeName: string; volumeGeneration: string },
+    ): Promise<void>;
+    collect(selection: unknown): Promise<SymposiumProductionAttestation>;
+    verifyCandidate(candidate: SymposiumProductionAttestation): void;
+  },
+): Promise<SessionOwnedEvidenceCapability> {
+  const input = SessionOwnedEvidenceSelection.parse(raw);
+  const original = { ...dependencies.readCurrent(input) };
+  const retained: { candidate?: SymposiumProductionAttestation } = {};
+  const assertCurrent = async () => {
+    const before = dependencies.readCurrent(input);
+    if (
+      before.volumeName !== original.volumeName ||
+      before.volumeGeneration !== original.volumeGeneration
+    )
+      throw new Error('Original ready artifact mapping changed');
+    await dependencies.inspectCurrent(input, original);
+    const after = dependencies.readCurrent(input);
+    if (
+      after.volumeName !== original.volumeName ||
+      after.volumeGeneration !== original.volumeGeneration
+    )
+      throw new Error('Original ready artifact mapping changed');
+    if (retained.candidate) dependencies.verifyCandidate(retained.candidate);
+  };
+  await assertCurrent();
+  const selection = {
+    providerInstances: input.providerInstances,
+    allowedRoles: input.allowedRoles,
+    allowedAccountProviders: input.allowedAccountProviders,
+  };
+  const candidate = await dependencies.collect({
+    ...selection,
+    artifactVolume: { driver: 'podman', name: original.volumeName },
+  });
+  retained.candidate = candidate;
+  await assertCurrent();
+  const freeze = (value: unknown): void => {
+    if (value && typeof value === 'object') {
+      for (const child of Object.values(value)) freeze(child);
+      Object.freeze(value);
+    }
+  };
+  freeze(candidate);
+  return { candidate, assertCurrent };
+}
 type Invoke = NonNullable<Parameters<typeof verifySymposiumProductionGate>[3]>;
 export const invokeOwnedEvidenceCli: Invoke = (cli, args, environment) => {
   if (!environment) throw new Error('Owned CLI environment missing');
@@ -76,6 +143,7 @@ export function collectOwnedAdmissionEvidence(
     endpoint: string;
     physical: SymposiumProductionPhysicalProof;
     custody(): void;
+    buildSelection?: SymposiumOwnedBuildSelection;
   },
   selection: unknown,
   dependencies: {
@@ -96,9 +164,10 @@ export function collectOwnedAdmissionEvidence(
   dependencies.onPhase?.('local-inputs');
   const policy = lstatSync(config.policy);
   if (!policy.isFile() || policy.isSymbolicLink()) throw new Error('Policy must be a regular file');
-  const build = reviewedSymposiumOwnedRuntime(
+  const build = reviewedSymposiumOwnedBuild(
     config.image ?? TESTED_SYMPOSIUM_NATIVE_BUILD.image,
-  ).build;
+    host.buildSelection,
+  );
   const candidate: SymposiumProductionAttestation = {
     contract: 'openshell-v0.1-owned-native-seats',
     cliVersion: build.version,
@@ -147,7 +216,9 @@ export function collectOwnedAdmissionEvidence(
     ...selected,
   };
   dependencies.onPhase?.('gate');
-  (dependencies.verify ?? verifySymposiumProductionGate)(config, candidate, host.physical, invoke);
+  const verify = dependencies.verify ?? verifySymposiumProductionGate;
+  if (host.buildSelection === undefined) verify(config, candidate, host.physical, invoke);
+  else verify(config, candidate, host.physical, invoke, host.buildSelection);
   dependencies.onPhase?.('custody');
   host.custody();
   return candidate;

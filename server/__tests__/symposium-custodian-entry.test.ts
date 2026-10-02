@@ -62,46 +62,53 @@ it('requires the exact entry path rather than basename or substring for direct e
   expect(entry.isDirectSymposiumCustodianEntry(undefined)).toBe(false);
 });
 
-it('passes constructor hooks and installs the exact bootstrap host once before any child spawn', async () => {
-  vi.stubEnv('MITZO_SYMPOSIUM_CUSTODIAN_CONTROLLER', '');
-  vi.stubEnv('MITZO_SYMPOSIUM_OWNED_HOST_CONFIG', '/synthetic-entry-only.json');
-  vi.stubEnv('MITZO_SYMPOSIUM_CUSTODIAN_OWNER', '');
-  effects.bootstrap.mockResolvedValue(effects.host);
-  effects.install.mockImplementation(() => {
-    throw Error('stop-before-any-child');
-  });
-  const observer = vi.fn();
-  const startup = vi.fn();
-  const prelaunch = vi.fn();
-  const entry = await import('../symposium-custodian-main.js');
-  // Vitest workers themselves have IPC; remove only this synthetic process marker.
-  const descriptor = Object.getOwnPropertyDescriptor(process, 'send');
-  Object.defineProperty(process, 'send', { configurable: true, value: undefined });
-  try {
-    await expect(
-      entry.runSymposiumCustodian({
+it.each([undefined, 'local-854b-b20-v1'] as const)(
+  'passes constructor hooks and optional trusted build %s before any child spawn',
+  async (admissionBuildSelection) => {
+    effects.bootstrap.mockClear();
+    effects.install.mockClear();
+    vi.stubEnv('MITZO_SYMPOSIUM_CUSTODIAN_CONTROLLER', '');
+    vi.stubEnv('MITZO_SYMPOSIUM_OWNED_HOST_CONFIG', '/synthetic-entry-only.json');
+    vi.stubEnv('MITZO_SYMPOSIUM_CUSTODIAN_OWNER', '');
+    effects.bootstrap.mockResolvedValue(effects.host);
+    effects.install.mockImplementation(() => {
+      throw Error('stop-before-any-child');
+    });
+    const observer = vi.fn();
+    const startup = vi.fn();
+    const prelaunch = vi.fn();
+    const entry = await import('../symposium-custodian-main.js');
+    // Vitest workers themselves have IPC; remove only this synthetic process marker.
+    const descriptor = Object.getOwnPropertyDescriptor(process, 'send');
+    Object.defineProperty(process, 'send', { configurable: true, value: undefined });
+    try {
+      await expect(
+        entry.runSymposiumCustodian({
+          observeDurableReviewToolResult: observer,
+          observeStartupConfig: startup,
+          observePrelaunch: prelaunch,
+          ...(admissionBuildSelection === undefined ? {} : { admissionBuildSelection }),
+        }),
+      ).rejects.toThrow('stop-before-any-child');
+    } finally {
+      if (descriptor) Object.defineProperty(process, 'send', descriptor);
+      else delete process.send;
+    }
+    expect(effects.bootstrap).toHaveBeenCalledExactlyOnceWith(
+      '/synthetic-entry-only.json',
+      {
+        ...effects.dependencies,
         observeDurableReviewToolResult: observer,
         observeStartupConfig: startup,
         observePrelaunch: prelaunch,
-      }),
-    ).rejects.toThrow('stop-before-any-child');
-  } finally {
-    if (descriptor) Object.defineProperty(process, 'send', descriptor);
-    else delete process.send;
-  }
-  expect(effects.bootstrap).toHaveBeenCalledExactlyOnceWith(
-    '/synthetic-entry-only.json',
-    {
-      ...effects.dependencies,
-      observeDurableReviewToolResult: observer,
-      observeStartupConfig: startup,
-      observePrelaunch: prelaunch,
-    },
-    undefined,
-  );
-  expect(effects.install).toHaveBeenCalledExactlyOnceWith(effects.host);
-  expect(effects.fork).not.toHaveBeenCalled();
-});
+        ...(admissionBuildSelection === undefined ? {} : { admissionBuildSelection }),
+      },
+      undefined,
+    );
+    expect(effects.install).toHaveBeenCalledExactlyOnceWith(effects.host);
+    expect(effects.fork).not.toHaveBeenCalled();
+  },
+);
 
 it('rejects a nonfunction startup observer before bootstrap or child creation', async () => {
   const entry = await import('../symposium-custodian-main.js');
@@ -185,3 +192,12 @@ it.each(['sync', 'async'] as const)(
     expect(() => observe.mock.calls[0][1]()).toThrow('unavailable');
   },
 );
+
+it('refuses unknown serialized build selection before app bootstrap or child launch', async () => {
+  const entry = await import('../symposium-custodian-main.js');
+  const before = effects.bootstrap.mock.calls.length;
+  await expect(
+    entry.runSymposiumCustodian({ admissionBuildSelection: 'unknown' } as never),
+  ).rejects.toThrow('not reviewed');
+  expect(effects.bootstrap.mock.calls).toHaveLength(before);
+});

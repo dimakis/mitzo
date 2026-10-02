@@ -1022,6 +1022,10 @@ export interface SymposiumProductionHost {
   /** Dedicated upstream routing; never inherit the legacy chat gateway. */
   runtimeConfig: OpenShellRuntimeConfig;
   attestationPath: string;
+  admissionBuildSelection?: import('./symposium-owned-runtime-contract.js').SymposiumOwnedBuildSelection;
+  collectSessionAdmissionEvidence?: (
+    selection: unknown,
+  ) => Promise<import('./symposium-owned-evidence.js').SessionOwnedEvidenceCapability>;
   collectAdmissionEvidence?: (
     selection: unknown,
   ) => Promise<import('./symposium-production-gate.js').SymposiumProductionAttestation>;
@@ -1174,6 +1178,8 @@ let symposiumRuntimeForSession: (sessionId: string) => SymposiumOrchestrator | n
       baseConfig,
       attestation,
       symposiumProductionHost.physical,
+      undefined,
+      symposiumProductionHost.admissionBuildSelection,
     );
     attestationIdentity = identity;
     return result;
@@ -1316,6 +1322,11 @@ export function installSymposiumReaderAuthority(
 
 export function getSymposiumBootstrapDependencies() {
   return {
+    collectSessionAdmissionEvidence: (selection: unknown) => {
+      const collect = symposiumProductionHost?.collectSessionAdmissionEvidence;
+      if (!collect) throw new Error('Original admission evidence owner unavailable');
+      return collect(selection);
+    },
     reviews: symposiumReviewStore,
     readNativeObservation: (claimToken: string) => {
       const read = symposiumProductionHost?.readNativeObservation;

@@ -217,3 +217,30 @@ it('finishes cleanup after an HTTP client disconnect instead of terminating the 
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+it('forwards trusted full-build selection to its original worker and rejects request overrides', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'evidence-build-forward-'));
+  try {
+    const f = fixture(root);
+    let seen: unknown;
+    const collect = createOwnedEvidenceCollector(
+      f.config,
+      'https://localhost:1234',
+      f.physical,
+      f.custody,
+      (_source, options) => {
+        seen = options.workerData.buildSelection;
+        return new Worker(
+          `require('node:worker_threads').parentPort.postMessage({error:true,phase:'gate'});`,
+          { ...options, eval: true },
+        );
+      },
+      'local-854b-b20-v1',
+    );
+    await expect(collect(selection)).rejects.toMatchObject({ phase: 'gate' });
+    expect(seen).toBe('local-854b-b20-v1');
+    await expect(collect({ ...selection, buildSelection: 'local-854b-b20-v1' })).rejects.toThrow();
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});

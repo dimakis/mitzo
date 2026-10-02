@@ -6,7 +6,9 @@ import {
   REVIEWED_SYMPOSIUM_CODEX_01561_RUNTIME,
   REVIEWED_SYMPOSIUM_CODEX_01591_RUNTIME,
   REVIEWED_SYMPOSIUM_CODEX_01591_IDENTITY_RUNTIME,
-  reviewedSymposiumOwnedRuntime,
+  reviewedSymposiumOwnedBuild,
+  SOURCE_QUALIFIED_SYMPOSIUM_LOCAL_B20_BUILD,
+  type SymposiumOwnedBuildSelection,
 } from './symposium-owned-runtime-contract.js';
 import {
   validateOpenShellCliEnvironment,
@@ -72,10 +74,13 @@ const codex01591Reviewed = REVIEWED_SYMPOSIUM_CODEX_01591_RUNTIME.build;
 const codexIdentityReviewed = REVIEWED_SYMPOSIUM_CODEX_01591_IDENTITY_RUNTIME.build;
 const OwnedAttestation = LegacyAttestation.extend({
   contract: z.literal('openshell-v0.1-owned-native-seats'),
-  cliVersion: z.literal(reviewed.version),
-  cliSha256: z.literal(reviewed.cliSha256),
-  gatewayVersion: z.literal(reviewed.version),
-  gatewaySha256: z.literal(reviewed.gatewaySha256),
+  cliVersion: z.enum([reviewed.version, '0.0.0']),
+  cliSha256: z.enum([reviewed.cliSha256, SOURCE_QUALIFIED_SYMPOSIUM_LOCAL_B20_BUILD.cliSha256]),
+  gatewayVersion: z.enum([reviewed.version, '0.0.0']),
+  gatewaySha256: z.enum([
+    reviewed.gatewaySha256,
+    SOURCE_QUALIFIED_SYMPOSIUM_LOCAL_B20_BUILD.gatewaySha256,
+  ]),
   gatewayEndpoint: z.string().url(),
   image: z.enum([
     reviewed.image,
@@ -100,7 +105,10 @@ const OwnedAttestation = LegacyAttestation.extend({
     codex01591Reviewed.nativeArtifacts['/usr/bin/codex'],
   ]),
   sandboxRuntimeImage: z.literal(reviewed.sandboxRuntimeImage),
-  supervisorImage: z.literal(reviewed.supervisorImage),
+  supervisorImage: z.enum([
+    reviewed.supervisorImage,
+    SOURCE_QUALIFIED_SYMPOSIUM_LOCAL_B20_BUILD.supervisorImage,
+  ]),
   nativeArtifacts: z
     .object({
       '/usr/bin/codex': z.enum([
@@ -154,9 +162,35 @@ const OwnedAttestation = LegacyAttestation.extend({
 })
   .strict()
   .superRefine((value, context) => {
-    const expected = reviewedSymposiumOwnedRuntime(value.image).build;
+    const local =
+      value.cliVersion === '0.0.0' ||
+      value.gatewayVersion === '0.0.0' ||
+      value.cliSha256 === SOURCE_QUALIFIED_SYMPOSIUM_LOCAL_B20_BUILD.cliSha256 ||
+      value.gatewaySha256 === SOURCE_QUALIFIED_SYMPOSIUM_LOCAL_B20_BUILD.gatewaySha256 ||
+      value.supervisorImage === SOURCE_QUALIFIED_SYMPOSIUM_LOCAL_B20_BUILD.supervisorImage;
+    let expected: ReturnType<typeof reviewedSymposiumOwnedBuild>;
+    try {
+      expected = reviewedSymposiumOwnedBuild(value.image, local ? 'local-854b-b20-v1' : undefined);
+    } catch {
+      context.addIssue({
+        code: 'custom',
+        message: 'Owned native runtime variant differs from reviewed contract',
+      });
+      return;
+    }
     const artifacts = Object.entries(value.nativeArtifacts);
     if (
+      (local &&
+        (value.allowedAccountProviders.length !== 1 ||
+          value.allowedAccountProviders[0] !== 'openai' ||
+          value.providerInstances.some(
+            (p) => p.type !== 'openai' || p.profileName !== 'openai',
+          ))) ||
+      value.cliVersion !== expected.version ||
+      value.gatewayVersion !== expected.version ||
+      value.cliSha256 !== expected.cliSha256 ||
+      value.gatewaySha256 !== expected.gatewaySha256 ||
+      value.supervisorImage !== expected.supervisorImage ||
       value.imageDigest !== expected.imageDigest ||
       value.controllerSha256 !== expected.nativeArtifacts['/usr/bin/codex'] ||
       artifacts.length !== Object.keys(expected.nativeArtifacts).length ||
@@ -333,6 +367,7 @@ export function verifySymposiumProductionGate(
   attestation: SymposiumProductionAttestation,
   physical: SymposiumProductionPhysicalProof | undefined,
   invoke: RunCli = runCli,
+  buildSelection?: SymposiumOwnedBuildSelection,
 ): {
   runtimeConfig: OpenShellRuntimeConfig;
   allowedRoles: ReadonlySet<'implementer' | 'coder' | 'reviewer'>;
@@ -349,6 +384,19 @@ export function verifySymposiumProductionGate(
     throw new Error('Personal ChatGPT subscription production evidence is unavailable');
   const expected = Attestation.parse(attestation);
   const owned = expected.contract === 'openshell-v0.1-owned-native-seats';
+  if (buildSelection !== undefined && !owned)
+    throw Error('Explicit owned build requires owned admission');
+  if (owned) {
+    const selectedBuild = reviewedSymposiumOwnedBuild(expected.image, buildSelection);
+    if (
+      expected.cliVersion !== selectedBuild.version ||
+      expected.gatewayVersion !== selectedBuild.version ||
+      expected.cliSha256 !== selectedBuild.cliSha256 ||
+      expected.gatewaySha256 !== selectedBuild.gatewaySha256 ||
+      expected.supervisorImage !== selectedBuild.supervisorImage
+    )
+      throw Error('Owned admission differs from trusted full-build selection');
+  }
   let ownedBinding: SymposiumOwnedNativeHostBinding | undefined;
   if (owned) {
     if (

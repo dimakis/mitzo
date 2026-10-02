@@ -1,3 +1,4 @@
+import { SOURCE_QUALIFIED_SYMPOSIUM_LOCAL_B20_BUILD as localBuild } from '../symposium-owned-runtime-contract.js';
 import { assertSymposiumAttestedClaudeProvider } from '../symposium-production-gate.js';
 import { collectOwnedAdmissionEvidence } from '../symposium-owned-evidence.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -29,9 +30,11 @@ vi.mock('node:crypto', async (original) => {
         },
         digest(format: 'hex') {
           const bytes = Buffer.concat(parts);
-          return bytes.toString() === 'owned-native-test-cli'
-            ? '5a02cb78ef641da6badec1901677d4478c059a0080dbf4de13a6bbc503588dc8'
-            : actual.createHash(algorithm).update(bytes).digest(format);
+          return bytes.toString() === 'local-b20-test-cli'
+            ? '6ed96b7aa13655d6ecaeb822aee7526bc2170d85bd00f4506b13330703cb5dff'
+            : bytes.toString() === 'owned-native-test-cli'
+              ? '5a02cb78ef641da6badec1901677d4478c059a0080dbf4de13a6bbc503588dc8'
+              : actual.createHash(algorithm).update(bytes).digest(format);
         },
       };
     },
@@ -656,4 +659,82 @@ it('keeps the collected base-policy hash distinct from the exact derived Vertex 
   chmodSync(selected.path, 0o400);
   // Base attestation alone never authorizes the mutated effective seat policy.
   expect(() => selected.verify()).toThrow();
+});
+
+it('requires explicit trusted selection for exact local full tuple and rejects mixed builds', () => {
+  const f = fixture();
+  writeFileSync(f.config.cli, 'local-b20-test-cli');
+  f.config.image = localBuild.image;
+  const candidate = {
+    ...f.attestation,
+    allowedAccountProviders: ['openai'] as ['openai'],
+    providerProfiles: f.attestation.providerProfiles.filter((p) => p.name === 'openai'),
+    providerInstances: f.attestation.providerInstances.filter((p) => p.type === 'openai'),
+    cliVersion: localBuild.version,
+    gatewayVersion: localBuild.version,
+    cliSha256: localBuild.cliSha256,
+    gatewaySha256: localBuild.gatewaySha256,
+    image: localBuild.image,
+    imageDigest: localBuild.imageDigest,
+    sandboxRuntimeImage: localBuild.sandboxRuntimeImage,
+    supervisorImage: localBuild.supervisorImage,
+    controllerSha256: localBuild.nativeArtifacts['/usr/bin/codex'],
+    nativeArtifacts: { ...localBuild.nativeArtifacts },
+  };
+  const invoke = vi.fn((_cli: string, args: string[]) =>
+    args[0] === '--version'
+      ? 'openshell 0.0.0'
+      : JSON.stringify({
+          gateway: f.config.gateway,
+          workspace: f.config.workspace,
+          server: candidate.gatewayEndpoint,
+          version: '0.0.0',
+          status: 'healthy',
+          compute_drivers: [{ name: 'podman', capabilities: { driver_version: '0.0.0' } }],
+        }),
+  );
+  expect(() => verifySymposiumProductionGate(f.config, candidate, f.physical, invoke)).toThrow(
+    'trusted full-build',
+  );
+  expect(invoke).not.toHaveBeenCalled();
+  for (const provider of ['openai-codex', 'anthropic-vertex']) {
+    expect(() =>
+      verifySymposiumProductionGate(
+        f.config,
+        { ...candidate, allowedAccountProviders: [provider] } as never,
+        f.physical,
+        invoke,
+        'local-854b-b20-v1',
+      ),
+    ).toThrow();
+  }
+  const wrongImage = { ...candidate, image: build.image };
+  expect(() =>
+    verifySymposiumProductionGate(f.config, wrongImage, f.physical, invoke, 'local-854b-b20-v1'),
+  ).toThrow('Owned native runtime variant differs');
+  const verified = verifySymposiumProductionGate(
+    f.config,
+    candidate,
+    f.physical,
+    invoke,
+    'local-854b-b20-v1',
+  );
+  expect(verified.readOnlyEnforced).toBe(true);
+  for (const changed of [
+    { cliSha256: build.cliSha256 },
+    { gatewaySha256: build.gatewaySha256 },
+    { supervisorImage: build.supervisorImage },
+    { gatewayVersion: build.version },
+    { nativeArtifacts: build.nativeArtifacts },
+  ]) {
+    expect(() =>
+      verifySymposiumProductionGate(
+        f.config,
+        { ...candidate, ...changed } as never,
+        f.physical,
+        invoke,
+        'local-854b-b20-v1',
+      ),
+    ).toThrow();
+  }
 });

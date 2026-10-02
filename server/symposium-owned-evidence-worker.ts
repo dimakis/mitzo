@@ -84,6 +84,7 @@ try {
   const candidate = collectOwnedAdmissionEvidence(
     {
       config: data.config,
+      buildSelection: data.buildSelection,
       endpoint: data.endpoint,
       physical: phasedPhysical,
       custody: () => custody('custody'),

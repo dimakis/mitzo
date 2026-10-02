@@ -23,6 +23,7 @@ export interface OriginalSymposiumControllerIdentity {
 }
 /** Explicit fresh-owner entry point. No attach/reconstruct command exists. */
 export interface SymposiumCustodianConstructorHooks {
+  admissionBuildSelection?: OwnedSymposiumHostOptions['admissionBuildSelection'];
   bootstrapTools?: BootstrapTools;
   observeDurableReviewToolResult?: OwnedSymposiumHostOptions['observeDurableReviewToolResult'];
   observeStartupConfig?: OwnedSymposiumHostOptions['observeStartupConfig'];
@@ -39,6 +40,7 @@ export async function runSymposiumCustodian(hooks: SymposiumCustodianConstructor
     observeStartupConfig,
     observePrelaunch,
     observeController,
+    admissionBuildSelection,
   } = hooks;
   if (
     observeDurableReviewToolResult !== undefined &&
@@ -51,6 +53,8 @@ export async function runSymposiumCustodian(hooks: SymposiumCustodianConstructor
     throw Error('Prelaunch observer must be a trusted constructor callback');
   if (observeController !== undefined && typeof observeController !== 'function')
     throw Error('Controller observer must be a trusted constructor callback');
+  if (admissionBuildSelection !== undefined && admissionBuildSelection !== 'local-854b-b20-v1')
+    throw Error('Owned full-build selection is not reviewed');
   if (process.env.MITZO_SYMPOSIUM_CUSTODIAN_CONTROLLER || process.send)
     throw Error('Custodian must be launched as the independent owner');
   const filename = process.env.MITZO_SYMPOSIUM_OWNED_HOST_CONFIG;
@@ -67,6 +71,7 @@ export async function runSymposiumCustodian(hooks: SymposiumCustodianConstructor
       observeDurableReviewToolResult,
       observeStartupConfig,
       observePrelaunch,
+      ...(admissionBuildSelection === undefined ? {} : { admissionBuildSelection }),
     },
     bootstrapTools,
   );

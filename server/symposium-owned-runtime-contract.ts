@@ -127,3 +127,31 @@ export function reviewedSymposiumOwnedRuntime(image: string) {
     return REVIEWED_SYMPOSIUM_CODEX_01591_IDENTITY_RUNTIME;
   throw new Error('Artifact workload image identity is not reviewed');
 }
+
+/** Explicit source-qualified local build, not a claim of completed physical admission.
+ * Image-only consumers retain their original catalog entry. Only trusted construction
+ * can select this exact tuple before the same physical gate collects evidence. */
+export type SymposiumOwnedBuildSelection = 'local-854b-b20-v1';
+export const SOURCE_QUALIFIED_SYMPOSIUM_LOCAL_B20_BUILD = Object.freeze({
+  ...REVIEWED_SYMPOSIUM_CODEX_01591_IDENTITY_RUNTIME.build,
+  version: '0.0.0',
+  cliSha256: '6ed96b7aa13655d6ecaeb822aee7526bc2170d85bd00f4506b13330703cb5dff',
+  gatewaySha256: '712906577a63c29553e7f2653bf2944c55a7142c3c69643532d1461da1eebe10',
+  supervisorImage: 'sha256:baa239a3c804bb889d70f8da465facbe289e302fba4cefb19112200a16fb5013',
+  nativeArtifacts: Object.freeze({
+    ...REVIEWED_SYMPOSIUM_CODEX_01591_IDENTITY_RUNTIME.build.nativeArtifacts,
+  }),
+} as const);
+export function reviewedSymposiumOwnedBuild(
+  image: string,
+  selection?: SymposiumOwnedBuildSelection,
+) {
+  const original = reviewedSymposiumOwnedRuntime(image).build;
+  if (selection === undefined) return original;
+  if (
+    selection !== 'local-854b-b20-v1' ||
+    image !== SOURCE_QUALIFIED_SYMPOSIUM_LOCAL_B20_BUILD.image
+  )
+    throw Error('Owned full-build selection is not reviewed');
+  return SOURCE_QUALIFIED_SYMPOSIUM_LOCAL_B20_BUILD;
+}
