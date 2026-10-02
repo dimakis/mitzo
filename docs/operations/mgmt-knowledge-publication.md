@@ -94,6 +94,15 @@ Physical sandbox identity and ownership are checked before and after delivery.
 The Codex adapter refreshes developer instructions by resuming the same provider
 thread between completed turns; queued user messages remain unchanged.
 
+Native app-server launchers apply an inherited Landlock write boundary: task
+files, private provider state and temporary files remain writable, while the
+knowledge lane cannot be modified by an agent or its background descendants.
+Actual runtime recipe attestation includes this boundary and both launchers.
+Knowledge caches use content-addressed paths and reuse verified copies across
+manager restarts. Sandbox-local cleanup retains active and manually pinned views,
+at least ten recent copies, and copies younger than thirty days; publisher
+versions and checkpoint artifacts are outside that cleanup's authority.
+
 The compiler pin is ContexGin `683f9007db686e710ed9a5410468fe33df1c5382`, which
 reads tracked `AGENTS.md` once and uses it ahead of legacy `CLAUDE.md`. Runtime
 staging builds this exact source with frozen dependencies and fingerprints the
