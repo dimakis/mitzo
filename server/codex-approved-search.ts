@@ -120,7 +120,9 @@ export async function searchCodex(
     )
       throw new Error('Search did not complete with a receipt');
     signal.throwIfAborted();
-    return turn.text.join('\n');
+    const answer = turn.text.join('\n');
+    if (!/https?:\/\//.test(answer)) throw new Error('Search did not provide source URLs');
+    return answer;
   } finally {
     signal.removeEventListener('abort', onAbort);
     client.close();

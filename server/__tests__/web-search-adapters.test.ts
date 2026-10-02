@@ -109,7 +109,13 @@ describe('selected-account native search adapters', () => {
       (async function* () {
         yield {
           type: 'assistant',
-          message: { content: [{ type: 'tool_use', name: 'WebSearch' }] },
+          message: { content: [{ type: 'tool_use', name: 'WebSearch', id: 'search-call' }] },
+        };
+        yield {
+          type: 'user',
+          message: {
+            content: [{ type: 'tool_result', tool_use_id: 'search-call', is_error: false }],
+          },
         };
         yield {
           type: 'result',
@@ -136,5 +142,24 @@ describe('selected-account native search adapters', () => {
       settingSources: [],
       maxTurns: 3,
     });
+  });
+  it('rejects a failed SDK search even if the model returns a plausible answer', async () => {
+    const sdk = () =>
+      (async function* () {
+        yield {
+          type: 'assistant',
+          message: { content: [{ type: 'tool_use', name: 'WebSearch', id: 'search-call' }] },
+        };
+        yield {
+          type: 'user',
+          message: {
+            content: [{ type: 'tool_result', tool_use_id: 'search-call', is_error: true }],
+          },
+        };
+        yield { type: 'result', subtype: 'success', result: 'Guess [source](https://example.com)' };
+      })();
+    await expect(
+      searchSdk('q', new AbortController().signal, { env: {}, cwd: '/tmp', model: 'model' }, sdk),
+    ).rejects.toThrow();
   });
 });

@@ -2,7 +2,11 @@ import { describe, expect, it, vi } from 'vitest';
 import { searchCodex } from '../codex-approved-search.js';
 import type { CodexLifecycleTransport } from '../codex-app-server-client.js';
 
-function fixture(status = 'completed', searched = true) {
+function fixture(
+  status = 'completed',
+  searched = true,
+  answer = 'Answer [Revenue](https://www.revenue.ie/)',
+) {
   let callbacks: CodexLifecycleTransport;
   const request = vi.fn(async (method: string, params: Record<string, unknown>) => {
     if (method === 'config/read') return { config: { mcp_servers: { inherited: {} } } };
@@ -27,7 +31,7 @@ function fixture(status = 'completed', searched = true) {
       callbacks.onNotification('item/completed', {
         threadId: 'search-thread',
         turnId: 'search-turn',
-        item: { type: 'agentMessage', text: 'Answer [Revenue](https://www.revenue.ie/)' },
+        item: { type: 'agentMessage', text: answer },
       });
       callbacks.onNotification('turn/completed', {
         threadId: 'search-thread',
@@ -46,6 +50,18 @@ function fixture(status = 'completed', searched = true) {
   return { createClient, verify, request, close, callbacks: () => callbacks };
 }
 describe('approved Codex search on the bound runtime', () => {
+  it('rejects an answer without usable source URLs', async () => {
+    const f = fixture('completed', true, 'An uncited answer');
+    await expect(
+      searchCodex('q', new AbortController().signal, {
+        createClient: f.createClient,
+        verify: f.verify,
+        model: 'model',
+        modelProvider: 'openai',
+        cwd: '/tmp',
+      }),
+    ).rejects.toThrow();
+  });
   it('uses a separate search-only thread without modifying the parent thread', async () => {
     const f = fixture();
     const result = await searchCodex('Revenue', new AbortController().signal, {

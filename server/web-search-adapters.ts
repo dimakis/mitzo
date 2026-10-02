@@ -159,7 +159,8 @@ export async function searchSdk(
   const abort = new AbortController();
   const cancel = () => abort.abort();
   signal.addEventListener('abort', cancel, { once: true });
-  let searched = false;
+  const searchCalls = new Set<string>();
+  const successfulSearches = new Set<string>();
   try {
     signal.throwIfAborted();
     for await (const raw of sdkQuery({
@@ -189,21 +190,45 @@ export async function searchSdk(
           result: z.string().optional(),
           message: z
             .object({
-              content: z.array(z.object({ type: z.string(), name: z.string().optional() })),
+              content: z.array(
+                z.object({
+                  type: z.string(),
+                  name: z.string().optional(),
+                  id: z.string().optional(),
+                  tool_use_id: z.string().optional(),
+                  is_error: z.boolean().optional(),
+                }),
+              ),
             })
             .optional(),
         })
         .safeParse(raw);
       if (!message.success) continue;
-      if (
-        message.data.type === 'assistant' &&
-        message.data.message?.content.some(
-          (part) => part.type === 'tool_use' && part.name === 'WebSearch',
+      for (const part of message.data.message?.content ?? []) {
+        if (
+          message.data.type === 'assistant' &&
+          part.type === 'tool_use' &&
+          part.name === 'WebSearch' &&
+          part.id
         )
-      )
-        searched = true;
+          searchCalls.add(part.id);
+        if (
+          message.data.type === 'user' &&
+          part.type === 'tool_result' &&
+          part.tool_use_id &&
+          searchCalls.has(part.tool_use_id)
+        ) {
+          if (part.is_error) successfulSearches.delete(part.tool_use_id);
+          else successfulSearches.add(part.tool_use_id);
+        }
+      }
       if (message.data.type === 'result') {
-        if (message.data.subtype !== 'success' || !searched || !message.data.result)
+        if (
+          message.data.subtype !== 'success' ||
+          !successfulSearches.size ||
+          !message.data.result ||
+          !/https?:\/\//.test(message.data.result)
+        )
           throw new Error('SDK search did not complete');
         return message.data.result;
       }
