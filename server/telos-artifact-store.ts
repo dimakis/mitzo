@@ -163,7 +163,7 @@ export class TelosArtifactStore {
     // instr treats the search text literally, including SQL wildcard characters.
     const rows = this.db
       .prepare(
-        `SELECT a.* FROM telos_artifact_revisions a JOIN items i ON i.id=a.item_id
+        `SELECT a.id,a.item_id,a.filename,a.title,a.revision,a.sha256,a.size,a.session_id,a.source_path,a.created_at FROM telos_artifact_revisions a JOIN items i ON i.id=a.item_id
       WHERE a.revision=(SELECT MAX(b.revision) FROM telos_artifact_revisions b WHERE b.id=a.id)
       AND (? IS NULL OR a.item_id=?)
       AND (?='' OR instr(lower(a.title || ' ' || a.filename || ' ' || i.summary),lower(?))>0)
