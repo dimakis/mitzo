@@ -9,9 +9,9 @@
     }
   },
   "runtime": {
-    "image": "localhost/mitzo-mgmt-runtime:codex-01600-shared-pin-20261002",
-    "digest": "sha256:76d6ebedf7e10c5e8e9c9bfe22a31cf46203c837d5729f54fad32c46bc1b5c6e",
-    "mitzoSourceCommit": "f54960e8a480602b94804cd142f0357cda20866e",
+    "image": "localhost/mitzo-mgmt-runtime:codex-01600-unified-20261002",
+    "digest": "sha256:b89016abe4c17850ee31e2c4613697f6a4871356953952b0edcdb4fdfb8db624",
+    "mitzoSourceCommit": "e4b2b7ed657b1f12a1766d25a663c9053d08f9b8",
     "mgmtSourceCommit": "bf59b38188eb9cbfbceb3ddbf5d669fe212445d9",
     "baseImage": "ghcr.io/nvidia/openshell-community/sandboxes/base@sha256:aeef1c63f00e2913ea002ccb3aaf925f338b5c5d70e63576f0d95c16a138044e",
     "requiredBinaries": [

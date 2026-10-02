@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { format } from 'prettier';
 
 export function reduceCodexContract(version, schemas) {
   const methods = (schema) => schema.oneOf.map((entry) => entry.properties.method.enum[0]);
@@ -58,5 +59,5 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
       ['Start', 'Resume', 'Fork'].map((name) => [name.toLowerCase(), read(`Thread${name}Params`)]),
     ),
   });
-  writeFileSync(output, `${JSON.stringify(result, null, 2)}\n`);
+  writeFileSync(output, await format(JSON.stringify(result), { parser: 'json' }));
 }
