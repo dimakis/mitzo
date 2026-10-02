@@ -1,3 +1,4 @@
+import { observeMountJson, type OpenShellMountJsonOperation } from './openshell-runtime.js';
 import { digestSymposiumSeedTree } from './symposium-production-gate.js';
 import {
   collectSessionOwnedAdmissionEvidence,
@@ -415,14 +416,21 @@ export async function createOwnedSymposiumHost(
         clearTimeout(deadline);
       }
     };
-    const podman = async (args: readonly string[]): Promise<unknown> =>
-      JSON.parse(await podmanText(args));
+    const podman = async (
+      args: readonly string[],
+      observation?: OpenShellMountJsonOperation,
+    ): Promise<unknown> =>
+      observation
+        ? observeMountJson(options.observeRuntime, observation, () => podmanText(args))
+        : JSON.parse(await podmanText(args));
     const artifactEvidence = new LocalPodmanArtifactEvidence(
       gateway.workspace,
       options.podman.sandboxNamespace,
       podman,
       gateway,
       options.gateway.workloadImage,
+      undefined,
+      options.observeRuntime,
     );
     leaseHost = new SqliteArtifactLeaseHost(
       leasePath,

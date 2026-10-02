@@ -62,3 +62,41 @@ it('does not accept failed SSH as read-only evidence', async () => {
     probeOwnedArtifactAccess(gateway() as never, 'seat-name', 'sandbox-id', '/usr/bin/id -u'),
   ).rejects.toThrow('probe failed');
 });
+it.each([0, 1])(
+  'retains distinct empty JSON observation at native step %i without changing failure',
+  async (step) => {
+    const events: unknown[] = [];
+    const outputs = [
+      JSON.stringify(identity),
+      JSON.stringify({ uid: 998 }),
+      JSON.stringify(identity),
+    ];
+    outputs[step] = '';
+    vi.mocked(execFile).mockImplementation(((
+      _cmd: string,
+      _args: readonly string[],
+      _options: unknown,
+      callback: (error: Error | null, stdout: string, stderr: string) => void,
+    ) => callback(null, outputs.shift()!, 'PRIVATE_STDERR')) as never);
+    await expect(
+      probeOwnedArtifactAccess(
+        gateway() as never,
+        'seat-name',
+        'sandbox-id',
+        '/usr/bin/id -u',
+        (event) => events.push(event),
+      ),
+    ).rejects.toThrow('Unexpected end of JSON input');
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        kind: 'mount-json',
+        operation: step === 0 ? 'native-identity' : 'native-ssh-probe',
+        stage: 'parse-rejected',
+        outputAvailable: true,
+        outputBytes: 0,
+        error: 'parse',
+      }),
+    );
+    expect(JSON.stringify(events)).not.toContain('PRIVATE_STDERR');
+  },
+);

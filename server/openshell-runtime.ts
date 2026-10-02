@@ -116,7 +116,18 @@ export type OpenShellEnsurePhase =
   | 'sandbox-current'
   | 'sandbox-legacy'
   | 'connections';
+export type OpenShellMountJsonOperation =
+  'podman-ps' | 'podman-inspect' | 'native-identity' | 'native-ssh-probe';
 export type OpenShellRuntimeObservation = Readonly<
+  | {
+      kind: 'mount-json';
+      operation: OpenShellMountJsonOperation;
+      stage: 'start' | 'terminal' | 'parsed' | 'parse-rejected';
+      elapsedMs: number;
+      error: 'none' | 'unknown' | 'parse';
+      outputAvailable: boolean;
+      outputBytes: number | null;
+    }
   | {
       kind: 'ensure-phase';
       phase: OpenShellEnsurePhase;
@@ -154,6 +165,47 @@ function observeRuntime(
 }
 function elapsedObservation(started: number): number {
   return Math.min(2_147_483_647, Math.max(0, Math.floor(performance.now() - started)));
+}
+
+/** Finite observation only; preserves the original transport and JSON parse errors. */
+export async function observeMountJson(
+  observer: OpenShellRuntimeConfig['observeRuntime'],
+  operation: OpenShellMountJsonOperation,
+  read: () => Promise<string>,
+): Promise<unknown> {
+  if (!observer) return JSON.parse(await read());
+  const started = performance.now();
+  const emit = (
+    stage: 'start' | 'terminal' | 'parsed' | 'parse-rejected',
+    error: 'none' | 'unknown' | 'parse',
+    output?: string,
+  ) =>
+    observeRuntime(observer, {
+      kind: 'mount-json',
+      operation,
+      stage,
+      elapsedMs: elapsedObservation(started),
+      error,
+      outputAvailable: output !== undefined,
+      outputBytes: output === undefined ? null : Buffer.byteLength(output),
+    });
+  emit('start', 'none');
+  let output: string;
+  try {
+    output = await read();
+  } catch (error) {
+    emit('terminal', 'unknown');
+    throw error;
+  }
+  emit('terminal', 'none', output);
+  try {
+    const value: unknown = JSON.parse(output);
+    emit('parsed', 'none', output);
+    return value;
+  } catch (error) {
+    emit('parse-rejected', 'parse', output);
+    throw error;
+  }
 }
 
 export interface OpenShellRuntimeConfig {

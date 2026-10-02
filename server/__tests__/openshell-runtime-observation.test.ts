@@ -6,6 +6,7 @@ const child = vi.hoisted(() => ({ execFile: vi.fn() }));
 vi.mock('node:child_process', () => ({ execFile: child.execFile }));
 import {
   OpenShellRuntimeManager,
+  observeMountJson,
   type OpenShellRuntimeObservation,
   type BoundOpenShellRuntimeConfig,
 } from '../openshell-runtime.js';
@@ -222,4 +223,56 @@ it('synchronous original execFile refusal retains terminal metadata and original
       stderrAvailable: false,
     }),
   );
+});
+
+it.each(['podman-ps', 'podman-inspect'] as const)(
+  'observes actual JSON boundary %s without leaking bytes',
+  async (operation) => {
+    const events: OpenShellRuntimeObservation[] = [];
+    const read = vi.fn(async () => '');
+    await expect(observeMountJson((event) => events.push(event), operation, read)).rejects.toThrow(
+      'Unexpected end of JSON input',
+    );
+    expect(read).toHaveBeenCalledTimes(1);
+    expect(events.map((event) => event.stage)).toEqual(['start', 'terminal', 'parse-rejected']);
+    expect(events[2]).toMatchObject({
+      kind: 'mount-json',
+      operation,
+      error: 'parse',
+      outputAvailable: true,
+      outputBytes: 0,
+    });
+  },
+);
+it('observer throws and rejects cannot change original JSON result or original transport error', async () => {
+  const original = Error('PRIVATE_ORIGINAL_TRANSPORT');
+  for (const observer of [
+    undefined,
+    () => {
+      throw Error('PRIVATE_OBSERVER');
+    },
+    () => Promise.reject(Error('PRIVATE_ASYNC_OBSERVER')),
+  ]) {
+    await expect(
+      observeMountJson(observer, 'podman-ps', async () => '{"ok":true}'),
+    ).resolves.toEqual({ ok: true });
+    await expect(
+      observeMountJson(observer, 'native-ssh-probe', async () => {
+        throw original;
+      }),
+    ).rejects.toBe(original);
+  }
+});
+it('successful JSON observation contains metadata only and frozen payloads', async () => {
+  const events: OpenShellRuntimeObservation[] = [];
+  await expect(
+    observeMountJson(
+      (event) => events.push(event),
+      'podman-inspect',
+      async () => '{"secret":"PRIVATE_VALUE"}',
+    ),
+  ).resolves.toEqual({ secret: 'PRIVATE_VALUE' });
+  expect(events.map((event) => event.stage)).toEqual(['start', 'terminal', 'parsed']);
+  expect(events.every(Object.isFrozen)).toBe(true);
+  expect(JSON.stringify(events)).not.toContain('PRIVATE_VALUE');
 });

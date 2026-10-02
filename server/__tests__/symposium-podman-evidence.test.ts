@@ -317,3 +317,25 @@ describe('reviewed workload artifact ownership', () => {
     expect(run).toHaveBeenCalledTimes(2);
   });
 });
+
+it('actual mount evidence forwards distinct read-only JSON operations only when original observer is present', async () => {
+  const run = vi.fn().mockResolvedValueOnce(listed).mockResolvedValueOnce(inspected);
+  const observer = vi.fn();
+  const evidence = new LocalPodmanArtifactEvidence(
+    'symposium-1',
+    'gateway-local',
+    run,
+    undefined,
+    undefined,
+    undefined,
+    observer,
+  );
+  await evidence.verifyMount(sandboxName, sandboxId, config);
+  expect(run).toHaveBeenNthCalledWith(1, ['ps', '--all', '--format', 'json'], 'podman-ps');
+  expect(run).toHaveBeenNthCalledWith(
+    2,
+    ['inspect', '--type', 'container', physicalId],
+    'podman-inspect',
+  );
+  expect(observer).not.toHaveBeenCalled(); // actual command owner emits; parsed injected facts confer no observations
+});

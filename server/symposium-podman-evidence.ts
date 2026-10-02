@@ -1,3 +1,4 @@
+import type { OpenShellMountJsonOperation, OpenShellRuntimeConfig } from './openshell-runtime.js';
 import { SYMPOSIUM_ARTIFACT_TARGET } from './symposium-artifact-lease.js';
 import {
   probeOwnedArtifactAccess,
@@ -10,7 +11,10 @@ import type { ArtifactDriverConfig, ArtifactLeaseRequest } from './symposium-art
 import type { ArtifactHostEvidence } from './symposium-artifact-host.js';
 import type { OwnedSymposiumGateway } from './symposium-owned-gateway.js';
 
-type PodmanCommand = (args: readonly string[]) => Promise<unknown>;
+type PodmanCommand = (
+  args: readonly string[],
+  observation?: OpenShellMountJsonOperation,
+) => Promise<unknown>;
 
 const identifier = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/;
 const containerId = /^[a-f0-9]{12,64}$/i;
@@ -67,6 +71,7 @@ export class LocalPodmanArtifactEvidence implements ArtifactHostEvidence {
     private readonly ownedGateway?: OwnedSymposiumGateway,
     private readonly workloadImage?: string,
     private readonly nativeAccess?: NativeArtifactAccessProbe,
+    private readonly observeRuntime?: OpenShellRuntimeConfig['observeRuntime'],
   ) {
     if (!identifier.test(workspaceId) || !isPodmanSandboxNamespace(sandboxNamespace))
       throw new Error('Invalid expected OpenShell workspace or namespace');
@@ -105,7 +110,9 @@ export class LocalPodmanArtifactEvidence implements ArtifactHostEvidence {
 
     // List all containers so an incorrect daemon-side label filter cannot
     // accidentally turn a live sandbox into an apparent absence.
-    const listed = await this.run(['ps', '--all', '--format', 'json']);
+    const run = (args: readonly string[], operation: OpenShellMountJsonOperation) =>
+      this.observeRuntime ? this.run(args, operation) : this.run(args);
+    const listed = await run(['ps', '--all', '--format', 'json'], 'podman-ps');
     if (!Array.isArray(listed)) throw new Error('Invalid Podman container listing');
     // A replacement ID does not prove the previous physical workload stopped.
     // Include the stable identity so both generations cannot pass mount admission.
@@ -124,7 +131,9 @@ export class LocalPodmanArtifactEvidence implements ArtifactHostEvidence {
     const physicalId = workloadRow.Id ?? workloadRow.ID;
     if (typeof physicalId !== 'string' || !containerId.test(physicalId))
       throw new Error('Podman physical container ID is unavailable');
-    const inspected = exactlyOne(await this.run(['inspect', '--type', 'container', physicalId]));
+    const inspected = exactlyOne(
+      await run(['inspect', '--type', 'container', physicalId], 'podman-inspect'),
+    );
     if (inspected.Id !== physicalId && inspected.ID !== physicalId)
       throw new Error('Podman container identity changed during inspection');
     const found = labels(inspected.Config && record(inspected.Config).Labels);
@@ -162,7 +171,7 @@ export class LocalPodmanArtifactEvidence implements ArtifactHostEvidence {
         this.nativeAccess ??
         (this.ownedGateway
           ? (name: string, id: string, script: string) =>
-              probeOwnedArtifactAccess(this.ownedGateway!, name, id, script)
+              probeOwnedArtifactAccess(this.ownedGateway!, name, id, script, this.observeRuntime)
           : undefined);
       if (!nativeAccess) throw new Error('Native artifact identity probe is unavailable');
       const probe = record(
@@ -188,7 +197,9 @@ export class LocalPodmanArtifactEvidence implements ArtifactHostEvidence {
         probe.writable !== !expected.read_only
       )
         throw new Error('Artifact owner identity or effective access is not ready');
-      const after = exactlyOne(await this.run(['inspect', '--type', 'container', physicalId]));
+      const after = exactlyOne(
+        await run(['inspect', '--type', 'container', physicalId], 'podman-inspect'),
+      );
       const afterLabels = labels(record(after.Config).Labels);
       const afterMounts = Array.isArray(after.Mounts)
         ? after.Mounts.map(record).filter((mount) => mount.Destination === target)
