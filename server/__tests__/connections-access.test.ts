@@ -68,6 +68,9 @@ describe('nonsecret Connections & access inventory', () => {
     expect(
       result.resources.filter((r) => r.kind === 'legacy-provider').map((r) => r.nativeId),
     ).toEqual(['other']);
+    expect(
+      result.resources.flatMap((r) => r.actions).every((action) => action.href === '/connections'),
+    ).toBe(true);
     expect(JSON.stringify(result)).not.toMatch(/SECRET|credentialRef|\/private\/secret/);
     expect(
       inventoryIdentity('managed-connection', 'operator', 'other', 'default', 'same'),

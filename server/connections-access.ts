@@ -175,7 +175,7 @@ export async function readConnectionsAccess(
     row.details = connection.account ? { billing: `ChatGPT ${connection.account.planType}` } : {};
     row.access.summary = 'Personal ChatGPT connection';
     row.actions = [
-      { id: 'personal-controls', label: 'Open personal account controls', href: '/symposium' },
+      { id: 'personal-controls', label: 'Open personal account controls', href: '/connections' },
     ];
     result.resources.push(row);
   }
