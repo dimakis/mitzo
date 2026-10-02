@@ -278,7 +278,7 @@ it('refreshes unavailable runtime on reopen while preserving reviewer choices', 
     target: { value: 'Review current diff' },
   });
   fireEvent.click(screen.getByRole('checkbox'));
-  await screen.findByText('Verified provider runtime is unavailable. Your choices remain here.');
+  await screen.findByText('This agent can’t connect yet. Your choices stay in this form.');
   expect(screen.getByRole('button', { name: 'Add reviewer and queue context' })).toBeDisabled();
   fireEvent.click(screen.getByRole('button', { name: 'Close' }));
   available = true;

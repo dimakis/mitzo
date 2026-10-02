@@ -727,8 +727,8 @@ function ReviewerForm({
             {!status?.runtimeAvailable && (
               <p role="status">
                 {status?.config
-                  ? 'Verified provider runtime is unavailable. Your choices remain here.'
-                  : 'Adding prepares an isolated roster. Stop ordinary execution first; provider admission still requires the verified runtime.'}
+                  ? 'This agent can’t connect yet. Your choices stay in this form.'
+                  : 'Checking whether this chat can add an agent…'}
               </p>
             )}
             {progress && <p role="status">{progress}</p>}
