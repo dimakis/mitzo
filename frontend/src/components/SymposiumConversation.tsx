@@ -1,6 +1,15 @@
+import { getSymposiumDeliveryActions } from '../lib/symposium-delivery-actions';
 import { canRequestAgent, canRequestRuntime } from '../lib/symposium-status';
 import { SeatLabel } from './SeatLabel';
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type ReactNode,
+} from 'react';
 import type {
   FinishedMessage,
   StreamingMessage,
@@ -134,22 +143,9 @@ export function SymposiumConversation({
   const [excerpt, setExcerpt] = useState('');
   const [shareRecipients, setShareRecipients] = useState<string[]>([]);
   const [shareBusy, setShareBusy] = useState(false);
-  const [deliveryActions, setDeliveryActions] = useState<
-    Record<
-      string,
-      {
-        approve?: boolean;
-        send?: boolean;
-        stop?: boolean;
-        stopRequested?: boolean;
-        notice: string;
-        dispatchUncertain?: boolean;
-        sendRequested?: boolean;
-      }
-    >
-  >({});
-  const activeActions = useRef(new Set<string>());
-  const dispatchRequests = useRef(new Set<string>());
+  const deliveryStore = getSymposiumDeliveryActions();
+  const deliveryActions = useSyncExternalStore(deliveryStore.subscribe, deliveryStore.snapshot);
+  const setDeliveryActions = deliveryStore.update;
   const [seatSeed, setSeatSeed] = useState<SeatProfileSeed | null>(null);
   // Keep every uncertain request until its response is confirmed, including when
   // the operator changes audiences or revisits an excerpt.
@@ -399,10 +395,10 @@ export function SymposiumConversation({
       return;
     const identity = `${base}:${deliveryId}`;
     const actionIdentity = `${identity}:${action}`;
-    if (activeActions.current.has(actionIdentity)) return;
-    if (action === 'send' && dispatchRequests.current.has(identity)) return;
-    if (action === 'send') dispatchRequests.current.add(identity);
-    activeActions.current.add(actionIdentity);
+    if (deliveryStore.activeActions.has(actionIdentity)) return;
+    if (action === 'send' && deliveryStore.dispatchRequests.has(identity)) return;
+    if (action === 'send') deliveryStore.dispatchRequests.add(identity);
+    deliveryStore.activeActions.add(actionIdentity);
     const epoch = sessionEpoch.current;
     setDeliveryActions((old) => ({
       ...old,
@@ -420,8 +416,8 @@ export function SymposiumConversation({
       },
     }));
     const fingerprint = `${identity}:${action}`;
-    const key = retryKeys.current.get(fingerprint) ?? crypto.randomUUID();
-    if (action !== 'send') retryKeys.current.set(fingerprint, key);
+    const key = deliveryStore.retryKeys.get(fingerprint) ?? crypto.randomUUID();
+    if (action !== 'send') deliveryStore.retryKeys.set(fingerprint, key);
     try {
       await readJson(
         `${base}/deliveries/${encodeURIComponent(deliveryId)}/${action === 'approve' ? 'interventions' : action === 'send' ? 'dispatch' : 'cancel'}`,
@@ -437,7 +433,7 @@ export function SymposiumConversation({
           ),
         },
       );
-      retryKeys.current.delete(fingerprint);
+      deliveryStore.retryKeys.delete(fingerprint);
       setDeliveryActions((old) => ({
         ...old,
         [identity]: {
@@ -459,7 +455,7 @@ export function SymposiumConversation({
       const detail = cause instanceof Error ? cause.message : 'Request failed';
       const dispatchNotStarted =
         action === 'send' && cause instanceof SymposiumRequestError && cause.dispatchNotStarted;
-      if (dispatchNotStarted) dispatchRequests.current.delete(identity);
+      if (dispatchNotStarted) deliveryStore.dispatchRequests.delete(identity);
       setDeliveryActions((old) => ({
         ...old,
         [identity]: {
@@ -484,7 +480,7 @@ export function SymposiumConversation({
       if (sessionEpoch.current === epoch)
         window.dispatchEvent(new Event('symposium-deliveries-changed'));
     } finally {
-      activeActions.current.delete(actionIdentity);
+      deliveryStore.activeActions.delete(actionIdentity);
     }
   };
 

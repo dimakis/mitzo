@@ -1,9 +1,35 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import {
+  createSymposiumDeliveryActions,
+  getSymposiumDeliveryActions,
+} from '../../lib/symposium-delivery-actions';
 import { apiFetch } from '../../lib/api-fetch';
+import { ResponsiveChatView } from '../ResponsiveChatView';
 import { SymposiumConversation } from '../SymposiumConversation';
 import { SymposiumProfileProposals } from '../SymposiumProfileProposals';
+
+const navigation = vi.hoisted(() => ({ active: 'session' }));
+vi.mock('@mitzo/client/hooks', () => ({
+  useMitzoStore: (select: (state: { sessions: { active: string } }) => unknown) =>
+    select({ sessions: { active: navigation.active } }),
+}));
+vi.mock('../../hooks/useMediaQuery', () => ({ useIsDesktop: () => false }));
+vi.mock('../../pages/ChatView', () => ({
+  ChatView: () => (
+    <SymposiumConversation sessionId={navigation.active} chat={chat} ordinaryComposer={null} />
+  ),
+}));
+vi.mock('../../pages/DesktopChatView', () => ({ DesktopChatView: () => null }));
+
+vi.mock('../../lib/symposium-delivery-actions', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../lib/symposium-delivery-actions')>();
+  return { ...actual, getSymposiumDeliveryActions: vi.fn() };
+});
+beforeEach(() => {
+  vi.mocked(getSymposiumDeliveryActions).mockReturnValue(createSymposiumDeliveryActions());
+});
 
 vi.mock('../../lib/api-fetch', () => ({ apiFetch: vi.fn() }));
 vi.mock('../ChatArea', () => ({
@@ -817,13 +843,20 @@ it.each(['send', 'stop'] as const)(
       );
     });
     const view = render(
-      <SymposiumConversation sessionId="session" chat={chat} ordinaryComposer={null} />,
+      <SymposiumConversation
+        key="session"
+        sessionId="session"
+        chat={chat}
+        ordinaryComposer={null}
+      />,
     );
     fireEvent.click(await screen.findByRole('tab', { name: 'Reviewer' }));
     const label =
       action === 'send' ? 'Send to Architect, Reviewer' : 'Stop delivery to Architect, Reviewer';
     fireEvent.click(await screen.findByRole('button', { name: label }));
-    view.rerender(<SymposiumConversation sessionId="other" chat={chat} ordinaryComposer={null} />);
+    view.rerender(
+      <SymposiumConversation key="other" sessionId="other" chat={chat} ordinaryComposer={null} />,
+    );
     fireEvent.click(await screen.findByRole('tab', { name: 'Reviewer' }));
     expect((await screen.findByRole('button', { name: label })).hasAttribute('disabled')).toBe(
       false,
@@ -839,7 +872,12 @@ it.each(['send', 'stop'] as const)(
       } as Response);
     });
     view.rerender(
-      <SymposiumConversation sessionId="session" chat={chat} ordinaryComposer={null} />,
+      <SymposiumConversation
+        key="session"
+        sessionId="session"
+        chat={chat}
+        ordinaryComposer={null}
+      />,
     );
     fireEvent.click(await screen.findByRole('tab', { name: 'Reviewer' }));
     const retry = await screen.findByRole('button', { name: label });
@@ -856,6 +894,65 @@ it.each(['send', 'stop'] as const)(
     }
   },
 );
+
+it('retains pending and uncertain Send fences across keyed session remounts', async () => {
+  let rejectSend!: (error: Error) => void;
+  let sends = 0;
+  vi.mocked(apiFetch).mockImplementation(async (url) => {
+    const path = String(url);
+    if (path.endsWith('/dispatch')) {
+      sends++;
+      return new Promise<Response>((_resolve, reject) => {
+        rejectSend = reject;
+      });
+    }
+    return json(
+      path.includes('/profile-proposals')
+        ? []
+        : path.includes('/perspectives')
+          ? page
+          : {
+              ...status,
+              sessionId: path.includes('/other/') ? 'other' : 'session',
+              runtimeAvailable: true,
+              deliveries: [directedDelivery('ready')],
+            },
+    );
+  });
+  navigation.active = 'session';
+  const view = render(<ResponsiveChatView />);
+  fireEvent.click(await screen.findByRole('tab', { name: 'Reviewer' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Send to Architect, Reviewer' }));
+  navigation.active = 'other';
+  view.rerender(<ResponsiveChatView />);
+  fireEvent.click(await screen.findByRole('tab', { name: 'Reviewer' }));
+  expect(
+    (await screen.findByRole('button', { name: 'Send to Architect, Reviewer' })).hasAttribute(
+      'disabled',
+    ),
+  ).toBe(false);
+  navigation.active = 'session';
+  view.rerender(<ResponsiveChatView />);
+  fireEvent.click(await screen.findByRole('tab', { name: 'Reviewer' }));
+  expect(
+    (await screen.findByRole('button', { name: 'Send to Architect, Reviewer' })).hasAttribute(
+      'disabled',
+    ),
+  ).toBe(true);
+  navigation.active = 'other';
+  view.rerender(<ResponsiveChatView />);
+  await act(async () => {
+    rejectSend(new Error('Response lost'));
+  });
+  navigation.active = 'session';
+  view.rerender(<ResponsiveChatView />);
+  fireEvent.click(await screen.findByRole('tab', { name: 'Reviewer' }));
+  await screen.findByText(/Send outcome is uncertain/);
+  const send = screen.getByRole('button', { name: 'Send to Architect, Reviewer' });
+  expect(send.hasAttribute('disabled')).toBe(true);
+  fireEvent.click(send);
+  expect(sends).toBe(1);
+});
 
 it('blocks uncertain dispatch repeats and retries only explicit idempotent Stop', async () => {
   vi.mocked(apiFetch).mockImplementation(async (url) => {
