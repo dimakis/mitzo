@@ -551,11 +551,10 @@ export async function handleSwitchSession(
       // Opening uses REST for the existing transcript. Seed a new watch at
       // that boundary so periodic sync cannot animate the entire history if
       // the REST read fails. Live events after this boundary remain retryable.
-      if (msg.historyCursor !== undefined) {
-        // This is the boundary the client actually installed, not a newer
-        // capture from the independently scheduled switch request.
-        ctx.connRegistry.resetCursor(connectionId, msg.sessionId, msg.historyCursor);
-      } else if (!ctx.connRegistry.get(connectionId)?.watchedSessions.has(msg.sessionId)) {
+      if (
+        msg.historyCursor === undefined &&
+        !ctx.connRegistry.get(connectionId)?.watchedSessions.has(msg.sessionId)
+      ) {
         const boundary = ctx.eventStore.captureReconnectState(msg.sessionId, 0, false);
         ctx.connRegistry.resetCursor(connectionId, msg.sessionId, boundary.cursor);
       }
@@ -564,6 +563,12 @@ export async function handleSwitchSession(
       // sits in a blind spot between switch_session and the first send —
       // any events emitted by the query loop during that window are lost.
       ctx.connRegistry.watch(connectionId, msg.sessionId);
+      if (msg.historyCursor !== undefined) {
+        // Use the transcript actually installed by this client. Applied-cursor
+        // delivery also retries the remaining suffix after a session ends;
+        // delivery alone cannot claim those events were rendered.
+        ctx.connRegistry.enableAppliedCursor(connectionId, msg.sessionId, msg.historyCursor);
+      }
       ctx.connRegistry.setActive(connectionId, msg.sessionId);
 
       // Cross-reference registry with durable state to avoid reporting

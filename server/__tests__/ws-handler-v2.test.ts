@@ -829,7 +829,7 @@ describe('handleSwitchSession', () => {
     expect(reset).not.toHaveBeenCalled();
   });
 
-  it('retries the gap between REST history and switch even without a subsequent live event', async () => {
+  it('retries the REST-to-switch gap even when the session ended and no subsequent live event arrives', async () => {
     const eventStore = mockEventStore();
     eventStore.getSession.mockReturnValue({ sessionId: 'history-race', mode: 'agent' });
     eventStore.captureReconnectState.mockReturnValue({ cursor: 42, events: [], cursorValid: true });
@@ -853,6 +853,7 @@ describe('handleSwitchSession', () => {
     // No later live event arrives to expose a gap. Periodic sync alone must
     // deliver both events that occurred after REST captured its boundary.
     ctx.connRegistry.setEventStore({
+      isSessionActive: () => false,
       getEventsAfter: (_id, afterSeq) =>
         [41, 42]
           .filter((seq) => seq > afterSeq)
