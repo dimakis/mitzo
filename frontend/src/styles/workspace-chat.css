@@ -74,56 +74,6 @@
 .workspace-chat .token-bar-icon {
   display: none;
 }
-.workspace-chat .session-tray {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  transform: none;
-  --session-tray-handle-height: 44px;
-  border-radius: 0 0 16px 16px;
-  color: var(--workspace-text);
-  background: var(--workspace-bg);
-  border-color: var(--workspace-line);
-}
-.workspace-chat .session-tray[data-snap='peek'] {
-  position: relative;
-  height: var(--session-tray-handle-height);
-  flex-shrink: 0;
-  border: 0;
-  border-radius: 0;
-}
-.workspace-chat .session-tray[data-snap='peek'] .session-tray-handle {
-  left: 0;
-  right: 0;
-  width: 100%;
-  transform: none;
-  border-radius: 0;
-  border: 0;
-  border-bottom: 1px solid var(--workspace-line);
-  background: var(--workspace-bg);
-}
-.workspace-chat .session-tray-handle-label,
-.workspace-chat .session-tray[data-snap='peek'] .session-tray-handle-label,
-.workspace-chat .session-tray[data-snap='peek'] .session-tray-count {
-  display: inline-block;
-  font-size: 12px;
-}
-.workspace-chat .session-tray-handle {
-  color: var(--workspace-text);
-  background: var(--workspace-bg);
-}
-.workspace-chat .session-tray-grabber,
-.workspace-chat .session-tray[data-snap='peek'] .session-tray-grabber {
-  top: 4px;
-  height: 2px;
-}
-.workspace-chat .session-tray[data-snap='peek'] .session-tray-pending-count {
-  position: static;
-  margin-left: 4px;
-  background: var(--workspace-panel);
-  color: var(--workspace-accent);
-}
 .session-tray-size-controls {
   display: flex;
   justify-content: flex-end;
@@ -137,15 +87,15 @@
   border: 1px solid var(--workspace-line);
   border-radius: 8px;
 }
-.workspace-chat .session-tray-resource {
+:is(.workspace-chat, .session-tray--toolbar) .session-tray-resource {
   min-height: 44px;
   padding: 10px;
   border: 1px solid var(--workspace-line);
   border-radius: 10px;
   background: transparent;
 }
-.workspace-chat .session-tray-add,
-.workspace-chat .session-tray-remove {
+:is(.workspace-chat, .session-tray--toolbar) .session-tray-add,
+:is(.workspace-chat, .session-tray--toolbar) .session-tray-remove {
   min-width: 44px;
   min-height: 44px;
 }
@@ -180,9 +130,6 @@
   .desktop-chat-center .desktop-chat-header {
     padding: 10px 24px 14px;
     gap: 10px;
-  }
-  .desktop-chat-center .session-tray {
-    --session-tray-min-height: 44px;
   }
   .session-panel {
     padding: 12px;
@@ -247,12 +194,12 @@
   }
 }
 @media (min-width: 1200px) {
-  .workspace-chat .session-tray-columns {
+  .session-tray--toolbar .session-tray-columns {
     display: grid;
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
     gap: 24px;
   }
-  .workspace-chat .session-tray-section + .session-tray-section {
+  .session-tray--toolbar .session-tray-section + .session-tray-section {
     margin: 0;
     padding: 0 0 0 24px;
     border-top: 0;
@@ -957,5 +904,181 @@
   .workspace-chat .workspace-controls > div:not([hidden]) {
     max-height: 40dvh;
     overflow-y: auto;
+  }
+}
+
+/* The composer adapts to its actual width, including narrow desktop panels. */
+.chat-input--compact {
+  container-type: inline-size;
+}
+.chat-input--compact .composer-toolbar {
+  align-items: center;
+  gap: 6px;
+}
+.chat-input--compact .chat-input-command-strip {
+  position: relative;
+  align-items: center;
+  flex: 0 1 auto;
+  gap: 6px;
+}
+.composer-tools {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.chat-input--compact .composer-tools-toggle,
+.composer-tools-label {
+  display: none;
+}
+.chat-input--compact .composer-session-trigger {
+  position: relative;
+  width: auto;
+  padding: 0 10px;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text);
+}
+.chat-input--compact .chat-input-btn--worktree {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+}
+.chat-input--compact .chat-input-btn--worktree[aria-pressed='true'] {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.composer-resource-count {
+  padding: 2px 4px;
+  border-radius: 8px;
+  background: var(--workspace-panel);
+  color: var(--workspace-accent);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+.composer-workspace-details {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  z-index: 60;
+  width: min(320px, 80vw);
+  padding: 14px;
+  margin: 0;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  font-size: 13px;
+  line-height: 1.5;
+  box-shadow: 0 8px 32px #0004;
+}
+.composer-workspace-details dt {
+  color: var(--text-dim);
+}
+.composer-workspace-details dd {
+  margin: 0 0 8px;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+.session-tray--toolbar {
+  top: auto;
+  bottom: max(12px, env(safe-area-inset-bottom));
+  width: min(calc(100% - 24px), 720px);
+  --session-tray-handle-height: 44px;
+  --session-tray-min-height: 44px;
+  color: var(--workspace-text);
+  background: var(--workspace-bg);
+  border: 1px solid var(--workspace-line);
+  border-radius: 16px;
+}
+.session-tray--toolbar[hidden] {
+  display: none;
+}
+.session-tray--toolbar .session-tray-handle {
+  min-height: 44px;
+}
+@media (max-width: 767px) {
+  .session-tray--toolbar {
+    bottom: calc(61px + env(safe-area-inset-bottom));
+  }
+}
+@container (max-width: 520px) {
+  .chat-input--compact .composer-toolbar,
+  .chat-input--compact .chat-input-command-strip,
+  .chat-input--compact .composer-actions {
+    flex-wrap: nowrap;
+    gap: 4px;
+  }
+  .chat-input--compact :is(.chat-input-btn, .mic-btn) {
+    width: 44px;
+    min-width: 44px;
+    height: 44px;
+    flex-shrink: 0;
+  }
+  .chat-input--compact .composer-tools-toggle {
+    display: inline-flex;
+    background: transparent;
+    color: var(--text-dim);
+    border: 1px solid var(--border);
+  }
+  .chat-input--compact .composer-session-trigger {
+    width: auto;
+    padding: 0 8px;
+  }
+  .composer-resource-count {
+    position: absolute;
+    right: -3px;
+    top: -4px;
+  }
+  .composer-tools {
+    display: none;
+    position: absolute;
+    bottom: calc(100% + 8px);
+    left: 0;
+    z-index: 60;
+    width: min(280px, 80vw);
+    padding: 6px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--bg);
+    box-shadow: 0 8px 32px #0004;
+  }
+  .composer-tools[data-expanded='true'] {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .chat-input--compact .composer-tools .chat-input-btn {
+    justify-content: flex-start;
+    width: 100%;
+    padding: 0 12px;
+    gap: 10px;
+    border: 0;
+  }
+  .composer-tools-label,
+  .workspace-chat .composer-tools .chat-input-command-label {
+    display: inline;
+    font-size: 13px;
+    color: var(--text);
+  }
+  .composer-workspace-details {
+    position: static;
+    width: 100%;
+    border: 0;
+    box-shadow: none;
+  }
+}
+.composer-tools-anchor {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+@container (max-width: 360px) {
+  .chat-input--compact .composer-session-trigger {
+    width: 44px;
+    padding: 0;
+  }
+  .composer-toolbar-label {
+    display: none;
   }
 }
