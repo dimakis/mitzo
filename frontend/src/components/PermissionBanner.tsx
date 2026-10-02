@@ -65,6 +65,7 @@ export function PermissionBanner({
       }
     };
     update();
+    if (deadline.at <= Date.now()) return;
     const timer = setInterval(update, 1000);
     return () => clearInterval(timer);
   }, [deadline, permId, toolName]);
@@ -91,6 +92,10 @@ export function PermissionBanner({
       : tier === 'unknown'
         ? ' perm-banner--unknown'
         : '';
+  // Expiry is terminal for this card even if the server timeout won the race
+  // and rejected our denial. Keep retryable errors visible only while valid.
+  if (remaining === 0 || deadline.at <= Date.now()) return null;
+
   return createPortal(
     <section
       className={`perm-banner perm-banner--visible${tierClass}`}

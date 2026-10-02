@@ -75,6 +75,28 @@ describe('PermissionBanner', () => {
     expect(onRespond).toHaveBeenCalledWith('p1', 'deny', 'Bash');
   });
 
+  it('removes the expired card even when the timeout response is rejected', () => {
+    const onRespond = vi.fn();
+    const { rerender } = render(
+      <PermissionBanner {...defaultProps} onRespond={onRespond} expiresAt={Date.now() + 1000} />,
+    );
+    act(() => vi.advanceTimersByTime(1000));
+    rerender(
+      <PermissionBanner
+        {...defaultProps}
+        onRespond={onRespond}
+        expiresAt={Date.now()}
+        responseError="Could not submit the permission response (409)."
+      />,
+    );
+    expect(screen.queryByLabelText('Approval required')).toBeNull();
+  });
+
+  it('does not show an expired request restored from history', () => {
+    render(<PermissionBanner {...defaultProps} expiresAt={Date.now() - 1000} />);
+    expect(screen.queryByLabelText('Approval required')).toBeNull();
+  });
+
   it('renders all action buttons with correct CSS classes', () => {
     render(<PermissionBanner {...defaultProps} />);
     expect(document.querySelector('.perm-banner-btn--once')).toBeTruthy();

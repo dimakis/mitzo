@@ -809,6 +809,26 @@ describe('handleUnwatch', () => {
 // ─── handleSwitchSession ─────────────────────────────────────────────────────
 
 describe('handleSwitchSession', () => {
+  it('starts a newly watched session at the REST history boundary instead of syncing from zero', async () => {
+    const eventStore = mockEventStore();
+    eventStore.getSession.mockReturnValue({ sessionId: 'long-session', mode: 'agent' });
+    eventStore.captureReconnectState.mockReturnValue({
+      cursor: 7000,
+      events: [],
+      cursorValid: true,
+    });
+    const ctx = createContext({
+      eventStore: eventStore as unknown as V2HandlerContext['eventStore'],
+    });
+    ctx.connRegistry.register('c1', mockTransport());
+    const reset = vi.spyOn(ctx.connRegistry, 'resetCursor');
+    await handleSwitchSession('c1', { type: 'switch_session', sessionId: 'long-session' }, ctx);
+    expect(reset).toHaveBeenCalledWith('c1', 'long-session', 7000);
+    reset.mockClear();
+    await handleSwitchSession('c1', { type: 'switch_session', sessionId: 'long-session' }, ctx);
+    expect(reset).not.toHaveBeenCalled();
+  });
+
   it('scopes unexpected discovery errors to the requested session', async () => {
     const ctx = createContext();
     const transport = mockTransport();

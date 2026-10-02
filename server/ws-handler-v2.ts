@@ -548,6 +548,13 @@ export async function handleSwitchSession(
       if (prev && prev !== msg.sessionId) {
         ctx.connRegistry.unwatch(connectionId, prev);
       }
+      // Opening uses REST for the existing transcript. Seed a new watch at
+      // that boundary so periodic sync cannot animate the entire history if
+      // the REST read fails. Live events after this boundary remain retryable.
+      if (!ctx.connRegistry.get(connectionId)?.watchedSessions.has(msg.sessionId)) {
+        const boundary = ctx.eventStore.captureReconnectState(msg.sessionId, 0, false);
+        ctx.connRegistry.resetCursor(connectionId, msg.sessionId, boundary.cursor);
+      }
       // Watch the session immediately so events from a running query loop
       // reach this client before the first send. Without this, the client
       // sits in a blind spot between switch_session and the first send —
