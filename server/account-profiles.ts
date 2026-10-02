@@ -312,9 +312,11 @@ export class AccountProfiles {
    * The named sandbox is reusable for the one-hour catalog cache and distinct
    * from chat runtimes. OpenShell validates the selected provider/grant before
    * it is created or reused; only that inference provider is attached. A route
-   * identity hash prevents a retained sandbox from blocking a rebinding under
-   * the same profile ID. It is retained by OpenShell beyond the one-hour catalog
-   * cache; provider/grant rotation produces a new retained sandbox and the old
+   * identity hash includes the deployed runtime image and its locked digest,
+   * so discovery upgrades alongside new chat runtimes. It also prevents a retained
+   * sandbox from blocking a rebinding under the same profile ID. It is retained
+   * by OpenShell beyond the one-hour catalog cache; runtime/provider/grant rotation
+   * produces a new retained sandbox and the old
    * one remains subject to the established OpenShell sandbox lifecycle/cleanup. */
   private async launchBrokeredModelDiscovery(
     profile: Extract<z.infer<typeof Profile>, { provider: 'openai-codex' }>,
@@ -351,6 +353,11 @@ export class AccountProfiles {
           profile.sandboxProviderType,
           profile.sandboxProviderId,
           profile.sandboxGrantId,
+          configuredRuntime.image,
+          (configuredRuntime.seedStackManifest?.runtime as Record<string, unknown> | undefined)
+            ?.digest,
+          configuredRuntime.gateway,
+          configuredRuntime.workspace,
         ]),
       )
       .digest('hex');

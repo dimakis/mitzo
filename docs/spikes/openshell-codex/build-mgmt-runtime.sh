@@ -29,7 +29,11 @@ repo_root="$(cd "$root/../../.." && pwd)"
 mitzo_source_commit="$(git -C "$repo_root" rev-parse HEAD)"
 mgmt_source_commit="$(git -C "$mgmt_repo" rev-parse HEAD)"
 context="$(mktemp -d "${TMPDIR:-/tmp}/mitzo-mgmt-runtime.XXXXXX")"
-cleanup() { rm -rf "$context"; }
+schema_container=""
+cleanup() {
+  if [ -n "$schema_container" ]; then podman rm -f "$schema_container" >/dev/null 2>&1 || true; fi
+  rm -rf "$context"
+}
 trap cleanup EXIT
 
 test -f "$mgmt_repo/pyproject.toml"
@@ -37,6 +41,7 @@ test -f "$mgmt_repo/uv.lock"
 test -f "$mgmt_repo/jira_process/pyproject.toml"
 test -f "$mgmt_repo/jira_process/uv.lock"
 cp "$root/Dockerfile.mgmt-runtime" "$context/Dockerfile"
+cp "$root/runtime-codex-version" "$context/runtime-codex-version"
 cp "$root/run-mitzo-app-server" "$context/run-mitzo-app-server"
 cp "$root/run-mitzo-subscription-app-server" "$context/run-mitzo-subscription-app-server"
 cp "$root/initialize-mitzo-workspace" "$context/initialize-mitzo-workspace"
@@ -56,6 +61,17 @@ podman build --pull=never \
   --build-arg "MITZO_SOURCE_COMMIT=$mitzo_source_commit" \
   --build-arg "MGMT_SOURCE_COMMIT=$mgmt_source_commit" \
   --tag "$tag" "$context"
+codex_version="$(cat "$root/runtime-codex-version")"
+test "$(podman run --rm --network none --entrypoint /usr/bin/codex "$tag" --version)" = "codex-cli $codex_version"
+# Regenerate the protocol contract from this exact image, never the host CLI.
+# Generation is offline and submits no model turns.
+schema_container="$(podman create --network none --entrypoint /usr/bin/codex "$tag" app-server generate-json-schema --experimental --out /tmp/schema)"
+podman start --attach "$schema_container"
+podman cp "$schema_container:/tmp/schema" "$context/schema"
+node "$repo_root/scripts/reduce-codex-contract.mjs" "$context/schema" "$codex_version" \
+  "$repo_root/docs/spikes/codex-web-search-policy/app-server-contract.json"
+podman rm "$schema_container" >/dev/null
+schema_container=""
 image_id="$(podman image inspect "$tag" --format '{{.Id}}')"
 printf 'MGMT_RUNTIME_IMAGE=%s\n' "$tag"
 printf 'MGMT_RUNTIME_IMAGE_ID=%s\n' "$image_id"

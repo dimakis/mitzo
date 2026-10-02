@@ -1,4 +1,4 @@
-import { execFileSync, spawn } from 'node:child_process';
+import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import {
   existsSync,
   chmodSync,
@@ -49,6 +49,41 @@ function notebookRunnerForTest(root: string, python: string): string {
 }
 
 describe('OpenShell runtime image builder', () => {
+  it('allows both app-server launchers only when the binary matches the image version pin', () => {
+    const root = mkdtempSync(join(tmpdir(), 'mitzo-codex-version-'));
+    const versionFile = join(root, 'version');
+    const codex = join(root, 'codex');
+    const pinnedVersion = readFileSync(
+      resolve('docs/spikes/openshell-codex/runtime-codex-version'),
+      'utf8',
+    ).trim();
+    writeFileSync(versionFile, pinnedVersion + '\n');
+    writeFileSync(
+      codex,
+      '#!/bin/sh\nif [ "$1" = --version ]; then echo "codex-cli $TEST_CODEX_VERSION"; else echo APP_SERVER_STARTED; fi\n',
+    );
+    chmodSync(codex, 0o700);
+    for (const source of [apiRunner, subscriptionRunner]) {
+      const runner = join(root, 'runner');
+      writeFileSync(
+        runner,
+        readFileSync(source, 'utf8')
+          .replace('/sandbox/initialize-mitzo-workspace /sandbox/workspaces/mgmt', ':')
+          .replaceAll('/etc/mitzo-codex-version', versionFile),
+      );
+      const launch = (version: string) =>
+        spawnSync('/bin/sh', [runner], {
+          encoding: 'utf8',
+          env: { ...process.env, PATH: `${root}:${process.env.PATH}`, TEST_CODEX_VERSION: version },
+        });
+      expect(launch(pinnedVersion).stdout).toContain('APP_SERVER_STARTED');
+      const mismatch = launch('0.0.0');
+      expect(mismatch.status).not.toBe(0);
+      expect(mismatch.stdout).not.toContain('APP_SERVER_STARTED');
+    }
+    rmSync(root, { recursive: true, force: true });
+  });
+
   it('installs the vendored Jira notebook runtime from its checked-in frozen lock', () => {
     const dockerfile = readFileSync(
       resolve('docs/spikes/openshell-codex/Dockerfile.mgmt-runtime'),
