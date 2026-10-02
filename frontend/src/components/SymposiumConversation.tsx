@@ -132,6 +132,12 @@ export function SymposiumConversation({
   // the operator changes audiences or revisits an excerpt.
   const retryKeys = useRef(new Map<string, string>());
   const sessionEpoch = useRef(0);
+  // Keep one status read across effect replacements. Events and polling ticks
+  // collapse into a single follow-up for the most recently requested session.
+  const statusRead = useRef<{ running: boolean; pending: (() => Promise<void>) | null }>({
+    running: false,
+    pending: null,
+  });
   const base = sessionId ? `/api/sessions/${encodeURIComponent(sessionId)}/symposium` : '';
   const configRevision = status?.config?.revision;
 
@@ -149,7 +155,14 @@ export function SymposiumConversation({
     setPage({ items: [], nextSeq: null, queued: [] });
     if (!base) return;
     let cancelled = false;
+    const statusQueue = statusRead.current;
     const refresh = async () => {
+      if (cancelled) return;
+      if (statusQueue.running) {
+        statusQueue.pending = refresh;
+        return;
+      }
+      statusQueue.running = true;
       try {
         const next = await readJson<Status>(base);
         if (next.sessionId !== sessionId || !Array.isArray(next.seats) || !('config' in next))
@@ -165,6 +178,11 @@ export function SymposiumConversation({
           setStatusFresh(false);
           setStatusError(cause instanceof Error ? cause.message : 'Could not load Symposium');
         }
+      } finally {
+        statusQueue.running = false;
+        const pending = statusQueue.pending;
+        statusQueue.pending = null;
+        if (pending) void pending();
       }
     };
     void refresh();
@@ -174,6 +192,7 @@ export function SymposiumConversation({
     const timer = window.setInterval(() => void refresh(), 8000);
     return () => {
       cancelled = true;
+      if (statusQueue.pending === refresh) statusQueue.pending = null;
       window.clearInterval(timer);
       window.removeEventListener('symposium-roster-changed', onRosterChanged);
       window.removeEventListener('symposium-deliveries-changed', onRosterChanged);

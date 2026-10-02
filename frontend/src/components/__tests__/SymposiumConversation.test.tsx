@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { apiFetch } from '../../lib/api-fetch';
 import { SymposiumConversation } from '../SymposiumConversation';
 import { SymposiumProfileProposals } from '../SymposiumProfileProposals';
@@ -38,6 +38,7 @@ vi.mock('../ChatArea', () => ({
 
 afterEach(() => {
   cleanup();
+  vi.useRealTimers();
   vi.clearAllMocks();
 });
 
@@ -861,4 +862,66 @@ it('offers @ recipients only for admitted agents, excluding removed history from
   const picker = screen.getByRole('region', { name: 'Agent recipients' });
   expect(within(picker).queryByRole('button', { name: /Former reviewer/ })).toBeNull();
   expect(within(picker).getByRole('button', { name: 'Reviewer' })).toBeTruthy();
+});
+
+it('coalesces polling ticks and explicit events into one status read and one follow-up', async () => {
+  vi.useFakeTimers();
+  const finish: ((response: Response) => void)[] = [];
+  let statusReads = 0;
+  vi.mocked(apiFetch).mockImplementation(async (url) => {
+    if (String(url).endsWith('/symposium')) {
+      statusReads++;
+      if (statusReads <= 2) return new Promise<Response>((resolve) => finish.push(resolve));
+      return json(status);
+    }
+    return json(String(url).includes('/perspectives') ? page : []);
+  });
+  const view = render(
+    <SymposiumConversation sessionId="session" chat={chat} ordinaryComposer={null} />,
+  );
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(24000);
+  });
+  window.dispatchEvent(new Event('symposium-deliveries-changed'));
+  window.dispatchEvent(new Event('symposium-roster-changed'));
+  expect(statusReads).toBe(1);
+  await act(async () => {
+    finish[0](json(status));
+  });
+  expect(statusReads).toBe(2);
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(16000);
+  });
+  expect(statusReads).toBe(2);
+  await act(async () => {
+    finish[1](json(status));
+  });
+  expect(statusReads).toBe(3);
+  view.unmount();
+});
+
+it('serializes status reads across session changes and ignores the retired response', async () => {
+  const reads: string[] = [];
+  const finish: ((response: Response) => void)[] = [];
+  vi.mocked(apiFetch).mockImplementation(async (url) => {
+    if (String(url).endsWith('/symposium')) {
+      reads.push(String(url));
+      return new Promise<Response>((resolve) => finish.push(resolve));
+    }
+    return json(String(url).includes('/perspectives') ? page : []);
+  });
+  const view = render(
+    <SymposiumConversation sessionId="session" chat={chat} ordinaryComposer={null} />,
+  );
+  view.rerender(<SymposiumConversation sessionId="other" chat={chat} ordinaryComposer={null} />);
+  expect(reads).toEqual(['/api/sessions/session/symposium']);
+  await act(async () => {
+    finish[0](json(status));
+  });
+  expect(reads).toEqual(['/api/sessions/session/symposium', '/api/sessions/other/symposium']);
+  expect(screen.queryByRole('tab', { name: 'Reviewer' })).toBeNull();
+  await act(async () => {
+    finish[1](json({ ...status, sessionId: 'other' }));
+  });
+  expect(screen.getByRole('tab', { name: 'Reviewer' })).toBeTruthy();
 });
