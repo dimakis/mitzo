@@ -2918,3 +2918,52 @@ it('releases only the matching launch when startup fails after assignment', () =
   expect(onDelivery).toHaveBeenCalledExactlyOnceWith('failed');
   expect(store.getState().messages.running).toBe(false);
 });
+
+it.each(['new', 'switch'] as const)(
+  'settles launch receipts after %s chat navigation without importing the old transcript',
+  async (navigation) => {
+    const store = createReadyStore();
+    store.getState().setPendingSession({ prompt: 'Launch', context: 'Telos', telosTaskId: 'task' });
+    store.getState().sendPendingSession();
+    const id = store.getState().messages.messages.at(-1)!.messageId;
+    lastWs.simulateMessage({ type: 'session_id', sessionId: 'launch-session' });
+    if (navigation === 'new') store.getState().newSession();
+    else await store.getState().switchSession('other-session');
+    lastWs.simulateMessage({
+      type: 'user_message',
+      sessionId: 'launch-session',
+      messageId: id,
+      text: 'Launch',
+    });
+    expect(store.getState().pendingSession).toBeNull();
+    expect(store.getState().pendingSessionSending).toBe(false);
+    expect(store.getState().messages.messages.some((m) => m.messageId === id)).toBe(false);
+  },
+);
+
+it('releases a navigated launch for retry on its matching startup rejection', () => {
+  const store = createReadyStore();
+  store.getState().setPendingSession({ prompt: 'Launch', context: 'Telos' });
+  store.getState().sendPendingSession();
+  const id = store.getState().messages.messages.at(-1)!.messageId;
+  lastWs.simulateMessage({ type: 'session_id', sessionId: 'launch-session' });
+  store.getState().newSession();
+  lastWs.simulateMessage({
+    type: 'error',
+    sessionId: 'launch-session',
+    clientMsgId: id,
+    error: 'Rejected',
+  });
+  expect(store.getState().pendingSession?.prompt).toBe('Launch');
+  expect(store.getState().pendingSessionSending).toBe(false);
+});
+
+it('permits retry when navigation cancels a launch that was never transmitted', () => {
+  const store = createMitzoStore(makeOptions());
+  store.getState().setPendingSession({ prompt: 'Queued launch', context: 'Telos' });
+  store.getState().sendPendingSession();
+  expect(store.getState().pendingSessionSending).toBe(true);
+  store.getState().newSession();
+  expect(store.getState().pendingSessionSending).toBe(false);
+  expect(store.getState().pendingSession?.prompt).toBe('Queued launch');
+});

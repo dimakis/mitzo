@@ -503,7 +503,6 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       connection.trackSeq(id, connection.getLastSeq(id));
       connection.clearPendingSends();
       pendingOptimisticMessageIds.clear();
-      deliveryObservers.clear();
 
       set((s) => ({
         sessions: { ...s.sessions, active: id },
@@ -607,7 +606,6 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       parserState.currentSessionId = undefined;
       connection.clearPendingSends();
       pendingOptimisticMessageIds.clear();
-      deliveryObservers.clear();
       connection.send({ type: 'switch_session', sessionId: null });
       set({
         sessions: { ...get().sessions, active: null },
@@ -1152,6 +1150,35 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
 
     const eventSessionId = msg.sessionId as string | undefined;
 
+    // Startup rejection may arrive after session_id. Only the matching command
+    // can release its launch; unrelated runtime errors are not delivery receipts.
+    if (!options.sseConfig && msg.type === 'error' && typeof msg.clientMsgId === 'string') {
+      const observer = deliveryObservers.get(msg.clientMsgId);
+      deliveryObservers.delete(msg.clientMsgId);
+      observer?.('failed');
+    }
+    // The native WebSocket path confirms delivery through the persisted echo.
+    // A pre-assignment startup error is a definitive rejection on that path.
+    if (
+      !options.sseConfig &&
+      msg.type === 'error' &&
+      typeof msg.clientMsgId !== 'string' &&
+      !parserState.currentSessionId
+    ) {
+      for (const id of pendingOptimisticMessageIds) {
+        const observer = deliveryObservers.get(id);
+        deliveryObservers.delete(id);
+        observer?.('failed');
+      }
+    }
+    // Delivery receipts settle their original launch even when its chat is no longer visible.
+    // Transcript updates below remain scoped to the current chat.
+    if (msg.type === 'user_message' && typeof msg.messageId === 'string') {
+      const observer = deliveryObservers.get(msg.messageId);
+      deliveryObservers.delete(msg.messageId);
+      observer?.('accepted');
+    }
+
     // Session-scoped event filtering for multiplexed v2 connections:
     // - No sessionId on the event → global (task_state, inbox_updated, etc.) → always accept
     // - sessionId matches currentSessionId → accept
@@ -1188,25 +1215,6 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       }
     }
 
-    // Startup rejection may arrive after session_id. Only the matching command
-    // can release its launch; unrelated runtime errors are not delivery receipts.
-    if (!options.sseConfig && msg.type === 'error' && typeof msg.clientMsgId === 'string') {
-      const observer = deliveryObservers.get(msg.clientMsgId);
-      deliveryObservers.delete(msg.clientMsgId);
-      observer?.('failed');
-    }
-    // The native WebSocket path confirms delivery through the persisted echo.
-    // A pre-assignment startup error is a definitive rejection on that path.
-    if (
-      !options.sseConfig &&
-      msg.type === 'error' &&
-      typeof msg.clientMsgId !== 'string' &&
-      !parserState.currentSessionId
-    ) {
-      const observers = [...deliveryObservers.values()];
-      deliveryObservers.clear();
-      for (const observer of observers) observer('failed');
-    }
     if (msg.type === 'error' && msg.sessionId === awaitingModeHydration)
       awaitingModeHydration = undefined;
     if (
