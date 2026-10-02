@@ -580,3 +580,28 @@ describe('trusted paired-supervisor network selection', () => {
     },
   );
 });
+
+// Source-shaped creation hook: baseline launch silently ignores this argument.
+it('retains the exact newly created gateway before listener discovery', async () => {
+  const { options, operations, child } = fixture();
+  const record = vi.fn((role, original, current) => {
+    expect(role).toBe('gateway');
+    expect(original).toBe(child);
+    expect(operations.listenerPid).toHaveBeenCalledTimes(1); // Existing preflight vacant-port check only.
+    current();
+  });
+  const owner = await OwnedSymposiumGateway.launch(options, operations, record);
+  expect(record).toHaveBeenCalledTimes(1);
+  owner.stop();
+});
+
+it('fences the original gateway if its creation journal cannot be retained', async () => {
+  const { options, operations, child, issuer } = fixture();
+  await expect(
+    OwnedSymposiumGateway.launch(options, operations, () => {
+      throw Error('original journal uncertain');
+    }),
+  ).rejects.toThrow('original journal uncertain');
+  expect(child.kill).toHaveBeenCalled();
+  expect(issuer.stop).toHaveBeenCalled();
+});

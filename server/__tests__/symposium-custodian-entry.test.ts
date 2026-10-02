@@ -1,9 +1,14 @@
+import { mkdtempSync, chmodSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+import { createPrivateOriginalProcessJournal } from '../symposium-original-process-retention.js';
 import { afterEach, expect, it, vi } from 'vitest';
 import { EventEmitter } from 'node:events';
 import { fileURLToPath } from 'node:url';
 const effects = vi.hoisted(() => ({
   dotenv: vi.fn(),
   fork: vi.fn(),
+  serve: vi.fn(),
   host: Object.freeze({
     identity: 'original-constructor-host',
     currentProfiles: vi.fn(() => []),
@@ -27,6 +32,16 @@ vi.mock('../app.js', () => ({
 vi.mock('../symposium-owned-config.js', () => ({
   bootstrapConfiguredSymposiumHost: effects.bootstrap,
 }));
+vi.mock('../symposium-custodian-ipc.js', async (original) => {
+  const actual = await original<typeof import('../symposium-custodian-ipc.js')>();
+  return {
+    ...actual,
+    serveCustodianController: (...args: Parameters<typeof actual.serveCustodianController>) =>
+      effects.serve.getMockImplementation()
+        ? effects.serve(...args)
+        : actual.serveCustodianController(...args),
+  };
+});
 vi.mock('../auth.js', () => ({ revokeAuthSession: vi.fn(), registerAuthSession: vi.fn() }));
 vi.mock('dotenv/config', () => {
   effects.dotenv();
@@ -203,4 +218,128 @@ it('refuses unknown serialized build selection before app bootstrap or child lau
     entry.runSymposiumCustodian({ admissionBuildSelection: 'unknown' } as never),
   ).rejects.toThrow('not reviewed');
   expect(effects.bootstrap.mock.calls).toHaveLength(before);
+});
+
+it('journals original controller fork before readiness and retains gateway constructor callback', async () => {
+  vi.stubEnv('MITZO_SYMPOSIUM_CUSTODIAN_CONTROLLER', '');
+  vi.stubEnv('MITZO_SYMPOSIUM_OWNED_HOST_CONFIG', '/synthetic-entry-only.json');
+  effects.bootstrap.mockResolvedValue(effects.host);
+  effects.install.mockReset();
+  effects.serve.mockReset();
+  const child = Object.assign(new EventEmitter(), {
+    pid: 9876,
+    connected: true,
+    exitCode: 0,
+    signalCode: null,
+    kill: vi.fn(),
+  });
+  // Creation callback sees a live child; terminal transport stub sets exit before cleanup.
+  child.exitCode = null as unknown as number;
+  effects.fork.mockReturnValue(child);
+  effects.serve.mockImplementation(async () => {
+    child.exitCode = 0;
+    throw Error('stop-before-controller-readiness');
+  });
+  const observe = vi.fn((role, original, current) => {
+    expect(role).toBe('controller');
+    expect(original).toBe(child);
+    expect(effects.serve).not.toHaveBeenCalled();
+    current();
+  });
+  const entry = await import('../symposium-custodian-main.js');
+  const descriptor = Object.getOwnPropertyDescriptor(process, 'send');
+  Object.defineProperty(process, 'send', { configurable: true, value: undefined });
+  try {
+    await entry.runSymposiumCustodian({ observeOriginalProcess: observe });
+  } finally {
+    if (descriptor) Object.defineProperty(process, 'send', descriptor);
+    else delete process.send;
+  }
+  expect(observe).toHaveBeenCalledTimes(1);
+  expect(effects.bootstrap.mock.calls.at(-1)?.[3]).toBe(observe);
+});
+
+it('permanent creation journal failure fences after the sole original fork without readiness or retry', async () => {
+  vi.stubEnv('MITZO_SYMPOSIUM_CUSTODIAN_CONTROLLER', '');
+  vi.stubEnv('MITZO_SYMPOSIUM_OWNED_HOST_CONFIG', '/synthetic-entry-only.json');
+  effects.bootstrap.mockResolvedValue(effects.host);
+  effects.install.mockReset();
+  effects.serve.mockReset();
+  effects.fork.mockReset();
+  effects.host.markShutdownUncertain.mockClear();
+  const child = Object.assign(new EventEmitter(), {
+    pid: 9876,
+    connected: true,
+    exitCode: null,
+    signalCode: null,
+    kill: vi.fn((signal: string) => {
+      queueMicrotask(() => {
+        Object.assign(child, { signalCode: signal });
+        child.emit('exit');
+      });
+      return true;
+    }),
+  });
+  effects.fork.mockReturnValue(child);
+  const dir = mkdtempSync(join(tmpdir(), 'entry-journal-loss-'));
+  chmodSync(dir, 0o700);
+  const journal = createPrivateOriginalProcessJournal(dir, (pid) => ({
+    pid,
+    parentPid: pid === process.pid ? process.ppid : process.pid,
+    uid: process.getuid!(),
+    domain: 'a'.repeat(64),
+    birth: '100:1',
+  }));
+  let before = Buffer.alloc(0);
+  const observe = vi.fn((role, original, current) => {
+    let calls = 0;
+    try {
+      journal(role, original, () => {
+        if (++calls === 4) throw Error('postwrite original guard lost');
+        current();
+      });
+    } catch (error) {
+      before = readFileSync(join(dir, readdirSync(dir)[0]));
+      throw error;
+    }
+  });
+  const entry = await import('../symposium-custodian-main.js');
+  const descriptor = Object.getOwnPropertyDescriptor(process, 'send');
+  Object.defineProperty(process, 'send', { configurable: true, value: undefined });
+  const oldTerm = new Set(process.listeners('SIGTERM')),
+    oldInt = new Set(process.listeners('SIGINT'));
+  const output = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
+  try {
+    await entry.runSymposiumCustodian({ observeOriginalProcess: observe });
+  } finally {
+    if (descriptor) Object.defineProperty(process, 'send', descriptor);
+    else delete process.send;
+    for (const listener of process.listeners('SIGTERM'))
+      if (!oldTerm.has(listener)) process.off('SIGTERM', listener);
+    for (const listener of process.listeners('SIGINT'))
+      if (!oldInt.has(listener)) process.off('SIGINT', listener);
+  }
+  expect(effects.fork).toHaveBeenCalledTimes(1);
+  expect(observe).toHaveBeenCalledExactlyOnceWith('controller', child, expect.any(Function));
+  expect(effects.serve).not.toHaveBeenCalled();
+  expect(child.kill).toHaveBeenCalledExactlyOnceWith('SIGTERM');
+  expect(effects.host.markShutdownUncertain).toHaveBeenCalledTimes(1);
+  expect(process.exitCode).toBe(1);
+  expect(before.length).toBeGreaterThan(0);
+  expect(readFileSync(join(dir, readdirSync(dir)[0]))).toEqual(before);
+  expect(() =>
+    journal(
+      'controller',
+      Object.assign(new EventEmitter(), {
+        pid: 9877,
+        exitCode: null,
+        signalCode: null,
+        killed: false,
+      }) as never,
+      () => {},
+    ),
+  ).toThrow('fenced');
+  journal.close();
+  rmSync(dir, { recursive: true });
+  expect(output).toHaveBeenCalledWith(expect.stringContaining('resources remain quarantined'));
 });

@@ -1,3 +1,4 @@
+import type { OriginalProcessObserver } from './symposium-original-process-retention.js';
 import { fork, type ChildProcess } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { dirname, resolve } from 'node:path';
@@ -23,6 +24,7 @@ export interface OriginalSymposiumControllerIdentity {
 }
 /** Explicit fresh-owner entry point. No attach/reconstruct command exists. */
 export interface SymposiumCustodianConstructorHooks {
+  observeOriginalProcess?: OriginalProcessObserver;
   admissionBuildSelection?: OwnedSymposiumHostOptions['admissionBuildSelection'];
   bootstrapTools?: BootstrapTools;
   observeDurableReviewToolResult?: OwnedSymposiumHostOptions['observeDurableReviewToolResult'];
@@ -37,6 +39,7 @@ export interface SymposiumCustodianConstructorHooks {
 export async function runSymposiumCustodian(hooks: SymposiumCustodianConstructorHooks = {}) {
   const {
     bootstrapTools,
+    observeOriginalProcess,
     observeDurableReviewToolResult,
     observeStartupConfig,
     observePrelaunch,
@@ -44,6 +47,8 @@ export async function runSymposiumCustodian(hooks: SymposiumCustodianConstructor
     observeController,
     admissionBuildSelection,
   } = hooks;
+  if (observeOriginalProcess !== undefined && typeof observeOriginalProcess !== 'function')
+    throw Error('Process observer must be a trusted constructor callback');
   if (
     observeDurableReviewToolResult !== undefined &&
     typeof observeDurableReviewToolResult !== 'function'
@@ -79,6 +84,7 @@ export async function runSymposiumCustodian(hooks: SymposiumCustodianConstructor
       ...(admissionBuildSelection === undefined ? {} : { admissionBuildSelection }),
     },
     bootstrapTools,
+    ...(observeOriginalProcess === undefined ? [] : ([observeOriginalProcess] as const)),
   );
   engine.installSymposiumProductionHost(host);
   const identity = randomUUID();
@@ -177,6 +183,20 @@ export async function runSymposiumCustodian(hooks: SymposiumCustodianConstructor
       const exactChild = child;
       const exited = new Promise<void>((resolve) => exactChild.once('exit', () => resolve()));
       try {
+        const observed: unknown = observeOriginalProcess?.('controller', exactChild, () => {
+          if (
+            stopping ||
+            child !== exactChild ||
+            exactChild.exitCode !== null ||
+            exactChild.signalCode !== null
+          )
+            throw Error('Original controller creation lost');
+          host.currentProfiles();
+        });
+        if (observed !== undefined) {
+          void Promise.resolve(observed).catch(() => {});
+          throw Error('Process observer must be synchronous');
+        }
         await serveCustodianController(exactChild as unknown as CustodianChannel, controller, {
           observeReady:
             observeController &&

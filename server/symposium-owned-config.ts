@@ -1,3 +1,4 @@
+import type { OriginalProcessObserver } from './symposium-original-process-retention.js';
 import { join } from 'node:path';
 import { load } from 'js-yaml';
 import { createSymposiumWorkVertexProvider } from './symposium-work-vertex-provider.js';
@@ -44,6 +45,7 @@ export async function bootstrapConfiguredSymposiumHost(
   filename: string,
   dependencies: Dependencies,
   tools: BootstrapTools = defaults,
+  observeOriginalProcess?: OriginalProcessObserver,
 ) {
   const config = readOwnedSymposiumHostConfig(filename);
   // Read and pin before launch. Import private immutable copies, avoiding a
@@ -73,43 +75,49 @@ export async function bootstrapConfiguredSymposiumHost(
       throw new Error('Vertex requires exactly one reviewed endpointless provider profile');
     }
   }
-  return createOwnedSymposiumHost({ ...config, ...dependencies }, tools.launch, async (gateway) => {
-    const environment = validateOpenShellCliEnvironment(gateway.managementEnvironment);
-    const invoke = (args: string[]) => {
-      gateway.verifyCustody();
-      const result = tools.run(gateway.cli, args, {
-        env: environment,
-        encoding: 'utf8',
-        timeout: 30_000,
-        maxBuffer: 1_000_000,
-      });
-      gateway.verifyCustody();
-      if (result.error || result.status !== 0)
-        throw new Error('Owned Symposium workspace/profile setup failed');
-    };
-    if (gateway.workspace !== 'default')
-      invoke(['workspace', '--gateway', gateway.gateway, 'create', '--name', gateway.workspace]);
-    for (const [index, bytes] of profiles.entries()) {
-      const copy = join(gateway.stateDirectory, `provider-profile-${index}.yaml`);
-      writeFileSync(copy, bytes, { mode: 0o400, flag: 'wx' });
-      invoke([
-        'profile',
-        '--gateway',
-        gateway.gateway,
-        '--workspace',
-        gateway.workspace,
-        'import',
-        '--file',
-        copy,
-      ]);
-    }
-    const work = [];
-    for (const source of config.personal.workProfiles)
-      work.push(
-        source.provider === 'anthropic-vertex'
-          ? await (tools.provisionVertex ?? createSymposiumWorkVertexProvider)(gateway, source)
-          : await tools.provisionWork(gateway, source),
-      );
-    return work;
-  });
+  return createOwnedSymposiumHost(
+    { ...config, ...dependencies },
+    observeOriginalProcess === undefined
+      ? tools.launch
+      : (options, operations) => tools.launch(options, operations, observeOriginalProcess),
+    async (gateway) => {
+      const environment = validateOpenShellCliEnvironment(gateway.managementEnvironment);
+      const invoke = (args: string[]) => {
+        gateway.verifyCustody();
+        const result = tools.run(gateway.cli, args, {
+          env: environment,
+          encoding: 'utf8',
+          timeout: 30_000,
+          maxBuffer: 1_000_000,
+        });
+        gateway.verifyCustody();
+        if (result.error || result.status !== 0)
+          throw new Error('Owned Symposium workspace/profile setup failed');
+      };
+      if (gateway.workspace !== 'default')
+        invoke(['workspace', '--gateway', gateway.gateway, 'create', '--name', gateway.workspace]);
+      for (const [index, bytes] of profiles.entries()) {
+        const copy = join(gateway.stateDirectory, `provider-profile-${index}.yaml`);
+        writeFileSync(copy, bytes, { mode: 0o400, flag: 'wx' });
+        invoke([
+          'profile',
+          '--gateway',
+          gateway.gateway,
+          '--workspace',
+          gateway.workspace,
+          'import',
+          '--file',
+          copy,
+        ]);
+      }
+      const work = [];
+      for (const source of config.personal.workProfiles)
+        work.push(
+          source.provider === 'anthropic-vertex'
+            ? await (tools.provisionVertex ?? createSymposiumWorkVertexProvider)(gateway, source)
+            : await tools.provisionWork(gateway, source),
+        );
+      return work;
+    },
+  );
 }

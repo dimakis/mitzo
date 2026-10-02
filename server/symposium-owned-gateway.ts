@@ -1,3 +1,4 @@
+import type { OriginalProcessObserver } from './symposium-original-process-retention.js';
 import { SYMPOSIUM_ARTIFACT_TARGET } from './symposium-artifact-lease.js';
 import { open, lstat } from 'node:fs/promises';
 import { constants } from 'node:fs';
@@ -288,7 +289,10 @@ export class OwnedSymposiumGateway {
   static async launch(
     options: OwnedSymposiumGatewayOptions,
     operations: HostOperations = host,
+    observeOriginalProcess?: OriginalProcessObserver,
   ): Promise<OwnedSymposiumGateway> {
+    if (observeOriginalProcess !== undefined && typeof observeOriginalProcess !== 'function')
+      throw Error('Process observer must be a trusted constructor callback');
     if (
       options.upstreamProxy !== undefined &&
       (!options.upstreamProxy || typeof options.upstreamProxy !== 'object')
@@ -477,6 +481,13 @@ enabled = true
       }),
     );
     try {
+      const observed: unknown = observeOriginalProcess?.('gateway', child, () =>
+        owned.verifyFilesAndProcess(),
+      );
+      if (observed !== undefined) {
+        void Promise.resolve(observed).catch(() => {});
+        throw Error('Process observer must be synchronous');
+      }
       const deadline = Date.now() + 15_000;
       while (true) {
         owned.verifyFilesAndProcess();
