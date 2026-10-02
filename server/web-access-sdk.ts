@@ -1,0 +1,40 @@
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import type { McpSdkServerConfigWithInstance } from '@anthropic-ai/claude-agent-sdk';
+import type { buildPermissionHandler } from '@mitzo/harness';
+import { z } from 'zod';
+import { webAccessDefinition, REQUEST_WEB_ACCESS } from './request-web-access.js';
+export const WEB_ACCESS_SDK_TOOL = 'mcp__mitzo-web-access__RequestWebAccess';
+
+export function createWebAccessSdkServer(
+  execute: (input: unknown, signal: AbortSignal) => Promise<{ content: string; isError: boolean }>,
+  sessionSignal: AbortSignal,
+): McpSdkServerConfigWithInstance {
+  const instance = new McpServer({ name: 'mitzo-web-access', version: '1.0.0' });
+  instance.registerTool(
+    REQUEST_WEB_ACCESS,
+    {
+      description: webAccessDefinition.description,
+      inputSchema: {
+        operation: z.enum(['search', 'fetch']),
+        query: z.string().optional(),
+        url: z.string().optional(),
+        reason: z.string(),
+      },
+    },
+    async (input, extra) => {
+      const result = await execute(input, AbortSignal.any([sessionSignal, extra.signal]));
+      return { content: [{ type: 'text', text: result.content }], isError: result.isError };
+    },
+  );
+  return { type: 'sdk', name: 'mitzo-web-access', instance };
+}
+
+/** The inner shared executor always gates this tool, including Auto, cached grants and hooks. */
+export function webAccessSdkPermission(
+  decide: ReturnType<typeof buildPermissionHandler>,
+): ReturnType<typeof buildPermissionHandler> {
+  return (name, input, opts) =>
+    name === WEB_ACCESS_SDK_TOOL
+      ? Promise.resolve({ behavior: 'allow', updatedInput: input })
+      : decide(name, input, opts);
+}
