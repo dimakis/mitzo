@@ -787,6 +787,76 @@ it.each([true, false])(
   },
 );
 
+it.each(['send', 'stop'] as const)(
+  'settles a rejected %s by delivery identity while the operator is in another session',
+  async (action) => {
+    let finish!: (response: Response) => void;
+    let attempts = 0;
+    const suffix = action === 'send' ? '/dispatch' : '/cancel';
+    vi.mocked(apiFetch).mockImplementation(async (url) => {
+      const path = String(url);
+      if (path.endsWith(suffix)) {
+        attempts++;
+        if (attempts === 1)
+          return new Promise<Response>((resolve) => {
+            finish = resolve;
+          });
+        return json({});
+      }
+      return json(
+        path.includes('/profile-proposals')
+          ? []
+          : path.includes('/perspectives')
+            ? page
+            : {
+                ...status,
+                sessionId: path.includes('/other/') ? 'other' : 'session',
+                runtimeAvailable: true,
+                deliveries: [directedDelivery('ready')],
+              },
+      );
+    });
+    const view = render(
+      <SymposiumConversation sessionId="session" chat={chat} ordinaryComposer={null} />,
+    );
+    fireEvent.click(await screen.findByRole('tab', { name: 'Reviewer' }));
+    const label =
+      action === 'send' ? 'Send to Architect, Reviewer' : 'Stop delivery to Architect, Reviewer';
+    fireEvent.click(await screen.findByRole('button', { name: label }));
+    view.rerender(<SymposiumConversation sessionId="other" chat={chat} ordinaryComposer={null} />);
+    fireEvent.click(await screen.findByRole('tab', { name: 'Reviewer' }));
+    expect((await screen.findByRole('button', { name: label })).hasAttribute('disabled')).toBe(
+      false,
+    );
+    await act(async () => {
+      finish({
+        ok: false,
+        status: action === 'send' ? 503 : 409,
+        json: async () => ({
+          error: 'Request rejected',
+          ...(action === 'send' ? { dispatch: 'not-started' } : {}),
+        }),
+      } as Response);
+    });
+    view.rerender(
+      <SymposiumConversation sessionId="session" chat={chat} ordinaryComposer={null} />,
+    );
+    fireEvent.click(await screen.findByRole('tab', { name: 'Reviewer' }));
+    const retry = await screen.findByRole('button', { name: label });
+    expect(retry.hasAttribute('disabled')).toBe(false);
+    expect(attempts).toBe(1);
+    fireEvent.click(retry);
+    await waitFor(() => expect(attempts).toBe(2));
+    if (action === 'stop') {
+      const bodies = vi
+        .mocked(apiFetch)
+        .mock.calls.filter(([url]) => String(url).endsWith(suffix))
+        .map(([, init]) => JSON.parse(String(init?.body)));
+      expect(bodies[0].idempotencyKey).toBe(bodies[1].idempotencyKey);
+    }
+  },
+);
+
 it('blocks uncertain dispatch repeats and retries only explicit idempotent Stop', async () => {
   vi.mocked(apiFetch).mockImplementation(async (url) => {
     if (String(url).endsWith('/dispatch') || String(url).endsWith('/cancel'))

@@ -438,53 +438,51 @@ export function SymposiumConversation({
         },
       );
       retryKeys.current.delete(fingerprint);
-      if (sessionEpoch.current === epoch) {
-        setDeliveryActions((old) => ({
-          ...old,
-          [identity]: {
-            ...old[identity],
-            [action]: false,
-            notice:
-              action === 'send' && old[identity]?.stopRequested
-                ? old[identity].notice
-                : action === 'stop'
-                  ? 'Cancellation recorded. Provider work may still be finishing; history is preserved.'
-                  : action === 'send'
-                    ? 'Send request completed. See delivery status below.'
-                    : 'Approved. Choose Send to execute.',
-          },
-        }));
-        window.dispatchEvent(new Event('symposium-deliveries-changed'));
-      }
-    } catch (cause) {
-      if (sessionEpoch.current === epoch) {
-        const detail = cause instanceof Error ? cause.message : 'Request failed';
-        const dispatchNotStarted =
-          action === 'send' && cause instanceof SymposiumRequestError && cause.dispatchNotStarted;
-        if (dispatchNotStarted) dispatchRequests.current.delete(identity);
-        setDeliveryActions((old) => ({
-          ...old,
-          [identity]: {
-            ...old[identity],
-            [action]: false,
-            ...(dispatchNotStarted ? { sendRequested: false, dispatchUncertain: false } : {}),
-            ...(!dispatchNotStarted
-              ? { dispatchUncertain: action === 'send' || old[identity]?.dispatchUncertain }
-              : {}),
-            notice:
-              action === 'send' && old[identity]?.stopRequested
-                ? old[identity].notice
+      setDeliveryActions((old) => ({
+        ...old,
+        [identity]: {
+          ...old[identity],
+          [action]: false,
+          notice:
+            action === 'send' && old[identity]?.stopRequested
+              ? old[identity].notice
+              : action === 'stop'
+                ? 'Cancellation recorded. Provider work may still be finishing; history is preserved.'
                 : action === 'send'
-                  ? dispatchNotStarted
-                    ? `Send did not start. Check the connection, then choose Send again. ${detail}`
-                    : `Send outcome is uncertain. Do not resend; check delivery status or Stop. ${detail}`
-                  : action === 'stop'
-                    ? `Stop is unconfirmed. Check status or retry Stop. ${detail}`
-                    : `Approval is unconfirmed. Check status or retry approval. ${detail}`,
-          },
-        }));
+                  ? 'Send request completed. See delivery status below.'
+                  : 'Approved. Choose Send to execute.',
+        },
+      }));
+      if (sessionEpoch.current === epoch)
         window.dispatchEvent(new Event('symposium-deliveries-changed'));
-      }
+    } catch (cause) {
+      const detail = cause instanceof Error ? cause.message : 'Request failed';
+      const dispatchNotStarted =
+        action === 'send' && cause instanceof SymposiumRequestError && cause.dispatchNotStarted;
+      if (dispatchNotStarted) dispatchRequests.current.delete(identity);
+      setDeliveryActions((old) => ({
+        ...old,
+        [identity]: {
+          ...old[identity],
+          [action]: false,
+          ...(dispatchNotStarted ? { sendRequested: false, dispatchUncertain: false } : {}),
+          ...(!dispatchNotStarted
+            ? { dispatchUncertain: action === 'send' || old[identity]?.dispatchUncertain }
+            : {}),
+          notice:
+            action === 'send' && old[identity]?.stopRequested
+              ? old[identity].notice
+              : action === 'send'
+                ? dispatchNotStarted
+                  ? `Send did not start. Check the connection, then choose Send again. ${detail}`
+                  : `Send outcome is uncertain. Do not resend; check delivery status or Stop. ${detail}`
+                : action === 'stop'
+                  ? `Stop is unconfirmed. Check status or retry Stop. ${detail}`
+                  : `Approval is unconfirmed. Check status or retry approval. ${detail}`,
+        },
+      }));
+      if (sessionEpoch.current === epoch)
+        window.dispatchEvent(new Event('symposium-deliveries-changed'));
     } finally {
       activeActions.current.delete(actionIdentity);
     }
