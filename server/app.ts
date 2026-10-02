@@ -2627,6 +2627,9 @@ function sessionArtifactBrowserRoot(
 }
 
 function resolveArtifactPath(filePath: string, sessionId: string | undefined): string {
+  // Home shorthand is expanded on the host, then checked against the same
+  // configured/session workspace boundaries as every absolute artifact path.
+  if (filePath.startsWith('~/')) filePath = resolve(homedir(), filePath.slice(2));
   const workspace = sessionArtifactRoot(sessionId);
   if (!isAbsolute(filePath)) return resolve(workspace ?? BASE_REPO, filePath);
   const requested = resolve(filePath);

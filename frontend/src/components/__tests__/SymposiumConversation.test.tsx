@@ -112,6 +112,19 @@ const chat = {
 };
 
 describe('SymposiumConversation', () => {
+  it('keeps the ordinary composer available while session kind is being checked', () => {
+    vi.mocked(apiFetch).mockReturnValue(new Promise(() => {}));
+    render(
+      <SymposiumConversation
+        sessionId="session"
+        chat={chat}
+        ordinaryComposer={<button>Ordinary send</button>}
+      />,
+    );
+    expect(screen.getByRole('button', { name: 'Ordinary send' })).toBeTruthy();
+    expect(screen.queryByText('Loading Symposium…')).toBeNull();
+  });
+
   it('reviews a fake agent tool proposal in an ordinary existing conversation before saving', async () => {
     const proposal = {
       proposalId: 'proposal-1',
@@ -358,9 +371,11 @@ describe('SymposiumConversation', () => {
         ordinaryComposer={<button>Ordinary send</button>}
       />,
     );
-    expect(screen.queryByText('Ordinary send')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Ordinary send' }).closest('[inert]')).toBeTruthy();
     finish(json({ sessionId: 'session', config: null, seats: [] }));
-    expect(await screen.findByText('Ordinary send')).toBeTruthy();
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Ordinary send' }).closest('[inert]')).toBeNull(),
+    );
   });
 
   it('shows durable received context and only the selected seat reply while keeping queued input separate', async () => {

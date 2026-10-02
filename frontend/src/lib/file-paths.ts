@@ -36,7 +36,7 @@ export function relativeArtifactPath(href: string): string | null {
 export function absoluteMarkdownArtifactPath(href: string): string | null {
   const explicitFileUri = /^file:\/\/(?:localhost)?(?=\/)/i.test(href);
   const local = href.replace(/^file:\/\/(?:localhost)?(?=\/)/i, '');
-  if (!local.startsWith('/') || local.startsWith('//')) return null;
+  if ((!local.startsWith('/') && !local.startsWith('~/')) || local.startsWith('//')) return null;
   try {
     const path = decodeURIComponent(local.split(/[?#]/, 1)[0]).replace(/:\d+(?::\d+)?$/, '');
     if (
@@ -199,7 +199,7 @@ export interface FilePathMatch {
 export function detectFilePaths(text: string): FilePathMatch[] {
   // Match paths: absolute (/...) or relative (./... or ../...)
   // Path chars: word chars, hyphens, dots, @, slashes — no spaces (too greedy)
-  const pathPattern = /(?<!\w)(?:(?:\.\.?)?\/[\w./@-]+(?:\/[\w./@-]+)*)/g;
+  const pathPattern = /(?<!\w)(?:(?:~|\.\.?)?\/[\w./@-]+(?:\/[\w./@-]+)*)/g;
 
   const matches: FilePathMatch[] = [];
 

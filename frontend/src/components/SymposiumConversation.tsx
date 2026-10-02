@@ -323,7 +323,10 @@ export function SymposiumConversation({
     return (
       <>
         <ChatArea {...chat} />
-        {error ? <div role="alert">{error}</div> : <div role="status">Loading Symposium…</div>}
+        <div inert aria-busy="true" style={{ display: 'contents' }}>
+          {ordinaryComposer}
+        </div>
+        {error && <div role="alert">{error}</div>}
       </>
     );
   if (!status?.config)

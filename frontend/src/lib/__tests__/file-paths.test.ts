@@ -289,3 +289,15 @@ describe('explicit file URI authority', () => {
     },
   );
 });
+
+describe('home-relative artifact paths', () => {
+  it('keeps the home prefix in detected and linkified paths', () => {
+    const path = '~/redhat/mgmt/.scratch/report.md';
+    expect(detectFilePaths(`Saved at ${path}`)).toEqual([{ path, start: 9, end: 9 + path.length }]);
+    expect(linkifyFilePaths(path)).toBe(`[${path}](${FILE_SCHEME}${encodeURIComponent(path)})`);
+  });
+  it('resolves home links independently of the containing file', () => {
+    expect(linkedArtifactPath('~/notes/report.md', '/repo/output.md')).toBe('~/notes/report.md');
+    expect(absoluteMarkdownArtifactPath('~/notes/report.md')).toBe('~/notes/report.md');
+  });
+});
