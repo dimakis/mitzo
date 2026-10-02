@@ -837,3 +837,55 @@ it('can explicitly use legacy models after refreshing a selected account fails',
   await screen.findByText('Legacy server account');
   await waitFor(() => expect(onChange).toHaveBeenLastCalledWith({ model: 'sonnet' }));
 });
+
+it.each([false, true])(
+  'resets refreshed conversation selection when a new chat opens (saved default: %s)',
+  async (savedDefault) => {
+    if (savedDefault)
+      localStorage.setItem(
+        'mitzo-default-account-model',
+        JSON.stringify({ accountId: 'other', model: 'haiku' }),
+      );
+    vi.mocked(apiFetch).mockImplementation(
+      async (url) =>
+        ({
+          ok: true,
+          json: async () =>
+            url.includes('/meta')
+              ? {
+                  accountBinding: { accountId: 'work', accountLabel: 'Work Vertex' },
+                  modelSelection: { model: 'sonnet', models: profiles[0].models },
+                }
+              : profiles,
+        }) as Response,
+    );
+    const onChange = vi.fn();
+    const view = render(
+      <AccountModelPicker sessionId="existing" preferredModel="sonnet" onChange={onChange} />,
+    );
+    await waitFor(() =>
+      expect(onChange).toHaveBeenLastCalledWith({ accountId: 'work', model: 'sonnet' }),
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh models' }));
+    await waitFor(() =>
+      expect(apiFetch).toHaveBeenCalledWith(
+        '/api/sessions/existing/meta?refresh=1',
+        expect.anything(),
+      ),
+    );
+    await screen.findByLabelText('Model');
+    onChange.mockClear();
+    view.rerender(
+      <AccountModelPicker sessionId={null} preferredModel="sonnet" onChange={onChange} />,
+    );
+    await screen.findByLabelText('Account');
+    expect(apiFetch).toHaveBeenLastCalledWith('/api/accounts', expect.anything());
+    if (savedDefault)
+      expect(onChange).toHaveBeenLastCalledWith({ accountId: 'other', model: 'haiku' });
+    else {
+      expect(onChange.mock.calls.every(([selection]) => selection === null)).toBe(true);
+      fireEvent.click(screen.getByRole('button', { name: 'Use Work Vertex · Sonnet' }));
+      expect(onChange).toHaveBeenLastCalledWith({ accountId: 'work', model: 'sonnet' });
+    }
+  },
+);

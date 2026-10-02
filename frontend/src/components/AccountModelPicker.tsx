@@ -54,7 +54,13 @@ function withThinking(selection: AccountSelection, account: Account): AccountSel
   };
 }
 
-export function AccountModelPicker({
+/** Catalog refreshes and draft confirmation belong to one conversation. */
+export function AccountModelPicker(props: Parameters<typeof SessionAccountModelPicker>[0]) {
+  const sessionKey = props.scope === 'symposium' ? 'symposium' : (props.sessionId ?? 'new-chat');
+  return <SessionAccountModelPicker key={sessionKey} {...props} />;
+}
+
+function SessionAccountModelPicker({
   sessionId: requestedSessionId,
   preferredModel,
   onChange,
