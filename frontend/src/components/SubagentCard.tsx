@@ -7,6 +7,7 @@ import { TextBubble } from './MessageBubble';
 interface SubagentCardProps {
   subagent: FinishedSubagentState | StreamingSubagentState;
   description?: string;
+  sessionId?: string;
 }
 
 function formatTokens(usage?: { inputTokens: number; outputTokens: number }): string {
@@ -15,7 +16,7 @@ function formatTokens(usage?: { inputTokens: number; outputTokens: number }): st
   return `${fmt(usage.inputTokens)}↓ ${fmt(usage.outputTokens)}↑`;
 }
 
-export function SubagentCard({ subagent, description }: SubagentCardProps) {
+export function SubagentCard({ subagent, description, sessionId }: SubagentCardProps) {
   const [expanded, setExpanded] = useState(false);
 
   const isRunning = 'running' in subagent && subagent.running;
@@ -60,10 +61,16 @@ export function SubagentCard({ subagent, description }: SubagentCardProps) {
               return <ThinkingBlock key={block.blockId} block={block} />;
             }
             if (block.blockType === 'tool_use') {
-              return <ToolPill key={block.blockId} block={block} />;
+              return <ToolPill key={block.blockId} block={block} sessionId={sessionId} />;
             }
             if (block.blockType === 'text' && block.content) {
-              return <TextBubble key={block.blockId} content={block.content} />;
+              return (
+                <TextBubble
+                  key={block.blockId}
+                  content={block.content}
+                  artifactSessionId={sessionId}
+                />
+              );
             }
             return null;
           })}

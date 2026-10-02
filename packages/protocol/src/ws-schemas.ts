@@ -22,7 +22,7 @@ export const ReattachMessage = z.object({
 export const SendMessage = z.object({
   type: z.literal('send'),
   prompt: z.string().min(1),
-  clientMsgId: z.string().min(1),
+  clientMsgId: z.string().min(1).max(512),
   model: z.string().optional(),
   mode: z.enum(['ask', 'agent', 'auto']).optional(),
   resume: z.string().optional(),
@@ -37,7 +37,7 @@ export const SendMessage = z.object({
 export const InterruptMessage = z.object({
   type: z.literal('interrupt'),
   prompt: z.string().min(1),
-  clientMsgId: z.string().min(1),
+  clientMsgId: z.string().min(1).max(512),
   images: z.array(ImageSchema).optional(),
   contextBlocks: z.array(z.string()).optional(),
   traceparent,

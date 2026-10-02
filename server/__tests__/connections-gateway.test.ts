@@ -2,13 +2,315 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   OpenShellConnectionGateway,
   JIRA_API_ENDPOINT,
+  githubProfileFingerprint,
   parseProviderAttachments,
+  renderCustomRestProfile,
   validateJiraProfileYaml,
 } from '../connections-gateway.js';
+import type { ProviderPolicy } from '../connections/types.js';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 const signal = new AbortController().signal;
+const githubPolicy: ProviderPolicy = {
+  templateId: 'github-readonly',
+  templateVersion: 1,
+  credentialFieldKeys: ['token'],
+  publicConfig: {},
+  endpoints: [
+    {
+      host: 'api.github.com',
+      port: 443,
+      protocol: 'rest',
+      tls: 'terminate',
+      redirects: 'deny',
+      rules: [{ method: 'GET', path: '/user' }],
+      allowedBinaries: [],
+    },
+  ],
+};
 describe('OpenShellConnectionGateway', () => {
+  const customPolicy = (): ProviderPolicy => ({
+    templateId: 'custom-rest-readonly',
+    templateVersion: 1,
+    credentialFieldKeys: ['token'],
+    publicConfig: {
+      endpoint: 'https://api.example.com',
+      port: '443',
+      protocol: 'rest',
+      methods: ['GET'],
+      paths: ['/v1'],
+      credentialStyle: 'bearer-token',
+      credentialLocation: 'header',
+      credentialName: 'authorization',
+      binaries: ['curl'],
+      attachmentMode: 'automatic',
+      dnsPin: ['1.1.1.1'],
+    },
+    endpoints: [
+      {
+        host: 'api.example.com',
+        port: 443,
+        protocol: 'rest',
+        tls: 'terminate',
+        redirects: 'deny',
+        dns: {
+          mode: 'pinned-public-only',
+          hostname: 'api.example.com',
+          verifyAt: 'provision-and-every-use',
+          rejectRebinding: true,
+        },
+        rules: [{ method: 'GET', path: '/v1' }],
+        allowedBinaries: ['/usr/bin/curl'],
+      },
+    ],
+  });
+  it('generates deterministic custom profiles and fails closed on DNS drift before lint/import', async () => {
+    const policy = customPolicy();
+    const rendered = renderCustomRestProfile(policy);
+    expect(rendered.yaml).toContain('MITZO_CUSTOM_API_TOKEN');
+    expect(rendered.yaml).toContain('host: api.example.com');
+    expect(rendered.yaml).toContain('allowed_ips:\n      - 1.1.1.1');
+    expect(rendered.yaml).not.toContain('SENTINEL');
+    const runner = vi.fn().mockResolvedValue('[]');
+    const gateway = new OpenShellConnectionGateway(runner, {
+      workspace: 'default',
+      probeImage: 'image',
+      customProbePolicy: 'policy',
+      customRestEnabled: true,
+      publicDnsResolver: vi.fn().mockResolvedValue(['1.1.1.1', '10.0.0.1']),
+    });
+    await expect(
+      gateway.verifyCompatibility(
+        { templateId: 'custom-rest-readonly', templateVersion: 1, policy },
+        signal,
+      ),
+    ).rejects.toThrow('public IP');
+    expect(runner).not.toHaveBeenCalled();
+  });
+  it('pins public A/AAAA answers and rejects changes on every compatibility check', async () => {
+    const answers = vi.fn().mockResolvedValueOnce(['1.1.1.1']).mockResolvedValueOnce(['8.8.8.8']);
+    const gateway = new OpenShellConnectionGateway(vi.fn(), {
+      workspace: 'default',
+      probeImage: 'image',
+      customProbePolicy: 'policy',
+      customRestEnabled: true,
+      publicDnsResolver: answers,
+    });
+    const prepared = await gateway.preparePolicy!(
+      { ...customPolicy(), publicConfig: { ...customPolicy().publicConfig, dnsPin: [] } },
+      signal,
+    );
+    await expect(
+      gateway.verifyCompatibility(
+        { templateId: 'custom-rest-readonly', templateVersion: 1, policy: prepared },
+        signal,
+      ),
+    ).rejects.toThrow('rebinding');
+  });
+  it('compiles the gateway-pinned DNS set into the OpenShell proxy allowlist', async () => {
+    const gateway = new OpenShellConnectionGateway(vi.fn(), {
+      workspace: 'default',
+      probeImage: 'image',
+      customProbePolicy: 'policy',
+      customRestEnabled: true,
+      publicDnsResolver: vi.fn().mockResolvedValue(['1.1.1.1', '2606:4700:4700::1111']),
+    });
+    const prepared = await gateway.preparePolicy!(
+      { ...customPolicy(), publicConfig: { ...customPolicy().publicConfig, dnsPin: [] } },
+      signal,
+    );
+    const rendered = renderCustomRestProfile(prepared);
+    expect(rendered.yaml).toContain(
+      "allowed_ips:\n      - 1.1.1.1\n      - '2606:4700:4700:0000:0000:0000:0000:1111'",
+    );
+    // The deterministic profile identity changes with the exact pinned set;
+    // a prior proxy profile cannot be reused for a changed DNS answer set.
+    expect(rendered.id).not.toBe(renderCustomRestProfile(customPolicy()).id);
+  });
+  it('lints the deterministic generated profile before importing it', async () => {
+    const runner = vi
+      .fn()
+      .mockResolvedValueOnce('[]')
+      .mockResolvedValueOnce('')
+      .mockResolvedValueOnce('')
+      .mockResolvedValueOnce(renderCustomRestProfile(customPolicy()).yaml);
+    const gateway = new OpenShellConnectionGateway(runner, {
+      workspace: 'default',
+      probeImage: 'image',
+      customProbePolicy: 'policy',
+      customRestEnabled: true,
+      publicDnsResolver: vi.fn().mockResolvedValue(['1.1.1.1']),
+    });
+    await gateway.verifyCompatibility(
+      { templateId: 'custom-rest-readonly', templateVersion: 1, policy: customPolicy() },
+      signal,
+    );
+    expect(runner.mock.calls[1]![0]).toEqual(expect.arrayContaining(['profile', 'lint', '--file']));
+    expect(runner.mock.calls[2]![0]).toEqual(
+      expect.arrayContaining(['profile', 'import', '--file']),
+    );
+    expect(runner.mock.calls[3]![0]).toEqual(expect.arrayContaining(['profile', 'export']));
+  });
+  it.each([
+    ['rest', ['HEAD'], '--head', undefined],
+    ['rest', ['OPTIONS'], '--request', 'OPTIONS'],
+    ['graphql', ['GRAPHQL_QUERY'], '--request', 'POST'],
+  ] as const)(
+    'probes an allowed %s policy using its reviewed method',
+    async (protocol, methods, expectedFlag, expectedValue) => {
+      const name = 'mzp-1234567890abcde';
+      const runner = vi.fn(async (args: readonly string[]) => {
+        if (args.includes('create')) return JSON.stringify({ name, phase: 'Ready' });
+        if (args.includes('provider'))
+          return 'NAME TYPE CREDENTIAL_KEYS CONFIG_KEYS\nmitzo-conn-12345678 custom 1 0';
+        return '';
+      });
+      const gateway = new OpenShellConnectionGateway(runner, {
+        workspace: 'default',
+        probeImage: 'image',
+        probePolicy: 'policy',
+        customProbePolicy: 'policy',
+      });
+      await expect(
+        gateway.probe(
+          {
+            providerName: 'mitzo-conn-12345678',
+            templateId: 'custom-rest-readonly',
+            templateVersion: 1,
+            publicConfig: {
+              endpoint: 'https://api.example.com',
+              protocol,
+              methods: [...methods],
+              paths: [protocol === 'graphql' ? '/graphql' : '/v1'],
+            },
+            sandboxName: name,
+          },
+          signal,
+        ),
+      ).resolves.toEqual({ identity: 'custom:api.example.com' });
+      const exec = runner.mock.calls.find(([args]) => args.includes('exec'))![0];
+      expect(exec).toContain(expectedFlag);
+      if (expectedValue) expect(exec[exec.indexOf(expectedFlag) + 1]).toBe(expectedValue);
+      if (protocol === 'graphql') expect(exec).toContain('{"query":"query { __typename }"}');
+    },
+  );
+  it('fails closed if an existing deterministic custom profile exports a broader policy', async () => {
+    const policy = customPolicy();
+    const rendered = renderCustomRestProfile(policy);
+    const runner = vi
+      .fn()
+      .mockResolvedValueOnce(JSON.stringify([{ id: rendered.id }]))
+      .mockResolvedValueOnce('')
+      .mockResolvedValueOnce(rendered.yaml.replace('path: /v1', 'path: /**'));
+    const gateway = new OpenShellConnectionGateway(runner, {
+      workspace: 'default',
+      probeImage: 'image',
+      customProbePolicy: 'policy',
+      customRestEnabled: true,
+      publicDnsResolver: vi.fn().mockResolvedValue(['1.1.1.1']),
+    });
+    await expect(
+      gateway.verifyCompatibility(
+        { templateId: 'custom-rest-readonly', templateVersion: 1, policy },
+        signal,
+      ),
+    ).rejects.toThrow('differs from compiled policy');
+    expect(runner.mock.calls.flatMap(([args]) => args)).toContain('lint');
+    expect(runner.mock.calls.flatMap(([args]) => args)).toContain('export');
+    expect(runner.mock.calls.flatMap(([args]) => args)).not.toContain('import');
+  });
+  it("accepts only the compiler's exact paths and terminal wildcard form", () => {
+    const terminalWildcard = customPolicy();
+    terminalWildcard.endpoints[0]!.rules = [{ method: 'GET', path: '/v1/**' }];
+    expect(() => renderCustomRestProfile(terminalWildcard)).not.toThrow();
+    for (const path of ['/v1/*', '/v1/**/items', '/v1/items*']) {
+      const invalid = customPolicy();
+      invalid.endpoints[0]!.rules = [{ method: 'GET', path }];
+      expect(() => renderCustomRestProfile(invalid)).toThrow('Invalid custom REST policy');
+    }
+  });
+  it('supports only the reviewed Jira adapter version', () => {
+    const gateway = new OpenShellConnectionGateway(vi.fn());
+    expect(gateway.supportsTemplate('jira-readonly', 1)).toBe(true);
+    expect(gateway.supportsTemplate('jira-readonly', 2)).toBe(false);
+    expect(gateway.supportsTemplate('github-readonly', 1)).toBe(false);
+    expect(
+      new OpenShellConnectionGateway(vi.fn(), {
+        workspace: 'default',
+        probeImage: 'image',
+        githubProbePolicy: 'policy',
+        githubProfileFingerprint: 'a'.repeat(64),
+      }).supportsTemplate('github-readonly', 1),
+    ).toBe(true);
+    expect(
+      new OpenShellConnectionGateway(vi.fn(), {
+        workspace: 'default',
+        probeImage: 'image',
+        githubProbePolicy: 'policy',
+        githubProfileFingerprint: 'a'.repeat(64),
+      }).supportsTemplate('github-readonly', 1),
+    ).toBe(true);
+  });
+  it('requires and verifies the reviewed effective built-in GitHub profile before use', async () => {
+    const profile = 'id: github\nendpoints:\n  - host: api.github.com\n';
+    const runner = vi.fn().mockResolvedValue(profile);
+    const gateway = new OpenShellConnectionGateway(runner, {
+      workspace: 'default',
+      probeImage: 'image',
+      githubProbePolicy: 'policy',
+      githubProfileFingerprint: githubProfileFingerprint(profile),
+    });
+    expect(gateway.supportsTemplate('github-readonly', 1)).toBe(true);
+    await gateway.verifyCompatibility(
+      { templateId: 'github-readonly', templateVersion: 1, policy: githubPolicy },
+      signal,
+    );
+    expect(runner.mock.calls[0]![0]).toEqual([
+      'provider',
+      '--workspace',
+      'default',
+      'profile',
+      'export',
+      'github',
+      '-o',
+      'yaml',
+    ]);
+    const broadened = new OpenShellConnectionGateway(
+      vi.fn().mockResolvedValue(`${profile}binaries:\n  - /bin/sh\n`),
+      {
+        workspace: 'default',
+        probeImage: 'image',
+        githubProbePolicy: 'policy',
+        githubProfileFingerprint: githubProfileFingerprint(profile),
+      },
+    );
+    await expect(
+      broadened.verifyCompatibility(
+        { templateId: 'github-readonly', templateVersion: 1, policy: githubPolicy },
+        signal,
+      ),
+    ).rejects.toThrow('differs');
+  });
+  it.each([
+    { label: 'missing', credentialKeys: [] },
+    { label: 'wrong', credentialKeys: ['WRONG_TOKEN'] },
+    { label: 'extra', credentialKeys: ['JIRA_API_TOKEN', 'EXTRA'] },
+  ])('rejects an invalid Jira credential binding: $label', ({ credentialKeys }) => {
+    const gateway = new OpenShellConnectionGateway(vi.fn());
+    expect(() =>
+      gateway.validateBinding({
+        templateId: 'jira-readonly',
+        templateVersion: 1,
+        provider: {
+          id: 'provider-1',
+          name: 'mitzo-conn-12345678',
+          workspace: 'default',
+          type: 'jira-readonly',
+          credentialKeys: [...credentialKeys],
+        },
+      }),
+    ).toThrow('credential binding changed');
+  });
   it('parses only the pinned attachment table and fails closed on unknown output', () => {
     expect(parseProviderAttachments('No providers attached to sandbox probe.', 'probe')).toEqual(
       [],

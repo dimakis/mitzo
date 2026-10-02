@@ -1,0 +1,37 @@
+{
+  "codexCliVersion": "0.153.4",
+  "generatedWith": "codex app-server generate-json-schema --experimental",
+  "serverRequestMethods": [
+    "item/commandExecution/requestApproval",
+    "item/fileChange/requestApproval",
+    "item/tool/requestUserInput",
+    "mcpServer/elicitation/request",
+    "item/permissions/requestApproval",
+    "item/tool/call",
+    "account/chatgptAuthTokens/refresh",
+    "attestation/generate",
+    "currentTime/read",
+    "applyPatchApproval",
+    "execCommandApproval"
+  ],
+  "permissionsApprovalFields": [
+    "cwd",
+    "environmentId",
+    "itemId",
+    "permissions",
+    "reason",
+    "startedAtMs",
+    "threadId",
+    "turnId"
+  ],
+  "threadLifecycleConfig": {
+    "thread/start": true,
+    "thread/resume": true,
+    "thread/fork": true
+  },
+  "webSearchObservation": {
+    "itemType": "webSearch",
+    "notifications": ["item/started", "item/completed"],
+    "preExecutionApprovalMethod": null
+  }
+}

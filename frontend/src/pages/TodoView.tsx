@@ -6,7 +6,7 @@ import { EmptyState } from '../components/EmptyState';
 import { PageHeader } from '../components/PageHeader';
 import { useTodoData } from '../hooks/useTodoData';
 import { buildPrompt, buildTodoContext } from '../lib/todo-utils';
-import type { TodoItem } from '../types/todo';
+import type { TodoItem, TodoOutcomeDraft } from '../types/todo';
 
 // ─── Section grouping ──────────────────────────────────────────────────────
 
@@ -17,7 +17,9 @@ interface TodoSection {
   defaultCollapsed: boolean;
 }
 
-function groupIntoSections(items: TodoItem[]): TodoSection[] {
+type TodoSort = 'priority' | 'newest' | 'oldest' | 'title';
+
+function groupIntoSections(items: TodoItem[], sort: TodoSort): TodoSection[] {
   const focus: TodoItem[] = [];
   const active: TodoItem[] = [];
   const seen: TodoItem[] = [];
@@ -39,12 +41,18 @@ function groupIntoSections(items: TodoItem[]): TodoSection[] {
   // Focus/Active: highest urgency first, tie-break by newest (lower ageDays)
   // Seen: oldest first (longest-waiting items surface)
   // Done: newest first (most recent completions on top for review)
-  const byUrgencyDesc = (a: TodoItem, b: TodoItem) =>
-    b.urgency - a.urgency || a.ageDays - b.ageDays;
-  focus.sort(byUrgencyDesc);
-  active.sort(byUrgencyDesc);
-  seen.sort((a, b) => a.ageDays - b.ageDays);
-  done.sort((a, b) => b.ageDays - a.ageDays);
+  const comparator =
+    sort === 'newest'
+      ? (a: TodoItem, b: TodoItem) => a.ageDays - b.ageDays
+      : sort === 'oldest'
+        ? (a: TodoItem, b: TodoItem) => b.ageDays - a.ageDays
+        : sort === 'title'
+          ? (a: TodoItem, b: TodoItem) => a.summary.localeCompare(b.summary)
+          : (a: TodoItem, b: TodoItem) => b.urgency - a.urgency || a.ageDays - b.ageDays;
+  focus.sort(comparator);
+  active.sort(comparator);
+  seen.sort(comparator);
+  done.sort(comparator);
 
   const sections: TodoSection[] = [];
   if (focus.length > 0)
@@ -66,16 +74,27 @@ function TodoCreateForm({
   profile,
   profiles,
   onCreate,
+  onCreateOutcome,
   onCancel,
 }: {
   parentId?: string;
   profile?: string;
   profiles: string[];
   onCreate: (summary: string, profile: string, parentId?: string) => Promise<void>;
+  onCreateOutcome: (draft: TodoOutcomeDraft) => Promise<TodoItem | undefined>;
   onCancel: () => void;
 }) {
   const [summary, setSummary] = useState('');
+  const [intent, setIntent] = useState('');
+  const [rationale, setRationale] = useState('');
+  const [criteria, setCriteria] = useState('');
+  const [milestones, setMilestones] = useState('');
+  const [createError, setCreateError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
   const [selectedProfile, setSelectedProfile] = useState(profile || profiles[0] || '');
+  const idempotencyKey = useRef(
+    globalThis.crypto?.randomUUID?.() ?? `telos-${Date.now()}-${Math.random()}`,
+  );
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -86,9 +105,48 @@ function TodoCreateForm({
     e.preventDefault();
     const text = summary.trim();
     if (!text || !selectedProfile) return;
-    await onCreate(text, selectedProfile, parentId);
-    setSummary('');
-    onCancel();
+    setCreateError(null);
+    setSubmitting(true);
+    try {
+      if (parentId) {
+        await onCreate(text, selectedProfile, parentId);
+      } else {
+        const acceptanceCriteria = criteria
+          .split('\n')
+          .map((line) => line.trim())
+          .filter(Boolean);
+        const milestoneItems = milestones
+          .split('\n')
+          .map((line) => line.trim())
+          .filter(Boolean);
+        if (
+          !intent.trim() ||
+          !rationale.trim() ||
+          !acceptanceCriteria.length ||
+          !milestoneItems.length
+        )
+          return;
+        const created = await onCreateOutcome({
+          summary: text,
+          intent: intent.trim(),
+          rationale: rationale.trim(),
+          acceptanceCriteria,
+          milestones: milestoneItems,
+          profile: selectedProfile,
+          idempotencyKey: idempotencyKey.current,
+        });
+        if (!created) {
+          setCreateError('Unable to create outcome. Your draft has been kept.');
+          return;
+        }
+      }
+      setSummary('');
+      onCancel();
+    } catch {
+      setCreateError('Unable to create outcome. Your draft has been kept.');
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   return (
@@ -98,11 +156,39 @@ function TodoCreateForm({
         className="todo-create-input"
         value={summary}
         onChange={(e) => setSummary(e.target.value)}
-        placeholder={parentId ? 'Add sub-task...' : 'Add todo...'}
+        placeholder={parentId ? 'Add milestone…' : 'Short outcome title'}
         onKeyDown={(e) => {
           if (e.key === 'Escape') onCancel();
         }}
       />
+      {!parentId && (
+        <>
+          <textarea
+            className="todo-create-input todo-create-textarea"
+            value={intent}
+            onChange={(event) => setIntent(event.target.value)}
+            placeholder="What will be true when this is achieved?"
+          />
+          <textarea
+            className="todo-create-input todo-create-textarea"
+            value={rationale}
+            onChange={(event) => setRationale(event.target.value)}
+            placeholder="Why does this matter?"
+          />
+          <textarea
+            className="todo-create-input todo-create-textarea"
+            value={criteria}
+            onChange={(event) => setCriteria(event.target.value)}
+            placeholder={'Done when — one verifiable criterion per line'}
+          />
+          <textarea
+            className="todo-create-input todo-create-textarea"
+            value={milestones}
+            onChange={(event) => setMilestones(event.target.value)}
+            placeholder={'Milestones — first line is the next action'}
+          />
+        </>
+      )}
       {!profile && profiles.length > 1 && (
         <select
           className="todo-create-profile"
@@ -116,9 +202,23 @@ function TodoCreateForm({
           ))}
         </select>
       )}
+      {createError && (
+        <div className="todo-create-error" role="alert">
+          {createError}
+        </div>
+      )}
       <div className="todo-create-actions">
-        <button type="submit" className="todo-create-submit" disabled={!summary.trim()}>
-          Add
+        <button
+          type="submit"
+          className="todo-create-submit"
+          disabled={
+            !summary.trim() ||
+            submitting ||
+            (!parentId &&
+              (!intent.trim() || !rationale.trim() || !criteria.trim() || !milestones.trim()))
+          }
+        >
+          {submitting ? 'Creating…' : parentId ? 'Add milestone' : 'Create outcome'}
         </button>
         <button type="button" className="todo-create-cancel" onClick={onCancel}>
           Cancel
@@ -160,15 +260,57 @@ export function TodoView({ selectedId }: { selectedId?: string } = {}) {
   const location = useLocation();
   const restoredProfile = (location.state as { activeProfile?: string } | null)?.activeProfile;
   const [activeProfile, setActiveProfile] = useState<string | undefined>(restoredProfile);
-  const { loading, items, profiles, ack, done, star, create, refresh } = useTodoData(activeProfile);
+  const { loading, error, items, profiles, ack, done, star, create, createOutcome, refresh } =
+    useTodoData(activeProfile);
   const [creating, setCreating] = useState<{ parentId?: string } | null>(null);
+  const [query, setQuery] = useState('');
+  const [sort, setSort] = useState<TodoSort>('priority');
   const setPendingSession = useMitzoStore((s) => s.setPendingSession);
   const scrollRef = useRef<HTMLDivElement>(null);
   const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({
     done: true,
   });
 
-  const sections = useMemo(() => groupIntoSections(items), [items]);
+  const filteredItems = useMemo(() => {
+    const needle = query.trim().toLocaleLowerCase();
+    if (!needle) return items;
+    const matches = (item: TodoItem): boolean => {
+      const searchable = [
+        item.summary,
+        item.intent ?? '',
+        item.rationale ?? '',
+        ...(item.acceptanceCriteria ?? []),
+        ...item.contextHints.repos,
+        ...item.contextHints.paths,
+        ...item.contextHints.issues,
+        ...item.contextHints.docIds,
+        ...item.contextHints.people,
+        ...item.contextHints.jiraKeys,
+        ...item.contextHints.keywords,
+        item.contextHints.taskHint,
+        ...(item.contextHints.sessionIds ?? []),
+        ...(item.links ?? []).flatMap((link) => [
+          link.type,
+          link.url,
+          link.title,
+          link.description,
+        ]),
+        ...item.sources.flatMap((source) => [
+          source.type,
+          source.url,
+          source.title,
+          source.author,
+          source.snippet,
+        ]),
+      ];
+      return (
+        searchable.some((value) => value.toLocaleLowerCase().includes(needle)) ||
+        item.children.some(matches)
+      );
+    };
+    return items.filter(matches);
+  }, [items, query]);
+  const sections = useMemo(() => groupIntoSections(filteredItems, sort), [filteredItems, sort]);
 
   // Restore scroll position when returning from detail view
   useEffect(() => {
@@ -222,6 +364,29 @@ export function TodoView({ selectedId }: { selectedId?: string } = {}) {
       </PageHeader>
 
       <div className="todo-scroll" ref={scrollRef}>
+        <div className="todo-toolbar">
+          <label className="todo-search">
+            <span aria-hidden="true">⌕</span>
+            <input
+              type="search"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Search outcomes, context, files…"
+              aria-label="Search Telos items"
+            />
+          </label>
+          <select
+            className="todo-sort"
+            value={sort}
+            onChange={(event) => setSort(event.target.value as TodoSort)}
+            aria-label="Sort Telos items"
+          >
+            <option value="priority">Priority</option>
+            <option value="newest">Newest</option>
+            <option value="oldest">Oldest</option>
+            <option value="title">Title</option>
+          </select>
+        </div>
         {profiles.length > 1 && (
           <div className="todo-filters">
             <button
@@ -248,13 +413,18 @@ export function TodoView({ selectedId }: { selectedId?: string } = {}) {
             profile={activeProfile}
             profiles={profiles}
             onCreate={create}
+            onCreateOutcome={createOutcome}
             onCancel={() => setCreating(null)}
           />
         )}
 
         {loading && <p className="todo-empty">Loading...</p>}
 
-        {!loading && items.length === 0 && (
+        {!loading && error && (
+          <EmptyState icon="!" title={error} subtitle="Tap refresh to try again" />
+        )}
+
+        {!loading && !error && items.length === 0 && (
           <EmptyState
             icon={'\u2713'}
             title="No active items"
@@ -264,6 +434,10 @@ export function TodoView({ selectedId }: { selectedId?: string } = {}) {
               </>
             }
           />
+        )}
+
+        {!loading && !error && items.length > 0 && filteredItems.length === 0 && (
+          <EmptyState icon="⌕" title="No matching outcomes" subtitle="Try a broader search" />
         )}
 
         {sections.map((section) => {

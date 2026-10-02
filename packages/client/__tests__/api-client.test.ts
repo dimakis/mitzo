@@ -61,6 +61,32 @@ describe('MitzoApiClient', () => {
     );
   });
 
+  it('accepts transcript currents with colliding provider IDs in distinct seats', async () => {
+    const provenance = (seatId: string) => ({
+      seatId,
+      membershipGeneration: 1,
+      configRevision: 1,
+      accountProfileRevision: 'account-1',
+      seatProfileRevision: 'profile-1',
+      contextGrantRevision: 1,
+      authorityGrantRevision: 1,
+      isolationDomainId: 'domain-1',
+      isolationDomainRevision: 1,
+    });
+    const body = {
+      cursor: 2,
+      messages: [],
+      current: null,
+      currents: ['architect', 'reviewer'].map((seatId) => ({
+        messageId: 'same-provider-id',
+        blocks: [],
+        symposiumProvenance: provenance(seatId),
+      })),
+    };
+    const api = new MitzoApiClient(mockFetch(body));
+    await expect(api.getSessionTranscript('session')).resolves.toMatchObject(body);
+  });
+
   it('deleteSession sends DELETE', async () => {
     await client.deleteSession('sid-1');
     expect(fetchFn).toHaveBeenCalledWith(
@@ -133,6 +159,16 @@ describe('MitzoApiClient', () => {
     );
   });
 
+  it('startLoop sends an explicitly selected chat session', async () => {
+    await client.startLoop('g1', true, 'selected-session');
+    expect(fetchFn).toHaveBeenCalledWith(
+      '/api/loop/start',
+      expect.objectContaining({
+        body: JSON.stringify({ goalId: 'g1', specMode: true, sessionId: 'selected-session' }),
+      }),
+    );
+  });
+
   // ── Todos ────────────────────────────────────────────────────────────────
 
   it('getTodos without profile', async () => {
@@ -152,6 +188,23 @@ describe('MitzoApiClient', () => {
       expect.objectContaining({
         body: JSON.stringify({ summary: 'Fix bug', profile: 'work', parentId: 'parent-1' }),
       }),
+    );
+  });
+
+  it('createTodoOutcome sends the structured contract', async () => {
+    const input = {
+      summary: 'Ship searchable outcomes',
+      intent: 'People understand durable work in ten seconds.',
+      rationale: 'Progress logs currently obscure intent.',
+      acceptanceCriteria: ['Search matches outcome and context'],
+      milestones: ['Add the structured contract'],
+      profile: 'work',
+      idempotencyKey: 'session-1:message-7',
+    };
+    await client.createTodoOutcome(input);
+    expect(fetchFn).toHaveBeenCalledWith(
+      '/api/todos/outcomes',
+      expect.objectContaining({ body: JSON.stringify(input) }),
     );
   });
 
@@ -223,12 +276,16 @@ describe('MitzoApiClient', () => {
   });
 
   it('writeFile sends path and content', async () => {
-    await client.writeFile('/tmp/test.ts', 'console.log("hi")');
+    await client.writeFile('/tmp/test.ts', 'console.log("hi")', 'original');
     expect(fetchFn).toHaveBeenCalledWith(
       '/api/files/write',
       expect.objectContaining({
         method: 'PUT',
-        body: JSON.stringify({ path: '/tmp/test.ts', content: 'console.log("hi")' }),
+        body: JSON.stringify({
+          path: '/tmp/test.ts',
+          content: 'console.log("hi")',
+          expectedContent: 'original',
+        }),
       }),
     );
   });

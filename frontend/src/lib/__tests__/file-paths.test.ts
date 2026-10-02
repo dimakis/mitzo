@@ -1,12 +1,48 @@
 import { describe, it, expect } from 'vitest';
 import {
   decodeFilePathUrl,
+  absoluteMarkdownArtifactPath,
   detectFilePaths,
   isFilePath,
   linkifyFilePaths,
+  relativeArtifactPath,
+  linkedArtifactPath,
   remarkNeutralizeMalformedFileLinks,
+  artifactApiUrl,
+  artifactViewerUrl,
   FILE_SCHEME,
 } from '../file-paths';
+
+describe('artifact URLs', () => {
+  it('carries session scope through API and viewer URLs', () => {
+    expect(artifactApiUrl('read', 'outputs/report.html', 'session-1')).toBe(
+      '/api/files/read?path=outputs%2Freport.html&sessionId=session-1',
+    );
+    expect(artifactViewerUrl('outputs/report.html', '/chat/session-1', 'session-1')).toBe(
+      '/files?path=outputs%2Freport.html&from=%2Fchat%2Fsession-1&sessionId=session-1',
+    );
+  });
+
+  it('recognizes bare file destinations without treating browser links as artifacts', () => {
+    expect(relativeArtifactPath('report.html')).toBe('report.html');
+    expect(relativeArtifactPath('notes.md?raw=1')).toBe('notes.md');
+    expect(relativeArtifactPath('README')).toBeNull();
+    expect(relativeArtifactPath('#section')).toBeNull();
+    expect(relativeArtifactPath('https://example.com/report.html')).toBeNull();
+  });
+
+  it('resolves Markdown links from the containing artifact directory', () => {
+    expect(linkedArtifactPath('details.html', 'outputs/report.md')).toBe('outputs/details.html');
+    expect(linkedArtifactPath('../index.html', 'outputs/reports/report.md')).toBe(
+      'outputs/index.html',
+    );
+    expect(linkedArtifactPath('./details.html', '/workspace/outputs/report.md')).toBe(
+      '/workspace/outputs/details.html',
+    );
+    expect(linkedArtifactPath('#details', 'outputs/report.md')).toBeNull();
+    expect(linkedArtifactPath('https://example.com', 'outputs/report.md')).toBeNull();
+  });
+});
 
 describe('decodeFilePathUrl', () => {
   it('decodes a valid internal file URL', () => {
@@ -238,5 +274,57 @@ describe('linkifyFilePaths', () => {
   it('leaves text without paths unchanged', () => {
     const input = 'Just a regular sentence.';
     expect(linkifyFilePaths(input)).toBe(input);
+  });
+});
+
+describe('explicit file URI authority', () => {
+  it.each(['files', 'tasks', 'chat'])(
+    'opens a local file URI under /%s while preserving browser routes',
+    (root) => {
+      expect(absoluteMarkdownArtifactPath(`file:///${root}/report.md`)).toBe(`/${root}/report.md`);
+      expect(absoluteMarkdownArtifactPath(`file://localhost/${root}/report.md`)).toBe(
+        `/${root}/report.md`,
+      );
+      expect(absoluteMarkdownArtifactPath(`/${root}/report.md`)).toBeNull();
+    },
+  );
+});
+
+describe('home-relative artifact paths', () => {
+  it('keeps the home prefix in detected and linkified paths', () => {
+    const path = '~/redhat/mgmt/.scratch/report.md';
+    expect(detectFilePaths(`Saved at ${path}`)).toEqual([{ path, start: 9, end: 9 + path.length }]);
+    expect(linkifyFilePaths(path)).toBe(`[${path}](${FILE_SCHEME}${encodeURIComponent(path)})`);
+  });
+  it('resolves home links independently of the containing file', () => {
+    expect(linkedArtifactPath('~/notes/report.md', '/repo/output.md')).toBe('~/notes/report.md');
+    expect(absoluteMarkdownArtifactPath('~/notes/report.md')).toBe('~/notes/report.md');
+  });
+});
+
+describe('review regressions for home artifact paths', () => {
+  it.each(['html', 'txt', 'png', 'csv', 'pdf', 'md', 'mdx'])(
+    'preserves a home-relative %s link in an artifact',
+    (ext) => {
+      expect(linkedArtifactPath(`~/notes/report.${ext}`, '/repo/output.md')).toBe(
+        `~/notes/report.${ext}`,
+      );
+      expect(linkedArtifactPath(`~/notes/report.${ext}?download=1#part`, 'outputs/report.md')).toBe(
+        `~/notes/report.${ext}`,
+      );
+    },
+  );
+  it.each([
+    'https://example.com/~/report.md',
+    'http://example.com/deep/~/report.html',
+    'HTTPS://example.com/~/report.md?path=~/other.md',
+    '<https://example.com/~/report.md>',
+  ])('leaves the web URL %s intact', (url) => {
+    expect(detectFilePaths(url)).toEqual([]);
+    expect(linkifyFilePaths(url)).toBe(url);
+    const text = `${url} and ~/notes/report.md`;
+    expect(detectFilePaths(text)).toEqual([
+      { path: '~/notes/report.md', start: url.length + 5, end: text.length },
+    ]);
   });
 });

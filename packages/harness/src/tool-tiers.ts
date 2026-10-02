@@ -12,6 +12,10 @@ const READ_ONLY_TOOLS = new Set([
   'WebFetch',
   'GitHubRead',
   'mcp__task-board__TaskStatus',
+  'TelosFindArtifacts',
+  'TelosReadArtifact',
+  'mcp__telos__TelosFindArtifacts',
+  'mcp__telos__TelosReadArtifact',
 ]);
 
 export function isReadOnlyTool(toolName: string): boolean {
@@ -26,6 +30,10 @@ const DEFAULT_TOOL_TIERS: Record<string, ToolTier> = {
   WebFetch: 'safe',
   GitHubRead: 'safe',
   'mcp__task-board__TaskStatus': 'safe',
+  TelosFindArtifacts: 'safe',
+  TelosReadArtifact: 'safe',
+  mcp__telos__TelosFindArtifacts: 'safe',
+  mcp__telos__TelosReadArtifact: 'safe',
 
   TodoWrite: 'standard',
   Task: 'unknown',

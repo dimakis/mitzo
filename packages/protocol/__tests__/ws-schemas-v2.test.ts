@@ -88,6 +88,16 @@ describe('v2 send', () => {
     expect(r.success).toBe(true);
   });
 
+  it('rejects send with a clientMsgId beyond the durable admission limit', () => {
+    const r = V2SendMessage.safeParse({
+      type: 'send',
+      sessionId: 'sess-1',
+      prompt: 'hello',
+      clientMsgId: 'x'.repeat(513),
+    });
+    expect(r.success).toBe(false);
+  });
+
   it('accepts send with null sessionId (new session)', () => {
     const r = V2SendMessage.safeParse({
       type: 'send',

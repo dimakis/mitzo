@@ -1,6 +1,102 @@
 /** Internal scheme for file path links — intercepted by the custom renderer. */
 export const FILE_SCHEME = 'file-path://';
 
+/** Build an authenticated API URL scoped to the session that created an artifact. */
+export function artifactApiUrl(
+  endpoint: 'read' | 'download',
+  filePath: string,
+  sessionId?: string,
+): string {
+  const params = new URLSearchParams({ path: filePath });
+  if (sessionId) params.set('sessionId', sessionId);
+  return `/api/files/${endpoint}?${params.toString()}`;
+}
+
+/** Build the in-app file viewer URL without granting authority in the path itself. */
+export function artifactViewerUrl(filePath: string, from: string, sessionId?: string): string {
+  const params = new URLSearchParams({ path: filePath, from });
+  if (sessionId) params.set('sessionId', sessionId);
+  return `/files?${params.toString()}`;
+}
+
+/** A Markdown href that names a workspace file rather than a browser destination. */
+export function relativeArtifactPath(href: string): string | null {
+  if (href.startsWith('/') || href.startsWith('#') || href.startsWith('?')) return null;
+  if (/^[a-z][a-z\d+.-]*:/i.test(href)) return null;
+  try {
+    const path = decodeURIComponent(href.split(/[?#]/, 1)[0]);
+    const bareFile = !path.includes('/') && /^[^./][^/]*\.[a-z\d][a-z\d._-]*$/i.test(path);
+    return isFilePath(path) || bareFile ? path : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Recognize explicit local Markdown destinations, leaving application URLs alone. */
+export function absoluteMarkdownArtifactPath(href: string): string | null {
+  const explicitFileUri = /^file:\/\/(?:localhost)?(?=\/)/i.test(href);
+  const local = href.replace(/^file:\/\/(?:localhost)?(?=\/)/i, '');
+  if ((!local.startsWith('/') && !local.startsWith('~/')) || local.startsWith('//')) return null;
+  try {
+    const path = decodeURIComponent(local.split(/[?#]/, 1)[0]).replace(/:\d+(?::\d+)?$/, '');
+    if (
+      !explicitFileUri &&
+      /^\/(?:api|files|chat|login|sessions|more|connections|focus|inbox|calendar|todos|tasks)(?:\/|$)/i.test(
+        path,
+      )
+    )
+      return null;
+    if (
+      path.startsWith('//') ||
+      path.includes('\\') ||
+      [...path].some((char) => char.charCodeAt(0) < 32 || char.charCodeAt(0) === 127)
+    )
+      return null;
+    return /\.mdx?$/i.test(path) ? path : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Normalize parsed links (including reference definitions) before URL sanitization. */
+export function remarkLocalMarkdownLinks() {
+  return (tree: MarkdownNode) => {
+    const visit = (node: MarkdownNode) => {
+      if ((node.type === 'link' || node.type === 'definition') && node.url) {
+        const path = absoluteMarkdownArtifactPath(node.url);
+        if (path) node.url = `${FILE_SCHEME}${encodeURIComponent(path)}`;
+      }
+      node.children?.forEach(visit);
+    };
+    visit(tree);
+  };
+}
+
+/** Resolve a Markdown artifact's link against the directory containing the file. */
+export function linkedArtifactPath(href: string, containingFile: string): string | null {
+  const absolutePath = absoluteMarkdownArtifactPath(href);
+  if (absolutePath) return absolutePath;
+  const relative = relativeArtifactPath(href);
+  if (!relative) return null;
+  // Home shorthand is rooted on the artifact host, regardless of file type.
+  if (relative.startsWith('~/')) return relative;
+
+  const base = containingFile.slice(0, containingFile.lastIndexOf('/') + 1);
+  const joined = `${base}${relative}`;
+  const absolute = joined.startsWith('/');
+  const segments: string[] = [];
+  for (const segment of joined.split('/')) {
+    if (!segment || segment === '.') continue;
+    if (segment === '..') {
+      if (segments.length && segments[segments.length - 1] !== '..') segments.pop();
+      else if (!absolute) segments.push('..');
+    } else {
+      segments.push(segment);
+    }
+  }
+  return `${absolute ? '/' : ''}${segments.join('/')}`;
+}
+
 /**
  * Decode an internal file URL without allowing malformed URI data to escape
  * into the React render path.
@@ -105,19 +201,20 @@ export interface FilePathMatch {
 export function detectFilePaths(text: string): FilePathMatch[] {
   // Match paths: absolute (/...) or relative (./... or ../...)
   // Path chars: word chars, hyphens, dots, @, slashes — no spaces (too greedy)
-  const pathPattern = /(?<!\w)(?:(?:\.\.?)?\/[\w./@-]+(?:\/[\w./@-]+)*)/g;
+  const pathPattern = /(?<!\w)(?:(?:~|\.\.?)?\/[\w./@-]+(?:\/[\w./@-]+)*)/g;
 
+  // Exclude entire URLs, including path/query segments that resemble home paths.
+  const urlRanges = [...text.matchAll(/https?:\/\/[^\s<>"`]+/gi)].map((match) => [
+    match.index,
+    match.index + match[0].length,
+  ]);
   const matches: FilePathMatch[] = [];
 
   for (const match of text.matchAll(pathPattern)) {
     const raw = match[0];
     const start = match.index;
 
-    // Check that the character before isn't part of a URL scheme
-    if (start > 0) {
-      const before = text.slice(Math.max(0, start - 8), start);
-      if (/https?:\/?\/?$/.test(before)) continue;
-    }
+    if (urlRanges.some(([from, to]) => start >= from && start < to)) continue;
 
     // Strip trailing punctuation that's likely sentence-end
     const cleaned = raw.replace(/[.,;:!?)]+$/, '');

@@ -8,6 +8,7 @@ import {
   SUSPEND_BUFFER_MAX,
 } from './constants.js';
 import { createLogger } from './logger.js';
+import { randomUUID } from 'node:crypto';
 
 const log = createLogger('session-registry');
 
@@ -27,6 +28,8 @@ import type {
 } from '@mitzo/protocol';
 
 export interface ManagedSession {
+  /** Existing permission queue owner only; never an SDK/model execution. */
+  symposiumPublicationUsers?: number;
   /** Current event connection; the registry key remains stable for the query lifetime. */
   ownerConnectionId?: string;
   transport: SessionTransport;
@@ -51,6 +54,20 @@ export interface ManagedSession {
   queryInstance?: {
     /** Apply the shared Mitzo mode to provider runtime controls, when required. */
     setPermissionMode?: (mode: MitzoMode) => Promise<void>;
+    /** Apply explicit conversation-scoped native web-search consent. */
+    setWebSearchGrant?: (
+      expectedRevision: number,
+      grant: 'allowed' | 'denied',
+    ) => Promise<{
+      grant: 'unresolved' | 'allowed' | 'denied';
+      revision: number;
+      updatedAt: number | null;
+    }>;
+    getWebSearchGrant?: () => {
+      grant: 'unresolved' | 'allowed' | 'denied';
+      revision: number;
+      updatedAt: number | null;
+    };
     interrupt: () => Promise<void>;
     close: () => void;
     stopTask: (taskId: string) => Promise<void>;
@@ -101,7 +118,12 @@ export interface ActiveSessionInfo {
   observerCount: number;
 }
 
-export type CloseoutHandler = (clientId: string) => void;
+export interface CloseoutEpisode {
+  id: string;
+  source: 'automatic' | 'user';
+}
+
+export type CloseoutHandler = (clientId: string, episode: CloseoutEpisode) => void;
 
 export class SessionRegistry {
   private sessions = new Map<string, ManagedSession>();
@@ -110,6 +132,7 @@ export class SessionRegistry {
   private closeoutTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private closingOut = new Set<string>();
   private userClosing = new Set<string>();
+  private closeoutEpisodes = new Map<string, CloseoutEpisode>();
   private closeoutHandler: CloseoutHandler | null = null;
   private suspended = new Set<string>();
   private suspendBuffers = new Map<string, Record<string, unknown>[]>();
@@ -126,9 +149,19 @@ export class SessionRegistry {
   }
 
   /** Mark a session as being closed by the user. */
-  markUserClose(clientId: string): void {
+  markUserClose(clientId: string): CloseoutEpisode {
     this.userClosing.add(clientId);
     this.closingOut.add(clientId);
+    const episode = this.closeoutEpisodes.get(clientId) ?? {
+      id: randomUUID(),
+      source: 'user' as const,
+    };
+    this.closeoutEpisodes.set(clientId, episode);
+    return episode;
+  }
+
+  getCloseoutEpisode(clientId: string): CloseoutEpisode | undefined {
+    return this.closeoutEpisodes.get(clientId);
   }
 
   /** Check if a session close was user-initiated. */
@@ -176,16 +209,19 @@ export class SessionRegistry {
     return this.sessions.get(clientId);
   }
 
-  entries(): IterableIterator<[string, ManagedSession]> {
-    return this.sessions.entries();
+  *entries(includePublicationOwners = false): IterableIterator<[string, ManagedSession]> {
+    for (const entry of this.sessions) {
+      if (includePublicationOwners || entry[1].symposiumPublicationUsers === undefined) yield entry;
+    }
   }
 
   isActive(clientId: string): boolean {
-    return this.sessions.has(clientId);
+    const session = this.sessions.get(clientId);
+    return Boolean(session && session.symposiumPublicationUsers === undefined);
   }
 
   isAttached(clientId: string): boolean {
-    return this.attached.has(clientId);
+    return this.isActive(clientId) && this.attached.has(clientId);
   }
 
   /**
@@ -213,7 +249,12 @@ export class SessionRegistry {
         if (!this.sessions.has(clientId) || this.attached.has(clientId)) return;
         log.info(`detach closeout starting for ${clientId}`);
         this.closingOut.add(clientId);
-        this.closeoutHandler!(clientId);
+        const episode = this.closeoutEpisodes.get(clientId) ?? {
+          id: randomUUID(),
+          source: 'automatic' as const,
+        };
+        this.closeoutEpisodes.set(clientId, episode);
+        this.closeoutHandler!(clientId, episode);
         // Phase 2: hard abort after CLOSEOUT_TIMEOUT_MS
         const abortTimer = setTimeout(() => {
           this.closeoutTimers.delete(clientId);
@@ -254,6 +295,7 @@ export class SessionRegistry {
     this.clearCloseoutTimer(clientId);
     this.closingOut.delete(clientId);
     this.userClosing.delete(clientId);
+    this.closeoutEpisodes.delete(clientId);
     this.clearSuspendState(clientId);
     return true;
   }
@@ -282,15 +324,27 @@ export class SessionRegistry {
       this.detachTimers.set(newId, timer);
     }
 
+    const closeoutEpisode = this.closeoutEpisodes.get(oldId);
+    if (closeoutEpisode) {
+      this.closeoutEpisodes.delete(oldId);
+      this.closeoutEpisodes.set(newId, closeoutEpisode);
+    }
+
     return true;
   }
 
   /**
    * Find a session by its SDK session ID (for reconnection by session ID).
    */
-  findBySessionId(sessionId: string): { clientId: string; session: ManagedSession } | null {
+  findBySessionId(
+    sessionId: string,
+    includePublicationOwners = false,
+  ): { clientId: string; session: ManagedSession } | null {
     for (const [clientId, session] of this.sessions) {
-      if (session.sessionId === sessionId) {
+      if (
+        session.sessionId === sessionId &&
+        (includePublicationOwners || session.symposiumPublicationUsers === undefined)
+      ) {
         return { clientId, session };
       }
     }
@@ -362,6 +416,7 @@ export class SessionRegistry {
     this.attached.delete(clientId);
     this.closingOut.delete(clientId);
     this.userClosing.delete(clientId);
+    this.closeoutEpisodes.delete(clientId);
   }
 
   /**
@@ -378,6 +433,7 @@ export class SessionRegistry {
     this.attached.delete(clientId);
     this.closingOut.delete(clientId);
     this.userClosing.delete(clientId);
+    this.closeoutEpisodes.delete(clientId);
   }
 
   /**
@@ -395,6 +451,7 @@ export class SessionRegistry {
     this.closeoutTimers.clear();
     this.closingOut.clear();
     this.userClosing.clear();
+    this.closeoutEpisodes.clear();
 
     for (const timer of this.suspendTimers.values()) {
       clearTimeout(timer);
@@ -485,6 +542,7 @@ export class SessionRegistry {
   getActiveSessions(): ActiveSessionInfo[] {
     const result: ActiveSessionInfo[] = [];
     for (const [clientId, session] of this.sessions) {
+      if (session.symposiumPublicationUsers !== undefined) continue;
       result.push({
         clientId,
         sessionId: session.sessionId,

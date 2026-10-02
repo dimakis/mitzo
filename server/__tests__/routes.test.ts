@@ -1,11 +1,29 @@
 import { describe, it, expect, vi, beforeAll, beforeEach, afterAll, afterEach } from 'vitest';
-import type { Express } from 'express';
+import type { Server } from 'node:http';
+import { listenOnLoopback, closeTestServer } from './loopback-test-server.js';
 import request from 'supertest';
-import { mkdirSync, writeFileSync } from 'fs';
-import { join } from 'path';
-import { tmpdir } from 'os';
+import Database from 'better-sqlite3';
+import { mkdirSync, writeFileSync, readFileSync, symlinkSync } from 'fs';
+import { join, relative } from 'path';
+import { tmpdir, homedir } from 'os';
+
+const mockRemoteArtifactRead = vi.hoisted(() => vi.fn());
+const mockRemoteArtifactFactory = vi.hoisted(() => vi.fn());
+vi.mock('../session-artifact-reader.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../session-artifact-reader.js')>();
+  return {
+    ...actual,
+    createSessionArtifactReader: (
+      deps: import('../session-artifact-reader.js').SessionArtifactReaderDependencies,
+    ) => {
+      mockRemoteArtifactFactory(deps);
+      return mockRemoteArtifactRead;
+    },
+  };
+});
 
 const TEST_REPO = join(tmpdir(), `mitzo-test-repo-${process.pid}`);
+const SESSION_ARTIFACT_ROOT = join(`${TEST_REPO}-sessions`, 'artifact-session');
 
 vi.mock('../chat.js', () => {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -14,6 +32,7 @@ vi.mock('../chat.js', () => {
   const { tmpdir: ptmpdir } = require('os');
   const repo = pjoin(ptmpdir(), `mitzo-test-repo-${process.pid}`);
   return {
+    broadcastDurableSymposiumEvent: vi.fn(),
     getSessions: vi.fn().mockResolvedValue({
       sessions: [{ id: 's1', summary: 'Test', lastModified: 1 }],
       hasMore: false,
@@ -24,6 +43,13 @@ vi.mock('../chat.js', () => {
     }),
     reconcileSessionsBackground: vi.fn(),
     getMessages: vi.fn().mockResolvedValue([{ messageId: 'm1', role: 'assistant', blocks: [] }]),
+    getReconnectTranscript: vi.fn().mockReturnValue({ messages: [], current: null }),
+    getSessionTranscript: vi.fn().mockResolvedValue({
+      messages: [],
+      current: null,
+      currents: [{ messageId: 'seat-active', blocks: [], symposiumProvenance: { seatId: 'a' } }],
+      cursor: 7,
+    }),
     renameSessionById: vi.fn().mockResolvedValue(undefined),
     hideSession: vi.fn(),
     hideAllSessions: vi.fn(),
@@ -31,7 +57,7 @@ vi.mock('../chat.js', () => {
     BASE_REPO: repo,
     getRepoConfig: vi.fn(() => ({
       quickActions: [],
-      allowedPaths: [],
+      allowedPaths: ['/sandbox/host-repository'],
       roots: [
         { label: 'Main', path: repo },
         { label: 'Tools', path: '/some/tools' },
@@ -72,6 +98,7 @@ vi.mock('../chat.js', () => {
       setSessionState: vi.fn(),
       append: vi.fn(),
       getEventsAfter: vi.fn().mockReturnValue([]),
+      getLatestWorktreePath: vi.fn().mockReturnValue(null),
       searchSessions: vi.fn().mockReturnValue([
         {
           sessionId: 's1',
@@ -82,6 +109,46 @@ vi.mock('../chat.js', () => {
         },
       ]),
       getSession: vi.fn().mockImplementation((id: string) => {
+        if (id === 'artifact-session') {
+          return {
+            sessionId: id,
+            cwd: pjoin(`${repo}-sessions`, 'artifact-session'),
+          };
+        }
+        if (id === 'remote-api-session' || id === 'remote-subscription-session') {
+          return {
+            sessionId: id,
+            cwd: '/sandbox/workspaces/mgmt',
+            accountBinding: { provider: id === 'remote-api-session' ? 'openai' : 'openai-codex' },
+          };
+        }
+        if (/^(unresolved|relative|host)-(api|subscription)-session$/.test(id)) {
+          return {
+            sessionId: id,
+            cwd: id.startsWith('host-')
+              ? repo
+              : id.startsWith('relative-')
+                ? 'relative/workspace'
+                : null,
+            accountBinding: { provider: id.includes('-api-') ? 'openai' : 'openai-codex' },
+          };
+        }
+        if (
+          id === 'sandbox-prefix-host-api-session' ||
+          id === 'sandbox-prefix-host-subscription-session'
+        ) {
+          return {
+            sessionId: id,
+            cwd: '/sandbox/host-repository',
+            accountBinding: { provider: id.includes('-api-') ? 'openai' : 'openai-codex' },
+          };
+        }
+        if (id === 'unbound-sandbox-session') {
+          return { sessionId: id, cwd: '/sandbox/unknown-workspace' };
+        }
+        if (id === 'untrusted-artifact-session') {
+          return { sessionId: id, cwd: '/etc' };
+        }
         if (id === 's1') {
           return {
             sessionId: 's1',
@@ -138,7 +205,7 @@ import { readCodexQueue } from '../codex-chat-session.js';
 import { resolvePending } from '../permissions.js';
 
 const overviewBroadcast = vi.fn();
-let app: Express;
+let app: Server;
 let authCookie: string;
 let authSessionId: string;
 let setOpenShellLifecycleService: typeof import('../app.js').setOpenShellLifecycleService;
@@ -166,10 +233,15 @@ Some body text here.
 `;
 
 beforeAll(async () => {
+  mockRemoteArtifactRead.mockRejectedValue(new Error('Workspace receipt unavailable'));
   mkdirSync(TEST_REPO, { recursive: true });
   writeFileSync(join(TEST_REPO, 'test.txt'), 'hello world');
+  writeFileSync(join(TEST_REPO, 'oversized.txt'), Buffer.alloc(5 * 1024 * 1024 + 1, 'x'));
   mkdirSync(join(TEST_REPO, 'subdir'), { recursive: true });
   writeFileSync(join(TEST_REPO, 'subdir', 'nested.txt'), 'nested content');
+  mkdirSync(SESSION_ARTIFACT_ROOT, { recursive: true });
+  writeFileSync(join(SESSION_ARTIFACT_ROOT, 'session-report.md'), '# Session report');
+  symlinkSync('/etc', join(SESSION_ARTIFACT_ROOT, 'outside'));
   mkdirSync(join(INBOX_DIR, 'archive'), { recursive: true });
   mkdirSync(BRIEFINGS_DIR, { recursive: true });
   writeFileSync(join(INBOX_DIR, '20260403_154149_01_troubadour.md'), SAMPLE_INBOX_ITEM);
@@ -178,7 +250,7 @@ beforeAll(async () => {
   process.env.NTFY_AUTH_TOKEN = 'test-ntfy-token';
 
   const mod = await import('../app.js');
-  app = mod.app;
+  app = await listenOnLoopback(mod.app);
   setOpenShellLifecycleService = mod.setOpenShellLifecycleService;
   mod.setOverviewEmitter({
     scheduleBroadcast: overviewBroadcast,
@@ -189,6 +261,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  if (app) await closeTestServer(app);
   const { releaseTransportConnection } = await import('../transport-auth-ownership.js');
   releaseTransportConnection('conn-abc', authSessionId);
   releaseTransportConnection('conn-other', authSessionId);
@@ -212,6 +285,21 @@ beforeEach(async () => {
 });
 
 // --- Auth Routes ---
+
+it('stores Symposium host grants in the repository event database', () => {
+  const db = new Database(join(TEST_REPO, '.mitzo', 'events.db'), { readonly: true });
+  try {
+    expect(
+      db
+        .prepare(
+          "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'symposium_host_grants'",
+        )
+        .get(),
+    ).toEqual({ name: 'symposium_host_grants' });
+  } finally {
+    db.close();
+  }
+});
 
 describe('auth routes', () => {
   it('POST /api/auth/login — correct passphrase returns 200 + cookie', async () => {
@@ -299,6 +387,7 @@ describe('bearer token auth', () => {
   let bearerToken: string;
 
   beforeAll(async () => {
+    mockRemoteArtifactRead.mockRejectedValue(new Error('Workspace receipt unavailable'));
     // Get a JWT from login response
     const res = await request(app)
       .post('/api/auth/login')
@@ -544,6 +633,87 @@ describe('session routes', () => {
     expect(Array.isArray(res.body)).toBe(true);
   });
 
+  it('GET /api/sessions/:id/symposium — requires operator auth and shows unconfigured session', async () => {
+    const denied = await request(app).get('/api/sessions/s1/symposium');
+    expect(denied.status).toBe(401);
+    const response = await request(app).get('/api/sessions/s1/symposium').set('Cookie', authCookie);
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({ sessionId: 's1', config: null, seats: [] });
+  });
+
+  it('does not activate or mint grants from OpenShell environment configuration alone', async () => {
+    const { eventStore } = await import('../chat.js');
+    const { SymposiumHostGrants } = await import('../symposium-host-grants.js');
+    const getSession = vi.mocked(eventStore.getSession);
+    const originalGetSession = getSession.getMockImplementation();
+    const activate = vi.spyOn(SymposiumHostGrants.prototype, 'activate');
+    vi.stubEnv('MITZO_OPENSHELL_ENABLED', '1');
+    vi.stubEnv('MITZO_OPENSHELL_IMAGE', 'test-image');
+    vi.stubEnv('MITZO_OPENSHELL_POLICY', '/test/policy.yaml');
+    vi.stubEnv('MITZO_OPENSHELL_SEED', '/test/seed');
+    getSession.mockReturnValue({
+      sessionId: 's1',
+      sessionType: 'symposium',
+      symposiumConfig: JSON.stringify({
+        version: 2,
+        revision: 1,
+        state: 'draft',
+        anchorSeatId: 'builder',
+        activeSeatCap: 1,
+        seats: [
+          {
+            id: 'builder',
+            name: 'Builder',
+            role: 'implementer',
+            model: 'gpt-test',
+            systemPrompt: 'Build the requested patch.',
+            color: '#224466',
+          },
+        ],
+        turnRules: { mode: 'directed', maxTurns: 4 },
+        interceptMode: 'manual',
+      }),
+    } as ReturnType<typeof eventStore.getSession>);
+    try {
+      const response = await request(app)
+        .post('/api/sessions/s1/symposium/activate')
+        .set('Cookie', authCookie)
+        .send({ expectedRevision: 1, sharedBoundaryAcknowledged: true });
+      expect(response.status).toBe(503);
+      expect(response.body.error).toBe('Symposium provider runtime is unavailable');
+      expect(activate).not.toHaveBeenCalled();
+    } finally {
+      activate.mockRestore();
+      getSession.mockImplementation(originalGetSession!);
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it('GET /api/sessions/:id/messages — bounds restore by a valid cursor', async () => {
+    const { getReconnectTranscript } = await import('../chat.js');
+    const bounded = await request(app)
+      .get('/api/sessions/s1/messages?throughSeq=42')
+      .set('Cookie', authCookie);
+    expect(bounded.status).toBe(200);
+    expect(bounded.body).toEqual({ messages: [], current: null });
+    expect(getReconnectTranscript).toHaveBeenCalledWith('s1', 42);
+
+    const invalid = await request(app)
+      .get('/api/sessions/s1/messages?throughSeq=9007199254740993')
+      .set('Cookie', authCookie);
+    expect(invalid.status).toBe(400);
+  });
+
+  it('GET /api/sessions/:id/messages?transcript=1 preserves active seat turns', async () => {
+    const { getSessionTranscript } = await import('../chat.js');
+    const response = await request(app)
+      .get('/api/sessions/s1/messages?transcript=1')
+      .set('Cookie', authCookie);
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({ cursor: 7, currents: [{ messageId: 'seat-active' }] });
+    expect(getSessionTranscript).toHaveBeenCalledWith('s1');
+  });
+
   it('DELETE /api/sessions/:id — hides session', async () => {
     const res = await request(app).delete('/api/sessions/s1').set('Cookie', authCookie);
     expect(res.status).toBe(200);
@@ -729,6 +899,18 @@ describe('file routes', () => {
     expect(res.status).toBe(404);
   });
 
+  it('GET /api/files/read — expands a home path before enforcing workspace access', async () => {
+    const path = `~/${relative(homedir(), join(TEST_REPO, 'test.txt'))}`;
+    const res = await request(app).get('/api/files/read').query({ path }).set('Cookie', authCookie);
+    expect(res.status).toBe(200);
+    expect(res.body.content).toBe('hello world');
+    const denied = await request(app)
+      .get('/api/files/read')
+      .query({ path: '~/private.md' })
+      .set('Cookie', authCookie);
+    expect(denied.status).toBe(403);
+  });
+
   it('GET /api/files/read — reads file content', async () => {
     const res = await request(app)
       .get('/api/files/read')
@@ -737,6 +919,15 @@ describe('file routes', () => {
     expect(res.status).toBe(200);
     expect(res.body.content).toBe('hello world');
     expect(res.body.ext).toBe('.txt');
+  });
+
+  it('GET /api/files/read — rejects content beyond the bounded preview read', async () => {
+    const res = await request(app)
+      .get('/api/files/read')
+      .query({ path: join(TEST_REPO, 'oversized.txt') })
+      .set('Cookie', authCookie);
+    expect(res.status).toBe(413);
+    expect(res.body.error).toContain('5 MB maximum');
   });
 
   it('GET /api/files/read — disallowed path returns 403', async () => {
@@ -755,12 +946,57 @@ describe('file routes', () => {
     expect(res.status).toBe(404);
   });
 
+  it('GET /api/files/read — reads a relative artifact from the originating session workspace', async () => {
+    const res = await request(app)
+      .get('/api/files/read')
+      .query({ path: 'session-report.md', sessionId: 'artifact-session' })
+      .set('Cookie', authCookie);
+
+    expect(res.status).toBe(200);
+    expect(res.body.path).toBe(join(SESSION_ARTIFACT_ROOT, 'session-report.md'));
+    expect(res.body.content).toBe('# Session report');
+  });
+
+  it('GET /api/files — browses the originating session workspace by default', async () => {
+    const res = await request(app)
+      .get('/api/files')
+      .query({ sessionId: 'artifact-session' })
+      .set('Cookie', authCookie);
+
+    expect(res.status).toBe(200);
+    expect(res.body.dir).toBe(SESSION_ARTIFACT_ROOT);
+    expect(res.body.root).toBe(SESSION_ARTIFACT_ROOT);
+    expect(res.body.entries).toContainEqual({ name: 'session-report.md', isDir: false });
+  });
+
+  it('GET /api/files/read — does not trust an unconfigured cwd from session metadata', async () => {
+    const res = await request(app)
+      .get('/api/files/read')
+      .query({ path: '/etc/passwd', sessionId: 'untrusted-artifact-session' })
+      .set('Cookie', authCookie);
+
+    expect(res.status).toBe(403);
+  });
+
+  it('GET /api/files/read — rejects symlinks that escape the session workspace', async () => {
+    const res = await request(app)
+      .get('/api/files/read')
+      .query({ path: 'outside/hosts', sessionId: 'artifact-session' })
+      .set('Cookie', authCookie);
+
+    expect(res.status).toBe(403);
+  });
+
   it('PUT /api/files/write — writes file', async () => {
     const filePath = join(TEST_REPO, 'test.txt');
     const res = await request(app)
       .put('/api/files/write')
       .set('Cookie', authCookie)
-      .send({ path: filePath, content: 'updated content' });
+      .send({
+        path: filePath,
+        content: 'updated content',
+        expectedContent: readFileSync(filePath, 'utf8'),
+      });
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ ok: true, path: filePath });
   });
@@ -803,7 +1039,7 @@ describe('file routes', () => {
     const res = await request(app)
       .put('/api/files/write')
       .set('Cookie', authCookie)
-      .send({ path: '/tmp/outside/file.txt', content: 'nope' });
+      .send({ path: '/tmp/outside/file.txt', content: 'nope', expectedContent: '' });
     expect(res.status).toBe(403);
   });
 
@@ -1238,6 +1474,43 @@ describe('account catalog routes', () => {
     const res = await request(app).get('/api/sessions/bound/meta').set('Cookie', authCookie);
     expect(res.body.accountBinding).toEqual(binding);
   });
+  it('serves Symposium metadata without ordinary account discovery or queue recovery', async () => {
+    const accounts = await import('../account-profiles.js');
+    const load = vi.spyOn(accounts, 'loadAccountProfiles').mockImplementation(() => {
+      throw new Error('ordinary catalog must not load');
+    });
+    const refresh = vi.spyOn(accounts.AccountProfiles.prototype, 'refresh');
+    vi.mocked(eventStore.getSession).mockReturnValueOnce({
+      sessionId: 'symposium',
+      symposiumConfig: '{}',
+      sessionType: 'symposium',
+      accountBinding: {
+        accountId: 'personal',
+        accountLabel: 'Personal',
+        provider: 'openai-codex',
+        model: 'gpt-5.6-luna',
+        profileRevision: 'owned-revision',
+      },
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheReadTokens: 0,
+      cacheCreationTokens: 0,
+    } as ReturnType<typeof eventStore.getSession>);
+    try {
+      const res = await request(app)
+        .get('/api/sessions/symposium/meta?refresh=1')
+        .set('Cookie', authCookie);
+      expect(res.status).toBe(200);
+      expect(res.body.sessionType).toBe('symposium');
+      expect(res.body.modelSelection).toBeUndefined();
+      expect(res.body.codexQueue).toBeUndefined();
+      expect(load).not.toHaveBeenCalled();
+      expect(refresh).not.toHaveBeenCalled();
+    } finally {
+      load.mockRestore();
+      refresh.mockRestore();
+    }
+  });
   it('restores a persisted picker selection for every configured account provider', async () => {
     const file = join(TEST_REPO, 'picker-profiles.json');
     writeFileSync(
@@ -1327,6 +1600,10 @@ describe('account catalog routes', () => {
         recoveryPhase: undefined,
         queued: 0,
         interrupted: 0,
+        failed: 0,
+        retryAvailableAt: undefined,
+        retryable: undefined,
+        requiresRetryConfirmation: undefined,
       })
       .mockReturnValueOnce({
         model: 'gpt-test',
@@ -1337,6 +1614,10 @@ describe('account catalog routes', () => {
         recoveryPhase: undefined,
         queued: 0,
         interrupted: 0,
+        failed: 0,
+        retryAvailableAt: undefined,
+        retryable: undefined,
+        requiresRetryConfirmation: undefined,
       });
     try {
       const legacy = await request(app)
@@ -1379,6 +1660,564 @@ describe('account catalog routes', () => {
       recovering: false,
       queued: 0,
       interrupted: 0,
+      failed: 0,
     });
+  });
+});
+
+describe('mounted personal device login ownership', () => {
+  it('binds instructions and cancellation to the authenticated operator session', async () => {
+    const { installSymposiumProductionHost } = await import('../app.js');
+    const row = { id: 'personal_test', label: 'Test', revision: 1, state: 'disconnected' };
+    const personalConnections = {
+      list: vi.fn(() => [row]),
+      create: vi.fn(() => row),
+      disconnect: vi.fn(async () => ({ ...row, revision: 2 })),
+      recoverDiscovery: vi.fn(async () => ({ status: 'reconciled', inference: false })),
+      discoverModels: vi.fn(async () => ({
+        status: 'complete',
+        inference: false,
+        models: [{ id: 'luna', label: 'Luna' }],
+      })),
+    };
+    const cancel = vi.fn(async () => {});
+    installSymposiumProductionHost({
+      personalConnections,
+      beginDeviceLogin: async () => ({
+        verificationUrl: 'https://auth.openai.com/codex/device',
+        userCode: 'ABCD-1234',
+        expiresAt: Date.now() + 60000,
+        completed: new Promise(() => {}),
+        cancel,
+      }),
+    } as never);
+    const { login } = await import('../auth.js');
+    const first = `cc_auth=${await login(process.env.AUTH_PASSPHRASE!)}`;
+    const second = `cc_auth=${await login(process.env.AUTH_PASSPHRASE!)}`;
+    const started = await request(app)
+      .post('/api/symposium/personal/login')
+      .set('Cookie', first)
+      .send({ method: 'device-code', connectionId: row.id, expectedRevision: row.revision });
+    expect(started.status).toBe(200);
+    const foreign = await request(app)
+      .get('/api/symposium/personal/login/status')
+      .set('Cookie', second);
+    expect(foreign.body).toEqual({ state: 'unknown' });
+    const rejected = await request(app)
+      .post('/api/symposium/personal/login/cancel')
+      .set('Cookie', second)
+      .send({ attemptId: started.body.attemptId });
+    expect(rejected.body).toEqual({ state: 'unknown' });
+    expect(cancel).not.toHaveBeenCalled();
+    expect(
+      (await request(app).get('/api/symposium/personal/login/status').set('Cookie', first)).body
+        .userCode,
+    ).toBe('ABCD-1234');
+    expect(
+      (
+        await request(app)
+          .post('/api/symposium/personal/login/cancel')
+          .set('Cookie', first)
+          .send({ attemptId: started.body.attemptId })
+      ).body.state,
+    ).toBe('cancelled');
+    expect(cancel).toHaveBeenCalledOnce();
+    expect((await request(app).get('/api/symposium/personal/connections')).status).toBe(401);
+    expect(
+      (await request(app).get('/api/symposium/personal/connections').set('Cookie', authCookie))
+        .body,
+    ).toEqual({ connections: [row] });
+    expect(
+      (
+        await request(app)
+          .post('/api/symposium/personal/connections')
+          .set('Cookie', authCookie)
+          .send({ label: 'Test' })
+      ).status,
+    ).toBe(201);
+    expect(personalConnections.create).toHaveBeenCalledWith('Test');
+    expect(
+      (
+        await request(app)
+          .post('/api/symposium/personal/connections/personal_test/disconnect')
+          .set('Cookie', authCookie)
+          .send({ expectedRevision: 1 })
+      ).status,
+    ).toBe(200);
+    expect(personalConnections.disconnect).toHaveBeenCalledWith('personal_test', 1);
+    const endpoint = '/api/symposium/personal/connections/personal_test/models/refresh';
+    expect((await request(app).post(endpoint).send({ expectedRevision: 1 })).status).toBe(401);
+    expect((await request(app).post(endpoint).set('Cookie', first).send({})).status).toBe(400);
+    expect(personalConnections.discoverModels).not.toHaveBeenCalled();
+    const discovered = await request(app)
+      .post(endpoint)
+      .set('Cookie', first)
+      .send({ expectedRevision: 1 });
+    expect(discovered.status).toBe(200);
+    expect(discovered.headers['cache-control']).toBe('no-store');
+    expect(personalConnections.discoverModels).toHaveBeenCalledWith(
+      'personal_test',
+      1,
+      expect.any(Function),
+    );
+    const recoveryEndpoint = endpoint.replace('/refresh', '/recover');
+    expect((await request(app).post(recoveryEndpoint).send({ expectedRevision: 1 })).status).toBe(
+      401,
+    );
+    expect((await request(app).post(recoveryEndpoint).set('Cookie', first).send({})).status).toBe(
+      400,
+    );
+    const recovered = await request(app)
+      .post(recoveryEndpoint)
+      .set('Cookie', first)
+      .send({ expectedRevision: 1 });
+    expect(recovered.status).toBe(200);
+    expect(recovered.headers['cache-control']).toBe('no-store');
+    expect(personalConnections.recoverDiscovery).toHaveBeenCalledWith(
+      'personal_test',
+      1,
+      expect.any(Function),
+    );
+    personalConnections.discoverModels.mockRejectedValueOnce(new Error('private token'));
+    const rejectedDiscovery = await request(app)
+      .post(endpoint)
+      .set('Cookie', first)
+      .send({ expectedRevision: 1 });
+    expect(rejectedDiscovery.status).toBe(409);
+    expect(JSON.stringify(rejectedDiscovery.body)).not.toContain('private token');
+  });
+});
+
+describe('remote artifact fail closed', () => {
+  it.each(['remote-api-session', 'remote-subscription-session'])(
+    'never serves a same-named host file for %s',
+    async (sessionId) => {
+      for (const endpoint of ['read', 'download']) {
+        const res = await request(app)
+          .get(`/api/files/${endpoint}`)
+          .query({ path: 'test.txt', sessionId })
+          .set('Cookie', authCookie);
+        expect(res.status).toBe(409);
+        expect(res.body.error).toContain('workspace');
+        expect(JSON.stringify(res.body)).not.toContain('hello world');
+      }
+    },
+  );
+});
+
+it.each(['remote-api-session', 'remote-subscription-session'])(
+  'serves persisted remote Markdown bytes for %s on read and download',
+  async (sessionId) => {
+    for (const endpoint of ['read', 'download']) {
+      mockRemoteArtifactRead.mockResolvedValueOnce({
+        path: '/sandbox/workspaces/mgmt/report.md',
+        bytes: Buffer.from('# Remote report'),
+      });
+      const res = await request(app)
+        .get(`/api/files/${endpoint}`)
+        .query({ path: 'report.md', sessionId })
+        .set('Cookie', authCookie);
+      expect(res.status).toBe(200);
+      if (endpoint === 'read')
+        expect(res.body).toMatchObject({ content: '# Remote report', ext: '.md' });
+      else {
+        expect(res.headers['content-disposition']).toContain('report.md');
+        expect(res.body.toString()).toBe('# Remote report');
+      }
+      expect(mockRemoteArtifactRead).toHaveBeenLastCalledWith(
+        sessionId,
+        expect.objectContaining({
+          provider: sessionId === 'remote-api-session' ? 'openai' : 'openai-codex',
+        }),
+        '/sandbox/workspaces/mgmt',
+        'report.md',
+      );
+    }
+  },
+);
+
+it.each(['remote-api-session', 'remote-subscription-session'])(
+  'blocks host directory browsing and editing for %s',
+  async (sessionId) => {
+    for (const endpoint of ['/api/files', '/api/files/list']) {
+      const res = await request(app).get(endpoint).query({ sessionId }).set('Cookie', authCookie);
+      expect(res.status).toBe(409);
+      expect(res.body.error).toContain('workspace');
+      expect(res.body.entries).toBeUndefined();
+    }
+    const file = join(TEST_REPO, 'test.txt');
+    const original = readFileSync(file, 'utf8');
+    const res = await request(app)
+      .put('/api/files/write')
+      .set('Cookie', authCookie)
+      .send({ path: 'test.txt', content: 'remote editing must not hit host', sessionId });
+    expect(res.status).toBe(409);
+    expect(readFileSync(file, 'utf8')).toBe(original);
+  },
+);
+
+it('refuses stale host edits and preserves the agent version', async () => {
+  const path = join(TEST_REPO, 'conflict.md');
+  writeFileSync(path, 'agent version');
+  const res = await request(app)
+    .put('/api/files/write')
+    .set('Cookie', authCookie)
+    .send({ path, content: 'my edit', expectedContent: 'original' });
+  expect(res.status).toBe(409);
+  expect(readFileSync(path, 'utf8')).toBe('agent version');
+});
+it.each(['remote-api-session', 'remote-subscription-session'])(
+  'saves a guarded edit in %s without touching host files',
+  async (sessionId) => {
+    mockRemoteArtifactRead.mockResolvedValueOnce({
+      path: '/sandbox/workspaces/mgmt/report.md',
+      bytes: Buffer.alloc(0),
+    });
+    const res = await request(app)
+      .put('/api/files/write')
+      .set('Cookie', authCookie)
+      .send({ path: 'report.md', content: 'my edit', expectedContent: 'original', sessionId });
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ ok: true, path: '/sandbox/workspaces/mgmt/report.md' });
+  },
+);
+
+it.each([
+  'unresolved-api-session',
+  'unresolved-subscription-session',
+  'relative-api-session',
+  'relative-subscription-session',
+])('rejects all filesystem actions for unresolved OpenAI origin %s', async (sessionId) => {
+  for (const endpoint of [
+    '/api/files/read',
+    '/api/files/download',
+    '/api/files',
+    '/api/files/list',
+  ]) {
+    const res = await request(app)
+      .get(endpoint)
+      .query({ path: 'test.txt', sessionId })
+      .set('Cookie', authCookie);
+    expect(res.status).toBe(409);
+    expect(res.body.error).toContain('workspace');
+    expect(res.body.entries).toBeUndefined();
+  }
+  const file = join(TEST_REPO, 'test.txt');
+  const original = readFileSync(file, 'utf8');
+  const res = await request(app)
+    .put('/api/files/write')
+    .set('Cookie', authCookie)
+    .send({ path: 'test.txt', content: 'must not overwrite host', sessionId });
+  expect(res.status).toBe(409);
+  expect(readFileSync(file, 'utf8')).toBe(original);
+});
+
+it.each(['host-api-session', 'host-subscription-session'])(
+  'preserves configured absolute host workspace access for %s',
+  async (sessionId) => {
+    for (const endpoint of [
+      '/api/files/read',
+      '/api/files/download',
+      '/api/files',
+      '/api/files/list',
+    ]) {
+      const res = await request(app)
+        .get(endpoint)
+        .query({ path: 'test.txt', sessionId })
+        .set('Cookie', authCookie);
+      expect(res.status).toBe(200);
+    }
+    const original = readFileSync(join(TEST_REPO, 'test.txt'), 'utf8');
+    const res = await request(app)
+      .put('/api/files/write')
+      .set('Cookie', authCookie)
+      .send({ path: 'test.txt', content: original, expectedContent: original, sessionId });
+    expect(res.status).toBe(200);
+  },
+);
+
+it('refuses host writes without a baseline and preserves the file', async () => {
+  const path = join(TEST_REPO, 'unguarded.md');
+  writeFileSync(path, 'agent version');
+  const res = await request(app)
+    .put('/api/files/write')
+    .set('Cookie', authCookie)
+    .send({ path, content: 'legacy edit' });
+  expect(res.status).toBe(409);
+  expect(readFileSync(path, 'utf8')).toBe('agent version');
+});
+it('accepts two full-size documents including JSON control-character escaping', async () => {
+  const path = join(TEST_REPO, 'full-size.md');
+  const expectedContent = '\u0000'.repeat(5 * 1024 * 1024);
+  writeFileSync(path, expectedContent);
+  const content = '\u0001'.repeat(5 * 1024 * 1024);
+  const res = await request(app)
+    .put('/api/files/write')
+    .set('Cookie', authCookie)
+    .send({ path, content, expectedContent });
+  expect(res.status).toBe(200);
+  expect(readFileSync(path, 'utf8') === content).toBe(true);
+}, 15_000);
+it('refuses an unbound unconfigured sandbox origin without reading the host fallback', async () => {
+  for (const endpoint of [
+    '/api/files/read',
+    '/api/files/download',
+    '/api/files',
+    '/api/files/list',
+  ]) {
+    const res = await request(app)
+      .get(endpoint)
+      .query({ path: 'test.txt', sessionId: 'unbound-sandbox-session' })
+      .set('Cookie', authCookie);
+    expect(res.status).toBe(409);
+  }
+  const file = join(TEST_REPO, 'test.txt');
+  const original = readFileSync(file, 'utf8');
+  const res = await request(app).put('/api/files/write').set('Cookie', authCookie).send({
+    path: 'test.txt',
+    content: 'wrong origin',
+    expectedContent: original,
+    sessionId: 'unbound-sandbox-session',
+  });
+  expect(res.status).toBe(409);
+  expect(readFileSync(file, 'utf8')).toBe(original);
+});
+
+it.each(['sandbox-prefix-host-api-session', 'sandbox-prefix-host-subscription-session'])(
+  'honors configured host origin despite sandbox prefix for %s',
+  async (sessionId) => {
+    const file = join(TEST_REPO, 'test.txt');
+    for (const endpoint of ['/api/files/read', '/api/files/download']) {
+      const res = await request(app)
+        .get(endpoint)
+        .query({ path: file, sessionId })
+        .set('Cookie', authCookie);
+      expect(res.status).toBe(200);
+    }
+    for (const endpoint of ['/api/files/read', '/api/files', '/api/files/list']) {
+      const res = await request(app)
+        .get(endpoint)
+        .query({ path: 'missing.md', sessionId })
+        .set('Cookie', authCookie);
+      expect(res.status).toBe(404);
+    }
+    const original = readFileSync(file, 'utf8');
+    const res = await request(app)
+      .put('/api/files/write')
+      .set('Cookie', authCookie)
+      .send({ path: file, content: original, expectedContent: original, sessionId });
+    expect(res.status).toBe(200);
+  },
+);
+
+it.each(['openai', 'openai-codex'] as const)(
+  'uses the recorded model override for remote reads and guarded writes with %s',
+  async (provider) => {
+    const accounts = await import('../account-profiles.js');
+    const profiles = new accounts.AccountProfiles([]);
+    const load = vi.spyOn(accounts, 'loadAccountProfiles').mockReturnValue(profiles);
+    vi.spyOn(profiles, 'apiProfile').mockReturnValue({
+      credentialRef: { provider: 'keychain', service: 'test', account: 'test' },
+      sandboxProvider: 'test-provider',
+      sandboxProviderId: 'test-provider-id',
+    });
+    vi.spyOn(profiles, 'codexProfile').mockReturnValue({
+      accountId: 'test',
+      accountLabel: 'Test',
+      email: 'test@example.com',
+      planType: 'plus',
+      sandboxProvider: 'test-provider',
+      sandboxProviderType: 'openai-codex-oauth',
+      sandboxProviderId: 'test-provider-id',
+      sandboxGrantId: 'test-grant',
+      model: 'default-model',
+    });
+    const binding = {
+      provider,
+      accountId: 'test',
+      accountLabel: 'Test',
+      model: 'default-model',
+      profileRevision: 'test',
+    };
+    const original = vi.mocked(eventStore.getSession).getMockImplementation();
+    vi.mocked(eventStore.getSession).mockImplementation(
+      () =>
+        ({
+          sessionId: 'override-session',
+          cwd: '/sandbox/workspaces/mgmt',
+          accountBinding: binding,
+          selectedModel: 'selected-model',
+        }) as ReturnType<typeof eventStore.getSession>,
+    );
+    try {
+      for (const endpoint of ['read', 'download', 'write']) {
+        mockRemoteArtifactRead.mockResolvedValueOnce({
+          path: '/sandbox/workspaces/mgmt/report.md',
+          bytes: Buffer.from('# Remote'),
+        });
+        const res =
+          endpoint === 'write'
+            ? await request(app).put('/api/files/write').set('Cookie', authCookie).send({
+                sessionId: 'override-session',
+                path: 'report.md',
+                expectedContent: '# Remote',
+                content: '# Edited',
+              })
+            : await request(app)
+                .get(`/api/files/${endpoint}`)
+                .set('Cookie', authCookie)
+                .query({ sessionId: 'override-session', path: 'report.md' });
+        expect(res.status).toBe(200);
+        const deps = mockRemoteArtifactFactory.mock
+          .lastCall![0] as import('../session-artifact-reader.js').SessionArtifactReaderDependencies;
+        expect(deps.currentRoute(binding)).toMatchObject({
+          model: 'selected-model',
+          provider: 'test-provider',
+        });
+      }
+    } finally {
+      load.mockRestore();
+      vi.mocked(eventStore.getSession).mockImplementation(original!);
+    }
+  },
+);
+
+describe('repository links to session worktree artifacts', () => {
+  const worktree = join(TEST_REPO, '.claude', 'worktrees', 'posted-artifact');
+  const relativeFile = 'architecture/discussions/platform/openshell-redteam-ci-budget.md';
+  const postedPath = join(TEST_REPO, relativeFile);
+  const actualPath = join(worktree, relativeFile);
+  let original: typeof eventStore.getSession | undefined;
+  beforeAll(() => {
+    mkdirSync(join(worktree, 'architecture/discussions/platform'), { recursive: true });
+    writeFileSync(actualPath, '# Worktree document');
+    symlinkSync('/etc', join(worktree, 'outside'));
+  });
+  beforeEach(() => {
+    original = vi.mocked(eventStore.getSession).getMockImplementation();
+    vi.mocked(eventStore.getSession).mockImplementation((id) =>
+      id === 'posted-artifact'
+        ? ({ sessionId: id, cwd: worktree, wtId: 'posted-artifact' } as ReturnType<
+            typeof eventStore.getSession
+          >)
+        : original!(id),
+    );
+  });
+  afterEach(() => vi.mocked(eventStore.getSession).mockImplementation(original!));
+  it('opens and downloads a missing main-repository link from its originating worktree', async () => {
+    for (const endpoint of ['read', 'download']) {
+      const res = await request(app)
+        .get(`/api/files/${endpoint}`)
+        .set('Cookie', authCookie)
+        .query({ path: postedPath, sessionId: 'posted-artifact' });
+      expect(res.status).toBe(200);
+      if (endpoint === 'read')
+        expect(res.body).toMatchObject({ path: actualPath, content: '# Worktree document' });
+      else expect(res.text).toBe('# Worktree document');
+    }
+  });
+  it('saves the resolved worktree file with the original-content guard', async () => {
+    const res = await request(app).put('/api/files/write').set('Cookie', authCookie).send({
+      path: postedPath,
+      sessionId: 'posted-artifact',
+      expectedContent: '# Worktree document',
+      content: '# Updated worktree',
+    });
+    expect(res.status).toBe(200);
+    expect(res.body.path).toBe(actualPath);
+    expect(readFileSync(actualPath, 'utf8')).toBe('# Updated worktree');
+    writeFileSync(actualPath, '# Worktree document');
+  });
+  it('resolves a configured secondary repository through the recorded worktree ID', async () => {
+    const chat = await import('../chat.js');
+    const getConfig = vi.mocked(chat.getRepoConfig);
+    const originalConfig = getConfig.getMockImplementation()!;
+    const secondary = join(TEST_REPO, 'secondary-repo');
+    const secondaryWorktree = join(secondary, '.cursor', 'worktrees', 'posted-artifact');
+    mkdirSync(join(secondaryWorktree, 'outputs'), { recursive: true });
+    writeFileSync(join(secondaryWorktree, 'outputs/report.md'), '# Secondary artifact');
+    getConfig.mockImplementation(() => ({ ...originalConfig(), repos: { secondary } }));
+    try {
+      const res = await request(app)
+        .get('/api/files/read')
+        .set('Cookie', authCookie)
+        .query({ path: join(secondary, 'outputs/report.md'), sessionId: 'posted-artifact' });
+      expect(res.status).toBe(200);
+      expect(res.body).toMatchObject({
+        path: join(secondaryWorktree, 'outputs/report.md'),
+        content: '# Secondary artifact',
+      });
+      for (const dir of [join(secondaryWorktree, 'outputs'), secondaryWorktree]) {
+        const listing = await request(app)
+          .get('/api/files')
+          .set('Cookie', authCookie)
+          .query({ dir, sessionId: 'posted-artifact' });
+        expect(listing.status).toBe(200);
+        expect(listing.body).toMatchObject({ dir, root: secondaryWorktree });
+      }
+    } finally {
+      getConfig.mockImplementation(originalConfig);
+    }
+  });
+  it.each(['active', 'restarted'])(
+    'resolves the recorded secondary worktree after resume (%s)',
+    async (state) => {
+      const chat = await import('../chat.js');
+      const getConfig = vi.mocked(chat.getRepoConfig);
+      const originalConfig = getConfig.getMockImplementation()!;
+      const secondary = join(TEST_REPO, 'resumed-secondary');
+      const target = join(secondary, '.claude', 'worktrees', 'resumed-id');
+      mkdirSync(join(target, 'outputs'), { recursive: true });
+      writeFileSync(join(target, 'outputs/report.md'), '# Resumed artifact');
+      getConfig.mockImplementation(() => ({ ...originalConfig(), repos: { secondary } }));
+      const findSession = vi.mocked(chat.registry.findBySessionId);
+      const originalFind = findSession.getMockImplementation()!;
+      const events = vi.mocked(eventStore.getLatestWorktreePath);
+      const originalEvents = events.getMockImplementation();
+      if (state === 'active')
+        findSession.mockReturnValue({
+          session: {
+            worktreePaths: new Map([['secondary', { path: target, wtId: 'resumed-id' }]]),
+          },
+        } as ReturnType<typeof chat.registry.findBySessionId>);
+      else events.mockReturnValue(target);
+      try {
+        const res = await request(app)
+          .get('/api/files/read')
+          .set('Cookie', authCookie)
+          .query({ path: join(secondary, 'outputs/report.md'), sessionId: 'posted-artifact' });
+        expect(res.status).toBe(200);
+        expect(res.body.path).toBe(join(target, 'outputs/report.md'));
+      } finally {
+        getConfig.mockImplementation(originalConfig);
+        findSession.mockImplementation(originalFind);
+        if (originalEvents) events.mockImplementation(originalEvents);
+        else events.mockReturnValue(null);
+      }
+    },
+  );
+  it('does not guess a worktree without conversation identity', async () => {
+    const res = await request(app)
+      .get('/api/files/read')
+      .set('Cookie', authCookie)
+      .query({ path: postedPath });
+    expect(res.status).toBe(404);
+  });
+  it('preserves an existing explicit repository file', async () => {
+    writeFileSync(join(TEST_REPO, 'existing-main.md'), 'explicit main file');
+    writeFileSync(join(worktree, 'existing-main.md'), 'other worktree bytes');
+    const res = await request(app)
+      .get('/api/files/read')
+      .set('Cookie', authCookie)
+      .query({ path: join(TEST_REPO, 'existing-main.md'), sessionId: 'posted-artifact' });
+    expect(res.status).toBe(200);
+    expect(res.body.content).toBe('explicit main file');
+  });
+  it('refuses a candidate escaping the worktree through a symlink', async () => {
+    const res = await request(app)
+      .get('/api/files/read')
+      .set('Cookie', authCookie)
+      .query({ path: join(TEST_REPO, 'outside/passwd'), sessionId: 'posted-artifact' });
+    expect(res.status).toBe(404);
   });
 });

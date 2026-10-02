@@ -431,16 +431,16 @@ The task board lets you drop a high-level goal and have Claude decompose it into
 
 ### REST API
 
-| Endpoint                      | Description                       |
-| ----------------------------- | --------------------------------- |
-| `GET /api/tasks`              | List all tasks                    |
-| `POST /api/tasks`             | Create a task                     |
-| `POST /api/loop/start`        | Start the orchestration loop      |
-| `POST /api/loop/pause`        | Pause execution                   |
-| `POST /api/loop/resume`       | Resume execution                  |
-| `POST /api/loop/stop`         | Stop the loop                     |
-| `POST /api/tasks/:id/approve` | Approve a spec-mode decomposition |
-| `POST /api/tasks/:id/reject`  | Reject and re-plan                |
+| Endpoint                      | Description                                                                                                                                                                                                    |
+| ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /api/tasks`              | List all tasks                                                                                                                                                                                                 |
+| `POST /api/tasks`             | Create a task                                                                                                                                                                                                  |
+| `POST /api/loop/start`        | Start a goal. Send `{goalId, specMode?, sessionId?}`; `sessionId` selects the chat for spec mode or reuse and is omitted for spawn-only workflows. A missing required target returns 422 `client_id_required`. |
+| `POST /api/loop/pause`        | Pause execution                                                                                                                                                                                                |
+| `POST /api/loop/resume`       | Resume execution                                                                                                                                                                                               |
+| `POST /api/loop/stop`         | Stop the loop                                                                                                                                                                                                  |
+| `POST /api/tasks/:id/approve` | Approve a spec-mode decomposition                                                                                                                                                                              |
+| `POST /api/tasks/:id/reject`  | Reject and re-plan                                                                                                                                                                                             |
 
 ## Voice (optional)
 
@@ -565,6 +565,28 @@ npm run observability:down
 ```
 
 Requires podman (`brew install podman`) or Docker.
+
+### Upgrading Grafana
+
+This stack stores Grafana data in `.grafana-data`. Before starting Grafana 13.2 after upgrading from 12.4, stop Grafana and back up the entire directory, including its SQLite database:
+
+```bash
+docker compose stop grafana
+cp -a .grafana-data ../mitzo-grafana-data.backup
+```
+
+If the upgrade fails, stop Grafana, move the upgraded data aside, restore the backup, and set the image in `docker-compose.yml` back to the previous Grafana tag before restarting:
+
+```bash
+docker compose stop grafana
+mv .grafana-data ../mitzo-grafana-data.failed
+cp -a ../mitzo-grafana-data.backup .grafana-data
+docker compose up -d grafana
+```
+
+If Podman manages the stack, use `podman compose` instead of `docker compose` in these commands.
+
+Keep the backup until Grafana 13.2 is working as expected.
 
 ### Enable tracing
 

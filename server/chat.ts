@@ -1,3 +1,15 @@
+import { localHttpBaseUrl, localServerUsesTls } from './local-server-url.js';
+import { TELOS_ARTIFACT_INSTRUCTIONS } from './telos-artifact-tools.js';
+import { requireCustodianOrdinaryRuntime } from './custodian-ordinary-runtime.js';
+import {
+  createWebAccessSdkServer,
+  webAccessSdkPermission,
+  WEB_ACCESS_SDK_TOOL,
+} from './web-access-sdk.js';
+import { createWebAccessTool } from './web-access-tool.js';
+import { WEB_ACCESS_INSTRUCTIONS } from './request-web-access.js';
+import { searchSdk } from './web-search-adapters.js';
+import { custodianControllerMode, custodianOwnerMode } from './symposium-custodian-mode.js';
 import { permissionRevision, type ResumePermission } from './session-permission-revision.js';
 import { GoogleAuth } from 'google-auth-library';
 import type { GeminiOptions } from './gemini-session.js';
@@ -6,13 +18,27 @@ import {
   SESSION_PERMISSION_INSTRUCTIONS,
 } from './session-permission-policy.js';
 import { credentials } from './credentials.js';
-import { getResponsesRuntime, openResponsesChat } from './responses-chat-session.js';
+import {
+  getResponsesRuntime,
+  openResponsesChat,
+  trackResponsesProviderAdmission,
+} from './responses-chat-session.js';
+import {
+  admitProviderDispatch,
+  preflightProviderDispatch,
+  type ProviderDispatchAdmission,
+} from './provider-execution.js';
 import { CodexAppServerClient, codexEnvironment } from './codex-app-server-client.js';
 import { verifyCodexAccount, type CodexAccountProfile } from './codex-account.js';
-import { openCodexChat, getCodexRuntime } from './codex-chat-session.js';
+import {
+  openCodexChat,
+  getCodexRuntime,
+  trackCodexProviderAdmission,
+} from './codex-chat-session.js';
 import {
   loadAccountProfiles,
   resolveAccountSelection,
+  resolveEffectiveAccountSelection,
   LEGACY_MODELS,
   type AccountProfiles,
 } from './account-profiles.js';
@@ -24,12 +50,18 @@ import {
   renameSession,
 } from '@anthropic-ai/claude-agent-sdk';
 import type { Query, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
-import type { SessionTransport, ConnectionRegistry, ManagedSession } from '@mitzo/harness';
+import type {
+  SessionTransport,
+  ConnectionRegistry,
+  ManagedSession,
+  CloseoutEpisode,
+} from '@mitzo/harness';
 import { execFileSync } from 'child_process';
 import { readFileSync, writeFileSync, mkdirSync, readdirSync, existsSync } from 'fs';
-import { join, resolve, dirname } from 'path';
+import { join, resolve, dirname, isAbsolute } from 'path';
 import { fileURLToPath } from 'url';
-import { randomUUID } from 'crypto';
+import { resolveBundledMcpEntrypoint } from './mcp-entrypoint.js';
+import { createHash, randomUUID } from 'crypto';
 import { homedir, platform } from 'os';
 import {
   createWorktree,
@@ -45,6 +77,12 @@ import { effectivePermissionMode } from '@mitzo/harness';
 import { SessionRegistry, type MitzoMode } from './session-registry.js';
 import { parseContentBlocks } from './content-blocks.js';
 import { loadMcpServers, type McpServerConfig } from './mcp-config.js';
+import {
+  buildConfiguredMcpAllowedTools,
+  rejectReservedMcpServerCollisions,
+  TASK_MCP_SERVER_NAME,
+  TELOS_MCP_SERVER_NAME,
+} from './host-mcp-servers.js';
 import { applyTierOverrides } from './tool-tiers.js';
 import { loadRepoConfig } from './repo-config.js';
 import { loadProjectHooks } from './hook-bridge.js';
@@ -101,8 +139,19 @@ export function adaptSdkQuery(sdkQuery: Query): QueryInstance {
 }
 
 let _connRegistry: ConnectionRegistry | null = null;
+export function getConnectionRegistry(): ConnectionRegistry | null {
+  return _connRegistry;
+}
 export function setConnectionRegistry(registry: ConnectionRegistry): void {
   _connRegistry = registry;
+}
+
+/** Fan out an already durable Symposium event through both WS and SSE watchers. */
+export function broadcastDurableSymposiumEvent(
+  sessionId: string,
+  event: Record<string, unknown>,
+): void {
+  _connRegistry?.broadcast(sessionId, event);
 }
 
 type SessionChangeCallback = (
@@ -131,6 +180,10 @@ import {
 } from './session-index.js';
 import { createLogger } from './logger.js';
 import { withSpan, withSpanAsync } from './tracing.js';
+import { ExecutionAdmissionError } from '@mitzo/protocol/event-store';
+import { admitCloseout, type CloseoutAdmission } from './closeout-admission.js';
+import type { ProviderAttemptToken, SymposiumProvenance } from '@mitzo/protocol';
+import { buildClientCapabilitiesPrompt, SymposiumProvenanceSchema } from '@mitzo/protocol';
 
 const log = createLogger('chat');
 
@@ -143,7 +196,8 @@ function initEventStore(): EventStore {
   const store = new EventStore(dbPath);
   const recover = Reflect.get(store, 'recoverSymposiumDeliveries') as
     EventStore['recoverSymposiumDeliveries'] | undefined;
-  const recovered = recover?.call(store, Date.now()) ?? [];
+  const recovered =
+    custodianControllerMode || custodianOwnerMode ? [] : (recover?.call(store, Date.now()) ?? []);
   if (recovered.length > 0) {
     log.warn('recovered interrupted Symposium deliveries during startup', {
       deliveryIds: recovered.map((delivery) => delivery.deliveryId),
@@ -153,6 +207,57 @@ function initEventStore(): EventStore {
 }
 
 export const eventStore = initEventStore();
+
+const fallbackCloseoutAttempts = new WeakMap<
+  ManagedSession,
+  {
+    admission: CloseoutAdmission;
+    attempt: ProviderAttemptToken;
+    /** The SDK-generated input UUID echoed before the command's final result. */
+    inputUuid: string;
+    inputObserved: boolean;
+  }
+>();
+
+function markFallbackCloseoutInputObserved(session: ManagedSession, inputUuid: string): void {
+  const tracked = fallbackCloseoutAttempts.get(session);
+  if (tracked?.inputUuid === inputUuid) tracked.inputObserved = true;
+}
+
+function markFallbackCloseoutAmbiguous(session: ManagedSession): void {
+  const tracked = fallbackCloseoutAttempts.get(session);
+  if (!tracked) return;
+  // An SDK abort only stops this local stream. Without a matching provider
+  // result, the remote closeout may still run and its outcome is unknown.
+  eventStore.transitionProviderAttempt(tracked.attempt, 'TERMINAL', 'ambiguous');
+  eventStore.transitionExecution(tracked.admission.token, 'TERMINAL', 'failed');
+  fallbackCloseoutAttempts.delete(session);
+}
+
+function finishFallbackCloseout(
+  session: ManagedSession,
+  status: 'completed' | 'failed',
+  inputUuid?: string,
+): void {
+  const tracked = fallbackCloseoutAttempts.get(session);
+  if (!tracked) return;
+  // Generic assistant message ends happen between provider tool calls and can
+  // also belong to a turn that pre-dates the closeout input. Only the echoed
+  // closeout input followed by its terminal SDK result may complete admission.
+  // If the echo is absent, leave the dispatched work recoverably ambiguous.
+  if (!tracked.inputObserved || inputUuid === undefined || inputUuid !== tracked.inputUuid) return;
+  eventStore.transitionProviderAttempt(
+    tracked.attempt,
+    'TERMINAL',
+    status === 'completed' ? 'completed' : 'ambiguous',
+  );
+  eventStore.transitionExecution(
+    tracked.admission.token,
+    'TERMINAL',
+    status === 'completed' ? 'completed' : 'failed',
+  );
+  fallbackCloseoutAttempts.delete(session);
+}
 
 export type { MitzoMode } from './session-registry.js';
 
@@ -301,7 +406,13 @@ export async function fetchBootContext(
 
 let mcpServers: Record<string, McpServerConfig> = {};
 try {
-  mcpServers = loadMcpServers();
+  const configured = rejectReservedMcpServerCollisions(loadMcpServers());
+  mcpServers = configured.servers;
+  if (configured.rejected.length > 0) {
+    log.error('ignored configured MCP servers using reserved host names', {
+      names: configured.rejected,
+    });
+  }
 } catch (err: unknown) {
   log.error('failed to load MCP servers', { error: err instanceof Error ? err.message : err });
 }
@@ -532,7 +643,7 @@ function getBranch(cwd: string): string {
 }
 
 function buildMcpAllowedTools(clientId?: string): string[] {
-  const patterns = Object.keys(mcpServers).map((name) => `mcp__${name}__*`);
+  const patterns = buildConfiguredMcpAllowedTools(mcpServers);
   if (clientId) {
     const session = registry.get(clientId);
     if (session?.taskContext) {
@@ -546,7 +657,7 @@ function buildMcpAllowedTools(clientId?: string): string[] {
  * Build an on-demand worktree creation callback for the permission handler.
  * Maps an absolute path to a configured repo and creates a worktree if needed.
  */
-function buildOnDemandCreate(wtId: string): OnDemandCreateFn {
+function buildOnDemandCreate(wtId: string, clientId: string): OnDemandCreateFn {
   return async (absolutePath: string) => {
     const config = getRepoConfig();
     const allRepos: [string, string][] = [];
@@ -558,6 +669,17 @@ function buildOnDemandCreate(wtId: string): OnDemandCreateFn {
       if (!absolutePath.startsWith(repoPath + '/') && absolutePath !== repoPath) continue;
       try {
         const worktreePath = await createWorktreeAsync(wtId, repoPath);
+        const sessionId = registry.get(clientId)?.sessionId;
+        if (sessionId) {
+          eventStore.append(sessionId, 'worktree_opened', {
+            v: 2,
+            type: 'worktree_opened',
+            ts: Date.now(),
+            sessionId,
+            repoName: name,
+            path: worktreePath,
+          });
+        }
         return { repoName: name, worktreePath };
       } catch (err) {
         log.error('on-demand worktree creation failed', {
@@ -629,21 +751,30 @@ export function createSessionWorktrees(
   };
 }
 
-const TASK_MCP_SERVER_NAME = 'task-board';
-
 function buildTaskMcpServer(clientId: string): Record<string, McpServerConfig> | null {
   const session = registry.get(clientId);
   if (!session?.taskContext) return null;
   const port = process.env.PORT || '3100';
+  const entrypoint = resolveBundledMcpEntrypoint(import.meta.url, 'task-mcp-server');
   return {
     [TASK_MCP_SERVER_NAME]: {
-      command: 'node',
+      command: entrypoint.command,
+      args: [...entrypoint.args, '--base-url', `http://localhost:${port}`, '--client-id', clientId],
+      env: { MITZO_INTERNAL_TOKEN: INTERNAL_TOKEN },
+    },
+  };
+}
+
+function buildTelosMcpServer(clientId: string): Record<string, McpServerConfig> {
+  const port = Number.parseInt(process.env.PORT || '3100', 10);
+  const entrypoint = resolveBundledMcpEntrypoint(import.meta.url, 'telos-mcp-server');
+  return {
+    [TELOS_MCP_SERVER_NAME]: {
+      command: entrypoint.command,
       args: [
-        '--import',
-        'tsx',
-        join(__dirname, 'task-mcp-server.ts'),
+        ...entrypoint.args,
         '--base-url',
-        `http://localhost:${port}`,
+        localHttpBaseUrl(port, localServerUsesTls()),
         '--client-id',
         clientId,
       ],
@@ -807,14 +938,28 @@ function makeUserMessage(
   content: string,
   priority: 'now' | 'next' | 'later' = 'next',
   messageId?: string,
-): SDKUserMessage & { mitzoMessageId?: string } {
+  providerAdmission?: ProviderDispatchAdmission,
+  inputUuid?: SDKUserMessage['uuid'],
+): SDKUserMessage & {
+  mitzoMessageId?: string;
+  providerAdmission?: ProviderDispatchAdmission;
+} {
   return {
     type: 'user',
     message: { role: 'user', content },
     parent_tool_use_id: null,
     priority,
     ...(messageId ? { mitzoMessageId: messageId } : {}),
+    ...(providerAdmission ? { providerAdmission } : {}),
+    ...(inputUuid ? { uuid: inputUuid } : {}),
   };
+}
+
+/** Stable server-side conversation identity for retrying an initial native WS frame. */
+export function nativeStartupSessionId(clientMsgId: string): string {
+  const hex = createHash('sha256').update(`mitzo-native-startup\0${clientMsgId}`).digest('hex');
+  const variant = ((Number.parseInt(hex[16], 16) & 0x3) | 0x8).toString(16);
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-8${hex.slice(13, 16)}-${variant}${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
 }
 
 export async function startChat(
@@ -838,11 +983,17 @@ export async function startChat(
     contextBlocks?: string[];
     clientMsgId?: string;
     onSessionResolved?: (sessionId: string) => void;
+    onStartupAdmission?: (error?: unknown) => void;
+    onFirstEventOutcome?: (error?: Error) => void;
+    onTerminalOutcome?: (error?: Error) => void;
     telosTaskId?: string;
     agentName?: string;
     userIntent?: string;
+    reattachOnly?: boolean;
   },
 ) {
+  const startupGuard: { admission?: ProviderDispatchAdmission } = {};
+  let releaseOrdinaryStartup: (() => void) | undefined;
   return withSpanAsync(
     'chat.start',
     {
@@ -850,8 +1001,24 @@ export async function startChat(
       'chat.resume': options.resume ?? '',
       'chat.mode': options.mode ?? 'agent',
     },
-    async () => _startChatInner(transport, clientId, prompt, options),
-  );
+    async () => {
+      releaseOrdinaryStartup = eventStore.reserveOrdinaryStartup(
+        [options.resume, options.initialSessionId].filter((id): id is string => Boolean(id)),
+      );
+      return _startChatInner(transport, clientId, prompt, options, startupGuard);
+    },
+  )
+    .catch((error: unknown) => {
+      options.onStartupAdmission?.(error);
+      throw error;
+    })
+    .finally(() => {
+      try {
+        cleanupUndispatchedStartup(startupGuard.admission, clientId);
+      } finally {
+        releaseOrdinaryStartup?.();
+      }
+    });
 }
 
 async function _startChatInner(
@@ -875,17 +1042,24 @@ async function _startChatInner(
     contextBlocks?: string[];
     clientMsgId?: string;
     onSessionResolved?: (sessionId: string) => void;
+    onStartupAdmission?: (error?: unknown) => void;
+    onFirstEventOutcome?: (error?: Error) => void;
+    onTerminalOutcome?: (error?: Error) => void;
     telosTaskId?: string;
     agentName?: string;
     userIntent?: string;
+    reattachOnly?: boolean;
   },
+  startupGuard: { admission?: ProviderDispatchAdmission },
 ) {
   const openShellAvailable =
     process.env.MITZO_OPENSHELL_ENABLED === '1' || !!process.env.MITZO_OPENSHELL_SANDBOX_NAME;
+  const initialMessageId = options.clientMsgId ?? randomUUID();
   let openShellRequested = false;
   let accountBinding;
   let codexProfile: CodexAccountProfile | undefined;
   let apiKey: string | undefined;
+  let apiCredentialRef: Parameters<typeof credentials.resolve>[0] | undefined;
   let gemini: GeminiOptions | undefined;
   let accountEnv: Record<string, string> | undefined;
   try {
@@ -898,6 +1072,7 @@ async function _startChatInner(
     if (!accountBinding && openShellAvailable)
       throw new Error('OpenShell execution requires an explicit account selection');
     if (accountBinding) {
+      requireCustodianOrdinaryRuntime(custodianControllerMode, accountBinding.provider);
       openShellRequested =
         openShellAvailable &&
         (accountBinding.provider === 'openai-codex' ||
@@ -905,16 +1080,7 @@ async function _startChatInner(
             process.env.MITZO_OPENSHELL_OPENAI_API_ENABLED !== '0'));
       options = {
         ...options,
-        model: options.accountId
-          ? (options.model ?? storedMeta?.selectedModel ?? accountBinding.model)
-          : (storedMeta?.selectedModel ?? accountBinding.model),
-        reasoningEffort: options.accountId
-          ? options.reasoningEffort !== undefined
-            ? options.reasoningEffort
-            : options.model && options.model !== (storedMeta?.selectedModel ?? accountBinding.model)
-              ? null
-              : storedMeta?.reasoningEffort
-          : storedMeta?.reasoningEffort,
+        ...resolveEffectiveAccountSelection(options, storedMeta, accountBinding),
       };
       if (
         accountBinding.provider === 'openai' ||
@@ -971,7 +1137,6 @@ async function _startChatInner(
             return token;
           },
         };
-        await gemini.getAccessToken();
         accountEnv = nativeExecutionEnv();
       } else if (accountBinding.provider === 'openai') {
         if (options.images?.length)
@@ -989,11 +1154,12 @@ async function _startChatInner(
             sandboxProvider: profile.sandboxProvider,
             model: accountBinding.model,
           };
-        } else apiKey = await credentials.resolve(profile.credentialRef);
+        } else apiCredentialRef = profile.credentialRef;
         accountEnv = openShellRequested ? restrictedChildEnv() : nativeExecutionEnv();
       } else accountEnv = profiles!.sdkEnv(accountBinding, sdkEnv());
     }
   } catch (err: unknown) {
+    options.onStartupAdmission?.(err);
     send(transport, {
       type: 'error',
       error: err instanceof Error ? err.message : 'Account selection failed',
@@ -1023,6 +1189,113 @@ async function _startChatInner(
     : (options.mode ?? 'agent');
 
   const baseCwd = openShellWorkdir ?? resolveResumeCwd(options);
+  const nativeProviderSelected = !!apiCredentialRef || !!gemini;
+
+  if (
+    nativeProviderSelected &&
+    !options.reattachOnly &&
+    !options.resume &&
+    !options.initialSessionId
+  ) {
+    options = { ...options, initialSessionId: nativeStartupSessionId(initialMessageId) };
+  }
+
+  // Native initial and cold-resume commands need durable identity before any
+  // worktree, registry, transcript, or provider queue side effect. New bound
+  // sessions receive their canonical ID here so an exact retry can consult the
+  // same admission instead of selecting a fresh initial route.
+  let initialProviderAdmission: ProviderDispatchAdmission | undefined;
+  if (nativeProviderSelected && !options.reattachOnly) {
+    const conversationId = options.resume ?? options.initialSessionId ?? randomUUID();
+    if (!options.resume && !options.initialSessionId) {
+      options = { ...options, initialSessionId: conversationId };
+    }
+    if (!eventStore.getSession(conversationId)) {
+      eventStore.upsertSession({
+        sessionId: conversationId,
+        cwd: baseCwd,
+        mode,
+        ...(accountBinding ? { accountBinding } : {}),
+        selectedModel: options.model ?? accountBinding?.model ?? null,
+        reasoningEffort: options.reasoningEffort ?? null,
+      });
+    }
+    try {
+      const stablePrompt = assemblePrompt(prompt, baseCwd, undefined, options.contextBlocks);
+      initialProviderAdmission = admitProviderDispatch({
+        store: eventStore,
+        request: {
+          sessionId: conversationId,
+          clientMsgId: initialMessageId,
+          effectivePrompt: stablePrompt,
+          fingerprintSource: providerFingerprintSource(stablePrompt, options.images),
+          model: options.model,
+          reasoningEffort: options.reasoningEffort,
+          accountBinding,
+        },
+        prepare: () => {},
+      });
+      if (initialProviderAdmission.duplicate) {
+        options.onStartupAdmission?.();
+        return;
+      }
+      startupGuard.admission = initialProviderAdmission;
+    } catch (err: unknown) {
+      options.onStartupAdmission?.(err);
+      send(transport, {
+        type: 'error',
+        ...(options.resume || options.initialSessionId
+          ? { sessionId: options.resume ?? options.initialSessionId }
+          : {}),
+        error: err instanceof Error ? err.message : 'Provider command admission failed',
+      });
+      return;
+    }
+  }
+  if (apiCredentialRef) {
+    try {
+      apiKey = await credentials.resolve(apiCredentialRef);
+    } catch (err: unknown) {
+      if (initialProviderAdmission) {
+        eventStore.transitionExecution(
+          initialProviderAdmission.token,
+          'TERMINAL',
+          'startup_failed',
+        );
+      }
+      options.onStartupAdmission?.(err);
+      send(transport, {
+        type: 'error',
+        ...(options.resume || options.initialSessionId
+          ? { sessionId: options.resume ?? options.initialSessionId }
+          : {}),
+        error: err instanceof Error ? err.message : 'OpenAI credentials unavailable',
+      });
+      return;
+    }
+  }
+  if (gemini && !options.reattachOnly) {
+    try {
+      await gemini.getAccessToken();
+    } catch (err: unknown) {
+      if (initialProviderAdmission) {
+        eventStore.transitionExecution(
+          initialProviderAdmission.token,
+          'TERMINAL',
+          'startup_failed',
+        );
+      }
+      options.onStartupAdmission?.(err);
+      send(transport, {
+        type: 'error',
+        ...(options.resume || options.initialSessionId
+          ? { sessionId: options.resume ?? options.initialSessionId }
+          : {}),
+        error: err instanceof Error ? err.message : 'Google Vertex credentials unavailable',
+      });
+      return;
+    }
+  }
 
   if (options.resume) {
     const validation =
@@ -1080,6 +1353,8 @@ async function _startChatInner(
     options.contextBlocks,
   );
   const userIntent = options.userIntent ?? prompt;
+  if (options.reattachOnly && (!options.resume || !codexProfile))
+    throw new Error('Provider-only reattachment requires a resumable Codex conversation');
 
   // Apply tier overrides from current .mitzo.json (re-read each session start).
   // Always call applyTierOverrides so removed overrides reset to defaults.
@@ -1094,7 +1369,10 @@ async function _startChatInner(
 
   // Streaming-input queue — kept open for the session lifetime.
   const inputQueue = new AsyncQueue<SDKUserMessage>();
-  inputQueue.push(makeUserMessage(fullPrompt, 'now'));
+  if (!options.reattachOnly && !initialProviderAdmission)
+    inputQueue.push(
+      makeUserMessage(fullPrompt, 'now', apiKey || gemini ? initialMessageId : undefined),
+    );
 
   if (options.initialSessionId) {
     eventStore.upsertSession({
@@ -1117,6 +1395,7 @@ async function _startChatInner(
     sessionAllowList: new Set<string>(),
     worktreePath,
     agentName,
+    ...(accountBinding ? { accountBinding } : {}),
     // Set sessionId early so pre-assistant events are persisted (iOS reconnect).
     ...((options.resume ?? options.initialSessionId)
       ? { sessionId: options.resume ?? options.initialSessionId }
@@ -1188,7 +1467,8 @@ async function _startChatInner(
 
   // Merge dynamic MCP servers (task board if active)
   const taskMcp = supportsHostTaskTools(openShellSelected) ? buildTaskMcpServer(clientId) : null;
-  const allMcpServers = { ...mcpServers, ...taskMcp };
+  const telosMcp = supportsHostTaskTools(openShellSelected) ? buildTelosMcpServer(clientId) : null;
+  const allMcpServers = { ...mcpServers, ...taskMcp, ...telosMcp };
 
   // Load project hooks from .claude/settings.json (e.g. SessionStart boot context)
   const hooks = loadProjectHooks(cwd);
@@ -1236,9 +1516,11 @@ async function _startChatInner(
   const systemPromptAppend =
     'This is Mitzo, a mobile chat interface. The user is on their phone.\n' +
     SESSION_PERMISSION_INSTRUCTIONS +
+    TELOS_ARTIFACT_INSTRUCTIONS +
     '- Read operations are fine without asking.\n' +
     '- Keep responses concise — small screen.\n' +
     '- Read CLAUDE.md and .cursor/rules/ for project context before doing substantive work.' +
+    buildClientCapabilitiesPrompt() +
     workspacePrompt +
     (supportsHostTaskTools(openShellSelected) ? buildTaskPromptForSession(clientId) : '') +
     bootContextAppend;
@@ -1307,17 +1589,18 @@ async function _startChatInner(
       session.sessionId = conversationId;
       options.onSessionResolved?.(conversationId);
       send(transport, { type: 'session_id', sessionId: conversationId });
-      const messageId = options.clientMsgId ?? randomUUID();
-      storeAndEchoIfNew(
-        conversationId,
-        messageId,
-        fullPrompt,
-        clientId,
-        transport,
-        session.observers,
-        imagePreviews(options.images),
-        options.contextBlocks,
-      );
+      const messageId = initialMessageId;
+      if (!options.reattachOnly)
+        storeAndEchoIfNew(
+          conversationId,
+          messageId,
+          fullPrompt,
+          clientId,
+          transport,
+          session.observers,
+          imagePreviews(options.images),
+          options.contextBlocks,
+        );
       q = await openCodexChat({
         resume: !!options.resume,
         conversationId,
@@ -1334,7 +1617,8 @@ async function _startChatInner(
         systemPrompt: systemPromptAppend,
         env: sessionEnv,
         mcpServers: allMcpServers,
-        onDemandCreate: buildOnDemandCreate(wtId),
+        eventStore,
+        onDemandCreate: buildOnDemandCreate(wtId, clientId),
         onBootContext: (context) => {
           const message: BootContextMessage = { ...context, source: 'sandbox' };
           send(transport, { ...message, sessionId: conversationId });
@@ -1344,22 +1628,13 @@ async function _startChatInner(
             bootContext: JSON.stringify(message),
           });
         },
+        reattachOnly: options.reattachOnly,
       });
     } else if (apiKey || gemini) {
       const conversationId = options.resume ?? newSdkSessionId!;
       session.sessionId = conversationId;
       options.onSessionResolved?.(conversationId);
       send(transport, { type: 'session_id', sessionId: conversationId });
-      storeAndEchoIfNew(
-        conversationId,
-        options.clientMsgId ?? randomUUID(),
-        fullPrompt,
-        clientId,
-        transport,
-        session.observers,
-        imagePreviews(options.images),
-        options.contextBlocks,
-      );
       q = await openResponsesChat({
         resume: !!options.resume,
         conversationId,
@@ -1371,12 +1646,49 @@ async function _startChatInner(
         session,
         registry,
         input: inputQueue,
+        eventStore,
         systemPrompt: systemPromptAppend,
         env: sessionEnv,
         mcpServers: allMcpServers,
-        onDemandCreate: buildOnDemandCreate(wtId),
+        onDemandCreate: buildOnDemandCreate(wtId, clientId),
       });
-    } else
+      if (!initialProviderAdmission) {
+        throw new Error('Native provider startup is missing durable command admission');
+      }
+      storeAndEchoIfNew(
+        conversationId,
+        initialMessageId,
+        fullPrompt,
+        clientId,
+        transport,
+        session.observers,
+        imagePreviews(options.images),
+        options.contextBlocks,
+      );
+      trackResponsesProviderAdmission(session, initialProviderAdmission, eventStore);
+      inputQueue.push(
+        makeUserMessage(fullPrompt, 'now', initialMessageId, initialProviderAdmission),
+      );
+      options.onStartupAdmission?.();
+    } else {
+      const decide = webAccessSdkPermission(
+        buildPermissionHandler(clientId, registry, {
+          onDemandCreate: buildOnDemandCreate(wtId, clientId),
+        }),
+      );
+      const webAccess = createWebAccessSdkServer(
+        createWebAccessTool(
+          () => session.sessionId ?? options.resume ?? newSdkSessionId ?? '',
+          registry,
+          (query, signal) =>
+            searchSdk(query, signal, {
+              env: sessionEnv,
+              cwd,
+              model: parseModelSpec(session.model ?? accountBinding?.model ?? '').model,
+            }),
+        ),
+        abortController.signal,
+      );
       q = adaptSdkQuery(
         query({
           prompt: inputQueue as AsyncIterable<SDKUserMessage>,
@@ -1389,27 +1701,22 @@ async function _startChatInner(
             systemPrompt: {
               type: 'preset',
               preset: 'claude_code',
-              append: systemPromptAppend,
+              append: systemPromptAppend + WEB_ACCESS_INSTRUCTIONS,
             },
             permissionMode: MODE_TO_SDK[session.mode] as 'plan' | 'default',
-            allowedTools: [...mcpAllowed, ...extraTools],
+            allowedTools: [...mcpAllowed, ...extraTools, WEB_ACCESS_SDK_TOOL],
+            disallowedTools: ['WebSearch', 'WebFetch'],
             thinking: resolveThinking(options.model),
             ...(options.model ? { model: parseModelSpec(options.model).model } : {}),
             ...(resolvedResume ? { resume: resolvedResume } : {}),
             ...(newSdkSessionId ? { sessionId: newSdkSessionId } : {}),
-            ...(Object.keys(allMcpServers).length > 0 ? { mcpServers: allMcpServers } : {}),
-            hooks: buildSessionPermissionHooks(
-              buildPermissionHandler(clientId, registry, {
-                onDemandCreate: buildOnDemandCreate(wtId),
-              }),
-              hooks,
-            ),
-            canUseTool: buildPermissionHandler(clientId, registry, {
-              onDemandCreate: buildOnDemandCreate(wtId),
-            }),
+            mcpServers: { ...allMcpServers, 'mitzo-web-access': webAccess },
+            hooks: buildSessionPermissionHooks(decide, hooks),
+            canUseTool: decide,
           },
         }),
       );
+    }
 
     session.queryInstance = q;
 
@@ -1437,6 +1744,9 @@ async function _startChatInner(
       );
     }
 
+    // The session is registered and the provider query is ready. Worktree and
+    // provider setup failures above must be reported before admitting a spawn.
+    if (!apiKey && !gemini) options.onStartupAdmission?.();
     await runQueryLoop(
       q as unknown as AsyncIterable<Record<string, unknown>>,
       clientId,
@@ -1446,6 +1756,8 @@ async function _startChatInner(
       options.resume || codexProfile || apiKey || gemini ? undefined : fullPrompt,
       {
         connRegistry: _connRegistry ?? undefined,
+        onFirstEventOutcome: options.onFirstEventOutcome,
+        onTerminalOutcome: options.onTerminalOutcome,
         initialClientMsgId: options.clientMsgId,
         initialImages: imagePreviews(options.images),
         initialContextBlocks: options.contextBlocks,
@@ -1468,10 +1780,25 @@ async function _startChatInner(
         onTurnEnd: (cId: string) => {
           _onSessionChange?.(cId, 'turn_end');
         },
+        onUserInput: (cId, inputUuid) => {
+          const active = registry.get(cId);
+          if (active) markFallbackCloseoutInputObserved(active, inputUuid);
+        },
+        onResult: (cId, result, inputUuid) => {
+          const active = registry.get(cId);
+          if (active)
+            finishFallbackCloseout(
+              active,
+              result.is_error === true ? 'failed' : 'completed',
+              inputUuid,
+            );
+        },
       },
     );
   } catch (err: unknown) {
+    options.onStartupAdmission?.(err);
     const message = err instanceof Error ? err.message : 'Unknown error';
+    terminalizeUndispatchedStartup(initialProviderAdmission);
     if (message.includes('No conversation found') && options.resume) {
       log.warn('SDK rejected resume, session expired', { sessionId: options.resume, cwd });
       send(transport, {
@@ -1484,7 +1811,10 @@ async function _startChatInner(
     }
     if (newSdkSessionId) {
       // Retain its binding: the SDK may have written history before startup failed.
-      eventStore.setSessionState(newSdkSessionId, 'ENDED', { clientId, reason: 'startup_failed' });
+      eventStore.setSessionState(newSdkSessionId, 'ENDED', {
+        clientId,
+        reason: 'startup_failed',
+      });
     }
     const failedSession = registry.get(clientId);
     if (failedSession) cleanupSessionWorktrees(failedSession);
@@ -1584,6 +1914,7 @@ function storeAndEchoIfNew(
     text,
     sessionId,
     seq,
+    prevSessionSeq: eventStore.getSessionPredecessorSeq(sessionId, seq),
     ...(images?.length ? { images } : {}),
     ...(contextBlocks?.length ? { contextBlocks } : {}),
   };
@@ -1594,6 +1925,127 @@ function storeAndEchoIfNew(
 
 function imagePreviews(images?: Array<{ data: string; mediaType: string }>): string[] | undefined {
   return images?.map((image) => `data:${image.mediaType};base64,${image.data}`);
+}
+
+function providerFingerprintSource(
+  fullPrompt: string,
+  images?: Array<{ data: string; mediaType: string }>,
+): string {
+  let stablePrompt = fullPrompt;
+  if (images?.length) {
+    const stagedImageMarker = `\n\nI've attached ${images.length} image(s). Read them using the Read tool:\n`;
+    const markerIndex = fullPrompt.lastIndexOf(stagedImageMarker);
+    if (markerIndex >= 0) stablePrompt = fullPrompt.slice(0, markerIndex);
+  }
+  return JSON.stringify({ effectivePrompt: stablePrompt, images });
+}
+
+function terminalizeUndispatchedStartup(admission: ProviderDispatchAdmission | undefined): boolean {
+  if (!admission) return false;
+  const current = eventStore.getSession(admission.token.sessionId);
+  if (
+    current?.executionId !== admission.token.executionId ||
+    current.executionGeneration !== admission.token.generation ||
+    current.executionPhase !== 'RUNNING' ||
+    eventStore.getProviderAttempts(admission.token).length > 0
+  ) {
+    return false;
+  }
+  try {
+    eventStore.transitionExecution(admission.token, 'TERMINAL', 'startup_failed');
+  } catch (cleanupError) {
+    log.warn('could not persist native startup failure; restart recovery required', {
+      sessionId: admission.token.sessionId,
+      error: cleanupError instanceof Error ? cleanupError.message : 'unknown',
+    });
+  }
+  return true;
+}
+
+function cleanupUndispatchedStartup(
+  admission: ProviderDispatchAdmission | undefined,
+  clientId: string,
+): void {
+  if (!admission || eventStore.getProviderAttempts(admission.token).length > 0) return;
+  terminalizeUndispatchedStartup(admission);
+  const current = eventStore.getSession(admission.token.sessionId);
+  const failedBeforeDispatch =
+    current?.executionId === admission.token.executionId &&
+    current.executionGeneration === admission.token.generation &&
+    current.executionPhase === 'TERMINAL' &&
+    current.executionTerminalReason === 'startup_failed';
+  if (!failedBeforeDispatch) return;
+  try {
+    eventStore.setSessionState(admission.token.sessionId, 'ENDED', {
+      clientId,
+      reason: 'startup_failed',
+    });
+  } catch (cleanupError) {
+    log.warn('could not persist failed native startup state', {
+      sessionId: admission.token.sessionId,
+      error: cleanupError instanceof Error ? cleanupError.message : 'unknown',
+    });
+  }
+  const failedSession = registry.get(clientId);
+  if (failedSession) cleanupSessionWorktrees(failedSession);
+  registry.abort(clientId);
+}
+
+/**
+ * Consult durable native-provider admission before a registry-missing resume
+ * route performs takeover, watch, transcript, or runtime side effects.
+ */
+export function preflightStartupProviderCommand(
+  store: EventStore,
+  request: {
+    sessionId: string;
+    clientMsgId: string;
+    prompt: string;
+    cwd: string;
+    images?: Array<{ data: string; mediaType: string }>;
+    contextBlocks?: string[];
+    model?: string;
+    reasoningEffort?: string | null;
+  },
+): boolean {
+  const meta = store.getSession(request.sessionId);
+  const binding = meta?.accountBinding;
+  if (!binding) return false;
+  const existingAdmission = store.getExecutionAdmission(request.sessionId, request.clientMsgId);
+  const stablePrompt = assemblePrompt(
+    request.prompt,
+    request.cwd,
+    undefined,
+    request.contextBlocks,
+  );
+  const providerRequest = {
+    sessionId: request.sessionId,
+    clientMsgId: request.clientMsgId,
+    effectivePrompt: stablePrompt,
+    fingerprintSource: providerFingerprintSource(stablePrompt, request.images),
+    model: request.model ?? meta.selectedModel ?? binding.model,
+    reasoningEffort: request.reasoningEffort,
+    accountBinding: binding,
+  };
+  // Durable evidence wins over the current environment. This keeps a routing
+  // toggle across restart from replaying a command through the other provider
+  // implementation. A native admission can be checked exactly; a legacy
+  // OpenShell user message is only evidence that startup began, so its dispatch
+  // outcome is ambiguous and requires a fresh command ID.
+  if (existingAdmission) return preflightProviderDispatch(store, providerRequest);
+  if (store.hasUserMessage(request.sessionId, request.clientMsgId)) {
+    throw new Error(
+      'Existing command has ambiguous legacy OpenShell dispatch state; retry with a new command ID',
+    );
+  }
+  const openShellAvailable =
+    process.env.MITZO_OPENSHELL_ENABLED === '1' || !!process.env.MITZO_OPENSHELL_SANDBOX_NAME;
+  const isNative =
+    binding.provider === 'google-vertex' ||
+    (binding.provider === 'openai' &&
+      (!openShellAvailable || process.env.MITZO_OPENSHELL_OPENAI_API_ENABLED === '0'));
+  if (!isNative) return false;
+  return preflightProviderDispatch(store, providerRequest);
 }
 
 function validateNativeModelSelection(
@@ -1627,6 +2079,8 @@ export async function sendToChat(
   return withSpanAsync('chat.send', { 'chat.clientId': clientId }, async () => {
     if (signal?.aborted) return false;
     const session = registry.get(clientId);
+    if (session?.sessionId && eventStore.getSession(session.sessionId)?.symposiumConfig)
+      throw new Error('Use Symposium directed prompts for this session');
     if (!session?.inputQueue) return false;
     const codex = getCodexRuntime(session);
     const responses = getResponsesRuntime(session);
@@ -1657,20 +2111,46 @@ export async function sendToChat(
     const previews = imagePreviews(images);
     let selectionReasoningEffort =
       model && model !== session.model && reasoningEffort === undefined ? null : reasoningEffort;
-    if (responses && session.sessionId && eventStore.hasUserMessage(session.sessionId, messageId))
-      return true;
+    let providerAdmission: ProviderDispatchAdmission | undefined;
     if (responses) {
       try {
         if (!session.sessionId) throw new Error('Bound session metadata is unavailable');
+        if (
+          clientMsgId &&
+          eventStore.hasUserMessage(session.sessionId, clientMsgId) &&
+          !eventStore.getExecutionAdmission(session.sessionId, clientMsgId)
+        ) {
+          return true;
+        }
+        const existingAdmission = eventStore.getExecutionAdmission(session.sessionId, messageId);
+        if (!existingAdmission && responses.isRunning()) {
+          throw new Error('Native Responses conversation already running');
+        }
         validateNativeModelSelection(session.sessionId, model, selectionReasoningEffort);
-        responses.prepare(messageId, fullPrompt, {
-          ...(model ? { model } : {}),
-          ...(selectionReasoningEffort !== undefined
-            ? { reasoningEffort: selectionReasoningEffort }
-            : {}),
+        const binding = eventStore.getSession(session.sessionId)?.accountBinding ?? undefined;
+        const prepare = () =>
+          responses.prepare(messageId, fullPrompt, {
+            ...(model ? { model } : {}),
+            ...(selectionReasoningEffort !== undefined
+              ? { reasoningEffort: selectionReasoningEffort }
+              : {}),
+          });
+        providerAdmission = admitProviderDispatch({
+          store: eventStore,
+          request: {
+            sessionId: session.sessionId,
+            clientMsgId: messageId,
+            effectivePrompt: fullPrompt,
+            fingerprintSource: providerFingerprintSource(fullPrompt, images),
+            model,
+            reasoningEffort,
+            accountBinding: binding,
+          },
+          prepare,
         });
-        if (model) session.model = model;
-      } catch {
+        if (providerAdmission.duplicate) return true;
+      } catch (error) {
+        if (error instanceof ExecutionAdmissionError) throw error;
         send(session.transport, {
           type: 'error',
           sessionId: session.sessionId,
@@ -1679,18 +2159,41 @@ export async function sendToChat(
         return false;
       }
     }
-    const acknowledge = (): boolean => {
-      if (model) session.model = model;
+    const commitSelection = (): void => {
+      if (!model && selectionReasoningEffort === undefined) return;
       if (session.sessionId) {
-        if (model || selectionReasoningEffort !== undefined) {
-          eventStore.upsertSession({
-            sessionId: session.sessionId,
-            ...(model ? { selectedModel: model } : {}),
-            ...(selectionReasoningEffort !== undefined
-              ? { reasoningEffort: selectionReasoningEffort || null }
-              : {}),
-          });
+        eventStore.upsertSession({
+          sessionId: session.sessionId,
+          ...(model ? { selectedModel: model } : {}),
+          ...(selectionReasoningEffort !== undefined
+            ? { reasoningEffort: selectionReasoningEffort || null }
+            : {}),
+        });
+      }
+      if (model) session.model = model;
+    };
+    const failPreparedProviderCommand = (error: unknown): never => {
+      if (!responses || !providerAdmission) throw error;
+      const cleanupErrors: unknown[] = [];
+      try {
+        eventStore.transitionExecution(providerAdmission.token, 'TERMINAL', 'startup_failed');
+      } catch (cleanupError) {
+        cleanupErrors.push(cleanupError);
+      } finally {
+        try {
+          responses.abandon(messageId);
+        } catch (cleanupError) {
+          cleanupErrors.push(cleanupError);
         }
+      }
+      if (cleanupErrors.length) {
+        const message = error instanceof Error ? error.message : 'Provider command startup failed';
+        throw new AggregateError([error, ...cleanupErrors], message);
+      }
+      throw error;
+    };
+    const acknowledge = (): boolean => {
+      if (session.sessionId) {
         const isDup = storeAndEchoIfNew(
           session.sessionId,
           messageId,
@@ -1736,8 +2239,8 @@ export async function sendToChat(
           signal,
         );
         selectionReasoningEffort = selection.reasoningEffort;
-        if (model) session.model = selection.model;
         acknowledge();
+        commitSelection();
         void codex.resumeAfterExplicitSend().catch(() =>
           send(session.transport, {
             type: 'error',
@@ -1756,16 +2259,61 @@ export async function sendToChat(
         return false;
       }
     } else {
-      if (acknowledge()) return true;
-      session.inputQueue.push(
-        makeUserMessage(fullPrompt, 'next', responses ? messageId : undefined),
-      );
+      let duplicate = false;
+      try {
+        duplicate = acknowledge();
+      } catch (error) {
+        failPreparedProviderCommand(error);
+      }
+      if (duplicate) {
+        if (responses && providerAdmission) {
+          failPreparedProviderCommand(
+            new Error('Provider command was already acknowledged without a dispatch'),
+          );
+        }
+        return true;
+      }
+      try {
+        commitSelection();
+        if (responses && providerAdmission) {
+          trackResponsesProviderAdmission(session, providerAdmission, eventStore);
+        }
+        session.inputQueue.push(
+          makeUserMessage(fullPrompt, 'next', responses ? messageId : undefined, providerAdmission),
+        );
+      } catch (error) {
+        failPreparedProviderCommand(error);
+      }
     }
     return true;
   });
 }
 
 /** Interrupt the current generation and inject a message the model sees immediately. */
+export function preflightChatCommand(
+  clientId: string,
+  prompt: string,
+  images?: Array<{ data: string; mediaType: string }>,
+  contextBlocks?: string[],
+  clientMsgId?: string,
+  model?: string,
+  reasoningEffort?: string | null,
+): boolean {
+  const session = registry.get(clientId);
+  if (!session?.sessionId || !clientMsgId || !getResponsesRuntime(session)) return false;
+  const stablePrompt = assemblePrompt(prompt, session.cwd ?? '.', undefined, contextBlocks);
+  const binding = eventStore.getSession(session.sessionId)?.accountBinding ?? undefined;
+  return preflightProviderDispatch(eventStore, {
+    sessionId: session.sessionId,
+    clientMsgId,
+    effectivePrompt: stablePrompt,
+    fingerprintSource: providerFingerprintSource(stablePrompt, images),
+    model,
+    reasoningEffort,
+    accountBinding: binding,
+  });
+}
+
 export async function interruptChat(
   clientId: string,
   prompt: string,
@@ -1777,6 +2325,8 @@ export async function interruptChat(
 ): Promise<boolean> {
   return withSpanAsync('chat.interrupt', { 'chat.clientId': clientId }, async () => {
     const session = registry.get(clientId);
+    if (session?.sessionId && eventStore.getSession(session.sessionId)?.symposiumConfig)
+      throw new Error('Use Symposium directed prompts for this session');
     if (!session?.queryInstance || !session?.inputQueue) return false;
     const codex = getCodexRuntime(session);
     const responses = getResponsesRuntime(session);
@@ -1811,6 +2361,18 @@ export async function interruptChat(
       );
     }
     if (responses) {
+      if (
+        preflightChatCommand(
+          clientId,
+          prompt,
+          images,
+          contextBlocks,
+          clientMsgId,
+          model,
+          reasoningEffort,
+        )
+      )
+        return true;
       await session.queryInstance.interrupt();
       return sendToChat(
         clientId,
@@ -1963,54 +2525,84 @@ function queueCloseoutPrompt(
   session: import('./session-registry.js').ManagedSession,
   clientId: string,
   prompt: string,
+  episode: CloseoutEpisode,
 ): void {
-  const messageId = `umsg-${Date.now()}-${randomUUID().slice(0, 8)}-closeout`;
+  if (!session.sessionId) {
+    log.warn('skipping closeout admission — session not yet resolved', { clientId });
+    return;
+  }
   const codex = getCodexRuntime(session);
   const responses = getResponsesRuntime(session);
+  const metadata = eventStore.getSession(session.sessionId);
+  let admission: CloseoutAdmission;
+  try {
+    admission = admitCloseout({
+      store: eventStore,
+      request: {
+        sessionId: session.sessionId,
+        episode,
+        prompt,
+        promptRevision: episode.source === 'automatic' ? 'automatic-v1' : 'user-v1',
+        task:
+          episode.source === 'automatic'
+            ? 'commit-push-memory-summarize'
+            : 'commit-memory-summarize',
+        model: metadata?.selectedModel ?? session.model ?? metadata?.accountBinding?.model,
+        reasoningEffort: metadata?.reasoningEffort,
+        accountBinding: metadata?.accountBinding ?? session.accountBinding,
+      },
+      prepare: (messageId) => {
+        if (codex) codex.enqueue({ id: messageId, prompt, intent: prompt });
+        else if (responses) responses.prepare(messageId, prompt);
+      },
+    });
+  } catch (error) {
+    log.warn('failed to admit closeout prompt', { clientId, error });
+    return;
+  }
+  if (admission.duplicate) return;
+  storeAndEchoIfNew(
+    session.sessionId,
+    admission.messageId,
+    prompt,
+    clientId,
+    session.transport,
+    session.observers,
+  );
   if (codex) {
-    try {
-      codex.enqueue({ id: messageId, prompt });
-    } catch (error) {
-      log.warn('failed to persist Codex closeout prompt', { clientId, error });
-      return;
-    }
-  } else if (responses) {
-    try {
-      responses.prepare(messageId, prompt);
-    } catch (error) {
-      log.warn('failed to persist OpenAI API closeout prompt', { clientId, error });
-      return;
-    }
-  }
-  if (session.sessionId) {
-    storeAndEchoIfNew(
-      session.sessionId,
-      messageId,
-      prompt,
-      clientId,
-      session.transport,
-      session.observers,
-    );
-  } else {
-    log.debug('skipping closeout echo — session not yet resolved', { clientId });
-  }
-  if (codex)
+    trackCodexProviderAdmission(session, admission.messageId, admission, eventStore);
     void codex
       .startQueued()
       .catch((error) => log.warn('failed to start Codex closeout prompt', { clientId, error }));
-  else session.inputQueue?.push(makeUserMessage(prompt, 'now', responses ? messageId : undefined));
+  } else if (responses) {
+    trackResponsesProviderAdmission(session, admission, eventStore);
+    session.inputQueue?.push(makeUserMessage(prompt, 'now', admission.messageId, admission));
+  } else {
+    const attempt = eventStore.beginProviderAttempt(admission.token, admission.providerAttemptId);
+    if (attempt.duplicate) return;
+    const inputUuid = randomUUID();
+    fallbackCloseoutAttempts.set(session, {
+      admission,
+      attempt: attempt.token,
+      inputUuid,
+      inputObserved: false,
+    });
+    session.abortController.signal.addEventListener(
+      'abort',
+      () => markFallbackCloseoutAmbiguous(session),
+      { once: true },
+    );
+    session.inputQueue?.push(
+      makeUserMessage(prompt, 'now', admission.messageId, undefined, inputUuid),
+    );
+  }
 }
 
 const CLOSEOUT_PROMPT = `This session is closing in 10 minutes due to inactivity.
 Please perform session closeout:
 
 1. If there is uncommitted work in any worktree, commit it now with a descriptive message
-2. Push the branch and create a pull request:
-   - Use \`gh pr create --title "<descriptive title>" --body "<summary of changes>"\`
-   - If the work is incomplete or experimental, create a draft: \`gh pr create --draft ...\`
-   - If the work is solid and complete, create a regular PR
-   - Target the main branch of each repo
-   - If push or PR creation fails, continue with the remaining steps
+2. If a reviewed GitHub publish capability is available, invoke it after committing to publish the branch and create or update a pull request. Do not run direct \`git push\` or \`gh pr create\`: the capability displays the required approval and enforces repository and branch scope. If it is unavailable, leave the local commit in place and report that publishing requires the reviewed capability.
 3. If there are memory-worthy observations, decisions, or patterns — write them to memory/Observations/ or memory/Decisions/
 4. Write a 2-3 sentence summary of what was accomplished and what remains unfinished — output it as your final chat message so it appears in the conversation history
 5. Do not ask for confirmation — just do it`;
@@ -2021,13 +2613,13 @@ Please perform session closeout:
  * the agent's input queue so it can commit work and write memory while it
  * still has full conversation context.
  */
-export function closeoutSession(clientId: string): void {
+export function closeoutSession(clientId: string, episode: CloseoutEpisode): void {
   withSpan('session.closeout', { 'session.clientId': clientId }, () =>
-    _closeoutSessionInner(clientId),
+    _closeoutSessionInner(clientId, episode),
   );
 }
 
-function _closeoutSessionInner(clientId: string): void {
+function _closeoutSessionInner(clientId: string, episode: CloseoutEpisode): void {
   const session = registry.get(clientId);
   if (!session?.inputQueue) {
     // No active session or input queue — just finalize as abandoned
@@ -2056,7 +2648,7 @@ function _closeoutSessionInner(clientId: string): void {
 
   log.info('injecting closeout prompt', { clientId, wtId: session.wtId });
 
-  queueCloseoutPrompt(session, clientId, CLOSEOUT_PROMPT);
+  queueCloseoutPrompt(session, clientId, CLOSEOUT_PROMPT, episode);
 
   // The registry's CLOSEOUT_TIMEOUT_MS timer will abort the session after
   // 10 minutes regardless. When the session is finally aborted (by the
@@ -2110,7 +2702,7 @@ export function closeSessionByUser(clientId: string): void {
     if (!session) return;
 
     // Mark as user-initiated close in the registry
-    registry.markUserClose(clientId);
+    const episode = registry.markUserClose(clientId);
 
     if (!session.inputQueue) {
       // No active agent — finalize immediately
@@ -2140,7 +2732,13 @@ export function closeSessionByUser(clientId: string): void {
 
     log.info('user-initiated closeout', { clientId, wtId: session.wtId });
 
-    queueCloseoutPrompt(session, clientId, USER_CLOSEOUT_PROMPT);
+    if (episode.source === 'user')
+      queueCloseoutPrompt(session, clientId, USER_CLOSEOUT_PROMPT, episode);
+    else
+      log.info('user close overlaps active automatic closeout; preserving admitted prompt', {
+        clientId,
+        episodeId: episode.id,
+      });
 
     // Register abort listener to finalize with closed_by: 'user'
     if (session.wtId) {
@@ -2409,6 +3007,19 @@ export async function getSessions(offset = 0, limit = SESSION_PAGE_SIZE) {
     log.info('reconciled orphaned sessions', { count: reconciledCount });
   }
 
+  // Symposium is persisted by Mitzo and may never create an SDK transcript.
+  // Include configured drafts and native sessions while honoring explicit hiding.
+  for (const meta of eventStore.listSessions()) {
+    if (!meta.symposiumConfig || meta.isHidden) continue;
+    seen.set(meta.sessionId, {
+      id: meta.sessionId,
+      summary: meta.summary ?? '',
+      lastModified: meta.updatedAt,
+      branch: meta.branch ?? undefined,
+      cwd: meta.cwd ?? undefined,
+    });
+  }
+
   const deduped = Array.from(seen.values());
   deduped.sort((a, b) => b.lastModified - a.lastModified);
   const page = deduped.slice(offset, offset + limit);
@@ -2423,6 +3034,8 @@ export async function getSessions(offset = 0, limit = SESSION_PAGE_SIZE) {
 export function getSessionsCached(offset = 0, limit = SESSION_PAGE_SIZE) {
   const now = Date.now();
   const all = eventStore.listSessions().filter((m) => {
+    if (m.isHidden) return false;
+    if (m.symposiumConfig) return true;
     // Hide sessions that were never used through Mitzo (e.g. automated
     // code review sessions discovered from filesystem).  Active sessions
     // always show regardless of turn count.  Recently created sessions
@@ -2499,6 +3112,11 @@ export async function syncSessionTimestamps(): Promise<void> {
   let synced = 0;
   for (const [sessionId, entry] of seen) {
     const existing = eventStore.getSession(sessionId);
+    if (
+      custodianControllerMode &&
+      (existing?.sessionType === 'symposium' || existing?.symposiumConfig != null)
+    )
+      continue;
     if (!existing) {
       // New session — insert with correct timestamp
       eventStore.upsertSession({
@@ -2560,8 +3178,10 @@ export async function discoverSession(
 
 export interface RestoredMessage {
   messageId: string;
+  symposiumProvenance?: SymposiumProvenance;
   role: string;
   timestamp?: number;
+  startedSeq?: number;
   images?: string[];
   contextBlocks?: string[];
   blocks: Array<{
@@ -2573,8 +3193,504 @@ export interface RestoredMessage {
     toolInput?: string;
     rawInput?: unknown;
     toolResult?: string;
+    toolResultImages?: Array<{ id: string; mediaType: string }>;
     toolError?: boolean;
+    subagent?: RestoredSubagentState;
   }>;
+}
+
+export interface RestoredSubagentState {
+  messageId: string;
+  blocks: Array<RestoredMessage['blocks'][number] & { done?: boolean }>;
+  running?: true;
+  summary?: string;
+  usage?: Record<string, number>;
+}
+
+export interface RestoredCurrentMessage {
+  messageId: string;
+  symposiumProvenance?: SymposiumProvenance;
+  startedSeq?: number;
+  blocks: Array<RestoredMessage['blocks'][number] & { done: boolean }>;
+}
+
+/** Scope reused block IDs to the assistant turn that opened the parent tool. */
+function replaySubagents(events: import('./event-store.js').StoredEvent[]) {
+  type NestedBlock = RestoredMessage['blocks'][number] & { done: boolean };
+  const key = (messageId: string, blockId: string) => JSON.stringify([messageId, blockId]);
+  const parentMessageByBlock = new Map<string, string>();
+  const activeStateByParent = new Map<string, string>();
+  const states = new Map<
+    string,
+    {
+      messageId: string;
+      blocks: Map<string, NestedBlock>;
+      order: string[];
+      running: boolean;
+      summary?: string;
+      usage?: Record<string, number>;
+    }
+  >();
+  for (const event of events) {
+    const p = event.payload;
+    if (
+      event.type === 'block_start' &&
+      typeof p.blockId === 'string' &&
+      typeof p.messageId === 'string'
+    ) {
+      parentMessageByBlock.set(p.blockId, p.messageId);
+      activeStateByParent.delete(p.blockId);
+    }
+    const parentId = p.parentBlockId as string;
+    if (event.type === 'subagent_start' && typeof p.subagentMessageId === 'string') {
+      const parentMessageId = parentMessageByBlock.get(parentId);
+      if (!parentMessageId) continue;
+      const scope = key(parentMessageId, parentId);
+      activeStateByParent.set(parentId, scope);
+      states.set(scope, {
+        messageId: p.subagentMessageId,
+        blocks: new Map(),
+        order: [],
+        running: true,
+      });
+      continue;
+    }
+    const state = states.get(activeStateByParent.get(parentId) ?? '');
+    if (!state) continue;
+    if (event.type === 'subagent_block_start' && typeof p.blockId === 'string') {
+      state.blocks.set(p.blockId, {
+        blockId: p.blockId,
+        blockType: p.blockType as string,
+        content: '',
+        done: false,
+        ...(typeof p.toolName === 'string' ? { toolName: p.toolName } : {}),
+      });
+      if (!state.order.includes(p.blockId)) state.order.push(p.blockId);
+    } else if (event.type === 'subagent_block_delta') {
+      const block = state.blocks.get(p.blockId as string);
+      if (block && typeof p.delta === 'string') block.content += p.delta;
+    } else if (event.type === 'subagent_block_end') {
+      const block = state.blocks.get(p.blockId as string);
+      if (!block) continue;
+      block.done = true;
+      if (typeof p.toolName === 'string') block.toolName = p.toolName;
+      if (typeof p.toolId === 'string') block.toolId = p.toolId;
+      if (typeof p.input === 'string') block.toolInput = p.input;
+      if (p.rawInput) block.rawInput = p.rawInput;
+    } else if (event.type === 'subagent_tool_result') {
+      for (const block of state.blocks.values()) {
+        if (block.toolId !== p.toolId) continue;
+        if (typeof p.result === 'string') block.toolResult = p.result;
+        if (typeof p.isError === 'boolean') block.toolError = p.isError;
+        if (Array.isArray(p.images))
+          block.toolResultImages = p.images as Array<{ id: string; mediaType: string }>;
+      }
+    } else if (event.type === 'subagent_end' || event.type === 'subagent_cancelled') {
+      state.running = false;
+      if (typeof p.summary === 'string') state.summary = p.summary;
+      else if (event.type === 'subagent_cancelled') state.summary = 'Cancelled';
+      if (p.usage && typeof p.usage === 'object') state.usage = p.usage as Record<string, number>;
+    }
+  }
+  return (messageId: string, block: RestoredMessage['blocks'][number], active: boolean) => {
+    const state = states.get(key(messageId, block.blockId));
+    if (!state) return block;
+    const blocks = state.order.map((id) => state.blocks.get(id)!);
+    const subagent: RestoredSubagentState = {
+      messageId: state.messageId,
+      blocks: active && state.running ? blocks : blocks.map(({ done: _done, ...rest }) => rest),
+      ...(active && state.running ? { running: true } : {}),
+      ...(state.summary ? { summary: state.summary } : {}),
+      ...(state.usage ? { usage: state.usage } : {}),
+    };
+    return { ...block, subagent };
+  };
+}
+
+/** Reconstruct the typed live turn from the same immutable event prefix as history. */
+function replaySingleEventsToTranscript(
+  events: import('./event-store.js').StoredEvent[],
+  initialPrompt?: string,
+): { messages: RestoredMessage[]; current: RestoredCurrentMessage | null } {
+  const attachSubagent = replaySubagents(events);
+  const messages: RestoredMessage[] = [];
+  type ReplayBlock = RestoredCurrentMessage['blocks'][number];
+  let turn: {
+    messageId: string;
+    timestamp: number;
+    startedSeq: number;
+    index: number;
+    blocks: Map<string, ReplayBlock>;
+  } | null = null;
+  // Tool IDs can be reused by later turns. Bind each result to the exact
+  // message/block occurrence in event order, including legacy results that
+  // omitted messageId after another turn started.
+  const toolResults = new Map<string, Record<string, unknown>>();
+  const pendingResults = new Map<string, Array<Record<string, unknown>>>();
+  const pendingBlocks = new Map<string, string[]>();
+  const toolOwners = new Map<string, Set<string>>();
+  const recordedToolIds = new Set(
+    events.flatMap((event) =>
+      event.type === 'block_end' && typeof event.payload.toolId === 'string'
+        ? [event.payload.toolId]
+        : [],
+    ),
+  );
+  let activeMessageId: string | null = null;
+  for (const event of events) {
+    const p = event.payload;
+    if (event.type === 'message_start' && typeof p.messageId === 'string')
+      activeMessageId = p.messageId;
+    if (event.type === 'tool_result' && typeof p.toolId === 'string') {
+      let messageId = typeof p.messageId === 'string' ? p.messageId : null;
+      if (!messageId) {
+        const owners = toolOwners.get(p.toolId);
+        if (owners && owners.size > 1)
+          throw new Error('Ambiguous or unattributed late tool result in stored transcript');
+        messageId = owners?.size === 1 ? [...owners][0] : activeMessageId;
+      }
+      // Resumed legacy providers may repeat results for calls absent from
+      // the durable stream. There is no block to display them on. Leave the
+      // stored event intact and restore the rest of the conversation.
+      if (
+        !messageId &&
+        event.seatId === undefined &&
+        event.symposiumProvenance === undefined &&
+        !recordedToolIds.has(p.toolId)
+      )
+        continue;
+      if (!messageId)
+        throw new Error('Ambiguous or unattributed late tool result in stored transcript');
+      const key = JSON.stringify([messageId, p.toolId]);
+      const waiting = pendingBlocks.get(key);
+      if (waiting?.length) toolResults.set(JSON.stringify([messageId, waiting.shift()]), p);
+      else pendingResults.set(key, [...(pendingResults.get(key) ?? []), p]);
+    }
+    if (
+      event.type === 'block_end' &&
+      typeof p.messageId === 'string' &&
+      typeof p.blockId === 'string' &&
+      typeof p.toolId === 'string'
+    ) {
+      const owners = toolOwners.get(p.toolId) ?? new Set<string>();
+      owners.add(p.messageId);
+      toolOwners.set(p.toolId, owners);
+      const key = JSON.stringify([p.messageId, p.toolId]);
+      const waiting = pendingResults.get(key);
+      if (waiting?.length)
+        toolResults.set(JSON.stringify([p.messageId, p.blockId]), waiting.shift()!);
+      else pendingBlocks.set(key, [...(pendingBlocks.get(key) ?? []), p.blockId]);
+    }
+    if (
+      (event.type === 'message_end' && p.messageId === activeMessageId) ||
+      event.type === 'session_end'
+    )
+      activeMessageId = null;
+  }
+  if (
+    [...pendingResults.values()].some((results) =>
+      results.some((result) => typeof result.messageId === 'string'),
+    )
+  )
+    throw new Error('Unmatched attributed tool result in stored transcript');
+
+  // Legacy sessions persisted their first user prompt after message_start.
+  // Keep that compatibility while ordering every subsequent event as stored.
+  let seenStart = false;
+  let seenEnd = false;
+  let seenUser = false;
+  let legacyInitial: (typeof events)[number] | undefined;
+  for (const event of events) {
+    if (event.type === 'user_message') {
+      if (!initialPrompt && seenStart && !seenEnd && !seenUser) legacyInitial = event;
+      seenUser = true;
+    }
+    if (event.type === 'message_start') seenStart = true;
+    if (event.type === 'message_end' || event.type === 'session_end') seenEnd = true;
+  }
+  const promptEvent = initialPrompt
+    ? events.find((event) => event.type === 'user_message' && event.payload.text === initialPrompt)
+    : legacyInitial;
+  const userMessage = (event: (typeof events)[number]): RestoredMessage => {
+    const payload = event.payload;
+    const messageId = payload.messageId as string;
+    return {
+      messageId,
+      role: 'user',
+      timestamp: typeof payload.ts === 'number' ? payload.ts : event.createdAt,
+      startedSeq: event.seq,
+      images: Array.isArray(payload.images) ? (payload.images as string[]) : undefined,
+      contextBlocks: Array.isArray(payload.contextBlocks)
+        ? (payload.contextBlocks as string[])
+        : undefined,
+      blocks: [
+        { blockId: `user-${messageId}`, blockType: 'text', content: payload.text as string },
+      ],
+    };
+  };
+  if (initialPrompt) {
+    const firstStart = events.findIndex((event) => event.type === 'message_start');
+    const hoistedPrompt =
+      promptEvent && firstStart >= 0 && firstStart < events.indexOf(promptEvent);
+    const prompt = promptEvent
+      ? userMessage(promptEvent)
+      : {
+          messageId: 'umsg-initial',
+          role: 'user',
+          blocks: [{ blockId: 'user-initial', blockType: 'text', content: initialPrompt }],
+        };
+    messages.push({
+      ...prompt,
+      ...(hoistedPrompt ? { startedSeq: undefined } : {}),
+      timestamp: events[0]?.createdAt,
+    });
+  } else if (legacyInitial) {
+    const hoisted = userMessage(legacyInitial);
+    delete hoisted.startedSeq;
+    messages.push(hoisted);
+  }
+
+  const materializeBlocks = (active: boolean) => {
+    if (!turn) return [];
+    return [...turn.blocks.values()].map((block) => {
+      const result = block.toolId
+        ? toolResults.get(JSON.stringify([turn!.messageId, block.blockId]))
+        : undefined;
+      const restored = {
+        ...block,
+        ...(result && typeof result.result === 'string' ? { toolResult: result.result } : {}),
+        ...(result && typeof result.isError === 'boolean' ? { toolError: result.isError } : {}),
+        ...(result && Array.isArray(result.images)
+          ? { toolResultImages: result.images as Array<{ id: string; mediaType: string }> }
+          : {}),
+      };
+      return { ...block, ...attachSubagent(turn!.messageId, restored, active) };
+    });
+  };
+  const finishTurn = () => {
+    if (!turn) return;
+    const blocks = materializeBlocks(false).map(({ done: _done, ...block }) => block);
+    if (blocks.length > 0)
+      messages[turn.index] = {
+        messageId: turn.messageId,
+        role: 'assistant',
+        timestamp: turn.timestamp,
+        startedSeq: turn.startedSeq,
+        blocks,
+      };
+    else messages.splice(turn.index, 1);
+    turn = null;
+  };
+
+  for (const event of events) {
+    const payload = event.payload;
+    switch (event.type) {
+      case 'user_message':
+        if (event === promptEvent) break;
+        messages.push(userMessage(event));
+        break;
+      case 'message_start':
+        finishTurn();
+        if (typeof payload.messageId === 'string') {
+          const timestamp = typeof payload.ts === 'number' ? payload.ts : event.createdAt;
+          turn = {
+            messageId: payload.messageId,
+            timestamp,
+            startedSeq: event.seq,
+            index: messages.length,
+            blocks: new Map(),
+          };
+          messages.push({
+            messageId: payload.messageId,
+            role: 'assistant',
+            timestamp,
+            startedSeq: event.seq,
+            blocks: [],
+          });
+        }
+        break;
+      case 'block_start':
+        if (
+          turn &&
+          payload.messageId === turn.messageId &&
+          typeof payload.blockId === 'string' &&
+          typeof payload.blockType === 'string'
+        )
+          turn.blocks.set(payload.blockId, {
+            blockId: payload.blockId,
+            blockType: payload.blockType,
+            content: '',
+            done: false,
+            ...(typeof payload.toolName === 'string' ? { toolName: payload.toolName } : {}),
+          });
+        break;
+      case 'block_delta': {
+        if (!turn || payload.messageId !== turn.messageId) break;
+        const block = turn.blocks.get(payload.blockId as string);
+        if (block && typeof payload.delta === 'string') block.content += payload.delta;
+        break;
+      }
+      case 'block_end': {
+        if (!turn || payload.messageId !== turn.messageId) break;
+        const block = turn.blocks.get(payload.blockId as string);
+        if (!block) break;
+        block.done = true;
+        if (typeof payload.toolName === 'string') block.toolName = payload.toolName;
+        if (typeof payload.toolId === 'string') block.toolId = payload.toolId;
+        if (typeof payload.input === 'string') block.toolInput = payload.input;
+        if (payload.rawInput) block.rawInput = payload.rawInput;
+        break;
+      }
+      case 'message_end':
+        if (turn && payload.messageId === turn.messageId) finishTurn();
+        break;
+      case 'session_end':
+        finishTurn();
+        break;
+    }
+  }
+  if (turn) messages.splice(turn.index, 1);
+  return {
+    messages,
+    current: turn
+      ? { messageId: turn.messageId, startedSeq: turn.startedSeq, blocks: materializeBlocks(true) }
+      : null,
+  };
+}
+
+/** Restore each immutable seat stream independently so reused block IDs cannot cross seats. */
+export function replayEventsToTranscript(
+  events: import('./event-store.js').StoredEvent[],
+  initialPrompt?: string,
+): {
+  messages: RestoredMessage[];
+  current: RestoredCurrentMessage | null;
+  currents: RestoredCurrentMessage[];
+} {
+  const ordinary: typeof events = [];
+  const bySnapshot = new Map<string, { events: typeof events; provenance: SymposiumProvenance }>();
+  const globalTerminals: typeof events = [];
+  const openBySeat = new Map<
+    string,
+    { messageId: string; snapshotKey: string; blockIds: Set<string> }
+  >();
+  const completedTurns = new Set<string>();
+  for (const event of events) {
+    if (event.seatId === undefined && event.symposiumProvenance === undefined) {
+      // These host bookkeeping records name a recipient, not a transcript author.
+      // Never infer provenance from their payload or broaden this to arbitrary events.
+      if (
+        !('symposiumProvenance' in event.payload) &&
+        (event.type === 'symposium_delivery_dispatched' ||
+          event.type === 'symposium_thread_migrated')
+      )
+        continue;
+      if ('seatId' in event.payload || 'symposiumProvenance' in event.payload)
+        throw new Error('Stored event has unverifiable Symposium attribution');
+      ordinary.push(event);
+      if (event.type === 'session_end') {
+        globalTerminals.push(event);
+        for (const active of openBySeat.values())
+          completedTurns.add(JSON.stringify([active.snapshotKey, active.messageId]));
+        openBySeat.clear();
+      }
+      continue;
+    }
+    const parsed = SymposiumProvenanceSchema.safeParse(event.symposiumProvenance);
+    if (!parsed.success || event.seatId !== parsed.data.seatId)
+      throw new Error('Stored Symposium event has mismatched seat provenance');
+    // Schema parsing provides a stable field order for equivalent snapshots.
+    const key = JSON.stringify(parsed.data);
+    const seatGeneration = JSON.stringify([
+      parsed.data.seatId,
+      parsed.data.membershipGeneration ?? null,
+    ]);
+    const active = openBySeat.get(seatGeneration);
+    if (event.type === 'message_start') {
+      if (active) throw new Error('Ambiguous simultaneous Symposium turns for one seat');
+      if (typeof event.payload.messageId !== 'string' || !event.payload.messageId)
+        throw new Error('Stored Symposium message_start has no message identity');
+      openBySeat.set(seatGeneration, {
+        messageId: event.payload.messageId,
+        snapshotKey: key,
+        blockIds: new Set(),
+      });
+    } else if (event.type === 'message_end') {
+      const terminalIdentity = JSON.stringify([key, event.payload.messageId]);
+      if (active && active.messageId === event.payload.messageId && active.snapshotKey === key) {
+        completedTurns.add(terminalIdentity);
+        openBySeat.delete(seatGeneration);
+      } else if (completedTurns.has(terminalIdentity)) {
+        // A delayed duplicate must not close or invalidate a newer active turn.
+        continue;
+      } else {
+        throw new Error('Stored Symposium message_end mismatches active seat turn');
+      }
+    } else if (event.type === 'session_end') {
+      if (active && active.snapshotKey !== key)
+        throw new Error('Stored Symposium terminal mismatches active seat snapshot');
+      if (active) completedTurns.add(JSON.stringify([active.snapshotKey, active.messageId]));
+      openBySeat.delete(seatGeneration);
+    } else if (['block_start', 'block_delta', 'block_end'].includes(event.type)) {
+      if (!active || active.messageId !== event.payload.messageId || active.snapshotKey !== key)
+        throw new Error('Stored Symposium block mismatches active seat turn');
+      if (typeof event.payload.blockId !== 'string' || !event.payload.blockId)
+        throw new Error('Stored Symposium block has no identity');
+      if (event.type === 'block_start') active.blockIds.add(event.payload.blockId);
+      else if (!active.blockIds.has(event.payload.blockId))
+        throw new Error('Stored Symposium block has no matching start');
+    } else if (event.type.startsWith('subagent_')) {
+      if (
+        !active ||
+        active.snapshotKey !== key ||
+        typeof event.payload.parentBlockId !== 'string' ||
+        !active.blockIds.has(event.payload.parentBlockId)
+      )
+        throw new Error('Stored Symposium subagent mismatches active seat turn');
+    }
+    let stream = bySnapshot.get(key);
+    if (!stream) {
+      stream = { events: [], provenance: parsed.data };
+      bySnapshot.set(key, stream);
+    }
+    stream.events.push(event);
+  }
+
+  const base = replaySingleEventsToTranscript(ordinary, initialPrompt);
+  const messages = [...base.messages];
+  const currents: RestoredCurrentMessage[] = [];
+  const activeSeats = new Set<string>();
+  for (const { events: streamEvents, provenance } of bySnapshot.values()) {
+    const stream = replaySingleEventsToTranscript(
+      [...streamEvents, ...globalTerminals].sort((a, b) => a.seq - b.seq),
+    );
+    messages.push(
+      ...stream.messages.map((message) => ({ ...message, symposiumProvenance: provenance })),
+    );
+    if (!stream.current) continue;
+    const seatGeneration = JSON.stringify([
+      provenance.seatId,
+      provenance.membershipGeneration ?? null,
+    ]);
+    if (activeSeats.has(seatGeneration))
+      throw new Error('Ambiguous simultaneous Symposium turns for one seat');
+    activeSeats.add(seatGeneration);
+    currents.push({ ...stream.current, symposiumProvenance: provenance });
+  }
+  messages.sort((a, b) => (a.startedSeq ?? -1) - (b.startedSeq ?? -1));
+  currents.sort((a, b) => (a.startedSeq ?? -1) - (b.startedSeq ?? -1));
+  const ids = new Set<string>();
+  for (const message of [...messages, ...currents]) {
+    const id = JSON.stringify([
+      message.symposiumProvenance?.seatId ?? null,
+      message.symposiumProvenance?.membershipGeneration ?? null,
+      message.messageId,
+    ]);
+    if (ids.has(id))
+      throw new Error('Ambiguous duplicate Symposium message identity in stored transcript');
+    ids.add(id);
+  }
+  return { messages, current: base.current, currents };
 }
 
 /**
@@ -2590,6 +3706,27 @@ export function replayEventsToMessages(
   events: import('./event-store.js').StoredEvent[],
   initialPrompt?: string,
 ): RestoredMessage[] {
+  // Historical REST reads must use the same immutable seat partitioning as
+  // bounded reconnect. The legacy single-stream builder below cannot keep
+  // simultaneous turns or reused block IDs separate, and would omit their
+  // provenance from the response.
+  if (
+    events.some(
+      (event) =>
+        event.seatId !== undefined ||
+        event.symposiumProvenance !== undefined ||
+        'seatId' in event.payload ||
+        'symposiumProvenance' in event.payload,
+    )
+  ) {
+    const restored = replayEventsToTranscript(events, initialPrompt);
+    const partials = [restored.current, ...restored.currents]
+      .filter((current): current is RestoredCurrentMessage => current !== null)
+      .map((current): RestoredMessage => ({ ...current, role: 'assistant' }));
+    return [...restored.messages, ...partials].sort(
+      (a, b) => (a.startedSeq ?? -1) - (b.startedSeq ?? -1),
+    );
+  }
   const messages: RestoredMessage[] = [];
   let currentMsg: RestoredMessage | null = null;
   const blockContent = new Map<string, string>();
@@ -2611,7 +3748,7 @@ export function replayEventsToMessages(
       });
     }
     if (evt.type === 'message_start') seenMessageStart = true;
-    if (evt.type === 'message_end') seenMessageEnd = true;
+    if (evt.type === 'message_end' || evt.type === 'session_end') seenMessageEnd = true;
     // A user_message that appears after message_start but before any message_end
     // is an out-of-order initial prompt from the legacy storage path.
     // After the first message_end, user_messages are normal follow-ups.
@@ -2750,13 +3887,42 @@ export function replayEventsToMessages(
   return messages;
 }
 
-export async function getMessages(sessionId: string) {
+/** Recover legacy workspace metadata without changing session identity or permissions. */
+async function recoverSessionWorkspace(sessionId: string, dirs = getSessionDirs()) {
+  if (eventStore.getSession(sessionId)?.cwd) return;
+  for (const dir of dirs) {
+    try {
+      const info = await getSessionInfo(sessionId, { dir });
+      if (typeof info?.cwd !== 'string' || !isAbsolute(info.cwd)) continue;
+      // Preserve a workspace recorded while the SDK lookup was in flight.
+      const current = eventStore.getSession(sessionId);
+      if (!current?.cwd)
+        eventStore.upsertSession({
+          sessionId,
+          cwd: info.cwd,
+          ...(current?.updatedAt !== undefined ? { updatedAt: current.updatedAt } : {}),
+        });
+      return;
+    } catch {
+      // Missing metadata must not prevent reading the saved transcript.
+    }
+  }
+}
+
+export async function getMessages(sessionId: string, throughSeq?: number) {
   // Primary: replay from durable event store
-  const events = eventStore.getSessionEvents(sessionId);
+  const events =
+    throughSeq === undefined
+      ? eventStore.getSessionEvents(sessionId)
+      : eventStore.getSessionEventsThroughCursor(sessionId, throughSeq);
   if (events.length > 0) {
+    if (throughSeq === undefined) await recoverSessionWorkspace(sessionId);
     const session = eventStore.getSession(sessionId);
     return replayEventsToMessages(events, session?.initialPrompt ?? undefined);
   }
+
+  // A bounded request must never fall through to a mutable SDK transcript.
+  if (throughSeq !== undefined) return [];
 
   // Fallback: SDK JSONL for pre-migration sessions
   let rawMessages: RawSdkMessage[] = [];
@@ -2766,7 +3932,10 @@ export async function getMessages(sessionId: string) {
         dir,
         limit: SESSION_MESSAGES_LIMIT,
       })) as RawSdkMessage[];
-      if (rawMessages.length > 0) break;
+      if (rawMessages.length > 0) {
+        await recoverSessionWorkspace(sessionId, [dir]);
+        break;
+      }
     } catch {
       // Session not in this dir — try next
     }
@@ -2780,6 +3949,26 @@ export async function getMessages(sessionId: string) {
     });
     return [];
   }
+}
+
+/** REST restore at the immutable reconnect boundary; never falls back to SDK history. */
+export function getReconnectTranscript(sessionId: string, throughSeq: number) {
+  const events = eventStore.getSessionEventsThroughCursor(sessionId, throughSeq);
+  const session = eventStore.getSession(sessionId);
+  return replayEventsToTranscript(events, session?.initialPrompt ?? undefined);
+}
+
+/** Full durable transcript and its high-water mark for opening an active session. */
+export async function getSessionTranscript(sessionId: string) {
+  const events = eventStore.getSessionEvents(sessionId);
+  if (events.length === 0)
+    return { messages: await getMessages(sessionId), current: null, currents: [], cursor: 0 };
+  await recoverSessionWorkspace(sessionId);
+  const session = eventStore.getSession(sessionId);
+  return {
+    ...replayEventsToTranscript(events, session?.initialPrompt ?? undefined),
+    cursor: events[events.length - 1].seq,
+  };
 }
 
 // --- Legacy SDK JSONL reconstruction (fallback for pre-migration sessions) ---

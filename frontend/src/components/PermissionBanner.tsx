@@ -11,10 +11,11 @@ interface Props {
   description?: string;
   displayName?: string;
   tier?: ToolTier;
-  approvalScope?: 'session' | 'conversation';
+  approvalScope?: 'session' | 'conversation' | 'request';
   responseError?: string;
   expiresAt?: number;
   questions?: UserQuestion[];
+  onExpire?: (permId: string) => void;
   onRespond: (
     permId: string,
     decision: 'once' | 'always' | 'deny',
@@ -42,6 +43,7 @@ export function PermissionBanner({
   questions,
   expiresAt,
   onRespond,
+  onExpire,
 }: Props) {
   const [selections, setSelections] = useState<Map<string, string[]>>(() => new Map());
   const [written, setWritten] = useState<Map<string, string>>(() => new Map());
@@ -52,6 +54,8 @@ export function PermissionBanner({
   const [remaining, setRemaining] = useState(() =>
     Math.max(0, Math.ceil((deadline.at - Date.now()) / 1000)),
   );
+  const expireRef = useRef(onExpire);
+  expireRef.current = onExpire;
   const respondRef = useRef(onRespond);
   respondRef.current = onRespond;
   useEffect(() => {
@@ -61,10 +65,12 @@ export function PermissionBanner({
       setRemaining(seconds);
       if (seconds === 0 && !expired) {
         expired = true;
+        expireRef.current?.(permId);
         respondRef.current(permId, 'deny', toolName);
       }
     };
     update();
+    if (deadline.at <= Date.now()) return;
     const timer = setInterval(update, 1000);
     return () => clearInterval(timer);
   }, [deadline, permId, toolName]);
@@ -91,6 +97,10 @@ export function PermissionBanner({
       : tier === 'unknown'
         ? ' perm-banner--unknown'
         : '';
+  // Expiry is terminal for this card even if the server timeout won the race
+  // and rejected our denial. Keep retryable errors visible only while valid.
+  if (remaining === 0 || deadline.at <= Date.now()) return null;
+
   return createPortal(
     <section
       className={`perm-banner perm-banner--visible${tierClass}`}
@@ -179,9 +189,11 @@ export function PermissionBanner({
             <p className="perm-banner-scope">
               {approvalScope === 'conversation'
                 ? 'This integration remains available to this conversation across reconnects and Mitzo restarts, until its sandbox is deleted or access is revoked.'
-                : server
-                  ? `Session allowance covers all ${server} tools.`
-                  : 'Session allowance covers this tool until the task ends.'}
+                : approvalScope === 'request'
+                  ? 'This approval covers only the displayed request. Another request needs its own approval.'
+                  : server
+                    ? `Session allowance covers all ${server} tools.`
+                    : 'Session allowance covers this tool until the task ends.'}
             </p>
           </>
         )}
@@ -209,7 +221,7 @@ export function PermissionBanner({
             >
               {approvalScope === 'conversation' ? 'Grant to conversation' : 'Allow Once'}
             </button>
-            {approvalScope !== 'conversation' && (
+            {approvalScope !== 'conversation' && approvalScope !== 'request' && (
               <button
                 className="perm-banner-btn perm-banner-btn--always"
                 disabled={remaining === 0}

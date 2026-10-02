@@ -1,3 +1,7 @@
+import { custodianControllerMode, custodianOwnerMode } from './symposium-custodian-mode.js';
+import { closeCapabilityOperationStores } from './capability-operation-owner.js';
+import { createSymposiumShutdown, settleSymposiumCleanup } from './symposium-shutdown.js';
+import { bootstrapConfiguredSymposiumHost } from './symposium-owned-config.js';
 import { loadAccountProfiles } from './account-profiles.js';
 import 'dotenv/config';
 import dns from 'node:dns';
@@ -13,6 +17,7 @@ import { createServer as createHttpsServer } from 'https';
 import type { Socket } from 'net';
 import { join } from 'path';
 import { fileURLToPath } from 'url';
+import { localHttpBaseUrl, localServerUsesTls } from './local-server-url.js';
 import { WebSocketServer, WebSocket } from 'ws';
 import { WsTransport } from './ws-transport.js';
 import { authenticateWs, registerAuthSession, type AuthSession } from './auth.js';
@@ -41,6 +46,7 @@ import {
 import { cleanupStaleWorktrees, countWorktrees } from './worktree.js';
 import { NullTransport } from './null-transport.js';
 import { getWorktreeGuardStats, resetWorktreeGuardStats } from '@mitzo/harness';
+import { storedEventToClientMessage } from '@mitzo/protocol';
 import {
   HEARTBEAT_INTERVAL_MS,
   PORT_DEFAULT,
@@ -51,6 +57,10 @@ import {
 import { createLogger } from './logger.js';
 import {
   app,
+  installSymposiumProductionHost,
+  beginSymposiumShutdown,
+  drainSymposiumRuntimes,
+  getSymposiumBootstrapDependencies,
   sseRegistry,
   chatSseRegistry,
   setUpdateBroadcast,
@@ -90,7 +100,7 @@ import {
 } from './openshell-lifecycle-observability.js';
 import { SkillWatcher } from './skill-watcher.js';
 import { WorkflowTemplateStore, seedBuiltInTemplates } from './workflow-templates.js';
-import { localSignalCallbackBaseUrl, SignalProcessor } from './signal-processor.js';
+import { SignalProcessor } from './signal-processor.js';
 import { TaskOrchestrator } from './task-orchestrator.js';
 import { SessionOverviewEmitter } from './session-overview.js';
 import { HealthMonitor } from './health-monitor.js';
@@ -110,14 +120,32 @@ import {
   type V2HandlerContext,
 } from './ws-handler-v2.js';
 import { withSpan, withSpanAsync } from './tracing.js';
-import { startupRepositoryMaintenanceEnabled } from './development-isolation.js';
+import {
+  resolveWorktreeCleanupPolicy,
+  startupRepositoryMaintenanceEnabled,
+} from './development-isolation.js';
+import { runWorktreeCleanupForRepos } from './repository-maintenance.js';
 import { contextFromTraceparent } from './trace-context.js';
 import { SseTransport } from './sse-transport.js';
 import { createChatRestRouter } from './chat-rest-handler.js';
+import { initializeSymposiumNativeHost } from './symposium-native-host.js';
 
 const log = createLogger('server');
 
+// Host-only state. No remote recovery runs at boot: unsettled claims remain
+// quarantined until the exact controller marker is obtained separately.
+export const symposiumNativeHost = process.env.SYMPOSIUM_NATIVE_ATTEMPT_DIR
+  ? initializeSymposiumNativeHost(process.env.SYMPOSIUM_NATIVE_ATTEMPT_DIR)
+  : undefined;
+if (symposiumNativeHost?.quarantinedClaims.length)
+  log.warn('native Symposium sandboxes quarantined after restart', {
+    count: symposiumNativeHost.quarantinedClaims.length,
+  });
+
 const PORT = parseInt(process.env.PORT || String(PORT_DEFAULT), 10);
+const BIND_HOST = process.env.MITZO_BIND_HOST;
+if (BIND_HOST !== undefined && !['127.0.0.1', '::1'].includes(BIND_HOST))
+  throw new Error('MITZO_BIND_HOST must be an explicit loopback address');
 
 /**
  * Connections is intentionally opt-in.  The disabled route remains visible as
@@ -132,6 +160,9 @@ function configureConnectionsRuntime(): void {
     const openShell = openShellRuntimeConfig(process.env);
     const probeImage = process.env.MITZO_CONNECTIONS_PROBE_IMAGE;
     const probePolicy = process.env.MITZO_CONNECTIONS_PROBE_POLICY;
+    const githubProbePolicy = process.env.MITZO_CONNECTIONS_GITHUB_PROBE_POLICY;
+    const githubProfileFingerprint = process.env.MITZO_CONNECTIONS_GITHUB_PROFILE_FINGERPRINT;
+    const customProbePolicy = process.env.MITZO_CONNECTIONS_CUSTOM_REST_PROBE_POLICY;
     const profilePath = process.env.MITZO_CONNECTIONS_JIRA_PROFILE_PATH;
     if (!openShell || !probeImage || !probePolicy || !profilePath) {
       log.error(
@@ -151,8 +182,22 @@ function configureConnectionsRuntime(): void {
       profilePath,
       probeImage,
       probePolicy,
+      ...(githubProbePolicy ? { githubProbePolicy } : {}),
+      ...(githubProfileFingerprint ? { githubProfileFingerprint } : {}),
+      ...(customProbePolicy ? { customProbePolicy } : {}),
+      resolveConversationBinding: (conversationId) => {
+        const accountId = eventStore.getSession(conversationId)?.accountBinding?.accountId;
+        return accountId ? { accountId } : undefined;
+      },
     });
     setAppConnectionsRuntime(runtime);
+    // Only ambiguous post-write operations recover. The executor contract is
+    // read-after-write verification only, so startup never replays a mutation.
+    void runtime.capabilities.recoverPending(AbortSignal.timeout(120_000)).catch((error) => {
+      log.warn('Capability operation recovery pending', {
+        error: error instanceof Error ? error.message : 'unknown',
+      });
+    });
     const reconcile = () => {
       // Reconciliation can need Podman's 45-second stop/delete timeout while
       // draining a quarantined sandbox, plus gateway polling overhead.
@@ -259,6 +304,7 @@ lifecycleReconcile();
 connRegistry.setEventStore({
   getEventsAfter: (sessionId, afterSeq, limit) =>
     eventStore.getEventsAfter(sessionId, afterSeq, limit),
+  getSessionPredecessorSeq: (sessionId, seq) => eventStore.getSessionPredecessorSeq(sessionId, seq),
   isSessionActive: (sessionId) => {
     const state = eventStore.getSessionState(sessionId);
     return state !== null && state !== 'ENDED' && state !== 'CLOSING';
@@ -270,7 +316,7 @@ const __filename = fileURLToPath(import.meta.url);
 const PROJECT_ROOT = join(__filename, '..', '..');
 const CERT_PATH = join(PROJECT_ROOT, 'certs', 'cert.pem');
 const KEY_PATH = join(PROJECT_ROOT, 'certs', 'key.pem');
-const USE_TLS = existsSync(CERT_PATH) && existsSync(KEY_PATH);
+const USE_TLS = localServerUsesTls();
 
 // WebSocket for chat — use HTTPS when certs are available
 const server = USE_TLS
@@ -339,7 +385,7 @@ const signalProc = new SignalProcessor(
     orchestratorRef?.tick();
   },
   process.env.CENTAUR_URL || 'http://localhost:8642',
-  process.env.MITZO_URL || localSignalCallbackBaseUrl(PORT, USE_TLS),
+  process.env.MITZO_URL || localHttpBaseUrl(PORT, USE_TLS),
 );
 setSignalProcessor(signalProc);
 
@@ -349,10 +395,8 @@ const orchestrator = new TaskOrchestrator({
   workloadStore,
   watchSignal: (taskId, gateConfig) => signalProc.watch(taskId, gateConfig),
   getClientId: () => {
-    // Find the first registered client (reuse-only for Phase 2)
-    for (const [clientId] of registry.entries()) {
-      if (registry.isAttached(clientId)) return clientId;
-    }
+    // A background workflow has no owner chat. Never choose an arbitrary
+    // attached conversation as the recipient of an automated task.
     return null;
   },
   setTaskContext: (taskId, goalId) => {
@@ -402,32 +446,38 @@ const orchestrator = new TaskOrchestrator({
     }
     return ids;
   },
-  spawnSession: async (taskId: string, prompt: string, goalId: string) => {
+  spawnSession: async (taskId: string, prompt: string, goalId: string, onEnded) => {
     const clientId = `headless:${generateWtId()}`;
 
     try {
       const transport = new NullTransport();
-      // Fire-and-forget — startChat handles worktree creation, EventStore
-      // registration, and the full session lifecycle internally. We must NOT
-      // await it: startChat blocks until the agent session completes (via
-      // runQueryLoop), so awaiting would block the orchestrator tick chain.
-      startChat(transport, clientId, prompt, {
-        mode: 'agent',
-        isolation: true,
-        telosTaskId: goalId,
-        onSessionResolved: (sessionId) => {
-          log.info('spawned headless session resolved', { taskId, sessionId, clientId });
-          sseRegistry.broadcast('sessions_changed', {});
-        },
-      }).catch((err) => {
-        log.error('spawned session failed', {
-          taskId,
-          clientId,
-          error: (err as Error).message,
+      // Wait for the first provider event. Startup admission alone can succeed
+      // before the SDK fails, leaving an active task without a session.
+      const admitted = new Promise<boolean>((resolve) => {
+        startChat(transport, clientId, prompt, {
+          mode: 'agent',
+          isolation: true,
+          telosTaskId: goalId,
+          onStartupAdmission: (error) => {
+            if (error) resolve(false);
+          },
+          onFirstEventOutcome: (error) => resolve(!error),
+          onTerminalOutcome: (error) => onEnded?.(clientId, error),
+          onSessionResolved: (sessionId) => {
+            log.info('spawned headless session resolved', { taskId, sessionId, clientId });
+            sseRegistry.broadcast('sessions_changed', {});
+          },
+        }).catch((err) => {
+          resolve(false);
+          log.error('spawned session failed', {
+            taskId,
+            clientId,
+            error: (err as Error).message,
+          });
         });
       });
 
-      return clientId;
+      return (await admitted) ? clientId : null;
     } catch (err) {
       log.error('failed to spawn session for task', {
         taskId,
@@ -785,7 +835,7 @@ function replayMissedEvents(
         }
       }
     }
-    transport.send({ ...evt.payload, seq: evt.seq } as Record<string, unknown>);
+    transport.send(storedEventToClientMessage(evt));
   }
   return missed.length;
 }
@@ -1040,8 +1090,13 @@ function handleChatWs(
             'ws.has_resume': !!msg.resume,
           },
           (span) => {
-            const rawCwd = msg.cwd || registry.get(clientId)?.cwd || BASE_REPO;
-            const cwd = rawCwd && isAllowedPath(rawCwd) ? rawCwd : BASE_REPO;
+            const requestedCwd = msg.cwd;
+            const validatedCwd = requestedCwd
+              ? isAllowedPath(requestedCwd)
+                ? requestedCwd
+                : BASE_REPO
+              : undefined;
+            const cwd = validatedCwd ?? registry.get(clientId)?.cwd ?? BASE_REPO;
             const skillRegistry = buildSkillRegistry(cwd);
             const resolution = resolveSlashCommand(msg.prompt, skillRegistry, NATIVE_COMMAND_NAMES);
             span.setAttribute('ws.send.resolution', resolution.type);
@@ -1095,7 +1150,7 @@ function handleChatWs(
                   clientMsgId: msg.clientMsgId,
                   startOptions: {
                     resume: msg.resume,
-                    cwd: msg.cwd,
+                    cwd: validatedCwd,
                     model: msg.model,
                     extraTools: msg.extraTools,
                     isolation: msg.isolation,
@@ -1132,7 +1187,7 @@ function handleChatWs(
               ) {
                 startChat(transport, clientId, msg.prompt, {
                   resume: msg.resume,
-                  cwd: msg.cwd,
+                  cwd: validatedCwd,
                   model: msg.model,
                   extraTools: msg.extraTools,
                   isolation: msg.isolation,
@@ -1258,13 +1313,49 @@ const skillWatcher = new SkillWatcher(
 );
 setSkillWatcher(skillWatcher);
 
+let ownedSymposiumHost: Awaited<ReturnType<typeof bootstrapConfiguredSymposiumHost>> | undefined;
+
+let ownedSymposiumStartup: Promise<void> | undefined;
+let shuttingDown = false;
+const drainOwnedSymposium = createSymposiumShutdown({
+  fence: () => {
+    beginSymposiumShutdown();
+    ownedSymposiumHost?.beginShutdown();
+  },
+  drain: async (signal) => {
+    await ownedSymposiumStartup;
+    signal.throwIfAborted();
+    ownedSymposiumHost?.beginShutdown();
+    await settleSymposiumCleanup([
+      drainSymposiumRuntimes(signal),
+      ownedSymposiumHost?.drain(signal),
+    ]);
+  },
+  close: async (signal) => {
+    await ownedSymposiumHost?.closeAfterDrain(signal);
+  },
+  uncertain: () => {
+    ownedSymposiumHost?.markShutdownUncertain();
+  },
+});
 async function shutdown(signal: string) {
+  if (shuttingDown) return;
+  shuttingDown = true;
   log.info(`${signal} received — shutting down gracefully`);
-  setTimeout(() => process.exit(0), SHUTDOWN_GRACE_MS);
+
   server.close();
   lifecycleAbort.abort();
   if (lifecycleTimer) clearInterval(lifecycleTimer);
   openShellLifecycle?.store.close();
+  try {
+    await drainOwnedSymposium();
+    await closeCapabilityOperationStores(AbortSignal.timeout(120_000));
+  } catch {
+    log.error('Symposium shutdown incomplete; retained resources require recovery');
+    process.exit(1);
+  }
+  symposiumNativeHost?.registry.close();
+  setTimeout(() => process.exit(0), SHUTDOWN_GRACE_MS);
   skillWatcher.destroy();
   await signalProc.unwatchAll();
   wfTemplateStore.close();
@@ -1284,23 +1375,49 @@ process.on('SIGINT', () => void shutdown('SIGINT'));
 
 import { checkPort } from './port-check.js';
 
-checkPort(PORT).then((inUse) => {
+checkPort(PORT).then(async (inUse) => {
+  if (shuttingDown) return;
   if (inUse) {
     log.error(`Port ${PORT} already in use. Another Mitzo instance may be running.`);
     log.error('Kill it or set a different PORT in .env.');
     process.exit(1);
   }
 
+  if (custodianOwnerMode) throw Error('Use the dedicated custodian entry point');
+  if (custodianControllerMode && process.env.MITZO_SYMPOSIUM_OWNED_HOST_CONFIG)
+    throw Error('Controller cannot bootstrap an owned host');
+  const symposiumConfig = process.env.MITZO_SYMPOSIUM_OWNED_HOST_CONFIG;
+  if (symposiumConfig) {
+    try {
+      ownedSymposiumStartup = bootstrapConfiguredSymposiumHost(
+        symposiumConfig,
+        getSymposiumBootstrapDependencies(),
+      ).then((host) => {
+        ownedSymposiumHost = host;
+        if (shuttingDown) host.beginShutdown();
+        else installSymposiumProductionHost(host);
+      });
+      await ownedSymposiumStartup;
+      if (shuttingDown) return;
+    } catch {
+      ownedSymposiumHost?.stop();
+      log.error(
+        'Owned Symposium startup failed. Check its private config, pinned profiles, and dedicated gateway setup.',
+      );
+      process.exit(1);
+    }
+  }
+
   // Plain HTTP listener for watchOS (can't trust self-signed TLS certs)
   if (USE_TLS) {
     const httpServer = createServer(app);
     const HTTP_PORT = PORT + 1;
-    httpServer.listen(HTTP_PORT, () => {
+    httpServer.listen(HTTP_PORT, BIND_HOST, () => {
       log.info(`HTTP listener for watchOS on http://localhost:${HTTP_PORT}`);
     });
   }
 
-  server.listen(PORT, () => {
+  server.listen(PORT, BIND_HOST, () => {
     const protocol = USE_TLS ? 'https' : 'http';
     log.info(`Chat Agent running on ${protocol}://localhost:${PORT}${USE_TLS ? ' (TLS)' : ''}`);
 
@@ -1310,8 +1427,9 @@ checkPort(PORT).then((inUse) => {
     // Recover sessions left in incomplete states after crash/restart (Transport SSOT P0).
     // Must run before reconcileSessionsBackground() so reconciliation sees ENDED states.
     // recoverStaleSessions() logs internally — no need to log here.
-    eventStore.recoverStaleSessions();
-    eventStore.recoverPendingSendCommands();
+    eventStore.recoverStaleSessions({ excludeSymposium: custodianControllerMode });
+    eventStore.recoverOrphanedExecutions({ excludeSymposium: custodianControllerMode });
+    eventStore.recoverPendingSendCommands({ excludeSymposium: custodianControllerMode });
 
     const repositoryMaintenance = startupRepositoryMaintenanceEnabled();
     // Eagerly reconcile sessions so the first /api/sessions request is fast and accurate.
@@ -1336,17 +1454,23 @@ checkPort(PORT).then((inUse) => {
       return ids;
     }
 
+    const cleanupPolicy = resolveWorktreeCleanupPolicy();
+    log.info('worktree cleanup policy', { policy: cleanupPolicy });
+    const runWorktreeCleanup = runWorktreeCleanupForRepos({
+      repoEntries,
+      inboxDir,
+      cleanupPolicy,
+      collectActiveWtIds,
+      cleanup: cleanupStaleWorktrees,
+      onError: (label, phase, err) => {
+        log.warn(`${phase} worktree cleanup failed for ${label}`, {
+          error: err instanceof Error ? err.message : 'unknown',
+        });
+      },
+    });
+
     if (repositoryMaintenance) {
-      const startupActiveWtIds = collectActiveWtIds();
-      for (const [label, repoPath] of repoEntries) {
-        try {
-          cleanupStaleWorktrees(repoPath, inboxDir, startupActiveWtIds);
-        } catch (err: unknown) {
-          log.warn(`stale worktree cleanup failed for ${label}`, {
-            error: err instanceof Error ? err.message : 'unknown',
-          });
-        }
-      }
+      runWorktreeCleanup('startup');
     } else {
       log.warn('repository reconciliation and worktree cleanup disabled for development isolation');
     }
@@ -1373,18 +1497,7 @@ checkPort(PORT).then((inUse) => {
     }, GUARD_STATS_INTERVAL_MS);
 
     if (repositoryMaintenance)
-      setInterval(() => {
-        const activeWtIds = collectActiveWtIds();
-        for (const [label, repoPath] of repoEntries) {
-          try {
-            cleanupStaleWorktrees(repoPath, inboxDir, activeWtIds);
-          } catch (err: unknown) {
-            log.warn(`periodic worktree cleanup failed for ${label}`, {
-              error: err instanceof Error ? err.message : 'unknown',
-            });
-          }
-        }
-      }, WORKTREE_CLEANUP_INTERVAL_MS);
+      setInterval(() => runWorktreeCleanup('periodic'), WORKTREE_CLEANUP_INTERVAL_MS);
   });
 });
 

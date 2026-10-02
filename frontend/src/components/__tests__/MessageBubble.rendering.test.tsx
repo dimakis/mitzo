@@ -1,7 +1,17 @@
+// @vitest-environment jsdom
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it } from 'vitest';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { useLocation } from 'react-router-dom';
+import ReactMarkdown from 'react-markdown';
+import {
+  artifactMarkdownComponents,
+  artifactUrlTransform,
+  remarkPlugins,
+  rehypePlugins,
+} from '../../lib/markdown-config';
 import { MessageBubble, TextBubble } from '../MessageBubble';
 import type { FinishedMessage } from '../../types/chat';
 
@@ -16,6 +26,35 @@ function renderBubble(content: string, streaming = false): string {
 }
 
 describe('TextBubble file link rendering', () => {
+  it.each(['report.html', 'outputs/report.html', './outputs/report.html'])(
+    'opens relative Markdown artifact %s in the originating session',
+    (path) => {
+      function Location() {
+        const location = useLocation();
+        return <output data-testid="location">{location.pathname + location.search}</output>;
+      }
+      render(
+        <MemoryRouter initialEntries={['/chat/test-session']}>
+          <TextBubble content={`[report](${path})`} artifactSessionId="test-session" />
+          <Location />
+        </MemoryRouter>,
+      );
+      fireEvent.click(screen.getByRole('link', { name: 'report' }));
+      const url = new URL(screen.getByTestId('location').textContent!, 'https://mitzo.test');
+      expect(url.pathname).toBe('/files');
+      expect(url.searchParams.get('path')).toBe(path);
+      expect(url.searchParams.get('sessionId')).toBe('test-session');
+      cleanup();
+    },
+  );
+
+  it('keeps external and page-relative browser links outside artifact routing', () => {
+    const html = renderBubble('[site](https://example.com) [section](#section)');
+    expect(html).toContain('href="https://example.com"');
+    expect(html).toContain('href="#section"');
+    expect(html).not.toContain('file-path-link');
+  });
+
   it.each([false, true])(
     'leaves a malformed encoded file link readable and inert when streaming=%s',
     (streaming) => {
@@ -136,4 +175,102 @@ describe('MessageBubble restored message rendering', () => {
     expect(html).toContain('message');
     expect(html).not.toContain('file-path-link');
   });
+});
+
+describe('historic absolute Markdown destinations', () => {
+  it.each([
+    '/workspace/report.md',
+    '/workspace/My%20Report.md:12',
+    'file:///workspace/report.md',
+    'file://localhost/workspace/report.md',
+  ])('routes stored chat destination %s through the viewer', (href) => {
+    const message: FinishedMessage = {
+      messageId: 'stored',
+      role: 'assistant',
+      blocks: [
+        { blockId: 'text', blockType: 'text', content: `Recovered [report](${href}) for review.` },
+      ],
+    };
+    const html = renderToStaticMarkup(
+      <MemoryRouter>
+        <MessageBubble message={message} />
+      </MemoryRouter>,
+    );
+    expect(html).toContain('file-path-link');
+    expect(html).toContain(
+      `data-file-path="${href.includes('My') ? '/workspace/My Report.md' : '/workspace/report.md'}"`,
+    );
+  });
+
+  it.each(['/workspace/report.md', 'file:///workspace/report.md'])(
+    'routes nested Markdown destination %s with session scope',
+    (href) => {
+      const html = renderToStaticMarkup(
+        <ReactMarkdown
+          remarkPlugins={remarkPlugins}
+          rehypePlugins={rehypePlugins}
+          urlTransform={artifactUrlTransform}
+          components={artifactMarkdownComponents(
+            '/workspace/index.md',
+            'old-session',
+            '/chat/old-session',
+            () => {},
+          )}
+        >{`[report](${href})`}</ReactMarkdown>,
+      );
+      expect(html).toContain('/files?path=%2Fworkspace%2Freport.md');
+      expect(html).toContain('sessionId=old-session');
+    },
+  );
+
+  it.each([
+    'https://example.com/report.md',
+    '//example.com/report.md',
+    '/files?path=report.md',
+    '/chat/report.md',
+    '/sessions/report.md',
+    '/%63hat/report.md',
+    '#report',
+    'javascript:alert(1)',
+    'file://remote/workspace/report.md',
+  ])('preserves browser destinations or neutralizes unsafe href %s', (href) => {
+    const html = renderBubble(`See [report](${href}) here.`);
+    expect(html).not.toContain('file-path-link');
+    expect(html).not.toContain('href="javascript:');
+    expect(html).not.toContain('href="file:');
+  });
+});
+
+it('opens an unchanged restored Markdown message with its originating session', () => {
+  function Location() {
+    const location = useLocation();
+    return <output data-testid="restored-location">{location.pathname + location.search}</output>;
+  }
+  const message: FinishedMessage = {
+    messageId: 'persisted-message',
+    role: 'assistant',
+    blocks: [
+      {
+        blockId: 'text',
+        blockType: 'text',
+        content: 'Read [report](/workspace/My%20Report.md:12) for details.',
+      },
+    ],
+  };
+  render(
+    <MemoryRouter initialEntries={['/chat/old-session']}>
+      <MessageBubble
+        message={JSON.parse(JSON.stringify(message))}
+        artifactSessionId="old-session"
+      />
+      <Location />
+    </MemoryRouter>,
+  );
+  fireEvent.click(screen.getByRole('link', { name: 'report' }));
+  const url = new URL(screen.getByTestId('restored-location').textContent!, 'https://mitzo.test');
+  expect(url.pathname).toBe('/files');
+  expect(url.searchParams.get('path')).toBe('/workspace/My Report.md');
+  expect(url.searchParams.get('sessionId')).toBe('old-session');
+  expect(url.searchParams.get('from')).toBe('/chat/old-session');
+  cleanup();
 });

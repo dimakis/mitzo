@@ -106,5 +106,5 @@ export type {
   ToolResultBlock,
 } from './sdk-adapter.js';
 
-export { ResponsesSession } from './responses-session.js';
+export { OpenAIResponsesRequestError, ResponsesSession } from './responses-session.js';
 export type { ResponsesSessionOptions, ResponsesCheckpoint } from './responses-session.js';

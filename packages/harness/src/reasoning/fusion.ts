@@ -17,10 +17,22 @@
 
 import { createLogger } from '../logger.js';
 import { createProvider } from '../providers/index.js';
-import type { ModelProvider } from '../providers/types.js';
+import type {
+  ModelProvider,
+  ProviderResponse,
+  ProviderMessage,
+  CallOptions,
+} from '../providers/types.js';
 import type { FusionConfig, FusionResult, JudgeAnalysis, TranscriptEntry } from './types.js';
 
 const log = createLogger('fusion');
+
+/** Optional server-owned durable boundary; legacy harness callers remain supported. */
+export interface FusionRuntime {
+  createProvider?: (model: string) => ModelProvider;
+  call?: (phase: string, invoke: () => Promise<ProviderResponse>) => Promise<ProviderResponse>;
+  signal?: AbortSignal;
+}
 
 export class FusionOrchestrator {
   private panelProviders: Array<{ model: string; provider: ModelProvider }>;
@@ -30,20 +42,24 @@ export class FusionOrchestrator {
   private transcript: TranscriptEntry[] = [];
   private totalCost = 0;
 
-  constructor(config: FusionConfig) {
+  constructor(
+    config: FusionConfig,
+    private readonly runtime: FusionRuntime = {},
+  ) {
+    const factory = runtime.createProvider ?? createProvider;
     this.config = config;
 
     // Create one provider per panel member
     this.panelProviders = config.panelModels.map((pm) => ({
       model: pm.model,
-      provider: createProvider(pm.model),
+      provider: factory(pm.model),
     }));
 
-    this.judgeProvider = createProvider(config.judgeModel.model);
+    this.judgeProvider = factory(config.judgeModel.model);
 
     // Synthesizer defaults to judge if not specified
     this.synthesizerProvider = config.synthesizerModel
-      ? createProvider(config.synthesizerModel.model)
+      ? factory(config.synthesizerModel.model)
       : this.judgeProvider;
   }
 
@@ -140,9 +156,10 @@ export class FusionOrchestrator {
           this.config.panelModels[index].systemPrompt ??
           'You are a knowledgeable assistant. Provide a thorough, well-reasoned response to the task.';
 
-        onEvent?.({ type: 'phase_start', phase: 'fan-out', speaker, model });
-
-        const response = await provider.call(
+        const response = await this.callModel(
+          speaker,
+          provider,
+          () => onEvent?.({ type: 'phase_start', phase: 'fan-out', speaker, model }),
           [
             { role: 'system', content: systemPrompt },
             { role: 'user', content: prompt },
@@ -173,6 +190,12 @@ export class FusionOrchestrator {
         return { model, response: response.content };
       }),
     );
+
+    this.runtime.signal?.throwIfAborted();
+    // A durable run must not spend more after an uncertain panel outcome. Wait
+    // for every sibling to settle before propagating failure to the root owner.
+    if (this.runtime.call && results.some((result) => result.status === 'rejected'))
+      throw new Error('Fusion panel did not complete');
 
     // Collect successful results, log failures
     const panelResponses: Array<{ model: string; response: string }> = [];
@@ -206,14 +229,16 @@ export class FusionOrchestrator {
 
     const prompt = `## Original Task\n${task}\n\n## Context\n${context}\n\n## Panel Responses\n\n${responsesBlock}\n\n## Your Task\nAnalyze all panel responses and produce a structured comparison. Output a JSON object with this exact structure:\n\n{\n  "consensus": ["point 1", "point 2"],\n  "contradictions": [\n    {\n      "topic": "what they disagree about",\n      "positions": [\n        { "model": "model-name", "position": "their stance" }\n      ]\n    }\n  ],\n  "partial_coverage": ["topic only some addressed"],\n  "unique_insights": [\n    { "model": "model-name", "insight": "what they uniquely contributed" }\n  ],\n  "blind_spots": ["question none addressed"]\n}\n\nBe thorough and specific. Every entry should reference concrete content from the panel responses.`;
 
-    onEvent?.({
-      type: 'phase_start',
-      phase: 'judge',
-      speaker: 'judge',
-      model: this.config.judgeModel.model,
-    });
-
-    const response = await this.judgeProvider.call(
+    const response = await this.callModel(
+      'judge',
+      this.judgeProvider,
+      () =>
+        onEvent?.({
+          type: 'phase_start',
+          phase: 'judge',
+          speaker: 'judge',
+          model: this.config.judgeModel.model,
+        }),
       [
         { role: 'system', content: judgeSystemPrompt },
         { role: 'user', content: prompt },
@@ -307,14 +332,16 @@ export class FusionOrchestrator {
 
     const prompt = `## Original Task\n${task}\n\n## Context\n${context}\n\n## Structured Analysis (from judge)\n${analysisJson}\n\n## Panel Summaries\n${responseSummary}\n\n## Your Task\nProduce the FINAL answer to the original task. Ground your response in the structured analysis:\n- Build on consensus points (high confidence)\n- Resolve contradictions with reasoning\n- Incorporate unique insights where valuable\n- Address blind spots where possible\n\nProvide a clean, integrated answer — not a meta-commentary on the panel.`;
 
-    onEvent?.({
-      type: 'phase_start',
-      phase: 'synthesize',
-      speaker: 'synthesizer',
-      model: this.config.synthesizerModel?.model ?? this.config.judgeModel.model,
-    });
-
-    const response = await this.synthesizerProvider.call(
+    const response = await this.callModel(
+      'synthesize',
+      this.synthesizerProvider,
+      () =>
+        onEvent?.({
+          type: 'phase_start',
+          phase: 'synthesize',
+          speaker: 'synthesizer',
+          model: this.config.synthesizerModel?.model ?? this.config.judgeModel.model,
+        }),
       [
         { role: 'system', content: synthesizerSystemPrompt },
         { role: 'user', content: prompt },
@@ -346,6 +373,28 @@ export class FusionOrchestrator {
   }
 
   // ─── Helpers ─────────────────────────────────────────────────────────────
+
+  private async callModel(
+    phase: string,
+    provider: ModelProvider,
+    onStart: () => void,
+    messages: ProviderMessage[],
+    options: CallOptions,
+  ): Promise<ProviderResponse> {
+    const invoke = async () => {
+      this.runtime.signal?.throwIfAborted();
+      onStart();
+      this.runtime.signal?.throwIfAborted();
+      return provider.call(messages, {
+        ...options,
+        signal: this.runtime.signal,
+        ...(this.runtime.call ? { maxRetries: 0 } : {}),
+      });
+    };
+    const result = this.runtime.call ? await this.runtime.call(phase, invoke) : await invoke();
+    this.runtime.signal?.throwIfAborted();
+    return result;
+  }
 
   /** Budget is checked post-hoc — actual spend may exceed budget by one call's cost. */
   private budgetExhausted(): boolean {

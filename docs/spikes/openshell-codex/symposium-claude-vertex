@@ -1,0 +1,39 @@
+#!/bin/sh
+set -eu
+# Fixed reviewed executable; project/region are noncredential route parameters.
+project=$1; region=$2; shift 2
+test "${VERTEX_AI_PROJECT_ID-}" = "$project" || exit 64
+test "${VERTEX_AI_REGION-}" = "$region" || exit 64
+token=${GOOGLE_VERTEX_AI_SERVICE_ACCOUNT_TOKEN-}
+adc_token=${GOOGLE_VERTEX_AI_TOKEN-}
+test -z "$token" || test -z "$adc_token" || exit 64
+if test -z "$token"; then
+  token=$adc_token
+  key=GOOGLE_VERTEX_AI_TOKEN
+else
+  key=GOOGLE_VERTEX_AI_SERVICE_ACCOUNT_TOKEN
+fi
+test "${#token}" -le 128 || exit 64
+case "$token" in
+  "openshell:resolve:env:$key"|"provider-OPENSHELL-RESOLVE-ENV-$key") ;;
+  openshell:resolve:env:v*_"$key")
+    version=${token#openshell:resolve:env:v}
+    version=${version%_"$key"}
+    case "$version" in ''|*[!0-9]*) exit 64 ;; esac
+    test "${#version}" -le 10 || exit 64
+    ;;
+  *) exit 64 ;;
+esac
+unset ANTHROPIC_VERTEX_BASE_URL ANTHROPIC_BASE_URL ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN GOOGLE_APPLICATION_CREDENTIALS
+# Documented route/model/effort overrides must not supersede the host's argv.
+# https://code.claude.com/docs/en/env-vars and /docs/en/google-vertex-ai
+unset VERTEX_REGION_CLAUDE_3_5_HAIKU VERTEX_REGION_CLAUDE_3_5_SONNET VERTEX_REGION_CLAUDE_3_7_SONNET
+unset VERTEX_REGION_CLAUDE_4_0_OPUS VERTEX_REGION_CLAUDE_4_0_SONNET VERTEX_REGION_CLAUDE_4_1_OPUS
+unset VERTEX_REGION_CLAUDE_4_5_OPUS VERTEX_REGION_CLAUDE_4_5_SONNET VERTEX_REGION_CLAUDE_HAIKU_4_5
+unset VERTEX_REGION_CLAUDE_4_6_OPUS VERTEX_REGION_CLAUDE_4_6_SONNET VERTEX_REGION_CLAUDE_4_7_OPUS VERTEX_REGION_CLAUDE_4_8_OPUS VERTEX_REGION_CLAUDE_5_5_OPUS
+unset ANTHROPIC_MODEL ANTHROPIC_DEFAULT_MODEL ANTHROPIC_DEFAULT_OPUS_MODEL ANTHROPIC_DEFAULT_SONNET_MODEL ANTHROPIC_DEFAULT_HAIKU_MODEL ANTHROPIC_SMALL_FAST_MODEL
+unset CLAUDE_CODE_SUBAGENT_MODEL CLAUDE_CODE_EFFORT_LEVEL CLAUDE_CODE_USE_BEDROCK CLAUDE_CODE_USE_FOUNDRY CLAUDE_CODE_USE_MANTLE CLAUDE_CODE_USE_ANTHROPIC_AWS
+export CLAUDE_CODE_USE_VERTEX=1 CLAUDE_CODE_SKIP_VERTEX_AUTH=1
+export ANTHROPIC_VERTEX_PROJECT_ID="$project" CLOUD_ML_REGION="$region"
+export ANTHROPIC_CUSTOM_HEADERS="Authorization: Bearer $token"
+exec /usr/local/bin/claude "$@"

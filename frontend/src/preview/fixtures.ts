@@ -1,4 +1,5 @@
 import type { FinishedMessage, Session } from '@mitzo/protocol';
+import { symposiumMessages } from './symposium-fixtures';
 
 const titles = [
   'Improve the workspace UI',
@@ -18,33 +19,36 @@ export const sessions: Session[] = Array.from({ length: 48 }, (_, i) => ({
   totalTokens: 14000 + i * 1700,
   numTurns: 4 + i,
 }));
-export const messagesFor = (id: string): FinishedMessage[] => [
-  {
-    messageId: `${id}-user`,
-    role: 'user',
-    timestamp: Date.now() - 120000,
-    blocks: [
-      {
-        blockId: 'text',
-        blockType: 'text',
-        content: sessions.find((s) => s.id === id)?.summary ?? 'Start a new conversation',
-      },
-    ],
-  },
-  {
-    messageId: `${id}-reply`,
-    role: 'assistant',
-    timestamp: Date.now() - 60000,
-    blocks: [
-      {
-        blockId: 'text',
-        blockType: 'text',
-        content:
-          'This is a preview with sample conversations. It renders the same chat screens as Mitzo.\n\nUse **Chats** to switch conversations on mobile, or the conversation sidebar on desktop. Try a long title, search, or resize the window.',
-      },
-    ],
-  },
-];
+export const messagesFor = (id: string): FinishedMessage[] =>
+  id === 'preview-1' || id === 'preview-3'
+    ? symposiumMessages
+    : [
+        {
+          messageId: `${id}-user`,
+          role: 'user',
+          timestamp: Date.now() - 120000,
+          blocks: [
+            {
+              blockId: 'text',
+              blockType: 'text',
+              content: sessions.find((s) => s.id === id)?.summary ?? 'Start a new conversation',
+            },
+          ],
+        },
+        {
+          messageId: `${id}-reply`,
+          role: 'assistant',
+          timestamp: Date.now() - 60000,
+          blocks: [
+            {
+              blockId: 'text',
+              blockType: 'text',
+              content:
+                'This is a preview with sample conversations. It renders the same chat screens as Mitzo.\n\nUse **Chats** to switch conversations on mobile, or the conversation sidebar on desktop. Try a long title, search, or resize the window.',
+            },
+          ],
+        },
+      ];
 export const account = {
   id: 'preview',
   label: 'Preview account',

@@ -43,6 +43,8 @@ describe('Connections app mount', () => {
     setConnectionsRuntime({
       store,
       service: {} as never,
+      capabilityStore: {} as never,
+      capabilities: {} as never,
       eligibleAccountIds: () => [],
       gateway: 'openshell',
       workspace: 'default',

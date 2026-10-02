@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, expect, it, vi } from 'vitest';
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, within, waitFor } from '@testing-library/react';
 import { MemoryRouter, Routes, Route, useLocation } from 'react-router-dom';
 import { MitzoStoreProvider } from '@mitzo/client/hooks';
 import { createTestStore } from '../../test-utils/createTestStore';
@@ -36,9 +36,25 @@ vi.mock('../../hooks/useVoice', () => ({
   }),
 }));
 vi.mock('../../components/VoiceSettings', () => ({ VoiceSettings: () => null }));
+vi.mock('../../components/WebSearchConsent', () => ({
+  WebSearchConsent: ({ connectionId }: { connectionId: string | null }) => (
+    <span data-testid="web-search-connection">{connectionId ?? 'none'}</span>
+  ),
+}));
 vi.mock('../../components/ChatArea', () => ({
-  ChatArea: ({ messages }: { messages: unknown[] }) => (
-    <div data-testid="chat-message-count">Messages: {messages.length}</div>
+  ChatArea: ({
+    messages,
+    currentByMessage,
+  }: {
+    messages: unknown[];
+    currentByMessage?: Record<string, unknown>;
+  }) => (
+    <div>
+      <span data-testid="chat-message-count">Messages: {messages.length}</span>
+      <span data-testid="active-seats">
+        Active seats: {Object.keys(currentByMessage ?? {}).length}
+      </span>
+    </div>
   ),
 }));
 vi.mock('../../components/ChatInput', () => ({
@@ -49,6 +65,49 @@ vi.mock('../../components/ChatInput', () => ({
 afterEach(() => {
   cleanup();
   vi.resetAllMocks();
+});
+
+it('updates web-search consent when the connection ID changes without a status change', () => {
+  const store = createTestStore();
+  store.setState({
+    connection: { ...store.getState().connection, status: 'connected', clientId: 'connection-one' },
+  });
+  render(
+    <MitzoStoreProvider value={store}>
+      <MemoryRouter>
+        <ChatView />
+      </MemoryRouter>
+    </MitzoStoreProvider>,
+  );
+  expect(screen.getByTestId('web-search-connection').textContent).toBe('connection-one');
+
+  act(() =>
+    store.setState({
+      connection: { ...store.getState().connection, clientId: 'connection-two' },
+    }),
+  );
+  expect(screen.getByTestId('web-search-connection').textContent).toBe('connection-two');
+});
+
+it('passes concurrent seat streams to the shared mobile ChatArea', () => {
+  const store = createTestStore();
+  store.setState((state) => ({
+    messages: {
+      ...state.messages,
+      currentByMessage: {
+        reviewer: { messageId: 'reviewer', blocks: new Map(), blockOrder: [] },
+        architect: { messageId: 'architect', blocks: new Map(), blockOrder: [] },
+      },
+    },
+  }));
+  render(
+    <MitzoStoreProvider value={store}>
+      <MemoryRouter>
+        <ChatView />
+      </MemoryRouter>
+    </MitzoStoreProvider>,
+  );
+  expect(screen.getByTestId('active-seats').textContent).toContain('Active seats: 2');
 });
 
 it('does not speak when an assistant response completes on mobile', async () => {
@@ -284,4 +343,54 @@ it('shows conversation history loading explicitly', async () => {
   expect(screen.getByText('Loading conversation…')).toBeTruthy();
   act(() => store.setState({ historyLoading: false }));
   expect(screen.queryByText('Loading conversation…')).toBeNull();
+});
+
+it('shows the profile, model and thinking in the collapsed workspace header', async () => {
+  localStorage.removeItem('mitzo-workspace-controls-expanded');
+  const catalog = [
+    {
+      id: 'work',
+      label: 'Work Vertex',
+      models: [
+        {
+          id: 'luna',
+          label: 'Luna',
+          reasoningEfforts: ['low', 'high'],
+          defaultReasoningEffort: 'high',
+        },
+      ],
+    },
+  ];
+  vi.mocked(apiFetch).mockResolvedValue({ ok: true, json: async () => catalog } as Response);
+  const store = createTestStore();
+  render(
+    <MitzoStoreProvider value={store}>
+      <MemoryRouter>
+        <ChatView />
+      </MemoryRouter>
+    </MitzoStoreProvider>,
+  );
+  const toggle = screen.getByRole('button', { name: /Workspace controls/ });
+  expect(await within(toggle).findByText('Work Vertex')).toBeTruthy();
+  expect(within(toggle).getByText('Luna')).toBeTruthy();
+  expect(within(toggle).getByText('Thinking: high')).toBeTruthy();
+  expect(toggle.getAttribute('aria-expanded')).toBe('false');
+  expect(screen.queryByRole('combobox')).toBeNull();
+});
+
+it('groups web search settings under the existing header disclosure', async () => {
+  localStorage.removeItem('mitzo-workspace-controls-expanded');
+  vi.mocked(apiFetch).mockResolvedValue({ ok: true, json: async () => [] } as Response);
+  const store = createTestStore();
+  render(
+    <MitzoStoreProvider value={store}>
+      <MemoryRouter>
+        <ChatView />
+      </MemoryRouter>
+    </MitzoStoreProvider>,
+  );
+  const settings = screen.getByTestId('web-search-connection');
+  expect(settings.closest('[hidden]')).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: /Workspace controls/ }));
+  expect(settings.closest('[hidden]')).toBeNull();
 });

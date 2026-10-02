@@ -1,0 +1,791 @@
+import { SYMPOSIUM_ARTIFACT_TARGET } from './symposium-artifact-lease.js';
+import Database from 'better-sqlite3';
+import { resolve } from 'node:path';
+import type { OwnedSymposiumGateway } from './symposium-owned-gateway.js';
+import { execFile } from 'node:child_process';
+import { createHash, randomUUID } from 'node:crypto';
+import type { EventStore } from './event-store.js';
+import type {
+  ArtifactDriver,
+  ArtifactDriverConfig,
+  ArtifactLease,
+  ArtifactLeaseHost,
+  ArtifactLeaseRequest,
+  ArtifactVolumeEvidence,
+} from './symposium-artifact-lease.js';
+
+export interface PendingArtifactRetention {
+  kind: 'pending_artifact_retention';
+  status: 'pending_unsealed';
+  fenceId: string;
+  intent: NonNullable<ReturnType<EventStore['getSymposiumArtifactSealIntent']>>;
+  writerSandboxName: string;
+  writerSandboxId: string;
+  retainedAt: number;
+}
+
+interface LeaseRow {
+  token: string;
+  revision: string;
+  request_json: string;
+  sandbox_id: string | null;
+  sandbox_name: string | null;
+  intended_sandbox_name: string | null;
+  creation_started: number;
+}
+
+export interface ArtifactHostEvidence {
+  /** Must attest the selected gateway and workspace, including allow_driver_config=true. */
+  verifyGateway(request: ArtifactLeaseRequest, config: ArtifactDriverConfig): Promise<void>;
+  /** Must inspect the selected compute driver's physical mount, not just CLI labels. */
+  verifyMount(sandboxName: string, sandboxId: string, config: ArtifactDriverConfig): Promise<void>;
+  /** Must prove the exact physical sandbox was deleted and cannot restart. */
+  verifyDeleted?(sandboxName: string, sandboxId: string): Promise<void>;
+}
+
+export type VolumeRunner = (driver: ArtifactDriver, name: string) => Promise<unknown>;
+const safeName = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/;
+
+/** One retained Podman command closure owns both admission inspection and verifier
+ * operations. Snapshot callers cannot select a second engine/store/environment. */
+/** Only the retained transport may assert that its custody precheck rejected before dispatch. */
+export class ArtifactCommandNotDispatched extends Error {
+  constructor(cause?: unknown) {
+    super(cause instanceof Error ? cause.message : 'Artifact command was not dispatched');
+    this.name = 'ArtifactCommandNotDispatched';
+  }
+}
+
+export type ArtifactPodmanCommand = (
+  args: readonly string[],
+  maxOutputBytes?: number,
+  input?: Buffer,
+) => Promise<string>;
+export class ArtifactPodmanContext {
+  constructor(
+    private readonly command: ArtifactPodmanCommand,
+    private readonly terminalCommand = command,
+  ) {}
+  async inspect(driver: ArtifactDriver, name: string): Promise<unknown> {
+    if (driver !== 'podman' || !safeName.test(name))
+      throw new Error('Invalid artifact context inspection');
+    return JSON.parse(await this.command(['volume', 'inspect', name]));
+  }
+  verifierCommand(): ArtifactPodmanCommand {
+    // Successful create/removal must reach the caller journal before post-command custody checks.
+    // The retained command still checks custody before dispatch. Other reads keep both checks.
+    return async (args, maxOutputBytes, input) => {
+      if (
+        input &&
+        (input.length < 1 ||
+          input.length > 8 * 1024 * 1024 ||
+          args[0] !== 'start' ||
+          args[1] !== '--attach' ||
+          args[2] !== '--interactive')
+      )
+        throw new Error('Artifact stdin command or byte bound is invalid');
+      return (
+        args[0] === 'create' ||
+          args[0] === 'rm' ||
+          (args[0] === 'volume' && args[1] === 'create') ||
+          input
+          ? this.terminalCommand
+          : this.command
+      )(args, maxOutputBytes, input);
+    };
+  }
+}
+
+/** Uses argv rather than a shell and never accepts an arbitrary engine name. */
+export const inspectLocalArtifactVolume: VolumeRunner = (driver, name) => {
+  if ((driver !== 'podman' && driver !== 'docker') || !safeName.test(name))
+    throw new Error('Invalid artifact volume inspection request');
+  return new Promise((resolve, reject) => {
+    execFile(
+      driver,
+      ['volume', 'inspect', '--format', 'json', name],
+      {
+        timeout: 15_000,
+        maxBuffer: 1024 * 1024,
+        encoding: 'utf8',
+      },
+      (error, stdout) => {
+        if (error) return reject(error);
+        try {
+          resolve(JSON.parse(stdout));
+        } catch (parseError) {
+          reject(parseError);
+        }
+      },
+    );
+  });
+};
+
+export function volumeEvidence(raw: unknown, name: string): ArtifactVolumeEvidence {
+  const item = Array.isArray(raw) && raw.length === 1 ? raw[0] : raw;
+  if (!item || typeof item !== 'object' || Array.isArray(item))
+    throw new Error('Invalid artifact volume inspection result');
+  const value = item as Record<string, unknown>;
+  const labels = value.Labels ?? value.labels;
+  const options = value.Options ?? value.options;
+  if (value.Name !== name && value.name !== name) throw new Error('Artifact volume name changed');
+  if (value.Driver !== 'local' && value.driver !== 'local')
+    throw new Error('Artifact volume is not a local named volume');
+  if (
+    !labels ||
+    typeof labels !== 'object' ||
+    Array.isArray(labels) ||
+    !options ||
+    typeof options !== 'object' ||
+    Array.isArray(options)
+  )
+    throw new Error('Artifact volume labels or options are unavailable');
+  if (
+    Object.values(labels).some((v) => typeof v !== 'string') ||
+    Object.values(options).some((v) => typeof v !== 'string')
+  )
+    throw new Error('Invalid artifact volume labels or options');
+  return {
+    name,
+    driver: 'local',
+    labels: labels as Record<string, string>,
+    options: options as Record<string, string>,
+  };
+}
+
+/** SQLite is the serialization point across workers and process restarts.
+ * Leases never expire automatically. A crash leaves a closed reservation until
+ * the exact sandbox stop is attested or an operator reconciles it.
+ */
+export class SqliteArtifactLeaseHost implements ArtifactLeaseHost {
+  private readonly db: Database.Database;
+  private readonly volumeRunner: VolumeRunner;
+  private readonly persistentSnapshotPath?: string;
+  private readonly podmanContext?: ArtifactPodmanContext;
+
+  constructor(
+    dbPath: string,
+    private readonly evidence: ArtifactHostEvidence,
+    volumeRunner: VolumeRunner | ArtifactPodmanContext = inspectLocalArtifactVolume,
+    private readonly snapshotGateway?: OwnedSymposiumGateway,
+  ) {
+    this.podmanContext = volumeRunner instanceof ArtifactPodmanContext ? volumeRunner : undefined;
+    this.volumeRunner =
+      volumeRunner instanceof ArtifactPodmanContext
+        ? (driver, name) => volumeRunner.inspect(driver, name)
+        : volumeRunner;
+    this.db = new Database(dbPath);
+    this.persistentSnapshotPath =
+      this.db.name && this.db.name !== ':memory:' ? resolve(this.db.name) : undefined;
+    this.db.pragma('journal_mode = WAL');
+    this.db.pragma('busy_timeout = 5000');
+    this.db.exec(`CREATE TABLE IF NOT EXISTS symposium_artifact_leases (
+      token TEXT PRIMARY KEY,
+      revision TEXT NOT NULL,
+      driver TEXT NOT NULL,
+      volume_name TEXT NOT NULL,
+      access TEXT NOT NULL,
+      request_json TEXT NOT NULL,
+      sandbox_name TEXT,
+      sandbox_id TEXT,
+      intended_sandbox_name TEXT,
+      creation_started INTEGER NOT NULL DEFAULT 1 CHECK (creation_started IN (0, 1)),
+      created_at INTEGER NOT NULL,
+      CHECK ((sandbox_name IS NULL) = (sandbox_id IS NULL))
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS symposium_artifact_one_writer
+      ON symposium_artifact_leases(driver, volume_name) WHERE access = 'writer';`);
+    // Existing unbound rows may already have an in-flight create. A migrated row
+    // therefore defaults to "started" and cannot be released as a fresh lease.
+    const columns = this.db.pragma('table_info(symposium_artifact_leases)') as { name: string }[];
+    if (!columns.some((column) => column.name === 'creation_started'))
+      this.db.exec(
+        'ALTER TABLE symposium_artifact_leases ADD COLUMN creation_started INTEGER NOT NULL DEFAULT 1',
+      );
+    if (!columns.some((column) => column.name === 'intended_sandbox_name'))
+      this.db.exec('ALTER TABLE symposium_artifact_leases ADD COLUMN intended_sandbox_name TEXT');
+    this.db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS symposium_artifact_sandbox_identity
+      ON symposium_artifact_leases(COALESCE(intended_sandbox_name, sandbox_name))
+      WHERE creation_started = 1 AND COALESCE(intended_sandbox_name, sandbox_name) IS NOT NULL;
+    CREATE TABLE IF NOT EXISTS symposium_artifact_pending_retention (
+      driver TEXT NOT NULL,
+      volume_name TEXT NOT NULL,
+      intent_json TEXT NOT NULL,
+      retention_json TEXT NOT NULL,
+      PRIMARY KEY(driver, volume_name)
+    );
+    CREATE TABLE IF NOT EXISTS symposium_artifact_release_receipts (
+      token TEXT PRIMARY KEY,
+      revision TEXT NOT NULL,
+      request_json TEXT NOT NULL,
+      sandbox_name TEXT NOT NULL,
+      sandbox_id TEXT NOT NULL,
+      released_at INTEGER NOT NULL,
+      UNIQUE(sandbox_name, sandbox_id)
+    );`);
+  }
+
+  snapshotDatabasePath(): string {
+    if (!this.persistentSnapshotPath)
+      throw new Error('Artifact snapshot requires persistent lease storage');
+    return this.persistentSnapshotPath;
+  }
+
+  requireSnapshotGateway(gateway: OwnedSymposiumGateway): void {
+    if (!this.snapshotGateway || this.snapshotGateway !== gateway)
+      throw new Error('Artifact snapshot gateway differs from retained lease host');
+  }
+
+  snapshotCommand(): ArtifactPodmanCommand {
+    if (!this.podmanContext)
+      throw new Error('Artifact snapshot requires the lease host Podman context');
+    return this.podmanContext.verifierCommand();
+  }
+
+  close(): void {
+    this.db.close();
+  }
+
+  async inspectVolume(name: string, driver: ArtifactDriver): Promise<ArtifactVolumeEvidence> {
+    if (!safeName.test(name)) throw new Error('Invalid artifact volume name');
+    return volumeEvidence(await this.volumeRunner(driver, name), name);
+  }
+
+  async verifyDriverConfig(
+    request: ArtifactLeaseRequest,
+    config: ArtifactDriverConfig,
+  ): Promise<void> {
+    const keys = Object.keys(config);
+    const mount = config[request.driver]?.mounts;
+    if (
+      keys.length !== 1 ||
+      keys[0] !== request.driver ||
+      mount?.length !== 1 ||
+      mount[0].type !== 'volume' ||
+      mount[0].source !== request.volumeName ||
+      mount[0].target !== SYMPOSIUM_ARTIFACT_TARGET ||
+      mount[0].read_only !== (request.access === 'reviewer')
+    )
+      throw new Error('Artifact driver config differs from lease');
+    await this.evidence.verifyGateway(request, config);
+  }
+
+  async verifyPhysicalMount(
+    sandboxName: string,
+    sandboxId: string,
+    config: ArtifactDriverConfig,
+  ): Promise<void> {
+    if (!safeName.test(sandboxName) || !sandboxId)
+      throw new Error('Invalid artifact sandbox identity');
+    await this.evidence.verifyMount(sandboxName, sandboxId, config);
+  }
+
+  /** Trusted-host internal prerequisite, with no runtime installer or completion path.
+   * Read the durable session fence first; only then retain the exact bound writer.
+   * This lock survives normal writer cleanup, but is not physical deletion immunity.
+   */
+  beginPendingArtifactRetention(
+    store: Pick<EventStore, 'getSymposiumArtifactSealIntent'>,
+    sessionId: string,
+  ): PendingArtifactRetention {
+    const intent = store.getSymposiumArtifactSealIntent(sessionId);
+    if (!intent || intent.status !== 'pending_unsealed' || intent.selection.sessionId !== sessionId)
+      throw new Error('Pending artifact retention requires the durable session seal intent');
+    const intentJson = JSON.stringify(intent);
+    const selected = intent.selection;
+    this.db.pragma('synchronous = FULL');
+    return this.db
+      .transaction(() => {
+        const previous = this.db
+          .prepare(
+            'SELECT intent_json, retention_json FROM symposium_artifact_pending_retention WHERE driver=? AND volume_name=?',
+          )
+          .get(selected.artifact.driver, selected.artifact.volumeName) as
+          { intent_json: string; retention_json: string } | undefined;
+        if (previous) {
+          if (previous.intent_json !== intentJson)
+            throw new Error('Pending artifact retention identity changed');
+          return JSON.parse(previous.retention_json) as PendingArtifactRetention;
+        }
+        const rows = this.db
+          .prepare(
+            "SELECT * FROM symposium_artifact_leases WHERE driver=? AND volume_name=? AND access='writer'",
+          )
+          .all(selected.artifact.driver, selected.artifact.volumeName) as LeaseRow[];
+        const writer = rows.length === 1 ? rows[0] : undefined;
+        const request = writer
+          ? (JSON.parse(writer.request_json) as ArtifactLeaseRequest)
+          : undefined;
+        if (
+          !writer ||
+          !request ||
+          request.sessionId !== sessionId ||
+          request.workspaceId !== selected.custody.workspaceId ||
+          request.volumeGeneration !== selected.artifact.volumeGeneration ||
+          writer.revision !== selected.artifact.leaseRevision ||
+          createHash('sha256').update(writer.token).digest('hex') !==
+            selected.artifact.leaseTokenHash ||
+          writer.creation_started !== 1 ||
+          !writer.sandbox_id ||
+          !writer.sandbox_name ||
+          writer.intended_sandbox_name !== writer.sandbox_name
+        )
+          throw new Error('Pending artifact retention requires the exact bound writer lease');
+        const retention: PendingArtifactRetention = {
+          kind: 'pending_artifact_retention',
+          status: 'pending_unsealed',
+          fenceId: intent.fenceId,
+          intent,
+          writerSandboxName: writer.sandbox_name,
+          writerSandboxId: writer.sandbox_id,
+          retainedAt: Date.now(),
+        };
+        this.db
+          .prepare('INSERT INTO symposium_artifact_pending_retention VALUES(?,?,?,?)')
+          .run(
+            selected.artifact.driver,
+            selected.artifact.volumeName,
+            intentJson,
+            JSON.stringify(retention),
+          );
+        return retention;
+      })
+      .immediate();
+  }
+
+  pendingArtifactRetention(
+    driver: ArtifactDriver,
+    volumeName: string,
+  ): PendingArtifactRetention | null {
+    const row = this.db
+      .prepare(
+        'SELECT retention_json FROM symposium_artifact_pending_retention WHERE driver=? AND volume_name=?',
+      )
+      .get(driver, volumeName) as { retention_json: string } | undefined;
+    return row ? (JSON.parse(row.retention_json) as PendingArtifactRetention) : null;
+  }
+
+  sealLeaseIdentities(driver: ArtifactDriver, volumeName: string) {
+    const rows = this.db
+      .prepare(
+        'SELECT * FROM symposium_artifact_leases WHERE driver=? AND volume_name=? ORDER BY token',
+      )
+      .all(driver, volumeName) as LeaseRow[];
+    return rows.map((row) => ({
+      tokenHash: createHash('sha256').update(row.token).digest('hex'),
+      revision: row.revision,
+      request: JSON.parse(row.request_json) as ArtifactLeaseRequest,
+      sandboxName: row.sandbox_name,
+      sandboxId: row.sandbox_id,
+      creationStarted: row.creation_started === 1,
+      intendedSandboxName: row.intended_sandbox_name,
+    }));
+  }
+
+  private assertVolumeNotRetained(driver: ArtifactDriver, volumeName: string): void {
+    if (
+      this.db
+        .prepare(
+          'SELECT 1 FROM symposium_artifact_pending_retention WHERE driver=? AND volume_name=?',
+        )
+        .get(driver, volumeName)
+    )
+      throw new Error('Artifact volume has pending retention; new leases are fenced');
+  }
+
+  async reserve(request: ArtifactLeaseRequest): Promise<ArtifactLease> {
+    const id = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
+    if (
+      ![request.sessionId, request.workspaceId, request.seatId, request.volumeGeneration].every(
+        (value) => id.test(value),
+      ) ||
+      !safeName.test(request.volumeName) ||
+      !['docker', 'podman'].includes(request.driver) ||
+      !['writer', 'reviewer'].includes(request.access)
+    )
+      throw new Error('Invalid artifact lease request');
+    const requestJson = JSON.stringify(request);
+    try {
+      return this.db
+        .transaction(() => {
+          this.assertVolumeNotRetained(request.driver, request.volumeName);
+          const existing = this.db
+            .prepare(
+              `SELECT * FROM symposium_artifact_leases
+          WHERE driver=? AND volume_name=? AND request_json=?`,
+            )
+            .all(request.driver, request.volumeName, requestJson) as LeaseRow[];
+          if (existing.length > 1) throw new Error('Duplicate artifact lease identity');
+          if (existing.length === 1)
+            return { token: existing[0].token, revision: existing[0].revision, request };
+          const token = randomUUID();
+          const revision = randomUUID();
+          this.db
+            .prepare(
+              `INSERT INTO symposium_artifact_leases
+          (token, revision, driver, volume_name, access, request_json, creation_started, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, 0, ?)`,
+            )
+            .run(
+              token,
+              revision,
+              request.driver,
+              request.volumeName,
+              request.access,
+              requestJson,
+              Date.now(),
+            );
+          return { token, revision, request };
+        })
+        .immediate();
+    } catch (error) {
+      if (error instanceof Error && error.message.includes('UNIQUE constraint failed'))
+        throw new Error('Artifact volume already has a writer', { cause: error });
+      throw error;
+    }
+  }
+
+  async inspectLease(token: string): Promise<ArtifactLease | null> {
+    const row = this.row(token);
+    return row
+      ? {
+          token: row.token,
+          revision: row.revision,
+          request: JSON.parse(row.request_json) as ArtifactLeaseRequest,
+        }
+      : null;
+  }
+
+  /** Ready-seat reuse must find its existing binding, never allocate a new lease.
+   * The caller must still revalidate volume, driver policy, and physical mount evidence.
+   */
+  async requireBoundSandboxLease(
+    request: ArtifactLeaseRequest,
+    sandboxName: string,
+    sandboxId: string,
+  ): Promise<ArtifactLease> {
+    if (!safeName.test(sandboxName) || !sandboxId)
+      throw new Error('Invalid artifact sandbox identity');
+    const requestJson = JSON.stringify(request);
+    return this.db.transaction(() => {
+      const released = this.db
+        .prepare(
+          'SELECT request_json FROM symposium_artifact_release_receipts WHERE sandbox_name=? AND sandbox_id=?',
+        )
+        .get(sandboxName, sandboxId) as { request_json: string } | undefined;
+      if (released?.request_json === requestJson)
+        throw new Error('Artifact lease was released; seat cleanup is required before reuse');
+      const rows = this.db
+        .prepare('SELECT * FROM symposium_artifact_leases WHERE sandbox_name=? AND sandbox_id=?')
+        .all(sandboxName, sandboxId) as LeaseRow[];
+      const row = rows.length === 1 ? rows[0] : undefined;
+      if (
+        released ||
+        !row ||
+        row.request_json !== requestJson ||
+        row.creation_started !== 1 ||
+        row.intended_sandbox_name !== sandboxName ||
+        !row.token ||
+        !row.revision
+      )
+        throw new Error('Bound artifact lease identity is unavailable');
+      return {
+        token: row.token,
+        revision: row.revision,
+        request: JSON.parse(row.request_json) as ArtifactLeaseRequest,
+      };
+    })();
+  }
+
+  /** Persist the exact create target before issuing a sandbox create/ensure call.
+   * A started, unbound lease intentionally cannot be released automatically: an
+   * in-flight create could finish after an absence check or process restart.
+   */
+  markCreationStarted(token: string, revision: string, sandboxName: string): void {
+    if (!token || !revision || !safeName.test(sandboxName))
+      throw new Error('Invalid artifact sandbox creation intent');
+    const row = this.row(token);
+    if (
+      row?.revision === revision &&
+      row.creation_started === 1 &&
+      row.intended_sandbox_name === sandboxName &&
+      row.sandbox_name === sandboxName &&
+      row.sandbox_id
+    )
+      return;
+    const updated = this.db
+      .prepare(
+        `UPDATE symposium_artifact_leases
+      SET creation_started=1, intended_sandbox_name=?
+      WHERE token=? AND revision=? AND creation_started=0 AND sandbox_id IS NULL`,
+      )
+      .run(sandboxName, token, revision);
+    if (updated.changes !== 1)
+      throw new Error('Artifact sandbox creation intent cannot be changed');
+  }
+
+  /** Live pre-dispatch rollback only; never use inventory absence or restart as this proof. */
+  rollbackUndispatchedCreation(token: string, revision: string, sandboxName: string): void {
+    if (!token || !revision || !safeName.test(sandboxName))
+      throw new Error('Invalid artifact creation identity');
+    const result = this.db
+      .prepare(
+        `UPDATE symposium_artifact_leases
+      SET creation_started=0, intended_sandbox_name=NULL
+      WHERE token=? AND revision=? AND sandbox_id IS NULL AND sandbox_name IS NULL
+      AND (intended_sandbox_name IS NULL OR intended_sandbox_name=?)`,
+      )
+      .run(token, revision, sandboxName);
+    if (result.changes !== 1) throw new Error('Undispatched artifact intent requires recovery');
+  }
+
+  /** Bind the reservation to the immutable physical identity before admitting work. */
+  bindSandbox(token: string, revision: string, sandboxName: string, sandboxId: string): void {
+    if (!token || !revision || !safeName.test(sandboxName) || !sandboxId)
+      throw new Error('Invalid artifact sandbox binding');
+    const row = this.row(token);
+    if (
+      row?.revision === revision &&
+      row.creation_started === 1 &&
+      row.intended_sandbox_name === sandboxName &&
+      row.sandbox_name === sandboxName &&
+      row.sandbox_id === sandboxId
+    )
+      return;
+    const updated = this.db
+      .prepare(
+        `UPDATE symposium_artifact_leases SET sandbox_name=?, sandbox_id=?
+      WHERE token=? AND revision=? AND creation_started=1 AND intended_sandbox_name=?
+        AND sandbox_id IS NULL`,
+      )
+      .run(sandboxName, sandboxId, token, revision, sandboxName);
+    if (updated.changes !== 1) throw new Error('Artifact lease cannot be rebound');
+  }
+
+  /** Complete only the original lease binding retained with a terminal create
+   * receipt by the same owner. Never acquires capacity or adopts another lease. */
+  bindRetainedSandboxForCleanup(
+    lease: ArtifactLease,
+    sandboxName: string,
+    sandboxId: string,
+  ): void {
+    const requestJson = JSON.stringify(lease.request);
+    const row = this.row(lease.token);
+    if (row) {
+      if (row.request_json !== requestJson) throw new Error('Retained artifact lease changed');
+      this.bindSandbox(lease.token, lease.revision, sandboxName, sandboxId);
+      return;
+    }
+    // A previous cleanup may have released the exact lease before its caller
+    // recorded completion. This receipt does not replace fresh physical absence.
+    const released = this.db
+      .prepare(
+        'SELECT 1 FROM symposium_artifact_release_receipts WHERE token=? AND revision=? AND request_json=? AND sandbox_name=? AND sandbox_id=?',
+      )
+      .get(lease.token, lease.revision, requestJson, sandboxName, sandboxId);
+    if (!released) throw new Error('Retained artifact lease is unavailable');
+    const replacement = this.db
+      .prepare(
+        'SELECT 1 FROM symposium_artifact_leases WHERE request_json=? OR COALESCE(intended_sandbox_name, sandbox_name)=? LIMIT 1',
+      )
+      .get(requestJson, sandboxName);
+    if (replacement) throw new Error('Retained artifact lease was replaced');
+  }
+
+  async release(token: string): Promise<void> {
+    const row = this.row(token);
+    if (!row) return;
+    if (row.creation_started === 1 && !row.sandbox_id)
+      throw new Error('Artifact sandbox creation may be in flight; lease requires reconciliation');
+    if (row.sandbox_name && row.sandbox_id)
+      throw new Error('Bound artifact lease requires gateway and physical deletion attestation');
+    // Recheck the exact revision/identity after the asynchronous stop attestation.
+    const deleted = this.db
+      .prepare(
+        `DELETE FROM symposium_artifact_leases
+      WHERE token=? AND revision=? AND creation_started=?
+        AND intended_sandbox_name IS ? AND sandbox_name IS ? AND sandbox_id IS ?`,
+      )
+      .run(
+        token,
+        row.revision,
+        row.creation_started,
+        row.intended_sandbox_name,
+        row.sandbox_name,
+        row.sandbox_id,
+      );
+    if (deleted.changes !== 1) throw new Error('Artifact lease changed during release');
+  }
+
+  /** Read original cleanup authority from the durable lease or its release receipt.
+   * This grants no new access and never derives rights from a replacement seat. */
+  retainedCleanupRequest(identity: {
+    sessionId: string;
+    seatId: string;
+    sandboxName: string | null;
+    physicalId: string | null;
+    creationStarted: boolean;
+  }): ArtifactLeaseRequest | null {
+    if (identity.physicalId) {
+      if (!identity.sandboxName) throw new Error('Retained artifact sandbox name is unavailable');
+      const rows = this.db
+        .prepare(
+          `SELECT request_json FROM symposium_artifact_leases
+        WHERE sandbox_name=? AND sandbox_id=?
+        UNION ALL SELECT request_json FROM symposium_artifact_release_receipts
+        WHERE sandbox_name=? AND sandbox_id=?`,
+        )
+        .all(
+          identity.sandboxName,
+          identity.physicalId,
+          identity.sandboxName,
+          identity.physicalId,
+        ) as { request_json: string }[];
+      if (rows.length !== 1) throw new Error('Retained artifact lease identity is unavailable');
+      const request = JSON.parse(rows[0].request_json) as ArtifactLeaseRequest;
+      if (request.sessionId !== identity.sessionId || request.seatId !== identity.seatId)
+        throw new Error('Retained artifact lease seat changed');
+      return request;
+    }
+    if (identity.creationStarted || identity.sandboxName)
+      throw new Error('Artifact creation requires physical identity reconciliation');
+    const rows = this.db
+      .prepare(
+        `SELECT * FROM symposium_artifact_leases
+      WHERE json_extract(request_json, '$.sessionId')=?
+        AND json_extract(request_json, '$.seatId')=?`,
+      )
+      .all(identity.sessionId, identity.seatId) as LeaseRow[];
+    if (!rows.length) return null;
+    if (
+      rows.length !== 1 ||
+      rows[0].creation_started !== 0 ||
+      rows[0].intended_sandbox_name ||
+      rows[0].sandbox_name ||
+      rows[0].sandbox_id
+    )
+      throw new Error('Retained artifact reservation identity is ambiguous');
+    return JSON.parse(rows[0].request_json) as ArtifactLeaseRequest;
+  }
+
+  /** Reconcile a crash before the durable create intent. The seat lifecycle
+   * fence must be held by the caller. A started lease is never releasable by
+   * absence alone, since an in-flight create could complete later. */
+  async releaseUnstartedForAbsentSeat(
+    request: ArtifactLeaseRequest,
+    verifyGatewayAbsent: () => Promise<void>,
+  ): Promise<void> {
+    const rows = this.db
+      .prepare(
+        `SELECT * FROM symposium_artifact_leases
+      WHERE json_extract(request_json, '$.sessionId')=?
+        AND json_extract(request_json, '$.seatId')=?`,
+      )
+      .all(request.sessionId, request.seatId) as LeaseRow[];
+    if (rows.length === 0) {
+      await verifyGatewayAbsent();
+      return;
+    }
+    if (rows.length !== 1 || rows[0].request_json !== JSON.stringify(request))
+      throw new Error('Artifact lease request changed before pre-create reconciliation');
+    const row = rows[0];
+    if (
+      row.creation_started !== 0 ||
+      row.intended_sandbox_name ||
+      row.sandbox_name ||
+      row.sandbox_id
+    )
+      throw new Error('Artifact sandbox creation may be in flight; lease requires reconciliation');
+    await verifyGatewayAbsent();
+    await verifyGatewayAbsent();
+    const deleted = this.db
+      .prepare(
+        `DELETE FROM symposium_artifact_leases
+      WHERE token=? AND revision=? AND request_json=? AND creation_started=0
+        AND intended_sandbox_name IS NULL AND sandbox_name IS NULL AND sandbox_id IS NULL`,
+      )
+      .run(row.token, row.revision, row.request_json);
+    if (deleted.changes !== 1)
+      throw new Error('Artifact lease changed during pre-create reconciliation');
+  }
+
+  /** Rotate a bound lease only after the gateway and compute host independently
+   * agree that the exact sandbox is absent. The callback must be a fresh,
+   * host-owned gateway read, never a sandbox or model assertion. */
+  async releaseBoundSandbox(
+    request: ArtifactLeaseRequest,
+    sandboxName: string,
+    sandboxId: string,
+    verifyGatewayAbsent: () => Promise<void>,
+  ): Promise<void> {
+    if (!safeName.test(sandboxName) || !sandboxId || !this.evidence.verifyDeleted)
+      throw new Error('Artifact deletion evidence is unavailable');
+    const requestJson = JSON.stringify(request);
+    type Receipt = Pick<
+      LeaseRow,
+      'token' | 'revision' | 'request_json' | 'sandbox_name' | 'sandbox_id'
+    >;
+    const receipt = () =>
+      this.db
+        .prepare(
+          'SELECT * FROM symposium_artifact_release_receipts WHERE sandbox_name=? AND sandbox_id=?',
+        )
+        .get(sandboxName, sandboxId) as Receipt | undefined;
+    const previous = receipt();
+    const rows = this.db
+      .prepare('SELECT * FROM symposium_artifact_leases WHERE sandbox_name=? AND sandbox_id=?')
+      .all(sandboxName, sandboxId) as LeaseRow[];
+    const row =
+      previous ?? (rows.length === 1 && rows[0].creation_started === 1 ? rows[0] : undefined);
+    if (!row || row.request_json !== requestJson)
+      throw new Error('Bound artifact lease identity is unavailable');
+    const verifyNoReplacement = () => {
+      const replacement = this.db
+        .prepare(
+          `SELECT 1 FROM symposium_artifact_leases
+         WHERE token=? OR request_json=? OR COALESCE(intended_sandbox_name, sandbox_name)=? LIMIT 1`,
+        )
+        .get(row.token, requestJson, sandboxName);
+      if (replacement) throw new Error('Artifact lease changed after deletion proof');
+    };
+    if (previous) verifyNoReplacement();
+    // A receipt proves only the earlier exact lease release. Physical and gateway
+    // absence must still be refreshed before completing seat lifecycle cleanup.
+    await verifyGatewayAbsent();
+    await this.evidence.verifyDeleted(sandboxName, sandboxId);
+    await verifyGatewayAbsent();
+    this.db.transaction(() => {
+      const released = receipt();
+      if (released) {
+        if (
+          released.token !== row.token ||
+          released.revision !== row.revision ||
+          released.request_json !== requestJson
+        )
+          throw new Error('Artifact release receipt identity changed');
+        verifyNoReplacement();
+        return;
+      }
+      const deleted = this.db
+        .prepare(
+          `DELETE FROM symposium_artifact_leases
+         WHERE token=? AND revision=? AND request_json=? AND creation_started=1
+           AND intended_sandbox_name=? AND sandbox_name=? AND sandbox_id=?`,
+        )
+        .run(row.token, row.revision, requestJson, sandboxName, sandboxName, sandboxId);
+      if (deleted.changes !== 1) throw new Error('Artifact lease changed during deletion proof');
+      this.db
+        .prepare(
+          `INSERT INTO symposium_artifact_release_receipts
+         (token, revision, request_json, sandbox_name, sandbox_id, released_at)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        )
+        .run(row.token, row.revision, requestJson, sandboxName, sandboxId, Date.now());
+    })();
+  }
+
+  private row(token: string): LeaseRow | undefined {
+    return this.db.prepare('SELECT * FROM symposium_artifact_leases WHERE token=?').get(token) as
+      LeaseRow | undefined;
+  }
+}

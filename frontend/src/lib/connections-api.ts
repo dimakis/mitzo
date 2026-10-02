@@ -1,8 +1,11 @@
 import { apiFetch } from './api-fetch';
 import type {
   ConnectionAuditEntry,
+  ConnectionCapabilityGrant,
   ConnectionsCatalog,
+  ConnectionTemplateCatalog,
   ManagedConnection,
+  GoogleWorkspaceHealth,
 } from '../types/connections';
 
 type Reauthorization = { csrf: string; expiresAt: number };
@@ -26,15 +29,41 @@ function json(method: string, body: unknown, csrf?: string): RequestInit {
 export async function getConnections(): Promise<ConnectionsCatalog> {
   return bodyOrError<ConnectionsCatalog>(await apiFetch('/api/connections'));
 }
+export async function getGoogleWorkspaceStatus(): Promise<GoogleWorkspaceHealth> {
+  return bodyOrError(await apiFetch('/api/connections/google-workspace'));
+}
+export async function previewGoogleWorkspace(csrf: string): Promise<{ email: string }> {
+  return bodyOrError(
+    await apiFetch('/api/connections/google-workspace/preview', json('POST', { csrf })),
+  );
+}
+export async function reconnectGoogleWorkspace(
+  csrf: string,
+  email: string,
+): Promise<GoogleWorkspaceHealth> {
+  return bodyOrError(
+    await apiFetch('/api/connections/google-workspace/reconnect', json('POST', { csrf, email })),
+  );
+}
+export async function refreshGoogleWorkspace(csrf: string): Promise<GoogleWorkspaceHealth> {
+  return bodyOrError(
+    await apiFetch('/api/connections/google-workspace/refresh', json('POST', { csrf })),
+  );
+}
+export async function getConnectionTemplates(): Promise<ConnectionTemplateCatalog> {
+  return bodyOrError<ConnectionTemplateCatalog>(await apiFetch('/api/connections/templates'));
+}
 export async function reauthorize(passphrase: string): Promise<Reauthorization> {
   return bodyOrError<Reauthorization>(
     await apiFetch('/api/connections/reauthorize', json('POST', { passphrase })),
   );
 }
 export async function createConnection(input: {
+  templateId: string;
+  templateVersion: number;
   label: string;
-  email: string;
-  token: string;
+  fields: Record<string, string | string[]>;
+  credentials: Record<string, string>;
   accountIds: string[];
   csrf: string;
 }): Promise<ManagedConnection> {
@@ -48,7 +77,7 @@ export async function createConnection(input: {
 export async function retryConnection(input: {
   id: string;
   revision: number;
-  token: string;
+  credentials: Record<string, string>;
   csrf: string;
 }): Promise<ManagedConnection> {
   const { id, ...body } = input;
@@ -95,7 +124,7 @@ export async function testConnection(input: {
 export async function rotateConnection(input: {
   id: string;
   revision: number;
-  token: string;
+  credentials: Record<string, string>;
   csrf: string;
 }): Promise<ManagedConnection> {
   const { id, ...body } = input;
@@ -139,4 +168,32 @@ export async function getConnectionAudit(id: string): Promise<ConnectionAuditEnt
       await apiFetch(`/api/connections/${encodeURIComponent(id)}/audit`),
     )
   ).audit;
+}
+export async function getConnectionCapabilityGrants(
+  id: string,
+): Promise<ConnectionCapabilityGrant[]> {
+  return (
+    await bodyOrError<{ grants: ConnectionCapabilityGrant[] }>(
+      await apiFetch(`/api/connections/${encodeURIComponent(id)}/capabilities`),
+    )
+  ).grants;
+}
+export async function setConnectionCapabilityGrant(input: {
+  id: string;
+  revision: number;
+  capabilityId: string;
+  capabilityVersion: number;
+  accountIds: string[];
+  status: 'active' | 'revoked';
+  csrf: string;
+}): Promise<ConnectionCapabilityGrant> {
+  const { id, ...body } = input;
+  return (
+    await bodyOrError<{ grant: ConnectionCapabilityGrant }>(
+      await apiFetch(
+        `/api/connections/${encodeURIComponent(id)}/capabilities`,
+        json('PUT', body, input.csrf),
+      ),
+    )
+  ).grant;
 }

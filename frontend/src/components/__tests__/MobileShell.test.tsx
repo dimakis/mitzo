@@ -69,36 +69,38 @@ describe('MobileShell navigation', () => {
       resolve(process.cwd(), 'frontend/src/styles/workspace-chat.css'),
       'utf8',
     );
-    expect(styles).toMatch(/\.workspace-chat \.chat-input\s*\{[^}]*padding-bottom:\s*0\.5rem;/s);
+    const mobileStyles = styles.slice(styles.indexOf('/* Keep the composer above'));
+    const composer = ruleBody(mobileStyles, '.workspace-chat .chat-input');
+    expect(composer).toMatch(/padding:\s*8px/);
+    expect(composer).not.toContain('safe-area-inset-bottom');
   });
 
-  it('keeps mobile workspace layout compact without introducing horizontal overflow rules', () => {
+  it('gives mobile draft text its own full-width row and collapses utilities by composer width', () => {
     const styles = readFileSync(
       resolve(process.cwd(), 'frontend/src/styles/workspace-chat.css'),
       'utf8',
     );
-    const mobileStyles = ruleBody(styles, '@media (max-width: 767px)');
-    const narrowStyles = ruleBody(mobileStyles, '@media (max-width: 359px)');
-
+    const mobileStyles = styles.slice(styles.indexOf('/* Keep the composer above'));
     const mobileRow = ruleBody(mobileStyles, '.workspace-chat .chat-input-row');
+    expect(mobileRow).toMatch(/flex-direction:\s*column/);
     expect(mobileRow).toMatch(/min-width:\s*0/);
 
     const mobileField = ruleBody(mobileStyles, '.workspace-chat .chat-input-field');
-    expect(mobileField).toMatch(/width:\s*auto/);
-    expect(mobileField).toMatch(/flex:\s*1 1 0/);
-    expect(mobileField).toMatch(/min-width:\s*0/);
+    expect(mobileField).toMatch(/width:\s*100%/);
+    expect(mobileField).toMatch(/flex:\s*none/);
+    expect(ruleBody(styles, '.chat-input--compact {')).toMatch(/container-type:\s*inline-size/);
 
-    expect(ruleBody(mobileStyles, '.workspace-chat .chat-input-command-label')).toMatch(
-      /display:\s*none/,
+    const narrowStyles = ruleBody(styles, '@container (max-width: 520px)');
+    expect(ruleBody(narrowStyles, '.chat-input--compact .composer-toolbar')).toMatch(
+      /flex-wrap:\s*nowrap/,
     );
-
-    expect(ruleBody(narrowStyles, '.workspace-chat .chat-input-row')).toMatch(/flex-wrap:\s*wrap/);
-    expect(ruleBody(narrowStyles, '.workspace-chat .chat-input-field')).toMatch(
-      /flex-basis:\s*100%/,
+    expect(ruleBody(narrowStyles, '.composer-tools {')).toMatch(/display:\s*none/);
+    expect(ruleBody(narrowStyles, ".composer-tools[data-expanded='true']")).toMatch(
+      /display:\s*flex/,
     );
-    const narrowToolbar = ruleBody(narrowStyles, '.workspace-chat .composer-toolbar');
-    expect(narrowToolbar).toMatch(/flex:\s*1 1 100%/);
-    expect(narrowToolbar).toMatch(/justify-content:\s*flex-end/);
+    expect(ruleBody(narrowStyles, '.chat-input--compact :is(.chat-input-btn, .mic-btn)')).toMatch(
+      /min-width:\s*44px/,
+    );
   });
 
   it('keeps conversation navigation visible while the keyboard is open', () => {

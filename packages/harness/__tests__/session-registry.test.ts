@@ -552,6 +552,71 @@ describe('SessionRegistry', () => {
   });
 
   describe('closeout', () => {
+    it('assigns one stable identity to an automatic closeout episode', () => {
+      vi.useFakeTimers();
+      const onCloseout = vi.fn();
+      registry.setCloseoutHandler(onCloseout);
+      registry.register('client-1', {
+        transport: fakeTransport(),
+        abortController: new AbortController(),
+        mode: 'agent',
+        sessionAllowList: new Set(),
+      });
+
+      registry.detach('client-1');
+      vi.advanceTimersByTime(DETACHED_TTL_MS - CLOSEOUT_LEAD_MS + 100);
+
+      expect(onCloseout).toHaveBeenCalledTimes(1);
+      expect(onCloseout).toHaveBeenCalledWith(
+        'client-1',
+        expect.objectContaining({ source: 'automatic', id: expect.any(String) }),
+      );
+      expect(registry.getCloseoutEpisode('client-1')).toEqual(onCloseout.mock.calls[0][1]);
+    });
+
+    it('creates a new episode after reattach and a later detach', () => {
+      vi.useFakeTimers();
+      const onCloseout = vi.fn();
+      registry.setCloseoutHandler(onCloseout);
+      registry.register('client-1', {
+        transport: fakeTransport(),
+        abortController: new AbortController(),
+        mode: 'agent',
+        sessionAllowList: new Set(),
+      });
+
+      registry.detach('client-1');
+      vi.advanceTimersByTime(DETACHED_TTL_MS - CLOSEOUT_LEAD_MS + 100);
+      const first = onCloseout.mock.calls[0][1];
+      registry.reattach('client-1', fakeTransport());
+      expect(registry.getCloseoutEpisode('client-1')).toBeUndefined();
+
+      registry.detach('client-1');
+      vi.advanceTimersByTime(DETACHED_TTL_MS - CLOSEOUT_LEAD_MS + 100);
+      const second = onCloseout.mock.calls[1][1];
+      expect(second.id).not.toBe(first.id);
+      expect(second.source).toBe('automatic');
+    });
+
+    it('reuses an active automatic episode when user close overlaps it', () => {
+      vi.useFakeTimers();
+      registry.setCloseoutHandler(() => {});
+      registry.register('client-1', {
+        transport: fakeTransport(),
+        abortController: new AbortController(),
+        mode: 'agent',
+        sessionAllowList: new Set(),
+      });
+
+      registry.detach('client-1');
+      vi.advanceTimersByTime(DETACHED_TTL_MS - CLOSEOUT_LEAD_MS + 100);
+      const automatic = registry.getCloseoutEpisode('client-1');
+      const user = registry.markUserClose('client-1');
+
+      expect(user).toEqual(automatic);
+      expect(registry.isUserClose('client-1')).toBe(true);
+    });
+
     it('calls onCloseout handler before TTL expiry', () => {
       vi.useFakeTimers();
       const onCloseout = vi.fn();
@@ -572,7 +637,10 @@ describe('SessionRegistry', () => {
 
       // Advance past closeout trigger
       vi.advanceTimersByTime(2000);
-      expect(onCloseout).toHaveBeenCalledWith('client-1');
+      expect(onCloseout).toHaveBeenCalledWith(
+        'client-1',
+        expect.objectContaining({ source: 'automatic', id: expect.any(String) }),
+      );
       expect(registry.isClosingOut('client-1')).toBe(true);
 
       vi.useRealTimers();

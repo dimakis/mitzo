@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { join } from 'path';
-import { mkdirSync, rmSync } from 'fs';
+import { chmodSync, mkdirSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { TaskStore } from '../task-store.js';
 import { checkGate, localSignalCallbackBaseUrl, SignalProcessor } from '../signal-processor.js';
@@ -31,6 +31,95 @@ afterEach(async () => {
 });
 
 describe('SignalProcessor', () => {
+  it('accepts a Centaur COMMENT review only for the current PR head', async () => {
+    const currentSha = 'a'.repeat(40);
+    const oldSha = 'b'.repeat(40);
+    const ghPath = join(TEST_DIR, 'gh');
+    const originalPath = process.env.PATH;
+    const originalReviewer = process.env.CENTAUR_REVIEWER_LOGIN;
+    const writeFakeGh = (
+      reviewedSha: string,
+      author: string,
+      association: string,
+      source: 'review' | 'comment' = 'review',
+    ) => {
+      const item = JSON.stringify({
+        body: `<!-- centaur:sha:${reviewedSha} -->`,
+        author,
+        association,
+      });
+      writeFileSync(
+        ghPath,
+        `#!/bin/sh\ncase "$*" in\n  *"pr view"*) echo '{"reviewDecision":"","headRefOid":"${currentSha}"}' ;;\n  *"pulls/7/reviews"*) ${source === 'review' ? `echo '${item}'` : "echo ''"} ;;\n  *"issues/7/comments"*) ${source === 'comment' ? `echo '${item}'` : "echo ''"} ;;\n  *) echo '' ;;\nesac\n`,
+      );
+      chmodSync(ghPath, 0o755);
+    };
+    try {
+      process.env.PATH = `${TEST_DIR}:${originalPath}`;
+      delete process.env.CENTAUR_REVIEWER_LOGIN;
+      writeFakeGh(oldSha, 'org', 'OWNER');
+      expect(await checkGate({ type: 'gh_review', repo: 'org/repo', pr: 7 })).toEqual({
+        resolved: false,
+        status: 'fail',
+      });
+      writeFakeGh(currentSha, 'contributor', 'CONTRIBUTOR');
+      expect(await checkGate({ type: 'gh_review', repo: 'org/repo', pr: 7 })).toEqual({
+        resolved: false,
+        status: 'fail',
+      });
+      writeFakeGh(currentSha, 'contributor', 'CONTRIBUTOR', 'comment');
+      expect(await checkGate({ type: 'gh_review', repo: 'org/repo', pr: 7 })).toEqual({
+        resolved: false,
+        status: 'fail',
+      });
+      writeFakeGh(currentSha, 'org', 'OWNER');
+      expect(await checkGate({ type: 'gh_review', repo: 'org/repo', pr: 7 })).toEqual({
+        resolved: true,
+        status: 'pass',
+        artifacts: { centaurReviewedSha: currentSha },
+      });
+      writeFakeGh(currentSha, 'org', 'OWNER', 'comment');
+      expect(await checkGate({ type: 'gh_review', repo: 'org/repo', pr: 7 })).toEqual({
+        resolved: true,
+        status: 'pass',
+        artifacts: { centaurReviewedSha: currentSha },
+      });
+      writeFakeGh(currentSha, 'centaur-bot', 'CONTRIBUTOR');
+      expect(
+        await checkGate({
+          type: 'gh_review',
+          repo: 'organization/repo',
+          pr: 7,
+          trusted_reviewer: 'centaur-bot',
+        }),
+      ).toEqual({
+        resolved: true,
+        status: 'pass',
+        artifacts: { centaurReviewedSha: currentSha },
+      });
+      writeFakeGh(currentSha, 'contributor', 'CONTRIBUTOR');
+      expect(
+        await checkGate({
+          type: 'gh_review',
+          repo: 'organization/repo',
+          pr: 7,
+          trusted_reviewer: 'centaur-bot',
+        }),
+      ).toEqual({ resolved: false, status: 'fail' });
+      writeFakeGh(currentSha, 'centaur-bot', 'CONTRIBUTOR', 'comment');
+      process.env.CENTAUR_REVIEWER_LOGIN = 'centaur-bot';
+      expect(await checkGate({ type: 'gh_review', repo: 'organization/repo', pr: 7 })).toEqual({
+        resolved: true,
+        status: 'pass',
+        artifacts: { centaurReviewedSha: currentSha },
+      });
+    } finally {
+      process.env.PATH = originalPath;
+      if (originalReviewer === undefined) delete process.env.CENTAUR_REVIEWER_LOGIN;
+      else process.env.CENTAUR_REVIEWER_LOGIN = originalReviewer;
+    }
+  });
+
   it('targets the plain HTTP listener when the primary server uses TLS', () => {
     expect(localSignalCallbackBaseUrl(3100, false)).toBe('http://localhost:3100');
     expect(localSignalCallbackBaseUrl(3100, true)).toBe('http://localhost:3101');

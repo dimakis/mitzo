@@ -1,16 +1,20 @@
+import { Capacitor } from '@capacitor/core';
 import { apiFetch } from './api-fetch';
+import { artifactApiUrl } from './file-paths';
 
 /** MIME types for common file extensions. Falls back to application/octet-stream. */
 function mimeFromExt(filename: string): string {
   const ext = filename.split('.').pop()?.toLowerCase() ?? '';
   const map: Record<string, string> = {
     md: 'text/markdown',
+    mdx: 'text/markdown',
     txt: 'text/plain',
     json: 'application/json',
     yaml: 'application/x-yaml',
     yml: 'application/x-yaml',
     csv: 'text/csv',
     html: 'text/html',
+    htm: 'text/html',
     css: 'text/css',
     js: 'text/javascript',
     ts: 'text/typescript',
@@ -35,59 +39,118 @@ function filenameFromPath(filePath: string): string {
 }
 
 /** Download file bytes from the server. */
-async function fetchFileBlob(filePath: string): Promise<{ blob: Blob; filename: string }> {
-  const res = await apiFetch(`/api/files/download?path=${encodeURIComponent(filePath)}`);
+async function fetchFileBlob(
+  filePath: string,
+  sessionId?: string,
+): Promise<{ blob: Blob; filename: string }> {
+  const telos = /^\/api\/telos\/artifacts\/[a-f0-9]{32}(?:\?revision=[1-9]\d*)?$/.test(filePath);
+  const res = await apiFetch(telos ? filePath : artifactApiUrl('download', filePath, sessionId));
   if (!res.ok) {
     const body = await res.json().catch(() => ({ error: 'Download failed' }));
     throw new Error(body.error ?? `Download failed (${res.status})`);
   }
   const blob = await res.blob();
-  const filename = filenameFromPath(filePath);
+  const encodedName = telos
+    ? res.headers.get('Content-Disposition')?.match(/filename\*=UTF-8''([^;]+)/i)?.[1]
+    : undefined;
+  const filename = encodedName
+    ? filenameFromPath(decodeURIComponent(encodedName))
+    : telos
+      ? 'telos-document'
+      : filenameFromPath(filePath);
   return { blob, filename };
 }
 
-/** Check whether the browser supports sharing a file with the given MIME type. */
-function canNativeShare(filename: string, blob: Blob): boolean {
-  if (typeof navigator.canShare !== 'function') return false;
-  const file = new File([blob], filename, { type: blob.type });
-  return navigator.canShare({ files: [file] });
+/** Prefer the extension for known types; servers may serve Markdown as plain text. */
+async function fetchFile(filePath: string, sessionId?: string): Promise<File> {
+  const { blob, filename } = await fetchFileBlob(filePath, sessionId);
+  const extensionMime = mimeFromExt(filename);
+  const mime =
+    extensionMime !== 'application/octet-stream' ? extensionMime : blob.type || extensionMime;
+  return new File([blob], filename, { type: mime });
 }
 
-/**
- * Share or download a file from the workspace.
- *
- * - On mobile (Web Share API available): opens the native share sheet.
- * - On desktop (fallback): triggers a browser download.
- *
- * Returns true if the share/download was initiated successfully.
- */
-export async function shareFile(filePath: string): Promise<boolean> {
-  const { blob, filename } = await fetchFileBlob(filePath);
+function saveBrowserFile(file: File): boolean {
+  const url = URL.createObjectURL(file);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = file.name;
+  try {
+    document.body.appendChild(a);
+    a.click();
+  } finally {
+    document.body.removeChild(a);
+    // Keep bytes available until the browser has consumed the download URL.
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+  return true;
+}
 
-  // Re-type the blob with a proper MIME if the server sent application/octet-stream
-  const mime = blob.type === 'application/octet-stream' ? mimeFromExt(filename) : blob.type;
-  const typedBlob = mime !== blob.type ? new Blob([blob], { type: mime }) : blob;
+/** Explicit download never attempts the system share sheet. */
+export async function downloadFile(filePath: string, sessionId?: string): Promise<boolean> {
+  if (Capacitor.isNativePlatform()) {
+    throw new Error('Open this file in a browser to download, or use Share to save it.');
+  }
+  return saveBrowserFile(await fetchFile(filePath, sessionId));
+}
 
-  // Try native share (mobile)
-  if (canNativeShare(filename, typedBlob)) {
-    const file = new File([typedBlob], filename, { type: mime });
+// Keep at most one prepared file briefly so a second tap can share synchronously
+// if fetching the bytes outlasted the browser's transient user activation.
+let retry: { key: string; file: File; expires: number } | undefined;
+let retryTimer: ReturnType<typeof setTimeout> | undefined;
+let operationGeneration = 0;
+
+/** Returns false on cancellation; true means the share/download was initiated. */
+export async function shareFile(filePath: string, sessionId?: string): Promise<boolean> {
+  const generation = ++operationGeneration;
+  clearTimeout(retryTimer);
+  const key = JSON.stringify([filePath, sessionId]);
+  let file: File;
+  if (retry?.key === key && retry.expires > Date.now()) {
+    file = retry.file;
+  } else {
+    retry = undefined;
+    file = await fetchFile(filePath, sessionId);
+    // Navigation may start another file while these bytes are downloading.
+    if (generation !== operationGeneration) return false;
+  }
+
+  if (
+    typeof navigator.share === 'function' &&
+    typeof navigator.canShare === 'function' &&
+    navigator.canShare({ files: [file] })
+  ) {
+    retry = undefined;
     try {
       await navigator.share({ files: [file] });
     } catch (err) {
-      if (err instanceof DOMException && err.name === 'AbortError') return true;
+      if ((err instanceof DOMException || err instanceof Error) && err.name === 'AbortError')
+        return false;
+      if ((err instanceof DOMException || err instanceof Error) && err.name === 'NotAllowedError') {
+        if (generation === operationGeneration) {
+          clearTimeout(retryTimer);
+          const prepared = { key, file, expires: Date.now() + 60_000 };
+          retry = prepared;
+          retryTimer = setTimeout(() => {
+            if (retry === prepared) retry = undefined;
+          }, 60_000);
+        }
+        throw new Error('Tap Share again to open the share sheet.', { cause: err });
+      }
       throw err;
     }
     return true;
   }
 
-  // Fallback: browser download
-  const url = URL.createObjectURL(typedBlob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
-  return true;
+  if (Capacitor.isNativePlatform()) {
+    throw new Error('This device cannot share this file type. Open it in a browser to download.');
+  }
+  return saveBrowserFile(file);
+}
+
+/** Authenticated Telos bytes use the existing mobile share/browser download flow. */
+export async function shareTelosArtifact(url: string): Promise<boolean> {
+  if (!/^\/api\/telos\/artifacts\/[a-f0-9]{32}(?:\?revision=[1-9]\d*)?$/.test(url))
+    throw new Error('Invalid Telos artifact URL');
+  return shareFile(url);
 }

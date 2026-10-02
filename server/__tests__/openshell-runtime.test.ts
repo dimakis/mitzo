@@ -1,3 +1,5 @@
+import { SYMPOSIUM_ARTIFACT_TARGET } from '../symposium-artifact-lease.js';
+import { SymposiumWorkspaceLifecycle } from '../symposium-workspace-lifecycle.js';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -54,6 +56,922 @@ const providerList = (sandbox: string, providers: string[]) =>
     : `No providers attached to sandbox ${sandbox}.`;
 
 describe('OpenShell runtime lifecycle', () => {
+  it('requires OpenShell 0.1 and physical attestation for an artifact mount', async () => {
+    const artifactDriverConfig = {
+      podman: {
+        mounts: [
+          {
+            type: 'volume' as const,
+            source: 'artifacts-1',
+            target: '/sandbox/workspaces/mgmt',
+            read_only: true,
+          },
+        ],
+      },
+    };
+    const run = vi.fn(async () => '{}');
+    await expect(
+      new OpenShellRuntimeManager({ ...config, artifactDriverConfig }, run).ensure(
+        'conversation',
+        new AbortController().signal,
+      ),
+    ).rejects.toThrow('requires OpenShell 0.1');
+    await expect(
+      new OpenShellRuntimeManager(
+        {
+          ...config,
+          cliContract: 'v0.1',
+          artifactDriverConfig,
+          serviceProviders: [],
+          grantableServiceProviders: [],
+          accountProviderBindings: [{ name: 'openai-work', type: 'openai', id: 'provider-id' }],
+          verifyAccountProviderUnion: () => undefined,
+        },
+        run,
+      ).ensure('conversation', new AbortController().signal),
+    ).rejects.toThrow('physical mount attestation');
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['/sandbox/symposium-artifacts', '/sandbox/workspaces/mgmt', 'Invalid artifact driver config'],
+    ['/sandbox/workspaces/mgmt', '/sandbox/workspaces/other', 'reviewed native workdir'],
+  ])(
+    'rejects mismatched artifact target/cwd before management %s %s',
+    async (target, workdir, message) => {
+      const run = vi.fn();
+      const manager = new OpenShellRuntimeManager(
+        {
+          ...config,
+          cliContract: 'v0.1',
+          serviceProviders: [],
+          grantableServiceProviders: [],
+          accountProviderBindings: [{ name: 'openai-work', type: 'openai', id: 'provider-id' }],
+          verifyAccountProviderUnion: () => undefined,
+          workdir,
+          verifyArtifactMount: async () => {},
+          artifactDriverConfig: {
+            podman: {
+              mounts: [{ type: 'volume', source: 'artifacts-1', target, read_only: false }],
+            },
+          },
+        },
+        run,
+      );
+      await expect(manager.ensure('conversation', new AbortController().signal)).rejects.toThrow(
+        message,
+      );
+      expect(run).not.toHaveBeenCalled();
+    },
+  );
+
+  it('passes a lease-bound driver config only on 0.1 create and attests physical mount', async () => {
+    const commands: string[][] = [];
+    const sandboxName = sandboxNameForConversation('conversation');
+    const artifactDriverConfig = {
+      podman: {
+        mounts: [
+          {
+            type: 'volume' as const,
+            source: 'artifacts-1',
+            target: '/sandbox/workspaces/mgmt',
+            read_only: true,
+          },
+        ],
+      },
+    };
+    let created = false;
+    const beforeSandboxCreate = vi.fn();
+    const run = vi.fn(async (args: readonly string[]) => {
+      commands.push([...args]);
+      if (args[0] === 'sandbox' && args.includes('provider') && args.includes('list'))
+        return JSON.stringify({
+          providers: [{ name: 'openai-work', type: 'openai' }],
+          next_page_token: '',
+        });
+      if (args[0] === 'provider' && !created) expect(beforeSandboxCreate).not.toHaveBeenCalled();
+      if (args[0] === 'provider')
+        return JSON.stringify({
+          providers: [
+            {
+              name: 'openai-work',
+              id: 'provider-id',
+              type: 'openai',
+              workspace: 'mitzo',
+            },
+          ],
+          next_page_token: '',
+        });
+      if (args.includes('get')) {
+        if (!created) throw new Error('sandbox not found');
+        return JSON.stringify({
+          name: sandboxName,
+          id: 'physical-id',
+          workspace: 'mitzo',
+          phase: 'Ready',
+          labels: {
+            'mitzo.conversation': owner,
+            'mitzo.account_provider': 'openai-work',
+            'mitzo.provider_policy': 'state-v2-none',
+          },
+        });
+      }
+      if (args.includes('create')) {
+        expect(beforeSandboxCreate).toHaveBeenCalledOnce();
+        created = true;
+        return '{}';
+      }
+      if (args.includes('list')) return JSON.stringify({ providers: [], next_page_token: '' });
+      return '{}';
+    });
+    const verifyArtifactMount = vi.fn(async () => {});
+    const manager = new OpenShellRuntimeManager(
+      {
+        ...config,
+        beforeSandboxCreate,
+        cliContract: 'v0.1',
+        serviceProviders: [],
+        grantableServiceProviders: [],
+        accountProviderBindings: [{ name: 'openai-work', type: 'openai', id: 'provider-id' }],
+        verifyAccountProviderUnion: () => undefined,
+        artifactDriverConfig,
+        verifyArtifactMount,
+      },
+      run,
+    );
+    await manager.ensure('conversation', new AbortController().signal);
+    const create = commands.find((args) => args.includes('create'))!;
+    expect(create[create.indexOf('--driver-config-json') + 1]).toBe(
+      JSON.stringify(artifactDriverConfig),
+    );
+    expect(verifyArtifactMount).toHaveBeenCalledWith(
+      sandboxName,
+      'physical-id',
+      artifactDriverConfig,
+    );
+  });
+  it('uses 0.1 workspace, pagination, and exactly one pinned account attachment', async () => {
+    const commands: string[][] = [];
+    const sandboxName = sandboxNameForConversation('conversation');
+    let created = false;
+    const runtimeConfig = {
+      ...config,
+      cliContract: 'v0.1' as const,
+      serviceProviders: [],
+      grantableServiceProviders: [],
+      accountProviderBindings: [{ name: 'openai-work', type: 'openai', id: 'provider-id' }],
+      verifyAccountProviderUnion: () => undefined,
+    };
+    const run = vi.fn(async (args: readonly string[]) => {
+      commands.push([...args]);
+      if (args[0] === 'provider' && args.includes('list'))
+        return JSON.stringify({
+          providers: [
+            { name: 'openai-work', id: 'provider-id', type: 'openai', workspace: 'mitzo' },
+          ],
+          next_page_token: '',
+        });
+      if (args.includes('get')) {
+        if (!created) throw new Error('sandbox not found');
+        return JSON.stringify({
+          name: sandboxName,
+          id: 'sandbox-id',
+          workspace: 'mitzo',
+          phase: 'Ready',
+          labels: {
+            'mitzo.conversation': owner,
+            'mitzo.account_provider': 'openai-work',
+            'mitzo.provider_policy': 'state-v2-none',
+          },
+        });
+      }
+      if (args.includes('create')) {
+        created = true;
+        return '{}';
+      }
+      if (args.includes('provider') && args.includes('list'))
+        return JSON.stringify({
+          providers: [
+            {
+              name: 'openai-work',
+              type: 'openai',
+              credential_keys: ['OPENAI_API_KEY'],
+              config_keys: [],
+            },
+          ],
+          next_page_token: '',
+        });
+      if (args.includes('list')) return JSON.stringify({ sandboxes: [], next_page_token: '' });
+      return '{}';
+    });
+    const manager = new OpenShellRuntimeManager(runtimeConfig, run);
+    const result = await manager.ensure('conversation', new AbortController().signal);
+    expect(result.sandboxName).toBe(sandboxName);
+    const create = commands.find((args) => args.includes('create'))!;
+    expect(create).toContain('--workspace');
+    expect(create[create.indexOf('--workspace') + 1]).toBe('mitzo');
+    expect(create.filter((part) => part === '--provider')).toHaveLength(1);
+    expect(create[create.indexOf('--provider') + 1]).toBe('openai-work');
+    expect(create).not.toContain('--inference-model');
+    expect(
+      commands
+        .filter((args) => args.includes('provider') && args.includes('list'))
+        .every((args) => args.includes('--output') && args.includes('json')),
+    ).toBe(true);
+    expect(commands.find((args) => args[0] === 'provider' && args.includes('list'))).toContain(
+      '--page-size',
+    );
+  });
+  it.each(['absent', 'replaced', 'renamed', 'stopped', 'replaced-during-checks'])(
+    'never creates or starts a retained sandbox when its expected identity is %s',
+    async (change) => {
+      const name = sandboxNameForConversation('conversation');
+      let reads = 0;
+      const run = vi.fn(async (args: readonly string[]) => {
+        if (args[0] === 'provider')
+          return JSON.stringify({
+            providers: [
+              { name: 'openai-work', id: 'provider-id', type: 'openai', workspace: 'mitzo' },
+            ],
+            next_page_token: '',
+          });
+        if (args.includes('provider') && args.includes('list'))
+          return JSON.stringify({
+            providers: [{ name: 'openai-work', type: 'openai' }],
+            next_page_token: '',
+          });
+        if (args.includes('get')) {
+          reads += 1;
+          if (change === 'absent') throw new Error('sandbox not found');
+          return JSON.stringify({
+            ...JSON.parse(ready('Ready', 'state-v2-none')),
+            name: change === 'renamed' ? 'other-sandbox' : name,
+            id:
+              change === 'replaced' || (change === 'replaced-during-checks' && reads > 1)
+                ? 'replacement-id'
+                : 'physical-id',
+            phase: change === 'stopped' ? 'Stopped' : 'Ready',
+            workspace: 'mitzo',
+          });
+        }
+        throw new Error('Unexpected sandbox mutation');
+      });
+      const manager = new OpenShellRuntimeManager(
+        {
+          ...config,
+          cliContract: 'v0.1',
+          serviceProviders: [],
+          grantableServiceProviders: [],
+          accountProviderBindings: [{ name: 'openai-work', type: 'openai', id: 'provider-id' }],
+          verifyAccountProviderUnion: () => undefined,
+        },
+        run,
+      );
+      await expect(
+        manager.ensure('conversation', new AbortController().signal, {
+          sandboxName: name,
+          sandboxId: 'physical-id',
+        }),
+      ).rejects.toThrow(/identity changed|not Ready|name or workspace changed/);
+      expect(
+        run.mock.calls.every(
+          ([args]) => args[0] === 'provider' || args.includes('get') || args.includes('list'),
+        ),
+      ).toBe(true);
+    },
+  );
+
+  it.each(['added', 'replaced', 'wrong-type'])(
+    'rechecks a retained seat and rejects an %s provider on the next reuse',
+    async (change) => {
+      const name = sandboxNameForConversation('conversation');
+      let changed = false;
+      const run = vi.fn(async (args: readonly string[]) => {
+        if (args[0] === 'provider')
+          return JSON.stringify({
+            providers: [
+              {
+                name: 'openai-work',
+                id: changed && change === 'replaced' ? 'replacement-id' : 'provider-id',
+                type: 'openai',
+                workspace: 'mitzo',
+              },
+            ],
+            next_page_token: '',
+          });
+        if (args.includes('get'))
+          return JSON.stringify({
+            ...JSON.parse(ready('Ready', 'state-v2-none')),
+            name,
+            id: 'physical-id',
+            workspace: 'mitzo',
+          });
+        if (args.includes('provider') && args.includes('list'))
+          return JSON.stringify({
+            providers: [
+              {
+                name: 'openai-work',
+                type: changed && change === 'wrong-type' ? 'google-vertex-ai' : 'openai',
+              },
+              ...(changed && change === 'added'
+                ? [{ name: 'other-provider', type: 'openai' }]
+                : []),
+            ],
+            next_page_token: '',
+          });
+        throw new Error('Unexpected sandbox mutation');
+      });
+      const manager = new OpenShellRuntimeManager(
+        {
+          ...config,
+          cliContract: 'v0.1',
+          serviceProviders: [],
+          grantableServiceProviders: [],
+          accountProviderBindings: [{ name: 'openai-work', type: 'openai', id: 'provider-id' }],
+          verifyAccountProviderUnion: () => undefined,
+        },
+        run,
+      );
+      const expected = { sandboxName: name, sandboxId: 'physical-id' };
+      await manager.ensure('conversation', new AbortController().signal, expected);
+      changed = true;
+      await expect(
+        manager.ensure('conversation', new AbortController().signal, expected),
+      ).rejects.toThrow(/another provider attachment|account provider|attachment type changed/);
+      expect(
+        run.mock.calls.some(([args]) => args.includes('create') || args.includes('attach')),
+      ).toBe(false);
+    },
+  );
+
+  it('rejects a retained 0.1 seat sandbox with a sibling provider', async () => {
+    const run = vi.fn(async (args: readonly string[]) => {
+      if (args[0] === 'provider')
+        return JSON.stringify({
+          providers: [
+            { name: 'openai-work', id: 'provider-id', type: 'openai', workspace: 'mitzo' },
+          ],
+          next_page_token: '',
+        });
+      if (args.includes('get'))
+        return JSON.stringify({
+          ...JSON.parse(ready('Ready', 'state-v2-none')),
+          name: sandboxNameForConversation('conversation'),
+          workspace: 'mitzo',
+        });
+      if (args.includes('provider') && args.includes('list'))
+        return JSON.stringify({
+          providers: [
+            { name: 'openai-work', type: 'openai' },
+            { name: 'vertex-work', type: 'google-vertex-ai' },
+          ],
+          next_page_token: '',
+        });
+      return '{}';
+    });
+    const manager = new OpenShellRuntimeManager(
+      {
+        ...config,
+        cliContract: 'v0.1',
+        serviceProviders: [],
+        grantableServiceProviders: [],
+        accountProviderBindings: [{ name: 'openai-work', type: 'openai', id: 'provider-id' }],
+        verifyAccountProviderUnion: () => undefined,
+      },
+      run,
+    );
+    await expect(manager.ensure('conversation', new AbortController().signal)).rejects.toThrow(
+      /another provider attachment/,
+    );
+    expect(run).not.toHaveBeenCalledWith(expect.arrayContaining(['attach']), expect.anything());
+  });
+  it('waits for the exact 0.1 provider attachment before admitting a retained seat', async () => {
+    const commands: string[][] = [];
+    let attached = false;
+    const run = vi.fn(async (args: readonly string[]) => {
+      commands.push([...args]);
+      if (args[0] === 'provider')
+        return JSON.stringify({
+          providers: [
+            { name: 'openai-work', id: 'provider-id', type: 'openai', workspace: 'mitzo' },
+          ],
+          next_page_token: '',
+        });
+      if (args.includes('get'))
+        return JSON.stringify({
+          ...JSON.parse(ready('Ready', 'state-v2-none')),
+          name: sandboxNameForConversation('conversation'),
+          workspace: 'mitzo',
+        });
+      if (args.includes('provider') && args.includes('list'))
+        return JSON.stringify({
+          providers: attached ? [{ name: 'openai-work', type: 'openai' }] : [],
+          next_page_token: '',
+        });
+      if (args.includes('attach')) {
+        attached = true;
+        return '{}';
+      }
+      return '{}';
+    });
+    const manager = new OpenShellRuntimeManager(
+      {
+        ...config,
+        cliContract: 'v0.1',
+        serviceProviders: [],
+        grantableServiceProviders: [],
+        accountProviderBindings: [{ name: 'openai-work', type: 'openai', id: 'provider-id' }],
+        verifyAccountProviderUnion: () => undefined,
+      },
+      run,
+    );
+    await manager.ensure('conversation', new AbortController().signal);
+    const attach = commands.find((args) => args.includes('attach'))!;
+    expect(attach).toEqual(
+      expect.arrayContaining(['--workspace', 'mitzo', 'openai-work', '--wait', '--output', 'json']),
+    );
+    expect(commands.filter((args) => args.includes('attach'))).toHaveLength(1);
+  });
+  it('reads all 0.1 attachment pages before accepting a retained seat', async () => {
+    const attachmentPages: string[][] = [];
+    const run = vi.fn(async (args: readonly string[]) => {
+      if (args[0] === 'provider')
+        return JSON.stringify({
+          providers: [
+            { name: 'openai-work', id: 'provider-id', type: 'openai', workspace: 'mitzo' },
+          ],
+          next_page_token: '',
+        });
+      if (args.includes('get'))
+        return JSON.stringify({
+          ...JSON.parse(ready('Ready', 'state-v2-none')),
+          name: sandboxNameForConversation('conversation'),
+          workspace: 'mitzo',
+        });
+      if (args.includes('provider') && args.includes('list')) {
+        attachmentPages.push([...args]);
+        return args.includes('--page-token')
+          ? JSON.stringify({
+              providers: [{ name: 'vertex-work', type: 'google-vertex-ai' }],
+              next_page_token: '',
+            })
+          : JSON.stringify({
+              providers: [{ name: 'openai-work', type: 'openai' }],
+              next_page_token: 'next',
+            });
+      }
+      return '{}';
+    });
+    const manager = new OpenShellRuntimeManager(
+      {
+        ...config,
+        cliContract: 'v0.1',
+        serviceProviders: [],
+        grantableServiceProviders: [],
+        accountProviderBindings: [{ name: 'openai-work', type: 'openai', id: 'provider-id' }],
+        verifyAccountProviderUnion: () => undefined,
+      },
+      run,
+    );
+    await expect(manager.ensure('conversation', new AbortController().signal)).rejects.toThrow(
+      /another provider attachment/,
+    );
+    expect(attachmentPages).toHaveLength(2);
+    expect(attachmentPages[1]).toEqual(expect.arrayContaining(['--page-token', 'next']));
+  });
+  it.each([
+    ['bare array', JSON.stringify([{ name: 'openai-work', type: 'openai' }])],
+    ['missing token', JSON.stringify({ providers: [{ name: 'openai-work', type: 'openai' }] })],
+    [
+      'malformed row',
+      JSON.stringify({ providers: [{ name: 'openai-work' }], next_page_token: '' }),
+    ],
+  ])('rejects a 0.1 attachment inventory with %s', async (_case, inventory) => {
+    const run = vi.fn(async (args: readonly string[]) => {
+      if (args[0] === 'provider')
+        return JSON.stringify({
+          providers: [
+            { name: 'openai-work', id: 'provider-id', type: 'openai', workspace: 'mitzo' },
+          ],
+          next_page_token: '',
+        });
+      if (args.includes('get'))
+        return JSON.stringify({
+          ...JSON.parse(ready('Ready', 'state-v2-none')),
+          name: sandboxNameForConversation('conversation'),
+          workspace: 'mitzo',
+        });
+      if (args.includes('provider') && args.includes('list')) return inventory;
+      return '{}';
+    });
+    const manager = new OpenShellRuntimeManager(
+      {
+        ...config,
+        cliContract: 'v0.1',
+        serviceProviders: [],
+        grantableServiceProviders: [],
+        accountProviderBindings: [{ name: 'openai-work', type: 'openai', id: 'provider-id' }],
+        verifyAccountProviderUnion: () => undefined,
+      },
+      run,
+    );
+    await expect(manager.ensure('conversation', new AbortController().signal)).rejects.toThrow();
+    expect(run).not.toHaveBeenCalledWith(expect.arrayContaining(['attach']), expect.anything());
+  });
+  it('rejects a repeating 0.1 attachment page token', async () => {
+    const run = vi.fn(async (args: readonly string[]) => {
+      if (args[0] === 'provider')
+        return JSON.stringify({
+          providers: [
+            { name: 'openai-work', id: 'provider-id', type: 'openai', workspace: 'mitzo' },
+          ],
+          next_page_token: '',
+        });
+      if (args.includes('get'))
+        return JSON.stringify({
+          ...JSON.parse(ready('Ready', 'state-v2-none')),
+          name: sandboxNameForConversation('conversation'),
+          workspace: 'mitzo',
+        });
+      if (args.includes('provider') && args.includes('list'))
+        return JSON.stringify({
+          providers: [{ name: 'openai-work', type: 'openai' }],
+          next_page_token: 'same',
+        });
+      return '{}';
+    });
+    const manager = new OpenShellRuntimeManager(
+      {
+        ...config,
+        cliContract: 'v0.1',
+        serviceProviders: [],
+        grantableServiceProviders: [],
+        accountProviderBindings: [{ name: 'openai-work', type: 'openai', id: 'provider-id' }],
+        verifyAccountProviderUnion: () => undefined,
+      },
+      run,
+    );
+    await expect(manager.ensure('conversation', new AbortController().signal)).rejects.toThrow(
+      /pagination repeated a token/,
+    );
+    expect(run).not.toHaveBeenCalledWith(expect.arrayContaining(['attach']), expect.anything());
+  });
+  it('rejects the legacy subscription route before any 0.1 CLI call', async () => {
+    const run = vi.fn();
+    expect(
+      () =>
+        new OpenShellRuntimeManager(
+          {
+            ...config,
+            cliContract: 'v0.1',
+            serviceProviders: [],
+            grantableServiceProviders: [],
+            accountProviderBindings: [
+              { name: 'personal-chatgpt', type: 'openai-codex-oauth', id: 'provider-object-1' },
+            ],
+            account: {
+              kind: 'chatgpt-subscription',
+              provider: 'personal-chatgpt',
+              providerType: 'openai-codex-oauth',
+              providerId: 'provider-object-1',
+              grantId: 'grant-generation-1',
+              model: 'gpt-test',
+            },
+          },
+          run,
+        ),
+    ).toThrow(/exactly one account provider/);
+    expect(run).not.toHaveBeenCalled();
+  });
+  it('uses opaque 0.1 sandbox page tokens for workspace-scoped inventory', async () => {
+    const requests: string[][] = [];
+    const run = vi.fn(async (args: readonly string[]) => {
+      requests.push([...args]);
+      return args.includes('--page-token')
+        ? JSON.stringify({
+            sandboxes: [
+              {
+                name: 'seat',
+                phase: 'Ready',
+                workspace: 'mitzo',
+                labels: {
+                  'mitzo.conversation': owner,
+                  'mitzo.account_provider': 'openai-work',
+                },
+              },
+            ],
+            next_page_token: '',
+          })
+        : JSON.stringify({ sandboxes: [], next_page_token: 'next' });
+    });
+    const manager = new OpenShellRuntimeManager(
+      {
+        ...config,
+        cliContract: 'v0.1',
+        serviceProviders: [],
+        grantableServiceProviders: [],
+        accountProviderBindings: [{ name: 'openai-work', type: 'openai', id: 'provider-id' }],
+        verifyAccountProviderUnion: () => undefined,
+      },
+      run,
+    );
+    expect(
+      (await manager.inventory(new AbortController().signal)).map((item) => item.name),
+    ).toEqual(['seat']);
+    expect(requests[1]).toEqual(
+      expect.arrayContaining(['--workspace', 'mitzo', '--page-token', 'next']),
+    );
+    expect(requests[0]).not.toContain('--offset');
+  });
+  it('verifies and attaches an explicitly bound second inference provider in one sandbox', async () => {
+    const commands: string[][] = [];
+    let created = false;
+    const run = vi.fn(async (args: readonly string[]) => {
+      commands.push([...args]);
+      if (args[0] === 'provider' && args.includes('list'))
+        return JSON.stringify([
+          { name: 'openai-work', type: 'openai', id: 'openai-provider-id', workspace: 'mitzo' },
+          {
+            name: 'vertex-work',
+            type: 'google-vertex-ai',
+            id: 'vertex-provider-id',
+            workspace: 'mitzo',
+          },
+        ]);
+      if (args[0] === 'sandbox' && args.includes('provider') && args.includes('list'))
+        return providerList(sandboxNameForConversation('conversation'), [
+          'openai-work',
+          'github',
+          'vertex-work',
+        ]);
+      if (args.includes('get')) {
+        if (!created) throw new Error('sandbox not found');
+        return ready();
+      }
+      if (args.includes('create')) {
+        created = true;
+        return '{}';
+      }
+      return ready();
+    });
+    const manager = new OpenShellRuntimeManager(
+      {
+        ...config,
+        verifyAccountProviderUnion: () => {},
+        accountProviderBindings: [
+          { name: 'openai-work', type: 'openai', id: 'openai-provider-id' },
+          { name: 'vertex-work', type: 'google-vertex-ai', id: 'vertex-provider-id' },
+        ],
+      },
+      run,
+    );
+    await manager.ensure('conversation', new AbortController().signal);
+    const create = commands.find((args) => args.includes('create'))!;
+    expect(create.filter((_, index) => create[index - 1] === '--provider')).toEqual([
+      'openai-work',
+      'github',
+      'vertex-work',
+    ]);
+    expect(create).not.toContain('--inference-provider');
+    expect(create).not.toContain('--inference-model');
+  });
+
+  it('rejects a changed second account provider before creating a sandbox', async () => {
+    const run = vi.fn(async (args: readonly string[]) => {
+      if (args[0] === 'provider' && args.includes('list'))
+        return JSON.stringify([
+          { name: 'openai-work', type: 'openai', id: 'openai-provider-id', workspace: 'mitzo' },
+          { name: 'vertex-work', type: 'google-vertex-ai', id: 'wrong-id', workspace: 'mitzo' },
+        ]);
+      throw new Error('No sandbox operation should occur');
+    });
+    const manager = new OpenShellRuntimeManager(
+      {
+        ...config,
+        verifyAccountProviderUnion: () => {},
+        accountProviderBindings: [
+          { name: 'openai-work', type: 'openai', id: 'openai-provider-id' },
+          { name: 'vertex-work', type: 'google-vertex-ai', id: 'vertex-provider-id' },
+        ],
+      },
+      run,
+    );
+    await expect(manager.ensure('conversation', new AbortController().signal)).rejects.toThrow(
+      /account provider/i,
+    );
+    expect(run).toHaveBeenCalledTimes(1);
+  });
+
+  it('reconciles a changed account union on the same retained owner sandbox', async () => {
+    let created = false;
+    const attached = new Set<string>();
+    const run = vi.fn(async (args: readonly string[]) => {
+      if (args[0] === 'provider' && args.includes('list'))
+        return JSON.stringify([
+          { name: 'openai-work', type: 'openai', id: 'openai-provider-id', workspace: 'mitzo' },
+          {
+            name: 'vertex-work',
+            type: 'google-vertex-ai',
+            id: 'vertex-provider-id',
+            workspace: 'mitzo',
+          },
+        ]);
+      if (args.includes('get')) {
+        if (!created) throw new Error('sandbox not found');
+        return ready();
+      }
+      if (args.includes('create')) {
+        created = true;
+        args.forEach((value, index) => {
+          if (args[index - 1] === '--provider') attached.add(value);
+        });
+        return '{}';
+      }
+      if (args.includes('attach')) attached.add(args.at(-1)!);
+      if (args.includes('detach')) attached.delete(args.at(-1)!);
+      if (args[0] === 'sandbox' && args.includes('provider') && args.includes('list'))
+        return providerList(sandboxNameForConversation('conversation'), [...attached]);
+      return '{}';
+    });
+    const owner = { name: 'openai-work', type: 'openai', id: 'openai-provider-id' };
+    const vertex = { name: 'vertex-work', type: 'google-vertex-ai', id: 'vertex-provider-id' };
+    const signal = new AbortController().signal;
+    await new OpenShellRuntimeManager(
+      { ...config, verifyAccountProviderUnion: () => {}, accountProviderBindings: [owner] },
+      run,
+    ).ensure('conversation', signal);
+    expect([...attached].sort()).toEqual(['github', 'openai-work']);
+    await new OpenShellRuntimeManager(
+      { ...config, verifyAccountProviderUnion: () => {}, accountProviderBindings: [owner, vertex] },
+      run,
+    ).ensure('conversation', signal);
+    expect([...attached].sort()).toEqual(['github', 'openai-work', 'vertex-work']);
+    await new OpenShellRuntimeManager(
+      { ...config, verifyAccountProviderUnion: () => {}, accountProviderBindings: [owner] },
+      run,
+    ).ensure('conversation', signal);
+    expect([...attached].sort()).toEqual(['github', 'openai-work']);
+    expect(
+      run.mock.calls.some(([args]) => args.includes('detach') && args.includes('vertex-work')),
+    ).toBe(true);
+  });
+  it.each(['failure', 'unconfirmed'] as const)(
+    'retries an obsolete account detach after %s across manager restart',
+    async (failureMode) => {
+      let created = false;
+      const attached = new Set<string>();
+      let failDetach = true;
+      const run = vi.fn(async (args: readonly string[]) => {
+        if (args[0] === 'provider' && args.includes('list'))
+          return JSON.stringify([
+            { name: 'openai-work', type: 'openai', id: 'openai-provider-id', workspace: 'mitzo' },
+            {
+              name: 'vertex-work',
+              type: 'google-vertex-ai',
+              id: 'vertex-provider-id',
+              workspace: 'mitzo',
+            },
+          ]);
+        if (args.includes('get')) {
+          if (!created) throw new Error('sandbox not found');
+          return ready();
+        }
+        if (args.includes('create')) {
+          created = true;
+          args.forEach((value, index) => {
+            if (args[index - 1] === '--provider') attached.add(value);
+          });
+          return '{}';
+        }
+        if (args.includes('attach')) attached.add(args.at(-1)!);
+        if (args.includes('detach')) {
+          if (failDetach) {
+            if (failureMode === 'failure') throw new Error('gateway temporarily unavailable');
+          } else attached.delete(args.at(-1)!);
+        }
+        if (args[0] === 'sandbox' && args.includes('provider') && args.includes('list'))
+          return providerList(sandboxNameForConversation('conversation'), [...attached]);
+        return '{}';
+      });
+      const owner = { name: 'openai-work', type: 'openai', id: 'openai-provider-id' };
+      const vertex = { name: 'vertex-work', type: 'google-vertex-ai', id: 'vertex-provider-id' };
+      const signal = new AbortController().signal;
+      await new OpenShellRuntimeManager(
+        { ...config, verifyAccountProviderUnion: () => {}, accountProviderBindings: [owner] },
+        run,
+      ).ensure('conversation', signal);
+      expect([...attached].sort()).toEqual(['github', 'openai-work']);
+      await new OpenShellRuntimeManager(
+        {
+          ...config,
+          verifyAccountProviderUnion: () => {},
+          accountProviderBindings: [owner, vertex],
+        },
+        run,
+      ).ensure('conversation', signal);
+      expect([...attached].sort()).toEqual(['github', 'openai-work', 'vertex-work']);
+      const reducedConfig = {
+        ...config,
+        verifyAccountProviderUnion: () => {},
+        accountProviderBindings: [owner],
+      };
+      await expect(
+        new OpenShellRuntimeManager(reducedConfig, run).ensure('conversation', signal),
+      ).rejects.toThrow(
+        failureMode === 'failure' ? /reconciliation failed/ : /attachments are not confirmed/,
+      );
+      const policyPath = join(
+        privateRoot,
+        'openshell-provider-policy',
+        `${sandboxNameForConversation('conversation')}.json`,
+      );
+      expect(JSON.parse(readFileSync(policyPath, 'utf8'))).toEqual({
+        automatic: ['github'],
+        granted: [],
+        pendingDetach: ['vertex-work'],
+      });
+      expect(attached.has('vertex-work')).toBe(true);
+      failDetach = false;
+      // A fresh manager must recover using the durable file, not process-local history.
+      await new OpenShellRuntimeManager(reducedConfig, run).ensure('conversation', signal);
+      expect([...attached].sort()).toEqual(['github', 'openai-work']);
+      expect(JSON.parse(readFileSync(policyPath, 'utf8'))).toEqual({
+        automatic: ['github'],
+        granted: [],
+      });
+      expect(
+        run.mock.calls.some(([args]) => args.includes('detach') && args.includes('vertex-work')),
+      ).toBe(true);
+    },
+  );
+  it('cannot confirm a stale union after a delayed attach and lets the new revision clean it up', async () => {
+    let created = false;
+    let revision = 1;
+    const attached = new Set<string>();
+    let resolveStarted!: () => void;
+    let releaseAttach!: () => void;
+    const started = new Promise<void>((resolve) => {
+      resolveStarted = resolve;
+    });
+    const delayed = new Promise<void>((resolve) => {
+      releaseAttach = resolve;
+    });
+    const run = vi.fn(async (args: readonly string[]) => {
+      if (args[0] === 'provider' && args.includes('list'))
+        return JSON.stringify([
+          { name: 'openai-work', type: 'openai', id: 'openai-provider-id', workspace: 'mitzo' },
+          {
+            name: 'vertex-work',
+            type: 'google-vertex-ai',
+            id: 'vertex-provider-id',
+            workspace: 'mitzo',
+          },
+        ]);
+      if (args.includes('get')) {
+        if (!created) throw new Error('sandbox not found');
+        return ready();
+      }
+      if (args.includes('create')) {
+        created = true;
+        args.forEach((value, index) => {
+          if (args[index - 1] === '--provider') attached.add(value);
+        });
+        return '{}';
+      }
+      if (args.includes('attach')) {
+        resolveStarted();
+        await delayed;
+        attached.add(args.at(-1)!);
+      }
+      if (args.includes('detach')) attached.delete(args.at(-1)!);
+      if (args[0] === 'sandbox' && args.includes('provider') && args.includes('list'))
+        return providerList(sandboxNameForConversation('conversation'), [...attached]);
+      return '{}';
+    });
+    const owner = { name: 'openai-work', type: 'openai', id: 'openai-provider-id' };
+    const vertex = { name: 'vertex-work', type: 'google-vertex-ai', id: 'vertex-provider-id' };
+    const configFor = (expected: number, bindings: (typeof owner)[]) => ({
+      ...config,
+      accountProviderBindings: bindings,
+      verifyAccountProviderUnion: () => {
+        if (revision !== expected) throw new Error('Symposium provider union revision changed');
+      },
+    });
+    const signal = new AbortController().signal;
+    await new OpenShellRuntimeManager(configFor(1, [owner]), run).ensure('conversation', signal);
+    revision = 2;
+    const stale = new OpenShellRuntimeManager(configFor(2, [owner, vertex]), run).ensure(
+      'conversation',
+      signal,
+    );
+    await started;
+    revision = 3;
+    releaseAttach();
+    await expect(stale).rejects.toThrow(/union revision changed/i);
+    expect(attached.has('vertex-work')).toBe(true);
+    await new OpenShellRuntimeManager(configFor(3, [owner]), run).ensure('conversation', signal);
+    expect(attached.has('vertex-work')).toBe(false);
+  });
   it('rejects a grantable account provider before any runtime call', () => {
     const run = vi.fn();
     expect(
@@ -105,6 +1023,31 @@ describe('OpenShell runtime lifecycle', () => {
     expect(create).not.toContain('--inference-provider');
     expect(create).not.toContain('--inference-model');
     expect(create).not.toContain('auto-providers');
+  });
+
+  it('keeps reviewed on-demand custom providers detached until an explicit grant', async () => {
+    const customProvider = 'mitzo-conn-12345678';
+    const attached = new Set(['github']);
+    const run = vi.fn(async (args: readonly string[]) => {
+      if (args.includes('get')) return ready();
+      if (args.includes('provider') && args.includes('list'))
+        return providerList(sandboxNameForConversation('conversation'), [...attached]);
+      if (args.includes('attach')) attached.add(args.at(-1)!);
+      return '{}';
+    });
+    const manager = new OpenShellRuntimeManager(
+      { ...config, grantableServiceProviders: [customProvider] },
+      run,
+    );
+    const signal = new AbortController().signal;
+    const runtime = await manager.ensure('conversation', signal);
+    expect(attached).not.toContain(customProvider);
+    expect(
+      run.mock.calls.some(([args]) => args.includes('attach') && args.includes(customProvider)),
+    ).toBe(false);
+
+    await manager.grantServiceProvider('conversation', runtime, customProvider, signal);
+    expect(attached).toContain(customProvider);
   });
 
   it('waits through asynchronous creation phases until the sandbox is Ready', async () => {
@@ -345,6 +1288,53 @@ describe('OpenShell runtime lifecycle', () => {
     expect(
       commands.filter((args) => args.includes('attach') && args.includes('google-workspace')),
     ).toHaveLength(1);
+  });
+
+  it('preserves an explicitly approved custom grant through file-state restart', async () => {
+    const customProvider = 'mitzo-conn-12345678';
+    const attached = new Set(['github']);
+    const run = vi.fn(async (args: readonly string[]) => {
+      if (args.includes('get')) return ready('Ready', 'custom-v1');
+      if (args.includes('attach')) attached.add(args.at(-1)!);
+      if (args.includes('provider') && args.includes('list'))
+        return providerList(sandboxNameForConversation('conversation'), [...attached]);
+      return '{}';
+    });
+    const customConfig = {
+      ...config,
+      serviceProviders: ['github'],
+      grantableServiceProviders: [customProvider],
+    };
+    const signal = new AbortController().signal;
+    const first = new OpenShellRuntimeManager(customConfig, run);
+    const runtime = await first.ensure('conversation', signal);
+    await first.grantServiceProvider('conversation', runtime, customProvider, signal);
+    expect(
+      JSON.parse(
+        readFileSync(
+          join(
+            privateRoot,
+            'openshell-provider-policy',
+            `${sandboxNameForConversation('conversation')}.json`,
+          ),
+          'utf8',
+        ),
+      ),
+    ).toEqual({ automatic: ['github'], granted: [customProvider] });
+
+    await new OpenShellRuntimeManager(customConfig, run).ensure('conversation', signal);
+    const commands = run.mock.calls.map(([args]) => args as readonly string[]);
+    expect(
+      commands.filter((args) => args.includes('detach') && args.includes(customProvider)),
+    ).toHaveLength(0);
+    expect(
+      await new OpenShellRuntimeManager(customConfig, run).hasServiceProviderAccess(
+        'conversation',
+        runtime,
+        customProvider,
+        signal,
+      ),
+    ).toEqual({ state: 'available' });
   });
 
   it('requires a current attachment for a durable grant to be available', async () => {
@@ -1608,4 +2598,208 @@ describe('OpenShell runtime lifecycle', () => {
       }),
     ).toThrow('providers');
   });
+});
+
+it('attaches the upstream codex provider and returns only the native subscription launcher', async () => {
+  const calls: string[][] = [];
+  const sandboxName = sandboxNameForConversation('conversation');
+  let created = false;
+  const binding = { name: 'codex-personal', id: 'provider-native', type: 'codex' };
+  const run = vi.fn(async (args: readonly string[]) => {
+    calls.push([...args]);
+    if (args.includes('list'))
+      return JSON.stringify({
+        providers: [{ ...binding, workspace: 'mitzo' }],
+        next_page_token: '',
+      });
+    if (args.includes('get')) {
+      if (!created) throw new Error('sandbox not found');
+      return JSON.stringify({
+        name: sandboxName,
+        id: 'physical-native',
+        workspace: 'mitzo',
+        phase: 'Ready',
+        labels: {
+          'mitzo.conversation': owner,
+          'mitzo.account_provider': binding.name,
+          'mitzo.provider_policy': 'state-v2-none',
+        },
+      });
+    }
+    if (args.includes('create')) created = true;
+    return '{}';
+  });
+  const manager = new OpenShellRuntimeManager(
+    {
+      ...config,
+      cliContract: 'v0.1',
+      serviceProviders: [],
+      grantableServiceProviders: [],
+      account: {
+        kind: 'chatgpt-subscription-native',
+        provider: binding.name,
+        providerType: 'codex',
+        providerId: binding.id,
+        model: 'luna',
+      },
+      accountProviderBindings: [binding],
+      verifyAccountProviderUnion: () => {},
+    },
+    run,
+  );
+  const runtime = await manager.ensure('conversation', new AbortController().signal);
+  const create = calls.find((args) => args.includes('create'))!;
+  expect(create.filter((arg) => arg === '--provider')).toHaveLength(1);
+  expect(create[create.indexOf('--provider') + 1]).toBe('codex-personal');
+  expect(create).not.toContain('--inference-provider');
+  expect(create).not.toContain('--inference-model');
+  expect(calls.some((args) => args.includes('refresh'))).toBe(false);
+  expect(runtime.appServerCommand).toBe('/usr/local/bin/symposium-subscription-app-server');
+});
+
+it('leaves owned cleanup available when actual manager provider preflight fails before create', async () => {
+  const fence = new SymposiumWorkspaceLifecycle(join(privateRoot, 'creation.json'), () => {});
+  let dispatch!: () => void;
+  const beforeSandboxCreate = vi.fn(() => dispatch());
+  const run = vi.fn(async () => {
+    throw new Error('provider inventory unavailable');
+  });
+  const manager = new OpenShellRuntimeManager({ ...config, beforeSandboxCreate }, run);
+  await expect(
+    fence.create(
+      () => {},
+      async (markDispatched) => {
+        dispatch = markDispatched;
+        return manager.ensure('conversation', new AbortController().signal);
+      },
+    ),
+  ).rejects.toThrow();
+  expect(beforeSandboxCreate).not.toHaveBeenCalled();
+  expect(run.mock.calls.length).toBeGreaterThan(0);
+  await expect(fence.cleanup(async () => {})).resolves.toBeUndefined();
+});
+
+it.each(
+  [
+    'upload',
+    'unknown-create',
+    'wrong-id',
+    'replaced-before-upload',
+    'artifact-reader',
+    'artifact-writer',
+  ].flatMap((failure) => ['chatgpt-subscription-native', 'api'].map((kind) => ({ failure, kind }))),
+)('keeps $kind creation and $failure outcome distinct', async ({ failure, kind }) => {
+  const name = sandboxNameForConversation('conversation');
+  const receipt = {
+    name,
+    id: 'physical-native',
+    workspace: 'mitzo',
+    phase: 'Ready',
+    labels: {
+      'mitzo.conversation': owner,
+      'mitzo.account_provider': kind === 'api' ? 'vertex-work' : 'codex-personal',
+    },
+  };
+  const binding = {
+    name: kind === 'api' ? 'vertex-work' : 'codex-personal',
+    id: 'provider-native',
+    type: kind === 'api' ? 'google-vertex-ai' : 'codex',
+  };
+  const settled = vi.fn();
+  let created = false;
+  const run = vi.fn(async (args: readonly string[]) => {
+    if (args.includes('list'))
+      return JSON.stringify({
+        providers: [{ ...binding, workspace: 'mitzo' }],
+        next_page_token: '',
+      });
+    if (args.includes('get')) {
+      if (!created) throw new Error('sandbox not found');
+      return JSON.stringify(
+        failure === 'replaced-before-upload' ? { ...receipt, id: 'replacement' } : receipt,
+      );
+    }
+    if (args.includes('create')) {
+      created = true;
+      if (failure === 'unknown-create') throw new Error('terminal response unavailable');
+      return JSON.stringify(failure === 'wrong-id' ? { ...receipt, name: 'replacement' } : receipt);
+    }
+    if (args.includes('upload')) {
+      expect(settled).toHaveBeenCalledOnce();
+      throw new Error('upload unavailable');
+    }
+    return '{}';
+  });
+  const manager = new OpenShellRuntimeManager(
+    {
+      ...config,
+      cliContract: 'v0.1',
+      serviceProviders: [],
+      grantableServiceProviders: [],
+      account:
+        kind === 'api'
+          ? { kind: 'api', provider: binding.name, model: 'claude-haiku-4-5@20251001' }
+          : {
+              kind: 'chatgpt-subscription-native',
+              provider: binding.name,
+              providerType: 'codex',
+              providerId: binding.id,
+              model: 'luna',
+            },
+      accountProviderBindings: [binding],
+      verifyAccountProviderUnion: () => {},
+      onSandboxCreateSettled: settled,
+      ...(failure.startsWith('artifact-')
+        ? {
+            artifactDriverConfig: {
+              podman: {
+                mounts: [
+                  {
+                    type: 'volume' as const,
+                    source: 'artifacts-1',
+                    target: SYMPOSIUM_ARTIFACT_TARGET,
+                    read_only: failure === 'artifact-reader',
+                  },
+                ],
+              },
+            },
+            verifyArtifactMount: async () => {},
+          }
+        : {}),
+    },
+    run,
+  );
+  if (failure.startsWith('artifact-'))
+    await expect(
+      manager.ensure('conversation', new AbortController().signal),
+    ).resolves.toMatchObject({ sandboxId: 'physical-native' });
+  else await expect(manager.ensure('conversation', new AbortController().signal)).rejects.toThrow();
+  expect(run.mock.calls.find(([args]) => args.includes('create'))![0]).not.toContain('--upload');
+  if (failure.startsWith('artifact-')) {
+    expect(settled).toHaveBeenCalledOnce();
+    expect(run.mock.calls.some(([args]) => args.includes('upload'))).toBe(false);
+  } else if (failure === 'upload') {
+    expect(settled).toHaveBeenCalledWith(
+      expect.objectContaining({ sandboxId: 'physical-native', sandboxName: name }),
+    );
+    expect(run.mock.calls.some(([args]) => args.includes('upload'))).toBe(true);
+  } else if (failure === 'replaced-before-upload') {
+    expect(settled).toHaveBeenCalledOnce();
+    expect(run.mock.calls.some(([args]) => args.includes('upload'))).toBe(false);
+  } else {
+    expect(settled).not.toHaveBeenCalled();
+    expect(run.mock.calls.some(([args]) => args.includes('upload'))).toBe(false);
+  }
+});
+
+it('rejects a persisted artifact target name different from the inspected owned sandbox', async () => {
+  const sandbox = JSON.parse(ready());
+  sandbox.id = 'sandbox-id';
+  const manager = new OpenShellRuntimeManager(
+    config,
+    vi.fn().mockResolvedValue(JSON.stringify(sandbox)),
+  );
+  await expect(
+    manager.inspect('conversation', 'sandbox-id', new AbortController().signal, 'other-target'),
+  ).rejects.toThrow('target name changed');
 });

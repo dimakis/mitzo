@@ -25,6 +25,14 @@ const mockItem: TodoItem = {
       snippet: 'Some description',
     },
   ],
+  links: [
+    {
+      type: 'design_doc',
+      url: 'docs/bug.md',
+      title: 'Bug design',
+      description: '',
+    },
+  ],
   goalId: null,
   contextHints: {
     repos: ['dimakis/mitzo'],
@@ -83,6 +91,22 @@ describe('TodoCard', () => {
       />,
     );
     expect(container.querySelector('.todo-card-author')?.textContent).toBe('dimakis');
+  });
+
+  it('surfaces durable links in card metadata', () => {
+    render(
+      <TodoCard
+        item={mockItem}
+        onAck={vi.fn()}
+        onDone={vi.fn()}
+        onTap={vi.fn()}
+        onAddChild={vi.fn()}
+        onStar={vi.fn()}
+        onStartSession={vi.fn()}
+      />,
+    );
+
+    expect(screen.getAllByLabelText('1 durable link')[0].textContent).toContain('1');
   });
 
   it('shows ☆ star button for unstarred item', () => {

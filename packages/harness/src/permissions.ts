@@ -39,7 +39,11 @@ export function resolvePending(
   let toolInput = entry.toolInput;
   // Questions never grant session-wide tool permission. Treat a legacy/malformed
   // "always" response as a one-shot answer instead of leaving it pending forever.
-  const effectiveDecision = entry.request?.questions && decision === 'always' ? 'once' : decision;
+  const effectiveDecision =
+    (entry.request?.questions || entry.request?.approvalScope === 'request') &&
+    decision === 'always'
+      ? 'once'
+      : decision;
   if (entry.request?.questions && effectiveDecision !== 'deny') {
     if (!answers || Object.keys(answers).length !== entry.request.questions.length) return false;
     for (const question of entry.request.questions) {
@@ -99,6 +103,11 @@ export function removePending(permId: string) {
 
 export function hasPending(permId: string): boolean {
   return pending.has(permId);
+}
+
+/** Session owning a live approval, used to authenticate reconnect responses. */
+export function getPendingSessionId(permId: string): string | undefined {
+  return pending.get(permId)?.sessionId;
 }
 
 /**

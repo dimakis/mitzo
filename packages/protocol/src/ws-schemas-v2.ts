@@ -30,12 +30,26 @@ export const HelloMessage = z.object({
 
 export const ReconnectMessage = z.object({
   type: z.literal('reconnect'),
+  supportsAppliedCursor: z.boolean().optional(),
   sessions: z.array(
     z.object({
       sessionId: z.string().min(1),
       lastSeq: z.number().int().min(0),
     }),
   ),
+});
+
+export const ReconnectSnapshotAppliedMessage = z.object({
+  type: z.literal('reconnect_snapshot_applied'),
+  sessionId: z.string().min(1),
+  cursor: z.number().int().min(0),
+  offerId: z.string().uuid(),
+});
+
+export const SessionEventAppliedMessage = z.object({
+  type: z.literal('session_event_applied'),
+  sessionId: z.string().min(1),
+  seq: z.number().int().positive(),
 });
 
 // ─── Session management ─────────────────────────────────────────────────────
@@ -53,6 +67,7 @@ export const UnwatchMessage = z.object({
 export const SwitchSessionMessage = z.object({
   type: z.literal('switch_session'),
   sessionId: z.string().min(1).nullable(),
+  historyCursor: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).optional(),
 });
 
 export const SessionSuspendMessage = z.object({
@@ -79,7 +94,9 @@ export const V2SendMessage = z.object({
   type: z.literal('send'),
   sessionId: z.string().min(1).nullable(),
   prompt: z.string().min(1),
-  clientMsgId: z.string().min(1),
+  clientMsgId: z.string().min(1).max(512),
+  /** Explicit consent for a new command after an ambiguous provider outcome. */
+  confirmAmbiguous: z.boolean().optional(),
   accountId: z.string().min(1).optional(),
   model: z.string().optional(),
   reasoningEffort: z.string().min(1).max(32).nullable().optional(),
@@ -100,7 +117,7 @@ export const V2InterruptMessage = z.object({
   type: z.literal('interrupt'),
   sessionId: z.string().min(1),
   prompt: z.string().min(1),
-  clientMsgId: z.string().min(1),
+  clientMsgId: z.string().min(1).max(512),
   accountId: z.string().min(1).optional(),
   model: z.string().optional(),
   reasoningEffort: z.string().min(1).max(32).nullable().optional(),
@@ -138,6 +155,8 @@ export const V2SetModeMessage = z.object({
 export const IncomingWsMessageV2 = z.discriminatedUnion('type', [
   HelloMessage,
   ReconnectMessage,
+  ReconnectSnapshotAppliedMessage,
+  SessionEventAppliedMessage,
   WatchMessage,
   UnwatchMessage,
   SwitchSessionMessage,

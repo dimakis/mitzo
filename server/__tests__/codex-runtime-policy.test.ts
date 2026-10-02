@@ -16,7 +16,7 @@ it('disables inherited MCP servers and native execution paths while keeping host
   ])
     expect(c[`features.${feature}`]).toBe(false);
   expect(c['agents.enabled']).toBe(false);
-  expect(c.web_search).toBe('disabled');
+  expect(c.web_search).toBe('live');
   expect(JSON.stringify(c)).not.toContain('private-secret');
 });
 it('rejects custom OpenAI routing and unsupported configuration names rather than guessing', () => {
@@ -39,4 +39,11 @@ it('pins an explicitly configured ChatGPT workspace', () => {
   expect(codexRuntimeOverrides({}, 'workspace-123').forced_chatgpt_workspace_id).toBe(
     'workspace-123',
   );
+});
+
+it('requests detailed reasoning summaries unless Codex configuration selects another level', () => {
+  expect(codexRuntimeOverrides({}).model_reasoning_summary).toBe('detailed');
+  expect(
+    codexRuntimeOverrides({ model_reasoning_summary: 'concise' }).model_reasoning_summary,
+  ).toBe('concise');
 });

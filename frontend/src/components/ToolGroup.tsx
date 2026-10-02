@@ -4,14 +4,15 @@ import { ToolPill } from './ToolPill';
 
 interface Props {
   tools: ToolBlock[];
+  sessionId?: string;
 }
 
-export function ToolGroup({ tools }: Props) {
+export function ToolGroup({ tools, sessionId }: Props) {
   const [expanded, setExpanded] = useState(false);
   const listId = useId();
   // A single operation already has its own detail disclosure. Show its useful
   // summary directly instead of requiring a second, count-only disclosure.
-  if (tools.length === 1) return <ToolPill block={tools[0]} />;
+  if (tools.length === 1) return <ToolPill block={tools[0]} sessionId={sessionId} />;
   const statuses = tools.map(getToolStatus);
   const doneCount = statuses.filter((status) => status.done).length;
   const failedCount = statuses.filter((status) => status.done && status.hasError).length;
@@ -46,7 +47,7 @@ export function ToolGroup({ tools }: Props) {
       {expanded && (
         <div id={listId} className="tool-group-list">
           {tools.map((t, i) => (
-            <ToolPill key={t.blockId || i} block={t} />
+            <ToolPill key={t.blockId || i} block={t} sessionId={sessionId} />
           ))}
         </div>
       )}

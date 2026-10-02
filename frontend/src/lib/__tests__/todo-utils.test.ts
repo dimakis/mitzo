@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { sourceIcon, buildPrompt } from '../todo-utils';
+import { sourceIcon, buildPrompt, buildTodoContext } from '../todo-utils';
 import type { TodoItem } from '../../types/todo';
 
 describe('sourceIcon', () => {
@@ -47,6 +47,14 @@ const fullItem: TodoItem = {
       snippet: 'The auth middleware fails to validate tokens after page refresh...',
     },
   ],
+  links: [
+    {
+      type: 'design_doc',
+      url: 'docs/auth-design.md',
+      title: 'Authentication design',
+      description: 'Durable auth decisions',
+    },
+  ],
   contextHints: {
     repos: ['dimakis/mitzo', 'dimakis/contexgin'],
     paths: ['server/auth.ts', 'server/permission-handler.ts'],
@@ -64,6 +72,7 @@ describe('buildPrompt', () => {
     const prompt = buildPrompt(fullItem);
 
     expect(prompt).toContain('**Fix authentication middleware**');
+    expect(prompt).toContain('Telos item ID: abc123');
     expect(prompt).toContain('Source: https://github.com/dimakis/mitzo/issues/42');
     expect(prompt).toContain('The auth middleware fails to validate tokens');
     expect(prompt).toContain('Repos: dimakis/mitzo, dimakis/contexgin');
@@ -72,7 +81,15 @@ describe('buildPrompt', () => {
     expect(prompt).toContain('Jira: RHAIENG-1234');
     expect(prompt).toContain('Keywords: auth, jwt');
     expect(prompt).toContain('Fix token validation in auth middleware after page refresh');
+    expect(prompt).toContain('Authentication design: docs/auth-design.md');
     expect(prompt).toContain('Start by reading the relevant code');
+  });
+
+  it('includes durable links in session context', () => {
+    expect(buildTodoContext(fullItem)).toContain('Telos item ID: abc123');
+    expect(buildTodoContext(fullItem)).toContain(
+      'Link: Authentication design (design_doc)\n  URL: docs/auth-design.md',
+    );
   });
 
   it('handles item with no sources or context', () => {
@@ -93,6 +110,7 @@ describe('buildPrompt', () => {
 
     const prompt = buildPrompt(minimalItem);
     expect(prompt).toContain('**Fix authentication middleware**');
+    expect(prompt).toContain('Telos item ID: abc123');
     expect(prompt).not.toContain('Context:');
     expect(prompt).toContain('Start by reading the relevant code');
   });
@@ -113,7 +131,34 @@ describe('buildPrompt', () => {
 
     const prompt = buildPrompt(noSnippetItem);
     expect(prompt).toContain('**Fix authentication middleware**');
+    expect(prompt).toContain('Telos item ID: abc123');
     expect(prompt).not.toContain('Source:');
     expect(prompt).toContain('Repos:');
+  });
+
+  it('starts a session with the outcome contract and next milestone', () => {
+    const structured: TodoItem = {
+      ...fullItem,
+      intent: 'Signed-in people remain authenticated after refresh.',
+      rationale: 'Unexpected sign-outs interrupt every workflow.',
+      acceptanceCriteria: ['Refresh preserves the active session'],
+      children: [
+        {
+          ...fullItem,
+          id: 'done',
+          summary: 'Reproduce the bug',
+          status: 'completed',
+          children: [],
+        },
+        { ...fullItem, id: 'next', summary: 'Add the regression test', children: [] },
+      ],
+    };
+
+    const prompt = buildPrompt(structured);
+
+    expect(prompt).toContain('Outcome:\nSigned-in people remain authenticated after refresh.');
+    expect(prompt).toContain('Why it matters:\nUnexpected sign-outs interrupt every workflow.');
+    expect(prompt).toContain('Done when:\n- Refresh preserves the active session');
+    expect(prompt).toContain('Next milestone:\n- Add the regression test');
   });
 });

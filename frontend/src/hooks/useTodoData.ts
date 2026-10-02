@@ -1,10 +1,11 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import type { TodoItem, TodoData } from '../types/todo';
+import type { TodoItem, TodoData, TodoOutcomeDraft } from '../types/todo';
 import { apiFetch } from '../lib/api-fetch';
 import { eventBus } from '../lib/event-bus-singleton';
 
 export interface UseTodoDataResult {
   loading: boolean;
+  error: string | null;
   items: TodoItem[];
   profiles: string[];
   ack: (id: string) => Promise<void>;
@@ -12,6 +13,7 @@ export interface UseTodoDataResult {
   done: (id: string) => Promise<void>;
   star: (id: string) => Promise<void>;
   create: (summary: string, profile: string, parentId?: string) => Promise<void>;
+  createOutcome: (draft: TodoOutcomeDraft) => Promise<TodoItem | undefined>;
   refresh: () => void;
 }
 
@@ -51,6 +53,7 @@ export function findInTree(items: TodoItem[], id: string): TodoItem | undefined 
 export function useTodoData(profile?: string): UseTodoDataResult {
   const [data, setData] = useState<TodoData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
   const dataRef = useRef<TodoData | null>(null);
   dataRef.current = data;
@@ -58,6 +61,7 @@ export function useTodoData(profile?: string): UseTodoDataResult {
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
+    setError(null);
 
     const url = profile ? `/api/todos?${new URLSearchParams({ profile })}` : '/api/todos';
 
@@ -69,12 +73,14 @@ export function useTodoData(profile?: string): UseTodoDataResult {
       .then((result: TodoData) => {
         if (!cancelled) {
           setData(result);
+          setError(null);
           setLoading(false);
         }
       })
       .catch(() => {
         if (!cancelled) {
           setData({ profiles: [], items: [] });
+          setError('Unable to load Telos items');
           setLoading(false);
         }
       });
@@ -162,8 +168,28 @@ export function useTodoData(profile?: string): UseTodoDataResult {
     [refresh],
   );
 
+  const createOutcome = useCallback(
+    async (draft: TodoOutcomeDraft) => {
+      try {
+        const res = await apiFetch('/api/todos/outcomes', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(draft),
+        });
+        if (!res.ok) return undefined;
+        const result = (await res.json()) as { item?: TodoItem };
+        refresh();
+        return result.item;
+      } catch {
+        return undefined;
+      }
+    },
+    [refresh],
+  );
+
   return {
     loading,
+    error,
     items: data?.items ?? [],
     profiles: data?.profiles ?? [],
     ack,
@@ -171,6 +197,7 @@ export function useTodoData(profile?: string): UseTodoDataResult {
     done,
     star,
     create,
+    createOutcome,
     refresh,
   };
 }

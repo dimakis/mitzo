@@ -31,7 +31,12 @@ export function groupBlocks<T extends ChatBlock>(
   for (const block of blocks) {
     if (block.blockType === 'tool_use') {
       // Progress-augmented blocks break the tool buffer (never grouped)
-      if (block.toolId && progressToolIds?.has(block.toolId)) {
+      if (
+        (block.toolId && progressToolIds?.has(block.toolId)) ||
+        ['RequestWebAccess', 'mcp__mitzo-web-access__RequestWebAccess'].includes(
+          block.toolName ?? '',
+        )
+      ) {
         flushTools();
         result.push({ type: 'block', block });
       } else {

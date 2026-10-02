@@ -1,0 +1,16 @@
+{
+  "bothRepliesExact": true,
+  "model": "gpt-5.6-luna",
+  "effort": "low",
+  "account": "personal-chatgpt on isolated3331",
+  "completedTurns": 2,
+  "streamedDeltaCount": 16,
+  "markerPresent": true,
+  "replayedTurns": 2,
+  "inference": true,
+  "physicalContainersAbsent": true,
+  "localProbeTransportAbsent": true,
+  "sourceCommit": "9b67c2a6c0e4decf5bc81d4b43ea2230996ec072",
+  "productionAdmission": false,
+  "fullAppAcceptance": false
+}

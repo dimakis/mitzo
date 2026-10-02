@@ -1,21 +1,28 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import ReactMarkdown, { defaultUrlTransform } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
 import { useNavigate, useLocation } from 'react-router-dom';
+import type { Components } from 'react-markdown';
 import type { FinishedMessage } from '../types/chat';
 import {
   decodeFilePathUrl,
   linkifyFilePaths,
   remarkNeutralizeMalformedFileLinks,
   FILE_SCHEME,
+  artifactViewerUrl,
+  relativeArtifactPath,
+  remarkLocalMarkdownLinks,
 } from '../lib/file-paths';
 import { formatTime } from '../lib/formatTime';
 import { CopyButton } from './CopyButton';
 import { ShareButton } from './ShareButton';
 import { ReadAloudButton } from './ReadAloudButton';
-import { extractText } from '../lib/extractText';
+import { markdownComponents } from '../lib/markdown-config';
+import { MarkdownCodeBlock } from './MarkdownCodeBlock';
 import { MarkdownPreviewCard } from './MarkdownPreviewCard';
+import { HtmlPreviewCard } from './HtmlPreviewCard';
+import { findArtifactCapabilityByPath } from '@mitzo/protocol';
 
 const COLLAPSE_HEIGHT = 300;
 
@@ -87,9 +94,16 @@ interface TextBubbleProps {
   streaming?: boolean;
   timestamp?: number;
   readAloud?: ReadAloudProps;
+  artifactSessionId?: string;
 }
 
-export function TextBubble({ content, streaming = false, timestamp, readAloud }: TextBubbleProps) {
+export function TextBubble({
+  content,
+  streaming = false,
+  timestamp,
+  readAloud,
+  artifactSessionId,
+}: TextBubbleProps) {
   const navigate = useNavigate();
   const location = useLocation();
   const processed = streaming ? content : linkifyFilePaths(content);
@@ -99,10 +113,108 @@ export function TextBubble({ content, streaming = false, timestamp, readAloud }:
   const contentRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (contentRef.current && !streaming) {
-      setIsLong(contentRef.current.scrollHeight > COLLAPSE_HEIGHT);
+    const element = contentRef.current;
+    if (!element || streaming) return;
+    const measure = () => setIsLong(element.scrollHeight > COLLAPSE_HEIGHT);
+    measure();
+    if (typeof ResizeObserver !== 'undefined') {
+      const observer = new ResizeObserver(measure);
+      observer.observe(element);
+      return () => observer.disconnect();
     }
+    const observer = new MutationObserver(measure);
+    observer.observe(element, { childList: true, subtree: true });
+    return () => observer.disconnect();
   }, [content, streaming]);
+
+  const navigationRef = useRef({ navigate, currentPath });
+  useEffect(() => {
+    navigationRef.current = { navigate, currentPath };
+  }, [navigate, currentPath]);
+  const mdComponents = useMemo<Components>(
+    () => ({
+      ...markdownComponents,
+      pre: MarkdownCodeBlock,
+      // When a paragraph contains a single file-path link to a .md/.mdx
+      // file, promote it to an inline preview card instead of a plain link.
+      // In ReactMarkdown v10, children are unrendered component instances —
+      // the `a` handler hasn't run yet — so we check `href` (the prop
+      // ReactMarkdown passes) rather than rendered DOM attributes.
+      p: ({ children }) => {
+        const childArray = React.Children.toArray(children);
+        if (childArray.length === 1 && React.isValidElement(childArray[0])) {
+          const el = childArray[0] as React.ReactElement<Record<string, unknown>>;
+          const href = el.props?.href as string | undefined;
+          if (href?.startsWith(FILE_SCHEME)) {
+            const filePath = decodeFilePathUrl(href);
+            if (filePath && /\.mdx?$/i.test(filePath)) {
+              return (
+                <MarkdownPreviewCard
+                  key={`${artifactSessionId || ''}:${filePath}`}
+                  filePath={filePath}
+                  sessionId={artifactSessionId}
+                />
+              );
+            }
+            if (filePath && findArtifactCapabilityByPath(filePath)?.artifact?.renderer === 'html') {
+              return (
+                <HtmlPreviewCard
+                  key={`${artifactSessionId || ''}:${filePath}`}
+                  filePath={filePath}
+                  sessionId={artifactSessionId}
+                />
+              );
+            }
+          }
+        }
+        return <p>{children}</p>;
+      },
+      a: ({ href, children }) => {
+        const filePath = href?.startsWith(FILE_SCHEME)
+          ? decodeFilePathUrl(href)
+          : href
+            ? relativeArtifactPath(href)
+            : null;
+        if (href?.startsWith(FILE_SCHEME) || filePath) {
+          if (!filePath) {
+            return <span className="file-path-invalid">{children}</span>;
+          }
+          return (
+            <span className="file-path-group">
+              <a
+                href="#"
+                className="file-path-link"
+                data-file-path={filePath}
+                onClick={(e) => {
+                  e.preventDefault();
+                  navigationRef.current.navigate(
+                    artifactViewerUrl(
+                      filePath,
+                      navigationRef.current.currentPath,
+                      artifactSessionId,
+                    ),
+                  );
+                }}
+              >
+                {children}
+              </a>
+              <ShareButton
+                filePath={filePath}
+                sessionId={artifactSessionId}
+                className="file-path-share"
+              />
+            </span>
+          );
+        }
+        return (
+          <a href={href} target="_blank" rel="noopener noreferrer">
+            {children}
+          </a>
+        );
+      },
+    }),
+    [artifactSessionId],
+  );
 
   const showCollapsed = isLong && collapsed && !streaming;
 
@@ -112,75 +224,10 @@ export function TextBubble({ content, streaming = false, timestamp, readAloud }:
     >
       <div className="msg-bubble-markdown" ref={contentRef}>
         <ReactMarkdown
-          remarkPlugins={[remarkGfm, remarkNeutralizeMalformedFileLinks]}
+          remarkPlugins={[remarkGfm, remarkLocalMarkdownLinks, remarkNeutralizeMalformedFileLinks]}
           rehypePlugins={[rehypeHighlight]}
           urlTransform={(url) => (url.startsWith(FILE_SCHEME) ? url : defaultUrlTransform(url))}
-          components={{
-            table: ({ children, ...props }) => (
-              <div className="table-scroll-wrapper">
-                <table {...props}>{children}</table>
-              </div>
-            ),
-            pre: ({ children, ...props }) => {
-              const text = extractText(children);
-              return (
-                <div className="code-block-wrapper">
-                  <pre {...props}>{children}</pre>
-                  <CopyButton text={text} className="code-block-copy" label="Copy code" />
-                </div>
-              );
-            },
-            // When a paragraph contains a single file-path link to a .md/.mdx
-            // file, promote it to an inline preview card instead of a plain link.
-            // In ReactMarkdown v10, children are unrendered component instances —
-            // the `a` handler hasn't run yet — so we check `href` (the prop
-            // ReactMarkdown passes) rather than rendered DOM attributes.
-            p: ({ children }) => {
-              const childArray = React.Children.toArray(children);
-              if (childArray.length === 1 && React.isValidElement(childArray[0])) {
-                const el = childArray[0] as React.ReactElement<Record<string, unknown>>;
-                const href = el.props?.href as string | undefined;
-                if (href?.startsWith(FILE_SCHEME)) {
-                  const filePath = decodeFilePathUrl(href);
-                  if (filePath && /\.mdx?$/i.test(filePath)) {
-                    return <MarkdownPreviewCard filePath={filePath} />;
-                  }
-                }
-              }
-              return <p>{children}</p>;
-            },
-            a: ({ href, children }) => {
-              if (href?.startsWith(FILE_SCHEME)) {
-                const filePath = decodeFilePathUrl(href);
-                if (!filePath) {
-                  return <span className="file-path-invalid">{children}</span>;
-                }
-                return (
-                  <span className="file-path-group">
-                    <a
-                      href="#"
-                      className="file-path-link"
-                      data-file-path={filePath}
-                      onClick={(e) => {
-                        e.preventDefault();
-                        navigate(
-                          `/files?path=${encodeURIComponent(filePath)}&from=${encodeURIComponent(currentPath)}`,
-                        );
-                      }}
-                    >
-                      {children}
-                    </a>
-                    <ShareButton filePath={filePath} className="file-path-share" />
-                  </span>
-                );
-              }
-              return (
-                <a href={href} target="_blank" rel="noopener noreferrer">
-                  {children}
-                </a>
-              );
-            },
-          }}
+          components={mdComponents}
         >
           {processed}
         </ReactMarkdown>
@@ -212,9 +259,10 @@ export function TextBubble({ content, streaming = false, timestamp, readAloud }:
 // Legacy adapter for session restore — maps FinishedMessage to flat render.
 interface MessageBubbleProps {
   message: FinishedMessage;
+  artifactSessionId?: string;
 }
 
-export function MessageBubble({ message }: MessageBubbleProps) {
+export function MessageBubble({ message, artifactSessionId }: MessageBubbleProps) {
   if (message.role === 'user') {
     const textBlock = message.blocks.find((b) => b.blockType === 'text');
     return (
@@ -222,5 +270,11 @@ export function MessageBubble({ message }: MessageBubbleProps) {
     );
   }
   const textBlock = message.blocks.find((b) => b.blockType === 'text');
-  return <TextBubble content={textBlock?.content || ''} timestamp={message.timestamp} />;
+  return (
+    <TextBubble
+      content={textBlock?.content || ''}
+      timestamp={message.timestamp}
+      artifactSessionId={artifactSessionId}
+    />
+  );
 }

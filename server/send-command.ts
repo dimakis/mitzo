@@ -12,6 +12,12 @@ type SendReceipt = {
   sessionId: string | null;
 };
 
+export interface AcceptSendCommandAsyncOptions {
+  /** Re-dispatch an exact existing receipt so a command-specific gate can
+   * revalidate current routing/configuration without changing its identity. */
+  replayExisting?: boolean;
+}
+
 const pendingAsyncAcceptances = new WeakMap<EventStore, Map<string, Promise<SendReceipt>>>();
 
 /** HTTP command acceptance is independent of event-stream connectivity.
@@ -54,6 +60,7 @@ export function acceptSendCommandAsync(
   store: EventStore,
   message: SendMessage,
   dispatch: (message: SendMessage, sessionId: string) => Promise<void | false>,
+  options: AcceptSendCommandAsyncOptions = {},
 ): Promise<SendReceipt> {
   const existing = store.getSendCommand(message.clientMsgId);
   if (existing && !isDeepStrictEqual(existing.payload, message))
@@ -69,20 +76,29 @@ export function acceptSendCommandAsync(
 
   const admission = (async (): Promise<SendReceipt> => {
     let sessionId = existing ? existing.sessionId : (message.sessionId ?? randomUUID());
-    if (!existing) {
-      store.insertSendCommand(message.clientMsgId, sessionId!, message);
+    const shouldDispatch = !existing || !!options.replayExisting;
+    if (shouldDispatch) {
+      if (!existing) store.insertSendCommand(message.clientMsgId, sessionId!, message);
       try {
         if ((await dispatch(message, sessionId!)) === false) {
-          store.completeNativeSendCommand(message.clientMsgId);
-          sessionId = null;
+          if (!existing) {
+            store.completeNativeSendCommand(message.clientMsgId);
+            sessionId = null;
+          }
         }
-        const failed = store.getSendCommand(message.clientMsgId)?.error;
-        if (failed) throw new Error(failed);
+        if (!existing) {
+          const failed = store.getSendCommand(message.clientMsgId)?.error;
+          if (failed) throw new Error(failed);
+        }
       } catch (err) {
-        store.failSendCommand(
-          message.clientMsgId,
-          err instanceof Error ? err.message : 'Send failed',
-        );
+        // An exact replay is deliberately allowed to fail its command-specific
+        // gate (for example, a changed provider route) without poisoning the
+        // original global receipt or changing its retry identity.
+        if (!existing)
+          store.failSendCommand(
+            message.clientMsgId,
+            err instanceof Error ? err.message : 'Send failed',
+          );
         throw err;
       }
     }

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect, afterEach } from 'vitest';
 import { render, screen, fireEvent, cleanup } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, useLocation } from 'react-router-dom';
 import { ToolPill } from '../ToolPill';
 import type { FinishedBlock } from '../../types/chat';
 
@@ -12,6 +12,63 @@ function wrap(ui: React.ReactElement) {
 }
 
 describe('ToolPill', () => {
+  it('keeps Google grounding and unchanged suggestions visible while tool details are collapsed', () => {
+    const renderedContent =
+      '<div><a href="https://www.google.com/search?q=Revenue" target="_blank">Revenue</a></div>';
+    render(
+      wrap(
+        <ToolPill
+          block={{
+            blockId: 'web',
+            blockType: 'tool_use',
+            content: '',
+            toolName: 'RequestWebAccess',
+            toolResult: JSON.stringify({
+              provider: 'google-vertex',
+              answer: 'Official [Revenue](https://www.revenue.ie/) guidance.',
+              searchSuggestions: renderedContent,
+            }),
+          }}
+        />,
+      ),
+    );
+    expect(screen.getByRole('link', { name: 'Revenue' }).getAttribute('href')).toBe(
+      'https://www.revenue.ie/',
+    );
+    const frame = screen.getByTitle('Google Search suggestions');
+    expect(frame.getAttribute('srcdoc')).toContain(renderedContent);
+    expect(frame.getAttribute('sandbox')).not.toContain('allow-scripts');
+    expect(frame.getAttribute('sandbox')).not.toContain('allow-same-origin');
+    expect(screen.getByRole('button').getAttribute('aria-expanded')).toBe('false');
+  });
+  it('keeps the session scope when a read result opens in Files', () => {
+    const block: FinishedBlock = {
+      blockId: 'read-artifact',
+      blockType: 'tool_use',
+      content: '',
+      toolName: 'Read',
+      toolInput: 'outputs/report.html',
+      toolResult: '<html></html>',
+      rawInput: { type: 'read', path: 'outputs/report.html' },
+    };
+    function Location() {
+      const location = useLocation();
+      return <output data-testid="location">{location.pathname + location.search}</output>;
+    }
+    render(
+      <MemoryRouter initialEntries={['/chat/origin']}>
+        <ToolPill block={block} sessionId="origin" />
+        <Location />
+      </MemoryRouter>,
+    );
+    fireEvent.click(screen.getByRole('button', { name: /Read/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Open in viewer' }));
+    const url = new URL(screen.getByTestId('location').textContent!, 'https://mitzo.test');
+    expect(url.pathname).toBe('/files');
+    expect(url.searchParams.get('path')).toBe('outputs/report.html');
+    expect(url.searchParams.get('sessionId')).toBe('origin');
+  });
+
   it('shows running state when no toolResult', () => {
     const block: FinishedBlock = {
       blockId: 'b1',

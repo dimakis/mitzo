@@ -1,9 +1,12 @@
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
+import { readFileSync } from 'node:fs';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   CodexAppServerClient,
   CodexRequestError,
+  SUPPORTED_CODEX_CLI_VERSION,
+  assertSupportedCodexCliVersion,
   type OpenShellCodexOptions,
   codexEnvironment,
   openShellCodexProcessSpec,
@@ -28,6 +31,25 @@ function processStub() {
 
 afterEach(() => vi.useRealTimers());
 describe('Codex app-server transport', () => {
+  it('uses the same version pin as the image and sandbox launchers', () => {
+    expect(SUPPORTED_CODEX_CLI_VERSION).toBe(
+      readFileSync(
+        new URL('../../docs/spikes/openshell-codex/runtime-codex-version', import.meta.url),
+        'utf8',
+      ).trim(),
+    );
+  });
+  it('accepts only the reviewed Codex CLI contract version', () => {
+    expect(() =>
+      assertSupportedCodexCliVersion(`codex-cli ${SUPPORTED_CODEX_CLI_VERSION}\n`),
+    ).not.toThrow();
+    expect(() => assertSupportedCodexCliVersion('codex-cli 0.153.5\n')).toThrow(
+      'Unsupported Codex CLI version',
+    );
+    expect(() => assertSupportedCodexCliVersion('unexpected output')).toThrow(
+      'Unsupported Codex CLI version',
+    );
+  });
   it('rejects shell metacharacters in the legacy remote command API', () => {
     const options = { sandboxName: 'mitzo-x', workdir: '/sandbox/workspaces/mgmt' };
     expect(() => openShellSshProcessSpec(options, '/sandbox/tool;$(touch /tmp/pwned)')).toThrow(
@@ -384,4 +406,32 @@ describe('Codex app-server transport', () => {
     expect(killGroup).toHaveBeenCalledWith(-42, 'SIGTERM');
     expect(fallback).not.toHaveBeenCalled();
   });
+});
+
+it('rejects native Symposium command through the generic Codex launcher', () => {
+  expect(() =>
+    openShellCodexProcessSpec({
+      sandboxName: 'personal-seat',
+      workdir: '/sandbox/workspaces/mgmt',
+      appServerCommand: '/usr/local/bin/symposium-subscription-app-server',
+    }),
+  ).toThrow('isolated Symposium controller');
+});
+
+it('permits only login/account RPCs in a dedicated login process even with a lifecycle observer', async () => {
+  const { child, sent, reply } = processStub();
+  const client = new CodexAppServerClient(child, {
+    loginOnly: true,
+    lifecycle: { onNotification: vi.fn(), onRequest: vi.fn(), onClose: vi.fn() },
+  });
+  const ready = client.initialize();
+  reply({ id: sent[0].id, result: {} });
+  await ready;
+  for (const method of ['turn/start', 'thread/start', 'model/list', 'account/logout'])
+    await expect(client.request(method, {})).rejects.toThrow();
+  expect(sent).toHaveLength(2);
+  const login = client.request('account/login/start', { type: 'chatgptDeviceCode' });
+  reply({ id: sent.at(-1)!.id, result: { type: 'chatgptDeviceCode' } });
+  await expect(login).resolves.toMatchObject({ type: 'chatgptDeviceCode' });
+  client.close();
 });

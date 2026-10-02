@@ -7,6 +7,7 @@ import { SseTransport } from '../sse-transport.js';
 import { createChatRestRouter } from '../chat-rest-handler.js';
 import { ConnectionRegistry, SessionRegistry } from '@mitzo/harness';
 import type { V2HandlerContext } from '../ws-handler-v2.js';
+import { ExecutionAdmissionError } from '@mitzo/protocol/event-store';
 
 // ─── Mock the handler functions ──────────────────────────────────────────────
 
@@ -27,6 +28,7 @@ vi.mock('../ws-handler-v2.js', async (importOriginal) => {
     handleSessionSuspend: vi.fn(),
     handleSessionClose: vi.fn(),
     handleReconnect: vi.fn(),
+    serializeSessionPermissionChange: vi.fn((_session, action) => action()),
   };
 });
 
@@ -42,6 +44,7 @@ import {
   handleSessionSuspend,
   handleSessionClose,
   handleReconnect,
+  serializeSessionPermissionChange,
 } from '../ws-handler-v2.js';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -213,6 +216,20 @@ describe('chat-rest-handler', () => {
 
   // ─── POST /api/chat/send ────────────────────────────────────────────────
 
+  it('rejects ordinary REST send and interrupt to Symposium before dispatch', async () => {
+    vi.spyOn(eventStore, 'getSession').mockReturnValue({ symposiumConfig: '{}' } as never);
+    for (const type of ['send', 'interrupt']) {
+      const response = await request(testApp)
+        .post(`/api/chat/${type}`)
+        .set('X-Connection-ID', CONNECTION_ID)
+        .send({ type, sessionId: 'symposium', clientMsgId: `blocked-${type}`, prompt: 'hello' });
+      expect(response.status).toBe(409);
+      expect(response.body.error).toContain('Symposium directed prompts');
+    }
+    expect(handleSendV2).not.toHaveBeenCalled();
+    expect(handleInterruptV2).not.toHaveBeenCalled();
+  });
+
   it('POST /send calls handleSendV2 and returns 202', async () => {
     const res = await request(testApp)
       .post('/api/chat/send')
@@ -232,7 +249,10 @@ describe('chat-rest-handler', () => {
       expect.objectContaining({ send: expect.any(Function), isOpen: expect.any(Function) }),
       expect.objectContaining({ prompt: 'hello world' }),
       expect.any(Object),
-      expect.objectContaining({ initialSessionId: res.body.sessionId }),
+      expect.objectContaining({
+        initialSessionId: res.body.sessionId,
+        awaitStartupAdmission: true,
+      }),
     );
   });
 
@@ -252,6 +272,33 @@ describe('chat-rest-handler', () => {
     expect(res.status).toBe(422);
     expect(res.body.error).toBe('queue unavailable');
     expect(eventStore.getSendCommand('msg-rejected')?.error).toBe('queue unavailable');
+  });
+
+  it('reports send admission conflicts as stable client errors', async () => {
+    vi.mocked(handleSendV2).mockRejectedValueOnce(
+      new ExecutionAdmissionError(
+        'fingerprint_conflict',
+        'clientMsgId is already admitted for a different request fingerprint',
+      ),
+    );
+
+    const res = await request(testApp)
+      .post('/api/chat/send')
+      .set('X-Connection-ID', CONNECTION_ID)
+      .send({
+        type: 'send',
+        sessionId: 'sess-1',
+        prompt: 'changed',
+        clientMsgId: 'msg-send-conflict',
+      });
+
+    expect(res.status).toBe(409);
+    expect(res.body).toEqual({
+      ok: false,
+      code: 'fingerprint_conflict',
+      error: 'clientMsgId is already admitted for a different request fingerprint',
+      clientMsgId: 'msg-send-conflict',
+    });
   });
 
   // ─── POST /api/chat/stop ────────────────────────────────────────────────
@@ -283,6 +330,54 @@ describe('chat-rest-handler', () => {
     expect(res.status).toBe(202);
     expect(res.body.ok).toBe(true);
     expect(handleInterruptV2).toHaveBeenCalledOnce();
+    expect(handleInterruptV2).toHaveBeenCalledWith(
+      CONNECTION_ID,
+      expect.objectContaining({ send: expect.any(Function), isOpen: expect.any(Function) }),
+      expect.objectContaining({ sessionId: 'sess-1', clientMsgId: 'msg-int-1' }),
+      expect.any(Object),
+      { awaitStartupAdmission: true },
+    );
+  });
+
+  it('POST /interrupt reports asynchronous handler failures', async () => {
+    vi.mocked(handleInterruptV2).mockRejectedValueOnce(new Error('fingerprint conflict'));
+    const res = await request(testApp)
+      .post('/api/chat/interrupt')
+      .set('X-Connection-ID', CONNECTION_ID)
+      .send({
+        type: 'interrupt',
+        sessionId: 'sess-1',
+        prompt: 'changed',
+        clientMsgId: 'msg-int-conflict',
+      });
+
+    expect(res.status).toBe(500);
+    expect(res.body).toEqual({ ok: false, error: 'Internal server error' });
+  });
+
+  it('POST /interrupt reports admission conflicts as stable client errors', async () => {
+    vi.mocked(handleInterruptV2).mockRejectedValueOnce(
+      new ExecutionAdmissionError(
+        'fingerprint_conflict',
+        'clientMsgId is already admitted for a different request fingerprint',
+      ),
+    );
+    const res = await request(testApp)
+      .post('/api/chat/interrupt')
+      .set('X-Connection-ID', CONNECTION_ID)
+      .send({
+        type: 'interrupt',
+        sessionId: 'sess-1',
+        prompt: 'changed',
+        clientMsgId: 'msg-int-conflict',
+      });
+
+    expect(res.status).toBe(409);
+    expect(res.body).toEqual({
+      ok: false,
+      code: 'fingerprint_conflict',
+      error: 'clientMsgId is already admitted for a different request fingerprint',
+    });
   });
 
   // ─── POST /api/chat/permission ──────────────────────────────────────────
@@ -343,6 +438,241 @@ describe('chat-rest-handler', () => {
       permId: 'expired-perm',
       error: 'Permission response was invalid or expired. Review the prompt and try again.',
     });
+  });
+
+  it('reads and applies revision-checked Codex web-search consent for the owning session', async () => {
+    const sessions = new SessionRegistry();
+    handlerContext.sessionRegistry = sessions;
+    const getWebSearchGrant = vi.fn(() => ({
+      grant: 'unresolved' as const,
+      revision: 0,
+      updatedAt: null,
+    }));
+    const setWebSearchGrant = vi.fn(async () => ({
+      grant: 'allowed' as const,
+      revision: 1,
+      updatedAt: 123,
+    }));
+    sessions.register(`${CONNECTION_ID}:sess-1`, {
+      sessionId: 'sess-1',
+      abortController: new AbortController(),
+      observers: new Set(),
+      queryInstance: { getWebSearchGrant, setWebSearchGrant },
+    } as never);
+    try {
+      const current = await request(testApp)
+        .get('/api/chat/web-search-consent/sess-1')
+        .set('X-Connection-ID', CONNECTION_ID);
+      expect(current.status).toBe(200);
+      expect(current.body).toEqual({
+        ok: true,
+        grant: 'unresolved',
+        revision: 0,
+        updatedAt: null,
+      });
+
+      const updated = await request(testApp)
+        .post('/api/chat/web-search-consent')
+        .set('X-Connection-ID', CONNECTION_ID)
+        .send({ sessionId: 'sess-1', expectedRevision: 0, grant: 'allowed' });
+      expect(updated.status).toBe(200);
+      expect(updated.body).toMatchObject({ ok: true, grant: 'allowed', revision: 1 });
+      expect(setWebSearchGrant).toHaveBeenCalledWith(0, 'allowed');
+
+      const takeoverConnection = 'conn-takeover';
+      sseRegistry.add(takeoverConnection, mockResponse());
+      connRegistry.register(takeoverConnection, new SseTransport(takeoverConnection, sseRegistry));
+      sessions.get(`${CONNECTION_ID}:sess-1`)!.ownerConnectionId = takeoverConnection;
+
+      const oldOwner = await request(testApp)
+        .get('/api/chat/web-search-consent/sess-1')
+        .set('X-Connection-ID', CONNECTION_ID);
+      expect(oldOwner.status).toBe(404);
+      const oldOwnerUpdate = await request(testApp)
+        .post('/api/chat/web-search-consent')
+        .set('X-Connection-ID', CONNECTION_ID)
+        .send({ sessionId: 'sess-1', expectedRevision: 0, grant: 'allowed' });
+      expect(oldOwnerUpdate.status).toBe(404);
+      const newOwnerRead = await request(testApp)
+        .get('/api/chat/web-search-consent/sess-1')
+        .set('X-Connection-ID', takeoverConnection);
+      expect(newOwnerRead.status).toBe(200);
+      const currentOwner = await request(testApp)
+        .post('/api/chat/web-search-consent')
+        .set('X-Connection-ID', takeoverConnection)
+        .send({ sessionId: 'sess-1', expectedRevision: 0, grant: 'allowed' });
+      expect(currentOwner.status).toBe(200);
+      expect(setWebSearchGrant).toHaveBeenCalledTimes(2);
+    } finally {
+      sessions.dispose();
+    }
+  });
+
+  it('lets a watching connection read and update consent without taking ownership', async () => {
+    const sessions = new SessionRegistry();
+    handlerContext.sessionRegistry = sessions;
+    const setWebSearchGrant = vi.fn(async () => ({
+      grant: 'allowed' as const,
+      revision: 1,
+      updatedAt: 123,
+    }));
+    sessions.register(`${CONNECTION_ID}:sess-1`, {
+      sessionId: 'sess-1',
+      mode: 'agent',
+      abortController: new AbortController(),
+      queryInstance: {
+        getWebSearchGrant: () => ({ grant: 'unresolved', revision: 0, updatedAt: null }),
+        setWebSearchGrant,
+      },
+    } as never);
+    const watcher = 'conn-watcher';
+    sseRegistry.add(watcher, mockResponse());
+    connRegistry.register(watcher, new SseTransport(watcher, sseRegistry));
+    connRegistry.watch(watcher, 'sess-1');
+    try {
+      const read = await request(testApp)
+        .get('/api/chat/web-search-consent/sess-1')
+        .set('X-Connection-ID', watcher);
+      expect(read.status).toBe(200);
+      expect(read.body.grant).toBe('unresolved');
+
+      const update = await request(testApp)
+        .post('/api/chat/web-search-consent')
+        .set('X-Connection-ID', watcher)
+        .send({ sessionId: 'sess-1', expectedRevision: 0, grant: 'allowed' });
+      expect(update.status).toBe(200);
+      expect(sessions.get(`${CONNECTION_ID}:sess-1`)?.ownerConnectionId).toBeUndefined();
+      expect(setWebSearchGrant).toHaveBeenCalledWith(0, 'allowed');
+    } finally {
+      sessions.dispose();
+    }
+  });
+
+  it('rejects Allow in Ask mode before changing the grant', async () => {
+    const sessions = new SessionRegistry();
+    handlerContext.sessionRegistry = sessions;
+    const setWebSearchGrant = vi.fn();
+    sessions.register(`${CONNECTION_ID}:sess-1`, {
+      sessionId: 'sess-1',
+      mode: 'ask',
+      abortController: new AbortController(),
+      queryInstance: {
+        getWebSearchGrant: () => ({ grant: 'unresolved', revision: 0, updatedAt: null }),
+        setWebSearchGrant,
+      },
+    } as never);
+    try {
+      const response = await request(testApp)
+        .post('/api/chat/web-search-consent')
+        .set('X-Connection-ID', CONNECTION_ID)
+        .send({ sessionId: 'sess-1', expectedRevision: 0, grant: 'allowed' });
+      expect(response.status).toBe(409);
+      expect(setWebSearchGrant).not.toHaveBeenCalled();
+    } finally {
+      sessions.dispose();
+    }
+  });
+
+  it('allows Deny in Ask mode', async () => {
+    const sessions = new SessionRegistry();
+    handlerContext.sessionRegistry = sessions;
+    const setWebSearchGrant = vi.fn(async () => ({
+      grant: 'denied' as const,
+      revision: 1,
+      updatedAt: 123,
+    }));
+    sessions.register(`${CONNECTION_ID}:sess-1`, {
+      sessionId: 'sess-1',
+      mode: 'ask',
+      abortController: new AbortController(),
+      queryInstance: { setWebSearchGrant },
+    } as never);
+    try {
+      const response = await request(testApp)
+        .post('/api/chat/web-search-consent')
+        .set('X-Connection-ID', CONNECTION_ID)
+        .send({ sessionId: 'sess-1', expectedRevision: 0, grant: 'denied' });
+      expect(response.status).toBe(200);
+      expect(response.body).toMatchObject({ ok: true, grant: 'denied', revision: 1 });
+      expect(setWebSearchGrant).toHaveBeenCalledWith(0, 'denied');
+    } finally {
+      sessions.dispose();
+    }
+  });
+
+  it('rechecks Ask mode when a queued mode change finishes before Allow', async () => {
+    const sessions = new SessionRegistry();
+    handlerContext.sessionRegistry = sessions;
+    const setWebSearchGrant = vi.fn();
+    sessions.register(`${CONNECTION_ID}:sess-1`, {
+      sessionId: 'sess-1',
+      mode: 'agent',
+      abortController: new AbortController(),
+      queryInstance: { setWebSearchGrant },
+    } as never);
+    vi.mocked(serializeSessionPermissionChange).mockImplementationOnce(async (session, action) => {
+      (session as { mode: string }).mode = 'ask';
+      return action();
+    });
+    try {
+      const response = await request(testApp)
+        .post('/api/chat/web-search-consent')
+        .set('X-Connection-ID', CONNECTION_ID)
+        .send({ sessionId: 'sess-1', expectedRevision: 0, grant: 'allowed' });
+      expect(response.status).toBe(409);
+      expect(setWebSearchGrant).not.toHaveBeenCalled();
+    } finally {
+      sessions.dispose();
+    }
+  });
+
+  it('rejects Allow while a restrictive Ask mode change is pending', async () => {
+    const sessions = new SessionRegistry();
+    handlerContext.sessionRegistry = sessions;
+    const setWebSearchGrant = vi.fn();
+    sessions.register(`${CONNECTION_ID}:sess-1`, {
+      sessionId: 'sess-1',
+      mode: 'agent',
+      pendingPermissionModes: new Map([[Symbol('pending Ask'), 'ask']]),
+      abortController: new AbortController(),
+      queryInstance: { setWebSearchGrant },
+    } as never);
+    try {
+      const response = await request(testApp)
+        .post('/api/chat/web-search-consent')
+        .set('X-Connection-ID', CONNECTION_ID)
+        .send({ sessionId: 'sess-1', expectedRevision: 0, grant: 'allowed' });
+      expect(response.status).toBe(409);
+      expect(setWebSearchGrant).not.toHaveBeenCalled();
+    } finally {
+      sessions.dispose();
+    }
+  });
+
+  it('rejects a queued grant if its provider runtime disappears before execution', async () => {
+    const sessions = new SessionRegistry();
+    handlerContext.sessionRegistry = sessions;
+    const setWebSearchGrant = vi.fn();
+    sessions.register(`${CONNECTION_ID}:sess-1`, {
+      sessionId: 'sess-1',
+      mode: 'agent',
+      abortController: new AbortController(),
+      queryInstance: { setWebSearchGrant },
+    } as never);
+    vi.mocked(serializeSessionPermissionChange).mockImplementationOnce(async (session, action) => {
+      (session as { queryInstance?: unknown }).queryInstance = undefined;
+      return action();
+    });
+    try {
+      const response = await request(testApp)
+        .post('/api/chat/web-search-consent')
+        .set('X-Connection-ID', CONNECTION_ID)
+        .send({ sessionId: 'sess-1', expectedRevision: 0, grant: 'allowed' });
+      expect(response.status).toBe(409);
+      expect(setWebSearchGrant).not.toHaveBeenCalled();
+    } finally {
+      sessions.dispose();
+    }
   });
 
   // ─── POST /api/chat/mode ───────────────────────────────────────────────

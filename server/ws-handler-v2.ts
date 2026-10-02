@@ -1,5 +1,17 @@
+import {
+  claimChatCommand,
+  reasoningSessionId,
+  isReasoningSessionId,
+  paidReasoningCommand,
+} from './reasoning-command-admission.js';
+import { cancelDeliberation } from './deliberate-admission.js';
+import { cancelFusion } from './fusion-admission.js';
 import { permissionRevision, recordPermissionChange } from './session-permission-revision.js';
-import { resolveAccountSelection, loadAccountProfiles } from './account-profiles.js';
+import {
+  resolveAccountSelection,
+  resolveEffectiveAccountSelection,
+  loadAccountProfiles,
+} from './account-profiles.js';
 /**
  * v2 WebSocket message handlers — Phase 1c of single-WS migration.
  *
@@ -12,6 +24,8 @@ import { resolveAccountSelection, loadAccountProfiles } from './account-profiles
 
 import type { SessionTransport, ConnectionRegistry } from '@mitzo/harness';
 import { effectivePermissionMode } from '@mitzo/harness';
+import { ExecutionAdmissionError } from '@mitzo/protocol/event-store';
+import { isDeepStrictEqual } from 'node:util';
 import type { SessionRegistry } from './session-registry.js';
 import type { EventStore } from './event-store.js';
 import { toClientState } from './event-store.js';
@@ -27,6 +41,7 @@ import {
   V2InterruptMessage,
   V2PermissionResponseMessage,
   V2SetModeMessage,
+  storedEventToClientMessage,
 } from '@mitzo/protocol';
 import type { z } from 'zod';
 
@@ -46,12 +61,16 @@ import { SpanStatusCode } from '@opentelemetry/api';
 import {
   resolvePending,
   denyPendingBySession,
+  getPendingSessionId,
   getPendingRequestsBySession,
 } from './permissions.js';
 import {
   startChat,
   sendToChat,
   interruptChat,
+  preflightChatCommand,
+  preflightStartupProviderCommand,
+  nativeStartupSessionId,
   stopChat,
   closeSessionByUser,
   isActive,
@@ -64,6 +83,7 @@ import { resolveSlashCommand } from './slash-commands.js';
 import { buildSkillRegistry, isAllowedPath, NATIVE_COMMAND_NAMES } from './app.js';
 import type { NativeCommandRegistry } from './native-commands.js';
 import { createLogger } from './logger.js';
+import { acceptSendCommandAsync } from './send-command.js';
 
 const log = createLogger('ws-v2');
 
@@ -111,6 +131,14 @@ export function isHelloHandshake(msg: unknown): boolean {
 export function getOwnerConnection(clientId: string): string {
   const colonIdx = clientId.indexOf(':');
   return colonIdx === -1 ? clientId : clientId.slice(0, colonIdx);
+}
+
+function notifyPreviousOwner(ctx: V2HandlerContext, connectionId: string, sessionId: string): void {
+  // The session transport may be a REST wrapper that stays "open" to persist
+  // events after its SSE connection closes. A takeover notice is connection-
+  // local and must never pass through that durable session transport.
+  const transport = ctx.connRegistry.get(connectionId)?.transport;
+  if (transport?.isOpen()) transport.send({ type: 'session_takeover', sessionId });
 }
 
 // ─── State mismatch detection (Phase 2) ─────────────────────────────────────
@@ -255,7 +283,11 @@ export function handleHello(
 
 export function handleReconnect(
   connectionId: string,
-  msg: { type: 'reconnect'; sessions: Array<{ sessionId: string; lastSeq: number }> },
+  msg: {
+    type: 'reconnect';
+    supportsAppliedCursor?: boolean;
+    sessions: Array<{ sessionId: string; lastSeq: number }>;
+  },
   ctx: V2HandlerContext,
 ): void {
   withSpan(
@@ -269,7 +301,9 @@ export function handleReconnect(
 
         // Set cursor to client's lastSeq BEFORE replay, so periodic sync
         // sees a reasonable cursor during replay instead of 0.
-        ctx.connRegistry.resetCursor(connectionId, entry.sessionId, entry.lastSeq);
+        if (msg.supportsAppliedCursor)
+          ctx.connRegistry.enableAppliedCursor(connectionId, entry.sessionId, entry.lastSeq);
+        else ctx.connRegistry.resetCursor(connectionId, entry.sessionId, entry.lastSeq);
 
         // Resolve ownership before replay. A suspended session deliberately
         // remains in memory through the grace period, and its old transport
@@ -299,11 +333,8 @@ export function handleReconnect(
           const ownerConnection =
             found!.session?.ownerConnectionId ?? getOwnerConnection(found!.clientId);
           if (ownerConnection !== connectionId) {
-            const oldTransport = found!.session?.transport;
-            if (oldTransport?.isOpen())
-              oldTransport.send({ type: 'session_takeover', sessionId: entry.sessionId });
+            notifyPreviousOwner(ctx, ownerConnection, entry.sessionId);
             ctx.connRegistry.unwatch(ownerConnection, entry.sessionId);
-            denyPendingBySession(entry.sessionId);
           }
 
           // The durable event replay below covers the same events buffered
@@ -322,22 +353,19 @@ export function handleReconnect(
                 clientId: found!.clientId,
               });
             }
+          } else if (storeState === 'SUSPENDED') {
+            // resume() keeps the already-attached owner transport, so it does
+            // not pass through reattachChat's durable ACTIVE transition.
+            ctx.eventStore.setSessionState(entry.sessionId, 'ACTIVE', {
+              clientId: found!.clientId,
+              reason: 'resume',
+            });
           }
         }
 
-        const events = ctx.eventStore.getEventsAfter(entry.sessionId, entry.lastSeq);
-        for (const evt of events) {
-          ctx.connRegistry.get(connectionId)?.transport.send({
-            ...evt.payload,
-            seq: evt.seq,
-          } as Record<string, unknown>);
-        }
-
-        // Reset cursor to last replayed seq — prevents duplicate delivery from
-        // periodic sync. If no events replayed, cursor stays at client's lastSeq.
-        const newCursor = events.length > 0 ? events[events.length - 1].seq : entry.lastSeq;
-        ctx.connRegistry.resetCursor(connectionId, entry.sessionId, newCursor);
-
+        // Reattach can persist an ACTIVE transition. Capture the durable
+        // boundary only after that transition so the snapshot and replay
+        // suffix describe the state the new transport actually owns.
         if (found && running) {
           const ownerConnection =
             found.session?.ownerConnectionId ?? getOwnerConnection(found.clientId);
@@ -358,6 +386,61 @@ export function handleReconnect(
           }
         }
 
+        // Applied-cursor clients restore the complete prefix through the
+        // offered cursor over REST. Replaying the offline backlog first can
+        // overflow the bounded client buffer before that restore begins.
+        const reconnectState = msg.supportsAppliedCursor
+          ? ctx.eventStore.captureReconnectState(entry.sessionId, entry.lastSeq, false)
+          : ctx.eventStore.captureReconnectState(entry.sessionId, entry.lastSeq);
+        const events = reconnectState.events;
+        for (const evt of events) {
+          ctx.connRegistry.get(connectionId)?.transport.send(
+            storedEventToClientMessage({
+              ...evt,
+              prevSessionSeq: ctx.eventStore.getSessionPredecessorSeq(entry.sessionId, evt.seq),
+            }),
+          );
+        }
+
+        const durableSession = reconnectState.session;
+        if (durableSession?.state) {
+          const offerId = msg.supportsAppliedCursor ? randomUUID() : undefined;
+          if (offerId)
+            ctx.connRegistry.offerSnapshot(
+              connectionId,
+              entry.sessionId,
+              reconnectState.cursor,
+              offerId,
+            );
+          ctx.connRegistry.get(connectionId)?.transport.send({
+            type: 'session_reconnect_snapshot',
+            sessionId: entry.sessionId,
+            cursor: reconnectState.cursor,
+            cursorValid: reconnectState.cursorValid,
+            ...(offerId ? { offerId } : {}),
+            state: toClientState(durableSession.state),
+            internalState: durableSession.state,
+            ...(durableSession.executionId && durableSession.executionPhase
+              ? {
+                  execution: {
+                    generation: durableSession.executionGeneration,
+                    executionId: durableSession.executionId,
+                    phase: durableSession.executionPhase,
+                    terminalReason: durableSession.executionTerminalReason,
+                  },
+                }
+              : {}),
+            providerAttempts: reconnectState.providerAttempts,
+            pendingPermissions: getPendingRequestsBySession(entry.sessionId),
+          });
+        }
+
+        // The snapshot cursor is the transaction's high-water mark, even when
+        // no suffix event needed replay or the client cursor was invalid.
+        const newCursor = reconnectState.cursor;
+        if (!msg.supportsAppliedCursor)
+          ctx.connRegistry.resetCursor(connectionId, entry.sessionId, newCursor);
+
         if (wasSuspended) {
           ctx.connRegistry.get(connectionId)?.transport.send({
             type: 'session_resumed',
@@ -373,7 +456,7 @@ export function handleReconnect(
           });
         }
 
-        const mode = found?.session?.mode ?? ctx.eventStore.getSession(entry.sessionId)?.mode;
+        const mode = found?.session?.mode ?? reconnectState.session?.mode;
         if (mode) {
           ctx.connRegistry.get(connectionId)?.transport.send({
             type: 'mode_changed',
@@ -465,11 +548,27 @@ export async function handleSwitchSession(
       if (prev && prev !== msg.sessionId) {
         ctx.connRegistry.unwatch(connectionId, prev);
       }
+      // Opening uses REST for the existing transcript. Seed a new watch at
+      // that boundary so periodic sync cannot animate the entire history if
+      // the REST read fails. Live events after this boundary remain retryable.
+      if (
+        msg.historyCursor === undefined &&
+        !ctx.connRegistry.get(connectionId)?.watchedSessions.has(msg.sessionId)
+      ) {
+        const boundary = ctx.eventStore.captureReconnectState(msg.sessionId, 0, false);
+        ctx.connRegistry.resetCursor(connectionId, msg.sessionId, boundary.cursor);
+      }
       // Watch the session immediately so events from a running query loop
       // reach this client before the first send. Without this, the client
       // sits in a blind spot between switch_session and the first send —
       // any events emitted by the query loop during that window are lost.
       ctx.connRegistry.watch(connectionId, msg.sessionId);
+      if (msg.historyCursor !== undefined) {
+        // Use the transcript actually installed by this client. Applied-cursor
+        // delivery also retries the remaining suffix after a session ends;
+        // delivery alone cannot claim those events were rendered.
+        ctx.connRegistry.enableAppliedCursor(connectionId, msg.sessionId, msg.historyCursor);
+      }
       ctx.connRegistry.setActive(connectionId, msg.sessionId);
 
       // Cross-reference registry with durable state to avoid reporting
@@ -528,43 +627,213 @@ export function handleSendV2(
   transport: SessionTransport,
   msg: SendMsg,
   ctx: V2HandlerContext,
-  delivery?: { initialSessionId?: string },
+  delivery?: {
+    initialSessionId?: string;
+    awaitStartupAdmission?: boolean;
+    receiptAdmitted?: boolean;
+    identityClaimed?: boolean;
+  },
 ): Promise<'native' | void> {
   return withSpanAsync<'native' | void>(
     'ws.send',
     { 'ws.connectionId': connectionId, 'ws.sessionId': msg.sessionId ?? 'new' },
     async (span) => {
       try {
-        const storedBinding = msg.sessionId
-          ? ctx.eventStore.getSession(msg.sessionId)?.accountBinding
-          : null;
+        if (msg.sessionId && ctx.eventStore.getSession(msg.sessionId)?.symposiumConfig)
+          throw new Error('Use Symposium directed prompts for this session');
+        if (!delivery?.identityClaimed) claimChatCommand(ctx.eventStore, msg);
+        let resolveStartupAdmission: (() => void) | undefined;
+        let rejectStartupAdmission: ((error: unknown) => void) | undefined;
+        const startupAdmission = delivery?.awaitStartupAdmission
+          ? new Promise<void>((resolve, reject) => {
+              resolveStartupAdmission = resolve;
+              rejectStartupAdmission = reject;
+            })
+          : undefined;
+        let emitSkillInvoked = () => {};
+        let skillInvoked = false;
+        const onStartupAdmission = (error?: unknown) => {
+          if (error) rejectStartupAdmission?.(error);
+          else {
+            if (!skillInvoked) {
+              emitSkillInvoked();
+              skillInvoked = true;
+            }
+            resolveStartupAdmission?.();
+          }
+        };
+        const storedMeta = msg.sessionId ? ctx.eventStore.getSession(msg.sessionId) : undefined;
+        const storedBinding = storedMeta?.accountBinding;
         const accountProfiles = msg.accountId || storedBinding ? loadAccountProfiles() : undefined;
         // Validation-only gate before dispatch; startup revalidates against this same snapshot.
-        resolveAccountSelection(msg, storedBinding, !!msg.sessionId, accountProfiles);
-        const rawCwd = msg.cwd || BASE_REPO;
-        const cwd = rawCwd && isAllowedPath(rawCwd) ? rawCwd : BASE_REPO;
+        const accountBinding = resolveAccountSelection(
+          msg,
+          storedBinding,
+          !!msg.sessionId,
+          accountProfiles,
+        );
+        const effectiveSelection = resolveEffectiveAccountSelection(
+          msg,
+          storedMeta,
+          accountBinding,
+        );
+        const requestedCwd = msg.cwd;
+        const validatedCwd = requestedCwd
+          ? isAllowedPath(requestedCwd)
+            ? requestedCwd
+            : BASE_REPO
+          : undefined;
+        const cwd = validatedCwd ?? storedMeta?.cwd ?? BASE_REPO;
         const skillRegistry = buildSkillRegistry(cwd);
         const resolution = resolveSlashCommand(msg.prompt, skillRegistry, NATIVE_COMMAND_NAMES);
+        const paidReasoning =
+          resolution.type === 'native' &&
+          paidReasoningCommand(resolution.name, resolution.arguments);
+
+        // Native reasoning admission creates the global receipt below. All
+        // other WS sends must consult that same receipt before routing, so an
+        // ordinary retry cannot bypass a paid command admitted on another
+        // transport (or vice versa).
+        if (!paidReasoning && !delivery?.receiptAdmitted) {
+          const existingReceipt = ctx.eventStore.getSendCommand?.(msg.clientMsgId);
+          if (existingReceipt) {
+            if (existingReceipt.error) throw new Error(existingReceipt.error);
+            if (!isDeepStrictEqual(existingReceipt.payload, msg)) {
+              throw new ExecutionAdmissionError(
+                'fingerprint_conflict',
+                'Command ID already admitted for a different request',
+              );
+            }
+            return;
+          }
+        }
 
         if (resolution.type === 'native') {
+          const commandSessionId =
+            msg.sessionId ?? reasoningSessionId(resolution.name, msg.clientMsgId);
+          if (paidReasoning && !delivery?.receiptAdmitted) {
+            const receiptMessage = msg.sessionId ? msg : { ...msg, sessionId: commandSessionId };
+            const existingReceipt = ctx.eventStore.getSendCommand(msg.clientMsgId);
+            if (existingReceipt && !isDeepStrictEqual(existingReceipt.payload, receiptMessage)) {
+              throw new ExecutionAdmissionError(
+                'fingerprint_conflict',
+                'Command ID already admitted for a different request',
+              );
+            }
+            await acceptSendCommandAsync(
+              ctx.eventStore,
+              receiptMessage,
+              async (command, admittedSessionId) => {
+                await handleSendV2(
+                  connectionId,
+                  transport,
+                  msg.sessionId ? command : { ...command, sessionId: null },
+                  ctx,
+                  {
+                    ...delivery,
+                    initialSessionId: delivery?.initialSessionId ?? admittedSessionId,
+                    awaitStartupAdmission: true,
+                    receiptAdmitted: true,
+                    identityClaimed: true,
+                  },
+                );
+              },
+              { replayExisting: true },
+            );
+            return 'native';
+          }
+          let admitted!: () => void;
+          let admissionFailed!: (error: unknown) => void;
+          const admission = paidReasoning
+            ? new Promise<void>((resolve, reject) => {
+                admitted = resolve;
+                admissionFailed = reject;
+              })
+            : undefined;
+          const commandTransport: SessionTransport = paidReasoning
+            ? {
+                isOpen: () => transport.isOpen(),
+                send(data) {
+                  const event = { ...data, v: 2, sessionId: commandSessionId };
+                  const seq = ctx.eventStore.append(commandSessionId, String(data.type), event);
+                  // Delivery failure cannot alter durable execution or cause redispatch.
+                  try {
+                    transport.send({ ...event, seq });
+                  } catch {
+                    /* replay remains available */
+                  }
+                },
+              }
+            : transport;
           void ctx.nativeCommands
-            .execute(resolution.name, resolution.arguments, skillRegistry, { transport })
+            .execute(resolution.name, resolution.arguments, skillRegistry, {
+              transport: commandTransport,
+              ...(paidReasoning
+                ? {
+                    [resolution.name === 'fuse' ? 'fusion' : 'deliberation']: {
+                      store: ctx.eventStore,
+                      request: {
+                        sessionId: commandSessionId,
+                        clientMsgId: msg.clientMsgId,
+                        task: resolution.arguments,
+                        confirmAmbiguous: msg.confirmAmbiguous,
+                        selection: {
+                          accountBinding: accountBinding ?? null,
+                          model: msg.model ?? null,
+                          reasoningEffort: msg.reasoningEffort,
+                          cwd,
+                          mode: msg.mode,
+                          isolation: msg.isolation,
+                          extraTools: msg.extraTools,
+                          images: msg.images,
+                          contextBlocks: msg.contextBlocks,
+                        },
+                      },
+                      onAdmitted: () => {
+                        if (!msg.sessionId) {
+                          commandTransport.send({
+                            type: 'session_id',
+                            sessionId: commandSessionId,
+                          });
+                          if (ctx.eventStore.getSessionState(commandSessionId) !== 'ENDED')
+                            ctx.eventStore.setSessionState(commandSessionId, 'ENDED', {
+                              force: true,
+                              reason:
+                                resolution.name === 'fuse'
+                                  ? 'sessionless_fusion'
+                                  : 'sessionless_deliberation',
+                            });
+                          else ctx.eventStore.markSessionInactive(commandSessionId);
+                        }
+                        ctx.connRegistry.watch(connectionId, commandSessionId);
+                        if (msg.sessionId)
+                          ctx.connRegistry.setActive(connectionId, commandSessionId);
+                        admitted();
+                      },
+                    },
+                  }
+                : {}),
+            })
             .then((result) => {
-              if (result) {
-                transport.send({
+              if (result)
+                commandTransport.send({
                   type: 'native_command_result',
                   v: 2,
                   command: result.command,
                   content: result.content,
                 });
-              }
             })
             .catch((err: unknown) => {
-              transport.send({
-                type: 'error',
-                error: `Command /${resolution.name} failed: ${err instanceof Error ? err.message : 'unknown'}`,
-              });
+              if (paidReasoning) {
+                admissionFailed(err);
+              } else {
+                transport.send({
+                  type: 'error',
+                  error: `Command /${resolution.name} failed: ${err instanceof Error ? err.message : 'unknown'}`,
+                });
+              }
             });
+          await admission;
           return 'native';
         }
 
@@ -579,7 +848,8 @@ export function handleSendV2(
         const userIntent = msg.prompt;
         const skillAllowedTools = resolution.type === 'skill' ? resolution.allowedTools : undefined;
 
-        if (resolution.type === 'skill') {
+        emitSkillInvoked = () => {
+          if (resolution.type !== 'skill') return;
           transport.send({
             type: 'skill_invoked',
             v: 2,
@@ -588,7 +858,7 @@ export function handleSendV2(
             arguments: resolution.arguments,
             ...(resolution.collisions ? { collisions: resolution.collisions } : {}),
           });
-        }
+        };
 
         const applySkillPolicy = (targetClientId: string) => {
           if (skillAllowedTools) {
@@ -598,11 +868,49 @@ export function handleSendV2(
           }
         };
 
-        const sessionId = msg.sessionId;
+        let sessionId = msg.sessionId;
+
+        // A sessionless reasoning stream is deliberately closed and has no
+        // SDK conversation behind it. Treat a later ordinary send that still
+        // carries its displayed ID as a new chat rather than cold-resuming the
+        // synthetic execution stream.
+        if (
+          sessionId &&
+          isReasoningSessionId(sessionId) &&
+          ctx.eventStore.getSessionState(sessionId) === 'ENDED'
+        ) {
+          msg = { ...msg, sessionId: null };
+          sessionId = null;
+        }
 
         if (sessionId) {
           const found = ctx.sessionRegistry.findBySessionId(sessionId);
           const storeState = ctx.eventStore.getSessionState(sessionId);
+
+          const routesToActiveRuntime =
+            !!found &&
+            isActive(found.clientId) &&
+            storeState !== 'ENDED' &&
+            storeState !== 'CLOSING' &&
+            storeState !== null;
+          if (!routesToActiveRuntime) {
+            const duplicate = preflightStartupProviderCommand(ctx.eventStore, {
+              sessionId,
+              clientMsgId: msg.clientMsgId,
+              prompt,
+              cwd,
+              images: msg.images,
+              contextBlocks: msg.contextBlocks,
+              model: effectiveSelection.model,
+              reasoningEffort: effectiveSelection.reasoningEffort,
+            });
+            if (duplicate) {
+              ctx.connRegistry.watch(connectionId, sessionId);
+              ctx.connRegistry.setActive(connectionId, sessionId);
+              log.info('duplicate cold provider send', { connectionId, sessionId });
+              return;
+            }
+          }
 
           // Phase 2: detect state mismatches (observability only)
           const mismatch = detectStateMismatch(sessionId, ctx.sessionRegistry, ctx.eventStore);
@@ -620,14 +928,17 @@ export function handleSendV2(
           // State-based routing (Phase 3): durable state is the single source of truth.
           // ACTIVE/DETACHED/SUSPENDED → running path (send to existing query loop)
           // CLOSING/ENDED/null → resume path (zombie cleanup first if needed)
-          if (
-            found &&
-            isActive(found.clientId) &&
-            storeState !== 'ENDED' &&
-            storeState !== 'CLOSING' &&
-            storeState !== null
-          ) {
+          if (routesToActiveRuntime && found) {
             if (msg.accountId) assertActiveAccountIdentity(ctx, sessionId, msg.accountId);
+            const duplicate = preflightChatCommand(
+              found.clientId,
+              prompt,
+              msg.images,
+              msg.contextBlocks,
+              msg.clientMsgId,
+              msg.accountId ? msg.model : undefined,
+              msg.accountId ? msg.reasoningEffort : undefined,
+            );
             const ownerConnection =
               found.session?.ownerConnectionId ?? getOwnerConnection(found.clientId);
             const isOwner = ownerConnection === connectionId;
@@ -635,10 +946,7 @@ export function handleSendV2(
 
             const activeClientId = found.clientId;
             if (!isOwner) {
-              const oldTransport = found.session?.transport;
-              if (oldTransport?.isOpen()) {
-                oldTransport.send({ type: 'session_takeover', sessionId });
-              }
+              notifyPreviousOwner(ctx, ownerConnection, sessionId);
               ctx.connRegistry.unwatch(ownerConnection, sessionId);
               denyPendingBySession(sessionId);
 
@@ -660,9 +968,14 @@ export function handleSendV2(
                 storeState,
               });
             }
-            applySkillPolicy(activeClientId);
             ctx.connRegistry.watch(connectionId, sessionId);
             ctx.connRegistry.setActive(connectionId, sessionId);
+            if (duplicate) {
+              log.info('duplicate send', { connectionId, sessionId });
+              return;
+            }
+            emitSkillInvoked();
+            applySkillPolicy(activeClientId);
             const accepted =
               resolution.type === 'skill'
                 ? await sendToChat(
@@ -717,9 +1030,9 @@ export function handleSendV2(
           span.setAttribute('routing.decision', 'resume');
           startChat(transport, sessionClientId, prompt, {
             resume: sessionId,
-            cwd: msg.cwd,
-            model: msg.model,
-            reasoningEffort: msg.reasoningEffort,
+            cwd: validatedCwd,
+            model: effectiveSelection.model,
+            reasoningEffort: effectiveSelection.reasoningEffort,
             accountId: msg.accountId,
             accountProfiles,
             extraTools: msg.extraTools,
@@ -729,6 +1042,7 @@ export function handleSendV2(
             images: msg.images,
             contextBlocks: msg.contextBlocks,
             clientMsgId: msg.clientMsgId,
+            onStartupAdmission,
             telosTaskId: msg.telosTaskId,
             agentName: msg.agentName,
             userIntent,
@@ -740,6 +1054,28 @@ export function handleSendV2(
           );
           applySkillPolicy(sessionClientId);
         } else {
+          const startupSessionId =
+            delivery?.initialSessionId ?? nativeStartupSessionId(msg.clientMsgId);
+          const duplicate = preflightStartupProviderCommand(ctx.eventStore, {
+            sessionId: startupSessionId,
+            clientMsgId: msg.clientMsgId,
+            prompt,
+            cwd,
+            images: msg.images,
+            contextBlocks: msg.contextBlocks,
+            model: effectiveSelection.model,
+            reasoningEffort: effectiveSelection.reasoningEffort,
+          });
+          if (duplicate) {
+            log.info('duplicate initial provider send', {
+              connectionId,
+              sessionId: startupSessionId,
+            });
+            ctx.connRegistry.watch(connectionId, startupSessionId);
+            ctx.connRegistry.setActive(connectionId, startupSessionId);
+            transport.send({ type: 'session_id', sessionId: startupSessionId });
+            return;
+          }
           const sessionClientId = `${connectionId}:new-${randomUUID().slice(0, 8)}`;
           span.setAttribute('routing.decision', 'create');
           const onSessionResolved = (resolvedId: string) => {
@@ -748,9 +1084,9 @@ export function handleSendV2(
           };
           startChat(transport, sessionClientId, prompt, {
             initialSessionId: delivery?.initialSessionId,
-            cwd: msg.cwd,
-            model: msg.model,
-            reasoningEffort: msg.reasoningEffort,
+            cwd: validatedCwd,
+            model: effectiveSelection.model,
+            reasoningEffort: effectiveSelection.reasoningEffort,
             accountId: msg.accountId,
             accountProfiles,
             extraTools: msg.extraTools,
@@ -761,6 +1097,7 @@ export function handleSendV2(
             contextBlocks: msg.contextBlocks,
             clientMsgId: msg.clientMsgId,
             onSessionResolved,
+            onStartupAdmission,
             telosTaskId: msg.telosTaskId,
             agentName: msg.agentName,
             userIntent,
@@ -772,6 +1109,7 @@ export function handleSendV2(
           );
           applySkillPolicy(sessionClientId);
         }
+        await startupAdmission;
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : String(err);
         span.recordException(err instanceof Error ? err : new Error(message));
@@ -780,6 +1118,12 @@ export function handleSendV2(
           type: 'error',
           error: err instanceof Error ? err.message : 'Send failed',
         });
+        if (
+          delivery?.awaitStartupAdmission &&
+          (err instanceof ExecutionAdmissionError ||
+            /^\/(deliberate|fuse)(?:\s|$)/.test(msg.prompt.trim()))
+        )
+          throw err;
       }
     },
   );
@@ -787,6 +1131,11 @@ export function handleSendV2(
 
 export function handleStopV2(connectionId: string, msg: StopMsg, ctx: V2HandlerContext): void {
   withSpan('ws.stop', { 'ws.connectionId': connectionId, 'ws.sessionId': msg.sessionId }, () => {
+    if (
+      cancelDeliberation(ctx.eventStore, msg.sessionId) ||
+      cancelFusion(ctx.eventStore, msg.sessionId)
+    )
+      return;
     const found = ctx.sessionRegistry.findBySessionId(msg.sessionId);
     if (found) {
       stopChat(found.clientId);
@@ -800,16 +1149,29 @@ export function handleInterruptV2(
   transport: SessionTransport,
   msg: InterruptMsg,
   ctx: V2HandlerContext,
-): void {
-  withSpan(
+  delivery?: { awaitStartupAdmission?: boolean },
+): Promise<void> {
+  return withSpanAsync(
     'ws.interrupt',
     { 'ws.connectionId': connectionId, 'ws.sessionId': msg.sessionId },
-    () => {
+    async () => {
+      if (ctx.eventStore.getSession(msg.sessionId)?.symposiumConfig) {
+        const error = new Error('Use Symposium directed prompts for this session');
+        transport.send({ type: 'error', sessionId: msg.sessionId, error: error.message });
+        if (delivery?.awaitStartupAdmission) throw error;
+        return;
+      }
+      if (
+        cancelDeliberation(ctx.eventStore, msg.sessionId) ||
+        cancelFusion(ctx.eventStore, msg.sessionId)
+      )
+        return;
       const found = ctx.sessionRegistry.findBySessionId(msg.sessionId);
       if (!found) return;
 
       const activeClientId = found.clientId;
-      const storedAccountId = ctx.eventStore.getSession(msg.sessionId)?.accountBinding?.accountId;
+      const storedMeta = ctx.eventStore.getSession(msg.sessionId);
+      const storedAccountId = storedMeta?.accountBinding?.accountId;
       const storeState = ctx.eventStore.getSessionState(msg.sessionId);
 
       // Phase 2: detect state mismatches (observability only)
@@ -846,16 +1208,22 @@ export function handleInterruptV2(
             return;
           }
         }
+        const duplicate = preflightChatCommand(
+          activeClientId,
+          msg.prompt,
+          msg.images,
+          msg.contextBlocks,
+          msg.clientMsgId,
+          msg.accountId ? msg.model : undefined,
+          msg.accountId ? msg.reasoningEffort : undefined,
+        );
         const ownerConnection =
           found.session?.ownerConnectionId ?? getOwnerConnection(found.clientId);
         const isOwner = ownerConnection === connectionId;
         const isDetached = !ctx.sessionRegistry.isAttached(found.clientId);
 
         if (!isOwner) {
-          const oldTransport = found.session?.transport;
-          if (oldTransport?.isOpen()) {
-            oldTransport.send({ type: 'session_takeover', sessionId: msg.sessionId });
-          }
+          notifyPreviousOwner(ctx, ownerConnection, msg.sessionId);
           ctx.connRegistry.unwatch(ownerConnection, msg.sessionId);
           denyPendingBySession(msg.sessionId);
 
@@ -875,7 +1243,11 @@ export function handleInterruptV2(
 
         ctx.connRegistry.watch(connectionId, msg.sessionId);
         ctx.connRegistry.setActive(connectionId, msg.sessionId);
-        interruptChat(
+        if (duplicate) {
+          log.info('duplicate interrupt', { connectionId, sessionId: msg.sessionId });
+          return;
+        }
+        await interruptChat(
           activeClientId,
           msg.prompt,
           msg.images,
@@ -885,6 +1257,28 @@ export function handleInterruptV2(
           msg.accountId ? msg.reasoningEffort : undefined,
         );
         log.info('interrupt', { connectionId, sessionId: msg.sessionId });
+        return;
+      }
+
+      const effectiveSelection = resolveEffectiveAccountSelection(
+        msg,
+        storedMeta,
+        storedMeta?.accountBinding ?? undefined,
+      );
+      const duplicate = preflightStartupProviderCommand(ctx.eventStore, {
+        sessionId: msg.sessionId,
+        clientMsgId: msg.clientMsgId,
+        prompt: msg.prompt,
+        cwd: storedMeta?.cwd ?? BASE_REPO,
+        images: msg.images,
+        contextBlocks: msg.contextBlocks,
+        model: effectiveSelection.model,
+        reasoningEffort: effectiveSelection.reasoningEffort,
+      });
+      if (duplicate) {
+        ctx.connRegistry.watch(connectionId, msg.sessionId);
+        ctx.connRegistry.setActive(connectionId, msg.sessionId);
+        log.info('duplicate cold interrupt', { connectionId, sessionId: msg.sessionId });
         return;
       }
 
@@ -902,6 +1296,14 @@ export function handleInterruptV2(
       const sessionClientId = `${connectionId}:${msg.sessionId}`;
       ctx.connRegistry.watch(connectionId, msg.sessionId);
       ctx.connRegistry.setActive(connectionId, msg.sessionId);
+      let resolveStartupAdmission: (() => void) | undefined;
+      let rejectStartupAdmission: ((error: unknown) => void) | undefined;
+      const startupAdmission = delivery?.awaitStartupAdmission
+        ? new Promise<void>((resolve, reject) => {
+            resolveStartupAdmission = resolve;
+            rejectStartupAdmission = reject;
+          })
+        : undefined;
       startChat(transport, sessionClientId, msg.prompt, {
         resume: msg.sessionId,
         accountId: msg.accountId ?? storedAccountId,
@@ -911,19 +1313,24 @@ export function handleInterruptV2(
               revision: permissionRevision(ctx.eventStore, msg.sessionId),
             }
           : undefined,
-        model: msg.model ?? found.session?.model,
-        reasoningEffort: msg.reasoningEffort,
+        model: effectiveSelection.model ?? found.session?.model,
+        reasoningEffort: effectiveSelection.reasoningEffort,
         images: msg.images,
         contextBlocks: msg.contextBlocks,
         clientMsgId: msg.clientMsgId,
         agentName: found.session?.agentName,
         telosTaskId: found.session?.telosTaskId,
+        onStartupAdmission: (error?: unknown) => {
+          if (error) rejectStartupAdmission?.(error);
+          else resolveStartupAdmission?.();
+        },
       }).catch((err: unknown) =>
         transport.send({
           type: 'error',
           error: err instanceof Error ? err.message : 'Session startup failed',
         }),
       );
+      await startupAdmission;
       log.info('interrupt_resume', { connectionId, sessionId: msg.sessionId });
     },
   );
@@ -968,11 +1375,30 @@ export function handlePermissionResponseV2(
       'ws.permId': msg.permId,
     },
     () => {
+      const pendingSessionId = getPendingSessionId(msg.permId);
+      if (pendingSessionId) {
+        const found = ctx.sessionRegistry.findBySessionId(pendingSessionId, true);
+        const ownerConnection =
+          found?.session?.ownerConnectionId ??
+          (found ? getOwnerConnection(found.clientId) : undefined);
+        if (
+          ownerConnection !== connectionId ||
+          (msg.sessionId && msg.sessionId !== pendingSessionId)
+        ) {
+          sendPermissionResponseRejected(
+            ctx.connRegistry.get(connectionId)?.transport,
+            connectionId,
+            msg.permId,
+            msg.sessionId,
+          );
+          return false;
+        }
+      }
       const resolved = resolvePending(
         msg.permId,
         msg.decision ?? 'deny',
         msg.answers,
-        msg.sessionId,
+        msg.sessionId ?? pendingSessionId,
       );
       if (!resolved) {
         sendPermissionResponseRejected(
@@ -1002,6 +1428,19 @@ export interface ModeChangeResult {
   error?: string;
 }
 const pendingModeChanges = new WeakMap<object, Promise<unknown>>();
+
+/** Share the live session's permission queue with web-search grant updates. */
+export function serializeSessionPermissionChange<T>(
+  session: object,
+  action: () => Promise<T>,
+): Promise<T> {
+  const previous = pendingModeChanges.get(session) ?? Promise.resolve();
+  const update = previous.then(action, action);
+  pendingModeChanges.set(session, update);
+  return update.finally(() => {
+    if (pendingModeChanges.get(session) === update) pendingModeChanges.delete(session);
+  });
+}
 
 export function handleSetModeV2(
   connectionId: string,
@@ -1070,7 +1509,7 @@ export function handleSetModeV2(
   found.session.pendingPermissionModes ??= new Map();
   found.session.pendingPermissionModes.set(transition, msg.mode);
   const previous = pendingModeChanges.get(found.session) ?? Promise.resolve();
-  const update = previous.then(() =>
+  const run = () =>
     withSpanAsync(
       'ws.set_mode',
       { 'ws.connectionId': connectionId, 'ws.sessionId': msg.sessionId, 'ws.mode': msg.mode },
@@ -1159,8 +1598,8 @@ export function handleSetModeV2(
           return { ok: false, applied: false, persisted: false, code: 'provider', error: reason };
         }
       },
-    ),
-  );
+    );
+  const update = previous.then(run, run);
   pendingModeChanges.set(found.session, update);
   return update.then((result) => {
     found.session.pendingPermissionModes?.delete(transition);
@@ -1348,6 +1787,18 @@ export async function dispatchV2Message(
     case 'reconnect':
       handleReconnect(connectionId, msg, ctx);
       break;
+    case 'reconnect_snapshot_applied':
+      if (ctx.connRegistry.ackAppliedSnapshot(connectionId, msg.sessionId, msg.cursor, msg.offerId))
+        ctx.connRegistry.get(connectionId)?.transport.send({
+          type: 'reconnect_snapshot_confirmed',
+          sessionId: msg.sessionId,
+          cursor: msg.cursor,
+          offerId: msg.offerId,
+        });
+      break;
+    case 'session_event_applied':
+      ctx.connRegistry.ackAppliedEvent(connectionId, msg.sessionId, msg.seq);
+      break;
     case 'watch':
       handleWatch(connectionId, msg, ctx);
       break;
@@ -1370,7 +1821,7 @@ export async function dispatchV2Message(
       handleStopV2(connectionId, msg, ctx);
       break;
     case 'interrupt':
-      handleInterruptV2(connectionId, transport, msg, ctx);
+      await handleInterruptV2(connectionId, transport, msg, ctx);
       break;
     case 'permission_response':
       handlePermissionResponseV2(connectionId, msg, ctx);

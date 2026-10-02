@@ -3,14 +3,10 @@ import { promisify } from 'util';
 import type { TaskStore, GateConfig } from './task-store.js';
 import { createLogger } from './logger.js';
 import { createSignalCallbackToken, revokeSignalCallbackToken } from './internal-token.js';
+export { localHttpBaseUrl as localSignalCallbackBaseUrl } from './local-server-url.js';
 
 const log = createLogger('signal-processor');
 const execFileAsync = promisify(execFile);
-
-/** Local Centaur uses Mitzo's plain HTTP listener, which moves to PORT + 1 under TLS. */
-export function localSignalCallbackBaseUrl(port: number, useTls: boolean): string {
-  return `http://localhost:${useTls ? port + 1 : port}`;
-}
 
 function centaurReviewPrUrl(config: GateConfig): string | undefined {
   const fields = config as GateConfig & {
@@ -349,7 +345,11 @@ async function checkGhCi(config: { repo: string; pr: number | string }): Promise
   }
 }
 
-async function checkGhReview(config: { repo: string; pr: number | string }): Promise<GateResult> {
+async function checkGhReview(config: {
+  repo: string;
+  pr: number | string;
+  trusted_reviewer?: string;
+}): Promise<GateResult> {
   try {
     const { stdout } = await execFileAsync('gh', [
       'pr',
@@ -358,15 +358,67 @@ async function checkGhReview(config: { repo: string; pr: number | string }): Pro
       '--repo',
       config.repo,
       '--json',
-      'reviewDecision',
+      'reviewDecision,headRefOid',
     ]);
-    const data = JSON.parse(stdout) as { reviewDecision: string };
+    const data = JSON.parse(stdout) as { reviewDecision: string; headRefOid?: string };
 
     if (data.reviewDecision === 'APPROVED') {
       return { resolved: true, status: 'pass', artifacts: { reviewDecision: 'APPROVED' } };
     }
     if (data.reviewDecision === 'CHANGES_REQUESTED') {
       return { resolved: true, status: 'fail', artifacts: { reviewDecision: 'CHANGES_REQUESTED' } };
+    }
+    // Centaur submits COMMENT reviews, so reviewDecision remains empty. Its
+    // SHA marker appears in the review body (or issue comment fallback).
+    // Trust the configured Centaur account when present. Personal repositories
+    // can fall back to their owner; organization owners cannot post reviews.
+    // Match the current head only: an earlier review cannot release this gate
+    // after an agent pushes conflict, CI, or review fixes.
+    if (data.headRefOid && /^[0-9a-f]{40}$/.test(data.headRefOid)) {
+      const marker = `<!-- centaur:sha:${data.headRefOid} -->`;
+      const [reviews, comments] = await Promise.all([
+        execFileAsync('gh', [
+          'api',
+          `repos/${config.repo}/pulls/${config.pr}/reviews`,
+          '--paginate',
+          '--jq',
+          '.[] | {body, author: .user.login, association: .author_association}',
+        ]),
+        execFileAsync('gh', [
+          'api',
+          `repos/${config.repo}/issues/${config.pr}/comments`,
+          '--paginate',
+          '--jq',
+          '.[] | {body, author: .user.login, association: .author_association}',
+        ]),
+      ]);
+      const configuredReviewer =
+        config.trusted_reviewer?.trim() || process.env.CENTAUR_REVIEWER_LOGIN?.trim();
+      const repoOwner = config.repo.split('/')[0].toLowerCase();
+      const hasTrustedMarker = (output: string) =>
+        output.split('\n').some((line) => {
+          if (!line.trim()) return false;
+          const item = JSON.parse(line) as {
+            body?: unknown;
+            author?: unknown;
+            association?: unknown;
+          };
+          return (
+            typeof item.body === 'string' &&
+            item.body.includes(marker) &&
+            typeof item.author === 'string' &&
+            (configuredReviewer
+              ? item.author.toLowerCase() === configuredReviewer.toLowerCase()
+              : item.author.toLowerCase() === repoOwner && item.association === 'OWNER')
+          );
+        });
+      if (hasTrustedMarker(reviews.stdout) || hasTrustedMarker(comments.stdout)) {
+        return {
+          resolved: true,
+          status: 'pass',
+          artifacts: { centaurReviewedSha: data.headRefOid },
+        };
+      }
     }
     // REVIEW_REQUIRED or empty — not resolved yet
     return { resolved: false, status: 'fail' };

@@ -1,13 +1,19 @@
+import { SymposiumReviewEntry } from '../components/SymposiumReviewPanel';
+import { AddReviewerSheet } from '../components/AddReviewerSheet';
+import { NewSymposium } from '../components/NewSymposium';
 import { PermissionModePicker } from '../components/PermissionModePicker';
 import { WorkspaceControls } from '../components/WorkspaceControls';
+import type { WorkspaceSummary } from '../types/workspace';
 import { AccountModelPicker, type AccountSelection } from '../components/AccountModelPicker';
 import { CodexQueueStatus } from '../components/CodexQueueStatus';
+import { WebSearchConsent } from '../components/WebSearchConsent';
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
 import { DesktopShell } from '../components/DesktopShell';
 import { SessionPanel } from '../components/SessionPanel';
 import { CommandCenter } from '../components/CommandCenter';
-import { ChatArea } from '../components/ChatArea';
+import { SymposiumConversation } from '../components/SymposiumConversation';
+import { SymposiumDirectorPanel } from '../components/SymposiumDirectorPanel';
 import { ChatInput } from '../components/ChatInput';
 import { ScrollFab } from '../components/ScrollFab';
 import { StatusBar } from '../components/StatusBar';
@@ -38,12 +44,14 @@ export function DesktopChatView() {
   const storeInterruptMessage = useMitzoStore((s) => s.interruptMessage);
   const storeStopGeneration = useMitzoStore((s) => s.stopGeneration);
   const storeRespondToPermission = useMitzoStore((s) => s.respondToPermission);
+  const storeExpirePermission = useMitzoStore((s) => s.expirePermission);
   const storeSwitchSession = useMitzoStore((s) => s.switchSession);
   const storeNewSession = useMitzoStore((s) => s.newSession);
   const storeCloseSession = useMitzoStore((s) => s.closeSession);
   const storeSetMode = useMitzoStore((s) => s.setMode);
   const storeSetModel = useMitzoStore((s) => s.setModel);
   const storeDispatchMessages = useMitzoStore((s) => s.dispatchMessages);
+  const connectionId = useMitzoStore((s) => s.connection.clientId);
   const storeFetchSessionMeta = useMitzoStore((s) => s.fetchSessionMeta);
   const sessionContext = useMitzoStore((s) => s.messages.sessionContext);
   const bootContext = useMitzoStore((s) => s.messages.bootContext);
@@ -52,6 +60,7 @@ export function DesktopChatView() {
   const connected = connection.status === 'connected';
 
   // Local model state — persisted to localStorage, sent in payload
+  const [workspaceSummary, setWorkspaceSummary] = useState<WorkspaceSummary | null>(null);
   const [accountSelection, setAccountSelection] = useState<AccountSelection | null>(null);
   const [modelState, setModelState] = useState(getPreferredModel);
   const setModel = useCallback(
@@ -202,6 +211,7 @@ export function DesktopChatView() {
       center={
         <div className="desktop-chat-center workspace-chat">
           <WorkspaceControls
+            summary={workspaceSummary}
             status={
               !connected
                 ? 'Reconnecting'
@@ -227,6 +237,7 @@ export function DesktopChatView() {
                 sessionId={activeSessionId}
                 preferredModel={modelState}
                 onChange={selectAccount}
+                onSummaryChange={setWorkspaceSummary}
                 disabled={messages.running}
               />
               <PermissionModePicker
@@ -250,7 +261,32 @@ export function DesktopChatView() {
                 onVoiceChange={voice.setVoice}
               />
             </header>
+
+            <div className="workspace-session-settings">
+              <WebSearchConsent
+                key={activeSessionId ?? 'new'}
+                sessionId={activeSessionId}
+                mode={mode}
+                connected={connected}
+                connectionId={connectionId}
+                running={messages.running}
+              />
+              {activeSessionId && (
+                <p className="symposium-review-help">
+                  AI review · Add a read-only reviewer, approve and send its request, then read the
+                  findings.
+                </p>
+              )}
+              <div className="workspace-session-actions">
+                {activeSessionId && <AddReviewerSheet sessionId={activeSessionId} />}
+                {activeSessionId && (
+                  <SymposiumReviewEntry key={activeSessionId} sessionId={activeSessionId} />
+                )}
+              </div>
+              {activeSessionId && <SymposiumDirectorPanel sessionId={activeSessionId} />}
+            </div>
           </WorkspaceControls>
+
           {(historyLoading || (sessionId && sessionId !== activeSessionId)) && (
             <div role="status">Loading conversation…</div>
           )}
@@ -267,41 +303,53 @@ export function DesktopChatView() {
               </button>
             </div>
           )}
-          <ChatArea
-            messages={sessionId && sessionId !== activeSessionId ? [] : messages.messages}
-            current={sessionId && sessionId !== activeSessionId ? null : messages.current}
-            running={messages.running}
-            permission={messages.permission}
-            onPermissionRespond={handlePermission}
-            scrollRef={scrollRef}
-            progressByToolId={progressByToolId}
-            voice={voice}
-          />
+          {!activeSessionId && !sessionId && <NewSymposium />}
           <ScrollFab scrollRef={scrollRef} />
-          <CodexQueueStatus sessionId={activeSessionId} />
-          <ChatInput
-            sendDisabledReason={
-              !activeSessionId && !accountSelection
-                ? 'Select an account before sending.'
-                : undefined
+          <SymposiumConversation
+            sessionId={activeSessionId}
+            chat={{
+              sessionId: sessionId || activeSessionId || undefined,
+              messages: sessionId && sessionId !== activeSessionId ? [] : messages.messages,
+              current: sessionId && sessionId !== activeSessionId ? null : messages.current,
+              currentByMessage:
+                sessionId && sessionId !== activeSessionId ? {} : messages.currentByMessage,
+              running: messages.running,
+              permission: messages.permission,
+              onPermissionRespond: handlePermission,
+              onPermissionExpire: storeExpirePermission,
+              scrollRef,
+              progressByToolId,
+              voice,
+            }}
+            ordinaryComposer={
+              <>
+                <CodexQueueStatus sessionId={activeSessionId} />
+                <ChatInput
+                  sendDisabledReason={
+                    !activeSessionId && !accountSelection
+                      ? 'Select an account before sending.'
+                      : undefined
+                  }
+                  onSend={handleSend}
+                  onStop={handleStop}
+                  onInterrupt={handleInterrupt}
+                  running={messages.running}
+                  initialText={searchParams.get('prompt') || undefined}
+                  voice={voice}
+                  branch={messages.branch || undefined}
+                  isolation={isolation}
+                  onIsolationChange={!activeSessionId ? setIsolation : undefined}
+                  isWorktree={messages.isWorktree}
+                  wtId={messages.wtId || undefined}
+                  sessionId={activeSessionId ?? undefined}
+                  tokenState={tokens}
+                  messages={sessionId && sessionId !== activeSessionId ? [] : messages.messages}
+                  current={sessionId && sessionId !== activeSessionId ? null : messages.current}
+                  bootContext={bootContext}
+                  sessionContext={sessionContext}
+                />
+              </>
             }
-            onSend={handleSend}
-            onStop={handleStop}
-            onInterrupt={handleInterrupt}
-            running={messages.running}
-            initialText={searchParams.get('prompt') || undefined}
-            voice={voice}
-            branch={messages.branch || undefined}
-            isolation={isolation}
-            onIsolationChange={!activeSessionId ? setIsolation : undefined}
-            isWorktree={messages.isWorktree}
-            wtId={messages.wtId || undefined}
-            sessionId={activeSessionId ?? undefined}
-            tokenState={tokens}
-            messages={sessionId && sessionId !== activeSessionId ? [] : messages.messages}
-            current={sessionId && sessionId !== activeSessionId ? null : messages.current}
-            bootContext={bootContext}
-            sessionContext={sessionContext}
           />
         </div>
       }

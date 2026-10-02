@@ -6,6 +6,7 @@ import type { AccountBinding } from '@mitzo/protocol';
 const Profile = z
   .object({
     accountId: z.string().min(1),
+    nativeAuth: z.literal('sandbox-chatgpt').optional(),
     accountLabel: z.string().min(1),
     credentialRef: z.string().refine(isAbsolute).optional(),
     email: z.string().min(1),
@@ -15,7 +16,7 @@ const Profile = z
       .string()
       .regex(/^[A-Za-z0-9][A-Za-z0-9_-]{0,62}$/)
       .optional(),
-    sandboxProviderType: z.literal('openai-codex-oauth').optional(),
+    sandboxProviderType: z.enum(['openai-codex-oauth', 'codex']).optional(),
     sandboxProviderId: z.string().min(1).max(128).optional(),
     sandboxGrantId: z.string().min(1).max(128).optional(),
     model: z.string().min(1),
@@ -36,6 +37,8 @@ export async function verifyCodexAccount(
   const parsed = Profile.safeParse(configuration);
   if (!parsed.success) throw new Error('Invalid Codex account profile');
   const profile = parsed.data;
+  if (profile.nativeAuth)
+    throw new Error('Native ChatGPT identity requires isolated Symposium provider verification');
   const binding: AccountBinding = {
     accountId: profile.accountId,
     accountLabel: profile.accountLabel,
@@ -53,6 +56,7 @@ export async function verifyCodexAccount(
           profile.sandboxProviderType,
           profile.sandboxProviderId,
           profile.sandboxGrantId,
+          ...(profile.nativeAuth ? [profile.nativeAuth] : []),
         ]),
       )
       .digest('hex'),

@@ -1,0 +1,177 @@
+const KEY = 'GOOGLE_VERTEX_AI_TOKEN';
+const HEADER = [
+  'PROVIDER',
+  'CREDENTIAL_KEY',
+  'STRATEGY',
+  'STATUS',
+  'RECOVERY',
+  'EXPIRES_AT',
+  'NEXT_REFRESH',
+  'LAST_REFRESH',
+  'FAILURE_CODE',
+  'LAST_ERROR',
+];
+const MARGIN_MS = 60_000;
+const OBSERVATION_MS = 10_000;
+function requireValue(value: unknown): asserts value {
+  if (!value) throw Error();
+}
+function timestamp(value: string) {
+  requireValue(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(value));
+  const result = Date.parse(value.replace(' ', 'T') + 'Z');
+  requireValue(
+    Number.isSafeInteger(result) &&
+      new Date(result).toISOString().slice(0, 19).replace('T', ' ') === value,
+  );
+  return result;
+}
+/** Current gateway credential readiness, not IAM/inference or sandbox-installation proof.
+ * CLI contract pinned to upstream 854b2370b: refresh status is table-only; list
+ * is secret-free JSON. Status `refreshed` precedes applying the credential, so
+ * require matching installed provider expiry and a stable census around it.
+ * No ready boolean, timestamps or credential material come from the caller.
+ */
+// One observation state machine keeps sync dispatch checks and async worker RPC
+// checks on identical identity, census, expiry, and total-time invariants.
+function* readiness(input: {
+  provider: string;
+  providerId: string;
+  workspace: string;
+}): Generator<{ args: string[]; timeoutMs: number }, void, string> {
+  try {
+    const started = performance.now(),
+      wallStarted = Date.now();
+    const invoke = function* (
+      args: string[],
+    ): Generator<{ args: string[]; timeoutMs: number }, string, string> {
+      const remaining = Math.floor(OBSERVATION_MS - (performance.now() - started));
+      requireValue(remaining > 0);
+      const output = yield { args, timeoutMs: remaining };
+      requireValue(
+        typeof output === 'string' &&
+          Buffer.byteLength(output) <= 1_000_000 &&
+          performance.now() - started < OBSERVATION_MS,
+      );
+      return output;
+    };
+    const census = function* (): Generator<
+      { args: string[]; timeoutMs: number },
+      { revision: unknown; expiry: number },
+      string
+    > {
+      let token = '';
+      const seen = new Set<string>();
+      const matches: Record<string, unknown>[] = [];
+      for (let page = 0; page < 10; page++) {
+        const value = JSON.parse(
+          yield* invoke([
+            'list',
+            '--output',
+            'json',
+            '--page-size',
+            '100',
+            ...(token ? ['--page-token', token] : []),
+          ]),
+        );
+        requireValue(
+          Array.isArray(value.providers) &&
+            value.providers.length <= 100 &&
+            typeof value.next_page_token === 'string' &&
+            value.next_page_token.length <= 4096,
+        );
+        for (const row of value.providers) {
+          requireValue(row && typeof row === 'object');
+          if (row.name === input.provider) matches.push(row);
+        }
+        token = value.next_page_token;
+        if (!token) break;
+        requireValue(!seen.has(token) && page < 9);
+        seen.add(token);
+      }
+      requireValue(matches.length === 1);
+      const row = matches[0],
+        expirations = row.credential_expires_at_ms as Record<string, unknown> | undefined;
+      const expiry = expirations?.[KEY];
+      requireValue(
+        row.id === input.providerId &&
+          row.workspace === input.workspace &&
+          row.type === 'google-vertex-ai',
+      );
+      requireValue(
+        Number.isSafeInteger(row.resource_version) && (row.resource_version as number) > 0,
+      );
+      requireValue(Array.isArray(row.credential_keys) && row.credential_keys.includes(KEY));
+      requireValue(Number.isSafeInteger(expiry) && (expiry as number) > 0);
+      return { revision: row.resource_version, expiry: expiry as number };
+    };
+    const before = yield* census();
+    const lines = (yield* invoke(['refresh', 'status', input.provider, '--credential-key', KEY]))
+      .trim()
+      .split(/\r?\n/);
+    requireValue(
+      lines.length === 2 &&
+        JSON.stringify(lines[0].trim().split(/ {2,}/)) === JSON.stringify(HEADER),
+    );
+    // Pinned provider.rs emits an empty 44-wide FAILURE_CODE and renders an
+    // empty LAST_ERROR as "-" (common.rs truncate_status_field). Splitting
+    // collapses the blank failure column, leaving nine fields. Preserve its
+    // exact padding so a shifted failure/error diagnostic cannot masquerade as
+    // the placeholder: LAST_REFRESH width20 minus timestamp19 +2 +44 +2 =49.
+    const fields = lines[1].trim().split(/ {2,}/);
+    requireValue(
+      fields.length === 9 &&
+        fields[8] === '-' &&
+        lines[1].endsWith(fields[7] + ' '.repeat(49) + '-') &&
+        fields[0] === input.provider &&
+        fields[1] === KEY &&
+        fields[2] === 'oauth2_refresh_token' &&
+        fields[3] === 'refreshed' &&
+        fields[4] === '-',
+    );
+    const expiry = timestamp(fields[5]),
+      next = timestamp(fields[6]),
+      last = timestamp(fields[7]);
+    const after = yield* census(),
+      now = Date.now();
+    requireValue(now >= wallStarted && now - wallStarted < OBSERVATION_MS);
+    requireValue(
+      before.revision === after.revision &&
+        before.expiry === after.expiry &&
+        expiry === Math.floor(after.expiry / 1000) * 1000,
+    );
+    requireValue(
+      last > 0 && last <= now && next > last && next <= expiry && after.expiry - now > MARGIN_MS,
+    );
+  } catch {
+    throw new Error('Vertex credential readiness unavailable');
+  }
+}
+
+type ReadinessIdentity = { provider: string; providerId: string; workspace: string };
+export function assertSymposiumWorkVertexReadiness(
+  input: ReadinessIdentity & {
+    invoke(args: string[], timeoutMs: number): string;
+  },
+): void {
+  try {
+    const observation = readiness(input);
+    let step = observation.next();
+    while (!step.done) step = observation.next(input.invoke(step.value.args, step.value.timeoutMs));
+  } catch {
+    throw new Error('Vertex credential readiness unavailable');
+  }
+}
+export async function assertSymposiumWorkVertexReadinessAsync(
+  input: ReadinessIdentity & {
+    invoke(args: string[], timeoutMs: number): Promise<string>;
+  },
+): Promise<void> {
+  try {
+    const observation = readiness(input);
+    let step = observation.next();
+    while (!step.done)
+      step = observation.next(await input.invoke(step.value.args, step.value.timeoutMs));
+  } catch {
+    throw new Error('Vertex credential readiness unavailable');
+  }
+}

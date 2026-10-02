@@ -1,14 +1,47 @@
-import { useState, useCallback, useRef } from 'react';
-import { shareFile } from '../lib/share-file';
+import { useState, useCallback, useRef, useEffect } from 'react';
+import { Capacitor } from '@capacitor/core';
+import { shareFile, downloadFile } from '../lib/share-file';
 
 interface ShareButtonProps {
   filePath: string;
+  sessionId?: string;
   className?: string;
 }
 
-export function ShareButton({ filePath, className }: ShareButtonProps) {
+export function ShareButton(props: ShareButtonProps) {
+  return (
+    <>
+      {!Capacitor.isNativePlatform() && <FileActionButton {...props} action="download" />}
+      <FileActionButton {...props} action="share" />
+    </>
+  );
+}
+
+function FileActionButton({
+  filePath,
+  sessionId,
+  className,
+  action,
+}: ShareButtonProps & { action: 'share' | 'download' }) {
+  const operation = action === 'download' ? downloadFile : shareFile;
   const [state, setState] = useState<'idle' | 'busy' | 'done' | 'error'>('idle');
   const busyRef = useRef(false);
+  const timerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const [error, setError] = useState('');
+  const generationRef = useRef(0);
+  const mountedRef = useRef(false);
+  useEffect(() => {
+    mountedRef.current = true;
+    generationRef.current += 1;
+    busyRef.current = false;
+    setState('idle');
+    setError('');
+    return () => {
+      mountedRef.current = false;
+      generationRef.current += 1;
+      clearTimeout(timerRef.current);
+    };
+  }, [filePath, sessionId]);
 
   const handleShare = useCallback(
     async (e: React.MouseEvent) => {
@@ -16,43 +49,71 @@ export function ShareButton({ filePath, className }: ShareButtonProps) {
       e.stopPropagation();
       if (busyRef.current) return;
 
+      const generation = generationRef.current;
+      clearTimeout(timerRef.current);
+      setError('');
       busyRef.current = true;
       setState('busy');
       try {
-        await shareFile(filePath);
-        setState('done');
-        setTimeout(() => setState('idle'), 1500);
-      } catch {
+        const initiated = await (sessionId ? operation(filePath, sessionId) : operation(filePath));
+        if (!mountedRef.current || generation !== generationRef.current) return;
+        setState(initiated ? 'done' : 'idle');
+        if (initiated) timerRef.current = setTimeout(() => setState('idle'), 1500);
+      } catch (err: unknown) {
+        if (!mountedRef.current || generation !== generationRef.current) return;
+        setError(err instanceof Error ? err.message : `Could not ${action} file. Try again.`);
         setState('error');
-        setTimeout(() => setState('idle'), 2000);
       } finally {
-        busyRef.current = false;
+        if (generation === generationRef.current) busyRef.current = false;
       }
     },
-    [filePath],
+    [filePath, sessionId, operation, action],
   );
 
   const label =
     state === 'busy'
-      ? 'Sharing...'
+      ? action === 'download'
+        ? 'Downloading...'
+        : 'Sharing...'
       : state === 'done'
-        ? 'Shared'
+        ? action === 'download'
+          ? 'Downloaded'
+          : 'Shared'
         : state === 'error'
           ? 'Failed'
-          : 'Share file';
+          : action === 'download'
+            ? 'Download file'
+            : 'Share file';
 
   const icon =
-    state === 'busy' ? '...' : state === 'done' ? '\u2713' : state === 'error' ? '!' : '\u21A6';
+    state === 'busy'
+      ? '...'
+      : state === 'done'
+        ? '\u2713'
+        : state === 'error'
+          ? '!'
+          : action === 'download'
+            ? '\u2193'
+            : '\u21A6';
 
   return (
-    <button
-      className={`share-btn ${className ?? ''} ${state !== 'idle' ? `share-btn--${state}` : ''}`.trim()}
-      aria-label={label}
-      title={label}
-      onClick={handleShare}
-      disabled={state === 'busy'}
-    >
-      {icon}
-    </button>
+    <>
+      <button
+        type="button"
+        aria-busy={state === 'busy'}
+        className={`share-btn ${className ?? ''} ${state !== 'idle' ? `share-btn--${state}` : ''}`.trim()}
+        aria-label={label}
+        title={error || label}
+        onClick={handleShare}
+        disabled={state === 'busy'}
+      >
+        {icon}
+      </button>
+      {error && (
+        <span className="share-error" role="alert">
+          {error}
+        </span>
+      )}
+    </>
   );
 }

@@ -1,14 +1,20 @@
+import { startFusion, parseFusionInput, type FusionRequest } from './fusion-admission.js';
 import { loadAccountProfiles } from './account-profiles.js';
 import type { SkillRegistry } from './skills.js';
 import type { SessionTransport } from '@mitzo/harness';
 import {
-  DeliberationOrchestrator,
-  FusionOrchestrator,
   DEFAULT_DELIBERATION_CONFIG,
   DEFAULT_FUSION_CONFIG,
   SELF_FUSION_CONFIG,
 } from '@mitzo/harness';
 import type { ReasoningEvent } from '@mitzo/harness';
+import {
+  startDeliberation,
+  parseDeliberationInput,
+  type DeliberationRequest,
+} from './deliberate-admission.js';
+import type { EventStore } from './event-store.js';
+import { ExecutionAdmissionError } from '@mitzo/protocol/event-store';
 import { createLogger } from './logger.js';
 
 const log = createLogger('native-commands');
@@ -21,6 +27,8 @@ export interface NativeCommandResult {
 /** Context available to async native commands. */
 export interface NativeCommandContext {
   transport?: SessionTransport;
+  fusion?: { store: EventStore; request: FusionRequest; onAdmitted: () => void };
+  deliberation?: { store: EventStore; request: DeliberationRequest; onAdmitted: () => void };
 }
 
 type SyncHandler = (args: string, skillRegistry: SkillRegistry) => NativeCommandResult;
@@ -133,7 +141,8 @@ async function deliberateCommand(
   _skillRegistry: SkillRegistry,
   ctx: NativeCommandContext,
 ): Promise<NativeCommandResult> {
-  if (!args.trim()) {
+  const input = parseDeliberationInput(args);
+  if (!input.task) {
     return {
       command: 'deliberate',
       content:
@@ -143,16 +152,41 @@ async function deliberateCommand(
     };
   }
 
-  const onEvent = buildEventEmitter(ctx.transport, 'deliberation');
-
+  if (!ctx.deliberation) throw new Error('Durable deliberation context is required');
+  let admitted;
   try {
-    const orchestrator = new DeliberationOrchestrator({
-      ...DEFAULT_DELIBERATION_CONFIG,
-      onEvent,
+    admitted = startDeliberation({
+      store: ctx.deliberation.store,
+      request: {
+        ...ctx.deliberation.request,
+        task: input.task,
+        confirmAmbiguous: input.confirmAmbiguous || ctx.deliberation.request.confirmAmbiguous,
+      },
+      onEvent: buildEventEmitter(ctx.transport, 'deliberation'),
+      onAdmitted: ctx.deliberation.onAdmitted,
     });
-
-    const result = await orchestrator.run(args.trim(), '');
-
+  } catch (error) {
+    if (error instanceof ExecutionAdmissionError) throw error;
+    if (error instanceof Error && error.message.startsWith('Explicit confirmation required'))
+      throw error;
+    // Storage/provider errors can contain private paths or credential material.
+    // eslint-disable-next-line preserve-caught-error
+    throw new Error('Deliberation admission unavailable; no new provider work was started');
+  }
+  try {
+    const outcome = await admitted.completion;
+    if (outcome.status !== 'completed' || !outcome.result) {
+      const messages = {
+        running: 'Deliberation is already running. No provider work was repeated.',
+        completed: 'Deliberation already completed. No provider work was repeated.',
+        failed: 'Deliberation failed before completion. No provider work was repeated.',
+        cancelled: 'Deliberation cancelled. No further phases will run.',
+        ambiguous:
+          'Deliberation outcome is uncertain. No provider work was repeated. To explicitly start another attempt, use /deliberate --confirm-ambiguous <task>. This may repeat provider work.',
+      };
+      return { command: 'deliberate', content: messages[outcome.status] };
+    }
+    const result = outcome.result;
     const roundsSummary = result.rounds
       .map(
         (r) =>
@@ -164,7 +198,7 @@ async function deliberateCommand(
     const content = [
       `## Deliberation Result`,
       '',
-      `**Task:** ${args.trim()}`,
+      `**Task:** ${input.task}`,
       `**Proposer:** ${DEFAULT_DELIBERATION_CONFIG.proposer.name} (${DEFAULT_DELIBERATION_CONFIG.proposer.model})`,
       `**Challenger:** ${DEFAULT_DELIBERATION_CONFIG.challenger.name} (${DEFAULT_DELIBERATION_CONFIG.challenger.model})`,
       `**Rounds:** ${result.rounds.length} | **Mind changes:** ${result.mindChanges} | **Cost:** $${result.totalCost.toFixed(4)}`,
@@ -177,11 +211,11 @@ async function deliberateCommand(
     ].join('\n');
 
     return { command: 'deliberate', content };
-  } catch (err) {
-    log.error('Deliberation failed', { error: err instanceof Error ? err.message : 'unknown' });
+  } catch {
+    log.error('Deliberation failed', { category: 'durable_execution_failure' });
     return {
       command: 'deliberate',
-      content: `Deliberation failed: ${err instanceof Error ? err.message : 'unknown error'}`,
+      content: 'Deliberation failed. Check the durable execution state before retrying.',
     };
   }
 }
@@ -202,27 +236,44 @@ async function fuseCommand(
   _skillRegistry: SkillRegistry,
   ctx: NativeCommandContext,
 ): Promise<NativeCommandResult> {
-  if (!args.trim()) return FUSE_USAGE;
-
-  // Parse --self flag
-  let task = args.trim();
-  let fusionConfig = DEFAULT_FUSION_CONFIG;
-  if (task === '--self' || task.startsWith('--self ')) {
-    task = task.slice('--self'.length).trim();
-    fusionConfig = SELF_FUSION_CONFIG;
-  }
-
+  const input = parseFusionInput(args);
+  const task = input.task;
   if (!task) return FUSE_USAGE;
-
-  const onEvent = buildEventEmitter(ctx.transport, 'fusion');
-
+  if (!ctx.fusion) throw new Error('Durable fusion context is required');
+  let admitted;
   try {
-    const orchestrator = new FusionOrchestrator({
-      ...fusionConfig,
-      onEvent,
+    admitted = startFusion({
+      store: ctx.fusion.store,
+      request: {
+        ...ctx.fusion.request,
+        task,
+        confirmAmbiguous: input.confirmAmbiguous || ctx.fusion.request.confirmAmbiguous,
+      },
+      config: input.self ? SELF_FUSION_CONFIG : DEFAULT_FUSION_CONFIG,
+      onEvent: buildEventEmitter(ctx.transport, 'fusion'),
+      onAdmitted: ctx.fusion.onAdmitted,
     });
-
-    const result = await orchestrator.run(task, '');
+  } catch (error) {
+    if (error instanceof ExecutionAdmissionError) throw error;
+    if (error instanceof Error && error.message.startsWith('Explicit confirmation required'))
+      throw error;
+    // eslint-disable-next-line preserve-caught-error
+    throw new Error('Fusion admission unavailable; no new provider work was started');
+  }
+  try {
+    const outcome = await admitted.completion;
+    if (outcome.status !== 'completed' || !outcome.result) {
+      const messages = {
+        running: 'Fusion is already running. No provider work was repeated.',
+        completed: 'Fusion already completed. No provider work was repeated.',
+        failed: 'Fusion failed before completion. No provider work was repeated.',
+        cancelled: 'Fusion cancelled. No further phases will run.',
+        ambiguous:
+          'Fusion outcome is uncertain. No provider work was repeated. To explicitly start another attempt, use /fuse --confirm-ambiguous <task> (include --self for self-fusion). This may repeat provider work.',
+      };
+      return { command: 'fuse', content: messages[outcome.status] };
+    }
+    const result = outcome.result;
 
     const panelSummary = result.panelResponses
       .map((r, i) => `**Panel ${i + 1}** (${r.model}): ${r.response.slice(0, 200)}...`)
@@ -263,11 +314,11 @@ async function fuseCommand(
     ].join('\n');
 
     return { command: 'fuse', content };
-  } catch (err) {
-    log.error('Fusion failed', { error: err instanceof Error ? err.message : 'unknown' });
+  } catch {
+    log.error('Fusion failed', { category: 'durable_execution_failure' });
     return {
       command: 'fuse',
-      content: `Fusion failed: ${err instanceof Error ? err.message : 'unknown error'}`,
+      content: 'Fusion failed. Check the durable execution state before retrying.',
     };
   }
 }

@@ -7,7 +7,38 @@ export const LoginBody = z.object({
 export const ConnectionReauthorizeBody = z
   .object({ passphrase: z.string().min(1).max(1024) })
   .strict();
-export const ConnectionCreateBody = z
+const ConnectionPublicFieldValue = z.union([
+  z.string().trim().min(1).max(2_048),
+  z.array(z.string().trim().min(1).max(2_048)).min(1).max(100),
+]);
+const boundedRecord = <T extends z.ZodTypeAny>(value: T, max: number) =>
+  z.record(z.string().regex(/^[a-z][A-Za-z0-9]*$/), value).superRefine((record, context) => {
+    if (Object.keys(record).length > max)
+      context.addIssue({ code: 'custom', message: `At most ${max} fields are allowed` });
+  });
+const ConnectionCredentials = boundedRecord(z.string().min(1).max(4096), 10);
+const GenericConnectionCreateBody = z
+  .object({
+    templateId: z.string().regex(/^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$/),
+    templateVersion: z.number().int().positive(),
+    label: z.string().trim().min(1).max(100),
+    fields: boundedRecord(ConnectionPublicFieldValue, 20),
+    credentials: ConnectionCredentials,
+    accountIds: z.array(z.string().regex(/^[A-Za-z0-9_-]+$/)).max(20),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    if (
+      value.templateId === 'custom-rest-readonly' &&
+      Object.prototype.hasOwnProperty.call(value.fields, 'dnsPin')
+    )
+      context.addIssue({
+        code: 'custom',
+        path: ['fields', 'dnsPin'],
+        message: 'DNS pins are gateway-derived and cannot be submitted',
+      });
+  });
+const LegacyJiraConnectionCreateBody = z
   .object({
     label: z.string().trim().min(1).max(100),
     email: z.string().email().max(320),
@@ -15,19 +46,36 @@ export const ConnectionCreateBody = z
     accountIds: z.array(z.string().regex(/^[A-Za-z0-9_-]+$/)).max(20),
   })
   .strict();
+/** The legacy branch is retained only while the Jira UI migrates in Phase 2. */
+export const ConnectionCreateBody = z.union([
+  GenericConnectionCreateBody,
+  LegacyJiraConnectionCreateBody,
+]);
 export const ConnectionRevisionBody = z
   .object({ revision: z.number().int().positive(), csrf: z.string().min(20).max(200) })
   .strict();
 export const ConnectionAssignmentsBody = ConnectionRevisionBody.extend({
   accountIds: z.array(z.string().regex(/^[A-Za-z0-9_-]+$/)).max(20),
 }).strict();
-export const ConnectionRotateBody = ConnectionRevisionBody.extend({
-  token: z.string().min(1).max(4096),
+export const ConnectionCapabilitiesBody = ConnectionRevisionBody.extend({
+  capabilityId: z.string().regex(/^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$/),
+  capabilityVersion: z.number().int().positive(),
+  accountIds: z
+    .array(z.string().regex(/^[A-Za-z0-9_-]+$/))
+    .min(1)
+    .max(20),
+  status: z.enum(['active', 'revoked']),
 }).strict();
+export const ConnectionRotateBody = z.union([
+  ConnectionRevisionBody.extend({ credentials: ConnectionCredentials }).strict(),
+  ConnectionRevisionBody.extend({ token: z.string().min(1).max(4096) }).strict(),
+]);
 
 export const FileWriteBody = z.object({
+  expectedContent: z.string().optional(),
   path: z.string().min(1),
   content: z.string(),
+  sessionId: z.string().min(1).optional(),
 });
 
 export const PermissionDecision = z.enum(['once', 'always', 'deny']);
@@ -86,12 +134,23 @@ const TodoContextHintsSchema = z.object({
   jiraKeys: z.array(z.string()).optional().default([]),
   keywords: z.array(z.string()).optional().default([]),
   taskHint: z.string().optional().default(''),
+  sessionIds: z.array(z.string()).optional().default([]),
+});
+
+const TodoLinkSchema = z.object({
+  type: z.string(),
+  url: z.string(),
+  title: z.string(),
+  description: z.string().optional().default(''),
 });
 
 const TodoItemSchema: z.ZodType<unknown> = z.lazy(() =>
   z.object({
     id: z.string(),
     summary: z.string(),
+    intent: z.string().optional().default(''),
+    rationale: z.string().optional().default(''),
+    acceptanceCriteria: z.array(z.string()).optional().default([]),
     profile: z.string(),
     urgency: z.number(),
     // optional+default(false) so the API accepts items without `starred`.
@@ -105,6 +164,7 @@ const TodoItemSchema: z.ZodType<unknown> = z.lazy(() =>
     childCount: z.number().optional().default(0),
     completedChildCount: z.number().optional().default(0),
     sources: z.array(TodoSourceSchema),
+    links: z.array(TodoLinkSchema).optional().default([]),
     contextHints: TodoContextHintsSchema,
     goalId: z.string().nullable().optional().default(null),
   }),
@@ -119,6 +179,18 @@ export const TodoCreateBody = z.object({
   summary: z.string().min(1).max(500),
   profile: z.string().min(1).max(100),
   parentId: z.string().optional(),
+});
+
+export const TodoOutcomeCreateBody = z.object({
+  summary: z.string().trim().min(1).max(160),
+  intent: z.string().trim().min(1).max(2000),
+  rationale: z.string().trim().min(1).max(2000),
+  acceptanceCriteria: z.array(z.string().trim().min(1).max(500)).min(1).max(12),
+  milestones: z.array(z.string().trim().min(1).max(500)).min(1).max(24),
+  profile: z.string().trim().min(1).max(100),
+  idempotencyKey: z.string().trim().min(1).max(300),
+  contextHints: TodoContextHintsSchema.partial().optional(),
+  links: z.array(TodoLinkSchema).max(24).optional(),
 });
 
 export const TodoActionBody = z.object({
@@ -167,6 +239,12 @@ export const TaskUpdateBody = z.object({
 export const LoopStartBody = z.object({
   goalId: z.string().min(1),
   specMode: z.boolean().optional(),
+  clientId: z
+    .string()
+    .min(1)
+    .optional()
+    .describe('Existing chat selected for spec mode or reuse tasks'),
+  sessionId: z.string().min(1).optional().describe('Existing chat session selected for reuse'),
 });
 
 export const WorkflowInstantiateBody = z.object({

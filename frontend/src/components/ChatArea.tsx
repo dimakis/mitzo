@@ -14,6 +14,8 @@ import type {
   PermissionRequest,
 } from '../types/chat';
 import type { ProgressBlock } from '@mitzo/protocol';
+import type { SymposiumProvenance } from '@mitzo/protocol';
+import { progressToolLookupKey } from '@mitzo/client';
 import type { UseVoiceReturn } from '../hooks/useVoice';
 
 export type ChatAreaVoice = Pick<
@@ -21,11 +23,27 @@ export type ChatAreaVoice = Pick<
   'ttsAvailable' | 'speak' | 'stopSpeaking' | 'speaking'
 >;
 
+export interface SymposiumContextItem {
+  eventSeq: number;
+  deliveryId: string;
+  attemptId: number;
+  recipientSeatId: string;
+  sourceSeatId: string | null;
+  sourceMessageId: string | null;
+  content: string;
+  receipt: 'received' | 'uncertain';
+}
+
 export interface ChatAreaProps {
+  sessionId?: string;
   messages: FinishedMessage[];
   current: StreamingMessage | null;
+  currentByMessage?: Record<string, StreamingMessage>;
+  contextItems?: SymposiumContextItem[];
+  onShareMessage?: (messageId: string, provenance?: SymposiumProvenance) => void;
   running: boolean;
   permission: PermissionRequest | null;
+  onPermissionExpire?: (permId: string) => void;
   onPermissionRespond: (
     permId: string,
     decision: 'once' | 'always' | 'deny',
@@ -34,18 +52,50 @@ export interface ChatAreaProps {
   ) => void;
   /** External ref for scroll container — caller can use for forceScrollToBottom */
   scrollRef?: React.RefObject<HTMLDivElement | null>;
-  /** Progress blocks indexed by toolId for rendering ProgressWidget on TodoWrite blocks */
+  /** Progress blocks indexed by toolId for ordinary turns or seat/message/tool for Symposium. */
   progressByToolId?: Record<string, ProgressBlock>;
   /** Voice capabilities for per-block read-aloud */
   voice?: ChatAreaVoice;
 }
 
+function SeatAttribution({ provenance }: { provenance?: SymposiumProvenance }) {
+  if (!provenance) return null;
+  if (!('version' in provenance) || provenance.version !== 2) {
+    return (
+      <div className="chat-seat-attribution">
+        {provenance.seatId.charAt(0).toUpperCase() + provenance.seatId.slice(1)} seat · account and
+        model unknown
+      </div>
+    );
+  }
+  return (
+    <div className="chat-seat-attribution" aria-label={`Seat ${provenance.seatLabel}`}>
+      <strong>{provenance.seatLabel}</strong>
+      <span>{provenance.seatRole}</span>
+      <span>{provenance.accountBinding.accountLabel}</span>
+      <span>{provenance.accountBinding.model}</span>
+      <span>{provenance.reasoningEffort ?? 'effort unspecified'}</span>
+    </div>
+  );
+}
+
+function turnKey(messageId: string, provenance?: SymposiumProvenance): string {
+  return provenance
+    ? `symposium:${JSON.stringify([provenance.seatId, provenance.membershipGeneration ?? null, messageId])}`
+    : messageId;
+}
+
 export function ChatArea({
+  sessionId,
   messages,
   current,
+  currentByMessage = {},
+  contextItems = [],
+  onShareMessage,
   running,
   permission,
   onPermissionRespond,
+  onPermissionExpire,
   scrollRef: externalScrollRef,
   progressByToolId,
   voice,
@@ -53,6 +103,25 @@ export function ChatArea({
   const internalScrollRef = useRef<HTMLDivElement>(null);
   const scrollRef = externalScrollRef ?? internalScrollRef;
   const prevMessageCount = useRef(0);
+  // Keep the reader's intent independently of the DOM height. By the time an
+  // effect runs for a streamed chunk, the new content is already in the DOM,
+  // so measuring then can incorrectly decide that a reader who scrolled up is
+  // still close enough to the bottom to follow.
+  const shouldFollowStreamRef = useRef(true);
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+
+    const updateFollowState = () => {
+      const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+      shouldFollowStreamRef.current = distanceFromBottom <= SCROLL_NEAR_BOTTOM_PX;
+    };
+
+    updateFollowState();
+    el.addEventListener('scroll', updateFollowState, { passive: true });
+    return () => el.removeEventListener('scroll', updateFollowState);
+  }, [scrollRef]);
 
   // Track which block is currently being read aloud
   const [speakingBlockId, setSpeakingBlockId] = useState<string | null>(null);
@@ -85,26 +154,38 @@ export function ChatArea({
     const wasEmpty = prevMessageCount.current === 0;
     prevMessageCount.current = messages.length;
     if (wasEmpty && messages.length > 0) {
+      shouldFollowStreamRef.current = true;
       requestAnimationFrame(() => {
         scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
       });
     }
   }, [messages, scrollRef]);
 
-  // Auto-scroll during streaming: follow new content if user is near the bottom
+  // Auto-scroll during streaming only while the reader has chosen to follow it.
   useEffect(() => {
     const el = scrollRef.current;
-    if (!el) return;
-    const distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
-    if (distFromBottom <= SCROLL_NEAR_BOTTOM_PX) {
+    if (el && shouldFollowStreamRef.current) {
       el.scrollTop = el.scrollHeight;
     }
-  }, [messages, current, scrollRef]);
+  }, [messages, current, currentByMessage, scrollRef]);
 
-  // Set of toolIds that have progress data (excluded from tool grouping).
-  const progressToolIds = useMemo(
-    () => new Set(Object.keys(progressByToolId ?? {})),
+  const progressFor = useCallback(
+    (messageId: string, provenance: SymposiumProvenance | undefined, toolId?: string) =>
+      toolId ? progressByToolId?.[progressToolLookupKey(messageId, toolId, provenance)] : undefined,
     [progressByToolId],
+  );
+  const progressToolIdsFor = useCallback(
+    (
+      messageId: string,
+      provenance: SymposiumProvenance | undefined,
+      blocks: Array<{ toolId?: string }>,
+    ) =>
+      new Set(
+        blocks
+          .filter((block) => progressFor(messageId, provenance, block.toolId))
+          .map((block) => block.toolId!),
+      ),
+    [progressFor],
   );
 
   // Group blocks per finished assistant turn for tool collapsing.
@@ -112,10 +193,48 @@ export function ChatArea({
     () =>
       messages.map((msg) => ({
         msg,
-        grouped: msg.role === 'assistant' ? groupBlocks(msg.blocks, progressToolIds) : null,
+        grouped:
+          msg.role === 'assistant'
+            ? groupBlocks(
+                msg.blocks,
+                progressToolIdsFor(msg.messageId, msg.symposiumProvenance, msg.blocks),
+              )
+            : null,
       })),
-    [messages, progressToolIds],
+    [messages, progressToolIdsFor],
   );
+
+  const orderedTurns = useMemo(() => {
+    const turns = [
+      ...groupedMessages.map((value, index) => ({
+        kind: 'finished' as const,
+        value,
+        startedSeq: value.msg.startedSeq,
+        index,
+      })),
+      ...[...(current ? [current] : []), ...Object.values(currentByMessage)].map(
+        (value, index) => ({
+          kind: 'streaming' as const,
+          value,
+          startedSeq: value.startedSeq,
+          index: groupedMessages.length + index,
+        }),
+      ),
+      ...contextItems.map((value, index) => ({
+        kind: 'context' as const,
+        value,
+        startedSeq: value.eventSeq,
+        index:
+          groupedMessages.length + Object.keys(currentByMessage).length + (current ? 1 : 0) + index,
+      })),
+    ];
+    // Keep unsequenced optimistic rows in place while sorting durable turns.
+    const sequenced = turns
+      .filter((turn) => turn.startedSeq !== undefined)
+      .sort((a, b) => a.startedSeq! - b.startedSeq! || a.index - b.index);
+    let nextSequenced = 0;
+    return turns.map((turn) => (turn.startedSeq === undefined ? turn : sequenced[nextSequenced++]));
+  }, [groupedMessages, current, currentByMessage, contextItems]);
 
   const touchStart = useRef<{ x: number; y: number } | null>(null);
 
@@ -144,17 +263,89 @@ export function ChatArea({
         onTouchStart={handleTouchStart}
         onTouchEnd={handleTouchEnd}
       >
-        {messages.length === 0 && !current && !running && (
-          <p className="chat-empty">Send a message to start</p>
-        )}
+        {messages.length === 0 &&
+          !current &&
+          Object.keys(currentByMessage).length === 0 &&
+          contextItems.length === 0 &&
+          !running && <p className="chat-empty">Send a message to start</p>}
 
-        {/* Finished turns */}
-        {groupedMessages.map(({ msg, grouped }) => {
+        {orderedTurns.map((turn) => {
+          if (turn.kind === 'context') {
+            const item = turn.value;
+            return (
+              <article
+                key={`context:${item.deliveryId}:${item.attemptId}`}
+                className="msg-turn symposium-context-card"
+              >
+                <strong>
+                  {item.receipt === 'received'
+                    ? `Received context: ${item.sourceSeatId ?? 'you'} to ${item.recipientSeatId}`
+                    : `Dispatch uncertain for ${item.recipientSeatId}`}
+                </strong>
+                {item.sourceMessageId && (
+                  <small>Excerpt from {item.sourceSeatId ?? 'your message'}</small>
+                )}
+                <p>{item.content}</p>
+              </article>
+            );
+          }
+          if (turn.kind === 'streaming') {
+            const stream = turn.value;
+            return (
+              <div
+                key={turnKey(stream.messageId, stream.symposiumProvenance)}
+                className="msg-turn msg-turn--streaming"
+              >
+                <SeatAttribution provenance={stream.symposiumProvenance} />
+                {groupBlocks(
+                  stream.blockOrder.flatMap((blockId) => {
+                    const block = stream.blocks.get(blockId);
+                    return block ? [block] : [];
+                  }),
+                  progressToolIdsFor(
+                    stream.messageId,
+                    stream.symposiumProvenance,
+                    stream.blockOrder.flatMap((blockId) => {
+                      const block = stream.blocks.get(blockId);
+                      return block ? [block] : [];
+                    }),
+                  ),
+                ).map((item) => {
+                  if (item.type === 'tool-group')
+                    return <ToolGroup key={item.key} tools={item.tools} sessionId={sessionId} />;
+                  const block = item.block;
+                  if (block.blockType === 'thinking' || block.blockType === 'redacted_thinking')
+                    return <ThinkingBlock key={block.blockId} block={block} streaming />;
+                  if (block.blockType === 'tool_use') {
+                    const progress = progressFor(
+                      stream.messageId,
+                      stream.symposiumProvenance,
+                      block.toolId,
+                    );
+                    return progress ? (
+                      <ProgressWidget key={block.blockId} items={progress.items} />
+                    ) : (
+                      <ToolPill key={block.blockId} block={block} sessionId={sessionId} />
+                    );
+                  }
+                  return (
+                    <TextBubble
+                      key={block.blockId}
+                      content={block.content ?? ''}
+                      streaming
+                      artifactSessionId={sessionId}
+                    />
+                  );
+                })}
+              </div>
+            );
+          }
+          const { msg, grouped } = turn.value;
           if (msg.role === 'user') {
             const textBlock = msg.blocks.find((b) => b.blockType === 'text');
             return (
               <UserBubble
-                key={msg.messageId}
+                key={turnKey(msg.messageId, msg.symposiumProvenance)}
                 text={textBlock?.content}
                 images={msg.images}
                 contextBlocks={msg.contextBlocks}
@@ -174,21 +365,26 @@ export function ChatArea({
 
           // Assistant turn — render grouped blocks
           return (
-            <div key={msg.messageId} className="msg-turn">
+            <div key={turnKey(msg.messageId, msg.symposiumProvenance)} className="msg-turn">
+              <SeatAttribution provenance={msg.symposiumProvenance} />
               {(grouped ?? []).map((item, i) => {
                 if (item.type === 'tool-group') {
-                  return <ToolGroup key={item.key} tools={item.tools} />;
+                  return <ToolGroup key={item.key} tools={item.tools} sessionId={sessionId} />;
                 }
                 const block: FinishedBlock = item.block;
                 if (block.blockType === 'thinking' || block.blockType === 'redacted_thinking') {
                   return <ThinkingBlock key={block.blockId} block={block} />;
                 }
                 if (block.blockType === 'tool_use') {
-                  const progress = block.toolId ? progressByToolId?.[block.toolId] : undefined;
+                  const progress = progressFor(
+                    msg.messageId,
+                    msg.symposiumProvenance,
+                    block.toolId,
+                  );
                   if (progress) {
                     return <ProgressWidget key={block.blockId} items={progress.items} />;
                   }
-                  return <ToolPill key={block.blockId} block={block} />;
+                  return <ToolPill key={block.blockId} block={block} sessionId={sessionId} />;
                 }
                 const bid = block.blockId || `text-${i}`;
                 return (
@@ -196,6 +392,7 @@ export function ChatArea({
                     key={bid}
                     content={block.content ?? ''}
                     timestamp={msg.timestamp}
+                    artifactSessionId={sessionId}
                     readAloud={
                       voice?.ttsAvailable
                         ? {
@@ -208,38 +405,18 @@ export function ChatArea({
                   />
                 );
               })}
+              {onShareMessage && (
+                <button
+                  type="button"
+                  className="symposium-share-action"
+                  onClick={() => onShareMessage(msg.messageId, msg.symposiumProvenance)}
+                >
+                  Share excerpt
+                </button>
+              )}
             </div>
           );
         })}
-
-        {/* In-flight streaming turn uses the same compact grouping as finished turns. */}
-        {current && (
-          <div className="msg-turn msg-turn--streaming">
-            {groupBlocks(
-              current.blockOrder.flatMap((blockId) => {
-                const block = current.blocks.get(blockId);
-                return block ? [block] : [];
-              }),
-              progressToolIds,
-            ).map((item) => {
-              if (item.type === 'tool-group') {
-                return <ToolGroup key={item.key} tools={item.tools} />;
-              }
-              const block = item.block;
-              if (block.blockType === 'thinking' || block.blockType === 'redacted_thinking') {
-                return <ThinkingBlock key={block.blockId} block={block} streaming />;
-              }
-              if (block.blockType === 'tool_use') {
-                const progress = block.toolId ? progressByToolId?.[block.toolId] : undefined;
-                if (progress) {
-                  return <ProgressWidget key={block.blockId} items={progress.items} />;
-                }
-                return <ToolPill key={block.blockId} block={block} />;
-              }
-              return <TextBubble key={block.blockId} content={block.content ?? ''} streaming />;
-            })}
-          </div>
-        )}
       </div>
 
       {permission && (
@@ -257,6 +434,7 @@ export function ChatArea({
           approvalScope={permission.approvalScope}
           responseError={permission.responseError}
           onRespond={onPermissionRespond}
+          onExpire={onPermissionExpire}
         />
       )}
     </>

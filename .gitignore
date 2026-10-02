@@ -11,12 +11,15 @@ frontend/.env.ios
 frontend/ios/local.xcconfig
 mcp-server/build/
 certs/
+release.txt
 logs/
 .jaeger-data/
 .loki-data/
 .grafana-data/
 .mlflow-data/
 .DS_Store
+test-results/
+playwright-report/
 .claude/worktrees/
 .cursor/worktrees/
 frontend/ios/App/App.xcworkspace/

@@ -1,12 +1,37 @@
+import { verifyPreparedSeed } from '../scripts/verify-openshell-production.mjs';
+import {
+  knowledgeVerificationCommand,
+  knowledgeViewManifest,
+  knowledgePresenceCommand,
+  knowledgeCacheStatusCommand,
+  knowledgeCacheRepairCommand,
+  knowledgeCleanupCommand,
+} from './knowledge-view.js';
+import { SYMPOSIUM_ARTIFACT_TARGET } from './symposium-artifact-lease.js';
+import {
+  validateOpenShellCliEnvironment,
+  type OpenShellCliEnvironment,
+} from './openshell-cli-environment.js';
 import { parseProviderAttachments } from './connections-gateway.js';
 import { execFile } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
-import { isAbsolute, join } from 'node:path';
+import {
+  cpSync,
+  existsSync,
+  mkdtempSync,
+  mkdirSync,
+  readFileSync,
+  realpathSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
+import { basename, dirname, isAbsolute, join } from 'node:path';
 import { z } from 'zod';
 import type { McpServerConfig } from './mcp-config.js';
-import { openShellSshProcessSpec } from './codex-app-server-client.js';
+import { openShellSshArgvProcessSpec, openShellSshProcessSpec } from './codex-app-server-client.js';
 import { codexPrivateDirectory } from './codex-private-path.js';
+import type { ArtifactDriverConfig } from './symposium-artifact-lease.js';
 
 // OpenShell gateways prior to the current API contract encode resource_version
 // as a JSON number. Normalize that legacy representation at the boundary so
@@ -66,6 +91,14 @@ const BootContext = z.object({
 });
 export type OpenShellBootContext = z.infer<typeof BootContext>;
 
+export interface OpenShellKnowledgeSelection {
+  sourceCommit: string;
+  payloadSha256: string;
+  knowledgeRoot: string;
+  manifestSha256: string;
+  context: OpenShellBootContext;
+}
+
 export interface OpenShellRuntime {
   sandboxName: string;
   /** Immutable provider resource ID observed after ensure. */
@@ -73,32 +106,83 @@ export interface OpenShellRuntime {
   resourceVersion?: string;
   created?: boolean;
   workdir: string;
-  appServerCommand: '/sandbox/run-mitzo-app-server' | '/sandbox/run-mitzo-subscription-app-server';
+  appServerCommand:
+    | '/sandbox/run-mitzo-app-server'
+    | '/sandbox/run-mitzo-subscription-app-server'
+    | '/usr/local/bin/symposium-subscription-app-server';
   cli: string;
   gateway: string;
   workspace: string;
   gatewayEndpoint?: string;
   gatewayInsecure: boolean;
+  cliEnvironment?: OpenShellCliEnvironment;
+}
+
+export interface OpenShellSandboxCreationReceipt {
+  sandboxName: string;
+  sandboxId: string;
+  workspace: string;
+  owner: string;
+  accountProvider: string;
 }
 
 export interface OpenShellRuntimeConfig {
+  /** Trusted host marker immediately before the external sandbox create command. */
+  beforeSandboxCreate?: () => void;
+  /** Native-only: persist terminal successful create identity before upload/configuration.
+   * This is cleanup evidence, never admission or mount attestation. */
+  onSandboxCreateSettled?: (receipt: OpenShellSandboxCreationReceipt) => void;
+  onSandboxCreationPhase?: (phase: 'create' | 'upload' | 'provider' | 'mount') => void;
+  /** Explicit CLI wire contract. Omitted retains the deployed 0.0.x behavior. */
+  cliContract?: 'v0.1';
+  /** Host-validated, lease-bound mount for a single seat. Never read from model output. */
+  artifactDriverConfig?: ArtifactDriverConfig;
+  /** Physical mount attestation supplied by the selected local compute driver. */
+  verifyArtifactMount?: (
+    sandboxName: string,
+    sandboxId: string,
+    config: ArtifactDriverConfig,
+  ) => Promise<void>;
   cli: string;
   image: string;
   policy: string;
   seed: string;
+  /** Trusted host release contract selected from MITZO_OPENSHELL_STACK_MANIFEST. */
+  seedStackManifest?: Record<string, unknown>;
   serviceProviders: string[];
   grantableServiceProviders: string[];
   workspace: string;
   gateway: string;
   gatewayEndpoint?: string;
   gatewayInsecure: boolean;
+  cliEnvironment?: OpenShellCliEnvironment;
   createDetached: boolean;
   sandboxIdLength: number;
   workdir: string;
   webSearch: 'disabled' | 'live';
 }
 
+function assertArtifactDriverConfig(config: ArtifactDriverConfig): void {
+  const keys = Object.keys(config);
+  if (keys.length !== 1 || (keys[0] !== 'docker' && keys[0] !== 'podman'))
+    throw new Error('Artifact driver config must select one local compute driver');
+  const mounts = config[keys[0]]?.mounts;
+  if (
+    !Array.isArray(mounts) ||
+    mounts.length !== 1 ||
+    mounts[0].type !== 'volume' ||
+    !/^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/.test(mounts[0].source) ||
+    mounts[0].target !== SYMPOSIUM_ARTIFACT_TARGET ||
+    typeof mounts[0].read_only !== 'boolean' ||
+    Object.keys(mounts[0]).sort().join(',') !== 'read_only,source,target,type'
+  )
+    throw new Error('Invalid artifact driver config');
+}
+
 const SERVICE_PROVIDERS = new Set(['google-workspace', 'github']);
+/** Managed connection names only enter runtime configuration from ConnectionsService. */
+const isServiceProviderName = (provider: string) =>
+  SERVICE_PROVIDERS.has(provider) || /^mitzo-conn-[a-f0-9-]{8,64}$/.test(provider);
 const PROVIDER_POLICY_LABEL = 'mitzo.provider_policy';
 const PROVIDER_POLICY_VERSION = 'state-v2';
 const PROVIDER_POLICY_QUEUES = new Map<string, Promise<void>>();
@@ -110,6 +194,8 @@ function providerPolicyFingerprint(serviceProviders: string[]) {
 interface ProviderPolicyRecord {
   automatic: string[];
   granted: string[];
+  /** Previously managed attachments awaiting confirmed removal; never approval to attach. */
+  pendingDetach?: string[];
 }
 interface ProviderPolicyState {
   read(sandboxName: string): ProviderPolicyRecord | undefined;
@@ -130,12 +216,26 @@ class FileProviderPolicyState implements ProviderPolicyState {
     if (
       !Array.isArray(value.automatic) ||
       !Array.isArray(value.granted) ||
-      ![...value.automatic, ...value.granted].every(
-        (provider) => typeof provider === 'string' && SERVICE_PROVIDERS.has(provider),
-      )
+      !value.automatic.every(
+        (provider) =>
+          typeof provider === 'string' && /^[A-Za-z0-9][A-Za-z0-9_-]{0,62}$/.test(provider),
+      ) ||
+      !value.granted.every(
+        (provider) => typeof provider === 'string' && isServiceProviderName(provider),
+      ) ||
+      (value.pendingDetach !== undefined &&
+        (!Array.isArray(value.pendingDetach) ||
+          !value.pendingDetach.every(
+            (provider) =>
+              typeof provider === 'string' && /^[A-Za-z0-9][A-Za-z0-9_-]{0,62}$/.test(provider),
+          )))
     )
       throw new Error('OpenShell provider policy state is invalid');
-    return { automatic: [...new Set(value.automatic)], granted: [...new Set(value.granted)] };
+    return {
+      automatic: [...new Set(value.automatic)],
+      granted: [...new Set(value.granted)],
+      ...(value.pendingDetach ? { pendingDetach: [...new Set(value.pendingDetach)] } : {}),
+    };
   }
 
   write(sandboxName: string, record: ProviderPolicyRecord) {
@@ -153,13 +253,33 @@ class FileProviderPolicyState implements ProviderPolicyState {
 
 export interface BoundOpenShellRuntimeConfig extends OpenShellRuntimeConfig {
   account: OpenShellAccountRoute;
+  /** Explicit, inventory-pinned inference providers for a shared Symposium sandbox. */
+  accountProviderBindings?: readonly { name: string; type: string; id: string }[];
+  /** Synchronous durable membership/union revision fence supplied by the session owner. */
+  verifyAccountProviderUnion?: () => void;
   connectionAccountId?: string;
   enforceConnectionAttachments?: boolean;
-  verifyConnections?: (name: string, signal: AbortSignal) => Promise<void>;
+  /**
+   * The third argument is the durable, explicitly approved subset of
+   * grantable providers for this retained sandbox. Callers must treat it as
+   * an exact allowlist, not a set of candidates that may auto-attach.
+   */
+  verifyConnections?: (
+    name: string,
+    signal: AbortSignal,
+    approvedGrantableProviders?: readonly string[],
+  ) => Promise<void>;
 }
 
 export type OpenShellAccountRoute =
   | { kind: 'api'; provider: string; model: string }
+  | {
+      kind: 'chatgpt-subscription-native';
+      provider: string;
+      providerType: 'codex';
+      providerId: string;
+      model: string;
+    }
   | {
       kind: 'chatgpt-subscription';
       provider: string;
@@ -179,17 +299,24 @@ export type ServiceProviderAccess =
 
 type Run = (args: readonly string[], signal: AbortSignal) => Promise<string>;
 
-function command(binary: string, args: readonly string[], signal: AbortSignal): Promise<string> {
+function command(
+  binary: string,
+  args: readonly string[],
+  signal: AbortSignal,
+  cliEnvironment?: OpenShellCliEnvironment,
+): Promise<string> {
   return new Promise((resolve, reject) => {
     execFile(
       binary,
       [...args],
       {
-        env: Object.fromEntries(
-          ['PATH', 'HOME', 'TMPDIR', 'LANG', 'LC_ALL'].flatMap((key) =>
-            process.env[key] ? [[key, process.env[key]!]] : [],
-          ),
-        ),
+        env: cliEnvironment
+          ? validateOpenShellCliEnvironment(cliEnvironment)
+          : Object.fromEntries(
+              ['PATH', 'HOME', 'TMPDIR', 'LANG', 'LC_ALL'].flatMap((key) =>
+                process.env[key] ? [[key, process.env[key]!]] : [],
+              ),
+            ),
         signal,
         timeout: 120_000,
         maxBuffer: 1024 * 1024,
@@ -221,6 +348,12 @@ export function openShellRuntimeConfig(env: NodeJS.ProcessEnv): OpenShellRuntime
     throw new Error('MITZO_OPENSHELL_CLI must be an absolute path');
   if (!isAbsolute(policy) || !isAbsolute(seed))
     throw new Error('OpenShell policy and seed paths must be absolute');
+  const stackManifestPath = env.MITZO_OPENSHELL_STACK_MANIFEST;
+  if (stackManifestPath && !isAbsolute(stackManifestPath))
+    throw new Error('OpenShell stack manifest must be absolute');
+  const seedStackManifest = stackManifestPath
+    ? (JSON.parse(readFileSync(stackManifestPath, 'utf8')) as Record<string, unknown>)
+    : undefined;
   const serviceProviders = (env.MITZO_OPENSHELL_SERVICE_PROVIDERS || '')
     .split(',')
     .filter(Boolean)
@@ -264,6 +397,7 @@ export function openShellRuntimeConfig(env: NodeJS.ProcessEnv): OpenShellRuntime
     image,
     policy,
     seed,
+    ...(seedStackManifest ? { seedStackManifest } : {}),
     serviceProviders,
     grantableServiceProviders,
     workspace: identifier(env.OPENSHELL_WORKSPACE || 'default', 'workspace'),
@@ -275,6 +409,61 @@ export function openShellRuntimeConfig(env: NodeJS.ProcessEnv): OpenShellRuntime
     workdir: '/sandbox/workspaces/mgmt',
     webSearch,
   };
+}
+
+/** Resolve one immutable publication and verify it before a new ordinary seed upload. */
+export function verifiedOpenShellSeed(
+  config: Pick<OpenShellRuntimeConfig, 'seed' | 'image' | 'seedStackManifest'>,
+): string {
+  // Legacy development callers may provide an unprepared static fixture.
+  // A selected release manifest always requires the prepared baseline.
+  const baselinePath = join(config.seed, '..', 'baseline.json');
+  if (!config.seedStackManifest && !existsSync(baselinePath)) return config.seed;
+  const seed = realpathSync(config.seed);
+  if (!config.seedStackManifest) {
+    const baseline = JSON.parse(readFileSync(join(seed, '..', 'baseline.json'), 'utf8')) as Record<
+      string,
+      unknown
+    >;
+    if (Object.hasOwn(baseline, 'runtimeBaseCommit'))
+      throw new Error('Dynamic knowledge requires a complete stack lock at runtime admission');
+    return seed;
+  }
+  const runtime = config.seedStackManifest.runtime as Record<string, unknown> | undefined;
+  if (!runtime || runtime.image !== config.image)
+    throw new Error('OpenShell runtime image does not match the selected stack lock');
+  verifyPreparedSeed(seed, config.seedStackManifest);
+  return seed;
+}
+
+/** Freeze verified upload inputs before any asynchronous create operation. */
+export function prepareOpenShellSeed(
+  config: Pick<OpenShellRuntimeConfig, 'seed' | 'image' | 'seedStackManifest'>,
+): { seed: string; cleanup: () => void } {
+  const selected = verifiedOpenShellSeed(config);
+  if (!config.seedStackManifest) return { seed: selected, cleanup: () => undefined };
+  const privateRoot = join(codexPrivateDirectory(), 'knowledge-uploads');
+  mkdirSync(privateRoot, { recursive: true, mode: 0o700 });
+  const snapshotRoot = mkdtempSync(join(privateRoot, 'publication-'));
+  const cleanup = () => rmSync(snapshotRoot, { recursive: true, force: true });
+  try {
+    // Capture trusted metadata before copying content, then verify the frozen
+    // copy against exactly those bytes. Concurrent source changes cannot enter
+    // upload simply by changing their manifest while create is in flight.
+    const baseline = readFileSync(join(selected, '..', 'baseline.json'));
+    const publicationPath = join(selected, '..', 'publication.json');
+    const publication = existsSync(publicationPath) ? readFileSync(publicationPath) : undefined;
+    const seed = join(snapshotRoot, 'mgmt');
+    cpSync(selected, seed, { recursive: true, dereference: false });
+    writeFileSync(join(snapshotRoot, 'baseline.json'), baseline, { mode: 0o600 });
+    if (publication)
+      writeFileSync(join(snapshotRoot, 'publication.json'), publication, { mode: 0o600 });
+    verifyPreparedSeed(seed, config.seedStackManifest);
+    return { seed, cleanup };
+  } catch (error) {
+    cleanup();
+    throw error;
+  }
 }
 
 /** Builds Codex config for capabilities that execute inside OpenShell.
@@ -313,6 +502,7 @@ function legacySandboxNameForConversation(conversationHash: string) {
 export class OpenShellRuntimeManager {
   private run: Run;
   private runSsh: Run;
+  private knowledgeViews = new Map<string, OpenShellKnowledgeSelection>();
 
   constructor(
     private config: BoundOpenShellRuntimeConfig,
@@ -324,11 +514,52 @@ export class OpenShellRuntimeManager {
     runSsh?: Run,
     private providerPolicyState: ProviderPolicyState = new FileProviderPolicyState(),
   ) {
+    if (
+      config.account.kind === 'chatgpt-subscription-native' &&
+      (config.cliContract !== 'v0.1' ||
+        config.accountProviderBindings?.length !== 1 ||
+        config.accountProviderBindings[0].type !== 'codex' ||
+        config.accountProviderBindings[0].id !== config.account.providerId)
+    )
+      throw new Error('Native ChatGPT requires one pinned upstream OpenShell 0.1 Codex provider');
+    if (config.cliContract === 'v0.1') {
+      if (
+        (config.account.kind !== 'api' && config.account.kind !== 'chatgpt-subscription-native') ||
+        config.accountProviderBindings?.length !== 1 ||
+        config.accountProviderBindings[0].name !== config.account.provider ||
+        config.serviceProviders.length ||
+        config.grantableServiceProviders.length
+      )
+        throw new Error('OpenShell 0.1 seat sandbox requires exactly one account provider');
+    }
     if (config.grantableServiceProviders.includes(config.account.provider))
       throw new Error(
         `OpenShell account provider cannot also be grantable: ${config.account.provider}`,
       );
-    this.run = run ?? ((args, signal) => command(config.cli, args, signal));
+    if (config.accountProviderBindings) {
+      if (!config.verifyAccountProviderUnion)
+        throw new Error('Shared account provider union requires a durable membership fence');
+      if (config.account.kind !== 'api' && config.account.kind !== 'chatgpt-subscription-native')
+        throw new Error('Shared account provider union requires independent API routes');
+      const names = config.accountProviderBindings.map((binding) =>
+        identifier(binding.name, 'account provider'),
+      );
+      if (new Set(names).size !== names.length || !names.includes(config.account.provider))
+        throw new Error('Shared account provider bindings must be distinct and include the owner');
+      if (
+        names.some(
+          (name) =>
+            config.serviceProviders.includes(name) ||
+            config.grantableServiceProviders.includes(name),
+        )
+      )
+        throw new Error('Account provider cannot also be a service provider');
+      for (const binding of config.accountProviderBindings) {
+        identifier(binding.type, 'account provider type');
+        if (!binding.id.trim()) throw new Error('Account provider ID is required');
+      }
+    }
+    this.run = run ?? ((args, signal) => command(config.cli, args, signal, config.cliEnvironment));
     this.runSsh = runSsh ?? ((args, signal) => command('ssh', args, signal));
   }
 
@@ -371,13 +602,7 @@ export class OpenShellRuntimeManager {
             `OpenShell sandbox ${runtime.sandboxName} has another account provider binding`,
           ),
         };
-      const attached = parseProviderAttachments(
-        await this.run(
-          ['sandbox', ...this.base(), 'provider', 'list', runtime.sandboxName],
-          signal,
-        ),
-        runtime.sandboxName,
-      );
+      const attached = await this.attachedProviders(runtime.sandboxName, signal);
       const approved = this.providerPolicyState
         .read(runtime.sandboxName)
         ?.granted.includes(provider);
@@ -425,11 +650,106 @@ export class OpenShellRuntimeManager {
     ] as const;
   }
 
+  private async attachedProviders(name: string, signal: AbortSignal): Promise<string[]> {
+    const args = ['sandbox', ...this.base(), 'provider', 'list', name];
+    if (this.config.cliContract !== 'v0.1')
+      return parseProviderAttachments(await this.run(args, signal), name);
+    // The 0.1 CLI emits a paginated envelope even for an empty attachment list.
+    // A partial page is never sufficient evidence that another seat's provider
+    // is absent, so consume every page before returning an authorization result.
+    const attachments: { name: string; type: string }[] = [];
+    let token = '';
+    const seen = new Set<string>();
+    do {
+      const payload: unknown = JSON.parse(
+        await this.run(
+          [
+            ...args,
+            '--output',
+            'json',
+            '--page-size',
+            '100',
+            ...(token ? ['--page-token', token] : []),
+          ],
+          signal,
+        ),
+      );
+      const page = z
+        .object({
+          providers: z.array(z.object({ name: z.string().min(1), type: z.string().min(1) })),
+          next_page_token: z.string(),
+        })
+        .parse(payload);
+      attachments.push(...page.providers);
+      token = page.next_page_token;
+      if (token && seen.has(token))
+        throw new Error('OpenShell 0.1 attachment pagination repeated a token');
+      if (token) seen.add(token);
+    } while (token);
+    const names = attachments.map((row) => row.name);
+    if (new Set(names).size !== names.length)
+      throw new Error('OpenShell 0.1 attachment inventory is invalid');
+    const accountAttachment = attachments.find((row) => row.name === this.config.account.provider);
+    if (
+      accountAttachment &&
+      accountAttachment.type !== this.config.accountProviderBindings?.[0]?.type
+    )
+      throw new Error('OpenShell 0.1 account attachment type changed');
+    return names;
+  }
+
+  private async accountProviderInventory(signal: AbortSignal) {
+    if (this.config.cliContract !== 'v0.1')
+      return ProviderList.parse(
+        JSON.parse(
+          await this.run(
+            ['provider', ...this.base(), 'list', '--output', 'json', '--limit', '100'],
+            signal,
+          ),
+        ),
+      );
+    const providers: z.infer<typeof Provider>[] = [];
+    let token = '';
+    const seen = new Set<string>();
+    do {
+      const payload = JSON.parse(
+        await this.run(
+          [
+            'provider',
+            ...this.base(),
+            'list',
+            '--output',
+            'json',
+            '--page-size',
+            '100',
+            ...(token ? ['--page-token', token] : []),
+          ],
+          signal,
+        ),
+      ) as unknown;
+      const page = z
+        .object({ providers: ProviderList, next_page_token: z.string() })
+        .parse(payload);
+      providers.push(...page.providers);
+      token = page.next_page_token;
+      if (token && seen.has(token))
+        throw new Error('OpenShell provider pagination repeated a token');
+      if (token) seen.add(token);
+    } while (token);
+    return providers;
+  }
+
   private async get(name: string, signal: AbortSignal) {
     try {
-      return Sandbox.parse(
+      const sandbox = Sandbox.parse(
         JSON.parse(await this.run(['sandbox', ...this.base(), 'get', name, '-o', 'json'], signal)),
       );
+      if (
+        this.config.cliContract === 'v0.1' &&
+        (sandbox.name !== name || sandbox.workspace !== this.config.workspace)
+      )
+        throw new Error('OpenShell 0.1 sandbox name or workspace changed');
+      return sandbox;
     } catch (error) {
       const message = error instanceof Error ? error.message : '';
       if (/not found|404|does not exist/i.test(message)) return undefined;
@@ -463,6 +783,41 @@ export class OpenShellRuntimeManager {
   /** Read-only inventory scoped to sandboxes carrying this runtime's provider label. */
   async inventory(signal: AbortSignal) {
     const sandboxes: z.infer<typeof Sandbox>[] = [];
+    if (this.config.cliContract === 'v0.1') {
+      let token = '';
+      const seen = new Set<string>();
+      do {
+        const payload = JSON.parse(
+          await this.run(
+            [
+              'sandbox',
+              ...this.base(),
+              'list',
+              '--output',
+              'json',
+              '--page-size',
+              '100',
+              ...(token ? ['--page-token', token] : []),
+            ],
+            signal,
+          ),
+        ) as unknown;
+        const page = z
+          .object({ sandboxes: SandboxList, next_page_token: z.string() })
+          .parse(payload);
+        sandboxes.push(...page.sandboxes);
+        token = page.next_page_token;
+        if (token && seen.has(token))
+          throw new Error('OpenShell sandbox pagination repeated a token');
+        if (token) seen.add(token);
+      } while (token);
+      return sandboxes.filter(
+        (sandbox) =>
+          sandbox.labels?.['mitzo.conversation'] &&
+          sandbox.labels?.['mitzo.account_provider'] === this.config.account.provider &&
+          sandbox.workspace === this.config.workspace,
+      );
+    }
     const limit = 100;
     for (let offset = 0; ; offset += limit) {
       const page = SandboxList.parse(
@@ -497,10 +852,17 @@ export class OpenShellRuntimeManager {
   /** Read the current physical sandbox for a lifecycle record.  This keeps
    * lifecycle callers from reconstructing CLI arguments or trusting a name
    * without re-checking its ownership labels. */
-  async inspect(conversationId: string, physicalId: string, signal: AbortSignal) {
+  async inspect(
+    conversationId: string,
+    physicalId: string,
+    signal: AbortSignal,
+    expectedName?: string,
+  ) {
     const sandbox = await this.ownedSandbox(conversationId, physicalId, signal, true);
     if (!sandbox) return undefined;
     if (!sandbox.id) throw new Error('OpenShell sandbox has no physical identity');
+    if (expectedName && sandbox.name !== expectedName)
+      throw new Error('OpenShell artifact target name changed');
     // A Ready resource_version is an observation and may change after a read.
     // It is retained only in the checkpoint archive identity. A stopped
     // revision is stable and fences a later delete.
@@ -511,6 +873,22 @@ export class OpenShellRuntimeManager {
       ...(lifecycleVersion ? { resourceVersion: lifecycleVersion } : {}),
       phase: sandbox.phase,
     };
+  }
+
+  /** Recover a reserved runtime after a crash before its physical ID was recorded. */
+  async inspectReserved(conversationId: string, signal: AbortSignal) {
+    const name = sandboxNameForConversation(conversationId, this.config.sandboxIdLength);
+    const sandbox = await this.get(name, signal);
+    if (!sandbox) return undefined;
+    const owner = createHash('sha256').update(conversationId).digest('hex').slice(0, 63);
+    if (
+      sandbox.labels?.['mitzo.conversation'] !== owner ||
+      sandbox.labels?.['mitzo.account_provider'] !== this.config.account.provider ||
+      (this.config.cliContract === 'v0.1' && sandbox.workspace !== this.config.workspace) ||
+      !sandbox.id
+    )
+      throw new Error('Reserved OpenShell sandbox identity cannot be verified');
+    return { id: sandbox.id, name: sandbox.name, phase: sandbox.phase };
   }
 
   private ownedSandbox(
@@ -633,15 +1011,24 @@ export class OpenShellRuntimeManager {
 
   private async verifyAccountProvider(signal: AbortSignal) {
     const account = this.config.account;
+    if (this.config.accountProviderBindings) {
+      const providers = await this.accountProviderInventory(signal);
+      for (const binding of this.config.accountProviderBindings) {
+        const matches = providers.filter((provider) => provider.name === binding.name);
+        const match = matches[0];
+        if (
+          matches.length !== 1 ||
+          !match ||
+          match.workspace !== this.config.workspace ||
+          match.type !== binding.type ||
+          match.id !== binding.id
+        )
+          throw new Error('OpenShell account provider inventory changed');
+      }
+      return;
+    }
     if (account.kind === 'api') return;
-    const providers = ProviderList.parse(
-      JSON.parse(
-        await this.run(
-          ['provider', ...this.base(), 'list', '--output', 'json', '--limit', '100'],
-          signal,
-        ),
-      ),
-    );
+    const providers = await this.accountProviderInventory(signal);
     const provider = providers.find((entry) => entry.name === account.provider);
     if (
       !provider ||
@@ -650,6 +1037,9 @@ export class OpenShellRuntimeManager {
       provider.id !== account.providerId
     )
       throw new Error('OpenShell subscription provider does not match the selected account');
+    // Public native Codex providers use gateway-owned CODEX_AUTH_* refresh.
+    // The compatibility OAuth provider's refresh contract does not apply.
+    if (account.kind === 'chatgpt-subscription-native') return;
     const refresh = RefreshStatus.parse(
       JSON.parse(
         await this.run(
@@ -690,13 +1080,16 @@ export class OpenShellRuntimeManager {
     throw new Error(`OpenShell sandbox ${name} did not become Ready (last phase: ${phase})`);
   }
 
-  private async verifyManagedConnections(name: string, signal: AbortSignal) {
-    await this.config.verifyConnections?.(name, signal);
+  private async verifyManagedConnections(
+    name: string,
+    signal: AbortSignal,
+    approvedGrantableProviders: readonly string[] = [],
+  ) {
+    await this.config.verifyConnections?.(name, signal, approvedGrantableProviders);
     if (this.config.enforceConnectionAttachments) {
-      const actual = parseProviderAttachments(
-        await this.run(['sandbox', ...this.base(), 'provider', 'list', name], signal),
-        name,
-      ).filter((p) => p.startsWith('mitzo-conn-'));
+      const actual = (await this.attachedProviders(name, signal)).filter((p) =>
+        p.startsWith('mitzo-conn-'),
+      );
       const expected = this.config.serviceProviders.filter((p) => p.startsWith('mitzo-conn-'));
       if (actual.length !== expected.length || actual.some((p) => !expected.includes(p)))
         throw new Error('Connection permissions changed. Start a new conversation.');
@@ -712,11 +1105,22 @@ export class OpenShellRuntimeManager {
     let changed = false;
     for (const provider of attach) {
       try {
-        await this.run(['sandbox', ...this.base(), 'provider', 'attach', name, provider], signal);
+        await this.run(
+          [
+            'sandbox',
+            ...this.base(),
+            'provider',
+            'attach',
+            name,
+            provider,
+            ...(this.config.cliContract === 'v0.1' ? ['--wait', '--output', 'json'] : []),
+          ],
+          signal,
+        );
         changed = true;
       } catch (error) {
         const message = error instanceof Error ? error.message : '';
-        if (!/already attached|conflict|409/i.test(message))
+        if (this.config.cliContract === 'v0.1' || !/already attached|conflict|409/i.test(message))
           throw new Error('OpenShell service provider reconciliation failed', { cause: error });
       }
     }
@@ -733,17 +1137,30 @@ export class OpenShellRuntimeManager {
     if (changed) await this.waitForReady(name, owner, signal);
   }
 
-  async ensure(conversationId: string, signal: AbortSignal): Promise<OpenShellRuntime> {
+  async ensure(
+    conversationId: string,
+    signal: AbortSignal,
+    expected?: { sandboxName: string; sandboxId: string },
+  ): Promise<OpenShellRuntime> {
+    const artifactConfig = this.config.artifactDriverConfig;
+    if (artifactConfig && (this.config.cliContract !== 'v0.1' || !this.config.verifyArtifactMount))
+      throw new Error('Artifact mount requires OpenShell 0.1 and physical mount attestation');
+    if (artifactConfig) assertArtifactDriverConfig(artifactConfig);
+    if (artifactConfig && this.config.workdir !== SYMPOSIUM_ARTIFACT_TARGET)
+      throw new Error('Artifact mount must match the reviewed native workdir');
+    this.config.verifyAccountProviderUnion?.();
     await this.verifyAccountProvider(signal);
+    this.config.verifyAccountProviderUnion?.();
     const accountProvider = this.config.account.provider;
     // The account provider is a separately-bound inference/account role. It
     // can happen to have a service-provider name (for example `github`), but
     // it is never part of the attachable service-provider policy.
     const automaticProviders = () => [
       ...new Set(
-        this.config.serviceProviders.filter(
-          (provider) => SERVICE_PROVIDERS.has(provider) && provider !== accountProvider,
-        ),
+        [
+          ...this.config.serviceProviders.filter((provider) => isServiceProviderName(provider)),
+          ...(this.config.accountProviderBindings?.map((binding) => binding.name) ?? []),
+        ].filter((provider) => provider !== accountProvider),
       ),
     ];
     const policyFingerprint = providerPolicyFingerprint(automaticProviders());
@@ -753,7 +1170,17 @@ export class OpenShellRuntimeManager {
     let name = currentName;
     let owner = currentOwner;
     let sandbox = await this.get(name, signal);
+    if (
+      expected &&
+      (!sandbox ||
+        sandbox.phase !== 'Ready' ||
+        sandbox.id !== expected.sandboxId ||
+        sandbox.name !== expected.sandboxName ||
+        name !== expected.sandboxName)
+    )
+      throw new Error('Recorded seat sandbox physical identity changed or is not Ready');
     let created = false;
+    let terminalSandboxId: string | undefined;
     if (!sandbox) {
       const legacyName = legacySandboxNameForConversation(conversationHash);
       const legacy = await this.get(legacyName, signal);
@@ -768,71 +1195,147 @@ export class OpenShellRuntimeManager {
       throw new Error(`OpenShell sandbox ${name} is not owned by this conversation`);
     if (sandbox && sandbox.labels?.['mitzo.account_provider'] !== accountProvider)
       throw new Error(`OpenShell sandbox ${name} has another account provider binding`);
-    if (sandbox) await this.verifyManagedConnections(name, signal);
-    else await this.config.verifyConnections?.(name, signal);
+    const approvedGrantableProviders = sandbox
+      ? (this.providerPolicyState.read(name)?.granted ?? []).filter((provider) =>
+          this.config.grantableServiceProviders.includes(provider),
+        )
+      : [];
+    if (sandbox) await this.verifyManagedConnections(name, signal, approvedGrantableProviders);
+    else await this.config.verifyConnections?.(name, signal, []);
     if (!sandbox) {
-      created = true;
-      const args = [
-        'sandbox',
-        ...this.base(),
-        'create',
-        '--name',
-        name,
-        '--from',
-        this.config.image,
-        '--policy',
-        this.config.policy,
-        '--upload',
-        // OpenShell uploads a source directory as a child of the destination.
-        // Target the fixed parent so the MGMT seed lands at the canonical cwd
-        // instead of /sandbox/workspaces/mgmt/mgmt.
-        `${this.config.seed}:/sandbox/workspaces`,
-        '--label',
-        `mitzo.conversation=${owner}`,
-        '--label',
-        `mitzo.account_provider=${accountProvider}`,
-        '--label',
-        `${PROVIDER_POLICY_LABEL}=${policyFingerprint}`,
-        '--no-auto-providers',
-        '--output',
-        'json',
-      ];
-      if (this.config.connectionAccountId)
-        args.push('--label', `mitzo.connection_account=${this.config.connectionAccountId}`);
-      if (this.config.createDetached) args.push('--detach');
-      args.push('--provider', accountProvider);
-      // The reviewed subscription compatibility CLI requires an explicit
-      // inference route. Released OpenShell 0.0.116 does not expose these
-      // flags, and API providers already define their own inspected endpoint.
-      if (this.config.account.kind === 'chatgpt-subscription') {
-        args.push(
-          '--inference-provider',
-          accountProvider,
-          '--inference-model',
-          this.config.account.model,
-        );
-      }
-      for (const provider of this.config.serviceProviders)
-        if (provider !== accountProvider) args.push('--provider', provider);
+      const preparedSeed = artifactConfig
+        ? { seed: this.config.seed, cleanup: () => undefined }
+        : prepareOpenShellSeed(this.config);
+      const selectedSeed = preparedSeed.seed;
       try {
-        await this.run(args, signal);
-      } catch (error) {
-        if (!/already exists|conflict|409/i.test(error instanceof Error ? error.message : ''))
-          throw error;
+        created = true;
+        const phasedCreate = !!this.config.onSandboxCreateSettled;
+        if (
+          phasedCreate &&
+          (this.config.cliContract !== 'v0.1' ||
+            !['chatgpt-subscription-native', 'api'].includes(this.config.account.kind))
+        )
+          throw new Error('Phased creation requires native OpenShell seats');
+        const args = [
+          'sandbox',
+          ...this.base(),
+          'create',
+          '--name',
+          name,
+          '--from',
+          this.config.image,
+          '--policy',
+          this.config.policy,
+          ...(!phasedCreate && !artifactConfig
+            ? [
+                '--upload',
+                // OpenShell uploads a source directory as a child of the destination.
+                // Target the fixed parent so the MGMT seed lands at the canonical cwd
+                // instead of /sandbox/workspaces/mgmt/mgmt.
+                `${selectedSeed}:/sandbox/workspaces`,
+              ]
+            : []),
+          '--label',
+          `mitzo.conversation=${owner}`,
+          '--label',
+          `mitzo.account_provider=${accountProvider}`,
+          '--label',
+          `${PROVIDER_POLICY_LABEL}=${policyFingerprint}`,
+          '--no-auto-providers',
+          '--output',
+          'json',
+        ];
+        if (artifactConfig) args.push('--driver-config-json', JSON.stringify(artifactConfig));
+        if (this.config.connectionAccountId)
+          args.push('--label', `mitzo.connection_account=${this.config.connectionAccountId}`);
+        if (this.config.createDetached) args.push('--detach');
+        args.push('--provider', accountProvider);
+        // The reviewed subscription compatibility CLI requires an explicit
+        // inference route. Released OpenShell 0.0.116 does not expose these
+        // flags, and API providers already define their own inspected endpoint.
+        if (
+          this.config.account.kind === 'chatgpt-subscription' &&
+          this.config.cliContract !== 'v0.1'
+        ) {
+          args.push(
+            '--inference-provider',
+            accountProvider,
+            '--inference-model',
+            this.config.account.model,
+          );
+        }
+        for (const provider of this.config.serviceProviders)
+          if (provider !== accountProvider) args.push('--provider', provider);
+        for (const binding of this.config.accountProviderBindings ?? [])
+          if (binding.name !== accountProvider) args.push('--provider', binding.name);
+        if (this.config.accountProviderBindings) {
+          this.config.verifyAccountProviderUnion?.();
+          this.providerPolicyState.write(name, { automatic: automaticProviders(), granted: [] });
+        }
+        this.config.beforeSandboxCreate?.();
+        this.config.onSandboxCreationPhase?.('create');
+        try {
+          const output = await this.run(args, signal);
+          if (phasedCreate) {
+            const receipt = Sandbox.parse(JSON.parse(output));
+            if (
+              !receipt.id ||
+              receipt.name !== name ||
+              receipt.workspace !== this.config.workspace ||
+              receipt.phase !== 'Ready' ||
+              receipt.labels?.['mitzo.conversation'] !== owner ||
+              receipt.labels?.['mitzo.account_provider'] !== accountProvider
+            )
+              throw new Error('Terminal sandbox create identity is unavailable');
+            terminalSandboxId = receipt.id;
+            this.config.onSandboxCreateSettled!({
+              sandboxName: name,
+              sandboxId: receipt.id,
+              workspace: this.config.workspace,
+              owner,
+              accountProvider,
+            });
+            if (!artifactConfig) {
+              this.config.onSandboxCreationPhase?.('upload');
+              const beforeUpload = await this.get(name, signal);
+              if (beforeUpload?.id !== receipt.id || beforeUpload.phase !== 'Ready')
+                throw new Error('Created sandbox identity changed before seed upload');
+              await this.run(
+                ['sandbox', ...this.base(), 'upload', name, selectedSeed, '/sandbox/workspaces'],
+                signal,
+              );
+              const afterUpload = await this.get(name, signal);
+              if (afterUpload?.id !== receipt.id || afterUpload.phase !== 'Ready')
+                throw new Error('Created sandbox identity changed after seed upload');
+            }
+          }
+        } catch (error) {
+          if (
+            phasedCreate ||
+            !/already exists|conflict|409/i.test(error instanceof Error ? error.message : '')
+          )
+            throw error;
+        }
+        sandbox = await this.waitForReady(name, owner, signal);
+      } finally {
+        preparedSeed.cleanup();
       }
-      sandbox = await this.waitForReady(name, owner, signal);
     } else if (sandbox.phase === 'Stopped') {
       await this.run(['sandbox', ...this.base(), 'start', name], signal);
       sandbox = await this.waitForReady(name, owner, signal);
     } else if (sandbox.phase !== 'Ready') {
       sandbox = await this.waitForReady(name, owner, signal);
     }
-    await this.verifyManagedConnections(name, signal);
+    if (terminalSandboxId) this.config.onSandboxCreationPhase?.('provider');
+    if (terminalSandboxId && sandbox?.id !== terminalSandboxId)
+      throw new Error('Created sandbox identity changed before configuration');
+    await this.verifyManagedConnections(name, signal, approvedGrantableProviders);
     if (sandbox && sandbox.phase === 'Ready' && sandbox.labels?.['mitzo.conversation'] === owner) {
       await this.serializeProviderPolicy(name, signal, async () => {
+        this.config.verifyAccountProviderUnion?.();
         const automatic = automaticProviders();
         const persisted = retained ? this.providerPolicyState.read(name) : undefined;
-        const previous =
+        const previous: ProviderPolicyRecord | undefined =
           persisted ??
           (retained && sandbox.labels?.[PROVIDER_POLICY_LABEL] === policyFingerprint
             ? { automatic, granted: [] }
@@ -847,32 +1350,78 @@ export class OpenShellRuntimeManager {
         // a physical grant without that record is unapproved and must be
         // detached. Read actual state before mutating either the sandbox or
         // policy; an unreadable list fails closed.
-        const desired = new Set([...automatic, ...granted]);
+        const desired = new Set([
+          ...(this.config.cliContract === 'v0.1' ? [accountProvider] : []),
+          ...automatic,
+          ...granted,
+        ]);
         const actual = retained
-          ? new Set(
-              parseProviderAttachments(
-                await this.run(['sandbox', ...this.base(), 'provider', 'list', name], signal),
-                name,
-              ),
-            )
+          ? new Set(await this.attachedProviders(name, signal))
           : new Set<string>();
+        if (
+          this.config.cliContract === 'v0.1' &&
+          [...actual].some((provider) => provider !== accountProvider)
+        )
+          throw new Error('OpenShell 0.1 seat sandbox has another provider attachment');
         const attach = retained ? [...desired].filter((provider) => !actual.has(provider)) : [];
         const detach = retained
           ? [...actual].filter(
               (provider) =>
                 provider !== accountProvider &&
-                SERVICE_PROVIDERS.has(provider) &&
+                (isServiceProviderName(provider) ||
+                  previous?.automatic.includes(provider) ||
+                  previous?.pendingDetach?.includes(provider)) &&
                 !desired.has(provider),
             )
           : [];
+        // Persist intended account attachments before an asynchronous attach.
+        // If membership changes mid-call, the next revision can identify and
+        // detach a stale attachment even when this operation returns unknown.
+        if (this.config.accountProviderBindings)
+          this.providerPolicyState.write(name, {
+            automatic,
+            granted,
+            ...(detach.length ? { pendingDetach: detach } : {}),
+          });
         await this.reconcileServiceProviders(name, owner, attach, detach, signal);
+        this.config.verifyAccountProviderUnion?.();
+        if (this.config.accountProviderBindings) {
+          const confirmed = new Set(await this.attachedProviders(name, signal));
+          const expected = new Set([accountProvider, ...desired]);
+          if (
+            confirmed.size !== expected.size ||
+            [...expected].some((provider) => !confirmed.has(provider))
+          )
+            throw new Error('Shared Symposium provider attachments are not confirmed');
+          this.config.verifyAccountProviderUnion?.();
+        }
+        // Clear removal history only after the physical attachment set is confirmed.
         this.providerPolicyState.write(name, { automatic, granted });
       });
     }
     if (!sandbox || sandbox.phase !== 'Ready')
       throw new Error(`OpenShell sandbox ${name} is ${sandbox?.phase ?? 'unavailable'}`);
+    if (artifactConfig) {
+      if (terminalSandboxId) this.config.onSandboxCreationPhase?.('mount');
+      if (!sandbox.id) throw new Error('Artifact sandbox has no immutable physical identity');
+      await this.config.verifyArtifactMount!(name, sandbox.id, artifactConfig);
+      const afterMount = await this.get(name, signal);
+      if (!afterMount || afterMount.id !== sandbox.id || afterMount.phase !== 'Ready')
+        throw new Error('Artifact sandbox changed during mount attestation');
+    }
     if (sandbox.labels?.['mitzo.conversation'] !== owner)
       throw new Error(`OpenShell sandbox ${name} is not owned by this conversation`);
+    if (expected) {
+      const current = await this.get(name, signal);
+      if (
+        !current ||
+        current.phase !== 'Ready' ||
+        current.id !== expected.sandboxId ||
+        current.name !== expected.sandboxName
+      )
+        throw new Error('Recorded seat sandbox physical identity changed or is not Ready');
+    }
+    this.config.verifyAccountProviderUnion?.();
     return {
       sandboxName: name,
       ...(sandbox.id ? { sandboxId: sandbox.id } : {}),
@@ -880,14 +1429,17 @@ export class OpenShellRuntimeManager {
       ...(created ? { created: true } : {}),
       workdir: this.config.workdir,
       appServerCommand:
-        this.config.account.kind === 'chatgpt-subscription'
-          ? '/sandbox/run-mitzo-subscription-app-server'
-          : '/sandbox/run-mitzo-app-server',
+        this.config.account.kind === 'chatgpt-subscription-native'
+          ? '/usr/local/bin/symposium-subscription-app-server'
+          : this.config.account.kind === 'chatgpt-subscription'
+            ? '/sandbox/run-mitzo-subscription-app-server'
+            : '/sandbox/run-mitzo-app-server',
       cli: this.config.cli,
       gateway: this.config.gateway,
       workspace: this.config.workspace,
       ...(this.config.gatewayEndpoint ? { gatewayEndpoint: this.config.gatewayEndpoint } : {}),
       gatewayInsecure: this.config.gatewayInsecure,
+      ...(this.config.cliEnvironment ? { cliEnvironment: this.config.cliEnvironment } : {}),
     };
   }
 
@@ -925,11 +1477,12 @@ export class OpenShellRuntimeManager {
           ...new Set(
             this.config.serviceProviders.filter(
               (configured) =>
-                SERVICE_PROVIDERS.has(configured) && configured !== this.config.account.provider,
+                isServiceProviderName(configured) && configured !== this.config.account.provider,
             ),
           ),
         ],
         granted: [...new Set([...(previous?.granted ?? []), provider])],
+        ...(previous?.pendingDetach ? { pendingDetach: previous.pendingDetach } : {}),
       });
       try {
         await this.run(
@@ -943,6 +1496,201 @@ export class OpenShellRuntimeManager {
       }
       await this.waitForReady(runtime.sandboxName, owner, signal);
     });
+  }
+
+  async revokeServiceProvider(
+    conversationId: string,
+    runtime: OpenShellRuntime,
+    provider: string,
+    signal: AbortSignal,
+  ): Promise<void> {
+    if (!this.config.grantableServiceProviders.includes(provider))
+      throw new Error('OpenShell service provider is not grantable');
+    return this.serializeProviderPolicy(runtime.sandboxName, signal, async () => {
+      const owner = this.sandboxOwner(conversationId, runtime.sandboxName);
+      if (!owner) throw new Error('OpenShell sandbox does not belong to this conversation');
+      const sandbox = await this.get(runtime.sandboxName, signal);
+      if (!sandbox || sandbox.phase !== 'Ready')
+        throw new Error(`OpenShell sandbox ${runtime.sandboxName} is not Ready`);
+      if (
+        sandbox.labels?.['mitzo.conversation'] !== owner ||
+        sandbox.labels?.['mitzo.account_provider'] !== this.config.account.provider
+      )
+        throw new Error('OpenShell sandbox binding changed');
+      const previous = this.providerPolicyState.read(runtime.sandboxName);
+      this.providerPolicyState.write(runtime.sandboxName, {
+        automatic: previous?.automatic ?? [],
+        granted: (previous?.granted ?? []).filter((granted) => granted !== provider),
+        ...(previous?.pendingDetach ? { pendingDetach: previous.pendingDetach } : {}),
+      });
+      try {
+        await this.run(
+          ['sandbox', ...this.base(), 'provider', 'detach', runtime.sandboxName, provider],
+          signal,
+        );
+      } catch (error) {
+        if (
+          !/not attached|not found|404|does not exist/i.test(
+            error instanceof Error ? error.message : '',
+          )
+        )
+          throw new Error('OpenShell service provider revoke failed', { cause: error });
+      }
+      await this.waitForReady(runtime.sandboxName, owner, signal);
+    });
+  }
+
+  /** Called only at admission or between turns, under the owning lifecycle fence. */
+  async adoptKnowledge(
+    conversationId: string,
+    runtime: OpenShellRuntime,
+    signal: AbortSignal,
+  ): Promise<OpenShellKnowledgeSelection | undefined> {
+    const baselinePath = join(this.config.seed, '..', 'baseline.json');
+    if (!existsSync(baselinePath)) return undefined;
+    const selected = JSON.parse(readFileSync(baselinePath, 'utf8')) as Record<string, unknown>;
+    if (!Object.hasOwn(selected, 'runtimeBaseCommit')) return undefined;
+    if (!runtime.sandboxId)
+      throw new Error('Knowledge adoption requires a physical sandbox identity');
+    const prepared = prepareOpenShellSeed(this.config);
+    try {
+      const baseline = JSON.parse(readFileSync(join(prepared.seed, '..', 'baseline.json'), 'utf8'));
+      const view = knowledgeViewManifest(baseline);
+      const bytes = JSON.stringify(view);
+      const manifestSha256 = createHash('sha256').update(bytes).digest('hex');
+      let selection:
+        | (Omit<OpenShellKnowledgeSelection, 'context'> & { context?: OpenShellBootContext })
+        | undefined = this.knowledgeViews.get(runtime.sandboxId);
+      const current = await this.ownedSandbox(conversationId, runtime.sandboxId, signal);
+      if (current.phase !== 'Ready' || current.name !== runtime.sandboxName)
+        throw new Error('Knowledge sandbox is not Ready');
+      // Retained task sandboxes may still run an older image. Verify their
+      // actual protected compiler and frozen runtime inputs before adoption.
+      const contract = this.config.seedStackManifest?.runtime as Record<string, unknown>;
+      if (
+        !/^[a-f0-9]{40}$/.test(String(contract?.knowledgeCompilerCommit)) ||
+        !/^[a-f0-9]{64}$/.test(String(contract?.runtimeInputsSha256))
+      )
+        throw new Error(
+          'Runtime is incompatible with published knowledge: runtime attestation pins are missing',
+        );
+      const attestationSpec = openShellSshArgvProcessSpec(runtime, [
+        '/opt/mgmt-venv/bin/python',
+        '-I',
+        '/usr/libexec/mitzo/attest-knowledge-runtime.py',
+        '--compiler-commit',
+        String(contract.knowledgeCompilerCommit),
+      ]);
+      let actual: Record<string, unknown>;
+      try {
+        actual = JSON.parse(await this.runSsh(attestationSpec.args, signal));
+      } catch (error) {
+        throw new Error(
+          'Runtime is incompatible with published knowledge; a compatible retained-runtime migration is required',
+          { cause: error },
+        );
+      }
+      for (const field of [
+        'knowledgeSchemaVersion',
+        'knowledgeCompilerSha256',
+        'knowledgeRecipeSha256',
+        'runtimeInputsSha256',
+        'targetPlatform',
+        'targetMarkerEnvironmentB64',
+      ]) {
+        if (actual[field] !== contract[field])
+          throw new Error(`Runtime is incompatible with published knowledge: ${field} differs`);
+      }
+      const remoteRoot = `/sandbox/workspaces/knowledge/knowledge-${manifestSha256}`;
+      const cacheProbe = openShellSshArgvProcessSpec(runtime, [
+        '/bin/sh',
+        '-c',
+        knowledgeCacheStatusCommand(remoteRoot, manifestSha256),
+      ]);
+      const validCache = (await this.runSsh(cacheProbe.args, signal)).trim();
+      if (validCache !== 'true' && validCache !== 'false')
+        throw new Error('Invalid knowledge cache verification response');
+      if (validCache === 'false') {
+        this.knowledgeViews.delete(runtime.sandboxId);
+        selection = undefined;
+      }
+      if (!selection || selection.manifestSha256 !== manifestSha256) {
+        // Portable Git belongs to the writable task root. It is deliberately
+        // absent from this separately attested, versioned retrieval lane.
+        rmSync(join(prepared.seed, '.git'), { recursive: true, force: true });
+        const parent = join(dirname(prepared.seed), `knowledge-${manifestSha256}`);
+        mkdirSync(parent);
+        renameSync(prepared.seed, join(parent, 'mgmt'));
+        writeFileSync(join(parent, 'knowledge-view.json'), bytes);
+        const destination = '/sandbox/workspaces/knowledge';
+        const remote = `${destination}/${basename(parent)}`;
+        const presence = openShellSshArgvProcessSpec(runtime, [
+          '/bin/sh',
+          '-c',
+          knowledgePresenceCommand(remote),
+        ]);
+        const present = (await this.runSsh(presence.args, signal)).trim();
+        if (present !== 'true' && present !== 'false')
+          throw new Error('Invalid knowledge presence response');
+        if (validCache === 'false') {
+          const repairOwner = await this.ownedSandbox(conversationId, runtime.sandboxId, signal);
+          if (repairOwner.phase !== 'Ready' || repairOwner.name !== runtime.sandboxName)
+            throw new Error('Knowledge sandbox changed before cache repair');
+          if (present === 'true') {
+            const repair = openShellSshArgvProcessSpec(runtime, [
+              '/bin/sh',
+              '-c',
+              knowledgeCacheRepairCommand(remote),
+            ]);
+            await this.runSsh(repair.args, signal);
+          }
+          await this.run(
+            ['sandbox', ...this.base(), 'upload', runtime.sandboxName, parent, destination],
+            signal,
+          );
+        }
+        selection = {
+          sourceCommit: view.sourceCommit,
+          payloadSha256: view.payloadSha256,
+          manifestSha256,
+          knowledgeRoot: `${destination}/${basename(parent)}/mgmt`,
+        };
+      }
+      const after = await this.ownedSandbox(conversationId, runtime.sandboxId, signal);
+      if (after.phase !== 'Ready' || after.name !== runtime.sandboxName)
+        throw new Error('Knowledge sandbox changed during upload');
+      const spec = openShellSshArgvProcessSpec(runtime, [
+        '/bin/sh',
+        '-c',
+        knowledgeVerificationCommand(dirname(selection.knowledgeRoot), manifestSha256),
+      ]);
+      const receipt = JSON.parse(await this.runSsh(spec.args, signal));
+      if (
+        receipt.sourceCommit !== selection.sourceCommit ||
+        receipt.payloadSha256 !== selection.payloadSha256
+      )
+        throw new Error('Knowledge verification returned another publication');
+      if (!selection.context)
+        selection.context = await this.compileContext(
+          { ...runtime, workdir: selection.knowledgeRoot },
+          signal,
+        );
+      const verified = await this.ownedSandbox(conversationId, runtime.sandboxId, signal);
+      if (verified.phase !== 'Ready' || verified.name !== runtime.sandboxName)
+        throw new Error('Knowledge sandbox changed during verification');
+      signal.throwIfAborted();
+      const adopted: OpenShellKnowledgeSelection = { ...selection, context: selection.context };
+      this.knowledgeViews.set(runtime.sandboxId, adopted);
+      const cleanup = openShellSshArgvProcessSpec(runtime, [
+        '/bin/sh',
+        '-c',
+        knowledgeCleanupCommand(adopted.knowledgeRoot),
+      ]);
+      await this.runSsh(cleanup.args, signal);
+      return adopted;
+    } finally {
+      prepared.cleanup();
+    }
   }
 
   async compileContext(runtime: OpenShellRuntime, signal: AbortSignal) {

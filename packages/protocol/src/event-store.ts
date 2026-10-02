@@ -1,4 +1,10 @@
 import Database from 'better-sqlite3';
+import { createHash, randomUUID } from 'node:crypto';
+import {
+  SymposiumArtifactSealSelectionSchema,
+  type SymposiumArtifactSealSelection,
+  type SymposiumArtifactSealIntent,
+} from './symposium-artifact-seal.js';
 import type {
   MitzoMode,
   StoredEvent,
@@ -8,6 +14,14 @@ import type {
   ClientSessionState,
   EventStoreLogger,
   AccountBinding,
+  ExecutionPhase,
+  ExecutionStateChangedPayload,
+  ExecutionTerminalReason,
+  ExecutionToken,
+  ProviderAttemptPhase,
+  ProviderAttemptStateChangedPayload,
+  ProviderAttemptTerminalReason,
+  ProviderAttemptToken,
 } from './types.js';
 import { AccountBindingSchema } from './account-binding.js';
 import { SymposiumConfigSchema, SymposiumProvenanceSchema } from './symposium.js';
@@ -21,6 +35,9 @@ import type {
   SymposiumInterventionRecord,
   SymposiumProvenance,
   SymposiumSeatThreadRecord,
+  SymposiumMembershipRecord,
+  SymposiumMembershipAction,
+  SymposiumReconciliationStatus,
 } from './symposium.js';
 
 // Re-export types for consumer convenience
@@ -31,7 +48,59 @@ export type {
   SessionState,
   ClientSessionState,
   EventStoreLogger,
+  ExecutionPhase,
+  ExecutionStateChangedPayload,
+  ExecutionTerminalReason,
+  ExecutionToken,
+  ProviderAttemptPhase,
+  ProviderAttemptStateChangedPayload,
+  ProviderAttemptTerminalReason,
+  ProviderAttemptToken,
 };
+
+export interface SymposiumSeatSandboxRecord {
+  sessionId: string;
+  seatId: string;
+  generation: number;
+  runtimeId: string;
+  workspace: string;
+  providerName: string;
+  providerId: string;
+  providerType: string;
+  model: string;
+  sandboxName: string | null;
+  physicalId: string | null;
+  creationStarted: boolean;
+  creationCompleted: boolean;
+  state: 'reserved' | 'ready' | 'stopped';
+  creationPhase?: 'create' | 'upload' | 'provider' | 'mount' | null;
+  creationFailureCode?: string | null;
+}
+export interface SymposiumCreationRecoveryRequest {
+  sessionId: string;
+  seatId: string;
+  expectedGeneration: number;
+  expectedRevision: number;
+  actor: string;
+  idempotencyKey: string;
+}
+
+export interface SymposiumCreationRecoveryHandoff {
+  sessionId: string;
+  seatId: string;
+  expectedGeneration: number;
+  expectedRevision: number;
+  operationId: string;
+  expectedAuthorizationRevision: number;
+  actor: string;
+  idempotencyKey: string;
+}
+export interface SymposiumCreationRecoveryClaim {
+  request: SymposiumCreationRecoveryRequest;
+  actor: string;
+  authorizationRevision: number;
+  token: string;
+}
 
 /**
  * Map internal 7-state lifecycle to client-facing 3-state.
@@ -98,6 +167,11 @@ interface SessionRow {
   last_speaker_at: number | null;
   state: string | null;
   last_state_change: number | null;
+  execution_generation: number;
+  execution_id: string | null;
+  execution_phase: string | null;
+  execution_terminal_reason: string | null;
+  execution_updated_at: number | null;
   agent_name: string | null;
   boot_context: string | null;
   account_binding: string | null;
@@ -114,6 +188,97 @@ export interface SendCommandReceipt {
   error: string | null;
 }
 
+export type ExecutionTransitionStatus =
+  'applied' | 'stale' | 'terminal' | 'already_stopping' | 'invalid_transition';
+
+export interface ExecutionTransitionResult {
+  applied: boolean;
+  status: ExecutionTransitionStatus;
+  token: ExecutionToken;
+  seq?: number;
+  event?: ExecutionStateChangedPayload;
+}
+
+export interface NewExecutionResult {
+  token: ExecutionToken;
+  duplicate: false;
+  seq: number;
+  event: ExecutionStateChangedPayload;
+}
+
+export interface DuplicateExecutionResult {
+  token: ExecutionToken;
+  duplicate: true;
+}
+
+export type BeginExecutionResult = NewExecutionResult | DuplicateExecutionResult;
+
+export interface ExecutionAdmission {
+  token: ExecutionToken;
+  requestFingerprint: string;
+}
+
+export class ExecutionAdmissionError extends Error {
+  constructor(
+    readonly code: 'fingerprint_required' | 'fingerprint_conflict' | 'execution_id_conflict',
+    message: string,
+  ) {
+    super(message);
+    this.name = 'ExecutionAdmissionError';
+  }
+}
+
+export interface NewProviderAttemptResult {
+  token: ProviderAttemptToken;
+  duplicate: false;
+  seq: number;
+  event: ProviderAttemptStateChangedPayload;
+}
+
+export interface DuplicateProviderAttemptResult {
+  token: ProviderAttemptToken;
+  duplicate: true;
+}
+
+export type BeginProviderAttemptResult = NewProviderAttemptResult | DuplicateProviderAttemptResult;
+
+export type ProviderAttemptTransitionStatus =
+  'applied' | 'stale' | 'terminal' | 'conflict' | 'invalid_transition';
+
+export interface ProviderAttemptTransitionResult {
+  applied: boolean;
+  status: ProviderAttemptTransitionStatus;
+  token: ProviderAttemptToken;
+  persistedTerminalReason?: ProviderAttemptTerminalReason | null;
+  seq?: number;
+  event?: ProviderAttemptStateChangedPayload;
+}
+
+export interface ProviderAttemptRecord {
+  token: ProviderAttemptToken;
+  phase: ProviderAttemptPhase;
+  terminalReason: ProviderAttemptTerminalReason | null;
+  updatedAt: number;
+}
+
+export interface ConversationTextEvent {
+  seq: number;
+  kind: 'user' | 'assistant_delta' | 'assistant_end';
+  messageId: string;
+  text: string;
+}
+
+/** One transactionally consistent durable boundary used by reconnect delivery. */
+export interface ReconnectState {
+  session: SessionMeta | null;
+  events: StoredEvent[];
+  /** Highest event sequence included in the durable boundary. */
+  cursor: number;
+  /** False when the client claims a sequence beyond this boundary. */
+  cursorValid: boolean;
+  providerAttempts: ProviderAttemptRecord[];
+}
+
 type SessionUpsert = Partial<
   Omit<SessionMeta, 'sessionType' | 'symposiumConfig' | 'symposiumRevision'>
 > & { sessionId: string };
@@ -127,6 +292,38 @@ const SCHEMA = `
     created_at INTEGER NOT NULL DEFAULT (unixepoch('now', 'subsec') * 1000)
   );
 
+  CREATE TABLE IF NOT EXISTS client_command_claims (
+    client_msg_id TEXT PRIMARY KEY,
+    request_fingerprint TEXT NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS execution_admissions (
+    session_id TEXT NOT NULL,
+    client_msg_id TEXT NOT NULL,
+    request_fingerprint TEXT NOT NULL,
+    execution_id TEXT NOT NULL,
+    generation INTEGER NOT NULL,
+    created_at INTEGER NOT NULL DEFAULT (unixepoch('now', 'subsec') * 1000),
+    PRIMARY KEY (session_id, client_msg_id)
+  );
+
+  CREATE TABLE IF NOT EXISTS provider_attempts (
+    session_id TEXT NOT NULL,
+    execution_id TEXT NOT NULL,
+    generation INTEGER NOT NULL,
+    attempt_number INTEGER NOT NULL,
+    provider_attempt_id TEXT NOT NULL,
+    phase TEXT NOT NULL,
+    terminal_reason TEXT,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    PRIMARY KEY (session_id, execution_id, generation, attempt_number),
+    UNIQUE (session_id, provider_attempt_id)
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_provider_attempts_active
+    ON provider_attempts (session_id, execution_id, generation, phase);
+
   CREATE TABLE IF NOT EXISTS events (
     seq         INTEGER PRIMARY KEY AUTOINCREMENT,
     session_id  TEXT NOT NULL,
@@ -136,6 +333,9 @@ const SCHEMA = `
   );
 
   CREATE INDEX IF NOT EXISTS idx_events_session_seq ON events (session_id, seq);
+  CREATE INDEX IF NOT EXISTS idx_events_worktree_repo
+    ON events (session_id, json_extract(payload, '$.repoName'), seq)
+    WHERE type = 'worktree_opened';
 
   CREATE TABLE IF NOT EXISTS sessions (
     session_id  TEXT PRIMARY KEY,
@@ -162,6 +362,38 @@ const VALID_TRANSITIONS: Record<SessionState, SessionState[]> = {
   ENDED: ['CREATED'],
 };
 
+const EXECUTION_TERMINAL_REASONS = new Set<ExecutionTerminalReason>([
+  'completed',
+  'failed',
+  'stopped',
+  'interrupted',
+  'closed',
+  'abandoned',
+  'server_restart',
+  'startup_failed',
+]);
+
+const EXECUTION_TRANSITIONS: Record<ExecutionPhase, ExecutionPhase[]> = {
+  RUNNING: ['REQUIRES_ACTION', 'STOPPING', 'TERMINAL'],
+  REQUIRES_ACTION: ['RUNNING', 'STOPPING', 'TERMINAL'],
+  STOPPING: ['TERMINAL'],
+  TERMINAL: [],
+};
+
+const PROVIDER_ATTEMPT_TERMINAL_REASONS = new Set<ProviderAttemptTerminalReason>([
+  'completed',
+  'failed',
+  'ambiguous',
+  'cancelled',
+  'server_restart',
+]);
+
+function clientStateForExecution(phase: ExecutionPhase): ClientSessionState {
+  if (phase === 'REQUIRES_ACTION') return 'requires_action';
+  if (phase === 'RUNNING' || phase === 'STOPPING') return 'running';
+  return 'idle';
+}
+
 export class EventStore {
   private db: Database.Database | null;
   private log: EventStoreLogger;
@@ -171,6 +403,8 @@ export class EventStore {
     eventsAfter: Database.Statement;
     eventsAfterLimited: Database.Statement;
     sessionEvents: Database.Statement;
+    latestWorktreePath: Database.Statement;
+    recentConversationText: Database.Statement;
     getSession: Database.Statement;
     listSessions: Database.Statement;
     listSessionsLimited: Database.Statement;
@@ -226,15 +460,44 @@ export class EventStore {
 
   /** A crash may happen between acceptance and dispatch. Never silently discard
    * that receipt or re-execute a possibly side-effecting command after restart. */
-  recoverPendingSendCommands(): void {
+  /** Global ingress identity, independent of transport receipts and session routing. */
+  claimClientCommand(clientMsgId: string, requestFingerprint: string): void {
+    this.validateExecutionAdmission(clientMsgId, requestFingerprint);
+    this.db!.transaction(() => {
+      const existing = this.db!.prepare(
+        'SELECT request_fingerprint FROM client_command_claims WHERE client_msg_id = ?',
+      ).get(clientMsgId) as { request_fingerprint: string } | undefined;
+      if (existing && existing.request_fingerprint !== requestFingerprint)
+        throw new ExecutionAdmissionError(
+          'fingerprint_conflict',
+          'Command ID already admitted for a different request',
+        );
+      if (!existing)
+        this.db!.prepare(
+          'INSERT INTO client_command_claims (client_msg_id, request_fingerprint) VALUES (?, ?)',
+        ).run(clientMsgId, requestFingerprint);
+    }).immediate();
+  }
+
+  recoverPendingSendCommands(options: { excludeSymposium?: boolean } = {}): void {
     const rows = this.db!.prepare(
       `SELECT client_msg_id, session_id, payload FROM send_commands c
       WHERE error IS NULL AND session_id != '' AND NOT EXISTS (
         SELECT 1 FROM events e WHERE e.session_id = c.session_id AND e.type = 'user_message'
         AND json_extract(e.payload, '$.messageId') = c.client_msg_id
-      )`,
-    ).all() as Array<{ client_msg_id: string; session_id: string; payload: string }>;
+      ) AND (? = 0 OR NOT EXISTS (SELECT 1 FROM sessions s WHERE s.session_id=c.session_id
+        AND (s.session_type='symposium' OR s.symposium_config IS NOT NULL)))`,
+    ).all(options.excludeSymposium ? 1 : 0) as Array<{
+      client_msg_id: string;
+      session_id: string;
+      payload: string;
+    }>;
     for (const row of rows) {
+      // Durable execution admissions own their retry and recovery semantics.
+      // Deliberation receipts intentionally have no user_message event, so
+      // generic send recovery must not turn a completed or ambiguous execution
+      // into a poisoned receipt before the execution gate can re-evaluate it.
+      if (this.getExecutionAdmission(row.session_id, row.client_msg_id)) continue;
       const error =
         'Server restarted before message execution was confirmed. Please check the conversation and retry.';
       this.failSendCommand(row.client_msg_id, error);
@@ -259,6 +522,27 @@ export class EventStore {
     );
   }
 
+  private ordinaryStartups = new Map<string, number>();
+
+  /** Synchronous with initial Symposium conversion; held across ordinary startup awaits. */
+  reserveOrdinaryStartup(sessionIds: string[]): () => void {
+    const ids = [...new Set(sessionIds)];
+    for (const id of ids)
+      if (this.getSession(id)?.symposiumConfig)
+        throw new Error('Use Symposium directed prompts for this session');
+    for (const id of ids) this.ordinaryStartups.set(id, (this.ordinaryStartups.get(id) ?? 0) + 1);
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      for (const id of ids) {
+        const remaining = (this.ordinaryStartups.get(id) ?? 1) - 1;
+        if (remaining) this.ordinaryStartups.set(id, remaining);
+        else this.ordinaryStartups.delete(id);
+      }
+    };
+  }
+
   constructor(dbPath: string, logger?: EventStoreLogger) {
     this.log = logger ?? noopLogger;
     const db = new Database(dbPath);
@@ -274,6 +558,7 @@ export class EventStore {
     this.migrateCloseTracking(db);
     this.migrateAttentionTracking(db);
     this.migrateSessionState(db);
+    this.migrateExecutionState(db);
     this.migrateBootContext(db);
     this.migrateModelSelection(db);
     this.migrateSymposium(db);
@@ -297,8 +582,29 @@ export class EventStore {
       eventsAfterLimited: db.prepare(
         'SELECT seq, session_id, type, payload, created_at, seat_id, symposium_provenance FROM events WHERE session_id = ? AND seq > ? ORDER BY seq LIMIT ?',
       ),
+      latestWorktreePath: db.prepare(
+        `SELECT json_extract(payload, '$.path') AS path FROM events
+         WHERE session_id = ? AND type = 'worktree_opened'
+           AND json_extract(payload, '$.repoName') = ?
+         ORDER BY seq DESC LIMIT 1`,
+      ),
       sessionEvents: db.prepare(
         'SELECT seq, session_id, type, payload, created_at, seat_id, symposium_provenance FROM events WHERE session_id = ? ORDER BY seq',
+      ),
+      recentConversationText: db.prepare(
+        `SELECT seq,type,
+          json_extract(payload, '$.messageId') AS message_id,
+          CASE
+            WHEN type='user_message' THEN json_extract(payload, '$.text')
+            WHEN type='block_delta' THEN json_extract(payload, '$.delta')
+            ELSE ''
+          END AS text
+        FROM events
+        WHERE session_id=? AND (
+          type='user_message' OR type='message_end' OR
+          (type='block_delta' AND json_extract(payload, '$.blockType')='text')
+        )
+        ORDER BY seq DESC LIMIT ?`,
       ),
       getSession: db.prepare('SELECT * FROM sessions WHERE session_id = ?'),
       listSessions: db.prepare(
@@ -446,6 +752,30 @@ export class EventStore {
     }
   }
 
+  private migrateExecutionState(db: Database.Database): void {
+    const columns = db.prepare("PRAGMA table_info('sessions')").all() as Array<{ name: string }>;
+    const columnNames = new Set(columns.map((column) => column.name));
+    const migrations: Array<[string, string]> = [
+      [
+        'execution_generation',
+        'ALTER TABLE sessions ADD COLUMN execution_generation INTEGER NOT NULL DEFAULT 0',
+      ],
+      ['execution_id', 'ALTER TABLE sessions ADD COLUMN execution_id TEXT'],
+      ['execution_phase', 'ALTER TABLE sessions ADD COLUMN execution_phase TEXT'],
+      [
+        'execution_terminal_reason',
+        'ALTER TABLE sessions ADD COLUMN execution_terminal_reason TEXT',
+      ],
+      ['execution_updated_at', 'ALTER TABLE sessions ADD COLUMN execution_updated_at INTEGER'],
+    ];
+    for (const [column, sql] of migrations) {
+      if (!columnNames.has(column)) {
+        db.exec(sql);
+        this.log.info(`migrated sessions table: added ${column}`);
+      }
+    }
+  }
+
   private migrateBootContext(db: Database.Database): void {
     const columns = db.prepare("PRAGMA table_info('sessions')").all() as Array<{ name: string }>;
     const columnNames = new Set(columns.map((c) => c.name));
@@ -497,6 +827,17 @@ export class EventStore {
         db.exec('ALTER TABLE events ADD COLUMN symposium_provenance TEXT');
       }
       db.exec(`
+        CREATE TABLE IF NOT EXISTS symposium_anchor_transfers (
+          session_id TEXT NOT NULL, idempotency_key TEXT NOT NULL,
+          request TEXT NOT NULL, config TEXT NOT NULL, occurred_at INTEGER NOT NULL,
+          PRIMARY KEY(session_id, idempotency_key)
+        );
+        CREATE TABLE IF NOT EXISTS symposium_session_allocations (
+          idempotency_key TEXT PRIMARY KEY,
+          request_fingerprint TEXT NOT NULL,
+          session_id TEXT NOT NULL UNIQUE,
+          profile_selections TEXT NOT NULL
+        );
         CREATE TABLE IF NOT EXISTS symposium_admissions (
           admission_id TEXT PRIMARY KEY,
           session_id TEXT NOT NULL,
@@ -521,6 +862,7 @@ export class EventStore {
           delivery_id TEXT PRIMARY KEY,
           session_id TEXT NOT NULL,
           source_seat_id TEXT,
+          source_message_id TEXT,
           recipient_seat_ids TEXT NOT NULL,
           original_content TEXT NOT NULL,
           delivered_content TEXT,
@@ -565,6 +907,7 @@ export class EventStore {
           provider_thread_id TEXT,
           result_content TEXT,
           cost_usd REAL NOT NULL DEFAULT 0,
+          cost_known INTEGER NOT NULL DEFAULT 0,
           error TEXT,
           updated_at INTEGER NOT NULL,
           PRIMARY KEY (delivery_id, seat_id),
@@ -614,12 +957,19 @@ export class EventStore {
           seat_id TEXT NOT NULL,
           attempt_number INTEGER NOT NULL,
           idempotency_key TEXT NOT NULL,
+          claim_token TEXT,
+          dispatched_content TEXT,
+          dispatch_seq INTEGER,
+          symposium_provenance TEXT,
           status TEXT NOT NULL CHECK (status IN (
             'executing', 'delivered', 'failed', 'cancelled', 'recovery_required'
           )),
           provider_thread_id TEXT,
+          provider_turn_id TEXT,
+          accepted_at INTEGER,
           result_content TEXT,
           cost_usd REAL NOT NULL DEFAULT 0,
+          cost_known INTEGER NOT NULL DEFAULT 0,
           error TEXT,
           started_at INTEGER NOT NULL,
           completed_at INTEGER,
@@ -629,7 +979,191 @@ export class EventStore {
         );
         CREATE INDEX IF NOT EXISTS idx_symposium_recipient_attempts_delivery
           ON symposium_recipient_attempts (delivery_id, seat_id, attempt_number);
+        CREATE TABLE IF NOT EXISTS symposium_membership (
+          session_id TEXT NOT NULL, seat_id TEXT NOT NULL, generation INTEGER NOT NULL,
+          state TEXT NOT NULL, action TEXT NOT NULL, config_revision INTEGER NOT NULL,
+          binding_key TEXT NOT NULL, actor TEXT NOT NULL, reason TEXT NOT NULL,
+          idempotency_key TEXT NOT NULL, occurred_at INTEGER NOT NULL,
+          replaces_seat_id TEXT, replaced_by_seat_id TEXT,
+          PRIMARY KEY(session_id, seat_id, generation), UNIQUE(session_id, idempotency_key)
+        );
+        CREATE TABLE IF NOT EXISTS symposium_membership_reconciliation (
+          session_id TEXT NOT NULL, seat_id TEXT NOT NULL, generation INTEGER NOT NULL,
+          status TEXT NOT NULL CHECK(status IN ('pending','confirmed','recovery_required')),
+          PRIMARY KEY(session_id, seat_id, generation),
+          FOREIGN KEY(session_id, seat_id, generation)
+            REFERENCES symposium_membership(session_id, seat_id, generation)
+        );
+        CREATE TABLE IF NOT EXISTS symposium_seat_sandboxes (
+          session_id TEXT NOT NULL, seat_id TEXT NOT NULL, generation INTEGER NOT NULL,
+          runtime_id TEXT NOT NULL UNIQUE, workspace TEXT NOT NULL,
+          provider_name TEXT NOT NULL, provider_id TEXT NOT NULL,
+          provider_type TEXT NOT NULL, model TEXT NOT NULL,
+          sandbox_name TEXT, physical_id TEXT UNIQUE,
+          creation_started INTEGER NOT NULL DEFAULT 0,
+          creation_completed INTEGER NOT NULL DEFAULT 0,
+          state TEXT NOT NULL CHECK(state IN ('reserved','ready','stopped')),
+          PRIMARY KEY(session_id, seat_id, generation),
+          FOREIGN KEY(session_id, seat_id, generation)
+            REFERENCES symposium_membership(session_id, seat_id, generation)
+        );
+        -- A lifecycle operation holds this fence across gateway I/O. An orphaned
+        -- fence is deliberately retained after a process crash for reconciliation.
+        CREATE TABLE IF NOT EXISTS symposium_seat_lifecycle_fences (
+          session_id TEXT NOT NULL, seat_id TEXT NOT NULL, token TEXT NOT NULL,
+          PRIMARY KEY(session_id, seat_id)
+        );
+        -- A seal intent is an enduring deny fence, never a completed artifact receipt.
+        CREATE TABLE IF NOT EXISTS symposium_artifact_seal_intents (
+          session_id TEXT PRIMARY KEY, fence_id TEXT NOT NULL UNIQUE,
+          selection_json TEXT NOT NULL, intent_json TEXT NOT NULL
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_symposium_one_replacement
+          ON symposium_membership(session_id,replaces_seat_id)
+          WHERE replaces_seat_id IS NOT NULL;
+        CREATE TABLE IF NOT EXISTS symposium_creation_recoveries (
+          session_id TEXT NOT NULL, seat_id TEXT NOT NULL, generation INTEGER NOT NULL,
+          request_json TEXT NOT NULL, result_json TEXT,
+          PRIMARY KEY(session_id,seat_id,generation)
+        );
+        CREATE TABLE IF NOT EXISTS symposium_creation_recovery_authorizations (
+          session_id TEXT NOT NULL, seat_id TEXT NOT NULL, generation INTEGER NOT NULL,
+          actor TEXT NOT NULL, revision INTEGER NOT NULL, execution_token TEXT,
+          PRIMARY KEY(session_id,seat_id,generation)
+        );
+        CREATE TABLE IF NOT EXISTS symposium_creation_recovery_handoffs (
+          session_id TEXT NOT NULL, seat_id TEXT NOT NULL, generation INTEGER NOT NULL,
+          idempotency_key TEXT NOT NULL, request_json TEXT NOT NULL, receipt_json TEXT NOT NULL,
+          PRIMARY KEY(session_id,seat_id,generation,idempotency_key)
+        );
+        CREATE TABLE IF NOT EXISTS symposium_late_results (
+          delivery_id TEXT NOT NULL, seat_id TEXT NOT NULL, claim_token TEXT NOT NULL,
+          provider_thread_id TEXT NOT NULL, result_content TEXT NOT NULL,
+          cost_usd REAL NOT NULL, cost_known INTEGER NOT NULL DEFAULT 0, observed_at INTEGER NOT NULL,
+          symposium_provenance TEXT,
+          PRIMARY KEY(delivery_id,seat_id,claim_token),
+          FOREIGN KEY(delivery_id) REFERENCES symposium_deliveries(delivery_id)
+        );
       `);
+      const seatSandboxColumns = db
+        .prepare("PRAGMA table_info('symposium_seat_sandboxes')")
+        .all() as Array<{ name: string }>;
+      if (!seatSandboxColumns.some((column) => column.name === 'creation_started'))
+        db.exec(
+          'ALTER TABLE symposium_seat_sandboxes ADD COLUMN creation_started INTEGER NOT NULL DEFAULT 0',
+        );
+      if (!seatSandboxColumns.some((column) => column.name === 'creation_completed'))
+        db.exec(
+          'ALTER TABLE symposium_seat_sandboxes ADD COLUMN creation_completed INTEGER NOT NULL DEFAULT 0',
+        );
+      for (const column of ['creation_phase', 'creation_failure_code'])
+        if (!seatSandboxColumns.some((item) => item.name === column))
+          db.exec(`ALTER TABLE symposium_seat_sandboxes ADD COLUMN ${column} TEXT`);
+      const deliveryColumns = db
+        .prepare("PRAGMA table_info('symposium_deliveries')")
+        .all() as Array<{ name: string }>;
+      if (!deliveryColumns.some((column) => column.name === 'source_message_id')) {
+        db.exec('ALTER TABLE symposium_deliveries ADD COLUMN source_message_id TEXT');
+      }
+      for (const table of [
+        'symposium_delivery_recipients',
+        'symposium_recipient_attempts',
+        'symposium_late_results',
+      ]) {
+        const columns = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
+        if (!columns.some((column) => column.name === 'cost_known')) {
+          db.exec(`ALTER TABLE ${table} ADD COLUMN cost_known INTEGER NOT NULL DEFAULT 0`);
+          // Legacy zeros could mean omitted provider cost. Preserve that uncertainty.
+          db.exec(`UPDATE ${table} SET cost_known = 1 WHERE cost_usd > 0`);
+        }
+      }
+      const recipientColumns = db
+        .prepare("PRAGMA table_info('symposium_delivery_recipients')")
+        .all() as Array<{ name: string }>;
+      if (!recipientColumns.some((column) => column.name === 'membership_generation')) {
+        db.exec(
+          'ALTER TABLE symposium_delivery_recipients ADD COLUMN membership_generation INTEGER NOT NULL DEFAULT 0',
+        );
+      }
+      const admissionColumns = db
+        .prepare("PRAGMA table_info('symposium_admissions')")
+        .all() as Array<{ name: string }>;
+      if (!admissionColumns.some((column) => column.name === 'membership_generation')) {
+        db.exec(
+          'ALTER TABLE symposium_admissions ADD COLUMN membership_generation INTEGER NOT NULL DEFAULT 0',
+        );
+      }
+      const attemptColumns = db
+        .prepare("PRAGMA table_info('symposium_recipient_attempts')")
+        .all() as Array<{ name: string }>;
+      if (!attemptColumns.some((column) => column.name === 'claim_token')) {
+        db.exec('ALTER TABLE symposium_recipient_attempts ADD COLUMN claim_token TEXT');
+      }
+      if (!attemptColumns.some((column) => column.name === 'dispatched_content')) {
+        db.exec('ALTER TABLE symposium_recipient_attempts ADD COLUMN dispatched_content TEXT');
+      }
+      if (!attemptColumns.some((column) => column.name === 'dispatch_seq')) {
+        db.exec('ALTER TABLE symposium_recipient_attempts ADD COLUMN dispatch_seq INTEGER');
+      }
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_events_message_identity
+        ON events(session_id, type, json_extract(payload, '$.messageId'), seq)
+        WHERE type IN ('message_start', 'user_message', 'message_end')`);
+      db.exec(`DROP INDEX IF EXISTS idx_events_perspective_anchors`);
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_events_completed_perspective_anchors
+        ON events(session_id, seq)
+        WHERE type IN ('message_end', 'user_message', 'symposium_delivery_dispatched')`);
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_symposium_pending_recipients
+        ON symposium_delivery_recipients(seat_id, delivery_id)
+        WHERE status = 'pending'`);
+      if (!attemptColumns.some((column) => column.name === 'provider_turn_id')) {
+        db.exec('ALTER TABLE symposium_recipient_attempts ADD COLUMN provider_turn_id TEXT');
+      }
+      if (!attemptColumns.some((column) => column.name === 'accepted_at')) {
+        db.exec('ALTER TABLE symposium_recipient_attempts ADD COLUMN accepted_at INTEGER');
+      }
+      if (!attemptColumns.some((column) => column.name === 'symposium_provenance')) {
+        db.exec('ALTER TABLE symposium_recipient_attempts ADD COLUMN symposium_provenance TEXT');
+      }
+      if (!attemptColumns.some((column) => column.name === 'cleanup_confirmed')) {
+        db.exec(
+          'ALTER TABLE symposium_recipient_attempts ADD COLUMN cleanup_confirmed INTEGER NOT NULL DEFAULT 0',
+        );
+        db.exec(`UPDATE symposium_recipient_attempts AS prior SET cleanup_confirmed = 1
+          WHERE status = 'delivered' OR (status = 'failed' AND EXISTS (
+            SELECT 1 FROM symposium_recipient_attempts finished
+            WHERE finished.delivery_id = prior.delivery_id AND finished.seat_id = prior.seat_id
+              AND finished.idempotency_key = prior.idempotency_key AND finished.status = 'delivered'
+              AND finished.attempt_number > prior.attempt_number
+          ))`);
+      }
+      // Claims that were live when an older database is upgraded already have a durable
+      // execution token. Bind that token to the matching attempt before revocation can
+      // delete the live claim; historical attribution remains unknown.
+      db.exec(`
+        UPDATE symposium_recipient_attempts AS attempt
+        SET claim_token = (
+          SELECT claim.claim_token FROM symposium_seat_execution_claims AS claim
+          WHERE claim.delivery_id = attempt.delivery_id
+            AND claim.seat_id = attempt.seat_id
+            AND claim.recipient_idempotency_key = attempt.idempotency_key
+        )
+        WHERE attempt.claim_token IS NULL AND attempt.status = 'executing'
+          AND EXISTS (
+            SELECT 1 FROM symposium_seat_execution_claims AS claim
+            WHERE claim.delivery_id = attempt.delivery_id
+              AND claim.seat_id = attempt.seat_id
+              AND claim.recipient_idempotency_key = attempt.idempotency_key
+          )
+      `);
+      db.exec(
+        'CREATE UNIQUE INDEX IF NOT EXISTS idx_symposium_attempt_claim_token ON symposium_recipient_attempts(claim_token) WHERE claim_token IS NOT NULL',
+      );
+      const lateColumns = db.prepare("PRAGMA table_info('symposium_late_results')").all() as Array<{
+        name: string;
+      }>;
+      if (!lateColumns.some((column) => column.name === 'symposium_provenance')) {
+        db.exec('ALTER TABLE symposium_late_results ADD COLUMN symposium_provenance TEXT');
+      }
     })();
   }
 
@@ -652,6 +1186,489 @@ export class EventStore {
     return Number(result.lastInsertRowid);
   }
 
+  /**
+   * Atomically allocate the next durable execution generation for a session.
+   * When a client command identity is supplied, exact retries return the
+   * original token without appending another event or advancing generation.
+   */
+  beginExecution(
+    sessionId: string,
+    executionId?: string,
+    clientMsgId?: string,
+    requestFingerprint?: string,
+  ): BeginExecutionResult {
+    if (executionId !== undefined && !executionId.trim()) {
+      throw new Error('executionId must not be empty');
+    }
+    const fingerprint = this.validateExecutionAdmission(clientMsgId, requestFingerprint);
+    return this.db!.transaction((): BeginExecutionResult => {
+      const current = this.stmts.getSession.get(sessionId) as SessionRow | undefined;
+      if (!current) throw new Error(`Cannot begin execution for unknown session: ${sessionId}`);
+
+      if (clientMsgId) {
+        const existing = this.getExecutionAdmission(sessionId, clientMsgId);
+        if (existing) {
+          if (existing.requestFingerprint !== fingerprint) {
+            throw new ExecutionAdmissionError(
+              'fingerprint_conflict',
+              'clientMsgId is already admitted for a different request fingerprint',
+            );
+          }
+          if (executionId && existing.token.executionId !== executionId) {
+            throw new ExecutionAdmissionError(
+              'execution_id_conflict',
+              'clientMsgId is already admitted for a different executionId',
+            );
+          }
+          return { token: existing.token, duplicate: true };
+        }
+      }
+
+      if (current.execution_phase && current.execution_phase !== 'TERMINAL') {
+        throw new Error(`Cannot overwrite active execution for session: ${sessionId}`);
+      }
+
+      const acceptedExecutionId = executionId ?? randomUUID();
+      const generation = (current.execution_generation ?? 0) + 1;
+      const token: ExecutionToken = { sessionId, executionId: acceptedExecutionId, generation };
+      const timestamp = Date.now();
+      const event: ExecutionStateChangedPayload = {
+        type: 'execution_state_changed',
+        ...token,
+        phase: 'RUNNING',
+        clientState: 'running',
+        timestamp,
+      };
+      const updated = this.db!.prepare(
+        `UPDATE sessions SET
+          execution_generation = ?, execution_id = ?, execution_phase = 'RUNNING',
+          execution_terminal_reason = NULL, execution_updated_at = ?, updated_at = ?
+         WHERE session_id = ?
+           AND (execution_phase IS NULL OR execution_phase = 'TERMINAL')`,
+      ).run(generation, acceptedExecutionId, timestamp, timestamp, sessionId);
+      if (updated.changes !== 1) {
+        throw new Error(`Execution admission changed for session: ${sessionId}`);
+      }
+      const seq = Number(
+        this.stmts.append.run(sessionId, event.type, JSON.stringify(event), null, null)
+          .lastInsertRowid,
+      );
+      if (clientMsgId) {
+        this.db!.prepare(
+          `INSERT INTO execution_admissions
+            (session_id, client_msg_id, request_fingerprint, execution_id, generation)
+           VALUES (?, ?, ?, ?, ?)`,
+        ).run(sessionId, clientMsgId, fingerprint, acceptedExecutionId, generation);
+      }
+      return { token, duplicate: false, seq, event };
+    }).immediate();
+  }
+
+  /** Read the terminal outcome of any generation, including superseded commands. */
+  getExecutionTerminalReason(token: ExecutionToken): ExecutionTerminalReason | undefined {
+    const row = this.db!.prepare(
+      `SELECT json_extract(payload, '$.terminalReason') AS reason FROM events
+       WHERE session_id = ? AND type = 'execution_state_changed'
+         AND json_extract(payload, '$.executionId') = ?
+         AND json_extract(payload, '$.generation') = ?
+         AND json_extract(payload, '$.phase') = 'TERMINAL'
+       ORDER BY seq DESC LIMIT 1`,
+    ).get(token.sessionId, token.executionId, token.generation) as
+      { reason: ExecutionTerminalReason } | undefined;
+    return row?.reason;
+  }
+
+  /** Read a durable execution admission receipt without consulting transport state. */
+  getExecutionAdmission(sessionId: string, clientMsgId: string): ExecutionAdmission | undefined {
+    const row = this.db!.prepare(
+      `SELECT execution_id, generation, request_fingerprint
+       FROM execution_admissions WHERE session_id = ? AND client_msg_id = ?`,
+    ).get(sessionId, clientMsgId) as
+      { execution_id: string; generation: number; request_fingerprint: string } | undefined;
+    return (
+      row && {
+        token: { sessionId, executionId: row.execution_id, generation: row.generation },
+        requestFingerprint: row.request_fingerprint,
+      }
+    );
+  }
+
+  private validateExecutionAdmission(
+    clientMsgId: string | undefined,
+    requestFingerprint: string | undefined,
+  ): string | undefined {
+    if (clientMsgId === undefined) {
+      if (requestFingerprint !== undefined) {
+        throw new ExecutionAdmissionError(
+          'fingerprint_required',
+          'requestFingerprint requires a clientMsgId',
+        );
+      }
+      return undefined;
+    }
+    if (!clientMsgId.trim() || clientMsgId.length > 512) {
+      throw new ExecutionAdmissionError(
+        'fingerprint_required',
+        'clientMsgId must be a non-empty string of at most 512 characters',
+      );
+    }
+    if (
+      typeof requestFingerprint !== 'string' ||
+      !requestFingerprint.trim() ||
+      requestFingerprint.length > 512
+    ) {
+      throw new ExecutionAdmissionError(
+        'fingerprint_required',
+        'requestFingerprint must be a non-empty string of at most 512 characters',
+      );
+    }
+    return requestFingerprint;
+  }
+
+  /** Start one durable provider dispatch owned by the exact active execution token. */
+  beginProviderAttempt(
+    executionToken: ExecutionToken,
+    providerAttemptId: string = randomUUID(),
+    options: { allowParallel?: boolean } = {},
+  ): BeginProviderAttemptResult {
+    if (!providerAttemptId.trim()) throw new Error('providerAttemptId must not be empty');
+    return this.db!.transaction((): BeginProviderAttemptResult => {
+      const existing = this.db!.prepare(
+        `SELECT execution_id, generation, attempt_number FROM provider_attempts
+         WHERE session_id = ? AND provider_attempt_id = ?`,
+      ).get(executionToken.sessionId, providerAttemptId) as
+        { execution_id: string; generation: number; attempt_number: number } | undefined;
+      if (existing) {
+        if (
+          existing.execution_id !== executionToken.executionId ||
+          existing.generation !== executionToken.generation
+        ) {
+          throw new Error('providerAttemptId is already bound to a different execution token');
+        }
+        return {
+          token: {
+            ...executionToken,
+            providerAttemptId,
+            attempt: existing.attempt_number,
+          },
+          duplicate: true,
+        };
+      }
+
+      const current = this.stmts.getSession.get(executionToken.sessionId) as SessionRow | undefined;
+      if (
+        !current ||
+        current.execution_id !== executionToken.executionId ||
+        current.execution_generation !== executionToken.generation ||
+        current.execution_phase !== 'RUNNING'
+      ) {
+        throw new Error('Cannot begin provider attempt for stale execution token');
+      }
+
+      const active = this.db!.prepare(
+        `SELECT 1 FROM provider_attempts
+         WHERE session_id = ? AND execution_id = ? AND generation = ? AND phase = 'RUNNING'
+         LIMIT 1`,
+      ).get(executionToken.sessionId, executionToken.executionId, executionToken.generation);
+      if (active && !options.allowParallel) {
+        throw new Error(
+          `Cannot overwrite active provider attempt for execution: ${executionToken.executionId}`,
+        );
+      }
+
+      const previous = this.db!.prepare(
+        `SELECT MAX(attempt_number) AS attempt_number FROM provider_attempts
+         WHERE session_id = ? AND execution_id = ? AND generation = ?`,
+      ).get(executionToken.sessionId, executionToken.executionId, executionToken.generation) as {
+        attempt_number: number | null;
+      };
+      const attempt = (previous.attempt_number ?? 0) + 1;
+      const token: ProviderAttemptToken = {
+        ...executionToken,
+        providerAttemptId,
+        attempt,
+      };
+      const timestamp = Date.now();
+      const event: ProviderAttemptStateChangedPayload = {
+        type: 'provider_attempt_state_changed',
+        ...token,
+        phase: 'RUNNING',
+        timestamp,
+      };
+      this.db!.prepare(
+        `INSERT INTO provider_attempts (
+          session_id, execution_id, generation, attempt_number, provider_attempt_id,
+          phase, terminal_reason, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, 'RUNNING', NULL, ?, ?)`,
+      ).run(
+        token.sessionId,
+        token.executionId,
+        token.generation,
+        token.attempt,
+        token.providerAttemptId,
+        timestamp,
+        timestamp,
+      );
+      const seq = Number(
+        this.stmts.append.run(token.sessionId, event.type, JSON.stringify(event), null, null)
+          .lastInsertRowid,
+      );
+      return { token, duplicate: false, seq, event };
+    }).immediate();
+  }
+
+  /** Apply a token-guarded provider-attempt transition and event atomically. */
+  transitionProviderAttempt(
+    token: ProviderAttemptToken,
+    nextPhase: ProviderAttemptPhase,
+    terminalReason?: ProviderAttemptTerminalReason,
+  ): ProviderAttemptTransitionResult {
+    this.validateProviderAttemptTransition(nextPhase, terminalReason);
+    return this.db!.transaction((): ProviderAttemptTransitionResult => {
+      const current = this.db!.prepare(
+        `SELECT phase, terminal_reason FROM provider_attempts
+         WHERE session_id = ? AND execution_id = ? AND generation = ?
+           AND attempt_number = ? AND provider_attempt_id = ?`,
+      ).get(
+        token.sessionId,
+        token.executionId,
+        token.generation,
+        token.attempt,
+        token.providerAttemptId,
+      ) as
+        | {
+            phase: ProviderAttemptPhase;
+            terminal_reason: ProviderAttemptTerminalReason | null;
+          }
+        | undefined;
+      if (!current) return { applied: false, status: 'stale', token };
+      if (current.phase === 'TERMINAL') {
+        const persistedTerminalReason = current.terminal_reason;
+        if (nextPhase === 'TERMINAL' && persistedTerminalReason !== terminalReason) {
+          return {
+            applied: false,
+            status: 'conflict',
+            token,
+            persistedTerminalReason,
+          };
+        }
+        return {
+          applied: false,
+          status: 'terminal',
+          token,
+          persistedTerminalReason,
+        };
+      }
+
+      const currentExecution = this.stmts.getSession.get(token.sessionId) as SessionRow | undefined;
+      if (
+        !currentExecution ||
+        currentExecution.execution_id !== token.executionId ||
+        currentExecution.execution_generation !== token.generation ||
+        currentExecution.execution_phase === 'TERMINAL'
+      ) {
+        return { applied: false, status: 'stale', token };
+      }
+      if (nextPhase !== 'TERMINAL') {
+        return { applied: false, status: 'invalid_transition', token };
+      }
+
+      const timestamp = Date.now();
+      const event: ProviderAttemptStateChangedPayload = {
+        type: 'provider_attempt_state_changed',
+        ...token,
+        phase: nextPhase,
+        terminalReason,
+        timestamp,
+      };
+      const updated = this.db!.prepare(
+        `UPDATE provider_attempts SET phase = ?, terminal_reason = ?, updated_at = ?
+         WHERE session_id = ? AND execution_id = ? AND generation = ?
+           AND attempt_number = ? AND provider_attempt_id = ? AND phase = 'RUNNING'`,
+      ).run(
+        nextPhase,
+        terminalReason,
+        timestamp,
+        token.sessionId,
+        token.executionId,
+        token.generation,
+        token.attempt,
+        token.providerAttemptId,
+      );
+      if (updated.changes !== 1) return { applied: false, status: 'stale', token };
+      const seq = Number(
+        this.stmts.append.run(token.sessionId, event.type, JSON.stringify(event), null, null)
+          .lastInsertRowid,
+      );
+      return { applied: true, status: 'applied', token, seq, event };
+    }).immediate();
+  }
+
+  /** Read provider-attempt history for one immutable execution generation. */
+  getProviderAttempts(executionToken: ExecutionToken): ProviderAttemptRecord[] {
+    const rows = this.db!.prepare(
+      `SELECT attempt_number, provider_attempt_id, phase, terminal_reason, updated_at
+       FROM provider_attempts
+       WHERE session_id = ? AND execution_id = ? AND generation = ?
+       ORDER BY attempt_number`,
+    ).all(
+      executionToken.sessionId,
+      executionToken.executionId,
+      executionToken.generation,
+    ) as Array<{
+      attempt_number: number;
+      provider_attempt_id: string;
+      phase: ProviderAttemptPhase;
+      terminal_reason: ProviderAttemptTerminalReason | null;
+      updated_at: number;
+    }>;
+    return rows.map((row) => ({
+      token: {
+        ...executionToken,
+        providerAttemptId: row.provider_attempt_id,
+        attempt: row.attempt_number,
+      },
+      phase: row.phase,
+      terminalReason: row.terminal_reason,
+      updatedAt: row.updated_at,
+    }));
+  }
+
+  private validateProviderAttemptTransition(
+    nextPhase: ProviderAttemptPhase,
+    terminalReason?: ProviderAttemptTerminalReason,
+  ): void {
+    if (nextPhase === 'TERMINAL') {
+      if (!terminalReason || !PROVIDER_ATTEMPT_TERMINAL_REASONS.has(terminalReason)) {
+        throw new Error(
+          'A valid terminal reason is required when transitioning provider attempt to TERMINAL',
+        );
+      }
+      return;
+    }
+    if (terminalReason !== undefined) {
+      throw new Error('terminalReason is only valid for TERMINAL provider attempts');
+    }
+  }
+
+  /** Apply one token-guarded execution transition and persist its event atomically. */
+  transitionExecution(
+    token: ExecutionToken,
+    nextPhase: ExecutionPhase,
+    terminalReason?: ExecutionTerminalReason,
+  ): ExecutionTransitionResult {
+    this.validateExecutionTransition(nextPhase, terminalReason);
+    return this.db!.transaction((): ExecutionTransitionResult => {
+      const current = this.stmts.getSession.get(token.sessionId) as SessionRow | undefined;
+      if (
+        !current ||
+        current.execution_id !== token.executionId ||
+        current.execution_generation !== token.generation ||
+        !current.execution_phase
+      ) {
+        return { applied: false, status: 'stale', token };
+      }
+
+      const phase = current.execution_phase as ExecutionPhase;
+      if (phase === 'TERMINAL') return { applied: false, status: 'terminal', token };
+      if (phase === 'STOPPING' && nextPhase === 'STOPPING') {
+        return { applied: false, status: 'already_stopping', token };
+      }
+      if (!EXECUTION_TRANSITIONS[phase]?.includes(nextPhase)) {
+        return { applied: false, status: 'invalid_transition', token };
+      }
+      if (nextPhase === 'TERMINAL') {
+        const activeProviderAttempt = this.db!.prepare(
+          `SELECT 1 FROM provider_attempts
+           WHERE session_id = ? AND execution_id = ? AND generation = ? AND phase = 'RUNNING'
+           LIMIT 1`,
+        ).get(token.sessionId, token.executionId, token.generation);
+        if (activeProviderAttempt) {
+          throw new Error('Cannot terminalize execution with an active provider attempt');
+        }
+      }
+
+      const timestamp = Date.now();
+      const event: ExecutionStateChangedPayload = {
+        type: 'execution_state_changed',
+        ...token,
+        phase: nextPhase,
+        clientState: clientStateForExecution(nextPhase),
+        ...(terminalReason ? { terminalReason } : {}),
+        timestamp,
+      };
+      const updated = this.db!.prepare(
+        `UPDATE sessions SET
+          execution_phase = ?, execution_terminal_reason = ?, execution_updated_at = ?,
+          updated_at = ?
+         WHERE session_id = ? AND execution_id = ? AND execution_generation = ?
+           AND execution_phase = ?`,
+      ).run(
+        nextPhase,
+        nextPhase === 'TERMINAL' ? terminalReason : null,
+        timestamp,
+        timestamp,
+        token.sessionId,
+        token.executionId,
+        token.generation,
+        phase,
+      );
+      if (updated.changes !== 1) return { applied: false, status: 'stale', token };
+      const seq = Number(
+        this.stmts.append.run(token.sessionId, event.type, JSON.stringify(event), null, null)
+          .lastInsertRowid,
+      );
+      return { applied: true, status: 'applied', token, seq, event };
+    }).immediate();
+  }
+
+  /** Terminalize only non-terminal executions orphaned by a process restart. */
+  recoverOrphanedExecutions(options: { excludeSymposium?: boolean } = {}): number {
+    const rows = this.db!.prepare(
+      `SELECT session_id, execution_id, execution_generation
+       FROM sessions
+       WHERE execution_phase IN ('RUNNING', 'REQUIRES_ACTION', 'STOPPING')
+         AND execution_id IS NOT NULL
+         AND (? = 0 OR (COALESCE(session_type,'') != 'symposium' AND symposium_config IS NULL))`,
+    ).all(options.excludeSymposium ? 1 : 0) as Array<{
+      session_id: string;
+      execution_id: string;
+      execution_generation: number;
+    }>;
+    let recovered = 0;
+    for (const row of rows) {
+      const token: ExecutionToken = {
+        sessionId: row.session_id,
+        executionId: row.execution_id,
+        generation: row.execution_generation,
+      };
+      const activeProviderAttempts = this.getProviderAttempts(token).filter(
+        (attempt) => attempt.phase === 'RUNNING',
+      );
+      for (const attempt of activeProviderAttempts) {
+        this.transitionProviderAttempt(attempt.token, 'TERMINAL', 'ambiguous');
+      }
+      const result = this.transitionExecution(token, 'TERMINAL', 'server_restart');
+      if (result.applied) recovered++;
+    }
+    return recovered;
+  }
+
+  private validateExecutionTransition(
+    nextPhase: ExecutionPhase,
+    terminalReason?: ExecutionTerminalReason,
+  ): void {
+    if (nextPhase === 'TERMINAL') {
+      if (!terminalReason || !EXECUTION_TERMINAL_REASONS.has(terminalReason)) {
+        throw new Error('A valid terminal reason is required when transitioning to TERMINAL');
+      }
+      return;
+    }
+    if (terminalReason !== undefined) {
+      throw new Error('terminalReason is only valid for TERMINAL transitions');
+    }
+  }
+
   /** Persist a seat-attributed event only when its provenance matches the active config. */
   appendSymposium(
     sessionId: string,
@@ -671,15 +1688,20 @@ export class EventStore {
       }
       const seat = config.seats.find((candidate) => candidate.id === provenance.seatId);
       if (!seat) throw new Error('Symposium provenance references an unknown seat');
-      if (
-        provenance.configRevision !== config.revision ||
-        provenance.accountProfileRevision !== seat.accountBinding?.profileRevision ||
-        provenance.seatProfileRevision !== seat.profileBinding?.profileRevision ||
-        provenance.contextGrantRevision !== seat.contextGrant?.revision ||
-        provenance.authorityGrantRevision !== seat.authorityGrant?.revision ||
-        provenance.isolationDomainId !== seat.isolationRequest?.trustDomainId ||
-        provenance.isolationDomainRevision !== seat.isolationRequest?.revision
-      ) {
+      if (config.version === 2) {
+        if (!('version' in provenance) || provenance.version !== 2) {
+          throw new Error('New Symposium v2 events require an immutable v2 snapshot');
+        }
+        const membership = this.getLatestSymposiumMembership(sessionId, seat.id);
+        if (
+          membership?.state !== 'active' ||
+          membership.reconciliation !== 'confirmed' ||
+          membership.generation !== provenance.membershipGeneration
+        ) {
+          throw new Error('Symposium membership generation does not permit event attribution');
+        }
+      }
+      if (!matchesSeatProvenance(config, seat, provenance)) {
         throw new Error('Symposium provenance does not match the active seat configuration');
       }
       const result = this.stmts.append.run(
@@ -693,9 +1715,94 @@ export class EventStore {
     }).immediate();
   }
 
+  /** Close transcript structure after the host confirms exact native cleanup.
+   * Uses only persisted claim attribution; never emits a successful provider result.
+   * Historical provenance is retained even if membership has since changed.
+   */
+  closeSymposiumAttemptTranscript(claimToken: string): StoredEvent[] {
+    return this.db!.transaction(() => {
+      const attempt = this.getSymposiumRecipientAttemptByClaimToken(claimToken);
+      if (!attempt || attempt.acceptedAt === null || !attempt.provenance) return [];
+      const delivery = this.getSymposiumDelivery(attempt.deliveryId);
+      if (!delivery) throw new Error('Native transcript delivery is unavailable');
+      const provenance = JSON.stringify(attempt.provenance);
+      const open = new Map<string, Map<string, Record<string, unknown>>>();
+      const legacy = new Set<string>();
+      for (const event of this.getSessionEvents(delivery.sessionId)) {
+        if (
+          event.seatId !== attempt.seatId ||
+          JSON.stringify(event.symposiumProvenance) !== provenance
+        )
+          continue;
+        const payload = event.payload;
+        const messageId = payload.messageId;
+        if (typeof messageId !== 'string') continue;
+        if (payload.nativeClaimToken === undefined) {
+          if (event.type === 'message_start') legacy.add(messageId);
+          if (event.type === 'message_end') legacy.delete(messageId);
+          continue;
+        }
+        if (payload.nativeClaimToken !== claimToken) continue;
+        if (event.type === 'message_start') open.set(messageId, new Map());
+        else if (event.type === 'message_end') open.delete(messageId);
+        else {
+          const blocks = open.get(messageId);
+          if (!blocks || typeof payload.blockId !== 'string') continue;
+          if (event.type === 'block_start') blocks.set(payload.blockId, { ...payload });
+          else if (event.type === 'block_end') blocks.delete(payload.blockId);
+          else if (event.type === 'block_delta') {
+            const block = blocks.get(payload.blockId);
+            if (block && typeof payload.input === 'string') block.input = payload.input;
+          }
+        }
+      }
+      if (legacy.size)
+        throw new Error('Unattributed legacy native transcript requires reconciliation');
+      const appended: StoredEvent[] = [];
+      const append = (type: string, payload: Record<string, unknown>) => {
+        const result = this.stmts.append.run(
+          delivery.sessionId,
+          type,
+          JSON.stringify({ ...payload, nativeClaimToken: claimToken }),
+          attempt.seatId,
+          provenance,
+        );
+        const row = this.db!.prepare('SELECT * FROM events WHERE seq = ?').get(
+          Number(result.lastInsertRowid),
+        ) as EventRow;
+        appended.push(rowToEvent(row));
+      };
+      for (const [messageId, blocks] of open) {
+        for (const block of blocks.values()) {
+          let rawInput: unknown;
+          if (typeof block.input === 'string') {
+            try {
+              rawInput = JSON.parse(block.input);
+            } catch {
+              /* preserve partial input */
+            }
+          }
+          append('block_end', {
+            ...block,
+            ...(rawInput && typeof rawInput === 'object' ? { rawInput } : {}),
+          });
+        }
+        append('message_end', { messageId });
+      }
+      return appended;
+    }).immediate();
+  }
+
   /** Check if a user_message with the given messageId already exists for this session. */
   hasUserMessage(sessionId: string, messageId: string): boolean {
     return this.stmts.hasUserMessage.get(sessionId, messageId) != null;
+  }
+
+  /** Indexed lookup avoids parsing a conversation's full stream for one artifact. */
+  getLatestWorktreePath(sessionId: string, repoName: string): string | null {
+    const row = this.stmts.latestWorktreePath.get(sessionId, repoName) as
+      { path: unknown } | undefined;
+    return typeof row?.path === 'string' ? row.path : null;
   }
 
   getEventsAfter(sessionId: string, afterSeq: number, limit?: number): StoredEvent[] {
@@ -706,24 +1813,354 @@ export class EventStore {
     return (rows as EventRow[]).map(rowToEvent);
   }
 
+  /** Predecessor in this session's durable stream; global IDs need not be contiguous. */
+  getSessionPredecessorSeq(sessionId: string, seq: number): number {
+    if (!Number.isSafeInteger(seq) || seq < 0)
+      throw new Error('Event sequence must be a non-negative safe integer');
+    const row = this.db!.prepare(
+      'SELECT COALESCE(MAX(seq), 0) AS predecessor FROM events WHERE session_id = ? AND seq < ?',
+    ).get(sessionId, seq) as { predecessor: number };
+    return row.predecessor;
+  }
+
   getSessionEvents(sessionId: string): StoredEvent[] {
     const rows = this.stmts.sessionEvents.all(sessionId);
     return (rows as EventRow[]).map(rowToEvent);
+  }
+
+  /** Bounded ordered anchors for audience-specific transcript projections. */
+  getSymposiumPerspectiveEvents(sessionId: string, afterSeq = 0, limit = 200): StoredEvent[] {
+    if (
+      !Number.isSafeInteger(afterSeq) ||
+      afterSeq < 0 ||
+      !Number.isSafeInteger(limit) ||
+      limit < 1 ||
+      limit > 500
+    )
+      throw new Error('Invalid Symposium perspective page');
+    const rows = this.db!.prepare(
+      `SELECT seq, session_id, type, payload, created_at, seat_id, symposium_provenance
+        FROM events e WHERE session_id = ? AND seq > ?
+         AND type IN ('message_end', 'user_message', 'symposium_delivery_dispatched')
+         AND (type != 'message_end' OR NOT EXISTS (
+           SELECT 1 FROM events prior
+           WHERE prior.session_id = e.session_id AND prior.type = 'message_end'
+             AND prior.seq < e.seq AND prior.seat_id IS e.seat_id
+             AND prior.symposium_provenance IS e.symposium_provenance
+              AND json_extract(prior.payload, '$.messageId') = json_extract(e.payload, '$.messageId')
+          ))
+       ORDER BY seq LIMIT ?`,
+    ).all(sessionId, afterSeq, limit) as EventRow[];
+    return rows.map(rowToEvent);
+  }
+
+  /** Completed durable text that a user may explicitly select for a later delivery. */
+  getSymposiumSourceMessage(
+    sessionId: string,
+    messageId: string,
+    identity?: { seatId: string | null; membershipGeneration?: number | null },
+  ):
+    | {
+        messageId: string;
+        seatId: string | null;
+        content: string;
+        provenance: SymposiumProvenance | null;
+      }
+    | undefined {
+    const starts = this.db!.prepare(
+      `SELECT seq, session_id, type, payload, created_at, seat_id, symposium_provenance
+       FROM events WHERE session_id = ? AND type IN ('message_start', 'user_message')
+         AND json_extract(payload, '$.messageId') = ? ORDER BY seq`,
+    ).all(sessionId, messageId) as EventRow[];
+    const matchingStarts = starts.filter((row) => {
+      if (!identity) return true;
+      const event = rowToEvent(row);
+      const generation = event.symposiumProvenance?.membershipGeneration ?? null;
+      return (
+        (event.seatId ?? null) === identity.seatId &&
+        (identity.membershipGeneration === undefined ||
+          generation === identity.membershipGeneration)
+      );
+    });
+    // An omitted generation must never select one of several historical turns.
+    if (matchingStarts.length !== 1) return undefined;
+    const sourceRow = matchingStarts[0];
+    const start = rowToEvent(sourceRow);
+    if (start.type === 'user_message') {
+      const content = start.payload.text;
+      return typeof content === 'string'
+        ? {
+            messageId,
+            seatId: start.seatId ?? null,
+            content,
+            provenance: start.symposiumProvenance ?? null,
+          }
+        : undefined;
+    }
+    const end = this.db!.prepare(
+      `SELECT seq, session_id, type, payload, created_at, seat_id, symposium_provenance
+       FROM events WHERE session_id = ? AND type = 'message_end'
+         AND json_extract(payload, '$.messageId') = ? AND seq > ?
+         AND seat_id IS ? AND symposium_provenance IS ? ORDER BY seq LIMIT 1`,
+    ).get(sessionId, messageId, start.seq, sourceRow.seat_id, sourceRow.symposium_provenance) as
+      EventRow | undefined;
+    if (!end) return undefined;
+    if (
+      end.seat_id !== sourceRow.seat_id ||
+      end.symposium_provenance !== sourceRow.symposium_provenance
+    )
+      return undefined;
+    const events = this.db!.prepare(
+      `SELECT seq, session_id, type, payload, created_at, seat_id, symposium_provenance
+       FROM events WHERE session_id = ? AND seq > ? AND seq < ? ORDER BY seq`,
+    ).all(sessionId, start.seq, end.seq) as EventRow[];
+    const textBlocks = new Set<string>();
+    let content = '';
+    for (const row of events) {
+      const event = rowToEvent(row);
+      if (
+        event.payload.messageId !== messageId ||
+        row.seat_id !== sourceRow.seat_id ||
+        row.symposium_provenance !== sourceRow.symposium_provenance
+      )
+        continue;
+      const blockId = event.payload.blockId;
+      if (typeof blockId !== 'string') continue;
+      if (event.type === 'block_start' && event.payload.blockType === 'text')
+        textBlocks.add(blockId);
+      if (
+        event.type === 'block_delta' &&
+        textBlocks.has(blockId) &&
+        typeof event.payload.delta === 'string'
+      )
+        content += event.payload.delta;
+    }
+    return {
+      messageId,
+      seatId: start.seatId ?? null,
+      content,
+      provenance: start.symposiumProvenance ?? null,
+    };
+  }
+
+  /** Read the immutable transcript prefix belonging to a reconnect boundary. */
+  getSessionEventsThroughCursor(sessionId: string, cursor: number): StoredEvent[] {
+    if (!Number.isSafeInteger(cursor) || cursor < 0) {
+      throw new Error('Reconnect cursor must be a non-negative safe integer');
+    }
+    const rows = this.db!.prepare(
+      `SELECT seq, session_id, type, payload, created_at, seat_id, symposium_provenance
+       FROM events WHERE session_id = ? AND seq <= ? ORDER BY seq`,
+    ).all(sessionId, cursor) as EventRow[];
+    return rows.map(rowToEvent);
+  }
+
+  /** Return only the bounded text projection needed to rebuild conversation
+   * continuity. Images, tool I/O, reasoning and arbitrary event payload fields
+   * never leave SQLite. Results are chronological. */
+  getRecentConversationText(sessionId: string, limit = 8192): ConversationTextEvent[] {
+    const rows = this.stmts.recentConversationText.all(sessionId, limit) as Array<{
+      seq: number;
+      type: 'user_message' | 'block_delta' | 'message_end';
+      message_id: string | null;
+      text: string | null;
+    }>;
+    const events: ConversationTextEvent[] = [];
+    for (const row of rows.reverse()) {
+      if (!row.message_id) continue;
+      if (row.type === 'user_message' && typeof row.text === 'string')
+        events.push({ seq: row.seq, kind: 'user', messageId: row.message_id, text: row.text });
+      else if (row.type === 'block_delta' && typeof row.text === 'string')
+        events.push({
+          seq: row.seq,
+          kind: 'assistant_delta',
+          messageId: row.message_id,
+          text: row.text,
+        });
+      if (row.type === 'message_end')
+        events.push({
+          seq: row.seq,
+          kind: 'assistant_end',
+          messageId: row.message_id,
+          text: '',
+        });
+    }
+    return events;
+  }
+
+  /** Capture aggregate state and its replay suffix in one SQLite read transaction. */
+  captureReconnectState(sessionId: string, afterSeq: number, includeEvents = true): ReconnectState {
+    if (!Number.isSafeInteger(afterSeq) || afterSeq < 0) {
+      throw new Error('Reconnect cursor must be a non-negative safe integer');
+    }
+    return this.db!.transaction((): ReconnectState => {
+      const highWater = this.db!.prepare(
+        'SELECT COALESCE(MAX(seq), 0) AS cursor FROM events WHERE session_id = ?',
+      ).get(sessionId) as { cursor: number };
+      const cursor = Number(highWater.cursor);
+      const cursorValid = afterSeq <= cursor;
+      const events =
+        cursorValid && includeEvents
+          ? (
+              this.db!.prepare(
+                `SELECT seq, session_id, type, payload, created_at, seat_id, symposium_provenance
+             FROM events WHERE session_id = ? AND seq > ? AND seq <= ? ORDER BY seq`,
+              ).all(sessionId, afterSeq, cursor) as EventRow[]
+            ).map(rowToEvent)
+          : [];
+      const sessionRow = this.stmts.getSession.get(sessionId) as SessionRow | undefined;
+      const session = sessionRow ? rowToSession(sessionRow) : null;
+      const providerAttempts =
+        session?.executionId && session.executionGeneration > 0
+          ? this.getProviderAttempts({
+              sessionId,
+              executionId: session.executionId,
+              generation: session.executionGeneration,
+            })
+          : [];
+      return {
+        session,
+        events,
+        cursor,
+        cursorValid,
+        providerAttempts,
+      };
+    })();
   }
 
   /** Persist a validated draft or activate Symposium on an existing session.
    * Activation is fail-closed: Seat 1 must retain the session's durable account
    * binding and configuration revisions must move forward.
    */
-  setSymposiumConfig(sessionId: string, input: unknown): SymposiumConfig {
+  getSymposiumSessionAllocation(idempotencyKey: string, fingerprint: string): string | null {
+    const row = this.db!.prepare(
+      'SELECT session_id, request_fingerprint FROM symposium_session_allocations WHERE idempotency_key = ?',
+    ).get(idempotencyKey) as { session_id: string; request_fingerprint: string } | undefined;
+    if (!row) return null;
+    if (row.request_fingerprint !== fingerprint)
+      throw new Error('Symposium creation idempotency conflict');
+    if (!this.getSession(row.session_id)?.symposiumConfig)
+      throw new Error('Previously allocated Symposium is unavailable');
+    return row.session_id;
+  }
+
+  getSymposiumInitialProfileSelections(
+    sessionId: string,
+  ): Record<string, { profileId: string; revision: number }> {
+    const row = this.db!.prepare(
+      'SELECT profile_selections FROM symposium_session_allocations WHERE session_id = ?',
+    ).get(sessionId) as { profile_selections: string } | undefined;
+    return row ? JSON.parse(row.profile_selections) : {};
+  }
+
+  /** Allocate an idle draft and retry receipt together; this never starts a provider runtime. */
+  createSymposiumSession(input: {
+    idempotencyKey: string;
+    fingerprint: string;
+    sessionId: string;
+    summary: string;
+    binding: AccountBinding;
+    config: unknown;
+    profileSelections: Record<string, { profileId: string; revision: number }>;
+  }): { sessionId: string; created: boolean } {
+    const config = SymposiumConfigSchema.parse(input.config);
+    if (config.version !== 2 || config.state !== 'draft' || config.revision !== 1)
+      throw new Error('New Symposium requires an initial v2 draft');
+    return this.db!.transaction(() => {
+      const retry = this.getSymposiumSessionAllocation(input.idempotencyKey, input.fingerprint);
+      if (retry) return { sessionId: retry, created: false };
+      if (this.getSession(input.sessionId)) throw new Error('Symposium session identity conflict');
+      const binding = AccountBindingSchema.parse(input.binding);
+      const anchor = config.seats.find((seat) => seat.id === config.anchorSeatId);
+      if (!anchor?.accountBinding || !sameBinding(anchor.accountBinding, binding))
+        throw new Error('Symposium anchor must match its selected account');
+      this.upsertSession({
+        sessionId: input.sessionId,
+        summary: input.summary,
+        accountBinding: binding,
+        isActive: false,
+      });
+      this.setSymposiumConfig(input.sessionId, config, 0);
+      this.db!.prepare(
+        'INSERT INTO symposium_session_allocations (idempotency_key, request_fingerprint, session_id, profile_selections) VALUES (?, ?, ?, ?)',
+      ).run(
+        input.idempotencyKey,
+        input.fingerprint,
+        input.sessionId,
+        JSON.stringify(input.profileSelections),
+      );
+      return { sessionId: input.sessionId, created: true };
+    }).immediate();
+  }
+
+  setSymposiumConfig(
+    sessionId: string,
+    input: unknown,
+    expectedRevision?: number,
+  ): SymposiumConfig {
     const config = SymposiumConfigSchema.parse(input);
     return this.db!.transaction(() => {
+      this.assertSymposiumArtifactWorkAllowed(sessionId);
       const session = this.getSession(sessionId);
       if (!session) throw new Error('Cannot configure Symposium for an unknown session');
+      if (!session.symposiumConfig && this.ordinaryStartups.has(sessionId))
+        throw new Error('Ordinary startup must finish or stop before Symposium conversion');
+      if (expectedRevision !== undefined && (session.symposiumRevision ?? 0) !== expectedRevision) {
+        throw new Error('Symposium configuration revision conflict');
+      }
+      const previous = session.symposiumConfig
+        ? SymposiumConfigSchema.parse(JSON.parse(session.symposiumConfig))
+        : null;
+      if (previous?.version === 2 && config.version === 1) {
+        throw new Error('Cannot downgrade Symposium membership configuration');
+      }
+      if (
+        previous?.version === 2 &&
+        config.version === 2 &&
+        previous.anchorSeatId !== config.anchorSeatId
+      ) {
+        throw new Error('Symposium anchor transfer requires a separate explicit operation');
+      }
+      if (previous) {
+        const newIds = new Set(config.seats.map((seat) => seat.id));
+        if (previous.seats.some((seat) => !newIds.has(seat.id))) {
+          throw new Error('Cannot erase historical Symposium seat identities');
+        }
+        if (previous.version === 2) {
+          for (const oldSeat of previous.seats) {
+            const current = config.seats.find((seat) => seat.id === oldSeat.id)!;
+            const membership = this.getLatestSymposiumMembership(sessionId, oldSeat.id);
+            if (
+              membership?.state === 'active' &&
+              JSON.stringify(oldSeat) !== JSON.stringify(current)
+            ) {
+              throw new Error(
+                'Active Symposium seat binding must be revoked before configuration change',
+              );
+            }
+          }
+        }
+      }
+
+      if (config.version === 2) {
+        const active = this.db!.prepare(
+          `SELECT count(*) AS n FROM symposium_membership m
+          WHERE m.session_id = ? AND m.generation = (SELECT max(generation)
+            FROM symposium_membership WHERE session_id = m.session_id AND seat_id = m.seat_id)
+            AND m.state = 'active'`,
+        ).get(sessionId) as { n: number };
+        if (active.n > config.activeSeatCap) {
+          throw new Error('Symposium active-seat cap is below current active membership');
+        }
+      }
 
       if (config.state === 'active') {
         const sessionBinding = AccountBindingSchema.safeParse(session.accountBinding);
-        const primaryBinding = config.seats[0].accountBinding;
+        const anchorId = config.version === 2 ? config.anchorSeatId : config.seats[0].id;
+        if (previous?.version === 1 && config.version === 2 && anchorId !== previous.seats[0].id) {
+          throw new Error('Seat 1 must remain the Symposium anchor during v2 upgrade');
+        }
+        const primaryBinding = config.seats.find((seat) => seat.id === anchorId)?.accountBinding;
         if (
           !sessionBinding.success ||
           !primaryBinding ||
@@ -746,16 +2183,109 @@ export class EventStore {
     }).immediate();
   }
 
+  /** Explicit routing ownership change. Seat authority, grants, runtime identity and
+   * artifact leases are deliberately unchanged; old writer removal uses normal cleanup. */
+  transferSymposiumAnchor(input: {
+    sessionId: string;
+    fromSeatId: string;
+    toSeatId: string;
+    expectedRevision: number;
+    expectedGeneration: number;
+    actor: string;
+    reason: string;
+    idempotencyKey: string;
+  }): SymposiumConfig {
+    return this.db!.transaction(() => {
+      this.assertSymposiumArtifactWorkAllowed(input.sessionId);
+      const request = JSON.stringify(input);
+      const prior = this.db!.prepare(
+        'SELECT request, config FROM symposium_anchor_transfers WHERE session_id=? AND idempotency_key=?',
+      ).get(input.sessionId, input.idempotencyKey) as
+        { request: string; config: string } | undefined;
+      if (prior) {
+        if (prior.request !== request) throw new Error('Anchor transfer idempotency conflict');
+        return SymposiumConfigSchema.parse(JSON.parse(prior.config));
+      }
+      const current = this.getActiveSymposiumConfig(input.sessionId);
+      if (
+        current.version !== 2 ||
+        current.revision !== input.expectedRevision ||
+        current.anchorSeatId !== input.fromSeatId ||
+        input.fromSeatId === input.toSeatId
+      )
+        throw new Error('Anchor transfer configuration is stale or invalid');
+      const selected = current.seats.find((seat) => seat.id === input.toSeatId);
+      const member = this.getLatestSymposiumMembership(input.sessionId, input.toSeatId);
+      const admission = this.getLatestSymposiumAdmission(
+        input.sessionId,
+        input.toSeatId,
+        current.revision,
+      );
+      if (
+        !selected?.accountBinding ||
+        member?.state !== 'active' ||
+        member.generation !== input.expectedGeneration ||
+        member.reconciliation !== 'confirmed' ||
+        admission?.decision !== 'admitted' ||
+        admission.membershipGeneration !== member.generation
+      )
+        throw new Error('Select a current admitted and reconciled primary seat');
+      for (const seat of current.seats) {
+        const membership = this.getLatestSymposiumMembership(input.sessionId, seat.id);
+        if (membership && membership.reconciliation !== 'confirmed')
+          throw new Error('Membership cleanup must finish before primary transfer');
+        if (this.getUnsettledSymposiumSeatExecutions(input.sessionId, seat.id).length)
+          throw new Error('Execution cleanup must finish before primary transfer');
+      }
+      const lifecycle = this.db!.prepare(
+        'SELECT 1 FROM symposium_seat_lifecycle_fences WHERE session_id=? LIMIT 1',
+      ).get(input.sessionId);
+      if (lifecycle)
+        throw new Error('Seat lifecycle operation must finish before primary transfer');
+      const queued = this.db!.prepare(
+        "SELECT 1 FROM symposium_deliveries WHERE session_id=? AND status IN ('awaiting_intervention','ready','delivering','failed','recovery_required') LIMIT 1",
+      ).get(input.sessionId);
+      if (queued) throw new Error('Finish or cancel queued deliveries before primary transfer');
+      const next = SymposiumConfigSchema.parse({
+        ...current,
+        revision: current.revision + 1,
+        anchorSeatId: input.toSeatId,
+      });
+      this.db!.prepare(
+        `UPDATE sessions SET symposium_config=?, symposium_revision=?, account_binding=?,
+         updated_at=unixepoch('now', 'subsec')*1000 WHERE session_id=?`,
+      ).run(
+        JSON.stringify(next),
+        next.revision,
+        JSON.stringify(selected.accountBinding),
+        input.sessionId,
+      );
+      this.db!.prepare('INSERT INTO symposium_anchor_transfers VALUES (?,?,?,?,?)').run(
+        input.sessionId,
+        input.idempotencyKey,
+        request,
+        JSON.stringify(next),
+        Date.now(),
+      );
+      return next;
+    }).immediate();
+  }
+
   deactivateSymposium(sessionId: string, expectedRevision: number): void {
-    const result = this.db!.prepare(
-      `UPDATE sessions SET
+    this.db!.transaction(() => {
+      const historical = this.db!.prepare(
+        `SELECT 1 FROM symposium_membership
+        WHERE session_id = ? LIMIT 1`,
+      ).get(sessionId);
+      if (historical) throw new Error('Cannot deactivate Symposium v2 with membership history');
+      const result = this.db!.prepare(
+        `UPDATE sessions SET
           session_type = 'chat', symposium_config = NULL,
           updated_at = unixepoch('now', 'subsec') * 1000
          WHERE session_id = ? AND session_type = 'symposium' AND symposium_revision = ?`,
-    ).run(sessionId, expectedRevision);
-    if (result.changes !== 1) {
-      throw new Error('Symposium deactivation revision conflict');
-    }
+      ).run(sessionId, expectedRevision);
+      if (result.changes !== 1) throw new Error('Symposium deactivation revision conflict');
+    }).immediate();
   }
 
   getActiveSymposiumConfig(sessionId: string): SymposiumConfig {
@@ -768,8 +2298,1115 @@ export class EventStore {
     return config;
   }
 
+  getSymposiumMembershipHistory(sessionId: string, seatId?: string): SymposiumMembershipRecord[] {
+    const rows = this.db!.prepare(
+      `SELECT m.*, r.status AS reconciliation,
+      (SELECT replacement.seat_id FROM symposium_membership replacement
+       WHERE replacement.session_id = m.session_id AND replacement.replaces_seat_id = m.seat_id
+       LIMIT 1) AS linked_replacement FROM symposium_membership m
+      JOIN symposium_membership_reconciliation r USING(session_id,seat_id,generation)
+      WHERE m.session_id = ? AND (? IS NULL OR m.seat_id = ?)
+      ORDER BY m.occurred_at, m.rowid`,
+    ).all(sessionId, seatId ?? null, seatId ?? null) as Record<string, unknown>[];
+    return rows.map(rowToSymposiumMembership);
+  }
+
+  getLatestSymposiumMembership(
+    sessionId: string,
+    seatId: string,
+  ): SymposiumMembershipRecord | undefined {
+    const row = this.db!.prepare(
+      `SELECT m.*, r.status AS reconciliation,
+      (SELECT replacement.seat_id FROM symposium_membership replacement
+       WHERE replacement.session_id = m.session_id AND replacement.replaces_seat_id = m.seat_id
+       LIMIT 1) AS linked_replacement FROM symposium_membership m
+      JOIN symposium_membership_reconciliation r USING(session_id,seat_id,generation)
+      WHERE m.session_id = ? AND m.seat_id = ? ORDER BY m.generation DESC LIMIT 1`,
+    ).get(sessionId, seatId) as Record<string, unknown> | undefined;
+    return row ? rowToSymposiumMembership(row) : undefined;
+  }
+
+  /** Trusted-host internal prerequisite. No HTTP route or native review adapter installs it.
+   * IMMEDIATE serializes against admission/allocation/dispatch claims across processes.
+   * There is deliberately no clear/complete method: restart or empty inventory cannot
+   * turn this pending fence into quiescence, an immutable artifact, or review authority.
+   */
+  beginSymposiumArtifactSeal(input: SymposiumArtifactSealSelection): SymposiumArtifactSealIntent {
+    const selection = SymposiumArtifactSealSelectionSchema.parse(input);
+    const selectionJson = JSON.stringify(selection);
+    // The intent must reach the WAL before the host begins physical drain.
+    this.db!.pragma('synchronous = FULL');
+    if (Number(this.db!.pragma('synchronous', { simple: true })) < 2)
+      throw new Error('Artifact seal requires durable SQLite synchronization');
+    return this.db!.transaction(() => {
+      const existing = this.db!.prepare(
+        'SELECT selection_json, intent_json FROM symposium_artifact_seal_intents WHERE session_id=?',
+      ).get(selection.sessionId) as { selection_json: string; intent_json: string } | undefined;
+      if (existing) {
+        if (existing.selection_json !== selectionJson)
+          throw new Error('Artifact seal intent identity changed');
+        return JSON.parse(existing.intent_json) as SymposiumArtifactSealIntent;
+      }
+      const config = this.getActiveSymposiumConfig(selection.sessionId);
+      if (
+        config.version !== 2 ||
+        config.state !== 'active' ||
+        config.revision !== selection.expectedConfigRevision
+      )
+        throw new Error('Artifact seal requires the exact active Symposium configuration');
+      if (
+        this.db!.prepare(
+          'SELECT 1 FROM symposium_seat_lifecycle_fences WHERE session_id=? LIMIT 1',
+        ).get(selection.sessionId)
+      )
+        throw new Error('Artifact seal must wait for active seat lifecycle operations');
+      const digest = (value: unknown) =>
+        createHash('sha256').update(JSON.stringify(value)).digest('hex');
+      const memberships = [
+        ...new Map(
+          this.getSymposiumMembershipHistory(selection.sessionId)
+            .sort((a, b) => a.generation - b.generation)
+            .map((member) => [member.seatId, member]),
+        ).values(),
+      ]
+        .map((member) => ({
+          seatId: member.seatId,
+          generation: member.generation,
+          state: member.state,
+          reconciliation: member.reconciliation,
+          bindingDigest: digest(member.bindingKey),
+        }))
+        .sort((a, b) => a.seatId.localeCompare(b.seatId));
+      const intent: SymposiumArtifactSealIntent = {
+        kind: 'artifact_seal_intent',
+        version: 1,
+        status: 'pending_unsealed',
+        fenceId: randomUUID(),
+        selection,
+        configDigest: digest(config),
+        memberships,
+        capturedAt: Date.now(),
+      };
+      this.db!.prepare('INSERT INTO symposium_artifact_seal_intents VALUES(?,?,?,?)').run(
+        selection.sessionId,
+        intent.fenceId,
+        selectionJson,
+        JSON.stringify(intent),
+      );
+      return intent;
+    }).immediate();
+  }
+
+  getSymposiumArtifactSealIntent(sessionId: string): SymposiumArtifactSealIntent | null {
+    const row = this.db!.prepare(
+      'SELECT intent_json FROM symposium_artifact_seal_intents WHERE session_id=?',
+    ).get(sessionId) as { intent_json: string } | undefined;
+    return row ? (JSON.parse(row.intent_json) as SymposiumArtifactSealIntent) : null;
+  }
+
+  /** Hold the session write fence while a trusted host persists/reads a seal receipt.
+   * The callback is synchronous: no unprotected await separates snapshot validation
+   * from the receipt database CAS. No authority is supplied by an HTTP request.
+   */
+  withSymposiumArtifactSealSnapshot(intent: SymposiumArtifactSealIntent, action: () => void): void {
+    this.db!.transaction(() => {
+      const current = this.getSymposiumArtifactSealIntent(intent.selection.sessionId);
+      const digest = (value: unknown) =>
+        createHash('sha256').update(JSON.stringify(value)).digest('hex');
+      const memberships = [
+        ...new Map(
+          this.getSymposiumMembershipHistory(intent.selection.sessionId)
+            .sort((a, b) => a.generation - b.generation)
+            .map((member) => [member.seatId, member]),
+        ).values(),
+      ]
+        .map((member) => ({
+          seatId: member.seatId,
+          generation: member.generation,
+          state: member.state,
+          reconciliation: member.reconciliation,
+          bindingDigest: digest(member.bindingKey),
+        }))
+        .sort((a, b) => a.seatId.localeCompare(b.seatId));
+      if (
+        JSON.stringify(current) !== JSON.stringify(intent) ||
+        digest(this.getActiveSymposiumConfig(intent.selection.sessionId)) !== intent.configDigest ||
+        JSON.stringify(memberships) !== JSON.stringify(intent.memberships)
+      )
+        throw new Error('Artifact seal snapshot changed');
+      action();
+    }).immediate();
+  }
+
+  /** Session-wide denial includes readers until a later reviewed sealed-reader adapter exists. */
+  assertSymposiumArtifactWorkAllowed(sessionId: string): void {
+    if (
+      this.db!.prepare(
+        'SELECT 1 FROM symposium_creation_recoveries WHERE session_id=? AND result_json IS NULL',
+      ).get(sessionId)
+    )
+      throw new Error('Symposium creation cleanup is pending; new seat work is fenced');
+    if (
+      this.db!.prepare('SELECT 1 FROM symposium_artifact_seal_intents WHERE session_id=?').get(
+        sessionId,
+      )
+    )
+      throw new Error('Symposium artifact seal is pending; new seat work is fenced');
+  }
+
+  claimSymposiumSeatLifecycle(sessionId: string, seatId: string, token: string): boolean {
+    const result = this.db!.prepare(
+      `INSERT OR IGNORE INTO symposium_seat_lifecycle_fences(session_id,seat_id,token)
+       VALUES(?,?,?)`,
+    ).run(sessionId, seatId, token);
+    return result.changes === 1;
+  }
+
+  releaseSymposiumSeatLifecycle(sessionId: string, seatId: string, token: string): void {
+    const result = this.db!.prepare(
+      `DELETE FROM symposium_seat_lifecycle_fences
+       WHERE session_id=? AND seat_id=? AND token=?`,
+    ).run(sessionId, seatId, token);
+    if (result.changes !== 1) throw new Error('Symposium seat lifecycle fence changed');
+  }
+
+  reserveSymposiumSeatSandbox(
+    input: Omit<
+      SymposiumSeatSandboxRecord,
+      'sandboxName' | 'physicalId' | 'creationStarted' | 'creationCompleted' | 'state'
+    >,
+  ): SymposiumSeatSandboxRecord {
+    return this.db!.transaction(() => {
+      this.assertSymposiumArtifactWorkAllowed(input.sessionId);
+      const existing = this.getSymposiumSeatSandbox(
+        input.sessionId,
+        input.seatId,
+        input.generation,
+      );
+      if (existing) {
+        if (
+          existing.state === 'stopped' ||
+          (existing.creationStarted && !existing.creationCompleted) ||
+          existing.runtimeId !== input.runtimeId ||
+          existing.workspace !== input.workspace ||
+          existing.providerName !== input.providerName ||
+          existing.providerId !== input.providerId ||
+          existing.providerType !== input.providerType ||
+          existing.model !== input.model
+        )
+          throw new Error('Symposium seat sandbox reservation changed');
+        return existing;
+      }
+      if (this.listUnstoppedSymposiumSeatSandboxes(input.sessionId, input.seatId).length)
+        throw new Error('Previous Symposium seat sandbox requires confirmed stop');
+      const membership = this.getLatestSymposiumMembership(input.sessionId, input.seatId);
+      if (membership?.generation !== input.generation || membership.state !== 'active')
+        throw new Error('Symposium seat sandbox generation is not active');
+      this.db!.prepare(
+        `INSERT INTO symposium_seat_sandboxes
+        (session_id,seat_id,generation,runtime_id,workspace,provider_name,provider_id,
+         provider_type,model,state) VALUES(?,?,?,?,?,?,?,?,?,'reserved')`,
+      ).run(
+        input.sessionId,
+        input.seatId,
+        input.generation,
+        input.runtimeId,
+        input.workspace,
+        input.providerName,
+        input.providerId,
+        input.providerType,
+        input.model,
+      );
+      return this.getSymposiumSeatSandbox(input.sessionId, input.seatId, input.generation)!;
+    }).immediate();
+  }
+
+  getSymposiumSeatSandbox(
+    sessionId: string,
+    seatId: string,
+    generation: number,
+  ): SymposiumSeatSandboxRecord | undefined {
+    const row = this.db!.prepare(
+      `SELECT * FROM symposium_seat_sandboxes
+      WHERE session_id=? AND seat_id=? AND generation=?`,
+    ).get(sessionId, seatId, generation) as Record<string, unknown> | undefined;
+    return row ? this.rowToSymposiumSeatSandbox(row) : undefined;
+  }
+
+  listSymposiumSessionSandboxes(sessionId: string): SymposiumSeatSandboxRecord[] {
+    const rows = this.db!.prepare(
+      'SELECT * FROM symposium_seat_sandboxes WHERE session_id=? ORDER BY seat_id,generation',
+    ).all(sessionId) as Record<string, unknown>[];
+    return rows.map((row) => this.rowToSymposiumSeatSandbox(row));
+  }
+
+  listUnstoppedSymposiumSeatSandboxes(
+    sessionId: string,
+    seatId: string,
+  ): SymposiumSeatSandboxRecord[] {
+    const rows = this.db!.prepare(
+      `SELECT * FROM symposium_seat_sandboxes
+      WHERE session_id=? AND seat_id=? AND state<>'stopped' ORDER BY generation`,
+    ).all(sessionId, seatId) as Record<string, unknown>[];
+    return rows.map((row) => this.rowToSymposiumSeatSandbox(row));
+  }
+
+  private rowToSymposiumSeatSandbox(row: Record<string, unknown>): SymposiumSeatSandboxRecord {
+    return {
+      sessionId: row.session_id as string,
+      seatId: row.seat_id as string,
+      generation: row.generation as number,
+      runtimeId: row.runtime_id as string,
+      workspace: row.workspace as string,
+      providerName: row.provider_name as string,
+      providerId: row.provider_id as string,
+      providerType: row.provider_type as string,
+      model: row.model as string,
+      sandboxName: row.sandbox_name as string | null,
+      physicalId: row.physical_id as string | null,
+      creationStarted: Boolean(row.creation_started),
+      creationCompleted: Boolean(row.creation_completed),
+      creationPhase: (row.creation_phase as SymposiumSeatSandboxRecord['creationPhase']) ?? null,
+      creationFailureCode: (row.creation_failure_code as string | null) ?? null,
+      state: row.state as SymposiumSeatSandboxRecord['state'],
+    };
+  }
+
+  /** Persist the point after which a timed-out gateway create may still finish. */
+  markSymposiumSeatSandboxCreationStarted(input: {
+    sessionId: string;
+    seatId: string;
+    generation: number;
+    runtimeId: string;
+  }): void {
+    this.db!.transaction(() => {
+      this.assertSymposiumArtifactWorkAllowed(input.sessionId);
+      const result = this.db!.prepare(
+        `UPDATE symposium_seat_sandboxes SET creation_started=1
+       WHERE session_id=? AND seat_id=? AND generation=? AND runtime_id=?
+       AND state='reserved' AND creation_started=0`,
+      ).run(input.sessionId, input.seatId, input.generation, input.runtimeId);
+      if (result.changes !== 1) throw new Error('Symposium seat creation requires reconciliation');
+    }).immediate();
+  }
+
+  /** Only the retained live owner, before invoking external dispatch, may undo local intent. */
+  rollbackUndispatchedSymposiumSeatCreation(input: {
+    sessionId: string;
+    seatId: string;
+    generation: number;
+    runtimeId: string;
+    fenceToken: string;
+  }): void {
+    const result = this.db!.prepare(
+      `UPDATE symposium_seat_sandboxes SET creation_started=0
+      WHERE session_id=? AND seat_id=? AND generation=? AND runtime_id=?
+      AND state='reserved' AND physical_id IS NULL AND creation_completed=0
+      AND EXISTS(SELECT 1 FROM symposium_seat_lifecycle_fences
+        WHERE session_id=? AND seat_id=? AND token=?)`,
+    ).run(
+      input.sessionId,
+      input.seatId,
+      input.generation,
+      input.runtimeId,
+      input.sessionId,
+      input.seatId,
+      input.fenceToken,
+    );
+    if (result.changes !== 1) throw new Error('Undispatched seat intent requires recovery');
+  }
+
+  /** Only a completed create response can discharge uncertainty about late creation. */
+  markSymposiumSeatSandboxCreationCompleted(input: {
+    sessionId: string;
+    seatId: string;
+    generation: number;
+    runtimeId: string;
+    physicalId: string;
+  }): void {
+    const result = this.db!.prepare(
+      `UPDATE symposium_seat_sandboxes SET creation_completed=1
+       WHERE session_id=? AND seat_id=? AND generation=? AND runtime_id=?
+       AND physical_id=? AND state='ready' AND creation_started=1 AND creation_completed=0`,
+    ).run(input.sessionId, input.seatId, input.generation, input.runtimeId, input.physicalId);
+    if (result.changes !== 1) throw new Error('Symposium seat creation completion changed');
+  }
+
+  /** Exact successful terminal create response; still reserved until configuration passes. */
+  recordSymposiumSeatSandboxTerminalCreate(input: {
+    sessionId: string;
+    seatId: string;
+    generation: number;
+    runtimeId: string;
+    sandboxName: string;
+    physicalId: string;
+  }): void {
+    if (!input.sandboxName || !input.physicalId)
+      throw new Error('Missing terminal create identity');
+    const result = this.db!.prepare(
+      `UPDATE symposium_seat_sandboxes
+      SET sandbox_name=?,physical_id=?,creation_completed=1
+      WHERE session_id=? AND seat_id=? AND generation=? AND runtime_id=?
+      AND state='reserved' AND creation_started=1 AND creation_completed=0 AND physical_id IS NULL`,
+    ).run(
+      input.sandboxName,
+      input.physicalId,
+      input.sessionId,
+      input.seatId,
+      input.generation,
+      input.runtimeId,
+    );
+    if (result.changes !== 1) throw new Error('Terminal seat creation identity changed');
+  }
+
+  confirmSymposiumSeatSandbox(input: {
+    sessionId: string;
+    seatId: string;
+    generation: number;
+    runtimeId: string;
+    sandboxName: string;
+    physicalId: string;
+  }): void {
+    this.db!.transaction(() => {
+      const record = this.getSymposiumSeatSandbox(input.sessionId, input.seatId, input.generation);
+      if (
+        !record ||
+        record.runtimeId !== input.runtimeId ||
+        record.state === 'stopped' ||
+        (record.physicalId && record.physicalId !== input.physicalId) ||
+        (record.sandboxName && record.sandboxName !== input.sandboxName)
+      )
+        throw new Error('Symposium seat sandbox physical identity changed');
+      this.db!.prepare(
+        `UPDATE symposium_seat_sandboxes SET sandbox_name=?,physical_id=?,state='ready'
+        WHERE session_id=? AND seat_id=? AND generation=?`,
+      ).run(input.sandboxName, input.physicalId, input.sessionId, input.seatId, input.generation);
+    }).immediate();
+  }
+
+  confirmSymposiumSeatSandboxStopped(input: {
+    sessionId: string;
+    seatId: string;
+    generation: number;
+    runtimeId: string;
+    physicalId: string;
+  }): void {
+    const record = this.getSymposiumSeatSandbox(input.sessionId, input.seatId, input.generation);
+    if (
+      !record ||
+      record.runtimeId !== input.runtimeId ||
+      record.physicalId !== input.physicalId ||
+      (record.creationStarted && !record.creationCompleted)
+    )
+      throw new Error('Symposium seat sandbox stop identity changed');
+    this.db!.prepare(
+      `UPDATE symposium_seat_sandboxes SET state='stopped'
+      WHERE session_id=? AND seat_id=? AND generation=? AND physical_id=?`,
+    ).run(input.sessionId, input.seatId, input.generation, input.physicalId);
+  }
+
+  confirmAbsentSymposiumSeatSandboxStopped(input: {
+    sessionId: string;
+    seatId: string;
+    generation: number;
+    runtimeId: string;
+  }): void {
+    const record = this.getSymposiumSeatSandbox(input.sessionId, input.seatId, input.generation);
+    if (
+      !record ||
+      record.runtimeId !== input.runtimeId ||
+      record.state !== 'reserved' ||
+      record.physicalId ||
+      record.creationStarted
+    )
+      throw new Error('Symposium seat sandbox absence identity changed');
+    this.db!.prepare(
+      `UPDATE symposium_seat_sandboxes SET state='stopped'
+      WHERE session_id=? AND seat_id=? AND generation=? AND state='reserved'`,
+    ).run(input.sessionId, input.seatId, input.generation);
+  }
+
+  recordSymposiumSeatCreationDiagnostic(input: {
+    sessionId: string;
+    seatId: string;
+    generation: number;
+    runtimeId: string;
+    phase: 'create' | 'upload' | 'provider' | 'mount';
+    failed: boolean;
+  }): void {
+    if (!['create', 'upload', 'provider', 'mount'].includes(input.phase))
+      throw new Error('Invalid creation phase');
+    const code = input.failed ? `SEAT_${input.phase.toUpperCase()}_FAILED` : null;
+    const result = this.db!.prepare(
+      `UPDATE symposium_seat_sandboxes SET creation_phase=?,creation_failure_code=?
+      WHERE session_id=? AND seat_id=? AND generation=? AND runtime_id=? AND state='reserved'`,
+    ).run(input.phase, code, input.sessionId, input.seatId, input.generation, input.runtimeId);
+    if (result.changes !== 1) throw new Error('Creation diagnostic identity changed');
+  }
+
+  getPendingSymposiumCreationRecovery(
+    sessionId: string,
+    seatId: string,
+    generation: number,
+  ): SymposiumCreationRecoveryRequest | null {
+    const row = this.db!.prepare(
+      `SELECT request_json FROM symposium_creation_recoveries
+      WHERE session_id=? AND seat_id=? AND generation=? AND result_json IS NULL`,
+    ).get(sessionId, seatId, generation) as { request_json: string } | undefined;
+    return row ? (JSON.parse(row.request_json) as SymposiumCreationRecoveryRequest) : null;
+  }
+
+  getSymposiumCreationRecoveryAuthorization(
+    input: Pick<SymposiumCreationRecoveryRequest, 'sessionId' | 'seatId' | 'expectedGeneration'>,
+  ) {
+    const row = this.db!.prepare(
+      'SELECT request_json FROM symposium_creation_recoveries WHERE session_id=? AND seat_id=? AND generation=?',
+    ).get(input.sessionId, input.seatId, input.expectedGeneration) as
+      { request_json: string } | undefined;
+    if (!row) return null;
+    const request = JSON.parse(row.request_json) as SymposiumCreationRecoveryRequest;
+    const auth = this.db!.prepare(
+      'SELECT actor,revision,execution_token FROM symposium_creation_recovery_authorizations WHERE session_id=? AND seat_id=? AND generation=?',
+    ).get(input.sessionId, input.seatId, input.expectedGeneration) as
+      { actor: string; revision: number; execution_token: string | null } | undefined;
+    return {
+      actor: auth?.actor ?? request.actor,
+      authorizationRevision: auth?.revision ?? 0,
+      executing: !!auth?.execution_token,
+      operationId: createHash('sha256').update(row.request_json).digest('hex'),
+    };
+  }
+
+  /** Resolve only after authenticating the current executor; never rewrite the initiating request. */
+  resolveSymposiumCreationRecovery(
+    input: SymposiumCreationRecoveryRequest,
+  ): SymposiumCreationRecoveryRequest {
+    const row = this.db!.prepare(
+      'SELECT request_json FROM symposium_creation_recoveries WHERE session_id=? AND seat_id=? AND generation=?',
+    ).get(input.sessionId, input.seatId, input.expectedGeneration) as
+      { request_json: string } | undefined;
+    if (!row) return input;
+    const original = JSON.parse(row.request_json) as SymposiumCreationRecoveryRequest;
+    const auth = this.getSymposiumCreationRecoveryAuthorization(input)!;
+    if (
+      auth.actor !== input.actor ||
+      original.expectedRevision !== input.expectedRevision ||
+      original.idempotencyKey !== input.idempotencyKey
+    )
+      throw new Error('Creation recovery executor or operation changed');
+    return original;
+  }
+
+  reauthorizeSymposiumCreationRecovery(input: SymposiumCreationRecoveryHandoff) {
+    return this.db!.transaction(() => {
+      const auth = this.getSymposiumCreationRecoveryAuthorization(input);
+      if (!auth || auth.operationId !== input.operationId)
+        throw new Error('Pending recovery identity changed');
+      const prior = this.db!.prepare(
+        'SELECT request_json,receipt_json FROM symposium_creation_recovery_handoffs WHERE session_id=? AND seat_id=? AND generation=? AND idempotency_key=?',
+      ).get(input.sessionId, input.seatId, input.expectedGeneration, input.idempotencyKey) as
+        { request_json: string; receipt_json: string } | undefined;
+      if (prior) {
+        if (prior.request_json !== JSON.stringify(input))
+          throw new Error('Recovery authorization key reused');
+        const receipt = JSON.parse(prior.receipt_json) as {
+          operationId: string;
+          authorizationRevision: number;
+        };
+        if (
+          auth.actor !== input.actor ||
+          auth.authorizationRevision !== receipt.authorizationRevision
+        )
+          throw new Error('Recovery authorization superseded');
+        return receipt;
+      }
+      const pending = this.getPendingSymposiumCreationRecovery(
+        input.sessionId,
+        input.seatId,
+        input.expectedGeneration,
+      );
+      const member = this.getLatestSymposiumMembership(input.sessionId, input.seatId);
+      if (
+        !pending ||
+        pending.expectedRevision !== input.expectedRevision ||
+        this.getActiveSymposiumConfig(input.sessionId).revision !== input.expectedRevision ||
+        member?.generation !== input.expectedGeneration ||
+        member.reconciliation !== 'recovery_required' ||
+        auth.authorizationRevision !== input.expectedAuthorizationRevision
+      )
+        throw new Error('Pending recovery authorization is stale');
+      if (auth.executing) throw new Error('Creation recovery execution is fenced');
+      const revision = auth.authorizationRevision + 1;
+      this.db!.prepare(
+        `INSERT INTO symposium_creation_recovery_authorizations VALUES (?,?,?,?,?,NULL)
+        ON CONFLICT(session_id,seat_id,generation) DO UPDATE SET actor=excluded.actor,revision=excluded.revision WHERE execution_token IS NULL`,
+      ).run(input.sessionId, input.seatId, input.expectedGeneration, input.actor, revision);
+      const receipt = { operationId: input.operationId, authorizationRevision: revision };
+      this.db!.prepare('INSERT INTO symposium_creation_recovery_handoffs VALUES (?,?,?,?,?,?)').run(
+        input.sessionId,
+        input.seatId,
+        input.expectedGeneration,
+        input.idempotencyKey,
+        JSON.stringify(input),
+        JSON.stringify(receipt),
+      );
+      return receipt;
+    }).immediate();
+  }
+
+  claimSymposiumCreationRecovery(
+    input: SymposiumCreationRecoveryRequest,
+  ): SymposiumCreationRecoveryClaim {
+    return this.db!.transaction(() => {
+      const request = this.resolveSymposiumCreationRecovery(input);
+      this.beginSymposiumCreationRecovery(request);
+      const auth = this.getSymposiumCreationRecoveryAuthorization(input)!;
+      if (auth.executing) throw new Error('Creation recovery execution is fenced');
+      const token = randomUUID();
+      this.db!.prepare(
+        `INSERT INTO symposium_creation_recovery_authorizations VALUES (?,?,?,?,?,?)
+        ON CONFLICT(session_id,seat_id,generation) DO UPDATE SET execution_token=excluded.execution_token WHERE execution_token IS NULL`,
+      ).run(
+        input.sessionId,
+        input.seatId,
+        input.expectedGeneration,
+        auth.actor,
+        auth.authorizationRevision,
+        token,
+      );
+      return {
+        request,
+        actor: auth.actor,
+        authorizationRevision: auth.authorizationRevision,
+        token,
+      };
+    }).immediate();
+  }
+
+  releaseSymposiumCreationRecovery(claim: SymposiumCreationRecoveryClaim): void {
+    const input = claim.request;
+    this.db!.prepare(
+      'UPDATE symposium_creation_recovery_authorizations SET execution_token=NULL WHERE session_id=? AND seat_id=? AND generation=? AND actor=? AND revision=? AND execution_token=?',
+    ).run(
+      input.sessionId,
+      input.seatId,
+      input.expectedGeneration,
+      claim.actor,
+      claim.authorizationRevision,
+      claim.token,
+    );
+  }
+
+  getSymposiumCreationRecovery(
+    input: SymposiumCreationRecoveryRequest,
+  ): SymposiumMembershipRecord | null | undefined {
+    const row = this.db!.prepare(
+      'SELECT * FROM symposium_creation_recoveries WHERE session_id=? AND seat_id=? AND generation=?',
+    ).get(input.sessionId, input.seatId, input.expectedGeneration) as
+      { request_json: string; result_json: string | null } | undefined;
+    if (!row) return undefined;
+    if (row.request_json !== JSON.stringify(input))
+      throw new Error('Creation recovery request changed');
+    return row.result_json ? (JSON.parse(row.result_json) as SymposiumMembershipRecord) : null;
+  }
+
+  /** Called inside the caller's SQLite transaction. A seat-local fence must not
+   * cancel other recipients or retire their claims/results. */
+  private cancelSymposiumSeatRecipients(
+    sessionId: string,
+    seatId: string,
+    reason: string,
+    at: number,
+  ): void {
+    const affected = this.db!.prepare(
+      `SELECT r.delivery_id FROM symposium_delivery_recipients r JOIN symposium_deliveries d USING(delivery_id)
+       WHERE d.session_id=? AND r.seat_id=? AND r.status IN ('pending','executing','failed','recovery_required')
+         AND d.status NOT IN ('delivered','dropped','cancelled')`,
+    ).all(sessionId, seatId) as Array<{ delivery_id: string }>;
+    for (const { delivery_id: deliveryId } of affected) {
+      this.db!.prepare(
+        `UPDATE symposium_delivery_recipients SET status='cancelled',error=?,updated_at=? WHERE delivery_id=? AND seat_id=? AND status IN ('pending','executing','failed','recovery_required')`,
+      ).run(reason, at, deliveryId, seatId);
+      this.db!.prepare(
+        `UPDATE symposium_recipient_attempts SET status='recovery_required',error=?,completed_at=?,updated_at=? WHERE delivery_id=? AND seat_id=? AND status='executing'`,
+      ).run(reason, at, at, deliveryId, seatId);
+      this.db!.prepare(
+        'DELETE FROM symposium_seat_execution_claims WHERE delivery_id=? AND seat_id=?',
+      ).run(deliveryId, seatId);
+      this.reconcileSymposiumDeliveryRecipients(deliveryId, at, reason);
+    }
+  }
+
+  private reconcileSymposiumDeliveryRecipients(
+    deliveryId: string,
+    at: number,
+    reason = 'recipient cancelled',
+  ): void {
+    const delivery = this.getSymposiumDelivery(deliveryId);
+    if (!delivery || ['cancelled', 'dropped'].includes(delivery.status)) return;
+    const statuses = delivery.recipients.map((recipient) => recipient.status);
+    let status = delivery.status;
+    if (statuses.every((value) => value === 'cancelled')) status = 'cancelled';
+    else if (statuses.every((value) => value === 'delivered' || value === 'cancelled'))
+      status = 'delivered';
+    else if (statuses.includes('recovery_required')) status = 'recovery_required';
+    else if (statuses.includes('failed')) status = 'failed';
+    else if (statuses.includes('executing')) status = 'delivering';
+    else if (statuses.includes('pending') && ['failed', 'recovery_required'].includes(status))
+      status = delivery.deliveredContent === null ? 'awaiting_intervention' : 'ready';
+    this.db!.prepare(
+      `UPDATE symposium_deliveries SET status=?,updated_at=?,cancellation_reason=?,cancelled_at=? WHERE delivery_id=?`,
+    ).run(
+      status,
+      at,
+      status === 'cancelled' ? reason : null,
+      status === 'cancelled' ? at : null,
+      deliveryId,
+    );
+  }
+
+  beginSymposiumCreationRecovery(input: SymposiumCreationRecoveryRequest): void {
+    this.db!.transaction(() => {
+      if (this.getSymposiumCreationRecovery(input) !== undefined) return;
+      // The pending recovery reserves the membership operation key before any
+      // physical cleanup. All competing membership writers use this same transaction.
+      if (
+        this.db!.prepare(
+          'SELECT 1 FROM symposium_membership WHERE session_id=? AND idempotency_key=?',
+        ).get(input.sessionId, input.idempotencyKey) ||
+        this.db!.prepare(
+          "SELECT 1 FROM symposium_creation_recoveries WHERE session_id=? AND json_extract(request_json,'$.idempotencyKey')=?",
+        ).get(input.sessionId, input.idempotencyKey)
+      )
+        throw new Error('Symposium recovery idempotency key was reused');
+      const config = this.getActiveSymposiumConfig(input.sessionId);
+      const member = this.getLatestSymposiumMembership(input.sessionId, input.seatId);
+      const physical = this.getSymposiumSeatSandbox(
+        input.sessionId,
+        input.seatId,
+        input.expectedGeneration,
+      );
+      if (
+        config.version !== 2 ||
+        config.revision !== input.expectedRevision ||
+        member?.generation !== input.expectedGeneration ||
+        member.state !== 'active' ||
+        physical?.state !== 'reserved' ||
+        !physical.creationCompleted ||
+        !physical.physicalId ||
+        !physical.creationFailureCode
+      )
+        throw new Error('Exact failed creation recovery is unavailable');
+      this.db!.prepare('INSERT INTO symposium_creation_recoveries VALUES (?,?,?,?,NULL)').run(
+        input.sessionId,
+        input.seatId,
+        input.expectedGeneration,
+        JSON.stringify(input),
+      );
+      this.db!.prepare(
+        `UPDATE symposium_membership_reconciliation SET status='recovery_required' WHERE session_id=? AND seat_id=? AND generation=?`,
+      ).run(input.sessionId, input.seatId, input.expectedGeneration);
+      this.cancelSymposiumSeatRecipients(
+        input.sessionId,
+        input.seatId,
+        'seat creation recovery',
+        Date.now(),
+      );
+    }).immediate();
+  }
+
+  completeSymposiumCreationRecovery(
+    input: SymposiumCreationRecoveryRequest,
+    claim?: SymposiumCreationRecoveryClaim,
+  ): SymposiumMembershipRecord {
+    return this.db!.transaction(() => {
+      const auth = this.getSymposiumCreationRecoveryAuthorization(input);
+      const fence = this.db!.prepare(
+        'SELECT execution_token FROM symposium_creation_recovery_authorizations WHERE session_id=? AND seat_id=? AND generation=?',
+      ).get(input.sessionId, input.seatId, input.expectedGeneration) as
+        { execution_token: string | null } | undefined;
+      if (
+        fence &&
+        (!claim ||
+          fence.execution_token !== claim.token ||
+          !fence.execution_token ||
+          auth?.actor !== claim.actor ||
+          auth.authorizationRevision !== claim.authorizationRevision)
+      )
+        throw new Error('Creation recovery execution authorization changed');
+      const existing = this.getSymposiumCreationRecovery(input);
+      if (existing === undefined) throw new Error('Creation recovery fence unavailable');
+      if (existing) return existing;
+      const config = this.getActiveSymposiumConfig(input.sessionId);
+      const member = this.getLatestSymposiumMembership(input.sessionId, input.seatId);
+      const physical = this.getSymposiumSeatSandbox(
+        input.sessionId,
+        input.seatId,
+        input.expectedGeneration,
+      );
+      if (
+        config.revision !== input.expectedRevision ||
+        member?.generation !== input.expectedGeneration ||
+        member.reconciliation !== 'recovery_required' ||
+        physical?.state !== 'stopped' ||
+        this.getUnsettledSymposiumSeatExecutions(input.sessionId, input.seatId).length
+      )
+        throw new Error('Creation cleanup proof is incomplete or stale');
+      const generation = input.expectedGeneration + 1;
+      this.db!.prepare(
+        `INSERT INTO symposium_membership(session_id,seat_id,generation,state,action,config_revision,binding_key,actor,reason,idempotency_key,occurred_at)
+        VALUES (?,?,?,'suspended','suspend',?,?,?,?,?,?)`,
+      ).run(
+        input.sessionId,
+        input.seatId,
+        generation,
+        config.revision,
+        member.bindingKey,
+        input.actor,
+        'Explicit failed creation cleanup',
+        input.idempotencyKey,
+        Date.now(),
+      );
+      this.db!.prepare('INSERT INTO symposium_membership_reconciliation VALUES (?,?,?,?)').run(
+        input.sessionId,
+        input.seatId,
+        generation,
+        'confirmed',
+      );
+      const result = this.getLatestSymposiumMembership(input.sessionId, input.seatId)!;
+      this.db!.prepare(
+        'UPDATE symposium_creation_recoveries SET result_json=? WHERE session_id=? AND seat_id=? AND generation=?',
+      ).run(JSON.stringify(result), input.sessionId, input.seatId, input.expectedGeneration);
+      return result;
+    }).immediate();
+  }
+
+  /** SQLite IMMEDIATE transaction makes generation and cap reservation one CAS. */
+  transitionSymposiumMembership(input: {
+    sessionId: string;
+    seatId: string;
+    action: SymposiumMembershipAction;
+    expectedGeneration: number;
+    configRevision: number;
+    actor: string;
+    reason: string;
+    idempotencyKey: string;
+    occurredAt: number;
+    replacesSeatId?: string;
+  }): SymposiumMembershipRecord {
+    return this.transitionSymposiumMembershipOwned(input, false);
+  }
+
+  /** Sole retained custodian safety transition. This is not an operator action.
+   * Existing creation-recovery fences and membership operation keys still apply. */
+  suspendSymposiumForControllerLoss(
+    sessionId: string,
+    expectedRevision: number,
+    controllerIdentity: string,
+    occurredAt: number,
+  ): SymposiumMembershipRecord[] {
+    if (!/^[A-Za-z0-9-]{1,128}$/.test(controllerIdentity))
+      throw new Error('Invalid retained controller identity');
+    return this.db!.transaction(() => {
+      const config = this.getActiveSymposiumConfig(sessionId);
+      if (config.version !== 2 || config.revision !== expectedRevision)
+        throw new Error('Controller loss configuration revision changed');
+      const records: SymposiumMembershipRecord[] = [];
+      for (const seat of config.seats) {
+        const previous = this.getLatestSymposiumMembership(sessionId, seat.id);
+        if (previous?.state !== 'active') continue;
+        records.push(
+          this.transitionSymposiumMembershipOwned(
+            {
+              sessionId,
+              seatId: seat.id,
+              action: 'suspend',
+              expectedGeneration: previous.generation,
+              configRevision: expectedRevision,
+              actor: `custodian:${controllerIdentity}`,
+              reason: 'Authenticated app controller lost',
+              idempotencyKey: `controller-loss:${controllerIdentity}:${seat.id}:${previous.generation}`,
+              occurredAt,
+            },
+            true,
+          ),
+        );
+      }
+      return records;
+    }).immediate();
+  }
+
+  private transitionSymposiumMembershipOwned(
+    input: Parameters<EventStore['transitionSymposiumMembership']>[0],
+    controllerLoss: boolean,
+  ): SymposiumMembershipRecord {
+    return this.db!.transaction(() => {
+      const duplicate = this.db!.prepare(
+        `SELECT m.*, r.status AS reconciliation FROM symposium_membership m
+        JOIN symposium_membership_reconciliation r USING(session_id,seat_id,generation)
+        WHERE m.session_id = ? AND m.idempotency_key = ?`,
+      ).get(input.sessionId, input.idempotencyKey) as Record<string, unknown> | undefined;
+      if (duplicate) {
+        const prior = rowToSymposiumMembership(duplicate);
+        if (
+          prior.seatId !== input.seatId ||
+          prior.generation !== input.expectedGeneration + 1 ||
+          prior.action !== input.action ||
+          prior.configRevision !== input.configRevision ||
+          prior.actor !== input.actor ||
+          prior.reason !== input.reason ||
+          prior.replacesSeatId !== (input.replacesSeatId ?? null)
+        ) {
+          throw new Error('Symposium membership idempotency key was reused');
+        }
+        return prior;
+      }
+      if (
+        this.db!.prepare(
+          "SELECT 1 FROM symposium_creation_recoveries WHERE session_id=? AND result_json IS NULL AND json_extract(request_json,'$.idempotencyKey')=?",
+        ).get(input.sessionId, input.idempotencyKey)
+      )
+        throw new Error('Symposium membership idempotency key is reserved by creation recovery');
+      // Recovery owns this seat generation until exact cleanup and rotation commit.
+      // Revocation is also a generation transition; allowing it here would strand
+      // the durable recovery even when admission/dispatch are already fenced.
+      const recovering = this.db!.prepare(
+        'SELECT 1 FROM symposium_creation_recoveries WHERE session_id=? AND seat_id=? AND result_json IS NULL LIMIT 1',
+      ).get(input.sessionId, input.seatId);
+      if (recovering) throw new Error('Symposium seat creation cleanup is pending');
+      const config = this.getActiveSymposiumConfig(input.sessionId);
+      if (config.version !== 2) throw new Error('Membership transitions require Symposium v2');
+      if (config.revision !== input.configRevision)
+        throw new Error('Symposium membership configuration revision is stale');
+      const seat = config.seats.find((candidate) => candidate.id === input.seatId);
+      if (!seat) throw new Error('Unknown Symposium seat');
+      const previous = this.getLatestSymposiumMembership(input.sessionId, input.seatId);
+      if ((previous?.generation ?? 0) !== input.expectedGeneration)
+        throw new Error('Symposium membership generation conflict');
+      const activating =
+        input.action === 'admit' || input.action === 'restore' || input.action === 'replace';
+      if (activating) this.assertSymposiumArtifactWorkAllowed(input.sessionId);
+      if ((input.action === 'replace') !== Boolean(input.replacesSeatId)) {
+        throw new Error('Symposium replacement requires a predecessor seat');
+      }
+      if (input.action === 'replace') {
+        if (input.replacesSeatId === input.seatId)
+          throw new Error('Replacement requires a new seat identity');
+        const replaced = this.getLatestSymposiumMembership(input.sessionId, input.replacesSeatId!);
+        if (
+          !replaced ||
+          replaced.state !== 'removed' ||
+          replaced.reconciliation !== 'confirmed' ||
+          replaced.replacedBySeatId
+        ) {
+          throw new Error('Replacement predecessor must be reconciled and inactive');
+        }
+      }
+      if (activating) {
+        if (
+          previous?.state === 'active' ||
+          (input.action === 'admit' && previous) ||
+          (input.action === 'restore') !== (previous?.state === 'suspended')
+        ) {
+          throw new Error('Symposium membership transition is invalid');
+        }
+        const unresolved = this.db!.prepare(
+          `SELECT 1 FROM symposium_membership m
+          JOIN symposium_membership_reconciliation r USING(session_id,seat_id,generation)
+          WHERE m.session_id = ? AND r.status != 'confirmed'
+            AND m.generation = (SELECT max(generation) FROM symposium_membership newer
+              WHERE newer.session_id = m.session_id AND newer.seat_id = m.seat_id)
+          LIMIT 1`,
+        ).get(input.sessionId);
+        if (unresolved)
+          throw new Error('Symposium runtime reconciliation is required before admission');
+        const active = this.db!.prepare(
+          `SELECT count(*) AS n FROM symposium_membership m
+          WHERE m.session_id = ? AND m.generation = (SELECT max(generation) FROM symposium_membership
+          WHERE session_id = m.session_id AND seat_id = m.seat_id) AND m.state = 'active'`,
+        ).get(input.sessionId) as { n: number };
+        if (active.n >= config.activeSeatCap) throw new Error('Symposium active-seat cap exceeded');
+      } else {
+        if (
+          previous?.state !== 'active' &&
+          !(
+            input.action === 'remove' &&
+            previous?.state === 'suspended' &&
+            previous.reconciliation === 'confirmed'
+          )
+        ) {
+          throw new Error('Only active or reconciled suspended Symposium seats can be revoked');
+        }
+        if (seat.id === config.anchorSeatId && !controllerLoss)
+          throw new Error('Symposium anchor seat cannot be revoked');
+      }
+      const state = activating ? 'active' : input.action === 'suspend' ? 'suspended' : 'removed';
+      const generation = input.expectedGeneration + 1;
+      const bindingKey = JSON.stringify([
+        seat.accountBinding,
+        seat.profileBinding,
+        seat.reasoningEffort,
+        seat.contextGrant,
+        seat.authorityGrant,
+        seat.isolationRequest,
+      ]);
+      this.db!.prepare(
+        `INSERT INTO symposium_membership(session_id,seat_id,generation,state,action,
+        config_revision,binding_key,actor,reason,idempotency_key,occurred_at,replaces_seat_id,replaced_by_seat_id)
+        VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      ).run(
+        input.sessionId,
+        input.seatId,
+        generation,
+        state,
+        input.action,
+        config.revision,
+        bindingKey,
+        input.actor,
+        input.reason,
+        input.idempotencyKey,
+        input.occurredAt,
+        input.replacesSeatId ?? null,
+        null,
+      );
+      this.db!.prepare(`INSERT INTO symposium_membership_reconciliation VALUES(?,?,?,?)`).run(
+        input.sessionId,
+        input.seatId,
+        generation,
+        'pending',
+      );
+      if (!activating) {
+        this.cancelSymposiumSeatRecipients(
+          input.sessionId,
+          input.seatId,
+          'seat revoked',
+          input.occurredAt,
+        );
+      }
+      return this.getLatestSymposiumMembership(input.sessionId, input.seatId)!;
+    }).immediate();
+  }
+
+  markSymposiumMembershipReconciled(
+    sessionId: string,
+    seatId: string,
+    generation: number,
+    status: Extract<SymposiumReconciliationStatus, 'confirmed' | 'recovery_required'>,
+  ): SymposiumMembershipRecord {
+    const result = this.db!.prepare(
+      `UPDATE symposium_membership_reconciliation SET status = ?
+      WHERE session_id = ? AND seat_id = ? AND generation = ? AND status != 'confirmed'`,
+    ).run(status, sessionId, seatId, generation);
+    if (result.changes !== 1) throw new Error('Symposium membership reconciliation conflict');
+    const row = this.db!.prepare(
+      `SELECT m.*, r.status AS reconciliation,
+      (SELECT replacement.seat_id FROM symposium_membership replacement
+       WHERE replacement.session_id = m.session_id AND replacement.replaces_seat_id = m.seat_id
+       LIMIT 1) AS linked_replacement FROM symposium_membership m
+      JOIN symposium_membership_reconciliation r USING(session_id,seat_id,generation)
+      WHERE m.session_id = ? AND m.seat_id = ? AND m.generation = ?`,
+    ).get(sessionId, seatId, generation) as Record<string, unknown>;
+    return rowToSymposiumMembership(row);
+  }
+
+  getSymposiumRequiredProviders(
+    sessionId: string,
+    retainedProviders: readonly string[] = [],
+  ): string[] {
+    const config = this.getActiveSymposiumConfig(sessionId);
+    const providers = new Set(retainedProviders);
+    for (const seat of config.seats) {
+      if (config.version === 2) {
+        const membership = this.getLatestSymposiumMembership(sessionId, seat.id);
+        const admission = this.getMostRecentSymposiumAdmission(sessionId, seat.id);
+        if (
+          membership?.state !== 'active' ||
+          admission?.decision !== 'admitted' ||
+          admission.membershipGeneration !== membership.generation ||
+          admission.provider !== seat.accountBinding?.provider ||
+          admission.accountId !== seat.accountBinding.accountId ||
+          admission.model !== seat.accountBinding.model ||
+          admission.accountProfileRevision !== seat.accountBinding.profileRevision
+        )
+          continue;
+      }
+      if (seat.accountBinding?.provider) providers.add(seat.accountBinding.provider);
+    }
+    return [...providers].sort();
+  }
+
+  getSymposiumLateResults(deliveryId: string): Array<{
+    deliveryId: string;
+    seatId: string;
+    claimToken: string;
+    providerThreadId: string;
+    resultContent: string;
+    costUsd: number | null;
+    observedAt: number;
+    provenance: SymposiumProvenance | null;
+  }> {
+    const rows = this.db!.prepare(
+      `SELECT * FROM symposium_late_results WHERE delivery_id = ?
+      ORDER BY observed_at, rowid`,
+    ).all(deliveryId) as Array<Record<string, unknown>>;
+    return rows.map((row) => ({
+      deliveryId: row.delivery_id as string,
+      seatId: row.seat_id as string,
+      claimToken: row.claim_token as string,
+      providerThreadId: row.provider_thread_id as string,
+      resultContent: row.result_content as string,
+      costUsd: row.cost_known === 1 ? (row.cost_usd as number) : null,
+      observedAt: row.observed_at as number,
+      provenance: parseSymposiumProvenance(row.symposium_provenance as string | null) ?? null,
+    }));
+  }
+
+  /** Historical attempts and late results keep spending visible across seat changes. */
+  getSymposiumUsage(sessionId: string): {
+    attempts: number;
+    costUsd: number | null;
+    knownCostUsd: number;
+    unknownCostAttempts: number;
+  } {
+    // Retries retain one provider idempotency identity even though each host
+    // dispatch has its own claim. Price that provider turn once, using evidence
+    // from any of its attempts or their exact-claim late results.
+    const usage = this.db!.prepare(
+      `WITH attempts AS (
+        SELECT a.* FROM symposium_recipient_attempts a
+        JOIN symposium_deliveries d ON d.delivery_id = a.delivery_id
+        WHERE d.session_id = ?
+      ), evidence AS (
+        SELECT delivery_id, seat_id, idempotency_key, cost_known, cost_usd FROM attempts
+        UNION ALL
+        SELECT a.delivery_id, a.seat_id, a.idempotency_key, l.cost_known, l.cost_usd
+        FROM attempts a JOIN symposium_late_results l
+          ON l.delivery_id = a.delivery_id AND l.seat_id = a.seat_id
+          AND l.claim_token = a.claim_token
+      ), prices AS (
+        SELECT delivery_id, seat_id, idempotency_key,
+          count(DISTINCT CASE WHEN cost_known = 1 THEN cost_usd END) AS price_count,
+          max(CASE WHEN cost_known = 1 THEN cost_usd END) AS price
+        FROM evidence GROUP BY delivery_id, seat_id, idempotency_key
+      )
+      SELECT (SELECT count(*) FROM attempts) AS attempts,
+        coalesce(sum(CASE WHEN price_count = 1 THEN price ELSE 0 END), 0) AS cost,
+        coalesce(sum(CASE WHEN price_count != 1 THEN (
+          SELECT count(*) FROM attempts a WHERE a.delivery_id = prices.delivery_id
+            AND a.seat_id = prices.seat_id AND a.idempotency_key = prices.idempotency_key
+        ) ELSE 0 END), 0) AS unknown_cost FROM prices`,
+    ).get(sessionId) as { attempts: number; cost: number; unknown_cost: number };
+    return {
+      attempts: usage.attempts,
+      costUsd: usage.unknown_cost ? null : usage.cost,
+      knownCostUsd: usage.cost,
+      unknownCostAttempts: usage.unknown_cost,
+    };
+  }
+
   recordSymposiumAdmission(record: SymposiumAdmissionRecord): SymposiumAdmissionRecord {
     return this.db!.transaction(() => {
+      if (record.decision === 'admitted') this.assertSymposiumArtifactWorkAllowed(record.sessionId);
       const prior = this.db!.prepare(
         'SELECT * FROM symposium_admissions WHERE session_id = ? AND idempotency_key = ?',
       ).get(record.sessionId, record.idempotencyKey) as Record<string, unknown> | undefined;
@@ -785,7 +3422,8 @@ export class EventStore {
           existing.model !== record.model ||
           existing.accountProfileRevision !== record.accountProfileRevision ||
           existing.isolationDomainId !== record.isolationDomainId ||
-          existing.isolationDomainRevision !== record.isolationDomainRevision
+          existing.isolationDomainRevision !== record.isolationDomainRevision ||
+          existing.membershipGeneration !== record.membershipGeneration
         ) {
           throw new Error('Symposium admission idempotency key was reused with different input');
         }
@@ -793,6 +3431,15 @@ export class EventStore {
       }
       const config = this.getActiveSymposiumConfig(record.sessionId);
       const seat = config.seats.find((candidate) => candidate.id === record.seatId);
+      if (config.version === 2) {
+        const membership = this.getLatestSymposiumMembership(record.sessionId, record.seatId);
+        if (
+          membership?.state !== 'active' ||
+          membership.generation !== record.membershipGeneration
+        ) {
+          throw new Error('Symposium membership must be current before provider admission');
+        }
+      }
       if (
         config.revision !== record.configRevision ||
         !seat?.accountBinding ||
@@ -810,8 +3457,8 @@ export class EventStore {
         `INSERT INTO symposium_admissions (
           admission_id, session_id, seat_id, decision, reason, idempotency_key,
           config_revision, provider, account_id, model, account_profile_revision,
-          isolation_domain_id, isolation_domain_revision, decided_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          isolation_domain_id, isolation_domain_revision, decided_at, membership_generation
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).run(
         record.admissionId,
         record.sessionId,
@@ -827,6 +3474,7 @@ export class EventStore {
         record.isolationDomainId,
         record.isolationDomainRevision,
         record.decidedAt,
+        record.membershipGeneration ?? 0,
       );
       return record;
     }).immediate();
@@ -863,6 +3511,17 @@ export class EventStore {
     return row ? rowToSymposiumAdmission(row) : undefined;
   }
 
+  private getMostRecentSymposiumAdmission(
+    sessionId: string,
+    seatId: string,
+  ): SymposiumAdmissionRecord | undefined {
+    const row = this.db!.prepare(
+      `SELECT * FROM symposium_admissions
+      WHERE session_id = ? AND seat_id = ? ORDER BY config_revision DESC, decided_at DESC, rowid DESC LIMIT 1`,
+    ).get(sessionId, seatId) as Record<string, unknown> | undefined;
+    return row ? rowToSymposiumAdmission(row) : undefined;
+  }
+
   createSymposiumDelivery(record: SymposiumDeliveryRecord): SymposiumDeliveryRecord {
     return this.db!.transaction(() => {
       const prior = this.db!.prepare(
@@ -872,6 +3531,7 @@ export class EventStore {
         const existing = this.getSymposiumDelivery(prior.delivery_id)!;
         if (
           existing.sourceSeatId !== record.sourceSeatId ||
+          (existing.sourceMessageId ?? null) !== (record.sourceMessageId ?? null) ||
           existing.originalContent !== record.originalContent ||
           JSON.stringify(existing.recipientSeatIds) !== JSON.stringify(record.recipientSeatIds) ||
           existing.configRevision !== record.configRevision ||
@@ -918,11 +3578,30 @@ export class EventStore {
         const source = config.seats.find((seat) => seat.id === record.sourceSeatId);
         if (
           !source ||
-          !record.sourceProvenance ||
-          !matchesSeatProvenance(config, source, record.sourceProvenance)
+          (record.sourceMessageId == null &&
+            (!record.sourceProvenance ||
+              !matchesSeatProvenance(config, source, record.sourceProvenance))) ||
+          (record.sourceMessageId == null &&
+            config.version === 2 &&
+            record.sourceProvenance &&
+            this.getLatestSymposiumMembership(record.sessionId, source.id)?.generation !==
+              record.sourceProvenance.membershipGeneration)
         ) {
           throw new Error('Symposium delivery source provenance does not match its seat');
         }
+      }
+      if (record.sourceMessageId !== undefined && record.sourceMessageId !== null) {
+        const source = this.getSymposiumSourceMessage(record.sessionId, record.sourceMessageId, {
+          seatId: record.sourceSeatId,
+          membershipGeneration: record.sourceProvenance?.membershipGeneration ?? null,
+        });
+        if (
+          !source ||
+          source.seatId !== record.sourceSeatId ||
+          !source.content.includes(record.originalContent) ||
+          JSON.stringify(source.provenance) !== JSON.stringify(record.sourceProvenance)
+        )
+          throw new Error('Symposium delivery source message is not durable for its seat');
       }
       record.recipients.forEach((recipient, index) => {
         const seat = expectedRecipients[index];
@@ -939,22 +3618,27 @@ export class EventStore {
           recipient.authorityGrantId !== seat.authorityGrant?.grantId ||
           recipient.authorityGrantRevision !== seat.authorityGrant?.revision ||
           recipient.isolationDomainId !== seat.isolationRequest?.trustDomainId ||
-          recipient.isolationDomainRevision !== seat.isolationRequest?.revision
+          recipient.isolationDomainRevision !== seat.isolationRequest?.revision ||
+          (config.version === 2 &&
+            (this.getLatestSymposiumMembership(record.sessionId, seat.id)?.state !== 'active' ||
+              this.getLatestSymposiumMembership(record.sessionId, seat.id)?.generation !==
+                recipient.membershipGeneration))
         ) {
           throw new Error('Symposium recipient ledger snapshot does not match its active seat');
         }
       });
       this.db!.prepare(
         `INSERT INTO symposium_deliveries (
-          delivery_id, session_id, source_seat_id, recipient_seat_ids, original_content,
+          delivery_id, session_id, source_seat_id, source_message_id, recipient_seat_ids, original_content,
           delivered_content, status, intervention, intervention_reason, idempotency_key,
           config_revision, source_provenance, cancellation_reason, cancelled_at,
           created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).run(
         record.deliveryId,
         record.sessionId,
         record.sourceSeatId,
+        record.sourceMessageId ?? null,
         JSON.stringify(record.recipientSeatIds),
         record.originalContent,
         record.deliveredContent,
@@ -975,8 +3659,9 @@ export class EventStore {
           config_revision, account_profile_revision, seat_profile_revision,
           context_grant_id, context_grant_revision, authority_grant_id,
           authority_grant_revision, isolation_domain_id, isolation_domain_revision,
-          provider_thread_id, result_content, cost_usd, error, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          provider_thread_id, result_content, cost_usd, error, updated_at,
+          membership_generation, cost_known
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       );
       record.recipients.forEach((recipient, index) =>
         insertRecipient.run(
@@ -996,9 +3681,11 @@ export class EventStore {
           recipient.isolationDomainRevision,
           recipient.providerThreadId,
           recipient.resultContent,
-          recipient.costUsd,
+          recipient.costUsd ?? 0,
           recipient.error,
           recipient.updatedAt,
+          recipient.membershipGeneration ?? 0,
+          recipient.costUsd === null ? 0 : 1,
         ),
       );
       return this.getSymposiumDelivery(record.deliveryId)!;
@@ -1036,6 +3723,30 @@ export class EventStore {
     return rows.map((row) => this.getSymposiumDelivery(row.delivery_id)!);
   }
 
+  /** Bounded pending recipient rows; a queue entry is not evidence of provider receipt. */
+  getQueuedSymposiumRecipients(
+    sessionId: string,
+    seatId?: string,
+    limit = 100,
+  ): Array<{ delivery: SymposiumDeliveryRecord; seatId: string }> {
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 500)
+      throw new Error('Invalid Symposium queue limit');
+    const rows = this.db!.prepare(
+      `SELECT r.delivery_id, r.seat_id FROM symposium_delivery_recipients r
+       JOIN symposium_deliveries d ON d.delivery_id = r.delivery_id
+        WHERE d.session_id = ? AND d.status IN ('awaiting_intervention', 'ready', 'delivering')
+          AND r.status = 'pending' AND (? IS NULL OR r.seat_id = ?)
+       ORDER BY d.created_at, r.delivery_id, r.seat_id LIMIT ?`,
+    ).all(sessionId, seatId ?? null, seatId ?? null, limit) as Array<{
+      delivery_id: string;
+      seat_id: string;
+    }>;
+    return rows.map((row) => ({
+      delivery: this.getSymposiumDelivery(row.delivery_id)!,
+      seatId: row.seat_id,
+    }));
+  }
+
   recordSymposiumIntervention(input: {
     deliveryId: string;
     action: SymposiumIntervention;
@@ -1067,6 +3778,16 @@ export class EventStore {
       if (input.action === 'retry') {
         if (status !== 'failed' && status !== 'recovery_required') {
           throw new Error('Only failed or recovery-required deliveries can be retried');
+        }
+        const config = this.getActiveSymposiumConfig(delivery.sessionId);
+        if (
+          config?.version === 2 &&
+          this.db!.prepare(
+            `SELECT 1 FROM symposium_recipient_attempts
+          WHERE delivery_id = ? AND cleanup_confirmed = 0 LIMIT 1`,
+          ).get(input.deliveryId)
+        ) {
+          throw new Error('Recipient execution or cleanup must settle before retry');
         }
         status = 'ready';
         this.db!.prepare(
@@ -1128,6 +3849,7 @@ export class EventStore {
       const delivery = this.getSymposiumDelivery(deliveryId);
       if (!delivery) throw new Error('Unknown Symposium delivery');
       if (delivery.status !== 'ready') return false;
+      this.assertSymposiumArtifactWorkAllowed(delivery.sessionId);
       if (maxTurns !== undefined) {
         const reserved = this.db!.prepare(
           `SELECT
@@ -1177,6 +3899,78 @@ export class EventStore {
     }).immediate();
   }
 
+  /** Host executor confirms its exact attempt can no longer issue native operations. */
+  confirmSymposiumExecutionCleanup(claimToken: string): void {
+    this.db!.prepare(
+      `UPDATE symposium_recipient_attempts SET cleanup_confirmed = 1
+      WHERE claim_token = ?`,
+    ).run(claimToken);
+  }
+
+  /** Confirmation is scoped to a captured attempt, including pre-token legacy rows. */
+  confirmSymposiumAttemptCleanup(attemptId: number, idempotencyKey: string): void {
+    this.db!.prepare(
+      `UPDATE symposium_recipient_attempts SET cleanup_confirmed = 1
+      WHERE attempt_id = ? AND idempotency_key = ?`,
+    ).run(attemptId, idempotencyKey);
+  }
+
+  getUnsettledSymposiumExecutions(deliveryId: string): Array<{
+    seatId: string;
+    attemptId: number;
+    idempotencyKey: string;
+    claimToken: string | null;
+  }> {
+    return (
+      this.db!.prepare(
+        `SELECT seat_id, attempt_id, idempotency_key, claim_token FROM symposium_recipient_attempts
+      WHERE delivery_id = ? AND cleanup_confirmed = 0`,
+      ).all(deliveryId) as Array<{
+        seat_id: string;
+        attempt_id: number;
+        idempotency_key: string;
+        claim_token: string | null;
+      }>
+    ).map((row) => ({
+      seatId: row.seat_id,
+      attemptId: row.attempt_id,
+      idempotencyKey: row.idempotency_key,
+      claimToken: row.claim_token,
+    }));
+  }
+
+  getUnsettledSymposiumSeatExecutions(
+    sessionId: string,
+    seatId: string,
+  ): Array<{ attemptId: number; idempotencyKey: string; claimToken: string | null }> {
+    return (
+      this.db!.prepare(
+        `SELECT a.attempt_id, a.idempotency_key, a.claim_token FROM symposium_recipient_attempts a
+      JOIN symposium_deliveries d ON d.delivery_id = a.delivery_id
+      WHERE d.session_id = ? AND a.seat_id = ? AND a.cleanup_confirmed = 0`,
+      ).all(sessionId, seatId) as Array<{
+        attempt_id: number;
+        idempotency_key: string;
+        claim_token: string | null;
+      }>
+    ).map((row) => ({
+      attemptId: row.attempt_id,
+      idempotencyKey: row.idempotency_key,
+      claimToken: row.claim_token,
+    }));
+  }
+
+  /** An occupied seat/resource leaves approved work queued, never retries failed work. */
+  requeueIdleSymposiumDelivery(deliveryId: string, updatedAt: number): void {
+    this.db!.prepare(
+      `UPDATE symposium_deliveries SET status = 'ready', updated_at = ?
+      WHERE delivery_id = ? AND status = 'delivering'
+        AND EXISTS (SELECT 1 FROM symposium_delivery_recipients WHERE delivery_id = ? AND status = 'pending')
+        AND NOT EXISTS (SELECT 1 FROM symposium_delivery_recipients WHERE delivery_id = ? AND status = 'executing')
+    `,
+    ).run(updatedAt, deliveryId, deliveryId, deliveryId);
+  }
+
   claimSymposiumRecipientExecution(input: {
     sessionId: string;
     deliveryId: string;
@@ -1186,11 +3980,14 @@ export class EventStore {
     recipientIdempotencyKey: string;
     claimToken: string;
     claimedAt: number;
+    provenance: SymposiumProvenance;
   }): { claimToken: string; thread: SymposiumSeatThreadRecord | undefined } | undefined {
     return this.db!.transaction(() => {
+      this.assertSymposiumArtifactWorkAllowed(input.sessionId);
       const recipient = this.db!.prepare(
-        `SELECT r.status AS recipient_status, r.idempotency_key, d.status AS delivery_status,
-          d.session_id
+        `SELECT r.status AS recipient_status, r.idempotency_key, r.membership_generation,
+          d.status AS delivery_status,
+          d.session_id, d.delivered_content
          FROM symposium_delivery_recipients r
          JOIN symposium_deliveries d ON d.delivery_id = r.delivery_id
          WHERE r.delivery_id = ? AND r.seat_id = ?`,
@@ -1198,8 +3995,10 @@ export class EventStore {
         | {
             recipient_status: string;
             idempotency_key: string;
+            membership_generation: number;
             delivery_status: string;
             session_id: string;
+            delivered_content: string | null;
           }
         | undefined;
       if (
@@ -1207,6 +4006,7 @@ export class EventStore {
         recipient.session_id !== input.sessionId ||
         recipient.delivery_status !== 'delivering' ||
         recipient.recipient_status !== 'pending' ||
+        recipient.delivered_content === null ||
         recipient.idempotency_key !== input.recipientIdempotencyKey
       ) {
         return undefined;
@@ -1215,8 +4015,46 @@ export class EventStore {
       let boundaryError: string | undefined;
       try {
         const config = this.getActiveSymposiumConfig(input.sessionId);
+        const provenance = SymposiumProvenanceSchema.parse(input.provenance);
+        const seat = config.seats.find((candidate) => candidate.id === input.seatId);
         if (config.revision !== input.expectedConfigRevision) {
           boundaryError = 'Delivery configuration revision is stale';
+        } else if (!seat || !matchesSeatProvenance(config, seat, provenance)) {
+          boundaryError = 'Symposium claim provenance does not match the admitted seat';
+        } else if (
+          config.version === 2 &&
+          (!('version' in provenance) ||
+            provenance.version !== 2 ||
+            provenance.membershipGeneration !== recipient.membership_generation)
+        ) {
+          boundaryError = 'Symposium claim provenance must pin the active membership';
+        } else if (config.version === 2) {
+          const membership = this.getLatestSymposiumMembership(input.sessionId, input.seatId);
+          const currentBinding = seat
+            ? JSON.stringify([
+                seat.accountBinding,
+                seat.profileBinding,
+                seat.reasoningEffort,
+                seat.contextGrant,
+                seat.authorityGrant,
+                seat.isolationRequest,
+              ])
+            : null;
+          const admission = this.getLatestSymposiumAdmission(
+            input.sessionId,
+            input.seatId,
+            config.revision,
+          );
+          if (
+            membership?.state !== 'active' ||
+            membership.reconciliation !== 'confirmed' ||
+            membership.generation !== recipient.membership_generation ||
+            membership.bindingKey !== currentBinding ||
+            admission?.decision !== 'admitted' ||
+            admission.membershipGeneration !== membership.generation
+          ) {
+            boundaryError = `Symposium membership generation for seat ${input.seatId} is stale`;
+          }
         } else {
           const admission = this.getLatestSymposiumAdmission(
             input.sessionId,
@@ -1242,6 +4080,38 @@ export class EventStore {
         return undefined;
       }
 
+      // Claims are acquired in this IMMEDIATE transaction, including across host instances.
+      // Shared-boundary writers conflict even when they target different seat threads.
+      const activeConfig = this.getActiveSymposiumConfig(input.sessionId);
+      const candidate = activeConfig.seats.find((seat) => seat.id === input.seatId);
+      const writes = (seat: typeof candidate) =>
+        !seat?.authorityGrant ||
+        seat.authorityGrant.filesystem === 'write' ||
+        seat.authorityGrant.tools === 'write';
+      if (activeConfig.version === 2 && writes(candidate)) {
+        const claims = this.db!.prepare(
+          `SELECT a.seat_id FROM symposium_recipient_attempts a
+            JOIN symposium_deliveries d ON d.delivery_id = a.delivery_id
+            WHERE d.session_id = ? AND a.cleanup_confirmed = 0`,
+        ).all(input.sessionId) as Array<{ seat_id: string }>;
+        const uncertainCleanup = this.db!.prepare(
+          `SELECT 1 FROM symposium_membership m
+          JOIN symposium_membership_reconciliation r USING(session_id,seat_id,generation)
+          WHERE m.session_id = ? AND r.status != 'confirmed'
+            AND m.generation = (SELECT MAX(latest.generation) FROM symposium_membership latest
+              WHERE latest.session_id = m.session_id AND latest.seat_id = m.seat_id)
+            AND m.state != 'active' LIMIT 1`,
+        ).get(input.sessionId);
+        if (
+          uncertainCleanup ||
+          claims.some((claim) =>
+            writes(activeConfig.seats.find((seat) => seat.id === claim.seat_id)),
+          )
+        ) {
+          return undefined;
+        }
+      }
+
       const inserted = this.db!.prepare(
         `INSERT OR IGNORE INTO symposium_seat_execution_claims (
           session_id, seat_id, binding_key, delivery_id,
@@ -1257,14 +4127,15 @@ export class EventStore {
         input.claimedAt,
       );
       if (inserted.changes !== 1) {
-        this.db!.prepare(
-          `UPDATE symposium_deliveries SET status = 'ready', updated_at = ?
+        if (activeConfig.version !== 2)
+          this.db!.prepare(
+            `UPDATE symposium_deliveries SET status = 'ready', updated_at = ?
            WHERE delivery_id = ? AND status = 'delivering'
              AND NOT EXISTS (
                SELECT 1 FROM symposium_delivery_recipients
                WHERE delivery_id = ? AND status = 'executing'
              )`,
-        ).run(input.claimedAt, input.deliveryId, input.deliveryId);
+          ).run(input.claimedAt, input.deliveryId, input.deliveryId);
         return undefined;
       }
 
@@ -1287,18 +4158,27 @@ export class EventStore {
         );
         return undefined;
       }
+      const dispatchSeq = this.append(input.sessionId, 'symposium_delivery_dispatched', {
+        deliveryId: input.deliveryId,
+        seatId: input.seatId,
+        claimToken: input.claimToken,
+      });
       this.db!.prepare(
         `INSERT INTO symposium_recipient_attempts (
-          delivery_id, seat_id, attempt_number, idempotency_key, status,
-          provider_thread_id, started_at, updated_at
+          delivery_id, seat_id, attempt_number, idempotency_key, claim_token,
+          symposium_provenance, status, provider_thread_id, dispatched_content, dispatch_seq, started_at, updated_at
         )
-        SELECT ?, ?, COALESCE(MAX(attempt_number), 0) + 1, ?, 'executing', ?, ?, ?
+        SELECT ?, ?, COALESCE(MAX(attempt_number), 0) + 1, ?, ?, ?, 'executing', ?, ?, ?, ?, ?
         FROM symposium_recipient_attempts WHERE delivery_id = ? AND seat_id = ?`,
       ).run(
         input.deliveryId,
         input.seatId,
         input.recipientIdempotencyKey,
+        input.claimToken,
+        JSON.stringify(input.provenance),
         thread?.providerThreadId ?? null,
+        recipient.delivered_content,
+        dispatchSeq,
         input.claimedAt,
         input.claimedAt,
         input.deliveryId,
@@ -1311,6 +4191,42 @@ export class EventStore {
     }).immediate();
   }
 
+  /** Host-only CAS after verified native lineage, before a provider turn can start. */
+  migrateSymposiumSeatThread(claimToken: string, previous: string, next: string): void {
+    if (!next || next === previous) throw new Error('Invalid Symposium thread migration');
+    this.db!.transaction(() => {
+      const claim = this.db!.prepare(
+        `SELECT c.* FROM symposium_seat_execution_claims c
+        JOIN symposium_recipient_attempts a ON a.claim_token=c.claim_token
+        WHERE c.claim_token=? AND a.status='executing' AND a.accepted_at IS NULL`,
+      ).get(claimToken) as
+        | { session_id: string; seat_id: string; binding_key: string; delivery_id: string }
+        | undefined;
+      if (!claim) throw new Error('Symposium thread migration claim is no longer current');
+      const changed = this.db!.prepare(
+        `UPDATE symposium_seat_threads SET provider_thread_id=?,updated_at=?
+        WHERE session_id=? AND seat_id=? AND binding_key=? AND provider_thread_id=?`,
+      ).run(next, Date.now(), claim.session_id, claim.seat_id, claim.binding_key, previous);
+      if (changed.changes !== 1) throw new Error('Symposium thread migration predecessor changed');
+      const attempt = this.db!.prepare(
+        `UPDATE symposium_recipient_attempts SET provider_thread_id=?
+        WHERE claim_token=? AND status='executing' AND accepted_at IS NULL AND provider_thread_id=?`,
+      ).run(next, claimToken, previous);
+      if (attempt.changes !== 1) throw new Error('Symposium migration attempt predecessor changed');
+      this.db!.prepare(
+        `UPDATE symposium_delivery_recipients SET provider_thread_id=?
+        WHERE delivery_id=? AND seat_id=? AND status='executing' AND provider_thread_id=?`,
+      ).run(next, claim.delivery_id, claim.seat_id, previous);
+      this.append(claim.session_id, 'symposium_thread_migrated', {
+        seatId: claim.seat_id,
+        deliveryId: claim.delivery_id,
+        claimToken,
+        previousThreadId: previous,
+        providerThreadId: next,
+      });
+    })();
+  }
+
   completeSymposiumRecipient(input: {
     sessionId: string;
     deliveryId: string;
@@ -1320,10 +4236,13 @@ export class EventStore {
     configRevision: number;
     threadCreatedAt: number;
     resultContent: string;
-    costUsd: number;
+    costUsd: number | null;
     updatedAt: number;
     claimToken: string;
   }): SymposiumDeliveryRecord {
+    if (input.costUsd !== null && (!Number.isFinite(input.costUsd) || input.costUsd < 0)) {
+      throw new Error('Symposium provider cost must be finite and nonnegative, or unknown');
+    }
     return this.db!.transaction(() => {
       const delivery = this.db!.prepare(
         `SELECT session_id, config_revision FROM symposium_deliveries WHERE delivery_id = ?`,
@@ -1335,20 +4254,62 @@ export class EventStore {
       ) {
         throw new Error('Symposium completion does not match its delivery configuration');
       }
+      // The acceptance receipt pins the native thread before an executor can finish.
+      // Validate even late completions so archived results cannot contradict that receipt.
+      const accepted = this.db!.prepare(
+        `SELECT provider_thread_id FROM symposium_recipient_attempts
+         WHERE delivery_id = ? AND seat_id = ? AND claim_token = ? AND accepted_at IS NOT NULL`,
+      ).get(input.deliveryId, input.seatId, input.claimToken) as
+        { provider_thread_id: string } | undefined;
+      if (accepted && accepted.provider_thread_id !== input.providerThreadId) {
+        throw new Error('Symposium completion conflicts with provider acceptance receipt');
+      }
       const claim = this.db!.prepare(
         `SELECT 1 FROM symposium_seat_execution_claims
          WHERE session_id = ? AND seat_id = ? AND binding_key = ?
            AND delivery_id = ? AND claim_token = ?`,
       ).get(input.sessionId, input.seatId, input.bindingKey, input.deliveryId, input.claimToken);
-      if (!claim) return this.getSymposiumDelivery(input.deliveryId)!;
+      if (!claim) {
+        const originalAttempt = this.db!.prepare(
+          `SELECT symposium_provenance FROM symposium_recipient_attempts
+           WHERE delivery_id = ? AND seat_id = ? AND claim_token = ?`,
+        ).get(input.deliveryId, input.seatId, input.claimToken) as
+          { symposium_provenance: string | null } | undefined;
+        const recipient = this.db!.prepare(
+          `SELECT status FROM symposium_delivery_recipients
+          WHERE delivery_id = ? AND seat_id = ?`,
+        ).get(input.deliveryId, input.seatId) as { status: string } | undefined;
+        if (
+          originalAttempt &&
+          (recipient?.status === 'cancelled' || recipient?.status === 'recovery_required')
+        ) {
+          this.db!.prepare(
+            `INSERT OR IGNORE INTO symposium_late_results
+            (delivery_id,seat_id,claim_token,provider_thread_id,result_content,cost_usd,cost_known,observed_at,symposium_provenance)
+            VALUES(?,?,?,?,?,?,?,?,?)`,
+          ).run(
+            input.deliveryId,
+            input.seatId,
+            input.claimToken,
+            input.providerThreadId,
+            input.resultContent,
+            input.costUsd ?? 0,
+            input.costUsd === null ? 0 : 1,
+            input.updatedAt,
+            originalAttempt.symposium_provenance,
+          );
+        }
+        return this.getSymposiumDelivery(input.deliveryId)!;
+      }
       const result = this.db!.prepare(
         `UPDATE symposium_delivery_recipients SET status = 'delivered',
-          provider_thread_id = ?, result_content = ?, cost_usd = ?, error = NULL, updated_at = ?
+          provider_thread_id = ?, result_content = ?, cost_usd = ?, cost_known = ?, error = NULL, updated_at = ?
          WHERE delivery_id = ? AND seat_id = ? AND status = 'executing'`,
       ).run(
         input.providerThreadId,
         input.resultContent,
-        input.costUsd,
+        input.costUsd ?? 0,
+        input.costUsd === null ? 0 : 1,
         input.updatedAt,
         input.deliveryId,
         input.seatId,
@@ -1356,13 +4317,14 @@ export class EventStore {
       if (result.changes === 1) {
         const attempt = this.db!.prepare(
           `UPDATE symposium_recipient_attempts SET status = 'delivered',
-            provider_thread_id = ?, result_content = ?, cost_usd = ?, error = NULL,
+            provider_thread_id = ?, result_content = ?, cost_usd = ?, cost_known = ?, error = NULL,
             completed_at = ?, updated_at = ?
            WHERE delivery_id = ? AND seat_id = ? AND status = 'executing'`,
         ).run(
           input.providerThreadId,
           input.resultContent,
-          input.costUsd,
+          input.costUsd ?? 0,
+          input.costUsd === null ? 0 : 1,
           input.updatedAt,
           input.updatedAt,
           input.deliveryId,
@@ -1403,16 +4365,7 @@ export class EventStore {
         this.db!.prepare(`DELETE FROM symposium_seat_execution_claims WHERE claim_token = ?`).run(
           input.claimToken,
         );
-        const remaining = this.db!.prepare(
-          `SELECT 1 FROM symposium_delivery_recipients
-           WHERE delivery_id = ? AND status != 'delivered' LIMIT 1`,
-        ).get(input.deliveryId);
-        if (!remaining) {
-          this.db!.prepare(
-            `UPDATE symposium_deliveries SET status = 'delivered', updated_at = ?
-             WHERE delivery_id = ? AND status = 'delivering'`,
-          ).run(input.updatedAt, input.deliveryId);
-        }
+        this.reconcileSymposiumDeliveryRecipients(input.deliveryId, input.updatedAt);
       }
       return this.getSymposiumDelivery(input.deliveryId)!;
     }).immediate();
@@ -1564,6 +4517,71 @@ export class EventStore {
            WHERE delivery_id = ? ORDER BY seat_id, attempt_number`,
         ).all(deliveryId) as Record<string, unknown>[]);
     return rows.map(rowToSymposiumRecipientAttempt);
+  }
+
+  getSymposiumRecipientAttemptByClaimToken(
+    claimToken: string,
+  ): SymposiumRecipientAttemptRecord | undefined {
+    const row = this.db!.prepare(
+      'SELECT * FROM symposium_recipient_attempts WHERE claim_token = ?',
+    ).get(claimToken) as Record<string, unknown> | undefined;
+    return row ? rowToSymposiumRecipientAttempt(row) : undefined;
+  }
+
+  /** Exact provider turn acceptance receipt; never changes recipient delivery status. */
+  markSymposiumRecipientAccepted(input: {
+    deliveryId: string;
+    seatId: string;
+    claimToken: string;
+    providerThreadId: string;
+    providerTurnId: string;
+    acceptedAt: number;
+  }): boolean {
+    if (
+      !input.providerThreadId.trim() ||
+      !input.providerTurnId.trim() ||
+      !Number.isSafeInteger(input.acceptedAt) ||
+      input.acceptedAt < 0
+    )
+      throw new Error('Provider acceptance requires exact turn identity and timestamp');
+    return this.db!.transaction(() => {
+      const row = this.db!.prepare(
+        `SELECT provider_thread_id, provider_turn_id, accepted_at
+        FROM symposium_recipient_attempts WHERE delivery_id = ? AND seat_id = ? AND claim_token = ?`,
+      ).get(input.deliveryId, input.seatId, input.claimToken) as
+        | {
+            provider_thread_id: string | null;
+            provider_turn_id: string | null;
+            accepted_at: number | null;
+          }
+        | undefined;
+      if (!row) return false;
+      if (row.provider_thread_id !== null && row.provider_thread_id !== input.providerThreadId) {
+        throw new Error('Provider acceptance thread conflicts with the claimed seat thread');
+      }
+      if (row.accepted_at !== null) {
+        if (
+          row.provider_thread_id !== input.providerThreadId ||
+          row.provider_turn_id !== input.providerTurnId
+        )
+          throw new Error('Provider acceptance receipt conflict');
+        return true;
+      }
+      const updated = this.db!.prepare(
+        `UPDATE symposium_recipient_attempts
+        SET provider_thread_id = ?, provider_turn_id = ?, accepted_at = ?, updated_at = ?
+        WHERE delivery_id = ? AND seat_id = ? AND claim_token = ? AND accepted_at IS NULL`,
+      ).run(
+        input.providerThreadId,
+        input.providerTurnId,
+        input.acceptedAt,
+        input.acceptedAt,
+        input.deliveryId,
+        input.seatId,
+        input.claimToken,
+      );
+      return updated.changes === 1;
+    }).immediate();
   }
 
   getSymposiumSeatThread(
@@ -1937,15 +4955,16 @@ export class EventStore {
    * CLOSING is included because the process performing graceful shutdown is gone after a crash.
    * Returns the number of sessions recovered.
    */
-  recoverStaleSessions(): number {
+  recoverStaleSessions(options: { excludeSymposium?: boolean } = {}): number {
     // CREATED excluded: transient state, moves to STARTING synchronously in startChat().
     // The crash window between CREATED and STARTING is negligible.
     const staleStates = ['ACTIVE', 'STARTING', 'DETACHED', 'SUSPENDED', 'CLOSING'];
     const placeholders = staleStates.map(() => '?').join(', ');
     // Inline prepare is intentional — this runs once at startup, not worth caching.
     const rows = this.db!.prepare(
-      `SELECT session_id FROM sessions WHERE state IN (${placeholders})`,
-    ).all(...staleStates) as Array<{ session_id: string }>;
+      `SELECT session_id FROM sessions WHERE state IN (${placeholders})
+       AND (? = 0 OR (COALESCE(session_type,'') != 'symposium' AND symposium_config IS NULL))`,
+    ).all(...staleStates, options.excludeSymposium ? 1 : 0) as Array<{ session_id: string }>;
 
     for (const row of rows) {
       this.setSessionState(row.session_id, 'ENDED', {
@@ -1996,6 +5015,9 @@ function rowToSymposiumAdmission(row: Record<string, unknown>): SymposiumAdmissi
     admissionId: row.admission_id as string,
     sessionId: row.session_id as string,
     seatId: row.seat_id as string,
+    ...(Number(row.membership_generation) > 0
+      ? { membershipGeneration: Number(row.membership_generation) }
+      : {}),
     decision: row.decision as SymposiumAdmissionRecord['decision'],
     reason: (row.reason as string | null) ?? null,
     idempotencyKey: row.idempotency_key as string,
@@ -2010,10 +5032,35 @@ function rowToSymposiumAdmission(row: Record<string, unknown>): SymposiumAdmissi
   };
 }
 
+function rowToSymposiumMembership(row: Record<string, unknown>): SymposiumMembershipRecord {
+  return {
+    sessionId: row.session_id as string,
+    seatId: row.seat_id as string,
+    generation: row.generation as number,
+    state: row.state as SymposiumMembershipRecord['state'],
+    action: row.action as SymposiumMembershipAction,
+    configRevision: row.config_revision as number,
+    bindingKey: row.binding_key as string,
+    actor: row.actor as string,
+    reason: row.reason as string,
+    idempotencyKey: row.idempotency_key as string,
+    occurredAt: row.occurred_at as number,
+    reconciliation: row.reconciliation as SymposiumReconciliationStatus,
+    replacesSeatId: (row.replaces_seat_id as string | null) ?? null,
+    replacedBySeatId:
+      (row.linked_replacement as string | null) ??
+      (row.replaced_by_seat_id as string | null) ??
+      null,
+  };
+}
+
 function rowToSymposiumRecipient(row: Record<string, unknown>): SymposiumDeliveryRecipient {
   return {
     deliveryId: row.delivery_id as string,
     seatId: row.seat_id as string,
+    ...(Number(row.membership_generation) > 0
+      ? { membershipGeneration: Number(row.membership_generation) }
+      : {}),
     status: row.status as SymposiumDeliveryRecipient['status'],
     idempotencyKey: row.idempotency_key as string,
     configRevision: row.config_revision as number,
@@ -2027,7 +5074,7 @@ function rowToSymposiumRecipient(row: Record<string, unknown>): SymposiumDeliver
     isolationDomainRevision: row.isolation_domain_revision as number,
     providerThreadId: (row.provider_thread_id as string | null) ?? null,
     resultContent: (row.result_content as string | null) ?? null,
-    costUsd: (row.cost_usd as number) ?? 0,
+    costUsd: row.cost_known === 1 ? (row.cost_usd as number) : null,
     error: (row.error as string | null) ?? null,
     updatedAt: row.updated_at as number,
   };
@@ -2042,10 +5089,16 @@ function rowToSymposiumRecipientAttempt(
     seatId: row.seat_id as string,
     attemptNumber: row.attempt_number as number,
     idempotencyKey: row.idempotency_key as string,
+    claimToken: (row.claim_token as string | null) ?? null,
+    dispatchedContent: (row.dispatched_content as string | null) ?? null,
+    dispatchSeq: (row.dispatch_seq as number | null) ?? null,
+    provenance: parseSymposiumProvenance(row.symposium_provenance as string | null) ?? null,
     status: row.status as SymposiumRecipientAttemptRecord['status'],
     providerThreadId: (row.provider_thread_id as string | null) ?? null,
+    providerTurnId: (row.provider_turn_id as string | null) ?? null,
+    acceptedAt: (row.accepted_at as number | null) ?? null,
     resultContent: (row.result_content as string | null) ?? null,
-    costUsd: row.cost_usd as number,
+    costUsd: row.cost_known === 1 ? (row.cost_usd as number) : null,
     error: (row.error as string | null) ?? null,
     startedAt: row.started_at as number,
     completedAt: (row.completed_at as number | null) ?? null,
@@ -2085,6 +5138,7 @@ function rowToSymposiumDelivery(
     deliveryId: row.delivery_id as string,
     sessionId: row.session_id as string,
     sourceSeatId: (row.source_seat_id as string | null) ?? null,
+    sourceMessageId: (row.source_message_id as string | null) ?? null,
     recipientSeatIds: JSON.parse(row.recipient_seat_ids as string) as string[],
     originalContent: row.original_content as string,
     deliveredContent: (row.delivered_content as string | null) ?? null,
@@ -2202,6 +5256,12 @@ function rowToSession(row: SessionRow): SessionMeta {
     lastSpeakerAt: row.last_speaker_at ?? null,
     state: (row.state as SessionMeta['state']) ?? null,
     lastStateChange: row.last_state_change ?? null,
+    executionGeneration: row.execution_generation ?? 0,
+    executionId: row.execution_id ?? null,
+    executionPhase: (row.execution_phase as SessionMeta['executionPhase']) ?? null,
+    executionTerminalReason:
+      (row.execution_terminal_reason as SessionMeta['executionTerminalReason']) ?? null,
+    executionUpdatedAt: row.execution_updated_at ?? null,
     agentName: row.agent_name ?? null,
     bootContext: row.boot_context ?? null,
     accountBinding: parseAccountBinding(row.account_binding),
@@ -2246,7 +5306,7 @@ function matchesSeatProvenance(
   seat: SymposiumConfig['seats'][number],
   provenance: SymposiumProvenance,
 ): boolean {
-  return (
+  const legacyMatches =
     provenance.seatId === seat.id &&
     provenance.configRevision === config.revision &&
     provenance.accountProfileRevision === seat.accountBinding?.profileRevision &&
@@ -2254,6 +5314,23 @@ function matchesSeatProvenance(
     provenance.contextGrantRevision === seat.contextGrant?.revision &&
     provenance.authorityGrantRevision === seat.authorityGrant?.revision &&
     provenance.isolationDomainId === seat.isolationRequest?.trustDomainId &&
-    provenance.isolationDomainRevision === seat.isolationRequest?.revision
-  );
+    provenance.isolationDomainRevision === seat.isolationRequest?.revision;
+  if (!legacyMatches) return false;
+  if ('version' in provenance && provenance.version === 2) {
+    return (
+      provenance.seatLabel === seat.name &&
+      provenance.seatRole === seat.role &&
+      provenance.reasoningEffort === (seat.reasoningEffort ?? null) &&
+      !!seat.accountBinding &&
+      sameBinding(provenance.accountBinding, seat.accountBinding) &&
+      provenance.accountBinding.accountLabel === seat.accountBinding.accountLabel &&
+      provenance.profileBinding.profileId === seat.profileBinding?.profileId &&
+      provenance.profileBinding.profileRevision === seat.profileBinding?.profileRevision &&
+      provenance.contextGrant.grantId === seat.contextGrant?.grantId &&
+      provenance.contextGrant.revision === seat.contextGrant?.revision &&
+      provenance.authorityGrant.grantId === seat.authorityGrant?.grantId &&
+      provenance.authorityGrant.revision === seat.authorityGrant?.revision
+    );
+  }
+  return true;
 }

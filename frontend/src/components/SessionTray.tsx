@@ -180,7 +180,7 @@ export function SessionTray({
           }}
         >
           <span className="session-tray-grabber" />
-          <span className="session-tray-handle-label">Session · Outputs / Sources</span>
+          <span className="session-tray-handle-label">Outputs / Sources</span>
           {resourceCount > 0 && <span className="session-tray-count">{resourceCount}</span>}
           {pendingAttachmentCount > 0 && (
             <span

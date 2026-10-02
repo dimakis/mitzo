@@ -1,5 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { EventStore } from '../src/event-store.js';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 describe('EventStore', () => {
   let store: EventStore;
@@ -25,6 +28,27 @@ describe('EventStore', () => {
       s.close();
       expect(messages).toContain('EventStore initialized');
     });
+  });
+
+  it('retrieves only the latest worktree for the requested conversation and repository after restart', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'mitzo-worktree-index-'));
+    const file = join(directory, 'events.db');
+    const writer = new EventStore(file);
+    writer.append('session', 'worktree_opened', { repoName: 'secondary', path: '/old' });
+    for (let i = 0; i < 1000; i++) writer.append('session', 'block_delta', { delta: 'noise' });
+    writer.append('session', 'worktree_opened', { repoName: 'secondary', path: '/new' });
+    writer.append('other-session', 'worktree_opened', { repoName: 'secondary', path: '/other' });
+    writer.append('session', 'worktree_opened', { repoName: 'another', path: '/another' });
+    writer.close();
+    const reader = new EventStore(file);
+    try {
+      expect(reader.getLatestWorktreePath('session', 'secondary')).toBe('/new');
+      expect(reader.getLatestWorktreePath('session', 'another')).toBe('/another');
+      expect(reader.getLatestWorktreePath('session', 'missing')).toBeNull();
+    } finally {
+      reader.close();
+      rmSync(directory, { recursive: true, force: true });
+    }
   });
 
   describe('append', () => {
@@ -54,6 +78,412 @@ describe('EventStore', () => {
       expect(events[0].sessionId).toBe('sess-1');
       expect(events[0].type).toBe('block_delta');
       expect(events[0].payload).toEqual({ delta: 'hello world' });
+    });
+
+    it('captures one reconnect boundary with durable state and events after the client cursor', () => {
+      store.upsertSession({ sessionId: 'sess-1' });
+      const firstSeq = store.append('sess-1', 'user_message', {
+        type: 'user_message',
+        sessionId: 'sess-1',
+        messageId: 'u1',
+        text: 'hello',
+      });
+      const execution = store.beginExecution('sess-1', 'execution-1');
+      store.beginProviderAttempt(execution.token, 'attempt-1');
+
+      const snapshot = store.captureReconnectState('sess-1', firstSeq);
+
+      expect(snapshot.cursorValid).toBe(true);
+      expect(snapshot.cursor).toBeGreaterThan(firstSeq);
+      expect(snapshot.events.map((event) => event.seq)).toEqual(
+        expect.arrayContaining([execution.seq, snapshot.cursor]),
+      );
+      expect(snapshot.events.every((event) => event.seq <= snapshot.cursor)).toBe(true);
+      expect(snapshot.session).toMatchObject({
+        sessionId: 'sess-1',
+        executionId: 'execution-1',
+        executionGeneration: 1,
+        executionPhase: 'RUNNING',
+      });
+      expect(snapshot.providerAttempts).toMatchObject([
+        {
+          token: {
+            sessionId: 'sess-1',
+            executionId: 'execution-1',
+            generation: 1,
+            providerAttemptId: 'attempt-1',
+            attempt: 1,
+          },
+          phase: 'RUNNING',
+        },
+      ]);
+    });
+
+    it('flags a client cursor beyond the durable high-water mark', () => {
+      store.upsertSession({ sessionId: 'sess-1' });
+      const cursor = store.append('sess-1', 'message_end', { messageId: 'm1' });
+      const snapshot = store.captureReconnectState('sess-1', cursor + 100);
+      expect(snapshot).toMatchObject({ cursor, cursorValid: false, events: [] });
+    });
+
+    it('captures a snapshot boundary without materializing a large offline replay', () => {
+      store.upsertSession({ sessionId: 'sess-1' });
+      const payload = 'x'.repeat(9 * 1024);
+      for (let i = 0; i < 270; i++)
+        store.append('sess-1', 'block_delta', { type: 'block_delta', delta: payload });
+
+      const snapshot = store.captureReconnectState('sess-1', 0, false);
+
+      expect(snapshot.cursor).toBe(270);
+      expect(snapshot.cursorValid).toBe(true);
+      expect(snapshot.events).toEqual([]);
+      expect(store.getSessionEvents('sess-1')).toHaveLength(270);
+    });
+  });
+
+  describe('durable execution state', () => {
+    const sessionId = 'durable-execution-session';
+
+    beforeEach(() => {
+      store.upsertSession({ sessionId });
+    });
+
+    it('allocates monotonic execution generations with matching durable events', () => {
+      const first = store.beginExecution(sessionId, 'execution-1');
+      const finished = store.transitionExecution(first.token, 'TERMINAL', 'completed');
+      const second = store.beginExecution(sessionId, 'execution-2');
+
+      expect(first.token).toEqual({ sessionId, executionId: 'execution-1', generation: 1 });
+      expect(finished).toMatchObject({ applied: true, status: 'applied' });
+      expect(second.token).toEqual({ sessionId, executionId: 'execution-2', generation: 2 });
+      expect(store.getSession(sessionId)).toMatchObject({
+        executionGeneration: 2,
+        executionId: 'execution-2',
+        executionPhase: 'RUNNING',
+        executionTerminalReason: null,
+      });
+      expect(
+        store
+          .getSessionEvents(sessionId)
+          .filter((event) => event.type === 'execution_state_changed')
+          .map((event) => event.payload),
+      ).toMatchObject([
+        { executionId: 'execution-1', generation: 1, phase: 'RUNNING' },
+        {
+          executionId: 'execution-1',
+          generation: 1,
+          phase: 'TERMINAL',
+          terminalReason: 'completed',
+        },
+        { executionId: 'execution-2', generation: 2, phase: 'RUNNING' },
+      ]);
+    });
+
+    it('rejects a second active execution without overwriting the first', () => {
+      const first = store.beginExecution(sessionId, 'execution-1');
+
+      expect(() => store.beginExecution(sessionId, 'execution-2')).toThrow(
+        'Cannot overwrite active execution',
+      );
+      expect(store.getSession(sessionId)).toMatchObject({
+        executionGeneration: first.token.generation,
+        executionId: first.token.executionId,
+        executionPhase: 'RUNNING',
+      });
+    });
+
+    it('returns the original token for an exact durable admission retry', () => {
+      const first = store.beginExecution(
+        sessionId,
+        'execution-1',
+        'client-command-1',
+        'request-fingerprint-1',
+      );
+      const beforeRetry = store.getSessionEvents(sessionId);
+      const retry = store.beginExecution(
+        sessionId,
+        undefined,
+        'client-command-1',
+        'request-fingerprint-1',
+      );
+
+      expect(first).toMatchObject({ duplicate: false });
+      expect(retry).toEqual({ token: first.token, duplicate: true });
+      expect(store.getSessionEvents(sessionId)).toEqual(beforeRetry);
+      expect(store.getSession(sessionId)?.executionGeneration).toBe(1);
+      expect(store.getExecutionAdmission(sessionId, 'client-command-1')).toEqual({
+        token: first.token,
+        requestFingerprint: 'request-fingerprint-1',
+      });
+    });
+
+    it('fails closed when a command identity is reused for different input', () => {
+      const first = store.beginExecution(
+        sessionId,
+        'execution-1',
+        'client-command-1',
+        'request-fingerprint-1',
+      );
+      const beforeConflict = store.getSessionEvents(sessionId);
+
+      expect(() =>
+        store.beginExecution(sessionId, undefined, 'client-command-1', 'request-fingerprint-2'),
+      ).toThrow('different request fingerprint');
+      expect(() =>
+        store.beginExecution(sessionId, 'execution-2', 'client-command-1', 'request-fingerprint-1'),
+      ).toThrow('different executionId');
+      expect(store.getSessionEvents(sessionId)).toEqual(beforeConflict);
+      expect(store.getSession(sessionId)).toMatchObject({
+        executionGeneration: 1,
+        executionId: first.token.executionId,
+      });
+    });
+
+    it('requires a bounded request fingerprint with a client command identity', () => {
+      expect(() => store.beginExecution(sessionId, 'execution-1', 'client-command-1')).toThrow(
+        'requestFingerprint',
+      );
+      expect(() =>
+        store.beginExecution(sessionId, 'execution-1', undefined, 'request-fingerprint-1'),
+      ).toThrow('clientMsgId');
+      expect(() => store.beginExecution(sessionId, 'execution-1', ' ', 'fingerprint')).toThrow(
+        'clientMsgId',
+      );
+      expect(() =>
+        store.beginExecution(sessionId, 'execution-1', 'client-command-1', ' '.repeat(513)),
+      ).toThrow('requestFingerprint');
+      expect(store.getSessionEvents(sessionId)).toHaveLength(0);
+    });
+
+    it('rolls back the durable admission receipt when its event cannot be appended', () => {
+      const db = (store as unknown as { db: { exec(sql: string): void } }).db;
+      db.exec(`
+        CREATE TRIGGER reject_admitted_execution_event
+        BEFORE INSERT ON events WHEN NEW.type = 'execution_state_changed'
+        BEGIN SELECT RAISE(ABORT, 'injected admission event failure'); END;
+      `);
+
+      expect(() =>
+        store.beginExecution(sessionId, 'execution-1', 'client-command-1', 'request-fingerprint-1'),
+      ).toThrow('injected admission event failure');
+      expect(store.getExecutionAdmission(sessionId, 'client-command-1')).toBeUndefined();
+      expect(store.getSession(sessionId)).toMatchObject({
+        executionGeneration: 0,
+        executionId: null,
+        executionPhase: null,
+      });
+    });
+
+    it('makes terminal transitions exactly once and rejects stale tokens', () => {
+      const started = store.beginExecution(sessionId, 'execution-1');
+      const stale = store.transitionExecution(
+        { ...started.token, generation: started.token.generation + 1 },
+        'TERMINAL',
+        'failed',
+      );
+      const terminal = store.transitionExecution(started.token, 'TERMINAL', 'failed');
+      const duplicate = store.transitionExecution(started.token, 'TERMINAL', 'failed');
+
+      expect(stale).toMatchObject({ applied: false, status: 'stale' });
+      expect(terminal).toMatchObject({ applied: true, status: 'applied' });
+      expect(duplicate).toMatchObject({ applied: false, status: 'terminal' });
+      expect(
+        store
+          .getSessionEvents(sessionId)
+          .filter(
+            (event) =>
+              event.type === 'execution_state_changed' && event.payload.phase === 'TERMINAL',
+          ),
+      ).toHaveLength(1);
+    });
+
+    it('requires a closed terminal reason and preserves it in the aggregate', () => {
+      const started = store.beginExecution(sessionId, 'execution-1');
+
+      expect(() => store.transitionExecution(started.token, 'TERMINAL')).toThrow('terminal reason');
+      expect(() => store.transitionExecution(started.token, 'RUNNING', 'completed')).toThrow(
+        'only valid for TERMINAL',
+      );
+      store.transitionExecution(started.token, 'TERMINAL', 'server_restart');
+
+      expect(store.getSession(sessionId)).toMatchObject({
+        executionPhase: 'TERMINAL',
+        executionTerminalReason: 'server_restart',
+      });
+    });
+
+    it('terminalizes orphaned executions once during restart recovery', () => {
+      store.beginExecution(sessionId, 'execution-1');
+
+      expect(store.recoverOrphanedExecutions()).toBe(1);
+      expect(store.recoverOrphanedExecutions()).toBe(0);
+      expect(store.getSession(sessionId)).toMatchObject({
+        executionPhase: 'TERMINAL',
+        executionTerminalReason: 'server_restart',
+      });
+      expect(
+        store
+          .getSessionEvents(sessionId)
+          .filter(
+            (event) =>
+              event.type === 'execution_state_changed' && event.payload.phase === 'TERMINAL',
+          ),
+      ).toHaveLength(1);
+    });
+
+    it('rolls back aggregate state when its durable event cannot be appended', () => {
+      const db = (store as unknown as { db: { exec(sql: string): void } }).db;
+      db.exec(`
+        CREATE TRIGGER reject_execution_events
+        BEFORE INSERT ON events WHEN NEW.type = 'execution_state_changed'
+        BEGIN SELECT RAISE(ABORT, 'injected execution event failure'); END;
+      `);
+
+      expect(() => store.beginExecution(sessionId, 'execution-1')).toThrow(
+        'injected execution event failure',
+      );
+      expect(store.getSession(sessionId)).toMatchObject({
+        executionGeneration: 0,
+        executionId: null,
+        executionPhase: null,
+      });
+      expect(store.getSessionEvents(sessionId)).toHaveLength(0);
+    });
+
+    it('binds monotonic provider attempts to the active execution token', () => {
+      const execution = store.beginExecution(sessionId, 'execution-1');
+      const first = store.beginProviderAttempt(execution.token, 'provider-attempt-1');
+      const beforeRetry = store.getSessionEvents(sessionId);
+      const retry = store.beginProviderAttempt(execution.token, 'provider-attempt-1');
+      expect(store.getSessionEvents(sessionId)).toEqual(beforeRetry);
+      const firstTerminal = store.transitionProviderAttempt(first.token, 'TERMINAL', 'failed');
+      const duplicateTerminal = store.transitionProviderAttempt(first.token, 'TERMINAL', 'failed');
+      const second = store.beginProviderAttempt(execution.token, 'provider-attempt-2');
+
+      expect(first.token).toEqual({
+        ...execution.token,
+        providerAttemptId: 'provider-attempt-1',
+        attempt: 1,
+      });
+      expect(first).toMatchObject({ duplicate: false });
+      expect(retry).toEqual({ token: first.token, duplicate: true });
+      expect(firstTerminal).toMatchObject({ applied: true, status: 'applied' });
+      expect(duplicateTerminal).toMatchObject({ applied: false, status: 'terminal' });
+      expect(second.token).toEqual({
+        ...execution.token,
+        providerAttemptId: 'provider-attempt-2',
+        attempt: 2,
+      });
+      expect(store.getProviderAttempts(execution.token)).toMatchObject([
+        { token: first.token, phase: 'TERMINAL', terminalReason: 'failed' },
+        { token: second.token, phase: 'RUNNING', terminalReason: null },
+      ]);
+    });
+
+    it('rejects stale provider attempt ownership without persisting state', () => {
+      const execution = store.beginExecution(sessionId, 'execution-1');
+      const staleToken = { ...execution.token, generation: execution.token.generation + 1 };
+
+      expect(() => store.beginProviderAttempt(staleToken, 'provider-attempt-stale')).toThrow(
+        'stale execution token',
+      );
+      expect(store.getProviderAttempts(execution.token)).toEqual([]);
+
+      const attempt = store.beginProviderAttempt(execution.token, 'provider-attempt-1');
+      expect(() => store.beginProviderAttempt(execution.token, 'provider-attempt-2')).toThrow(
+        'Cannot overwrite active provider attempt',
+      );
+      expect(
+        store.transitionProviderAttempt(
+          { ...attempt.token, providerAttemptId: 'provider-attempt-other' },
+          'TERMINAL',
+          'completed',
+        ),
+      ).toMatchObject({ applied: false, status: 'stale' });
+      expect(store.getProviderAttempts(execution.token)).toHaveLength(1);
+    });
+
+    it('rolls back provider-attempt state when its durable event cannot be appended', () => {
+      const execution = store.beginExecution(sessionId, 'execution-1');
+      const db = (store as unknown as { db: { exec(sql: string): void } }).db;
+      db.exec(`
+        CREATE TRIGGER reject_provider_attempt_event
+        BEFORE INSERT ON events WHEN NEW.type = 'provider_attempt_state_changed'
+        BEGIN SELECT RAISE(ABORT, 'injected provider attempt event failure'); END;
+      `);
+
+      expect(() => store.beginProviderAttempt(execution.token, 'provider-attempt-1')).toThrow(
+        'injected provider attempt event failure',
+      );
+      expect(store.getProviderAttempts(execution.token)).toEqual([]);
+    });
+
+    it('requires every provider attempt to terminate before its execution', () => {
+      const execution = store.beginExecution(sessionId, 'execution-1');
+      const attempt = store.beginProviderAttempt(execution.token, 'provider-attempt-1');
+
+      expect(() => store.transitionExecution(execution.token, 'TERMINAL', 'completed')).toThrow(
+        'active provider attempt',
+      );
+      expect(store.getSession(sessionId)).toMatchObject({ executionPhase: 'RUNNING' });
+
+      store.transitionProviderAttempt(attempt.token, 'TERMINAL', 'completed');
+      expect(store.transitionExecution(execution.token, 'TERMINAL', 'completed')).toMatchObject({
+        applied: true,
+      });
+    });
+
+    it('keeps a terminal provider-attempt retry idempotent after its execution closes', () => {
+      const execution = store.beginExecution(sessionId, 'execution-1');
+      const attempt = store.beginProviderAttempt(execution.token, 'provider-attempt-1');
+
+      expect(store.transitionProviderAttempt(attempt.token, 'TERMINAL', 'completed')).toMatchObject(
+        { applied: true, status: 'applied' },
+      );
+      expect(store.transitionExecution(execution.token, 'TERMINAL', 'completed')).toMatchObject({
+        applied: true,
+      });
+      const beforeRetry = store.getSessionEvents(sessionId);
+
+      expect(store.transitionProviderAttempt(attempt.token, 'TERMINAL', 'completed')).toMatchObject(
+        { applied: false, status: 'terminal' },
+      );
+      expect(store.getSessionEvents(sessionId)).toEqual(beforeRetry);
+    });
+
+    it('reports a conflicting provider-attempt terminal retry', () => {
+      const execution = store.beginExecution(sessionId, 'execution-1');
+      const attempt = store.beginProviderAttempt(execution.token, 'provider-attempt-1');
+
+      store.transitionProviderAttempt(attempt.token, 'TERMINAL', 'completed');
+
+      expect(store.transitionProviderAttempt(attempt.token, 'TERMINAL', 'failed')).toMatchObject({
+        applied: false,
+        status: 'conflict',
+        persistedTerminalReason: 'completed',
+      });
+    });
+
+    it('terminalizes an orphaned provider attempt before its execution exactly once', () => {
+      const execution = store.beginExecution(sessionId, 'execution-1');
+      store.beginProviderAttempt(execution.token, 'provider-attempt-1');
+
+      expect(store.recoverOrphanedExecutions()).toBe(1);
+      expect(store.recoverOrphanedExecutions()).toBe(0);
+      expect(store.getProviderAttempts(execution.token)).toMatchObject([
+        { phase: 'TERMINAL', terminalReason: 'ambiguous' },
+      ]);
+      expect(
+        store
+          .getSessionEvents(sessionId)
+          .filter((event) => event.type.endsWith('_state_changed'))
+          .map((event) => [event.type, event.payload.phase, event.payload.terminalReason]),
+      ).toEqual([
+        ['execution_state_changed', 'RUNNING', undefined],
+        ['provider_attempt_state_changed', 'RUNNING', undefined],
+        ['provider_attempt_state_changed', 'TERMINAL', 'ambiguous'],
+        ['execution_state_changed', 'TERMINAL', 'server_restart'],
+      ]);
     });
   });
 
@@ -126,6 +556,91 @@ describe('EventStore', () => {
     it('returns empty array for unknown session', () => {
       const events = store.getSessionEvents('nonexistent');
       expect(events).toEqual([]);
+    });
+
+    it('reads only the immutable transcript prefix through a reconnect cursor', () => {
+      const first = store.append('sess-1', 'user_message', { messageId: 'u1', text: 'hello' });
+      store.append('sess-2', 'user_message', { messageId: 'other', text: 'unrelated' });
+      const boundary = store.append('sess-1', 'message_end', { messageId: 'm1' });
+      store.append('sess-1', 'user_message', { messageId: 'u2', text: 'later' });
+
+      expect(store.getSessionEventsThroughCursor('sess-1', boundary).map((e) => e.seq)).toEqual([
+        first,
+        boundary,
+      ]);
+      expect(() => store.getSessionEventsThroughCursor('sess-1', -1)).toThrow('Reconnect cursor');
+    });
+
+    it('reconstructs the same bounded prefix after reopening the database', () => {
+      const dir = mkdtempSync(join(tmpdir(), 'mitzo-reconnect-prefix-'));
+      const path = join(dir, 'events.db');
+      const first = new EventStore(path);
+      try {
+        first.upsertSession({ sessionId: 'sess-reopen' });
+        const cursor = first.append('sess-reopen', 'user_message', {
+          messageId: 'u1',
+          text: 'saved before restart',
+        });
+        first.close();
+
+        const reopened = new EventStore(path);
+        try {
+          reopened.append('sess-reopen', 'user_message', {
+            messageId: 'u2',
+            text: 'later',
+          });
+          expect(reopened.getSessionEventsThroughCursor('sess-reopen', cursor)).toMatchObject([
+            { seq: cursor, payload: { text: 'saved before restart' } },
+          ]);
+        } finally {
+          reopened.close();
+        }
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+  });
+
+  describe('getRecentConversationText', () => {
+    it('returns only user and completed-assistant projection fields', () => {
+      store.append('sess-1', 'user_message', {
+        messageId: 'u1',
+        text: 'hello',
+        images: ['data:image/png;base64,secret-large-image'],
+      });
+      store.append('sess-1', 'message_start', { messageId: 'a1' });
+      store.append('sess-1', 'block_delta', {
+        messageId: 'a1',
+        blockId: 'text',
+        blockType: 'text',
+        delta: 'answer',
+      });
+      store.append('sess-1', 'block_delta', {
+        messageId: 'a1',
+        blockId: 'thinking',
+        blockType: 'thinking',
+        delta: 'private reasoning',
+      });
+      store.append('sess-1', 'tool_result', {
+        messageId: 'a1',
+        result: 'secret tool output',
+      });
+      store.append('sess-1', 'message_end', { messageId: 'a1' });
+
+      const events = store.getRecentConversationText('sess-1');
+
+      expect(events).toEqual([
+        { seq: expect.any(Number), kind: 'user', messageId: 'u1', text: 'hello' },
+        {
+          seq: expect.any(Number),
+          kind: 'assistant_delta',
+          messageId: 'a1',
+          text: 'answer',
+        },
+        { seq: expect.any(Number), kind: 'assistant_end', messageId: 'a1', text: '' },
+      ]);
+      expect(JSON.stringify(events)).not.toContain('secret');
+      expect(JSON.stringify(events)).not.toContain('private reasoning');
     });
   });
 

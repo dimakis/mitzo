@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { cleanup, render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { TodoView } from '../TodoView';
 
@@ -21,6 +21,7 @@ vi.mock('@mitzo/client/hooks', () => ({
 }));
 
 beforeEach(() => {
+  cleanup();
   vi.clearAllMocks();
 });
 
@@ -63,6 +64,29 @@ describe('TodoView', () => {
     );
 
     expect(screen.getByText('No active items')).toBeTruthy();
+  });
+
+  it('shows a load error instead of the empty state', () => {
+    mockUseTodoData.mockReturnValue({
+      loading: false,
+      error: 'Unable to load Telos items',
+      items: [],
+      profiles: [],
+      ack: vi.fn(),
+      done: vi.fn(),
+      star: vi.fn(),
+      create: vi.fn(),
+      refresh: vi.fn(),
+    });
+
+    render(
+      <MemoryRouter>
+        <TodoView />
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByText('Unable to load Telos items')).toBeTruthy();
+    expect(screen.queryByText('No active items')).toBeNull();
   });
 
   it('renders items and profile filters', () => {
@@ -209,5 +233,165 @@ describe('TodoView', () => {
     );
 
     expect(container.querySelector('.mitzo-logo')).toBeTruthy();
+  });
+
+  it('searches outcome text and context', () => {
+    const makeItem = (id: string, summary: string, intent: string, path: string) => ({
+      id,
+      summary,
+      intent,
+      profile: 'work',
+      urgency: 0.5,
+      starred: false,
+      status: 'active' as const,
+      ageDays: 1,
+      parentId: null,
+      children: [],
+      childCount: 0,
+      completedChildCount: 0,
+      sources: [],
+      contextHints: {
+        repos: [],
+        paths: [path],
+        issues: [],
+        docIds: [],
+        people: [],
+        jiraKeys: [],
+        keywords: [],
+        taskHint: '',
+      },
+    });
+    mockUseTodoData.mockReturnValue({
+      loading: false,
+      error: null,
+      items: [
+        makeItem('one', 'Authentication', 'Sessions survive refresh', 'server/auth.ts'),
+        makeItem('two', 'Billing', 'Invoices reconcile', 'server/billing.ts'),
+      ],
+      profiles: ['work'],
+      ack: vi.fn(),
+      done: vi.fn(),
+      star: vi.fn(),
+      create: vi.fn(),
+      refresh: vi.fn(),
+    });
+    render(
+      <MemoryRouter>
+        <TodoView />
+      </MemoryRouter>,
+    );
+
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Search Telos items' }), {
+      target: { value: 'auth.ts' },
+    });
+
+    expect(screen.getByText('Authentication')).toBeTruthy();
+    expect(screen.queryByText('Billing')).toBeNull();
+  });
+
+  it('searches every context and link field', () => {
+    mockUseTodoData.mockReturnValue({
+      loading: false,
+      error: null,
+      items: [
+        {
+          id: 'contextual',
+          summary: 'Contextual outcome',
+          profile: 'work',
+          urgency: 0.5,
+          starred: false,
+          status: 'active',
+          ageDays: 1,
+          parentId: null,
+          children: [],
+          childCount: 0,
+          completedChildCount: 0,
+          sources: [],
+          links: [
+            {
+              type: 'design_doc',
+              url: 'docs/durable-outcome.md',
+              title: 'Durability runbook',
+              description: 'Recovery details',
+            },
+          ],
+          contextHints: {
+            repos: [],
+            paths: [],
+            issues: [],
+            docIds: ['doc-cold-start'],
+            people: ['Avery Reviewer'],
+            jiraKeys: [],
+            keywords: [],
+            taskHint: 'Begin with the recovery test',
+          },
+        },
+      ],
+      profiles: ['work'],
+      ack: vi.fn(),
+      done: vi.fn(),
+      star: vi.fn(),
+      create: vi.fn(),
+      refresh: vi.fn(),
+    });
+    render(
+      <MemoryRouter>
+        <TodoView />
+      </MemoryRouter>,
+    );
+
+    const search = screen.getByRole('searchbox', { name: 'Search Telos items' });
+    for (const value of [
+      'doc-cold-start',
+      'Avery Reviewer',
+      'recovery test',
+      'Durability runbook',
+    ]) {
+      fireEvent.change(search, { target: { value } });
+      expect(screen.getByText('Contextual outcome')).toBeTruthy();
+    }
+  });
+
+  it('keeps an outcome draft open when creation fails', async () => {
+    const createOutcome = vi.fn().mockResolvedValue(undefined);
+    mockUseTodoData.mockReturnValue({
+      loading: false,
+      error: null,
+      items: [],
+      profiles: ['work'],
+      ack: vi.fn(),
+      done: vi.fn(),
+      star: vi.fn(),
+      create: vi.fn(),
+      createOutcome,
+      refresh: vi.fn(),
+    });
+    render(
+      <MemoryRouter>
+        <TodoView />
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(screen.getByTitle('Add todo'));
+    fireEvent.change(screen.getByPlaceholderText('Short outcome title'), {
+      target: { value: 'Ship durable outcomes' },
+    });
+    fireEvent.change(screen.getByPlaceholderText('What will be true when this is achieved?'), {
+      target: { value: 'Outcome creation is reliable' },
+    });
+    fireEvent.change(screen.getByPlaceholderText('Why does this matter?'), {
+      target: { value: 'People should not lose work' },
+    });
+    fireEvent.change(screen.getByPlaceholderText('Done when — one verifiable criterion per line'), {
+      target: { value: 'Failed requests preserve the draft' },
+    });
+    fireEvent.change(screen.getByPlaceholderText('Milestones — first line is the next action'), {
+      target: { value: 'Add regression coverage' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Create outcome' }));
+
+    await waitFor(() => expect(createOutcome).toHaveBeenCalledOnce());
+    expect(screen.getByRole('alert').textContent).toContain('Unable to create outcome');
+    expect(screen.getByDisplayValue('Ship durable outcomes')).toBeTruthy();
   });
 });

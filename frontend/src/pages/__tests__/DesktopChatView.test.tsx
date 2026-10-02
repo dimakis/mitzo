@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
-import { render, screen, cleanup, fireEvent, act } from '@testing-library/react';
+import { render, screen, within, cleanup, fireEvent, act } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { createStore } from 'zustand/vanilla';
 import { MitzoStoreProvider } from '@mitzo/client/hooks';
@@ -41,13 +41,30 @@ vi.mock('../../components/CommandCenter', () => ({
 }));
 
 vi.mock('../../components/ChatArea', () => ({
-  ChatArea: ({ messages }: { messages: unknown[] }) => (
-    <div data-testid="chat-area">Messages: {messages.length}</div>
+  ChatArea: ({
+    messages,
+    currentByMessage,
+  }: {
+    messages: unknown[];
+    currentByMessage?: Record<string, unknown>;
+  }) => (
+    <div data-testid="chat-area">
+      <span>Messages: {messages.length}</span>
+      <span data-testid="active-seats">
+        Active seats: {Object.keys(currentByMessage ?? {}).length}
+      </span>
+    </div>
   ),
 }));
 
 vi.mock('../../components/VoiceSettings', () => ({
   VoiceSettings: () => <div data-testid="voice-settings">Voice</div>,
+}));
+
+vi.mock('../../components/WebSearchConsent', () => ({
+  WebSearchConsent: ({ connectionId }: { connectionId: string | null }) => (
+    <span data-testid="web-search-connection">{connectionId ?? 'none'}</span>
+  ),
 }));
 
 vi.mock('../../components/ChatInput', () => ({
@@ -101,6 +118,7 @@ import { DesktopChatView } from '../DesktopChatView';
 
 function createMockStore() {
   const store = createStore<MitzoStoreState>(() => ({
+    getTransportConnectionId: () => null,
     sessions: { list: [], active: null, loading: false },
     messages: INITIAL_MESSAGES_STATE,
     connection: { status: 'connected', clientId: null },
@@ -137,12 +155,14 @@ function createMockStore() {
     historyError: null,
     modeChangeReady: true,
     dispatchMessages: vi.fn(),
+    getConnectionId: () => null,
     switchSession: vi.fn().mockResolvedValue(undefined),
     newSession: vi.fn(),
     sendMessage: vi.fn(),
     interruptMessage: vi.fn(),
     stopGeneration: vi.fn(),
     respondToPermission: vi.fn(),
+    expirePermission: vi.fn(),
     setMode: vi.fn(),
     setModel: vi.fn(),
     loadSessions: vi.fn().mockResolvedValue(undefined),
@@ -213,6 +233,48 @@ function renderWithRouter(sessionId?: string) {
 }
 
 describe('DesktopChatView', () => {
+  it('updates web-search consent when the connection ID changes without a status change', () => {
+    const store = createMockStore();
+    store.setState({
+      connection: { ...store.getState().connection, clientId: 'connection-one' },
+    });
+    render(
+      <MemoryRouter>
+        <MitzoStoreProvider value={store}>
+          <DesktopChatView />
+        </MitzoStoreProvider>
+      </MemoryRouter>,
+    );
+    expect(screen.getByTestId('web-search-connection').textContent).toBe('connection-one');
+
+    act(() =>
+      store.setState({
+        connection: { ...store.getState().connection, clientId: 'connection-two' },
+      }),
+    );
+    expect(screen.getByTestId('web-search-connection').textContent).toBe('connection-two');
+  });
+
+  it('passes concurrent seat streams to the shared ChatArea', () => {
+    const store = createMockStore();
+    store.setState((state) => ({
+      messages: {
+        ...state.messages,
+        currentByMessage: {
+          reviewer: { messageId: 'reviewer', blocks: new Map(), blockOrder: [] },
+          architect: { messageId: 'architect', blocks: new Map(), blockOrder: [] },
+        },
+      },
+    }));
+    render(
+      <MemoryRouter>
+        <MitzoStoreProvider value={store}>
+          <DesktopChatView />
+        </MitzoStoreProvider>
+      </MemoryRouter>,
+    );
+    expect(screen.getByTestId('active-seats').textContent).toContain('Active seats: 2');
+  });
   it('renders three-panel layout', () => {
     renderWithRouter();
     expect(screen.getByTestId('session-panel')).toBeTruthy();
@@ -380,4 +442,54 @@ it('shows reconnecting in collapsed workspace settings when disconnected', () =>
   const toggle = screen.getByRole('button', { name: /^Workspace/ });
   expect(toggle.getAttribute('aria-expanded')).toBe('false');
   expect(toggle.textContent).toContain('Reconnecting');
+});
+
+it('offers the shared reviewer entry for an active desktop conversation', () => {
+  const store = createMockStore();
+  store.setState((state) => ({ sessions: { ...state.sessions, active: 'active-session' } }));
+  render(
+    <MemoryRouter>
+      <MitzoStoreProvider value={store}>
+        <DesktopChatView />
+      </MitzoStoreProvider>
+    </MemoryRouter>,
+  );
+  expect(screen.queryByRole('button', { name: 'Add reviewer' })).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: /Workspace controls/ }));
+  expect(screen.getByRole('button', { name: 'Add reviewer' })).toBeTruthy();
+});
+
+it('shows the profile, model and thinking in the collapsed workspace header', async () => {
+  localStorage.removeItem('mitzo-workspace-controls-expanded');
+  const catalog = [
+    {
+      id: 'work',
+      label: 'Work Vertex',
+      models: [
+        {
+          id: 'luna',
+          label: 'Luna',
+          reasoningEfforts: ['low', 'high'],
+          defaultReasoningEffort: 'high',
+        },
+      ],
+    },
+  ];
+  vi.mocked(fetch).mockResolvedValue({ ok: true, json: async () => catalog } as Response);
+  renderWithRouter();
+  const toggle = screen.getByRole('button', { name: /Workspace controls/ });
+  expect(await within(toggle).findByText('Work Vertex')).toBeTruthy();
+  expect(within(toggle).getByText('Luna')).toBeTruthy();
+  expect(within(toggle).getByText('Thinking: high')).toBeTruthy();
+  expect(toggle.getAttribute('aria-expanded')).toBe('false');
+  expect(screen.queryByRole('combobox')).toBeNull();
+});
+
+it('groups web search settings under the existing header disclosure', async () => {
+  localStorage.removeItem('mitzo-workspace-controls-expanded');
+  renderWithRouter();
+  const settings = screen.getByTestId('web-search-connection');
+  expect(settings.closest('[hidden]')).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: /Workspace controls/ }));
+  expect(settings.closest('[hidden]')).toBeNull();
 });

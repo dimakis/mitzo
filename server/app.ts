@@ -1,19 +1,111 @@
+import { OPEN_SHELL_ARTIFACT_HELPER } from './openshell-artifact-reader.js';
+import { createTelosArtifactRouter, telosArtifactSaveJson } from './telos-artifact-routes.js';
+import { writeHostArtifact } from './host-artifact-writer.js';
+import { writeOpenShellArtifact } from './artifact-writer.js';
+import { custodianPublicationApproval } from './symposium-custodian-authority.js';
+import {
+  custodianControllerClient,
+  custodianOwnerMode,
+  receiveCustodianEvents,
+} from './symposium-custodian-mode.js';
+import { createCustodianProxy } from './symposium-custodian-proxy.js';
+import { drainRetainedSymposiumControllers } from './symposium-controller-drain.js';
+import { createSessionMessagesHandler } from './session-messages-route.js';
+import { createSymposiumSourceRouter } from './symposium-source-routes.js';
+import { getConnectionRegistry } from './chat.js';
+import { publicationControllerApproval } from './symposium-publication-approval.js';
+import {
+  PublicationRegistration,
+  publicationAuthorityPath,
+  type PublicationCredentialRegistration,
+} from './symposium-publication-registration.js';
+import {
+  completedPublicationArtifact,
+  completedSealHash,
+  type CompletedPublicationHost,
+} from './symposium-publication-artifact.js';
+import { createPublicationRouter } from './symposium-publication-routes.js';
+import { capabilityOperationStore } from './capability-operation-owner.js';
+import { ownedEvidenceHandler } from './symposium-owned-evidence.js';
+
+import type { SandboxCreationFence } from './symposium-workspace-lifecycle.js';
+import type { ConnectionSelection, PersonalConnection } from './symposium-personal-connections.js';
+import {
+  createSymposiumReviewPublicationPreflight,
+  type ReviewPublicationDependencies,
+} from './symposium-review-publication.js';
+import { SymposiumReviewStore } from './symposium-review-workflows.js';
+import {
+  createSymposiumReviewRouter,
+  type SymposiumInteractiveReviewHost,
+} from './symposium-review-routes.js';
+import { createSymposiumSessionRouter } from './symposium-session-create.js';
+import { createSubscriptionLoginController } from './symposium-subscription-login-route.js';
 import { AccountAliases } from './account-aliases.js';
+import { AccountBindingSchema, SymposiumConfigSchema } from '@mitzo/protocol';
+import { SymposiumProfileStore } from './symposium-profiles.js';
+import { createSymposiumProfileRouter } from './symposium-profile-routes.js';
+import { SymposiumProfileProposalStore } from './symposium-profile-proposals.js';
+import { createSymposiumProfileProposalRouter } from './symposium-profile-proposal-routes.js';
 import {
   readCodexQueue,
+  getCodexRuntime,
+  getCodexConversationStore,
   waitForCodexRuntimeBySessionId,
   readCodexQueueOverview,
   cancelCodexQueuedCommand,
 } from './codex-chat-session.js';
 import { createCodexQueueRouter } from './codex-queue-routes.js';
 import { createCodexPathProtection } from './codex-private-path.js';
-import { loadAccountProfiles } from './account-profiles.js';
+import { selectedOpenShellAccountRoute } from './codex-chat-session.js';
+import { openShellRuntimeConfig, OpenShellRuntimeManager } from './openshell-runtime.js';
+import { readOpenShellArtifact, OpenShellArtifactReadError } from './openshell-artifact-reader.js';
+import {
+  createSessionArtifactReader,
+  SessionArtifactUnavailableError,
+  validateSessionArtifactRuntime,
+} from './session-artifact-reader.js';
+import { loadAccountProfiles, type AccountProfiles } from './account-profiles.js';
+import { SymposiumOrchestrator } from './symposium-orchestrator.js';
+import {
+  createOpenShellProviderIdentityResolver,
+  createSymposiumSessionRuntime,
+} from './symposium-session-runtime.js';
+import { SymposiumNativeEventSink } from './symposium-native-event-sink.js';
+import type { OpenShellRuntimeConfig } from './openshell-runtime.js';
+import {
+  readSymposiumProductionAttestation,
+  verifySymposiumProductionGate,
+  type SymposiumProductionPhysicalProof,
+} from './symposium-production-gate.js';
+import { SYMPOSIUM_CODEX_CONTROLLER_COMMAND } from './symposium-codex-native.js';
+import {
+  SYMPOSIUM_SUBSCRIPTION_CONTROLLER_COMMAND,
+  type VerifySymposiumSubscriptionAuth,
+} from './symposium-subscription-native.js';
+import type { SymposiumAttemptRegistry } from './symposium-attempt-registry.js';
+import type { SqliteArtifactLeaseHost } from './symposium-artifact-host.js';
+import type { ArtifactLeaseRequest } from './symposium-artifact-lease.js';
+import { createSymposiumDirectorRouter } from './symposium-director-routes.js';
+import { SymposiumHostGrants } from './symposium-host-grants.js';
+import { getSymposiumPerspective, getSymposiumQueuedInputs } from './symposium-perspectives.js';
 import express from 'express';
+import { storedEventToClientMessage } from '@mitzo/protocol';
 import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
-import { readFileSync, writeFileSync, existsSync, readdirSync, statSync } from 'fs';
-import { join, dirname, resolve, extname, basename } from 'path';
+import {
+  closeSync,
+  existsSync,
+  fstatSync,
+  openSync,
+  readFileSync,
+  readSync,
+  readdirSync,
+  realpathSync,
+  statSync,
+} from 'fs';
+import { join, dirname, resolve, extname, basename, relative, isAbsolute, sep } from 'path';
 import { execFileSync, execFile } from 'child_process';
 import { promisify } from 'util';
 import { createHash, randomUUID } from 'crypto';
@@ -25,7 +117,7 @@ import {
   authMiddleware,
   operatorAuthMiddleware,
   registerAuthSession,
-  revokeAuthSession,
+  revokeOperatorSessions,
   COOKIE_NAME,
   MAX_AGE_HOURS,
   type AuthSession,
@@ -35,6 +127,8 @@ import {
   getSessionsCached,
   reconcileSessionsBackground,
   getMessages,
+  getReconnectTranscript,
+  getSessionTranscript,
   hideSession,
   hideAllSessions,
   renameSessionById,
@@ -46,6 +140,7 @@ import {
   getRepoConfig,
   isIsolationEnabled,
   eventStore,
+  broadcastDurableSymposiumEvent,
   registry,
   generateWtId,
 } from './chat.js';
@@ -59,6 +154,9 @@ import {
 import { DEFAULT_AGENT_NAME, GIT_BRANCH_TIMEOUT_MS } from './constants.js';
 import { isValidInternalToken } from './internal-token.js';
 import { createConnectionsRouter } from './connections-router.js';
+import { createCapabilityOperationsRouter } from './connections/capabilities/router.js';
+import { capabilityApprovalForConversation } from './connections/capabilities/approval.js';
+import { getLiveCapabilityConversationBinding } from './capability-conversation-binding.js';
 import {
   setConnectionsRuntime as setActiveConnectionsRuntime,
   type ConnectionsRuntime,
@@ -81,6 +179,7 @@ import {
   CalendarResponse,
   TodoListResponse,
   TodoCreateBody,
+  TodoOutcomeCreateBody,
   TodoActionBody,
   TodoActionResponse,
   TaskCreateBody,
@@ -176,6 +275,8 @@ export function invalidateSkillRegistries(): void {
 
 const app = express();
 
+const codexReattachments = new Map<string, Promise<void>>();
+
 app.use(
   helmet({
     contentSecurityPolicy: {
@@ -202,7 +303,10 @@ if (CORS_ALLOWED_ORIGINS.length > 0) {
     if (origin && CORS_ALLOWED_ORIGINS.includes(origin)) {
       res.setHeader('Access-Control-Allow-Origin', origin);
       res.setHeader('Access-Control-Allow-Credentials', 'true');
-      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-CSRF-Token');
+      res.setHeader(
+        'Access-Control-Allow-Headers',
+        'Content-Type, Authorization, X-CSRF-Token, X-Connection-ID',
+      );
       res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
     }
     if (req.method === 'OPTIONS') {
@@ -240,6 +344,7 @@ app.use(cookieParser());
 // is injected from index after explicit feature configuration; importing app
 // never creates a database or starts a gateway process.
 let connectionsRouter: express.Router | null = null;
+let capabilityOperationsRouter: express.Router | null = null;
 export function setConnectionsRuntime(runtime: ConnectionsRuntime | null): void {
   setActiveConnectionsRuntime(runtime);
   connectionsRouter = runtime
@@ -250,6 +355,52 @@ export function setConnectionsRuntime(runtime: ConnectionsRuntime | null): void 
         gateway: runtime.gateway,
         workspace: runtime.workspace,
         legacyProviders: runtime.legacyProviders,
+        capabilities: runtime.capabilities,
+        googleWorkspace: runtime.googleWorkspace,
+      })
+    : null;
+  capabilityOperationsRouter = runtime
+    ? createCapabilityOperationsRouter({
+        service: runtime.capabilities,
+        resolveConversationBinding: (req, res, authSessionId, conversationId) => {
+          const connectionId = req.header('x-connection-id');
+          if (!connectionId || !isTransportConnectionOwnedBy(connectionId, authSessionId))
+            return undefined;
+          const found = registry.findBySessionId(conversationId);
+          if (!found) return undefined;
+          const ownerConnection =
+            found.session?.ownerConnectionId ??
+            (found.clientId.includes(':')
+              ? found.clientId.slice(0, found.clientId.indexOf(':'))
+              : found.clientId);
+          if (ownerConnection !== connectionId) return undefined;
+          const accountId = eventStore.getSession(conversationId)?.accountBinding?.accountId;
+          const live = getLiveCapabilityConversationBinding(conversationId);
+          if (!accountId || !live || live.accountId !== accountId) return undefined;
+          return {
+            accountId,
+            connectionId: live.connectionId,
+            connectionRevision: live.connectionRevision,
+          };
+        },
+        resolveConversationReadBinding: (req, _res, authSessionId, conversationId) => {
+          const connectionId = req.header('x-connection-id');
+          if (!connectionId || !isTransportConnectionOwnedBy(connectionId, authSessionId))
+            return undefined;
+          const found = registry.findBySessionId(conversationId);
+          if (!found) return undefined;
+          const ownerConnection =
+            found.session?.ownerConnectionId ??
+            (found.clientId.includes(':')
+              ? found.clientId.slice(0, found.clientId.indexOf(':'))
+              : found.clientId);
+          if (ownerConnection !== connectionId) return undefined;
+          const accountId = eventStore.getSession(conversationId)?.accountBinding?.accountId;
+          return accountId ? { accountId } : undefined;
+        },
+        sessionId: (_req, res) => (res.locals.authSession as AuthSession | undefined)?.id,
+        approveForConversation: (conversationId) =>
+          capabilityApprovalForConversation(registry, conversationId),
       })
     : null;
 }
@@ -261,6 +412,15 @@ app.use('/api/connections', authMiddleware, (req, res, next) => {
     });
   return connectionsRouter(req, res, next);
 });
+app.use('/api/capability-operations', authMiddleware, (req, res, next) => {
+  if (!capabilityOperationsRouter)
+    return res.status(503).json({ error: 'Capability operations are not configured.' });
+  return capabilityOperationsRouter(req, res, next);
+});
+// Two 5 MiB UTF-8 documents can each expand sixfold when JSON escapes control bytes.
+app.put('/api/files/write', authMiddleware, express.json({ limit: 60 * 1024 * 1024 + 64 * 1024 }));
+// Authenticate before accepting the expanded JSON envelope; decoded document bytes remain capped at 5 MiB.
+app.post('/api/internal/telos/artifacts/save', authMiddleware, telosArtifactSaveJson);
 app.use(express.json({ limit: '10mb' }));
 
 const loginLimiter = rateLimit({
@@ -664,12 +824,432 @@ app.post('/api/auth/logout', async (req, res) => {
   const cookie = req.cookies?.[COOKIE_NAME] as string | undefined;
   const tokens = [...new Set([bearer, cookie].filter((token): token is string => Boolean(token)))];
   const sessions = await Promise.all(tokens.map((token) => authenticateToken(token)));
-  for (const session of sessions) revokeAuthSession(session ?? undefined);
+  revokeOperatorSessions(sessions, (id) => custodianControllerClient?.invalidate(id));
   res.clearCookie(COOKIE_NAME, { httpOnly: true, sameSite: 'strict' });
   res.json({ ok: true });
 });
 
 app.use('/api', authMiddleware);
+if (custodianControllerClient)
+  app.use(
+    createCustodianProxy(custodianControllerClient, (req, session, conversationId) =>
+      publicationControllerApproval(
+        registry,
+        isTransportConnectionOwnedBy,
+        conversationId,
+        session.id,
+        req.header('x-connection-id'),
+        getConnectionRegistry() ?? undefined,
+      ),
+    ),
+  );
+receiveCustodianEvents(broadcastDurableSymposiumEvent);
+const symposiumProfileStore = new SymposiumProfileStore(
+  join(BASE_REPO || '.', '.mitzo', 'events.db'),
+);
+const symposiumProfileProposalStore = new SymposiumProfileProposalStore(
+  join(BASE_REPO || '.', '.mitzo', 'events.db'),
+);
+app.use(
+  '/api/symposium/profile-proposals',
+  operatorAuthMiddleware,
+  createSymposiumProfileProposalRouter(symposiumProfileProposalStore, (sessionId) =>
+    Boolean(eventStore.getSession(sessionId)),
+  ),
+);
+app.use(
+  '/api/symposium/profiles',
+  operatorAuthMiddleware,
+  createSymposiumProfileRouter(symposiumProfileStore),
+);
+
+let custodianBroadcast: typeof broadcastDurableSymposiumEvent | undefined;
+export function setSymposiumCustodianBroadcast(value: typeof broadcastDurableSymposiumEvent) {
+  if (!custodianOwnerMode) throw Error('Retained custodian mode required');
+  custodianBroadcast = value;
+}
+const retainedCustodianSessions = new Set<string>();
+export function hasRetainedCustodianSession(sessionId: string) {
+  return retainedCustodianSessions.has(sessionId);
+}
+const symposiumNativeEvents = new SymposiumNativeEventSink(eventStore, (sessionId, event) =>
+  (custodianBroadcast ?? broadcastDurableSymposiumEvent)(sessionId, event),
+);
+const symposiumSessionRuntimes = new Map<
+  string,
+  {
+    orchestrator: SymposiumOrchestrator;
+    runtimeFingerprint: string;
+    runtime: ReturnType<typeof createSymposiumSessionRuntime>;
+  }
+>();
+let symposiumShuttingDown = false;
+let symposiumControllerPaused = false;
+export function pauseSymposiumController() {
+  symposiumControllerPaused = true;
+}
+export async function drainSymposiumController(identity: string, signal: AbortSignal) {
+  pauseSymposiumController();
+  await drainRetainedSymposiumControllers(eventStore, symposiumSessionRuntimes, identity, signal);
+}
+export function resumeSymposiumController() {
+  if (symposiumShuttingDown || symposiumSessionRuntimes.size)
+    throw Error('Retained runtime cleanup incomplete');
+  symposiumControllerPaused = false;
+}
+export function beginSymposiumShutdown() {
+  symposiumShuttingDown = true;
+  symposiumPublication?.shutdown();
+  for (const entry of symposiumSessionRuntimes.values()) entry.runtime.beginShutdown();
+}
+export async function drainSymposiumRuntimes(signal: AbortSignal) {
+  beginSymposiumShutdown();
+  const results = await Promise.allSettled(
+    [...symposiumSessionRuntimes.values()].map((entry) => entry.runtime.drain(signal)),
+  );
+  signal.throwIfAborted();
+  if (results.some((result) => result.status === 'rejected'))
+    throw new Error('Symposium runtime cleanup incomplete');
+}
+export interface SymposiumProductionHost {
+  sourceImport?: import('./symposium-source-service.js').SymposiumSourceHost;
+  publicationCredentials?: readonly PublicationCredentialRegistration[];
+  requireCompletedArtifactSeal?: CompletedPublicationHost['requireCompletedArtifactSeal'];
+  inspectCompletedArtifact?: CompletedPublicationHost['inspectCompletedArtifact'];
+  exportCompletedArtifactBundle?: CompletedPublicationHost['exportCompletedArtifactBundle'];
+  runSandboxCreation?: SandboxCreationFence;
+  ensureSessionArtifacts?: (
+    sessionId: string,
+  ) => Promise<import('./symposium-session-artifacts.js').SessionArtifactPreparation>;
+  /** Optional until native hard budgets and durable review receipts are available. */
+  reviewHost?: SymposiumInteractiveReviewHost;
+  /** Optional trusted read-only publication binding. No caller may supply these dependencies. */
+  reviewPublication?: Omit<ReviewPublicationDependencies, 'store'>;
+  /** Dedicated upstream routing; never inherit the legacy chat gateway. */
+  runtimeConfig: OpenShellRuntimeConfig;
+  attestationPath: string;
+  collectAdmissionEvidence?: (
+    selection: unknown,
+  ) => Promise<import('./symposium-production-gate.js').SymposiumProductionAttestation>;
+  beginDeviceLogin?: (
+    selection?: ConnectionSelection,
+  ) => Promise<import('./symposium-device-login.js').DeviceLogin>;
+  beginLogin?: (selection?: ConnectionSelection) => Promise<{
+    authorizationUrl: string;
+    completed: Promise<unknown>;
+    cancel(): void;
+  }>;
+  personalConnections?: {
+    list(): PersonalConnection[];
+    create(label: string): PersonalConnection;
+    disconnect(id: string, revision: number): Promise<PersonalConnection>;
+    recoverDiscovery?(id: string, revision: number, assertOperator: () => void): Promise<unknown>;
+    discoverModels?(id: string, revision: number, assertOperator: () => void): Promise<unknown>;
+  };
+  resolveSeatPolicy?: import('./symposium-owned-seat-policy.js').SymposiumSeatPolicySelector;
+  currentProfiles: () => AccountProfiles;
+  verifySubscriptionPrivateAuth?: VerifySymposiumSubscriptionAuth;
+  assertSubscriptionDispatch?: (input: Parameters<VerifySymposiumSubscriptionAuth>[0]) => void;
+  physical: SymposiumProductionPhysicalProof;
+  attemptRegistry: SymposiumAttemptRegistry;
+  artifactLeaseHost: SqliteArtifactLeaseHost;
+  artifactRequest(
+    sessionId: string,
+    seatId: string,
+    generation: number,
+    purpose?: 'admission' | 'cleanup',
+  ): ArtifactLeaseRequest;
+}
+let symposiumProductionHost: SymposiumProductionHost | undefined;
+let symposiumPublication: PublicationRegistration | undefined;
+/** Trusted server bootstrap only. No request handler accepts or supplies this capability. */
+export function installSymposiumProductionHost(host: SymposiumProductionHost): void {
+  if (symposiumProductionHost || symposiumSessionRuntimes.size)
+    throw new Error('Symposium production host must be installed once before runtime creation');
+  if (host.publicationCredentials?.length) {
+    if (
+      !host.requireCompletedArtifactSeal ||
+      !host.inspectCompletedArtifact ||
+      !host.exportCompletedArtifactBundle
+    )
+      throw new Error('Publication registration requires completed artifact custody');
+    const artifact = completedPublicationArtifact({
+      store: symposiumReviewStore,
+      host: {
+        requireCompletedArtifactSeal: host.requireCompletedArtifactSeal.bind(host),
+        inspectCompletedArtifact: host.inspectCompletedArtifact.bind(host),
+        exportCompletedArtifactBundle: host.exportCompletedArtifactBundle.bind(host),
+      },
+    });
+    symposiumPublication = new PublicationRegistration({
+      describeArtifact: async (sessionId, recordId, signal) => {
+        const record = symposiumReviewStore.getReviewRecord('user', sessionId, recordId);
+        const intent = eventStore.getSymposiumArtifactSealIntent(sessionId);
+        if (!record || !intent)
+          throw new Error('Trusted review record and completed seal required');
+        const seal = await host.requireCompletedArtifactSeal!(intent.fenceId, signal);
+        return {
+          recordId: record.recordId,
+          recordHash: record.contentHash,
+          sealId: seal.fenceId,
+          sealHash: completedSealHash(seal),
+          commit: seal.git.commit,
+        };
+      },
+      authorityPath: publicationAuthorityPath(join(BASE_REPO || '.', '.mitzo')),
+      operations: capabilityOperationStore(join(BASE_REPO || '.', '.mitzo')),
+      credentials: host.publicationCredentials,
+      artifact,
+    });
+  }
+  symposiumProductionHost = host;
+}
+let symposiumRuntimeForSession: (sessionId: string) => SymposiumOrchestrator | null = (
+  sessionId,
+) => {
+  if (symposiumShuttingDown || symposiumControllerPaused) return null;
+  if (custodianOwnerMode && !retainedCustodianSessions.has(sessionId)) return null;
+  if (eventStore.getSession(sessionId)?.sessionType !== 'symposium') return null;
+  const host = symposiumProductionHost;
+  if (!host) return null;
+  const baseConfig = host.runtimeConfig;
+  const attestationPath = host.attestationPath;
+  if (!attestationPath) return null;
+  let verified: ReturnType<typeof verifySymposiumProductionGate>;
+  let attestationIdentity: string | undefined;
+  const verifyHostCapability = () => {
+    if (symposiumShuttingDown) throw new Error('Symposium is shutting down');
+    if (!attestationPath || !symposiumProductionHost)
+      throw new Error('Symposium production host or attestation is unavailable');
+    const attestation = readSymposiumProductionAttestation(attestationPath);
+    const identity = JSON.stringify(attestation);
+    if (attestationIdentity && identity !== attestationIdentity)
+      throw new Error('Symposium production attestation changed during session');
+    const result = verifySymposiumProductionGate(
+      baseConfig,
+      attestation,
+      symposiumProductionHost.physical,
+    );
+    attestationIdentity = identity;
+    return result;
+  };
+  try {
+    verified = verifyHostCapability();
+    if (
+      verified.allowedAccountProviders.has('openai-codex') &&
+      (!host.verifySubscriptionPrivateAuth || !host.assertSubscriptionDispatch)
+    )
+      return null;
+  } catch {
+    return null;
+  }
+  const runtimeConfig = verified.runtimeConfig;
+  const runtimeFingerprint = JSON.stringify({
+    runtimeConfig,
+    allowedRoles: [...verified.allowedRoles].sort(),
+    allowedAccountProviders: [...verified.allowedAccountProviders].sort(),
+    attestationIdentity,
+  });
+  const cached = symposiumSessionRuntimes.get(sessionId);
+  if (cached && cached.runtimeFingerprint !== runtimeFingerprint) return null;
+  let runtime = cached?.orchestrator;
+  if (!runtime) {
+    const retainedRuntime = createSymposiumSessionRuntime({
+      sessionId,
+      store: eventStore,
+      profiles: host.currentProfiles(),
+      currentProfiles: host.currentProfiles,
+      hostGrants: symposiumHostGrants,
+      codexStore: getCodexConversationStore(),
+      profileProposalStore: symposiumProfileProposalStore,
+      profileCatalogStore: symposiumProfileStore,
+      resolveProviderIdentity: createOpenShellProviderIdentityResolver(runtimeConfig),
+      runtimeConfig,
+      perSeatSandboxVerified: true,
+      allowedSeatRoles: verified.allowedRoles,
+      allowedAccountProviders: verified.allowedAccountProviders,
+      verifyHostCapability,
+      attemptRegistry: host.attemptRegistry,
+      artifactLeaseHost: host.artifactLeaseHost,
+      artifactRequest: host.artifactRequest,
+      resolveSeatPolicy: host.resolveSeatPolicy,
+      runSandboxCreation: host.runSandboxCreation,
+      verifiedCodexControllerCommand: SYMPOSIUM_CODEX_CONTROLLER_COMMAND,
+      ...(host.verifySubscriptionPrivateAuth
+        ? {
+            verifiedSubscriptionControllerCommand: SYMPOSIUM_SUBSCRIPTION_CONTROLLER_COMMAND,
+            verifySubscriptionPrivateAuth: host.verifySubscriptionPrivateAuth,
+            assertSubscriptionDispatch: host.assertSubscriptionDispatch,
+          }
+        : {}),
+      readOnlyEnforced: {
+        openaiApi: verified.readOnlyEnforced,
+        chatgptSubscription: verified.readOnlyEnforced,
+        claudeVertex: verified.claudeProviders.size > 0,
+      },
+      recordAccepted: (receipt) => eventStore.markSymposiumRecipientAccepted(receipt),
+      recordEvent: (execution, event) => symposiumNativeEvents.record(execution, event),
+    });
+    runtime = retainedRuntime.orchestrator;
+    symposiumSessionRuntimes.set(sessionId, {
+      orchestrator: runtime,
+      runtimeFingerprint,
+      runtime: retainedRuntime,
+    });
+  }
+  return runtime;
+};
+const symposiumSafetyOrchestrator = new SymposiumOrchestrator({ store: eventStore, executors: {} });
+function symposiumAccountProfiles(): AccountProfiles {
+  if (!symposiumProductionHost) throw new Error('Symposium account catalog is unavailable');
+  return symposiumProductionHost.currentProfiles();
+}
+const symposiumHostGrants = new SymposiumHostGrants(join(BASE_REPO || '.', '.mitzo', 'events.db'), {
+  getConfig: (sessionId) => {
+    const raw = eventStore.getSession(sessionId)?.symposiumConfig;
+    return raw ? SymposiumConfigSchema.parse(JSON.parse(raw)) : null;
+  },
+  commitConfig: (sessionId, config, expectedRevision) =>
+    eventStore.setSymposiumConfig(sessionId, config, expectedRevision),
+  getMembership: (sessionId, seatId) =>
+    eventStore.getLatestSymposiumMembership(sessionId, seatId) ?? null,
+  validateSelection: (seat) => {
+    if (!seat.accountBinding) throw new Error('Seat account binding is required');
+    symposiumAccountProfiles().validateModel(seat.accountBinding, seat.model, seat.reasoningEffort);
+  },
+  resolveProfile: (selection) =>
+    symposiumProfileStore.get('user', selection.profileId, selection.revision),
+  authorizeSeat: ({ sessionId, seat, contextSourceRefs }) => {
+    const sessionSource = `session:${sessionId}`;
+    if (
+      contextSourceRefs.length > 0 &&
+      (contextSourceRefs.length !== 1 || contextSourceRefs[0] !== sessionSource)
+    )
+      throw new Error('Only this conversation context can be admitted');
+    const writable = seat.role === 'implementer' || seat.role === 'coder';
+    return {
+      classification: 'mixed' as const,
+      sourceRefs: contextSourceRefs,
+      authority: {
+        filesystem: writable ? ('write' as const) : ('read' as const),
+        tools: writable ? ('write' as const) : ('read' as const),
+        network: 'restricted' as const,
+      },
+    };
+  },
+});
+export function getSymposiumBootstrapDependencies() {
+  return { facts: eventStore, hostGrants: symposiumHostGrants };
+}
+
+/** Runtime integration installs a verified session-scoped orchestrator, never config-only admission. */
+export function setSymposiumDirectorRuntimeFactory(
+  factory: (sessionId: string) => SymposiumOrchestrator | null,
+): void {
+  symposiumRuntimeForSession = factory;
+}
+app.use(
+  '/api/symposium/sessions',
+  operatorAuthMiddleware,
+  createSymposiumSessionRouter({
+    store: eventStore,
+    profiles: symposiumProfileStore,
+    currentAccounts: symposiumAccountProfiles,
+    onSessionCreated: (sessionId) => retainedCustodianSessions.add(sessionId),
+    ensureSessionArtifacts: async (sessionId) => {
+      if (custodianOwnerMode && !retainedCustodianSessions.has(sessionId))
+        throw Error('Session was not created by this retained custodian');
+      return symposiumProductionHost?.ensureSessionArtifacts?.(sessionId) ?? { state: 'pending' };
+    },
+  }),
+);
+const symposiumReviewStore = new SymposiumReviewStore(
+  join(BASE_REPO || '.', '.mitzo', 'events.db'),
+);
+app.use(
+  '/api/sessions/:id/symposium/publication',
+  operatorAuthMiddleware,
+  createPublicationRouter({
+    registration: () => symposiumPublication,
+    hasSession: (id) => eventStore.getSession(id)?.sessionType === 'symposium',
+    approval: (req, session, conversationId) =>
+      custodianPublicationApproval(req) ??
+      publicationControllerApproval(
+        registry,
+        isTransportConnectionOwnedBy,
+        conversationId,
+        session.id,
+        req.header('x-connection-id'),
+        getConnectionRegistry() ?? undefined,
+      ),
+  }),
+);
+app.use(
+  '/api/sessions/:id/symposium/reviews',
+  operatorAuthMiddleware,
+  createSymposiumReviewRouter({
+    store: symposiumReviewStore,
+    getPublicationPreflight: (sessionId) =>
+      symposiumProductionHost?.reviewHost &&
+      symposiumProductionHost.reviewPublication &&
+      symposiumRuntimeForSession(sessionId)
+        ? createSymposiumReviewPublicationPreflight({
+            ...symposiumProductionHost.reviewPublication,
+            store: symposiumReviewStore,
+          })
+        : null,
+    hasSession: (sessionId) => eventStore.getSession(sessionId)?.sessionType === 'symposium',
+    getHost: (sessionId) =>
+      symposiumProductionHost?.reviewHost && symposiumRuntimeForSession(sessionId)
+        ? symposiumProductionHost.reviewHost
+        : null,
+  }),
+);
+app.use(
+  '/api/sessions/:id/symposium/source',
+  operatorAuthMiddleware,
+  createSymposiumSourceRouter({
+    repositories: () => getRepoConfig().repos,
+    getSession: (id) => eventStore.getSession(id),
+    getHost: () => symposiumProductionHost?.sourceImport,
+  }),
+);
+app.use(
+  '/api/sessions/:id/symposium',
+  operatorAuthMiddleware,
+  createSymposiumDirectorRouter({
+    store: eventStore,
+    getRuntime: (sessionId) => symposiumRuntimeForSession(sessionId),
+    getSafetyOrchestrator: () => symposiumSafetyOrchestrator,
+    profileBindingEnforced: true,
+    hasOrdinaryRuntime: (sessionId) => {
+      const found = registry.findBySessionId(sessionId);
+      return Boolean(found && registry.isActive(found.clientId));
+    },
+    validateSelection: (seat) => {
+      if (seat.accountBinding)
+        symposiumAccountProfiles().validateModel(
+          seat.accountBinding,
+          seat.model,
+          seat.reasoningEffort,
+        );
+    },
+    validateActiveConfig: (sessionId, config) =>
+      symposiumHostGrants.validateActiveConfig(sessionId, config),
+    activateDraft: (input) => symposiumHostGrants.activate(input),
+    reviseSeat: (input) => symposiumHostGrants.reviseSeat(input),
+    getPerspective: (sessionId, perspective, options) =>
+      getSymposiumPerspective(eventStore, sessionId, perspective, options),
+    getQueuedInputs: (sessionId, perspective) =>
+      getSymposiumQueuedInputs(eventStore, sessionId, perspective),
+    resolveSelection: (accountId, model, reasoningEffort) => {
+      const profiles = symposiumAccountProfiles();
+      const binding = profiles.resolve(accountId, model);
+      profiles.validateModel(binding, model, reasoningEffort);
+      return AccountBindingSchema.parse(binding);
+    },
+  }),
+);
 
 app.get('/api/openshell/lifecycle/:conversationId/preview', async (req, res) => {
   if (!openShellLifecycleService) {
@@ -948,6 +1528,86 @@ app.post('/api/internal/task-tools/artifact', (req, res) => {
   });
 });
 
+app.use(
+  createTelosArtifactRouter({
+    dbPath: () =>
+      process.env.TELOS_DB_PATH || join(BASE_REPO, 'command_center', 'data', 'smart_todo.db'),
+    verifyInternal: verifyInternalToken,
+    sessionId: (clientId) => registry.get(clientId)?.sessionId,
+    readFile: async (sessionId, requestedPath) => {
+      if (isRemoteSessionArtifact(sessionId))
+        return readRemoteSessionArtifact(sessionId, requestedPath);
+      const session = registry.findBySessionId(sessionId)?.session;
+      const roots = [
+        session?.cwd,
+        ...[...(session?.worktreePaths?.values() ?? [])].map((entry) => entry.path),
+      ].filter((path): path is string => !!path);
+      const filePath = resolveArtifactPath(requestedPath, sessionId);
+      const root = roots.find((candidate) => containsPath(candidate, filePath));
+      if (!root || !isAllowedPath(filePath, sessionId))
+        throw new OpenShellArtifactReadError(403, 'Path is outside this session workspace');
+      const { stdout } = await execFileAsync(
+        'python3',
+        ['-I', '-c', OPEN_SHELL_ARTIFACT_HELPER, resolve(root), filePath],
+        { timeout: 15_000, maxBuffer: 7 * 1024 * 1024 },
+      );
+      const result = JSON.parse(stdout);
+      if (result.error || result.path !== filePath || typeof result.data !== 'string')
+        throw new OpenShellArtifactReadError(
+          result.error === 'too_large' ? 413 : 403,
+          'Workspace artifact unavailable',
+        );
+      const bytes = Buffer.from(result.data, 'base64');
+      if (bytes.toString('base64') !== result.data)
+        throw new OpenShellArtifactReadError(503, 'Invalid workspace artifact');
+      return { path: filePath, bytes };
+    },
+  }),
+);
+
+app.post('/api/internal/telos/outcomes', async (req, res) => {
+  if (!verifyInternalToken(req)) {
+    res.status(401).json({ ok: false, error: 'Internal token required' });
+    return;
+  }
+  const body = TodoOutcomeCreateBody.omit({ idempotencyKey: true }).safeParse(req.body);
+  if (!body.success) {
+    res.status(400).json({ ok: false, error: body.error.issues[0]?.message ?? 'Invalid input' });
+    return;
+  }
+  const clientId = req.headers['x-client-id'] as string | undefined;
+  const sessionId =
+    (clientId && registry.get(clientId)?.sessionId) || clientId || 'unknown-session';
+  const canonical = JSON.stringify(body.data);
+  const idempotencyKey = `${sessionId}:${createHash('sha256').update(canonical).digest('hex')}`;
+  const contextHints = body.data.contextHints ?? {};
+  const payload = {
+    ...body.data,
+    idempotencyKey,
+    contextHints: {
+      ...contextHints,
+      sessionIds: [...new Set([...(contextHints.sessionIds ?? []), sessionId])],
+    },
+  };
+  const script = join(BASE_REPO, 'command_center', 'todo_api.py');
+  if (!existsSync(script)) {
+    res.status(500).json({ ok: false, error: 'Todo script not found' });
+    return;
+  }
+  try {
+    const { stdout } = await execFileAsync(
+      'python3',
+      [script, '--create-outcome-json', JSON.stringify(payload)],
+      { timeout: TODO_TIMEOUT_MS, maxBuffer: TODO_MAX_BUFFER_BYTES },
+    );
+    const result = JSON.parse(stdout);
+    res.status(result.ok ? 200 : 400).json(result);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    res.status(500).json({ ok: false, error: message });
+  }
+});
+
 // --- Loop orchestrator API ---
 
 app.get('/api/loop/status', (req, res) => {
@@ -995,8 +1655,42 @@ app.post('/api/loop/start', (req, res) => {
     res.status(409).json({ error: 'Loop already running' });
     return;
   }
+  if (!taskStore.get(body.data.goalId)) {
+    res.status(404).json({ error: 'Goal not found' });
+    return;
+  }
+  // Resolve the user-selected conversation to the driver identity used by
+  // sendToChat. A WebSocket connection ID is not a session client ID.
+  const selectedSession = body.data.sessionId
+    ? registry.findBySessionId(body.data.sessionId)
+    : undefined;
+  if (body.data.sessionId && !selectedSession) {
+    res.status(422).json({
+      code: 'session_unavailable',
+      error: 'The selected chat is not active on this server',
+    });
+    return;
+  }
+  const clientId = selectedSession?.clientId ?? body.data.clientId;
+  if (clientId && !registry.get(clientId)) {
+    res.status(422).json({
+      code: 'session_unavailable',
+      error: 'The selected chat is not active on this server',
+    });
+    return;
+  }
+  if (orchestrator.requiresClientId(body.data.goalId, { ...body.data, clientId })) {
+    res.status(422).json({
+      code: 'client_id_required',
+      error: 'This workflow needs an explicitly selected existing chat',
+      requiredField: 'sessionId',
+      hint: 'Pass the selected chat sessionId. Dedicated spawn tasks can start without one when spawning is enabled.',
+    });
+    return;
+  }
   const result = orchestrator.start(body.data.goalId, {
     specMode: body.data.specMode,
+    clientId,
   });
   res.json(result);
 });
@@ -1045,7 +1739,13 @@ app.post('/api/tasks/:id/reject', (req, res) => {
   }
   const ok = orchestrator.rejectTask(req.params.id, req.body.feedback ?? '');
   if (!ok) {
-    res.status(400).json({ error: 'Task not in pending_review state' });
+    if (taskStore.get(req.params.id)?.status === 'pending_review') {
+      res
+        .status(409)
+        .json({ error: 'No chat available for retry feedback; review remains pending' });
+    } else {
+      res.status(400).json({ error: 'Task not in pending_review state' });
+    }
     return;
   }
   res.json({ ok: true });
@@ -1285,6 +1985,125 @@ app.put('/api/accounts/:id/alias', (req, res) => {
   }
 });
 
+const subscriptionLogin = createSubscriptionLoginController(
+  () => symposiumProductionHost,
+  (_req, res) => (res.locals.authSession as AuthSession | undefined)?.id,
+);
+// Retained owned-host candidate collection; never writes or activates admission.
+app.post(
+  '/api/symposium/admission-evidence',
+  operatorAuthMiddleware,
+  ownedEvidenceHandler(() => symposiumProductionHost?.collectAdmissionEvidence),
+);
+app.get('/api/symposium/personal/connections', operatorAuthMiddleware, (_req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  const service = symposiumProductionHost?.personalConnections;
+  if (!service) {
+    res.status(503).json({ error: 'Personal connections are unavailable.' });
+    return;
+  }
+  res.json({ connections: service.list() });
+});
+app.post('/api/symposium/personal/connections', operatorAuthMiddleware, (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  const service = symposiumProductionHost?.personalConnections;
+  if (!service) {
+    res.status(503).json({ error: 'Personal connections are unavailable.' });
+    return;
+  }
+  try {
+    if (typeof req.body?.label !== 'string') throw new Error();
+    res.status(201).json(service.create(req.body.label));
+  } catch {
+    res.status(400).json({
+      error: 'Use a unique slot and a label of 1–120 characters; at most 100 slots are supported.',
+    });
+  }
+});
+app.post(
+  '/api/symposium/personal/connections/:id/disconnect',
+  operatorAuthMiddleware,
+  async (req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    const service = symposiumProductionHost?.personalConnections;
+    if (!service) {
+      res.status(503).json({ error: 'Personal connections are unavailable.' });
+      return;
+    }
+    if (!Number.isSafeInteger(req.body?.expectedRevision) || req.body.expectedRevision < 1) {
+      res.status(400).json({ error: 'A current connection revision is required.' });
+      return;
+    }
+    try {
+      res.json(await service.disconnect(String(req.params.id), req.body.expectedRevision));
+    } catch {
+      res.status(409).json({
+        error:
+          'Connection changed or credential cleanup is unconfirmed. Refresh connection status; host recovery may be required.',
+      });
+    }
+  },
+);
+app.post(
+  [
+    '/api/symposium/personal/connections/:id/models/refresh',
+    '/api/symposium/personal/connections/:id/models/recover',
+  ],
+  operatorAuthMiddleware,
+  async (req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    const discover = req.path.endsWith('/recover')
+      ? symposiumProductionHost?.personalConnections?.recoverDiscovery
+      : symposiumProductionHost?.personalConnections?.discoverModels;
+    if (!discover) {
+      res.status(503).json({ error: 'Owned personal model discovery is unavailable.' });
+      return;
+    }
+    if (!Number.isSafeInteger(req.body?.expectedRevision) || req.body.expectedRevision < 1) {
+      res.status(400).json({ error: 'A current connection revision is required.' });
+      return;
+    }
+    const session = res.locals.authSession as AuthSession;
+    let current = true;
+    const unregister = registerAuthSession(session, () => {
+      current = false;
+    });
+    const assertOperator = () => {
+      if (!current || session.expiresAt <= Date.now()) throw new Error('Operator session expired');
+    };
+    try {
+      assertOperator();
+      const result = await discover(
+        String(req.params.id),
+        req.body.expectedRevision,
+        assertOperator,
+      );
+      assertOperator();
+      res.json(result);
+    } catch {
+      res.status(409).json({
+        error:
+          'Discovery is unavailable or requires recovery. Refresh connection status before retry.',
+      });
+    } finally {
+      unregister();
+    }
+  },
+);
+app.get('/api/symposium/personal/login/status', operatorAuthMiddleware, subscriptionLogin.status);
+app.post('/api/symposium/personal/login', operatorAuthMiddleware, subscriptionLogin.start);
+app.post('/api/symposium/personal/login/cancel', operatorAuthMiddleware, subscriptionLogin.cancel);
+
+// Reads the dedicated host catalog (including its cached model discovery); no refresh or legacy fallback.
+app.get('/api/symposium/accounts', (_req, res) => {
+  try {
+    if (!symposiumProductionHost) throw new Error('Symposium host is unavailable');
+    res.json(symposiumProductionHost.currentProfiles().catalog());
+  } catch {
+    res.status(503).json({ error: 'Symposium account catalog unavailable.' });
+  }
+});
+
 app.get('/api/accounts', async (req, res) => {
   try {
     const profiles = loadAccountProfiles();
@@ -1441,9 +2260,14 @@ app.get('/api/sessions', async (req, res) => {
   }
 });
 
-app.get('/api/sessions/:id/messages', async (req, res) => {
-  res.json(await getMessages(req.params.id as string));
-});
+app.get(
+  '/api/sessions/:id/messages',
+  createSessionMessagesHandler({
+    getMessages: (sessionId) => getMessages(sessionId),
+    getSessionTranscript: (sessionId) => getSessionTranscript(sessionId),
+    getReconnectTranscript: (sessionId, cursor) => getReconnectTranscript(sessionId, cursor),
+  }),
+);
 
 app.delete('/api/sessions/:id', (req, res) => {
   hideSession(req.params.id as string);
@@ -1460,9 +2284,12 @@ app.get('/api/sessions/:id/meta', async (req, res) => {
   }
   const totalTokens =
     meta.inputTokens + meta.outputTokens + meta.cacheReadTokens + meta.cacheCreationTokens;
+  const symposiumConfigured = Boolean(meta.symposiumConfig);
   const codexBacked =
-    meta.accountBinding?.provider === 'openai-codex' ||
-    (meta.accountBinding?.provider === 'openai' && !!meta.cwd?.startsWith('/sandbox/workspaces/'));
+    !symposiumConfigured &&
+    (meta.accountBinding?.provider === 'openai-codex' ||
+      (meta.accountBinding?.provider === 'openai' &&
+        !!meta.cwd?.startsWith('/sandbox/workspaces/')));
   const codexQueue =
     codexBacked && meta.accountBinding
       ? readCodexQueue(
@@ -1483,7 +2310,7 @@ app.get('/api/sessions/:id/meta', async (req, res) => {
         }>;
       }
     | undefined;
-  if (meta.accountBinding) {
+  if (meta.accountBinding && !symposiumConfigured) {
     try {
       const profiles = loadAccountProfiles();
       await profiles.refresh(req.query.refresh === '1');
@@ -1507,6 +2334,7 @@ app.get('/api/sessions/:id/meta', async (req, res) => {
   }
   res.json({
     sessionId: meta.sessionId,
+    sessionType: symposiumConfigured ? 'symposium' : meta.sessionType,
     branch: meta.branch,
     wtId: meta.wtId,
     cwd: meta.cwd,
@@ -1547,6 +2375,38 @@ app.use(
     overview: readCodexQueueOverview,
     cancel: (id, binding, commandId) =>
       cancelCodexQueuedCommand(id, binding, commandId, registry.findBySessionId(id)?.session),
+    retry: async (id, _binding, confirmAmbiguous) => {
+      const session = registry.findBySessionId(id)?.session;
+      const runtime = session ? getCodexRuntime(session) : undefined;
+      return runtime ? runtime.retryLatestFailed(confirmAmbiguous) : 'unavailable';
+    },
+    reattach: async (id, binding) => {
+      const existing = registry.findBySessionId(id)?.session;
+      if (existing && getCodexRuntime(existing)) return 'ready';
+      const meta = eventStore.getSession(id);
+      if (!meta) return 'unavailable';
+      if (!existing && !codexReattachments.has(id)) {
+        const operation = startChat(new NullTransport(), `provider-recovery:${id}`, '', {
+          resume: id,
+          accountId: binding.accountId,
+          model: meta.selectedModel ?? binding.model,
+          reasoningEffort: meta.reasoningEffort,
+          agentName: meta.agentName ?? undefined,
+          reattachOnly: true,
+        })
+          .then(() => undefined)
+          .catch((error: unknown) => {
+            log.warn('provider reattachment failed', {
+              sessionId: id,
+              error: error instanceof Error ? error.message : String(error),
+            });
+          })
+          .finally(() => codexReattachments.delete(id));
+        codexReattachments.set(id, operation);
+      }
+      const runtime = await waitForCodexRuntimeBySessionId(registry, id, 1000);
+      return runtime ? 'ready' : codexReattachments.has(id) ? 'reattaching' : 'unavailable';
+    },
   }),
 );
 
@@ -1591,7 +2451,7 @@ app.get('/api/sessions/:id/events', (req, res) => {
     return;
   }
   const events = eventStore.getEventsAfter(req.params.id, afterSeq);
-  res.json(events.map((e) => ({ ...e.payload, seq: e.seq })));
+  res.json(events.map(storedEventToClientMessage));
 });
 
 app.delete('/api/sessions', (_req, res) => {
@@ -1634,39 +2494,267 @@ app.get('/api/worktrees', (_req, res) => {
 const privatePathSnapshot = createCodexPathProtection(() =>
   loadAccountProfiles().privateCodexRoots(),
 );
-function createAllowedPathChecker() {
+const MAX_PREVIEW_BYTES = 5 * 1024 * 1024;
+
+function isRemoteSessionArtifact(sessionId: string) {
+  const meta = eventStore.getSession(sessionId);
+  if (!meta?.accountBinding)
+    return Boolean(meta?.cwd?.startsWith('/sandbox/') && !isConfiguredAllowedPath(meta.cwd));
+  if (!['openai', 'openai-codex'].includes(meta.accountBinding.provider)) return false;
+  try {
+    if (getCodexConversationStore().readArtifactRuntime(sessionId, meta.accountBinding))
+      return true;
+  } catch {
+    /* Host API sessions do not have Codex conversation rows. */
+  }
+  // An OpenAI binding does not establish that an unknown workspace is local.
+  // Only a recorded absolute cwd within the configured host roots can use
+  // host filesystem resolution when no sandbox receipt exists.
+  return !meta.cwd || !isAbsolute(meta.cwd) || !isConfiguredAllowedPath(meta.cwd);
+}
+
+async function readRemoteSessionArtifact(
+  sessionId: string,
+  requestedPath: string,
+  edit?: { content: string; expectedContent: string },
+) {
+  const meta = eventStore.getSession(sessionId);
+  if (!meta?.accountBinding || !meta.cwd)
+    throw new SessionArtifactUnavailableError(
+      'This conversation’s workspace metadata is unavailable. Resume this conversation once, then try again.',
+    );
+  const config = openShellRuntimeConfig(process.env);
+  const reader = createSessionArtifactReader({
+    readRuntime: (id, binding) => getCodexConversationStore().readArtifactRuntime(id, binding),
+    currentRoute: (binding) => {
+      const profiles = loadAccountProfiles();
+      const model = meta.selectedModel ?? binding.model;
+      if (binding.provider === 'openai') {
+        const profile = profiles.apiProfile(binding);
+        if (!profile.sandboxProvider) throw Error('Sandbox provider unavailable');
+        return { kind: 'api', provider: profile.sandboxProvider, model };
+      }
+      return selectedOpenShellAccountRoute({
+        binding,
+        model,
+        profile: profiles.codexProfile(binding),
+      });
+    },
+    validateRuntime: (runtime) => validateSessionArtifactRuntime(runtime, config),
+    inspect: (id, runtime, route, signal) => {
+      if (!config) throw Error('Sandbox runtime unavailable');
+      return new OpenShellRuntimeManager({ ...config, account: route }).inspect(
+        id,
+        runtime.sandboxId,
+        signal,
+        runtime.sandboxName,
+      );
+    },
+    read: (runtime, path, signal, verify) =>
+      edit
+        ? writeOpenShellArtifact(runtime, path, edit.content, edit.expectedContent, verify, signal)
+        : readOpenShellArtifact(runtime, path, verify, signal),
+  });
+  return reader(sessionId, meta.accountBinding, meta.cwd, requestedPath);
+}
+
+function readPreviewFile(filePath: string): {
+  content?: string;
+  isFile: boolean;
+  tooLarge: boolean;
+} {
+  const fd = openSync(filePath, 'r');
+  try {
+    const stat = fstatSync(fd);
+    if (!stat.isFile()) return { isFile: false, tooLarge: false };
+    if (stat.size > MAX_PREVIEW_BYTES) return { isFile: true, tooLarge: true };
+
+    // Read at most one byte beyond the limit. Checking the descriptor while
+    // reading closes the stat/read race when an artifact is still being written.
+    const buffer = Buffer.allocUnsafe(MAX_PREVIEW_BYTES + 1);
+    let bytesRead = 0;
+    while (bytesRead < buffer.length) {
+      const chunk = readSync(fd, buffer, bytesRead, buffer.length - bytesRead, bytesRead);
+      if (chunk === 0) break;
+      bytesRead += chunk;
+    }
+    if (bytesRead > MAX_PREVIEW_BYTES) return { isFile: true, tooLarge: true };
+    return {
+      content: buffer.toString('utf-8', 0, bytesRead),
+      isFile: true,
+      tooLarge: false,
+    };
+  } finally {
+    closeSync(fd);
+  }
+}
+
+function canonicalPath(filePath: string): string {
+  const full = resolve(filePath);
+  try {
+    return realpathSync(full);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    const parent = dirname(full);
+    return parent === full ? full : join(canonicalPath(parent), basename(full));
+  }
+}
+
+function containsPath(root: string, target: string): boolean {
+  const rel = relative(canonicalPath(root), canonicalPath(target));
+  return rel === '' || (!isAbsolute(rel) && rel !== '..' && !rel.startsWith(`..${sep}`));
+}
+
+/**
+ * A session id selects that session's recorded workspace for relative links and
+ * browsing. It never widens the configured path allow-list: cwd originates in a
+ * client message, so a persisted session record is not itself authorization.
+ */
+function sessionArtifactRoot(sessionId: string | undefined): string | null {
+  if (!sessionId) return null;
+  const cwd = eventStore.getSession(sessionId)?.cwd;
+  if (!cwd || !isAbsolute(cwd) || resolve(cwd) === dirname(resolve(cwd))) return null;
+  return isConfiguredAllowedPath(cwd) ? cwd : null;
+}
+
+function artifactWorktreeParents(repo: string): string[] {
+  return [
+    join(repo, '.claude', 'worktrees'),
+    join(repo, '.cursor', 'worktrees'),
+    `${repo}-sessions`,
+  ];
+}
+
+function sessionRepositoryWorkspaces(repo: string, sessionId: string, workspace: string): string[] {
+  const worktreeId = basename(workspace);
+  const recordedId = eventStore.getSession(sessionId)?.wtId;
+  const repoName =
+    Object.entries(getRepoConfig().repos).find(
+      ([, root]) => resolve(root) === resolve(repo),
+    )?.[0] ?? 'primary';
+  const activePath = sessionId
+    ? registry.findBySessionId(sessionId)?.session.worktreePaths?.get(repoName)?.path
+    : undefined;
+  const recordedPath = sessionId ? eventStore.getLatestWorktreePath(sessionId, repoName) : null;
+  const explicitPath = activePath ?? (typeof recordedPath === 'string' ? recordedPath : undefined);
+  const validExplicit =
+    explicitPath &&
+    artifactWorktreeParents(repo).some(
+      (parent) => resolve(parent) === dirname(resolve(explicitPath)),
+    );
+  const ids = [
+    ...new Set([worktreeId, recordedId].filter((id): id is string => !!id && basename(id) === id)),
+  ];
+  return validExplicit
+    ? [explicitPath]
+    : ids.flatMap((id) => artifactWorktreeParents(repo).map((parent) => join(parent, id)));
+}
+
+function sessionArtifactBrowserRoot(
+  dir: string | undefined,
+  sessionId: string | undefined,
+): string {
+  const workspace = sessionArtifactRoot(sessionId);
+  if (!workspace || !sessionId || !dir) return workspace ?? BASE_REPO;
+  const target = resolveArtifactPath(dir, sessionId);
+  if (containsPath(workspace, target)) return workspace;
+  const repos = [...new Set([BASE_REPO, ...Object.values(getRepoConfig().repos)].filter(Boolean))];
+  for (const repo of repos) {
+    for (const candidate of sessionRepositoryWorkspaces(repo, sessionId, workspace)) {
+      if (isAllowedPath(candidate, sessionId) && containsPath(candidate, target)) return candidate;
+    }
+  }
+  return workspace;
+}
+
+function resolveArtifactPath(filePath: string, sessionId: string | undefined): string {
+  // Home shorthand is expanded on the host, then checked against the same
+  // configured/session workspace boundaries as every absolute artifact path.
+  if (filePath.startsWith('~/')) filePath = resolve(homedir(), filePath.slice(2));
+  const workspace = sessionArtifactRoot(sessionId);
+  if (!isAbsolute(filePath)) return resolve(workspace ?? BASE_REPO, filePath);
+  const requested = resolve(filePath);
+  if (!workspace || existsSync(requested) || !isAllowedPath(requested, sessionId)) return requested;
+
+  // Agents sometimes post the repository path after writing in its worktree.
+  // Resolve only missing links within that conversation's corresponding repo;
+  // never search other worktrees or replace an existing explicit file.
+  const repos = [
+    ...new Set([BASE_REPO, ...Object.values(getRepoConfig().repos)].filter(Boolean)),
+  ].sort((a, b) => resolve(b).length - resolve(a).length);
+  const parentsFor = (repo: string) => [
+    join(repo, '.claude', 'worktrees'),
+    join(repo, '.cursor', 'worktrees'),
+    `${repo}-sessions`,
+  ];
+  if (
+    !repos.some((repo) =>
+      parentsFor(repo).some((parent) => resolve(parent) === dirname(resolve(workspace))),
+    )
+  )
+    return requested;
+  for (const repo of repos) {
+    if (!containsPath(repo, requested)) continue;
+    const suffix = relative(resolve(repo), requested);
+    if (['.claude', '.cursor', '.git', '.mitzo'].includes(suffix.split(sep)[0])) return requested;
+    const workspaces = sessionRepositoryWorkspaces(repo, sessionId!, workspace);
+    workspaces.sort(
+      (a, b) =>
+        Number(resolve(b) === resolve(workspace)) - Number(resolve(a) === resolve(workspace)),
+    );
+    for (const target of workspaces) {
+      const candidate = resolve(target, suffix);
+      if (
+        containsPath(target, candidate) &&
+        isAllowedPath(candidate, sessionId) &&
+        existsSync(candidate)
+      )
+        return candidate;
+    }
+    // A nested configured repository owns its path; do not substitute a parent repo copy.
+    return requested;
+  }
+  return requested;
+}
+
+function createAllowedPathChecker(sessionId?: string) {
   const isPrivate = privatePathSnapshot();
+  const artifactRoot = sessionArtifactRoot(sessionId);
   return (filePath: string): boolean => {
     try {
       if (isPrivate(filePath)) return false;
+      if (artifactRoot && containsPath(artifactRoot, filePath)) return true;
     } catch {
       return false;
     }
     return isConfiguredAllowedPath(filePath);
   };
 }
-export function isAllowedPath(filePath: string): boolean {
-  return createAllowedPathChecker()(filePath);
+export function isAllowedPath(filePath: string, sessionId?: string): boolean {
+  return createAllowedPathChecker(sessionId)(filePath);
 }
 function isConfiguredAllowedPath(filePath: string): boolean {
-  const resolved = resolve(filePath);
-  if (BASE_REPO && resolved.startsWith(resolve(BASE_REPO))) return true;
-  if (BASE_REPO && resolved.startsWith(resolve(`${BASE_REPO}-sessions`))) return true;
-  const config = getRepoConfig();
-  for (const repoPath of Object.values(config.repos)) {
-    if (resolved.startsWith(resolve(repoPath))) return true;
-    if (resolved.startsWith(resolve(`${repoPath}-sessions`))) return true;
+  try {
+    const roots = BASE_REPO ? [BASE_REPO, `${BASE_REPO}-sessions`] : [];
+    const config = getRepoConfig();
+    for (const repoPath of Object.values(config.repos)) {
+      roots.push(repoPath, `${repoPath}-sessions`);
+    }
+    roots.push(...config.allowedPaths);
+    return roots.some((root) => containsPath(root, filePath));
+  } catch {
+    return false;
   }
-  for (const extra of config.allowedPaths) {
-    if (resolved.startsWith(resolve(extra))) return true;
-  }
-  return false;
 }
 
-function resolveRoot(queryRoot: string | undefined, allowed = isAllowedPath): string {
-  if (!queryRoot) return BASE_REPO;
+function resolveRoot(
+  queryRoot: string | undefined,
+  allowed = isAllowedPath,
+  defaultRoot = BASE_REPO,
+): string {
+  if (!queryRoot) return defaultRoot;
   const resolved = resolve(queryRoot);
-  if (!allowed(resolved)) return BASE_REPO;
+  if (!allowed(resolved)) return defaultRoot;
   return resolved;
 }
 
@@ -1711,9 +2799,23 @@ app.get('/api/files/roots', (_req, res) => {
 });
 
 app.get('/api/files/list', (req, res) => {
-  const allowed = createAllowedPathChecker();
-  const root = resolveRoot(req.query.root as string | undefined, allowed);
-  const dir = (req.query.dir as string) || root;
+  const sessionId = typeof req.query.sessionId === 'string' ? req.query.sessionId : undefined;
+  if (sessionId && isRemoteSessionArtifact(sessionId)) {
+    res.status(409).json({
+      error:
+        'Directory browsing for this conversation’s sandbox workspace is unavailable. Open a file link in the conversation to view or download it.',
+    });
+    return;
+  }
+
+  const allowed = createAllowedPathChecker(sessionId);
+  const root = resolveRoot(
+    req.query.root as string | undefined,
+    allowed,
+    sessionArtifactBrowserRoot(req.query.dir as string | undefined, sessionId),
+  );
+  const requestedDir = req.query.dir as string | undefined;
+  const dir = requestedDir ? resolveArtifactPath(requestedDir, sessionId) : root;
   if (!dir || !allowed(dir)) {
     res.status(403).json({ error: 'Path not allowed' });
     return;
@@ -1749,9 +2851,23 @@ app.get('/api/files/list', (req, res) => {
 });
 
 app.get('/api/files', (req, res) => {
-  const allowed = createAllowedPathChecker();
-  const root = resolveRoot(req.query.root as string | undefined, allowed);
-  const dir = (req.query.dir as string) || root;
+  const sessionId = typeof req.query.sessionId === 'string' ? req.query.sessionId : undefined;
+  if (sessionId && isRemoteSessionArtifact(sessionId)) {
+    res.status(409).json({
+      error:
+        'Directory browsing for this conversation’s sandbox workspace is unavailable. Open a file link in the conversation to view or download it.',
+    });
+    return;
+  }
+
+  const allowed = createAllowedPathChecker(sessionId);
+  const root = resolveRoot(
+    req.query.root as string | undefined,
+    allowed,
+    sessionArtifactBrowserRoot(req.query.dir as string | undefined, sessionId),
+  );
+  const requestedDir = req.query.dir as string | undefined;
+  const dir = requestedDir ? resolveArtifactPath(requestedDir, sessionId) : root;
   if (!dir || !allowed(dir)) {
     res.status(403).json({ error: 'Path not allowed' });
     return;
@@ -1776,7 +2892,7 @@ app.get('/api/files', (req, res) => {
         if (a.isDir !== b.isDir) return a.isDir ? -1 : 1;
         return a.name.localeCompare(b.name);
       });
-    res.json({ dir, entries });
+    res.json({ dir, root, entries });
   } catch (err: unknown) {
     log.error('failed to read directory', {
       dir,
@@ -1786,9 +2902,35 @@ app.get('/api/files', (req, res) => {
   }
 });
 
-app.get('/api/files/read', (req, res) => {
-  const filePath = req.query.path as string;
-  if (!filePath || !isAllowedPath(filePath)) {
+app.get('/api/files/read', async (req, res) => {
+  const requestedPath = req.query.path as string;
+  const sessionId = typeof req.query.sessionId === 'string' ? req.query.sessionId : undefined;
+  if (sessionId && isRemoteSessionArtifact(sessionId)) {
+    try {
+      if (!requestedPath) {
+        res.status(403).json({ error: 'Path not allowed' });
+        return;
+      }
+      const file = await readRemoteSessionArtifact(sessionId, requestedPath);
+      res.json({
+        path: file.path,
+        content: file.bytes.toString('utf8'),
+        ext: extname(file.path).toLowerCase(),
+      });
+    } catch (error) {
+      const known =
+        error instanceof SessionArtifactUnavailableError ||
+        error instanceof OpenShellArtifactReadError;
+      res.status(known ? error.status : 409).json({
+        error: known
+          ? error.message
+          : 'This conversation’s workspace is unavailable. Resume this conversation once, then try again.',
+      });
+    }
+    return;
+  }
+  const filePath = requestedPath ? resolveArtifactPath(requestedPath, sessionId) : '';
+  if (!filePath || !isAllowedPath(filePath, sessionId)) {
     res.status(403).json({ error: 'Path not allowed' });
     return;
   }
@@ -1797,9 +2939,17 @@ app.get('/api/files/read', (req, res) => {
     return;
   }
   try {
-    const content = readFileSync(filePath, 'utf-8');
+    const preview = readPreviewFile(filePath);
+    if (!preview.isFile) {
+      res.status(400).json({ error: 'Path is not a file' });
+      return;
+    }
+    if (preview.tooLarge) {
+      res.status(413).json({ error: 'File is too large to preview (5 MB maximum)' });
+      return;
+    }
     const ext = extname(filePath).toLowerCase();
-    res.json({ path: filePath, content, ext });
+    res.json({ path: filePath, content: preview.content, ext });
   } catch (err: unknown) {
     log.error('failed to read file', {
       path: filePath,
@@ -1822,9 +2972,38 @@ app.get('/api/images/:imageId', (req, res) => {
   res.send(img.data);
 });
 
-app.get('/api/files/download', (req, res) => {
-  const filePath = req.query.path as string;
-  if (!filePath || !isAllowedPath(filePath)) {
+app.get('/api/files/download', async (req, res) => {
+  const requestedPath = req.query.path as string;
+  const sessionId = typeof req.query.sessionId === 'string' ? req.query.sessionId : undefined;
+  if (sessionId && isRemoteSessionArtifact(sessionId)) {
+    try {
+      if (!requestedPath) {
+        res.status(403).json({ error: 'Path not allowed' });
+        return;
+      }
+      const file = await readRemoteSessionArtifact(sessionId, requestedPath);
+      const filename = basename(file.path);
+      res.setHeader('Content-Type', 'application/octet-stream');
+      res.setHeader(
+        'Content-Disposition',
+        `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`,
+      );
+      res.setHeader('Content-Length', file.bytes.length);
+      res.send(file.bytes);
+    } catch (error) {
+      const known =
+        error instanceof SessionArtifactUnavailableError ||
+        error instanceof OpenShellArtifactReadError;
+      res.status(known ? error.status : 409).json({
+        error: known
+          ? error.message
+          : 'This conversation’s workspace is unavailable. Resume this conversation once, then try again.',
+      });
+    }
+    return;
+  }
+  const filePath = requestedPath ? resolveArtifactPath(requestedPath, sessionId) : '';
+  if (!filePath || !isAllowedPath(filePath, sessionId)) {
     res.status(403).json({ error: 'Path not allowed' });
     return;
   }
@@ -1855,14 +3034,46 @@ app.get('/api/files/download', (req, res) => {
   }
 });
 
-app.put('/api/files/write', (req, res) => {
+app.put('/api/files/write', async (req, res) => {
   const body = FileWriteBody.safeParse(req.body);
   if (!body.success) {
     res.status(400).json({ error: 'path and content are required' });
     return;
   }
-  const { path: filePath, content } = body.data;
-  if (!isAllowedPath(filePath)) {
+  const { path: requestedPath, content, sessionId, expectedContent } = body.data;
+  if (expectedContent === undefined) {
+    res.status(409).json({ error: 'Reopen the document in the updated editor before saving.' });
+    return;
+  }
+  if (
+    Buffer.byteLength(content) > MAX_PREVIEW_BYTES ||
+    Buffer.byteLength(expectedContent) > MAX_PREVIEW_BYTES
+  ) {
+    res.status(413).json({ error: 'Document is too large to edit (5 MB maximum)' });
+    return;
+  }
+  if (sessionId && isRemoteSessionArtifact(sessionId)) {
+    try {
+      const file = await readRemoteSessionArtifact(sessionId, requestedPath, {
+        content,
+        expectedContent,
+      });
+      res.json({ ok: true, path: file.path });
+    } catch (error) {
+      const known =
+        error instanceof OpenShellArtifactReadError ||
+        error instanceof SessionArtifactUnavailableError;
+      res.status(known ? error.status : 503).json({
+        error: known
+          ? error.message
+          : 'Sandbox document could not be saved. Your draft is preserved.',
+      });
+    }
+    return;
+  }
+
+  const filePath = resolveArtifactPath(requestedPath, sessionId);
+  if (!isAllowedPath(filePath, sessionId)) {
     res.status(403).json({ error: 'Path not allowed' });
     return;
   }
@@ -1871,14 +3082,16 @@ app.put('/api/files/write', (req, res) => {
     return;
   }
   try {
-    writeFileSync(filePath, content, 'utf-8');
+    writeHostArtifact(filePath, content, expectedContent);
     res.json({ ok: true, path: filePath });
   } catch (err: unknown) {
     log.error('failed to write file', {
       path: filePath,
       error: err instanceof Error ? err.message : 'unknown',
     });
-    res.status(500).json({ error: 'Failed to write file' });
+    res.status(err instanceof OpenShellArtifactReadError ? err.status : 500).json({
+      error: err instanceof OpenShellArtifactReadError ? err.message : 'Failed to write file',
+    });
   }
 });
 
@@ -2107,6 +3320,9 @@ app.get('/api/calendar', async (req, res) => {
 
 const TODO_SCRIPT = join(BASE_REPO, 'command_center', 'todo_api.py');
 const TODO_TIMEOUT_MS = 30_000;
+// The todo list includes source context and can exceed Node's 1 MiB execFile default.
+// Keep the subprocess bounded while leaving headroom above the current production payload.
+const TODO_MAX_BUFFER_BYTES = 8 * 1024 * 1024;
 
 app.get('/api/todos', async (req, res) => {
   const profile = req.query.profile as string | undefined;
@@ -2114,7 +3330,7 @@ app.get('/api/todos', async (req, res) => {
 
   if (!existsSync(TODO_SCRIPT)) {
     log.warn('todo script not found', { path: TODO_SCRIPT });
-    res.json({ profiles: [], items: [] });
+    res.status(503).json({ error: 'Todo service unavailable' });
     return;
   }
 
@@ -2129,18 +3345,19 @@ app.get('/api/todos', async (req, res) => {
 
     const { stdout } = await execFileAsync('python3', args, {
       timeout: TODO_TIMEOUT_MS,
+      maxBuffer: TODO_MAX_BUFFER_BYTES,
     });
     const parsed = TodoListResponse.safeParse(JSON.parse(stdout));
     if (!parsed.success) {
       log.warn('todo API returned unexpected shape', { error: parsed.error.message });
-      res.json({ profiles: [], items: [] });
+      res.status(502).json({ error: 'Todo service unavailable' });
       return;
     }
     res.json(parsed.data);
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Unknown error';
     log.warn('todo API failed', { error: message });
-    res.json({ profiles: [], items: [] });
+    res.status(502).json({ error: 'Todo service unavailable' });
   }
 });
 
@@ -2165,6 +3382,7 @@ app.post('/api/todos', async (req, res) => {
 
     const { stdout } = await execFileAsync('python3', args, {
       timeout: TODO_TIMEOUT_MS,
+      maxBuffer: TODO_MAX_BUFFER_BYTES,
     });
     const parsed = JSON.parse(stdout);
     if (!parsed.ok) {
@@ -2175,6 +3393,37 @@ app.post('/api/todos', async (req, res) => {
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Unknown error';
     log.warn('todo create failed', { error: message });
+    res.status(500).json({ ok: false, error: message });
+  }
+});
+
+app.post('/api/todos/outcomes', async (req, res) => {
+  const body = TodoOutcomeCreateBody.safeParse(req.body);
+  if (!body.success) {
+    res.status(400).json({ ok: false, error: body.error.issues[0]?.message ?? 'Invalid input' });
+    return;
+  }
+
+  if (!existsSync(TODO_SCRIPT)) {
+    res.status(500).json({ ok: false, error: 'Todo script not found' });
+    return;
+  }
+
+  try {
+    const { stdout } = await execFileAsync(
+      'python3',
+      [TODO_SCRIPT, '--create-outcome-json', JSON.stringify(body.data)],
+      { timeout: TODO_TIMEOUT_MS, maxBuffer: TODO_MAX_BUFFER_BYTES },
+    );
+    const parsed = JSON.parse(stdout);
+    if (!parsed.ok) {
+      res.status(400).json(parsed);
+      return;
+    }
+    res.status(parsed.created ? 201 : 200).json(parsed);
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    log.warn('todo outcome create failed', { error: message });
     res.status(500).json({ ok: false, error: message });
   }
 });
@@ -2201,6 +3450,7 @@ app.post('/api/todos/:id/action', async (req, res) => {
 
     const { stdout } = await execFileAsync('python3', args, {
       timeout: TODO_TIMEOUT_MS,
+      maxBuffer: TODO_MAX_BUFFER_BYTES,
     });
     const parsed = TodoActionResponse.safeParse(JSON.parse(stdout));
     if (!parsed.success) {

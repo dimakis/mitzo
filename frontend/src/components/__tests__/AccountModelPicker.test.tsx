@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { it, expect, vi, afterEach } from 'vitest';
-import { render, screen, fireEvent, cleanup, waitFor } from '@testing-library/react';
+import { act, render, screen, fireEvent, cleanup, waitFor, within } from '@testing-library/react';
 import { AccountModelPicker } from '../AccountModelPicker';
 import { apiFetch } from '../../lib/api-fetch';
 vi.mock('../../lib/api-fetch', () => ({ apiFetch: vi.fn() }));
@@ -44,7 +44,7 @@ it('shows the durable binding for an existing conversation without selectable ac
   } as Response);
   const onChange = vi.fn();
   render(<AccountModelPicker sessionId="saved" preferredModel="wrong" onChange={onChange} />);
-  await screen.findByText('Work Vertex · sonnet');
+  await screen.findByText('Work Vertex');
   expect(onChange).toHaveBeenLastCalledWith({ accountId: 'work', model: 'sonnet' });
   expect(screen.queryByLabelText('Account')).toBeNull();
 });
@@ -193,7 +193,7 @@ it('waits for accepted session metadata to become available', async () => {
       }),
     } as Response);
   render(<AccountModelPicker sessionId="starting" preferredModel="nano" onChange={vi.fn()} />);
-  await screen.findByText('Work API · nano');
+  await screen.findByText('Work API');
   expect(screen.queryByRole('alert')).toBeNull();
 });
 
@@ -310,4 +310,467 @@ it('refreshes on request while preserving the selected account and thinking leve
     model: 'gpt',
     reasoningEffort: 'high',
   });
+});
+
+it('loads only the configured Symposium account catalog without legacy alias controls', async () => {
+  vi.mocked(apiFetch).mockResolvedValue({ ok: true, json: async () => profiles } as Response);
+  const onChange = vi.fn();
+  render(
+    <AccountModelPicker
+      scope="symposium"
+      sessionId={null}
+      preferredModel="sonnet"
+      onChange={onChange}
+    />,
+  );
+  await screen.findByText('Work Vertex');
+  expect(apiFetch).toHaveBeenCalledWith('/api/symposium/accounts', expect.anything());
+  expect(screen.queryByRole('button', { name: 'Edit account alias' })).toBeNull();
+  expect(onChange).toHaveBeenLastCalledWith({ accountId: 'work', model: 'sonnet' });
+});
+
+it('fails closed for unavailable Symposium catalog and retries only that catalog', async () => {
+  vi.mocked(apiFetch).mockResolvedValue({ ok: false, status: 503 } as Response);
+  const onChange = vi.fn();
+  render(
+    <AccountModelPicker
+      scope="symposium"
+      sessionId={null}
+      preferredModel="sonnet"
+      onChange={onChange}
+    />,
+  );
+  expect((await screen.findByRole('alert')).textContent).toContain(
+    'Symposium account catalog unavailable',
+  );
+  expect(screen.queryByText('Use legacy server account')).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Retry accounts' }));
+  await waitFor(() => expect(apiFetch).toHaveBeenCalledTimes(2));
+  expect(vi.mocked(apiFetch).mock.calls.every(([url]) => url === '/api/symposium/accounts')).toBe(
+    true,
+  );
+  expect(onChange.mock.calls.every(([selection]) => selection === null)).toBe(true);
+});
+
+it('does not offer legacy accounts for an empty Symposium catalog', async () => {
+  vi.mocked(apiFetch).mockResolvedValue({ ok: true, json: async () => [] } as Response);
+  const onChange = vi.fn();
+  render(
+    <AccountModelPicker
+      scope="symposium"
+      sessionId={null}
+      preferredModel="sonnet"
+      onChange={onChange}
+    />,
+  );
+  await screen.findByText('No Symposium account profiles configured.');
+  expect(screen.queryByText('Use legacy server account')).toBeNull();
+  expect(onChange.mock.calls.every(([selection]) => selection === null)).toBe(true);
+});
+
+it('shows per-seat account ownership for Symposium without returning an ordinary model selection', async () => {
+  vi.mocked(apiFetch).mockResolvedValue({
+    ok: true,
+    json: async () => ({
+      sessionType: 'symposium',
+      accountBinding: { accountId: 'owned', model: 'gpt-5.6-luna' },
+    }),
+  } as Response);
+  const onChange = vi.fn();
+  render(<AccountModelPicker sessionId="symposium" preferredModel="" onChange={onChange} />);
+  await screen.findByText('Accounts and models are selected per seat in Review team & approvals.');
+  expect(onChange.mock.calls.every(([value]) => value === null)).toBe(true);
+  expect(apiFetch).toHaveBeenCalledTimes(1);
+  expect(screen.queryByRole('combobox')).toBeNull();
+});
+
+it('offers personal subscription setup only in the Symposium account catalog including empty catalogs', async () => {
+  vi.mocked(apiFetch).mockResolvedValue({ ok: true, json: async () => [] } as Response);
+  const { rerender } = render(
+    <AccountModelPicker scope="chat" sessionId={null} preferredModel="luna" onChange={vi.fn()} />,
+  );
+  await screen.findByText('No account profiles configured.');
+  expect(screen.queryByRole('button', { name: 'Connect personal subscription' })).toBeNull();
+  rerender(
+    <AccountModelPicker
+      scope="symposium"
+      sessionId={null}
+      preferredModel="luna"
+      onChange={vi.fn()}
+    />,
+  );
+  expect(
+    await screen.findByRole('button', { name: 'Manage personal ChatGPT accounts' }),
+  ).toBeTruthy();
+});
+
+it('propagates later disabled state to an already open personal account manager', async () => {
+  vi.mocked(apiFetch).mockImplementation(
+    async (url) =>
+      ({
+        ok: true,
+        json: async () => (url.endsWith('/connections') ? { connections: [] } : []),
+      }) as Response,
+  );
+  const props = {
+    scope: 'symposium' as const,
+    sessionId: null,
+    preferredModel: 'luna',
+    onChange: vi.fn(),
+  };
+  const { rerender } = render(<AccountModelPicker {...props} />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Manage personal ChatGPT accounts' }));
+  await screen.findByLabelText('Account label');
+  rerender(<AccountModelPicker {...props} disabled />);
+  expect((screen.getByLabelText('Account label') as HTMLInputElement).disabled).toBe(true);
+  expect(
+    (screen.getByRole('button', { name: 'Add personal account' }) as HTMLButtonElement).disabled,
+  ).toBe(true);
+});
+
+it.each(['model', 'account'])(
+  'keeps a removed %s draft unavailable after a personal model refresh until explicit selection',
+  async (removed) => {
+    let refreshed = false;
+    const onChange = vi.fn();
+    vi.mocked(apiFetch).mockImplementation(
+      async (url) =>
+        ({
+          ok: true,
+          json: async () => {
+            if (url.endsWith('/models/refresh')) {
+              refreshed = true;
+              return { status: 'complete', inference: false, modelCount: 1 };
+            }
+            if (url.endsWith('/connections'))
+              return {
+                connections: [
+                  { id: 'personal', label: 'Personal', state: 'connected', revision: 1 },
+                ],
+              };
+            if (url.includes('/login/status')) return { state: 'unknown' };
+            return [
+              {
+                id: refreshed && removed === 'account' ? 'replacement' : 'personal',
+                label: 'Personal',
+                models: [
+                  {
+                    id: refreshed ? 'new-model' : 'old-model',
+                    label: refreshed ? 'New model' : 'Old model',
+                  },
+                ],
+              },
+            ];
+          },
+        }) as Response,
+    );
+    render(
+      <AccountModelPicker
+        scope="symposium"
+        requireExplicitSelection
+        sessionId={null}
+        preferredModel="old-model"
+        onChange={onChange}
+      />,
+    );
+    await screen.findByRole('option', { name: 'Old model' });
+    onChange.mockClear();
+    fireEvent.click(screen.getByRole('button', { name: 'Manage personal ChatGPT accounts' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Refresh supported models' }));
+    await screen.findByText(/Selected account or model is unavailable/);
+    expect(onChange.mock.calls.every(([selection]) => selection === null)).toBe(true);
+    const confirmation = screen.getByRole('button', { name: /^Use / }) as HTMLButtonElement;
+    expect(confirmation.disabled).toBe(true);
+    fireEvent.click(confirmation);
+    expect(onChange.mock.calls.every(([selection]) => selection === null)).toBe(true);
+    if (removed === 'account')
+      fireEvent.change(screen.getByRole('combobox', { name: 'Account' }), {
+        target: { value: 'replacement' },
+      });
+    else
+      fireEvent.change(screen.getByRole('combobox', { name: 'Model' }), {
+        target: { value: 'new-model' },
+      });
+    fireEvent.click(screen.getByRole('button', { name: /^Use / }));
+    expect(onChange).toHaveBeenLastCalledWith({
+      accountId: removed === 'account' ? 'replacement' : 'personal',
+      model: 'new-model',
+    });
+  },
+);
+
+it.each(['model', 'account'])(
+  'keeps a removed %s draft unavailable after disconnect until explicit selection',
+  async (removed) => {
+    let refreshed = false;
+    const onChange = vi.fn();
+    vi.mocked(apiFetch).mockImplementation(async (url) => {
+      if (url.endsWith('/disconnect')) refreshed = true;
+      return {
+        ok: true,
+        json: async () => {
+          if (url.endsWith('/disconnect')) {
+            refreshed = true;
+            return { status: 'complete', inference: false, modelCount: 1 };
+          }
+          if (url.endsWith('/connections'))
+            return {
+              connections: [{ id: 'personal', label: 'Personal', state: 'connected', revision: 1 }],
+            };
+          if (url.includes('/login/status')) return { state: 'unknown' };
+          return [
+            {
+              id: refreshed && removed === 'account' ? 'replacement' : 'personal',
+              label: 'Personal',
+              models: [
+                {
+                  id: refreshed ? 'new-model' : 'old-model',
+                  label: refreshed ? 'New model' : 'Old model',
+                },
+              ],
+            },
+          ];
+        },
+      } as Response;
+    });
+    render(
+      <AccountModelPicker
+        scope="symposium"
+        requireExplicitSelection
+        sessionId={null}
+        preferredModel="old-model"
+        onChange={onChange}
+      />,
+    );
+    await screen.findByRole('option', { name: 'Old model' });
+    onChange.mockClear();
+    fireEvent.click(screen.getByRole('button', { name: 'Manage personal ChatGPT accounts' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Disconnect' }));
+    await screen.findByText(/Selected account or model is unavailable/);
+    expect(onChange.mock.calls.every(([selection]) => selection === null)).toBe(true);
+    const confirmation = screen.getByRole('button', { name: /^Use / }) as HTMLButtonElement;
+    expect(confirmation.disabled).toBe(true);
+    fireEvent.click(confirmation);
+    expect(onChange.mock.calls.every(([selection]) => selection === null)).toBe(true);
+    if (removed === 'account')
+      fireEvent.change(screen.getByRole('combobox', { name: 'Account' }), {
+        target: { value: 'replacement' },
+      });
+    else
+      fireEvent.change(screen.getByRole('combobox', { name: 'Model' }), {
+        target: { value: 'new-model' },
+      });
+    fireEvent.click(screen.getByRole('button', { name: /^Use / }));
+    expect(onChange).toHaveBeenLastCalledWith({
+      accountId: removed === 'account' ? 'replacement' : 'personal',
+      model: 'new-model',
+    });
+  },
+);
+
+it('retains recovered callback completion while catalog reloads and requires explicit use', async () => {
+  let catalogs = 0;
+  let finish!: (value: Response) => void;
+  const response = (body: unknown) => ({ ok: true, json: async () => body }) as Response;
+  vi.mocked(apiFetch).mockImplementation(async (url) => {
+    if (url === '/api/symposium/accounts') {
+      if (++catalogs === 1) return response([]);
+      return new Promise<Response>((resolve) => {
+        finish = resolve;
+      });
+    }
+    if (url.endsWith('/connections'))
+      return response({
+        connections: [{ id: 'work', label: 'Personal', state: 'connected', revision: 1 }],
+      });
+    return response({ state: 'completed', attemptId: 'login', connectionId: 'work' });
+  });
+  const onChange = vi.fn();
+  render(
+    <AccountModelPicker scope="symposium" sessionId={null} preferredModel="" onChange={onChange} />,
+  );
+  await screen.findByText('No Symposium account profiles configured.');
+  fireEvent.click(screen.getByRole('button', { name: 'Manage personal ChatGPT accounts' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Connect personal subscription' }));
+  await waitFor(() => expect(catalogs).toBe(2));
+  expect(screen.getByText(/Previous login completed/)).toBeTruthy();
+  await act(async () => {
+    finish(response(profiles));
+  });
+  expect(screen.getByText(/Previous login completed/)).toBeTruthy();
+  expect(onChange.mock.calls.every(([value]) => value === null)).toBe(true);
+  fireEvent.click(screen.getByRole('button', { name: 'Use Work Vertex · Sonnet' }));
+  expect(onChange).toHaveBeenLastCalledWith({ accountId: 'work', model: 'sonnet' });
+});
+
+it('reenables explicit confirmation when a missing model returns on a later refresh', async () => {
+  let refreshes = 0;
+  const response = (body: unknown) => ({ ok: true, json: async () => body }) as Response;
+  vi.mocked(apiFetch).mockImplementation(async (url) => {
+    if (url.endsWith('/models/refresh')) {
+      refreshes++;
+      return response({ status: 'complete', inference: false, modelCount: 1 });
+    }
+    if (url.endsWith('/connections'))
+      return response({
+        connections: [{ id: 'work', label: 'Personal', state: 'connected', revision: 1 }],
+      });
+    if (url.includes('/login/status')) return response({ state: 'idle' });
+    return response([
+      {
+        ...profiles[0],
+        models: [
+          {
+            id: refreshes === 1 ? 'missing' : 'sonnet',
+            label: refreshes === 1 ? 'Replacement' : 'Sonnet',
+          },
+        ],
+      },
+    ]);
+  });
+  const changed = vi.fn();
+  render(
+    <AccountModelPicker
+      scope="symposium"
+      requireExplicitSelection
+      sessionId={null}
+      preferredModel="sonnet"
+      onChange={changed}
+    />,
+  );
+  await screen.findByRole('option', { name: 'Sonnet' });
+  fireEvent.click(screen.getByRole('button', { name: 'Manage personal ChatGPT accounts' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Refresh supported models' }));
+  await screen.findByText(/Selected account or model is unavailable/);
+  expect((screen.getByRole('button', { name: /^Use / }) as HTMLButtonElement).disabled).toBe(true);
+  fireEvent.click(await screen.findByRole('button', { name: 'Refresh supported models' }));
+  await screen.findByRole('option', { name: 'Sonnet' });
+  expect((screen.getByRole('button', { name: /^Use / }) as HTMLButtonElement).disabled).toBe(false);
+  expect(changed).toHaveBeenLastCalledWith(null);
+  fireEvent.click(screen.getByRole('button', { name: /^Use / }));
+  expect(changed).toHaveBeenLastCalledWith({ accountId: 'work', model: 'sonnet' });
+});
+
+it('invalidates another mounted picker after account removal without selecting a replacement or looping', async () => {
+  let removed = false;
+  let reads = 0;
+  const response = (body: unknown) => ({ ok: true, json: async () => body }) as Response;
+  vi.mocked(apiFetch).mockImplementation(async (url) => {
+    if (url.endsWith('/disconnect')) {
+      removed = true;
+      return response({ state: 'disconnected' });
+    }
+    if (url.endsWith('/connections'))
+      return response({
+        connections: [
+          {
+            id: 'work',
+            label: 'Personal',
+            state: removed ? 'disconnected' : 'connected',
+            revision: removed ? 2 : 1,
+          },
+        ],
+      });
+    if (url.includes('/login/status')) return response({ state: 'idle' });
+    reads++;
+    return response(removed ? [profiles[1]] : profiles);
+  });
+  const secondChanged = vi.fn();
+  render(
+    <>
+      <section data-testid="first">
+        <AccountModelPicker
+          scope="symposium"
+          sessionId={null}
+          preferredModel="sonnet"
+          onChange={vi.fn()}
+        />
+      </section>
+      <section data-testid="second">
+        <AccountModelPicker
+          scope="symposium"
+          sessionId={null}
+          preferredModel="sonnet"
+          onChange={secondChanged}
+        />
+      </section>
+    </>,
+  );
+  const first = within(screen.getByTestId('first'));
+  const second = within(screen.getByTestId('second'));
+  await second.findByRole('option', { name: 'Sonnet' });
+  secondChanged.mockClear();
+  fireEvent.click(first.getByRole('button', { name: 'Manage personal ChatGPT accounts' }));
+  fireEvent.click(await first.findByRole('button', { name: 'Disconnect' }));
+  await second.findByText(/Selected account or model is unavailable/);
+  expect(secondChanged.mock.calls.every(([value]) => value === null)).toBe(true);
+  expect((second.getByRole('button', { name: /^Use / }) as HTMLButtonElement).disabled).toBe(true);
+  await act(async () => {
+    await Promise.resolve();
+  });
+  expect(reads).toBeGreaterThanOrEqual(4);
+  expect(reads).toBeLessThanOrEqual(6);
+});
+
+it('invalidates both selected pickers while device reconnect is pending and retains the code owner', async () => {
+  let reconnecting = false;
+  const response = (body: unknown) => ({ ok: true, json: async () => body }) as Response;
+  vi.mocked(apiFetch).mockImplementation(async (url, init) => {
+    if (url === '/api/symposium/personal/login' && init?.method === 'POST') {
+      reconnecting = true;
+      return response({
+        state: 'pending',
+        method: 'device-code',
+        connectionId: 'work',
+        attemptId: 'new-login',
+        userCode: 'DEMO-CODE',
+        verificationUrl: 'https://auth.openai.com/codex/device',
+      });
+    }
+    if (url.endsWith('/connections'))
+      return response({
+        connections: [
+          { id: 'work', label: 'Personal', state: 'connected', revision: 1 },
+          { id: 'other', label: 'Other', state: 'disconnected', revision: 1 },
+        ],
+      });
+    if (url.includes('/login/status')) return response({ state: 'idle' });
+    return response(reconnecting ? [profiles[1]] : profiles);
+  });
+  const a = vi.fn();
+  const b = vi.fn();
+  render(
+    <>
+      <section data-testid="device-first">
+        <AccountModelPicker
+          scope="symposium"
+          sessionId={null}
+          preferredModel="sonnet"
+          onChange={a}
+        />
+      </section>
+      <section data-testid="device-second">
+        <AccountModelPicker
+          scope="symposium"
+          sessionId={null}
+          preferredModel="sonnet"
+          onChange={b}
+        />
+      </section>
+    </>,
+  );
+  const first = within(screen.getByTestId('device-first'));
+  const second = within(screen.getByTestId('device-second'));
+  await second.findByRole('option', { name: 'Sonnet' });
+  a.mockClear();
+  b.mockClear();
+  fireEvent.click(first.getByRole('button', { name: 'Manage personal ChatGPT accounts' }));
+  fireEvent.click(await first.findByRole('button', { name: 'Reconnect' }));
+  fireEvent.click(await first.findByRole('button', { name: 'Get sign-in code' }));
+  await first.findByText('DEMO-CODE');
+  await second.findByText(/Selected account or model is unavailable/);
+  expect(a).toHaveBeenLastCalledWith(null);
+  expect(b).toHaveBeenLastCalledWith(null);
+  expect(first.getByRole('button', { name: 'Cancel sign-in' })).toBeTruthy();
+  expect((first.getByRole('button', { name: 'Connect' }) as HTMLButtonElement).disabled).toBe(true);
 });

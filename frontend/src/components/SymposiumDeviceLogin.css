@@ -1,0 +1,48 @@
+.symposium-device-login {
+  padding: 12px 0;
+  overflow-wrap: anywhere;
+}
+.symposium-device-login h3 {
+  margin: 0 0 8px;
+  font-size: 1rem;
+}
+.symposium-device-login p {
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+.symposium-device-login button,
+.symposium-device-code a {
+  min-height: 44px;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-secondary);
+  color: var(--text);
+}
+.symposium-device-login button:disabled {
+  opacity: 0.5;
+}
+.symposium-device-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.symposium-device-code {
+  display: grid;
+  gap: 12px;
+  justify-items: start;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.symposium-device-code strong {
+  font-family: monospace;
+  font-size: 1.6rem;
+  letter-spacing: 0.08em;
+  user-select: all;
+}
+.symposium-device-code a {
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+}

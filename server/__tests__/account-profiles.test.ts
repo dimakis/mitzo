@@ -1,5 +1,10 @@
 import { describe, it, expect, vi } from 'vitest';
-import { AccountProfiles, LEGACY_MODELS, resolveAccountSelection } from '../account-profiles.js';
+import {
+  AccountProfiles,
+  LEGACY_MODELS,
+  resolveAccountSelection,
+  resolveEffectiveAccountSelection,
+} from '../account-profiles.js';
 import { V2SendMessage } from '@mitzo/protocol';
 
 const brokerDiscovery = vi.hoisted(() => ({
@@ -97,6 +102,34 @@ describe('explicit account binding', () => {
       new AccountProfiles([{ ...profile, credentialRef: '/other.json' }]).resume(binding),
     ).toThrow(/changed/i);
   });
+  it('pins an explicit Vertex sandbox provider without exporting host ADC material', () => {
+    const configured = {
+      ...profile,
+      sandboxProvider: 'vertex-work',
+      sandboxProviderId: 'vertex-provider-id',
+    };
+    const profiles = new AccountProfiles([configured]);
+    const binding = profiles.resolve('work', 'claude-sonnet-4-6');
+    expect(profiles.vertexSandboxRoute(binding)).toEqual({
+      provider: 'vertex-work',
+      providerId: 'vertex-provider-id',
+      projectId: 'work-project',
+      region: 'us-east5',
+      model: 'claude-sonnet-4-6',
+    });
+    expect(() => new AccountProfiles([profile]).vertexSandboxRoute(binding)).toThrow(/changed/i);
+    expect(() =>
+      new AccountProfiles([profile]).vertexSandboxRoute(
+        new AccountProfiles([profile]).resolve('work', 'claude-sonnet-4-6'),
+      ),
+    ).toThrow(/sandbox provider/i);
+    expect(JSON.stringify(profiles.catalog())).not.toContain('vertex-work');
+    expect(JSON.stringify(profiles.vertexSandboxRoute(binding))).not.toContain('credentials');
+    expect(() =>
+      new AccountProfiles([{ ...configured, sandboxProviderId: 'rotated' }]).resume(binding),
+    ).toThrow(/changed/i);
+    expect(() => new AccountProfiles([{ ...profile, sandboxProvider: 'vertex-work' }])).toThrow();
+  });
   it('constructs SDK environment with explicit credentials and removes alternate billing routes', () => {
     const profiles = new AccountProfiles([profile]);
     const binding = profiles.resolve('work', 'claude-sonnet-4-6');
@@ -133,6 +166,17 @@ describe('explicit account binding', () => {
 });
 
 describe('saved selection policy', () => {
+  it('resets omitted reasoning when an explicit startup selection changes model', () => {
+    const binding = new AccountProfiles([profile]).resolve('work', 'claude-sonnet-4-6');
+    expect(
+      resolveEffectiveAccountSelection(
+        { accountId: 'work', model: 'other' },
+        { selectedModel: 'claude-sonnet-4-6', reasoningEffort: 'high' },
+        binding,
+      ),
+    ).toEqual({ model: 'other', reasoningEffort: null });
+  });
+
   it('never upgrades a legacy session into a different billing account', async () => {
     const { resolveAccountSelection } = await import('../account-profiles.js');
     expect(() =>
@@ -439,6 +483,33 @@ describe('brokered ChatGPT subscription profile', () => {
     expect(brokerDiscovery.close).toHaveBeenCalledTimes(1);
   });
 
+  it('reuses discovery only for the same deployment runtime and account route', async () => {
+    prepareBrokeredTransport();
+    brokerDiscovery.request.mockResolvedValue(discoveryPage());
+    const profiles = new AccountProfiles([{ ...subscription, id: 'runtime-bound-discovery' }], {
+      codexEnabled: true,
+    });
+    await profiles.refresh(true);
+    const original = brokerDiscovery.ensure.mock.calls[0][0];
+    await profiles.refresh(true);
+    expect(brokerDiscovery.ensure.mock.calls[1][0]).toBe(original);
+
+    for (const change of [
+      { image: 'upgraded-image' },
+      { seedStackManifest: { runtime: { digest: 'sha256:new-runtime' } } },
+      { gateway: 'another-gateway' },
+      { workspace: 'another-workspace' },
+    ]) {
+      brokerDiscovery.runtimeConfig.mockReturnValue({ ...runtimeConfig, ...change });
+      await profiles.refresh(true);
+      expect(brokerDiscovery.ensure.mock.calls.at(-1)?.[0]).not.toBe(original);
+    }
+
+    brokerDiscovery.runtimeConfig.mockReturnValue(runtimeConfig);
+    await profiles.refresh(true);
+    expect(brokerDiscovery.ensure.mock.calls.at(-1)?.[0]).toBe(original);
+  });
+
   it('keeps the configured seed as a stale fallback when broker discovery cannot start', async () => {
     vi.clearAllMocks();
     brokerDiscovery.managerConfigs.length = 0;
@@ -534,6 +605,50 @@ describe('brokered ChatGPT subscription profile', () => {
     expect(brokerDiscovery.ensure.mock.calls[0][0]).not.toBe(
       brokerDiscovery.ensure.mock.calls[1][0],
     );
+  });
+
+  it.each([false, true])(
+    'never launches host model discovery in the custodian child (sandbox configured=%s)',
+    async (configured) => {
+      prepareBrokeredTransport();
+      if (!configured) brokerDiscovery.runtimeConfig.mockReturnValue(undefined);
+      vi.stubEnv('MITZO_SYMPOSIUM_CUSTODIAN_CONTROLLER', '1');
+      const host = {
+        id: `child-host-${configured}`,
+        label: 'Host',
+        provider: 'openai-codex',
+        email: 'test@example.test',
+        planType: 'plus',
+        credentialRef: '/synthetic/never-read',
+        models: [{ id: 'gpt-5.6-luna', label: 'Luna' }],
+      };
+      try {
+        await new AccountProfiles([host], { codexEnabled: true }).refresh(true);
+        expect(brokerDiscovery.hostLaunch).not.toHaveBeenCalled();
+        expect(brokerDiscovery.launch).not.toHaveBeenCalled();
+      } finally {
+        vi.unstubAllEnvs();
+      }
+    },
+  );
+
+  it('keeps brokered child discovery in the existing sandbox owner', async () => {
+    prepareBrokeredTransport();
+    vi.stubEnv('MITZO_SYMPOSIUM_CUSTODIAN_CONTROLLER', '1');
+    brokerDiscovery.request.mockImplementation(async (method) => {
+      if (method === 'model/list') return discoveryPage();
+      throw Error('Unexpected host account request');
+    });
+    try {
+      await new AccountProfiles([{ ...subscription, id: 'child-brokered' }], {
+        codexEnabled: true,
+      }).refresh(true);
+      expect(brokerDiscovery.ensure).toHaveBeenCalledOnce();
+      expect(brokerDiscovery.launch).toHaveBeenCalledOnce();
+      expect(brokerDiscovery.hostLaunch).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 
   it('keeps host-login discovery verification and cleanup intact', async () => {
@@ -735,3 +850,69 @@ it.each(['anthropic-vertex', 'google-vertex'])(
     expect(isPrivateCodexPath(credentialRef)).toBe(true);
   },
 );
+
+describe('native personal ChatGPT selection', () => {
+  const native = {
+    id: 'personal-native',
+    label: 'Personal ChatGPT',
+    provider: 'openai-codex',
+    nativeAuth: 'sandbox-chatgpt',
+    email: 'personal@example.test',
+    planType: 'plus',
+    sandboxProvider: 'codex-personal',
+    sandboxProviderId: 'codex-object',
+    sandboxProviderType: 'codex',
+    models: [{ id: 'luna', label: 'Luna' }],
+  };
+
+  it('pins the selected personal account and model without exposing auth metadata', () => {
+    const profiles = new AccountProfiles([native], { codexEnabled: true });
+    const binding = profiles.resolve(native.id, 'luna');
+    expect(binding).toMatchObject({
+      accountId: native.id,
+      provider: 'openai-codex',
+      model: 'luna',
+    });
+    expect(profiles.codexProfile(binding)).toMatchObject({
+      nativeAuth: 'sandbox-chatgpt',
+      sandboxProviderType: 'codex',
+      sandboxProviderId: 'codex-object',
+    });
+    expect(profiles.privateCodexRoots()).toEqual([]);
+    const catalog = profiles.catalog();
+    expect(catalog[0]).toMatchObject({ id: native.id, billing: 'chatgpt-subscription' });
+    expect(JSON.stringify(catalog)).not.toContain('codex-object');
+    expect(() => profiles.resolve('work', 'luna')).toThrow('Account is unavailable');
+    expect(() => profiles.resolve(native.id, 'unknown')).toThrow('Model is unavailable');
+    const rotated = new AccountProfiles([{ ...native, sandboxProviderId: 'rotated' }], {
+      codexEnabled: true,
+    });
+    expect(() => rotated.resume(binding)).toThrow('configuration changed');
+  });
+
+  it.each([
+    { credentialRef: '/host/login' },
+    { sandboxGrantId: 'compat-grant' },
+    { workspaceId: 'work-org' },
+    { planType: 'api' },
+    { sandboxProviderType: 'openai-codex-oauth' },
+    { sandboxProviderId: undefined },
+    { nativeAuth: undefined },
+  ])('rejects ambiguous or non-personal native routing %j', (change) => {
+    expect(() => new AccountProfiles([{ ...native, ...change }], { codexEnabled: true })).toThrow(
+      'Invalid account profiles',
+    );
+  });
+
+  it('never performs host or compatibility discovery for a native seat', async () => {
+    brokerDiscovery.hostLaunch.mockClear();
+    brokerDiscovery.launch.mockClear();
+    brokerDiscovery.ensure.mockClear();
+    const profiles = new AccountProfiles([native], { codexEnabled: true });
+    await profiles.refresh(true);
+    expect(brokerDiscovery.hostLaunch).not.toHaveBeenCalled();
+    expect(brokerDiscovery.launch).not.toHaveBeenCalled();
+    expect(brokerDiscovery.ensure).not.toHaveBeenCalled();
+    expect(profiles.catalog()[0].modelDiscovery.stale).toBe(true);
+  });
+});

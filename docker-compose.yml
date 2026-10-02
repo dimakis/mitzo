@@ -7,7 +7,7 @@
 # MLflow UI: http://localhost:5050
 services:
   jaeger:
-    image: jaegertracing/jaeger:2.19.0
+    image: jaegertracing/jaeger:2.21.0
     restart: always
     ports:
       - '4318:4318' # OTLP HTTP receiver (server + browser)
@@ -28,7 +28,7 @@ services:
     command: -config.file=/etc/loki/local-config.yaml
 
   grafana:
-    image: grafana/grafana:12.4.1
+    image: grafana/grafana:13.2.2
     restart: always
     ports:
       - '3002:3000'

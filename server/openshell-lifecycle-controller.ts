@@ -327,6 +327,8 @@ export function registerOpenShellLifecycle(
   threadId: string,
   ownerClientId?: string,
 ) {
+  if (account.kind === 'chatgpt-subscription-native')
+    throw new Error('Native ChatGPT lifecycle belongs to its isolated Symposium seat');
   if (!configured) return;
   if (!runtime.sandboxId) return;
   const existing = configured.store.get(conversationId);

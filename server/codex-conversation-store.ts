@@ -2,6 +2,71 @@ import Database from 'better-sqlite3';
 import { chmodSync, closeSync, openSync } from 'node:fs';
 import type { AccountBinding } from '@mitzo/protocol';
 import { z } from 'zod';
+import type { OpenShellRuntime, OpenShellAccountRoute } from './openshell-runtime.js';
+import { validateOpenShellCliEnvironment } from './openshell-cli-environment.js';
+import type { PersistedWebSearchGrant, WebSearchGrant } from './web-search-policy.js';
+
+export interface ArtifactRuntime {
+  runtime: OpenShellRuntime & { sandboxId: string };
+  route: OpenShellAccountRoute;
+}
+const RuntimeString = z
+  .string()
+  .min(1)
+  .max(4096)
+  .regex(/^[^\r\n\0]+$/);
+const ArtifactRuntimeSchema = z
+  .object({
+    runtime: z
+      .object({
+        sandboxName: RuntimeString,
+        sandboxId: RuntimeString,
+        resourceVersion: RuntimeString.optional(),
+        created: z.boolean().optional(),
+        workdir: RuntimeString.refine(
+          (value) => value.startsWith('/'),
+          'Invalid sandbox workspace',
+        ),
+        appServerCommand: z.enum([
+          '/sandbox/run-mitzo-app-server',
+          '/sandbox/run-mitzo-subscription-app-server',
+          '/usr/local/bin/symposium-subscription-app-server',
+        ]),
+        cli: RuntimeString,
+        gateway: RuntimeString,
+        workspace: RuntimeString,
+        gatewayEndpoint: RuntimeString.optional(),
+        gatewayInsecure: z.boolean(),
+        cliEnvironment: z
+          .record(z.string(), z.string())
+          .transform(validateOpenShellCliEnvironment)
+          .optional(),
+      })
+      .strict(),
+    route: z.discriminatedUnion('kind', [
+      z.object({ kind: z.literal('api'), provider: RuntimeString, model: RuntimeString }).strict(),
+      z
+        .object({
+          kind: z.literal('chatgpt-subscription-native'),
+          provider: RuntimeString,
+          providerType: z.literal('codex'),
+          providerId: RuntimeString,
+          model: RuntimeString,
+        })
+        .strict(),
+      z
+        .object({
+          kind: z.literal('chatgpt-subscription'),
+          provider: RuntimeString,
+          providerType: z.literal('openai-codex-oauth'),
+          providerId: RuntimeString,
+          grantId: RuntimeString,
+          model: RuntimeString,
+        })
+        .strict(),
+    ]),
+  })
+  .strict();
 
 const CommandInput = z
   .object({
@@ -35,9 +100,11 @@ const CommandInput = z
     allowedTools: z.array(z.string()).optional(),
   })
   .strict();
+const WebSearchGrantSchema = z.enum(['unresolved', 'denied', 'allowed']);
 export type CodexCommandInput = z.infer<typeof CommandInput>;
 export type CodexCommand = CodexCommandInput & {
   status: 'queued' | 'running' | 'completed' | 'interrupted' | 'failed' | 'cancelled';
+  attempt: number;
 };
 
 /**
@@ -67,11 +134,19 @@ interface Conversation {
   lastCompletedTurnId: string | null;
   recovery: number;
   recoveryStrategy: 'resume' | 'fork';
+  webSearchGrant: WebSearchGrant;
+  webSearchGrantRevision: number;
+  webSearchGrantUpdatedAt: number | null;
+  toolSurfaceRevision: string | null;
+  rolloverContext: string | null;
 }
 /** Private server-owned database. A single owning server calls recoverAtStartup before accepting work. */
 export class CodexConversationStore {
   private db: Database.Database;
-  constructor(path: string) {
+  constructor(
+    path: string,
+    private readonly ownership: { requireOwner?: boolean } = {},
+  ) {
     closeSync(openSync(path, 'a', 0o600));
     chmodSync(path, 0o600);
     this.db = new Database(path);
@@ -81,11 +156,18 @@ export class CodexConversationStore {
       id TEXT PRIMARY KEY, binding TEXT NOT NULL, cwd TEXT NOT NULL, thread_id TEXT,
       thread_generation INTEGER NOT NULL DEFAULT 0,
       recovery INTEGER NOT NULL DEFAULT 0,
-      recovery_strategy TEXT NOT NULL DEFAULT 'resume');
+      recovery_strategy TEXT NOT NULL DEFAULT 'resume',
+      web_search_grant TEXT NOT NULL DEFAULT 'unresolved',
+      web_search_grant_revision INTEGER NOT NULL DEFAULT 0,
+      web_search_grant_updated_at INTEGER,
+      tool_surface_revision TEXT,
+      rollover_context TEXT);
       CREATE TABLE IF NOT EXISTS codex_commands (
         sequence INTEGER PRIMARY KEY AUTOINCREMENT, conversation_id TEXT NOT NULL REFERENCES codex_conversations(id),
         id TEXT NOT NULL, input TEXT NOT NULL, status TEXT NOT NULL,
-        recovery_acknowledged INTEGER NOT NULL DEFAULT 0, UNIQUE(conversation_id,id));
+        recovery_acknowledged INTEGER NOT NULL DEFAULT 0, retry_not_before INTEGER,
+        retryable INTEGER, ambiguous INTEGER, attempt INTEGER NOT NULL DEFAULT 1,
+        UNIQUE(conversation_id,id));
       CREATE TABLE IF NOT EXISTS codex_tools (
         conversation_id TEXT NOT NULL, command_id TEXT NOT NULL, call_id TEXT NOT NULL,
         PRIMARY KEY(conversation_id,call_id),
@@ -95,6 +177,12 @@ export class CodexConversationStore {
       const conversationColumns = this.db
         .prepare('PRAGMA table_info(codex_conversations)')
         .all() as Array<{ name: string }>;
+      if (!conversationColumns.some((column) => column.name === 'artifact_runtime'))
+        this.db.exec('ALTER TABLE codex_conversations ADD COLUMN artifact_runtime TEXT');
+      if (!conversationColumns.some((column) => column.name === 'owner_kind'))
+        this.db.exec(
+          "ALTER TABLE codex_conversations ADD COLUMN owner_kind TEXT CHECK(owner_kind IN ('ordinary','symposium'))",
+        );
       if (!conversationColumns.some((column) => column.name === 'thread_generation'))
         this.db.exec(
           'ALTER TABLE codex_conversations ADD COLUMN thread_generation INTEGER NOT NULL DEFAULT 0',
@@ -106,6 +194,22 @@ export class CodexConversationStore {
         this.db.exec(
           "ALTER TABLE codex_conversations ADD COLUMN recovery_strategy TEXT NOT NULL DEFAULT 'resume'",
         );
+      if (!conversationColumns.some((column) => column.name === 'web_search_grant'))
+        this.db.exec(
+          "ALTER TABLE codex_conversations ADD COLUMN web_search_grant TEXT NOT NULL DEFAULT 'unresolved'",
+        );
+      if (!conversationColumns.some((column) => column.name === 'web_search_grant_revision'))
+        this.db.exec(
+          'ALTER TABLE codex_conversations ADD COLUMN web_search_grant_revision INTEGER NOT NULL DEFAULT 0',
+        );
+      if (!conversationColumns.some((column) => column.name === 'web_search_grant_updated_at'))
+        this.db.exec(
+          'ALTER TABLE codex_conversations ADD COLUMN web_search_grant_updated_at INTEGER',
+        );
+      if (!conversationColumns.some((column) => column.name === 'tool_surface_revision'))
+        this.db.exec('ALTER TABLE codex_conversations ADD COLUMN tool_surface_revision TEXT');
+      if (!conversationColumns.some((column) => column.name === 'rollover_context'))
+        this.db.exec('ALTER TABLE codex_conversations ADD COLUMN rollover_context TEXT');
       this.db.exec(`CREATE TABLE IF NOT EXISTS codex_thread_generations (
         conversation_id TEXT NOT NULL REFERENCES codex_conversations(id),
         generation INTEGER NOT NULL,
@@ -137,6 +241,14 @@ export class CodexConversationStore {
           WHERE status IN ('interrupted','failed')
             AND conversation_id IN (SELECT id FROM codex_conversations WHERE recovery=0)`);
       }
+      if (!columns.some((column) => column.name === 'retry_not_before'))
+        this.db.exec('ALTER TABLE codex_commands ADD COLUMN retry_not_before INTEGER');
+      if (!columns.some((column) => column.name === 'retryable'))
+        this.db.exec('ALTER TABLE codex_commands ADD COLUMN retryable INTEGER');
+      if (!columns.some((column) => column.name === 'ambiguous'))
+        this.db.exec('ALTER TABLE codex_commands ADD COLUMN ambiguous INTEGER');
+      if (!columns.some((column) => column.name === 'attempt'))
+        this.db.exec('ALTER TABLE codex_commands ADD COLUMN attempt INTEGER NOT NULL DEFAULT 1');
       // Legacy recovery rows could not persist a failure class. A failed (not
       // merely interrupted) active command is the conservative signal that the
       // provider thread, rather than only its process transport, needs a new
@@ -158,6 +270,11 @@ export class CodexConversationStore {
         `SELECT c.id AS conversationId,c.binding,c.cwd,c.thread_id AS threadId,
           c.thread_generation AS threadGeneration,c.recovery,
           c.recovery_strategy AS recoveryStrategy,
+          c.web_search_grant AS webSearchGrant,
+          c.web_search_grant_revision AS webSearchGrantRevision,
+          c.web_search_grant_updated_at AS webSearchGrantUpdatedAt,
+          c.tool_surface_revision AS toolSurfaceRevision,
+          c.rollover_context AS rolloverContext,
           g.last_completed_turn_id AS lastCompletedTurnId
         FROM codex_conversations c
         LEFT JOIN codex_thread_generations g
@@ -175,20 +292,126 @@ export class CodexConversationStore {
       lastCompletedTurnId: row.lastCompletedTurnId,
       recovery: row.recovery,
       recoveryStrategy: row.recoveryStrategy,
+      webSearchGrant: WebSearchGrantSchema.parse(row.webSearchGrant),
+      webSearchGrantRevision: row.webSearchGrantRevision,
+      webSearchGrantUpdatedAt: row.webSearchGrantUpdatedAt,
+      toolSurfaceRevision: row.toolSurfaceRevision,
+      rolloverContext: row.rolloverContext,
     };
   }
-  create(id: string, b: AccountBinding, cwd: string) {
-    this.db
-      .prepare('INSERT OR IGNORE INTO codex_conversations(id,binding,cwd) VALUES (?,?,?)')
-      .run(id, this.key(b), cwd);
-    if (this.read(id, b).cwd !== cwd) throw new Error('Codex conversation workspace changed');
+  /** Private account-bound routing; never infer a sandbox from conversation IDs. */
+  readArtifactRuntime(id: string, binding: AccountBinding): ArtifactRuntime | null {
+    this.read(id, binding);
+    const row = this.db
+      .prepare('SELECT artifact_runtime FROM codex_conversations WHERE id=?')
+      .get(id) as { artifact_runtime: string | null };
+    return row.artifact_runtime === null
+      ? null
+      : ArtifactRuntimeSchema.parse(JSON.parse(row.artifact_runtime));
   }
-  bindThread(id: string, b: AccountBinding, threadId: string) {
+  setArtifactRuntime(id: string, binding: AccountBinding, value: ArtifactRuntime): void {
+    this.db.transaction(() => {
+      this.read(id, binding);
+      // Explicit allowlist prevents later runtime additions from persisting credentials.
+      const {
+        sandboxName,
+        sandboxId,
+        resourceVersion,
+        created,
+        workdir,
+        appServerCommand,
+        cli,
+        gateway,
+        workspace,
+        gatewayEndpoint,
+        gatewayInsecure,
+        cliEnvironment,
+      } = value.runtime;
+      const safe = ArtifactRuntimeSchema.parse({
+        runtime: {
+          sandboxName,
+          sandboxId,
+          resourceVersion,
+          created,
+          workdir,
+          appServerCommand,
+          cli,
+          gateway,
+          workspace,
+          gatewayEndpoint,
+          gatewayInsecure,
+          cliEnvironment,
+        },
+        route: value.route,
+      });
+      this.db
+        .prepare('UPDATE codex_conversations SET artifact_runtime=? WHERE id=?')
+        .run(JSON.stringify(safe), id);
+    })();
+  }
+  readWebSearchGrant(id: string, b: AccountBinding): PersistedWebSearchGrant {
+    const row = this.read(id, b);
+    return {
+      grant: row.webSearchGrant,
+      revision: row.webSearchGrantRevision,
+      updatedAt: row.webSearchGrantUpdatedAt,
+    };
+  }
+  setWebSearchGrant(
+    id: string,
+    b: AccountBinding,
+    expectedRevision: number,
+    grant: Exclude<WebSearchGrant, 'unresolved'>,
+    updatedAt = Date.now(),
+  ): PersistedWebSearchGrant {
+    this.read(id, b);
+    const result = this.db
+      .prepare(
+        `UPDATE codex_conversations
+        SET web_search_grant=?,web_search_grant_revision=web_search_grant_revision+1,
+          web_search_grant_updated_at=?
+        WHERE id=? AND web_search_grant_revision=?`,
+      )
+      .run(grant, updatedAt, id, expectedRevision);
+    if (result.changes !== 1) throw new Error('Web search grant changed concurrently');
+    return this.readWebSearchGrant(id, b);
+  }
+  create(
+    id: string,
+    b: AccountBinding,
+    cwd: string,
+    toolSurfaceRevision: string | null = null,
+    ownerKind: 'ordinary' | 'symposium' = 'ordinary',
+  ) {
+    this.db
+      .transaction(() => {
+        this.db
+          .prepare(
+            'INSERT OR IGNORE INTO codex_conversations(id,binding,cwd,tool_surface_revision,owner_kind) VALUES (?,?,?,?,?)',
+          )
+          .run(id, this.key(b), cwd, toolSurfaceRevision, ownerKind);
+        if (this.read(id, b).cwd !== cwd) throw new Error('Codex conversation workspace changed');
+        const row = this.db
+          .prepare('SELECT owner_kind FROM codex_conversations WHERE id=?')
+          .get(id) as { owner_kind: string | null };
+        if (
+          (row.owner_kind === null && this.ownership.requireOwner) ||
+          (row.owner_kind !== null && row.owner_kind !== ownerKind)
+        )
+          throw new Error('Codex conversation owner is unavailable or changed');
+      })
+      .immediate();
+  }
+  bindThread(id: string, b: AccountBinding, threadId: string, toolSurfaceRevision?: string) {
     this.db.transaction(() => {
       const current = this.read(id, b);
       if (!threadId || (current.threadId && current.threadId !== threadId))
         throw new Error('Codex provider thread changed');
-      this.db.prepare('UPDATE codex_conversations SET thread_id=? WHERE id=?').run(threadId, id);
+      this.db
+        .prepare(
+          'UPDATE codex_conversations SET thread_id=?,tool_surface_revision=COALESCE(?,tool_surface_revision) WHERE id=?',
+        )
+        .run(threadId, toolSurfaceRevision ?? null, id);
       this.db
         .prepare(
           `INSERT OR IGNORE INTO codex_thread_generations(
@@ -203,8 +426,10 @@ export class CodexConversationStore {
     b: AccountBinding,
     expectedThreadId: string,
     threadId: string,
-    reason: 'provider_transport_failure',
+    reason: 'provider_transport_failure' | 'tool_surface_change' | 'attempt_home_change',
     lastCompletedTurnId?: string,
+    toolSurfaceRevision?: string,
+    rolloverContext?: string,
   ) {
     return this.db.transaction(() => {
       const current = this.read(id, b);
@@ -226,10 +451,73 @@ export class CodexConversationStore {
         )
         .run(id, generation, threadId, expectedThreadId, reason, lastCompletedTurnId ?? null, now);
       this.db
-        .prepare('UPDATE codex_conversations SET thread_id=?,thread_generation=? WHERE id=?')
-        .run(threadId, generation, id);
+        .prepare(
+          `UPDATE codex_conversations
+          SET thread_id=?,thread_generation=?,tool_surface_revision=COALESCE(?,tool_surface_revision),
+            rollover_context=COALESCE(?,rollover_context)
+          WHERE id=?`,
+        )
+        .run(threadId, generation, toolSurfaceRevision ?? null, rolloverContext ?? null, id);
       return generation;
     })();
+  }
+  assertAttemptHomeReplacement(
+    id: string,
+    binding: AccountBinding,
+    previous: string,
+    next: string,
+  ) {
+    const current = this.read(id, binding);
+    if (current.threadId !== next || !current.rolloverContext?.trim())
+      throw new Error('Codex attempt migration lacks retained continuity');
+    const rows = this.db
+      .prepare(
+        `SELECT thread_id, parent_thread_id, reason FROM codex_thread_generations WHERE conversation_id=? ORDER BY generation DESC`,
+      )
+      .all(id) as Array<{ thread_id: string; parent_thread_id: string | null; reason: string }>;
+    let cursor = next;
+    for (const row of rows) {
+      if (row.thread_id !== cursor) continue;
+      if (row.reason !== 'attempt_home_change' || !row.parent_thread_id)
+        throw new Error('Codex attempt migration lineage changed');
+      cursor = row.parent_thread_id;
+      if (cursor === previous) return;
+    }
+    throw new Error('Codex attempt migration predecessor is unavailable');
+  }
+
+  /** Host-owned lineage only; a thread ID supplied by a provider is insufficient. */
+  assertToolSurfaceReplacement(
+    id: string,
+    binding: AccountBinding,
+    previous: string,
+    next: string,
+  ) {
+    const current = this.read(id, binding);
+    if (current.threadId !== next || !current.rolloverContext?.trim())
+      throw new Error('Codex thread migration lacks retained continuity');
+    const rows = this.db
+      .prepare(
+        `SELECT thread_id, parent_thread_id, reason FROM codex_thread_generations
+      WHERE conversation_id=? ORDER BY generation DESC`,
+      )
+      .all(id) as Array<{ thread_id: string; parent_thread_id: string | null; reason: string }>;
+    let cursor = next;
+    for (const row of rows) {
+      if (row.thread_id !== cursor) continue;
+      if (row.reason !== 'tool_surface_change' || !row.parent_thread_id)
+        throw new Error('Codex thread migration lineage is not a tool refresh');
+      cursor = row.parent_thread_id;
+      if (cursor === previous) return;
+    }
+    throw new Error('Codex thread migration predecessor is unavailable');
+  }
+
+  clearRolloverContext(id: string, b: AccountBinding, expectedThreadId: string) {
+    this.read(id, b);
+    this.db
+      .prepare('UPDATE codex_conversations SET rollover_context=NULL WHERE id=? AND thread_id=?')
+      .run(id, expectedThreadId);
   }
   enqueue(id: string, b: AccountBinding, input: CodexCommandInput): boolean {
     this.read(id, b);
@@ -258,10 +546,14 @@ export class CodexConversationStore {
     return (
       this.db
         .prepare(
-          'SELECT input,status FROM codex_commands WHERE conversation_id=? ORDER BY sequence',
+          'SELECT input,status,attempt FROM codex_commands WHERE conversation_id=? ORDER BY sequence',
         )
-        .all(id) as { input: string; status: CodexCommand['status'] }[]
-    ).map((row) => ({ ...CommandInput.parse(JSON.parse(row.input)), status: row.status }));
+        .all(id) as { input: string; status: CodexCommand['status']; attempt: number }[]
+    ).map((row) => ({
+      ...CommandInput.parse(JSON.parse(row.input)),
+      status: row.status,
+      attempt: row.attempt,
+    }));
   }
   /** Polling must not deserialize historical prompts, images, or tool inputs. */
   queueOverview(id: string, b: AccountBinding) {
@@ -290,9 +582,9 @@ export class CodexConversationStore {
     this.read(id, b);
     const counts = this.db
       .prepare(
-        "SELECT SUM(status='queued') AS queued, SUM(status IN ('interrupted','failed')) AS interrupted FROM codex_commands WHERE conversation_id=?",
+        "SELECT SUM(status='queued') AS queued, SUM(status='interrupted' AND recovery_acknowledged=0) AS interrupted, SUM(status='failed' AND recovery_acknowledged=0) AS failed FROM codex_commands WHERE conversation_id=?",
       )
-      .get(id) as { queued: number | null; interrupted: number | null };
+      .get(id) as { queued: number | null; interrupted: number | null; failed: number | null };
     const latest = this.db
       .prepare(
         "SELECT json_extract(input, '$.model') AS model, json_extract(input, '$.reasoningEffort') AS reasoning_effort, json_type(input, '$.reasoningEffort') AS reasoning_effort_type FROM codex_commands WHERE conversation_id=? ORDER BY sequence DESC LIMIT 1",
@@ -304,14 +596,32 @@ export class CodexConversationStore {
           reasoning_effort_type: string | null;
         }
       | undefined;
+    const failed = this.db
+      .prepare(
+        `SELECT retry_not_before,retryable,ambiguous
+        FROM codex_commands
+        WHERE conversation_id=? AND status='failed' AND recovery_acknowledged=0
+        ORDER BY sequence DESC LIMIT 1`,
+      )
+      .get(id) as
+      | {
+          retry_not_before: number | null;
+          retryable: number | null;
+          ambiguous: number | null;
+        }
+      | undefined;
     return {
       queued: counts.queued ?? 0,
       interrupted: counts.interrupted ?? 0,
+      failed: counts.failed ?? 0,
       model: latest?.model ?? b.model,
       // SQLite's json_extract returns null for either an omitted property or
       // an explicit JSON null. json_type keeps the user's explicit reset.
       reasoningEffort:
         latest?.reasoning_effort_type === null ? undefined : latest?.reasoning_effort,
+      ...(failed?.retry_not_before ? { retryAvailableAt: failed.retry_not_before } : {}),
+      ...(failed ? { retryable: failed.retryable === 1 } : {}),
+      ...(failed ? { requiresRetryConfirmation: failed.ambiguous === 1 } : {}),
     };
   }
   /** Lifecycle callers must use this raw snapshot rather than the UI-oriented
@@ -364,6 +674,44 @@ export class CodexConversationStore {
       return 'cancelled';
     })();
   }
+  /** Provider call IDs do not provide semantic side-effect deduplication. Some
+   * provider-native tools also execute outside claimTool(), so every ambiguous
+   * turn requires explicit confirmation rather than guessing that it was safe. */
+  retryLatestFailed(
+    id: string,
+    b: AccountBinding,
+    now = Date.now(),
+    confirmAmbiguous = false,
+  ): 'queued' | 'not_found' | 'too_early' | 'not_retryable' | 'confirmation_required' {
+    return this.db.transaction(() => {
+      this.read(id, b);
+      const row = this.db
+        .prepare(
+          `SELECT id,retry_not_before,retryable,ambiguous
+          FROM codex_commands
+          WHERE conversation_id=? AND status='failed' AND recovery_acknowledged=0
+          ORDER BY sequence DESC LIMIT 1`,
+        )
+        .get(id) as
+        | {
+            id: string;
+            retry_not_before: number | null;
+            retryable: number | null;
+            ambiguous: number | null;
+          }
+        | undefined;
+      if (!row) return 'not_found';
+      if (row.retryable !== 1) return 'not_retryable';
+      if (row.retry_not_before && now < row.retry_not_before) return 'too_early';
+      if (row.ambiguous === 1 && !confirmAmbiguous) return 'confirmation_required';
+      this.db
+        .prepare(
+          "UPDATE codex_commands SET status='queued', recovery_acknowledged=1, retry_not_before=NULL, attempt=attempt+1 WHERE conversation_id=? AND id=? AND status='failed'",
+        )
+        .run(id, row.id);
+      return 'queued';
+    })();
+  }
   claimNext(id: string, b: AccountBinding): CodexCommand | undefined {
     return this.db.transaction(() => {
       if (this.read(id, b).recovery)
@@ -388,18 +736,26 @@ export class CodexConversationStore {
   ) {
     this.db.transaction(() => {
       const current = this.read(id, b);
-      this.db
+      const updated = this.db
         .prepare(
           "UPDATE codex_commands SET status=?, recovery_acknowledged=0 WHERE conversation_id=? AND id=? AND status='running'",
         )
         .run(status, id, commandId);
-      if (status === 'completed' && providerTurnId)
+      if (updated.changes === 1 && status === 'completed' && providerTurnId)
         this.db
           .prepare(
             `UPDATE codex_thread_generations SET last_completed_turn_id=?
             WHERE conversation_id=? AND generation=?`,
           )
           .run(providerTurnId, id, current.threadGeneration);
+      // A started turn can still fail before it establishes context on the
+      // replacement thread. Retire the handoff only with a durable completion.
+      if (updated.changes === 1 && status === 'completed' && current.threadId)
+        this.db
+          .prepare(
+            'UPDATE codex_conversations SET rollover_context=NULL WHERE id=? AND thread_id=?',
+          )
+          .run(id, current.threadId);
     })();
   }
   pauseForRecovery(
@@ -408,6 +764,9 @@ export class CodexConversationStore {
     commandId?: string,
     status: 'interrupted' | 'failed' = 'interrupted',
     recoveryStrategy: 'resume' | 'fork' = 'resume',
+    retryNotBefore?: number,
+    retryable = true,
+    ambiguous = false,
   ) {
     this.db.transaction(() => {
       this.read(id, b);
@@ -419,9 +778,9 @@ export class CodexConversationStore {
       if (commandId)
         this.db
           .prepare(
-            "UPDATE codex_commands SET status=?, recovery_acknowledged=0 WHERE conversation_id=? AND id=? AND status='running'",
+            "UPDATE codex_commands SET status=?, recovery_acknowledged=0, retry_not_before=?, retryable=?, ambiguous=? WHERE conversation_id=? AND id=? AND status='running'",
           )
-          .run(status, id, commandId);
+          .run(status, retryNotBefore ?? null, retryable ? 1 : 0, ambiguous ? 1 : 0, id, commandId);
       if (pending)
         this.db
           .prepare(
@@ -450,14 +809,23 @@ export class CodexConversationStore {
       return true;
     })();
   }
-  recoverAtStartup() {
+  recoverAtStartup(ownerKind?: 'ordinary' | 'symposium') {
     this.db.transaction(() => {
-      this.db.exec(
-        "UPDATE codex_conversations SET recovery=1 WHERE id IN (SELECT conversation_id FROM codex_commands WHERE status IN ('running','queued'))",
-      );
-      this.db.exec(
-        "UPDATE codex_commands SET status='interrupted', recovery_acknowledged=0 WHERE status='running'",
-      );
+      const scope = ownerKind === undefined ? '' : ' AND owner_kind=?';
+      this.db
+        .prepare(
+          "UPDATE codex_conversations SET recovery=1 WHERE id IN (SELECT conversation_id FROM codex_commands WHERE status IN ('running','queued'))" +
+            scope,
+        )
+        .run(...(ownerKind === undefined ? [] : [ownerKind]));
+      this.db
+        .prepare(
+          "UPDATE codex_commands SET status='interrupted', recovery_acknowledged=0 WHERE status='running'" +
+            (ownerKind === undefined
+              ? ''
+              : ' AND conversation_id IN (SELECT id FROM codex_conversations WHERE owner_kind=?)'),
+        )
+        .run(...(ownerKind === undefined ? [] : [ownerKind]));
     })();
   }
   acknowledgeRecovery(id: string, b: AccountBinding) {
