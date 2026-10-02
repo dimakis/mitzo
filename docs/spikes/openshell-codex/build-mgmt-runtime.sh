@@ -28,6 +28,7 @@ root="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd "$root/../../.." && pwd)"
 mitzo_source_commit="$(git -C "$repo_root" rev-parse HEAD)"
 mgmt_source_commit="$(git -C "$mgmt_repo" rev-parse HEAD)"
+codex_cli_version="$(node --input-type=module -e 'import fs from "node:fs"; const source=fs.readFileSync(process.argv[1], "utf8"); const match=/SUPPORTED_CODEX_CLI_VERSION = .(\d+\.\d+\.\d+)./.exec(source); if(!match) throw new Error("Supported Codex version is missing"); process.stdout.write(match[1]);' "$repo_root/server/codex-app-server-client.ts")"
 context="$(mktemp -d "${TMPDIR:-/tmp}/mitzo-mgmt-runtime.XXXXXX")"
 cleanup() { rm -rf "$context"; }
 trap cleanup EXIT
@@ -64,6 +65,7 @@ podman build --pull=never \
   --build-arg "OPENSHELL_BASE_IMAGE=$base_image" \
   --build-arg "MITZO_SOURCE_COMMIT=$mitzo_source_commit" \
   --build-arg "MGMT_SOURCE_COMMIT=$mgmt_source_commit" \
+  --build-arg "CODEX_CLI_VERSION=$codex_cli_version" \
   --build-arg "KNOWLEDGE_COMPILER_COMMIT=$compiler_commit" \
   --tag "$tag" "$context"
 image_id="$(podman image inspect "$tag" --format '{{.Id}}')"

@@ -558,8 +558,15 @@ without changing a fixed application payload pin. Ordinary new seed uploads
 verify the selected publication and use a private verified copy. Current
 production locks lack this dynamic attestation, so this lane remains blocked
 until the Stage 2 context contract and compatible runtime baseline are released.
-Automatic catch-up, artifact-backed knowledge delivery and retained-chat
-adoption are subsequent phases.
+Retained ordinary Codex chats can select a verified publication between turns,
+copy it into a separate versioned knowledge directory, and refresh the existing
+provider thread's developer instructions. Their writable task Git and checkpoint
+history remain intact. The pinned ContexGin compiler includes tracked `AGENTS.md`.
+Runtime staging fingerprints the installed compiler dependency closure and recipe
+and observes the target Python markers inside the image. These paths require a
+reviewed dynamic runtime lock and enrollment at `publications/current/mgmt`;
+they are not enabled by the legacy production lock. Host, Claude, Responses and
+Symposium consumer enrollment still require their respective adoption contracts.
 
 Production deploys use `./scripts/create-release.sh origin/main`. The command
 fetches only current `origin/main`, refuses every other commit, creates a

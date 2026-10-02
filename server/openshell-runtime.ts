@@ -1551,7 +1551,9 @@ export class OpenShellRuntimeManager {
       const view = knowledgeViewManifest(baseline);
       const bytes = JSON.stringify(view);
       const manifestSha256 = createHash('sha256').update(bytes).digest('hex');
-      let selection = this.knowledgeViews.get(runtime.sandboxId);
+      let selection:
+        | (Omit<OpenShellKnowledgeSelection, 'context'> & { context?: OpenShellBootContext })
+        | undefined = this.knowledgeViews.get(runtime.sandboxId);
       const current = await this.ownedSandbox(conversationId, runtime.sandboxId, signal);
       if (current.phase !== 'Ready' || current.name !== runtime.sandboxName)
         throw new Error('Knowledge sandbox is not Ready');
@@ -1571,7 +1573,6 @@ export class OpenShellRuntimeManager {
           payloadSha256: view.payloadSha256,
           manifestSha256,
           knowledgeRoot: `${destination}/${basename(parent)}/mgmt`,
-          context: undefined as unknown as OpenShellBootContext,
         };
       }
       const after = await this.ownedSandbox(conversationId, runtime.sandboxId, signal);
@@ -1593,9 +1594,13 @@ export class OpenShellRuntimeManager {
           { ...runtime, workdir: selection.knowledgeRoot },
           signal,
         );
+      const verified = await this.ownedSandbox(conversationId, runtime.sandboxId, signal);
+      if (verified.phase !== 'Ready' || verified.name !== runtime.sandboxName)
+        throw new Error('Knowledge sandbox changed during verification');
       signal.throwIfAborted();
-      this.knowledgeViews.set(runtime.sandboxId, selection);
-      return selection;
+      const adopted: OpenShellKnowledgeSelection = { ...selection, context: selection.context };
+      this.knowledgeViews.set(runtime.sandboxId, adopted);
+      return adopted;
     } finally {
       prepared.cleanup();
     }

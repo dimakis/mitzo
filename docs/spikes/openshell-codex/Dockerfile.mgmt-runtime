@@ -4,6 +4,7 @@ ARG OPENSHELL_BASE_IMAGE
 ARG MITZO_SOURCE_COMMIT
 ARG MGMT_SOURCE_COMMIT
 ARG KNOWLEDGE_COMPILER_COMMIT
+ARG CODEX_CLI_VERSION
 
 LABEL io.mitzo.openshell.base-image="${OPENSHELL_BASE_IMAGE}" \
       io.mitzo.source-commit="${MITZO_SOURCE_COMMIT}" \
@@ -11,7 +12,7 @@ LABEL io.mitzo.openshell.base-image="${OPENSHELL_BASE_IMAGE}" \
       io.mitzo.knowledge-compiler-commit="${KNOWLEDGE_COMPILER_COMMIT}"
 
 USER root
-RUN npm install --global @openai/codex@0.156.1 \
+RUN npm install --global @openai/codex@${CODEX_CLI_VERSION} \
     && npm install --prefix /usr/lib/googleworkspace-cli @googleworkspace/cli@0.18.1 \
     && ln -s /usr/lib/googleworkspace-cli/node_modules/@googleworkspace/cli/run-gws.js /usr/bin/gws
 COPY pyproject.toml uv.lock /opt/mgmt-deps/

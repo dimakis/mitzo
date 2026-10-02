@@ -106,6 +106,17 @@ describe('OpenShell runtime image builder', () => {
     );
   });
 
+  it('installs the same Codex CLI version that the adapter supports', () => {
+    const build = readFileSync(builder, 'utf8');
+    const dockerfile = readFileSync(
+      resolve('docs/spikes/openshell-codex/Dockerfile.mgmt-runtime'),
+      'utf8',
+    );
+    expect(build).toContain('SUPPORTED_CODEX_CLI_VERSION');
+    expect(build).toContain('--build-arg "CODEX_CLI_VERSION=$codex_cli_version"');
+    expect(dockerfile).toContain('@openai/codex@${CODEX_CLI_VERSION}');
+  });
+
   it('executes a notebook copy from an isolated image-owned Jupyter runtime', () => {
     const root = mkdtempSync(join(tmpdir(), 'mitzo-jira-notebook-'));
     const workspace = join(root, 'mgmt');
