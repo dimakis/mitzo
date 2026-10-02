@@ -495,6 +495,13 @@ it('groups web search settings under the existing header disclosure', async () =
 });
 
 it('reviews a Telos launch, sends the chosen account once, and follows its assigned session', async () => {
+  vi.mocked(fetch).mockResolvedValue({
+    ok: true,
+    json: async () => [
+      { id: 'work', label: 'Work Vertex', models: [{ id: 'opus', label: 'Opus' }] },
+      { id: 'test', label: 'Personal ChatGPT', models: [{ id: 'luna', label: 'Luna' }] },
+    ],
+  } as Response);
   const store = createMockStore();
   const launch = {
     prompt: 'Review Telos task',
@@ -521,7 +528,9 @@ it('reviews a Telos launch, sends the chosen account once, and follows its assig
   );
   await screen.findByRole('button', { name: 'Send launch prompt' });
   expect(store.getState().sendMessage).not.toHaveBeenCalled();
-  expect(screen.getByRole('combobox', { name: 'Account' })).toBeTruthy();
+  fireEvent.change(await screen.findByRole('combobox', { name: 'Account' }), {
+    target: { value: 'test' },
+  });
   fireEvent.click(screen.getByRole('button', { name: 'Send launch prompt' }));
   expect(store.getState().sendMessage).toHaveBeenCalledExactlyOnceWith(
     'Review Telos task',
