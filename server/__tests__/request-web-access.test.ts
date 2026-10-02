@@ -1,7 +1,33 @@
 import { describe, expect, it, vi } from 'vitest';
-import { executeWebAccess, WebAccessInput } from '../request-web-access.js';
+import {
+  executeWebAccess,
+  WebAccessInput,
+  webAccessDefinition,
+  WebAccessError,
+} from '../request-web-access.js';
 
 describe('account-independent web access boundary', () => {
+  it('publishes an object parameter schema accepted by function-tool providers', () => {
+    expect(webAccessDefinition.input_schema).toMatchObject({
+      type: 'object',
+      properties: { operation: { enum: ['search', 'fetch'] } },
+    });
+  });
+  it('reports a known website refusal without confusing it with an approval denial', async () => {
+    const input = { operation: 'fetch', url: 'https://example.com/', reason: 'why' };
+    const result = await executeWebAccess(input, new AbortController().signal, {
+      isCurrent: () => true,
+      approve: async () => ({ behavior: 'allow', updatedInput: input }),
+      search: vi.fn(),
+      fetchPage: async () => {
+        throw new WebAccessError('The website refused the approved read (HTTP 403).');
+      },
+    });
+    expect(result).toEqual({
+      isError: true,
+      content: 'The website refused the approved read (HTTP 403).',
+    });
+  });
   it('ends a pending provider request on cancellation even if the transport never settles', async () => {
     const input = { operation: 'search', query: 'q', reason: 'why' };
     const abort = new AbortController();

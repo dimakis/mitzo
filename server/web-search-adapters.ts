@@ -8,7 +8,7 @@ const link = (title: string, value: string) => {
   const url = new URL(value);
   if (!['https:', 'http:'].includes(url.protocol) || url.username || url.password)
     throw new Error('Invalid search source');
-  return `[${title.replace(/[\[\]\n\r]/g, ' ')}](<${url.href.replace(/[<>]/g, encodeURIComponent)}>)`;
+  return `[${title.replace(/[\]\n\r[]/g, ' ')}](<${url.href.replace(/[<>]/g, encodeURIComponent)}>)`;
 };
 const Part = z.object({
   type: z.string(),

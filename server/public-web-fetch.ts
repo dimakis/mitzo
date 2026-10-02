@@ -2,7 +2,7 @@ import { lookup } from 'node:dns/promises';
 import { request } from 'node:https';
 import { isIP } from 'node:net';
 import { canonicalPublicDnsAddress } from './connections/iana-address-policy.js';
-import { withWebAbort } from './request-web-access.js';
+import { withWebAbort, WebAccessError } from './request-web-access.js';
 
 const MAX_BYTES = 128 * 1024;
 interface Address {
@@ -104,11 +104,13 @@ export async function fetchPublicPage(
       if (typeof location !== 'string') throw new Error('Invalid website redirect');
       url = validateUrl(new URL(location, url).href);
       if (url.origin !== origin)
-        throw new Error('Redirect needs a separate approval for the new origin');
+        throw new WebAccessError(
+          `The website redirected to ${url.href}. Request a separate approval for that URL.`,
+        );
       continue;
     }
     if (response.status < 200 || response.status >= 300)
-      throw new Error('Website refused this read');
+      throw new WebAccessError(`The website refused the approved read (HTTP ${response.status}).`);
     const type = response.headers['content-type'];
     const encoding = response.headers['content-encoding'];
     if (

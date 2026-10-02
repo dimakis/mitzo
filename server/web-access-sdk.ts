@@ -1,8 +1,11 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { McpSdkServerConfigWithInstance } from '@anthropic-ai/claude-agent-sdk';
 import type { buildPermissionHandler } from '@mitzo/harness';
-import { z } from 'zod';
-import { webAccessDefinition, REQUEST_WEB_ACCESS } from './request-web-access.js';
+import {
+  webAccessDefinition,
+  REQUEST_WEB_ACCESS,
+  WebAccessToolFields,
+} from './request-web-access.js';
 export const WEB_ACCESS_SDK_TOOL = 'mcp__mitzo-web-access__RequestWebAccess';
 
 export function createWebAccessSdkServer(
@@ -14,12 +17,7 @@ export function createWebAccessSdkServer(
     REQUEST_WEB_ACCESS,
     {
       description: webAccessDefinition.description,
-      inputSchema: {
-        operation: z.enum(['search', 'fetch']),
-        query: z.string().optional(),
-        url: z.string().optional(),
-        reason: z.string(),
-      },
+      inputSchema: WebAccessToolFields,
     },
     async (input, extra) => {
       const result = await execute(input, AbortSignal.any([sessionSignal, extra.signal]));
