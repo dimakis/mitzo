@@ -502,6 +502,7 @@ function ReviewerForm({
                   if (lockedRef.current) return;
                   setProfile(next);
                   if (!generic) return;
+                  setError('');
                   const load = ++profileLoad.current;
                   setProfileLoading(Boolean(next));
                   if (!next) return;
@@ -518,7 +519,11 @@ function ReviewerForm({
                       // This is a local copy. Catalog identity cannot overwrite custom seat guidance.
                     })
                     .catch((cause: Error) => {
-                      if (load === profileLoad.current) setError(cause.message);
+                      if (load !== profileLoad.current || lockedRef.current) return;
+                      setProfile(null);
+                      setError(
+                        `Could not load saved profile: ${cause.message}. Existing custom guidance was kept; choose a profile again or continue with these custom fields.`,
+                      );
                     })
                     .finally(() => {
                       if (load === profileLoad.current) setProfileLoading(false);

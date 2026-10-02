@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import '@testing-library/jest-dom/vitest';
 import userEvent from '@testing-library/user-event';
 import { afterEach, expect, it, vi } from 'vitest';
@@ -14,10 +14,24 @@ vi.mock('../AccountModelPicker', () => ({
   ),
 }));
 vi.mock('../SymposiumProfilePicker', () => ({
-  SymposiumProfilePicker: ({ onChange }: { onChange: (value: unknown) => void }) => (
-    <button onClick={() => onChange({ profileId: 'writer', revision: 2 })}>
-      Load saved profile
-    </button>
+  SymposiumProfilePicker: ({
+    onChange,
+    value,
+  }: {
+    onChange: (value: unknown) => void;
+    value: { profileId: string; revision: number } | null;
+  }) => (
+    <>
+      <output aria-label="Selected profile">
+        {value ? `${value.profileId}:${value.revision}` : 'Custom guidance'}
+      </output>
+      <button onClick={() => onChange({ profileId: 'writer', revision: 2 })}>
+        Load saved profile
+      </button>
+      <button onClick={() => onChange({ profileId: 'writer', revision: 3 })}>
+        Load newer saved profile
+      </button>
+    </>
   ),
 }));
 afterEach(() => {
@@ -224,4 +238,85 @@ it('locks copied guidance during a delayed profile response and permits edits af
     .mocked(apiFetch)
     .mock.calls.find(([url]) => String(url).endsWith('/seats/revise'))!;
   expect(JSON.parse(String(revised[1]?.body)).systemPrompt).toBe('Write a shorter report');
+});
+
+it('clears a failed profile selection visibly before permitting the preserved custom guidance', async () => {
+  mockRequests();
+  const normalRequest = vi.mocked(apiFetch).getMockImplementation()!;
+  vi.mocked(apiFetch).mockImplementation((url, init) =>
+    String(url).startsWith('/api/symposium/profiles/')
+      ? Promise.reject(new Error('Profile unavailable'))
+      : normalRequest(url, init),
+  );
+  render(<AddAgentSheet sessionId="chat" />);
+  await fill();
+  fireEvent.click(screen.getByText('Load saved profile'));
+  await waitFor(() =>
+    expect(screen.getByLabelText('Selected profile')).toHaveTextContent('Custom guidance'),
+  );
+  expect(screen.getByRole('alert')).toHaveTextContent(
+    /Profile unavailable.*custom guidance.*kept/i,
+  );
+  expect(screen.getByLabelText('Agent instructions')).toHaveValue('Investigate the supplied data');
+  expect(screen.getByLabelText('Agent instructions')).toBeEnabled();
+  fireEvent.click(screen.getByRole('button', { name: 'Add agent and queue message' }));
+  await screen.findByText(/Agent added/);
+  const revised = vi
+    .mocked(apiFetch)
+    .mock.calls.find(([url]) => String(url).endsWith('/seats/revise'))!;
+  expect(JSON.parse(String(revised[1]?.body))).toMatchObject({
+    name: 'Analyst',
+    systemPrompt: 'Investigate the supplied data',
+  });
+});
+
+it('does not clear a newer pending profile selection when an older request fails', async () => {
+  mockRequests();
+  const normalRequest = vi.mocked(apiFetch).getMockImplementation()!;
+  let failOlder!: (error: Error) => void;
+  let resolveNewer!: (response: Response) => void;
+  const older = new Promise<Response>((_, reject) => {
+    failOlder = reject;
+  });
+  const newer = new Promise<Response>((resolve) => {
+    resolveNewer = resolve;
+  });
+  vi.mocked(apiFetch).mockImplementation((url, init) =>
+    String(url).endsWith('/writer/2')
+      ? older
+      : String(url).endsWith('/writer/3')
+        ? newer
+        : normalRequest(url, init),
+  );
+  render(<AddAgentSheet sessionId="chat" />);
+  await fill();
+  fireEvent.click(screen.getByText('Load saved profile'));
+  fireEvent.click(screen.getByText('Load newer saved profile'));
+  await act(async () => {
+    failOlder(new Error('Older profile unavailable'));
+    await older.catch(() => {});
+  });
+  await waitFor(() =>
+    expect(screen.getByLabelText('Selected profile')).toHaveTextContent('writer:3'),
+  );
+  expect(screen.getByLabelText('Agent instructions')).toBeDisabled();
+  expect(screen.queryByRole('alert')).toBeNull();
+  resolveNewer(
+    new Response(
+      JSON.stringify({
+        definition: {
+          name: 'New writer',
+          role: 'writer',
+          instructions: 'Write the newest report',
+          expectedOutput: 'Report',
+          acceptanceCriteria: ['Cite evidence'],
+          modelPolicyRole: 'writer',
+        },
+      }),
+    ),
+  );
+  await waitFor(() =>
+    expect(screen.getByLabelText('Agent instructions')).toHaveValue('Write the newest report'),
+  );
+  expect(screen.getByLabelText('Selected profile')).toHaveTextContent('writer:3');
 });
