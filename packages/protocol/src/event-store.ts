@@ -89,6 +89,36 @@ export type {
   ProviderAttemptToken,
 };
 
+const SymposiumSeatTerminalCreateReceiptV1Schema = z.strictObject({
+  version: z.literal(1),
+  sessionId: z.string().min(1),
+  seatId: z.string().min(1),
+  generation: z.number().int().positive(),
+  runtimeId: z.string().min(1),
+  sandboxName: z.string().min(1),
+  physicalId: z.string().min(1),
+  workspace: z.string().min(1),
+  providerName: z.string().min(1),
+  providerId: z.string().min(1),
+  providerType: z.string().min(1),
+  model: z.string().min(1),
+  artifact: z
+    .union([ArtifactAdmissionReferenceV1Schema, ArtifactReaderReferenceV1Schema])
+    .nullable(),
+  physicalProof: z.literal('unavailable'),
+  custodyProof: z.literal('unavailable'),
+  leaseProof: z
+    .strictObject({
+      tokenSha256: z.string().regex(/^[a-f0-9]{64}$/),
+      requestSha256: z.string().regex(/^[a-f0-9]{64}$/),
+      revision: z.string().min(1).max(200).regex(/^\S+$/),
+    })
+    .nullable(),
+});
+export type SymposiumSeatTerminalCreateReceiptV1 = z.infer<
+  typeof SymposiumSeatTerminalCreateReceiptV1Schema
+>;
+
 export interface SymposiumSeatSandboxRecord {
   artifact?: ArtifactAdmissionReferenceV1 | ArtifactReaderReferenceV1;
   sessionId: string;
@@ -1108,7 +1138,11 @@ export class EventStore {
         db.exec(
           'ALTER TABLE symposium_seat_sandboxes ADD COLUMN creation_completed INTEGER NOT NULL DEFAULT 0',
         );
-      for (const column of ['creation_phase', 'creation_failure_code'])
+      for (const column of [
+        'creation_phase',
+        'creation_failure_code',
+        'terminal_create_receipt_json',
+      ])
         if (!seatSandboxColumns.some((item) => item.name === column))
           db.exec(`ALTER TABLE symposium_seat_sandboxes ADD COLUMN ${column} TEXT`);
       const deliveryColumns = db
@@ -3412,7 +3446,41 @@ export class EventStore {
     if (result.changes !== 1) throw new Error('Symposium seat creation completion changed');
   }
 
-  /** Exact successful terminal create response; still reserved until configuration passes. */
+  /** Private original settlement evidence only. Never reconstructs cleanup capability. */
+  getSymposiumSeatTerminalCreateReceipt(
+    sessionId: string,
+    seatId: string,
+    generation: number,
+  ): SymposiumSeatTerminalCreateReceiptV1 | null {
+    const row = this.db!.prepare(
+      'SELECT * FROM symposium_seat_sandboxes WHERE session_id=? AND seat_id=? AND generation=?',
+    ).get(sessionId, seatId, generation) as Record<string, unknown> | undefined;
+    if (!row?.terminal_create_receipt_json) return null;
+    const receipt = SymposiumSeatTerminalCreateReceiptV1Schema.parse(
+      JSON.parse(row.terminal_create_receipt_json as string),
+    );
+    const record = this.rowToSymposiumSeatSandbox(row);
+    if (
+      receipt.sessionId !== sessionId ||
+      receipt.seatId !== seatId ||
+      receipt.generation !== generation ||
+      receipt.runtimeId !== record.runtimeId ||
+      receipt.sandboxName !== record.sandboxName ||
+      receipt.physicalId !== record.physicalId ||
+      receipt.workspace !== record.workspace ||
+      receipt.providerName !== record.providerName ||
+      receipt.providerId !== record.providerId ||
+      receipt.providerType !== record.providerType ||
+      receipt.model !== record.model ||
+      JSON.stringify(receipt.artifact) !== JSON.stringify(record.artifact ?? null) ||
+      !record.creationCompleted
+    )
+      throw new Error('Terminal settlement receipt binding changed');
+    return receipt;
+  }
+
+  /** Exact successful terminal response and its original non-capability lease identity,
+   * atomically retained before configuration passes. Legacy rows are never backfilled. */
   recordSymposiumSeatSandboxTerminalCreate(input: {
     sessionId: string;
     seatId: string;
@@ -3420,23 +3488,100 @@ export class EventStore {
     runtimeId: string;
     sandboxName: string;
     physicalId: string;
+    settlementReceiptV1?: {
+      physicalProof: 'unavailable';
+      leaseTokenSha256?: string;
+      leaseRequestSha256?: string;
+      leaseRevision?: string;
+    };
   }): void {
     if (!input.sandboxName || !input.physicalId)
       throw new Error('Missing terminal create identity');
-    const result = this.db!.prepare(
-      `UPDATE symposium_seat_sandboxes
-      SET sandbox_name=?,physical_id=?,creation_completed=1
-      WHERE session_id=? AND seat_id=? AND generation=? AND runtime_id=?
-      AND state='reserved' AND creation_started=1 AND creation_completed=0 AND physical_id IS NULL`,
-    ).run(
-      input.sandboxName,
-      input.physicalId,
-      input.sessionId,
-      input.seatId,
-      input.generation,
-      input.runtimeId,
-    );
-    if (result.changes !== 1) throw new Error('Terminal seat creation identity changed');
+    const witness = input.settlementReceiptV1;
+    if (
+      witness &&
+      (Object.keys(witness).some(
+        (key) =>
+          !['physicalProof', 'leaseTokenSha256', 'leaseRequestSha256', 'leaseRevision'].includes(
+            key,
+          ),
+      ) ||
+        witness.physicalProof !== 'unavailable')
+    )
+      throw new Error('Invalid terminal settlement witness');
+    const leaseValues = witness && [
+      witness.leaseTokenSha256,
+      witness.leaseRequestSha256,
+      witness.leaseRevision,
+    ];
+    const hasLease = leaseValues?.some((value) => value !== undefined);
+    this.db!.transaction(() => {
+      const record = this.getSymposiumSeatSandbox(input.sessionId, input.seatId, input.generation);
+      if (
+        !record ||
+        record.runtimeId !== input.runtimeId ||
+        record.state !== 'reserved' ||
+        !record.creationStarted
+      )
+        throw new Error('Terminal seat creation identity changed');
+      const receipt = SymposiumSeatTerminalCreateReceiptV1Schema.parse({
+        version: 1,
+        sessionId: input.sessionId,
+        seatId: input.seatId,
+        generation: input.generation,
+        runtimeId: input.runtimeId,
+        sandboxName: input.sandboxName,
+        physicalId: input.physicalId,
+        workspace: record.workspace,
+        providerName: record.providerName,
+        providerId: record.providerId,
+        providerType: record.providerType,
+        model: record.model,
+        artifact: record.artifact ?? null,
+        physicalProof: 'unavailable',
+        custodyProof: 'unavailable',
+        leaseProof: hasLease
+          ? {
+              tokenSha256: witness?.leaseTokenSha256,
+              requestSha256: witness?.leaseRequestSha256,
+              revision: witness?.leaseRevision,
+            }
+          : null,
+      });
+      const json = JSON.stringify(receipt);
+      const previous = this.getSymposiumSeatTerminalCreateReceipt(
+        input.sessionId,
+        input.seatId,
+        input.generation,
+      );
+      if (record.creationCompleted) {
+        if (
+          previous &&
+          JSON.stringify(previous) === json &&
+          record.sandboxName === input.sandboxName &&
+          record.physicalId === input.physicalId
+        )
+          return;
+        throw new Error('Terminal seat creation identity changed');
+      }
+      if (previous || record.physicalId || record.sandboxName)
+        throw new Error('Terminal seat creation identity changed');
+      const result = this.db!.prepare(
+        `UPDATE symposium_seat_sandboxes SET sandbox_name=?,physical_id=?,creation_completed=1,terminal_create_receipt_json=?
+         WHERE session_id=? AND seat_id=? AND generation=? AND runtime_id=?
+         AND state='reserved' AND creation_started=1 AND creation_completed=0 AND physical_id IS NULL
+         AND sandbox_name IS NULL AND terminal_create_receipt_json IS NULL`,
+      ).run(
+        input.sandboxName,
+        input.physicalId,
+        json,
+        input.sessionId,
+        input.seatId,
+        input.generation,
+        input.runtimeId,
+      );
+      if (result.changes !== 1) throw new Error('Terminal seat creation identity changed');
+    }).immediate();
   }
 
   confirmSymposiumSeatSandbox(input: {

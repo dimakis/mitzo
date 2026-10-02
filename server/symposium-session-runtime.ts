@@ -970,10 +970,26 @@ export class SymposiumPerSeatSandboxOwner {
                     receipt.accountProvider !== snapshot.account.provider
                   )
                     throw new Error('Terminal create receipt binding changed');
+                  if (!receipt.sandboxName || !receipt.sandboxId)
+                    throw new Error('Missing terminal create identity');
                   const identity = {
                     sandboxName: receipt.sandboxName,
                     sandboxId: receipt.sandboxId,
                   };
+                  const original = this.terminalCreates.get(snapshot.runtimeId);
+                  if (
+                    original &&
+                    (original.sandboxName !== identity.sandboxName ||
+                      original.sandboxId !== identity.sandboxId)
+                  )
+                    throw new Error('Terminal create identity changed');
+                  // Keep the actual original response locally even if its durable write fails.
+                  // This does not complete the durable row or reconstruct cleanup authority.
+                  if (!original)
+                    this.terminalCreates.set(snapshot.runtimeId, {
+                      ...identity,
+                      ...(lease ? { lease: structuredClone(lease) } : {}),
+                    });
                   this.deps.seatSandboxRegistry!.recordSymposiumSeatSandboxTerminalCreate!({
                     sessionId,
                     seatId,
@@ -981,12 +997,23 @@ export class SymposiumPerSeatSandboxOwner {
                     runtimeId: snapshot.runtimeId,
                     sandboxName: receipt.sandboxName,
                     physicalId: receipt.sandboxId,
+                    settlementReceiptV1: {
+                      physicalProof: 'unavailable',
+                      ...(lease
+                        ? {
+                            // Match the exact original artifact owner's request bytes.
+                            leaseRequestSha256: createHash('sha256')
+                              .update(JSON.stringify(lease.request))
+                              .digest('hex'),
+                            leaseTokenSha256: createHash('sha256')
+                              .update(lease.token)
+                              .digest('hex'),
+                            leaseRevision: lease.revision,
+                          }
+                        : {}),
+                    },
                   });
                   terminalSettled();
-                  this.terminalCreates.set(snapshot.runtimeId, {
-                    ...identity,
-                    ...(lease ? { lease: structuredClone(lease) } : {}),
-                  });
                   // Successful native creation is settled before any lease postcheck.
                   // A failed binding retains the original lease for explicit cleanup.
                   if (lease)

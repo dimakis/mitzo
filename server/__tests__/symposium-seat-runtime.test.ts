@@ -3468,6 +3468,7 @@ describe('mixed personal subscription and work seat isolation', () => {
     ]);
     expect(configurations[1].account.kind).toBe('chatgpt-subscription-native');
     const incompleteRegistry = seatSandboxRegistry();
+    const terminalRecord = vi.spyOn(incompleteRegistry, 'recordSymposiumSeatSandboxTerminalCreate');
     let stopped = false;
     const postCreate = vi.fn(
       async (configuration: BoundOpenShellRuntimeConfig, runtimeId: string) => {
@@ -3517,6 +3518,11 @@ describe('mixed personal subscription and work seat isolation', () => {
     await expect(
       phased.ensure('symposium', 'personal', new AbortController().signal),
     ).rejects.toThrow('upload failed');
+    expect(terminalRecord).toHaveBeenCalledWith(
+      expect.objectContaining({
+        settlementReceiptV1: { physicalProof: 'unavailable' },
+      }),
+    );
     const incomplete = incompleteRegistry.getSymposiumSeatSandbox(
       'symposium',
       'personal',
@@ -3550,6 +3556,58 @@ describe('mixed personal subscription and work seat isolation', () => {
         new AbortController().signal,
       ),
     ).rejects.toThrow('retained terminal');
+    const rejectedRegistry = seatSandboxRegistry();
+    const writeError = Error('terminal journal write rejected');
+    vi.spyOn(rejectedRegistry, 'recordSymposiumSeatSandboxTerminalCreate').mockImplementationOnce(
+      () => {
+        throw writeError;
+      },
+    );
+    const noDispatchStop = vi.fn();
+    const rejectedTerminalSettled = vi.fn();
+    const writeRejectedOwner = new SymposiumPerSeatSandboxOwner({
+      ...phasedDeps,
+      seatSandboxRegistry: rejectedRegistry,
+      runSandboxCreation: async <T>(
+        _verify: () => void,
+        operation: (dispatch: () => void, settled?: () => void) => Promise<T>,
+      ) => operation(() => {}, rejectedTerminalSettled),
+      managerFactory: (configuration: BoundOpenShellRuntimeConfig) => ({
+        ensure: async (runtimeId: string) => {
+          configuration.beforeSandboxCreate!();
+          configuration.onSandboxCreateSettled!({
+            sandboxName: sandboxNameForConversation(runtimeId, 13),
+            sandboxId: 'terminal-write-rejected-id',
+            workspace: 'default',
+            owner: 'mock-owner',
+            accountProvider: 'codex-personal',
+          });
+          throw Error('Unexpected settlement continuation');
+        },
+        stop: noDispatchStop,
+      }),
+    });
+    await expect(
+      writeRejectedOwner.ensure('symposium', 'personal', new AbortController().signal),
+    ).rejects.toBe(writeError);
+    const rejectedRecord = rejectedRegistry.getSymposiumSeatSandbox(
+      'symposium',
+      'personal',
+      membership.generation,
+    )!;
+    const retainedLocal = (
+      writeRejectedOwner as unknown as {
+        terminalCreates: Map<string, { sandboxName: string; sandboxId: string }>;
+      }
+    ).terminalCreates.get(rejectedRecord.runtimeId);
+    expect(retainedLocal).toEqual({
+      sandboxName: sandboxNameForConversation(rejectedRecord.runtimeId, 13),
+      sandboxId: 'terminal-write-rejected-id',
+    });
+    expect(rejectedRecord.physicalId).toBeNull();
+    expect(writeRejectedOwner.creationDiagnostic('personal')?.canCleanup).toBe(false);
+    expect(noDispatchStop).not.toHaveBeenCalled();
+    expect(rejectedTerminalSettled).not.toHaveBeenCalled();
     await phased.stop('symposium', 'personal', membership.generation, new AbortController().signal);
     expect(
       incompleteRegistry.getSymposiumSeatSandbox('symposium', 'personal', membership.generation)
@@ -3595,8 +3653,52 @@ describe('mixed personal subscription and work seat isolation', () => {
         },
       ],
     );
+    const rejectedLeaseHost = new SqliteArtifactLeaseHost(
+      join(artifactRoot, 'rejected-leases.sqlite'),
+      { verifyGateway: async () => {}, verifyMount: async () => {}, verifyDeleted: async () => {} },
+      async () => [
+        {
+          Name: artifactRequest.volumeName,
+          Driver: 'local',
+          Options: {},
+          Labels: {
+            'openshell.ai/sandbox-attachable': 'true',
+            'openshell.ai/sandbox-attachable-workspace': 'default',
+            'mitzo.symposium.purpose': 'artifacts',
+            'mitzo.symposium.session': 'symposium',
+            'mitzo.symposium.workspace': 'default',
+            'mitzo.symposium.generation': 'gen-1',
+          },
+        },
+      ],
+    );
+    const rejectedLeaseBind = vi.spyOn(rejectedLeaseHost, 'bindSandbox');
+    const leasedWriteRegistry = seatSandboxRegistry();
+    const leasedWriteError = Error('leased terminal journal write rejected');
+    vi.spyOn(
+      leasedWriteRegistry,
+      'recordSymposiumSeatSandboxTerminalCreate',
+    ).mockImplementationOnce(() => {
+      throw leasedWriteError;
+    });
+    const leasedSettled = vi.fn();
+    const leasedWriteOwner = new SymposiumPerSeatSandboxOwner({
+      ...phasedDeps,
+      seatSandboxRegistry: leasedWriteRegistry,
+      artifactLeaseHost: rejectedLeaseHost,
+      artifactRequest: () => artifactRequest,
+      runSandboxCreation: async <T>(
+        _verify: () => void,
+        operation: (dispatch: () => void, settled?: () => void) => Promise<T>,
+      ) => operation(() => {}, leasedSettled),
+    });
     const workspace = new SymposiumWorkspaceLifecycle(join(artifactRoot, 'fence.json'), () => {});
     const failedRegistry = seatSandboxRegistry();
+    const leasedTerminalRecord = vi.spyOn(
+      failedRegistry,
+      'recordSymposiumSeatSandboxTerminalCreate',
+    );
+    const reserveLease = vi.spyOn(artifactHost, 'reserve');
     const bind = vi.spyOn(artifactHost, 'bindSandbox');
     bind.mockImplementationOnce(() => {
       throw Error('binding rejected before persistence');
@@ -3619,6 +3721,33 @@ describe('mixed personal subscription and work seat isolation', () => {
       }),
     });
     try {
+      await expect(
+        leasedWriteOwner.ensure('symposium', 'personal', new AbortController().signal),
+      ).rejects.toBe(leasedWriteError);
+      expect(leasedSettled).not.toHaveBeenCalled();
+      expect(rejectedLeaseBind).not.toHaveBeenCalled();
+      const leasedWriteRecord = leasedWriteRegistry.getSymposiumSeatSandbox(
+        'symposium',
+        'personal',
+        membership.generation,
+      )!;
+      const localLeaseReceipt = (
+        leasedWriteOwner as unknown as {
+          terminalCreates: Map<
+            string,
+            {
+              sandboxId: string;
+              lease: { token: string; revision: string; request: ArtifactLeaseRequest };
+            }
+          >;
+        }
+      ).terminalCreates.get(leasedWriteRecord.runtimeId)!;
+      expect(localLeaseReceipt.sandboxId).toBe('terminal-id');
+      expect(await rejectedLeaseHost.inspectLease(localLeaseReceipt.lease.token)).toMatchObject({
+        revision: localLeaseReceipt.lease.revision,
+        request: artifactRequest,
+      });
+      expect(leasedWriteOwner.creationDiagnostic('personal')?.canCleanup).toBe(false);
       const unreferencedReader = new SymposiumPerSeatSandboxOwner({
         ...phasedDeps,
         seatSandboxRegistry: seatSandboxRegistry(),
@@ -3631,6 +3760,23 @@ describe('mixed personal subscription and work seat isolation', () => {
       await expect(
         artifactOwner.ensure('symposium', 'personal', new AbortController().signal),
       ).rejects.toThrow('binding rejected before persistence');
+      const originalLease = await reserveLease.mock.results.at(-1)!.value;
+      expect(leasedTerminalRecord).toHaveBeenCalledWith(
+        expect.objectContaining({
+          settlementReceiptV1: {
+            physicalProof: 'unavailable',
+            leaseTokenSha256: createHash('sha256').update(originalLease.token).digest('hex'),
+            leaseRequestSha256: createHash('sha256')
+              .update(JSON.stringify(originalLease.request))
+              .digest('hex'),
+            leaseRevision: originalLease.revision,
+          },
+        }),
+      );
+      expect(JSON.stringify(leasedTerminalRecord.mock.calls)).not.toContain(originalLease.token);
+      expect(leasedTerminalRecord.mock.invocationCallOrder[0]).toBeLessThan(
+        bind.mock.invocationCallOrder[0],
+      );
       const saved = failedRegistry.getSymposiumSeatSandbox(
         'symposium',
         'personal',
@@ -3669,6 +3815,7 @@ describe('mixed personal subscription and work seat isolation', () => {
         leaseDb.close();
       }
     } finally {
+      rejectedLeaseHost.close();
       artifactHost.close();
       rmSync(artifactRoot, { recursive: true, force: true });
     }
