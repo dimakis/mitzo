@@ -1159,6 +1159,13 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       }
     }
 
+    // The native WebSocket path confirms delivery through the persisted echo.
+    // A pre-assignment startup error is a definitive rejection on that path.
+    if (!options.sseConfig && msg.type === 'error' && !parserState.currentSessionId) {
+      const observers = [...deliveryObservers.values()];
+      deliveryObservers.clear();
+      for (const observer of observers) observer('failed');
+    }
     if (msg.type === 'error' && msg.sessionId === awaitingModeHydration)
       awaitingModeHydration = undefined;
     if (
@@ -1196,8 +1203,12 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
         Number.isSafeInteger(msg.seq)
       )
         opening.actions.push({ seq: msg.seq, action });
-      if (action.type === 'USER_MESSAGE_RECEIVED')
+      if (action.type === 'USER_MESSAGE_RECEIVED') {
         pendingOptimisticMessageIds.delete(action.messageId);
+        const observer = deliveryObservers.get(action.messageId);
+        deliveryObservers.delete(action.messageId);
+        observer?.('accepted');
+      }
       const isPostCursorAction =
         boundedRestore &&
         eventSessionId === boundedRestore.sessionId &&

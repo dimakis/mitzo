@@ -2879,3 +2879,27 @@ it('reports launch delivery for the matching HTTP acknowledgement only', () => {
   lastWs.simulateMessage({ type: '_send_accepted', clientMsgId: id, sessionId: 'target' });
   expect(onDelivery).toHaveBeenCalledExactlyOnceWith('accepted');
 });
+
+it('confirms a WebSocket launch from its matching persisted user message', () => {
+  const store = createReadyStore();
+  const onDelivery = vi.fn();
+  store.getState().sendMessage('Launch', { onDelivery });
+  const id = store.getState().messages.messages.at(-1)!.messageId;
+  lastWs.simulateMessage({ type: 'session_id', sessionId: 'target' });
+  lastWs.simulateMessage({
+    type: 'user_message',
+    sessionId: 'target',
+    messageId: id,
+    text: 'Launch',
+  });
+  expect(onDelivery).toHaveBeenCalledExactlyOnceWith('accepted');
+});
+
+it('releases a WebSocket launch for retry when startup fails before assignment', () => {
+  const store = createReadyStore();
+  const onDelivery = vi.fn();
+  store.getState().sendMessage('Launch', { onDelivery });
+  lastWs.simulateMessage({ type: 'error', error: 'Startup rejected' });
+  expect(onDelivery).toHaveBeenCalledExactlyOnceWith('failed');
+  expect(store.getState().messages.running).toBe(false);
+});
