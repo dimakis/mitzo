@@ -14,7 +14,7 @@ USER root
 COPY runtime-codex-version /etc/mitzo-codex-version
 RUN npm install --global "@openai/codex@$(cat /etc/mitzo-codex-version)" \
     && npm install --prefix /usr/lib/googleworkspace-cli @googleworkspace/cli@0.18.1 \
-    && ln -s /usr/lib/googleworkspace-cli/node_modules/@googleworkspace/cli/run-gws.js /usr/bin/gws
+    && ln -sf /usr/lib/googleworkspace-cli/node_modules/@googleworkspace/cli/run-gws.js /usr/bin/gws
 COPY pyproject.toml uv.lock /opt/mgmt-deps/
 RUN cd /opt/mgmt-deps \
     && UV_PROJECT_ENVIRONMENT=/opt/mgmt-venv uv sync --no-cache --frozen --no-dev --no-install-project

@@ -136,6 +136,7 @@ describe('OpenShell runtime image builder', () => {
     expect(build).toContain('compiler_source/package-lock.json');
     expect(build).not.toContain('node_modules/contexgin/dist');
     expect(dockerfile).toContain('npm ci --omit=dev --ignore-scripts');
+    expect(dockerfile).toContain('ln -sf /usr/lib/googleworkspace-cli');
     expect(dockerfile).toContain(
       'COPY attest-knowledge-runtime.py /sandbox/attest-knowledge-runtime.py',
     );

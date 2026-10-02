@@ -122,7 +122,7 @@ it('adopts a verified knowledge view in a retained sandbox without replacing tas
   const conversation = 'retained-chat';
   const owner = digest(conversation).slice(0, 63);
   const name = `mitzo-${digest(conversation).slice(0, 13)}`;
-  const run = vi.fn(async () =>
+  const run = vi.fn(async (_args: readonly string[]) =>
     JSON.stringify({
       name,
       id: 'physical-id',

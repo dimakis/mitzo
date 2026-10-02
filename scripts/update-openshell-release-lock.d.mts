@@ -9,6 +9,16 @@ export interface ReleasePinsInput {
   mitzoCommit: string;
   mgmtCommit: string;
   policyDigest: string;
+  knowledgeContract?: {
+    knowledgeSchemaVersion: number;
+    knowledgeCompilerCommit: string;
+    knowledgeCompilerSha256: string;
+    knowledgeRecipeSha256: string;
+    dependencyProjectionSha256: string;
+    jiraRuntimeInputsSha256: string;
+    targetPlatform: string;
+    targetMarkerEnvironmentB64: string;
+  };
 }
 
 export function updateReleasePins(input: ReleasePinsInput): {
