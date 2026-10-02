@@ -1,6 +1,6 @@
 import { SeatLabel } from './SeatLabel';
 import { seatAccentColor } from '../lib/seat-color';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { UserBubble, TextBubble } from './MessageBubble';
 import { ThinkingBlock } from './ThinkingBlock';
 import { ToolPill } from './ToolPill';
@@ -42,6 +42,8 @@ export interface ChatAreaProps {
   current: StreamingMessage | null;
   currentByMessage?: Record<string, StreamingMessage>;
   contextItems?: SymposiumContextItem[];
+  /** Additional transcript cards inside the same scroll area. */
+  afterMessages?: ReactNode;
   onShareMessage?: (messageId: string, provenance?: SymposiumProvenance) => void;
   running: boolean;
   permission: PermissionRequest | null;
@@ -97,6 +99,7 @@ export function ChatArea({
   current,
   currentByMessage = {},
   contextItems = [],
+  afterMessages,
   onShareMessage,
   running,
   permission,
@@ -423,6 +426,7 @@ export function ChatArea({
             </div>
           );
         })}
+        {afterMessages}
       </div>
 
       {permission && (

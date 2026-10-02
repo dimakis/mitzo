@@ -528,40 +528,42 @@ function ReviewerForm({
               />
               {generic && (
                 <>
-                  <label>
-                    Agent name
-                    <input value={name} onChange={(event) => setName(event.target.value)} />
-                  </label>
-                  <label>
-                    Agent role
-                    <input
-                      value={role}
-                      onChange={(event) => setRole(event.target.value)}
-                      pattern="[a-z][a-z0-9_-]{0,63}"
-                    />
-                  </label>
-                  <label>
-                    Agent instructions
-                    <textarea
-                      value={instructions}
-                      onChange={(event) => setInstructions(event.target.value)}
-                    />
-                  </label>
-                  <label>
-                    Agent expected output
-                    <textarea
-                      value={expectedOutput}
-                      onChange={(event) => setExpectedOutput(event.target.value)}
-                    />
-                  </label>
-                  <label>
-                    Agent acceptance criteria
-                    <textarea
-                      value={criteria}
-                      onChange={(event) => setCriteria(event.target.value)}
-                      placeholder="One criterion per line"
-                    />
-                  </label>
+                  <fieldset disabled={profileLoading}>
+                    <label>
+                      Agent name
+                      <input value={name} onChange={(event) => setName(event.target.value)} />
+                    </label>
+                    <label>
+                      Agent role
+                      <input
+                        value={role}
+                        onChange={(event) => setRole(event.target.value)}
+                        pattern="[a-z][a-z0-9_-]{0,63}"
+                      />
+                    </label>
+                    <label>
+                      Agent instructions
+                      <textarea
+                        value={instructions}
+                        onChange={(event) => setInstructions(event.target.value)}
+                      />
+                    </label>
+                    <label>
+                      Agent expected output
+                      <textarea
+                        value={expectedOutput}
+                        onChange={(event) => setExpectedOutput(event.target.value)}
+                      />
+                    </label>
+                    <label>
+                      Agent acceptance criteria
+                      <textarea
+                        value={criteria}
+                        onChange={(event) => setCriteria(event.target.value)}
+                        placeholder="One criterion per line"
+                      />
+                    </label>
+                  </fieldset>
                   <label>
                     Agent permissions
                     <select

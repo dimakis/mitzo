@@ -7209,7 +7209,6 @@ option {
   color: var(--text-dim);
 }
 
-.symposium-queued-inputs,
 .symposium-share-preview {
   margin: 0.4rem 0.75rem;
   max-height: 25dvh;
@@ -7567,4 +7566,44 @@ option {
 .symposium-recipient-picker p {
   width: 100%;
   margin: 0;
+}
+
+/* Delivery history belongs to the transcript scroller, leaving the composer visible. */
+.symposium-perspectives .chat-messages > * {
+  flex-shrink: 0;
+}
+
+.symposium-deliveries {
+  display: grid;
+  gap: 0.65rem;
+  min-width: 0;
+}
+
+.symposium-delivery-card {
+  border: 1px solid var(--border);
+  border-radius: 0.65rem;
+  padding: 0.65rem;
+  background: var(--surface);
+  overflow-wrap: anywhere;
+}
+
+.symposium-delivery-card summary {
+  cursor: pointer;
+  line-height: 1.5;
+}
+
+.symposium-delivery-card p {
+  margin: 0.5rem 0;
+  white-space: pre-wrap;
+}
+
+.symposium-delivery-card button {
+  min-height: 2.5rem;
+  margin: 0.25rem 0.5rem 0.25rem 0;
+}
+
+.symposium-perspective-tabs,
+.symposium-boundary-note,
+.symposium-perspectives [role='tabpanel'] > button {
+  flex-shrink: 0;
 }

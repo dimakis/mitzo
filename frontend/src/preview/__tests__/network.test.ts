@@ -376,3 +376,14 @@ it('simulates custom Add agent, approve, send and Stop entirely within preview f
   ).toBe(405);
   expect((await post('unknown-native-action', {})).status).toBe(405);
 });
+
+it('resolves the offered saved reviewer revision with the same guidance used by Add agent', async () => {
+  const [offered] = await (await window.fetch('/api/symposium/profiles')).json();
+  const response = await window.fetch(
+    `/api/symposium/profiles/${encodeURIComponent(offered.profileId)}/${offered.revision}`,
+  );
+  expect(response.ok).toBe(true);
+  const loaded = await response.json();
+  expect(loaded.definition).toEqual(offered.definition);
+  expect(loaded).toMatchObject({ profileId: offered.profileId, revision: offered.revision });
+});

@@ -11,7 +11,9 @@ vi.mock('../ChatArea', () => ({
     messages,
     contextItems = [],
     onShareMessage,
+    afterMessages,
   }: {
+    afterMessages?: import('react').ReactNode;
     messages: { messageId: string; symposiumProvenance?: { membershipGeneration: number } }[];
     contextItems?: { deliveryId: string; receipt: string }[];
     onShareMessage?: (messageId: string, provenance?: { membershipGeneration: number }) => void;
@@ -27,6 +29,7 @@ vi.mock('../ChatArea', () => ({
           )}
         </div>
       ))}
+      {afterMessages}
       {contextItems.map((item) => (
         <div key={item.deliveryId}>
           {item.deliveryId}:{item.receipt}
@@ -725,6 +728,7 @@ it('hides unrelated delivery content from a seat and pauses Send without a runti
   render(<SymposiumConversation sessionId="session" chat={chat} ordinaryComposer={null} />);
   fireEvent.click(await screen.findByRole('tab', { name: 'Reviewer' }));
   const section = await screen.findByRole('region', { name: 'Conversation deliveries' });
+  expect(screen.getByTestId('rich-chat').contains(section)).toBe(true);
   expect(within(section).queryByText('Original: Architect private input')).toBeNull();
   expect(
     screen.getByRole('button', { name: 'Send to Architect, Reviewer' }).hasAttribute('disabled'),

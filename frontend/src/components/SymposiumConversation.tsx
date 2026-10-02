@@ -542,137 +542,151 @@ export function SymposiumConversation({
         contextItems={contextItems}
         onShareMessage={selected === 'all' ? undefined : startShare}
         running={chat.running && (selected === 'all' || Object.keys(live ?? {}).length > 0)}
-      />
-      {visiblePage.queued.filter((item) => selected === 'all' || item.recipientSeatId === selected)
-        .length > 0 && (
-        <aside className="symposium-queued-inputs" aria-label="Queued inputs">
-          <strong>Queued for review</strong>
-          {visiblePage.queued
-            .filter((item) => selected === 'all' || item.recipientSeatId === selected)
-            .map((item) => (
-              <p key={`${item.deliveryId}:${item.recipientSeatId}`}>
-                {item.recipientSeatId}: {item.proposedContent} ({item.deliveryStatus})
-              </p>
-            ))}
-        </aside>
-      )}
-      {(status.deliveries ?? []).filter(
-        (delivery) => selected === 'all' || delivery.recipientSeatIds.includes(selected),
-      ).length > 0 && (
-        <section aria-label="Conversation deliveries">
-          <strong>Delivery review and execution</strong>
-          {(status.deliveries ?? [])
-            .filter(
+        afterMessages={
+          <>
+            {visiblePage.queued.filter(
+              (item) => selected === 'all' || item.recipientSeatId === selected,
+            ).length > 0 && (
+              <aside className="symposium-queued-inputs" aria-label="Queued inputs">
+                <strong>Queued for review</strong>
+                {visiblePage.queued
+                  .filter((item) => selected === 'all' || item.recipientSeatId === selected)
+                  .map((item) => (
+                    <p key={`${item.deliveryId}:${item.recipientSeatId}`}>
+                      {item.recipientSeatId}: {item.proposedContent} ({item.deliveryStatus})
+                    </p>
+                  ))}
+              </aside>
+            )}
+            {(status.deliveries ?? []).filter(
               (delivery) => selected === 'all' || delivery.recipientSeatIds.includes(selected),
-            )
-            .map((delivery) => {
-              const state = deliveryActions[`${base}:${delivery.deliveryId}`];
-              const terminal = ['delivered', 'dropped', 'cancelled'].includes(delivery.status);
-              const untouchedRecipients =
-                delivery.recipients.length > 0 &&
-                delivery.recipients.every((recipient) => recipient.status === 'pending');
-              const recipientNames = delivery.recipientSeatIds
-                .map((id) => seats.find((seat) => seat.id === id)?.name ?? id)
-                .join(', ');
-              return (
-                <article key={delivery.deliveryId} aria-label={`Delivery to ${recipientNames}`}>
-                  <details open={!terminal}>
-                    <summary>
-                      To{' '}
-                      {delivery.recipientSeatIds.map((id, index) => (
-                        <span key={id}>
-                          {index > 0 && ', '}
-                          <SeatLabel
-                            seatId={id}
-                            name={seats.find((seat) => seat.id === id)?.name ?? id}
-                          />
-                        </span>
-                      ))}{' '}
-                      · {delivery.status}
-                    </summary>
-                    <p>Original: {delivery.originalContent}</p>
-                    {delivery.deliveredContent !== null && (
-                      <p>Approved content: {delivery.deliveredContent}</p>
-                    )}
-                    {delivery.recipients.map((recipient) => (
-                      <p key={recipient.seatId}>
-                        <SeatLabel
-                          seatId={recipient.seatId}
-                          name={
-                            seats.find((seat) => seat.id === recipient.seatId)?.name ??
-                            recipient.seatId
-                          }
-                        />
-                        : {recipient.status}
-                      </p>
-                    ))}
-                    {state?.notice && <p role="status">{state.notice}</p>}
-                    {delivery.status === 'cancelled' && !state?.notice && (
-                      <p role="status">
-                        Cancellation recorded. Provider cleanup is not confirmed by this receipt.
-                        History is preserved.
-                      </p>
-                    )}
-                    {delivery.status === 'awaiting_intervention' && (
-                      <button
-                        type="button"
-                        disabled={!statusFresh || state?.approve || state?.send || state?.stop}
-                        onClick={() => void controlDelivery(delivery.deliveryId, 'approve')}
+            ).length > 0 && (
+              <section className="symposium-deliveries" aria-label="Conversation deliveries">
+                <strong>Delivery review and execution</strong>
+                {(status.deliveries ?? [])
+                  .filter(
+                    (delivery) =>
+                      selected === 'all' || delivery.recipientSeatIds.includes(selected),
+                  )
+                  .map((delivery) => {
+                    const state = deliveryActions[`${base}:${delivery.deliveryId}`];
+                    const terminal = ['delivered', 'dropped', 'cancelled'].includes(
+                      delivery.status,
+                    );
+                    const untouchedRecipients =
+                      delivery.recipients.length > 0 &&
+                      delivery.recipients.every((recipient) => recipient.status === 'pending');
+                    const recipientNames = delivery.recipientSeatIds
+                      .map((id) => seats.find((seat) => seat.id === id)?.name ?? id)
+                      .join(', ');
+                    return (
+                      <article
+                        className="symposium-delivery-card"
+                        key={delivery.deliveryId}
+                        aria-label={`Delivery to ${recipientNames}`}
                       >
-                        Approve delivery to {recipientNames}
-                      </button>
-                    )}
-                    {delivery.status === 'ready' && (
-                      <button
-                        type="button"
-                        disabled={
-                          state?.approve ||
-                          state?.send ||
-                          state?.stop ||
-                          state?.stopRequested ||
-                          state?.sendRequested ||
-                          state?.dispatchUncertain ||
-                          !statusFresh ||
-                          !untouchedRecipients ||
-                          !status.runtimeAvailable
-                        }
-                        onClick={() => void controlDelivery(delivery.deliveryId, 'send')}
-                      >
-                        Send to {recipientNames}
-                      </button>
-                    )}
-                    {delivery.status === 'ready' && !untouchedRecipients && (
-                      <p role="status">
-                        Recipient execution has already started or needs recovery. Sending again is
-                        unavailable here.
-                      </p>
-                    )}
-                    {delivery.status === 'ready' && !status.runtimeAvailable && (
-                      <p role="status">Provider runtime is unavailable. Sending is paused.</p>
-                    )}
-                    {delivery.status === 'recovery_required' && (
-                      <p role="status">
-                        Delivery needs recovery. Sending again is unavailable here.
-                      </p>
-                    )}
-                    {!terminal && (
-                      <button
-                        type="button"
-                        disabled={state?.stop}
-                        onClick={() => void controlDelivery(delivery.deliveryId, 'stop')}
-                      >
-                        Stop delivery to {recipientNames}
-                      </button>
-                    )}
-                    {!terminal && delivery.recipientSeatIds.length > 1 && (
-                      <p>Stop applies to this entire delivery and all named recipients.</p>
-                    )}
-                  </details>
-                </article>
-              );
-            })}
-        </section>
-      )}
+                        <details open={!terminal}>
+                          <summary>
+                            To{' '}
+                            {delivery.recipientSeatIds.map((id, index) => (
+                              <span key={id}>
+                                {index > 0 && ', '}
+                                <SeatLabel
+                                  seatId={id}
+                                  name={seats.find((seat) => seat.id === id)?.name ?? id}
+                                />
+                              </span>
+                            ))}{' '}
+                            · {delivery.status}
+                          </summary>
+                          <p>Original: {delivery.originalContent}</p>
+                          {delivery.deliveredContent !== null && (
+                            <p>Approved content: {delivery.deliveredContent}</p>
+                          )}
+                          {delivery.recipients.map((recipient) => (
+                            <p key={recipient.seatId}>
+                              <SeatLabel
+                                seatId={recipient.seatId}
+                                name={
+                                  seats.find((seat) => seat.id === recipient.seatId)?.name ??
+                                  recipient.seatId
+                                }
+                              />
+                              : {recipient.status}
+                            </p>
+                          ))}
+                          {state?.notice && <p role="status">{state.notice}</p>}
+                          {delivery.status === 'cancelled' && !state?.notice && (
+                            <p role="status">
+                              Cancellation recorded. Provider cleanup is not confirmed by this
+                              receipt. History is preserved.
+                            </p>
+                          )}
+                          {delivery.status === 'awaiting_intervention' && (
+                            <button
+                              type="button"
+                              disabled={
+                                !statusFresh || state?.approve || state?.send || state?.stop
+                              }
+                              onClick={() => void controlDelivery(delivery.deliveryId, 'approve')}
+                            >
+                              Approve delivery to {recipientNames}
+                            </button>
+                          )}
+                          {delivery.status === 'ready' && (
+                            <button
+                              type="button"
+                              disabled={
+                                state?.approve ||
+                                state?.send ||
+                                state?.stop ||
+                                state?.stopRequested ||
+                                state?.sendRequested ||
+                                state?.dispatchUncertain ||
+                                !statusFresh ||
+                                !untouchedRecipients ||
+                                !status.runtimeAvailable
+                              }
+                              onClick={() => void controlDelivery(delivery.deliveryId, 'send')}
+                            >
+                              Send to {recipientNames}
+                            </button>
+                          )}
+                          {delivery.status === 'ready' && !untouchedRecipients && (
+                            <p role="status">
+                              Recipient execution has already started or needs recovery. Sending
+                              again is unavailable here.
+                            </p>
+                          )}
+                          {delivery.status === 'ready' && !status.runtimeAvailable && (
+                            <p role="status">Provider runtime is unavailable. Sending is paused.</p>
+                          )}
+                          {delivery.status === 'recovery_required' && (
+                            <p role="status">
+                              Delivery needs recovery. Sending again is unavailable here.
+                            </p>
+                          )}
+                          {!terminal && (
+                            <button
+                              type="button"
+                              disabled={state?.stop}
+                              onClick={() => void controlDelivery(delivery.deliveryId, 'stop')}
+                            >
+                              Stop delivery to {recipientNames}
+                            </button>
+                          )}
+                          {!terminal && delivery.recipientSeatIds.length > 1 && (
+                            <p>Stop applies to this entire delivery and all named recipients.</p>
+                          )}
+                        </details>
+                      </article>
+                    );
+                  })}
+              </section>
+            )}
+          </>
+        }
+      />
       {share && (
         <section className="symposium-share-preview" aria-label="Share excerpt preview">
           <strong>Share only this excerpt from {seatName}</strong>

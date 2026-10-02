@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import '@testing-library/jest-dom/vitest';
+import userEvent from '@testing-library/user-event';
 import { afterEach, expect, it, vi } from 'vitest';
 import { AddAgentSheet } from '../AddReviewerSheet';
 import { apiFetch } from '../../lib/api-fetch';
@@ -173,4 +174,54 @@ it('retries a failed queue using the same admitted custom seat and frozen messag
     .filter(([url]) => String(url).endsWith('/deliveries'))
     .map(([, init]) => JSON.parse(String(init?.body)));
   expect(queued[1]).toEqual(queued[0]);
+});
+
+it('locks copied guidance during a delayed profile response and permits edits after the copy finishes', async () => {
+  mockRequests();
+  const normalRequest = vi.mocked(apiFetch).getMockImplementation()!;
+  let resolveProfile!: (response: Response) => void;
+  const pendingProfile = new Promise<Response>((resolve) => {
+    resolveProfile = resolve;
+  });
+  vi.mocked(apiFetch).mockImplementation((url, init) =>
+    String(url).startsWith('/api/symposium/profiles/') ? pendingProfile : normalRequest(url, init),
+  );
+  render(<AddAgentSheet sessionId="chat" />);
+  await fill();
+  fireEvent.click(screen.getByText('Load saved profile'));
+  await screen.findByText('Loading saved guidance…');
+  for (const label of [
+    'Agent name',
+    'Agent role',
+    'Agent instructions',
+    'Agent expected output',
+    'Agent acceptance criteria',
+  ])
+    expect(screen.getByLabelText(label)).toBeDisabled();
+  expect(screen.getByLabelText('Agent instructions')).toHaveValue('Investigate the supplied data');
+  expect(screen.getByLabelText('Initial message')).toBeEnabled();
+  resolveProfile(
+    new Response(
+      JSON.stringify({
+        definition: {
+          name: 'Writer',
+          role: 'research',
+          instructions: 'Write a report',
+          expectedOutput: 'A report',
+          acceptanceCriteria: ['Cite evidence'],
+          modelPolicyRole: 'writer',
+        },
+      }),
+    ),
+  );
+  await waitFor(() => expect(screen.getByLabelText('Agent instructions')).toBeEnabled());
+  expect(screen.getByLabelText('Agent instructions')).toHaveValue('Write a report');
+  await userEvent.clear(screen.getByLabelText('Agent instructions'));
+  await userEvent.type(screen.getByLabelText('Agent instructions'), 'Write a shorter report');
+  fireEvent.click(screen.getByRole('button', { name: 'Add agent and queue message' }));
+  await screen.findByText(/Agent added/);
+  const revised = vi
+    .mocked(apiFetch)
+    .mock.calls.find(([url]) => String(url).endsWith('/seats/revise'))!;
+  expect(JSON.parse(String(revised[1]?.body)).systemPrompt).toBe('Write a shorter report');
 });
