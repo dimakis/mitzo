@@ -110,8 +110,8 @@ never automatically redispatch a turn.
 Changing a draft seat to a model without a thinking-level option clears the previous
 model’s thinking level, so selecting Work Vertex Haiku after Personal Luna remains valid.
 
-The mobile and desktop ChatViews include **Director controls** for the Symposium
-roster and directed-delivery approval. Use **Refresh director status** to load
+The mobile and desktop ChatViews include **Review team & approvals** for the Symposium
+roster and directed-delivery approval. Use **Refresh review team** to load
 newly queued deliveries while the panel is open. The conversation view offers
 an all-seat audience, per-seat asides, and explicit excerpt sharing; queued
 messages require approval before dispatch. Uncertain retries retain the original
@@ -122,7 +122,7 @@ sending an ordinary chat prompt. Select the dedicated Symposium account/model,
 a supported coder or reviewer role, and an exact saved profile revision; the
 profile picker also supports creating or importing a profile. **Create Symposium
 draft** allocates only durable session and roster metadata. Review the draft and
-acknowledge its boundary in Director controls before activation; all production
+acknowledge its boundary in Review team & approvals before activation; all production
 admission checks still apply. Retried creation requests reuse the same session.
 An explicitly installed owned host also prepares a private named artifact volume for
 new drafts. If preparation is unavailable, the draft remains saved and the creation
@@ -141,15 +141,22 @@ context choices are an operator-written summary, selected shared excerpts, or
 all proven shared excerpts. Only delivered broadcasts to every active member at
 creation are eligible; private asides, queued inputs, and legacy turns without
 audience proof are excluded. Edited deliveries contribute their delivered text.
-The package is queued for approval, never automatically dispatched. Context
-source grants default to empty; a reference does not itself load conversation
+The three setup sections explain the reviewer profile/account, the request and
+conversation context, and sharing consent. After adding a reviewer, use **Go to
+review approvals** to open this conversation's team panel. Requests appear before
+team configuration, with agent names and **Needs approval** or **Approved — ready
+to send** status. Choose **Approve** (or **Edit and approve**), then **Send approved
+request** to start the review. Use **Open review findings** for the results.
+The package is queued for approval, never automatically dispatched. **Queue
+message for approval** creates a follow-up for explicitly selected agents. Advanced
+context import is in a collapsed disclosure. Context source grants default to empty; a reference does not itself load conversation
 history. Shared workspace access remains governed by the read-only host grant.
 
 Adding a reviewer can prepare a stopped ordinary conversation's isolated roster,
 but admission still requires the verified runtime. Roster changes revalidate
 existing confirmed seats at the new configuration revision without resetting
 their membership generations or sandbox identity. A partially completed setup
-remains visible in Director controls. Removing the last reviewer simplifies the
+remains visible in Review team & approvals. Removing the last reviewer simplifies the
 composer while preserving durable membership history and isolated routing; it
 never switches the session back to ordinary execution. The development-only
 `ui-preview.html` includes read-only reviewer choices for visual checks.
