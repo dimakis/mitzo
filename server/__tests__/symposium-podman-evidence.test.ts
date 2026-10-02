@@ -63,9 +63,10 @@ describe('local Podman artifact evidence', () => {
       if (allowed)
         await expect(evidence.verifyMount(sandboxName, sandboxId, config)).resolves.toBeUndefined();
       else
-        await expect(evidence.verifyMount(sandboxName, sandboxId, config)).rejects.toThrow(
-          'sandbox-namespace',
-        );
+        await expect(evidence.verifyMount(sandboxName, sandboxId, config)).rejects.toMatchObject({
+          code: 'SEAT_MOUNT_IDENTITY_FAILED',
+          cause: { message: expect.stringContaining('sandbox-namespace') },
+        });
     },
   );
 
@@ -92,6 +93,7 @@ describe('local Podman artifact evidence', () => {
         rows: listed,
         details: [{ ...inspected[0], Mounts: [{ ...inspected[0].Mounts[0], RW: true }] }],
         error: 'access differs',
+        code: 'SEAT_MOUNT_PHYSICAL_PROOF_FAILED',
       },
       {
         rows: listed,
@@ -102,12 +104,19 @@ describe('local Podman artifact evidence', () => {
           },
         ],
         error: 'sandbox-workspace',
+        code: 'SEAT_MOUNT_IDENTITY_FAILED',
       },
-      { rows: [...listed, listed[0]], details: inspected, error: 'exactly one' },
+      {
+        rows: [...listed, listed[0]],
+        details: inspected,
+        error: 'exactly one',
+        code: 'SEAT_MOUNT_SELECTION_FAILED',
+      },
       {
         rows: listed,
         details: [{ ...inspected[0], State: { Running: false } }],
         error: 'not running',
+        code: 'SEAT_MOUNT_IDENTITY_FAILED',
       },
     ];
     for (const testCase of cases) {
@@ -116,9 +125,10 @@ describe('local Podman artifact evidence', () => {
         .mockResolvedValueOnce(testCase.rows)
         .mockResolvedValueOnce(testCase.details);
       const evidence = new LocalPodmanArtifactEvidence('symposium-1', 'gateway-local', run);
-      await expect(evidence.verifyMount(sandboxName, sandboxId, config)).rejects.toThrow(
-        testCase.error,
-      );
+      await expect(evidence.verifyMount(sandboxName, sandboxId, config)).rejects.toMatchObject({
+        code: testCase.code,
+        cause: { message: expect.stringContaining(testCase.error) },
+      });
     }
   });
 
@@ -129,9 +139,10 @@ describe('local Podman artifact evidence', () => {
     };
     const run = vi.fn().mockResolvedValueOnce([...listed, older]);
     const evidence = new LocalPodmanArtifactEvidence('symposium-1', 'gateway-local', run);
-    await expect(evidence.verifyMount(sandboxName, sandboxId, config)).rejects.toThrow(
-      'exactly one',
-    );
+    await expect(evidence.verifyMount(sandboxName, sandboxId, config)).rejects.toMatchObject({
+      code: 'SEAT_MOUNT_SELECTION_FAILED',
+      cause: { message: expect.stringContaining('exactly one') },
+    });
     expect(run).toHaveBeenCalledOnce();
   });
 
@@ -142,9 +153,10 @@ describe('local Podman artifact evidence', () => {
       .mockResolvedValueOnce([{ Id: physicalId, Labels: olderLabels }])
       .mockResolvedValueOnce([{ ...inspected[0], Config: { Labels: olderLabels } }]);
     const evidence = new LocalPodmanArtifactEvidence('symposium-1', 'gateway-local', run);
-    await expect(evidence.verifyMount(sandboxName, sandboxId, config)).rejects.toThrow(
-      'sandbox-id',
-    );
+    await expect(evidence.verifyMount(sandboxName, sandboxId, config)).rejects.toMatchObject({
+      code: 'SEAT_MOUNT_IDENTITY_FAILED',
+      cause: { message: expect.stringContaining('sandbox-id') },
+    });
   });
 
   it.each(['sandbox-name', 'sandbox-workspace', 'sandbox-namespace'] as const)(
@@ -323,7 +335,10 @@ describe('reviewed workload artifact ownership', () => {
         undefined,
         image,
       ).verifyMount(sandboxName, sandboxId, config),
-    ).rejects.toThrow('image differs');
+    ).rejects.toMatchObject({
+      code: 'SEAT_MOUNT_IMAGE_FAILED',
+      cause: { message: expect.stringContaining('image differs') },
+    });
     expect(run).toHaveBeenCalledTimes(2);
   });
 });

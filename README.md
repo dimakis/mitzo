@@ -13,7 +13,9 @@ The dormant [Symposium artifact snapshot observer](docs/features/symposium-artif
 
 [Fresh Symposium artifacts](docs/operations/symposium-artifact-initialization.md) initialize an empty owned Git workspace before admission, retaining initializer identity and cleanup receipts. An opt-in credential-free physical contract checks native writer and read-only reviewer access; full application acceptance and restart recovery remain separate gates.
 
-[Native subscription continuity](docs/operations/symposium-attempt-continuity.md) carries all eligible completed seat text into explicitly recorded replacement threads across isolated attempt homes, within a strict 64 KiB bound.
+[Native subscription continuity](docs/operations/symposium-attempt-continuity.md) carries eligible completed seat text into replacement threads as quoted history in supported text input, within a strict 64 KiB bound including framing and escaping. The current request remains separate.
+
+[Symposium mount verification](docs/operations/symposium-mount-diagnostics.md) reports bounded failure stages for configuration, physical listing, selection, inspection, identity, mount proof and image checks, while retaining the existing admission requirements.
 
 Vertex readiness validates the pinned CLI’s blank failure-code column and empty-error `-` marker without accepting diagnostic text.
 
