@@ -37,6 +37,7 @@ export function WebSearchConsent({
   const [reload, setReload] = useState(0);
   const previousTurn = useRef({ sessionId, running });
   const pendingTurnRetry = useRef(false);
+  const loadPending = useRef(false);
   const canRefresh = !!consent || !!error;
 
   useEffect(() => {
@@ -50,6 +51,7 @@ export function WebSearchConsent({
     let cancelled = false;
     if (!sessionId || !connected || !connectionId) return;
     const controller = new AbortController();
+    loadPending.current = true;
     void (async () => {
       try {
         let transientFailure: Error | null = null;
@@ -117,10 +119,13 @@ export function WebSearchConsent({
               ? cause.message
               : 'Cannot reach the server to load web access. Retry when connected.',
           );
+      } finally {
+        if (!cancelled) loadPending.current = false;
       }
     })();
     return () => {
       cancelled = true;
+      loadPending.current = false;
       controller.abort();
     };
   }, [sessionId, connected, connectionId, reload]);
@@ -130,7 +135,7 @@ export function WebSearchConsent({
       previousTurn.current.sessionId === sessionId && previousTurn.current.running && !running;
     previousTurn.current = { sessionId, running };
     // Keep one retry available if a still-pending read fails after turn completion.
-    if (finished && (!consent || error)) pendingTurnRetry.current = true;
+    if (finished && (loadPending.current || !consent || error)) pendingTurnRetry.current = true;
     if (!running && error && pendingTurnRetry.current && connected && connectionId) {
       pendingTurnRetry.current = false;
       setReload((value) => value + 1);

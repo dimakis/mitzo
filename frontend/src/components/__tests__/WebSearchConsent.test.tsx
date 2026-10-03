@@ -380,6 +380,36 @@ it('recovers when the pending load fails just after the active turn finishes', a
   expect(apiFetch).toHaveBeenCalledTimes(2);
 });
 
+it('recovers when a refresh of an existing grant fails after turn completion', async () => {
+  let complete: (value: Response) => void = () => {};
+  vi.mocked(apiFetch)
+    .mockResolvedValueOnce(response('denied', 5))
+    .mockImplementationOnce(
+      () =>
+        new Promise<Response>((resolve) => {
+          complete = resolve;
+        }),
+    )
+    .mockResolvedValue(response('allowed', 6));
+  const props = {
+    sessionId: 'session-1',
+    mode: 'agent' as const,
+    connected: true,
+    connectionId: 'owner-1',
+  };
+  const { rerender } = render(<WebSearchConsent {...props} running />);
+  await screen.findByRole('button', { name: 'Web search permission: Denied' });
+  fireEvent.focus(window);
+  expect(apiFetch).toHaveBeenCalledTimes(2);
+  rerender(<WebSearchConsent {...props} running={false} />);
+  await act(async () => {
+    complete({ ok: false, status: 403 } as Response);
+  });
+  await screen.findByRole('button', { name: 'Web search permission: Allowed' });
+  expect(screen.queryByRole('alert')).toBeNull();
+  expect(apiFetch).toHaveBeenCalledTimes(3);
+});
+
 it('distinguishes an invalid response from a connection failure', async () => {
   vi.mocked(apiFetch).mockResolvedValue({ ok: true, json: async () => ({}) } as Response);
   render(
