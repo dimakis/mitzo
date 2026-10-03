@@ -8,6 +8,7 @@ vi.mock('../../lib/api-fetch', () => ({ apiFetch: vi.fn() }));
 
 afterEach(() => {
   cleanup();
+  vi.restoreAllMocks();
   vi.resetAllMocks();
   vi.useRealTimers();
 });
@@ -129,6 +130,7 @@ it('refreshes a grant changed in another tab when this window regains focus', as
 });
 
 it('refreshes a grant changed in another tab when this page becomes visible', async () => {
+  const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden');
   vi.mocked(apiFetch)
     .mockResolvedValueOnce(response('denied', 5))
     .mockResolvedValueOnce(response('allowed', 6));
@@ -143,6 +145,11 @@ it('refreshes a grant changed in another tab when this page becomes visible', as
   );
   await screen.findByRole('button', { name: 'Web search permission: Denied' });
 
+  fireEvent(document, new Event('visibilitychange'));
+  expect(apiFetch).toHaveBeenCalledTimes(1);
+  expect(screen.getByRole('button', { name: 'Web search permission: Denied' })).toBeTruthy();
+
+  visibility.mockReturnValue('visible');
   fireEvent(document, new Event('visibilitychange'));
 
   await screen.findByRole('button', { name: 'Web search permission: Allowed' });
