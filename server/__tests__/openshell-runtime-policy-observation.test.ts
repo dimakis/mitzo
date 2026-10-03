@@ -451,3 +451,52 @@ it('final fence rejects authored file drift after initial pinned policy comparis
     f.manager.observeContract(f.conversation, f.runtime, new AbortController().signal),
   ).rejects.toThrow('authored policy differs from selected manifest');
 });
+
+it.each(['grant', 'revoke'])(
+  'real source reservation blocks a queued %s and delivers it after failed migration',
+  async (mutation) => {
+    const f = runtimeFixture(['mitzo-openai-keychain-spike', 'mitzo-google-workspace-spike']);
+    const write = vi.fn((_name, record) => Object.assign(f.approvals, structuredClone(record)));
+    const manager = new OpenShellRuntimeManager(f.config, f.run, undefined, undefined, {
+      read: () => f.approvals,
+      write,
+    });
+    let pending: Promise<void> | undefined;
+    const fenced = manager.withMigrationProviderPolicyFence(
+      f.conversation,
+      f.runtime,
+      new AbortController().signal,
+      async (assertUnqueued) => {
+        pending =
+          mutation === 'grant'
+            ? manager.grantServiceProvider(
+                f.conversation,
+                f.runtime,
+                'google-workspace',
+                new AbortController().signal,
+              )
+            : manager.revokeServiceProvider(
+                f.conversation,
+                f.runtime,
+                'google-workspace',
+                new AbortController().signal,
+              );
+        await Promise.resolve();
+        expect(write).not.toHaveBeenCalled();
+        expect(
+          f.run.mock.calls.some(([args]) => args.includes('attach') || args.includes('detach')),
+        ).toBe(false);
+        assertUnqueued();
+      },
+    );
+    await expect(fenced).rejects.toThrow('source provider policy mutation is pending');
+    await pending;
+    expect(write).toHaveBeenCalledOnce();
+    expect(f.approvals.granted).toEqual(mutation === 'grant' ? ['google-workspace'] : []);
+    expect(
+      f.run.mock.calls.filter(([args]) =>
+        args.includes(mutation === 'grant' ? 'attach' : 'detach'),
+      ),
+    ).toHaveLength(1);
+  },
+);

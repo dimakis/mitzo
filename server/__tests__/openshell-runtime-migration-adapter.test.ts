@@ -136,6 +136,12 @@ function fixture() {
     },
   } as unknown as OpenShellRuntimeConfig;
   const manager = {
+    withMigrationProviderPolicyFence: async (
+      _id: unknown,
+      _runtime: unknown,
+      _signal: unknown,
+      operation: (assertUnqueued: () => void) => Promise<unknown>,
+    ) => operation(() => {}),
     forSandbox: (name: string) => ({
       observeContract: async () => ({
         policy: name === 'old' ? {} : mocks.candidatePolicy,
@@ -200,7 +206,7 @@ it('compares original contents before native same-thread resume, then proves clo
       allowProviderModelFallback: false,
     }),
   );
-  expect(mocks.capture).toHaveBeenCalledTimes(3);
+  expect(mocks.capture).toHaveBeenCalledTimes(4);
   expect(mocks.capture.mock.invocationCallOrder[1]).toBeLessThan(
     mocks.launch.mock.invocationCallOrder[0],
   );

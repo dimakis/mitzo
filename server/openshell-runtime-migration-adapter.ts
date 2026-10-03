@@ -77,17 +77,20 @@ export async function observePodmanRuntimeImage(
 }
 /** Invoked under the startup/resume lifecycle reservation, before any app-server starts.
  * Capture's strict process scan supplies the actual source-writer barrier. */
-export async function prepareRetainedRuntimeMigration(input: {
-  conversationId: string;
-  binding: AccountBinding;
-  store: CodexConversationStore;
-  source: ArtifactRuntime;
-  config: OpenShellRuntimeConfig;
-  manager: OpenShellRuntimeManager;
-  privateDirectory: string;
-  signal: AbortSignal;
-  closeOwnedTransport?: () => Promise<void>;
-}): Promise<ArtifactRuntime> {
+async function prepareRetainedRuntimeMigrationFenced(
+  input: {
+    conversationId: string;
+    binding: AccountBinding;
+    store: CodexConversationStore;
+    source: ArtifactRuntime;
+    config: OpenShellRuntimeConfig;
+    manager: OpenShellRuntimeManager;
+    privateDirectory: string;
+    signal: AbortSignal;
+    closeOwnedTransport?: () => Promise<void>;
+  },
+  assertProviderPolicyUnchanged: () => void,
+): Promise<ArtifactRuntime> {
   const { config, signal, manager, source, conversationId: id } = input;
   const runtimeContract = config.seedStackManifest?.runtime as Record<string, unknown> | undefined;
   if (runtimeContract?.knowledgeSchemaVersion !== 1) return source;
@@ -149,6 +152,7 @@ export async function prepareRetainedRuntimeMigration(input: {
       targetPolicy,
       supportedSourceImages: supported,
       adapters: {
+        beforeCommit: assertProviderPolicyUnchanged,
         observe: async (original) => {
           const observation = await manager
             .forSandbox(original.runtime.sandboxName)
@@ -193,6 +197,7 @@ export async function prepareRetainedRuntimeMigration(input: {
           return proof;
         },
         create: async (name) => {
+          assertProviderPolicyUnchanged();
           const runtime = await manager
             .forSandbox(name)
             .ensure(id, signal, undefined, preparedSeed, approvedSourceGrants);
@@ -275,4 +280,17 @@ export async function prepareRetainedRuntimeMigration(input: {
         rmSync(directory, { recursive: true, force: true });
     }
   }
+}
+
+export async function prepareRetainedRuntimeMigration(
+  input: Parameters<typeof prepareRetainedRuntimeMigrationFenced>[0],
+): Promise<ArtifactRuntime> {
+  const contract = input.config.seedStackManifest?.runtime as Record<string, unknown> | undefined;
+  if (contract?.knowledgeSchemaVersion !== 1) return input.source;
+  return input.manager.withMigrationProviderPolicyFence(
+    input.conversationId,
+    input.source.runtime,
+    input.signal,
+    (assertUnqueued) => prepareRetainedRuntimeMigrationFenced(input, assertUnqueued),
+  );
 }

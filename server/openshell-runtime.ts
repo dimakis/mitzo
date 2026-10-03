@@ -1015,7 +1015,7 @@ export class OpenShellRuntimeManager {
   private async serializeProviderPolicy<T>(
     sandboxName: string,
     signal: AbortSignal,
-    operation: () => Promise<T>,
+    operation: (assertUnqueued: () => void) => Promise<T>,
   ): Promise<T> {
     const previous = PROVIDER_POLICY_QUEUES.get(sandboxName) ?? Promise.resolve();
     let release!: () => void;
@@ -1027,12 +1027,30 @@ export class OpenShellRuntimeManager {
     await previous.catch(() => undefined);
     try {
       signal.throwIfAborted();
-      return await operation();
+      return await operation(() => {
+        if (PROVIDER_POLICY_QUEUES.get(sandboxName) !== tail)
+          throw new Error('Migration source provider policy mutation is pending');
+      });
     } finally {
       release();
       if (PROVIDER_POLICY_QUEUES.get(sandboxName) === tail)
         PROVIDER_POLICY_QUEUES.delete(sandboxName);
     }
+  }
+
+  /** Keep source approval writers serialized through the synchronous mapping commit. */
+  async withMigrationProviderPolicyFence<T>(
+    conversationId: string,
+    runtime: OpenShellRuntime,
+    signal: AbortSignal,
+    operation: (assertUnqueued: () => void) => Promise<T>,
+  ): Promise<T> {
+    if (!runtime.sandboxId) throw new Error('Migration source physical identity is missing');
+    return this.serializeProviderPolicy(runtime.sandboxName, signal, async (assertUnqueued) => {
+      await this.ownedSandbox(conversationId, runtime.sandboxId!, signal);
+      assertUnqueued();
+      return operation(assertUnqueued);
+    });
   }
 
   /** Read-only inventory scoped to sandboxes carrying this runtime's provider label. */
@@ -1393,6 +1411,20 @@ export class OpenShellRuntimeManager {
   }
 
   async ensure(
+    ...args: Parameters<OpenShellRuntimeManager['ensureUnserialized']>
+  ): Promise<OpenShellRuntime> {
+    const current = this.nameForConversation(args[0]);
+    const legacy = legacySandboxNameForConversation(
+      createHash('sha256').update(args[0]).digest('hex'),
+    );
+    return this.serializeProviderPolicy(current, args[1], () =>
+      !this.config.sandboxNameOverride && legacy !== current
+        ? this.serializeProviderPolicy(legacy, args[1], () => this.ensureUnserialized(...args))
+        : this.ensureUnserialized(...args),
+    );
+  }
+
+  private async ensureUnserialized(
     conversationId: string,
     signal: AbortSignal,
     expected?: { sandboxName: string; sandboxId: string },
@@ -1600,7 +1632,7 @@ export class OpenShellRuntimeManager {
       throw new Error('Created sandbox identity changed before configuration');
     await this.verifyManagedConnections(name, signal, approvedGrantableProviders);
     if (sandbox && sandbox.phase === 'Ready' && sandbox.labels?.['mitzo.conversation'] === owner) {
-      await this.serializeProviderPolicy(name, signal, async () => {
+      {
         this.config.verifyAccountProviderUnion?.();
         const automatic = automaticProviders();
         const persisted = retained ? this.providerPolicyState.read(name) : undefined;
@@ -1689,7 +1721,7 @@ export class OpenShellRuntimeManager {
         }
         // Clear removal history only after the physical attachment set is confirmed.
         this.providerPolicyState.write(name, { automatic, granted });
-      });
+      }
     }
     if (!sandbox || sandbox.phase !== 'Ready')
       throw new Error(`OpenShell sandbox ${name} is ${sandbox?.phase ?? 'unavailable'}`);

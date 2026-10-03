@@ -44,6 +44,8 @@ export interface RuntimeMigrationAdapters {
     identity: CheckpointIdentity,
     generation: number,
   ): Promise<{ path: string; digest: string }>;
+  /** Synchronous reservation check immediately followed by the ownership transaction. */
+  beforeCommit?(): void;
   capacity?(checkpoint: { path: string; digest: string }): Promise<RuntimeMigrationCapacity>;
   create(name: string): Promise<ArtifactRuntime>;
   attest(candidate: ArtifactRuntime): Promise<void | RuntimePolicyProvenance>;
@@ -192,6 +194,15 @@ export async function migrateRetainedRuntime(input: {
   const advance = (next: Partial<RuntimeMigration>) => {
     record = store.advanceRuntimeMigration(id, binding, record!.generation, next);
   };
+  const verifySourceAuthority = async () => {
+    const current = await adapters.observe(record!.source);
+    if (
+      current.image !== record!.identity.image ||
+      current.policy !== record!.identity.policy ||
+      !sameRuntimePolicyAuthority(record!.sourcePolicyAttestation, current.policyAttestation)
+    )
+      throw new Error('Retained migration source effective policy authority changed');
+  };
   try {
     await adapters.quiescent(record.source);
     if (record.phase === 'observed') {
@@ -202,6 +213,7 @@ export async function migrateRetainedRuntime(input: {
       if (adapters.capacity) advance({ capacity: await adapters.capacity(record.checkpoint!) });
       // Name is committed before the create call; recovery finds this exact candidate,
       // never creates another or deletes the old sandbox after an uncertain call.
+      await verifySourceAuthority();
       const candidate = await adapters.create(record.candidateName);
       if (
         !candidate.runtime.sandboxId ||
@@ -236,6 +248,9 @@ export async function migrateRetainedRuntime(input: {
     if (finalPolicyAttestation) advance({ candidatePolicyAttestation: finalPolicyAttestation });
     // Atomic SQLite transaction records the explicit source-to-target relation and
     // authoritative candidate routing, checking the same thread generation again.
+    await adapters.quiescent(record.source);
+    await verifySourceAuthority();
+    adapters.beforeCommit?.();
     return store.commitRuntimeMigration(id, binding, record.generation);
   } catch (error) {
     // Preserve the entire original sandbox, checkpoint and candidate for inspection.

@@ -74,3 +74,15 @@ sandbox-owned policy source, so metadata or OAuth grant changes cannot retain a
 stale successful observation.
 
 Unknown profiles and unsupported materialization contracts remain visibly blocked.
+
+Source provider approvals remain reserved on the same physical-sandbox policy queue
+used by ensure, grant and revoke until the synchronous ownership transaction completes.
+Ensure also reserves its possible legacy fallback name, covering creation/probe and
+reconciliation writes. Source authority is compared with its immutable observation
+again after capacity work and before candidate inheritance, then after final source
+quiescence and candidate validation. New authority is never silently substituted.
+
+If a policy mutation queues during migration, the synchronous precommit fence blocks
+the mapping switch. The reservation releases in `finally`, delivering that operator
+request against the unchanged source. The original checkpoint and any candidate remain
+available for diagnosis; migration does not detach or regrant permissions automatically.

@@ -201,7 +201,7 @@ it('retries cancellation from its durable phase after backoff without another ca
     expect(await migrateRetainedRuntime(f.input)).toEqual(f.candidate);
     expect(f.adapters.create).toHaveBeenCalledTimes(1);
     expect(f.adapters.restore).toHaveBeenCalledTimes(1);
-    expect(f.adapters.quiescent).toHaveBeenCalledTimes(2);
+    expect(f.adapters.quiescent).toHaveBeenCalledTimes(3);
   } finally {
     vi.mocked(Date.now).mockRestore();
   }
@@ -477,4 +477,55 @@ it('rechecks candidate effective authority after native reattachment and blocks 
   );
   expect(f.store.readArtifactRuntime('chat', binding)).toEqual(f.source);
   expect(f.store.readRuntimeMigration('chat', binding)!.identity.image).toBe('old-digest');
+});
+
+it.each(['capacity', 'validation'])(
+  'source grant revocation during %s preserves origin and cannot commit inherited authority',
+  async (phase) => {
+    const f = fixture();
+    let granted = true;
+    const proof = () => ({
+      basePolicyHash: 'policy',
+      effectivePolicyHash: granted ? 'approved-gws' : 'revoked-gws',
+      providers: [],
+    });
+    f.adapters.observe = vi.fn(async () => ({
+      image: 'old-digest',
+      policy: 'policy',
+      resourceVersion: 'r1',
+      policyAttestation: proof(),
+    }));
+    f.adapters.attest = vi.fn(async () => ({
+      basePolicyHash: 'policy',
+      effectivePolicyHash: 'approved-gws',
+      providers: [],
+    }));
+    if (phase === 'capacity')
+      f.adapters.capacity = vi.fn(async () => {
+        granted = false;
+        return {} as never;
+      });
+    else
+      f.adapters.verifyRestored = vi.fn(async () => {
+        granted = false;
+      });
+    await expect(migrateRetainedRuntime(f.input)).rejects.toThrow(
+      'source effective policy authority changed',
+    );
+    expect(f.store.readArtifactRuntime('chat', binding)).toEqual(f.source);
+    expect(
+      f.store.readRuntimeMigration('chat', binding)?.sourcePolicyAttestation?.effectivePolicyHash,
+    ).toBe('approved-gws');
+    if (phase === 'capacity') expect(f.adapters.create).not.toHaveBeenCalled();
+    else expect(f.store.readRuntimeMigration('chat', binding)?.candidate).toEqual(f.candidate);
+  },
+);
+it('synchronous pending-source-policy fence blocks ownership commit after final asynchronous observation', async () => {
+  const f = fixture();
+  f.adapters.beforeCommit = () => {
+    throw new Error('source provider policy mutation is pending');
+  };
+  await expect(migrateRetainedRuntime(f.input)).rejects.toThrow('mutation is pending');
+  expect(f.store.readArtifactRuntime('chat', binding)).toEqual(f.source);
+  expect(f.store.readRuntimeMigration('chat', binding)?.checkpoint?.digest).toBe('digest');
 });
