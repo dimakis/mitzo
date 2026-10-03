@@ -199,13 +199,11 @@ function AccessDrawer({
   const drawer = useRef<HTMLElement>(null);
   const close = useRef<HTMLButtonElement>(null);
   useEffect(() => {
-    const previous = document.activeElement as HTMLElement | null;
     const overflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
     close.current?.focus();
     return () => {
       document.body.style.overflow = overflow;
-      previous?.focus();
     };
   }, []);
   useEffect(() => {
@@ -267,6 +265,9 @@ function AccessDrawer({
   );
 }
 export function ConnectionsAccessView() {
+  const opener = useRef<HTMLButtonElement | null>(null);
+  const refreshButton = useRef<HTMLButtonElement>(null);
+  const addConnection = useRef<HTMLAnchorElement>(null);
   const [selectedResourceId, setSelectedResourceId] = useState<string | null>(null);
   const [website, setWebsite] = useState<(typeof websiteAccess)[number] | null>(null);
   const [inventory, setInventory] = useState<ConnectionsAccessInventory | null>(null);
@@ -276,6 +277,20 @@ export function ConnectionsAccessView() {
   const selection = inventory
     ? connectionsAccessCards(inventory).find(({ resource }) => resource.id === selectedResourceId)
     : undefined;
+  const drawerOpen = Boolean(selection || website);
+  useEffect(() => {
+    if (drawerOpen || !opener.current) return;
+    if (!opener.current.isConnected && loading) return;
+    // The page is no longer inert. Preserve the click target even when opening
+    // the drawer caused the browser to blur it before the drawer mounted.
+    const target = opener.current.isConnected
+      ? opener.current
+      : refreshButton.current && !refreshButton.current.disabled
+        ? refreshButton.current
+        : addConnection.current;
+    target?.focus();
+    opener.current = null;
+  }, [drawerOpen, loading]);
   useEffect(() => {
     if (selectedResourceId && inventory && !selection) setSelectedResourceId(null);
   }, [selectedResourceId, inventory, selection]);
@@ -303,16 +318,13 @@ export function ConnectionsAccessView() {
   }, [attempt]);
   return (
     <>
-      <main
-        className="workspace-page connections-access-page"
-        inert={Boolean(selection || website)}
-      >
+      <main className="workspace-page connections-access-page" inert={drawerOpen}>
         <div className="access-page-heading">
           <WorkspacePageHeading
             title="Connections"
             description="Accounts and services for Mitzo. Choose an account inside a chat."
           />
-          <Link className="access-add-connection" to="/connections">
+          <Link ref={addConnection} className="access-add-connection" to="/connections">
             <span aria-hidden="true">+</span> Add connection
           </Link>
         </div>
@@ -332,7 +344,12 @@ export function ConnectionsAccessView() {
           <p role="status">{inventory ? 'Refreshing access…' : 'Loading connections & access…'}</p>
         )}
         {inventory && (
-          <button className="workspace-text-link" disabled={loading} onClick={refresh}>
+          <button
+            ref={refreshButton}
+            className="workspace-text-link"
+            disabled={loading}
+            onClick={refresh}
+          >
             Refresh access
           </button>
         )}
@@ -390,7 +407,10 @@ export function ConnectionsAccessView() {
                         <button
                           className="access-row-action"
                           aria-label={`Manage ${resource.label}`}
-                          onClick={() => setSelectedResourceId(resource.id)}
+                          onClick={(event) => {
+                            opener.current = event.currentTarget;
+                            setSelectedResourceId(resource.id);
+                          }}
                         >
                           Manage <span aria-hidden="true">›</span>
                         </button>
@@ -427,7 +447,10 @@ export function ConnectionsAccessView() {
                 <button
                   className="access-row-action"
                   aria-label={`View ${item.label}`}
-                  onClick={() => setWebsite(item)}
+                  onClick={(event) => {
+                    opener.current = event.currentTarget;
+                    setWebsite(item);
+                  }}
                 >
                   View <span aria-hidden="true">›</span>
                 </button>

@@ -485,6 +485,51 @@ it('traps keyboard focus, dismisses with Escape and restores the row trigger', a
   expect(document.activeElement).toBe(trigger);
 });
 
+it.each(['Manage Personal account', 'View Public page reads'])(
+  'returns focus to %s after pointer opening without moving focus to the trigger',
+  async (name) => {
+    vi.mocked(getConnectionsAccess).mockResolvedValue(linkedFacets());
+    render(
+      <MemoryRouter>
+        <ConnectionsAccessView />
+      </MemoryRouter>,
+    );
+    await screen.findByRole('article', { name: 'Personal account' });
+    const trigger = screen.getByRole('button', { name });
+    // Pointer activation need not focus a button before its click handler runs.
+    screen.getByRole('button', { name: 'Refresh access' }).focus();
+    fireEvent.click(trigger);
+    fireEvent.keyDown(screen.getByRole('button', { name: 'Close details' }), { key: 'Escape' });
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(document.activeElement).toBe(trigger);
+  },
+);
+
+it('returns focus to an attached page control when refresh removes the drawer opener', async () => {
+  let recover!: (value: ConnectionsAccessInventory) => void;
+  vi.mocked(getConnectionsAccess)
+    .mockResolvedValueOnce(linkedFacets())
+    .mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          recover = resolve;
+        }),
+    );
+  render(
+    <MemoryRouter>
+      <ConnectionsAccessView />
+    </MemoryRouter>,
+  );
+  const trigger = await screen.findByRole('button', { name: 'Manage Personal account' });
+  fireEvent.click(screen.getByRole('button', { name: 'Refresh access' }));
+  trigger.focus();
+  fireEvent.click(trigger);
+  await act(async () => recover({ generatedAt: 2, sources: [], resources: [] }));
+  expect(screen.queryByRole('dialog')).toBeNull();
+  expect(trigger.isConnected).toBe(false);
+  expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Refresh access' }));
+});
+
 it('keeps technical identifiers collapsed until details are requested', async () => {
   vi.mocked(getConnectionsAccess).mockResolvedValue(linkedFacets());
   render(
