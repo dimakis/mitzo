@@ -80,6 +80,52 @@ function show(path = '/notifications') {
   );
 }
 describe('Notifications experience', () => {
+  it.each([true, false])(
+    'marks a directly linked update read after loading (in current page: %s)',
+    async (inPage) => {
+      let read = false;
+      const update = {
+        ...pending,
+        id: 'turn:s1:99',
+        kind: 'session',
+        permId: undefined,
+        request: undefined,
+      };
+      vi.mocked(apiFetch).mockImplementation(async (url, options) => {
+        if (String(url).endsWith('/read') && options?.method === 'POST') {
+          read = true;
+          return new Response(JSON.stringify({ ok: true }));
+        }
+        const item = { ...update, readAt: read ? Date.now() : null };
+        return new Response(
+          JSON.stringify(
+            String(url).includes('?')
+              ? {
+                  items: inPage ? [item] : [],
+                  needsYou: 0,
+                  total: inPage ? 1 : 0,
+                  preferences: prefs,
+                  delivery: { configured: false, registeredDevices: 0 },
+                }
+              : item,
+          ),
+        );
+      });
+      show('/notifications?item=turn:s1:99');
+      await waitFor(() =>
+        expect(apiFetch).toHaveBeenCalledWith(
+          '/api/notifications/turn%3As1%3A99/read',
+          expect.objectContaining({ method: 'POST' }),
+        ),
+      );
+      expect(
+        vi.mocked(apiFetch).mock.calls.filter(([url]) => String(url).endsWith('/read')),
+      ).toHaveLength(1);
+      expect(vi.mocked(apiFetch).mock.calls.some(([url]) => String(url).endsWith('/respond'))).toBe(
+        false,
+      );
+    },
+  );
   it('shows real request details and only one-shot approval from the notification center', async () => {
     show();
     fireEvent.click(await screen.findByRole('button', { name: 'Review request' }));

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import type {
   MitzoNotification,
@@ -326,6 +326,7 @@ export function NotificationsView() {
   const [notice, setNotice] = useState('');
   const [actionError, setActionError] = useState('');
   const [busy, setBusy] = useState(false);
+  const readRequests = useRef(new Set<string>());
   const id = params.get('item');
   const feed = notifications?.feed;
   const fromFeed = feed?.items.find((item) => item.id === id);
@@ -354,6 +355,21 @@ export function NotificationsView() {
       cancelled = true;
     };
   }, [id, fromFeed, feed]);
+  const mutate = notifications?.mutate;
+  useEffect(() => {
+    if (
+      !mutate ||
+      !id ||
+      selected?.id !== id ||
+      selected.readAt !== null ||
+      readRequests.current.has(id)
+    )
+      return;
+    readRequests.current.add(id);
+    void mutate(`/${encodeURIComponent(id)}/read`).catch(() => {
+      readRequests.current.delete(id);
+    });
+  }, [id, selected, mutate]);
   if (!notifications) return null;
   async function act(path: string, body?: unknown, method?: string) {
     setBusy(true);
@@ -512,7 +528,6 @@ export function NotificationsView() {
                           setSelected(item);
                           setParams({ item: item.id });
                           setActionError('');
-                          if (!item.readAt) void act(`/${encodeURIComponent(item.id)}/read`);
                         }}
                       >
                         {actionable(item)
