@@ -531,6 +531,82 @@ describe('newSession', () => {
 });
 
 describe('reconnect recovery', () => {
+  it('restores a replacement snapshot when the previously streaming reply completes during restore', async () => {
+    const transport = mockTransport();
+    let resolveRestore!: (value: unknown) => void;
+    (transport.fetch as ReturnType<typeof vi.fn>).mockImplementation((url: string) => {
+      if (url.includes('throughSeq=7'))
+        return new Promise((resolve) => {
+          resolveRestore = resolve;
+        });
+      return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
+    });
+    const store = createReadyStore(transport);
+    await store.getState().switchSession('sess-1');
+    lastWs.simulateMessage({
+      type: 'message_start',
+      sessionId: 'sess-1',
+      messageId: 'reply',
+      seq: 1,
+    });
+    lastWs.simulateMessage({
+      type: 'block_start',
+      sessionId: 'sess-1',
+      messageId: 'reply',
+      blockId: 'text',
+      blockType: 'text',
+      seq: 2,
+    });
+    lastWs.simulateMessage({
+      type: 'block_delta',
+      sessionId: 'sess-1',
+      messageId: 'reply',
+      blockId: 'text',
+      delta: 'reply text',
+      seq: 3,
+    });
+    expect(store.getState().messages.current?.messageId).toBe('reply');
+    lastWs.simulateMessage({
+      type: 'session_reconnect_snapshot',
+      sessionId: 'sess-1',
+      cursor: 7,
+      cursorValid: false,
+      state: 'running',
+    });
+    lastWs.simulateMessage({
+      type: 'message_end',
+      sessionId: 'sess-1',
+      messageId: 'reply',
+      seq: 8,
+    });
+    lastWs.simulateMessage({ type: 'session_end', sessionId: 'sess-1', seq: 9 });
+    resolveRestore({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          messages: [
+            {
+              messageId: 'input',
+              role: 'user',
+              blocks: [{ blockId: 'input-text', blockType: 'text', content: 'hello' }],
+            },
+          ],
+          current: {
+            messageId: 'reply',
+            blocks: [{ blockId: 'text', blockType: 'text', content: 'reply text', done: false }],
+          },
+        }),
+    });
+    await vi.waitFor(() => expect(store.getState().historyLoading).toBe(false));
+    expect(store.getState().historyError).toBeNull();
+    expect(store.getState().messages.messages.map((message) => message.messageId)).toEqual([
+      'input',
+      'reply',
+    ]);
+    expect(store.getState().messages.messages[1].blocks[0].content).toBe('reply text');
+    expect(store.getState().messages.running).toBe(false);
+  });
+
   it('replays a late delta and terminal after a bounded cursor that already includes a follow-up user', async () => {
     const transport = mockTransport();
     let releaseRestore!: (value: unknown) => void;

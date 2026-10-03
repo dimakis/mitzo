@@ -387,10 +387,11 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
                         .filter(
                           (m) =>
                             s.messages.current === initialCurrent ||
+                            !s.messages.current ||
                             messageIdentity(m.messageId, m.symposiumProvenance) !==
                               messageIdentity(
-                                s.messages.current!.messageId,
-                                s.messages.current!.symposiumProvenance,
+                                s.messages.current.messageId,
+                                s.messages.current.symposiumProvenance,
                               ),
                         )
                         .map((m) =>
