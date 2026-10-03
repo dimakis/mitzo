@@ -533,21 +533,39 @@ export function SymposiumConversation({
     const fingerprint = `${identity}:${action}`;
     const key = deliveryStore.retryKeys.get(fingerprint) ?? crypto.randomUUID();
     if (action !== 'send') deliveryStore.retryKeys.set(fingerprint, key);
+    const controller = new AbortController();
+    let deadline: ReturnType<typeof setTimeout> | undefined;
     try {
-      await readJson(
-        `${base}/deliveries/${encodeURIComponent(deliveryId)}/${action === 'approve' ? 'interventions' : action === 'send' ? 'dispatch' : 'cancel'}`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(
-            action === 'approve'
-              ? { action: 'approve', idempotencyKey: key }
-              : action === 'stop'
-                ? { reason: 'Stopped from conversation', idempotencyKey: key }
-                : {},
-          ),
-        },
-      );
+      // Send and cancellation can await native work. Bound the complete response
+      // read while retaining the action's original identity after an uncertain wait.
+      await Promise.race([
+        readJson(
+          `${base}/deliveries/${encodeURIComponent(deliveryId)}/${action === 'approve' ? 'interventions' : action === 'send' ? 'dispatch' : 'cancel'}`,
+          {
+            method: 'POST',
+            signal: controller.signal,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(
+              action === 'approve'
+                ? { action: 'approve', idempotencyKey: key }
+                : action === 'stop'
+                  ? { reason: 'Stopped from conversation', idempotencyKey: key }
+                  : {},
+            ),
+          },
+        ),
+        new Promise<never>((_, reject) => {
+          deadline = setTimeout(
+            () => {
+              reject(
+                new Error('The action request timed out; its saved outcome remains unconfirmed.'),
+              );
+              controller.abort();
+            },
+            action === 'approve' ? 30_000 : 5 * 60 * 1000,
+          );
+        }),
+      ]);
       deliveryStore.retryKeys.delete(fingerprint);
       setDeliveryActions((old) => ({
         ...old,
@@ -595,6 +613,7 @@ export function SymposiumConversation({
       if (sessionEpoch.current === epoch)
         window.dispatchEvent(new Event('symposium-deliveries-changed'));
     } finally {
+      if (deadline !== undefined) clearTimeout(deadline);
       deliveryStore.activeActions.delete(actionIdentity);
     }
   };

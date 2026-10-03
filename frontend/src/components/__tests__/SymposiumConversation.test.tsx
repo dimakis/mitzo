@@ -1772,3 +1772,116 @@ it('settles a pending excerpt for its original session without closing the new s
   );
   events.mockRestore();
 });
+it.each([
+  ['approve', 'transport'],
+  ['approve', 'body'],
+  ['send', 'transport'],
+  ['send', 'body'],
+  ['stop', 'transport'],
+  ['stop', 'body'],
+] as const)(
+  'bounds a stalled %s %s across keyed navigation and preserves safe explicit retry identity',
+  async (action, stallAt) => {
+    const suffix =
+      action === 'approve' ? '/interventions' : action === 'send' ? '/dispatch' : '/cancel';
+    const label =
+      action === 'approve'
+        ? 'Approve delivery to Architect, Reviewer'
+        : action === 'send'
+          ? 'Send to Architect, Reviewer'
+          : 'Stop delivery to Architect, Reviewer';
+    const timeout = action === 'approve' ? 30_000 : 5 * 60 * 1000;
+    const requests: { body: Record<string, unknown>; signal: AbortSignal | null | undefined }[] =
+      [];
+    const finish: ((value: unknown) => void)[] = [];
+    navigation.active = 'session';
+    vi.mocked(apiFetch).mockImplementation(async (url, init) => {
+      if (String(url).endsWith(suffix) && init?.method === 'POST') {
+        requests.push({ body: JSON.parse(String(init.body)), signal: init.signal });
+        const stalled = new Promise<unknown>((resolve) => finish.push(resolve));
+        return stallAt === 'transport'
+          ? (stalled as Promise<Response>)
+          : ({ ok: true, json: () => stalled } as Response);
+      }
+      return json(
+        String(url).endsWith('/status')
+          ? {
+              ...status,
+              sessionId: String(url).split('/')[3],
+              runtimeAvailable: true,
+              deliveries: [
+                directedDelivery(action === 'approve' ? 'awaiting_intervention' : 'ready'),
+              ],
+            }
+          : String(url).includes('/perspectives')
+            ? page
+            : [],
+      );
+    });
+    const view = render(<ResponsiveChatView />);
+    fireEvent.click(await screen.findByRole('tab', { name: 'Reviewer' }));
+    vi.useFakeTimers();
+    fireEvent.click(screen.getByRole('button', { name: label }));
+    await act(async () => {});
+    const store = vi.mocked(getSymposiumDeliveryActions).mock.results.at(-1)!.value as ReturnType<
+      typeof createSymposiumDeliveryActions
+    >;
+    const identity = '/api/sessions/session/symposium:review-delivery';
+    const actionIdentity = `${identity}:${action}`;
+    expect(store.activeActions.has(actionIdentity)).toBe(true);
+    navigation.active = 'other';
+    view.rerender(<ResponsiveChatView />);
+    await act(async () => {});
+    const events = vi.spyOn(window, 'dispatchEvent');
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(timeout - 1);
+    });
+    expect(store.activeActions.has(actionIdentity)).toBe(true);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1);
+    });
+    expect(requests[0].signal?.aborted).toBe(true);
+    expect(store.activeActions.has(actionIdentity)).toBe(false);
+    expect(store.snapshot()[identity][action]).toBe(false);
+    expect(events.mock.calls.some(([event]) => event.type === 'symposium-deliveries-changed')).toBe(
+      false,
+    );
+    events.mockRestore();
+    expect(requests).toHaveLength(1);
+    vi.useRealTimers();
+    navigation.active = 'session';
+    view.rerender(<ResponsiveChatView />);
+    fireEvent.click(await screen.findByRole('tab', { name: 'Reviewer' }));
+    const button = screen.getByRole('button', { name: label });
+    if (action === 'send') {
+      expect(button.hasAttribute('disabled')).toBe(true);
+      expect(store.dispatchRequests.has(identity)).toBe(true);
+      expect(store.snapshot()[identity].dispatchUncertain).toBe(true);
+      const notice = store.snapshot()[identity].notice;
+      fireEvent.click(button);
+      expect(requests).toHaveLength(1);
+      await act(async () => finish[0](stallAt === 'transport' ? json({}) : {}));
+      expect(store.snapshot()[identity].notice).toBe(notice);
+      expect(store.dispatchRequests.has(identity)).toBe(true);
+      expect(
+        screen
+          .getByRole('button', { name: 'Stop delivery to Architect, Reviewer' })
+          .hasAttribute('disabled'),
+      ).toBe(false);
+    } else {
+      expect(button.hasAttribute('disabled')).toBe(false);
+      expect(store.retryKeys.get(actionIdentity)).toBe(requests[0].body.idempotencyKey);
+      fireEvent.click(button);
+      await waitFor(() => expect(requests).toHaveLength(2));
+      expect(requests[1].body).toEqual(requests[0].body);
+      expect(store.activeActions.has(actionIdentity)).toBe(true);
+      await act(async () => finish[0](stallAt === 'transport' ? json({}) : {}));
+      expect(store.activeActions.has(actionIdentity)).toBe(true);
+      expect(store.snapshot()[identity][action]).toBe(true);
+      expect(store.retryKeys.get(actionIdentity)).toBe(requests[0].body.idempotencyKey);
+      await act(async () => finish[1](stallAt === 'transport' ? json({}) : {}));
+      expect(store.activeActions.has(actionIdentity)).toBe(false);
+      expect(store.retryKeys.has(actionIdentity)).toBe(false);
+    }
+  },
+);
