@@ -7,6 +7,8 @@ import {
   rmSync,
   writeFileSync,
   existsSync,
+  readFileSync,
+  symlinkSync,
 } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -54,19 +56,91 @@ function fixture() {
   ])
     mkdirSync(dir, { mode: 0o700 });
   const stateParent = join(root, 'state');
-  writeFileSync(
-    plan.configPath,
-    JSON.stringify({
-      gateway: { stateParent },
-      podman: { environment: { HOME: join(root, 'podman') } },
-      runtime: { seed: join(root, 'seed') },
-    }),
-    { mode: 0o600 },
-  );
+  const inputFile = (name: string) => {
+    const dir = join(root, name);
+    mkdirSync(dir, { mode: 0o700 });
+    const path = join(dir, 'input');
+    writeFileSync(path, 'synthetic only', { mode: 0o600 });
+    return path;
+  };
+  const digest = 'a'.repeat(64);
+  const config = {
+    gateway: {
+      stateParent,
+      executable: inputFile('gateway-executable'),
+      executableSha256: digest,
+      cliExecutable: inputFile('gateway-cli'),
+      cliSha256: digest,
+      systemCaBundle: inputFile('system-ca'),
+      gateway: 'test',
+      workspace: 'test',
+      port: 18991,
+      podmanSocket: inputFile('podman-socket'),
+      network: 'test',
+      workloadImage: 'sha256:a5a5302f2443c02f24506248883b9d22f070f58b288f898ac69a547b653e2161',
+      sandboxRuntimeImage: `sha256:${digest}`,
+      supervisorImage: `sha256:${digest}`,
+      tls: {
+        serverCert: inputFile('tls-server-cert'),
+        serverKey: inputFile('tls-server-key'),
+        clientCa: inputFile('tls-client-ca'),
+        managementCert: inputFile('tls-management-cert'),
+        managementKey: inputFile('tls-management-key'),
+      },
+      jwt: {
+        signingKey: inputFile('jwt-signing-key'),
+        publicKey: inputFile('jwt-public-key'),
+        kid: inputFile('jwt-kid'),
+      },
+      upstreamProxy: {
+        url: 'http://127.0.0.1:8118',
+        caBundle: inputFile('upstream-ca'),
+        caBundleSha256: digest,
+      },
+    },
+    attestationPath: join(root, 'pending-attestation.json'),
+    podman: {
+      executable: inputFile('podman-executable'),
+      environment: {
+        HOME: join(root, 'podman'),
+        PATH: '/usr/bin:/bin',
+        XDG_CONFIG_HOME: join(root, 'podman-xdg'),
+      },
+      sandboxNamespace: 'test',
+    },
+    runtime: {
+      seed: join(root, 'seed'),
+      policy: inputFile('runtime-policy'),
+      createDetached: true,
+      sandboxIdLength: 13,
+    },
+    personal: {
+      workProfiles: [
+        {
+          id: 'vertex',
+          label: 'Vertex',
+          provider: 'anthropic-vertex',
+          credentialRef: inputFile('vertex-reference'),
+          expectedPrincipal: 'synthetic@example.com',
+          projectId: 'synthetic-project',
+          region: 'global',
+          models: [{ id: 'claude-haiku-4-5@20251001', label: 'Synthetic fixture only' }],
+        },
+      ],
+      accountId: 'synthetic',
+      label: 'Synthetic',
+      selectedModel: 'luna',
+      models: [{ id: 'luna', label: 'Luna' }],
+    },
+    artifacts: [],
+    providerProfiles: [{ path: inputFile('provider-profile'), sha256: digest }],
+  };
+  mkdirSync(config.podman.environment.XDG_CONFIG_HOME, { mode: 0o700 });
+  writeFileSync(plan.configPath, JSON.stringify(config), { mode: 0o600 });
   mkdirSync(stateParent, { mode: 0o700 });
   const gatewayStateDirectory = join(stateParent, 'gateway');
   mkdirSync(gatewayStateDirectory, { mode: 0o700 });
-  return { root, plan, registration, stateParent, gatewayStateDirectory };
+  return { root, plan, registration, stateParent, gatewayStateDirectory, config };
 }
 it('reserves before original launch intent and records same-owner replacement through terminal retirement', async () => {
   const f = fixture();
@@ -334,3 +408,78 @@ it.each([false, true])(
     r.close();
   },
 );
+
+it.each([
+  'runtime-policy',
+  'provider-profile',
+  'tls-server-cert',
+  'tls-server-key',
+  'tls-client-ca',
+  'tls-management-cert',
+  'tls-management-key',
+  'jwt-signing-key',
+  'jwt-public-key',
+  'jwt-kid',
+  'gateway-executable',
+  'gateway-cli',
+  'system-ca',
+  'upstream-ca',
+  'vertex-reference',
+  'podman-executable',
+  'podman-socket',
+  'podman-xdg',
+])('rejects registry containing configured %s input without any side effects', async (input) => {
+  const f = fixture();
+  const registryDirectory = join(f.root, input);
+  const claim = vi.fn();
+  const run = vi.fn(async () => {});
+  await expect(
+    launchStagingCustodian(
+      f.plan,
+      { ...f.registration, registryDirectory },
+      { verify() {}, claim, run },
+    ),
+  ).rejects.toThrow('overlap');
+  expect(claim).not.toHaveBeenCalled();
+  expect(run).not.toHaveBeenCalled();
+  expect(existsSync(join(registryDirectory, 'staging.db'))).toBe(false);
+});
+it('rejects a registry containing the canonical target of a configured input alias', async () => {
+  const f = fixture();
+  const registryDirectory = join(f.root, 'aliased-input');
+  mkdirSync(registryDirectory, { mode: 0o700 });
+  const target = join(registryDirectory, 'policy');
+  writeFileSync(target, 'synthetic', { mode: 0o600 });
+  const alias = join(f.root, 'policy-alias');
+  symlinkSync(target, alias);
+  f.config.runtime.policy = alias;
+  writeFileSync(f.plan.configPath, JSON.stringify(f.config), { mode: 0o600 });
+  const claim = vi.fn();
+  await expect(
+    launchStagingCustodian(
+      f.plan,
+      { ...f.registration, registryDirectory },
+      { verify() {}, claim, async run() {} },
+    ),
+  ).rejects.toThrow('overlap');
+  expect(claim).not.toHaveBeenCalled();
+  expect(existsSync(join(registryDirectory, 'staging.db'))).toBe(false);
+  expect(readFileSync(target, 'utf8')).toBe('synthetic');
+});
+it('rejects a registry containing the future attestation target', async () => {
+  const f = fixture();
+  const directory = join(f.root, 'future-attestation');
+  mkdirSync(directory, { mode: 0o700 });
+  f.config.attestationPath = join(directory, 'not-created.json');
+  writeFileSync(f.plan.configPath, JSON.stringify(f.config), { mode: 0o600 });
+  const claim = vi.fn();
+  await expect(
+    launchStagingCustodian(
+      f.plan,
+      { ...f.registration, registryDirectory: directory },
+      { verify() {}, claim, async run() {} },
+    ),
+  ).rejects.toThrow('overlap');
+  expect(claim).not.toHaveBeenCalled();
+  expect(existsSync(join(directory, 'staging.db'))).toBe(false);
+});

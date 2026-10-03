@@ -1,9 +1,10 @@
-import { readFileSync, realpathSync } from 'node:fs';
-import { isAbsolute, relative, sep } from 'node:path';
+import { lstatSync, realpathSync } from 'node:fs';
+import { basename, dirname, isAbsolute, join, relative, sep } from 'node:path';
 import { z } from 'zod';
 import type { OwnedReleasePlan } from './symposium-owned-release.js';
 import type { SymposiumCustodianConstructorHooks } from './symposium-custodian-main.js';
 import { openStagingRegistry } from './symposium-staging-registry.js';
+import { readOwnedSymposiumHostConfig } from './symposium-owned-config-schema.js';
 
 export const StagingLaunchSchema = z.strictObject({
   registryDirectory: z.string().refine(isAbsolute),
@@ -17,14 +18,7 @@ export const StagingLaunchSchema = z.strictObject({
 // the registry must not mutate release inputs or any owner-controlled state tree.
 function rejectRegistryOverlap(plan: OwnedReleasePlan, directory: string) {
   if (realpathSync(directory) !== directory) throw Error('Private registry required');
-  const path = z.string().refine(isAbsolute);
-  const config = z
-    .looseObject({
-      gateway: z.looseObject({ stateParent: path }),
-      podman: z.looseObject({ environment: z.looseObject({ HOME: path }) }),
-      runtime: z.looseObject({ seed: path }),
-    })
-    .parse(JSON.parse(readFileSync(plan.configPath, 'utf8')));
+  const config = readOwnedSymposiumHostConfig(plan.configPath);
   const contains = (parent: string, child: string) => {
     const r = relative(parent, child);
     return r === '' || (r !== '..' && !r.startsWith('..' + sep) && !isAbsolute(r));
@@ -38,7 +32,36 @@ function rejectRegistryOverlap(plan: OwnedReleasePlan, directory: string) {
     config.gateway.stateParent,
     config.podman.environment.HOME,
     config.runtime.seed,
+    config.runtime.policy,
+    config.attestationPath,
+    config.gateway.executable,
+    config.gateway.cliExecutable,
+    config.gateway.systemCaBundle,
+    config.gateway.podmanSocket,
+    ...Object.values(config.gateway.tls),
+    ...Object.values(config.gateway.jwt),
+    ...(config.gateway.upstreamProxy ? [config.gateway.upstreamProxy.caBundle] : []),
+    config.podman.executable,
+    ...(config.podman.environment.XDG_CONFIG_HOME
+      ? [config.podman.environment.XDG_CONFIG_HOME]
+      : []),
+    ...config.providerProfiles.map((profile) => profile.path),
+    ...config.personal.workProfiles.flatMap((profile) =>
+      profile.provider === 'anthropic-vertex' ? [profile.credentialRef] : [],
+    ),
   ];
+  // Public inputs may use symlinks. Future attestation paths may not exist yet;
+  // resolve their nearest existing ancestor without creating files or reading secrets.
+  const canonical = (path: string): string => {
+    try {
+      lstatSync(path);
+    } catch (error) {
+      if (!(error instanceof Error) || !('code' in error) || error.code !== 'ENOENT') throw error;
+      return join(canonical(dirname(path)), basename(path));
+    }
+    return realpathSync(path);
+  };
+  protectedPaths.push(...protectedPaths.map(canonical));
   if (protectedPaths.some((p) => contains(directory, p) || contains(p, directory)))
     throw Error('Staging registry overlaps owned release or state paths');
 }
