@@ -11,6 +11,7 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
+import ts from 'typescript';
 const authEnv = {
   PATH: process.env.PATH,
   AUTH_PASSPHRASE: 'synthetic-offline-passphrase-000000000000',
@@ -27,6 +28,14 @@ function fixture() {
     mkdirSync(join(root, name), { mode: 0o700 });
   writeFileSync(join(root, 'package.json'), '{"type":"module"}');
   cpSync('scripts/start-owned-custodian.mjs', join(root, 'scripts/start-owned-custodian.mjs'));
+  // Exercise the actual shared environment helper in this disposable release,
+  // rather than bypassing its isolation checks with another stub.
+  writeFileSync(
+    join(root, 'dist/symposium-custodian-launch.js'),
+    ts.transpileModule(readFileSync('server/symposium-custodian-launch.ts', 'utf8'), {
+      compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
+    }).outputText,
+  );
   const plan = {
     appHome: root,
     releaseRoot: root,

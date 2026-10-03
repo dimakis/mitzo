@@ -133,16 +133,28 @@ export async function finishCustodianRetirement(
     record(): void;
   },
   signal: AbortSignal,
+  observe?: (state: 'retiring' | 'retired' | 'uncertain') => void,
 ): Promise<void> {
-  deps.begin();
-  const results = await Promise.allSettled([
-    Promise.resolve().then(() => deps.retireRuntimes(signal)),
-    Promise.resolve().then(() => deps.drainHost(signal)),
-  ]);
-  signal.throwIfAborted();
-  if (results.some((result) => result.status === 'rejected'))
-    throw Error('Custodian retirement cleanup remains uncertain');
-  await deps.closeHost(signal);
-  signal.throwIfAborted();
-  deps.record();
+  try {
+    observe?.('retiring');
+    deps.begin();
+    const results = await Promise.allSettled([
+      Promise.resolve().then(() => deps.retireRuntimes(signal)),
+      Promise.resolve().then(() => deps.drainHost(signal)),
+    ]);
+    signal.throwIfAborted();
+    if (results.some((result) => result.status === 'rejected'))
+      throw Error('Custodian retirement cleanup remains uncertain');
+    await deps.closeHost(signal);
+    signal.throwIfAborted();
+    deps.record();
+    observe?.('retired');
+  } catch (error) {
+    try {
+      observe?.('uncertain');
+    } catch {
+      /* Preserve original cleanup failure. */
+    }
+    throw error;
+  }
 }
