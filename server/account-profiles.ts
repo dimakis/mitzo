@@ -198,7 +198,17 @@ export interface AccountSignIn {
 // Profile reloads share proof only for the exact parsed configuration. Keep it
 // process-local and bounded; the catalog never treats this as a login guarantee.
 const signInEvidence = new Map<string, AccountSignIn>();
-const signInValidUntil = new Map<string, number>();
+// Unique tokens remain safe even if bounded tracking evicts an in-flight key:
+// its eventual completion cannot match a later token or repopulate old proof.
+const signInGenerations = new Map<string, symbol>();
+function beginSignInCheck(revision: string): symbol {
+  const generation = Symbol();
+  signInGenerations.delete(revision);
+  signInGenerations.set(revision, generation);
+  while (signInGenerations.size > MAX_SIGN_IN_EVIDENCE)
+    signInGenerations.delete(signInGenerations.keys().next().value!);
+  return generation;
+}
 const SIGN_IN_RETENTION_MS = 60 * 60_000;
 const MAX_SIGN_IN_EVIDENCE = 256;
 
@@ -273,14 +283,13 @@ export class AccountProfiles {
       .filter((account) => account.models.length > 0);
   }
 
-  private recordSignIn(revision: string, evidence: AccountSignIn): void {
+  private recordSignIn(revision: string, evidence: AccountSignIn, generation: symbol): void {
+    if (signInGenerations.get(revision) !== generation) return;
     signInEvidence.delete(revision);
     signInEvidence.set(revision, evidence);
-    if (evidence.status !== 'verified') signInValidUntil.delete(revision);
     while (signInEvidence.size > MAX_SIGN_IN_EVIDENCE) {
       const oldest = signInEvidence.keys().next().value!;
       signInEvidence.delete(oldest);
-      signInValidUntil.delete(oldest);
     }
   }
 
@@ -295,7 +304,6 @@ export class AccountProfiles {
       Date.now() - evidence.checkedAt > SIGN_IN_RETENTION_MS
     ) {
       signInEvidence.delete(profileRevision);
-      signInValidUntil.delete(profileRevision);
       evidence = undefined;
     }
     if (evidence)
@@ -308,7 +316,7 @@ export class AccountProfiles {
           evidence.checkedAt !== null &&
           (Date.now() < evidence.checkedAt ||
             Date.now() - evidence.checkedAt > 5 * 60_000 ||
-            Date.now() >= (signInValidUntil.get(profileRevision) ?? Infinity))
+            Date.now() >= (evidence.expiresAt ?? Infinity))
             ? 'stale'
             : evidence.status,
       };
@@ -344,6 +352,7 @@ export class AccountProfiles {
         .map(async (profile) => {
           if (profile.provider !== 'openai-codex') return;
           const evidence = this.signIn(profile);
+          const generation = beginSignInCheck(evidence.profileRevision);
           const deadline = new AbortController();
           const timer = setTimeout(() => deadline.abort(), this.options.signInTimeoutMs ?? 3_000);
           const checkSignal = AbortSignal.any([signal, deadline.signal]);
@@ -368,26 +377,33 @@ export class AccountProfiles {
               checkSignal,
             );
             checkSignal.throwIfAborted();
-            signInValidUntil.set(evidence.profileRevision, expiresAt);
-            this.recordSignIn(evidence.profileRevision, {
-              ...evidence,
-              status: 'verified',
-              checkedAt: Date.now(),
-              expiresAt,
-              explanation:
-                'Your OpenShell connection is valid. Email and plan come from your account settings; model and tool access are checked separately.',
-            });
+            this.recordSignIn(
+              evidence.profileRevision,
+              {
+                ...evidence,
+                status: 'verified',
+                checkedAt: Date.now(),
+                expiresAt,
+                explanation:
+                  'Your OpenShell connection is valid. Email and plan come from your account settings; model and tool access are checked separately.',
+              },
+              generation,
+            );
           } catch {
-            this.recordSignIn(evidence.profileRevision, {
-              ...evidence,
-              status: 'failed',
-              checkedAt: Date.now(),
-              observedIdentity: null,
-              expiresAt: null,
-              explanation: checkSignal.aborted
-                ? 'Sign-in check timed out or was cancelled. Retry later.'
-                : 'The configured subscription provider and grant could not be verified. Check sign-in and retry.',
-            });
+            this.recordSignIn(
+              evidence.profileRevision,
+              {
+                ...evidence,
+                status: 'failed',
+                checkedAt: Date.now(),
+                observedIdentity: null,
+                expiresAt: null,
+                explanation: checkSignal.aborted
+                  ? 'Sign-in check timed out or was cancelled. Retry later.'
+                  : 'The configured subscription provider and grant could not be verified. Check sign-in and retry.',
+              },
+              generation,
+            );
           } finally {
             clearTimeout(timer);
           }
@@ -534,6 +550,10 @@ export class AccountProfiles {
       | ReturnType<typeof CodexAppServerClient.launchOpenShell>
       | undefined;
     let hostIdentityVerified = false;
+    const hostEvidence = profile.credentialRef ? this.signIn(profile) : undefined;
+    const hostGeneration = hostEvidence
+      ? beginSignInCheck(hostEvidence.profileRevision)
+      : undefined;
     try {
       client = profile.credentialRef
         ? CodexAppServerClient.launch(profile.credentialRef)
@@ -558,15 +578,19 @@ export class AccountProfiles {
         );
       if (profile.credentialRef) {
         hostIdentityVerified = true;
-        const evidence = this.signIn(profile);
-        this.recordSignIn(evidence.profileRevision, {
-          ...evidence,
-          status: 'verified',
-          checkedAt: Date.now(),
-          observedIdentity: { email: profile.email, planType: profile.planType },
-          explanation:
-            'ChatGPT reported this email and plan at the recorded time. Model and tool access are checked separately.',
-        });
+        const evidence = hostEvidence!;
+        this.recordSignIn(
+          evidence.profileRevision,
+          {
+            ...evidence,
+            status: 'verified',
+            checkedAt: Date.now(),
+            observedIdentity: { email: profile.email, planType: profile.planType },
+            explanation:
+              'ChatGPT reported this email and plan at the recorded time. Model and tool access are checked separately.',
+          },
+          hostGeneration!,
+        );
       }
       return await readCodexModels({
         request: (method, params) =>
@@ -574,15 +598,19 @@ export class AccountProfiles {
       });
     } catch (error) {
       if (profile.credentialRef && !hostIdentityVerified) {
-        const evidence = this.signIn(profile);
-        this.recordSignIn(evidence.profileRevision, {
-          ...evidence,
-          status: 'failed',
-          checkedAt: Date.now(),
-          observedIdentity: null,
-          explanation:
-            'The configured ChatGPT email and plan could not be verified. Check sign-in and retry.',
-        });
+        const evidence = hostEvidence!;
+        this.recordSignIn(
+          evidence.profileRevision,
+          {
+            ...evidence,
+            status: 'failed',
+            checkedAt: Date.now(),
+            observedIdentity: null,
+            explanation:
+              'The configured ChatGPT email and plan could not be verified. Check sign-in and retry.',
+          },
+          hostGeneration!,
+        );
       }
       throw error;
     } finally {

@@ -38,7 +38,7 @@ test('shows broker connection evidence, configured identity and access scope sep
               verification: {
                 state: 'unverified',
                 verifiedAt: null,
-                reason: 'Current effective access has not been checked.',
+                reason: 'Effective conversation access has not been checked.',
               },
               access: {
                 summary: 'Configured model catalog',
@@ -75,9 +75,11 @@ test('shows broker connection evidence, configured identity and access scope sep
   await expect(dialog.getByText('Last sign-in check', { exact: true })).toBeVisible();
   await expect(dialog.getByText('Access verification', { exact: true })).toBeVisible();
   await expect(
-    dialog.getByText('Current effective access has not been checked.', { exact: true }),
+    dialog.getByText('Effective conversation access has not been checked.', { exact: true }),
   ).toBeVisible();
   await expect(dialog.getByText('Account', { exact: true })).toHaveCount(0);
+  // Access uncertainty must not contradict the observed provider grant.
+  await expect(dialog.locator('p').filter({ hasText: /sign-in.*not.*checked/i })).toHaveCount(0);
   await page.screenshot({
     path: test.info().outputPath('connections-sign-in.png'),
     fullPage: true,

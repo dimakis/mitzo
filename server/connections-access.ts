@@ -170,8 +170,9 @@ export async function readConnectionsAccess(
         billing: account.billing,
         models: account.models.map((model) => ({ id: model.id, label: model.label })),
       };
-      row.verification.reason =
-        'Configured account profile only. Credential controls are unavailable here; sign-in and effective access have not been checked.';
+      row.verification.reason = account.signIn
+        ? 'Effective conversation access has not been checked.'
+        : 'Configured account profile only. Credential controls are unavailable here; sign-in and effective access have not been checked.';
       result.resources.push(row);
     }
   }

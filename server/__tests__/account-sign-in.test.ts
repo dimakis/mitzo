@@ -231,3 +231,46 @@ it('shares host proof across profile reloads while isolating changed profiles an
   await new AccountProfiles([host], { codexEnabled: true }).refresh(true);
   expect(reloaded.catalog()[0].signIn).toMatchObject({ status: 'failed', observedIdentity: null });
 });
+it.each(['older-failure', 'older-success'] as const)(
+  'preserves the newest cross-instance check when %s finishes last',
+  async (ordering) => {
+    let resolveOlder!: (expiry: number) => void;
+    let rejectOlder!: (error: Error) => void;
+    const olderResult = new Promise<number>((resolve, reject) => {
+      resolveOlder = resolve;
+      rejectOlder = reject;
+    });
+    const expiresAt = Date.now() + 60_000;
+    transport.check.mockImplementationOnce(() => olderResult);
+    const configuration = { ...profile, id: `ordered-${ordering}` };
+    const older = new AccountProfiles([configuration], { codexEnabled: true });
+    const newer = new AccountProfiles([configuration], { codexEnabled: true });
+    const pendingOlder = older.checkSignIn(new AbortController().signal);
+    transport.check.mockImplementationOnce(() =>
+      ordering === 'older-failure'
+        ? Promise.resolve(expiresAt)
+        : Promise.reject(new Error('newer failure')),
+    );
+    await newer.checkSignIn(new AbortController().signal);
+    if (ordering === 'older-failure') rejectOlder(new Error('older failure'));
+    else resolveOlder(expiresAt + 30_000);
+    await pendingOlder;
+    const evidence = new AccountProfiles([configuration], { codexEnabled: true }).catalog()[0]
+      .signIn;
+    expect(evidence?.status).toBe(ordering === 'older-failure' ? 'verified' : 'failed');
+    expect(evidence?.expiresAt).toBe(ordering === 'older-failure' ? expiresAt : null);
+  },
+);
+it('reports sign-in evidence without contradicting it in conversation access verification', async () => {
+  transport.check.mockResolvedValue(Date.now() + 60_000);
+  const accounts = new AccountProfiles([{ ...profile, id: 'verified-inventory-reason' }], {
+    codexEnabled: true,
+  });
+  await accounts.checkSignIn(new AbortController().signal);
+  const inventory = await readConnectionsAccess({ accounts: () => accounts.catalog() });
+  const row = inventory.resources[0];
+  expect(row.signIn?.status).toBe('verified');
+  expect(row.verification.state).toBe('unverified');
+  expect(row.verification.reason).toBe('Effective conversation access has not been checked.');
+  expect(JSON.stringify(row)).not.toMatch(/sign-in[^.]*not been checked/i);
+});
