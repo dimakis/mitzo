@@ -9,6 +9,7 @@ vi.mock('../../lib/api-fetch', () => ({ apiFetch: vi.fn() }));
 afterEach(() => {
   cleanup();
   vi.resetAllMocks();
+  vi.useRealTimers();
 });
 
 const response = (grant: string, revision: number) =>
@@ -296,4 +297,177 @@ it('reloads the grant after a revision conflict', async () => {
   fireEvent.click(await screen.findByRole('button', { name: 'Refresh setting' }));
   await screen.findByRole('button', { name: 'Web search permission: Denied' });
   expect(apiFetch).toHaveBeenCalledTimes(3);
+});
+
+it.each([
+  ['a failed network request', () => Promise.reject(new TypeError('Load failed'))],
+  ['a temporary server failure', () => Promise.resolve({ ok: false, status: 503 } as Response)],
+])('recovers from %s during attachment', async (_name, failure) => {
+  vi.useFakeTimers();
+  vi.mocked(apiFetch).mockImplementationOnce(failure).mockResolvedValue(response('unresolved', 0));
+  render(
+    <WebSearchConsent
+      sessionId="session-1"
+      mode="agent"
+      connected
+      connectionId="owner-1"
+      running={false}
+    />,
+  );
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(2000);
+  });
+  expect(screen.getByRole('button', { name: 'Web search permission: Choose' })).toBeTruthy();
+  expect(apiFetch).toHaveBeenCalledTimes(2);
+});
+
+it('identifies rejected requests without displaying opaque server data', async () => {
+  vi.mocked(apiFetch).mockResolvedValue({ ok: false, status: 403 } as Response);
+  render(
+    <WebSearchConsent
+      sessionId="session-1"
+      mode="agent"
+      connected
+      connectionId="owner-1"
+      running={false}
+    />,
+  );
+  expect((await screen.findByRole('alert')).textContent).toContain(
+    'Web access setting request was rejected (HTTP 403).',
+  );
+  expect(apiFetch).toHaveBeenCalledTimes(1);
+});
+
+it('retries a failed load after the active turn finishes', async () => {
+  vi.mocked(apiFetch)
+    .mockResolvedValueOnce({ ok: false, status: 403 } as Response)
+    .mockResolvedValue(response('unresolved', 0));
+  const props = {
+    sessionId: 'session-1',
+    mode: 'agent' as const,
+    connected: true,
+    connectionId: 'owner-1',
+  };
+  const { rerender } = render(<WebSearchConsent {...props} running />);
+  await screen.findByRole('alert');
+  rerender(<WebSearchConsent {...props} running={false} />);
+  await screen.findByRole('button', { name: 'Web search permission: Choose' });
+  expect(screen.queryByRole('alert')).toBeNull();
+});
+
+it('recovers when the pending load fails just after the active turn finishes', async () => {
+  let complete: (value: Response) => void = () => {};
+  vi.mocked(apiFetch)
+    .mockImplementationOnce(
+      () =>
+        new Promise<Response>((resolve) => {
+          complete = resolve;
+        }),
+    )
+    .mockResolvedValue(response('unresolved', 0));
+  const props = {
+    sessionId: 'session-1',
+    mode: 'agent' as const,
+    connected: true,
+    connectionId: 'owner-1',
+  };
+  const { rerender } = render(<WebSearchConsent {...props} running />);
+  rerender(<WebSearchConsent {...props} running={false} />);
+  await act(async () => {
+    complete({ ok: false, status: 403 } as Response);
+  });
+  await screen.findByRole('button', { name: 'Web search permission: Choose' });
+  expect(apiFetch).toHaveBeenCalledTimes(2);
+});
+
+it('recovers when a refresh of an existing grant fails after turn completion', async () => {
+  let complete: (value: Response) => void = () => {};
+  vi.mocked(apiFetch)
+    .mockResolvedValueOnce(response('denied', 5))
+    .mockImplementationOnce(
+      () =>
+        new Promise<Response>((resolve) => {
+          complete = resolve;
+        }),
+    )
+    .mockResolvedValue(response('allowed', 6));
+  const props = {
+    sessionId: 'session-1',
+    mode: 'agent' as const,
+    connected: true,
+    connectionId: 'owner-1',
+  };
+  const { rerender } = render(<WebSearchConsent {...props} running />);
+  await screen.findByRole('button', { name: 'Web search permission: Denied' });
+  fireEvent.focus(window);
+  expect(apiFetch).toHaveBeenCalledTimes(2);
+  rerender(<WebSearchConsent {...props} running={false} />);
+  await act(async () => {
+    complete({ ok: false, status: 403 } as Response);
+  });
+  await screen.findByRole('button', { name: 'Web search permission: Allowed' });
+  expect(screen.queryByRole('alert')).toBeNull();
+  expect(apiFetch).toHaveBeenCalledTimes(3);
+});
+
+it('distinguishes an invalid response from a connection failure', async () => {
+  vi.mocked(apiFetch).mockResolvedValue({ ok: true, json: async () => ({}) } as Response);
+  render(
+    <WebSearchConsent
+      sessionId="session-1"
+      mode="agent"
+      connected
+      connectionId="owner-1"
+      running={false}
+    />,
+  );
+  expect((await screen.findByRole('alert')).textContent).toContain(
+    'The server returned an invalid web access setting.',
+  );
+});
+
+it('bounds retries when the server cannot be reached', async () => {
+  vi.useFakeTimers();
+  vi.mocked(apiFetch).mockRejectedValue(new TypeError('Load failed'));
+  render(
+    <WebSearchConsent
+      sessionId="session-1"
+      mode="agent"
+      connected
+      connectionId="owner-1"
+      running={false}
+    />,
+  );
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(10000);
+  });
+  expect(apiFetch).toHaveBeenCalledTimes(3);
+  expect(screen.getByRole('alert').textContent).toContain('Cannot reach the server');
+});
+
+it('does not display raw metadata parse errors', async () => {
+  vi.useFakeTimers();
+  vi.mocked(apiFetch)
+    .mockResolvedValueOnce({ status: 404 } as Response)
+    .mockResolvedValueOnce({ status: 404 } as Response)
+    .mockResolvedValueOnce({ status: 404 } as Response)
+    .mockResolvedValueOnce({
+      ok: true,
+      json: async () => {
+        throw new SyntaxError('private response content');
+      },
+    } as unknown as Response);
+  render(
+    <WebSearchConsent
+      sessionId="session-1"
+      mode="agent"
+      connected
+      connectionId="owner-1"
+      running={false}
+    />,
+  );
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(2000);
+  });
+  expect(screen.getByRole('alert').textContent).not.toContain('private response content');
 });
