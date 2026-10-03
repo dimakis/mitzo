@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { reviewerOperations } from '../../lib/symposium-reviewer-operations';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import '@testing-library/jest-dom/vitest';
 import userEvent from '@testing-library/user-event';
@@ -35,6 +36,7 @@ vi.mock('../SymposiumProfilePicker', () => ({
   ),
 }));
 afterEach(() => {
+  reviewerOperations.reset();
   cleanup();
   vi.resetAllMocks();
 });
@@ -78,17 +80,39 @@ function mockRequests({ draft = false, failDelivery = false } = {}) {
       return new Response(JSON.stringify({ binding: { accountId: 'a', model: 'luna' } }));
     if (path.endsWith('/seats/revise')) {
       const body = JSON.parse(String(init?.body));
-      config.seats.push({ id: body.seatId, accountBinding: { accountId: 'a' } });
+      config.revision++;
+      config.seats.push({
+        ...body,
+        id: body.seatId,
+        ...(body.profileSelection
+          ? {
+              profileBinding: {
+                profileId: body.profileSelection.profileId,
+                profileRevision: String(body.profileSelection.revision),
+              },
+            }
+          : {}),
+        accountBinding: { accountId: body.accountId, model: body.model },
+      });
       return new Response(JSON.stringify(config));
     }
-    if (path.endsWith('/config'))
-      return new Response(JSON.stringify(JSON.parse(String(init?.body)).config));
-    if (path.endsWith('/activate'))
-      return new Response(JSON.stringify({ ...config, state: 'active' }));
+    if (path.endsWith('/config')) {
+      Object.assign(config, JSON.parse(String(init?.body)).config);
+      return new Response(JSON.stringify(config));
+    }
+    if (path.endsWith('/activate')) {
+      config.state = 'active';
+      config.revision++;
+      return new Response(JSON.stringify(config));
+    }
     if (path.endsWith('/deliveries') && failDelivery && !failed) {
       failed = true;
       return new Response(JSON.stringify({ error: 'Queue unavailable' }), { status: 503 });
     }
+    if (path.endsWith('/deliveries'))
+      return new Response(
+        JSON.stringify({ ...JSON.parse(String(init?.body)), sessionId: path.split('/')[3] }),
+      );
     return new Response(JSON.stringify({}));
   });
 }
@@ -170,7 +194,7 @@ it('loads a versioned profile as editable guidance with independent session perm
   });
   expect(JSON.parse(String(mutation[1]?.body)).profileSelection).toBeUndefined();
 });
-it('retries a failed queue using the same admitted custom seat and frozen message', async () => {
+it('keeps a failed queue fenced across close and reopen without resending', async () => {
   mockRequests({ failDelivery: true });
   render(<AddAgentSheet sessionId="chat" />);
   await fill();
@@ -179,17 +203,17 @@ it('retries a failed queue using the same admitted custom seat and frozen messag
   expect(screen.getByLabelText('Agent instructions')).toBeDisabled();
   fireEvent.click(screen.getByRole('button', { name: 'Close' }));
   fireEvent.click(screen.getByRole('button', { name: 'Add agent' }));
+  expect(screen.getByRole('button', { name: 'Add agent and queue message' })).toBeDisabled();
+  fireEvent.click(screen.getByRole('button', { name: 'Check saved operation' }));
   await waitFor(() =>
-    expect(screen.getByRole('button', { name: 'Add agent and queue message' })).toBeEnabled(),
+    expect(screen.getByRole('button', { name: 'Check saved operation' })).toBeEnabled(),
   );
-  fireEvent.click(screen.getByRole('button', { name: 'Add agent and queue message' }));
-  await screen.findByText(/Agent added/);
-  const calls = vi.mocked(apiFetch).mock.calls;
-  expect(calls.filter(([url]) => String(url).endsWith('/seats/revise'))).toHaveLength(1);
-  const queued = calls
-    .filter(([url]) => String(url).endsWith('/deliveries'))
-    .map(([, init]) => JSON.parse(String(init?.body)));
-  expect(queued[1]).toEqual(queued[0]);
+  expect(
+    vi.mocked(apiFetch).mock.calls.filter(([url]) => String(url).endsWith('/seats/revise')),
+  ).toHaveLength(1);
+  expect(
+    vi.mocked(apiFetch).mock.calls.filter(([url]) => String(url).endsWith('/deliveries')),
+  ).toHaveLength(1);
 });
 
 it('locks copied guidance during a delayed profile response and permits edits after the copy finishes', async () => {

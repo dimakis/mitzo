@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { reviewerOperations } from '../../lib/symposium-reviewer-operations';
 import { afterEach, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { ResponsiveChatView } from '../ResponsiveChatView';
@@ -28,7 +29,10 @@ vi.mock('../../lib/api-fetch', () => ({
 }));
 vi.mock('../SymposiumProfilePicker', () => ({ SymposiumProfilePicker: () => null }));
 vi.mock('../AccountModelPicker', () => ({ AccountModelPicker: () => null }));
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  reviewerOperations.reset();
+});
 it('switches the complete screen when the viewport crosses the mobile breakpoint', () => {
   vi.mocked(useIsDesktop).mockReturnValue(true);
   const { rerender } = render(<ResponsiveChatView />);
