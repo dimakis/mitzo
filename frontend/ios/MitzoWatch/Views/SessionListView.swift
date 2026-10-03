@@ -9,6 +9,11 @@ struct SessionListView: View {
     var body: some View {
         NavigationStack {
             List {
+                NavigationLink {
+                    WatchNotificationsView().environmentObject(appState)
+                } label: {
+                    Label("Notifications", systemImage: "bell")
+                }
                 // New session
                 NavigationLink {
                     ChatView(sessionId: nil)
@@ -104,5 +109,102 @@ struct SessionRow: View {
         if interval < 3600 { return "\(Int(interval / 60))m ago" }
         if interval < 86400 { return "\(Int(interval / 3600))h ago" }
         return "\(Int(interval / 86400))d ago"
+    }
+}
+
+
+// The paired iPhone owns the authenticated REST connection.
+struct WatchNotificationsView: View {
+    @EnvironmentObject var appState: AppState
+    @State private var feed: NotificationFeed?
+    @State private var error: String?
+    @State private var busy = false
+
+    var body: some View {
+        List {
+            if let error { Text(error).font(.caption).foregroundStyle(.orange) }
+            Button("Refresh") { Task { await refresh() } }.disabled(busy)
+            if let feed {
+                Text("\(feed.needsYou) need you").font(.headline)
+                if feed.items.isEmpty { Text("You're all caught up") }
+                ForEach(feed.items) { item in
+                    NavigationLink {
+                        WatchNotificationDetail(item: item, onDecision: { decision in
+                            try await appState.respondNotification(item, decision: decision)
+                            await refresh()
+                        }).environmentObject(appState)
+                    } label: {
+                        VStack(alignment: .leading) {
+                            Text(item.title).font(.caption).bold()
+                            Text(item.isActionable() ? "Needs you" : item.resolution ?? "Update")
+                                .font(.caption2).foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                if feed.total > feed.items.count {
+                    Text("Latest 10. Full history on iPhone.").font(.caption2)
+                }
+            } else if error == nil { ProgressView() }
+        }
+        .navigationTitle("Notifications")
+        .task { await refresh() }
+    }
+
+    @MainActor private func refresh() async {
+        busy = true
+        defer { busy = false }
+        do { feed = try await appState.loadNotifications(); error = nil }
+        catch { self.error = "Cannot load notifications. Open Mitzo on your iPhone and retry." }
+    }
+}
+
+struct WatchNotificationDetail: View {
+    @EnvironmentObject var appState: AppState
+    @Environment(\.dismiss) private var dismiss
+    let item: MitzoNotification
+    let onDecision: (NotificationResponse.Decision) async throws -> Void
+    @State private var busy = false
+    @State private var error: String?
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 10) {
+                Text(item.title).font(.headline)
+                Text(item.body).font(.caption)
+                if let request = item.request {
+                    if let description = request.description { Text(description).font(.caption) }
+                    Text(request.toolInput).font(.system(.caption2, design: .monospaced))
+                }
+                if let error { Text(error).font(.caption).foregroundStyle(.orange) }
+                TimelineView(.periodic(from: .now, by: 1)) { context in
+                    if item.isActionable(at: context.date.timeIntervalSince1970 * 1000) {
+                        if item.kind == "approval" && item.request?.approvalScope != .conversation {
+                            Text("Applies to this request only.").font(.caption2)
+                            Button("Allow once") { respond(.once) }.disabled(busy)
+                        } else {
+                            Text("Review this request on your iPhone.").font(.caption)
+                        }
+                        Button("Deny", role: .destructive) { respond(.deny) }.disabled(busy)
+                    } else if item.request != nil {
+                        Text(item.resolution ?? "Request expired").font(.caption)
+                    }
+                }
+                if let id = item.sessionId {
+                    NavigationLink("Open session") {
+                        ChatView(sessionId: id).environmentObject(appState)
+                    }
+                }
+            }.padding(.horizontal, 4)
+        }
+        .navigationTitle("Details")
+    }
+
+    private func respond(_ decision: NotificationResponse.Decision) {
+        busy = true
+        Task { @MainActor in
+            defer { busy = false }
+            do { try await onDecision(decision); dismiss() }
+            catch { self.error = "Request changed or iPhone unavailable. Go back and refresh." }
+        }
     }
 }

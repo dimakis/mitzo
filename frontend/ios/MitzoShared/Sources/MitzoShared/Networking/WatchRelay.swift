@@ -51,7 +51,7 @@ public final class WatchRelayHost: NSObject, WCSessionDelegate, Sendable {
     }
 
     public func session(_ session: WCSession, didReceiveMessage message: [String: Any], replyHandler: @escaping ([String: Any]) -> Void) {
-        print("[WatchRelay] Received message: \(message)")
+        print("[WatchRelay] Received relay message")
         guard let type = message["_relay"] as? String else {
             print("[WatchRelay] Missing _relay type, sending error")
             replyHandler(["error": "missing _relay type"])
@@ -68,6 +68,8 @@ public final class WatchRelayHost: NSObject, WCSessionDelegate, Sendable {
             clientMsg = UnsafeSendable(nil)
         }
         let sessionId = message["sessionId"] as? String ?? ""
+        let notificationId = message["notificationId"] as? String ?? ""
+        let decision = NotificationResponse.Decision(rawValue: message["decision"] as? String ?? "")
         let reply = UnsafeSendable(replyHandler)
         let capturedState = state
         let capturedAuthManager = authManager
@@ -116,6 +118,30 @@ public final class WatchRelayHost: NSObject, WCSessionDelegate, Sendable {
                     } else {
                         reply.value(["error": "no_api_client"])
                     }
+
+                case "list_notifications":
+                    guard let api = capturedState.getAPIClient() else {
+                        reply.value(["error": "Open Mitzo on your iPhone first."])
+                        return
+                    }
+                    let feed = try await api.getNotifications()
+                    let data = try JSONEncoder().encode(feed)
+                    // WCSession has a ~64 KB limit. Never truncate approval details.
+                    guard data.count < 55000,
+                          let dict = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                        reply.value(["error": "These details are too large. Review on your iPhone."])
+                        return
+                    }
+                    reply.value(["_payload": dict])
+
+                case "respond_notification":
+                    guard let api = capturedState.getAPIClient(), let decision, !sessionId.isEmpty else {
+                        reply.value(["error": "Cannot respond. Open Mitzo on your iPhone."])
+                        return
+                    }
+                    try await api.respondNotification(id: notificationId, response:
+                        NotificationResponse(sessionId: sessionId, decision: decision))
+                    reply.value(["ok": true])
 
                 case "auth_token":
                     if let token = try? await capturedAuthManager.getToken() {
@@ -349,6 +375,33 @@ public final class WatchRelayClient: NSObject, WCSessionDelegate, Sendable {
 
         let data = try JSONSerialization.data(withJSONObject: payload)
         return try JSONDecoder().decode(SessionsResponse.self, from: data)
+    }
+
+    public func requestNotifications() async throws -> NotificationFeed {
+        let reply = try await notificationRelay(["_relay": "list_notifications"])
+        guard let payload = reply["_payload"] as? [String: Any] else {
+            throw WatchRelayError.invalidResponse
+        }
+        let data = try JSONSerialization.data(withJSONObject: payload)
+        return try JSONDecoder().decode(NotificationFeed.self, from: data)
+    }
+
+    public func respondNotification(id: String, sessionId: String, decision: NotificationResponse.Decision) async throws {
+        let reply = try await notificationRelay(["_relay": "respond_notification",
+            "notificationId": id, "sessionId": sessionId, "decision": decision.rawValue])
+        guard reply["ok"] as? Bool == true else { throw WatchRelayError.invalidResponse }
+    }
+
+    private func notificationRelay(_ message: [String: Any]) async throws -> [String: Any] {
+        guard isPhoneReachable else { throw WatchRelayError.notReachable }
+        let reply = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<[String: Any], Error>) in
+            let cont = UnsafeSendable(continuation)
+            WCSession.default.sendMessage(message,
+                replyHandler: { @Sendable reply in cont.value.resume(returning: UnsafeSendable(reply).value) },
+                errorHandler: { @Sendable error in cont.value.resume(throwing: error) })
+        }
+        if let error = reply["error"] as? String { throw WatchRelayError.relayError(error) }
+        return reply
     }
 
     /// Request auth token from phone
