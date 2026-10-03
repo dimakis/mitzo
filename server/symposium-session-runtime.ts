@@ -1527,6 +1527,7 @@ export interface SymposiumSessionRuntimeDeps extends Omit<
   /** Must come from image/controller attestation; no default launcher is inferred. */
   verifiedCodexControllerCommand?: readonly string[];
   observeDurableReviewToolResult?: import('./symposium-codex-native.js').OpenAiCodexSeatInput['observeDurableReviewToolResult'];
+  readonly observeNativeTurnInput?: boolean;
   observeStartupConfig?: import('./symposium-codex-native.js').OpenAiCodexSeatInput['observeStartupConfig'];
   observePrelaunch?: import('./symposium-codex-native.js').OpenAiCodexSeatInput['observePrelaunch'];
   openNative?: SymposiumOpenShellSeatExecutorDeps['openNative'];
@@ -1807,6 +1808,7 @@ export function createSymposiumSessionRuntime(deps: SymposiumSessionRuntimeDeps)
                     store: deps.codexStore,
                     loadConversationHistory,
                     resolveAttempt,
+                    observeNativeTurnInput: deps.observeNativeTurnInput,
                     profileTools,
                     ...(deps.observePrelaunch
                       ? {
@@ -1837,6 +1839,7 @@ export function createSymposiumSessionRuntime(deps: SymposiumSessionRuntimeDeps)
                       store: deps.codexStore,
                       loadConversationHistory,
                       resolveAttempt,
+                      observeNativeTurnInput: deps.observeNativeTurnInput,
                       profileTools,
                       attemptRegistry: deps.attemptRegistry,
                       verifiedControllerCommand: deps.verifiedSubscriptionControllerCommand,

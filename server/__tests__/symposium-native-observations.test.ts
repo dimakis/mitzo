@@ -238,3 +238,82 @@ it('durably flags conflicting accepted-turn evidence before a completion hook fi
   });
   reopened.close();
 });
+it('persists bounded final input metadata with exact claim and eligibility identity across reopen', () => {
+  const { path, registry } = fixture();
+  const receipt = {
+    version: 1 as const,
+    requestId: 3,
+    commandId: 'claim',
+    threadId: 'thread',
+    inputCount: 1,
+    inputs: [{ type: 'text' as const, utf8Bytes: 12, sha256: 'a'.repeat(64) }],
+    inputUtf8Bytes: 40,
+    inputSha256: 'b'.repeat(64),
+    additionalContext: null,
+    boundary: 'prepared' as const,
+  };
+  registry.observations.recordTurnInput('claim', 'session', identity.provenance, receipt);
+  expect(registry.observations.getTurnInput('claim')).toMatchObject({
+    claimToken: 'claim',
+    sessionId: 'session',
+    seatId: 'writer',
+    ...receipt,
+  });
+  expect(() =>
+    registry.observations.recordTurnInput('claim', 'session', identity.provenance, {
+      ...receipt,
+      commandId: 'other',
+    }),
+  ).toThrow();
+  expect(() =>
+    registry.observations.recordTurnInput('claim', 'session', identity.provenance, {
+      ...receipt,
+      inputs: [{ ...receipt.inputs[0], text: 'RAW-SECRET' }],
+    } as never),
+  ).toThrow();
+  expect(() =>
+    registry.observations.recordTurnInput('claim', 'session', identity.provenance, {
+      ...receipt,
+      boundary: 'write_completed',
+    }),
+  ).toThrow();
+  registry.observations.recordTurnInput('claim', 'session', identity.provenance, {
+    ...receipt,
+    boundary: 'write_queued',
+  });
+  registry.observations.recordTurnInput('claim', 'session', identity.provenance, {
+    ...receipt,
+    boundary: 'write_completed',
+  });
+  const saved = registry.observations.getTurnInput('claim');
+  registry.close();
+  const reopened = new SymposiumAttemptRegistry(path);
+  expect(reopened.observations.getTurnInput('claim')).toEqual(saved);
+  expect(() =>
+    reopened.observations.recordTurnInput('claim', 'session', identity.provenance, {
+      ...receipt,
+      requestId: 4,
+    }),
+  ).toThrow();
+  reopened.close();
+});
+it('links acceptance to original source qualifier ordering without schema reordering', () => {
+  const { registry } = fixture();
+  const provenance = Object.fromEntries(
+    Object.entries(identity.provenance).reverse(),
+  ) as typeof identity.provenance;
+  registry.observations.recordTurnInput('claim', 'session', provenance, {
+    version: 1,
+    requestId: 1,
+    commandId: 'claim',
+    threadId: 'thread',
+    inputCount: 1,
+    inputs: [{ type: 'text', utf8Bytes: 1, sha256: 'a'.repeat(64) }],
+    inputUtf8Bytes: 20,
+    inputSha256: 'b'.repeat(64),
+    additionalContext: null,
+    boundary: 'prepared',
+  });
+  expect(() => registry.observations.accept({ ...identity, provenance })).not.toThrow();
+  registry.close();
+});

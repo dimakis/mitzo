@@ -504,3 +504,79 @@ it('does not consume identity metadata on a retained legacy image', async () => 
   expect(captureLaunchIdentity).not.toHaveBeenCalled();
   await seat.cancel();
 });
+
+it.each([false, true])(
+  'uses only trusted opt-in final input metadata (enabled=%s)',
+  async (enabled) => {
+    const input = await fixture();
+    const frames: Record<string, unknown>[] = [];
+    const child = Object.assign(new EventEmitter(), {
+      stdin: new PassThrough(),
+      stdout: new PassThrough(),
+      stderr: new PassThrough(),
+      kill: vi.fn(),
+    });
+    child.stdin.on('data', (chunk) => {
+      const frame = JSON.parse(chunk.toString());
+      frames.push(frame);
+      if (frame.id)
+        queueMicrotask(() =>
+          child.stdout.write(JSON.stringify({ id: frame.id, result: {} }) + '\n'),
+        );
+    });
+    const recordTurnInput = vi.fn();
+    let rpc!: ReturnType<CodexConversationOptions['createClient']>;
+    const seat = await createChatGptSubscriptionSeat({
+      ...input,
+      observeNativeTurnInput: enabled,
+      attemptRegistry: {
+        launch: () => ({ child, confirmStopped: async () => {} }),
+        observations: { recordTurnInput },
+      } as never,
+      resolveAttempt: () => ({ claimToken: 'claim' }) as never,
+      verifiedControllerCommand: SYMPOSIUM_SUBSCRIPTION_CONTROLLER_COMMAND,
+      createConversation: (opts) => {
+        rpc = opts.createClient({
+          onNotification: vi.fn(),
+          onRequest: async () => ({}),
+          onClose: vi.fn(),
+        });
+        return {
+          initialize: () => rpc.initialize(),
+          getThreadId: () => 'thread',
+          send: vi.fn(),
+          interrupt: vi.fn(),
+          close: () => rpc.close(),
+        };
+      },
+    });
+    await rpc.request('turn/start', {
+      threadId: 'thread',
+      clientUserMessageId: 'claim',
+      input: [{ type: 'text', text: 'PRIVATE-PROMPT' }],
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+    if (enabled) {
+      expect(recordTurnInput.mock.calls.map((call) => call[3].boundary)).toEqual([
+        'prepared',
+        'write_queued',
+        'write_completed',
+      ]);
+      expect(recordTurnInput.mock.calls[0].slice(0, 3)).toEqual([
+        'claim',
+        'symposium',
+        input.execution.provenance,
+      ]);
+      expect(JSON.stringify(recordTurnInput.mock.calls)).not.toContain('PRIVATE-PROMPT');
+      await expect(
+        rpc.request('turn/start', {
+          threadId: 'other',
+          clientUserMessageId: 'claim',
+          input: [{ type: 'text', text: 'PRIVATE-PROMPT' }],
+        }),
+      ).rejects.toThrow('connection');
+      expect(frames.filter((frame) => frame.method === 'turn/start')).toHaveLength(1);
+    } else expect(recordTurnInput).not.toHaveBeenCalled();
+    await seat.cancel();
+  },
+);

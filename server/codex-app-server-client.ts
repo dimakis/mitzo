@@ -1,3 +1,7 @@
+import {
+  summarizeTurnStartFrame,
+  type TurnInputWriteObserver,
+} from './codex-turn-input-receipt.js';
 import { nativeRoutingMessages, type NativeRoutingFailure } from './codex-native-diagnostics.js';
 import {
   validateOpenShellCliEnvironment,
@@ -322,6 +326,7 @@ export class CodexAppServerClient {
   private readonly maxFrameBytes: number;
   private readonly timeoutMs: number;
   private readonly loginOnly: boolean;
+  private readonly observeTurnStartWrite?: TurnInputWriteObserver;
 
   constructor(
     private child: RpcProcess,
@@ -330,9 +335,12 @@ export class CodexAppServerClient {
       maxFrameBytes?: number;
       lifecycle?: CodexLifecycleTransport;
       loginOnly?: boolean;
+      /** Trusted opt-in metadata observer; prepared persistence must succeed before write. */
+      observeTurnStartWrite?: TurnInputWriteObserver;
     } = {},
   ) {
     this.lifecycle = options.lifecycle;
+    this.observeTurnStartWrite = options.observeTurnStartWrite;
     this.loginOnly = options.loginOnly ?? false;
     this.timeoutMs = options.timeoutMs ?? 30_000;
     this.maxFrameBytes = options.maxFrameBytes ?? 4 * 1024 * 1024;
@@ -470,7 +478,39 @@ export class CodexAppServerClient {
 
   private write(value: JsonObject) {
     if (this.closed) throw new CodexTransportError('connection');
-    this.child.stdin.write(JSON.stringify(value) + '\n');
+    const frame = JSON.stringify(value) + '\n';
+    if (!this.observeTurnStartWrite || value.method !== 'turn/start') {
+      this.child.stdin.write(frame);
+      return;
+    }
+    const metadata = summarizeTurnStartFrame(frame);
+    const observe = this.observeTurnStartWrite;
+    observe({ ...metadata, boundary: 'prepared' });
+    let queued = false;
+    let completed = false;
+    let failed = false;
+    const finish = () => {
+      if (!queued || !completed) return;
+      try {
+        observe({ ...metadata, boundary: failed ? 'write_failed' : 'write_completed' });
+      } catch {
+        this.close();
+      }
+    };
+    try {
+      this.child.stdin.write(frame, (error) => {
+        completed = true;
+        failed = Boolean(error);
+        finish();
+        if (error) this.close();
+      });
+    } catch {
+      observe({ ...metadata, boundary: 'write_failed' });
+      throw new CodexTransportError('connection');
+    }
+    observe({ ...metadata, boundary: 'write_queued' });
+    queued = true;
+    finish();
   }
 
   private handleHostRequest(id: string | number, method: string, params: JsonObject) {

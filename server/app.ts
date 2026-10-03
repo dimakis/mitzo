@@ -1054,6 +1054,8 @@ export interface SymposiumProductionHost {
   };
   resolveSeatPolicy?: import('./symposium-owned-seat-policy.js').SymposiumSeatPolicySelector;
   observeDurableReviewToolResult?: import('./symposium-codex-native.js').OpenAiCodexSeatInput['observeDurableReviewToolResult'];
+  /** Private host-only final RPC input metadata; omitted in ordinary production. */
+  readonly observeNativeTurnInput?: boolean;
   observeStartupConfig?: import('./symposium-codex-native.js').OpenAiCodexSeatInput['observeStartupConfig'];
   observePrelaunch?: import('./symposium-codex-native.js').OpenAiCodexSeatInput['observePrelaunch'];
   readNativeObservation?: (
@@ -1219,6 +1221,7 @@ let symposiumRuntimeForSession: (sessionId: string) => SymposiumOrchestrator | n
       profiles: host.currentProfiles(),
       currentProfiles: host.currentProfiles,
       observeDurableReviewToolResult: host.observeDurableReviewToolResult,
+      observeNativeTurnInput: host.observeNativeTurnInput,
       observeStartupConfig: host.observeStartupConfig,
       observePrelaunch: host.observePrelaunch,
       hostGrants: symposiumHostGrants,

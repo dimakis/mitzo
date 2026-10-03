@@ -1,3 +1,4 @@
+import type { TurnInputWriteObserver } from './codex-turn-input-receipt.js';
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import {
   CodexAppServerClient,
@@ -66,7 +67,12 @@ export function createSubscriptionIdentityClient(
   identity: SubscriptionLaunchIdentity,
   claim: string,
   stop: () => Promise<void>,
-  options: { lifecycle?: CodexLifecycleTransport; timeoutMs?: number; signal?: AbortSignal } = {},
+  options: {
+    lifecycle?: CodexLifecycleTransport;
+    timeoutMs?: number;
+    signal?: AbortSignal;
+    observeTurnStartWrite?: TurnInputWriteObserver;
+  } = {},
 ) {
   const client = new CodexAppServerClient(child, options);
   let cleanup: Promise<void> | undefined;
