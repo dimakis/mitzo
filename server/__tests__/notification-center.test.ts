@@ -26,6 +26,36 @@ function setup(devices = () => 1) {
 }
 describe('central notification delivery', () => {
   afterEach(() => vi.useRealTimers());
+  it.each(['resolved', 'expired', 'read'])(
+    'does not send a later batched alert that becomes %s while an earlier push is in flight',
+    async (change) => {
+      vi.useFakeTimers();
+      const { store, center, push } = setup();
+      let finishFirst!: (status: string) => void;
+      push.mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            finishFirst = resolve;
+          }),
+      );
+      center.turnComplete('s1', 100, 'First', 'Tests', true);
+      const later = { ...request, permId: `race-${change}`, expiresAt: Date.now() + 60000 };
+      if (change === 'read') center.turnComplete('s1', 101, 'Later', 'Tests', true);
+      else registerPending(later.permId, 'Bash', vi.fn(), {}, 'elevated', later.sessionId, later);
+      const flushing = center.flush();
+      expect(push).toHaveBeenCalledTimes(1);
+      if (change === 'resolved') resolvePending(later.permId, 'deny');
+      else if (change === 'expired') vi.advanceTimersByTime(60001);
+      else store.markRead('turn:s1:101');
+      finishFirst('accepted');
+      await flushing;
+      expect(push).toHaveBeenCalledTimes(1);
+      expect(store.due()).toHaveLength(0);
+      removePending(later.permId);
+      center.close();
+      store.close();
+    },
+  );
   it.each(['unavailable', 'no-device'])(
     'ages out queued informational pushes after %s without removing feed items',
     async (outage) => {

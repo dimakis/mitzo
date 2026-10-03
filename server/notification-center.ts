@@ -174,7 +174,11 @@ export class NotificationCenter {
     this.flushing = true;
     try {
       if (this.store.reconcilePermissions(hasPending)) this.changed();
-      for (const item of this.store.due()) {
+      for (const queued of this.store.due()) {
+        // An earlier APNs await can allow this batch entry to change underneath us.
+        if (this.store.reconcilePermissions(hasPending)) this.changed();
+        const item = this.store.get(queued.id);
+        if (!item || item.resolvedAt !== null) continue;
         const age = Date.now() - item.createdAt;
         const stale =
           (item.kind === 'session' && age >= COMPLETION_PUSH_MAX_AGE_MS) ||
