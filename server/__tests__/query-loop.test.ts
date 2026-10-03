@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { SessionTransport } from '../../packages/harness/src/session-transport.js';
 import { ConnectionRegistry } from '../../packages/harness/src/connection-registry.js';
 import { runQueryLoop } from '../query-loop.js';
+import * as notificationCenter from '../notification-center.js';
 import { CodexSessionEvents } from '../codex-session-events.js';
 import type { SessionRegistry } from '../session-registry.js';
 import { EventStore } from '../event-store.js';
@@ -140,6 +141,46 @@ describe('runQueryLoop', () => {
     registry = fakeRegistry(transport);
     abortController = new AbortController();
   });
+
+  it.each([
+    { attached: true, watching: false, open: true, unattended: false },
+    { attached: false, watching: false, open: true, unattended: true },
+    { attached: false, watching: true, open: true, unattended: false },
+    { attached: false, watching: true, open: false, unattended: true },
+  ])(
+    'records completion attention state for $attached driver / $watching watcher / $open connection',
+    async ({ attached, watching, open, unattended }) => {
+      const record = vi
+        .spyOn(notificationCenter, 'recordTurnNotification')
+        .mockImplementation(() => {});
+      try {
+        registry = fakeRegistry(transport, { attached });
+        const connRegistry = new ConnectionRegistry();
+        const observer = fakeTransport();
+        observer.isOpen = () => open;
+        connRegistry.register('observer', observer);
+        if (watching) connRegistry.watch('observer', 'sess-notification');
+        await runQueryLoop(
+          eventStream([{ type: 'result', session_id: 'sess-notification' }]),
+          clientId,
+          registry,
+          abortController,
+          undefined,
+          undefined,
+          { connRegistry },
+        );
+        expect(record).toHaveBeenCalledWith(
+          'sess-notification',
+          expect.any(Number),
+          expect.any(String),
+          undefined,
+          unattended,
+        );
+      } finally {
+        record.mockRestore();
+      }
+    },
+  );
 
   it('reports a provider failure before its first event exactly once', async () => {
     const failingStream: AsyncIterable<Record<string, unknown>> = {

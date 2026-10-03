@@ -186,7 +186,8 @@ vi.mock('../codex-chat-session.js', async (importOriginal) => {
   return { ...actual, readCodexQueue: vi.fn(actual.readCodexQueue) };
 });
 
-vi.mock('../permissions.js', () => ({
+vi.mock('../permissions.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../permissions.js')>()),
   resolvePending: vi.fn().mockReturnValue(true),
 }));
 

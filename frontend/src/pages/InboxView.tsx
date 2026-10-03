@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useMitzoStore } from '@mitzo/client/hooks';
 import { ProposalDetail } from '../components/ProposalDetail';
 import { EmptyState } from '../components/EmptyState';
@@ -169,7 +169,12 @@ function InboxCard({
 }
 
 export function InboxView({ desktop = false }: { desktop?: boolean } = {}) {
-  const [selectedFilename, setSelectedFilename] = useState<string | null>(null);
+  const [searchParams] = useSearchParams();
+  const linkedFilename = searchParams.get('item');
+  const [selectedFilename, setSelectedFilename] = useState<string | null>(linkedFilename);
+  useEffect(() => {
+    setSelectedFilename(linkedFilename);
+  }, [linkedFilename]);
   const [actionError, setActionError] = useState<string | null>(null);
   const navigate = useNavigate();
   const [items, setItems] = useState<InboxItem[]>([]);
@@ -328,7 +333,7 @@ export function InboxView({ desktop = false }: { desktop?: boolean } = {}) {
             ),
           )}
         </div>
-        {desktop && (
+        {(desktop || !!linkedFilename) && (
           <section className="collection-inspector" aria-label="Proposal details">
             {selected ? (
               <ProposalDetail

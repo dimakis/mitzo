@@ -89,6 +89,21 @@ describe('initPushNotifications', () => {
     });
   });
 
+  it('preserves inline session replies when completion alerts also have a notification link', async () => {
+    vi.mocked(Capacitor.isNativePlatform).mockReturnValue(true);
+    await initPushNotifications();
+    pushListeners.pushNotificationActionPerformed({
+      actionId: 'REPLY_ACTION',
+      inputValue: 'Continue',
+      notification: { data: { sessionId: 's1', notificationId: 'turn:s1:42' } },
+    });
+    expect(apiFetch).toHaveBeenCalledWith(
+      '/api/push/notification-action',
+      expect.objectContaining({
+        body: JSON.stringify({ sessionId: 's1', actionId: 'REPLY_ACTION', userText: 'Continue' }),
+      }),
+    );
+  });
   it('registers listeners for push events', async () => {
     vi.mocked(Capacitor.isNativePlatform).mockReturnValue(true);
     await initPushNotifications();

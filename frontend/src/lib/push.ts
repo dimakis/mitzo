@@ -1,3 +1,4 @@
+import { notificationTarget, NOTIFICATIONS_REFRESH_EVENT } from './notification-target';
 // Push notification integration for Capacitor iOS. No-op in browser.
 
 import { Capacitor } from '@capacitor/core';
@@ -31,7 +32,7 @@ export async function initPushNotifications(): Promise<void> {
   });
 
   await PushNotifications.addListener('pushNotificationReceived', (_notification) => {
-    // Foreground — WS handles live updates, no action needed
+    window.dispatchEvent(new Event(NOTIFICATIONS_REFRESH_EVENT));
   });
 
   await PushNotifications.addListener(
@@ -40,6 +41,10 @@ export async function initPushNotifications(): Promise<void> {
       const { actionId, inputValue } = action;
       const data = action.notification.data as Record<string, string> | undefined;
       const sessionId = data?.sessionId;
+      if (data?.notificationId && actionId !== 'REPLY_ACTION' && actionId !== 'LATER_ACTION') {
+        window.location.href = notificationTarget(data);
+        return;
+      }
 
       if (sessionId && actionId === 'REPLY_ACTION' && inputValue) {
         // Send reply text to the session, then navigate
