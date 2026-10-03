@@ -1,3 +1,4 @@
+import type { AccountBinding } from '@mitzo/protocol';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -83,7 +84,8 @@ function fixture() {
   const root = mkdtempSync(join(tmpdir(), 'migration-adapter-'));
   roots.push(root);
   const store = new CodexConversationStore(join(root, 'state.db'));
-  const binding = {
+  const binding: AccountBinding = {
+    accountLabel: 'Offline fixture',
     accountId: 'account',
     provider: 'codex',
     model: 'offline',

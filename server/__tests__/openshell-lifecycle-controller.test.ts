@@ -1,3 +1,5 @@
+import type { RuntimeMigration } from '../openshell-runtime-migration.js';
+import type { AccountBinding } from '@mitzo/protocol';
 import { basename, dirname, join } from 'node:path';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -595,7 +597,8 @@ it('repairs a committed migration once and preserves later ordinary thread and p
     },
   )!;
   try {
-    const binding = {
+    const binding: AccountBinding = {
+      accountLabel: 'Offline fixture',
       accountId: 'account',
       provider: 'codex',
       model: 'offline',
@@ -620,7 +623,7 @@ it('repairs a committed migration once and preserves later ordinary thread and p
       runtime: { ...source.runtime, sandboxName: 'candidate', sandboxId: 'new-id' },
     };
     registerOpenShellLifecycle('chat', source.runtime, binding, route, 'original-thread');
-    const record = {
+    const record: RuntimeMigration = {
       generation: 5,
       phase: 'committed' as const,
       threadGeneration: 0,

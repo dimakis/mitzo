@@ -1,3 +1,4 @@
+import type { AccountBinding } from '@mitzo/protocol';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -9,7 +10,8 @@ import {
 } from '../openshell-runtime-migration.js';
 const roots: string[] = [];
 afterEach(() => roots.splice(0).forEach((root) => rmSync(root, { recursive: true, force: true })));
-const binding = {
+const binding: AccountBinding = {
+  accountLabel: 'Offline fixture',
   accountId: 'account',
   provider: 'codex',
   model: 'offline',
