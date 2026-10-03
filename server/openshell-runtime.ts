@@ -477,13 +477,17 @@ export function prepareOpenShellSeed(
 export async function preparePublishedOpenShellSeed(
   config: Pick<OpenShellRuntimeConfig, 'seed' | 'image' | 'seedStackManifest' | 'knowledgeStore'>,
   signal: AbortSignal,
+  beforeFreeze?: (selectedSeed: string) => Promise<void>,
 ): Promise<{ seed: string; cleanup: () => void }> {
   const selection = await config.knowledgeStore?.reconcile(signal);
   signal.throwIfAborted();
-  const prepared = prepareOpenShellSeed({
-    ...config,
-    ...(selection ? { seed: selection.seed } : {}),
-  });
+  // Capacity callers must budget the actual immutable selection before the
+  // host snapshot allocation, then pass that same snapshot to ensure().
+  const selectedConfig = { ...config, seed: selection?.seed ?? config.seed };
+  const selectedSeed = verifiedOpenShellSeed(selectedConfig);
+  await beforeFreeze?.(selectedSeed);
+  signal.throwIfAborted();
+  const prepared = prepareOpenShellSeed({ ...selectedConfig, seed: selectedSeed });
   if (selection) {
     try {
       const baselineBytes = readFileSync(join(prepared.seed, '..', 'baseline.json'));
@@ -1211,6 +1215,7 @@ export class OpenShellRuntimeManager {
     conversationId: string,
     signal: AbortSignal,
     expected?: { sandboxName: string; sandboxId: string },
+    admittedSeed?: { seed: string; cleanup: () => void },
   ): Promise<OpenShellRuntime> {
     const artifactConfig = this.config.artifactDriverConfig;
     if (artifactConfig && (this.config.cliContract !== 'v0.1' || !this.config.verifyArtifactMount))
@@ -1275,7 +1280,7 @@ export class OpenShellRuntimeManager {
     if (!sandbox) {
       const preparedSeed = artifactConfig
         ? { seed: this.config.seed, cleanup: () => undefined }
-        : await preparePublishedOpenShellSeed(this.config, signal);
+        : (admittedSeed ?? (await preparePublishedOpenShellSeed(this.config, signal)));
       const selectedSeed = preparedSeed.seed;
       try {
         created = true;

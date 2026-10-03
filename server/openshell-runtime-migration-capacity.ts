@@ -27,7 +27,7 @@ export function migrationCapacity(
     seedBytes,
     hostFreeBytes,
     vmFreeBytes,
-    hostRequiredBytes: 3 * extractedBound + headroom,
+    hostRequiredBytes: 3 * extractedBound + seedBytes + headroom,
     vmRequiredBytes: 3 * extractedBound + 2 * seedBytes + headroom,
   };
   if (

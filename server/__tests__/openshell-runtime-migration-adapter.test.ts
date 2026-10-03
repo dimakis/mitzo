@@ -1,5 +1,5 @@
 import type { AccountBinding } from '@mitzo/protocol';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it, vi } from 'vitest';
@@ -14,6 +14,11 @@ const mocks = vi.hoisted(() => ({
   launch: vi.fn(),
   containers: new Map<string, string>(),
   candidatePolicy: {} as Record<string, unknown>,
+  preparedSeed: vi.fn(),
+  ensure: vi.fn(),
+}));
+vi.mock('../openshell-runtime.js', () => ({
+  preparePublishedOpenShellSeed: (...args: unknown[]) => mocks.preparedSeed(...args),
 }));
 vi.mock('../openshell-runtime-migration-capacity.js', () => ({
   requireRuntimeMigrationCapacity: vi.fn(async () => ({})),
@@ -72,6 +77,7 @@ vi.mock('../codex-app-server-client.js', () => ({
     },
   },
 }));
+import { requireRuntimeMigrationCapacity } from '../openshell-runtime-migration-capacity.js';
 import { prepareRetainedRuntimeMigration } from '../openshell-runtime-migration-adapter.js';
 const roots: string[] = [];
 afterEach(() => {
@@ -123,17 +129,24 @@ function fixture() {
         policy: name === 'old' ? {} : mocks.candidatePolicy,
         resourceVersion: 'r1',
       }),
-      ensure: async () => {
+      ensure: async (...args: unknown[]) => {
+        mocks.ensure(...args);
         mocks.containers.set('new-id', name);
         return { ...source.runtime, sandboxName: name, sandboxId: 'new-id', resourceVersion: 'r2' };
       },
       verifyKnowledgeRuntime: vi.fn(async () => {}),
     }),
   } as unknown as OpenShellRuntimeManager;
-  mocks.capture.mockImplementation(async (_runtime, directory: string) => ({
-    path: join(directory, 'archive.tar'),
-    digest: 'content-only',
-  }));
+  mocks.capture.mockImplementation(async (_runtime, directory: string) => {
+    mkdirSync(directory, { recursive: true });
+    const path = join(directory, 'archive.tar');
+    writeFileSync(path, 'payload');
+    return { path, digest: 'content-only' };
+  });
+  mocks.preparedSeed.mockImplementation(async (_config, _signal, beforeFreeze) => {
+    await beforeFreeze?.(join(root, 'selected-large'));
+    return { seed: join(root, 'frozen-selected'), cleanup: vi.fn() };
+  });
   mocks.restore.mockResolvedValue(undefined);
   mocks.initialize.mockResolvedValue(undefined);
   mocks.request.mockResolvedValue({
@@ -250,3 +263,46 @@ it('rejects a candidate whose actual policy differs despite matching desired pol
   expect(mocks.launch).not.toHaveBeenCalled();
   expect(f.store.readArtifactRuntime('chat', f.binding)).toEqual(f.source);
 });
+
+it('capacity checks the publisher selection before freezing and ensure uses that exact snapshot', async () => {
+  const f = fixture();
+  f.input.config.seed = '/stale-small';
+  await prepareRetainedRuntimeMigration(f.input);
+  expect(requireRuntimeMigrationCapacity).toHaveBeenCalledWith(
+    expect.objectContaining({ seedDirectory: expect.stringContaining('selected-large') }),
+    expect.any(Function),
+  );
+  expect(mocks.ensure).toHaveBeenCalledWith(
+    'chat',
+    f.input.signal,
+    undefined,
+    expect.objectContaining({ seed: expect.stringContaining('frozen-selected') }),
+  );
+});
+
+it.each(['success', 'failure', 'retry'] as const)(
+  'retains only the immutable checkpoint after disposable probes: %s',
+  async (kind) => {
+    const f = fixture();
+    if (kind !== 'success')
+      mocks.request.mockRejectedValueOnce(
+        Object.assign(new Error('validation timed out'), { name: 'TimeoutError' }),
+      );
+    if (kind === 'success') await prepareRetainedRuntimeMigration(f.input);
+    else {
+      await expect(prepareRetainedRuntimeMigration(f.input)).rejects.toThrow('timed out');
+      if (kind === 'retry') {
+        const record = f.store.readRuntimeMigration('chat', f.binding)!;
+        f.store.advanceRuntimeMigration('chat', f.binding, record.generation, {
+          retryNotBefore: 0,
+        });
+        await prepareRetainedRuntimeMigration(f.input);
+      }
+    }
+    const record = f.store.readRuntimeMigration('chat', f.binding)!;
+    expect(existsSync(record.checkpoint!.path)).toBe(true);
+    const root = join(f.input.privateDirectory, 'runtime-migrations');
+    const conversationRoot = join(root, readdirSync(root)[0]);
+    expect(readdirSync(conversationRoot)).toHaveLength(1);
+  },
+);

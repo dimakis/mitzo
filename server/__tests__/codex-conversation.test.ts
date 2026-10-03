@@ -182,6 +182,7 @@ async function setup(
     context: string,
   ) => void,
   beforeRuntimeAdmission?: (close: () => Promise<void>) => Promise<boolean>,
+  reconnectGuard?: (work: () => Promise<void>) => Promise<void>,
 ) {
   const dir = mkdtempSync(join(tmpdir(), 'mitzo-codex-'));
   const store = existingStore ?? new CodexConversationStore(join(dir, 'private.db'));
@@ -263,6 +264,7 @@ async function setup(
     prepareSystemPrompt,
     onApplicationContextAccepted,
     beforeRuntimeAdmission,
+    reconnectGuard,
     onProviderDispatch,
     onProviderComplete,
     onProviderAccepted,
@@ -2194,4 +2196,31 @@ it('performs ordinary provider fork recovery on a current runtime through the re
     { id: 'failed', status: 'failed' },
     { id: 'resumed', status: 'running' },
   ]);
+});
+
+it('checks current grants before migration admission and keeps revoked work queued', async () => {
+  let allowed = true;
+  const order: string[] = [];
+  const admission = vi.fn(async () => {
+    order.push('migration');
+    return true;
+  });
+  const guard = vi.fn(async (work: () => Promise<void>) => {
+    order.push('grant');
+    if (!allowed) throw new Error('Connection permissions changed');
+    await work();
+  });
+  const args: Parameters<typeof setup> = [];
+  args[15] = admission;
+  args[16] = guard;
+  const { c, requests } = await setup(...args);
+  allowed = false;
+  await expect(c.send({ id: 'revoked', prompt: 'retained' })).rejects.toThrow('permissions');
+  expect(admission).not.toHaveBeenCalled();
+  expect(requests.filter((r) => r.method === 'turn/start')).toHaveLength(0);
+  expect(c.queue()).toMatchObject([{ id: 'revoked', status: 'queued' }]);
+  allowed = true;
+  await c.send({ id: 'later', prompt: 'next' });
+  expect(order.indexOf('grant')).toBeLessThan(order.indexOf('migration'));
+  expect(requests.filter((r) => r.method === 'turn/start')).toHaveLength(1);
 });

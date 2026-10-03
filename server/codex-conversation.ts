@@ -1018,12 +1018,18 @@ export class CodexConversation {
     if (this.opts.beforeRuntimeAdmission && this.binding && !this.active) {
       await this.verifyCurrentBinding(this.binding);
       try {
-        const changed = await this.opts.beforeRuntimeAdmission(async () => {
-          this.transportGeneration += 1;
-          this.ready = false;
-          this.client.close();
-        });
-        if (changed || !this.ready) await this.reconnectBound();
+        const admit = async () => {
+          const changed = await this.opts.beforeRuntimeAdmission!(async () => {
+            this.transportGeneration += 1;
+            this.ready = false;
+            this.client.close();
+          });
+          if (changed || !this.ready) await this.reconnectBound();
+        };
+        // Hold the current grant reservation across migration and reattachment;
+        // validating only afterward could already provision revoked connections.
+        if (this.opts.reconnectGuard) await this.opts.reconnectGuard(admit);
+        else await admit();
       } catch (error) {
         // Admission precedes claimNext: preserve queued FIFO and expose an
         // explicit recovery pause even when only our idle transport was closed.

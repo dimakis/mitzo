@@ -323,10 +323,16 @@ it('refuses knowledge adoption by an incompatible retained runtime before upload
   expect(run.mock.calls.some(([args]) => args.includes('upload'))).toBe(false);
 });
 
-it.each([false, true])(
-  'ordinary ensure uploads the selected dynamic version through phased=%s creation',
-  async (phased) => {
+it.each([
+  { phased: false, admitted: false },
+  { phased: true, admitted: false },
+  { phased: false, admitted: true },
+  { phased: true, admitted: true },
+])(
+  'ordinary ensure uploads the selected dynamic version through phased=$phased admitted=$admitted creation',
+  async ({ phased, admitted }) => {
     const config = publication();
+    const originalSeed = config.seed;
     let receipt: Record<string, unknown> | undefined;
     let snapshot = '';
     const run = vi.fn(async (args: readonly string[]) => {
@@ -357,7 +363,7 @@ it.each([false, true])(
           phase: 'Ready',
           labels,
         };
-        writeFileSync(join(config.seed, 'memory/example.md'), 'Later B while create is in flight');
+        writeFileSync(join(originalSeed, 'memory/example.md'), 'Later B while create is in flight');
         if (!phased) {
           snapshot = args[args.indexOf('--upload') + 1].split(':')[0];
           expect(snapshot).not.toBe(config.seed);
@@ -387,9 +393,24 @@ it.each([false, true])(
       },
       run,
     );
+    const prepared = admitted
+      ? await preparePublishedOpenShellSeed(config, new AbortController().signal)
+      : undefined;
+    if (admitted) {
+      config.seed = '/stale-unavailable-seed';
+      Object.assign(config, {
+        knowledgeStore: {
+          id: 'mgmt',
+          reconcile: vi.fn(() => {
+            throw new Error('must not select another publication');
+          }),
+        },
+      });
+    }
     await expect(
-      manager.ensure('conversation', new AbortController().signal),
+      manager.ensure('conversation', new AbortController().signal, undefined, prepared),
     ).resolves.toMatchObject({ created: true });
+    if (prepared) expect(snapshot).toBe(prepared.seed);
     expect(snapshot).not.toBe('');
     expect(existsSync(snapshot)).toBe(false);
   },
@@ -425,4 +446,41 @@ it('cleans the dynamic upload snapshot when asynchronous creation fails', async 
   ).rejects.toThrow('create failed');
   expect(snapshot).not.toBe('');
   expect(existsSync(snapshot)).toBe(false);
+});
+
+it('checks selected publication capacity before allocating any host upload snapshot', async () => {
+  const config = publication();
+  const reconcile = vi.fn(async () => ({
+    seed: config.seed,
+    sourceCommit: 'a'.repeat(40),
+    baselineSha256: digest(readFileSync(join(config.seed, '..', 'baseline.json'), 'utf8')),
+  }));
+  const selected = {
+    ...config,
+    seed: '/stale-smaller-seed',
+    knowledgeStore: { id: 'mgmt', reconcile },
+  };
+  const rejectCapacity = vi.fn(async (seed: string) => {
+    expect(seed).toBe(config.seed);
+    expect(existsSync(join(root, 'private/knowledge-uploads'))).toBe(false);
+    throw new Error('host storage capacity insufficient');
+  });
+  await expect(
+    preparePublishedOpenShellSeed(selected, AbortSignal.timeout(5000), rejectCapacity),
+  ).rejects.toThrow('capacity insufficient');
+  expect(reconcile).toHaveBeenCalledOnce();
+  expect(rejectCapacity).toHaveBeenCalledOnce();
+  expect(existsSync(join(root, 'private/knowledge-uploads'))).toBe(false);
+  const allowCapacity = vi.fn(async (seed: string) => {
+    expect(seed).toBe(config.seed);
+  });
+  const prepared = await preparePublishedOpenShellSeed(
+    selected,
+    AbortSignal.timeout(5000),
+    allowCapacity,
+  );
+  expect(allowCapacity).toHaveBeenCalledOnce();
+  expect(readFileSync(join(prepared.seed, 'memory/example.md'), 'utf8')).toBe('Accepted A');
+  prepared.cleanup();
+  expect(readdirSync(join(root, 'private/knowledge-uploads'))).toEqual([]);
 });

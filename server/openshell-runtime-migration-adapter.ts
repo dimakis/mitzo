@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { load } from 'js-yaml';
 import { setTimeout as delay } from 'node:timers/promises';
 import type { AccountBinding } from '@mitzo/protocol';
@@ -14,7 +14,11 @@ import { canonicalJsonPayload } from '../scripts/verify-openshell-production.mjs
 import type { ArtifactRuntime, CodexConversationStore } from './codex-conversation-store.js';
 import { requireRuntimeMigrationCapacity } from './openshell-runtime-migration-capacity.js';
 import { migrateRetainedRuntime } from './openshell-runtime-migration.js';
-import type { OpenShellRuntimeConfig, OpenShellRuntimeManager } from './openshell-runtime.js';
+import {
+  preparePublishedOpenShellSeed,
+  type OpenShellRuntimeConfig,
+  type OpenShellRuntimeManager,
+} from './openshell-runtime.js';
 
 const policyHash = (policy: unknown) =>
   createHash('sha256').update(canonicalJsonPayload(policy)).digest('hex');
@@ -97,6 +101,8 @@ export async function prepareRetainedRuntimeMigration(input: {
     createHash('sha256').update(id).digest('hex'),
   );
   mkdirSync(root, { recursive: true, mode: 0o700 });
+  const probes = new Set<string>();
+  let preparedSeed: { seed: string; cleanup: () => void } | undefined;
   let checkpointDigest: string | undefined;
   let sourceProbe: { path: string; digest: string } | undefined;
   const captureOrVerify = async (
@@ -117,9 +123,13 @@ export async function prepareRetainedRuntimeMigration(input: {
     const deadline = Date.now() + 5_000;
     while (true) {
       signal.throwIfAborted();
+      const directory = join(root, `${label}-${randomUUID()}`);
+      probes.add(directory);
       try {
-        return await captureOrVerify(runtime, identity, join(root, `${label}-${randomUUID()}`));
+        return await captureOrVerify(runtime, identity, directory);
       } catch (error) {
+        rmSync(directory, { recursive: true, force: true });
+        probes.delete(directory);
         if (
           !(error instanceof Error) ||
           !/writer.*(?:open|running)|execution process.*running/i.test(error.message) ||
@@ -130,117 +140,134 @@ export async function prepareRetainedRuntimeMigration(input: {
       }
     }
   };
-  return migrateRetainedRuntime({
-    ...input,
-    targetImage,
-    targetPolicy,
-    supportedSourceImages: supported,
-    adapters: {
-      observe: async (original) => {
-        const observation = await manager
-          .forSandbox(original.runtime.sandboxName)
-          .observeContract(id, original.runtime, signal);
-        return {
-          image: await observePodmanRuntimeImage(original.runtime, signal),
-          policy: policyHash(observation.policy),
-          resourceVersion: observation.resourceVersion,
-        };
+  try {
+    return await migrateRetainedRuntime({
+      ...input,
+      targetImage,
+      targetPolicy,
+      supportedSourceImages: supported,
+      adapters: {
+        observe: async (original) => {
+          const observation = await manager
+            .forSandbox(original.runtime.sandboxName)
+            .observeContract(id, original.runtime, signal);
+          return {
+            image: await observePodmanRuntimeImage(original.runtime, signal),
+            policy: policyHash(observation.policy),
+            resourceVersion: observation.resourceVersion,
+          };
+        },
+        quiescent: async (original) => {
+          await input.closeOwnedTransport?.();
+          signal.throwIfAborted();
+          const record = input.store.readRuntimeMigration(id, input.binding)!;
+          // Fresh strict capture probes both source writers and current contents on
+          // every retry. A cached archive is never proof of current quiescence.
+          sourceProbe = await quiescentCapture(original, record.identity, 'source-probe');
+          if (record.checkpoint && sourceProbe.digest !== record.checkpoint.digest)
+            throw new Error('Migration source task/provider state changed after checkpoint');
+        },
+        capture: async () => {
+          if (!sourceProbe) throw new Error('Migration source quiescence unverified');
+          return sourceProbe;
+        },
+        capacity: async (checkpoint) => {
+          let proof: Awaited<ReturnType<typeof requireRuntimeMigrationCapacity>> | undefined;
+          preparedSeed = await preparePublishedOpenShellSeed(config, signal, async (selected) => {
+            proof = await requireRuntimeMigrationCapacity(
+              {
+                checkpointPath: checkpoint.path,
+                privateDirectory: root,
+                seedDirectory: selected,
+                targetImage,
+                imageReference: config.image,
+              },
+              (args) => command('podman', args, signal),
+            );
+          });
+          if (!proof) throw new Error('Migration selected seed capacity unverified');
+          return proof;
+        },
+        create: async (name) => {
+          const runtime = await manager
+            .forSandbox(name)
+            .ensure(id, signal, undefined, preparedSeed);
+          if (!runtime.sandboxId) throw new Error('Migration candidate has no physical identity');
+          return { runtime: { ...runtime, sandboxId: runtime.sandboxId }, route: source.route };
+        },
+        attest: async (candidate) => {
+          const observation = await manager
+            .forSandbox(candidate.runtime.sandboxName)
+            .observeContract(id, candidate.runtime, signal);
+          if (policyHash(observation.policy) !== targetPolicy)
+            throw new Error('Migration target actual policy differs');
+          if ((await observePodmanRuntimeImage(candidate.runtime, signal)) !== targetImage)
+            throw new Error('Migration target physical image differs');
+          await manager
+            .forSandbox(candidate.runtime.sandboxName)
+            .verifyKnowledgeRuntime(candidate.runtime, signal);
+        },
+        restore: async (candidate, checkpoint, identity) => {
+          checkpointDigest = checkpoint.digest;
+          await new OpenShellCheckpointTransport(candidate.runtime).restore(
+            checkpoint.path,
+            identity,
+            checkpoint.digest,
+            signal,
+          );
+        },
+        verifyRestored: async (candidate, identity) => {
+          const record = input.store.readRuntimeMigration(id, input.binding)!;
+          const candidateIdentity = {
+            ...identity,
+            image: targetImage,
+            sandboxId: candidate.runtime.sandboxId,
+            resourceVersion: candidate.runtime.resourceVersion!,
+          };
+          const directory = join(root, `candidate-probe-${randomUUID()}`);
+          probes.add(directory);
+          const restored = await captureOrVerify(candidate, candidateIdentity, directory);
+          if (restored.digest !== (checkpointDigest ?? record.checkpoint?.digest))
+            throw new Error('Migration restored task/provider state differs');
+          const client = CodexAppServerClient.launchOpenShell(candidate.runtime, process.env, {
+            onNotification: () => {},
+            onClose: () => {},
+            onRequest: async () => {
+              throw new Error('Migration validation cannot execute tools or approvals');
+            },
+          });
+          try {
+            await client.initialize();
+            const response = (await client.request('thread/resume', {
+              threadId: identity.thread,
+              cwd: candidate.runtime.workdir,
+              model: input.binding.model,
+              modelProvider: 'openshell',
+              allowProviderModelFallback: false,
+            })) as { thread: { id: string }; model: string; modelProvider: string };
+            if (
+              response.thread?.id !== identity.thread ||
+              response.model !== input.binding.model ||
+              response.modelProvider !== 'openshell'
+            )
+              throw new Error('Migration provider thread or model changed');
+          } finally {
+            client.close();
+            // close() requests process exit; fresh strict capture proves the actual
+            // writer barrier before any durable ownership switch, including errors.
+            await quiescentCapture(candidate, candidateIdentity, 'validated-probe');
+          }
+        },
       },
-      quiescent: async (original) => {
-        await input.closeOwnedTransport?.();
-        signal.throwIfAborted();
-        const record = input.store.readRuntimeMigration(id, input.binding)!;
-        // Fresh strict capture probes both source writers and current contents on
-        // every retry. A cached archive is never proof of current quiescence.
-        sourceProbe = await quiescentCapture(original, record.identity, 'source-probe');
-        if (record.checkpoint && sourceProbe.digest !== record.checkpoint.digest)
-          throw new Error('Migration source task/provider state changed after checkpoint');
-      },
-      capture: async () => {
-        if (!sourceProbe) throw new Error('Migration source quiescence unverified');
-        return sourceProbe;
-      },
-      capacity: async (checkpoint) =>
-        requireRuntimeMigrationCapacity(
-          {
-            checkpointPath: checkpoint.path,
-            privateDirectory: root,
-            seedDirectory: config.seed,
-            targetImage,
-            imageReference: config.image,
-          },
-          (args) => command('podman', args, signal),
-        ),
-      create: async (name) => {
-        const runtime = await manager.forSandbox(name).ensure(id, signal);
-        if (!runtime.sandboxId) throw new Error('Migration candidate has no physical identity');
-        return { runtime: { ...runtime, sandboxId: runtime.sandboxId }, route: source.route };
-      },
-      attest: async (candidate) => {
-        const observation = await manager
-          .forSandbox(candidate.runtime.sandboxName)
-          .observeContract(id, candidate.runtime, signal);
-        if (policyHash(observation.policy) !== targetPolicy)
-          throw new Error('Migration target actual policy differs');
-        if ((await observePodmanRuntimeImage(candidate.runtime, signal)) !== targetImage)
-          throw new Error('Migration target physical image differs');
-        await manager
-          .forSandbox(candidate.runtime.sandboxName)
-          .verifyKnowledgeRuntime(candidate.runtime, signal);
-      },
-      restore: async (candidate, checkpoint, identity) => {
-        checkpointDigest = checkpoint.digest;
-        await new OpenShellCheckpointTransport(candidate.runtime).restore(
-          checkpoint.path,
-          identity,
-          checkpoint.digest,
-          signal,
-        );
-      },
-      verifyRestored: async (candidate, identity) => {
-        const record = input.store.readRuntimeMigration(id, input.binding)!;
-        const candidateIdentity = {
-          ...identity,
-          image: targetImage,
-          sandboxId: candidate.runtime.sandboxId,
-          resourceVersion: candidate.runtime.resourceVersion!,
-        };
-        const restored = await captureOrVerify(
-          candidate,
-          candidateIdentity,
-          join(root, `candidate-probe-${randomUUID()}`),
-        );
-        if (restored.digest !== (checkpointDigest ?? record.checkpoint?.digest))
-          throw new Error('Migration restored task/provider state differs');
-        const client = CodexAppServerClient.launchOpenShell(candidate.runtime, process.env, {
-          onNotification: () => {},
-          onClose: () => {},
-          onRequest: async () => {
-            throw new Error('Migration validation cannot execute tools or approvals');
-          },
-        });
-        try {
-          await client.initialize();
-          const response = (await client.request('thread/resume', {
-            threadId: identity.thread,
-            cwd: candidate.runtime.workdir,
-            model: input.binding.model,
-            modelProvider: 'openshell',
-            allowProviderModelFallback: false,
-          })) as { thread: { id: string }; model: string; modelProvider: string };
-          if (
-            response.thread?.id !== identity.thread ||
-            response.model !== input.binding.model ||
-            response.modelProvider !== 'openshell'
-          )
-            throw new Error('Migration provider thread or model changed');
-        } finally {
-          client.close();
-          // close() requests process exit; fresh strict capture proves the actual
-          // writer barrier before any durable ownership switch, including errors.
-          await quiescentCapture(candidate, candidateIdentity, 'validated-probe');
-        }
-      },
-    },
-  });
+    });
+  } finally {
+    preparedSeed?.cleanup();
+    // Only this invocation's disposable probe directories are ours to remove.
+    // The durably recorded original checkpoint survives failures and retries.
+    const retained = input.store.readRuntimeMigration(id, input.binding)?.checkpoint?.path;
+    for (const directory of probes) {
+      if (!retained || dirname(retained) !== directory)
+        rmSync(directory, { recursive: true, force: true });
+    }
+  }
 }

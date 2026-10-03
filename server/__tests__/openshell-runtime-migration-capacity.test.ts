@@ -78,3 +78,11 @@ it.each(['valid', 'wrong-host', 'uncached', 'ambiguous-vm'] as const)(
     }
   },
 );
+
+it('includes the full selected publication host snapshot before allocating it', () => {
+  const seedBytes = 128 * 1024 * 1024;
+  const headroom = 64 * 1024 * 1024;
+  expect(() => migrationCapacity(1024, seedBytes, headroom + 4096, 1e9)).toThrow(/host requires/);
+  const proof = migrationCapacity(1024, seedBytes, 1e9, 1e9);
+  expect(proof.hostRequiredBytes).toBe(3 * 1024 + seedBytes + headroom);
+});
