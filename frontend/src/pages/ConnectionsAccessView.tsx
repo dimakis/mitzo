@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { WorkspacePageHeading } from '../components/WorkspacePageHeading';
 import { getConnectionsAccess } from '../lib/connections-access-api';
+import { connectionsAccessCards } from '../lib/connections-access-presentation';
 import type { AccessResource, ConnectionsAccessInventory } from '../types/connections-access';
 
 const sourceLabels: Record<ConnectionsAccessInventory['sources'][number]['id'], string> = {
@@ -22,7 +23,13 @@ function readableStatus(status: string) {
   const text = status.replace(/[_-]/g, ' ');
   return text.charAt(0).toUpperCase() + text.slice(1);
 }
-function ResourceCard({ resource }: { resource: AccessResource }) {
+function ResourceCard({
+  resource,
+  catalog,
+}: {
+  resource: AccessResource;
+  catalog?: AccessResource;
+}) {
   return (
     <article className="access-resource" aria-label={resource.label}>
       <header className="access-resource-heading">
@@ -74,6 +81,28 @@ function ResourceCard({ resource }: { resource: AccessResource }) {
           </dd>
         </div>
       </dl>
+      {catalog && (
+        <>
+          <dl className="access-resource-facts">
+            <div>
+              <dt>Configured models</dt>
+              <dd>
+                {catalog.details.models?.map((model) => model.label).join(', ') || 'None reported'}
+              </dd>
+            </div>
+          </dl>
+          <p className="workspace-muted">
+            Configured catalog; model support and effective access have not been checked.
+          </p>
+        </>
+      )}
+      {resource.personalConnection && resource.personalConnection.state !== 'current' && (
+        <p className="workspace-muted">
+          {resource.personalConnection.state === 'stale'
+            ? 'The personal account link is out of date. Refresh access to compare current details.'
+            : 'Personal account details could not be checked. This catalog is shown separately.'}
+        </p>
+      )}
       <p className="workspace-muted">
         Conversation attachments have not been observed. Configuration and past verification do not
         establish current conversation access.
@@ -106,6 +135,14 @@ function ResourceCard({ resource }: { resource: AccessResource }) {
             <dt>Resource ID</dt>
             <dd>{resource.nativeId}</dd>
           </div>
+          {catalog && (
+            <div>
+              <dt>Catalog resource</dt>
+              <dd>{catalog.id}</dd>
+              <dt>Catalog management owner</dt>
+              <dd>{catalog.owner}</dd>
+            </div>
+          )}
           {resource.details.billing && (
             <div>
               <dt>Billing route</dt>
@@ -209,15 +246,15 @@ export function ConnectionsAccessView() {
               </div>
             ))}
           {(['accounts', 'services'] as const).map((section) => {
-            const resources = inventory.resources.filter(
-              (resource) => resource.section === section,
+            const resources = connectionsAccessCards(inventory).filter(
+              ({ resource }) => resource.section === section,
             );
             const label = section === 'accounts' ? 'AI accounts' : 'Services';
             return (
               <section key={section} className="today-section" aria-label={label}>
                 <h2>{label}</h2>
-                {resources.map((resource) => (
-                  <ResourceCard key={resource.id} resource={resource} />
+                {resources.map(({ resource, catalog }) => (
+                  <ResourceCard key={resource.id} resource={resource} catalog={catalog} />
                 ))}
                 {!resources.length && (
                   <p className="workspace-muted">

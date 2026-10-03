@@ -258,3 +258,145 @@ it('names an unavailable Symposium catalog separately from ordinary AI accounts'
   expect(await screen.findByText('Symposium AI accounts: Source unavailable')).toBeTruthy();
   expect(screen.getByRole('button', { name: 'Refresh access' })).toBeTruthy();
 });
+
+function linkedFacets(
+  linkState: 'current' | 'stale' | 'unavailable' = 'current',
+): ConnectionsAccessInventory {
+  const common = {
+    section: 'accounts' as const,
+    nativeId: 'same',
+    label: 'Personal account',
+    provider: 'openai-codex',
+    gateway: null,
+    workspace: null,
+    accountIdentity: null,
+    verification: {
+      state: 'unverified' as const,
+      verifiedAt: null,
+      reason: 'Current effective access has not been checked.',
+    },
+    access: {
+      summary: 'Personal ChatGPT connection',
+      desiredAccountIds: [],
+      observedAttachments: null,
+      appliesTo: 'Not checked for existing conversations',
+    },
+    actions: [],
+    details: {},
+  };
+  return {
+    generatedAt: 1,
+    sources: [
+      { id: 'personal', state: 'available', reason: null },
+      { id: 'symposiumAccounts', state: 'available', reason: null },
+    ],
+    resources: [
+      {
+        ...common,
+        id: 'catalog',
+        kind: 'ai-account',
+        owner: 'symposium-account-profiles',
+        status: 'configured',
+        revision: null,
+        personalConnection: { resourceId: 'personal', revision: 3, state: linkState },
+        details: {
+          billing: 'chatgpt-subscription',
+          models: [{ id: 'luna', label: 'Configured Luna' }],
+        },
+      },
+      {
+        ...common,
+        id: 'personal',
+        kind: 'personal-connection',
+        owner: 'symposium-personal',
+        status: 'connected',
+        revision: 3,
+        accountIdentity: 'signed-in@example.test',
+        details: { billing: 'ChatGPT pro' },
+        actions: [
+          {
+            id: 'personal-controls',
+            label: 'Open personal account controls',
+            href: '/connections',
+          },
+        ],
+      },
+    ],
+  };
+}
+it('presents proven lifecycle and catalog facets once without losing their identities or verification boundaries', async () => {
+  vi.mocked(getConnectionsAccess).mockResolvedValue(linkedFacets());
+  render(
+    <MemoryRouter>
+      <ConnectionsAccessView />
+    </MemoryRouter>,
+  );
+  const cards = await screen.findAllByRole('article', { name: 'Personal account' });
+  expect(cards).toHaveLength(1);
+  const card = within(cards[0]);
+  expect(card.getByText('Connected')).toBeTruthy();
+  expect(card.getByText('signed-in@example.test')).toBeTruthy();
+  expect(card.getByText('ChatGPT pro')).toBeTruthy();
+  expect(card.getByText('Configured Luna')).toBeTruthy();
+  expect(card.getByText('Not verified')).toBeTruthy();
+  expect(card.getByText('catalog')).toBeTruthy();
+  expect(card.getByRole('link', { name: 'Open personal account controls' })).toBeTruthy();
+});
+it.each(['stale', 'unavailable'] as const)('does not collapse %s linkage', async (state) => {
+  vi.mocked(getConnectionsAccess).mockResolvedValue(linkedFacets(state));
+  render(
+    <MemoryRouter>
+      <ConnectionsAccessView />
+    </MemoryRouter>,
+  );
+  expect(await screen.findAllByRole('article', { name: 'Personal account' })).toHaveLength(2);
+});
+it('never groups matching IDs or labels without explicit authoritative provenance', async () => {
+  const inventory = linkedFacets();
+  delete inventory.resources[0].personalConnection;
+  vi.mocked(getConnectionsAccess).mockResolvedValue(inventory);
+  render(
+    <MemoryRouter>
+      <ConnectionsAccessView />
+    </MemoryRouter>,
+  );
+  expect(await screen.findAllByRole('article', { name: 'Personal account' })).toHaveLength(2);
+});
+
+it('keeps an ordinary account with matching native ID separate from the linked personal facets', async () => {
+  const inventory = linkedFacets();
+  inventory.resources.push({
+    ...inventory.resources[0],
+    id: 'ordinary',
+    owner: 'account-profiles',
+  });
+  vi.mocked(getConnectionsAccess).mockResolvedValue(inventory);
+  render(
+    <MemoryRouter>
+      <ConnectionsAccessView />
+    </MemoryRouter>,
+  );
+  expect(await screen.findAllByRole('article', { name: 'Personal account' })).toHaveLength(2);
+});
+it('does not hide ambiguous catalog facets linked to the same lifecycle resource', async () => {
+  const inventory = linkedFacets();
+  inventory.resources.push({ ...inventory.resources[0], id: 'another-catalog' });
+  vi.mocked(getConnectionsAccess).mockResolvedValue(inventory);
+  render(
+    <MemoryRouter>
+      <ConnectionsAccessView />
+    </MemoryRouter>,
+  );
+  expect(await screen.findAllByRole('article', { name: 'Personal account' })).toHaveLength(3);
+});
+it('rejects mismatched revisions even if a presentation link claims it is current', async () => {
+  const inventory = linkedFacets();
+  inventory.resources[1].revision = 4;
+  vi.mocked(getConnectionsAccess).mockResolvedValue(inventory);
+  render(
+    <MemoryRouter>
+      <ConnectionsAccessView />
+    </MemoryRouter>,
+  );
+  expect(await screen.findAllByRole('article', { name: 'Personal account' })).toHaveLength(2);
+});

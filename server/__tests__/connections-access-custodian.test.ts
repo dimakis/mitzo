@@ -141,3 +141,60 @@ it('marks unavailable custodian Symposium catalog as unavailable without control
   expect(local).not.toHaveBeenCalled();
   expect(JSON.stringify(inventory)).not.toContain('SECRET');
 });
+
+it('fails malformed catalog linkage closed without losing independent personal metadata', async () => {
+  const client: CustodianClient = {
+    invalidate: vi.fn(),
+    request: vi.fn(async (command) => ({
+      status: 200,
+      body:
+        command.operation === 'personal.list'
+          ? { connections: [metadata] }
+          : [
+              {
+                id: 'personal_one',
+                label: 'Personal',
+                provider: 'openai-codex',
+                billing: 'chatgpt-subscription',
+                models: [{ id: 'luna', label: 'Luna' }],
+                modelDiscovery: { stale: false },
+                capabilities: { streaming: true, tools: true, images: true },
+                personalConnection: { id: 'personal_one', revision: -1 },
+              },
+            ],
+    })),
+  };
+  const inventory = await readConnectionsAccess({
+    personal: personalInventorySource(auth(), client),
+    symposiumAccounts: symposiumAccountsInventorySource(auth(), client),
+  });
+  expect(inventory.sources.find((source) => source.id === 'symposiumAccounts')!.state).toBe(
+    'unavailable',
+  );
+  expect(inventory.sources.find((source) => source.id === 'personal')!.state).toBe('available');
+  expect(inventory.resources).toHaveLength(1);
+  expect(inventory.resources[0].kind).toBe('personal-connection');
+});
+it('preserves validated retained catalog provenance across the closed metadata operation', async () => {
+  const client: CustodianClient = {
+    invalidate: vi.fn(),
+    request: vi.fn(async () => ({
+      status: 200,
+      body: [
+        {
+          id: 'personal_one',
+          label: 'Personal',
+          provider: 'openai-codex',
+          billing: 'chatgpt-subscription',
+          models: [{ id: 'luna', label: 'Luna' }],
+          modelDiscovery: { stale: false },
+          capabilities: { streaming: true, tools: true, images: true },
+          personalConnection: { id: 'personal_one', revision: 3 },
+        },
+      ],
+    })),
+  };
+  expect(
+    await symposiumAccountsInventorySource(auth(), client)!(new AbortController().signal),
+  ).toMatchObject([{ personalConnection: { id: 'personal_one', revision: 3 } }]);
+});

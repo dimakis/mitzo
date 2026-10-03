@@ -36,6 +36,13 @@ const accountCatalog = z
       label: z.string().min(1),
       provider: z.enum(['openai', 'anthropic-vertex', 'google-vertex', 'openai-codex']),
       billing: z.string(),
+      personalConnection: z
+        .object({
+          id: z.string().regex(/^[A-Za-z0-9_-]{1,100}$/),
+          revision: z.number().int().positive(),
+        })
+        .strict()
+        .optional(),
       models: z.array(CatalogModel),
       modelDiscovery: z.object({ updatedAt: z.number().optional(), stale: z.boolean() }),
       capabilities: z.object({ streaming: z.boolean(), tools: z.boolean(), images: z.boolean() }),

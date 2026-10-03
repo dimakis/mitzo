@@ -131,6 +131,34 @@ export async function readConnectionsAccess(
         source === 'accounts'
           ? 'Configured models; sign-in and effective access not checked'
           : 'Configured Symposium models; sign-in and effective access not checked';
+      if (
+        source === 'symposiumAccounts' &&
+        account.provider === 'openai-codex' &&
+        account.personalConnection
+      ) {
+        const link = account.personalConnection;
+        const personal = (value<PersonalConnection[]>('personal') ?? []).filter(
+          (row) => row.id === link.id,
+        );
+        const available = reads.find((read) => read.id === 'personal')?.state === 'available';
+        row.personalConnection = {
+          resourceId: inventoryIdentity(
+            'personal-connection',
+            'symposium-personal',
+            null,
+            null,
+            link.id,
+          ),
+          revision: link.revision,
+          state: !available
+            ? 'unavailable'
+            : personal.length === 1 &&
+                personal[0].state === 'connected' &&
+                personal[0].revision === link.revision
+              ? 'current'
+              : 'stale',
+        };
+      }
       row.details = {
         billing: account.billing,
         models: account.models.map((model) => ({ id: model.id, label: model.label })),

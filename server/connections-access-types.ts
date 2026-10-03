@@ -17,6 +17,12 @@ export interface AccessResource {
   provider: string;
   status: string;
   revision: number | null;
+  /** Catalog facet provenance; facet identity itself is never replaced. */
+  personalConnection?: {
+    resourceId: string;
+    revision: number;
+    state: 'current' | 'stale' | 'unavailable';
+  };
   accountIdentity: string | null;
   verification: {
     state: 'verified' | 'stale' | 'unverified' | 'unavailable';

@@ -173,3 +173,60 @@ it('reports Symposium catalog failure independently from the available primary c
   expect(inventory.resources.some((row) => row.owner === 'symposium-account-profiles')).toBe(false);
   expect(JSON.stringify(inventory)).not.toContain('SECRET');
 });
+
+it.each([
+  ['connected', 1, 'current'],
+  ['connected', 2, 'stale'],
+  ['disconnected', 1, 'stale'],
+] as const)(
+  'links catalog provenance only to the current connected personal snapshot (%s, %s)',
+  async (state, revision, linkState) => {
+    const inventory = await readConnectionsAccess({
+      accounts: () => [account],
+      symposiumAccounts: () => [
+        {
+          ...account,
+          provider: 'openai-codex' as const,
+          personalConnection: { id: 'same', revision: 1 },
+        },
+      ],
+      personal: () => [{ id: 'same', label: 'Changed label', state, revision }],
+    });
+    expect(inventory.resources).toHaveLength(3);
+    expect(
+      inventory.resources.find((row) => row.owner === 'symposium-account-profiles'),
+    ).toMatchObject({
+      personalConnection: {
+        resourceId: inventoryIdentity(
+          'personal-connection',
+          'symposium-personal',
+          null,
+          null,
+          'same',
+        ),
+        revision: 1,
+        state: linkState,
+      },
+    });
+    expect(inventory.resources.find((row) => row.owner === 'account-profiles')).not.toHaveProperty(
+      'personalConnection',
+    );
+  },
+);
+it('retains the catalog facet and unavailable relationship when personal reads fail', async () => {
+  const inventory = await readConnectionsAccess({
+    symposiumAccounts: () => [
+      {
+        ...account,
+        provider: 'openai-codex' as const,
+        personalConnection: { id: 'same', revision: 1 },
+      },
+    ],
+    personal: () => {
+      throw new Error('SECRET');
+    },
+  });
+  expect(inventory.resources).toHaveLength(1);
+  expect(inventory.resources[0]).toMatchObject({ personalConnection: { state: 'unavailable' } });
+  expect(inventory.sources.find((source) => source.id === 'personal')!.state).toBe('unavailable');
+});
