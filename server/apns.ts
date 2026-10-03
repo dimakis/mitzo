@@ -3,7 +3,7 @@
 import { readFileSync, writeFileSync, existsSync } from 'fs';
 import { createRequire } from 'module';
 import { createLogger } from '@mitzo/harness';
-import type { NotificationPush } from './notification-center.js';
+import type { NotificationPush, NotificationDeliveryResult } from './notification-center.js';
 
 const require = createRequire(import.meta.url);
 
@@ -142,26 +142,31 @@ export function notificationFields(message: NotificationPush) {
   };
 }
 
-/** Success means APNs accepted at least one device, not proof of Watch delivery. */
+/** Success means APNs accepted every remaining device, not proof of Watch delivery. */
 export async function deliverNotification(
   message: NotificationPush,
-): Promise<'accepted' | 'failed' | 'unavailable'> {
+): Promise<NotificationDeliveryResult> {
   const provider = getProvider();
-  if (!provider || tokens.length === 0) return 'unavailable';
+  if (!provider || tokens.length === 0) return { status: 'unavailable', acceptedDevices: [] };
+  const remaining = tokens.filter((token) => !message.deliveredDevices?.includes(token));
+  if (!remaining.length) return { status: 'accepted', acceptedDevices: [] };
   try {
     const apn = require('@parse/node-apn');
     const notification = Object.assign(new apn.Notification(), notificationFields(message));
-    const result = await provider.send(notification, [...tokens]);
+    const result = await provider.send(notification, remaining);
     for (const failure of result.failed) {
       if (String(failure.status) === '410' || failure.response?.reason === 'Unregistered')
         removeToken(failure.device);
     }
-    return result.sent.length ? 'accepted' : 'failed';
+    return {
+      status: result.sent.length > 0 && result.failed.length === 0 ? 'accepted' : 'failed',
+      acceptedDevices: result.sent.map((sent) => sent.device),
+    };
   } catch (err: unknown) {
     log.warn('notification delivery failed', {
       error: err instanceof Error ? err.message : 'unknown',
     });
-    return 'failed';
+    return { status: 'failed', acceptedDevices: [] };
   }
 }
 

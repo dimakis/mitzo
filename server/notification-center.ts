@@ -18,9 +18,14 @@ export interface NotificationPush {
   badge: number;
   category: string;
   threadId?: string;
+  deliveredDevices?: string[];
+}
+export interface NotificationDeliveryResult {
+  status: 'accepted' | 'failed' | 'unavailable';
+  acceptedDevices: string[];
 }
 interface Dependencies {
-  push: (message: NotificationPush) => Promise<'accepted' | 'failed' | 'unavailable'>;
+  push: (message: NotificationPush) => Promise<NotificationDeliveryResult>;
   changed: () => void;
   configured: () => boolean;
   devices: () => number;
@@ -209,7 +214,7 @@ export class NotificationCenter {
         if (at === null || at > Date.now()) continue;
         if (!this.deps.configured() || this.deps.devices() === 0) continue;
         const prefs = this.store.preferences();
-        const status = await this.deps.push({
+        const result = await this.deps.push({
           title:
             prefs.sensitivePreviews || item.kind === 'test'
               ? `Mitzo: ${item.title}`
@@ -230,12 +235,15 @@ export class NotificationCenter {
               ? 'SESSION_UPDATE'
               : 'NOTIFICATION_UPDATE',
           threadId: item.sessionId,
+          deliveredDevices: this.store.deliveredDevices(item.id),
         });
+        const { status } = result;
         if (status === 'unavailable') continue;
         this.store.delivery(
           item.id,
           status,
           status === 'failed' && this.store.attempts(item.id) < 2 ? Date.now() + 60000 : undefined,
+          result.acceptedDevices,
         );
       }
     } finally {

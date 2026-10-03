@@ -3,6 +3,9 @@ import { registerPending, resolvePending, removePending } from '../permissions.j
 import { NotificationStore } from '../notification-store.js';
 import { NotificationCenter, nextDeliveryAt } from '../notification-center.js';
 import type { PermissionRequest } from '@mitzo/protocol';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 const request: PermissionRequest = {
   permId: 'notify-perm',
@@ -16,7 +19,7 @@ function setup(
   badge?: (count: number) => Promise<'accepted' | 'failed' | 'unavailable'>,
 ) {
   const store = new NotificationStore(':memory:');
-  const push = vi.fn().mockResolvedValue('accepted');
+  const push = vi.fn().mockResolvedValue({ status: 'accepted', acceptedDevices: [] });
   const changed = vi.fn();
   const center = new NotificationCenter(store, {
     push,
@@ -30,6 +33,43 @@ function setup(
 }
 describe('central notification delivery', () => {
   afterEach(() => vi.useRealTimers());
+  it('persists accepted devices across restart and excludes them from a partial alert retry', async () => {
+    vi.useFakeTimers();
+    const directory = mkdtempSync(join(tmpdir(), 'notification-device-retry-'));
+    const path = join(directory, 'notifications.db');
+    let store = new NotificationStore(path);
+    const push = vi
+      .fn()
+      .mockResolvedValueOnce({ status: 'failed', acceptedDevices: ['a'] })
+      .mockResolvedValue({ status: 'accepted', acceptedDevices: ['b'] });
+    const deps = {
+      push,
+      changed: vi.fn(),
+      configured: () => true,
+      devices: () => 2,
+      sessionTitle: () => undefined,
+    };
+    let center = new NotificationCenter(store, deps);
+    try {
+      center.turnComplete('s1', 110, 'Done', 'Tests', true);
+      await center.flush();
+      center.close();
+      store.close();
+      store = new NotificationStore(path);
+      center = new NotificationCenter(store, deps);
+      vi.advanceTimersByTime(60000);
+      await center.flush();
+      expect(push).toHaveBeenCalledTimes(2);
+      expect(push.mock.calls[1][0].deliveredDevices).toEqual(['a']);
+      expect(store.due()).toHaveLength(0);
+      await center.flush();
+      expect(push).toHaveBeenCalledTimes(2);
+    } finally {
+      center.close();
+      store.close();
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
   it.each(['failed', 'throw'])(
     'retries an unchanged zero badge after a transient %s delivery and stops once accepted',
     async (failure) => {
@@ -59,7 +99,7 @@ describe('central notification delivery', () => {
     async (change) => {
       vi.useFakeTimers();
       const { store, center, push } = setup();
-      let finishFirst!: (status: string) => void;
+      let finishFirst!: (result: { status: string; acceptedDevices: string[] }) => void;
       push.mockImplementationOnce(
         () =>
           new Promise((resolve) => {
@@ -75,7 +115,7 @@ describe('central notification delivery', () => {
       if (change === 'resolved') resolvePending(later.permId, 'deny');
       else if (change === 'expired') vi.advanceTimersByTime(60001);
       else store.markRead('turn:s1:101');
-      finishFirst('accepted');
+      finishFirst({ status: 'accepted', acceptedDevices: [] });
       await flushing;
       expect(push).toHaveBeenCalledTimes(1);
       expect(store.due()).toHaveLength(0);
@@ -90,13 +130,13 @@ describe('central notification delivery', () => {
       vi.useFakeTimers();
       let deviceCount = outage === 'no-device' ? 0 : 1;
       const { store, center, push } = setup(() => deviceCount);
-      push.mockResolvedValue('unavailable');
+      push.mockResolvedValue({ status: 'unavailable', acceptedDevices: [] });
       center.turnComplete('s1', 90, 'Done', 'Tests', true);
       const testId = center.test();
       await center.flush();
       vi.advanceTimersByTime(13 * 60 * 60 * 1000);
       deviceCount = 1;
-      push.mockClear().mockResolvedValue('accepted');
+      push.mockClear().mockResolvedValue({ status: 'accepted', acceptedDevices: [] });
       await center.flush();
       expect(push).not.toHaveBeenCalled();
       expect(store.due()).toHaveLength(0);
@@ -113,12 +153,12 @@ describe('central notification delivery', () => {
   it('expires a queued test alert after five minutes while retaining a recent completion', async () => {
     vi.useFakeTimers();
     const { store, center, push } = setup();
-    push.mockResolvedValue('unavailable');
+    push.mockResolvedValue({ status: 'unavailable', acceptedDevices: [] });
     center.test();
     center.turnComplete('s1', 92, 'Done', 'Tests', true);
     await center.flush();
     vi.advanceTimersByTime(5 * 60 * 1000);
-    push.mockClear().mockResolvedValue('accepted');
+    push.mockClear().mockResolvedValue({ status: 'accepted', acceptedDevices: [] });
     await center.flush();
     expect(push).toHaveBeenCalledTimes(1);
     expect(push.mock.calls[0][0].data.type).toBe('session');

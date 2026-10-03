@@ -12,7 +12,7 @@ import { registerPending, removePending } from '../permissions.js';
 async function setup() {
   const store = new NotificationStore(':memory:');
   const center = new NotificationCenter(store, {
-    push: vi.fn().mockResolvedValue('accepted'),
+    push: vi.fn().mockResolvedValue({ status: 'accepted', acceptedDevices: [] }),
     changed: vi.fn(),
     configured: () => false,
     devices: () => 0,

@@ -33,7 +33,10 @@ export class NotificationStore {
       delivery_at INTEGER, delivery_status TEXT, delivery_attempts INTEGER NOT NULL DEFAULT 0
     );
     CREATE INDEX IF NOT EXISTS notifications_created ON notifications(created_at DESC, id);
-    CREATE TABLE IF NOT EXISTS notification_preferences (id INTEGER PRIMARY KEY CHECK(id=1), data TEXT NOT NULL);`);
+    CREATE TABLE IF NOT EXISTS notification_preferences (id INTEGER PRIMARY KEY CHECK(id=1), data TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS notification_delivered_devices (
+      notification_id TEXT NOT NULL, device TEXT NOT NULL, PRIMARY KEY(notification_id, device)
+    );`);
   }
   record(input: Input, now = Date.now()): boolean {
     const data = { ...input, createdAt: now };
@@ -158,12 +161,30 @@ export class NotificationStore {
         .all(now) as Row[]
     ).map(item);
   }
-  delivery(id: string, status: 'accepted' | 'failed' | 'cancelled', retryAt?: number): void {
-    this.db
-      .prepare(
-        'UPDATE notifications SET delivery_status=?, delivery_attempts=delivery_attempts+1, delivery_at=COALESCE(?,delivery_at) WHERE id=?',
-      )
-      .run(retryAt ? 'queued' : status, retryAt ?? null, id);
+  deliveredDevices(id: string): string[] {
+    return (
+      this.db
+        .prepare('SELECT device FROM notification_delivered_devices WHERE notification_id=?')
+        .all(id) as { device: string }[]
+    ).map((row) => row.device);
+  }
+  delivery(
+    id: string,
+    status: 'accepted' | 'failed' | 'cancelled',
+    retryAt?: number,
+    acceptedDevices: string[] = [],
+  ): void {
+    this.db.transaction(() => {
+      const record = this.db.prepare(
+        'INSERT OR IGNORE INTO notification_delivered_devices (notification_id, device) VALUES (?, ?)',
+      );
+      for (const device of acceptedDevices) record.run(id, device);
+      this.db
+        .prepare(
+          'UPDATE notifications SET delivery_status=?, delivery_attempts=delivery_attempts+1, delivery_at=COALESCE(?,delivery_at) WHERE id=?',
+        )
+        .run(retryAt ? 'queued' : status, retryAt ?? null, id);
+    })();
   }
   attempts(id: string): number {
     return (
