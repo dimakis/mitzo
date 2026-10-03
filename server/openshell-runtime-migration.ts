@@ -1,3 +1,7 @@
+import {
+  sameRuntimePolicyAuthority,
+  type RuntimePolicyProvenance,
+} from './openshell-runtime-policy.js';
 import { isDeepStrictEqual } from 'node:util';
 import { randomUUID } from 'node:crypto';
 import type { RuntimeMigrationCapacity } from './openshell-runtime-migration-capacity.js';
@@ -13,6 +17,8 @@ export interface RuntimeMigration {
   identity: CheckpointIdentity;
   targetImage: string;
   targetPolicy: string;
+  sourcePolicyAttestation?: RuntimePolicyProvenance;
+  candidatePolicyAttestation?: RuntimePolicyProvenance;
   candidateName: string;
   candidate?: ArtifactRuntime;
   checkpoint?: { path: string; digest: string };
@@ -25,9 +31,12 @@ export interface RuntimeMigration {
 }
 export interface RuntimeMigrationAdapters {
   /** Must verify actual image, policy, physical ownership and source resource version. */
-  observe(
-    source: ArtifactRuntime,
-  ): Promise<{ image: string; policy: string; resourceVersion: string }>;
+  observe(source: ArtifactRuntime): Promise<{
+    image: string;
+    policy: string;
+    resourceVersion: string;
+    policyAttestation?: RuntimePolicyProvenance;
+  }>;
   /** No killing writers. Unknown activity is a blocker. */
   quiescent(source: ArtifactRuntime): Promise<void>;
   capture(
@@ -35,9 +44,11 @@ export interface RuntimeMigrationAdapters {
     identity: CheckpointIdentity,
     generation: number,
   ): Promise<{ path: string; digest: string }>;
+  /** Synchronous reservation check immediately followed by the ownership transaction. */
+  beforeCommit?(): void;
   capacity?(checkpoint: { path: string; digest: string }): Promise<RuntimeMigrationCapacity>;
   create(name: string): Promise<ArtifactRuntime>;
-  attest(candidate: ArtifactRuntime): Promise<void>;
+  attest(candidate: ArtifactRuntime): Promise<void | RuntimePolicyProvenance>;
   restore(
     candidate: ArtifactRuntime,
     checkpoint: { path: string; digest: string },
@@ -88,6 +99,11 @@ export async function migrateRetainedRuntime(input: {
       input.source.runtime.workdir !== record.candidate.runtime.workdir
     )
       throw new Error('Retained migration committed routing changed');
+    // Terminal migration is historical. Fresh policy is checked against current
+    // trusted approvals, allowing later legitimate grants without rewriting origin.
+    const observed = await adapters.observe(input.source);
+    if (observed.image !== input.targetImage || observed.policy !== input.targetPolicy)
+      throw new Error('Retained migration current candidate contract differs');
     return input.source;
   }
   const observed = await adapters.observe(record?.source ?? input.source);
@@ -165,13 +181,27 @@ export async function migrateRetainedRuntime(input: {
       identity,
       targetImage: input.targetImage,
       targetPolicy: input.targetPolicy,
+      ...(observed.policyAttestation
+        ? { sourcePolicyAttestation: observed.policyAttestation }
+        : {}),
       candidateName: `mitzo-migrate-${randomUUID()}`,
     });
   }
+  if (!sameRuntimePolicyAuthority(record.sourcePolicyAttestation, observed.policyAttestation))
+    throw new Error('Retained migration source effective policy authority changed');
   if (record.identity.image !== observed.image || record.identity.policy !== observed.policy)
     throw new Error('Retained migration source contract changed');
   const advance = (next: Partial<RuntimeMigration>) => {
     record = store.advanceRuntimeMigration(id, binding, record!.generation, next);
+  };
+  const verifySourceAuthority = async () => {
+    const current = await adapters.observe(record!.source);
+    if (
+      current.image !== record!.identity.image ||
+      current.policy !== record!.identity.policy ||
+      !sameRuntimePolicyAuthority(record!.sourcePolicyAttestation, current.policyAttestation)
+    )
+      throw new Error('Retained migration source effective policy authority changed');
   };
   try {
     await adapters.quiescent(record.source);
@@ -183,6 +213,7 @@ export async function migrateRetainedRuntime(input: {
       if (adapters.capacity) advance({ capacity: await adapters.capacity(record.checkpoint!) });
       // Name is committed before the create call; recovery finds this exact candidate,
       // never creates another or deletes the old sandbox after an uncertain call.
+      await verifySourceAuthority();
       const candidate = await adapters.create(record.candidateName);
       if (
         !candidate.runtime.sandboxId ||
@@ -197,14 +228,29 @@ export async function migrateRetainedRuntime(input: {
         throw new Error('Retained migration candidate identity differs');
       advance({ phase: 'candidate', candidate });
     }
-    await adapters.attest(record.candidate!);
+    const candidatePolicyAttestation = await adapters.attest(record.candidate!);
+    if (candidatePolicyAttestation) {
+      if (!sameRuntimePolicyAuthority(record.sourcePolicyAttestation, candidatePolicyAttestation))
+        throw new Error('Retained migration candidate effective policy authority differs');
+      advance({ candidatePolicyAttestation });
+    }
     if (record.phase === 'candidate') {
       await adapters.restore(record.candidate!, record.checkpoint!, record.identity);
       advance({ phase: 'restored' });
     }
     await adapters.verifyRestored(record.candidate!, record.identity);
+    const finalPolicyAttestation = await adapters.attest(record.candidate!);
+    if (
+      finalPolicyAttestation &&
+      !sameRuntimePolicyAuthority(record.sourcePolicyAttestation, finalPolicyAttestation)
+    )
+      throw new Error('Retained migration final effective policy authority differs');
+    if (finalPolicyAttestation) advance({ candidatePolicyAttestation: finalPolicyAttestation });
     // Atomic SQLite transaction records the explicit source-to-target relation and
     // authoritative candidate routing, checking the same thread generation again.
+    await adapters.quiescent(record.source);
+    await verifySourceAuthority();
+    adapters.beforeCommit?.();
     return store.commitRuntimeMigration(id, binding, record.generation);
   } catch (error) {
     // Preserve the entire original sandbox, checkpoint and candidate for inspection.

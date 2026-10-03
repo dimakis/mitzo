@@ -1,3 +1,5 @@
+import { attestEffectiveRuntimePolicy, runtimePolicyHash } from './openshell-runtime-policy.js';
+import { load } from 'js-yaml';
 import { knowledgeStoreFromEnvironment, type KnowledgeStore } from './knowledge-store-config.js';
 import type { KnowledgeAdoptionSelection } from './codex-conversation-store.js';
 import { verifyPreparedSeed } from '../scripts/verify-openshell-production.mjs';
@@ -20,6 +22,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import {
   cpSync,
   existsSync,
+  lstatSync,
   mkdtempSync,
   mkdirSync,
   readFileSync,
@@ -28,7 +31,7 @@ import {
   rmSync,
   writeFileSync,
 } from 'node:fs';
-import { basename, dirname, isAbsolute, join } from 'node:path';
+import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import { z } from 'zod';
 import type { McpServerConfig } from './mcp-config.js';
 import { openShellSshArgvProcessSpec, openShellSshProcessSpec } from './codex-app-server-client.js';
@@ -418,6 +421,29 @@ export function openShellRuntimeConfig(env: NodeJS.ProcessEnv): OpenShellRuntime
   };
 }
 
+/** Authored permission authority is the immutable selected stack, never mutable YAML alone. */
+export function verifiedOpenShellPolicy(
+  config: Pick<OpenShellRuntimeConfig, 'policy' | 'seedStackManifest'>,
+): unknown {
+  const pin = (config.seedStackManifest?.policy as Record<string, unknown> | undefined)?.sha256;
+  const info = lstatSync(config.policy);
+  if (
+    !info.isFile() ||
+    info.isSymbolicLink() ||
+    realpathSync(config.policy) !== resolve(config.policy) ||
+    (process.getuid && info.uid !== process.getuid())
+  )
+    throw new Error('Runtime authored policy is not an owned physical file');
+  const bytes = readFileSync(config.policy);
+  if (
+    typeof pin !== 'string' ||
+    !/^[a-f0-9]{64}$/.test(pin) ||
+    createHash('sha256').update(bytes).digest('hex') !== pin
+  )
+    throw new Error('Runtime authored policy differs from selected manifest');
+  return load(bytes.toString('utf8'));
+}
+
 /** Resolve one immutable publication and verify it before a new ordinary seed upload. */
 export function verifiedOpenShellSeed(
   config: Pick<OpenShellRuntimeConfig, 'seed' | 'image' | 'seedStackManifest'>,
@@ -630,12 +656,167 @@ export class OpenShellRuntimeManager {
     );
     if (
       detail.id !== runtime.sandboxId ||
+      detail.name !== owned.name ||
+      detail.workspace !== this.config.workspace ||
+      detail.policy_source !== 'sandbox' ||
       detail.labels?.['mitzo.conversation'] !== owned.labels?.['mitzo.conversation'] ||
       !detail.resource_version ||
       !detail.policy
     )
       throw new Error('Runtime source observation changed');
-    return { resourceVersion: String(detail.resource_version), policy: detail.policy as unknown };
+    const approved = this.providerPolicyState.read(owned.name);
+    const automatic = this.config.serviceProviders
+      .filter(isServiceProviderName)
+      .filter((p) => p !== this.config.account.provider);
+    const granted = approved?.granted ?? [];
+    if (
+      !approved ||
+      approved.pendingDetach?.length ||
+      runtimePolicyHash([...approved.automatic].sort()) !==
+        runtimePolicyHash([...automatic].sort()) ||
+      granted.some(
+        (p) =>
+          !this.config.grantableServiceProviders.includes(p) || p === this.config.account.provider,
+      )
+    )
+      throw new Error('Runtime provider approval contract is unavailable');
+    const expected = new Set([this.config.account.provider, ...automatic, ...granted]);
+    const attachments = await this.attachedProviders(owned.name, signal);
+    if (attachments.length !== expected.size || attachments.some((p) => !expected.has(p)))
+      throw new Error('Runtime provider attachment contract differs');
+    await this.verifyAccountProvider(signal);
+    await this.verifyManagedConnections(owned.name, signal, granted);
+    const inventory = await this.accountProviderInventory(signal);
+    // CLI provider inventory omits profile_workspace. Its scoped catalog lists
+    // both workspace definitions and platform fallbacks: attest every possible
+    // selector result instead of guessing which credential schema is active.
+    const readCatalog = async () => {
+      const catalog: unknown = JSON.parse(
+        await this.run(['provider', ...this.base(), 'profile', 'list', '--output', 'json'], signal),
+      );
+      if (
+        !Array.isArray(catalog) ||
+        catalog.length >= 100 ||
+        catalog.some((p) => !p || typeof p !== 'object' || typeof p.id !== 'string')
+      )
+        throw new Error('Runtime profile catalog is incomplete or unsupported');
+      return catalog.filter((p) =>
+        inventory.some((provider) => expected.has(provider.name) && provider.type === p.id),
+      );
+    };
+    const catalog = await readCatalog();
+    const providers = [];
+    for (const name of [...expected].sort()) {
+      const matches = inventory.filter((p) => p.name === name);
+      const provider = matches[0];
+      if (matches.length !== 1 || !provider || provider.workspace !== this.config.workspace)
+        throw new Error('Runtime provider inventory is ambiguous');
+      const profile = JSON.parse(
+        await this.run(
+          ['provider', ...this.base(), 'profile', 'export', provider.type, '--output', 'json'],
+          signal,
+        ),
+      );
+      if (
+        name === this.config.account.provider &&
+        this.config.account.kind === 'api' &&
+        provider.type !== 'mitzo-openai-keychain-spike'
+      )
+        throw new Error('Runtime ordinary API account profile is unsupported');
+      providers.push({ ...provider, profile });
+    }
+    const attestation = attestEffectiveRuntimePolicy(
+      verifiedOpenShellPolicy(this.config),
+      detail.policy,
+      providers,
+    );
+    const catalogProof: NonNullable<typeof attestation.profileCatalog> = [];
+    for (const provider of providers) {
+      const candidates = catalog.filter((p) => p.id === provider.type);
+      if (
+        !candidates.length ||
+        !candidates.some((p) => runtimePolicyHash(p) === runtimePolicyHash(provider.profile)) ||
+        new Set(candidates.map((p) => p.scope ?? 'builtin')).size !== candidates.length
+      )
+        throw new Error('Runtime selectable profile catalog is ambiguous');
+      for (const profile of candidates) {
+        if (profile.scope !== undefined && !['workspace', 'platform'].includes(profile.scope))
+          throw new Error('Runtime selectable profile scope is unsupported');
+        const proof = attestEffectiveRuntimePolicy(
+          attestation.basePolicy,
+          detail.policy,
+          providers.map((p) =>
+            p.name === provider.name ? { ...p, profile, profileScope: profile.scope } : p,
+          ),
+        ).providers.find((p) => p.name === provider.name)!;
+        catalogProof.push({
+          type: proof.type,
+          profileHash: proof.profileHash,
+          ...(proof.resourceVersion ? { resourceVersion: proof.resourceVersion } : {}),
+          source: proof.source,
+          ...(proof.scope ? { scope: proof.scope } : {}),
+        });
+      }
+    }
+    attestation.profileCatalog = catalogProof.sort((a, b) =>
+      (a.type + ':' + (a.scope ?? '')).localeCompare(b.type + ':' + (b.scope ?? '')),
+    );
+    if (runtimePolicyHash(await readCatalog()) !== runtimePolicyHash(catalog))
+      throw new Error('Runtime selectable profile catalog changed during attestation');
+    // Bind the observations to a stable physical/account/attachment/profile snapshot.
+    // resource_version itself advances on read-only observations and is not this fence.
+    for (const provider of providers) {
+      const profile = JSON.parse(
+        await this.run(
+          ['provider', ...this.base(), 'profile', 'export', provider.type, '--output', 'json'],
+          signal,
+        ),
+      );
+      if (runtimePolicyHash(profile) !== runtimePolicyHash(provider.profile))
+        throw new Error('Runtime provider profile changed during attestation');
+    }
+    await this.verifyAccountProvider(signal);
+    verifiedOpenShellPolicy(this.config);
+    const afterInventory = await this.accountProviderInventory(signal);
+    if (
+      providers.some(
+        (p) =>
+          afterInventory.filter((q) => q.name === p.name).length !== 1 ||
+          !afterInventory.some(
+            (q) =>
+              q.name === p.name &&
+              q.id === p.id &&
+              q.type === p.type &&
+              q.workspace === p.workspace,
+          ),
+      )
+    )
+      throw new Error('Runtime provider identity changed during attestation');
+    if (
+      runtimePolicyHash([...(await this.attachedProviders(owned.name, signal))].sort()) !==
+        runtimePolicyHash([...attachments].sort()) ||
+      runtimePolicyHash(this.providerPolicyState.read(owned.name)) !== runtimePolicyHash(approved)
+    )
+      throw new Error('Runtime provider approval changed during attestation');
+    const after = JSON.parse(
+      await this.run(['sandbox', ...this.base(), 'get', owned.name, '-o', 'json'], signal),
+    );
+    if (
+      after.id !== detail.id ||
+      after.workspace !== detail.workspace ||
+      after.policy_source !== detail.policy_source ||
+      after.labels?.['mitzo.account_provider'] !== this.config.account.provider ||
+      after.labels?.['mitzo.conversation'] !== detail.labels?.['mitzo.conversation'] ||
+      after.phase !== 'Ready' ||
+      runtimePolicyHash(after.policy) !== runtimePolicyHash(detail.policy)
+    )
+      throw new Error('Runtime effective policy changed during attestation');
+    return {
+      resourceVersion: String(detail.resource_version),
+      policy: detail.policy as unknown,
+      attestation,
+      approvedGrantableProviders: granted,
+    };
   }
   async hasServiceProviderAccess(
     conversationId: string,
@@ -834,7 +1015,7 @@ export class OpenShellRuntimeManager {
   private async serializeProviderPolicy<T>(
     sandboxName: string,
     signal: AbortSignal,
-    operation: () => Promise<T>,
+    operation: (assertUnqueued: () => void) => Promise<T>,
   ): Promise<T> {
     const previous = PROVIDER_POLICY_QUEUES.get(sandboxName) ?? Promise.resolve();
     let release!: () => void;
@@ -846,12 +1027,30 @@ export class OpenShellRuntimeManager {
     await previous.catch(() => undefined);
     try {
       signal.throwIfAborted();
-      return await operation();
+      return await operation(() => {
+        if (PROVIDER_POLICY_QUEUES.get(sandboxName) !== tail)
+          throw new Error('Migration source provider policy mutation is pending');
+      });
     } finally {
       release();
       if (PROVIDER_POLICY_QUEUES.get(sandboxName) === tail)
         PROVIDER_POLICY_QUEUES.delete(sandboxName);
     }
+  }
+
+  /** Keep source approval writers serialized through the synchronous mapping commit. */
+  async withMigrationProviderPolicyFence<T>(
+    conversationId: string,
+    runtime: OpenShellRuntime,
+    signal: AbortSignal,
+    operation: (assertUnqueued: () => void) => Promise<T>,
+  ): Promise<T> {
+    if (!runtime.sandboxId) throw new Error('Migration source physical identity is missing');
+    return this.serializeProviderPolicy(runtime.sandboxName, signal, async (assertUnqueued) => {
+      await this.ownedSandbox(conversationId, runtime.sandboxId!, signal);
+      assertUnqueued();
+      return operation(assertUnqueued);
+    });
   }
 
   /** Read-only inventory scoped to sandboxes carrying this runtime's provider label. */
@@ -1212,11 +1411,38 @@ export class OpenShellRuntimeManager {
   }
 
   async ensure(
+    ...args: Parameters<OpenShellRuntimeManager['ensureUnserialized']>
+  ): Promise<OpenShellRuntime> {
+    const current = this.nameForConversation(args[0]);
+    const legacy = legacySandboxNameForConversation(
+      createHash('sha256').update(args[0]).digest('hex'),
+    );
+    return this.serializeProviderPolicy(current, args[1], () =>
+      !this.config.sandboxNameOverride && legacy !== current
+        ? this.serializeProviderPolicy(legacy, args[1], () => this.ensureUnserialized(...args))
+        : this.ensureUnserialized(...args),
+    );
+  }
+
+  private async ensureUnserialized(
     conversationId: string,
     signal: AbortSignal,
     expected?: { sandboxName: string; sandboxId: string },
     admittedSeed?: { seed: string; cleanup: () => void },
+    /** Migration adapter supplies only freshly attested durable source approvals. */
+    inheritedMigrationGrants?: readonly string[],
   ): Promise<OpenShellRuntime> {
+    if (
+      inheritedMigrationGrants?.some(
+        (p) =>
+          !this.config.grantableServiceProviders.includes(p) ||
+          !isServiceProviderName(p) ||
+          p === this.config.account.provider,
+      ) ||
+      (inheritedMigrationGrants &&
+        new Set(inheritedMigrationGrants).size !== inheritedMigrationGrants.length)
+    )
+      throw new Error('Migration provider approval is unsupported');
     const artifactConfig = this.config.artifactDriverConfig;
     if (artifactConfig && (this.config.cliContract !== 'v0.1' || !this.config.verifyArtifactMount))
       throw new Error('Artifact mount requires OpenShell 0.1 and physical mount attestation');
@@ -1271,12 +1497,12 @@ export class OpenShellRuntimeManager {
     if (sandbox && sandbox.labels?.['mitzo.account_provider'] !== accountProvider)
       throw new Error(`OpenShell sandbox ${name} has another account provider binding`);
     const approvedGrantableProviders = sandbox
-      ? (this.providerPolicyState.read(name)?.granted ?? []).filter((provider) =>
-          this.config.grantableServiceProviders.includes(provider),
+      ? (this.providerPolicyState.read(name)?.granted ?? inheritedMigrationGrants ?? []).filter(
+          (provider) => this.config.grantableServiceProviders.includes(provider),
         )
-      : [];
+      : [...(inheritedMigrationGrants ?? [])];
     if (sandbox) await this.verifyManagedConnections(name, signal, approvedGrantableProviders);
-    else await this.config.verifyConnections?.(name, signal, []);
+    else await this.config.verifyConnections?.(name, signal, approvedGrantableProviders);
     if (!sandbox) {
       const preparedSeed = artifactConfig
         ? { seed: this.config.seed, cleanup: () => undefined }
@@ -1406,12 +1632,31 @@ export class OpenShellRuntimeManager {
       throw new Error('Created sandbox identity changed before configuration');
     await this.verifyManagedConnections(name, signal, approvedGrantableProviders);
     if (sandbox && sandbox.phase === 'Ready' && sandbox.labels?.['mitzo.conversation'] === owner) {
-      await this.serializeProviderPolicy(name, signal, async () => {
+      {
         this.config.verifyAccountProviderUnion?.();
         const automatic = automaticProviders();
         const persisted = retained ? this.providerPolicyState.read(name) : undefined;
+        if (
+          inheritedMigrationGrants?.some(
+            (p) =>
+              !this.config.grantableServiceProviders.includes(p) ||
+              !isServiceProviderName(p) ||
+              p === accountProvider,
+          )
+        )
+          throw new Error('Migration provider approval is unsupported');
+        if (
+          inheritedMigrationGrants &&
+          persisted &&
+          runtimePolicyHash([...persisted.granted].sort()) !==
+            runtimePolicyHash([...inheritedMigrationGrants].sort())
+        )
+          throw new Error('Migration candidate provider approvals differ');
         const previous: ProviderPolicyRecord | undefined =
           persisted ??
+          (inheritedMigrationGrants
+            ? { automatic, granted: [...inheritedMigrationGrants] }
+            : undefined) ??
           (retained && sandbox.labels?.[PROVIDER_POLICY_LABEL] === policyFingerprint
             ? { automatic, granted: [] }
             : undefined);
@@ -1430,15 +1675,19 @@ export class OpenShellRuntimeManager {
           ...automatic,
           ...granted,
         ]);
-        const actual = retained
-          ? new Set(await this.attachedProviders(name, signal))
-          : new Set<string>();
+        const actual =
+          retained || inheritedMigrationGrants
+            ? new Set(await this.attachedProviders(name, signal))
+            : new Set<string>();
         if (
           this.config.cliContract === 'v0.1' &&
           [...actual].some((provider) => provider !== accountProvider)
         )
           throw new Error('OpenShell 0.1 seat sandbox has another provider attachment');
-        const attach = retained ? [...desired].filter((provider) => !actual.has(provider)) : [];
+        const attach =
+          retained || inheritedMigrationGrants
+            ? [...desired].filter((provider) => !actual.has(provider))
+            : [];
         const detach = retained
           ? [...actual].filter(
               (provider) =>
@@ -1452,7 +1701,7 @@ export class OpenShellRuntimeManager {
         // Persist intended account attachments before an asynchronous attach.
         // If membership changes mid-call, the next revision can identify and
         // detach a stale attachment even when this operation returns unknown.
-        if (this.config.accountProviderBindings)
+        if (this.config.accountProviderBindings || inheritedMigrationGrants)
           this.providerPolicyState.write(name, {
             automatic,
             granted,
@@ -1472,7 +1721,7 @@ export class OpenShellRuntimeManager {
         }
         // Clear removal history only after the physical attachment set is confirmed.
         this.providerPolicyState.write(name, { automatic, granted });
-      });
+      }
     }
     if (!sandbox || sandbox.phase !== 'Ready')
       throw new Error(`OpenShell sandbox ${name} is ${sandbox?.phase ?? 'unavailable'}`);

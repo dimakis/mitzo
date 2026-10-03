@@ -1,5 +1,14 @@
+import { createHash } from 'node:crypto';
 import type { AccountBinding } from '@mitzo/protocol';
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  rmSync,
+  realpathSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it, vi } from 'vitest';
@@ -17,7 +26,8 @@ const mocks = vi.hoisted(() => ({
   preparedSeed: vi.fn(),
   ensure: vi.fn(),
 }));
-vi.mock('../openshell-runtime.js', () => ({
+vi.mock('../openshell-runtime.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../openshell-runtime.js')>()),
   preparePublishedOpenShellSeed: (...args: unknown[]) => mocks.preparedSeed(...args),
 }));
 vi.mock('../openshell-runtime-migration-capacity.js', () => ({
@@ -78,6 +88,7 @@ vi.mock('../codex-app-server-client.js', () => ({
   },
 }));
 import { requireRuntimeMigrationCapacity } from '../openshell-runtime-migration-capacity.js';
+import { runtimePolicyHash } from '../openshell-runtime-policy.js';
 import { prepareRetainedRuntimeMigration } from '../openshell-runtime-migration-adapter.js';
 const roots: string[] = [];
 afterEach(() => {
@@ -87,7 +98,7 @@ afterEach(() => {
   mocks.candidatePolicy = {};
 });
 function fixture() {
-  const root = mkdtempSync(join(tmpdir(), 'migration-adapter-'));
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'migration-adapter-')));
   roots.push(root);
   const store = new CodexConversationStore(join(root, 'state.db'));
   const binding: AccountBinding = {
@@ -120,13 +131,26 @@ function fixture() {
   const config = {
     policy,
     seedStackManifest: {
+      policy: { sha256: createHash('sha256').update('{}').digest('hex') },
       runtime: { knowledgeSchemaVersion: 1, digest: `sha256:${'a'.repeat(64)}` },
     },
   } as unknown as OpenShellRuntimeConfig;
   const manager = {
+    withMigrationProviderPolicyFence: async (
+      _id: unknown,
+      _runtime: unknown,
+      _signal: unknown,
+      operation: (assertUnqueued: () => void) => Promise<unknown>,
+    ) => operation(() => {}),
     forSandbox: (name: string) => ({
       observeContract: async () => ({
         policy: name === 'old' ? {} : mocks.candidatePolicy,
+        attestation: {
+          basePolicy: name === 'old' ? {} : mocks.candidatePolicy,
+          effectivePolicyHash: runtimePolicyHash(name === 'old' ? {} : mocks.candidatePolicy),
+          providers: [],
+        },
+        approvedGrantableProviders: [],
         resourceVersion: 'r1',
       }),
       ensure: async (...args: unknown[]) => {
@@ -182,7 +206,7 @@ it('compares original contents before native same-thread resume, then proves clo
       allowProviderModelFallback: false,
     }),
   );
-  expect(mocks.capture).toHaveBeenCalledTimes(3);
+  expect(mocks.capture).toHaveBeenCalledTimes(4);
   expect(mocks.capture.mock.invocationCallOrder[1]).toBeLessThan(
     mocks.launch.mock.invocationCallOrder[0],
   );
@@ -277,6 +301,7 @@ it('capacity checks the publisher selection before freezing and ensure uses that
     f.input.signal,
     undefined,
     expect.objectContaining({ seed: expect.stringContaining('frozen-selected') }),
+    [],
   );
 });
 

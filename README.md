@@ -598,6 +598,11 @@ untracked task Git state, the provider thread/account route and queued FIFO, and
 keeps the original sandbox and immutable checkpoint. Actual image/policy, ordinary
 ownership, idle provider activity and measured host/VM capacity must verify; unknown
 source contracts and unsupported Git/provider layouts remain visibly blocked.
+Runtime admission verifies the full effective policy against reviewed provider
+profiles and current approved attachments, including brokered OpenAI, automatic
+GitHub and approved Google Workspace layers. Serializer defaults do not erase
+credential inspection or unexpected permissions. Migration preserves the original
+base-policy checkpoint identity and records separate effective-policy provenance.
 Current runtimes retain normal provider recovery without entering migration. See
 [retained runtime migration](docs/operations/retained-runtime-migration.md) for
 transaction recovery, eligibility and rollout drain requirements.

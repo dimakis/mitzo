@@ -1,8 +1,8 @@
+import { runtimePolicyProvenance } from './openshell-runtime-policy.js';
 import { execFile } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, rmSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { load } from 'js-yaml';
 import { setTimeout as delay } from 'node:timers/promises';
 import type { AccountBinding } from '@mitzo/protocol';
 import { CodexAppServerClient } from './codex-app-server-client.js';
@@ -16,6 +16,7 @@ import { requireRuntimeMigrationCapacity } from './openshell-runtime-migration-c
 import { migrateRetainedRuntime } from './openshell-runtime-migration.js';
 import {
   preparePublishedOpenShellSeed,
+  verifiedOpenShellPolicy,
   type OpenShellRuntimeConfig,
   type OpenShellRuntimeManager,
 } from './openshell-runtime.js';
@@ -76,24 +77,27 @@ export async function observePodmanRuntimeImage(
 }
 /** Invoked under the startup/resume lifecycle reservation, before any app-server starts.
  * Capture's strict process scan supplies the actual source-writer barrier. */
-export async function prepareRetainedRuntimeMigration(input: {
-  conversationId: string;
-  binding: AccountBinding;
-  store: CodexConversationStore;
-  source: ArtifactRuntime;
-  config: OpenShellRuntimeConfig;
-  manager: OpenShellRuntimeManager;
-  privateDirectory: string;
-  signal: AbortSignal;
-  closeOwnedTransport?: () => Promise<void>;
-}): Promise<ArtifactRuntime> {
+async function prepareRetainedRuntimeMigrationFenced(
+  input: {
+    conversationId: string;
+    binding: AccountBinding;
+    store: CodexConversationStore;
+    source: ArtifactRuntime;
+    config: OpenShellRuntimeConfig;
+    manager: OpenShellRuntimeManager;
+    privateDirectory: string;
+    signal: AbortSignal;
+    closeOwnedTransport?: () => Promise<void>;
+  },
+  assertProviderPolicyUnchanged: () => void,
+): Promise<ArtifactRuntime> {
   const { config, signal, manager, source, conversationId: id } = input;
   const runtimeContract = config.seedStackManifest?.runtime as Record<string, unknown> | undefined;
   if (runtimeContract?.knowledgeSchemaVersion !== 1) return source;
   const targetImage = String(runtimeContract.digest);
   if (!/^sha256:[a-f0-9]{64}$/.test(targetImage))
     throw new Error('Retained migration target digest is invalid');
-  const targetPolicy = policyHash(load(readFileSync(config.policy, 'utf8')));
+  const targetPolicy = policyHash(verifiedOpenShellPolicy(config));
   const supported = ['sha256:b89016abe4c17850ee31e2c4613697f6a4871356953952b0edcdb4fdfb8db624'];
   const root = join(
     input.privateDirectory,
@@ -104,6 +108,7 @@ export async function prepareRetainedRuntimeMigration(input: {
   const probes = new Set<string>();
   let preparedSeed: { seed: string; cleanup: () => void } | undefined;
   let checkpointDigest: string | undefined;
+  let approvedSourceGrants: readonly string[] | undefined;
   let sourceProbe: { path: string; digest: string } | undefined;
   const captureOrVerify = async (
     runtime: ArtifactRuntime,
@@ -147,13 +152,16 @@ export async function prepareRetainedRuntimeMigration(input: {
       targetPolicy,
       supportedSourceImages: supported,
       adapters: {
+        beforeCommit: assertProviderPolicyUnchanged,
         observe: async (original) => {
           const observation = await manager
             .forSandbox(original.runtime.sandboxName)
             .observeContract(id, original.runtime, signal);
+          approvedSourceGrants = observation.approvedGrantableProviders;
           return {
+            policyAttestation: runtimePolicyProvenance(observation.attestation),
             image: await observePodmanRuntimeImage(original.runtime, signal),
-            policy: policyHash(observation.policy),
+            policy: policyHash(observation.attestation.basePolicy),
             resourceVersion: observation.resourceVersion,
           };
         },
@@ -189,9 +197,10 @@ export async function prepareRetainedRuntimeMigration(input: {
           return proof;
         },
         create: async (name) => {
+          assertProviderPolicyUnchanged();
           const runtime = await manager
             .forSandbox(name)
-            .ensure(id, signal, undefined, preparedSeed);
+            .ensure(id, signal, undefined, preparedSeed, approvedSourceGrants);
           if (!runtime.sandboxId) throw new Error('Migration candidate has no physical identity');
           return { runtime: { ...runtime, sandboxId: runtime.sandboxId }, route: source.route };
         },
@@ -199,13 +208,14 @@ export async function prepareRetainedRuntimeMigration(input: {
           const observation = await manager
             .forSandbox(candidate.runtime.sandboxName)
             .observeContract(id, candidate.runtime, signal);
-          if (policyHash(observation.policy) !== targetPolicy)
+          if (policyHash(observation.attestation.basePolicy) !== targetPolicy)
             throw new Error('Migration target actual policy differs');
           if ((await observePodmanRuntimeImage(candidate.runtime, signal)) !== targetImage)
             throw new Error('Migration target physical image differs');
           await manager
             .forSandbox(candidate.runtime.sandboxName)
             .verifyKnowledgeRuntime(candidate.runtime, signal);
+          return runtimePolicyProvenance(observation.attestation);
         },
         restore: async (candidate, checkpoint, identity) => {
           checkpointDigest = checkpoint.digest;
@@ -270,4 +280,17 @@ export async function prepareRetainedRuntimeMigration(input: {
         rmSync(directory, { recursive: true, force: true });
     }
   }
+}
+
+export async function prepareRetainedRuntimeMigration(
+  input: Parameters<typeof prepareRetainedRuntimeMigrationFenced>[0],
+): Promise<ArtifactRuntime> {
+  const contract = input.config.seedStackManifest?.runtime as Record<string, unknown> | undefined;
+  if (contract?.knowledgeSchemaVersion !== 1) return input.source;
+  return input.manager.withMigrationProviderPolicyFence(
+    input.conversationId,
+    input.source.runtime,
+    input.signal,
+    (assertUnqueued) => prepareRetainedRuntimeMigrationFenced(input, assertUnqueued),
+  );
 }
