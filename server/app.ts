@@ -154,11 +154,17 @@ import {
 import { DEFAULT_AGENT_NAME, GIT_BRANCH_TIMEOUT_MS } from './constants.js';
 import { isValidInternalToken } from './internal-token.js';
 import { createConnectionsRouter } from './connections-router.js';
+import { createConnectionsAccessRouter } from './connections-access-router.js';
+import {
+  personalInventorySource,
+  symposiumAccountsInventorySource,
+} from './connections-access-custodian.js';
 import { createCapabilityOperationsRouter } from './connections/capabilities/router.js';
 import { capabilityApprovalForConversation } from './connections/capabilities/approval.js';
 import { getLiveCapabilityConversationBinding } from './capability-conversation-binding.js';
 import {
   setConnectionsRuntime as setActiveConnectionsRuntime,
+  getConnectionsRuntime,
   type ConnectionsRuntime,
 } from './connections-runtime.js';
 import { getLocalCommit, isUpdateAvailable } from './git-version.js';
@@ -421,6 +427,11 @@ app.use('/api/capability-operations', authMiddleware, (req, res, next) => {
 app.put('/api/files/write', authMiddleware, express.json({ limit: 60 * 1024 * 1024 + 64 * 1024 }));
 // Authenticate before accepting the expanded JSON envelope; decoded document bytes remain capped at 5 MiB.
 app.post('/api/internal/telos/artifacts/save', authMiddleware, telosArtifactSaveJson);
+app.post(
+  '/api/telos/items/:itemId/artifacts/upload',
+  operatorAuthMiddleware,
+  express.json({ limit: '8mb' }),
+);
 app.use(express.json({ limit: '10mb' }));
 
 const loginLimiter = rateLimit({
@@ -1530,6 +1541,7 @@ app.post('/api/internal/task-tools/artifact', (req, res) => {
 
 app.use(
   createTelosArtifactRouter({
+    operatorAuth: operatorAuthMiddleware,
     dbPath: () =>
       process.env.TELOS_DB_PATH || join(BASE_REPO, 'command_center', 'data', 'smart_todo.db'),
     verifyInternal: verifyInternalToken,
@@ -2103,6 +2115,48 @@ app.get('/api/symposium/accounts', (_req, res) => {
     res.status(503).json({ error: 'Symposium account catalog unavailable.' });
   }
 });
+
+app.use(
+  '/api/connections-access',
+  operatorAuthMiddleware,
+  createConnectionsAccessRouter((auth) => {
+    const runtime = getConnectionsRuntime();
+    return {
+      accounts: () =>
+        loadAccountProfiles()
+          .catalog()
+          .map((account) => ({
+            ...account,
+            label: accountAliases.label(account.id, account.label),
+          })),
+      ...(runtime
+        ? {
+            managed: () => runtime.store.list('operator'),
+            legacy: runtime.legacyProviders,
+            gateway: runtime.gateway,
+            workspace: runtime.workspace,
+            ...(runtime.googleWorkspace
+              ? { google: (signal: AbortSignal) => runtime.googleWorkspace!.status(signal) }
+              : {}),
+          }
+        : {}),
+      symposiumAccounts: symposiumAccountsInventorySource(
+        auth,
+        custodianControllerClient,
+        symposiumProductionHost
+          ? () => symposiumProductionHost!.currentProfiles().catalog()
+          : undefined,
+      ),
+      personal: personalInventorySource(
+        auth,
+        custodianControllerClient,
+        symposiumProductionHost?.personalConnections
+          ? () => symposiumProductionHost!.personalConnections!.list()
+          : undefined,
+      ),
+    };
+  }),
+);
 
 app.get('/api/accounts', async (req, res) => {
   try {

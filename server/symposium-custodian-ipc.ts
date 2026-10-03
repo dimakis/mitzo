@@ -143,22 +143,38 @@ export function createCustodianIpcClient(
           approval && input.operation === 'publication.publish'
             ? serveControllerPublicationApproval(channel, { ...input, epoch: epoch! }, approval)
             : () => {};
-        const cancel = () => {
+        const inventoryRead = ['personal.list', 'account.catalog'].includes(input.operation);
+        const cancelPublication = () => {
           if (['publication.publish', 'publication.recover'].includes(input.operation) && !closed)
             send({ kind: 'publication-request-cancel', epoch, requestId: input.requestId });
+        };
+        const cancel = () => {
+          if (!inventoryRead) return cancelPublication();
+          // Metadata has no durable operation to reconcile. Release local capacity;
+          // a late owner response has no pending entry and is ignored.
+          const item = pending.get(input.requestId);
+          if (!item) return;
+          pending.delete(input.requestId);
+          clearTimeout(item.timer);
+          item.closeApproval();
+          item.reject(Error('Custodian read cancelled'));
         };
         const closeApproval = () => {
           removeApproval();
           signal?.removeEventListener('abort', cancel);
         };
-        signal?.addEventListener('abort', cancel, { once: true });
         const timer = setTimeout(() => {
-          cancel();
+          cancelPublication();
           pending.delete(input.requestId);
           closeApproval();
           reject(Error('Custodian response timed out; operation outcome unknown'));
         }, options.requestTimeoutMs ?? 600_000);
         pending.set(input.requestId, { resolve, reject, timer, closeApproval });
+        signal?.addEventListener('abort', cancel, { once: true });
+        if (signal?.aborted) {
+          cancel();
+          if (inventoryRead) return;
+        }
         try {
           send({ kind: 'request', command: { ...input, epoch } });
         } catch (error) {

@@ -80,3 +80,73 @@ it('treats a silent controller as lost and rejects arbitrary messages', async ()
   expect(dispatch).not.toHaveBeenCalled();
   expect(drain).toHaveBeenCalledOnce();
 });
+
+it.each(['personal.list', 'account.catalog'] as const)(
+  'releases aborted %s reads from client capacity and ignores late owner responses',
+  async (operation) => {
+    const [parent, child] = pair();
+    const frames: Array<{ kind: string; command?: { requestId: string } }> = [];
+    parent.on('message', (frame) => frames.push(frame));
+    const client = createCustodianIpcClient(child, {
+      heartbeatMs: 60_000,
+      requestTimeoutMs: 60_000,
+    });
+    parent.send({ kind: 'ready', epoch: 1 });
+    const controllers = Array.from({ length: 64 }, () => new AbortController());
+    const input = (requestId: string) => ({
+      operation,
+      requestId,
+      body: {},
+      query: {},
+      authorization: { id: 'browser-read', expiresAt: Date.now() + 60_000 },
+    });
+    const aborted = controllers.map((controller, index) =>
+      client
+        .request(input(`read-${index}`), undefined, controller.signal)
+        .catch((error) => (error as Error).message),
+    );
+    let followup: Promise<unknown> | undefined;
+    try {
+      await vi.waitFor(() =>
+        expect(frames.filter((frame) => frame.kind === 'request')).toHaveLength(64),
+      );
+      controllers.forEach((controller) => controller.abort());
+      let settled = false;
+      followup = client.request(input('followup')).then(
+        (response) => {
+          settled = true;
+          return response;
+        },
+        (error) => {
+          settled = true;
+          throw error;
+        },
+      );
+      // Attach a handler before assertions so a capacity rejection cannot become unhandled.
+      void followup.catch(() => {});
+      await vi.waitFor(() =>
+        expect(frames.some((frame) => frame.command?.requestId === 'followup')).toBe(true),
+      );
+      parent.send({
+        kind: 'response',
+        requestId: 'read-0',
+        result: { status: 200, body: { stale: true } },
+      });
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(settled).toBe(false);
+      parent.send({
+        kind: 'response',
+        requestId: 'followup',
+        result: { status: 200, body: { current: true } },
+      });
+      await expect(followup).resolves.toEqual({ status: 200, body: { current: true } });
+      expect(await Promise.all(aborted)).toEqual(Array(64).fill('Custodian read cancelled'));
+      expect(frames.some((frame) => frame.kind === 'publication-request-cancel')).toBe(false);
+    } finally {
+      child.emit('disconnect');
+      await Promise.all(aborted);
+      await followup?.catch(() => {});
+    }
+  },
+);
