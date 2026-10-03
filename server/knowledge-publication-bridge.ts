@@ -167,6 +167,17 @@ export class KnowledgePublicationBridge {
       JSON.stringify(manifest.paths) !== JSON.stringify(source.paths)
     )
       throw new Error('Publication provenance differs from configured source');
+    const selected = (path: string, policy: string) =>
+      policy.endsWith('/') ? path.startsWith(policy) : path === policy;
+    if (
+      !manifest.files.length ||
+      manifest.files.some(
+        (file) =>
+          !file.path.endsWith('.md') || !source.paths.some((policy) => selected(file.path, policy)),
+      ) ||
+      source.paths.some((policy) => !manifest.files.some((file) => selected(file.path, policy)))
+    )
+      throw new Error('Publication files differ from configured source paths');
     const expected = new Set([
       'manifest.json',
       'context.json',

@@ -141,3 +141,29 @@ it('blocks adapter Markdown outside the publisher path policy', async () => {
     'Bundle Markdown differs from published source policy',
   );
 });
+
+it('rejects manifest files outside its configured source paths even with valid hashes', async () => {
+  const s = await setup();
+  const content = 'unselected private information';
+  await writeFile(join(s.directory, 'source/private.md'), content);
+  const context = '{}';
+  const raw = JSON.stringify({
+    schema: 'contexgin-portable-v1',
+    source: s.source.id,
+    acceptedRef: s.source.ref,
+    sourceIdentity: hash(JSON.stringify(s.source)),
+    revision: s.selection.revision,
+    paths: s.source.paths,
+    files: [{ path: 'private.md', sha256: hash(content), bytes: Buffer.byteLength(content) }],
+    contextSha256: hash(context),
+  });
+  await rm(join(s.directory, 'source/AGENTS.md'));
+  await writeFile(join(s.directory, 'manifest.json'), raw);
+  s.fetcher.mockResolvedValue(
+    new Response(JSON.stringify({ current: { ...s.selection, manifestSha256: hash(raw) } })),
+  );
+  await expect(s.bridge.reconcile(new AbortController().signal)).rejects.toThrow(
+    'Publication files differ from configured source paths',
+  );
+  expect(s.adapt).not.toHaveBeenCalled();
+});
