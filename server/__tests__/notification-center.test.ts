@@ -11,7 +11,10 @@ const request: PermissionRequest = {
   sessionId: 'notify-session',
   expiresAt: Date.now() + 60000,
 };
-function setup(devices = () => 1) {
+function setup(
+  devices = () => 1,
+  badge?: (count: number) => Promise<'accepted' | 'failed' | 'unavailable'>,
+) {
   const store = new NotificationStore(':memory:');
   const push = vi.fn().mockResolvedValue('accepted');
   const changed = vi.fn();
@@ -20,12 +23,37 @@ function setup(devices = () => 1) {
     changed,
     configured: () => true,
     devices,
+    badge,
     sessionTitle: () => 'Fix notifications',
   });
   return { store, center, push, changed };
 }
 describe('central notification delivery', () => {
   afterEach(() => vi.useRealTimers());
+  it.each(['failed', 'throw'])(
+    'retries an unchanged zero badge after a transient %s delivery and stops once accepted',
+    async (failure) => {
+      vi.useFakeTimers();
+      const badge = vi.fn().mockResolvedValue('accepted');
+      if (failure === 'throw') badge.mockRejectedValueOnce(new Error('APNs unavailable'));
+      else badge.mockResolvedValueOnce('failed');
+      const { store, center } = setup(() => 1, badge);
+      await center.syncBadge();
+      expect(badge).toHaveBeenCalledTimes(1);
+      vi.advanceTimersByTime(59999);
+      await center.flush();
+      expect(badge).toHaveBeenCalledTimes(1);
+      vi.advanceTimersByTime(1);
+      await center.flush();
+      expect(badge).toHaveBeenCalledTimes(2);
+      expect(badge).toHaveBeenLastCalledWith(0);
+      vi.advanceTimersByTime(120000);
+      await center.flush();
+      expect(badge).toHaveBeenCalledTimes(2);
+      center.close();
+      store.close();
+    },
+  );
   it.each(['resolved', 'expired', 'read'])(
     'does not send a later batched alert that becomes %s while an earlier push is in flight',
     async (change) => {

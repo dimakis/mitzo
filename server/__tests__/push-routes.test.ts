@@ -55,7 +55,7 @@ vi.mock('../chat.js', () => {
 
 vi.mock('../apns.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../apns.js')>()),
-  sendBadgeUpdate: vi.fn().mockResolvedValue(undefined),
+  sendBadgeUpdate: vi.fn().mockResolvedValue('accepted'),
 }));
 
 let app: Express;

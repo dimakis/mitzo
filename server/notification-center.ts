@@ -24,7 +24,7 @@ interface Dependencies {
   changed: () => void;
   configured: () => boolean;
   devices: () => number;
-  badge?: (count: number) => Promise<void>;
+  badge?: (count: number) => Promise<'accepted' | 'failed' | 'unavailable'>;
   sessionTitle: (id: string) => string | undefined;
 }
 /** Find the next local minute outside quiet hours, including DST transitions. */
@@ -54,6 +54,7 @@ export class NotificationCenter {
   private flushing = false;
   private lastBadge = -1;
   private badgeQueue = Promise.resolve();
+  private badgeRetryAt?: number;
   constructor(
     public readonly store: NotificationStore,
     private deps: Dependencies,
@@ -80,7 +81,15 @@ export class NotificationCenter {
   }
   private queueBadge(count: number): Promise<void> {
     this.lastBadge = count;
-    this.badgeQueue = this.badgeQueue.then(() => this.deps.badge?.(count)).catch(() => undefined);
+    this.badgeQueue = this.badgeQueue.then(async () => {
+      try {
+        const status = await this.deps.badge?.(count);
+        this.badgeRetryAt =
+          !this.deps.badge || status === 'accepted' ? undefined : Date.now() + 60000;
+      } catch {
+        this.badgeRetryAt = Date.now() + 60000;
+      }
+    });
     return this.badgeQueue;
   }
   start(): void {
@@ -174,6 +183,15 @@ export class NotificationCenter {
     this.flushing = true;
     try {
       if (this.store.reconcilePermissions(hasPending)) this.changed();
+      if (
+        this.badgeRetryAt !== undefined &&
+        this.badgeRetryAt <= Date.now() &&
+        this.deps.configured() &&
+        this.deps.devices() > 0
+      ) {
+        this.badgeRetryAt = undefined;
+        await this.syncBadge();
+      }
       for (const queued of this.store.due()) {
         // An earlier APNs await can allow this batch entry to change underneath us.
         if (this.store.reconcilePermissions(hasPending)) this.changed();

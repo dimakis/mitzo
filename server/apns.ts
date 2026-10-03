@@ -169,15 +169,23 @@ export async function deliverNotification(
 export function badgeFields(badge: number) {
   return { topic: APNS_BUNDLE_ID, badge, priority: 10, pushType: 'alert' };
 }
-export async function sendBadgeUpdate(badge: number): Promise<void> {
+export async function sendBadgeUpdate(
+  badge: number,
+): Promise<'accepted' | 'failed' | 'unavailable'> {
   const provider = getProvider();
-  if (!provider || !tokens.length) return;
+  if (!provider || !tokens.length) return 'unavailable';
   try {
     const apn = require('@parse/node-apn');
     const notification = Object.assign(new apn.Notification(), badgeFields(badge));
-    await provider.send(notification, [...tokens]);
+    const result = await provider.send(notification, [...tokens]);
+    for (const failure of result.failed) {
+      if (String(failure.status) === '410' || failure.response?.reason === 'Unregistered')
+        removeToken(failure.device);
+    }
+    return result.sent.length > 0 && result.failed.length === 0 ? 'accepted' : 'failed';
   } catch (err: unknown) {
     log.warn('badge update failed', { error: err instanceof Error ? err.message : 'unknown' });
+    return 'failed';
   }
 }
 
