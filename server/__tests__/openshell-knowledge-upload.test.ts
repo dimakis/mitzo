@@ -154,7 +154,8 @@ it('rejects a self-consistent bundle changed after publisher policy verification
       sha256: digest('Unselected private information'),
       mode: '0644',
     };
-    const { payloadSha256: _oldPayload, ...payload } = baseline;
+    const payload = { ...baseline };
+    delete payload.payloadSha256;
     baseline.payloadSha256 = digest(canonicalJsonPayload(payload));
     const bytes = JSON.stringify(baseline);
     writeFileSync(baselinePath, bytes);
