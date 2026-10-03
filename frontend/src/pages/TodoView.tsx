@@ -3,7 +3,8 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { useMitzoStore } from '@mitzo/client/hooks';
 import { TodoCard } from '../components/TodoCard';
 import { EmptyState } from '../components/EmptyState';
-import { PageHeader } from '../components/PageHeader';
+import { WorkspacePageHeading } from '../components/WorkspacePageHeading';
+import { MitzoLogo } from '../components/MitzoLogo';
 import { useTodoData } from '../hooks/useTodoData';
 import { buildPrompt, buildTodoContext } from '../lib/todo-utils';
 import type { TodoItem, TodoOutcomeDraft } from '../types/todo';
@@ -350,18 +351,27 @@ export function TodoView({ selectedId }: { selectedId?: string } = {}) {
 
   return (
     <div className="todo-page">
-      <PageHeader title="Telos" badge={items.length || undefined}>
-        <button
-          className="todo-add-btn"
-          onClick={() => setCreating({ parentId: undefined })}
-          title="Add todo"
-        >
-          +
-        </button>
-        <button className="todo-refresh" onClick={refresh}>
-          &#x21bb;
-        </button>
-      </PageHeader>
+      <div className="todo-collection-heading">
+        <WorkspacePageHeading
+          eyebrow="Work"
+          title="Telos"
+          description="Choose a priority. Review its context and next step."
+        />
+        <div className="todo-collection-actions">
+          <MitzoLogo />
+          <button
+            className="todo-add-btn"
+            onClick={() => setCreating({ parentId: undefined })}
+            aria-label="Add outcome"
+            title="Add todo"
+          >
+            + Add outcome
+          </button>
+          <button className="todo-refresh" onClick={refresh} aria-label="Refresh Telos">
+            &#x21bb;
+          </button>
+        </div>
+      </div>
 
       <div className="todo-scroll" ref={scrollRef}>
         <div className="todo-toolbar">
@@ -392,6 +402,7 @@ export function TodoView({ selectedId }: { selectedId?: string } = {}) {
             <button
               className={`todo-filter-pill${activeProfile === undefined ? ' todo-filter-pill--active' : ''}`}
               onClick={() => setActiveProfile(undefined)}
+              aria-pressed={activeProfile === undefined}
             >
               All
             </button>
@@ -400,6 +411,7 @@ export function TodoView({ selectedId }: { selectedId?: string } = {}) {
                 key={p}
                 className={`todo-filter-pill${activeProfile === p ? ' todo-filter-pill--active' : ''}`}
                 onClick={() => setActiveProfile(activeProfile === p ? undefined : p)}
+                aria-pressed={activeProfile === p}
               >
                 {p}
               </button>
