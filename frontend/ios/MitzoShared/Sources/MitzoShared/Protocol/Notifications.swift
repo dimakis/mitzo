@@ -35,3 +35,18 @@ public struct NotificationResponse: Encodable, Sendable {
         self.decision = decision
     }
 }
+
+
+public struct NotificationQuestion: Codable, Sendable, Identifiable {
+    public let id: String
+    public let question: String
+    public let options: [Option]
+    public let multiSelect: Bool?
+    public let allowFreeform: Bool?
+    public let isSecret: Bool?
+
+    public struct Option: Codable, Sendable {
+        public let label: String
+        public let description: String?
+    }
+}

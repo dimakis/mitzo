@@ -173,7 +173,21 @@ struct WatchNotificationDetail: View {
                 Text(item.body).font(.caption)
                 if let request = item.request {
                     if let description = request.description { Text(description).font(.caption) }
-                    Text(request.toolInput).font(.system(.caption2, design: .monospaced))
+                    if let questions = request.questions, !questions.isEmpty {
+                        ForEach(questions) { question in
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text(question.question).font(.caption).bold()
+                                ForEach(question.options, id: \.label) { option in
+                                    Text(option.label).font(.caption)
+                                    if let description = option.description {
+                                        Text(description).font(.caption2).foregroundStyle(.secondary)
+                                    }
+                                }
+                            }
+                        }
+                    } else if !request.toolInput.isEmpty {
+                        Text(request.toolInput).font(.system(.caption2, design: .monospaced))
+                    }
                 }
                 if let error { Text(error).font(.caption).foregroundStyle(.orange) }
                 TimelineView(.periodic(from: .now, by: 1)) { context in

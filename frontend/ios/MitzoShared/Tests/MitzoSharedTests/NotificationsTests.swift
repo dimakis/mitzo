@@ -20,3 +20,13 @@ import Testing
     #expect(NotificationResponse.Decision(rawValue: "always") == nil)
     #expect(object["sessionId"] as? String == "s1")
 }
+
+@Test func notificationQuestionsPreservePromptsAndChoicesForWatchReview() throws {
+    let data = """
+    {"id":"permission:q1","kind":"question","title":"A session has a question","body":"Session","sessionId":"s1","createdAt":1,"readAt":null,"resolvedAt":null,"resolution":null,"request":{"permId":"q1","toolName":"AskUserQuestion","toolInput":"","questions":[{"id":"scope","question":"Which project should I change?","options":[{"label":"Mitzo","description":"The notification feature"}],"multiSelect":false,"allowFreeform":true}]}}
+    """.data(using: .utf8)!
+    let item = try JSONDecoder().decode(MitzoNotification.self, from: data)
+    #expect(item.request?.questions?.first?.question == "Which project should I change?")
+    #expect(item.request?.questions?.first?.options.first?.label == "Mitzo")
+    #expect(item.request?.questions?.first?.options.first?.description == "The notification feature")
+}
