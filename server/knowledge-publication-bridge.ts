@@ -17,6 +17,8 @@ export type PublishedKnowledgeSelection = z.infer<typeof Selection>;
 export interface KnowledgeBundleSelection {
   seed: string;
   sourceCommit: string;
+  /** Exact baseline bytes whose Markdown entries passed publisher policy verification. */
+  baselineSha256: string;
 }
 export interface PublishedKnowledgeSource {
   id: string;
@@ -64,7 +66,7 @@ export class KnowledgePublicationBridge {
     private readonly adapt: (
       selection: PublishedKnowledgeSelection,
       signal: AbortSignal,
-    ) => Promise<KnowledgeBundleSelection>,
+    ) => Promise<Omit<KnowledgeBundleSelection, 'baselineSha256'>>,
     private readonly fetcher: typeof fetch = fetch,
   ) {
     this.config = structuredClone(config);
@@ -122,16 +124,17 @@ export class KnowledgePublicationBridge {
     if (bundle.sourceCommit !== selection.revision)
       throw new Error('Bundle revision differs from publication');
     if (!isAbsolute(bundle.seed)) throw new Error('Bundle seed must be absolute');
+    const baselineBytes = await readFile(join(bundle.seed, '..', 'baseline.json'));
     const baseline = z
       .object({ files: z.record(z.string(), z.object({ sha256: sha })) })
-      .parse(JSON.parse(await readFile(join(bundle.seed, '..', 'baseline.json'), 'utf8')));
+      .parse(JSON.parse(baselineBytes.toString('utf8')));
     const published = new Map(manifest.files.map((file) => [file.path, file.sha256]));
     for (const [path, file] of Object.entries(baseline.files)) {
       if (path.endsWith('.md') && (!safePath(path) || published.get(path) !== file.sha256))
         throw new Error('Bundle Markdown differs from published source policy');
     }
     signal.throwIfAborted();
-    return bundle;
+    return { ...bundle, baselineSha256: hash(baselineBytes) };
   }
 
   private async verify(selection: PublishedKnowledgeSelection): Promise<z.infer<typeof Manifest>> {

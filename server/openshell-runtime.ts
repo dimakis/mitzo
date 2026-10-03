@@ -484,7 +484,12 @@ export async function preparePublishedOpenShellSeed(
   });
   if (selection) {
     try {
-      const baseline = JSON.parse(readFileSync(join(prepared.seed, '..', 'baseline.json'), 'utf8'));
+      const baselineBytes = readFileSync(join(prepared.seed, '..', 'baseline.json'));
+      // Bind the frozen upload to the exact baseline admitted by publisher policy.
+      // Generic runtime attestation alone cannot detect a substituted source path policy.
+      if (createHash('sha256').update(baselineBytes).digest('hex') !== selection.baselineSha256)
+        throw new Error('Selected bundle baseline differs from verified publication');
+      const baseline = JSON.parse(baselineBytes.toString('utf8'));
       if (baseline.startingCommit !== selection.sourceCommit)
         throw new Error('Selected bundle revision differs from publication');
       if (!Object.hasOwn(baseline, 'runtimeBaseCommit'))

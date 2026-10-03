@@ -4,6 +4,7 @@ import {
   mkdtempSync,
   mkdirSync,
   writeFileSync,
+  readFileSync,
   rmSync,
   realpathSync,
   chmodSync,
@@ -172,6 +173,8 @@ print(json.dumps({'status':'current','publishedCommit':a.published_revision,'rec
     expect(result).toEqual({
       sourceCommit: revision,
       seed: join(f.root, 'adapter/publications/release-' + revision, 'mgmt'),
+      baselineSha256: JSON.parse(readFileSync(join(result.seed, '..', 'publication.json'), 'utf8'))
+        .baselineSha256,
     });
     writeFileSync(join(release, 'dirty.md'), 'unreviewed adapter code');
     await expect(adapter({ revision }, AbortSignal.timeout(5000))).rejects.toThrow(

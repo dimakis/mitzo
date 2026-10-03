@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from 'vitest';
-import { mkdtemp, mkdir, writeFile, rm, symlink, realpath } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, readFile, rm, symlink, realpath } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
@@ -65,6 +65,10 @@ it('uses authenticated canonical reconciliation and passes only a verified exact
   const s = await setup();
   const result = await s.bridge.reconcile(new AbortController().signal);
   expect(result.sourceCommit).toBe(s.selection.revision);
+  expect(result).toHaveProperty(
+    'baselineSha256',
+    hash(await readFile(join(result.seed, '..', 'baseline.json'), 'utf8')),
+  );
   expect(s.fetcher.mock.calls[0][0]).toBe('http://127.0.0.1:8643/api/publications/notes/reconcile');
   expect(s.fetcher.mock.calls[0][1]).toMatchObject({
     method: 'POST',

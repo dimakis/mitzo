@@ -171,7 +171,11 @@ export function mgmtKnowledgeAdapter(config: AdapterConfig, sourceUrl: string) {
       receipt.payloadSha256 !== baseline.payloadSha256
     )
       throw new Error('Knowledge bundle provenance changed');
-    return { seed: join(directory, 'mgmt'), sourceCommit: selection.revision };
+    return {
+      seed: join(directory, 'mgmt'),
+      sourceCommit: selection.revision,
+      baselineSha256: createHash('sha256').update(bytes).digest('hex'),
+    };
   };
 }
 export function knowledgeStoreFromEnvironment(env: NodeJS.ProcessEnv): KnowledgeStore | undefined {
