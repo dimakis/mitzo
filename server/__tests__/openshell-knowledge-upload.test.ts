@@ -13,7 +13,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it, vi } from 'vitest';
 import { canonicalJsonPayload } from '../../scripts/verify-openshell-production.mjs';
-import { OpenShellRuntimeManager } from '../openshell-runtime.js';
+import { OpenShellRuntimeManager, preparePublishedOpenShellSeed } from '../openshell-runtime.js';
 
 let root = '';
 afterEach(() => {
@@ -119,6 +119,25 @@ function digest(content: string) {
   return createHash('sha256').update(content).digest('hex');
 }
 
+it('reconciles configured knowledge before snapshotting and rejects another bundle revision', async () => {
+  const config = publication();
+  const reconcile = vi.fn().mockResolvedValue({ seed: config.seed, sourceCommit: 'a'.repeat(40) });
+  const selected = { ...config, seed: '/stale/seed', knowledgeStore: { id: 'notes', reconcile } };
+  const prepared = await preparePublishedOpenShellSeed(selected, AbortSignal.timeout(5000));
+  try {
+    expect(reconcile).toHaveBeenCalledOnce();
+    expect(prepared.seed).not.toBe(config.seed);
+    expect(
+      JSON.parse(readFileSync(join(prepared.seed, '..', 'baseline.json'), 'utf8')).startingCommit,
+    ).toBe('a'.repeat(40));
+  } finally {
+    prepared.cleanup();
+  }
+  reconcile.mockResolvedValue({ seed: config.seed, sourceCommit: 'b'.repeat(40) });
+  await expect(preparePublishedOpenShellSeed(selected, AbortSignal.timeout(5000))).rejects.toThrow(
+    'Selected bundle revision differs',
+  );
+});
 it('adopts a verified knowledge view in a retained sandbox without replacing task files', async () => {
   const config = publication();
   const conversation = 'retained-chat';

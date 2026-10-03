@@ -1,3 +1,5 @@
+import { knowledgeStoreFromEnvironment, type KnowledgeStore } from './knowledge-store-config.js';
+import type { KnowledgeAdoptionSelection } from './codex-conversation-store.js';
 import { verifyPreparedSeed } from '../scripts/verify-openshell-production.mjs';
 import {
   knowledgeVerificationCommand,
@@ -92,6 +94,7 @@ const BootContext = z.object({
 export type OpenShellBootContext = z.infer<typeof BootContext>;
 
 export interface OpenShellKnowledgeSelection {
+  adoption?: Omit<KnowledgeAdoptionSelection, 'contextSha256'>;
   sourceCommit: string;
   payloadSha256: string;
   knowledgeRoot: string;
@@ -147,6 +150,7 @@ export interface OpenShellRuntimeConfig {
   image: string;
   policy: string;
   seed: string;
+  knowledgeStore?: KnowledgeStore;
   /** Trusted host release contract selected from MITZO_OPENSHELL_STACK_MANIFEST. */
   seedStackManifest?: Record<string, unknown>;
   serviceProviders: string[];
@@ -397,6 +401,7 @@ export function openShellRuntimeConfig(env: NodeJS.ProcessEnv): OpenShellRuntime
     image,
     policy,
     seed,
+    knowledgeStore: knowledgeStoreFromEnvironment(env),
     ...(seedStackManifest ? { seedStackManifest } : {}),
     serviceProviders,
     grantableServiceProviders,
@@ -464,6 +469,32 @@ export function prepareOpenShellSeed(
     cleanup();
     throw error;
   }
+}
+
+/** Freshness barrier followed by the existing immutable runtime-compatible snapshot verification. */
+export async function preparePublishedOpenShellSeed(
+  config: Pick<OpenShellRuntimeConfig, 'seed' | 'image' | 'seedStackManifest' | 'knowledgeStore'>,
+  signal: AbortSignal,
+): Promise<{ seed: string; cleanup: () => void }> {
+  const selection = await config.knowledgeStore?.reconcile(signal);
+  signal.throwIfAborted();
+  const prepared = prepareOpenShellSeed({
+    ...config,
+    ...(selection ? { seed: selection.seed } : {}),
+  });
+  if (selection) {
+    try {
+      const baseline = JSON.parse(readFileSync(join(prepared.seed, '..', 'baseline.json'), 'utf8'));
+      if (baseline.startingCommit !== selection.sourceCommit)
+        throw new Error('Selected bundle revision differs from publication');
+      if (!Object.hasOwn(baseline, 'runtimeBaseCommit'))
+        throw new Error('Published knowledge requires a dynamic runtime contract');
+    } catch (error) {
+      prepared.cleanup();
+      throw error;
+    }
+  }
+  return prepared;
 }
 
 /** Builds Codex config for capabilities that execute inside OpenShell.
@@ -1205,7 +1236,7 @@ export class OpenShellRuntimeManager {
     if (!sandbox) {
       const preparedSeed = artifactConfig
         ? { seed: this.config.seed, cleanup: () => undefined }
-        : prepareOpenShellSeed(this.config);
+        : await preparePublishedOpenShellSeed(this.config, signal);
       const selectedSeed = preparedSeed.seed;
       try {
         created = true;
@@ -1546,13 +1577,15 @@ export class OpenShellRuntimeManager {
     runtime: OpenShellRuntime,
     signal: AbortSignal,
   ): Promise<OpenShellKnowledgeSelection | undefined> {
-    const baselinePath = join(this.config.seed, '..', 'baseline.json');
-    if (!existsSync(baselinePath)) return undefined;
-    const selected = JSON.parse(readFileSync(baselinePath, 'utf8')) as Record<string, unknown>;
-    if (!Object.hasOwn(selected, 'runtimeBaseCommit')) return undefined;
+    if (!this.config.knowledgeStore) {
+      const baselinePath = join(this.config.seed, '..', 'baseline.json');
+      if (!existsSync(baselinePath)) return undefined;
+      const selected = JSON.parse(readFileSync(baselinePath, 'utf8')) as Record<string, unknown>;
+      if (!Object.hasOwn(selected, 'runtimeBaseCommit')) return undefined;
+    }
     if (!runtime.sandboxId)
       throw new Error('Knowledge adoption requires a physical sandbox identity');
-    const prepared = prepareOpenShellSeed(this.config);
+    const prepared = await preparePublishedOpenShellSeed(this.config, signal);
     try {
       const baseline = JSON.parse(readFileSync(join(prepared.seed, '..', 'baseline.json'), 'utf8'));
       const view = knowledgeViewManifest(baseline);
@@ -1679,7 +1712,21 @@ export class OpenShellRuntimeManager {
       if (verified.phase !== 'Ready' || verified.name !== runtime.sandboxName)
         throw new Error('Knowledge sandbox changed during verification');
       signal.throwIfAborted();
-      const adopted: OpenShellKnowledgeSelection = { ...selection, context: selection.context };
+      const adopted: OpenShellKnowledgeSelection = {
+        ...selection,
+        context: selection.context,
+        adoption: {
+          storeId: this.config.knowledgeStore?.id ?? 'mgmt',
+          sourceCommit: selection.sourceCommit,
+          payloadSha256: selection.payloadSha256,
+          manifestSha256: selection.manifestSha256,
+          knowledgeRoot: selection.knowledgeRoot,
+          sandboxId: runtime.sandboxId,
+          runtimeImageDigest: String(contract.digest),
+          compilerSha256: String(contract.knowledgeCompilerSha256),
+          recipeSha256: String(contract.knowledgeRecipeSha256),
+        },
+      };
       this.knowledgeViews.set(runtime.sandboxId, adopted);
       const cleanup = openShellSshArgvProcessSpec(runtime, [
         '/bin/sh',
