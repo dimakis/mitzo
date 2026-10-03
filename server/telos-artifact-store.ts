@@ -23,6 +23,7 @@ export interface TelosArtifactMetadata {
   sha256: string;
   size: number;
   sessionId: string;
+  sourceKind: 'user_upload' | 'session_artifact';
   sourcePath: string | null;
   createdAt: string;
   url: string;
@@ -50,6 +51,7 @@ function metadata(row: ArtifactRow): TelosArtifactMetadata {
     sha256: row.sha256,
     size: row.size,
     sessionId: row.session_id,
+    sourceKind: row.session_id.startsWith('user-upload:') ? 'user_upload' : 'session_artifact',
     sourcePath: row.source_path,
     createdAt: row.created_at,
     url: `/api/telos/artifacts/${row.id}?revision=${row.revision}`,

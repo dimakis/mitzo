@@ -427,6 +427,11 @@ app.use('/api/capability-operations', authMiddleware, (req, res, next) => {
 app.put('/api/files/write', authMiddleware, express.json({ limit: 60 * 1024 * 1024 + 64 * 1024 }));
 // Authenticate before accepting the expanded JSON envelope; decoded document bytes remain capped at 5 MiB.
 app.post('/api/internal/telos/artifacts/save', authMiddleware, telosArtifactSaveJson);
+app.post(
+  '/api/telos/items/:itemId/artifacts/upload',
+  operatorAuthMiddleware,
+  express.json({ limit: '8mb' }),
+);
 app.use(express.json({ limit: '10mb' }));
 
 const loginLimiter = rateLimit({
