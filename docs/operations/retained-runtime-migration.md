@@ -67,4 +67,10 @@ attachment and prove the same effective authority before restoring or committing
 A committed migration remains historical: each subsequent admission verifies current
 physical image and effective policy against **current** trusted approvals, so later
 legitimate grants and ordinary thread/checkpoint recovery do not relabel the original.
+The authored policy must remain an owned physical file matching the in-memory selected
+stack manifest SHA at both initial comparison and final admission fence. The final
+fence repeats selected account/grant validation and checks physical workspace and
+sandbox-owned policy source, so metadata or OAuth grant changes cannot retain a
+stale successful observation.
+
 Unknown profiles and unsupported materialization contracts remain visibly blocked.

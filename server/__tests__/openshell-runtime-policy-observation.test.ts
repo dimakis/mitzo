@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, realpathSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it, vi } from 'vitest';
@@ -9,7 +9,7 @@ import { base, fixture } from './fixtures/effective-runtime-policy.js';
 const roots: string[] = [];
 afterEach(() => roots.splice(0).forEach((root) => rmSync(root, { recursive: true, force: true })));
 function runtimeFixture(types = ['mitzo-openai-keychain-spike']) {
-  const root = mkdtempSync(join(tmpdir(), 'materialized-policy-'));
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'materialized-policy-')));
   roots.push(root);
   const conversation = 'policy-fixture';
   const owner = createHash('sha256').update(conversation).digest('hex').slice(0, 63);
@@ -38,6 +38,20 @@ function runtimeFixture(types = ['mitzo-openai-keychain-spike']) {
       import.meta.url,
     ).pathname,
     seed: root,
+    seedStackManifest: {
+      policy: {
+        sha256: createHash('sha256')
+          .update(
+            readFileSync(
+              new URL(
+                '../../docs/spikes/openshell-codex/openshell-openai-api-policy.yaml',
+                import.meta.url,
+              ),
+            ),
+          )
+          .digest('hex'),
+      },
+    },
     serviceProviders: approvals.automatic,
     grantableServiceProviders: ['google-workspace'],
     createDetached: true,
@@ -255,7 +269,7 @@ it('candidate ensure inherits only attested durable GWS approval and leaves sour
     f.conversation,
     new AbortController().signal,
     undefined,
-    undefined,
+    { seed: f.config.seed, cleanup: () => undefined },
     source.approvedGrantableProviders,
   );
   expect(created.sandboxId).toBe('candidate-id');
@@ -365,3 +379,75 @@ it.each(['truncated', 'unknown-scope', 'changed'])(
     );
   },
 );
+
+it('authored base and sandbox co-drift cannot supersede the selected manifest pin', async () => {
+  const f = runtimeFixture();
+  const changed = structuredClone(base);
+  changed.filesystem_policy.read_write = ['/unreviewed'];
+  f.data.observed.filesystem_policy = changed.filesystem_policy;
+  const policy = join(f.config.seed, 'changed-policy.json');
+  writeFileSync(policy, JSON.stringify(changed));
+  f.config.policy = policy;
+  await expect(
+    f.manager.observeContract(f.conversation, f.runtime, new AbortController().signal),
+  ).rejects.toThrow('authored policy differs from selected manifest');
+});
+it.each(['revoked', 'replaced', 'expired'])(
+  'final fence rejects a grant %s after the first refresh observation',
+  async (failure) => {
+    const f = runtimeFixture(['openai-codex-oauth']);
+    const original = f.run.getMockImplementation()!;
+    let reads = 0;
+    f.run.mockImplementation(async (args) => {
+      const output = await original(args);
+      if (args.includes('refresh') && ++reads === 2) {
+        const data = JSON.parse(output);
+        if (failure === 'revoked') data.credentials[0].status = 'revoked';
+        if (failure === 'replaced') data.credentials[0].refresh_generation_id = 'new-grant';
+        if (failure === 'expired') data.credentials[0].expires_at_ms = Date.now() - 1;
+        return JSON.stringify(data);
+      }
+      return output;
+    });
+    await expect(
+      f.manager.observeContract(f.conversation, f.runtime, new AbortController().signal),
+    ).rejects.toThrow('grant is expired, revoked, or requires sign-in');
+  },
+);
+it.each(['workspace', 'policy_source'])(
+  'final physical observation rejects changed %s',
+  async (field) => {
+    const f = runtimeFixture();
+    const original = f.run.getMockImplementation()!;
+    let reads = 0;
+    f.run.mockImplementation(async (args) => {
+      const output = await original(args);
+      if (args[0] === 'sandbox' && args.includes('get') && ++reads === 3) {
+        const data = JSON.parse(output);
+        data[field] = 'changed';
+        return JSON.stringify(data);
+      }
+      return output;
+    });
+    await expect(
+      f.manager.observeContract(f.conversation, f.runtime, new AbortController().signal),
+    ).rejects.toThrow('effective policy changed during attestation');
+  },
+);
+
+it('final fence rejects authored file drift after initial pinned policy comparison', async () => {
+  const f = runtimeFixture();
+  const policy = join(f.config.seed, 'policy.yaml');
+  writeFileSync(policy, readFileSync(f.config.policy));
+  f.config.policy = policy;
+  const original = f.run.getMockImplementation()!;
+  let reads = 0;
+  f.run.mockImplementation(async (args) => {
+    const output = await original(args);
+    if (args.includes('export') && ++reads === 2) writeFileSync(policy, '{}');
+    return output;
+  });
+  await expect(
+    f.manager.observeContract(f.conversation, f.runtime, new AbortController().signal),
+  ).rejects.toThrow('authored policy differs from selected manifest');
+});

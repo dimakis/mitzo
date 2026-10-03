@@ -1,5 +1,14 @@
+import { createHash } from 'node:crypto';
 import type { AccountBinding } from '@mitzo/protocol';
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  rmSync,
+  realpathSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it, vi } from 'vitest';
@@ -17,7 +26,8 @@ const mocks = vi.hoisted(() => ({
   preparedSeed: vi.fn(),
   ensure: vi.fn(),
 }));
-vi.mock('../openshell-runtime.js', () => ({
+vi.mock('../openshell-runtime.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../openshell-runtime.js')>()),
   preparePublishedOpenShellSeed: (...args: unknown[]) => mocks.preparedSeed(...args),
 }));
 vi.mock('../openshell-runtime-migration-capacity.js', () => ({
@@ -88,7 +98,7 @@ afterEach(() => {
   mocks.candidatePolicy = {};
 });
 function fixture() {
-  const root = mkdtempSync(join(tmpdir(), 'migration-adapter-'));
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'migration-adapter-')));
   roots.push(root);
   const store = new CodexConversationStore(join(root, 'state.db'));
   const binding: AccountBinding = {
@@ -121,6 +131,7 @@ function fixture() {
   const config = {
     policy,
     seedStackManifest: {
+      policy: { sha256: createHash('sha256').update('{}').digest('hex') },
       runtime: { knowledgeSchemaVersion: 1, digest: `sha256:${'a'.repeat(64)}` },
     },
   } as unknown as OpenShellRuntimeConfig;

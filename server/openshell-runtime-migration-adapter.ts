@@ -1,9 +1,8 @@
 import { runtimePolicyProvenance } from './openshell-runtime-policy.js';
 import { execFile } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, rmSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { load } from 'js-yaml';
 import { setTimeout as delay } from 'node:timers/promises';
 import type { AccountBinding } from '@mitzo/protocol';
 import { CodexAppServerClient } from './codex-app-server-client.js';
@@ -17,6 +16,7 @@ import { requireRuntimeMigrationCapacity } from './openshell-runtime-migration-c
 import { migrateRetainedRuntime } from './openshell-runtime-migration.js';
 import {
   preparePublishedOpenShellSeed,
+  verifiedOpenShellPolicy,
   type OpenShellRuntimeConfig,
   type OpenShellRuntimeManager,
 } from './openshell-runtime.js';
@@ -94,7 +94,7 @@ export async function prepareRetainedRuntimeMigration(input: {
   const targetImage = String(runtimeContract.digest);
   if (!/^sha256:[a-f0-9]{64}$/.test(targetImage))
     throw new Error('Retained migration target digest is invalid');
-  const targetPolicy = policyHash(load(readFileSync(config.policy, 'utf8')));
+  const targetPolicy = policyHash(verifiedOpenShellPolicy(config));
   const supported = ['sha256:b89016abe4c17850ee31e2c4613697f6a4871356953952b0edcdb4fdfb8db624'];
   const root = join(
     input.privateDirectory,

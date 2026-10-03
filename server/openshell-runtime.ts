@@ -22,6 +22,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import {
   cpSync,
   existsSync,
+  lstatSync,
   mkdtempSync,
   mkdirSync,
   readFileSync,
@@ -30,7 +31,7 @@ import {
   rmSync,
   writeFileSync,
 } from 'node:fs';
-import { basename, dirname, isAbsolute, join } from 'node:path';
+import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import { z } from 'zod';
 import type { McpServerConfig } from './mcp-config.js';
 import { openShellSshArgvProcessSpec, openShellSshProcessSpec } from './codex-app-server-client.js';
@@ -420,6 +421,29 @@ export function openShellRuntimeConfig(env: NodeJS.ProcessEnv): OpenShellRuntime
   };
 }
 
+/** Authored permission authority is the immutable selected stack, never mutable YAML alone. */
+export function verifiedOpenShellPolicy(
+  config: Pick<OpenShellRuntimeConfig, 'policy' | 'seedStackManifest'>,
+): unknown {
+  const pin = (config.seedStackManifest?.policy as Record<string, unknown> | undefined)?.sha256;
+  const info = lstatSync(config.policy);
+  if (
+    !info.isFile() ||
+    info.isSymbolicLink() ||
+    realpathSync(config.policy) !== resolve(config.policy) ||
+    (process.getuid && info.uid !== process.getuid())
+  )
+    throw new Error('Runtime authored policy is not an owned physical file');
+  const bytes = readFileSync(config.policy);
+  if (
+    typeof pin !== 'string' ||
+    !/^[a-f0-9]{64}$/.test(pin) ||
+    createHash('sha256').update(bytes).digest('hex') !== pin
+  )
+    throw new Error('Runtime authored policy differs from selected manifest');
+  return load(bytes.toString('utf8'));
+}
+
 /** Resolve one immutable publication and verify it before a new ordinary seed upload. */
 export function verifiedOpenShellSeed(
   config: Pick<OpenShellRuntimeConfig, 'seed' | 'image' | 'seedStackManifest'>,
@@ -702,7 +726,7 @@ export class OpenShellRuntimeManager {
       providers.push({ ...provider, profile });
     }
     const attestation = attestEffectiveRuntimePolicy(
-      load(readFileSync(this.config.policy, 'utf8')),
+      verifiedOpenShellPolicy(this.config),
       detail.policy,
       providers,
     );
@@ -751,6 +775,8 @@ export class OpenShellRuntimeManager {
       if (runtimePolicyHash(profile) !== runtimePolicyHash(provider.profile))
         throw new Error('Runtime provider profile changed during attestation');
     }
+    await this.verifyAccountProvider(signal);
+    verifiedOpenShellPolicy(this.config);
     const afterInventory = await this.accountProviderInventory(signal);
     if (
       providers.some(
@@ -777,6 +803,8 @@ export class OpenShellRuntimeManager {
     );
     if (
       after.id !== detail.id ||
+      after.workspace !== detail.workspace ||
+      after.policy_source !== detail.policy_source ||
       after.labels?.['mitzo.account_provider'] !== this.config.account.provider ||
       after.labels?.['mitzo.conversation'] !== detail.labels?.['mitzo.conversation'] ||
       after.phase !== 'Ready' ||
