@@ -1,3 +1,5 @@
+import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -117,7 +119,7 @@ it('uses one hashed archive name, verifies before upload, and quotes SSH argumen
   // system temp root. Only the generated remote archive must stay in /sandbox.
   expect(remote).not.toContain('/tmp/mitzo-');
   expect(all).not.toContain('a space;$(bad).tar');
-  const verify = run.mock.calls.findIndex((call) => call[0] === 'python3');
+  const verify = run.mock.calls.findIndex((call) => call[0] === '/usr/bin/python3');
   const upload = run.mock.calls.findIndex((call) => (call[1] as string[]).includes('upload'));
   expect(verify).toBeLessThan(upload);
   expect(remote).toContain('\'["account","openai","model","revision"]\'');
@@ -150,7 +152,7 @@ it('removes the exact remote archive after capture download and verification fai
 
   const verificationFailure = vi.fn(async (command: string, args: readonly string[]) => {
     if (args.includes('download')) writeFileSync(args.at(-1)!, 'invalid archive');
-    return command === 'python3' ? 'not json' : checkpointManifest;
+    return command === '/usr/bin/python3' ? 'not json' : checkpointManifest;
   });
   await expect(
     new OpenShellCheckpointTransport(checkpointRuntime, verificationFailure).capture(
@@ -285,4 +287,58 @@ it('rejects an archive whose verified digest differs from the persisted checkpoi
     ),
   ).rejects.toThrow('checkpoint digest does not match record');
   expect(run.mock.calls.some(([, args]) => args.includes('upload'))).toBe(false);
+});
+
+it('executes the accepted host helper with isolated fixed Python instead of either image helper', async () => {
+  const destination = mkdtempSync(join(tmpdir(), 'checkpoint-host-helper-'));
+  roots.push(destination);
+  const run = vi.fn(async (_command: string, args: readonly string[]) => {
+    if (args.includes('download')) writeFileSync(args.at(-1)!, 'mock archive');
+    return checkpointManifest;
+  });
+  const transport = new OpenShellCheckpointTransport(checkpointRuntime, run);
+  const captured = await transport.capture(
+    destination,
+    checkpointIdentity,
+    new AbortController().signal,
+  );
+  await transport.restore(
+    captured.path,
+    checkpointIdentity,
+    'a'.repeat(64),
+    new AbortController().signal,
+  );
+  const remote = run.mock.calls.filter(
+    ([binary, args]) => binary === 'ssh' && !args.at(-1)?.includes("'rm' '-f'"),
+  );
+  expect(remote).toHaveLength(2);
+  for (const [, args] of remote) {
+    expect(args.at(-1)).not.toContain('/sandbox/mitzo-checkpoint.py');
+    expect(args.at(-1)).toContain("'/usr/bin/python3' '-I' '-c'");
+    expect(args.at(-1)).toContain('mitzo-host-checkpoint.py');
+    expect(args.at(-1)).toContain('hashlib.sha256');
+  }
+  const local = run.mock.calls.filter(([binary]) => binary === '/usr/bin/python3');
+  expect(local).toHaveLength(2);
+  for (const [, args] of local) {
+    expect(args.slice(0, 2)).toEqual(['-I', '-c']);
+    const bytes = Buffer.from(args[3]!, 'base64');
+    expect(bytes.toString()).toContain('def git_config(path):');
+    expect(createHash('sha256').update(bytes).digest('hex')).toBe(args[4]);
+    expect(args[5]).toBe('verify');
+  }
+});
+
+it('rejects substituted helper bytes before the isolated Python bootstrap executes them', async () => {
+  const run = vi.fn(async (_command: string, _args: readonly string[]) => checkpointManifest);
+  await new OpenShellCheckpointTransport(checkpointRuntime, run).verify(
+    '/private/tmp/nonexistent.tar',
+    checkpointIdentity,
+    new AbortController().signal,
+  );
+  const args = [...run.mock.calls[0]![1]];
+  args[3] = Buffer.from('raise RuntimeError("untrusted-code-executed")').toString('base64');
+  expect(() =>
+    execFileSync('/usr/bin/python3', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }),
+  ).toThrow(/checkpoint host helper digest mismatch/);
 });
