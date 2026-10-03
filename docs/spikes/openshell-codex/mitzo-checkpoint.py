@@ -1,12 +1,41 @@
 #!/usr/bin/env python3
 """Strict, portable OpenShell checkpoint archive helper (format v1)."""
-import argparse, hashlib, io, json, os, shutil, stat, sys, tarfile, tempfile
+import argparse, hashlib, io, json, os, re, shutil, stat, subprocess, sys, tarfile, tempfile
 
 FILES={'.sandbox_migration','goals_1.sqlite','goals_1.sqlite-wal','goals_1.sqlite-shm','installation_id','memories_1.sqlite','memories_1.sqlite-wal','memories_1.sqlite-shm','queue_1.sqlite','queue_1.sqlite-wal','queue_1.sqlite-shm','state_5.sqlite','state_5.sqlite-wal','state_5.sqlite-shm','thread_history_1.sqlite','thread_history_1.sqlite-wal','thread_history_1.sqlite-shm'}
 DIRS={'sessions','archived_sessions','skills'}
 VOLATILE={'tmp','.tmp','thread-writer-locks','logs_2.sqlite','logs_2.sqlite-wal','logs_2.sqlite-shm','shell_snapshots'}
 MAX_FILES,MAX_BYTES,MAX_MANIFEST=100000,2*1024*1024*1024,65536
-SANDBOX_GIT_CONFIG=b'[user]\n\tname = Mitzo Sandbox\n\temail = mitzo-sandbox@localhost\n'
+def git_config(path):
+ # Git parses its own syntax without includes, ambient config, or execution.
+ # Preserve bytes/mode only when every setting is from this inert allowlist.
+ if not stat.S_ISREG(lst(path).st_mode) or os.path.getsize(path)>65536: fail('unsupported Git config')
+ # Ignored comments can carry secrets outside parsed settings. Fail closed
+ # on comment markers (even within values), retaining exact supported bytes.
+ with open(path,'rb') as raw:
+  data=raw.read(65537)
+ if len(data)>65536 or b'#' in data or b';' in data: fail('unsupported raw Git config')
+ env={'PATH':os.environ.get('PATH','/usr/bin:/bin'),'GIT_CONFIG_NOSYSTEM':'1','GIT_CONFIG_GLOBAL':os.devnull}
+ result=subprocess.run(['/usr/bin/git','config','--file',path,'--no-includes','--null','--list'],env=env,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL)
+ if result.returncode: fail('unsupported Git config')
+ try: pairs=result.stdout.decode('utf-8').split('\0')
+ except UnicodeDecodeError: fail('unsupported Git config')
+ for entry in pairs:
+  if not entry: continue
+  key,sep,value=entry.partition('\n')
+  if not sep or not value or len(value)>4096 or any(ord(c)<32 or ord(c)==127 for c in value): fail('unsupported Git config')
+  if key=='core.repositoryformatversion' and value=='0': continue
+  if key=='core.bare' and value.lower()=='false': continue
+  if key in ('core.filemode','core.logallrefupdates','core.ignorecase','core.precomposeunicode') and value.lower() in ('true','false'): continue
+  if key in ('user.name','user.email'): continue
+  if re.fullmatch(r'remote\.[A-Za-z0-9_/-]+\.(url|pushurl)',key):
+   # Only credential-free HTTPS endpoints; SSH/local/helper protocols are
+   # unsupported rather than silently changing task repository behavior.
+   if re.fullmatch(r'https://[A-Za-z0-9.-]+(?::[0-9]+)?/[A-Za-z0-9_./~-]+',value) and '..' not in value.split('/'): continue
+  if re.fullmatch(r'remote\.[A-Za-z0-9_/-]+\.fetch',key) and re.fullmatch(r'\+?refs/heads/[A-Za-z0-9_/*-]+:refs/remotes/[A-Za-z0-9_/*-]+',value): continue
+  if re.fullmatch(r'branch\.[A-Za-z0-9_/-]+\.remote',key) and re.fullmatch(r'[A-Za-z0-9_/-]+|\.',value): continue
+  if re.fullmatch(r'branch\.[A-Za-z0-9_/-]+\.merge',key) and re.fullmatch(r'refs/heads/[A-Za-z0-9_/-]+',value): continue
+  fail('unsafe or unsupported Git config')
 def fail(s): raise ValueError(s)
 def lst(path):
  s=os.lstat(path)
@@ -40,11 +69,9 @@ def cred(rel):
 def excluded_workspace_config(rel):
  parts=rel.split('/')
  name=parts[-1]
- # A Git directory can contain nested admin repositories (for submodules and
- # linked worktrees).  Their config and credential stores are just as capable
- # of carrying authentication as the top-level .git/config, so omit the whole
- # Git-admin family rather than only the immediate children of .git.
- return name in ('.npmrc','.pypirc','.netrc','.git-credentials') or ('.git' in parts and (name=='config' or name.startswith('config.') or name=='credentials' or name.startswith('credential')))
+ # Only the validated top-level Git config is portable. Nested/worktree
+ # configs are unsupported; credential stores remain omitted at every depth.
+ return name in ('.npmrc','.pypirc','.netrc','.git-credentials') or ('.git' in parts and (name.startswith('config.') or (name=='config' and rel!='.git/config') or name=='credentials' or name.startswith('credential')))
 def provider(path):
  if not os.path.isdir(path): fail('provider state is missing')
  lst(path)
@@ -56,8 +83,13 @@ def provider(path):
   fail('unsupported provider state: '+n)
 def workspace(path):
  if not os.path.isdir(path): fail('workspace is missing')
+ git=os.path.join(path,'.git')
+ if os.path.isdir(git) and not os.path.isfile(os.path.join(git,'config')): fail('workspace Git config is missing')
  for rel,isdir,_ in entries(path):
   if rel!='.' and rel.split('/')[-1]=='.git' and not isdir: fail('workspace Git metadata is unsafe')
+  if rel!='.' and '.git' in rel.split('/') and (rel.split('/')[-1]=='config' or rel.split('/')[-1].startswith('config.')):
+   if rel!='.git/config' or isdir: fail('unsupported Git config layout')
+   git_config(os.path.join(path,rel))
   if rel!='.' and cred(rel) and not excluded_workspace_config(rel): fail('credential-like workspace file')
 def source(p,w): provider(p); workspace(w); return p,w
 def resumable_rollout(provider_root, thread):
@@ -147,6 +179,7 @@ def capture(a):
   def ignore_workspace(base,names):
    return [n for n in names if excluded_workspace_config(os.path.relpath(os.path.join(base,n),w))]
   shutil.copytree(w,os.path.join(stage,'workspace'),symlinks=True,dirs_exist_ok=True,ignore=ignore_workspace)
+  workspace(os.path.join(stage,'workspace'))
   es=entries(stage); m=manifest(a,digest(stage,es)); fd=os.open(tmp,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)
   with os.fdopen(fd,'wb') as raw,tarfile.open(fileobj=raw,mode='w') as tar:
    for rel,_,_ in es: tar.add(os.path.join(stage,rel),arcname=rel,recursive=False)
@@ -227,9 +260,8 @@ def restore_git_identity(workspace):
  if not os.path.lexists(git): return
  if not stat.S_ISDIR(lst(git).st_mode): fail('workspace Git metadata is unsafe')
  config=os.path.join(git,'config')
- if any(os.path.lexists(os.path.join(git,name)) for name in ('config','config.worktree')): fail('restored Git config is unsafe')
- fd=os.open(config,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)
- with os.fdopen(fd,'wb') as f: f.write(SANDBOX_GIT_CONFIG)
+ if not os.path.isfile(config): fail('restored Git config is missing')
+ git_config(config)
 def restore(a):
  stage_parent=os.path.commonpath((os.path.dirname(a.provider_root),os.path.dirname(a.workspace_root))) if a.replace_fresh_roots else None
  m,s=read_archive(a.input,stage_parent)

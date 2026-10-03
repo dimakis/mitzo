@@ -176,10 +176,11 @@ it.each(['before', 'after'])(
       act(() =>
         store.getState().setPendingSession({ prompt: 'Review this task', context: 'Task context' }),
       );
-    await waitFor(() => expect(store.getState().pendingSession).toBeNull());
+    await waitFor(() => expect(store.getState().pendingSession?.prompt).toBe('Review this task'));
     expect(screen.getByText('Review this task')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Retry accounts' }));
     await screen.findByText('Work');
+    fireEvent.click(screen.getByRole('button', { name: 'Use Work · Sonnet' }));
     expect(sendMessage).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole('button', { name: 'Send launch prompt' }));
     await waitFor(() =>
@@ -192,7 +193,7 @@ it.each(['before', 'after'])(
   },
 );
 
-it('sends distinct launches with identical prompt text', async () => {
+it('reviews distinct launches with identical prompt text before sending', async () => {
   vi.mocked(apiFetch).mockResolvedValue({
     ok: true,
     json: async () => [{ id: 'work', label: 'Work', models: [{ id: 'sonnet', label: 'Sonnet' }] }],
@@ -208,12 +209,23 @@ it('sends distinct launches with identical prompt text', async () => {
     </MitzoStoreProvider>,
   );
   await screen.findByText('Work');
+  if (screen.getByRole('button', { name: /^Workspace/ }).getAttribute('aria-expanded') === 'false')
+    fireEvent.click(screen.getByRole('button', { name: /^Workspace/ }));
+  fireEvent.click(screen.getByRole('button', { name: 'Use Work · Sonnet' }));
   for (const telosTaskId of ['task-a', 'task-b']) {
     act(() =>
       store
         .getState()
         .setPendingSession({ prompt: 'Review this task', context: telosTaskId, telosTaskId }),
     );
+    await screen.findByRole('button', { name: 'Send launch prompt' });
+    if (telosTaskId === 'task-b') {
+      expect(
+        (screen.getByRole('button', { name: 'Send launch prompt' }) as HTMLButtonElement).disabled,
+      ).toBe(true);
+      fireEvent.click(await screen.findByRole('button', { name: 'Use Work · Sonnet' }));
+    }
+    fireEvent.click(screen.getByRole('button', { name: 'Send launch prompt' }));
     await waitFor(() =>
       expect(sendMessage).toHaveBeenCalledWith(
         'Review this task',
@@ -393,4 +405,28 @@ it('groups web search settings under the existing header disclosure', async () =
   expect(settings.closest('[hidden]')).toBeTruthy();
   fireEvent.click(screen.getByRole('button', { name: /Workspace controls/ }));
   expect(settings.closest('[hidden]')).toBeNull();
+});
+
+it('requires a fresh account confirmation when New chat replaces an unsent draft', async () => {
+  localStorage.removeItem('mitzo-default-account-model');
+  vi.mocked(apiFetch).mockResolvedValue({
+    ok: true,
+    json: async () => [
+      { id: 'personal', label: 'Personal', models: [{ id: 'luna', label: 'Luna' }] },
+    ],
+  } as Response);
+  const store = createTestStore();
+  render(
+    <MitzoStoreProvider value={store}>
+      <MemoryRouter initialEntries={['/chat']}>
+        <ChatView />
+      </MemoryRouter>
+    </MitzoStoreProvider>,
+  );
+  const workspace = screen.getByRole('button', { name: /Workspace controls/ });
+  if (workspace.getAttribute('aria-expanded') === 'false') fireEvent.click(workspace);
+  fireEvent.click(await screen.findByRole('button', { name: 'Use Personal · Luna' }));
+  expect(screen.queryByRole('button', { name: 'Use Personal · Luna' })).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'New chat' }));
+  expect(await screen.findByRole('button', { name: 'Use Personal · Luna' })).toBeTruthy();
 });

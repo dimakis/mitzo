@@ -101,6 +101,7 @@ describe('TELOS workspace', () => {
     mount('/todos/first');
     const inspector = screen.getByRole('region', { name: 'Work details' });
     expect(await within(inspector).findByText('Inspect current pages')).toBeTruthy();
+    expect(await within(inspector).findByText('No saved outputs yet.')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Review desktop work' })).toBeTruthy();
   });
   it('keeps mobile detail as a separate page', () => {

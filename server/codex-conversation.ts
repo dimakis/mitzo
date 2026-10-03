@@ -62,6 +62,8 @@ export interface CodexConversationOptions {
   prepareSystemPrompt?: (signal: AbortSignal) => Promise<string | undefined>;
   beforeComplete?: (signal: AbortSignal) => Promise<void>;
   beforeReconnect?: () => Promise<void>;
+  /** Completed-turn boundary, before claiming queued work. */
+  beforeRuntimeAdmission?: (closeOwnedTransport: () => Promise<void>) => Promise<boolean>;
   reconnectGuard?: (work: () => Promise<void>) => Promise<void>;
   completionHookTimeoutMs?: number;
   runtimeCwd?: string;
@@ -78,6 +80,13 @@ export interface CodexConversationOptions {
   onProviderDispatch?: (commandId: string) => void;
   /** Persist an exact provider turn receipt after turn/start confirms its ID. */
   onProviderAccepted?: (commandId: string, threadId: string, turnId: string) => void;
+  /** Called only after the provider confirms the exact turn/start request carrying this context. */
+  onApplicationContextAccepted?: (
+    commandId: string,
+    threadId: string,
+    turnId: string,
+    context: string,
+  ) => void;
   onProviderComplete?: (commandId: string, status: 'completed' | 'interrupted' | 'failed') => void;
   /** Only the matching native turn/completed notification, never transport loss or close. */
   onProviderTerminal?: (
@@ -1006,6 +1015,30 @@ export class CodexConversation {
     span.end();
   }
   private async beginNext() {
+    if (this.opts.beforeRuntimeAdmission && this.binding && !this.active) {
+      await this.verifyCurrentBinding(this.binding);
+      try {
+        const admit = async () => {
+          const changed = await this.opts.beforeRuntimeAdmission!(async () => {
+            this.transportGeneration += 1;
+            this.ready = false;
+            this.client.close();
+          });
+          if (changed || !this.ready) await this.reconnectBound();
+        };
+        // Hold the current grant reservation across migration and reattachment;
+        // validating only afterward could already provision revoked connections.
+        if (this.opts.reconnectGuard) await this.opts.reconnectGuard(admit);
+        else await admit();
+      } catch (error) {
+        // Admission precedes claimNext: preserve queued FIFO and expose an
+        // explicit recovery pause even when only our idle transport was closed.
+        this.paused = true;
+        this.opts.store.pauseForRecovery(this.opts.conversationId, this.binding);
+        this.opts.onQueueChange?.();
+        throw error;
+      }
+    }
     const command = this.opts.store.claimNext(this.opts.conversationId, this.binding!);
     if (!command) return;
     const active = {
@@ -1084,6 +1117,13 @@ export class CodexConversation {
           throw new Error('Codex turn identity changed');
         active.turnId = result.turn.id;
         this.opts.onProviderAccepted?.(command.id, this.threadId!, active.turnId);
+        if (systemPrompt !== undefined)
+          this.opts.onApplicationContextAccepted?.(
+            command.id,
+            this.threadId!,
+            active.turnId,
+            systemPrompt,
+          );
         active.accepted = true;
         const completion = active.completions.get(active.turnId);
         if (completion) {

@@ -108,6 +108,7 @@ function mockEventStore() {
     getSession: vi.fn().mockReturnValue(null),
     upsertSession: vi.fn(),
     getSessionState: vi.fn().mockReturnValue('ACTIVE'),
+    getSessionClientState: vi.fn().mockReturnValue(null),
     setSessionState: vi.fn(),
   };
   store.captureReconnectState.mockImplementation(
@@ -326,6 +327,45 @@ describe('handleReconnect', () => {
       providerAttempts: [],
       pendingPermissions: [],
     });
+  });
+
+  it('keeps a completed attached turn idle in reconnect and switch snapshots', async () => {
+    const eventStore = mockEventStore();
+    eventStore.getSession.mockReturnValue({ sessionId: 'sess-1', state: 'ACTIVE' });
+    eventStore.getSessionClientState.mockReturnValue('idle');
+    eventStore.captureReconnectState.mockReturnValue({
+      session: { sessionId: 'sess-1', state: 'ACTIVE' },
+      clientState: 'idle',
+      cursor: 42,
+      cursorValid: true,
+      providerAttempts: [],
+      events: [],
+    });
+    const ctx = createContext({
+      eventStore: eventStore as unknown as V2HandlerContext['eventStore'],
+    });
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+    handleReconnect(
+      'c1',
+      { type: 'reconnect', sessions: [{ sessionId: 'sess-1', lastSeq: 42 }] },
+      ctx,
+    );
+    expect(transport.sent).toContainEqual(
+      expect.objectContaining({
+        type: 'session_reconnect_snapshot',
+        state: 'idle',
+        internalState: 'ACTIVE',
+      }),
+    );
+    await handleSwitchSession('c1', { type: 'switch_session', sessionId: 'sess-1' }, ctx);
+    expect(transport.sent).toContainEqual(
+      expect.objectContaining({
+        type: 'session_state_changed',
+        state: 'idle',
+        internalState: 'ACTIVE',
+      }),
+    );
   });
 
   it('offers a fenced applied snapshot without advancing on transport send', () => {
@@ -2131,6 +2171,7 @@ describe('handleSendV2 routing', () => {
     expect(transport.sent).toContainEqual({
       type: 'error',
       error: 'Session is not accepting input. Please retry.',
+      clientMsgId: 'cmsg-1',
     });
   });
 
@@ -2273,7 +2314,7 @@ describe('handleSendV2 routing', () => {
 
     expect(startChat).toHaveBeenCalledTimes(1);
     expect(startChat).toHaveBeenCalledWith(
-      transport,
+      expect.objectContaining({ send: expect.any(Function), isOpen: expect.any(Function) }),
       expect.any(String),
       'hi',
       expect.objectContaining({ cwd: '/tmp/test-repo' }),
@@ -3044,6 +3085,7 @@ describe('handleSendV2 state-based routing', () => {
     expect(transport.sent).toContainEqual({
       type: 'session_id',
       sessionId: 'native-initial-retry',
+      clientMsgId: 'initial-retry',
     });
     expect(ctx.connRegistry.get('c1')?.watchedSessions.has('native-initial-retry')).toBe(true);
     expect(ctx.connRegistry.get('c1')?.activeSession).toBe('native-initial-retry');
@@ -5177,7 +5219,7 @@ describe('resumed session permission authority', () => {
       ctx,
     );
     expect(startChat).toHaveBeenCalledWith(
-      transport,
+      expect.objectContaining({ send: expect.any(Function), isOpen: expect.any(Function) }),
       'c1:sess-1',
       'continue',
       expect.objectContaining({
@@ -5207,7 +5249,7 @@ describe('resumed session permission authority', () => {
       ctx,
     );
     expect(startChat).toHaveBeenCalledWith(
-      transport,
+      expect.objectContaining({ send: expect.any(Function), isOpen: expect.any(Function) }),
       'c1:sess-1',
       'continue',
       expect.objectContaining({ resumePermission: { mode: 'ask', revision: undefined } }),
@@ -5255,4 +5297,101 @@ describe('Symposium ordinary transport fence', () => {
     expect(interruptChat).toHaveBeenCalledTimes(interrupts);
     expect(ctx.sessionRegistry.findBySessionId).not.toHaveBeenCalled();
   });
+});
+
+it('correlates a startup rejection with the send even after session assignment', async () => {
+  const ctx = createContext();
+  const transport = mockTransport();
+  ctx.connRegistry.register('startup-conn', transport);
+  vi.mocked(startChat).mockImplementationOnce(async () => {
+    transport.send({ type: 'session_id', sessionId: 'startup-session' });
+    throw new Error('Could not persist initial prompt');
+  });
+  await handleSendV2(
+    'startup-conn',
+    transport,
+    { type: 'send', sessionId: null, prompt: 'Launch', clientMsgId: 'launch-id' },
+    ctx,
+  );
+  expect(transport.sent).toContainEqual(
+    expect.objectContaining({
+      type: 'error',
+      clientMsgId: 'launch-id',
+      error: 'Could not persist initial prompt',
+    }),
+  );
+});
+
+it('correlates a delayed new-session assignment with its original launch command', async () => {
+  const ctx = createContext();
+  const transport = mockTransport();
+  ctx.connRegistry.register('startup-conn', transport);
+  vi.mocked(startChat).mockImplementationOnce(async (startupTransport) => {
+    startupTransport.send({ type: 'session_id', sessionId: 'startup-session' });
+  });
+  await handleSendV2(
+    'startup-conn',
+    transport,
+    { type: 'send', sessionId: null, prompt: 'Launch', clientMsgId: 'launch-id' },
+    ctx,
+  );
+  expect(transport.sent).toContainEqual(
+    expect.objectContaining({
+      type: 'session_id',
+      sessionId: 'startup-session',
+      clientMsgId: 'launch-id',
+    }),
+  );
+});
+
+it('correlates a caught startup error after assigning the launch session', async () => {
+  const ctx = createContext();
+  const transport = mockTransport();
+  ctx.connRegistry.register('startup-conn', transport);
+  vi.mocked(startChat).mockImplementationOnce(
+    async (startupTransport, _clientId, _prompt, options) => {
+      startupTransport.send({ type: 'session_id', sessionId: 'startup-session' });
+      options?.onStartupAdmission?.(new Error('Startup failed'));
+      startupTransport.send({ type: 'error', error: 'Startup failed' });
+    },
+  );
+  await handleSendV2(
+    'startup-conn',
+    transport,
+    { type: 'send', sessionId: null, prompt: 'Launch', clientMsgId: 'launch-id' },
+    ctx,
+  );
+  expect(transport.sent).toContainEqual(
+    expect.objectContaining({
+      type: 'error',
+      error: 'Startup failed',
+      clientMsgId: 'launch-id',
+    }),
+  );
+});
+
+it('correlates an SDK startup error after admission but before initial prompt delivery', async () => {
+  const ctx = createContext();
+  const transport = mockTransport();
+  ctx.connRegistry.register('startup-conn', transport);
+  vi.mocked(startChat).mockImplementationOnce(
+    async (startupTransport, _clientId, _prompt, options) => {
+      startupTransport.send({ type: 'session_id', sessionId: 'startup-session' });
+      options?.onStartupAdmission?.();
+      startupTransport.send({ type: 'error', error: 'SDK startup failed' });
+    },
+  );
+  await handleSendV2(
+    'startup-conn',
+    transport,
+    { type: 'send', sessionId: null, prompt: 'Launch', clientMsgId: 'launch-id' },
+    ctx,
+  );
+  expect(transport.sent).toContainEqual(
+    expect.objectContaining({
+      type: 'error',
+      error: 'SDK startup failed',
+      clientMsgId: 'launch-id',
+    }),
+  );
 });

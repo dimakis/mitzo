@@ -531,6 +531,82 @@ describe('newSession', () => {
 });
 
 describe('reconnect recovery', () => {
+  it('restores a replacement snapshot when the previously streaming reply completes during restore', async () => {
+    const transport = mockTransport();
+    let resolveRestore!: (value: unknown) => void;
+    (transport.fetch as ReturnType<typeof vi.fn>).mockImplementation((url: string) => {
+      if (url.includes('throughSeq=7'))
+        return new Promise((resolve) => {
+          resolveRestore = resolve;
+        });
+      return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
+    });
+    const store = createReadyStore(transport);
+    await store.getState().switchSession('sess-1');
+    lastWs.simulateMessage({
+      type: 'message_start',
+      sessionId: 'sess-1',
+      messageId: 'reply',
+      seq: 1,
+    });
+    lastWs.simulateMessage({
+      type: 'block_start',
+      sessionId: 'sess-1',
+      messageId: 'reply',
+      blockId: 'text',
+      blockType: 'text',
+      seq: 2,
+    });
+    lastWs.simulateMessage({
+      type: 'block_delta',
+      sessionId: 'sess-1',
+      messageId: 'reply',
+      blockId: 'text',
+      delta: 'reply text',
+      seq: 3,
+    });
+    expect(store.getState().messages.current?.messageId).toBe('reply');
+    lastWs.simulateMessage({
+      type: 'session_reconnect_snapshot',
+      sessionId: 'sess-1',
+      cursor: 7,
+      cursorValid: false,
+      state: 'running',
+    });
+    lastWs.simulateMessage({
+      type: 'message_end',
+      sessionId: 'sess-1',
+      messageId: 'reply',
+      seq: 8,
+    });
+    lastWs.simulateMessage({ type: 'session_end', sessionId: 'sess-1', seq: 9 });
+    resolveRestore({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          messages: [
+            {
+              messageId: 'input',
+              role: 'user',
+              blocks: [{ blockId: 'input-text', blockType: 'text', content: 'hello' }],
+            },
+          ],
+          current: {
+            messageId: 'reply',
+            blocks: [{ blockId: 'text', blockType: 'text', content: 'reply text', done: false }],
+          },
+        }),
+    });
+    await vi.waitFor(() => expect(store.getState().historyLoading).toBe(false));
+    expect(store.getState().historyError).toBeNull();
+    expect(store.getState().messages.messages.map((message) => message.messageId)).toEqual([
+      'input',
+      'reply',
+    ]);
+    expect(store.getState().messages.messages[1].blocks[0].content).toBe('reply text');
+    expect(store.getState().messages.running).toBe(false);
+  });
+
   it('replays a late delta and terminal after a bounded cursor that already includes a follow-up user', async () => {
     const transport = mockTransport();
     let releaseRestore!: (value: unknown) => void;
@@ -2868,3 +2944,324 @@ it('advances the permission queue locally when expiry denial loses to server tim
   expect(store.getState().messages.permission?.permId).toBe('valid');
   expect(store.getState().messages.permissionQueue).toEqual([]);
 });
+
+it('reports launch delivery for the matching HTTP acknowledgement only', () => {
+  const store = createReadyStore();
+  const onDelivery = vi.fn();
+  store.getState().sendMessage('Launch', { onDelivery });
+  const id = store.getState().messages.messages.at(-1)!.messageId;
+  lastWs.simulateMessage({ type: '_send_accepted', clientMsgId: 'unrelated', sessionId: 'other' });
+  expect(onDelivery).not.toHaveBeenCalled();
+  lastWs.simulateMessage({ type: '_send_accepted', clientMsgId: id, sessionId: 'target' });
+  expect(onDelivery).toHaveBeenCalledExactlyOnceWith('accepted');
+});
+
+it('confirms a WebSocket launch from its matching persisted user message', () => {
+  const store = createReadyStore();
+  const onDelivery = vi.fn();
+  store.getState().sendMessage('Launch', { onDelivery });
+  const id = store.getState().messages.messages.at(-1)!.messageId;
+  lastWs.simulateMessage({ type: 'session_id', sessionId: 'target' });
+  lastWs.simulateMessage({
+    type: 'user_message',
+    sessionId: 'target',
+    messageId: id,
+    text: 'Launch',
+  });
+  expect(onDelivery).toHaveBeenCalledExactlyOnceWith('accepted');
+});
+
+it('releases a WebSocket launch for retry when startup fails before assignment', () => {
+  const store = createReadyStore();
+  const onDelivery = vi.fn();
+  store.getState().sendMessage('Launch', { onDelivery });
+  lastWs.simulateMessage({ type: 'error', error: 'Startup rejected' });
+  expect(onDelivery).toHaveBeenCalledExactlyOnceWith('failed');
+  expect(store.getState().messages.running).toBe(false);
+});
+
+it('releases only the matching launch when startup fails after assignment', () => {
+  const store = createReadyStore();
+  const onDelivery = vi.fn();
+  store.getState().sendMessage('Launch', { onDelivery });
+  const id = store.getState().messages.messages.at(-1)!.messageId;
+  lastWs.simulateMessage({ type: 'error', clientMsgId: 'other', error: 'Other startup rejected' });
+  expect(onDelivery).not.toHaveBeenCalled();
+  lastWs.simulateMessage({ type: 'session_id', sessionId: 'target' });
+  lastWs.simulateMessage({ type: 'error', clientMsgId: 'other', error: 'Other startup rejected' });
+  expect(onDelivery).not.toHaveBeenCalled();
+  lastWs.simulateMessage({ type: 'error', clientMsgId: id, error: 'Startup rejected' });
+  expect(onDelivery).toHaveBeenCalledExactlyOnceWith('failed');
+  expect(store.getState().messages.running).toBe(false);
+});
+
+it.each(['new', 'switch'] as const)(
+  'settles launch receipts after %s chat navigation without importing the old transcript',
+  async (navigation) => {
+    const store = createReadyStore();
+    store.getState().setPendingSession({ prompt: 'Launch', context: 'Telos', telosTaskId: 'task' });
+    store.getState().sendPendingSession();
+    const id = store.getState().messages.messages.at(-1)!.messageId;
+    lastWs.simulateMessage({ type: 'session_id', sessionId: 'launch-session' });
+    if (navigation === 'new') store.getState().newSession();
+    else await store.getState().switchSession('other-session');
+    lastWs.simulateMessage({
+      type: 'user_message',
+      sessionId: 'launch-session',
+      messageId: id,
+      text: 'Launch',
+    });
+    expect(store.getState().pendingSession).toBeNull();
+    expect(store.getState().pendingSessionSending).toBe(false);
+    expect(store.getState().messages.messages.some((m) => m.messageId === id)).toBe(false);
+  },
+);
+
+it('releases a navigated launch for retry on its matching startup rejection', () => {
+  const store = createReadyStore();
+  store.getState().setPendingSession({ prompt: 'Launch', context: 'Telos' });
+  store.getState().sendPendingSession();
+  const id = store.getState().messages.messages.at(-1)!.messageId;
+  lastWs.simulateMessage({ type: 'session_id', sessionId: 'launch-session' });
+  store.getState().newSession();
+  lastWs.simulateMessage({
+    type: 'error',
+    sessionId: 'launch-session',
+    clientMsgId: id,
+    error: 'Rejected',
+  });
+  expect(store.getState().pendingSession?.prompt).toBe('Launch');
+  expect(store.getState().pendingSessionSending).toBe(false);
+});
+
+it('permits retry when navigation cancels a launch that was never transmitted', () => {
+  const store = createMitzoStore(makeOptions());
+  store.getState().setPendingSession({ prompt: 'Queued launch', context: 'Telos' });
+  store.getState().sendPendingSession();
+  expect(store.getState().pendingSessionSending).toBe(true);
+  store.getState().newSession();
+  expect(store.getState().pendingSessionSending).toBe(false);
+  expect(store.getState().pendingSession?.prompt).toBe('Queued launch');
+});
+
+it('retains an offscreen launch reconnect subscription and reconciles its persisted receipt', async () => {
+  const transport = mockTransport();
+  const store = createReadyStore(transport);
+  store.getState().setPendingSession({ prompt: 'Launch', context: 'Telos' });
+  store.getState().sendPendingSession();
+  const id = store.getState().messages.messages.at(-1)!.messageId;
+  lastWs.simulateMessage({ type: 'session_id', sessionId: 'launch-session' });
+  store.getState().newSession();
+  const previousSocket = lastWs;
+  store.getState().forceReconnect();
+  await vi.waitFor(() => expect(lastWs).not.toBe(previousSocket));
+  lastWs.completeHandshake();
+  expect(lastWs.parsedSent().find((m) => m.type === 'reconnect')).toMatchObject({
+    sessions: expect.arrayContaining([{ sessionId: 'launch-session', lastSeq: 0 }]),
+  });
+  (transport.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
+    ok: true,
+    json: async () => ({
+      messages: [{ messageId: id, role: 'user', text: 'Launch', blocks: [], timestamp: 1 }],
+      cursor: 3,
+    }),
+  });
+  lastWs.simulateMessage({
+    type: 'session_reconnect_snapshot',
+    sessionId: 'launch-session',
+    cursor: 3,
+    state: 'idle',
+  });
+  await vi.waitFor(() => expect(store.getState().pendingSession).toBeNull());
+  expect(store.getState().messages.messages).toHaveLength(0);
+});
+
+it.each(['new', 'switch'] as const)(
+  'tracks a launch assigned after %s navigation without changing the selected chat',
+  async (navigation) => {
+    const transport = mockTransport();
+    const store = createReadyStore(transport);
+    store.getState().setPendingSession({ prompt: 'Launch', context: 'Telos' });
+    store.getState().sendPendingSession();
+    const id = store.getState().messages.messages.at(-1)!.messageId;
+    if (navigation === 'new') store.getState().newSession();
+    else await store.getState().switchSession('other-session');
+    const selected = store.getState().sessions.active;
+    lastWs.simulateMessage({ type: 'session_id', sessionId: 'late-launch', clientMsgId: id });
+    expect(store.getState().sessions.active).toBe(selected);
+    const previousSocket = lastWs;
+    store.getState().forceReconnect();
+    await vi.waitFor(() => expect(lastWs).not.toBe(previousSocket));
+    lastWs.completeHandshake();
+    expect(lastWs.parsedSent().find((m) => m.type === 'reconnect')).toMatchObject({
+      sessions: expect.arrayContaining([{ sessionId: 'late-launch', lastSeq: 0 }]),
+    });
+    (transport.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        messages: [{ messageId: id, role: 'user', text: 'Launch', blocks: [], timestamp: 1 }],
+        cursor: 3,
+      }),
+    });
+    lastWs.simulateMessage({
+      type: 'session_reconnect_snapshot',
+      sessionId: 'late-launch',
+      cursor: 3,
+      state: 'idle',
+    });
+    await vi.waitFor(() => expect(store.getState().pendingSession).toBeNull());
+    expect(store.getState().sessions.active).toBe(selected);
+    expect(store.getState().messages.messages).toHaveLength(0);
+  },
+);
+
+it('does not select an offscreen launch when assignment follows its HTTP receipt', () => {
+  const store = createReadyStore();
+  store.getState().setPendingSession({ prompt: 'Launch', context: 'Telos' });
+  store.getState().sendPendingSession();
+  const id = store.getState().messages.messages.at(-1)!.messageId;
+  store.getState().newSession();
+  lastWs.simulateMessage({ type: '_send_accepted', clientMsgId: id, sessionId: 'late-launch' });
+  expect(store.getState().pendingSession).toBeNull();
+  expect(store.getState().sessions.active).toBeNull();
+  lastWs.simulateMessage({ type: 'session_id', clientMsgId: id, sessionId: 'late-launch' });
+  expect(store.getState().sessions.active).toBeNull();
+});
+
+it('removes the rejected optimistic launch before retrying without duplicating its prompt', () => {
+  const store = createReadyStore();
+  store.getState().setPendingSession({ prompt: 'Launch', context: 'Telos' });
+  store.getState().sendPendingSession();
+  const rejectedId = store.getState().messages.messages.at(-1)!.messageId;
+  lastWs.simulateMessage({ type: 'session_id', sessionId: 'target', clientMsgId: rejectedId });
+  lastWs.simulateMessage({ type: 'error', clientMsgId: rejectedId, error: 'Startup failed' });
+  expect(store.getState().messages.messages.some((m) => m.messageId === rejectedId)).toBe(false);
+  expect(store.getState().sendPendingSession()).toBe(false);
+  store.getState().sendPendingSession();
+  const retryId = store.getState().messages.messages.at(-1)!.messageId;
+  lastWs.simulateMessage({
+    type: 'user_message',
+    sessionId: 'target',
+    messageId: retryId,
+    text: 'Launch',
+  });
+  expect(store.getState().messages.messages.filter((m) => m.role === 'user')).toHaveLength(1);
+  expect(store.getState().pendingSession).toBeNull();
+});
+
+it('requires a dedicated draft and confirmation before retrying a navigated failed launch', async () => {
+  const store = createReadyStore();
+  store.getState().setPendingSession({ prompt: 'Launch', context: 'Telos', telosTaskId: 'task' });
+  store.getState().sendPendingSession({ accountId: 'personal', model: 'luna', cwd: '/original' });
+  const id = store.getState().messages.messages.at(-1)!.messageId;
+  lastWs.simulateMessage({ type: 'session_id', sessionId: 'launch-a', clientMsgId: id });
+  await store.getState().switchSession('unrelated-b');
+  lastWs.simulateMessage({ type: 'error', clientMsgId: id, error: 'Startup failed' });
+  expect(store.getState().sessions.active).toBe('unrelated-b');
+  expect(
+    store.getState().sendPendingSession({ accountId: 'work', model: 'other', cwd: '/unrelated' }),
+  ).toBe(false);
+  expect(lastWs.parsedSent().filter((m) => m.type === 'send')).toHaveLength(1);
+  store.getState().sendPendingSession({ accountId: 'personal', model: 'luna', cwd: '/original' });
+  expect(
+    lastWs
+      .parsedSent()
+      .filter((m) => m.type === 'send')
+      .at(-1),
+  ).toMatchObject({
+    sessionId: null,
+    accountId: 'personal',
+    model: 'luna',
+    cwd: '/original',
+    telosTaskId: 'task',
+    prompt: 'Launch',
+  });
+  expect(store.getState().sessions.active).toBeNull();
+});
+
+it('retires the first launch foreground assignment when a replacement opens in the draft', () => {
+  const store = createReadyStore();
+  store.getState().setPendingSession({ prompt: 'Launch A', context: 'A', telosTaskId: 'task-a' });
+  store.getState().sendPendingSession();
+  const a = store.getState().messages.messages.at(-1)!.messageId;
+  store.getState().setPendingSession({ prompt: 'Launch B', context: 'B', telosTaskId: 'task-b' });
+  lastWs.simulateMessage({ type: 'session_id', sessionId: 'session-a', clientMsgId: a });
+  expect(store.getState().sessions.active).toBeNull();
+  expect(store.getState().messages.messages).toHaveLength(0);
+  store.getState().sendPendingSession();
+  expect(
+    lastWs
+      .parsedSent()
+      .filter((m) => m.type === 'send')
+      .at(-1),
+  ).toMatchObject({
+    sessionId: null,
+    prompt: 'Launch B',
+    telosTaskId: 'task-b',
+  });
+  lastWs.simulateMessage({
+    type: 'user_message',
+    sessionId: 'session-a',
+    messageId: a,
+    text: 'Launch A',
+  });
+  expect(store.getState().pendingSession?.prompt).toBe('Launch B');
+  expect(store.getState().pendingSessionSending).toBe(true);
+});
+
+it('retires a dismissed launch before a later launch opens in its unassigned draft', () => {
+  const store = createReadyStore();
+  store.getState().setPendingSession({ prompt: 'A', context: 'A' });
+  store.getState().sendPendingSession();
+  const a = store.getState().messages.messages.at(-1)!.messageId;
+  store.getState().clearPendingSession();
+  store.getState().setPendingSession({ prompt: 'B', context: 'B' });
+  lastWs.simulateMessage({ type: 'session_id', sessionId: 'session-a', clientMsgId: a });
+  expect(store.getState().sessions.active).toBeNull();
+  store.getState().sendPendingSession();
+  expect(
+    lastWs
+      .parsedSent()
+      .filter((m) => m.type === 'send')
+      .at(-1),
+  ).toMatchObject({ sessionId: null, prompt: 'B' });
+});
+
+it('returns a navigated unsent launch to a draft for account confirmation before sending', async () => {
+  const store = createReadyStore();
+  store.getState().setPendingSession({ prompt: 'Launch', context: 'Telos', telosTaskId: 'task' });
+  await store.getState().switchSession('unrelated');
+  expect(store.getState().sendPendingSession({ accountId: 'work', model: 'other' })).toBe(false);
+  expect(lastWs.parsedSent().filter((m) => m.type === 'send')).toHaveLength(0);
+  expect(store.getState().sessions.active).toBeNull();
+  expect(store.getState().pendingSession?.prompt).toBe('Launch');
+  store.getState().sendPendingSession({ accountId: 'personal', model: 'luna' });
+  expect(
+    lastWs
+      .parsedSent()
+      .filter((m) => m.type === 'send')
+      .at(-1),
+  ).toMatchObject({ sessionId: null, accountId: 'personal', model: 'luna', telosTaskId: 'task' });
+});
+
+it.each([false, true])(
+  'keeps an offscreen launch startup failure out of the selected running chat (assigned: %s)',
+  async (assigned) => {
+    const store = createReadyStore();
+    store.getState().setPendingSession({ prompt: 'Launch', context: 'Telos' });
+    store.getState().sendPendingSession();
+    const a = store.getState().messages.messages.at(-1)!.messageId;
+    if (assigned)
+      lastWs.simulateMessage({ type: 'session_id', sessionId: 'launch-a', clientMsgId: a });
+    await store.getState().switchSession('running-b');
+    store.getState().dispatchMessages({ type: 'USER_SEND', text: 'B', clientMsgId: 'b-message' });
+    const before = store.getState().messages;
+    for (let duplicate = 0; duplicate < 2; duplicate++) {
+      lastWs.simulateMessage({ type: 'error', clientMsgId: a, error: 'Startup failed' });
+      expect(store.getState().messages).toEqual(before);
+      expect(store.getState().sendError).toBeNull();
+    }
+    expect(store.getState().pendingSessionSending).toBe(false);
+    expect(store.getState().sessions.active).toBe('running-b');
+  },
+);

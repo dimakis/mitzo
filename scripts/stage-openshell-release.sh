@@ -129,5 +129,5 @@ printf 'MGMT_COMMIT=%s\n' "$mgmt_commit"
 printf 'RUNTIME_IMAGE=%s\n' "$image"
 printf 'RUNTIME_DIGEST=%s\n' "$digest"
 printf 'POLICY_DIGEST=%s\n' "$policy_digest"
-printf 'PREPARED_SEED=%s/mgmt\n' "$seed_output"
-printf 'NEXT_STEP=review and merge the generated stack-lock diff; do not deploy this checkout\n'
+printf 'DRAFT_KNOWLEDGE_SEED=%s/mgmt\n' "$seed_output"
+printf 'NEXT_STEP=merge the reviewed runtime lock, run the accepted MGMT publisher, and select its verified current/mgmt for release; this draft seed is not a publication\n'

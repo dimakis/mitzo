@@ -5,6 +5,12 @@ Claude Code on your phone. A self-hosted web UI built on the [Agent SDK](https:/
 <!-- ![Home Screen](docs/screenshots/home.png) -->
 <!-- ![Chat with Tools](docs/screenshots/chat-tools.png) -->
 
+### New chat account and model
+
+Expand **Workspace** in chat to choose the account and model. **Make default for new chats** saves that pair (and thinking setting) on this browser; **Clear new-chat default** removes it. Existing conversations keep their bound account. When no default is saved, select an account or confirm the suggested account with **Use** before sending. If a saved account or model is unavailable, choose a replacement explicitly.
+
+Telos **Open in Chat** and **Start Session** open a launch preview with Workspace expanded. Review the account and model, then select **Send launch prompt**. The chat follows the session created for that launch and keeps its Telos context and task identity. The preview stays available until delivery is confirmed through the HTTP receipt or a matching persisted WebSocket user-message echo; a failed send can be retried with the same task context.
+
 ## Features
 
 The dormant [Symposium artifact snapshot observer](docs/features/symposium-artifact-snapshots.md) records bounded host observations; it does not yet enable automated review or publication.
@@ -37,6 +43,7 @@ Symposium director status resolves the verified runtime once per request and reu
 - **HTML artifacts** — preview and edit self-contained `.html` prototypes from Files or expandable chat links in a sandboxed, no-network renderer
 - **Task board** — recursive multi-session task orchestration with spec mode, completion summaries, and verification hooks
 - **Durable Telos capture** — agents can create approved outcomes and save versioned task documents in live Telos. `TelosSaveArtifact`, `TelosFindArtifacts`, and `TelosReadArtifact` provide upload and historical retrieval through trusted host tools/MCP; session instructions teach agents to recover prior work and retain persistence receipts. Documents and item links live in the canonical Telos SQLite store outside the sandbox; code remains in Git and reusable guidance belongs in knowledge. [Operating contract](docs/operations/telos-artifacts.md).
+- **Work outputs** — each Telos work detail shows its latest saved file revisions before milestones and reference material. Markdown, archives, images and other file bytes use the same durable store (5 MiB per file); Download and Share target the exact listed revision without an active agent session. Native clients use Share. A saved output is not automatically reviewed or delivered. Folder snapshots and external destination tracking are subsequent slices.
 - **Worktree sandbox** — opt-in git worktree isolation per session, multi-repo support via `.mitzo.json`
 - **Session resilience** — phone sleeps, WS drops, session survives. Reattach on reconnect. Message snapshot recovery for iOS silent drops. Session opening coordinates live replay with the restored history cursor; expired approvals clear locally so later requests remain accessible.
 - **Durable inactivity closeout** — automatic closeout is admitted once per detach episode before runtime dispatch. Exact retries and restart recovery never repeat paid provider work. See [closeout admission](docs/design/closeout-admission.md).
@@ -436,6 +443,8 @@ Tasks with `sessionPolicy: spawn` run only in dedicated sessions. When session s
 
 React 19 + Vite. Ten pages (`Login`, `SessionList`, `ChatView`, `DesktopChatView`, `FileViewer`, `InboxView`, `CalendarView`, `TodoView`, `TodoDetailView`, `TaskBoard`), a `useReducer`-based message state machine (`useChatMessages`), module-level WebSocket pool with 500-message buffer, and components for thinking blocks, tool pills, tool groups, permission banners, and a slash-command picker. Capacitor wraps the frontend for iOS deployment via TestFlight.
 
+The chat composer gives draft text the full width, with context information and action controls on separate rows. Session resources open from the toolbar; commands, attachments, and workspace options collapse into More in narrow composers while recording, interrupt, and send controls remain directly available.
+
 For iOS development, run `./scripts/build-ios.sh` to build the iOS web assets and open Xcode. After the build, `./scripts/build-ios.sh --sync` copies the existing `frontend/dist-ios` assets into the iOS project without rebuilding them.
 
 **Key Hooks:**
@@ -558,20 +567,53 @@ passes compatibility fields from that commit's runtime lock. Each publication
 binds exact source, content hashes and modes, compiler/recipe identities and
 runtime inputs in a trusted record; knowledge A and B can share one runtime
 without changing a fixed application payload pin. Ordinary new seed uploads
-verify the selected publication and use a private verified copy. Current
-production locks lack this dynamic attestation, so this lane remains blocked
-until the Stage 2 context contract and compatible runtime baseline are released.
+verify the selected publication and use a private verified copy. The checked-in runtime lock records actual compiler, protected write boundary,
+frozen-input and target-marker attestation from the accepted-source runtime.
+This release metadata does not itself activate publication or enroll a consumer.
 Retained ordinary Codex chats can select a verified publication between turns,
 copy it into a separate versioned knowledge directory, and refresh the existing
 provider thread's per-turn application context. Their writable task Git and checkpoint
 history remain intact. Cached views are verified before reuse; a damaged selected
 cache is replaced from the verified publication before compilation, preserving
 task files and unrelated versions. The pinned ContexGin compiler includes tracked `AGENTS.md`.
+
 Runtime staging fingerprints the installed compiler dependency closure and recipe
 and observes the target Python markers inside the image. These paths require a
 reviewed dynamic runtime lock and enrollment at `publications/current/mgmt`;
-they are not enabled by the legacy production lock. Host, Claude, Responses and
+legacy deployed environments remain unenrolled until explicitly migrated. Host, Claude, Responses and
 Symposium consumer enrollment still require their respective adoption contracts.
+
+Set host-only `MITZO_KNOWLEDGE_STORE_CONFIG` to enroll ordinary OpenShell Codex
+chats in the configurable ContexGin publisher bridge. The selected store identifies
+its accepted Git source and a clean pinned `mgmt-v1` adapter release. A signed
+GitHub webhook wakes publication; sandbox creation and safe-turn admission also
+reconcile the accepted ref, verify its snapshot and wait for exact revision
+conversion. Provider acknowledgement records an account-scoped durable adoption
+receipt. Shared knowledge updates preserve writable task branches and dirty
+worktrees. This requires supervised publisher storage, adapter dependencies and a
+compatible reviewed runtime; configuration alone cannot upgrade a legacy image.
+See the operating contract for the configuration schema and delivery scope.
+
+Supported retained ordinary Codex sandboxes migrate at resume or a completed-turn
+admission boundary into an attested candidate. The transition preserves dirty and
+untracked task Git state, the provider thread/account route and queued FIFO, and
+keeps the original sandbox and immutable checkpoint. Read-only profile catalog
+admission uses the deployed CLI’s scoped `provider list-profiles --output json`
+command, with exact reviewed definitions and the same initial/final fences. Actual image/policy, ordinary
+ownership, idle provider activity and measured host/VM capacity must verify; unknown
+source contracts and unsupported Git/provider layouts remain visibly blocked.
+Runtime admission verifies the full effective policy against reviewed provider
+profiles and current approved attachments, including brokered OpenAI, automatic
+GitHub and approved Google Workspace layers. Serializer defaults do not erase
+credential inspection or unexpected permissions. Migration preserves the original
+base-policy checkpoint identity and records separate effective-policy provenance.
+Current runtimes retain normal provider recovery without entering migration. See
+[retained runtime migration](docs/operations/retained-runtime-migration.md) for
+transaction recovery, eligibility and rollout drain requirements.
+
+Ordinary Codex startup holds its lifecycle reservation through sandbox recovery
+and provider-thread registration, then releases it before the first queued turn
+reacquires admission for runtime and knowledge checks.
 
 Production deploys use `./scripts/create-release.sh origin/main`. The command
 fetches only current `origin/main`, refuses every other commit, creates a

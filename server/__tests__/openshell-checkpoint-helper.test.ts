@@ -22,16 +22,16 @@ function root() {
   roots.push(value);
   return value;
 }
-function run(args: string[]) {
+function run(args: string[], physical = { sandbox: 'sandbox', version: '1' }) {
   return execFileSync(
     'python3',
     [
       helper,
       ...args,
       '--sandbox-id',
-      'sandbox',
+      physical.sandbox,
       '--resource-version',
-      '1',
+      physical.version,
       '--account-provider',
       'account',
       '--account-id',
@@ -87,23 +87,7 @@ it('captures and restores git, executable files, empty directories, and sqlite s
     to = join(root(), 'restored');
   source(from);
   writeFileSync(join(from, 'workspace/.npmrc'), '//registry.example/:_authToken=secret');
-  execFileSync('git', ['config', 'extensions.worktreeConfig', 'true'], {
-    cwd: join(from, 'workspace'),
-  });
-  execFileSync('git', ['config', '--worktree', 'credential.helper', 'unsafe-helper'], {
-    cwd: join(from, 'workspace'),
-  });
-  execFileSync(
-    'git',
-    ['config', '--worktree', 'http.https://example.invalid/.extraheader', 'Bearer unsafe-token'],
-    { cwd: join(from, 'workspace') },
-  );
   writeFileSync(join(from, 'workspace/.git/credentials'), 'https://unsafe-token@example.invalid');
-  const nestedGit = join(from, 'workspace/.git/modules/example');
-  mkdirSync(nestedGit, { recursive: true });
-  writeFileSync(join(nestedGit, 'config'), '[credential]\nhelper = unsafe-helper\n');
-  writeFileSync(join(nestedGit, 'config.worktree'), '[http]\nextraHeader = Bearer unsafe-token\n');
-  writeFileSync(join(nestedGit, 'credentials'), 'https://unsafe-token@example.invalid');
   run([
     'capture',
     '--source',
@@ -144,7 +128,7 @@ it('captures and restores git, executable files, empty directories, and sqlite s
       cwd: join(to, 'workspace'),
       encoding: 'utf8',
     }).trim(),
-  ).toBe('Mitzo Sandbox');
+  ).toBe('Test');
   writeFileSync(join(to, 'workspace/post-restore.txt'), 'committed after restore');
   execFileSync('git', ['add', 'post-restore.txt'], { cwd: join(to, 'workspace') });
   execFileSync('git', ['-c', 'commit.gpgsign=false', 'commit', '-qm', 'post-restore'], {
@@ -158,7 +142,7 @@ it('captures and restores git, executable files, empty directories, and sqlite s
   expect(statSync(join(to, 'workspace/tool.sh')).mode & 0o777).toBe(0o755);
   expect(statSync(archive).mode & 0o777).toBe(0o600);
   const archived = execFileSync('tar', ['-tf', archive], { encoding: 'utf8' }).split('\n');
-  expect(archived).not.toContain('workspace/.git/config');
+  expect(archived).toContain('workspace/.git/config');
   expect(archived).not.toContain('workspace/.git/config.worktree');
   expect(archived).not.toContain('workspace/.git/credentials');
   expect(archived).not.toContain('workspace/.git/modules/example/config');
@@ -574,4 +558,171 @@ it('fails closed for remaining execution processes but exempts only the pinned r
       'policy',
     ]),
   ).toThrow(/execution process/);
+});
+
+it('proves migration content equivalence across physical identities with dirty staged and untracked Git state', () => {
+  const from = root(),
+    to = join(root(), 'candidate'),
+    archive = join(root(), 'source.tar');
+  source(from);
+  writeFileSync(join(from, 'workspace/tool.sh'), '#!/bin/sh\necho staged\n');
+  execFileSync('git', ['add', 'tool.sh'], { cwd: join(from, 'workspace') });
+  writeFileSync(join(from, 'workspace/tool.sh'), '#!/bin/sh\necho dirty\n');
+  const cwd = join(from, 'workspace');
+  execFileSync('git', ['remote', 'add', 'origin', 'https://github.com/example/task.git'], { cwd });
+  const branch = execFileSync('git', ['branch', '--show-current'], {
+    cwd,
+    encoding: 'utf8',
+  }).trim();
+  execFileSync('git', ['config', `branch.${branch}.remote`, 'origin'], { cwd });
+  execFileSync('git', ['config', `branch.${branch}.merge`, 'refs/heads/main'], { cwd });
+  chmodSync(join(cwd, '.git/config'), 0o600);
+  const gitConfig = readFileSync(join(cwd, '.git/config'));
+  const originalHead = execFileSync('git', ['rev-parse', 'HEAD'], {
+    cwd: join(from, 'workspace'),
+    encoding: 'utf8',
+  });
+  const before = execFileSync('git', ['status', '--porcelain=v1'], {
+    cwd: join(from, 'workspace'),
+    encoding: 'utf8',
+  });
+  const origin = [
+    '--conversation',
+    'c',
+    '--thread',
+    'thread',
+    '--binding',
+    'binding',
+    '--image',
+    'old-image',
+    '--policy',
+    'policy',
+  ];
+  const original = JSON.parse(run(['capture', '--source', from, '--output', archive, ...origin]));
+  run(['restore', '--input', archive, '--destination', to, ...origin]);
+  expect(readFileSync(join(to, 'workspace/.git/config'))).toEqual(gitConfig);
+  expect(statSync(join(to, 'workspace/.git/config')).mode & 0o777).toBe(0o600);
+  expect(
+    execFileSync('git', ['remote', 'get-url', 'origin'], {
+      cwd: join(to, 'workspace'),
+      encoding: 'utf8',
+    }).trim(),
+  ).toBe('https://github.com/example/task.git');
+  expect(
+    execFileSync('git', ['config', `branch.${branch}.merge`], {
+      cwd: join(to, 'workspace'),
+      encoding: 'utf8',
+    }).trim(),
+  ).toBe('refs/heads/main');
+  expect(statSync(join(to, 'workspace/.git')).isDirectory()).toBe(true);
+  expect(
+    execFileSync('git', ['rev-parse', 'HEAD'], { cwd: join(to, 'workspace'), encoding: 'utf8' }),
+  ).toBe(originalHead);
+  expect(
+    execFileSync('git', ['status', '--porcelain=v1'], {
+      cwd: join(to, 'workspace'),
+      encoding: 'utf8',
+    }),
+  ).toBe(before);
+  expect(
+    execFileSync('git', ['show', ':tool.sh'], { cwd: join(to, 'workspace'), encoding: 'utf8' }),
+  ).toBe('#!/bin/sh\necho staged\n');
+  expect(readFileSync(join(to, 'workspace/tool.sh'), 'utf8')).toBe('#!/bin/sh\necho dirty\n');
+  expect(readFileSync(join(to, 'workspace/untracked.txt'), 'utf8')).toBe('untracked');
+  expect(readFileSync(join(to, '.codex/sessions/rollout-2026-09-12T00-00-00.jsonl'))).toEqual(
+    readFileSync(join(from, '.codex/sessions/rollout-2026-09-12T00-00-00.jsonl')),
+  );
+  const recaptured = JSON.parse(
+    run(
+      [
+        'capture',
+        '--source',
+        to,
+        '--output',
+        join(root(), 'candidate.tar'),
+        ...origin.map((arg) => (arg === 'old-image' ? 'new-image' : arg)),
+      ],
+      { sandbox: 'candidate-physical', version: '2' },
+    ),
+  );
+  expect(recaptured.sandboxId).toBe('candidate-physical');
+  expect(recaptured.resourceVersion).toBe('2');
+  expect(recaptured.image).toBe('new-image');
+  expect(recaptured.digest).toBe(original.digest);
+  expect(() =>
+    run([
+      'verify',
+      '--input',
+      archive,
+      ...origin.map((arg) => (arg === 'old-image' ? 'new-image' : arg)),
+    ]),
+  ).toThrow(/identity mismatch/);
+  expect(readFileSync(join(from, 'workspace/tool.sh'), 'utf8')).toBe('#!/bin/sh\necho dirty\n');
+});
+
+it.each([
+  ['credential.helper', '!unsafe-helper'],
+  ['http.extraheader', 'Bearer private-value'],
+  ['core.hooksPath', '/external/hooks'],
+  ['include.path', '/external/config'],
+  ['remote.origin.url', 'https://token@example.invalid/task.git'],
+  ['remote.origin.url', 'https://example.invalid/task.git?token=secret'],
+  ['core.worktree', '/external/worktree'],
+  ['extensions.worktreeConfig', 'true'],
+])(
+  'blocks unsafe or unsupported repository config %s without publishing an archive',
+  (key, value) => {
+    const from = root(),
+      archive = join(root(), 'blocked.tar');
+    source(from);
+    execFileSync('git', ['config', key, value], { cwd: join(from, 'workspace') });
+    expect(() =>
+      run([
+        'capture',
+        '--source',
+        from,
+        '--output',
+        archive,
+        '--conversation',
+        'c',
+        '--thread',
+        'thread',
+        '--binding',
+        'binding',
+        '--image',
+        'image',
+        '--policy',
+        'policy',
+      ]),
+    ).toThrow(/Git config/);
+    expect(existsSync(archive)).toBe(false);
+  },
+);
+
+it('blocks ignored raw Git config comments before copying a checkpoint', () => {
+  const from = root(),
+    archive = join(root(), 'blocked.tar');
+  source(from);
+  const config = join(from, 'workspace/.git/config');
+  writeFileSync(config, readFileSync(config, 'utf8') + '# credential: Bearer private-value\n');
+  expect(() =>
+    run([
+      'capture',
+      '--source',
+      from,
+      '--output',
+      archive,
+      '--conversation',
+      'c',
+      '--thread',
+      'thread',
+      '--binding',
+      'binding',
+      '--image',
+      'image',
+      '--policy',
+      'policy',
+    ]),
+  ).toThrow(/Git config/);
+  expect(existsSync(archive)).toBe(false);
 });

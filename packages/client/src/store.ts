@@ -52,6 +52,8 @@ import { messageIdentity } from './message-identity.js';
 // ─── Store state ─────────────────────────────────────────────────────────────
 
 export interface SendMessageOptions {
+  /** Local delivery observer; never included in the wire payload. */
+  onDelivery?: (status: 'accepted' | 'failed' | 'uncertain') => void;
   accountId?: string;
   contextBlocks?: string[];
   images?: ImageAttachment[];
@@ -95,6 +97,8 @@ export interface MitzoStoreState {
 
   // Pending session (for "Start Session" from inbox/todo)
   pendingSession: PendingSession | null;
+  pendingSessionSending: boolean;
+  chatDraftRevision: number;
 
   // Current server-issued transport identity; never persisted across reconnect.
   getTransportConnectionId(): string | null;
@@ -147,6 +151,7 @@ export interface MitzoStoreState {
   // Actions — pending session
   setPendingSession(ps: PendingSession): void;
   clearPendingSession(): void;
+  sendPendingSession(opts?: SendMessageOptions): boolean;
 
   // Actions — lifecycle
   invalidateAuthentication(): void;
@@ -255,6 +260,51 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
   let historyAbort: AbortController | undefined;
   let recoveryInFlight = false;
   const pendingOptimisticMessageIds = new Set<string>();
+  const deliveryObservers = new Map<string, NonNullable<SendMessageOptions['onDelivery']>>();
+  let launchGeneration = 0;
+  const deliverySessions = new Map<string, string>();
+  // Keep recent command origins after receipts settle so duplicate errors stay scoped.
+  const deliveryOrigins = new Map<
+    string,
+    { historyRequest: number; launchGeneration: number; sessionId?: string }
+  >();
+
+  const unassignedDeliveries = new Map<
+    string,
+    { historyRequest: number; launchGeneration: number }
+  >();
+  const hasPendingDelivery = (sessionId: string) =>
+    [...deliverySessions.values()].includes(sessionId);
+  function settleDelivery(id: string, status: 'accepted' | 'failed' | 'uncertain') {
+    const observer = deliveryObservers.get(id);
+    const sessionId = deliverySessions.get(id);
+    if (observer && status === 'failed') {
+      pendingOptimisticMessageIds.delete(id);
+      store.setState((s) => ({
+        messages: {
+          ...s.messages,
+          messages: s.messages.messages.filter((m) => m.messageId !== id),
+        },
+      }));
+    }
+
+    if (status !== 'uncertain') {
+      if (status === 'failed') unassignedDeliveries.delete(id);
+      deliveryObservers.delete(id);
+      deliverySessions.delete(id);
+    }
+    observer?.(status);
+    if (sessionId && status !== 'uncertain')
+      queueMicrotask(() => {
+        if (store.getState().sessions.active !== sessionId && !hasPendingDelivery(sessionId))
+          connection.clearSession(sessionId);
+      });
+  }
+  function confirmPersistedDelivery(messages: FinishedMessage[]) {
+    for (const message of messages)
+      if (message.role === 'user') settleDelivery(message.messageId, 'accepted');
+  }
+
   let boundedRestore:
     | {
         sessionId: string;
@@ -306,6 +356,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
         : api.getReconnectTranscript(sessionId, throughSeq);
     transcript
       .then(({ messages: msgs, current, currents = [], cursor }) => {
+        if (Array.isArray(msgs)) confirmPersistedDelivery(msgs);
         if (request !== historyRequest || store.getState().sessions.active !== sessionId) return;
         if (Array.isArray(msgs)) {
           const appliedCursor = cursor ?? throughSeq;
@@ -336,10 +387,11 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
                         .filter(
                           (m) =>
                             s.messages.current === initialCurrent ||
+                            !s.messages.current ||
                             messageIdentity(m.messageId, m.symposiumProvenance) !==
                               messageIdentity(
-                                s.messages.current!.messageId,
-                                s.messages.current!.symposiumProvenance,
+                                s.messages.current.messageId,
+                                s.messages.current.symposiumProvenance,
                               ),
                         )
                         .map((m) =>
@@ -459,6 +511,8 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     historyError: null,
     modeChangeReady: true,
     pendingSession: null,
+    pendingSessionSending: false,
+    chatDraftRevision: 0,
 
     // ── Actions ──────────────────────────────────────────────────────────
 
@@ -488,7 +542,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
         // is for iOS backgrounding (imminent WS death), not session switching.
         // Sending suspend here would leave the old session in suspended state
         // with no resume path, causing it to buffer events until grace expiry.
-        connection.clearSession(oldId);
+        if (!hasPendingDelivery(oldId)) connection.clearSession(oldId);
       }
       parserState.currentSessionId = id;
       // Even a session whose history is loaded through REST needs an explicit
@@ -595,7 +649,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       awaitingModeHydration = undefined;
       set({ modeChangeReady: true });
       for (const sid of connection.getTrackedSessions()) {
-        connection.clearSession(sid);
+        if (!hasPendingDelivery(sid)) connection.clearSession(sid);
       }
       parserState.currentSessionId = undefined;
       connection.clearPendingSends();
@@ -603,6 +657,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       connection.send({ type: 'switch_session', sessionId: null });
       set({
         sessions: { ...get().sessions, active: null },
+        chatDraftRevision: get().chatDraftRevision + 1,
         messages: INITIAL_MESSAGES_STATE,
         sendError: null,
         sendStatus: null,
@@ -620,6 +675,22 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     sendMessage(text: string, opts?: SendMessageOptions) {
       const clientMsgId = `user-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       pendingOptimisticMessageIds.add(clientMsgId);
+      if (opts?.onDelivery) {
+        deliveryObservers.set(clientMsgId, opts.onDelivery);
+        deliveryOrigins.set(clientMsgId, {
+          historyRequest,
+          launchGeneration,
+          sessionId: parserState.currentSessionId,
+        });
+        for (const id of deliveryOrigins.keys()) {
+          if (deliveryOrigins.size <= 256) break;
+          if (!deliveryObservers.has(id)) deliveryOrigins.delete(id);
+        }
+
+        if (parserState.currentSessionId)
+          deliverySessions.set(clientMsgId, parserState.currentSessionId);
+        else unassignedDeliveries.set(clientMsgId, { historyRequest, launchGeneration });
+      }
 
       const buildPayload = (): Record<string, unknown> => {
         const msg: Record<string, unknown> = {
@@ -670,7 +741,15 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
         awaitingSessionId = false;
         set({ modeChangeReady: true });
       }
-      if (!sent) set({ sendError: 'Message could not be queued. Please retry.' });
+      if (!sent) {
+        set((s) => ({
+          sendError: 'Message could not be queued. Please retry.',
+          messages: !parserState.currentSessionId
+            ? messagesReducer(s.messages, { type: 'SESSION_STATE_CHANGED', state: 'idle' })
+            : s.messages,
+        }));
+        settleDelivery(clientMsgId, 'failed');
+      }
     },
 
     interruptMessage(text: string, opts?: SendMessageOptions) {
@@ -935,11 +1014,59 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     // ── Pending session actions ────────────────────────────────────────
 
     setPendingSession(ps: PendingSession) {
-      set({ pendingSession: ps });
+      // Replacing a launch owns a new draft and retires any earlier assignment.
+      if (get().pendingSession) get().newSession();
+      ++launchGeneration;
+      set({ pendingSession: ps, pendingSessionSending: false });
     },
 
     clearPendingSession() {
-      set({ pendingSession: null });
+      const ownsUnassignedDraft =
+        !get().sessions.active &&
+        [...unassignedDeliveries.values()].some(
+          (origin) =>
+            origin.historyRequest === historyRequest &&
+            origin.launchGeneration === launchGeneration,
+        );
+      ++launchGeneration;
+      if (ownsUnassignedDraft) get().newSession();
+      set({ pendingSession: null, pendingSessionSending: false });
+    },
+
+    sendPendingSession(opts) {
+      const pending = get().pendingSession;
+      if (!pending || get().pendingSessionSending) return false;
+      // A carried preview must be reviewed in its own draft before account confirmation.
+      if (get().sessions.active) {
+        get().newSession();
+        return false;
+      }
+      const selection = {
+        ...opts,
+        model: opts?.model ?? get().config.modelId ?? undefined,
+        mode: opts?.mode ?? get().config.mode,
+      };
+      // Each attempt has a distinct identity, so stale receipts cannot dismiss a replacement.
+      const launch = { ...pending };
+      set({ pendingSession: launch, pendingSessionSending: true });
+      get().dispatchMessages({ type: 'SET_SESSION_CONTEXT', context: launch.context });
+      let queued = true;
+      get().sendMessage(launch.prompt, {
+        ...selection,
+        ...(launch.telosTaskId ? { telosTaskId: launch.telosTaskId } : {}),
+        ...(launch.agentName ? { agentName: launch.agentName } : {}),
+        onDelivery(status) {
+          if (get().pendingSession !== launch) return;
+          if (status === 'accepted') set({ pendingSession: null, pendingSessionSending: false });
+          else if (status === 'failed') {
+            queued = false;
+            set({ pendingSessionSending: false });
+          }
+          // Uncertain delivery remains locked until its matching receipt arrives.
+          opts?.onDelivery?.(status);
+        },
+      });
+      return queued;
     },
 
     invalidateAuthentication() {
@@ -959,11 +1086,30 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     },
   }));
 
+  function bindLaunchAssignment(id: string, sessionId: string, consume = true): boolean {
+    const origin = unassignedDeliveries.get(id);
+    const foreground =
+      origin?.historyRequest === historyRequest && origin?.launchGeneration === launchGeneration;
+    // HTTP delivery can precede session_id. Retain the draft identity until that event.
+    if (consume) unassignedDeliveries.delete(id);
+    if (deliveryObservers.has(id)) deliverySessions.set(id, sessionId);
+    const errorOrigin = deliveryOrigins.get(id);
+    if (errorOrigin) errorOrigin.sessionId = sessionId;
+
+    connection.trackSeq(sessionId, connection.getLastSeq(sessionId));
+    return foreground;
+  }
+
   // ── WS → store wiring ──────────────────────────────────────────────────
 
   const callbacks: ProtocolCallbacks = {
     onSessionAssigned(sessionId: string) {
       parserState.currentSessionId = sessionId;
+      for (const id of pendingOptimisticMessageIds) {
+        if (deliveryObservers.has(id)) deliverySessions.set(id, sessionId);
+        const origin = deliveryOrigins.get(id);
+        if (origin && !origin.sessionId) origin.sessionId = sessionId;
+      }
       connection.trackSeq(sessionId, connection.getLastSeq(sessionId));
       store.setState((s) => ({
         sessions: { ...s.sessions, active: sessionId },
@@ -1035,11 +1181,29 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       msg.type === '_send_uncertain' ||
       msg.type === '_send_accepted'
     ) {
-      if (msg.type === '_send_failed' && typeof msg.clientMsgId === 'string')
-        pendingOptimisticMessageIds.delete(msg.clientMsgId);
       const visible = store
         .getState()
         .messages.messages.some((m) => m.messageId === msg.clientMsgId);
+      if (
+        msg.type === '_send_accepted' &&
+        typeof msg.sessionId === 'string' &&
+        typeof msg.clientMsgId === 'string' &&
+        unassignedDeliveries.has(msg.clientMsgId)
+      ) {
+        const foreground = bindLaunchAssignment(msg.clientMsgId, msg.sessionId, false);
+        if (foreground) callbacks.onSessionAssigned(msg.sessionId);
+      }
+      if (typeof msg.clientMsgId === 'string' && msg.type !== '_send_pending') {
+        const status =
+          msg.type === '_send_accepted'
+            ? 'accepted'
+            : msg.type === '_send_failed'
+              ? 'failed'
+              : 'uncertain';
+        settleDelivery(msg.clientMsgId, status);
+      }
+      if (msg.type === '_send_failed' && typeof msg.clientMsgId === 'string')
+        pendingOptimisticMessageIds.delete(msg.clientMsgId);
       if (visible) {
         if (
           awaitingSessionId &&
@@ -1048,6 +1212,10 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
           awaitingSessionId = false;
           store.setState({ modeChangeReady: true });
         }
+        if (msg.type === '_send_failed' && !parserState.currentSessionId)
+          store.setState((s) => ({
+            messages: messagesReducer(s.messages, { type: 'SESSION_STATE_CHANGED', state: 'idle' }),
+          }));
         store.setState({
           sendError:
             msg.type === '_send_failed' || msg.type === '_send_uncertain'
@@ -1092,6 +1260,76 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     }
 
     const eventSessionId = msg.sessionId as string | undefined;
+    if (msg.type === 'session_id' && typeof eventSessionId === 'string') {
+      // Correlated assignments survive navigation; only their original draft may be selected.
+      const id =
+        typeof msg.clientMsgId === 'string'
+          ? msg.clientMsgId
+          : [...unassignedDeliveries.keys()].find((id) => pendingOptimisticMessageIds.has(id));
+      if (id && unassignedDeliveries.has(id)) {
+        const foreground = bindLaunchAssignment(id, eventSessionId);
+        if (!foreground) return true;
+      }
+    }
+
+    // Startup rejection may arrive after session_id. Only the matching command
+    // can release its launch; unrelated runtime errors are not delivery receipts.
+    if (msg.type === 'error' && typeof msg.clientMsgId === 'string') {
+      const origin = deliveryOrigins.get(msg.clientMsgId);
+      const offscreen =
+        origin &&
+        (origin.sessionId
+          ? origin.sessionId !== parserState.currentSessionId
+          : origin.historyRequest !== historyRequest ||
+            origin.launchGeneration !== launchGeneration);
+      if (!options.sseConfig) settleDelivery(msg.clientMsgId, 'failed');
+      // Release its preview without applying the error to an unrelated running chat.
+      if (offscreen) return true;
+    }
+    // The native WebSocket path confirms delivery through the persisted echo.
+    // A pre-assignment startup error is a definitive rejection on that path.
+    if (
+      !options.sseConfig &&
+      msg.type === 'error' &&
+      typeof msg.clientMsgId !== 'string' &&
+      !parserState.currentSessionId
+    ) {
+      for (const id of pendingOptimisticMessageIds) {
+        settleDelivery(id, 'failed');
+      }
+    }
+    // Delivery receipts settle their original launch even when its chat is no longer visible.
+    // Transcript updates below remain scoped to the current chat.
+    if (msg.type === 'user_message' && typeof msg.messageId === 'string') {
+      settleDelivery(msg.messageId, 'accepted');
+    }
+
+    if (
+      msg.type === 'session_reconnect_snapshot' &&
+      typeof eventSessionId === 'string' &&
+      eventSessionId !== parserState.currentSessionId &&
+      hasPendingDelivery(eventSessionId) &&
+      typeof msg.cursor === 'number' &&
+      Number.isSafeInteger(msg.cursor) &&
+      msg.cursor >= 0
+    ) {
+      const cursor = msg.cursor;
+      void api
+        .getReconnectTranscript(eventSessionId, cursor)
+        .then(({ messages }) => {
+          confirmPersistedDelivery(messages);
+          connection.commitTranscriptCursor(eventSessionId, cursor);
+          connection.acknowledgeReconnectSnapshot(
+            eventSessionId,
+            cursor,
+            typeof msg.offerId === 'string' ? msg.offerId : undefined,
+          );
+        })
+        .catch(() => {
+          connection.checkAndReconnect(true);
+        });
+      return true;
+    }
 
     // Session-scoped event filtering for multiplexed v2 connections:
     // - No sessionId on the event → global (task_state, inbox_updated, etc.) → always accept
@@ -1166,8 +1404,10 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
         Number.isSafeInteger(msg.seq)
       )
         opening.actions.push({ seq: msg.seq, action });
-      if (action.type === 'USER_MESSAGE_RECEIVED')
+      if (action.type === 'USER_MESSAGE_RECEIVED') {
         pendingOptimisticMessageIds.delete(action.messageId);
+        settleDelivery(action.messageId, 'accepted');
+      }
       const isPostCursorAction =
         boundedRestore &&
         eventSessionId === boundedRestore.sessionId &&

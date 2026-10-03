@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { useMitzoStore } from '@mitzo/client/hooks';
 import { ResponsiveChatView } from '../ResponsiveChatView';
 import { AddReviewerSheet } from '../AddReviewerSheet';
 import { useIsDesktop } from '../../hooks/useMediaQuery';
@@ -9,6 +10,7 @@ vi.mock('../../pages/DesktopChatView', () => ({
   DesktopChatView: () => (
     <div>
       Desktop chat
+      <input aria-label="Draft text" />
       <AddReviewerSheet sessionId="session" />
     </div>
   ),
@@ -21,7 +23,7 @@ vi.mock('../../pages/ChatView', () => ({
     </div>
   ),
 }));
-vi.mock('@mitzo/client/hooks', () => ({ useMitzoStore: () => 'session' }));
+vi.mock('@mitzo/client/hooks', () => ({ useMitzoStore: vi.fn(() => 'session') }));
 vi.mock('../../lib/api-fetch', () => ({
   apiFetch: async () =>
     new Response(JSON.stringify({ config: null, seats: [], runtimeAvailable: false })),
@@ -53,4 +55,14 @@ it('keeps the shared reviewer draft open across desktop/mobile wrapper changes',
     (screen.getByLabelText('What should the reviewer check?') as HTMLTextAreaElement).value,
   ).toBe('Preserve this review package');
   expect(screen.getAllByRole('button', { name: 'Add reviewer' })).toHaveLength(1);
+});
+
+it('preserves the chat screen while a new session is assigned', () => {
+  vi.mocked(useIsDesktop).mockReturnValue(true);
+  vi.mocked(useMitzoStore).mockReturnValue(null);
+  const { rerender } = render(<ResponsiveChatView />);
+  fireEvent.change(screen.getByLabelText('Draft text'), { target: { value: 'Pending draft' } });
+  vi.mocked(useMitzoStore).mockReturnValue('assigned-session');
+  rerender(<ResponsiveChatView />);
+  expect((screen.getByLabelText('Draft text') as HTMLInputElement).value).toBe('Pending draft');
 });
