@@ -78,8 +78,8 @@ export async function launchStagingCustodian(
         original.controller(identity);
         current();
       },
-      observeRetirement(state, stateParent) {
-        if (state === 'retiring') original.retiring();
+      observeRetirement(state, stateParent, identity) {
+        if (state === 'retiring') original.retiring(identity);
         else if (state === 'uncertain') original.uncertain();
         else {
           original.retired(stateParent);

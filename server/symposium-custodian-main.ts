@@ -24,7 +24,11 @@ export interface OriginalSymposiumControllerIdentity {
 }
 /** Explicit fresh-owner entry point. No attach/reconstruct command exists. */
 export interface SymposiumCustodianConstructorHooks {
-  observeRetirement?: (state: 'retiring' | 'retired' | 'uncertain', stateParent: string) => void;
+  observeRetirement?: (
+    state: 'retiring' | 'retired' | 'uncertain',
+    stateParent: string,
+    identity?: Readonly<{ instanceId: string; controllerGeneration: number }>,
+  ) => void;
   observeOriginalProcess?: OriginalProcessObserver;
   admissionBuildSelection?: OwnedSymposiumHostOptions['admissionBuildSelection'];
   bootstrapTools?: BootstrapTools;
@@ -285,11 +289,20 @@ export async function runSymposiumCustodian(hooks: SymposiumCustodianConstructor
       },
       signal,
       observeRetirement &&
-        ((state) => observeRetirement(state, dirname(host.gateway.stateDirectory))),
+        ((state) =>
+          observeRetirement(
+            state,
+            dirname(host.gateway.stateDirectory),
+            Object.freeze({ instanceId: identity, controllerGeneration }),
+          )),
     );
   } catch {
     try {
-      observeRetirement?.('uncertain', dirname(host.gateway.stateDirectory));
+      observeRetirement?.(
+        'uncertain',
+        dirname(host.gateway.stateDirectory),
+        Object.freeze({ instanceId: identity, controllerGeneration }),
+      );
     } catch {
       /* Keep original resources quarantined. */
     }

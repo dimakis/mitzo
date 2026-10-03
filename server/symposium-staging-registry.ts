@@ -127,10 +127,27 @@ export function openStagingRegistry(directory: string, capacity: number) {
             ).run(identity.instanceId, identity.epoch, launchId);
           });
         },
-        retiring() {
+        retiring(identity?: Readonly<{ instanceId: string; controllerGeneration: number }>) {
           update((r) => {
-            if (r.state !== 'active') throw Error('Staging retirement unavailable');
-            db.prepare("UPDATE launches SET state='retiring' WHERE launchId=?").run(launchId);
+            if (identity) {
+              // Only the fresh original launcher closure receives this snapshot from
+              // its live custodian. Reconcile attach-before-hello; never adopt from a receipt.
+              if (
+                !['launch_uncertain', 'active'].includes(r.state) ||
+                !/^[A-Za-z0-9][A-Za-z0-9-]{0,127}$/.test(identity.instanceId) ||
+                !Number.isSafeInteger(identity.controllerGeneration) ||
+                identity.controllerGeneration < 1 ||
+                identity.controllerGeneration < r.controllerGeneration ||
+                (r.instanceId !== null && r.instanceId !== identity.instanceId)
+              )
+                throw Error('Staging retirement identity changed');
+              db.prepare(
+                "UPDATE launches SET state='retiring',instanceId=?,controllerGeneration=? WHERE launchId=?",
+              ).run(identity.instanceId, identity.controllerGeneration, launchId);
+            } else {
+              if (r.state !== 'active') throw Error('Staging retirement unavailable');
+              db.prepare("UPDATE launches SET state='retiring' WHERE launchId=?").run(launchId);
+            }
           });
         },
         uncertain() {

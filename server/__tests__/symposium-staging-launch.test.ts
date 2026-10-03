@@ -269,3 +269,68 @@ it.each([
   expect(run).not.toHaveBeenCalled();
   expect(existsSync(join(registryDirectory, 'staging.db'))).toBe(false);
 });
+
+it.each([false, true])(
+  'reconciles original retirement generation when hello has not occurred (previous ready: %s)',
+  async (previousReady) => {
+    const f = fixture();
+    const generation = previousReady ? 2 : 1;
+    await launchStagingCustodian(f.plan, f.registration, {
+      verify() {},
+      claim() {},
+      async run(hooks) {
+        if (previousReady)
+          hooks.observeController!(
+            {
+              instanceId: 'original',
+              epoch: 1,
+              custodianPid: 1,
+              controllerPid: 2,
+              state: 'active',
+              scope: 'fresh-retained-sessions',
+            },
+            () => {},
+          );
+        await finishCustodianRetirement(
+          {
+            begin() {},
+            async retireRuntimes() {},
+            async drainHost() {},
+            async closeHost() {},
+            record() {
+              writeCustodianRetirementReceipt({
+                stateParent: f.stateParent,
+                gatewayStateDirectory: f.gatewayStateDirectory,
+                instanceId: 'original',
+                controllerGeneration: generation,
+              });
+            },
+          },
+          new AbortController().signal,
+          (state) =>
+            hooks.observeRetirement!(state, f.stateParent, {
+              instanceId: 'original',
+              controllerGeneration: generation,
+            }),
+        );
+      },
+    });
+    const r = openStagingRegistry(f.registration.registryDirectory, 1);
+    expect(r.list()[0]).toMatchObject({
+      state: 'retired',
+      instanceId: 'original',
+      controllerGeneration: generation,
+    });
+    r.reserve({
+      ownerChat: 'chat-2',
+      purpose: 'next',
+      retentionReason: 'next',
+      reviewAfter: Date.now() + 60000,
+      planDirectory: join(f.root, 'next'),
+      sourceCommit: f.plan.sourceCommit,
+      buildSha256: f.plan.buildSha256,
+      configSha256: f.plan.configSha256,
+    });
+    r.close();
+  },
+);
