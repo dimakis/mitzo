@@ -1,4 +1,6 @@
+import type { RuntimeMigration } from './openshell-runtime-migration.js';
 import Database from 'better-sqlite3';
+import { isDeepStrictEqual } from 'node:util';
 import { chmodSync, closeSync, openSync } from 'node:fs';
 import type { AccountBinding } from '@mitzo/protocol';
 import { z } from 'zod';
@@ -9,6 +11,19 @@ import type { PersistedWebSearchGrant, WebSearchGrant } from './web-search-polic
 export interface ArtifactRuntime {
   runtime: OpenShellRuntime & { sandboxId: string };
   route: OpenShellAccountRoute;
+}
+export function sameArtifactRuntimeIdentity(
+  left: ArtifactRuntime | null,
+  right: ArtifactRuntime,
+): boolean {
+  if (!left) return false;
+  const stable = (value: ArtifactRuntime) => {
+    const runtime = { ...value.runtime };
+    delete runtime.created;
+    delete runtime.resourceVersion;
+    return { runtime, route: value.route };
+  };
+  return isDeepStrictEqual(stable(left), stable(right));
 }
 const RuntimeString = z
   .string()
@@ -152,6 +167,9 @@ export class CodexConversationStore {
     this.db = new Database(path);
     this.db.pragma('synchronous = FULL');
     this.db.pragma('foreign_keys = ON');
+    this.db.exec(
+      'CREATE TABLE IF NOT EXISTS codex_runtime_migrations (conversation_id TEXT PRIMARY KEY, binding TEXT NOT NULL, generation INTEGER NOT NULL, data TEXT NOT NULL)',
+    );
     this.db.exec(`CREATE TABLE IF NOT EXISTS codex_conversations (
       id TEXT PRIMARY KEY, binding TEXT NOT NULL, cwd TEXT NOT NULL, thread_id TEXT,
       thread_generation INTEGER NOT NULL DEFAULT 0,
@@ -347,6 +365,108 @@ export class CodexConversationStore {
       this.db
         .prepare('UPDATE codex_conversations SET artifact_runtime=? WHERE id=?')
         .run(JSON.stringify(safe), id);
+    })();
+  }
+  readRuntimeMigration(id: string, binding: AccountBinding): RuntimeMigration | null {
+    this.read(id, binding);
+    const row = this.db
+      .prepare('SELECT binding,data FROM codex_runtime_migrations WHERE conversation_id=?')
+      .get(id) as { binding: string; data: string } | undefined;
+    if (!row) return null;
+    if (row.binding !== this.key(binding))
+      throw new Error('Runtime migration account binding changed');
+    return JSON.parse(row.data) as RuntimeMigration;
+  }
+  hasAmbiguousRuntimeActivity(id: string, binding: AccountBinding): boolean {
+    const conversation = this.read(id, binding);
+    const row = this.db
+      .prepare(
+        "SELECT COUNT(*) AS count FROM codex_commands WHERE conversation_id=? AND (status='running' OR (ambiguous=1 AND recovery_acknowledged=0))",
+      )
+      .get(id) as { count: number };
+    return row.count > 0 || conversation.recoveryStrategy !== 'resume';
+  }
+  beginRuntimeMigration(id: string, binding: AccountBinding, record: RuntimeMigration) {
+    return this.db.transaction(() => {
+      const conversation = this.read(id, binding);
+      if (
+        conversation.threadId !== record.identity.thread ||
+        conversation.threadGeneration !== record.threadGeneration
+      )
+        throw new Error('Runtime migration provider thread changed');
+      const owner = this.db
+        .prepare('SELECT owner_kind FROM codex_conversations WHERE id=?')
+        .get(id) as { owner_kind: string | null };
+      if (owner.owner_kind !== 'ordinary')
+        throw new Error('Runtime migration requires authoritative ordinary ownership');
+      const authoritativeSource = this.readArtifactRuntime(id, binding);
+      if (authoritativeSource && !sameArtifactRuntimeIdentity(authoritativeSource, record.source))
+        throw new Error('Runtime migration source ownership differs from authoritative mapping');
+      if (!authoritativeSource) {
+        // Reviewed adapter has observed actual owned image/policy; conversation
+        // thread and account profile remain the authority, never labels alone.
+        this.setArtifactRuntime(id, binding, record.source);
+        record = { ...record, bootstrappedSource: true };
+      }
+      this.db
+        .prepare('INSERT OR IGNORE INTO codex_runtime_migrations VALUES (?,?,?,?)')
+        .run(id, this.key(binding), record.generation, JSON.stringify(record));
+      return this.readRuntimeMigration(id, binding)!;
+    })();
+  }
+  advanceRuntimeMigration(
+    id: string,
+    binding: AccountBinding,
+    generation: number,
+    patch: Partial<RuntimeMigration>,
+  ) {
+    return this.db.transaction(() => {
+      const current = this.readRuntimeMigration(id, binding);
+      if (!current || current.generation !== generation || current.phase === 'committed')
+        throw new Error('Runtime migration generation changed');
+      const next = { ...current, ...patch, generation: generation + 1 };
+      // Immutable capture origin cannot be replaced by a target image or new thread.
+      if (
+        patch.identity ||
+        patch.source ||
+        patch.threadGeneration !== undefined ||
+        patch.targetImage ||
+        patch.targetPolicy ||
+        patch.candidateName ||
+        patch.bootstrappedSource !== undefined
+      )
+        throw new Error('Runtime migration immutable origin changed');
+      const update = this.db
+        .prepare(
+          'UPDATE codex_runtime_migrations SET generation=?,data=? WHERE conversation_id=? AND binding=? AND generation=?',
+        )
+        .run(next.generation, JSON.stringify(next), id, this.key(binding), generation);
+      if (update.changes !== 1) throw new Error('Runtime migration generation changed');
+      return next;
+    })();
+  }
+  commitRuntimeMigration(id: string, binding: AccountBinding, generation: number): ArtifactRuntime {
+    return this.db.transaction(() => {
+      const record = this.readRuntimeMigration(id, binding);
+      const conversation = this.read(id, binding);
+      if (
+        !record ||
+        record.generation !== generation ||
+        record.phase !== 'restored' ||
+        !record.candidate
+      )
+        throw new Error('Runtime migration is not verified for switch');
+      if (
+        conversation.threadId !== record.identity.thread ||
+        conversation.threadGeneration !== record.threadGeneration ||
+        this.hasAmbiguousRuntimeActivity(id, binding)
+      )
+        throw new Error('Runtime migration provider activity changed before switch');
+      if (!sameArtifactRuntimeIdentity(this.readArtifactRuntime(id, binding), record.source))
+        throw new Error('Runtime migration source ownership changed before switch');
+      this.setArtifactRuntime(id, binding, record.candidate);
+      this.advanceRuntimeMigration(id, binding, generation, { phase: 'committed' });
+      return this.readArtifactRuntime(id, binding)!;
     })();
   }
   readWebSearchGrant(id: string, b: AccountBinding): PersistedWebSearchGrant {

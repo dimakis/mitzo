@@ -1,3 +1,4 @@
+import type { RuntimeMigration } from './openshell-runtime-migration.js';
 import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -122,7 +123,11 @@ function managerFor(record: OpenShellLifecycleRecord) {
     record.identity.policyDigest !== configured.policyDigest
   )
     throw new Error('OpenShell lifecycle runtime configuration changed');
-  return new OpenShellRuntimeManager({ ...config, account: route(record.identity) });
+  return new OpenShellRuntimeManager({
+    ...config,
+    sandboxNameOverride: record.sandboxName,
+    account: route(record.identity),
+  });
 }
 
 function runtimeFor(record: OpenShellLifecycleRecord): OpenShellRuntime {
@@ -316,6 +321,75 @@ export function registerOpenShellLifecycleProvisional(
     checkpoint: null,
     retentionConsent: false,
     identity: null,
+  });
+}
+
+export function registerMigratedOpenShellLifecycle(
+  conversationId: string,
+  binding: AccountBinding,
+  record: RuntimeMigration,
+) {
+  if (!configured) return;
+  const candidate = record.candidate;
+  if (
+    record.phase !== 'committed' ||
+    !candidate ||
+    candidate.route.kind === 'chatgpt-subscription-native' ||
+    record.identity.conversation !== conversationId ||
+    record.identity.accountId !== binding.accountId ||
+    record.identity.provider !== binding.provider ||
+    record.identity.model !== binding.model ||
+    record.identity.profileRevision !== binding.profileRevision
+  )
+    throw new Error('OpenShell migration relation is not committed for this binding');
+  const existing = configured.store.get(conversationId);
+  // The ordinary lifecycle owns all later checkpoint restores and thread changes.
+  if (existing?.sandboxName === candidate.runtime.sandboxName) return;
+  if (
+    existing?.physicalSandboxId &&
+    existing.physicalSandboxId !== record.source.runtime.sandboxId &&
+    existing.physicalSandboxId !== candidate.runtime.sandboxId
+  )
+    throw new Error('OpenShell migration lifecycle ownership changed');
+  // A committed candidate already belongs to the ordinary lifecycle. Its later
+  // thread rollovers/checkpoints must not be reset to the immutable migration origin.
+  if (existing?.physicalSandboxId === candidate.runtime.sandboxId) return;
+  if (
+    existing?.identity &&
+    (existing.identity.threadId !== record.identity.thread ||
+      existing.identity.accountId !== binding.accountId ||
+      existing.identity.profileRevision !== binding.profileRevision ||
+      !isDeepStrictEqual(existing.identity.route, candidate.route))
+  )
+    throw new Error('OpenShell migration lifecycle binding changed');
+  const now = Date.now();
+  configured.store.upsert({
+    conversationId,
+    workspace: candidate.runtime.workspace,
+    gateway: candidate.runtime.gateway,
+    gatewayEndpoint: candidate.runtime.gatewayEndpoint ?? null,
+    sandboxName: candidate.runtime.sandboxName,
+    physicalSandboxId: candidate.runtime.sandboxId,
+    accountProvider: candidate.route.provider,
+    ownerClientId: existing?.ownerClientId ?? null,
+    phase: 'retained',
+    generation: (existing?.generation ?? 0) + 1,
+    lastActivityAt: now,
+    idleSince: null,
+    stoppedAt: null,
+    checkpoint: null,
+    retentionConsent: existing?.retentionConsent ?? false,
+    identity: {
+      threadId: record.identity.thread,
+      accountId: binding.accountId,
+      provider: binding.provider,
+      model: binding.model,
+      profileRevision: binding.profileRevision,
+      image: configured.config.image,
+      policyDigest: configured.policyDigest,
+      runtimeScope: candidate.runtime.workspace,
+      route: candidate.route,
+    },
   });
 }
 

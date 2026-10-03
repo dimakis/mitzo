@@ -22,16 +22,16 @@ function root() {
   roots.push(value);
   return value;
 }
-function run(args: string[]) {
+function run(args: string[], physical = { sandbox: 'sandbox', version: '1' }) {
   return execFileSync(
     'python3',
     [
       helper,
       ...args,
       '--sandbox-id',
-      'sandbox',
+      physical.sandbox,
       '--resource-version',
-      '1',
+      physical.version,
       '--account-provider',
       'account',
       '--account-id',
@@ -574,4 +574,80 @@ it('fails closed for remaining execution processes but exempts only the pinned r
       'policy',
     ]),
   ).toThrow(/execution process/);
+});
+
+it('proves migration content equivalence across physical identities with dirty staged and untracked Git state', () => {
+  const from = root(),
+    to = join(root(), 'candidate'),
+    archive = join(root(), 'source.tar');
+  source(from);
+  writeFileSync(join(from, 'workspace/tool.sh'), '#!/bin/sh\necho staged\n');
+  execFileSync('git', ['add', 'tool.sh'], { cwd: join(from, 'workspace') });
+  writeFileSync(join(from, 'workspace/tool.sh'), '#!/bin/sh\necho dirty\n');
+  const originalHead = execFileSync('git', ['rev-parse', 'HEAD'], {
+    cwd: join(from, 'workspace'),
+    encoding: 'utf8',
+  });
+  const before = execFileSync('git', ['status', '--porcelain=v1'], {
+    cwd: join(from, 'workspace'),
+    encoding: 'utf8',
+  });
+  const origin = [
+    '--conversation',
+    'c',
+    '--thread',
+    'thread',
+    '--binding',
+    'binding',
+    '--image',
+    'old-image',
+    '--policy',
+    'policy',
+  ];
+  const original = JSON.parse(run(['capture', '--source', from, '--output', archive, ...origin]));
+  run(['restore', '--input', archive, '--destination', to, ...origin]);
+  expect(statSync(join(to, 'workspace/.git')).isDirectory()).toBe(true);
+  expect(
+    execFileSync('git', ['rev-parse', 'HEAD'], { cwd: join(to, 'workspace'), encoding: 'utf8' }),
+  ).toBe(originalHead);
+  expect(
+    execFileSync('git', ['status', '--porcelain=v1'], {
+      cwd: join(to, 'workspace'),
+      encoding: 'utf8',
+    }),
+  ).toBe(before);
+  expect(
+    execFileSync('git', ['show', ':tool.sh'], { cwd: join(to, 'workspace'), encoding: 'utf8' }),
+  ).toBe('#!/bin/sh\necho staged\n');
+  expect(readFileSync(join(to, 'workspace/tool.sh'), 'utf8')).toBe('#!/bin/sh\necho dirty\n');
+  expect(readFileSync(join(to, 'workspace/untracked.txt'), 'utf8')).toBe('untracked');
+  expect(readFileSync(join(to, '.codex/sessions/rollout-2026-09-12T00-00-00.jsonl'))).toEqual(
+    readFileSync(join(from, '.codex/sessions/rollout-2026-09-12T00-00-00.jsonl')),
+  );
+  const recaptured = JSON.parse(
+    run(
+      [
+        'capture',
+        '--source',
+        to,
+        '--output',
+        join(root(), 'candidate.tar'),
+        ...origin.map((arg) => (arg === 'old-image' ? 'new-image' : arg)),
+      ],
+      { sandbox: 'candidate-physical', version: '2' },
+    ),
+  );
+  expect(recaptured.sandboxId).toBe('candidate-physical');
+  expect(recaptured.resourceVersion).toBe('2');
+  expect(recaptured.image).toBe('new-image');
+  expect(recaptured.digest).toBe(original.digest);
+  expect(() =>
+    run([
+      'verify',
+      '--input',
+      archive,
+      ...origin.map((arg) => (arg === 'old-image' ? 'new-image' : arg)),
+    ]),
+  ).toThrow(/identity mismatch/);
+  expect(readFileSync(join(from, 'workspace/tool.sh'), 'utf8')).toBe('#!/bin/sh\necho dirty\n');
 });

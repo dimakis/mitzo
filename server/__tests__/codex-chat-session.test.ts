@@ -28,6 +28,12 @@ vi.mock('../codex-conversation-store.js', () => ({
       mocks.store();
     }
     recoverAtStartup() {}
+    readArtifactRuntime() {
+      return null;
+    }
+    readRuntimeMigration() {
+      return null;
+    }
     setArtifactRuntime = mocks.setArtifactRuntime;
   },
 }));
@@ -1426,4 +1432,20 @@ it('persists a fake provider profile proposal without saving a reusable profile'
   chat.close();
   rmSync(root, { recursive: true, force: true });
   vi.clearAllMocks();
+});
+
+it.each([
+  [
+    'Migration storage capacity insufficient: private path secret',
+    'insufficient sandbox storage capacity',
+  ],
+  ['checkpoint: unsupported provider state: private-filename', 'source runtime or provider layout'],
+  ['Retained migration target policy differs secret', 'observed sandbox policy'],
+  ['checkpoint: sandbox writer is still open secret', 'verified idle boundary'],
+])('publishes safe observable migration eligibility for %s', (diagnostic, reason) => {
+  const message = publicCodexRuntimeError(new Error(diagnostic));
+  expect(message).toContain(reason);
+  expect(message).toContain('task files and provider thread are preserved');
+  expect(message).not.toContain('secret');
+  expect(message).not.toContain('private');
 });

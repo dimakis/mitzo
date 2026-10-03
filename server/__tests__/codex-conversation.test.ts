@@ -155,6 +155,7 @@ async function setup(
     status: 'completed' | 'interrupted' | 'failed',
   ) => void,
   prepareSystemPrompt?: (signal: AbortSignal) => Promise<string | undefined>,
+  beforeRuntimeAdmission?: (close: () => Promise<void>) => Promise<boolean>,
 ) {
   const dir = mkdtempSync(join(tmpdir(), 'mitzo-codex-'));
   const store = existingStore ?? new CodexConversationStore(join(dir, 'private.db'));
@@ -234,6 +235,7 @@ async function setup(
     beforeReconnect,
     prepareTurn,
     prepareSystemPrompt,
+    beforeRuntimeAdmission,
     onProviderDispatch,
     onProviderComplete,
     onProviderAccepted,
@@ -2051,4 +2053,37 @@ it('fails closed on a conflicting terminal while the completion hook is pending'
   finish();
   await Promise.resolve();
   expect(terminal).not.toHaveBeenCalled();
+});
+
+it('pauses admission failure before claim and resumes the preserved FIFO on explicit send', async () => {
+  let blocked = true;
+  const admission = vi.fn(async (close: () => Promise<void>) => {
+    if (blocked) {
+      await close();
+      throw new Error('writer is still open');
+    }
+    return false;
+  });
+  const args: Parameters<typeof setup> = [];
+  args[14] = admission;
+  const { c, callbacks, requests } = await setup(...args);
+  await expect(c.send({ id: 'preserved', prompt: 'first' })).rejects.toThrow('writer');
+  expect(c.isPaused()).toBe(true);
+  expect(c.queue().map(({ id, status }) => ({ id, status }))).toEqual([
+    { id: 'preserved', status: 'queued' },
+  ]);
+  expect(requests.filter((r) => r.method === 'turn/start')).toHaveLength(0);
+  blocked = false;
+  await c.send({ id: 'new', prompt: 'second' });
+  expect(c.isPaused()).toBe(false);
+  expect(requests.filter((r) => r.method === 'turn/start')).toHaveLength(1);
+  callbacks.onNotification('turn/completed', {
+    threadId: 'provider-thread',
+    turn: { id: 'turn-1', status: 'completed' },
+  });
+  await vi.waitFor(() => expect(requests.filter((r) => r.method === 'turn/start')).toHaveLength(2));
+  expect(requests.filter((r) => r.method === 'turn/start').map((r) => r.params.input)).toEqual([
+    [{ type: 'text', text: 'first' }],
+    [{ type: 'text', text: 'second' }],
+  ]);
 });

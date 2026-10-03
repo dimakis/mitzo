@@ -62,6 +62,8 @@ export interface CodexConversationOptions {
   prepareSystemPrompt?: (signal: AbortSignal) => Promise<string | undefined>;
   beforeComplete?: (signal: AbortSignal) => Promise<void>;
   beforeReconnect?: () => Promise<void>;
+  /** Completed-turn boundary, before claiming queued work. */
+  beforeRuntimeAdmission?: (closeOwnedTransport: () => Promise<void>) => Promise<boolean>;
   reconnectGuard?: (work: () => Promise<void>) => Promise<void>;
   completionHookTimeoutMs?: number;
   runtimeCwd?: string;
@@ -1006,6 +1008,24 @@ export class CodexConversation {
     span.end();
   }
   private async beginNext() {
+    if (this.opts.beforeRuntimeAdmission && this.binding && !this.active) {
+      await this.verifyCurrentBinding(this.binding);
+      try {
+        const changed = await this.opts.beforeRuntimeAdmission(async () => {
+          this.transportGeneration += 1;
+          this.ready = false;
+          this.client.close();
+        });
+        if (changed || !this.ready) await this.reconnectBound();
+      } catch (error) {
+        // Admission precedes claimNext: preserve queued FIFO and expose an
+        // explicit recovery pause even when only our idle transport was closed.
+        this.paused = true;
+        this.opts.store.pauseForRecovery(this.opts.conversationId, this.binding);
+        this.opts.onQueueChange?.();
+        throw error;
+      }
+    }
     const command = this.opts.store.claimNext(this.opts.conversationId, this.binding!);
     if (!command) return;
     const active = {
