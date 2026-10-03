@@ -68,6 +68,24 @@ const ArtifactRuntimeSchema = z
   })
   .strict();
 
+const KnowledgeAdoption = z
+  .object({
+    storeId: z.string().regex(/^[a-zA-Z0-9_-]+$/),
+    sourceCommit: z.string().regex(/^[a-f0-9]{40}$/),
+    payloadSha256: z.string().regex(/^[a-f0-9]{64}$/),
+    manifestSha256: z.string().regex(/^[a-f0-9]{64}$/),
+    contextSha256: z.string().regex(/^[a-f0-9]{64}$/),
+    sandboxId: RuntimeString,
+    knowledgeRoot: z
+      .string()
+      .regex(/^\/sandbox\/workspaces\/knowledge\/knowledge-[a-f0-9]{64}\/mgmt$/),
+    runtimeImageDigest: z.string().regex(/^sha256:[a-f0-9]{64}$/),
+    compilerSha256: z.string().regex(/^[a-f0-9]{64}$/),
+    recipeSha256: z.string().regex(/^[a-f0-9]{64}$/),
+  })
+  .strict();
+export type KnowledgeAdoptionSelection = z.infer<typeof KnowledgeAdoption>;
+
 const CommandInput = z
   .object({
     id: z.string().min(1).max(200),
@@ -173,6 +191,12 @@ export class CodexConversationStore {
         PRIMARY KEY(conversation_id,call_id),
         FOREIGN KEY(conversation_id,command_id) REFERENCES codex_commands(conversation_id,id));
       CREATE INDEX IF NOT EXISTS codex_commands_queue_status ON codex_commands(conversation_id,status,sequence);`);
+    this.db.exec(`CREATE TABLE IF NOT EXISTS codex_knowledge_adoptions (
+      conversation_id TEXT NOT NULL, command_id TEXT NOT NULL,
+      attempt INTEGER NOT NULL, thread_id TEXT NOT NULL, turn_id TEXT NOT NULL,
+      selection TEXT NOT NULL, accepted_at INTEGER NOT NULL,
+      PRIMARY KEY(conversation_id, command_id, attempt),
+      FOREIGN KEY(conversation_id, command_id) REFERENCES codex_commands(conversation_id,id));`);
     this.db.transaction(() => {
       const conversationColumns = this.db
         .prepare('PRAGMA table_info(codex_conversations)')
@@ -299,6 +323,64 @@ export class CodexConversationStore {
       rolloverContext: row.rolloverContext,
     };
   }
+  /** Acknowledged provider context, distinct from selection or successful file upload. */
+  recordKnowledgeAdoption(
+    id: string,
+    binding: AccountBinding,
+    commandId: string,
+    threadId: string,
+    turnId: string,
+    selection: KnowledgeAdoptionSelection,
+  ): void {
+    const encoded = JSON.stringify(KnowledgeAdoption.parse(selection));
+    RuntimeString.parse(threadId);
+    RuntimeString.parse(turnId);
+    this.db.transaction(() => {
+      if (this.read(id, binding).threadId !== threadId)
+        throw new Error('Knowledge adoption provider thread differs');
+      const command = this.commands(id, binding).find((entry) => entry.id === commandId);
+      if (!command || command.status !== 'running')
+        throw new Error('Knowledge adoption requires a running command');
+      const previous = this.db
+        .prepare(
+          'SELECT thread_id,turn_id,selection FROM codex_knowledge_adoptions WHERE conversation_id=? AND command_id=? AND attempt=?',
+        )
+        .get(id, commandId, command.attempt) as
+        { thread_id: string; turn_id: string; selection: string } | undefined;
+      if (previous) {
+        if (
+          previous.thread_id !== threadId ||
+          previous.turn_id !== turnId ||
+          previous.selection !== encoded
+        )
+          throw new Error('Conflicting knowledge adoption');
+        return;
+      }
+      this.db
+        .prepare('INSERT INTO codex_knowledge_adoptions VALUES (?,?,?,?,?,?,?)')
+        .run(id, commandId, command.attempt, threadId, turnId, encoded, Date.now());
+    })();
+  }
+  knowledgeAdoptions(id: string, binding: AccountBinding) {
+    this.read(id, binding);
+    const rows = this.db
+      .prepare(
+        'SELECT command_id AS commandId,attempt,thread_id AS threadId,turn_id AS turnId,selection,accepted_at AS acceptedAt FROM codex_knowledge_adoptions WHERE conversation_id=? ORDER BY accepted_at,command_id,attempt',
+      )
+      .all(id) as {
+      commandId: string;
+      attempt: number;
+      threadId: string;
+      turnId: string;
+      selection: string;
+      acceptedAt: number;
+    }[];
+    return rows.map((row) => ({
+      ...row,
+      selection: KnowledgeAdoption.parse(JSON.parse(row.selection)),
+    }));
+  }
+
   /** Private account-bound routing; never infer a sandbox from conversation IDs. */
   readArtifactRuntime(id: string, binding: AccountBinding): ArtifactRuntime | null {
     this.read(id, binding);

@@ -55,6 +55,22 @@ afterEach(() => {
   cleanup.splice(0).forEach((f) => f());
 });
 
+it('acknowledges exact application context only after provider turn acceptance', async () => {
+  const accepted = vi.fn();
+  const args: Parameters<typeof setup> = [];
+  args[13] = async () => 'verified knowledge';
+  args[14] = accepted;
+  const { c } = await setup(...args);
+  await c.send({ id: 'knowledge-command', prompt: 'continue' });
+  expect(accepted).toHaveBeenCalledOnce();
+  expect(accepted).toHaveBeenCalledWith(
+    'knowledge-command',
+    'provider-thread',
+    'turn-1',
+    'verified knowledge',
+  );
+  c.close();
+});
 it.each([
   ['completed', 'completed', 'none'],
   ['interrupted', 'interrupted', 'none'],
@@ -155,6 +171,12 @@ async function setup(
     status: 'completed' | 'interrupted' | 'failed',
   ) => void,
   prepareSystemPrompt?: (signal: AbortSignal) => Promise<string | undefined>,
+  onApplicationContextAccepted?: (
+    commandId: string,
+    threadId: string,
+    turnId: string,
+    context: string,
+  ) => void,
 ) {
   const dir = mkdtempSync(join(tmpdir(), 'mitzo-codex-'));
   const store = existingStore ?? new CodexConversationStore(join(dir, 'private.db'));
@@ -234,6 +256,7 @@ async function setup(
     beforeReconnect,
     prepareTurn,
     prepareSystemPrompt,
+    onApplicationContextAccepted,
     onProviderDispatch,
     onProviderComplete,
     onProviderAccepted,
