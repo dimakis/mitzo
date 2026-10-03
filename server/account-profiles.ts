@@ -184,6 +184,34 @@ function withDiscoveryDeadline<T>(operation: () => Promise<T>, signal: AbortSign
   });
 }
 
+export interface AccountSignIn {
+  status: 'verified' | 'failed' | 'stale' | 'not-checked' | 'unsupported';
+  source: 'host-account-read' | 'openshell-provider-grant' | 'isolated-native-auth' | null;
+  checkedAt: number | null;
+  expiresAt?: number | null;
+  configuredIdentity: { email: string; planType: string };
+  observedIdentity: { email: string; planType: string } | null;
+  profileRevision: string;
+  explanation: string;
+}
+
+// Profile reloads share proof only for the exact parsed configuration. Keep it
+// process-local and bounded; the catalog never treats this as a login guarantee.
+const signInEvidence = new Map<string, AccountSignIn>();
+// Unique tokens remain safe even if bounded tracking evicts an in-flight key:
+// its eventual completion cannot match a later token or repopulate old proof.
+const signInGenerations = new Map<string, symbol>();
+function beginSignInCheck(revision: string): symbol {
+  const generation = Symbol();
+  signInGenerations.delete(revision);
+  signInGenerations.set(revision, generation);
+  while (signInGenerations.size > MAX_SIGN_IN_EVIDENCE)
+    signInGenerations.delete(signInGenerations.keys().next().value!);
+  return generation;
+}
+const SIGN_IN_RETENTION_MS = 60 * 60_000;
+const MAX_SIGN_IN_EVIDENCE = 256;
+
 /** Account configuration is server-owned; invocation adapters remain harness-owned. */
 export class AccountProfiles {
   private profiles: z.infer<typeof Profile>[];
@@ -193,6 +221,7 @@ export class AccountProfiles {
     private options: {
       codexEnabled?: boolean;
       modelDiscoveryTimeoutMs?: number;
+      signInTimeoutMs?: number;
       /** Supplied only by the retained personal registry, never profile JSON. */
       personalConnectionLinks?: ReadonlyMap<string, { id: string; revision: number }>;
     } = {},
@@ -230,6 +259,7 @@ export class AccountProfiles {
           ...(provider === 'openai-codex' && this.options.personalConnectionLinks?.has(id)
             ? { personalConnection: { ...this.options.personalConnectionLinks.get(id)! } }
             : {}),
+          ...(provider === 'openai-codex' ? { signIn: this.signIn(profile) } : {}),
           billing:
             provider === 'openai-codex'
               ? 'chatgpt-subscription'
@@ -251,6 +281,134 @@ export class AccountProfiles {
         };
       })
       .filter((account) => account.models.length > 0);
+  }
+
+  private recordSignIn(revision: string, evidence: AccountSignIn, generation: symbol): void {
+    if (signInGenerations.get(revision) !== generation) return;
+    signInEvidence.delete(revision);
+    signInEvidence.set(revision, evidence);
+    while (signInEvidence.size > MAX_SIGN_IN_EVIDENCE) {
+      const oldest = signInEvidence.keys().next().value!;
+      signInEvidence.delete(oldest);
+    }
+  }
+
+  private signIn(
+    profile: Extract<z.infer<typeof Profile>, { provider: 'openai-codex' }>,
+  ): AccountSignIn {
+    const profileRevision = createHash('sha256').update(JSON.stringify(profile)).digest('hex');
+    let evidence = signInEvidence.get(profileRevision);
+    if (
+      evidence?.checkedAt !== null &&
+      evidence?.checkedAt !== undefined &&
+      Date.now() - evidence.checkedAt > SIGN_IN_RETENTION_MS
+    ) {
+      signInEvidence.delete(profileRevision);
+      evidence = undefined;
+    }
+    if (evidence)
+      return {
+        ...evidence,
+        configuredIdentity: { ...evidence.configuredIdentity },
+        observedIdentity: evidence.observedIdentity ? { ...evidence.observedIdentity } : null,
+        status:
+          evidence.status === 'verified' &&
+          evidence.checkedAt !== null &&
+          (Date.now() < evidence.checkedAt ||
+            Date.now() - evidence.checkedAt > 5 * 60_000 ||
+            Date.now() >= (evidence.expiresAt ?? Infinity))
+            ? 'stale'
+            : evidence.status,
+      };
+    return {
+      status: profile.nativeAuth ? 'unsupported' : 'not-checked',
+      source: profile.nativeAuth
+        ? 'isolated-native-auth'
+        : profile.credentialRef
+          ? 'host-account-read'
+          : 'openshell-provider-grant',
+      checkedAt: null,
+      expiresAt: null,
+      configuredIdentity: { email: profile.email, planType: profile.planType },
+      observedIdentity: null,
+      profileRevision,
+      explanation: profile.nativeAuth
+        ? 'Native ChatGPT sign-in must be checked by its isolated personal connection.'
+        : 'Sign-in has not been checked. The identity is configured, not observed.',
+    };
+  }
+
+  /** Reads provider inventory and refresh status only. Never creates a sandbox or refreshes credentials. */
+  async checkSignIn(signal: AbortSignal): Promise<void> {
+    await Promise.all(
+      this.profiles
+        .filter(
+          (profile) =>
+            profile.provider === 'openai-codex' &&
+            this.options.codexEnabled &&
+            !profile.nativeAuth &&
+            !profile.credentialRef,
+        )
+        .map(async (profile) => {
+          if (profile.provider !== 'openai-codex') return;
+          const evidence = this.signIn(profile);
+          const generation = beginSignInCheck(evidence.profileRevision);
+          const deadline = new AbortController();
+          const timer = setTimeout(() => deadline.abort(), this.options.signInTimeoutMs ?? 3_000);
+          const checkSignal = AbortSignal.any([signal, deadline.signal]);
+          try {
+            checkSignal.throwIfAborted();
+            const runtime = openShellRuntimeConfig(process.env);
+            if (!runtime) throw new Error('OpenShell runtime is unavailable');
+            const manager = new OpenShellRuntimeManager({
+              ...runtime,
+              serviceProviders: [],
+              account: {
+                kind: 'chatgpt-subscription',
+                provider: profile.sandboxProvider!,
+                providerType: 'openai-codex-oauth',
+                providerId: profile.sandboxProviderId!,
+                grantId: profile.sandboxGrantId!,
+                model: profile.models[0].id,
+              },
+            });
+            const expiresAt = await withDiscoveryDeadline(
+              () => manager.verifySubscriptionSignIn(checkSignal),
+              checkSignal,
+            );
+            checkSignal.throwIfAborted();
+            this.recordSignIn(
+              evidence.profileRevision,
+              {
+                ...evidence,
+                status: 'verified',
+                checkedAt: Date.now(),
+                expiresAt,
+                explanation:
+                  'Your OpenShell connection is valid. Email and plan come from your account settings; model and tool access are checked separately.',
+              },
+              generation,
+            );
+          } catch {
+            this.recordSignIn(
+              evidence.profileRevision,
+              {
+                ...evidence,
+                status: 'failed',
+                checkedAt: Date.now(),
+                observedIdentity: null,
+                expiresAt: null,
+                explanation: checkSignal.aborted
+                  ? 'Sign-in check timed out or was cancelled. Retry later.'
+                  : 'The configured subscription provider and grant could not be verified. Check sign-in and retry.',
+              },
+              generation,
+            );
+          } finally {
+            clearTimeout(timer);
+          }
+        }),
+    );
   }
 
   /** Only profiles with an enabled sandbox binding can receive managed service credentials. */
@@ -391,6 +549,11 @@ export class AccountProfiles {
       | ReturnType<typeof CodexAppServerClient.launch>
       | ReturnType<typeof CodexAppServerClient.launchOpenShell>
       | undefined;
+    let hostIdentityVerified = false;
+    const hostEvidence = profile.credentialRef ? this.signIn(profile) : undefined;
+    const hostGeneration = hostEvidence
+      ? beginSignInCheck(hostEvidence.profileRevision)
+      : undefined;
     try {
       client = profile.credentialRef
         ? CodexAppServerClient.launch(profile.credentialRef)
@@ -413,10 +576,43 @@ export class AccountProfiles {
             }),
           deadline.signal,
         );
+      if (profile.credentialRef) {
+        hostIdentityVerified = true;
+        const evidence = hostEvidence!;
+        this.recordSignIn(
+          evidence.profileRevision,
+          {
+            ...evidence,
+            status: 'verified',
+            checkedAt: Date.now(),
+            observedIdentity: { email: profile.email, planType: profile.planType },
+            explanation:
+              'ChatGPT reported this email and plan at the recorded time. Model and tool access are checked separately.',
+          },
+          hostGeneration!,
+        );
+      }
       return await readCodexModels({
         request: (method, params) =>
           withDiscoveryDeadline(() => client!.request(method, params), deadline.signal),
       });
+    } catch (error) {
+      if (profile.credentialRef && !hostIdentityVerified) {
+        const evidence = hostEvidence!;
+        this.recordSignIn(
+          evidence.profileRevision,
+          {
+            ...evidence,
+            status: 'failed',
+            checkedAt: Date.now(),
+            observedIdentity: null,
+            explanation:
+              'The configured ChatGPT email and plan could not be verified. Check sign-in and retry.',
+          },
+          hostGeneration!,
+        );
+      }
+      throw error;
     } finally {
       clearTimeout(timeout);
       client?.close();

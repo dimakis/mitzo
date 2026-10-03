@@ -1282,6 +1282,17 @@ export class OpenShellRuntimeManager {
     });
   }
 
+  /** Read-only subscription authentication evidence; no sandbox or credential mutation. */
+  async verifySubscriptionSignIn(signal: AbortSignal): Promise<number> {
+    if (this.config.account.kind !== 'chatgpt-subscription' || this.config.accountProviderBindings)
+      throw new Error('Subscription grant verification is unavailable for this route');
+    signal.throwIfAborted();
+    const expiresAt = await this.verifyAccountProvider(signal);
+    signal.throwIfAborted();
+    if (expiresAt === undefined) throw new Error('Subscription grant expiry is unavailable');
+    return expiresAt;
+  }
+
   private async verifyAccountProvider(signal: AbortSignal) {
     const account = this.config.account;
     if (this.config.accountProviderBindings) {
@@ -1302,8 +1313,10 @@ export class OpenShellRuntimeManager {
     }
     if (account.kind === 'api') return;
     const providers = await this.accountProviderInventory(signal);
-    const provider = providers.find((entry) => entry.name === account.provider);
+    const matches = providers.filter((entry) => entry.name === account.provider);
+    const provider = matches[0];
     if (
+      matches.length !== 1 ||
       !provider ||
       provider.workspace !== this.config.workspace ||
       provider.type !== account.providerType ||
@@ -1333,6 +1346,7 @@ export class OpenShellRuntimeManager {
       credential.expires_at_ms <= Date.now()
     )
       throw new Error('OpenShell ChatGPT grant is expired, revoked, or requires sign-in');
+    return credential.expires_at_ms;
   }
 
   private async waitForReady(name: string, owner: string, signal: AbortSignal) {
