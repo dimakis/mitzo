@@ -20,6 +20,7 @@ export function UserOutputUpload({ itemId, onUploaded }: { itemId: string; onUpl
   const titleId = useId();
   useLayoutEffect(() => {
     if (!opened) return;
+    const opener = trigger.current;
     const overflow = document.body.style.overflow;
     const root = document.getElementById('root');
     const inert = root?.inert ?? false;
@@ -29,7 +30,7 @@ export function UserOutputUpload({ itemId, onUploaded }: { itemId: string; onUpl
     return () => {
       document.body.style.overflow = overflow;
       if (root) root.inert = inert;
-      if (trigger.current?.isConnected) trigger.current.focus();
+      if (opener?.isConnected) opener.focus();
     };
   }, [opened]);
   useEffect(() => {
