@@ -140,12 +140,10 @@ export function createTelosArtifactRouter(options: {
       try {
         store = new TelosArtifactStore(options.dbPath());
         if (!store.userUploadAllowed(item.data.itemId!)) {
-          res
-            .status(403)
-            .json({
-              error:
-                'LifeOps documents require private case storage; shared output uploads are unavailable.',
-            });
+          res.status(403).json({
+            error:
+              'LifeOps documents require private case storage; shared output uploads are unavailable.',
+          });
           return;
         }
         const artifact = store.save({
