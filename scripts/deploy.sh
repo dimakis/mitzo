@@ -7,6 +7,11 @@ cd "$(dirname "$0")/.."
 MITZO_HOME="$(pwd)"
 PLIST_DEST="$HOME/Library/LaunchAgents/com.mitzo.server.plist"
 
+# Compare persisted daemon settings, not credentials inherited only by this shell.
+node scripts/check-knowledge-enrollment.mjs \
+  --candidate-env .env --candidate-plist com.mitzo.server.plist \
+  --active-plist "$PLIST_DEST" "$@"
+
 echo "Building packages + server..."
 npm run build:server
 
