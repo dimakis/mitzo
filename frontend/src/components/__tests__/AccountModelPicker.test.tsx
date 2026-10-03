@@ -6,6 +6,7 @@ import { apiFetch } from '../../lib/api-fetch';
 vi.mock('../../lib/api-fetch', () => ({ apiFetch: vi.fn() }));
 afterEach(() => {
   cleanup();
+  localStorage.clear();
   vi.resetAllMocks();
 });
 const profiles = [
@@ -29,6 +30,8 @@ it('loads accounts and models from the server and emits explicit selection', asy
   const onChange = vi.fn();
   render(<AccountModelPicker sessionId={null} preferredModel="sonnet" onChange={onChange} />);
   await screen.findByText('Work Vertex');
+  expect(onChange.mock.calls.every(([selection]) => selection === null)).toBe(true);
+  fireEvent.click(screen.getByRole('button', { name: 'Use Work Vertex · Sonnet' }));
   await waitFor(() =>
     expect(onChange).toHaveBeenCalledWith({ accountId: 'work', model: 'sonnet' }),
   );
@@ -75,6 +78,7 @@ it('retries a failed account request without changing billing routes', async () 
   await screen.findByRole('alert');
   expect(onChange).not.toHaveBeenCalledWith(expect.objectContaining({ model: expect.any(String) }));
   fireEvent.click(screen.getByRole('button', { name: 'Retry accounts' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Use Work Vertex · Sonnet' }));
   await waitFor(() =>
     expect(onChange).toHaveBeenLastCalledWith({ accountId: 'work', model: 'sonnet' }),
   );
@@ -153,6 +157,7 @@ it('saves a subscription alias without changing the selected account or model', 
   const onChange = vi.fn();
   render(<AccountModelPicker sessionId={null} preferredModel="sonnet" onChange={onChange} />);
   await screen.findByLabelText('Account');
+  fireEvent.click(screen.getByRole('button', { name: 'Use Work Vertex · Sonnet' }));
   fireEvent.click(screen.getByRole('button', { name: 'Edit account alias' }));
   fireEvent.change(screen.getByLabelText('Account alias'), {
     target: { value: 'My work subscription' },
@@ -232,6 +237,7 @@ it('offers model-specific thinking choices and resets them when changing model',
   const onChange = vi.fn();
   render(<AccountModelPicker sessionId={null} preferredModel="gpt-a" onChange={onChange} />);
   const thinking = await screen.findByLabelText('Thinking');
+  fireEvent.click(screen.getByRole('button', { name: 'Use ChatGPT · GPT A' }));
   fireEvent.change(thinking, { target: { value: 'low' } });
   expect(onChange).toHaveBeenLastCalledWith({
     accountId: 'personal',
@@ -773,4 +779,133 @@ it('invalidates both selected pickers while device reconnect is pending and reta
   expect(b).toHaveBeenLastCalledWith(null);
   expect(first.getByRole('button', { name: 'Cancel sign-in' })).toBeTruthy();
   expect((first.getByRole('button', { name: 'Connect' }) as HTMLButtonElement).disabled).toBe(true);
+});
+
+it('saves an explicit account and model default and restores it instead of catalog order', async () => {
+  vi.mocked(apiFetch).mockResolvedValue({ ok: true, json: async () => profiles } as Response);
+  const onChange = vi.fn();
+  const first = render(
+    <AccountModelPicker sessionId={null} preferredModel="sonnet" onChange={onChange} />,
+  );
+  await screen.findByLabelText('Account');
+  fireEvent.change(screen.getByLabelText('Account'), { target: { value: 'other' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Make default for new chats' }));
+  first.unmount();
+  render(<AccountModelPicker sessionId={null} preferredModel="sonnet" onChange={onChange} />);
+  await waitFor(() =>
+    expect(onChange).toHaveBeenLastCalledWith({ accountId: 'other', model: 'haiku' }),
+  );
+});
+
+it('does not silently fall back to work when the saved default is unavailable', async () => {
+  localStorage.setItem(
+    'mitzo-default-account-model',
+    JSON.stringify({ accountId: 'missing', model: 'luna' }),
+  );
+  vi.mocked(apiFetch).mockResolvedValue({ ok: true, json: async () => profiles } as Response);
+  const onChange = vi.fn();
+  render(<AccountModelPicker sessionId={null} preferredModel="sonnet" onChange={onChange} />);
+  await screen.findByRole('alert');
+  expect(onChange.mock.calls.every(([selection]) => selection === null)).toBe(true);
+  fireEvent.change(screen.getByLabelText('Account'), { target: { value: 'other' } });
+  expect(onChange).toHaveBeenLastCalledWith({ accountId: 'other', model: 'haiku' });
+});
+
+it('requires confirmation before using the first account when no default is saved', async () => {
+  vi.mocked(apiFetch).mockResolvedValue({ ok: true, json: async () => profiles } as Response);
+  const onChange = vi.fn();
+  render(<AccountModelPicker sessionId={null} preferredModel="sonnet" onChange={onChange} />);
+  await screen.findByText('Work Vertex');
+  expect(onChange.mock.calls.every(([selection]) => selection === null)).toBe(true);
+  fireEvent.click(screen.getByRole('button', { name: 'Use Work Vertex · Sonnet' }));
+  expect(onChange).toHaveBeenLastCalledWith({ accountId: 'work', model: 'sonnet' });
+});
+
+it('can explicitly use legacy models after refreshing a selected account fails', async () => {
+  vi.mocked(apiFetch)
+    .mockResolvedValueOnce({ ok: true, json: async () => profiles } as Response)
+    .mockResolvedValueOnce({ ok: false } as Response)
+    .mockResolvedValueOnce({
+      ok: true,
+      json: async () => [{ id: 'sonnet', label: 'Sonnet' }],
+    } as Response);
+  const onChange = vi.fn();
+  render(<AccountModelPicker sessionId={null} preferredModel="sonnet" onChange={onChange} />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Use Work Vertex · Sonnet' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Refresh models' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Use legacy server account' }));
+  await screen.findByText('Legacy server account');
+  await waitFor(() => expect(onChange).toHaveBeenLastCalledWith({ model: 'sonnet' }));
+});
+
+it.each([false, true])(
+  'resets refreshed conversation selection when a new chat opens (saved default: %s)',
+  async (savedDefault) => {
+    if (savedDefault)
+      localStorage.setItem(
+        'mitzo-default-account-model',
+        JSON.stringify({ accountId: 'other', model: 'haiku' }),
+      );
+    vi.mocked(apiFetch).mockImplementation(
+      async (url) =>
+        ({
+          ok: true,
+          json: async () =>
+            url.includes('/meta')
+              ? {
+                  accountBinding: { accountId: 'work', accountLabel: 'Work Vertex' },
+                  modelSelection: { model: 'sonnet', models: profiles[0].models },
+                }
+              : profiles,
+        }) as Response,
+    );
+    const onChange = vi.fn();
+    const view = render(
+      <AccountModelPicker sessionId="existing" preferredModel="sonnet" onChange={onChange} />,
+    );
+    await waitFor(() =>
+      expect(onChange).toHaveBeenLastCalledWith({ accountId: 'work', model: 'sonnet' }),
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh models' }));
+    await waitFor(() =>
+      expect(apiFetch).toHaveBeenCalledWith(
+        '/api/sessions/existing/meta?refresh=1',
+        expect.anything(),
+      ),
+    );
+    await screen.findByLabelText('Model');
+    onChange.mockClear();
+    view.rerender(
+      <AccountModelPicker sessionId={null} preferredModel="sonnet" onChange={onChange} />,
+    );
+    await screen.findByLabelText('Account');
+    expect(apiFetch).toHaveBeenLastCalledWith('/api/accounts', expect.anything());
+    if (savedDefault)
+      expect(onChange).toHaveBeenLastCalledWith({ accountId: 'other', model: 'haiku' });
+    else {
+      expect(onChange.mock.calls.every(([selection]) => selection === null)).toBe(true);
+      fireEvent.click(screen.getByRole('button', { name: 'Use Work Vertex · Sonnet' }));
+      expect(onChange).toHaveBeenLastCalledWith({ accountId: 'work', model: 'sonnet' });
+    }
+  },
+);
+
+it('requires confirmation after clearing the default even across catalog refresh', async () => {
+  localStorage.setItem(
+    'mitzo-default-account-model',
+    JSON.stringify({ accountId: 'other', model: 'haiku' }),
+  );
+  vi.mocked(apiFetch).mockResolvedValue({ ok: true, json: async () => profiles } as Response);
+  const onChange = vi.fn();
+  render(<AccountModelPicker sessionId={null} preferredModel="sonnet" onChange={onChange} />);
+  await waitFor(() =>
+    expect(onChange).toHaveBeenLastCalledWith({ accountId: 'other', model: 'haiku' }),
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Clear new-chat default' }));
+  expect(onChange).toHaveBeenLastCalledWith(null);
+  expect(screen.getByRole('button', { name: /Use .*Haiku/ })).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: 'Refresh models' }));
+  await waitFor(() => expect(onChange).toHaveBeenLastCalledWith(null));
+  fireEvent.click(await screen.findByRole('button', { name: /Use .*Haiku/ }));
+  expect(onChange).toHaveBeenLastCalledWith({ accountId: 'other', model: 'haiku' });
 });

@@ -50,24 +50,34 @@ export function ReviewerSheetHost({
   sessionId,
   children,
 }: {
-  sessionId: string;
+  sessionId: string | null;
   children: ReactNode;
 }) {
   const [open, setOpen] = useState(false);
   const [visited, setVisited] = useState(false);
   const [attempt, setAttempt] = useState(0);
+  useEffect(() => {
+    setOpen(false);
+    setVisited(false);
+    setAttempt(0);
+  }, [sessionId]);
   return (
     <ReviewerFlowContext.Provider
-      value={{
-        sessionId,
-        open: () => {
-          setVisited(true);
-          setOpen(true);
-        },
-      }}
+      value={
+        sessionId
+          ? {
+              sessionId,
+              open: () => {
+                setVisited(true);
+                setOpen(true);
+              },
+            }
+          : null
+      }
     >
       {children}
       {visited &&
+        sessionId &&
         createPortal(
           <ReviewerForm
             key={`${sessionId}:${attempt}`}

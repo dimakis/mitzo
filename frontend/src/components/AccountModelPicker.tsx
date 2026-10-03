@@ -1,3 +1,4 @@
+import { getDefaultAccountModel, setDefaultAccountModel } from '../lib/account-preference';
 import { SymposiumPersonalConnections } from './SymposiumPersonalConnections';
 import { useEffect, useRef, useState } from 'react';
 import { z } from 'zod';
@@ -53,7 +54,13 @@ function withThinking(selection: AccountSelection, account: Account): AccountSel
   };
 }
 
-export function AccountModelPicker({
+/** Catalog refreshes and draft confirmation belong to one conversation. */
+export function AccountModelPicker(props: Parameters<typeof SessionAccountModelPicker>[0]) {
+  const sessionKey = props.scope === 'symposium' ? 'symposium' : (props.sessionId ?? 'new-chat');
+  return <SessionAccountModelPicker key={sessionKey} {...props} />;
+}
+
+function SessionAccountModelPicker({
   sessionId: requestedSessionId,
   preferredModel,
   onChange,
@@ -73,6 +80,8 @@ export function AccountModelPicker({
   onSummaryChange?: (summary: WorkspaceSummary | null) => void;
 }) {
   const sessionId = scope === 'chat' ? requestedSessionId : null;
+  const [needsConfirmation, setNeedsConfirmation] = useState(false);
+  const [savedDefault, setSavedDefault] = useState(getDefaultAccountModel);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [selection, setSelection] = useState<AccountSelection | null>(null);
   const selectionRef = useRef(selection);
@@ -259,9 +268,11 @@ export function AccountModelPicker({
             return;
           }
           setAccounts(catalog);
-          const previous = attempt ? selectionRef.current : null;
+          const previous =
+            (attempt ? selectionRef.current : null) ??
+            (scope === 'chat' && !legacy ? getDefaultAccountModel() : null);
           if (
-            scope === 'symposium' &&
+            !legacy &&
             previous &&
             !catalog.some(
               (a) => a.id === previous.accountId && a.models.some((m) => m.id === previous.model),
@@ -283,9 +294,11 @@ export function AccountModelPicker({
             { ...next, reasoningEffort: previous?.reasoningEffort },
             first,
           );
+          const confirm = scope === 'chat' && !legacy && (!previous || needsConfirmation);
+          setNeedsConfirmation(confirm);
           setDraftUnavailable(false);
           setSelection(selected);
-          callbacks.current.onChange(explicitSelection ? null : selected);
+          callbacks.current.onChange(explicitSelection || confirm ? null : selected);
         }
       })
       .catch((err: unknown) => {
@@ -388,6 +401,7 @@ export function AccountModelPicker({
               nextAccount,
             );
             setDraftUnavailable(false);
+            setNeedsConfirmation(false);
             setSelection(next);
             onChange(explicitSelection ? null : next);
           }}
@@ -474,7 +488,7 @@ export function AccountModelPicker({
           );
           setDraftUnavailable(false);
           setSelection(next);
-          onChange(explicitSelection ? null : next);
+          onChange(explicitSelection || needsConfirmation ? null : next);
         }}
       >
         {!account.models.some((m) => m.id === selection.model) && (
@@ -498,7 +512,7 @@ export function AccountModelPicker({
             const next = { ...selection };
             next.reasoningEffort = e.target.value || null;
             setSelection(next);
-            onChange(explicitSelection ? null : next);
+            onChange(explicitSelection || needsConfirmation ? null : next);
           }}
         >
           <option value="">Model default</option>
@@ -514,7 +528,7 @@ export function AccountModelPicker({
       {account.modelDiscovery?.stale && (
         <span role="status">Model refresh failed. Showing the last available list.</span>
       )}
-      {explicitSelection && (
+      {(explicitSelection || needsConfirmation) && (
         <button
           type="button"
           disabled={
@@ -523,13 +537,46 @@ export function AccountModelPicker({
             !account.models.some((model) => model.id === selection.model)
           }
           onClick={() => {
-            if (!draftUnavailable && account.models.some((model) => model.id === selection.model))
+            if (!draftUnavailable && account.models.some((model) => model.id === selection.model)) {
+              setNeedsConfirmation(false);
               onChange(selection);
+            }
           }}
         >
           Use {account.label} ·{' '}
           {account.models.find((model) => model.id === selection.model)?.label ?? selection.model}
         </button>
+      )}
+      {scope === 'chat' && !sessionId && !legacy && (
+        <>
+          <button
+            disabled={disabled || draftUnavailable}
+            onClick={() => {
+              setDefaultAccountModel(selection);
+              setSavedDefault(selection);
+            }}
+          >
+            Make default for new chats
+          </button>
+          {savedDefault && (
+            <button
+              disabled={disabled}
+              onClick={() => {
+                setDefaultAccountModel(null);
+                setSavedDefault(null);
+                setNeedsConfirmation(true);
+                onChange(null);
+              }}
+            >
+              Clear new-chat default
+            </button>
+          )}
+          <span>
+            {savedDefault
+              ? 'Saved default for new chats on this browser.'
+              : 'No saved account default. Review the account before sending.'}
+          </span>
+        </>
       )}
       {scope === 'chat' && !legacy && (
         <button disabled={disabled} onClick={() => setAttempt((n) => n + 1)}>
