@@ -1,8 +1,9 @@
+import { execFileSync } from 'node:child_process';
 import { afterEach, expect, it } from 'vitest';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { knowledgeStoreFromEnvironment } from '../knowledge-store-config.js';
+import { knowledgeStoreFromEnvironment, mgmtKnowledgeAdapter } from '../knowledge-store-config.js';
 const roots: string[] = [];
 afterEach(() => {
   for (const root of roots) rmSync(root, { recursive: true, force: true });
@@ -87,3 +88,66 @@ it.each(['secret', 'source', 'default', 'adapter'])(
     ).toThrow();
   },
 );
+
+it('runs a pinned detached adapter for the exact revision and captures its immutable bundle', async () => {
+  const f = fixture();
+  const release = join(f.root, 'release');
+  mkdirSync(join(release, 'mgmt_lib'), { recursive: true });
+  writeFileSync(join(release, '.gitignore'), '__pycache__/\n');
+  writeFileSync(join(release, 'mgmt_lib/__init__.py'), '');
+  writeFileSync(
+    join(release, 'mgmt_lib/knowledge_publication.py'),
+    `
+import argparse, hashlib, json, pathlib
+p=argparse.ArgumentParser()
+p.add_argument('--config')
+p.add_argument('--once', action='store_true')
+p.add_argument('--published-revision')
+a=p.parse_args()
+c=json.loads(pathlib.Path(a.config).read_text())
+root=pathlib.Path(c['root'])/'publications'
+bundle=root/('release-'+a.published_revision)
+(bundle/'mgmt').mkdir(parents=True, exist_ok=True)
+baseline={'startingCommit':a.published_revision,'payloadSha256':'f'*64}
+raw=json.dumps(baseline)
+(bundle/'baseline.json').write_text(raw)
+receipt={'sourceCommit':a.published_revision,'builderCommit':c['builderCommit'],'payloadSha256':'f'*64,'baselineSha256':hashlib.sha256(raw.encode()).hexdigest()}
+(bundle/'publication.json').write_text(json.dumps(receipt))
+(root/'current').symlink_to(bundle)
+print(json.dumps({'status':'current','publishedCommit':a.published_revision,'receipt':receipt}))
+`,
+  );
+  const git = (...args: string[]) =>
+    execFileSync(
+      'git',
+      ['-c', 'core.hooksPath=/dev/null', '-c', 'commit.gpgsign=false', '-C', release, ...args],
+      { encoding: 'utf8' },
+    ).trim();
+  git('init', '-q', '-b', 'main');
+  git('config', 'user.name', 'Test');
+  git('config', 'user.email', 'test@example.invalid');
+  git('add', '.');
+  git('commit', '-qm', 'test: adapter fixture');
+  const releaseCommit = git('rev-parse', 'HEAD');
+  git('checkout', '-q', '--detach');
+  const adapter = mgmtKnowledgeAdapter(
+    {
+      kind: 'mgmt-v1',
+      release,
+      releaseCommit,
+      python: '/usr/bin/python3',
+      config: f.adapterConfig,
+    },
+    f.config.stores[0] ? 'https://example.com/other.git' : '',
+  );
+  const revision = 'c'.repeat(40);
+  const result = await adapter({ revision }, AbortSignal.timeout(5000));
+  expect(result).toEqual({
+    sourceCommit: revision,
+    seed: join(f.root, 'adapter/publications/release-' + revision, 'mgmt'),
+  });
+  writeFileSync(join(release, 'dirty.md'), 'unreviewed adapter code');
+  await expect(adapter({ revision }, AbortSignal.timeout(5000))).rejects.toThrow(
+    'clean pinned detached release',
+  );
+});
