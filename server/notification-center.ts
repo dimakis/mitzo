@@ -187,7 +187,11 @@ export class NotificationCenter {
               : 'Open Mitzo to review this notification.',
           badge: this.store.feed('needs').needsYou,
           data: { notificationId: item.id, type: item.kind, sessionId: item.sessionId },
-          category: item.permId ? 'SESSION_PERMISSION' : 'NOTIFICATION_UPDATE',
+          category: item.permId
+            ? 'SESSION_PERMISSION'
+            : item.kind === 'session'
+              ? 'SESSION_UPDATE'
+              : 'NOTIFICATION_UPDATE',
           threadId: item.sessionId,
         });
         if (status === 'unavailable') continue;

@@ -165,17 +165,16 @@ export async function deliverNotification(
   }
 }
 
+/** Apple requires alert push type for any badge payload, even without a banner. */
+export function badgeFields(badge: number) {
+  return { topic: APNS_BUNDLE_ID, badge, priority: 10, pushType: 'alert' };
+}
 export async function sendBadgeUpdate(badge: number): Promise<void> {
   const provider = getProvider();
   if (!provider || !tokens.length) return;
   try {
     const apn = require('@parse/node-apn');
-    const notification = new apn.Notification();
-    notification.topic = APNS_BUNDLE_ID;
-    notification.badge = badge;
-    notification.contentAvailable = true;
-    notification.priority = 5;
-    notification.pushType = 'background';
+    const notification = Object.assign(new apn.Notification(), badgeFields(badge));
     await provider.send(notification, [...tokens]);
   } catch (err: unknown) {
     log.warn('badge update failed', { error: err instanceof Error ? err.message : 'unknown' });

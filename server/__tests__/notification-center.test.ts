@@ -54,6 +54,14 @@ describe('central notification delivery', () => {
     center.close();
     store.close();
   });
+  it('retains native session reply actions for completion alerts', async () => {
+    const { store, center, push } = setup();
+    center.turnComplete('s1', 55, 'Done', 'Tests', true);
+    await center.flush();
+    expect(push.mock.calls[0][0].category).toBe('SESSION_UPDATE');
+    center.close();
+    store.close();
+  });
   it('never delivers expired approvals or replays previous notifications on restart', async () => {
     const { store, center, push } = setup();
     registerPending(request.permId, 'Bash', vi.fn(), {}, 'elevated', request.sessionId, request);

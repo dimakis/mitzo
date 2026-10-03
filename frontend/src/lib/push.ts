@@ -41,7 +41,7 @@ export async function initPushNotifications(): Promise<void> {
       const { actionId, inputValue } = action;
       const data = action.notification.data as Record<string, string> | undefined;
       const sessionId = data?.sessionId;
-      if (data?.notificationId) {
+      if (data?.notificationId && actionId !== 'REPLY_ACTION' && actionId !== 'LATER_ACTION') {
         window.location.href = notificationTarget(data);
         return;
       }

@@ -1,6 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { notificationFields } from '../apns.js';
+import { notificationFields, badgeFields } from '../apns.js';
 describe('native notification contract', () => {
+  it('clears badges using the alert push type required for badge payloads', () => {
+    expect(badgeFields(0)).toMatchObject({ badge: 0, pushType: 'alert', priority: 10 });
+    expect(badgeFields(0)).not.toHaveProperty('sound');
+    expect(badgeFields(0)).not.toHaveProperty('alert');
+  });
   it('uses the authoritative needs-you count including zero and notification deep links', () => {
     const fields = notificationFields({
       title: 'Mitzo',
