@@ -126,39 +126,94 @@ are required before enabling it. Host, Responses, Claude and Symposium adoption
 remain separate enrollment work. No task checkout, draft, checkpoint or old
 worktree is rebased by knowledge publication.
 
-## Pluggable knowledge stores
+## Configurable publication and admission
 
-The product direction is a configurable knowledge-store source in Mitzo. Git is
-its first adapter, and MGMT is its first format adapter, rather than a permanent
-hardcoded dependency on one user's repository. The publisher's existing
-`sourceUrl` already selects a different Git remote; the current implementation
-still requires canonical `main`, the MGMT layout, and a compatible MGMT
-runtime baseline available in the source history. It is not a generic-store
-integration. The product adapter must separate the store revision from Mitzo’s
-application/runtime source revision, so changing stores does not require forking
-the MGMT application or fabricating runtime compatibility hashes.
+ContexGin owns generic source acquisition, signed GitHub webhook ingestion,
+durable retry state and immutable portable snapshots. A webhook wakes source
+reconciliation; it never authorizes an arbitrary event SHA. Reconciliation observes
+the configured accepted remote ref. Startup recovery and a thirty-minute canonical
+recovery interval cover missed events, while local queue retries avoid unnecessary
+remote polling. GitHub retains accepted source history; the publisher retains
+snapshot manifests and durable reconciliation state.
 
-A future source configuration identifies a store, source kind, Git URL and
-accepted ref, credential reference, format adapter, and permitted session scope.
-Credentials remain host-side references rather than values inside publications.
-Each adapter must produce the same immutable, verified knowledge view with an
-exact source revision, digest, instruction/retrieval inputs, and compatibility
-contract. Other Git formats and non-Git stores can join through that contract.
-A source's documents cannot change host configuration or publication authority.
-Writes remain drafts in their owning store until that store's acceptance policy
-is satisfied; multiple stores require explicit precedence and a recorded coherent
-selection rather than silently mixing revisions.
+Mitzo owns format adapters, sandbox delivery and provider context adoption. Its
+host-only `MITZO_KNOWLEDGE_STORE_CONFIG` selects one default store. The configured
+publisher source may point to another Git URL and accepted ref. The first format
+adapter is `mgmt-v1`: it requires the MGMT layout and a compatible released runtime.
+Other formats and non-Git stores need additional adapters implementing the verified
+immutable-selection contract. Configuring multiple entries does not merge stores
+or provide per-chat selection; only the default store is enrolled currently.
 
-Persistence has separate owners: Git retains accepted source history; the
-publisher retains immutable bundles, indexes, and durable reconciliation receipts;
-Mitzo records selection and model-context delivery without replacing task Git or
-provider history. The current one-minute reconciliation is eventual freshness,
-not instantaneous propagation. A seamless admission contract must request a
-fresh canonical observation and wait for its verified publication when necessary.
-Webhooks can wake reconciliation, but polling and retry must recover missed events.
-New sessions then select that publication; retained sessions adopt it only at a
-safe turn boundary. Generic adapters, admission freshness barriers, and broader
-consumer enrollment remain future work, not capabilities implied by this ADR.
+Example host enrollment (paths and commits are placeholders):
+
+```json
+{
+  "defaultStore": "shared",
+  "stores": [
+    {
+      "id": "shared",
+      "publisherUrl": "http://127.0.0.1:8643",
+      "publisherConfig": "/absolute/contexgin-publication.json",
+      "adapter": {
+        "kind": "mgmt-v1",
+        "release": "/absolute/clean-detached-mgmt-release",
+        "releaseCommit": "0000000000000000000000000000000000000000",
+        "python": "/absolute/adapter-venv/bin/python",
+        "config": "/absolute/mgmt-adapter.json"
+      }
+    }
+  ]
+}
+```
+
+The publisher configuration is shared with the ContexGin service; its source `id`
+must match the selected store. Its `root` names private publisher storage and its
+`readTokenEnv` references the host bearer-token environment variable. Mitzo accepts
+only the local HTTP publisher endpoint, checks the selected source configuration
+identity and exact revision, and verifies the complete physical snapshot and hashes.
+Credentials remain host-side and are excluded from publications and sandbox context.
+
+The MGMT adapter configuration names private `root`, identical `sourceUrl`, pinned
+`mitzoRepo` and `builderCommit`. Its state directory must already exist, belong to
+the service user, have private permissions and stay outside all source/release
+checkouts. Provision the adapter's Python dependencies ahead of time. The release
+must be a clean detached checkout at `releaseCommit`; no moving application branch
+or agent-supplied program is executed. Mitzo calls the adapter with
+`--once --published-revision <verified-source-sha>` and requires an exact matching
+receipt before selecting its immutable bundle. The adapter must preserve the
+publisher's Markdown path policy; the existing runtime verifier independently
+checks bundle bytes, modes, generated indexes and compatibility.
+
+New ordinary OpenShell Codex sandboxes reconcile before seed selection. Existing
+enrolled chats reconcile before each safe turn, wait for conversion of the selected
+accepted revision, and deliver it through a separate protected knowledge root.
+Mitzo verifies actual runtime/compiler/recipe identities and sends compiled context
+on the existing native provider thread. An in-progress turn remains on its earlier
+selection. Reconciliation or compatibility failure blocks admission instead of
+silently accepting stale knowledge. The configuration is optional: unenrolled
+hosts retain their existing seed behavior.
+
+SQLite adoption receipts are account-scoped and bind the conversation, command
+attempt, provider thread and acknowledged turn to the exact source, payload,
+manifest, delivered-context hash, sandbox identity, knowledge path and runtime
+compiler/recipe identities. A selection or uploaded folder is insufficient to
+record adoption. The provider's successful `turn/start` acknowledgement records the
+receipt, which survives a Mitzo restart. Acknowledgement proves delivery through the
+provider interface; it does not prove every fact influenced the model's answer.
+
+Ordinary OpenShell Codex is the implemented enrollment scope. Host, Responses,
+Claude and Symposium still require their own delivery paths, and compatible
+production runtime release plus supervised publisher/adapter configuration remain
+activation prerequisites. Task Git roots, dirty worktrees, old branches and
+checkpoint artifacts are preserved; their age cannot prevent enrolled chats from
+reading the separately delivered accepted knowledge.
+
+The commit flow is: edit and commit in the owning store, push and obtain required
+review/acceptance on its configured remote ref, wake ContexGin via a signed webhook,
+publish the observed accepted revision, then select and deliver that publication at
+the next supported admission boundary. Local drafts and feature-branch commits do
+not become shared accepted knowledge automatically. A missed webhook is recovered
+by admission reconciliation or periodic publisher recovery.
 
 ## Approval status identity provisioning
 
