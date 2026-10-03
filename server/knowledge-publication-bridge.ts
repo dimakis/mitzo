@@ -133,6 +133,10 @@ export class KnowledgePublicationBridge {
       if (path.endsWith('.md') && (!safePath(path) || published.get(path) !== file.sha256))
         throw new Error('Bundle Markdown differs from published source policy');
     }
+    for (const [path, sha256] of published) {
+      if (baseline.files[path]?.sha256 !== sha256)
+        throw new Error('Bundle Markdown differs from published source policy');
+    }
     signal.throwIfAborted();
     return { ...bundle, baselineSha256: hash(baselineBytes) };
   }

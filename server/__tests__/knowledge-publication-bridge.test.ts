@@ -145,6 +145,15 @@ it('blocks adapter Markdown outside the publisher path policy', async () => {
     'Bundle Markdown differs from published source policy',
   );
 });
+it('blocks an adapter bundle that omits published Markdown', async () => {
+  const s = await setup();
+  const seed = join(s.root, 'bundle/mgmt');
+  await rm(join(seed, 'AGENTS.md'));
+  await writeFile(join(seed, '..', 'baseline.json'), JSON.stringify({ files: {} }));
+  await expect(s.bridge.reconcile(new AbortController().signal)).rejects.toThrow(
+    'Bundle Markdown differs from published source policy',
+  );
+});
 
 it('rejects manifest files outside its configured source paths even with valid hashes', async () => {
   const s = await setup();

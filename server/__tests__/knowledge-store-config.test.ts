@@ -56,7 +56,7 @@ function fixture() {
         publisherUrl: 'http://127.0.0.1:8643',
         publisherConfig,
         adapter: {
-          kind: 'mgmt-v1',
+          kind: 'mgmt-v1' as const,
           release: join(root, 'adapter-release'),
           releaseCommit: 'b'.repeat(40),
           python: '/usr/bin/python3',
