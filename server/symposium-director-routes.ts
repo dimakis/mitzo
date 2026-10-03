@@ -381,20 +381,28 @@ export function createSymposiumDirectorRouter(deps: SymposiumDirectorRouteDeps):
     if (!parsed.success) {
       res
         .status(409)
-        .json({ error: 'Shared boundary acknowledgement and expected revision are required' });
+        .json({
+          error: 'Shared boundary acknowledgement and expected revision are required',
+          activationMutation: 'not-started',
+        });
       return;
     }
     const sessionId = (req.params as { id: string }).id;
     const session = deps.store.getSession(sessionId);
     if (!session) {
-      res.status(404).json({ error: 'Session not found' });
+      res.status(404).json({ error: 'Session not found', activationMutation: 'not-started' });
       return;
     }
     const current = session.symposiumConfig
       ? SymposiumConfigSchema.safeParse(JSON.parse(session.symposiumConfig))
       : null;
     if (!current?.success || current.data.state !== 'draft') {
-      res.status(409).json({ error: 'A current Symposium draft is required' });
+      res
+        .status(409)
+        .json({
+          error: 'A current Symposium draft is required',
+          activationMutation: 'not-started',
+        });
       return;
     }
     if (!deps.getRuntime(sessionId)) {
@@ -408,7 +416,12 @@ export function createSymposiumDirectorRouter(deps: SymposiumDirectorRouteDeps):
       crossesAnchorAccount(current.data) &&
       parsed.data.crossAccountConfirmation !== 'ADD CROSS-ACCOUNT SEAT'
     ) {
-      res.status(409).json({ error: 'Typed cross-account seat confirmation is required' });
+      res
+        .status(409)
+        .json({
+          error: 'Typed cross-account seat confirmation is required',
+          activationMutation: 'not-started',
+        });
       return;
     }
     const actorId = (res.locals.authSession as { id?: string } | undefined)?.id;

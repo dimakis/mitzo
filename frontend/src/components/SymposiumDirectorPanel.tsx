@@ -207,7 +207,6 @@ async function readJson<T>(path: string, init?: RequestInit): Promise<T> {
   if (!response.ok) {
     const message = body.error || `Request failed (${response.status})`;
     if (
-      response.status === 503 &&
       /^\/api\/sessions\/[^/]+\/symposium\/activate$/.test(path) &&
       body.activationMutation === 'not-started'
     )

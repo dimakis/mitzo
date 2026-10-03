@@ -659,10 +659,12 @@ it('does not activate an initial draft whose configured roster exceeds its seat 
   );
 });
 
-it.each([true, false])(
-  'only releases an initial activation refusal fence with explicit not-started proof (%s)',
-  async (proven) => {
-    const sessionId = `initial-refusal-${proven}`;
+it.each(
+  [true, false].flatMap((proven) => [400, 404, 409, 503].map((status) => ({ proven, status }))),
+)(
+  'only releases an initial activation refusal fence with explicit not-started proof (%j)',
+  async ({ proven, status }) => {
+    const sessionId = `initial-refusal-${status}-${proven}`;
     const { draft, activeConfig, current, membership } = initialEnableFixture(sessionId);
     const readyDraft = {
       ...draft,
@@ -677,7 +679,7 @@ it.each([true, false])(
         if (attempts === 1)
           return {
             ok: false,
-            status: 503,
+            status,
             json: async () => ({
               error: 'Symposium provider runtime is unavailable',
               ...(proven ? { activationMutation: 'not-started' } : {}),

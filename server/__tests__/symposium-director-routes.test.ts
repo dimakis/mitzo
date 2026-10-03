@@ -636,6 +636,60 @@ describe('Symposium director routes', () => {
       }),
     );
   });
+  it.each([
+    'ack',
+    'missing-session',
+    'missing-config',
+    'invalid-config',
+    'active-config',
+    'runtime',
+    'cross-account',
+  ])('proves activation never started for explicit predispatch refusal: %s', async (refusal) => {
+    const { app, store, activateDraft } = fixture(refusal !== 'runtime');
+    if (refusal === 'missing-session') store.getSession.mockReturnValue(null);
+    if (['missing-config', 'invalid-config', 'active-config', 'cross-account'].includes(refusal)) {
+      const saved = store.getSession('chat')!;
+      const draft = {
+        ...config,
+        state: 'draft',
+        seats: config.seats.map((seat, index) => ({
+          ...seat,
+          accountBinding: {
+            accountId: index ? 'other' : 'personal',
+            accountLabel: 'Fixture',
+            provider: 'openai-codex',
+            model: seat.model,
+            profileRevision: 'revision',
+          },
+        })),
+      };
+      store.getSession.mockReturnValue({
+        ...saved,
+        symposiumConfig:
+          refusal === 'missing-config'
+            ? null
+            : JSON.stringify(
+                refusal === 'invalid-config'
+                  ? { ...draft, revision: 'invalid' }
+                  : refusal === 'active-config'
+                    ? config
+                    : draft,
+              ),
+      } as never);
+    }
+    const response = await request(app)
+      .post('/api/sessions/chat/symposium/activate')
+      .send({
+        expectedRevision: 4,
+        ...(refusal === 'ack' ? {} : { sharedBoundaryAcknowledged: true }),
+      });
+    expect(response.status).toBe(
+      refusal === 'missing-session' ? 404 : refusal === 'runtime' ? 503 : 409,
+    );
+    expect(response.body.activationMutation).toBe('not-started');
+    expect(activateDraft).not.toHaveBeenCalled();
+    expect(store.setSymposiumConfig).not.toHaveBeenCalled();
+  });
   it('does not issue grants or persist activation without a verified runtime', async () => {
     const { app, store, activateDraft } = fixture();
     const response = await request(app)
