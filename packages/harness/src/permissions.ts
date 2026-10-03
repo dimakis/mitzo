@@ -2,7 +2,9 @@ import type { PermissionResult } from '@anthropic-ai/claude-agent-sdk';
 import type { PermissionRequest, QuestionAnswers } from '@mitzo/protocol';
 import type { ToolTier } from './tool-tiers.js';
 
-type PermissionResolver = (result: PermissionResult) => void;
+// A policy-aware resolver can return the final SDK result. Legacy callbacks may
+// return nothing (or incidental values), in which case the input is authoritative.
+type PermissionResolver = (result: PermissionResult) => unknown;
 
 interface PendingEntry {
   resolver: PermissionResolver;
@@ -97,25 +99,34 @@ export function resolvePending(
   pending.delete(permId);
   const { resolver } = entry;
 
+  let requestedResult: PermissionResult;
   if (effectiveDecision === 'always') {
-    resolver({
+    requestedResult = {
       behavior: 'allow',
       decisionClassification: 'user_permanent',
       updatedInput: toolInput,
-    });
+    };
   } else if (effectiveDecision === 'once') {
-    resolver({
+    requestedResult = {
       behavior: 'allow',
       decisionClassification: 'user_temporary',
       updatedInput: toolInput,
-    });
+    };
   } else {
-    resolver({
+    requestedResult = {
       behavior: 'deny',
       message: 'User denied',
       decisionClassification: 'user_reject',
-    });
+    };
   }
+  const appliedResult = resolver(requestedResult);
+  const behavior =
+    appliedResult &&
+    typeof appliedResult === 'object' &&
+    'behavior' in appliedResult &&
+    (appliedResult.behavior === 'allow' || appliedResult.behavior === 'deny')
+      ? appliedResult.behavior
+      : requestedResult.behavior;
 
   notifyLifecycle({
     type: 'resolved',
@@ -123,7 +134,7 @@ export function resolvePending(
     resolution:
       entry.request?.expiresAt !== undefined && entry.request.expiresAt <= Date.now()
         ? 'expired'
-        : effectiveDecision === 'deny'
+        : behavior === 'deny'
           ? 'denied'
           : 'allowed',
   });

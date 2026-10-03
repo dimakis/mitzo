@@ -254,6 +254,7 @@ export function buildPermissionHandler(
         transportSend(session.transport, resolved);
         for (const observer of session.observers) transportSend(observer, resolved);
         resolve(result);
+        return result;
       };
 
       const onAbort = () => {
