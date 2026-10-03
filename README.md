@@ -602,6 +602,10 @@ Current runtimes retain normal provider recovery without entering migration. See
 [retained runtime migration](docs/operations/retained-runtime-migration.md) for
 transaction recovery, eligibility and rollout drain requirements.
 
+Ordinary Codex startup holds its lifecycle reservation through sandbox recovery
+and provider-thread registration, then releases it before the first queued turn
+reacquires admission for runtime and knowledge checks.
+
 Production deploys use `./scripts/create-release.sh origin/main`. The command
 fetches only current `origin/main`, refuses every other commit, creates a
 self-contained detached release clone, records full commit/tree/base provenance
