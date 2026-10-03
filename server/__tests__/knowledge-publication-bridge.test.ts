@@ -87,7 +87,6 @@ it('stops reading and cancels an oversized publication response', async () => {
   const body = new ReadableStream<Uint8Array>({
     pull(controller) {
       controller.enqueue(new Uint8Array(1024 * 1024 + 1));
-      controller.close();
     },
     cancel,
   });
@@ -98,6 +97,7 @@ it('stops reading and cancels an oversized publication response', async () => {
     'Publication response too large',
   );
   expect(text).not.toHaveBeenCalled();
+  expect(cancel).toHaveBeenCalledOnce();
   expect(s.adapt).not.toHaveBeenCalled();
 });
 it.each(['content', 'manifest', 'extra', 'symlink', 'foreign'])(
