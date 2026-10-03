@@ -110,8 +110,8 @@ function ResourceDetails({
         ))}
         {!resource.actions.length && <span>No management action available</span>}
       </div>
-      <section className="access-resource-details" aria-label="Technical details">
-        <h3>Technical details</h3>
+      <details className="access-resource-details">
+        <summary>Technical details</summary>
         <dl className="access-resource-facts">
           <div>
             <dt>Management owner</dt>
@@ -130,12 +130,16 @@ function ResourceDetails({
             <dd>{resource.nativeId}</dd>
           </div>
           {catalog && (
-            <div>
-              <dt>Catalog resource</dt>
-              <dd>{catalog.id}</dd>
-              <dt>Catalog management owner</dt>
-              <dd>{catalog.owner}</dd>
-            </div>
+            <>
+              <div>
+                <dt>Catalog resource</dt>
+                <dd>{catalog.id}</dd>
+              </div>
+              <div>
+                <dt>Catalog management owner</dt>
+                <dd>{catalog.owner}</dd>
+              </div>
+            </>
           )}
           {resource.details.billing && (
             <div>
@@ -150,7 +154,7 @@ function ResourceDetails({
             </div>
           )}
         </dl>
-      </section>
+      </details>
     </div>
   );
 }

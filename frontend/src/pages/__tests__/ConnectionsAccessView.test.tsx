@@ -477,12 +477,52 @@ it('traps keyboard focus, dismisses with Escape and restores the row trigger', a
   const close = within(dialog).getByRole('button', { name: 'Close details' });
   expect(document.activeElement).toBe(close);
   fireEvent.keyDown(close, { key: 'Tab', shiftKey: true });
-  expect(document.activeElement).toBe(
-    within(dialog).getByRole('link', { name: 'Open personal account controls' }),
-  );
+  expect(document.activeElement).toBe(within(dialog).getByText('Technical details'));
   fireEvent.keyDown(document.activeElement!, { key: 'Tab' });
   expect(document.activeElement).toBe(close);
   fireEvent.keyDown(close, { key: 'Escape' });
+  expect(screen.queryByRole('dialog')).toBeNull();
+  expect(document.activeElement).toBe(trigger);
+});
+
+it('keeps technical identifiers collapsed until details are requested', async () => {
+  vi.mocked(getConnectionsAccess).mockResolvedValue(linkedFacets());
+  render(
+    <MemoryRouter>
+      <ConnectionsAccessView />
+    </MemoryRouter>,
+  );
+  const row = await screen.findByRole('article', { name: 'Personal account' });
+  fireEvent.click(within(row).getByRole('button', { name: 'Manage Personal account' }));
+  const dialog = screen.getByRole('dialog');
+  const summary = within(dialog).getByText('Technical details');
+  const details = summary.closest('details');
+  expect(details).not.toBeNull();
+  expect(details?.open).toBe(false);
+  fireEvent.click(summary);
+  expect(details?.open).toBe(true);
+  expect(within(dialog).getByText('symposium-personal')).toBeTruthy();
+});
+
+it('keeps mode inspection inside the drawer and returns focus before dismissing', async () => {
+  vi.mocked(getConnectionsAccess).mockResolvedValue(linkedFacets());
+  render(
+    <MemoryRouter>
+      <ConnectionsAccessView />
+    </MemoryRouter>,
+  );
+  const trigger = within(
+    await screen.findByRole('article', { name: 'Personal account' }),
+  ).getByRole('button', { name: 'Manage Personal account' });
+  trigger.focus();
+  fireEvent.click(trigger);
+  fireEvent.click(screen.getByRole('button', { name: 'Inspect Ask mode' }));
+  const back = screen.getByRole('button', { name: 'Back to modes' });
+  expect(document.activeElement).toBe(back);
+  fireEvent.keyDown(back, { key: 'Escape' });
+  expect(screen.getByRole('dialog')).toBeTruthy();
+  expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Inspect Ask mode' }));
+  fireEvent.keyDown(document.activeElement!, { key: 'Escape' });
   expect(screen.queryByRole('dialog')).toBeNull();
   expect(document.activeElement).toBe(trigger);
 });
