@@ -116,6 +116,8 @@ export async function migrateRetainedRuntime(input: {
     throw new Error('Retained migration requires an authoritative resumable provider thread');
   if (store.hasAmbiguousRuntimeActivity(id, binding))
     throw new Error('Retained migration blocked by active or ambiguous provider execution');
+  if (record?.phase === 'blocked')
+    record = store.repairRejectedRuntimeMigrationName(id, binding, record.generation);
   if (record?.phase === 'blocked') {
     // Older helpers rejected this process-local lock before capturing anything.
     // The corrected helper omits it and still verifies source writer quiescence.
@@ -192,7 +194,7 @@ export async function migrateRetainedRuntime(input: {
       ...(observed.policyAttestation
         ? { sourcePolicyAttestation: observed.policyAttestation }
         : {}),
-      candidateName: `mitzo-migrate-${randomUUID()}`,
+      candidateName: `mitzo-${randomUUID().replaceAll('-', '').slice(0, 12)}`,
     });
   }
   if (!sameRuntimePolicyAuthority(record.sourcePolicyAttestation, observed.policyAttestation))

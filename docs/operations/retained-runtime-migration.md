@@ -20,6 +20,14 @@ Offline regressions cover strict source/target identity, real archive/Git/provid
 
 ## SQLite maintenance lock recovery
 
+Migration candidate names use `mitzo-` plus twelve random hexadecimal characters
+to fit OpenShell's nineteen-character limit. A historical fifty-character UUID
+name may be replaced with a deterministic short name only after the exact CLI
+length validation rejection, while blocked at `checkpointed`, with a preserved
+checkpoint and no candidate. The generation transaction rechecks source ownership,
+provider thread and ambiguity, and saves the repaired name before retrying create.
+Uncertain creation failures, known candidates and later phases retain their names.
+
 The provider root may contain `.sqlite-maintenance.lock`. Capture accepts only a
 regular file at that exact name, leaves the source file intact and omits it from
 the archive as volatile process coordination. Symlinks and non-regular entries
