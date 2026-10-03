@@ -642,8 +642,21 @@ describe('Symposium director routes', () => {
       .post('/api/sessions/chat/symposium/activate')
       .send({ expectedRevision: 4, sharedBoundaryAcknowledged: true });
     expect(response.status).toBe(503);
+    expect(response.body.activationMutation).toBe('not-started');
     expect(activateDraft).not.toHaveBeenCalled();
     expect(store.setSymposiumConfig).not.toHaveBeenCalled();
+  });
+  it('does not claim activation never started when the activation callback throws', async () => {
+    const { app, activateDraft } = fixture(true);
+    activateDraft.mockImplementation(() => {
+      throw new Error('Activation outcome unavailable');
+    });
+    const response = await request(app)
+      .post('/api/sessions/chat/symposium/activate')
+      .send({ expectedRevision: 4, sharedBoundaryAcknowledged: true });
+    expect(response.status).toBe(409);
+    expect(activateDraft).toHaveBeenCalledTimes(1);
+    expect(response.body).not.toHaveProperty('activationMutation');
   });
   it('reissues a nonactive seat from server-resolved selection without client grant claims', async () => {
     const { app, store, resolveSelection, reviseSeat } = fixture(true);

@@ -195,14 +195,25 @@ function anchorAccountId(config: SymposiumConfig): string | undefined {
   return anchor?.accountBinding?.accountId;
 }
 
+class ActivationNotStartedError extends Error {}
+
 async function readJson<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await apiFetch(path, init);
   if (response.status === 404 && path.endsWith('/status'))
     throw new Error(
       'This server does not support saved agent status. Update the server before continuing.',
     );
-  const body = (await response.json()) as T & { error?: string };
-  if (!response.ok) throw new Error(body.error || `Request failed (${response.status})`);
+  const body = (await response.json()) as T & { error?: string; activationMutation?: string };
+  if (!response.ok) {
+    const message = body.error || `Request failed (${response.status})`;
+    if (
+      response.status === 503 &&
+      /^\/api\/sessions\/[^/]+\/symposium\/activate$/.test(path) &&
+      body.activationMutation === 'not-started'
+    )
+      throw new ActivationNotStartedError(message);
+    throw new Error(message);
+  }
   return body;
 }
 
@@ -744,6 +755,7 @@ function SessionDirectorPanel({
     };
     const key = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`;
     let progress = 'Saving approved agent setup';
+    let activationCommitted = false;
     enableActionStore.update((old) => ({
       ...old,
       [base]: { pending: true, notice: '', revision: config.revision },
@@ -759,6 +771,7 @@ function SessionDirectorPanel({
           ...(status?.profileBindingEnforced ? { profileSelections } : {}),
         }),
       });
+      activationCommitted = true;
       assertCurrent();
       if (
         activated.version !== 2 ||
@@ -914,10 +927,20 @@ function SessionDirectorPanel({
       });
     } catch (cause) {
       const notice = `Enablement stopped: ${progress}. ${cause instanceof Error ? cause.message : 'Could not enable agents'} Your saved setup and any completed membership are retained. No automatic retry will run.`;
-      enableActionStore.update((old) => ({
-        ...old,
-        [base]: { ...old[base], pending: true, notice, revision: config.revision },
-      }));
+      if (cause instanceof ActivationNotStartedError && !activationCommitted) {
+        // Only this server proof permits another explicitly requested activation.
+        // Missing markers, transport failures, and post-activation failures remain fenced.
+        enableActionStore.update((old) => {
+          const next = { ...old };
+          delete next[base];
+          return next;
+        });
+      } else {
+        enableActionStore.update((old) => ({
+          ...old,
+          [base]: { ...old[base], pending: true, notice, revision: config.revision },
+        }));
+      }
       if (current()) {
         setError(notice);
         try {

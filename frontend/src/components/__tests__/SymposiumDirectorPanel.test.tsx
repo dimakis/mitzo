@@ -659,6 +659,104 @@ it('does not activate an initial draft whose configured roster exceeds its seat 
   );
 });
 
+it.each([true, false])(
+  'only releases an initial activation refusal fence with explicit not-started proof (%s)',
+  async (proven) => {
+    const sessionId = `initial-refusal-${proven}`;
+    const { draft, activeConfig, current, membership } = initialEnableFixture(sessionId);
+    const readyDraft = {
+      ...draft,
+      profileBindingEnforced: true,
+      initialProfileSelections: { reviewer: { profileId: 'approved-reviewer', revision: 2 } },
+    };
+    let attempts = 0;
+    let activated = false;
+    vi.mocked(apiFetch).mockImplementation(async (url, init) => {
+      if (String(url).endsWith('/activate')) {
+        attempts++;
+        if (attempts === 1)
+          return {
+            ok: false,
+            status: 503,
+            json: async () => ({
+              error: 'Symposium provider runtime is unavailable',
+              ...(proven ? { activationMutation: 'not-started' } : {}),
+            }),
+          } as Response;
+        activated = true;
+        return response(activeConfig);
+      }
+      if (String(url).endsWith('/membership')) {
+        const input = JSON.parse(String(init?.body));
+        const record = { ...membership(input.seatId), idempotencyKey: input.idempotencyKey };
+        current.seats = current.seats.map((seat) =>
+          seat.seatId === input.seatId ? { ...seat, membership: record } : seat,
+        );
+        return response(record);
+      }
+      return response(activated ? current : readyDraft);
+    });
+    render(<SymposiumDirectorPanel sessionId={sessionId} />);
+    await enableInitialRoster();
+    await screen.findByRole('alert');
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Refresh status' }).hasAttribute('disabled')).toBe(
+        false,
+      ),
+    );
+    const enable = screen.getByRole('button', { name: 'Enable agents' });
+    expect(enable.hasAttribute('disabled')).toBe(!proven);
+    expect(attempts).toBe(1);
+    await userEvent.click(enable);
+    if (proven) {
+      await waitFor(() =>
+        expect(current.seats.every((seat) => seat.membership?.reconciliation === 'confirmed')).toBe(
+          true,
+        ),
+      );
+      expect(attempts).toBe(2);
+    } else expect(attempts).toBe(1);
+    for (const [, init] of vi
+      .mocked(apiFetch)
+      .mock.calls.filter(([url]) => String(url).endsWith('/activate')))
+      expect(JSON.parse(String(init?.body))).toMatchObject({
+        expectedRevision: 4,
+        sharedBoundaryAcknowledged: true,
+        crossAccountConfirmation: 'ADD CROSS-ACCOUNT SEAT',
+        profileSelections: { reviewer: { profileId: 'approved-reviewer', revision: 2 } },
+      });
+  },
+);
+
+it('retains the admission fence when a marked service refusal arrives after activation committed', async () => {
+  const sessionId = 'initial-marked-admission-refusal';
+  const { draft, activeConfig, current } = initialEnableFixture(sessionId);
+  let activated = false;
+  vi.mocked(apiFetch).mockImplementation(async (url) => {
+    if (String(url).endsWith('/activate')) {
+      activated = true;
+      return response(activeConfig);
+    }
+    if (String(url).endsWith('/membership'))
+      return {
+        ok: false,
+        status: 503,
+        json: async () => ({ error: 'Service unavailable', activationMutation: 'not-started' }),
+      } as Response;
+    return response(activated ? current : draft);
+  });
+  render(<SymposiumDirectorPanel sessionId={sessionId} />);
+  await enableInitialRoster();
+  await screen.findByText(/Enablement stopped/);
+  expect(
+    getSymposiumEnableActions().snapshot()[`/api/sessions/${sessionId}/symposium`]
+      .uncertainAdmission,
+  ).toBeDefined();
+  expect(
+    vi.mocked(apiFetch).mock.calls.filter(([url]) => String(url).endsWith('/membership')),
+  ).toHaveLength(1);
+});
+
 it('sends saved profile selection outside draft seat config only when host binding is enforced', async () => {
   const draft = {
     ...status(false),

@@ -398,7 +398,10 @@ export function createSymposiumDirectorRouter(deps: SymposiumDirectorRouteDeps):
       return;
     }
     if (!deps.getRuntime(sessionId)) {
-      res.status(503).json({ error: 'Symposium provider runtime is unavailable' });
+      res.status(503).json({
+        error: 'Symposium provider runtime is unavailable',
+        activationMutation: 'not-started',
+      });
       return;
     }
     if (
