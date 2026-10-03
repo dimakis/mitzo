@@ -3,14 +3,18 @@ import {
   SeatConfigSchema,
   type SymposiumConfig,
   type SymposiumDeliveryRecord,
+  type SymposiumMembershipRecord,
 } from '@mitzo/protocol';
 import { account } from './fixtures';
 import { symposiumStatus } from './symposium-fixtures';
 
+type PreviewMembership = SymposiumMembershipRecord & { simulated: true };
 type Fixture = {
   config: SymposiumConfig;
   deliveries: SymposiumDeliveryRecord[];
   admitted: Set<string>;
+  memberships: Map<string, PreviewMembership>;
+  membershipReceipts: Map<string, PreviewMembership>;
 };
 const fixtures = new Map<string, Fixture>();
 function fixtureFor(sessionId: string): Fixture {
@@ -19,7 +23,36 @@ function fixtureFor(sessionId: string): Fixture {
     const config = structuredClone(symposiumStatus(sessionId).config) as unknown as SymposiumConfig;
     if (sessionId === 'preview-1')
       config.seats = config.seats.filter((seat) => seat.id !== 'implementer');
-    fixture = { config, deliveries: [], admitted: new Set(config.seats.map((seat) => seat.id)) };
+    fixture = {
+      config,
+      deliveries: [],
+      membershipReceipts: new Map(),
+      admitted: new Set(config.seats.map((seat) => seat.id)),
+      memberships: new Map(
+        config.seats.map((seat) => [
+          seat.id,
+          {
+            sessionId,
+            seatId: seat.id,
+            configRevision: config.revision,
+            generation: 1,
+            action: 'admit',
+            reason: 'Configured preview agent',
+            state: 'active',
+            reconciliation: 'confirmed',
+            actor: 'preview-fixture',
+            bindingKey: 'preview-simulated',
+            idempotencyKey: `preview-initial:${sessionId}:${seat.id}`,
+            occurredAt: Date.now(),
+            replacesSeatId: null,
+            replacedBySeatId: null,
+            simulated: true,
+          },
+        ]),
+      ),
+    };
+    for (const record of fixture.memberships.values())
+      fixture.membershipReceipts.set(record.idempotencyKey, record);
     fixtures.set(sessionId, fixture);
   }
   return fixture;
@@ -36,9 +69,7 @@ function statusFor(sessionId: string, fixture: Fixture) {
       seatId: seat.id,
       seat,
       admitted: fixture.admitted.has(seat.id),
-      membership: fixture.admitted.has(seat.id)
-        ? { generation: 1, state: 'active', reconciliation: 'confirmed' }
-        : null,
+      membership: fixture.memberships.get(seat.id) ?? null,
     })),
   };
 }
@@ -140,8 +171,60 @@ export function symposiumAgentPreviewResponse(
     typeof body.seatId === 'string' &&
     fixture.config.seats.some((seat) => seat.id === body.seatId)
   ) {
-    fixture.admitted.add(body.seatId);
-    return Response.json({ simulated: true });
+    if (
+      !['admit', 'restore', 'suspend', 'remove'].includes(String(body.action)) ||
+      !Number.isInteger(body.expectedGeneration) ||
+      Number(body.expectedGeneration) < 0 ||
+      typeof body.configRevision !== 'number' ||
+      typeof body.reason !== 'string' ||
+      typeof body.idempotencyKey !== 'string' ||
+      !body.idempotencyKey
+    )
+      return denied();
+    const replay = fixture.membershipReceipts.get(body.idempotencyKey);
+    if (replay) {
+      if (
+        replay.seatId !== body.seatId ||
+        replay.action !== body.action ||
+        replay.configRevision !== body.configRevision ||
+        replay.generation !== Number(body.expectedGeneration) + 1 ||
+        replay.reason !== body.reason
+      )
+        return denied();
+      return Response.json(replay);
+    }
+    const previous = fixture.memberships.get(body.seatId);
+    if (
+      body.configRevision !== fixture.config.revision ||
+      body.expectedGeneration !== (previous?.generation ?? 0) ||
+      (body.action === 'admit' && previous) ||
+      (body.action === 'restore' && previous?.state !== 'suspended') ||
+      (['suspend', 'remove'].includes(String(body.action)) && previous?.state !== 'active')
+    )
+      return denied();
+    const record: PreviewMembership = {
+      sessionId,
+      seatId: body.seatId,
+      configRevision: body.configRevision,
+      generation: Number(body.expectedGeneration) + 1,
+      action: body.action as SymposiumMembershipRecord['action'],
+      reason: body.reason,
+      state:
+        body.action === 'suspend' ? 'suspended' : body.action === 'remove' ? 'removed' : 'active',
+      reconciliation: 'confirmed',
+      actor: 'preview-fixture',
+      bindingKey: 'preview-simulated',
+      idempotencyKey: body.idempotencyKey,
+      occurredAt: Date.now(),
+      replacesSeatId: null,
+      replacedBySeatId: null,
+      simulated: true,
+    };
+    fixture.memberships.set(body.seatId, record);
+    fixture.membershipReceipts.set(record.idempotencyKey, record);
+    if (record.state === 'active') fixture.admitted.add(body.seatId);
+    else fixture.admitted.delete(body.seatId);
+    return Response.json(record);
   }
   if (suffix === 'deliveries') {
     if (
@@ -180,7 +263,7 @@ export function symposiumAgentPreviewResponse(
       recipients: recipients.map((seatId) => ({
         deliveryId,
         seatId,
-        membershipGeneration: 1,
+        membershipGeneration: fixture.memberships.get(seatId)!.generation,
         status: 'pending',
         idempotencyKey: `${body.idempotencyKey}:${seatId}`,
         configRevision: fixture.config.revision,

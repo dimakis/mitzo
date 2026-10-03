@@ -294,13 +294,21 @@ it('simulates custom Add agent, approve, send and Stop entirely within preview f
     crossAccountConfirmation: 'ADD CROSS-ACCOUNT SEAT',
   });
   expect(revised.ok).toBe(true);
-  expect((await revised.json()).seats.at(-1)).toMatchObject({
+  const revisedConfig = await revised.json();
+  expect(revisedConfig.seats.at(-1)).toMatchObject({
     role: 'domain-specialist',
     authorityRequest,
     expectedOutput: 'Findings',
   });
   await post('admissions/refresh', {});
-  await post('membership', { seatId: 'preview-custom', action: 'admit' });
+  await post('membership', {
+    seatId: 'preview-custom',
+    action: 'admit',
+    expectedGeneration: 0,
+    configRevision: revisedConfig.revision,
+    reason: 'Add agent',
+    idempotencyKey: 'preview-custom-admit',
+  });
   expect(await (await post('context-package', { mode: 'independent' })).json()).toMatchObject({
     content: '',
     simulated: true,
