@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { afterEach, expect, it, vi } from 'vitest';
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -14,6 +15,7 @@ const mocks = vi.hoisted(() => ({
   getWebSearchGrant: vi.fn(),
   store: vi.fn(),
   setArtifactRuntime: vi.fn(),
+  recordKnowledgeAdoption: vi.fn(),
   privateDirectory: '/tmp',
   conversationOptions: undefined as Record<string, unknown> | undefined,
   useTls: false,
@@ -29,6 +31,7 @@ vi.mock('../codex-conversation-store.js', () => ({
     }
     recoverAtStartup() {}
     setArtifactRuntime = mocks.setArtifactRuntime;
+    recordKnowledgeAdoption = mocks.recordKnowledgeAdoption;
   },
 }));
 vi.mock('../codex-conversation.js', () => ({
@@ -476,9 +479,21 @@ it('advertises reviewed per-chat provider grants to a managed OpenShell runtime'
       expect.arrayContaining([expect.objectContaining({ name: 'RequestWebAccess' })]),
     );
     expect(mocks.conversationOptions?.systemPrompt).toContain('GrantIntegrationAccess');
+    const adoptionEvidence = {
+      storeId: 'notes',
+      sourceCommit: 'a'.repeat(40),
+      payloadSha256: 'b'.repeat(64),
+      manifestSha256: 'c'.repeat(64),
+      sandboxId: 'verified-resource',
+      knowledgeRoot: '/sandbox/workspaces/knowledge/knowledge-' + 'c'.repeat(64) + '/mgmt',
+      runtimeImageDigest: 'sha256:' + 'd'.repeat(64),
+      compilerSha256: 'e'.repeat(64),
+      recipeSha256: 'f'.repeat(64),
+    };
     const adoption = vi
       .spyOn(OpenShellRuntimeManager.prototype, 'adoptKnowledge')
       .mockResolvedValue({
+        adoption: adoptionEvidence,
         sourceCommit: 'a'.repeat(40),
         payloadSha256: 'b'.repeat(64),
         manifestSha256: 'c'.repeat(64),
@@ -499,6 +514,22 @@ it('advertises reviewed per-chat provider grants to a managed OpenShell runtime'
       signal: AbortSignal,
     ) => Promise<string>;
     const refreshed = await prepareContext(AbortSignal.timeout(5000));
+    expect(mocks.recordKnowledgeAdoption).not.toHaveBeenCalled();
+    const acknowledged = mocks.conversationOptions?.onApplicationContextAccepted as (
+      command: string,
+      thread: string,
+      turn: string,
+      context: string,
+    ) => void;
+    acknowledged('message', 'provider-thread', 'provider-turn', refreshed);
+    expect(mocks.recordKnowledgeAdoption).toHaveBeenCalledWith(
+      'conversation',
+      expect.objectContaining({ accountId: 'work' }),
+      'message',
+      'provider-thread',
+      'provider-turn',
+      { ...adoptionEvidence, contextSha256: createHash('sha256').update(refreshed).digest('hex') },
+    );
     expect(refreshed).toContain('Fresh knowledge B');
     expect(refreshed).toContain('/sandbox/workspaces/knowledge/revision/mgmt');
     expect(refreshed).toContain('GrantIntegrationAccess');
