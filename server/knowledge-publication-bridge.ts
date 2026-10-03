@@ -100,16 +100,25 @@ export class KnowledgePublicationBridge {
     const raw = await response.text();
     if (Buffer.byteLength(raw) > 1024 * 1024) throw new Error('Publication response too large');
     const selection = Selection.parse(JSON.parse(raw).current);
-    await this.verify(selection);
+    const manifest = await this.verify(selection);
     signal.throwIfAborted();
     const bundle = await this.adapt(selection, signal);
     if (bundle.sourceCommit !== selection.revision)
       throw new Error('Bundle revision differs from publication');
     if (!isAbsolute(bundle.seed)) throw new Error('Bundle seed must be absolute');
+    const baseline = z
+      .object({ files: z.record(z.string(), z.object({ sha256: sha })) })
+      .parse(JSON.parse(await readFile(join(bundle.seed, '..', 'baseline.json'), 'utf8')));
+    const published = new Map(manifest.files.map((file) => [file.path, file.sha256]));
+    for (const [path, file] of Object.entries(baseline.files)) {
+      if (path.endsWith('.md') && (!safePath(path) || published.get(path) !== file.sha256))
+        throw new Error('Bundle Markdown differs from published source policy');
+    }
+    signal.throwIfAborted();
     return bundle;
   }
 
-  private async verify(selection: PublishedKnowledgeSelection): Promise<void> {
+  private async verify(selection: PublishedKnowledgeSelection): Promise<z.infer<typeof Manifest>> {
     const root = await realpath(this.config.publisherRoot);
     const directory = resolve(selection.directory);
     const sourceRoot = join(root, this.config.source.id);
@@ -160,5 +169,6 @@ export class KnowledgePublicationBridge {
     }
     if (hash(await readFile(join(directory, 'context.json'))) !== manifest.contextSha256)
       throw new Error('Publication context changed');
+    return manifest;
   }
 }

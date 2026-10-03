@@ -44,6 +44,13 @@ async function setup() {
   const fetcher = vi
     .fn<typeof fetch>()
     .mockResolvedValue(new Response(JSON.stringify({ current: selection }), { status: 200 }));
+  const seed = join(root, 'bundle/mgmt');
+  await mkdir(seed, { recursive: true });
+  await writeFile(join(seed, 'AGENTS.md'), content);
+  await writeFile(
+    join(seed, '..', 'baseline.json'),
+    JSON.stringify({ files: { 'AGENTS.md': { sha256: hash(content), mode: '0644' } } }),
+  );
   const adapt = vi
     .fn()
     .mockResolvedValue({ seed: join(root, 'bundle/mgmt'), sourceCommit: revision });
@@ -98,5 +105,20 @@ it('rejects a bundle from another revision', async () => {
   s.adapt.mockResolvedValue({ seed: '/private/bundle/mgmt', sourceCommit: 'b'.repeat(40) });
   await expect(s.bridge.reconcile(new AbortController().signal)).rejects.toThrow(
     'Bundle revision differs',
+  );
+});
+
+it('blocks adapter Markdown outside the publisher path policy', async () => {
+  const s = await setup();
+  const seed = join(s.root, 'bundle/mgmt');
+  await writeFile(join(seed, 'private.md'), 'unselected private information');
+  await writeFile(
+    join(seed, '..', 'baseline.json'),
+    JSON.stringify({
+      files: { 'private.md': { sha256: hash('unselected private information'), mode: '0644' } },
+    }),
+  );
+  await expect(s.bridge.reconcile(new AbortController().signal)).rejects.toThrow(
+    'Bundle Markdown differs from published source policy',
   );
 });
