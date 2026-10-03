@@ -1,4 +1,5 @@
-import { isAbsolute } from 'node:path';
+import { readFileSync, realpathSync } from 'node:fs';
+import { isAbsolute, relative, sep } from 'node:path';
 import { z } from 'zod';
 import type { OwnedReleasePlan } from './symposium-owned-release.js';
 import type { SymposiumCustodianConstructorHooks } from './symposium-custodian-main.js';
@@ -12,6 +13,35 @@ export const StagingLaunchSchema = z.strictObject({
   retentionReason: z.string(),
   reviewAfter: z.number().int().positive(),
 });
+// Verification has already validated the private config. Read only directory metadata;
+// the registry must not mutate release inputs or any owner-controlled state tree.
+function rejectRegistryOverlap(plan: OwnedReleasePlan, directory: string) {
+  if (realpathSync(directory) !== directory) throw Error('Private registry required');
+  const path = z.string().refine(isAbsolute);
+  const config = z
+    .looseObject({
+      gateway: z.looseObject({ stateParent: path }),
+      podman: z.looseObject({ environment: z.looseObject({ HOME: path }) }),
+      runtime: z.looseObject({ seed: path }),
+    })
+    .parse(JSON.parse(readFileSync(plan.configPath, 'utf8')));
+  const contains = (parent: string, child: string) => {
+    const r = relative(parent, child);
+    return r === '' || (r !== '..' && !r.startsWith('..' + sep) && !isAbsolute(r));
+  };
+  const protectedPaths = [
+    plan.releaseRoot,
+    plan.repositoryPath,
+    plan.planDirectory,
+    plan.configPath,
+    plan.appHome,
+    config.gateway.stateParent,
+    config.podman.environment.HOME,
+    config.runtime.seed,
+  ];
+  if (protectedPaths.some((p) => contains(directory, p) || contains(p, directory)))
+    throw Error('Staging registry overlaps owned release or state paths');
+}
 /** Same fresh launcher/host lifetime. No existing registration can be resumed. */
 export async function launchStagingCustodian(
   plan: OwnedReleasePlan,
@@ -24,6 +54,7 @@ export async function launchStagingCustodian(
 ) {
   const input = StagingLaunchSchema.parse(registration);
   deps.verify(plan);
+  rejectRegistryOverlap(plan, input.registryDirectory);
   const registry = openStagingRegistry(input.registryDirectory, input.capacity);
   let owner: ReturnType<typeof registry.reserve> | undefined;
   let terminal = false;
