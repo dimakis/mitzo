@@ -95,6 +95,14 @@ export class TelosArtifactStore {
     this.db.close();
   }
   /** Match the submitted request, not mutable workspace bytes, before reading a path. */
+  /** Shared task outputs are not a private LifeOps evidence vault. */
+  userUploadAllowed(itemId: string): boolean {
+    const item = this.db.prepare('SELECT * FROM items WHERE id=?').get(itemId) as
+      { profile?: string } | undefined;
+    if (!item) throw new Error('Telos item not found');
+    return !/^life[-_ ]?ops$/i.test(item.profile ?? '');
+  }
+
   retryReceipt(
     sessionId: string,
     requestId: string,

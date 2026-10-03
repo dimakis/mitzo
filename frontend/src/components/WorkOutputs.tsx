@@ -6,7 +6,7 @@ import { UserOutputUpload } from './UserOutputUpload';
 import type { TodoOutput } from '../types/todo';
 
 /** Browse durable output bytes even after the producing agent and sandbox are gone. */
-export function WorkOutputs({ itemId }: { itemId: string }) {
+export function WorkOutputs({ itemId, profile }: { itemId: string; profile?: string }) {
   const [result, setResult] = useState<{
     itemId: string;
     artifacts: TodoOutput[];
@@ -57,11 +57,15 @@ export function WorkOutputs({ itemId }: { itemId: string }) {
   return (
     <section className="todo-detail-contract todo-detail-outputs" aria-label="Outputs">
       <h2>Outputs</h2>
-      <UserOutputUpload
-        key={itemId}
-        itemId={itemId}
-        onUploaded={() => setRetry((value) => value + 1)}
-      />
+      {/^life[-_ ]?ops$/i.test(profile ?? '') ? (
+        <p>LifeOps documents require private case storage. Shared output upload is unavailable.</p>
+      ) : (
+        <UserOutputUpload
+          key={itemId}
+          itemId={itemId}
+          onUploaded={() => setRetry((value) => value + 1)}
+        />
+      )}
       {!current ? (
         <p role="status">Loading saved outputs…</p>
       ) : current.error ? (

@@ -69,7 +69,9 @@ export function UserOutputUpload({ itemId, onUploaded }: { itemId: string; onUpl
       }}
     >
       <p>
-        Upload a file for this item. Using the same filename saves a new revision. Maximum 5 MB.
+        Upload a non-sensitive work output for this item. Using the same filename saves a new
+        revision. Maximum 5 MB. Credentials and private financial or health documents belong in
+        private case storage.
       </p>
       <label>
         File to upload

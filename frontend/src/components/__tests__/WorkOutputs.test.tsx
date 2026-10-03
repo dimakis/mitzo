@@ -116,3 +116,10 @@ it('reports HTTP failures as unavailable instead of an empty list', async () => 
   await screen.findByRole('button', { name: 'Retry' });
   expect(screen.queryByText('No saved outputs yet.')).toBeNull();
 });
+
+it('requires private case storage rather than offering file intake for LifeOps', async () => {
+  render(<WorkOutputs itemId="private-case" profile="lifeops" />);
+  await screen.findByText('notes.md');
+  expect(screen.queryByRole('button', { name: 'Upload file' })).toBeNull();
+  expect(screen.getByText(/LifeOps documents require private case storage/)).toBeTruthy();
+});

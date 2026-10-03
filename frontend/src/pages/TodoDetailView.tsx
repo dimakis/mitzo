@@ -231,7 +231,7 @@ export function TodoDetailView() {
           </section>
         )}
 
-        <WorkOutputs key={item.id} itemId={item.id} />
+        <WorkOutputs key={item.id} itemId={item.id} profile={item.profile} />
 
         {item.children.length > 0 && (
           <section className="todo-detail-children">

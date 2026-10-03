@@ -74,3 +74,23 @@ recover exact files from the original workspace, verify their hashes and backfil
 Telos with source provenance. Preserve unresolved decisions from the original
 spec instead of inventing answers. Replace temporary sandbox-only handover paths
 with durable artifact IDs and versions, while retaining the origin as provenance.
+
+## User output uploads
+
+The Outputs section accepts non-sensitive work documents from an authenticated
+operator without requiring a live model session. Uploads use the same task store,
+attachment-only retrieval and immutable revisions. Files are capped at5MiB;
+allowed document/image types have bounded encoding and basic header checks.
+These checks do not scan for malware or establish that a document is safe.
+A same filename saves a new revision. Retry preserves its original receipt.
+Server-derived user-upload provenance is distinct from agent session artifacts
+and external Codex report capture. Operator authority is checked before parsing
+and again immediately before saving; the internal agent token cannot substitute.
+
+This shared SQLite task store is not encrypted private evidence storage.
+Credentials and raw financial or health documents remain excluded. LifeOps-profile
+items refuse this upload endpoint and show the private-case-storage requirement.
+Secure LifeOps intake needs a configured encrypted vault adapter, trusted operator
+ownership, bounded import validation, retention/recovery policy and links to
+sanitized task outputs. No such adapter is implemented by this change; do not
+advertise these user-output uploads as secure raw LifeOps document ingestion.

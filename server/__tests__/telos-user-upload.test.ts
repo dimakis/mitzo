@@ -202,3 +202,15 @@ it('revalidates the operator at mutation even when agent authority admitted the 
   expect(result.status).toBe(403);
   expect(result.body.artifact).toBeUndefined();
 });
+
+it('refuses LifeOps private intake through the shared plaintext output store', async () => {
+  const { upload, path } = setup();
+  const db = new Database(path);
+  db.exec(
+    "ALTER TABLE items ADD COLUMN profile TEXT; UPDATE items SET profile='lifeops' WHERE id='lifeops';",
+  );
+  db.close();
+  const result = await upload({ requestId: 'private-intake' }, 'lifeops');
+  expect(result.status).toBe(403);
+  expect(result.body.error).toContain('private case storage');
+});
