@@ -110,3 +110,50 @@ export function expireAccountSignIns(
   });
   return changed ? { ...inventory, resources } : inventory;
 }
+
+/** Only account rows from an explicitly unavailable owning source can be cached. */
+export function accountResourceSource(
+  resource: AccessResource,
+): 'accounts' | 'symposiumAccounts' | null {
+  if (resource.kind !== 'ai-account') return null;
+  if (resource.owner === 'account-profiles') return 'accounts';
+  if (resource.owner === 'symposium-account-profiles') return 'symposiumAccounts';
+  return null;
+}
+
+export function retainUnavailableAccounts(
+  previous: ConnectionsAccessInventory | null,
+  next: ConnectionsAccessInventory,
+): ConnectionsAccessInventory {
+  if (!previous) return next;
+  const failed = new Set(
+    next.sources.filter((source) => source.state === 'unavailable').map((source) => source.id),
+  );
+  const ids = new Set(next.resources.map((resource) => resource.id));
+  const retained: AccessResource[] = [];
+  for (const resource of previous.resources) {
+    const source = accountResourceSource(resource);
+    if (!source || !failed.has(source) || ids.has(resource.id)) continue;
+    ids.add(resource.id);
+    retained.push({
+      ...resource,
+      signIn:
+        resource.signIn &&
+        (resource.signIn.status === 'verified' || resource.signIn.status === 'stale')
+          ? {
+              ...resource.signIn,
+              status: 'stale',
+              explanation: 'Account source is unavailable. Showing an older sign-in check.',
+            }
+          : resource.signIn,
+      verification: {
+        ...resource.verification,
+        state: resource.verification.state === 'verified' ? 'stale' : resource.verification.state,
+      },
+      personalConnection: resource.personalConnection
+        ? { ...resource.personalConnection, state: 'unavailable' }
+        : undefined,
+    });
+  }
+  return retained.length ? { ...next, resources: [...next.resources, ...retained] } : next;
+}

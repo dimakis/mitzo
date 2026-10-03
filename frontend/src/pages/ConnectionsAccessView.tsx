@@ -10,6 +10,8 @@ import {
   hasAccountSignIn,
   expireAccountSignIns,
   connectionsAccessCards,
+  retainUnavailableAccounts,
+  accountResourceSource,
 } from '../lib/connections-access-presentation';
 import type { AccessResource, ConnectionsAccessInventory } from '../types/connections-access';
 
@@ -355,7 +357,9 @@ export function ConnectionsAccessView() {
     getConnectionsAccess(controller.signal)
       .then((result) => {
         if (!controller.signal.aborted) {
-          setInventory(expireAccountSignIns(result));
+          setInventory((previous) =>
+            expireAccountSignIns(retainUnavailableAccounts(previous, result)),
+          );
           setError(false);
         }
       })
@@ -574,6 +578,16 @@ export function ConnectionsAccessView() {
                 Try again
               </button>
             </div>
+          )}
+          {inventory?.sources.some(
+            (source) =>
+              source.id === accountResourceSource(selection.resource) &&
+              source.state === 'unavailable',
+          ) && (
+            <p role="status" className="access-source-notice">
+              Showing an older account. Its source is unavailable; current account details could not
+              be checked.
+            </p>
           )}
           <ResourceDetails
             key={`${selection.resource.id}:${inventory?.generatedAt}`}

@@ -4,6 +4,7 @@ import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { ConnectionsAccessView } from '../ConnectionsAccessView';
 import { getConnectionsAccess } from '../../lib/connections-access-api';
+import { retainUnavailableAccounts } from '../../lib/connections-access-presentation';
 import type { ConnectionsAccessInventory } from '../../types/connections-access';
 import { act } from 'react';
 
@@ -841,3 +842,162 @@ it('expires provider sign-in at its grant deadline while preserving the configur
   expect(within(screen.getByRole('dialog')).getByText('Configured Luna')).toBeTruthy();
   expect(getConnectionsAccess).toHaveBeenCalledTimes(1);
 });
+
+it.each([
+  ['account-profiles', 'accounts', 'AI accounts'],
+  ['symposium-account-profiles', 'symposiumAccounts', 'Symposium AI accounts'],
+] as const)(
+  'retains unavailable %s rows and an open drawer while replacing fresh service rows',
+  async (owner, sourceId, sourceLabel) => {
+    const current = signInInventory({
+      ...checkedSignIn,
+      checkedAt: Date.now(),
+      expiresAt: Date.now() + 60_000,
+    });
+    current.resources[0].owner = owner;
+    current.resources[0].personalConnection = {
+      resourceId: 'personal',
+      revision: 3,
+      state: 'current',
+    };
+    current.sources = [{ id: sourceId, state: 'available', reason: null }];
+    const latestService = {
+      ...current.resources[0],
+      id: 'service',
+      label: 'Latest Jira',
+      kind: 'managed-connection' as const,
+      section: 'services' as const,
+      owner: 'managed-connections',
+      provider: 'jira',
+      signIn: undefined,
+      personalConnection: undefined,
+    };
+    const partial = {
+      generatedAt: 2,
+      sources: [
+        { id: sourceId, state: 'unavailable', reason: 'Account source could not be read.' },
+        { id: 'managed', state: 'available', reason: null },
+      ],
+      resources: [latestService],
+    } satisfies ConnectionsAccessInventory;
+    vi.mocked(getConnectionsAccess)
+      .mockResolvedValueOnce(current)
+      .mockResolvedValueOnce(partial)
+      .mockResolvedValueOnce({ ...current, generatedAt: 3 });
+    render(
+      <MemoryRouter>
+        <ConnectionsAccessView />
+      </MemoryRouter>,
+    );
+    const row = await screen.findByRole('article', { name: 'Host account' });
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh access' }));
+    fireEvent.click(within(row).getByRole('button', { name: 'Manage Host account' }));
+    await screen.findByText(`${sourceLabel}: Source unavailable`);
+    const dialog = within(screen.getByRole('dialog', { name: 'Host account' }));
+    expect(dialog.getByText('Check is stale')).toBeTruthy();
+    expect(dialog.getByText(/Showing an older account/)).toBeTruthy();
+    expect(
+      dialog.getByText(new Date(current.resources[0].signIn!.checkedAt!).toLocaleString()),
+    ).toBeTruthy();
+    expect(dialog.getByText('Configured Luna')).toBeTruthy();
+    expect(dialog.getByText(/Personal account details could not be checked/)).toBeTruthy();
+    expect(screen.getByRole('article', { name: 'Latest Jira', hidden: true })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Close details' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh access' }));
+    await within(row).findByText('Sign-in: Signed in');
+  },
+);
+it.each(['available', 'not-configured'] as const)(
+  'removes prior account rows when its source is authoritatively %s',
+  async (state) => {
+    vi.mocked(getConnectionsAccess)
+      .mockResolvedValueOnce(signInInventory({ ...checkedSignIn, checkedAt: Date.now() }))
+      .mockResolvedValueOnce({
+        generatedAt: 2,
+        resources: [],
+        sources: [{ id: 'accounts', state, reason: null }],
+      });
+    render(
+      <MemoryRouter>
+        <ConnectionsAccessView />
+      </MemoryRouter>,
+    );
+    const row = await screen.findByRole('article', { name: 'Host account' });
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh access' }));
+    fireEvent.click(within(row).getByRole('button', { name: 'Manage Host account' }));
+    await vi.waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(screen.queryByRole('article', { name: 'Host account' })).toBeNull();
+  },
+);
+
+it('retains only exact account owners without duplicating an ID already in the newer response', () => {
+  const previous = signInInventory({ ...checkedSignIn, checkedAt: Date.now() });
+  previous.resources.push(
+    { ...previous.resources[0], id: 'unrelated', owner: 'another-account-service' },
+    {
+      ...previous.resources[0],
+      id: 'personal',
+      kind: 'personal-connection',
+      owner: 'account-profiles',
+    },
+  );
+  const newer = { ...previous.resources[0], label: 'Newer account' };
+  const next: ConnectionsAccessInventory = {
+    generatedAt: 2,
+    sources: [{ id: 'accounts', state: 'unavailable', reason: null }],
+    resources: [newer],
+  };
+  expect(retainUnavailableAccounts(previous, next)).toBe(next);
+  expect(next.resources).toEqual([newer]);
+});
+
+it.each(['failed', 'not-checked', 'unsupported'] as const)(
+  'preserves %s sign-in when retaining older configuration from an unavailable source',
+  (status) => {
+    const previous = signInInventory({
+      ...checkedSignIn,
+      status,
+      checkedAt: null,
+      observedIdentity: null,
+    });
+    const next: ConnectionsAccessInventory = {
+      generatedAt: 2,
+      resources: [],
+      sources: [{ id: 'accounts', state: 'unavailable', reason: null }],
+    };
+    const retained = retainUnavailableAccounts(previous, next).resources[0];
+    expect(retained.signIn).toEqual(previous.resources[0].signIn);
+  },
+);
+
+it.each(['available', 'not-configured'] as const)(
+  'removes cached Symposium catalogs when their source becomes %s',
+  async (state) => {
+    const current = signInInventory({ ...checkedSignIn, checkedAt: Date.now() });
+    current.resources[0].owner = 'symposium-account-profiles';
+    vi.mocked(getConnectionsAccess)
+      .mockResolvedValueOnce(current)
+      .mockResolvedValueOnce({
+        generatedAt: 2,
+        resources: [],
+        sources: [{ id: 'symposiumAccounts', state: 'unavailable', reason: null }],
+      })
+      .mockResolvedValueOnce({
+        generatedAt: 3,
+        resources: [],
+        sources: [{ id: 'symposiumAccounts', state, reason: null }],
+      });
+    render(
+      <MemoryRouter>
+        <ConnectionsAccessView />
+      </MemoryRouter>,
+    );
+    const row = await screen.findByRole('article', { name: 'Host account' });
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh access' }));
+    await within(row).findByText('Sign-in: Check is stale');
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh access' }));
+    fireEvent.click(within(row).getByRole('button', { name: 'Manage Host account' }));
+    await vi.waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(screen.queryByRole('article', { name: 'Host account' })).toBeNull();
+  },
+);

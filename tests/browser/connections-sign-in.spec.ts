@@ -5,8 +5,20 @@ test('shows broker connection evidence, configured identity and access scope sep
   page,
 }) => {
   await page.routeWebSocket('**/*', (socket) => socket.close());
+  let sourceUnavailable = false;
   await page.route('**/api/**', async (route) => {
     if (new URL(route.request().url()).pathname === '/api/connections-access') {
+      if (sourceUnavailable) {
+        return route.fulfill({
+          json: {
+            generatedAt: Date.now(),
+            resources: [],
+            sources: [
+              { id: 'accounts', state: 'unavailable', reason: 'Account source could not be read.' },
+            ],
+          },
+        });
+      }
       return route.fulfill({
         json: {
           generatedAt: 1_700_000_000_000,
@@ -84,4 +96,15 @@ test('shows broker connection evidence, configured identity and access scope sep
     path: test.info().outputPath('connections-sign-in.png'),
     fullPage: true,
   });
+  await dialog.getByRole('button', { name: 'Close details' }).click();
+  sourceUnavailable = true;
+  await page.getByRole('button', { name: 'Refresh access' }).click();
+  await expect(page.getByText('AI accounts: Source unavailable', { exact: true })).toBeVisible();
+  await expect(row.getByText('Sign-in: Check is stale', { exact: true })).toBeVisible();
+  await row.getByRole('button', { name: 'Manage Work Codex' }).click();
+  await expect(dialog.getByText('Check is stale', { exact: true })).toBeVisible();
+  await expect(dialog.getByText(/Showing an older account/)).toBeVisible();
+  await expect(dialog.getByText('configured@example.test', { exact: true })).toBeVisible();
+  await expect(dialog.getByText('Last sign-in check', { exact: true })).toBeVisible();
+  await expect(dialog.getByText('Connected', { exact: true })).toHaveCount(0);
 });
