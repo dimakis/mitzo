@@ -51,7 +51,7 @@ Symposium director status resolves the verified runtime once per request and reu
 - **iOS app** — native wrapper via Capacitor with push notifications and home-screen install
 - **Auto-rename sessions** — sessions get meaningful names via LLM summarization after every few prompts
 - **Quick actions** — one-tap commands via `.mitzo.json`
-- **Push notifications** — ntfy + Pushover (Apple Watch) when Claude needs approval
+- **Notifications center** — shared desktop/mobile feed for approvals, questions, session completions, and new Inbox arrivals, with native iPhone/Apple Watch delivery
 - **Image attachments** — send photos/screenshots from your camera
 - **Session history** — resume past conversations, swipe to dismiss
 - **Managed Connections** — attach reviewed Jira, GitHub, and bounded custom REST providers to eligible accounts; publish GitHub pull requests through an approved controller operation
@@ -399,6 +399,44 @@ Tasks with `sessionPolicy: spawn` run only in dedicated sessions. When session s
 | `pushover.ts`             | Pushover (Apple Watch) notifications         |
 | `apns.ts`                 | Apple Push Notification Service (iOS native) |
 | `notification-helpers.ts` | Shared notification formatting utilities     |
+
+The authenticated `/notifications` page uses a durable local SQLite feed at
+`.mitzo/notifications.db`. Desktop navigation and mobile **More** show the number
+of unresolved requests, rather than the size of an unread backlog. Reading an
+item does not grant permission; a response on any client resolves the shared
+request. Expired or already resolved requests cannot be approved. Conversation
+access grants must be reviewed in the session; ordinary requests support **Allow
+once**, **Deny**, and structured question answers.
+
+Preferences control native APNs approvals, questions, completion alerts
+(unattended by default, all sessions, or off), preview privacy, and quiet hours
+in an explicit timezone. Quiet hours defer pushes while requests retain their
+existing deadlines. Lock-screen previews are generic unless enabled. New Inbox
+POSTs appear in the feed; proposals and existing files do not trigger push or a
+historical replay. This does not change existing ntfy/Pushover configuration.
+
+Configure the existing `APNS_*` environment variables and register an iPhone to
+enable native delivery. Push taps open the corresponding notification, session
+completion alerts retain inline replies, and badge-only pushes use Apple's
+[alert push type](https://developer.apple.com/documentation/usernotifications/sending-notification-requests-to-apns).
+The new native badge bridge also clears the icon to zero on authenticated refresh.
+The preferences screen shows server/device readiness and offers a real test alert;
+APNs acceptance is not proof of physical delivery. iPhone permissions, Focus,
+and Watch mirroring settings determine what reaches the wrist.
+
+The Watch app's **Notifications** entry loads the latest ten items through the
+paired iPhone's authenticated relay, shows full request details, and supports
+ordinary one-shot approval or denial. Questions and conversation access grants
+are reviewed on iPhone. Oversized relay payloads fail with a request to review on
+iPhone, rather than truncating approval details. A reachable paired iPhone is
+required. Ship an updated iOS/Watch binary for the new native entry and badge
+bridge; a web deployment alone cannot update installed native code.
+
+| File                     | Purpose                                                                   |
+| ------------------------ | ------------------------------------------------------------------------- |
+| `notification-store.ts`  | Durable feed, read state, delivery queue, and preferences                 |
+| `notification-center.ts` | Permission lifecycle, session completion events, and APNs delivery policy |
+| `notification-routes.ts` | Operator-authenticated feed and response API                              |
 
 **WebSocket & Transport**
 
