@@ -95,7 +95,7 @@ export function expireAccountSignIns(
     if (
       signIn.checkedAt !== null &&
       now - signIn.checkedAt < 5 * 60_000 &&
-      (resource.details.expiresAt == null || resource.details.expiresAt > now)
+      (signIn.expiresAt == null || signIn.expiresAt <= 0 || signIn.expiresAt > now)
     )
       return resource;
     changed = true;

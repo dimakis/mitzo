@@ -188,6 +188,7 @@ export interface AccountSignIn {
   status: 'verified' | 'failed' | 'stale' | 'not-checked' | 'unsupported';
   source: 'host-account-read' | 'openshell-provider-grant' | 'isolated-native-auth' | null;
   checkedAt: number | null;
+  expiresAt?: number | null;
   configuredIdentity: { email: string; planType: string };
   observedIdentity: { email: string; planType: string } | null;
   profileRevision: string;
@@ -319,6 +320,7 @@ export class AccountProfiles {
           ? 'host-account-read'
           : 'openshell-provider-grant',
       checkedAt: null,
+      expiresAt: null,
       configuredIdentity: { email: profile.email, planType: profile.planType },
       observedIdentity: null,
       profileRevision,
@@ -371,6 +373,7 @@ export class AccountProfiles {
               ...evidence,
               status: 'verified',
               checkedAt: Date.now(),
+              expiresAt,
               explanation:
                 'Your OpenShell connection is valid. Email and plan come from your account settings; model and tool access are checked separately.',
             });
@@ -380,6 +383,7 @@ export class AccountProfiles {
               status: 'failed',
               checkedAt: Date.now(),
               observedIdentity: null,
+              expiresAt: null,
               explanation: checkSignal.aborted
                 ? 'Sign-in check timed out or was cancelled. Retry later.'
                 : 'The configured subscription provider and grant could not be verified. Check sign-in and retry.',

@@ -117,6 +117,7 @@ it('marks broker evidence stale as soon as its verified grant expires', async ()
     const accounts = new AccountProfiles([profile], { codexEnabled: true });
     await accounts.checkSignIn(new AbortController().signal);
     expect(accounts.catalog()[0].signIn?.status).toBe('verified');
+    expect(accounts.catalog()[0].signIn?.expiresAt).toBe(Date.now() + 100);
     vi.advanceTimersByTime(100);
     expect(accounts.catalog()[0].signIn?.status).toBe('stale');
   } finally {

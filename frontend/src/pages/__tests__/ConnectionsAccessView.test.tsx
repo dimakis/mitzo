@@ -823,3 +823,21 @@ it('expires displayed sign-in evidence after five minutes without making a new r
   expect(within(row).queryByText('Sign-in: Signed in')).toBeNull();
   expect(getConnectionsAccess).toHaveBeenCalledTimes(1);
 });
+
+it('expires provider sign-in at its grant deadline while preserving the configured catalog', async () => {
+  vi.useFakeTimers({ toFake: ['Date', 'setInterval', 'clearInterval'] });
+  const row = await renderSignIn({
+    ...checkedSignIn,
+    checkedAt: Date.now(),
+    source: 'openshell-provider-grant',
+    observedIdentity: null,
+    expiresAt: Date.now() + 60_000,
+  });
+  expect(within(row).getByText('Sign-in: Connected')).toBeTruthy();
+  await act(async () => vi.advanceTimersByTimeAsync(60_000));
+  expect(within(row).getByText('Sign-in: Check is stale')).toBeTruthy();
+  expect(within(row).getByText('Configured: configured@example.test')).toBeTruthy();
+  fireEvent.click(within(row).getByRole('button', { name: 'Manage Host account' }));
+  expect(within(screen.getByRole('dialog')).getByText('Configured Luna')).toBeTruthy();
+  expect(getConnectionsAccess).toHaveBeenCalledTimes(1);
+});
