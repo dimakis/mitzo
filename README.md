@@ -581,6 +581,17 @@ reviewed dynamic runtime lock and enrollment at `publications/current/mgmt`;
 legacy deployed environments remain unenrolled until explicitly migrated. Host, Claude, Responses and
 Symposium consumer enrollment still require their respective adoption contracts.
 
+Set host-only `MITZO_KNOWLEDGE_STORE_CONFIG` to enroll ordinary OpenShell Codex
+chats in the configurable ContexGin publisher bridge. The selected store identifies
+its accepted Git source and a clean pinned `mgmt-v1` adapter release. A signed
+GitHub webhook wakes publication; sandbox creation and safe-turn admission also
+reconcile the accepted ref, verify its snapshot and wait for exact revision
+conversion. Provider acknowledgement records an account-scoped durable adoption
+receipt. Shared knowledge updates preserve writable task branches and dirty
+worktrees. This requires supervised publisher storage, adapter dependencies and a
+compatible reviewed runtime; configuration alone cannot upgrade a legacy image.
+See the operating contract for the configuration schema and delivery scope.
+
 Production deploys use `./scripts/create-release.sh origin/main`. The command
 fetches only current `origin/main`, refuses every other commit, creates a
 self-contained detached release clone, records full commit/tree/base provenance

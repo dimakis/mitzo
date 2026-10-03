@@ -80,6 +80,13 @@ export interface CodexConversationOptions {
   onProviderDispatch?: (commandId: string) => void;
   /** Persist an exact provider turn receipt after turn/start confirms its ID. */
   onProviderAccepted?: (commandId: string, threadId: string, turnId: string) => void;
+  /** Called only after the provider confirms the exact turn/start request carrying this context. */
+  onApplicationContextAccepted?: (
+    commandId: string,
+    threadId: string,
+    turnId: string,
+    context: string,
+  ) => void;
   onProviderComplete?: (commandId: string, status: 'completed' | 'interrupted' | 'failed') => void;
   /** Only the matching native turn/completed notification, never transport loss or close. */
   onProviderTerminal?: (
@@ -1104,6 +1111,13 @@ export class CodexConversation {
           throw new Error('Codex turn identity changed');
         active.turnId = result.turn.id;
         this.opts.onProviderAccepted?.(command.id, this.threadId!, active.turnId);
+        if (systemPrompt !== undefined)
+          this.opts.onApplicationContextAccepted?.(
+            command.id,
+            this.threadId!,
+            active.turnId,
+            systemPrompt,
+          );
         active.accepted = true;
         const completion = active.completions.get(active.turnId);
         if (completion) {

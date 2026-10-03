@@ -34,7 +34,10 @@ import {
   SUPPORTED_CODEX_CLI_VERSION,
 } from './codex-app-server-client.js';
 import { CodexConversation } from './codex-conversation.js';
-import { CodexConversationStore } from './codex-conversation-store.js';
+import {
+  CodexConversationStore,
+  type KnowledgeAdoptionSelection,
+} from './codex-conversation-store.js';
 import type { CodexAccountProfile } from './codex-account.js';
 import {
   createNativeToolExecutor,
@@ -774,9 +777,16 @@ async function openCodexChatBound(
   let startup: { context?: string };
   try {
     if (runtimeManager) {
-      const context = await runtimeManager!.compileContext(managedOpenShell!, signal);
-      options.onBootContext?.(context);
-      startup = { context: context.fullMarkdown };
+      // Enrolled sessions receive accepted guidance through prepareSystemPrompt
+      // on each turn. A retained writable checkout can contain older guidance;
+      // never install that context as persistent thread developer instructions.
+      if (configuredRuntime?.knowledgeStore) {
+        startup = {};
+      } else {
+        const context = await runtimeManager!.compileContext(managedOpenShell!, signal);
+        options.onBootContext?.(context);
+        startup = { context: context.fullMarkdown };
+      }
     } else {
       startup = hooks
         ? await hooks.run('SessionStart', { source: options.resume ? 'resume' : 'startup' }, signal)
@@ -844,6 +854,7 @@ async function openCodexChatBound(
     (managedConnection?.templateId === 'jira-readonly'
       ? '\nThis sandbox has verified read-only Jira access to https://redhat.atlassian.net. Use the scoped API base in JIRA_URL (not the browser site URL). Use the provider-approved /usr/bin/python3 or curl with JIRA_URL, JIRA_EMAIL, and the gateway-managed JIRA_API_TOKEN placeholder for Basic authorization. Never print credential values. Writes are denied by the gateway policy.\n'
       : '');
+  let pendingKnowledge: Omit<KnowledgeAdoptionSelection, 'contextSha256'> | undefined;
   const runtime: CodexConversation = new CodexConversation({
     conversationId: options.conversationId,
     cwd: options.session.cwd!,
@@ -863,18 +874,34 @@ async function openCodexChatBound(
       ? {
           prepareSystemPrompt: async (signal: AbortSignal) =>
             sharedOpenShellLifecycleCoordinator.admit(options.conversationId, async () => {
+              pendingKnowledge = undefined;
               const selected = await runtimeManager!.adoptKnowledge(
                 options.conversationId,
                 managedOpenShell!,
                 signal,
               );
               if (!selected) return undefined;
+              pendingKnowledge = selected.adoption;
               options.onBootContext?.(selected.context);
               return (
                 baseSystemPrompt +
                 `\n\n# Published MGMT knowledge\nAccepted source: ${selected.sourceCommit}\nBundle: ${selected.payloadSha256}\nRead shared project instructions from ${selected.knowledgeRoot}/AGENTS.md. Search and read accepted knowledge under ${selected.knowledgeRoot}/memory/. This published view supersedes older accepted knowledge in the task checkout. Keep edits and new observations in the writable task workspace; do not modify the published knowledge view. A local commit is not evidence of publication or adoption elsewhere.\n\n${selected.context.fullMarkdown}`
               );
             }),
+          onApplicationContextAccepted: (commandId, threadId, turnId, context) => {
+            if (!pendingKnowledge) return;
+            privateStorage.recordKnowledgeAdoption(
+              options.conversationId,
+              options.binding,
+              commandId,
+              threadId,
+              turnId,
+              {
+                ...pendingKnowledge,
+                contextSha256: createHash('sha256').update(context).digest('hex'),
+              },
+            );
+          },
           reconnectGuard: connectionService
             ? (work: () => Promise<void>) =>
                 connectionService.withAccountRuntimes(
