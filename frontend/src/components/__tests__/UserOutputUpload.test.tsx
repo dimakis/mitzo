@@ -59,3 +59,18 @@ it('rejects oversized files before reading or sending', async () => {
   await screen.findByText('File exceeds 5 MB.');
   expect(apiFetch).not.toHaveBeenCalled();
 });
+
+it('clears native picker value after retaining the File so selecting the same path refreshes bytes', async () => {
+  render(<UserOutputUpload itemId="work" onUploaded={() => {}} />);
+  const input = screen.getByLabelText('File to upload') as HTMLInputElement;
+  Object.defineProperty(input, 'value', {
+    configurable: true,
+    writable: true,
+    value: 'C:\\fakepath\\notes.md',
+  });
+  fireEvent.change(input, { target: { files: [new File(['notes'], 'notes.md')] } });
+  expect(input.value).toBe('');
+  expect((screen.getByRole('button', { name: 'Upload file' }) as HTMLButtonElement).disabled).toBe(
+    false,
+  );
+});

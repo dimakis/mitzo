@@ -81,6 +81,7 @@ export function UserOutputUpload({ itemId, onUploaded }: { itemId: string; onUpl
           accept=".txt,.md,.csv,.json,.pdf,.png,.jpg,.jpeg,.webp,.docx,.xlsx"
           onChange={(event) => {
             setFile(event.target.files?.[0] ?? null);
+            event.target.value = '';
             setError(null);
             setMessage(null);
             requestId.current = crypto.randomUUID();
