@@ -818,3 +818,11 @@ read-only reconciliation; it never reissues Create PR, replaces an approval, or 
 credentials after custodian loss. See [publication recovery](docs/operations/symposium-sealed-publication-authority.md#fresh-app-authentication-and-read-only-recovery).
 
 The `Centaur merge gate` workflow publishes a `Centaur final LGTM` commit status. Main branch protection requires it alongside CI: only a final Centaur LGTM with a merge recommendation and zero blockers for the current head passes. Pushes invalidate old approvals; review edits and dismissals recheck the status. A review-cycle limit requires an explicit final review, never a bypass. The workflow executes no pull-request code with its status-write token.
+
+### Encrypted ecosystem backups
+
+An opt-in backup foundation provides store-owner SQLite snapshots, Restic encryption,
+and immutable incremental export to iCloud Drive. It is not enabled in production.
+Live store fences, independent recovery keys, upload verification, scheduling and
+replacement-machine acceptance must be configured before claiming protection. See
+[the implementation and rollout contract](docs/operations/icloud-ecosystem-backup.md).
