@@ -592,6 +592,16 @@ worktrees. This requires supervised publisher storage, adapter dependencies and 
 compatible reviewed runtime; configuration alone cannot upgrade a legacy image.
 See the operating contract for the configuration schema and delivery scope.
 
+Supported retained ordinary Codex sandboxes migrate at resume or a completed-turn
+admission boundary into an attested candidate. The transition preserves dirty and
+untracked task Git state, the provider thread/account route and queued FIFO, and
+keeps the original sandbox and immutable checkpoint. Actual image/policy, ordinary
+ownership, idle provider activity and measured host/VM capacity must verify; unknown
+source contracts and unsupported Git/provider layouts remain visibly blocked.
+Current runtimes retain normal provider recovery without entering migration. See
+[retained runtime migration](docs/operations/retained-runtime-migration.md) for
+transaction recovery, eligibility and rollout drain requirements.
+
 Production deploys use `./scripts/create-release.sh origin/main`. The command
 fetches only current `origin/main`, refuses every other commit, creates a
 self-contained detached release clone, records full commit/tree/base provenance

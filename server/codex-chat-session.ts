@@ -1,3 +1,4 @@
+import { prepareRetainedRuntimeMigration } from './openshell-runtime-migration-adapter.js';
 import {
   executeTelosArtifactTool,
   isTelosArtifactTool,
@@ -63,6 +64,7 @@ import {
 import { sharedOpenShellLifecycleCoordinator } from './openshell-lifecycle.js';
 import {
   registerOpenShellLifecycle,
+  registerMigratedOpenShellLifecycle,
   registerOpenShellLifecycleProvisional,
   restoreOpenShellLifecycleIfNeeded,
   touchOpenShellLifecycle,
@@ -186,6 +188,28 @@ function capabilityToolsForConversation(
 }
 /** Only transport safe, stable runtime diagnostics to the client. */
 export function publicCodexRuntimeError(error: Error): string {
+  if (
+    /^(Retained migration|Migration |Runtime (source|image)|OpenShell migration|Runtime migration)/.test(
+      error.message,
+    ) ||
+    /unsupported provider state|writer is still open|execution process is still running|no space left/i.test(
+      error.message,
+    )
+  ) {
+    const reason = /no space left|capacity|disk.*full/i.test(error.message)
+      ? 'There is insufficient sandbox storage capacity.'
+      : /unsupported provider state|supported contract/i.test(error.message)
+        ? 'The source runtime or provider layout is not supported.'
+        : /policy/i.test(error.message)
+          ? 'The observed sandbox policy differs from the reviewed contract.'
+          : /writer|execution|activity/i.test(error.message)
+            ? 'Provider activity has not reached a verified idle boundary.'
+            : /blocked; inspect/i.test(error.message)
+              ? 'A preserved migration diagnostic requires inspection or its retry interval has not elapsed.'
+              : 'Runtime identity or checkpoint verification has not completed.';
+    return `Retained sandbox migration is blocked. ${reason} Its task files and provider thread are preserved.`;
+  }
+
   if (error instanceof ProviderFailureError) return error.failure.message;
   const message = error.message;
   if (
@@ -464,9 +488,13 @@ async function openCodexChatBound(
     throw new Error(
       'OpenShell native tools do not yet support Mitzo Ask mode; select Agent or Auto mode.',
     );
-  const runtimeManager = configuredRuntime
+  const routedRuntime = options.resume
+    ? store().readArtifactRuntime(options.conversationId, options.binding)
+    : null;
+  let runtimeManager = configuredRuntime
     ? new OpenShellRuntimeManager({
         ...configuredRuntime,
+        ...(routedRuntime ? { sandboxNameOverride: routedRuntime.runtime.sandboxName } : {}),
         serviceProviders: [
           ...configuredRuntime.serviceProviders,
           ...managedConnections.map((connection) => connection.gatewayProviderName),
@@ -497,13 +525,38 @@ async function openCodexChatBound(
   let managedOpenShell: OpenShellRuntime | undefined;
   try {
     managedOpenShell = runtimeManager
-      ? await runtimeManager.ensure(options.conversationId, options.session.abortController.signal)
+      ? await runtimeManager!.ensure(options.conversationId, options.session.abortController.signal)
       : undefined;
   } catch (error) {
     startupReservation?.();
     throw error;
   }
   const signal = options.session.abortController.signal;
+  try {
+    if (options.resume && runtimeManager && managedOpenShell?.sandboxId && configuredRuntime) {
+      const selected = await prepareRetainedRuntimeMigration({
+        conversationId: options.conversationId,
+        binding: options.binding,
+        store: store(),
+        source: {
+          runtime: { ...managedOpenShell, sandboxId: managedOpenShell.sandboxId },
+          route: selectedOpenShellAccountRoute(options),
+        },
+        config: configuredRuntime,
+        manager: runtimeManager,
+        privateDirectory: codexPrivateDirectory(),
+        signal,
+      });
+      managedOpenShell = selected.runtime;
+      runtimeManager = runtimeManager!.forSandbox(selected.runtime.sandboxName);
+      const migration = store().readRuntimeMigration(options.conversationId, options.binding);
+      if (migration?.phase === 'committed')
+        registerMigratedOpenShellLifecycle(options.conversationId, options.binding, migration);
+    }
+  } catch (error) {
+    startupReservation?.();
+    throw error;
+  }
   try {
     if (runtimeManager && managedOpenShell) {
       // A resumed conversation must validate its durable recovery record before
@@ -600,7 +653,7 @@ async function openCodexChatBound(
   ) => {
     if (!runtimeManager || !managedOpenShell)
       return { content: 'Integration provider is not grantable', isError: true };
-    const access = await runtimeManager.hasServiceProviderAccess(
+    const access = await runtimeManager!.hasServiceProviderAccess(
       options.conversationId,
       managedOpenShell,
       provider,
@@ -629,14 +682,14 @@ async function openCodexChatBound(
             options.binding.accountId,
             signal,
             () =>
-              runtimeManager.grantServiceProvider(
+              runtimeManager!.grantServiceProvider(
                 options.conversationId,
                 managedOpenShell,
                 provider,
                 signal,
               ),
             () =>
-              runtimeManager.revokeServiceProvider(
+              runtimeManager!.revokeServiceProvider(
                 options.conversationId,
                 managedOpenShell,
                 provider,
@@ -645,7 +698,7 @@ async function openCodexChatBound(
           );
           return true;
         }
-        await runtimeManager.grantServiceProvider(
+        await runtimeManager!.grantServiceProvider(
           options.conversationId,
           managedOpenShell,
           provider,
@@ -730,7 +783,7 @@ async function openCodexChatBound(
       if (configuredRuntime?.knowledgeStore) {
         startup = {};
       } else {
-        const context = await runtimeManager.compileContext(managedOpenShell!, signal);
+        const context = await runtimeManager!.compileContext(managedOpenShell!, signal);
         options.onBootContext?.(context);
         startup = { context: context.fullMarkdown };
       }
@@ -822,7 +875,7 @@ async function openCodexChatBound(
           prepareSystemPrompt: async (signal: AbortSignal) =>
             sharedOpenShellLifecycleCoordinator.admit(options.conversationId, async () => {
               pendingKnowledge = undefined;
-              const selected = await runtimeManager.adoptKnowledge(
+              const selected = await runtimeManager!.adoptKnowledge(
                 options.conversationId,
                 managedOpenShell!,
                 signal,
@@ -871,9 +924,70 @@ async function openCodexChatBound(
                   signal,
                 )
             : undefined,
+          beforeRuntimeAdmission: async (closeOwnedTransport: () => Promise<void>) => {
+            if (!managedOpenShell?.sandboxId || !configuredRuntime) return false;
+            return sharedOpenShellLifecycleCoordinator.admit(options.conversationId, async () => {
+              const previousId = managedOpenShell!.sandboxId;
+              const selected = await prepareRetainedRuntimeMigration({
+                conversationId: options.conversationId,
+                binding: options.binding,
+                store: privateStorage,
+                source: {
+                  runtime: { ...managedOpenShell!, sandboxId: managedOpenShell!.sandboxId! },
+                  route: selectedOpenShellAccountRoute(options),
+                },
+                config: configuredRuntime,
+                manager: runtimeManager!,
+                privateDirectory: codexPrivateDirectory(),
+                signal,
+                closeOwnedTransport,
+              });
+              Object.assign(managedOpenShell!, selected.runtime);
+              if (openShellClient) Object.assign(openShellClient, selected.runtime);
+              runtimeManager = runtimeManager!.forSandbox(selected.runtime.sandboxName);
+              const migration = privateStorage.readRuntimeMigration(
+                options.conversationId,
+                options.binding,
+              );
+              if (migration?.phase === 'committed')
+                registerMigratedOpenShellLifecycle(
+                  options.conversationId,
+                  options.binding,
+                  migration,
+                );
+              return selected.runtime.sandboxId !== previousId;
+            });
+          },
           beforeReconnect: async () => {
             await sharedOpenShellLifecycleCoordinator.admit(options.conversationId, async () => {
-              const recovered = await runtimeManager.ensure(options.conversationId, signal);
+              let recovered = await runtimeManager!.ensure(options.conversationId, signal);
+              if (recovered.sandboxId && configuredRuntime) {
+                const selected = await prepareRetainedRuntimeMigration({
+                  conversationId: options.conversationId,
+                  binding: options.binding,
+                  store: privateStorage,
+                  source: {
+                    runtime: { ...recovered, sandboxId: recovered.sandboxId },
+                    route: selectedOpenShellAccountRoute(options),
+                  },
+                  config: configuredRuntime,
+                  manager: runtimeManager!,
+                  privateDirectory: codexPrivateDirectory(),
+                  signal,
+                });
+                recovered = selected.runtime;
+                runtimeManager = runtimeManager!.forSandbox(selected.runtime.sandboxName);
+                const migration = privateStorage.readRuntimeMigration(
+                  options.conversationId,
+                  options.binding,
+                );
+                if (migration?.phase === 'committed')
+                  registerMigratedOpenShellLifecycle(
+                    options.conversationId,
+                    options.binding,
+                    migration,
+                  );
+              }
               await restoreOpenShellLifecycleIfNeeded(
                 options.conversationId,
                 recovered,
@@ -883,6 +997,7 @@ async function openCodexChatBound(
                 true,
               );
               Object.assign(managedOpenShell!, recovered);
+              if (openShellClient) Object.assign(openShellClient, recovered);
               persistArtifactRuntime();
             });
             if (managedCapabilityConnection && options.binding?.accountId)
@@ -947,7 +1062,7 @@ async function openCodexChatBound(
               rawUserIntent,
               grantableProviders,
             )) {
-              const access = await runtimeManager.hasServiceProviderAccess(
+              const access = await runtimeManager!.hasServiceProviderAccess(
                 options.conversationId,
                 managedOpenShell,
                 provider,

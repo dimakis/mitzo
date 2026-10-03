@@ -4,6 +4,10 @@ import { tmpdir } from 'node:os';
 import { afterEach, expect, it, vi } from 'vitest';
 import { CodexConversation, codexTurnFailureDiagnostic } from '../codex-conversation.js';
 import { CodexConversationStore } from '../codex-conversation-store.js';
+import {
+  migrateRetainedRuntime,
+  type RuntimeMigrationAdapters,
+} from '../openshell-runtime-migration.js';
 import type { CodexLifecycleTransport } from '../codex-app-server-client.js';
 import type { AccountBinding } from '@mitzo/protocol';
 import { CodexRequestError } from '../codex-app-server-client.js';
@@ -177,6 +181,8 @@ async function setup(
     turnId: string,
     context: string,
   ) => void,
+  beforeRuntimeAdmission?: (close: () => Promise<void>) => Promise<boolean>,
+  reconnectGuard?: (work: () => Promise<void>) => Promise<void>,
 ) {
   const dir = mkdtempSync(join(tmpdir(), 'mitzo-codex-'));
   const store = existingStore ?? new CodexConversationStore(join(dir, 'private.db'));
@@ -257,6 +263,8 @@ async function setup(
     prepareTurn,
     prepareSystemPrompt,
     onApplicationContextAccepted,
+    beforeRuntimeAdmission,
+    reconnectGuard,
     onProviderDispatch,
     onProviderComplete,
     onProviderAccepted,
@@ -2074,4 +2082,145 @@ it('fails closed on a conflicting terminal while the completion hook is pending'
   finish();
   await Promise.resolve();
   expect(terminal).not.toHaveBeenCalled();
+});
+
+it('pauses admission failure before claim and resumes the preserved FIFO on explicit send', async () => {
+  let blocked = true;
+  const admission = vi.fn(async (close: () => Promise<void>) => {
+    if (blocked) {
+      await close();
+      throw new Error('writer is still open');
+    }
+    return false;
+  });
+  const args: Parameters<typeof setup> = [];
+  args[15] = admission;
+  const { c, callbacks, requests } = await setup(...args);
+  await expect(c.send({ id: 'preserved', prompt: 'first' })).rejects.toThrow('writer');
+  expect(c.isPaused()).toBe(true);
+  expect(c.queue().map(({ id, status }) => ({ id, status }))).toEqual([
+    { id: 'preserved', status: 'queued' },
+  ]);
+  expect(requests.filter((r) => r.method === 'turn/start')).toHaveLength(0);
+  blocked = false;
+  await c.send({ id: 'new', prompt: 'second' });
+  expect(c.isPaused()).toBe(false);
+  expect(requests.filter((r) => r.method === 'turn/start')).toHaveLength(1);
+  callbacks.onNotification('turn/completed', {
+    threadId: 'provider-thread',
+    turn: { id: 'turn-1', status: 'completed' },
+  });
+  await vi.waitFor(() => expect(requests.filter((r) => r.method === 'turn/start')).toHaveLength(2));
+  expect(requests.filter((r) => r.method === 'turn/start').map((r) => r.params.input)).toEqual([
+    [{ type: 'text', text: 'first' }],
+    [{ type: 'text', text: 'second' }],
+  ]);
+});
+
+it('performs ordinary provider fork recovery on a current runtime through the real migration admission engine', async () => {
+  const source = {
+    runtime: {
+      sandboxName: 'current',
+      sandboxId: 'current-id',
+      workdir: '/sandbox/workspaces/mgmt',
+      appServerCommand: '/sandbox/run-mitzo-app-server' as const,
+      cli: 'openshell',
+      workspace: 'default',
+      gateway: 'g',
+      gatewayInsecure: false,
+    },
+    route: { kind: 'api' as const, provider: 'bound-provider', model: binding.model },
+  };
+  const forbidden = vi.fn(async () => {
+    throw new Error('a current runtime must not migrate');
+  });
+  const adapters: RuntimeMigrationAdapters = {
+    observe: vi.fn(async () => ({ image: 'target', policy: 'policy', resourceVersion: 'r1' })),
+    quiescent: forbidden,
+    capture: forbidden,
+    create: forbidden,
+    attest: forbidden,
+    restore: forbidden,
+    verifyRestored: forbidden,
+  };
+  const beforeReconnect = vi.fn(async () => {
+    expect(store.read('app', binding).recoveryStrategy).toBe('fork');
+    expect(
+      await migrateRetainedRuntime({
+        conversationId: 'app',
+        binding,
+        store,
+        source,
+        targetImage: 'target',
+        targetPolicy: 'policy',
+        supportedSourceImages: ['legacy'],
+        adapters,
+      }),
+    ).toEqual(source);
+  });
+  const fixture = await setup(
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    async () => binding,
+    beforeReconnect,
+  );
+  const store = fixture.store;
+  store.setArtifactRuntime('app', binding, source);
+  await fixture.c.send({ id: 'good', prompt: 'establish context' });
+  fixture.callbacks.onNotification('turn/completed', {
+    threadId: 'provider-thread',
+    turn: { id: 'turn-1', status: 'completed' },
+  });
+  await fixture.c.send({ id: 'failed', prompt: 'provider failure' });
+  fixture.callbacks.onNotification('turn/completed', {
+    threadId: 'provider-thread',
+    turn: {
+      id: 'turn-2',
+      status: 'failed',
+      error: { message: 'stream disconnected before completion' },
+    },
+  });
+  await fixture.c.send({ id: 'resumed', prompt: 'continue safely' });
+  expect(beforeReconnect).toHaveBeenCalledOnce();
+  expect(adapters.observe).toHaveBeenCalledOnce();
+  expect(forbidden).not.toHaveBeenCalled();
+  expect(fixture.requests.find((r) => r.method === 'thread/fork')?.params).toMatchObject({
+    threadId: 'provider-thread',
+    lastTurnId: 'turn-1',
+  });
+  expect(fixture.requests.filter((r) => r.method === 'turn/start')).toHaveLength(3);
+  expect(fixture.c.queue().map(({ id, status }) => ({ id, status }))).toEqual([
+    { id: 'good', status: 'completed' },
+    { id: 'failed', status: 'failed' },
+    { id: 'resumed', status: 'running' },
+  ]);
+});
+
+it('checks current grants before migration admission and keeps revoked work queued', async () => {
+  let allowed = true;
+  const order: string[] = [];
+  const admission = vi.fn(async () => {
+    order.push('migration');
+    return true;
+  });
+  const guard = vi.fn(async (work: () => Promise<void>) => {
+    order.push('grant');
+    if (!allowed) throw new Error('Connection permissions changed');
+    await work();
+  });
+  const args: Parameters<typeof setup> = [];
+  args[15] = admission;
+  args[16] = guard;
+  const { c, requests } = await setup(...args);
+  allowed = false;
+  await expect(c.send({ id: 'revoked', prompt: 'retained' })).rejects.toThrow('permissions');
+  expect(admission).not.toHaveBeenCalled();
+  expect(requests.filter((r) => r.method === 'turn/start')).toHaveLength(0);
+  expect(c.queue()).toMatchObject([{ id: 'revoked', status: 'queued' }]);
+  allowed = true;
+  await c.send({ id: 'later', prompt: 'next' });
+  expect(order.indexOf('grant')).toBeLessThan(order.indexOf('migration'));
+  expect(requests.filter((r) => r.method === 'turn/start')).toHaveLength(1);
 });

@@ -1,7 +1,15 @@
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, renameSync, rmSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import {
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  readFileSync,
+  realpathSync,
+  renameSync,
+  rmSync,
+} from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createLogger } from './logger.js';
 import type { OpenShellRuntime } from './openshell-runtime.js';
@@ -35,10 +43,36 @@ export interface CheckpointManifest extends CheckpointIdentity {
 }
 const timeout = 120_000;
 const log = createLogger('openshell-checkpoint-transport');
-const helperPath = join(
+const helperPath = resolve(
   dirname(fileURLToPath(import.meta.url)),
   '../docs/spikes/openshell-codex/mitzo-checkpoint.py',
 );
+// Host-owned migration tooling is separate from immutable image runtime inputs.
+// Updating this pin requires the helper and transport to be reviewed together.
+const helperSha256 = 'cad3dae4de4e50fe51968e77cd5ceab68cf6fbc985d8214a214fc7e4dd403fcb';
+const pythonBootstrap = [
+  'import base64,hashlib,sys',
+  'source=base64.b64decode(sys.argv[1],validate=True)',
+  'if hashlib.sha256(source).hexdigest()!=sys.argv[2]: raise ValueError("checkpoint host helper digest mismatch")',
+  'sys.argv=["mitzo-host-checkpoint.py",*sys.argv[3:]]',
+  'exec(compile(source,"mitzo-host-checkpoint.py","exec"),{"__name__":"__main__"})',
+].join('\n');
+function trustedHelperArgs(args: readonly string[]): string[] {
+  // Never resolve code through a task root, image helper, user setting or PATH.
+  const info = lstatSync(helperPath);
+  if (
+    !info.isFile() ||
+    info.isSymbolicLink() ||
+    realpathSync(helperPath) !== helperPath ||
+    info.size > 65536
+  )
+    throw new Error('Checkpoint host helper path is unsafe');
+  const bytes = readFileSync(helperPath);
+  if (bytes.length > 65536 || createHash('sha256').update(bytes).digest('hex') !== helperSha256)
+    throw new Error('Checkpoint host helper digest differs from accepted release');
+  // The validated bytes are frozen in argv; no read/execute path race follows.
+  return ['-I', '-c', pythonBootstrap, bytes.toString('base64'), helperSha256, ...args];
+}
 function command(binary: string, args: readonly string[], signal: AbortSignal) {
   return new Promise<string>((resolve, reject) =>
     execFile(
@@ -91,7 +125,6 @@ function helper(
   ];
   if (action === 'capture')
     return [
-      '/sandbox/mitzo-checkpoint.py',
       'capture',
       '--provider-root',
       '/sandbox/.codex',
@@ -103,7 +136,6 @@ function helper(
       ...common,
     ];
   return [
-    '/sandbox/mitzo-checkpoint.py',
     action,
     '--input',
     archive,
@@ -220,7 +252,10 @@ export class OpenShellCheckpointTransport {
     const stage = join(destinationDir, `.${name}.${process.pid}.${crypto.randomUUID()}.stage`);
     let primaryFailed = false;
     try {
-      await this.ssh(helper('capture', remote, identity), signal);
+      await this.ssh(
+        ['/usr/bin/python3', ...trustedHelperArgs(helper('capture', remote, identity))],
+        signal,
+      );
       await this.run(
         this.runtime.cli,
         [...this.base(), 'download', this.runtime.sandboxName, remote, stage],
@@ -242,14 +277,8 @@ export class OpenShellCheckpointTransport {
     signal: AbortSignal,
   ): Promise<CheckpointManifest> {
     const output = await this.run(
-      'python3',
-      [
-        helperPath,
-        'verify',
-        '--input',
-        archive,
-        ...helper('verify', '/tmp/unused.tar', identity).slice(4),
-      ],
+      '/usr/bin/python3',
+      trustedHelperArgs(helper('verify', archive, identity)),
       signal,
     );
     return validatedManifest(output, identity);
@@ -281,7 +310,13 @@ export class OpenShellCheckpointTransport {
         ],
         signal,
       );
-      await this.ssh([...helper('restore', remote, identity), '--replace-fresh-roots'], signal);
+      await this.ssh(
+        [
+          '/usr/bin/python3',
+          ...trustedHelperArgs([...helper('restore', remote, identity), '--replace-fresh-roots']),
+        ],
+        signal,
+      );
     } catch (error) {
       primaryFailed = true;
       throw error;

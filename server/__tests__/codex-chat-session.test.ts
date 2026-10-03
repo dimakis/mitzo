@@ -30,6 +30,12 @@ vi.mock('../codex-conversation-store.js', () => ({
       mocks.store();
     }
     recoverAtStartup() {}
+    readArtifactRuntime() {
+      return null;
+    }
+    readRuntimeMigration() {
+      return null;
+    }
     setArtifactRuntime = mocks.setArtifactRuntime;
     recordKnowledgeAdoption = mocks.recordKnowledgeAdoption;
   },
@@ -68,6 +74,7 @@ import {
   waitForCodexRuntimeBySessionId,
 } from '../codex-chat-session.js';
 import { OpenShellRuntimeManager } from '../openshell-runtime.js';
+import * as migrationAdapter from '../openshell-runtime-migration-adapter.js';
 import * as lifecycleController from '../openshell-lifecycle-controller.js';
 import * as knowledgeStoreConfig from '../knowledge-store-config.js';
 import { setConnectionsRuntime } from '../connections-runtime.js';
@@ -1003,12 +1010,33 @@ it('preserves image attachments while binding a trusted capability, forcing appr
       ...(await ensure.mock.results[0].value),
       sandboxId: 'recovered-resource',
     });
+    const migration = vi
+      .spyOn(migrationAdapter, 'prepareRetainedRuntimeMigration')
+      .mockImplementationOnce(async (input) => {
+        // Reconnect must select the preserved candidate before persisting routing
+        // or opening a provider transport against the checkpointed old source.
+        expect(mocks.setArtifactRuntime).not.toHaveBeenCalled();
+        return {
+          ...input.source,
+          runtime: { ...input.source.runtime, sandboxName: 'mitzo-migrate-reconnected' },
+        };
+      });
     await beforeReconnect();
+    expect(migration).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({
+        source: expect.objectContaining({
+          runtime: expect.objectContaining({ sandboxId: 'recovered-resource' }),
+        }),
+      }),
+    );
     expect(mocks.setArtifactRuntime).toHaveBeenLastCalledWith(
       'capability-conversation',
       expect.objectContaining({ accountId: 'work' }),
       expect.objectContaining({
-        runtime: expect.objectContaining({ sandboxId: 'recovered-resource' }),
+        runtime: expect.objectContaining({
+          sandboxId: 'recovered-resource',
+          sandboxName: 'mitzo-migrate-reconnected',
+        }),
       }),
     );
     expect(recoverPendingForConversation).toHaveBeenCalledTimes(2);
@@ -1543,4 +1571,20 @@ it('persists a fake provider profile proposal without saving a reusable profile'
   chat.close();
   rmSync(root, { recursive: true, force: true });
   vi.clearAllMocks();
+});
+
+it.each([
+  [
+    'Migration storage capacity insufficient: private path secret',
+    'insufficient sandbox storage capacity',
+  ],
+  ['checkpoint: unsupported provider state: private-filename', 'source runtime or provider layout'],
+  ['Retained migration target policy differs secret', 'observed sandbox policy'],
+  ['checkpoint: sandbox writer is still open secret', 'verified idle boundary'],
+])('publishes safe observable migration eligibility for %s', (diagnostic, reason) => {
+  const message = publicCodexRuntimeError(new Error(diagnostic));
+  expect(message).toContain(reason);
+  expect(message).toContain('task files and provider thread are preserved');
+  expect(message).not.toContain('secret');
+  expect(message).not.toContain('private');
 });

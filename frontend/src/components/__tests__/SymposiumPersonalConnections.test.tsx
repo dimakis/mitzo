@@ -407,10 +407,19 @@ it('releases callback status-error lock when refresh proves the slot connected',
   render(<SymposiumPersonalConnections />);
   await screen.findByText('two@example.test');
   const second = within(screen.getByRole('region', { name: 'Second account' }));
-  fireEvent.click(second.getByRole('button', { name: 'Connect personal subscription' }));
+  // Settle the mocked receipt and pending-lock effects before simulating the
+  // next server observation; a rendered error alone does not flush effects.
+  await act(async () => {
+    fireEvent.click(second.getByRole('button', { name: 'Connect personal subscription' }));
+  });
   await second.findByRole('button', { name: 'Retry status' });
+  expect((second.getByRole('button', { name: 'Connect' }) as HTMLButtonElement).disabled).toBe(
+    true,
+  );
   connected = true;
-  fireEvent.click(screen.getByRole('button', { name: 'Refresh personal accounts' }));
+  await act(async () => {
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh personal accounts' }));
+  });
   await waitFor(() =>
     expect((second.getByRole('button', { name: 'Reconnect' }) as HTMLButtonElement).disabled).toBe(
       false,

@@ -130,6 +130,8 @@ export interface OpenShellSandboxCreationReceipt {
 }
 
 export interface OpenShellRuntimeConfig {
+  /** Server-owned durable migration routing; never sourced from task input. */
+  sandboxNameOverride?: string;
   /** Trusted host marker immediately before the external sandbox create command. */
   beforeSandboxCreate?: () => void;
   /** Native-only: persist terminal successful create identity before upload/configuration.
@@ -475,13 +477,17 @@ export function prepareOpenShellSeed(
 export async function preparePublishedOpenShellSeed(
   config: Pick<OpenShellRuntimeConfig, 'seed' | 'image' | 'seedStackManifest' | 'knowledgeStore'>,
   signal: AbortSignal,
+  beforeFreeze?: (selectedSeed: string) => Promise<void>,
 ): Promise<{ seed: string; cleanup: () => void }> {
   const selection = await config.knowledgeStore?.reconcile(signal);
   signal.throwIfAborted();
-  const prepared = prepareOpenShellSeed({
-    ...config,
-    ...(selection ? { seed: selection.seed } : {}),
-  });
+  // Capacity callers must budget the actual immutable selection before the
+  // host snapshot allocation, then pass that same snapshot to ensure().
+  const selectedConfig = { ...config, seed: selection?.seed ?? config.seed };
+  const selectedSeed = verifiedOpenShellSeed(selectedConfig);
+  await beforeFreeze?.(selectedSeed);
+  signal.throwIfAborted();
+  const prepared = prepareOpenShellSeed({ ...selectedConfig, seed: selectedSeed });
   if (selection) {
     try {
       const baselineBytes = readFileSync(join(prepared.seed, '..', 'baseline.json'));
@@ -599,6 +605,38 @@ export class OpenShellRuntimeManager {
     this.runSsh = runSsh ?? ((args, signal) => command('ssh', args, signal));
   }
 
+  forSandbox(name: string): OpenShellRuntimeManager {
+    identifier(name, 'migration sandbox name');
+    return new OpenShellRuntimeManager(
+      { ...this.config, sandboxNameOverride: name },
+      this.run,
+      this.readiness,
+      this.runSsh,
+      this.providerPolicyState,
+    );
+  }
+  private nameForConversation(conversationId: string) {
+    return (
+      this.config.sandboxNameOverride ??
+      sandboxNameForConversation(conversationId, this.config.sandboxIdLength)
+    );
+  }
+  async observeContract(conversationId: string, runtime: OpenShellRuntime, signal: AbortSignal) {
+    if (!runtime.sandboxId) throw new Error('Runtime source physical identity is missing');
+    const owned = await this.ownedSandbox(conversationId, runtime.sandboxId, signal);
+    if (owned.phase !== 'Ready') throw new Error('Runtime source is not Ready');
+    const detail = JSON.parse(
+      await this.run(['sandbox', ...this.base(), 'get', owned.name, '-o', 'json'], signal),
+    );
+    if (
+      detail.id !== runtime.sandboxId ||
+      detail.labels?.['mitzo.conversation'] !== owned.labels?.['mitzo.conversation'] ||
+      !detail.resource_version ||
+      !detail.policy
+    )
+      throw new Error('Runtime source observation changed');
+    return { resourceVersion: String(detail.resource_version), policy: detail.policy as unknown };
+  }
   async hasServiceProviderAccess(
     conversationId: string,
     runtime: OpenShellRuntime,
@@ -666,9 +704,9 @@ export class OpenShellRuntimeManager {
 
   private sandboxOwner(conversationId: string, sandboxName: string): string | undefined {
     const conversationHash = createHash('sha256').update(conversationId).digest('hex');
-    if (sandboxName === sandboxNameForConversation(conversationId, this.config.sandboxIdLength))
-      return conversationHash.slice(0, 63);
     if (sandboxName === legacySandboxNameForConversation(conversationHash)) return conversationHash;
+    if (sandboxName === this.nameForConversation(conversationId))
+      return conversationHash.slice(0, 63);
     return undefined;
   }
 
@@ -913,10 +951,10 @@ export class OpenShellRuntimeManager {
 
   /** Recover a reserved runtime after a crash before its physical ID was recorded. */
   async inspectReserved(conversationId: string, signal: AbortSignal) {
-    const name = sandboxNameForConversation(conversationId, this.config.sandboxIdLength);
+    const name = this.nameForConversation(conversationId);
     const sandbox = await this.get(name, signal);
     if (!sandbox) return undefined;
-    const owner = createHash('sha256').update(conversationId).digest('hex').slice(0, 63);
+    const owner = this.sandboxOwner(conversationId, name);
     if (
       sandbox.labels?.['mitzo.conversation'] !== owner ||
       sandbox.labels?.['mitzo.account_provider'] !== this.config.account.provider ||
@@ -945,12 +983,16 @@ export class OpenShellRuntimeManager {
     allowAbsent = false,
   ) {
     const hash = createHash('sha256').update(conversationId).digest('hex');
-    const current = await this.get(
-      sandboxNameForConversation(conversationId, this.config.sandboxIdLength),
-      signal,
+    const current = await this.get(this.nameForConversation(conversationId), signal);
+    const sandbox =
+      current ??
+      (this.config.sandboxNameOverride
+        ? undefined
+        : await this.get(legacySandboxNameForConversation(hash), signal));
+    const expectedOwner = this.sandboxOwner(
+      conversationId,
+      current ? this.nameForConversation(conversationId) : legacySandboxNameForConversation(hash),
     );
-    const sandbox = current ?? (await this.get(legacySandboxNameForConversation(hash), signal));
-    const expectedOwner = current ? hash.slice(0, 63) : hash;
     if (!sandbox) {
       if (allowAbsent) return undefined;
       throw new Error('OpenShell sandbox is unavailable');
@@ -1002,11 +1044,7 @@ export class OpenShellRuntimeManager {
     physicalId: string,
     signal: AbortSignal,
   ) {
-    const hash = createHash('sha256').update(conversationId).digest('hex');
-    const expectedOwner =
-      name === sandboxNameForConversation(conversationId, this.config.sandboxIdLength)
-        ? hash.slice(0, 63)
-        : hash;
+    const expectedOwner = this.sandboxOwner(conversationId, name);
     const deadline = Date.now() + this.readiness.timeoutMs;
     while (Date.now() <= deadline) {
       signal.throwIfAborted();
@@ -1177,6 +1215,7 @@ export class OpenShellRuntimeManager {
     conversationId: string,
     signal: AbortSignal,
     expected?: { sandboxName: string; sandboxId: string },
+    admittedSeed?: { seed: string; cleanup: () => void },
   ): Promise<OpenShellRuntime> {
     const artifactConfig = this.config.artifactDriverConfig;
     if (artifactConfig && (this.config.cliContract !== 'v0.1' || !this.config.verifyArtifactMount))
@@ -1201,8 +1240,8 @@ export class OpenShellRuntimeManager {
     ];
     const policyFingerprint = providerPolicyFingerprint(automaticProviders());
     const conversationHash = createHash('sha256').update(conversationId).digest('hex');
-    const currentName = sandboxNameForConversation(conversationId, this.config.sandboxIdLength);
-    const currentOwner = conversationHash.slice(0, 63);
+    const currentName = this.nameForConversation(conversationId);
+    const currentOwner = this.sandboxOwner(conversationId, currentName)!;
     let name = currentName;
     let owner = currentOwner;
     let sandbox = await this.get(name, signal);
@@ -1217,7 +1256,7 @@ export class OpenShellRuntimeManager {
       throw new Error('Recorded seat sandbox physical identity changed or is not Ready');
     let created = false;
     let terminalSandboxId: string | undefined;
-    if (!sandbox) {
+    if (!sandbox && !this.config.sandboxNameOverride) {
       const legacyName = legacySandboxNameForConversation(conversationHash);
       const legacy = await this.get(legacyName, signal);
       if (legacy) {
@@ -1241,7 +1280,7 @@ export class OpenShellRuntimeManager {
     if (!sandbox) {
       const preparedSeed = artifactConfig
         ? { seed: this.config.seed, cleanup: () => undefined }
-        : await preparePublishedOpenShellSeed(this.config, signal);
+        : (admittedSeed ?? (await preparePublishedOpenShellSeed(this.config, signal)));
       const selectedSeed = preparedSeed.seed;
       try {
         created = true;
@@ -1576,6 +1615,50 @@ export class OpenShellRuntimeManager {
     });
   }
 
+  async verifyKnowledgeRuntime(
+    runtime: OpenShellRuntime,
+    signal: AbortSignal,
+  ): Promise<Record<string, unknown>> {
+    // Retained task sandboxes may still run an older image. Verify their
+    // actual protected compiler and frozen runtime inputs before adoption.
+    const contract = this.config.seedStackManifest?.runtime as Record<string, unknown>;
+    if (
+      !/^[a-f0-9]{40}$/.test(String(contract?.knowledgeCompilerCommit)) ||
+      !/^[a-f0-9]{64}$/.test(String(contract?.runtimeInputsSha256))
+    )
+      throw new Error(
+        'Runtime is incompatible with published knowledge: runtime attestation pins are missing',
+      );
+    const attestationSpec = openShellSshArgvProcessSpec(runtime, [
+      '/opt/mgmt-venv/bin/python',
+      '-I',
+      '/usr/libexec/mitzo/attest-knowledge-runtime.py',
+      '--compiler-commit',
+      String(contract.knowledgeCompilerCommit),
+    ]);
+    let actual: Record<string, unknown>;
+    try {
+      actual = JSON.parse(await this.runSsh(attestationSpec.args, signal));
+    } catch (error) {
+      throw new Error(
+        'Runtime is incompatible with published knowledge; a compatible retained-runtime migration is required',
+        { cause: error },
+      );
+    }
+    for (const field of [
+      'knowledgeSchemaVersion',
+      'knowledgeCompilerSha256',
+      'knowledgeRecipeSha256',
+      'runtimeInputsSha256',
+      'targetPlatform',
+      'targetMarkerEnvironmentB64',
+    ]) {
+      if (actual[field] !== contract[field])
+        throw new Error(`Runtime is incompatible with published knowledge: ${field} differs`);
+    }
+    return contract;
+  }
+
   /** Called only at admission or between turns, under the owning lifecycle fence. */
   async adoptKnowledge(
     conversationId: string,
@@ -1602,43 +1685,7 @@ export class OpenShellRuntimeManager {
       const current = await this.ownedSandbox(conversationId, runtime.sandboxId, signal);
       if (current.phase !== 'Ready' || current.name !== runtime.sandboxName)
         throw new Error('Knowledge sandbox is not Ready');
-      // Retained task sandboxes may still run an older image. Verify their
-      // actual protected compiler and frozen runtime inputs before adoption.
-      const contract = this.config.seedStackManifest?.runtime as Record<string, unknown>;
-      if (
-        !/^[a-f0-9]{40}$/.test(String(contract?.knowledgeCompilerCommit)) ||
-        !/^[a-f0-9]{64}$/.test(String(contract?.runtimeInputsSha256))
-      )
-        throw new Error(
-          'Runtime is incompatible with published knowledge: runtime attestation pins are missing',
-        );
-      const attestationSpec = openShellSshArgvProcessSpec(runtime, [
-        '/opt/mgmt-venv/bin/python',
-        '-I',
-        '/usr/libexec/mitzo/attest-knowledge-runtime.py',
-        '--compiler-commit',
-        String(contract.knowledgeCompilerCommit),
-      ]);
-      let actual: Record<string, unknown>;
-      try {
-        actual = JSON.parse(await this.runSsh(attestationSpec.args, signal));
-      } catch (error) {
-        throw new Error(
-          'Runtime is incompatible with published knowledge; a compatible retained-runtime migration is required',
-          { cause: error },
-        );
-      }
-      for (const field of [
-        'knowledgeSchemaVersion',
-        'knowledgeCompilerSha256',
-        'knowledgeRecipeSha256',
-        'runtimeInputsSha256',
-        'targetPlatform',
-        'targetMarkerEnvironmentB64',
-      ]) {
-        if (actual[field] !== contract[field])
-          throw new Error(`Runtime is incompatible with published knowledge: ${field} differs`);
-      }
+      const contract = await this.verifyKnowledgeRuntime(runtime, signal);
       const remoteRoot = `/sandbox/workspaces/knowledge/knowledge-${manifestSha256}`;
       const cacheProbe = openShellSshArgvProcessSpec(runtime, [
         '/bin/sh',
