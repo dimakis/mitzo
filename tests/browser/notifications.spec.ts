@@ -61,6 +61,17 @@ test('notification requests and preferences stay reachable with native body scro
   });
   await page.goto('/notifications');
   const main = page.getByRole('main');
+  if (!isMobile) {
+    const navigation = page.getByRole('navigation', { name: 'Main navigation' });
+    const badge = navigation.getByLabel('12 requests need attention');
+    await expect(badge).toBeVisible();
+    const badgeBox = (await badge.boundingBox())!;
+    const linkBox = (await navigation
+      .getByRole('link', { name: 'Notifications', exact: true })
+      .boundingBox())!;
+    expect(badgeBox.x + badgeBox.width).toBeLessThanOrEqual(linkBox.x + linkBox.width);
+  }
+
   await expect(page.getByRole('heading', { name: 'Notifications', exact: true })).toBeVisible();
   for (const height of isMobile ? [844, 430] : [720]) {
     await page.setViewportSize({ width: isMobile ? 390 : 1280, height });

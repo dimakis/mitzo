@@ -61,7 +61,7 @@ export function WorkspaceNav({ desktop = false }: { desktop?: boolean }) {
                   className="notification-badge"
                   aria-label={`${notifications.feed.needsYou} requests need attention`}
                 >
-                  {notifications.feed.needsYou}
+                  {notifications.feed.needsYou > 99 ? '99+' : notifications.feed.needsYou}
                 </span>
               )}
           </Link>
