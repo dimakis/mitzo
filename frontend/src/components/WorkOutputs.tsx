@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Capacitor } from '@capacitor/core';
 import { apiFetch } from '../lib/api-fetch';
 import { downloadFile, shareTelosArtifact } from '../lib/share-file';
+import { UserOutputUpload } from './UserOutputUpload';
 import type { TodoOutput } from '../types/todo';
 
 /** Browse durable output bytes even after the producing agent and sandbox are gone. */
@@ -56,6 +57,11 @@ export function WorkOutputs({ itemId }: { itemId: string }) {
   return (
     <section className="todo-detail-contract todo-detail-outputs" aria-label="Outputs">
       <h2>Outputs</h2>
+      <UserOutputUpload
+        key={itemId}
+        itemId={itemId}
+        onUploaded={() => setRetry((value) => value + 1)}
+      />
       {!current ? (
         <p role="status">Loading saved outputs…</p>
       ) : current.error ? (
@@ -77,6 +83,8 @@ export function WorkOutputs({ itemId }: { itemId: string }) {
                 <span className="todo-detail-output-filename">{output.filename}</span>
                 <span className="todo-detail-output-meta">
                   Revision {output.revision} · {output.size.toLocaleString()} bytes
+                  {output.sourceKind === 'user_upload' && ' · Uploaded by user'}
+                  {output.sourceKind === 'external_codex_report' && ' · External Codex report'}
                 </span>
                 <div className="todo-detail-output-actions">
                   {!Capacitor.isNativePlatform() && (
