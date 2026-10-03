@@ -22,6 +22,11 @@ it('binds the explicit subscription account without exposing credential referenc
       label: profile.label,
       provider: 'openai-codex',
       billing: 'chatgpt-subscription',
+      signIn: expect.objectContaining({
+        status: 'not-checked',
+        observedIdentity: null,
+        configuredIdentity: { email: profile.email, planType: profile.planType },
+      }),
       models: profile.models,
       modelDiscovery: { stale: false, updatedAt: undefined },
       capabilities: { streaming: true, tools: true, images: true },

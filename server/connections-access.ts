@@ -9,7 +9,9 @@ import type {
 } from './connections-access-types.js';
 
 export interface ConnectionsAccessSources {
-  accounts?: () => ReturnType<AccountProfiles['catalog']>;
+  accounts?: (
+    signal: AbortSignal,
+  ) => ReturnType<AccountProfiles['catalog']> | Promise<ReturnType<AccountProfiles['catalog']>>;
   symposiumAccounts?: (
     signal: AbortSignal,
   ) => ReturnType<AccountProfiles['catalog']> | Promise<ReturnType<AccountProfiles['catalog']>>;
@@ -159,12 +161,18 @@ export async function readConnectionsAccess(
               : 'stale',
         };
       }
+      if (account.signIn) {
+        row.signIn = account.signIn;
+        row.accountIdentity = account.signIn.observedIdentity?.email ?? null;
+        row.access.summary = 'Configured models; effective conversation access not checked';
+      }
       row.details = {
         billing: account.billing,
         models: account.models.map((model) => ({ id: model.id, label: model.label })),
       };
-      row.verification.reason =
-        'Configured account profile only. Credential controls are unavailable here; sign-in and effective access have not been checked.';
+      row.verification.reason = account.signIn
+        ? 'Effective conversation access has not been checked.'
+        : 'Configured account profile only. Credential controls are unavailable here; sign-in and effective access have not been checked.';
       result.resources.push(row);
     }
   }
