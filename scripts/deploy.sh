@@ -1,5 +1,12 @@
 #!/bin/bash
 set -e
+# Do not forward path overrides to the deployment guard.
+enrollment_opt_out=()
+if [ "$#" -gt 1 ] || { [ "$#" -eq 1 ] && [ "$1" != "--allow-knowledge-enrollment-change" ]; }; then
+  echo '{"error":"unsupported_deployment_argument"}' >&2
+  exit 2
+fi
+if [ "$#" -eq 1 ]; then enrollment_opt_out=("--allow-knowledge-enrollment-change"); fi
 cd "$(dirname "$0")/.."
 
 ./scripts/assert-deployable.sh
@@ -10,7 +17,7 @@ PLIST_DEST="$HOME/Library/LaunchAgents/com.mitzo.server.plist"
 # Compare persisted daemon settings, not credentials inherited only by this shell.
 node scripts/check-knowledge-enrollment.mjs \
   --candidate-env .env --candidate-plist com.mitzo.server.plist \
-  --active-plist "$PLIST_DEST" "$@"
+  --active-plist "$PLIST_DEST" "${enrollment_opt_out[@]}"
 
 echo "Building packages + server..."
 npm run build:server

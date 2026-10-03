@@ -227,7 +227,13 @@ by admission reconciliation or periodic publisher recovery.
 `scripts/deploy.sh` checks persisted knowledge enrollment before builds, preflight or
 service changes. It reads the installed `com.mitzo.server` LaunchAgent's
 `WorkingDirectory/.env` and compares it with the candidate `.env` and candidate
-plist. For the supported default dotenv loader, plist environment variables override
+plist. The installed launcher must invoke one absolute `scripts/start.sh` directly,
+with its script root matching the plist's physical `WorkingDirectory`; an explicit
+`Program` must name that same launcher. Shell/node wrappers, extra launcher
+arguments and disagreeing directories fail safely. Candidate template paths are
+checked against the candidate release directory. A missing active `.env` is an
+empty environment, matching dotenv startup; other read errors still block.
+For the supported default dotenv loader, plist environment variables override
 dotenv values, matching daemon startup. Persisted dotenv path, encoding, precedence and vault-loading overrides
 (`DOTENV_CONFIG_PATH`, `DOTENV_CONFIG_ENCODING`, `DOTENV_CONFIG_OVERRIDE`,
 `DOTENV_CONFIG_DOTENV_KEY`, `DOTENV_KEY`) are rejected with a fixed diagnostic rather than
@@ -247,8 +253,9 @@ standard-library plist parser; it makes no network or provider calls.
 For an intentional disable or store/config change, review the candidate settings
 and run `npm run deploy -- --allow-knowledge-enrollment-change`. This explicit
 opt-out permits that configuration transition; it does not bypass credential
-presence checks for a still-enrolled candidate or runtime preflight. The option
-is per invocation and is not saved as a default.
+presence checks for a still-enrolled candidate or runtime preflight. The deployment script accepts only that option; arguments that redirect active
+or candidate metadata are rejected before checks, builds or host actions. The
+option is per invocation and is not saved as a default.
 
 Keep enrollment configuration and credentials in private host configuration and
 copy the canonical active settings when staging subsequent releases. This guard
