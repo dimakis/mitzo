@@ -317,3 +317,27 @@ it('preserves paused queued FIFO while migrating a verified idle source', async 
     recovery: true,
   });
 });
+
+it('admits an actually current policy-verified runtime during ordinary provider fork recovery', async () => {
+  const f = fixture();
+  f.store.enqueue('chat', binding, { id: 'pending', prompt: 'continue' });
+  f.store.pauseForRecovery('chat', binding, undefined, 'interrupted', 'fork');
+  f.adapters.observe = vi.fn(async () => ({
+    image: 'new-digest',
+    policy: 'policy',
+    resourceVersion: 'r1',
+  }));
+  expect(await migrateRetainedRuntime(f.input)).toEqual(f.source);
+  expect(f.store.read('chat', binding).recoveryStrategy).toBe('fork');
+  expect(f.adapters.observe).toHaveBeenCalledOnce();
+  expect(f.adapters.capture).not.toHaveBeenCalled();
+  expect(f.store.readRuntimeMigration('chat', binding)).toBeNull();
+});
+it('still blocks legacy-image fork recovery before checkpoint or candidate creation', async () => {
+  const f = fixture();
+  f.store.enqueue('chat', binding, { id: 'pending', prompt: 'continue' });
+  f.store.pauseForRecovery('chat', binding, undefined, 'interrupted', 'fork');
+  await expect(migrateRetainedRuntime(f.input)).rejects.toThrow('resumable provider thread');
+  expect(f.adapters.capture).not.toHaveBeenCalled();
+  expect(f.adapters.create).not.toHaveBeenCalled();
+});

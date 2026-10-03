@@ -90,6 +90,12 @@ export async function migrateRetainedRuntime(input: {
       throw new Error('Retained migration committed routing changed');
     return input.source;
   }
+  const observed = await adapters.observe(record?.source ?? input.source);
+  if (!record && observed.image === input.targetImage) {
+    if (observed.policy !== input.targetPolicy)
+      throw new Error('Retained migration target policy differs');
+    return input.source;
+  }
   if (!conversation.threadId || conversation.recoveryStrategy !== 'resume')
     throw new Error('Retained migration requires an authoritative resumable provider thread');
   if (store.hasAmbiguousRuntimeActivity(id, binding))
@@ -109,12 +115,6 @@ export async function migrateRetainedRuntime(input: {
       retryable: undefined,
       retryNotBefore: undefined,
     });
-  }
-  const observed = await adapters.observe(record?.source ?? input.source);
-  if (!record && observed.image === input.targetImage) {
-    if (observed.policy !== input.targetPolicy)
-      throw new Error('Retained migration target policy differs');
-    return input.source;
   }
   if (
     !input.supportedSourceImages.includes(observed.image) ||
