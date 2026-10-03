@@ -35,9 +35,15 @@ export function WorkspaceNav({ desktop = false }: { desktop?: boolean }) {
           (label === 'Connections' && pathname === '/connections') ||
           (!desktop &&
             label === 'More' &&
-            ['/tasks', '/calendar', '/files', '/focus', '/connections', '/connections-access'].some(
-              (p) => pathname === p || pathname.startsWith(p + '/'),
-            ));
+            [
+              '/notifications',
+              '/tasks',
+              '/calendar',
+              '/files',
+              '/focus',
+              '/connections',
+              '/connections-access',
+            ].some((p) => pathname === p || pathname.startsWith(p + '/')));
         return (
           <Link
             key={path}

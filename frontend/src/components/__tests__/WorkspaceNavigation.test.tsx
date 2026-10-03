@@ -60,3 +60,12 @@ it('mobile keeps More selected in the connections overview', () => {
   expect(screen.getByRole('link', { name: 'More' }).getAttribute('aria-current')).toBe('page');
   expect(screen.getAllByRole('link')).toHaveLength(5);
 });
+
+it('mobile keeps More selected while reviewing notifications', () => {
+  render(
+    <MemoryRouter initialEntries={['/notifications?item=p1']}>
+      <TabBar />
+    </MemoryRouter>,
+  );
+  expect(screen.getByRole('link', { name: 'More' }).getAttribute('aria-current')).toBe('page');
+});

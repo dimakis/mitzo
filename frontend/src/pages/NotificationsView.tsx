@@ -353,7 +353,7 @@ export function NotificationsView() {
     return () => {
       cancelled = true;
     };
-  }, [id, fromFeed]);
+  }, [id, fromFeed, feed]);
   if (!notifications) return null;
   async function act(path: string, body?: unknown, method?: string) {
     setBusy(true);
@@ -431,7 +431,7 @@ export function NotificationsView() {
           >
             ← All notifications
           </button>
-          {selected && (
+          {selected?.id === id && (
             <RequestDetail
               key={selected.id}
               item={selected}

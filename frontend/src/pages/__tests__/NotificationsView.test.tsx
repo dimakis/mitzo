@@ -70,9 +70,9 @@ beforeEach(() => {
   });
 });
 afterEach(cleanup);
-function show() {
+function show(path = '/notifications') {
   render(
-    <MemoryRouter>
+    <MemoryRouter initialEntries={[path]}>
       <NotificationProvider>
         <NotificationsView />
       </NotificationProvider>
@@ -92,6 +92,34 @@ describe('Notifications experience', () => {
         expect.objectContaining({ body: JSON.stringify({ sessionId: 's1', decision: 'once' }) }),
       ),
     );
+    expect(await screen.findByText('Decision recorded')).toBeVisible();
+  });
+  it('refreshes an older linked request after a decision outside the current page', async () => {
+    vi.mocked(apiFetch).mockImplementation(async (url) => {
+      if (String(url).endsWith('/respond')) {
+        resolved = true;
+        return new Response(JSON.stringify({ ok: true }));
+      }
+      if (String(url).includes('?'))
+        return new Response(
+          JSON.stringify({
+            items: [],
+            needsYou: resolved ? 0 : 1,
+            total: 0,
+            preferences: prefs,
+            delivery: { configured: false, registeredDevices: 0 },
+          }),
+        );
+      return new Response(
+        JSON.stringify({
+          ...pending,
+          resolution: resolved ? 'allowed' : null,
+          resolvedAt: resolved ? Date.now() : null,
+        }),
+      );
+    });
+    show('/notifications?item=permission:p1');
+    fireEvent.click(await screen.findByRole('button', { name: 'Allow once' }));
     expect(await screen.findByText('Decision recorded')).toBeVisible();
   });
   it('directs conversation grants to the session rather than promising one-shot access', async () => {
