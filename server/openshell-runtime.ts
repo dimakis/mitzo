@@ -692,7 +692,7 @@ export class OpenShellRuntimeManager {
     // selector result instead of guessing which credential schema is active.
     const readCatalog = async () => {
       const catalog: unknown = JSON.parse(
-        await this.run(['provider', ...this.base(), 'profile', 'list', '--output', 'json'], signal),
+        await this.run(['provider', ...this.base(), 'list-profiles', '--output', 'json'], signal),
       );
       if (
         !Array.isArray(catalog) ||
