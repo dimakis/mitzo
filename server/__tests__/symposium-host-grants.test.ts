@@ -2,7 +2,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import type { SymposiumConfig } from '@mitzo/protocol';
+import type { SymposiumConfig, SymposiumConfigurationOperation } from '@mitzo/protocol';
 import { SymposiumHostGrants } from '../symposium-host-grants.js';
 
 let directory: string;
@@ -496,7 +496,7 @@ it.each(['activate', 'seats/revise'] as const)(
       model: previous.model,
       accountBinding: previous.accountBinding,
     };
-    const request =
+    const request: SymposiumConfigurationOperation['request'] =
       action === 'activate'
         ? { expectedRevision: config.revision, idempotencyKey, contextSourceRefs: [] }
         : {

@@ -67,7 +67,7 @@ afterEach(() => {
   store.close();
   rmSync(directory, { recursive: true, force: true });
 });
-const post = (suffix: string, body: unknown) =>
+const post = (suffix: string, body: Record<string, unknown>) =>
   request(app).post(`/api/sessions/session/symposium/${suffix}`).send(body);
 const read = (key: string) =>
   request(app).get(`/api/sessions/session/symposium/configuration-operations/${key}`);
