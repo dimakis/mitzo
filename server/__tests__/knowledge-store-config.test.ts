@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { afterEach, expect, it } from 'vitest';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, realpathSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, realpathSync, chmodSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { knowledgeStoreFromEnvironment, mgmtKnowledgeAdapter } from '../knowledge-store-config.js';
@@ -88,6 +88,15 @@ it.each(['secret', 'source', 'default', 'adapter'])(
     ).toThrow();
   },
 );
+
+it('revalidates private adapter state before each execution', async () => {
+  const f = fixture();
+  const adapter = mgmtKnowledgeAdapter(f.config.stores[0].adapter, 'https://example.com/other.git');
+  chmodSync(join(f.root, 'adapter'), 0o777);
+  await expect(adapter({ revision: 'c'.repeat(40) }, new AbortController().signal)).rejects.toThrow(
+    'Knowledge adapter state must be private and physical',
+  );
+});
 
 it('runs a pinned detached adapter for the exact revision and captures its immutable bundle', async () => {
   const f = fixture();

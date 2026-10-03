@@ -80,16 +80,18 @@ export function mgmtKnowledgeAdapter(config: AdapterConfig, sourceUrl: string) {
   const adapter = MgmtConfig.parse(json(config.config));
   if (adapter.sourceUrl !== sourceUrl)
     throw new Error('Knowledge adapter source differs from publisher');
-  privateState(adapter.root, [
+  const workspaces = [
     config.release,
     adapter.mitzoRepo,
     ...(isAbsolute(sourceUrl) ? [sourceUrl] : []),
-  ]);
+  ];
+  privateState(adapter.root, workspaces);
   return async (
     selection: { revision: string },
     signal: AbortSignal,
   ): Promise<KnowledgeBundleSelection> => {
     signal.throwIfAborted();
+    privateState(adapter.root, workspaces);
     const env = Object.fromEntries(
       Object.entries(process.env).filter(
         ([key]) => !key.startsWith('GIT_') && !['PYTHONPATH', 'PYTHONHOME'].includes(key),
@@ -137,6 +139,7 @@ export function mgmtKnowledgeAdapter(config: AdapterConfig, sourceUrl: string) {
       output.receipt?.builderCommit !== adapter.builderCommit
     )
       throw new Error('Knowledge adapter returned another publication');
+    privateState(adapter.root, workspaces);
     const publications = realpathSync(join(adapter.root, 'publications'));
     const directory = realpathSync(join(publications, 'current'));
     if (!directory.startsWith(publications + sep))
