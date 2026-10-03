@@ -474,3 +474,68 @@ it.each([
   ).toThrow();
   expect(config.state).toBe('draft');
 });
+
+it.each(['activate', 'seats/revise'] as const)(
+  'rejects %s receipt metadata that differs from the actual approved input before minting grants',
+  (action) => {
+    if (action === 'seats/revise') {
+      grants.activate({ sessionId: 'chat', expectedRevision: 1, actor: 'owner' });
+      active = false;
+    }
+    grants.close();
+    const deps = makeDeps();
+    grants = new SymposiumHostGrants(join(directory, 'events.db'), deps);
+    const idempotencyKey = 'approved-operation';
+    const previous = config.seats[1];
+    const seat = {
+      id: previous.id,
+      name: previous.name,
+      role: previous.role,
+      systemPrompt: previous.systemPrompt,
+      color: previous.color,
+      model: previous.model,
+      accountBinding: previous.accountBinding,
+    };
+    const request =
+      action === 'activate'
+        ? { expectedRevision: config.revision, idempotencyKey, contextSourceRefs: [] }
+        : {
+            expectedRevision: config.revision,
+            idempotencyKey,
+            seatId: seat.id,
+            name: seat.name,
+            role: seat.role,
+            systemPrompt: seat.systemPrompt,
+            color: seat.color,
+            accountId: seat.accountBinding!.accountId,
+            model: 'different-approved-model',
+            sharedBoundaryAcknowledged: true,
+          };
+    const configurationOperation = {
+      version: 1 as const,
+      actor: 'owner',
+      action,
+      expectedRevision: config.revision,
+      idempotencyKey,
+      request,
+    };
+    expect(() =>
+      action === 'activate'
+        ? grants.activate({
+            sessionId: 'chat',
+            expectedRevision: config.revision,
+            actor: 'owner',
+            contextSourceRefs: ['session:chat'],
+            configurationOperation,
+          })
+        : grants.reviseSeat({
+            sessionId: 'chat',
+            expectedRevision: config.revision,
+            actor: 'owner',
+            seat,
+            configurationOperation,
+          }),
+    ).toThrow(/operation.*input|input.*operation/i);
+    expect(deps.authorizeSeat).not.toHaveBeenCalled();
+  },
+);

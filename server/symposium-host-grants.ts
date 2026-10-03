@@ -2,6 +2,9 @@ import Database from 'better-sqlite3';
 import { createHash, randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import {
+  SymposiumConfigurationOperationSchema,
+  canonicalConfigurationOperationJson,
+  type SymposiumConfigurationOperation,
   AuthorityGrantSchema,
   ContextGrantSchema,
   SeatConfigSchema,
@@ -29,6 +32,7 @@ export interface SymposiumHostGrantDeps {
     sessionId: string,
     config: SymposiumConfig,
     expectedRevision: number,
+    operation?: SymposiumConfigurationOperation,
   ): SymposiumConfig;
   getMembership(sessionId: string, seatId: string): { generation: number; state: string } | null;
   validateSelection(seat: SeatConfig): void;
@@ -83,7 +87,19 @@ export class SymposiumHostGrants {
     actor: string;
     contextSourceRefs?: string[];
     profileSelections?: Record<string, SymposiumProfileSelection>;
+    configurationOperation?: SymposiumConfigurationOperation;
   }): SymposiumConfig {
+    const operation =
+      input.configurationOperation === undefined
+        ? undefined
+        : SymposiumConfigurationOperationSchema.parse(input.configurationOperation);
+    if (
+      operation &&
+      (operation.action !== 'activate' ||
+        operation.actor !== input.actor ||
+        operation.expectedRevision !== input.expectedRevision)
+    )
+      throw new Error('Activation operation identity differs');
     const sessionId = Id.parse(input.sessionId);
     const actor = Id.parse(input.actor);
     const current = this.deps.getConfig(sessionId);
@@ -101,6 +117,14 @@ export class SymposiumHostGrants {
       )
     )
       throw new Error('Profile selection references an unknown seat');
+    if (
+      operation &&
+      (canonicalConfigurationOperationJson(operation.request.contextSourceRefs ?? []) !==
+        canonicalConfigurationOperationJson(contextSourceRefs) ||
+        canonicalConfigurationOperationJson(operation.request.profileSelections ?? {}) !==
+          canonicalConfigurationOperationJson(profileSelections))
+    )
+      throw new Error('Activation operation differs from approved input');
     const domain = `symposium:${randomUUID()}`;
     const seats = current.seats.map((value) =>
       this.mintSeat(
@@ -141,7 +165,9 @@ export class SymposiumHostGrants {
     // The config store may use a different SQLite connection. Commit after issuance
     // to avoid nested writer locks. A losing CAS leaves inert, unreferenced records;
     // verifySeat requires the winning durable config and current membership too.
-    return this.deps.commitConfig(sessionId, next, input.expectedRevision);
+    return operation
+      ? this.deps.commitConfig(sessionId, next, input.expectedRevision, operation)
+      : this.deps.commitConfig(sessionId, next, input.expectedRevision);
   }
 
   reviseSeat(input: {
@@ -151,7 +177,49 @@ export class SymposiumHostGrants {
     seat: SeatConfig;
     contextSourceRefs?: string[];
     profileSelection?: SymposiumProfileSelection;
+    configurationOperation?: SymposiumConfigurationOperation;
   }): SymposiumConfig {
+    const operation =
+      input.configurationOperation === undefined
+        ? undefined
+        : SymposiumConfigurationOperationSchema.parse(input.configurationOperation);
+    if (
+      operation &&
+      (operation.action !== 'seats/revise' ||
+        operation.actor !== input.actor ||
+        operation.expectedRevision !== input.expectedRevision ||
+        operation.request.seatId !== input.seat.id)
+    )
+      throw new Error('Seat revision operation identity differs');
+    if (operation) {
+      const expected = {
+        seatId: input.seat.id,
+        name: input.seat.name,
+        role: input.seat.role,
+        systemPrompt: input.seat.systemPrompt,
+        color: input.seat.color,
+        accountId: input.seat.accountBinding?.accountId,
+        model: input.seat.model,
+        reasoningEffort: input.seat.reasoningEffort,
+        expectedOutput: input.seat.expectedOutput,
+        acceptanceCriteria: input.seat.acceptanceCriteria,
+        authorityRequest: input.seat.authorityRequest,
+      };
+      for (const [field, value] of Object.entries(expected))
+        if (
+          operation.request[field] !== undefined &&
+          canonicalConfigurationOperationJson(operation.request[field]) !==
+            canonicalConfigurationOperationJson(value)
+        )
+          throw new Error('Seat revision operation differs from approved input');
+      if (
+        canonicalConfigurationOperationJson(operation.request.contextSourceRefs ?? []) !==
+          canonicalConfigurationOperationJson(input.contextSourceRefs ?? []) ||
+        canonicalConfigurationOperationJson(operation.request.profileSelection ?? null) !==
+          canonicalConfigurationOperationJson(input.profileSelection ?? null)
+      )
+        throw new Error('Seat revision operation differs from approved input');
+    }
     const sessionId = Id.parse(input.sessionId);
     const actor = Id.parse(input.actor);
     const current = this.deps.getConfig(sessionId);
@@ -193,7 +261,9 @@ export class SymposiumHostGrants {
         actor,
         Date.now(),
       );
-    const committed = this.deps.commitConfig(sessionId, next, input.expectedRevision);
+    const committed = operation
+      ? this.deps.commitConfig(sessionId, next, input.expectedRevision, operation)
+      : this.deps.commitConfig(sessionId, next, input.expectedRevision);
     // The new durable configuration immediately fences old snapshots, even if
     // the process stops before this audit revocation is recorded.
     if (oldSeat?.authorityGrant)

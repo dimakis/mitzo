@@ -74,6 +74,7 @@ function fixture(
     reconciliation: 'pending',
   };
   const store = {
+    getSymposiumConfigurationOperation: vi.fn(() => undefined),
     getSession: vi.fn((id: string) =>
       id === 'chat'
         ? {
@@ -1299,6 +1300,7 @@ it('refuses converting an active ordinary conversation into a draft', async () =
   const response = await request(app).post('/api/sessions/chat/symposium/draft').send({});
   expect(response.status).toBe(409);
   expect(response.body.error).toContain('Stop the ordinary conversation');
+  expect(response.body.seatMutation).toBe('not-started');
   expect(store.setSymposiumConfig).not.toHaveBeenCalled();
 });
 

@@ -1,3 +1,7 @@
+import {
+  SymposiumConfigurationOperationReceiptSchema,
+  canonicalConfigurationOperationJson,
+} from '@mitzo/protocol';
 import { createPortal } from 'react-dom';
 import {
   createContext,
@@ -10,6 +14,7 @@ import {
 } from 'react';
 import type {
   SymposiumConfig,
+  SymposiumAdmissionRecord,
   SymposiumProfileDefinition,
   ValidAccountBinding,
 } from '@mitzo/protocol';
@@ -38,6 +43,8 @@ type Status = {
   config: SymposiumConfig | null;
   ordinaryAccountId?: string | null;
   runtimeAvailable: boolean;
+  symposiumRevision?: number;
+  admissions?: SymposiumAdmissionRecord[];
   runtimeVerification?: string;
   initialProfileSelections?: Record<string, SymposiumProfileSelection>;
   seats: {
@@ -93,32 +100,86 @@ async function request<T>(
   if (!response.ok)
     throw new ReviewerRequestError(
       result.error || 'Agent request failed',
-      result.seatMutation === 'not-started',
+      result.seatMutation === 'not-started' ||
+        (path.endsWith('/activate') &&
+          result.activationMutation === 'not-started' &&
+          !result.activationCommitted),
     );
   return result as T;
 }
 
 /** Absence is never a proof that a lost write did not commit. Only an exact saved result releases its fence. */
 function sameSnapshot(left: unknown, right: unknown): boolean {
-  const normalize = (value: unknown): unknown =>
-    Array.isArray(value)
-      ? value.map(normalize)
-      : value && typeof value === 'object'
-        ? Object.fromEntries(
-            Object.entries(value)
-              .sort(([a], [b]) => a.localeCompare(b))
-              .map(([key, entry]) => [key, normalize(entry)]),
-          )
-        : value;
-  return JSON.stringify(normalize(left)) === JSON.stringify(normalize(right));
+  return canonicalConfigurationOperationJson(left) === canonicalConfigurationOperationJson(right);
 }
-function reconcileReviewerOperation(scope: string, status: Status) {
+function approvedReviewerSeat(
+  operation: ReviewerOperation,
+  config: SymposiumConfig,
+  action: string,
+) {
+  const approved = operation.approval;
+  const seat = config.seats.find((row) => row.id === operation.seatId);
+  if (
+    !seat ||
+    seat.accountBinding?.accountId !== approved.selection.accountId ||
+    seat.model !== approved.selection.model ||
+    (seat.reasoningEffort ?? '') !== (approved.selection.reasoningEffort ?? '') ||
+    seat.color !== '#665599'
+  )
+    throw new Error('Configuration did not confirm the approved account and model.');
+  if (operation.generic) {
+    if (
+      seat.name !== approved.name.trim() ||
+      seat.role !== approved.role ||
+      seat.systemPrompt !== approved.instructions.trim() ||
+      (seat.expectedOutput ?? '') !== approved.expectedOutput.trim() ||
+      !sameSnapshot(
+        seat.acceptanceCriteria ?? [],
+        approved.criteria
+          .split('\n')
+          .map((line) => line.trim())
+          .filter(Boolean),
+      ) ||
+      !sameSnapshot(seat.authorityRequest, approved.authority)
+    )
+      throw new Error('Configuration did not confirm the approved agent guidance and authority.');
+  } else if (
+    action !== 'config' &&
+    (seat.role !== 'reviewer' ||
+      seat.profileBinding?.profileId !== approved.profile?.profileId ||
+      seat.profileBinding?.profileRevision !== String(approved.profile?.revision))
+  )
+    throw new Error('Configuration did not confirm the approved reviewer profile.');
+  return seat;
+}
+/** Bound read-only checks across fetch and JSON decoding; late results cannot release a fence. */
+async function readSaved<T>(path: string): Promise<T> {
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      request<T>(path, undefined, 'POST', controller.signal),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => {
+          reject(new Error('Saved operation check timed out.'));
+          controller.abort();
+        }, 30_000);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+async function reconcileReviewerOperation(
+  scope: string,
+  status: Status,
+  isCurrent: () => boolean = () => true,
+) {
   const operation = reviewerOperations.snapshot()[scope];
   const mutation = operation?.uncertain;
   if (!operation || !mutation || operation.pending || status.sessionId !== operation.sessionId)
     return;
   const body = mutation.body;
-  const config = status.config;
   let result: unknown;
   if (mutation.path.endsWith('/membership')) {
     const member = status.seats.find((row) => row.seatId === body.seatId)?.membership;
@@ -149,19 +210,101 @@ function reconcileReviewerOperation(scope: string, status: Status) {
     );
     if (!delivery) return;
     result = delivery;
-  } else if (mutation.path.endsWith('/config')) {
-    if (!config || !sameSnapshot(config, body.config)) return;
-    result = config;
+  } else if (mutation.path.endsWith('/admissions/refresh')) {
+    const goal = mutation.admissionGoal;
+    if (!goal || !sameSnapshot(goal.config, status.config)) return;
+    const active = status.seats
+      .flatMap((row) =>
+        row.membership?.state === 'active'
+          ? [{ seatId: row.seatId, generation: row.membership.generation }]
+          : [],
+      )
+      .sort((a, b) => a.seatId.localeCompare(b.seatId));
+    if (
+      !sameSnapshot(
+        active,
+        [...goal.members].sort((a, b) => a.seatId.localeCompare(b.seatId)),
+      )
+    )
+      return;
+    for (const member of goal.members) {
+      const membership = status.seats.find((row) => row.seatId === member.seatId)?.membership;
+      const seat = goal.config.seats.find((row) => row.id === member.seatId);
+      const admission = status.admissions
+        ?.filter((row) => row.sessionId === operation.sessionId && row.seatId === member.seatId)
+        .at(-1);
+      if (
+        !membership ||
+        membership.sessionId !== operation.sessionId ||
+        membership.seatId !== member.seatId ||
+        membership.state !== 'active' ||
+        membership.reconciliation !== 'confirmed' ||
+        membership.generation !== member.generation ||
+        !seat?.accountBinding ||
+        !seat.isolationRequest ||
+        !admission ||
+        admission.decision !== 'admitted' ||
+        admission.configRevision !== goal.config.revision ||
+        admission.membershipGeneration !== member.generation ||
+        admission.provider !== seat.accountBinding.provider ||
+        admission.accountId !== seat.accountBinding.accountId ||
+        admission.model !== seat.accountBinding.model ||
+        admission.accountProfileRevision !== seat.accountBinding.profileRevision ||
+        admission.isolationDomainId !== seat.isolationRequest.trustDomainId ||
+        admission.isolationDomainRevision !== seat.isolationRequest.revision
+      )
+        return;
+    }
+    result = goal.members.map((member) => member.seatId);
+  } else if (/\/(draft|config|seats\/revise|activate)$/.test(mutation.path)) {
+    if (typeof body.idempotencyKey !== 'string') return;
+    const response = await readSaved<{ receipt: unknown }>(
+      `/api/sessions/${encodeURIComponent(operation.sessionId)}/symposium/configuration-operations/${encodeURIComponent(body.idempotencyKey)}`,
+    );
+    const parsed = SymposiumConfigurationOperationReceiptSchema.safeParse(response.receipt);
+    if (!parsed.success) return;
+    const receipt = parsed.data;
+    const action = mutation.path.endsWith('/seats/revise')
+      ? 'seats/revise'
+      : mutation.path.split('/').at(-1);
+    if (
+      receipt.sessionId !== operation.sessionId ||
+      receipt.idempotencyKey !== body.idempotencyKey ||
+      receipt.action !== action ||
+      receipt.expectedRevision !== body.expectedRevision ||
+      !sameSnapshot(receipt.request, body) ||
+      !sameSnapshot(status.config, receipt.config)
+    )
+      return;
+    if (action !== 'draft') {
+      try {
+        approvedReviewerSeat(operation, receipt.config, action!);
+      } catch {
+        return;
+      }
+    }
+    result = receipt.config;
   } else return;
+  if (
+    !isCurrent() ||
+    reviewerOperations.snapshot()[scope]?.key !== operation.key ||
+    reviewerOperations.snapshot()[scope]?.uncertain?.fingerprint !== mutation.fingerprint
+  )
+    return;
   reviewerOperations.update(scope, {
     ...operation,
     uncertain: undefined,
     committed: { ...operation.committed, [mutation.fingerprint]: result },
-    seat: mutation.path.endsWith('/config')
-      ? config?.seats.find((row) => row.id === operation.seatId)
+    seat: /\/(config|seats\/revise|activate)$/.test(mutation.path)
+      ? (result as SymposiumConfig).seats.find((row) => row.id === operation.seatId)
       : operation.seat,
+    configurationSnapshot: /\/(draft|config|seats\/revise|activate)$/.test(mutation.path)
+      ? structuredClone(result as SymposiumConfig)
+      : operation.configurationSnapshot,
     done: mutation.path.endsWith('/deliveries'),
-    notice: '',
+    notice: mutation.path.endsWith('/admissions/refresh')
+      ? 'Saved admission requirements are met. Continue the original operation explicitly.'
+      : '',
   });
 }
 
@@ -338,11 +481,11 @@ function ReviewerForm({
     if (!open) return;
     let live = true;
     setStatus(null);
-    request<Status>(`${base}/status`)
-      .then((next) => {
+    readSaved<Status>(`${base}/status`)
+      .then(async (next) => {
         if (live) {
-          reconcileReviewerOperation(scope, next);
-          setStatus(next);
+          await reconcileReviewerOperation(scope, next, () => live);
+          if (live) setStatus(next);
         }
       })
       .catch((cause: Error) => {
@@ -464,13 +607,26 @@ function ReviewerForm({
       turnIds: approvedTurnIds,
       typed: approvedTyped,
     } = approved;
-    const perform = async <T,>(path: string, body?: unknown, method = 'POST'): Promise<T> => {
+    const perform = async <T,>(
+      path: string,
+      body?: unknown,
+      method = 'POST',
+      admissionGoal?: {
+        config: SymposiumConfig;
+        members: { seatId: string; generation: number }[];
+      },
+    ): Promise<T> => {
       assertCurrent();
       const mutating =
         body !== undefined &&
         /\/(draft|config|seats\/revise|activate|admissions\/refresh|membership|deliveries)$/.test(
           path,
         );
+      if (body !== undefined && /\/(draft|config|seats\/revise|activate)$/.test(path))
+        body = {
+          ...(body as Record<string, unknown>),
+          idempotencyKey: `${saved.key}-${path.endsWith('/seats/revise') ? 'revise' : path.split('/').at(-1)}`,
+        };
       const fingerprint = JSON.stringify([path, body, method]);
       if (mutating && fingerprint in saved.committed) return saved.committed[fingerprint] as T;
       if (
@@ -497,6 +653,7 @@ function ReviewerForm({
           body: structuredClone(body) as Record<string, unknown>,
           method,
           fingerprint,
+          ...(admissionGoal ? { admissionGoal: structuredClone(admissionGoal) } : {}),
         };
         publish();
       }
@@ -563,48 +720,17 @@ function ReviewerForm({
             const confirmedConfig = result as SymposiumConfig;
             if (
               confirmedConfig.version !== 2 ||
+              (!path.endsWith('/config') && confirmedConfig.state !== 'active') ||
               confirmedConfig.revision !== Number(payload.expectedRevision) + 1 ||
-              (path.endsWith('/config')
-                ? !sameSnapshot(confirmedConfig, payload.config)
-                : confirmedConfig.state !== 'active')
+              (path.endsWith('/config') && !sameSnapshot(confirmedConfig, payload.config))
             )
-              throw new Error('Configuration outcome requires the exact saved revision.');
-            const seat = (result as SymposiumConfig).seats?.find((row) => row.id === saved.seatId);
-            if (!seat) throw new Error('Saved configuration did not confirm the approved agent.');
-            if (
-              seat.accountBinding?.accountId !== selected.accountId ||
-              seat.model !== selected.model ||
-              (seat.reasoningEffort ?? '') !== (selected.reasoningEffort ?? '') ||
-              seat.color !== '#665599'
-            )
-              throw new Error('Configuration did not confirm the approved account and model.');
-            if (generic) {
-              if (
-                seat.name !== approvedName.trim() ||
-                seat.role !== approvedRole ||
-                seat.systemPrompt !== approvedInstructions.trim() ||
-                (seat.expectedOutput ?? '') !== approvedOutput.trim() ||
-                !sameSnapshot(
-                  seat.acceptanceCriteria ?? [],
-                  approvedCriteria
-                    .split('\n')
-                    .map((line) => line.trim())
-                    .filter(Boolean),
-                ) ||
-                !sameSnapshot(seat.authorityRequest, approvedAuthority)
-              )
-                throw new Error(
-                  'Configuration did not confirm the approved agent guidance and authority.',
-                );
-            } else if (
-              !path.endsWith('/config') &&
-              (seat.role !== 'reviewer' ||
-                seat.profileBinding?.profileId !== selectedProfileBinding?.profileId ||
-                seat.profileBinding?.profileRevision !== String(selectedProfileBinding?.revision))
-            )
-              throw new Error('Configuration did not confirm the approved reviewer profile.');
-            saved.seat = structuredClone(seat);
+              throw new Error('Configuration did not confirm the approved revision.');
+            saved.seat = structuredClone(
+              approvedReviewerSeat(saved, confirmedConfig, path.split('/').at(-1)!),
+            );
           }
+          if (/\/(draft|config|seats\/revise|activate)$/.test(path))
+            saved.configurationSnapshot = structuredClone(result as SymposiumConfig);
           saved.committed[fingerprint] = structuredClone(result);
           saved.uncertain = undefined;
           publish();
@@ -616,7 +742,7 @@ function ReviewerForm({
           mutating &&
           cause instanceof ReviewerRequestError &&
           cause.noSeatMutation &&
-          /\/(config|seats\/revise)$/.test(path)
+          /\/(draft|config|seats\/revise|activate)$/.test(path)
         ) {
           saved.uncertain = undefined;
           publish();
@@ -648,6 +774,10 @@ function ReviewerForm({
         }));
       let current = await perform<Status>(`${base}/status`);
       let config = current.config;
+      if (saved.configurationSnapshot && !sameSnapshot(config, saved.configurationSnapshot))
+        throw new Error(
+          'The saved configuration changed. Check the original operation before continuing.',
+        );
       if (!config) {
         setStatus(current);
         if (!current.ordinaryAccountId)
@@ -656,6 +786,7 @@ function ReviewerForm({
           throw new Error('Confirm the cross-account transfer before binding the agent');
         config = await perform<SymposiumConfig>(`${base}/draft`, {
           expectedAccountId: current.ordinaryAccountId,
+          expectedRevision: current.symposiumRevision ?? 0,
         });
       }
       if (config.version !== 2)
@@ -763,10 +894,21 @@ function ReviewerForm({
       setProgress(
         'Connecting agent — checking its account and workspace access. This may take several minutes.',
       );
-      await perform(`${base}/admissions/refresh`, { expectedRevision: config.revision });
+      await perform(`${base}/admissions/refresh`, { expectedRevision: config.revision }, 'POST', {
+        config: structuredClone(config),
+        members: current.seats.flatMap((row) =>
+          row.membership?.state === 'active'
+            ? [{ seatId: row.seatId, generation: row.membership.generation }]
+            : [],
+        ),
+      });
       current = await perform<Status>(`${base}/status`);
       const currentSeat = current.config?.seats.find((seat) => seat.id === seatId);
-      if (!saved.seat || !sameSnapshot(currentSeat, saved.seat))
+      if (
+        !sameSnapshot(current.config, config) ||
+        !saved.seat ||
+        !sameSnapshot(currentSeat, saved.seat)
+      )
         throw new Error('The saved agent configuration changed before admission.');
       // Existing isolated sessions stay isolated; new anchors are admitted through the same host boundary.
       for (const id of [config.version === 2 ? config.anchorSeatId : config.seats[0].id, seatId]) {
@@ -811,9 +953,9 @@ function ReviewerForm({
             ? 'Couldn’t connect this agent. Your choices are still in this form; no message was sent.'
             : 'The request couldn’t be completed. Check the saved operation before explicitly continuing.',
         );
-        const refreshed = await request<Status>(`${base}/status`).catch(() => null);
+        const refreshed = await readSaved<Status>(`${base}/status`).catch(() => null);
         if (epoch.current === capturedEpoch && refreshed) {
-          reconcileReviewerOperation(scope, refreshed);
+          await reconcileReviewerOperation(scope, refreshed, () => epoch.current === capturedEpoch);
           setStatus(refreshed);
         }
         if (
@@ -1141,15 +1283,25 @@ function ReviewerForm({
                 onClick={() => {
                   const checkedEpoch = epoch.current;
                   const checkedKey = retained.key;
-                  void request<Status>(`${base}/status`)
-                    .then((next) => {
+                  void readSaved<Status>(`${base}/status`)
+                    .then(async (next) => {
                       if (
                         epoch.current !== checkedEpoch ||
                         reviewerOperations.snapshot()[scope]?.key !== checkedKey
                       )
                         return;
-                      reconcileReviewerOperation(scope, next);
-                      setStatus(next);
+                      await reconcileReviewerOperation(
+                        scope,
+                        next,
+                        () =>
+                          epoch.current === checkedEpoch &&
+                          reviewerOperations.snapshot()[scope]?.key === checkedKey,
+                      );
+                      if (
+                        epoch.current === checkedEpoch &&
+                        reviewerOperations.snapshot()[scope]?.key === checkedKey
+                      )
+                        setStatus(next);
                     })
                     .catch((cause) => {
                       if (

@@ -26,6 +26,10 @@ describe('finite custodian protocol', () => {
       authorization: { id: 'verified-operator', expiresAt: 1000 },
     });
     expect(decoded.resourceId).toBe(resourceId);
+    const browserKey = 'original-operation-revise';
+    expect(
+      selectCustodianOperation('GET', path.replace(resourceId, encodeURIComponent(browserKey))),
+    ).toEqual({ operation: 'director.configurationOperation', sessionId, resourceId: browserKey });
     expect(
       selectCustodianOperation('GET', path.replace(resourceId, 'k'.repeat(200))),
     ).not.toBeNull();

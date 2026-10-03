@@ -1293,8 +1293,10 @@ const symposiumHostGrants = new SymposiumHostGrants(join(BASE_REPO || '.', '.mit
     const raw = eventStore.getSession(sessionId)?.symposiumConfig;
     return raw ? SymposiumConfigSchema.parse(JSON.parse(raw)) : null;
   },
-  commitConfig: (sessionId, config, expectedRevision) =>
-    eventStore.setSymposiumConfig(sessionId, config, expectedRevision),
+  commitConfig: (sessionId, config, expectedRevision, operation) =>
+    operation
+      ? eventStore.setSymposiumConfig(sessionId, config, expectedRevision, operation)
+      : eventStore.setSymposiumConfig(sessionId, config, expectedRevision),
   getMembership: (sessionId, seatId) =>
     eventStore.getLatestSymposiumMembership(sessionId, seatId) ?? null,
   validateSelection: (seat) => {

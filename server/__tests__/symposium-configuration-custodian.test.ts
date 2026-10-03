@@ -39,7 +39,7 @@ async function mockHttp(app: Express, method: string, path: string, token?: stri
 it('forwards the exact receipt lookup through the real controller and retained HTTP auth with session and operator scope', async () => {
   const token = (await login(process.env.AUTH_PASSPHRASE!))!;
   const authorization = (await authenticateToken(token))!;
-  const key = 'original-operation:revise';
+  const key = 'original-operation-revise';
   const retained = {
     sessionId: 'session-1',
     idempotencyKey: key,
@@ -78,7 +78,7 @@ it('forwards the exact receipt lookup through the real controller and retained H
   const app = express();
   app.use(express.json(), authMiddleware);
   app.use(createCustodianProxy({ request: invoke, invalidate: (id) => attachment.invalidate(id) }));
-  const path = `/api/sessions/session-1/symposium/configuration-operations/${key}`;
+  const path = `/api/sessions/session-1/symposium/configuration-operations/${encodeURIComponent(key)}`;
   expect((await mockHttp(app, 'GET', path)).status).toBe(401);
   expect(invoke).not.toHaveBeenCalled();
   const result = await mockHttp(app, 'GET', path, token);

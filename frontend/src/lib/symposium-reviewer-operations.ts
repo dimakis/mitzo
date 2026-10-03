@@ -22,6 +22,7 @@ export type ReviewerMutation = {
   body: Record<string, unknown>;
   method: string;
   fingerprint: string;
+  admissionGoal?: { config: SymposiumConfig; members: { seatId: string; generation: number }[] };
 };
 export type ReviewerOperation = {
   sessionId: string;
@@ -32,6 +33,7 @@ export type ReviewerOperation = {
   pending: boolean;
   context?: { content: string };
   seat?: SymposiumConfig['seats'][number];
+  configurationSnapshot?: SymposiumConfig;
   uncertain?: ReviewerMutation;
   committed: Record<string, unknown>;
   done: boolean;
