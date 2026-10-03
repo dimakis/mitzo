@@ -3,6 +3,7 @@ import { useNavigate, useLocation, useParams } from 'react-router-dom';
 import { useEffect, useState } from 'react';
 import type { TodoItem, TodoData } from '../types/todo';
 import { sourceIcon, buildPrompt, buildTodoContext } from '../lib/todo-utils';
+import { WorkOutputs } from '../components/WorkOutputs';
 import { PageHeader } from '../components/PageHeader';
 import { apiFetch } from '../lib/api-fetch';
 import { shareTelosArtifact } from '../lib/share-file';
@@ -228,6 +229,8 @@ export function TodoDetailView() {
             </ul>
           </section>
         )}
+
+        <WorkOutputs key={item.id} itemId={item.id} />
 
         {item.children.length > 0 && (
           <section className="todo-detail-children">

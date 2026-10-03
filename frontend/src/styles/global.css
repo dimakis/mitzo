@@ -7625,3 +7625,43 @@ option {
   font-weight: 600;
   padding-inline: 0.3rem;
 }
+
+/* Durable work outputs stay readable and actionable on narrow screens. */
+.todo-detail-output-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.todo-detail-output-list li {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--border);
+  overflow-wrap: anywhere;
+}
+.todo-detail-output-filename,
+.todo-detail-output-meta,
+.todo-detail-output-note {
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+.todo-detail-output-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.todo-detail-outputs button {
+  min-height: 44px;
+  padding: 8px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  cursor: pointer;
+}
+.todo-detail-outputs button:disabled {
+  opacity: 0.5;
+  cursor: wait;
+}

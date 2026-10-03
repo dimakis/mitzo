@@ -4,6 +4,13 @@ import { render, screen, fireEvent, cleanup, waitFor } from '@testing-library/re
 import { MemoryRouter } from 'react-router-dom';
 import { shareTelosArtifact } from '../../lib/share-file';
 vi.mock('../../lib/share-file', () => ({ shareTelosArtifact: vi.fn().mockResolvedValue(true) }));
+vi.mock('../../components/WorkOutputs', () => ({
+  WorkOutputs: ({ itemId }: { itemId: string }) => (
+    <section aria-label="Outputs" data-testid={itemId}>
+      Outputs
+    </section>
+  ),
+}));
 import { TodoDetailView } from '../TodoDetailView';
 import type { TodoItem } from '../../types/todo';
 
@@ -576,4 +583,18 @@ it('opens Telos as a reviewable launch with the task identity and context', () =
     }),
   );
   expect(mockNavigate).toHaveBeenCalledWith('/chat?extraTools=Bash');
+});
+
+it('places saved outputs ahead of milestones, sources and reference links', () => {
+  const { container } = render(
+    <MemoryRouter>
+      <TodoDetailView />
+    </MemoryRouter>,
+  );
+  const outputs = screen.getByRole('region', { name: 'Outputs' });
+  expect(outputs.getAttribute('data-testid')).toBe('abc123');
+  expect(
+    outputs.compareDocumentPosition(container.querySelector('.todo-detail-sources')!) &
+      Node.DOCUMENT_POSITION_FOLLOWING,
+  ).toBeTruthy();
 });

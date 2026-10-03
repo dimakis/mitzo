@@ -60,3 +60,15 @@ export interface TodoOutcomeDraft {
   profile: string;
   idempotencyKey: string;
 }
+
+/** Metadata for a preserved file revision; saving is separate from review or delivery. */
+export interface TodoOutput {
+  id: string;
+  itemId: string;
+  filename: string;
+  title: string;
+  revision: number;
+  size: number;
+  sha256: string;
+  url: string;
+}

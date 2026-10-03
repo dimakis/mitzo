@@ -43,7 +43,7 @@ function setup() {
       .set('X-Internal-Token', 'token')
       .set('X-Client-Id', client)
       .send(operation === 'save' ? { requestId: 'save-spec', ...input } : input);
-  return { app, call, readFile };
+  return { app, call, readFile, path };
 }
 describe('Telos host artifact routes', () => {
   it('reads the authenticated session workspace, persists bytes, then recovers from another request', async () => {
@@ -182,5 +182,73 @@ describe('Telos host artifact routes', () => {
       encoding: 'base64',
       content: Buffer.from([0, 255, 128]).toString('base64'),
     });
+  });
+});
+
+describe('work output listing', () => {
+  it('lists the latest saved file revisions without requiring a running agent or returning bodies', async () => {
+    const { app, call, readFile, path } = setup();
+    const db = new Database(path);
+    db.prepare('INSERT INTO items VALUES (?, ?)').run('other', 'Other work');
+    db.close();
+    await call('save', {
+      itemId: 't',
+      filename: 'notes.md',
+      title: 'Notes',
+      content: '# Draft',
+      requestId: 'draft',
+    });
+    const latest = await call('save', {
+      itemId: 't',
+      filename: 'notes.md',
+      title: 'Notes',
+      content: '# Revised',
+      requestId: 'revision',
+    });
+    readFile.mockResolvedValueOnce({
+      path: '/sandbox/bundle.zip',
+      bytes: Buffer.from([80, 75, 3, 4, 255]),
+    });
+    const bundle = await call('save', {
+      itemId: 't',
+      filename: 'bundle.zip',
+      title: 'Bundle',
+      path: '/sandbox/bundle.zip',
+      requestId: 'bundle',
+    });
+    await call('save', {
+      itemId: 'other',
+      filename: 'private.md',
+      title: 'Other output',
+      content: 'Other',
+      requestId: 'other',
+    });
+    const response = await request(app).get('/api/telos/items/t/artifacts');
+    expect(response.status).toBe(200);
+    expect(response.headers['cache-control']).toBe('private, no-store');
+    expect(response.body.artifacts).toHaveLength(2);
+    expect(response.body.artifacts).toEqual(
+      expect.arrayContaining([latest.body.artifact, bundle.body.artifact]),
+    );
+    expect(
+      response.body.artifacts.every(
+        (a: Record<string, unknown>) => !('bytes' in a) && !('content' in a),
+      ),
+    ).toBe(true);
+    expect(response.body.limit).toBe(100);
+    const download = await request(app).get(bundle.body.artifact.url);
+    expect(download.body).toEqual(Buffer.from([80, 75, 3, 4, 255]));
+  });
+  it('distinguishes an empty list from unavailable storage', async () => {
+    const { app, path } = setup();
+    expect((await request(app).get('/api/telos/items/t/artifacts')).body.artifacts).toEqual([]);
+    rmSync(path);
+    const unavailable = await request(app).get('/api/telos/items/t/artifacts');
+    expect(unavailable.status).toBe(503);
+    expect(unavailable.body.artifacts).toBeUndefined();
+  });
+  it('rejects invalid work identity instead of returning all artifacts', async () => {
+    const { app } = setup();
+    expect((await request(app).get('/api/telos/items/%20/artifacts')).status).toBe(400);
   });
 });

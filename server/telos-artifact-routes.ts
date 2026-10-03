@@ -105,6 +105,24 @@ export function createTelosArtifactRouter(options: {
       }
     });
   }
+  // Authenticated metadata browsing does not depend on an active agent session.
+  router.get('/api/telos/items/:itemId/artifacts', (req, res) => {
+    const input = TelosFindArtifactsInput.safeParse({ itemId: req.params.itemId, limit: 100 });
+    if (!input.success) {
+      res.status(400).json({ error: 'Invalid work identity' });
+      return;
+    }
+    let store: TelosArtifactStore | undefined;
+    try {
+      store = new TelosArtifactStore(options.dbPath());
+      res.setHeader('Cache-Control', 'private, no-store');
+      res.json({ artifacts: store.list(input.data), limit: 100 });
+    } catch {
+      res.status(503).json({ error: 'Saved outputs unavailable' });
+    } finally {
+      store?.close();
+    }
+  });
   // Mounted after Mitzo's cookie/internal-token authentication. Always download, never execute HTML.
   router.get('/api/telos/artifacts/:id', (req, res) => {
     const input = TelosReadArtifactInput.safeParse({
