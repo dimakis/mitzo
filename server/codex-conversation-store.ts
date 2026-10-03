@@ -1,5 +1,6 @@
 import type { RuntimeMigration } from './openshell-runtime-migration.js';
 import Database from 'better-sqlite3';
+import { createHash } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import { chmodSync, closeSync, openSync } from 'node:fs';
 import type { AccountBinding } from '@mitzo/protocol';
@@ -495,6 +496,51 @@ export class CodexConversationStore {
         .prepare('INSERT OR IGNORE INTO codex_runtime_migrations VALUES (?,?,?,?)')
         .run(id, this.key(binding), record.generation, JSON.stringify(record));
       return this.readRuntimeMigration(id, binding)!;
+    })();
+  }
+  repairRejectedRuntimeMigrationName(id: string, binding: AccountBinding, generation: number) {
+    return this.db.transaction(() => {
+      const current = this.readRuntimeMigration(id, binding);
+      if (!current || current.generation !== generation)
+        throw new Error('Runtime migration generation changed');
+      // Only the legacy CLI's explicit pre-create validation rejection permits
+      // a name change. Uncertain creates and existing candidates keep their name.
+      if (
+        current.phase !== 'blocked' ||
+        current.resumePhase !== 'checkpointed' ||
+        !current.checkpoint ||
+        current.candidate ||
+        !/^mitzo-migrate-[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(
+          current.candidateName,
+        ) ||
+        !/name exceeds\s*\n\s*│ maximum length \(50 > 19\)"\s*$/.test(current.failure ?? '')
+      )
+        return current;
+      const conversation = this.read(id, binding);
+      if (
+        conversation.threadId !== current.identity.thread ||
+        conversation.threadGeneration !== current.threadGeneration ||
+        this.hasAmbiguousRuntimeActivity(id, binding) ||
+        !sameArtifactRuntimeIdentity(this.readArtifactRuntime(id, binding), current.source)
+      )
+        throw new Error('Runtime migration source ownership changed before name repair');
+      const next = {
+        ...current,
+        generation: generation + 1,
+        phase: 'checkpointed' as const,
+        candidateName: `mitzo-${createHash('sha256').update(current.candidateName).digest('hex').slice(0, 12)}`,
+        failure: undefined,
+        retryable: undefined,
+        retryNotBefore: undefined,
+        resumePhase: undefined,
+      };
+      const update = this.db
+        .prepare(
+          'UPDATE codex_runtime_migrations SET generation=?,data=? WHERE conversation_id=? AND binding=? AND generation=?',
+        )
+        .run(next.generation, JSON.stringify(next), id, this.key(binding), generation);
+      if (update.changes !== 1) throw new Error('Runtime migration generation changed');
+      return next;
     })();
   }
   advanceRuntimeMigration(

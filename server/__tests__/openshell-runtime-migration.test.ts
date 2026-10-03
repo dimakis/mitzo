@@ -85,7 +85,53 @@ it('atomically switches only after attestation, strict origin restore and same-t
     targetImage: 'new-digest',
   });
   expect(f.store.read('chat', binding).threadId).toBe('same-thread');
+  expect(f.candidate.runtime.sandboxName).toMatch(/^mitzo-[a-f0-9]{12}$/);
 });
+it.each(['rejected', 'uncertain', 'candidate', 'later-phase'])(
+  'repairs a legacy candidate name only for pre-create rejection: %s',
+  async (variant) => {
+    const f = fixture();
+    f.adapters.create = vi.fn().mockRejectedValueOnce(new Error('create rejected'));
+    await expect(migrateRetainedRuntime(f.input)).rejects.toThrow('create rejected');
+    const record = f.store.readRuntimeMigration('chat', binding)!;
+    const legacy = {
+      ...record,
+      candidateName: 'mitzo-migrate-a3c37b00-fb91-4d00-8eeb-b53b04532cc6',
+      failure:
+        'Command failed: openshell sandbox create\nError: name exceeds\n  │ maximum length (50 > 19)"\n',
+    };
+    if (variant === 'uncertain') legacy.failure = 'connection closed';
+    if (variant === 'candidate') legacy.candidate = f.candidate;
+    if (variant === 'later-phase') legacy.resumePhase = 'candidate';
+    // Load a historical record without weakening the normal immutable-origin API.
+    const Database = (await import('better-sqlite3')).default;
+    const db = new Database(join(f.store.read('chat', binding).cwd, 'state.db'));
+    db.prepare('UPDATE codex_runtime_migrations SET data=? WHERE conversation_id=?').run(
+      JSON.stringify(legacy),
+      'chat',
+    );
+    db.close();
+    if (variant !== 'rejected') {
+      await expect(migrateRetainedRuntime(f.input)).rejects.toThrow('blocked; inspect');
+      expect(f.store.readRuntimeMigration('chat', binding)?.candidateName).toBe(
+        legacy.candidateName,
+      );
+      expect(f.adapters.create).toHaveBeenCalledTimes(1);
+      return;
+    }
+    f.adapters.create = vi.fn(async (name) => {
+      expect(name).toMatch(/^mitzo-[a-f0-9]{12}$/);
+      const saved = f.store.readRuntimeMigration('chat', binding)!;
+      expect(saved.candidateName).toBe(name);
+      expect(saved.checkpoint).toEqual(record.checkpoint);
+      expect(saved.identity).toEqual(record.identity);
+      f.candidate.runtime.sandboxName = name;
+      return f.candidate;
+    });
+    expect(await migrateRetainedRuntime(f.input)).toEqual(f.candidate);
+    expect(f.store.read('chat', binding).threadId).toBe('same-thread');
+  },
+);
 it.each(['capture', 'create', 'attest', 'restore', 'verifyRestored'] as const)(
   'retains original mapping and source when %s fails',
   async (step) => {
