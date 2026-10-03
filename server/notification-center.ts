@@ -164,7 +164,7 @@ export class NotificationCenter {
     try {
       if (this.store.reconcilePermissions(hasPending)) this.changed();
       for (const item of this.store.due()) {
-        if (!this.enabled(item)) {
+        if (!this.enabled(item) || (item.readAt !== null && !item.permId)) {
           this.store.delivery(item.id, 'cancelled');
           continue;
         }

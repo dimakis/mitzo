@@ -69,6 +69,8 @@ export function notificationRouter(center: NotificationCenter): Router {
       return res
         .status(409)
         .json({ error: 'This request expired or was already resolved. Refresh notifications.' });
+    if (parsed.data.decision === 'once' && item.request?.approvalScope === 'conversation')
+      return res.status(400).json({ error: 'Review conversation-scoped access in the session.' });
     if (!resolvePending(item.permId, parsed.data.decision, parsed.data.answers, item.sessionId))
       return res.status(400).json({ error: 'Complete all questions before responding.' });
     res.json({ ok: true });

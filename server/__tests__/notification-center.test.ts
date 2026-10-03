@@ -64,6 +64,20 @@ describe('central notification delivery', () => {
     center.close();
     store.close();
   });
+  it('cancels queued informational alerts after reading without cancelling pending decisions', async () => {
+    const { store, center, push } = setup();
+    center.turnComplete('s1', 70, 'Done', 'Tests', true);
+    store.markRead('turn:s1:70');
+    await center.flush();
+    expect(push).not.toHaveBeenCalled();
+    registerPending(request.permId, 'Bash', vi.fn(), {}, 'elevated', request.sessionId, request);
+    store.markRead(`permission:${request.permId}`);
+    await center.flush();
+    expect(push).toHaveBeenCalledTimes(1);
+    removePending(request.permId);
+    center.close();
+    store.close();
+  });
   it('defers quiet-hour delivery in the selected timezone and permits all-day quiet', () => {
     const { store, center } = setup();
     const prefs = store.setPreferences({

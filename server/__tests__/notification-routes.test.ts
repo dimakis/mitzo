@@ -6,6 +6,7 @@ import { login, authMiddleware } from '../auth.js';
 import { NotificationStore } from '../notification-store.js';
 import { NotificationCenter } from '../notification-center.js';
 import { notificationRouter } from '../notification-routes.js';
+import { INTERNAL_TOKEN } from '../internal-token.js';
 import { registerPending, removePending } from '../permissions.js';
 
 async function setup() {
@@ -52,6 +53,40 @@ describe('notification API', () => {
           .send({ timezone: 'Mars' })
       ).status,
     ).toBe(400);
+    s.close();
+  });
+  it('keeps internal agents out and reads older linked items independently of pagination', async () => {
+    const s = await setup();
+    s.store.record({ id: 'old', kind: 'session', title: 'Older result', body: 'Summary' }, 1);
+    expect(
+      (await request(s.app).get('/api/notifications/old').set('X-Internal-Token', INTERNAL_TOKEN))
+        .status,
+    ).toBe(403);
+    const response = await request(s.app)
+      .get('/api/notifications/old')
+      .set('Authorization', `Bearer ${s.token}`);
+    expect(response.status).toBe(200);
+    expect(response.body.title).toBe('Older result');
+    s.close();
+  });
+  it('requires session review for conversation-scoped grants', async () => {
+    const s = await setup();
+    const resolver = vi.fn();
+    const permId = 'durable-grant';
+    registerPending(permId, 'GrantIntegration', resolver, {}, 'elevated', 's1', {
+      permId,
+      toolName: 'GrantIntegration',
+      toolInput: '{}',
+      sessionId: 's1',
+      approvalScope: 'conversation',
+    });
+    const response = await request(s.app)
+      .post(`/api/notifications/permission:${permId}/respond`)
+      .set('Authorization', `Bearer ${s.token}`)
+      .send({ sessionId: 's1', decision: 'once' });
+    expect(response.status).toBe(400);
+    expect(resolver).not.toHaveBeenCalled();
+    removePending(permId);
     s.close();
   });
   it('reads without resolving and rejects stale or cross-session approvals', async () => {

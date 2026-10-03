@@ -94,6 +94,23 @@ describe('Notifications experience', () => {
     );
     expect(await screen.findByText('Decision recorded')).toBeVisible();
   });
+  it('directs conversation grants to the session rather than promising one-shot access', async () => {
+    vi.mocked(apiFetch).mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          items: [{ ...pending, request: { ...pending.request, approvalScope: 'conversation' } }],
+          needsYou: 1,
+          total: 1,
+          preferences: prefs,
+          delivery: { configured: false, registeredDevices: 0 },
+        }),
+      ),
+    );
+    show();
+    fireEvent.click(await screen.findByRole('button', { name: 'Review request' }));
+    expect(screen.queryByRole('button', { name: 'Allow once' })).toBeNull();
+    expect(screen.getByRole('link', { name: 'Open session' })).toBeVisible();
+  });
   it('does not equate marking updates read with granting approval', async () => {
     show();
     await screen.findByText('Run the next test?');

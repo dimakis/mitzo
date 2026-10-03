@@ -125,7 +125,9 @@ function RequestDetail({
           <p>{request.description}</p>
           <pre className="notification-command">{request.toolInput}</pre>
           <p className="workspace-muted">
-            Allow once covers only this request. The existing session policy still applies.
+            {request.approvalScope === 'conversation'
+              ? 'This request concerns conversation access. Review its scope in the session.'
+              : 'Allow once covers only this request. The existing session policy still applies.'}
           </p>
         </>
       )}
@@ -136,13 +138,15 @@ function RequestDetail({
               {item.expiresAt ? `Expires ${timestamp(item.expiresAt)}` : 'Waiting for a decision'}
             </p>
             <div className="notification-actions">
-              <button
-                className="notification-button notification-primary"
-                disabled={busy || (!!request?.questions && !complete)}
-                onClick={() => onRespond('once', request?.questions ? answers : undefined)}
-              >
-                {request?.questions ? 'Send answer' : 'Allow once'}
-              </button>
+              {request?.approvalScope !== 'conversation' && (
+                <button
+                  className="notification-button notification-primary"
+                  disabled={busy || (!!request?.questions && !complete)}
+                  onClick={() => onRespond('once', request?.questions ? answers : undefined)}
+                >
+                  {request?.questions ? 'Send answer' : 'Allow once'}
+                </button>
+              )}
               <button
                 className="notification-button"
                 disabled={busy}
@@ -197,7 +201,6 @@ function Preferences({
           [
             ['approvals', 'Session approvals', 'When a session needs permission'],
             ['questions', 'Questions & blocked work', 'When your answer is needed'],
-            ['updates', 'Inbox updates', 'Immediate alerts are reserved for trusted producers'],
           ] as const
         ).map(([key, title, description]) => (
           <label className="notification-setting" key={key}>
