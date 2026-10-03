@@ -44,6 +44,7 @@ Symposium director status resolves the verified runtime once per request and reu
 - **Task board** — recursive multi-session task orchestration with spec mode, completion summaries, and verification hooks
 - **Durable Telos capture** — agents can create approved outcomes and save versioned task documents in live Telos. `TelosSaveArtifact`, `TelosFindArtifacts`, and `TelosReadArtifact` provide upload and historical retrieval through trusted host tools/MCP; session instructions teach agents to recover prior work and retain persistence receipts. Documents and item links live in the canonical Telos SQLite store outside the sandbox; code remains in Git and reusable guidance belongs in knowledge. [Operating contract](docs/operations/telos-artifacts.md).
 - **Work outputs** — each Telos work detail shows its latest saved file revisions before milestones and reference material. Markdown, archives, images and other file bytes use the same durable store (5 MiB per file); Download and Share target the exact listed revision without an active agent session. Native clients use Share. A saved output is not automatically reviewed or delivered. Folder snapshots and external destination tracking are subsequent slices.
+- **Upload work files** — the Outputs upload drawer accepts non-sensitive documents and images up to 5 MiB. Choose file or use Camera to request rear-camera capture on supported phones, review the selection, then upload explicitly. Reusing a filename retains immutable revisions; failed uploads preserve the selection for retry. Credentials and private financial or health evidence require private case storage, not this shared output store.
 - **Worktree sandbox** — opt-in git worktree isolation per session, multi-repo support via `.mitzo.json`
 - **Session resilience** — phone sleeps, WS drops, session survives. Reattach on reconnect. Message snapshot recovery for iOS silent drops. Session opening coordinates live replay with the restored history cursor; expired approvals clear locally so later requests remain accessible.
 - **Durable inactivity closeout** — automatic closeout is admitted once per detach episode before runtime dispatch. Exact retries and restart recovery never repeat paid provider work. See [closeout admission](docs/design/closeout-admission.md).
@@ -822,3 +823,11 @@ read-only reconciliation; it never reissues Create PR, replaces an approval, or 
 credentials after custodian loss. See [publication recovery](docs/operations/symposium-sealed-publication-authority.md#fresh-app-authentication-and-read-only-recovery).
 
 The `Centaur merge gate` workflow publishes a `Centaur final LGTM` commit status. Main branch protection requires it alongside CI: only a final Centaur LGTM with a merge recommendation and zero blockers for the current head passes. Pushes invalidate old approvals; review edits and dismissals recheck the status. A review-cycle limit requires an explicit final review, never a bypass. The workflow executes no pull-request code with its status-write token.
+
+### Encrypted ecosystem backups
+
+An opt-in backup foundation provides store-owner SQLite snapshots, Restic encryption,
+and immutable incremental export to iCloud Drive. It is not enabled in production.
+Live store fences, independent recovery keys, upload verification, scheduling and
+replacement-machine acceptance must be configured before claiming protection. See
+[the implementation and rollout contract](docs/operations/icloud-ecosystem-backup.md).

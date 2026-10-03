@@ -106,6 +106,19 @@ describe('durable Telos artifacts', () => {
     });
     next.close();
   });
+  it('distinguishes explicit user upload intent from internal content deduplication across connections', () => {
+    const { path, store } = setup();
+    const upload = { ...input, sessionId: 'user-upload:operator-a', sourcePath: undefined };
+    const first = store.save({ ...upload, requestId: 'upload-one' });
+    const second = store.save({ ...upload, requestId: 'upload-two' });
+    expect(second).toMatchObject({ id: first.id, revision: 2, sha256: first.sha256 });
+    store.close();
+    const reopened = new TelosArtifactStore(path);
+    expect(reopened.save({ ...upload, requestId: 'upload-one' })).toEqual(first);
+    expect(reopened.save({ ...upload, requestId: 'upload-two' })).toEqual(second);
+    expect(reopened.read(first.id).revision).toBe(2);
+    reopened.close();
+  });
   it('keeps delayed retries pinned after intervening edits and allows intentional reverts', () => {
     const { path, store } = setup();
     const first = store.save({ ...input, requestId: 'save-a' });
