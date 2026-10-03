@@ -26,6 +26,7 @@ function setup() {
   });
   app.use(
     createTelosArtifactRouter({
+      operatorAuth: (_req, _res, next) => next(),
       dbPath: () => path,
       verifyInternal: () => false,
       sessionId: () => undefined,
@@ -109,6 +110,7 @@ it('enforces real interactive authentication before parsing upload bytes', async
   );
   app.use(
     createTelosArtifactRouter({
+      operatorAuth: operatorAuthMiddleware,
       dbPath: () => path,
       verifyInternal: () => false,
       sessionId: () => undefined,
@@ -157,4 +159,46 @@ it('marks external Codex report provenance distinctly in canonical metadata', as
   } finally {
     store.close();
   }
+});
+
+it('revalidates the operator at mutation even when agent authority admitted the broad API gate', async () => {
+  const { login, operatorAuthMiddleware, authMiddleware, revokeAuthSession } =
+    await import('../auth.js');
+  const { INTERNAL_TOKEN } = await import('../internal-token.js');
+  const { path } = setup();
+  const app = express();
+  app.post(
+    '/api/telos/items/:itemId/artifacts/upload',
+    operatorAuthMiddleware,
+    express.json({ limit: '8mb' }),
+  );
+  app.use((_req, res, next) => {
+    revokeAuthSession(res.locals.authSession);
+    next();
+  });
+  app.use('/api', authMiddleware);
+  app.use(
+    createTelosArtifactRouter({
+      dbPath: () => path,
+      verifyInternal: () => false,
+      sessionId: () => undefined,
+      readFile: async () => {
+        throw Error('No host reads');
+      },
+      operatorAuth: operatorAuthMiddleware,
+    }),
+  );
+  const token = await login(process.env.AUTH_PASSPHRASE!);
+  const result = await request(app)
+    .post('/api/telos/items/work/artifacts/upload')
+    .set('Authorization', `Bearer ${token}`)
+    .set('X-Internal-Token', INTERNAL_TOKEN)
+    .send({
+      filename: 'safe.md',
+      title: 'Safe',
+      requestId: 'revoked-save',
+      base64: Buffer.from('safe').toString('base64'),
+    });
+  expect(result.status).toBe(403);
+  expect(result.body.artifact).toBeUndefined();
 });

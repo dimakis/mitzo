@@ -1541,6 +1541,7 @@ app.post('/api/internal/task-tools/artifact', (req, res) => {
 
 app.use(
   createTelosArtifactRouter({
+    operatorAuth: operatorAuthMiddleware,
     dbPath: () =>
       process.env.TELOS_DB_PATH || join(BASE_REPO, 'command_center', 'data', 'smart_todo.db'),
     verifyInternal: verifyInternalToken,
