@@ -150,3 +150,64 @@ it.each(['personal.list', 'account.catalog'] as const)(
     }
   },
 );
+
+it.each(['abort', 'timeout'] as const)(
+  'releases owner capacity for inventory reads on %s even when a handler ignores cancellation',
+  async (mode) => {
+    const [parent, child] = pair();
+    const signals: AbortSignal[] = [];
+    const release: Array<() => void> = [];
+    const controller = new SymposiumCustodianController({
+      pause: vi.fn(),
+      resume: vi.fn(),
+      drain: async () => {},
+      invalidate: vi.fn(),
+      dispatch: async (command, _assert, _approval, signal) => {
+        if (command.operation === 'director.status') return { status: 200, body: {} };
+        if (signal) signals.push(signal);
+        return new Promise((resolve) => release.push(() => resolve({ status: 200, body: {} })));
+      },
+    });
+    const stopped = serveCustodianController(parent, controller);
+    const client = createCustodianIpcClient(child, {
+      requestTimeoutMs: mode === 'timeout' ? 100 : 60_000,
+    });
+    const aborts = Array.from({ length: 64 }, () => new AbortController());
+    const reads = aborts.map((abort, index) =>
+      client
+        .request(
+          {
+            requestId: `owner-read-${index}`,
+            operation: index % 2 ? 'personal.list' : 'account.catalog',
+            body: {},
+            query: {},
+            authorization: { id: 'browser', expiresAt: Date.now() + 60_000 },
+          },
+          undefined,
+          abort.signal,
+        )
+        .catch(() => undefined),
+    );
+    try {
+      await vi.waitFor(() => expect(signals).toHaveLength(64), { timeout: 500 });
+      if (mode === 'abort') aborts.forEach((abort) => abort.abort());
+      await Promise.all(reads);
+      await vi.waitFor(() => expect(signals.every((signal) => signal.aborted)).toBe(true));
+      await expect(
+        client.request({
+          requestId: 'unrelated',
+          operation: 'director.status',
+          sessionId: 's',
+          body: {},
+          query: {},
+          authorization: { id: 'browser', expiresAt: Date.now() + 60_000 },
+        }),
+      ).resolves.toEqual({ status: 200, body: {} });
+    } finally {
+      release.forEach((resolve) => resolve());
+      child.emit('disconnect');
+      parent.emit('disconnect');
+      await stopped;
+    }
+  },
+);
