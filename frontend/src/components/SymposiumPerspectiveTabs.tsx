@@ -1,3 +1,4 @@
+import { SeatLabel } from './SeatLabel';
 import { useRef, type ReactNode, type TouchEvent } from 'react';
 
 export type SymposiumPerspective = 'all' | string;
@@ -93,7 +94,11 @@ export function SymposiumPerspectiveTabs({
               }
             }}
           >
-            {option.name}
+            {option.id === 'all' ? (
+              option.name
+            ) : (
+              <SeatLabel seatId={option.id} name={option.name} />
+            )}
           </button>
         ))}
       </div>

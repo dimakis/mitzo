@@ -28,14 +28,6 @@ const empty: SymposiumProfileDefinition = {
   acceptanceCriteria: [''],
   modelPolicyRole: '',
 };
-const roles: SymposiumProfileDefinition['role'][] = [
-  'planner',
-  'architect',
-  'coder',
-  'reviewer',
-  'research',
-  'synthesis',
-];
 
 async function readJson<T>(response: Response): Promise<T> {
   const body = await response.json();
@@ -306,18 +298,21 @@ export function SymposiumProfilePicker({
             </label>
             <label>
               Role
-              <select
-                value={definition.role}
-                onChange={(event) =>
-                  update('role', event.target.value as SymposiumProfileDefinition['role'])
-                }
-              >
-                {(requiredRole ? [requiredRole] : roles).map((role) => (
-                  <option key={role} value={role}>
-                    {role}
-                  </option>
-                ))}
-              </select>
+              {requiredRole ? (
+                <select
+                  value={definition.role}
+                  onChange={(event) => update('role', event.target.value)}
+                >
+                  <option value={requiredRole}>{requiredRole}</option>
+                </select>
+              ) : (
+                <input
+                  value={definition.role}
+                  onChange={(event) => update('role', event.target.value)}
+                  placeholder="agent, reviewer, writer…"
+                  pattern="[a-z][a-z0-9_-]{0,63}"
+                />
+              )}
             </label>
             <label>
               Instructions

@@ -4,6 +4,40 @@ Telos parent: `6403fb22f9bb743c`. Phase 2.5: `c10fc341b0533a54`.
 
 Current consolidation gates: [integrated acceptance checklist](symposium-integrated-acceptance.md).
 
+## Product sequence reset, 2 October 2026
+
+The first milestone is adding an independently configured agent to an existing
+conversation. Custom guidance does not require a saved catalog profile or a
+predefined implementer/reviewer pair. Account, model, effort, context and
+permissions remain explicit session selections; independent context is the
+default. A saved profile is optional reusable guidance and never supplies
+credentials or session authority.
+
+The current source slice adds a generic **Add agent** entry on desktop and phone,
+custom seat guidance and explicit permission requests, using the existing host
+grant, admission, membership and delivery owners. Conversation controls approve,
+send and stop exact deliveries. Unknown dispatch or cleanup outcomes remain
+uncertain rather than automatically repeating an operation. These source changes
+do not establish live-model, physical sandbox or actual phone acceptance.
+
+Stable identity-based color accents accompany agent names in tabs, messages and
+delivery cards. **All** is a read-only combined timeline. Named agent streams
+hold separate drafts; `@` opens an explicit recipient picker and switches streams
+by seat identity. Choosing a recipient does not queue or send content.
+
+Next milestones reuse and improve the editable/versioned catalog, then select
+participants explicitly for structured review, authorized fixes and delta review.
+Application limits, meaningful criteria and final records remain required for
+that workflow. Recovery, supported account/provider/model/device combinations,
+ordinary-chat compatibility and migration/rollback qualification remain release
+requirements. Exact-artifact publication approval and deployment authorization
+are separate actions.
+
+This sequence supersedes inherited mandatory harness prerequisites. Prefer the
+supported app and focused existing tests for each named acceptance question;
+one failed experiment returns to diagnosis. Historical evidence below remains
+bounded to its recorded source and operation, not current full acceptance.
+
 ## Status at 27 September 2026
 
 This page describes the implemented feature stack and its acceptance evidence.

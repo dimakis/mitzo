@@ -72,3 +72,27 @@
     padding-bottom: max(1.25rem, env(safe-area-inset-bottom));
   }
 }
+
+.reviewer-sheet h3 {
+  margin: 1.25rem 0 0.5rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--border);
+  font-size: 1rem;
+}
+.reviewer-sheet textarea,
+.reviewer-sheet select,
+.reviewer-sheet input:not([type='checkbox']) {
+  padding: 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+}
+.reviewer-sheet label:has(input[type='checkbox']) {
+  justify-content: flex-start;
+}
+.reviewer-sheet label:has(input[type='checkbox']) span {
+  flex: 1;
+  text-align: left;
+}

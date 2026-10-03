@@ -1,3 +1,4 @@
+import { atSymposiumReconciliationStageAsync } from './symposium-reconciliation-error.js';
 import { verifyPreparedSeed } from '../scripts/verify-openshell-production.mjs';
 import { SYMPOSIUM_ARTIFACT_TARGET } from './symposium-artifact-lease.js';
 import {
@@ -1775,9 +1776,11 @@ export class OpenShellRuntimeManager {
       if (terminalSandboxId) this.config.onSandboxCreationPhase?.('mount');
       if (!sandbox.id) throw new Error('Artifact sandbox has no immutable physical identity');
       await this.config.verifyArtifactMount!(name, sandbox.id, artifactConfig);
-      const afterMount = await this.get(name, signal);
-      if (!afterMount || afterMount.id !== sandbox.id || afterMount.phase !== 'Ready')
-        throw new Error('Artifact sandbox changed during mount attestation');
+      await atSymposiumReconciliationStageAsync('SEAT_MOUNT_POSTCHECK_FAILED', async () => {
+        const afterMount = await this.get(name, signal);
+        if (!afterMount || afterMount.id !== sandbox.id || afterMount.phase !== 'Ready')
+          throw new Error('Artifact sandbox changed during mount attestation');
+      });
     }
     if (sandbox.labels?.['mitzo.conversation'] !== owner)
       throw new Error(`OpenShell sandbox ${name} is not owned by this conversation`);

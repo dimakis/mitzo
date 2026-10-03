@@ -10,6 +10,10 @@ import { execFile } from 'node:child_process';
 import type { ArtifactDriverConfig, ArtifactLeaseRequest } from './symposium-artifact-lease.js';
 import type { ArtifactHostEvidence } from './symposium-artifact-host.js';
 import type { OwnedSymposiumGateway } from './symposium-owned-gateway.js';
+import {
+  atSymposiumReconciliationStage,
+  atSymposiumReconciliationStageAsync,
+} from './symposium-reconciliation-error.js';
 
 type PodmanCommand = (
   args: readonly string[],
@@ -95,48 +99,58 @@ export class LocalPodmanArtifactEvidence implements ArtifactHostEvidence {
     sandboxId: string,
     config: ArtifactDriverConfig,
   ): Promise<void> {
-    if (!identifier.test(sandboxName) || !identifier.test(sandboxId))
-      throw new Error('Invalid OpenShell sandbox identity');
-    if (Object.keys(config).length !== 1 || !config.podman || config.podman.mounts.length !== 1)
-      throw new Error('Podman artifact driver config is ambiguous');
-    const expected = config.podman.mounts[0];
-    if (
-      expected.type !== 'volume' ||
-      expected.target !== target ||
-      !identifier.test(expected.source) ||
-      typeof expected.read_only !== 'boolean'
-    )
-      throw new Error('Invalid expected artifact mount');
+    const expected = atSymposiumReconciliationStage('SEAT_MOUNT_CONFIG_FAILED', () => {
+      if (!identifier.test(sandboxName) || !identifier.test(sandboxId))
+        throw new Error('Invalid OpenShell sandbox identity');
+      if (Object.keys(config).length !== 1 || !config.podman || config.podman.mounts.length !== 1)
+        throw new Error('Podman artifact driver config is ambiguous');
+      const mount = config.podman.mounts[0];
+      if (
+        mount.type !== 'volume' ||
+        mount.target !== target ||
+        !identifier.test(mount.source) ||
+        typeof mount.read_only !== 'boolean'
+      )
+        throw new Error('Invalid expected artifact mount');
+      return mount;
+    });
 
     // List all containers so an incorrect daemon-side label filter cannot
     // accidentally turn a live sandbox into an apparent absence.
     const run = (args: readonly string[], operation: OpenShellMountJsonOperation) =>
       this.observeRuntime ? this.run(args, operation) : this.run(args);
-    const listed = await run(['ps', '--all', '--format', 'json'], 'podman-ps');
-    if (!Array.isArray(listed)) throw new Error('Invalid Podman container listing');
-    // A replacement ID does not prove the previous physical workload stopped.
-    // Include the stable identity so both generations cannot pass mount admission.
-    const workload = listed.filter((item) => {
-      const row = record(item);
-      const foundLabels = labels(row.Labels ?? row.labels);
-      return (
-        foundLabels['openshell.ai/isolation-role'] === 'sandbox' &&
-        (foundLabels['openshell.ai/sandbox-id'] === sandboxId ||
-          (foundLabels['openshell.ai/sandbox-name'] === sandboxName &&
-            foundLabels['openshell.ai/sandbox-workspace'] === this.workspaceId &&
-            foundLabels['openshell.ai/sandbox-namespace'] === this.sandboxNamespace))
-      );
-    });
-    const workloadRow = exactlyOne(workload);
-    const physicalId = workloadRow.Id ?? workloadRow.ID;
-    if (typeof physicalId !== 'string' || !containerId.test(physicalId))
-      throw new Error('Podman physical container ID is unavailable');
-    const inspected = exactlyOne(
-      await run(['inspect', '--type', 'container', physicalId], 'podman-inspect'),
+    const workload = await atSymposiumReconciliationStageAsync(
+      'SEAT_MOUNT_LISTING_FAILED',
+      async () => {
+        const listed = await run(['ps', '--all', '--format', 'json'], 'podman-ps');
+        if (!Array.isArray(listed)) throw new Error('Invalid Podman container listing');
+        // A replacement ID does not prove the previous physical workload stopped.
+        // Include the stable identity so both generations cannot pass mount admission.
+        return listed.filter((item) => {
+          const row = record(item);
+          const foundLabels = labels(row.Labels ?? row.labels);
+          return (
+            foundLabels['openshell.ai/isolation-role'] === 'sandbox' &&
+            (foundLabels['openshell.ai/sandbox-id'] === sandboxId ||
+              (foundLabels['openshell.ai/sandbox-name'] === sandboxName &&
+                foundLabels['openshell.ai/sandbox-workspace'] === this.workspaceId &&
+                foundLabels['openshell.ai/sandbox-namespace'] === this.sandboxNamespace))
+          );
+        });
+      },
     );
-    if (inspected.Id !== physicalId && inspected.ID !== physicalId)
-      throw new Error('Podman container identity changed during inspection');
-    const found = labels(inspected.Config && record(inspected.Config).Labels);
+    const physicalId = atSymposiumReconciliationStage('SEAT_MOUNT_SELECTION_FAILED', () => {
+      const workloadRow = exactlyOne(workload);
+      const id = workloadRow.Id ?? workloadRow.ID;
+      if (typeof id !== 'string' || !containerId.test(id))
+        throw new Error('Podman physical container ID is unavailable');
+      return id;
+    });
+    const inspected = await atSymposiumReconciliationStageAsync(
+      'SEAT_MOUNT_INSPECTION_FAILED',
+      async () =>
+        exactlyOne(await run(['inspect', '--type', 'container', physicalId], 'podman-inspect')),
+    );
     const required: Record<string, string> = {
       'openshell.ai/sandbox-id': sandboxId,
       'openshell.ai/sandbox-name': sandboxName,
@@ -145,26 +159,36 @@ export class LocalPodmanArtifactEvidence implements ArtifactHostEvidence {
       'openshell.ai/isolation-role': 'sandbox',
       'openshell.managed': 'true',
     };
-    for (const [key, value] of Object.entries(required))
-      if (found[key] !== value) throw new Error(`Podman sandbox ${key} does not match`);
-    const state = record(inspected.State);
-    if (state.Running !== true) throw new Error('Podman sandbox is not running');
-    if (!Array.isArray(inspected.Mounts)) throw new Error('Podman mounts are unavailable');
-    const atTarget = inspected.Mounts.map(record).filter((mount) => mount.Destination === target);
-    if (atTarget.length !== 1) throw new Error('Artifact target has no unique physical mount');
-    const mount = atTarget[0];
-    if (
-      mount.Type !== 'volume' ||
-      mount.Name !== expected.source ||
-      mount.RW !== !expected.read_only
-    )
-      throw new Error('Physical artifact volume or access differs from lease');
+    atSymposiumReconciliationStage('SEAT_MOUNT_IDENTITY_FAILED', () => {
+      if (inspected.Id !== physicalId && inspected.ID !== physicalId)
+        throw new Error('Podman container identity changed during inspection');
+      const found = labels(inspected.Config && record(inspected.Config).Labels);
+      for (const [key, value] of Object.entries(required))
+        if (found[key] !== value) throw new Error(`Podman sandbox ${key} does not match`);
+      const state = record(inspected.State);
+      if (state.Running !== true) throw new Error('Podman sandbox is not running');
+    });
+    atSymposiumReconciliationStage('SEAT_MOUNT_PHYSICAL_PROOF_FAILED', () => {
+      if (!Array.isArray(inspected.Mounts)) throw new Error('Podman mounts are unavailable');
+      const atTarget = inspected.Mounts.map(record).filter((mount) => mount.Destination === target);
+      if (atTarget.length !== 1) throw new Error('Artifact target has no unique physical mount');
+      const mount = atTarget[0];
+      if (
+        mount.Type !== 'volume' ||
+        mount.Name !== expected.source ||
+        mount.RW !== !expected.read_only
+      )
+        throw new Error('Physical artifact volume or access differs from lease');
+    });
     if (this.workloadImage) {
-      const owner = symposiumArtifactOwner(this.workloadImage);
-      const image =
-        typeof inspected.Image === 'string' ? inspected.Image.replace(/^sha256:/, '') : '';
-      if (image !== owner.image.replace(/^sha256:/, ''))
-        throw new Error('Artifact workload image differs from reviewed identity');
+      const owner = atSymposiumReconciliationStage('SEAT_MOUNT_IMAGE_FAILED', () => {
+        const expectedOwner = symposiumArtifactOwner(this.workloadImage!);
+        const image =
+          typeof inspected.Image === 'string' ? inspected.Image.replace(/^sha256:/, '') : '';
+        if (image !== expectedOwner.image.replace(/^sha256:/, ''))
+          throw new Error('Artifact workload image differs from reviewed identity');
+        return expectedOwner;
+      });
       // Read-only OS evidence under the image's own sandbox identity. This never
       // writes a marker into the shared artifact volume or runs a model.
       const nativeAccess =
@@ -173,48 +197,57 @@ export class LocalPodmanArtifactEvidence implements ArtifactHostEvidence {
           ? (name: string, id: string, script: string) =>
               probeOwnedArtifactAccess(this.ownedGateway!, name, id, script, this.observeRuntime)
           : undefined);
-      if (!nativeAccess) throw new Error('Native artifact identity probe is unavailable');
-      const probe = record(
-        await nativeAccess(
-          sandboxName,
-          sandboxId,
-          'set -eu; uid=$(/usr/bin/id -u); gid=$(/usr/bin/id -g); set -- $(/usr/bin/stat -c "%u %g %a" __ARTIFACT_TARGET__); readable=false; searchable=false; if test -r __ARTIFACT_TARGET__; then readable=true; fi; if test -x __ARTIFACT_TARGET__; then searchable=true; fi; writable=false; if test -w __ARTIFACT_TARGET__; then writable=true; fi; printf \'{"uid":%s,"gid":%s,"ownerUid":%s,"ownerGid":%s,"mode":"%s","writable":%s,"readable":%s,"searchable":%s}\\n\' "$uid" "$gid" "$1" "$2" "$3" "$writable" "$readable" "$searchable"'.replaceAll(
-            '__ARTIFACT_TARGET__',
-            target,
-          ),
-        ),
+      const probe = await atSymposiumReconciliationStageAsync(
+        'SEAT_MOUNT_NATIVE_ACCESS_FAILED',
+        async () => {
+          if (!nativeAccess) throw new Error('Native artifact identity probe is unavailable');
+          return record(
+            await nativeAccess(
+              sandboxName,
+              sandboxId,
+              'set -eu; uid=$(/usr/bin/id -u); gid=$(/usr/bin/id -g); set -- $(/usr/bin/stat -c "%u %g %a" __ARTIFACT_TARGET__); readable=false; searchable=false; if test -r __ARTIFACT_TARGET__; then readable=true; fi; if test -x __ARTIFACT_TARGET__; then searchable=true; fi; writable=false; if test -w __ARTIFACT_TARGET__; then writable=true; fi; printf \'{"uid":%s,"gid":%s,"ownerUid":%s,"ownerGid":%s,"mode":"%s","writable":%s,"readable":%s,"searchable":%s}\\n\' "$uid" "$gid" "$1" "$2" "$3" "$writable" "$readable" "$searchable"'.replaceAll(
+                '__ARTIFACT_TARGET__',
+                target,
+              ),
+            ),
+          );
+        },
       );
-      if (
-        probe.uid !== owner.uid ||
-        probe.gid !== owner.gid ||
-        probe.ownerUid !== owner.uid ||
-        probe.ownerGid !== owner.gid ||
-        typeof probe.mode !== 'string' ||
-        !/^[0-7]{3,4}$/.test(probe.mode) ||
-        (Number.parseInt(probe.mode, 8) & 0o022) !== 0 ||
-        probe.readable !== true ||
-        probe.searchable !== true ||
-        probe.writable !== !expected.read_only
-      )
-        throw new Error('Artifact owner identity or effective access is not ready');
-      const after = exactlyOne(
-        await run(['inspect', '--type', 'container', physicalId], 'podman-inspect'),
-      );
-      const afterLabels = labels(record(after.Config).Labels);
-      const afterMounts = Array.isArray(after.Mounts)
-        ? after.Mounts.map(record).filter((mount) => mount.Destination === target)
-        : [];
-      if (
-        (after.Id ?? after.ID) !== physicalId ||
-        Object.entries(required).some(([key, value]) => afterLabels[key] !== value) ||
-        record(after.State).Running !== true ||
-        after.Image !== inspected.Image ||
-        afterMounts.length !== 1 ||
-        afterMounts[0].Type !== 'volume' ||
-        afterMounts[0].Name !== expected.source ||
-        afterMounts[0].RW !== !expected.read_only
-      )
-        throw new Error('Artifact physical identity changed during native access probe');
+      atSymposiumReconciliationStage('SEAT_MOUNT_ACCESS_PROOF_FAILED', () => {
+        if (
+          probe.uid !== owner.uid ||
+          probe.gid !== owner.gid ||
+          probe.ownerUid !== owner.uid ||
+          probe.ownerGid !== owner.gid ||
+          typeof probe.mode !== 'string' ||
+          !/^[0-7]{3,4}$/.test(probe.mode) ||
+          (Number.parseInt(probe.mode, 8) & 0o022) !== 0 ||
+          probe.readable !== true ||
+          probe.searchable !== true ||
+          probe.writable !== !expected.read_only
+        )
+          throw new Error('Artifact owner identity or effective access is not ready');
+      });
+      await atSymposiumReconciliationStageAsync('SEAT_MOUNT_POSTCHECK_FAILED', async () => {
+        const after = exactlyOne(
+          await run(['inspect', '--type', 'container', physicalId], 'podman-inspect'),
+        );
+        const afterLabels = labels(record(after.Config).Labels);
+        const afterMounts = Array.isArray(after.Mounts)
+          ? after.Mounts.map(record).filter((mount) => mount.Destination === target)
+          : [];
+        if (
+          (after.Id ?? after.ID) !== physicalId ||
+          Object.entries(required).some(([key, value]) => afterLabels[key] !== value) ||
+          record(after.State).Running !== true ||
+          after.Image !== inspected.Image ||
+          afterMounts.length !== 1 ||
+          afterMounts[0].Type !== 'volume' ||
+          afterMounts[0].Name !== expected.source ||
+          afterMounts[0].RW !== !expected.read_only
+        )
+          throw new Error('Artifact physical identity changed during native access probe');
+      });
     }
   }
 

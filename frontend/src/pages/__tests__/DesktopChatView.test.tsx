@@ -395,7 +395,7 @@ it('explains why sending is disabled while desktop accounts load', () => {
   expect((screen.getByText('Test send') as HTMLButtonElement).disabled).toBe(true);
 });
 
-it('keeps the active mode selected until the store receives server confirmation', () => {
+it('keeps the active mode selected until the store receives server confirmation', async () => {
   const store = createMockStore();
   store.setState((s) => ({ sessions: { ...s.sessions, active: 'active-session' } }));
   render(
@@ -406,7 +406,7 @@ it('keeps the active mode selected until the store receives server confirmation'
     </MemoryRouter>,
   );
   fireEvent.click(screen.getByRole('button', { name: /^Workspace/ }));
-  fireEvent.click(screen.getByRole('button', { name: 'Auto' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Auto' }));
   expect(store.getState().setMode).toHaveBeenCalledWith('auto');
   expect(screen.getByRole('button', { name: 'Agent' }).className).toContain('mode-pill--active');
   expect(screen.getByRole('button', { name: 'Auto' }).className).not.toContain('mode-pill--active');
@@ -443,7 +443,7 @@ it('shows reconnecting in collapsed workspace settings when disconnected', () =>
   expect(toggle.textContent).toContain('Reconnecting');
 });
 
-it('offers the shared reviewer entry for an active desktop conversation', () => {
+it('offers the shared agent entry for an active desktop conversation', () => {
   const store = createMockStore();
   store.setState((state) => ({ sessions: { ...state.sessions, active: 'active-session' } }));
   render(
@@ -453,9 +453,9 @@ it('offers the shared reviewer entry for an active desktop conversation', () => 
       </MitzoStoreProvider>
     </MemoryRouter>,
   );
-  expect(screen.queryByRole('button', { name: 'Add reviewer' })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Add agent' })).toBeNull();
   fireEvent.click(screen.getByRole('button', { name: /Workspace controls/ }));
-  expect(screen.getByRole('button', { name: 'Add reviewer' })).toBeTruthy();
+  expect(screen.getByRole('button', { name: 'Add agent' })).toBeTruthy();
 });
 
 it('shows the profile, model and thinking in the collapsed workspace header', async () => {
@@ -491,4 +491,133 @@ it('groups web search settings under the existing header disclosure', async () =
   expect(settings.closest('[hidden]')).toBeTruthy();
   fireEvent.click(screen.getByRole('button', { name: /Workspace controls/ }));
   expect(settings.closest('[hidden]')).toBeNull();
+});
+
+it('replaces ordinary workspace actions and Ready with per-agent guidance for Symposium', async () => {
+  localStorage.setItem('mitzo-workspace-controls-expanded', '1');
+  vi.mocked(fetch).mockImplementation(
+    async (url) =>
+      ({
+        ok: true,
+        json: async () =>
+          String(url).endsWith('/meta')
+            ? { sessionType: 'symposium' }
+            : String(url).endsWith('/status')
+              ? { sessionId: 'native-chat', config: null, seats: [] }
+              : [],
+      }) as Response,
+  );
+  const store = createMockStore();
+  store.setState({ sessions: { ...store.getState().sessions, active: 'native-chat' } });
+  render(
+    <MemoryRouter>
+      <MitzoStoreProvider value={store}>
+        <DesktopChatView />
+      </MitzoStoreProvider>
+    </MemoryRouter>,
+  );
+  await screen.findByText('Symposium');
+  expect(screen.queryByRole('button', { name: 'Ask' })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Auto' })).toBeNull();
+  expect(screen.queryByTitle('Close session')).toBeNull();
+  expect(screen.queryByTestId('voice-settings')).toBeNull();
+  expect(screen.queryByTestId('web-search-connection')).toBeNull();
+  expect(screen.queryByText('Ready')).toBeNull();
+  expect(screen.getByText('Agent chat')).toBeTruthy();
+  expect(screen.queryByText(/Each agent has its own account/)).toBeNull();
+  expect(store.getState().closeSession).not.toHaveBeenCalled();
+});
+
+it('keeps the ordinary Close action unavailable until existing session metadata is known', () => {
+  localStorage.setItem('mitzo-workspace-controls-expanded', '1');
+  vi.mocked(fetch).mockReturnValue(new Promise(() => {}));
+  const store = createMockStore();
+  store.setState({ sessions: { ...store.getState().sessions, active: 'unknown-chat' } });
+  render(
+    <MemoryRouter>
+      <MitzoStoreProvider value={store}>
+        <DesktopChatView />
+      </MitzoStoreProvider>
+    </MemoryRouter>,
+  );
+  expect(screen.queryByTitle('Close session')).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Ask' })).toBeNull();
+  expect(screen.getByText('Loading conversation settings')).toBeTruthy();
+});
+
+it('retains the ordinary Close action after ordinary session metadata loads', async () => {
+  localStorage.setItem('mitzo-workspace-controls-expanded', '1');
+  vi.mocked(fetch).mockImplementation(
+    async (url) =>
+      ({
+        ok: true,
+        json: async () =>
+          String(url).endsWith('/meta')
+            ? {
+                sessionType: 'chat',
+                accountBinding: {
+                  accountId: 'ordinary',
+                  accountLabel: 'Ordinary account',
+                  model: 'luna',
+                },
+              }
+            : String(url).endsWith('/status')
+              ? { sessionId: 'ordinary-chat', config: null, seats: [] }
+              : [],
+      }) as Response,
+  );
+  const store = createMockStore();
+  store.setState({ sessions: { ...store.getState().sessions, active: 'ordinary-chat' } });
+  render(
+    <MemoryRouter>
+      <MitzoStoreProvider value={store}>
+        <DesktopChatView />
+      </MitzoStoreProvider>
+    </MemoryRouter>,
+  );
+  const close = await screen.findByTitle('Close session');
+  fireEvent.click(close);
+  expect(store.getState().closeSession).toHaveBeenCalledOnce();
+  expect(screen.getByRole('button', { name: 'Ask' })).toBeTruthy();
+});
+
+it('does not reuse ordinary controls while switching to an unclassified session', async () => {
+  localStorage.setItem('mitzo-workspace-controls-expanded', '1');
+  vi.mocked(fetch).mockImplementation(async (url) => {
+    if (String(url).includes('/next-chat/meta')) return new Promise<Response>(() => {});
+    return {
+      ok: true,
+      json: async () =>
+        String(url).endsWith('/meta')
+          ? {
+              sessionType: 'chat',
+              accountBinding: {
+                accountId: 'ordinary',
+                accountLabel: 'Ordinary account',
+                model: 'luna',
+              },
+            }
+          : String(url).endsWith('/status')
+            ? {
+                sessionId: String(url).includes('/next-chat/') ? 'next-chat' : 'ordinary-chat',
+                config: null,
+                seats: [],
+              }
+            : [],
+    } as Response;
+  });
+  const store = createMockStore();
+  store.setState({ sessions: { ...store.getState().sessions, active: 'ordinary-chat' } });
+  render(
+    <MemoryRouter>
+      <MitzoStoreProvider value={store}>
+        <DesktopChatView />
+      </MitzoStoreProvider>
+    </MemoryRouter>,
+  );
+  await screen.findByTitle('Close session');
+  act(() => store.setState({ sessions: { ...store.getState().sessions, active: 'next-chat' } }));
+  expect(screen.queryByTitle('Close session')).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Ask' })).toBeNull();
+  expect(screen.getByText('Loading conversation settings')).toBeTruthy();
 });

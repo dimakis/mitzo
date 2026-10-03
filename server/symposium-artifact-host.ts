@@ -7,6 +7,7 @@ import { resolve } from 'node:path';
 import type { OwnedSymposiumGateway } from './symposium-owned-gateway.js';
 import { execFile } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
+import { atSymposiumReconciliationStage } from './symposium-reconciliation-error.js';
 import type { EventStore } from './event-store.js';
 import type {
   ArtifactDriver,
@@ -376,8 +377,10 @@ export class SqliteArtifactLeaseHost implements ArtifactLeaseHost {
     sandboxId: string,
     config: ArtifactDriverConfig,
   ): Promise<void> {
-    if (!safeName.test(sandboxName) || !sandboxId)
-      throw new Error('Invalid artifact sandbox identity');
+    atSymposiumReconciliationStage('SEAT_MOUNT_CONFIG_FAILED', () => {
+      if (!safeName.test(sandboxName) || !sandboxId)
+        throw new Error('Invalid artifact sandbox identity');
+    });
     await this.evidence.verifyMount(sandboxName, sandboxId, config);
   }
 

@@ -8,7 +8,10 @@ import { SymposiumReviewStore, type ApplicationAttempt } from '../symposium-revi
 import { SymposiumNativeObservations } from '../symposium-native-observations.js';
 import Database from 'better-sqlite3';
 import { createHash } from 'node:crypto';
-import { SymposiumWorkspaceLifecycle } from '../symposium-workspace-lifecycle.js';
+import {
+  SandboxCreationPreflightError,
+  SymposiumWorkspaceLifecycle,
+} from '../symposium-workspace-lifecycle.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { mkdtempSync, mkdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -34,10 +37,13 @@ import {
 } from '../openshell-runtime.js';
 import {
   admitSymposiumSeatDispatch,
+  supportsSymposiumSeatCapability,
   symposiumSeatRuntimeId,
   type SymposiumDispatchFacts,
 } from '../symposium-seat-runtime.js';
-import type { SymposiumSeatExecution } from '../symposium-orchestrator.js';
+import { SymposiumOrchestrator, type SymposiumSeatExecution } from '../symposium-orchestrator.js';
+import { EventStore } from '../event-store.js';
+import { symposiumReconciliationFailureCode } from '../symposium-reconciliation-error.js';
 import { SymposiumAttemptRegistry } from '../symposium-attempt-registry.js';
 import { initializeSymposiumNativeHost } from '../symposium-native-host.js';
 import { SymposiumOpenShellSeatExecutor } from '../symposium-openshell-seat-executor.js';
@@ -54,6 +60,11 @@ import {
   createOpenShellProviderIdentityResolver,
   createSymposiumSessionRuntime,
 } from '../symposium-session-runtime.js';
+
+const reconciliationWarn = vi.hoisted(() => vi.fn());
+vi.mock('../logger.js', () => ({
+  createLogger: () => ({ debug: vi.fn(), info: vi.fn(), warn: reconciliationWarn, error: vi.fn() }),
+}));
 
 const profiles = new AccountProfiles([
   {
@@ -1806,7 +1817,10 @@ describe('last native Symposium dispatch fence', () => {
     });
     await expect(
       owner.ensure('symposium', 'reviewer', new AbortController().signal),
-    ).rejects.toThrow('outside the host attestation');
+    ).rejects.toMatchObject({
+      code: 'SEAT_CAPABILITY_RECHECK_FAILED',
+      cause: { message: 'Seat provider profile is outside the host attestation' },
+    });
     expect(registry.getSymposiumSeatSandbox('symposium', 'reviewer', 2)).toBeUndefined();
     expect(managerFactory).not.toHaveBeenCalled();
     expect(verifyHostCapability).toHaveBeenCalledTimes(1);
@@ -2650,6 +2664,59 @@ describe('last native Symposium dispatch fence', () => {
       readOnly: true,
     });
   });
+  it.each(['agent', 'domain-specialist', 'reviewer'])(
+    'uses granted permissions for explicit %s seats while preserving role attribution',
+    (role) => {
+      for (const mode of ['read', 'write'] as const) {
+        const work = fixture();
+        const custom: SeatConfig = {
+          ...seat,
+          role,
+          authorityRequest: { filesystem: mode, tools: mode, network: 'restricted' },
+          authorityGrant: { ...seat.authorityGrant, filesystem: mode, tools: mode },
+        };
+        work.setConfig({ ...config, seats: [custom] });
+        const provenance = { ...work.input.provenance, seatRole: role };
+        expect(
+          admitSymposiumSeatDispatch(
+            work.facts,
+            profiles,
+            { ...work.input, seat: custom, provenance },
+            hostGrants,
+          ),
+        ).toMatchObject({ readOnly: mode === 'read', provider: 'openai-work' });
+        expect(supportsSymposiumSeatCapability(custom, new Set(['reviewer']))).toBe(
+          mode === 'read',
+        );
+        expect(supportsSymposiumSeatCapability(custom, new Set(['implementer']))).toBe(
+          mode === 'write',
+        );
+      }
+    },
+  );
+  it('dispatches with the approved read ceiling even when the custom agent requested write', () => {
+    const work = fixture();
+    const custom: SeatConfig = {
+      ...seat,
+      role: 'agent',
+      authorityRequest: { filesystem: 'write', tools: 'write', network: 'restricted' },
+    };
+    work.setConfig({ ...config, seats: [custom] });
+    expect(
+      admitSymposiumSeatDispatch(
+        work.facts,
+        profiles,
+        {
+          ...work.input,
+          seat: custom,
+          provenance: { ...work.input.provenance, seatRole: 'agent' },
+        },
+        hostGrants,
+      ),
+    ).toMatchObject({ readOnly: true });
+    expect(supportsSymposiumSeatCapability(custom, new Set(['implementer']))).toBe(false);
+    expect(supportsSymposiumSeatCapability(custom, new Set(['reviewer']))).toBe(true);
+  });
   it('rejects revocation or provider refusal that happens after the earlier claim', () => {
     const work = fixture();
     work.setMembership({
@@ -2764,6 +2831,7 @@ describe('per-seat artifact admission', () => {
       creationFence?: boolean;
       revokeBeforeDispatch?: boolean;
     } = {},
+    store?: EventStore,
   ) {
     const root = mkdtempSync(join(tmpdir(), 'symposium-owner-artifact-'));
     const lifecycle = new SymposiumWorkspaceLifecycle(join(root, 'fence.json'), () => {});
@@ -2808,7 +2876,7 @@ describe('per-seat artifact admission', () => {
       };
     });
     const configurations: BoundOpenShellRuntimeConfig[] = [];
-    const registry = seatSandboxRegistry();
+    const registry = store ?? seatSandboxRegistry();
     let phase: 'Ready' | 'Stopped' | 'Absent' = 'Ready';
     const stop = vi.fn(async () => {
       phase = 'Stopped';
@@ -2822,7 +2890,7 @@ describe('per-seat artifact admission', () => {
     const owner = () =>
       new SymposiumPerSeatSandboxOwner({
         sessionId: 'symposium',
-        facts: fixture().facts,
+        facts: store ?? fixture().facts,
         profiles,
         hostGrants,
         seatSandboxRegistry: registry,
@@ -3015,7 +3083,12 @@ describe('per-seat artifact admission', () => {
     try {
       await expect(
         state.owner().ensure('symposium', 'reviewer', new AbortController().signal),
-      ).rejects.toThrow('seat revoked at dispatch');
+      ).rejects.toMatchObject({
+        cause: {
+          code: 'SEAT_CAPABILITY_RECHECK_FAILED',
+          cause: { message: 'seat revoked at dispatch' },
+        },
+      });
       expect(state.ensure).not.toHaveBeenCalled();
       await expect(state.lifecycle.cleanup(async () => 'available')).resolves.toBe('available');
       options.revokeBeforeDispatch = false;
@@ -3078,7 +3151,14 @@ describe('per-seat artifact admission', () => {
       try {
         await expect(
           state.owner().ensure('symposium', 'reviewer', new AbortController().signal),
-        ).rejects.toThrow(options.failCreate ? 'create response lost' : 'physical mount mismatch');
+        ).rejects.toMatchObject(
+          options.failCreate
+            ? { message: 'create response lost' }
+            : {
+                code: 'SEAT_MOUNT_VERIFICATION_FAILED',
+                cause: { message: 'physical mount mismatch' },
+              },
+        );
         await expect(
           state.owner().ensure('symposium', 'reviewer', new AbortController().signal),
         ).rejects.toThrow('reservation changed');
@@ -3090,10 +3170,111 @@ describe('per-seat artifact admission', () => {
     }
   });
 
+  it.each(['direct', 'preflight-wrapper'] as const)(
+    'logs only the safe artifact failure code (%s) and retains undispatched admission ownership',
+    async (wrapper) => {
+      const root = mkdtempSync(join(tmpdir(), 'symposium-predispatch-diagnostic-'));
+      const store = new EventStore(join(root, 'events.sqlite'));
+      const state = setup('writer', {}, store);
+      const secretFailure = new Error('private credential and host path must stay internal');
+      vi.spyOn(state.host, 'verifyDriverConfig').mockRejectedValueOnce(secretFailure);
+      const release = vi.spyOn(state.host, 'release');
+      let propagated: unknown;
+      reconciliationWarn.mockClear();
+      try {
+        store.upsertSession({ sessionId: 'symposium', accountBinding: seat.accountBinding });
+        store.setSymposiumConfig('symposium', config);
+        const orchestrator = new SymposiumOrchestrator({
+          store,
+          executors: {},
+          reconcileProviders: async () => {
+            try {
+              await state.owner().ensure('symposium', 'reviewer', new AbortController().signal);
+            } catch (error) {
+              propagated = error;
+              throw wrapper === 'preflight-wrapper'
+                ? new SandboxCreationPreflightError(error)
+                : error;
+            }
+          },
+        });
+        await orchestrator.transitionMembership({
+          sessionId: 'symposium',
+          seatId: 'reviewer',
+          action: 'admit',
+          expectedGeneration: 0,
+          configRevision: 4,
+          actor: 'director',
+          reason: 'initial',
+          idempotencyKey: 'initial',
+        });
+        orchestrator.recordProviderAdmission({
+          sessionId: 'symposium',
+          seatId: 'reviewer',
+          decision: 'admitted',
+          idempotencyKey: 'provider-initial',
+        });
+        expect(
+          (await orchestrator.reconcileMembership('symposium', 'reviewer', 1)).reconciliation,
+        ).toBe('recovery_required');
+        expect(propagated).toMatchObject({
+          code: 'SEAT_ARTIFACT_VERIFICATION_FAILED',
+          message: 'SEAT_ARTIFACT_VERIFICATION_FAILED',
+          cause: secretFailure,
+        });
+        expect(reconciliationWarn).toHaveBeenCalledWith(
+          'Symposium membership cleanup requires recovery',
+          {
+            sessionId: 'symposium',
+            seatId: 'reviewer',
+            reason: 'admission_reconcile_failed',
+            failureCode: 'SEAT_ARTIFACT_VERIFICATION_FAILED',
+          },
+        );
+        expect(JSON.stringify(reconciliationWarn.mock.calls)).not.toContain(secretFailure.message);
+        expect(JSON.stringify(propagated)).not.toContain(secretFailure.message);
+        expect(store.getSymposiumSeatSandbox('symposium', 'reviewer', 1)).toMatchObject({
+          state: 'reserved',
+          creationStarted: false,
+          creationCompleted: false,
+          physicalId: null,
+        });
+        expect(state.configurations).toHaveLength(0);
+        expect(state.ensure).not.toHaveBeenCalled();
+        expect(release).not.toHaveBeenCalled();
+        const leases = new Database(join(state.root, 'leases.sqlite'), { readonly: true });
+        try {
+          expect(
+            leases
+              .prepare('SELECT creation_started, sandbox_id FROM symposium_artifact_leases')
+              .all(),
+          ).toEqual([{ creation_started: 0, sandbox_id: null }]);
+        } finally {
+          leases.close();
+        }
+      } finally {
+        state.host.close();
+        store.close();
+        rmSync(state.root, { recursive: true, force: true });
+        rmSync(root, { recursive: true, force: true });
+      }
+    },
+  );
+
+  it('does not trust failure codes attached to external errors', () => {
+    const external = Object.assign(new Error('private external failure'), {
+      code: 'SEAT_ARTIFACT_VERIFICATION_FAILED',
+    });
+    expect(symposiumReconciliationFailureCode(external)).toBe('RECONCILIATION_FAILED');
+    expect(symposiumReconciliationFailureCode({ code: external.code })).toBe(
+      'RECONCILIATION_FAILED',
+    );
+  });
+
   it.each([
-    ['failDriverConfig', 'driver config unavailable'],
-    ['failManager', 'manager construction failed'],
-    ['failFinalCapability', 'host capability changed'],
+    ['failDriverConfig', 'SEAT_ARTIFACT_VERIFICATION_FAILED'],
+    ['failManager', 'SEAT_MANAGER_SETUP_FAILED'],
+    ['failFinalCapability', 'SEAT_CAPABILITY_RECHECK_FAILED'],
   ] as const)('releases the never-started writer after %s', async (failure, message) => {
     const options = { [failure]: true };
     const state = setup('writer', options);
@@ -3126,7 +3307,7 @@ describe('per-seat artifact admission', () => {
     try {
       await expect(
         state.owner().ensure('symposium', 'reviewer', new AbortController().signal),
-      ).rejects.toThrow('driver config unavailable');
+      ).rejects.toThrow('SEAT_ARTIFACT_VERIFICATION_FAILED');
       const record = state.registry.getSymposiumSeatSandbox('symposium', 'reviewer', 2)!;
       const lease = await state.host.reserve(state.request);
       state.host.markCreationStarted(
@@ -3206,7 +3387,10 @@ describe('per-seat artifact admission', () => {
       const reserve = vi.spyOn(state.host, 'reserve');
       await expect(
         state.owner().ensure('symposium', 'reviewer', new AbortController().signal),
-      ).rejects.toThrow(/unavailable/);
+      ).rejects.toMatchObject({
+        code: 'SEAT_ARTIFACT_LEASE_FAILED',
+        cause: { message: expect.stringMatching(/unavailable/) },
+      });
       expect(reserve).not.toHaveBeenCalled();
       expect(state.ensure).toHaveBeenCalledTimes(1);
       expect(state.registry.getSymposiumSeatSandbox('symposium', 'reviewer', 2)?.state).toBe(
@@ -3236,7 +3420,10 @@ describe('per-seat artifact admission', () => {
       const reserve = vi.spyOn(state.host, 'reserve');
       await expect(
         state.owner().ensure('symposium', 'reviewer', new AbortController().signal),
-      ).rejects.toThrow(/cleanup|unavailable/);
+      ).rejects.toMatchObject({
+        code: 'SEAT_ARTIFACT_LEASE_FAILED',
+        cause: { message: expect.stringMatching(/cleanup|unavailable/) },
+      });
       expect(reserve).not.toHaveBeenCalled();
       expect(state.ensure).toHaveBeenCalledTimes(1);
       await state.owner().stop('symposium', 'reviewer', 2, new AbortController().signal);
@@ -3756,10 +3943,16 @@ describe('mixed personal subscription and work seat isolation', () => {
       });
       await expect(
         unreferencedReader.ensure('symposium', 'personal', new AbortController().signal),
-      ).rejects.toThrow('Current confirmed sealed reader reference required');
+      ).rejects.toMatchObject({
+        code: 'SEAT_ARTIFACT_LEASE_FAILED',
+        cause: { message: 'Current confirmed sealed reader reference required' },
+      });
       await expect(
         artifactOwner.ensure('symposium', 'personal', new AbortController().signal),
-      ).rejects.toThrow('binding rejected before persistence');
+      ).rejects.toMatchObject({
+        code: 'SEAT_ARTIFACT_BINDING_FAILED',
+        cause: { message: 'binding rejected before persistence' },
+      });
       const originalLease = await reserveLease.mock.results.at(-1)!.value;
       expect(leasedTerminalRecord).toHaveBeenCalledWith(
         expect.objectContaining({

@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { reviewerOperations } from '../../lib/symposium-reviewer-operations';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import '@testing-library/jest-dom/vitest';
 import { afterEach, expect, it, vi } from 'vitest';
@@ -29,6 +30,7 @@ vi.mock('../SymposiumProfilePicker', () => ({
   },
 }));
 afterEach(() => {
+  reviewerOperations.reset();
   cleanup();
   vi.resetAllMocks();
 });
@@ -69,7 +71,7 @@ it('adds a read-only reviewer with empty history grants and queues only the expl
     const path = String(url);
     if (path.startsWith('/api/symposium/profiles/'))
       return new Response(JSON.stringify({ definition: { role: 'reviewer' } }));
-    if (path.endsWith('/symposium'))
+    if (path.endsWith('/status'))
       return new Response(
         JSON.stringify({
           config,
@@ -78,8 +80,40 @@ it('adds a read-only reviewer with empty history grants and queues only the expl
         }),
       );
     if (path.endsWith('/context-package')) return new Response(JSON.stringify({ content: '' }));
-    if (path.endsWith('/seats/revise'))
-      return new Response(JSON.stringify({ ...config, revision: 2 }));
+    if (path.endsWith('/seats/revise')) {
+      const body = JSON.parse(String(init?.body));
+      config.revision++;
+      config.seats.push({
+        ...body,
+        id: body.seatId,
+        ...(body.profileSelection
+          ? {
+              profileBinding: {
+                profileId: body.profileSelection.profileId,
+                profileRevision: String(body.profileSelection.revision),
+              },
+            }
+          : {}),
+        accountBinding: { accountId: body.accountId },
+      });
+      return new Response(JSON.stringify(config));
+    }
+    if (path.endsWith('/membership')) {
+      const body = JSON.parse(String(init?.body));
+      return new Response(
+        JSON.stringify({
+          ...body,
+          sessionId: 'chat',
+          generation: body.expectedGeneration + 1,
+          state: 'active',
+          reconciliation: 'confirmed',
+        }),
+      );
+    }
+    if (path.endsWith('/deliveries'))
+      return new Response(
+        JSON.stringify({ ...JSON.parse(String(init?.body)), sessionId: path.split('/')[3] }),
+      );
     expect(init?.method).toBe('POST');
     return new Response(JSON.stringify({}));
   });
@@ -180,7 +214,7 @@ it('retains an admitted reviewer and frozen context across close/reopen after qu
     const path = String(url);
     if (path.startsWith('/api/symposium/profiles/'))
       return new Response(JSON.stringify({ definition: { role: 'reviewer' } }));
-    if (path.endsWith('/symposium'))
+    if (path.endsWith('/status'))
       return new Response(
         JSON.stringify({
           config,
@@ -194,7 +228,20 @@ it('retains an admitted reviewer and frozen context across close/reopen after qu
     if (path.endsWith('/context-package')) return new Response(JSON.stringify({ content: '' }));
     if (path.endsWith('/seats/revise')) {
       const body = JSON.parse(String(init?.body));
-      config.seats.push({ id: body.seatId, accountBinding: { accountId: body.accountId } });
+      config.revision++;
+      config.seats.push({
+        ...body,
+        id: body.seatId,
+        ...(body.profileSelection
+          ? {
+              profileBinding: {
+                profileId: body.profileSelection.profileId,
+                profileRevision: String(body.profileSelection.revision),
+              },
+            }
+          : {}),
+        accountBinding: { accountId: body.accountId },
+      });
       return new Response(JSON.stringify(config));
     }
     if (path.endsWith('/deliveries') && !failed) {
@@ -214,33 +261,18 @@ it('retains an admitted reviewer and frozen context across close/reopen after qu
   await waitFor(() =>
     expect(screen.getByRole('button', { name: 'Add reviewer and queue context' })).toBeEnabled(),
   );
-  const finishEarlierProfileSave = profilePicker.onChange;
   fireEvent.click(screen.getByRole('button', { name: 'Add reviewer and queue context' }));
-  await screen.findByText(/Reviewer admitted. Context not queued/);
-  // Catalog invalidation is an effect callback even inside a disabled fieldset.
+  await screen.findByText(/Queue unavailable/);
   act(() => accountPicker.onChange?.(null));
-  act(() => finishEarlierProfileSave?.({ profileId: 'review', revision: 2 }));
-  expect(screen.getByRole('button', { name: 'Add reviewer and queue context' })).toBeEnabled();
+  act(() => profilePicker.onChange?.({ profileId: 'review', revision: 2 }));
+  expect(screen.getByRole('button', { name: 'Add reviewer and queue context' })).toBeDisabled();
   fireEvent.click(screen.getByRole('button', { name: 'Close' }));
   fireEvent.click(screen.getByRole('button', { name: 'Add reviewer' }));
   expect(screen.getByLabelText('Review package')).toBeDisabled();
-  await waitFor(() =>
-    expect(screen.getByRole('button', { name: 'Add reviewer and queue context' })).toBeEnabled(),
-  );
-  fireEvent.click(screen.getByRole('button', { name: 'Add reviewer and queue context' }));
-  await screen.findByText(/Reviewer added/);
+  expect(screen.getByRole('button', { name: 'Add reviewer and queue context' })).toBeDisabled();
   const writes = vi.mocked(apiFetch).mock.calls;
-  expect(
-    writes
-      .filter(([url]) => String(url).startsWith('/api/symposium/profiles/'))
-      .map(([url]) => url),
-  ).toEqual(['/api/symposium/profiles/review/1', '/api/symposium/profiles/review/1']);
   expect(writes.filter(([url]) => String(url).endsWith('/seats/revise'))).toHaveLength(1);
-  const queued = writes
-    .filter(([url]) => String(url).endsWith('/deliveries'))
-    .map(([, init]) => JSON.parse(String(init?.body)));
-  expect(queued).toHaveLength(2);
-  expect(queued[1]).toEqual(queued[0]);
+  expect(writes.filter(([url]) => String(url).endsWith('/deliveries'))).toHaveLength(1);
 });
 
 it('renders outside chat stacking contexts so mobile navigation cannot cover its actions', async () => {
@@ -278,7 +310,7 @@ it('refreshes unavailable runtime on reopen while preserving reviewer choices', 
     target: { value: 'Review current diff' },
   });
   fireEvent.click(screen.getByRole('checkbox'));
-  await screen.findByText('Verified provider runtime is unavailable. Your choices remain here.');
+  await screen.findByText('This agent can’t connect yet. Your choices stay in this form.');
   expect(screen.getByRole('button', { name: 'Add reviewer and queue context' })).toBeDisabled();
   fireEvent.click(screen.getByRole('button', { name: 'Close' }));
   available = true;
@@ -354,7 +386,7 @@ it('rejects a non-reviewer profile before converting an ordinary conversation', 
         JSON.stringify(
           String(url).startsWith('/api/symposium/profiles/')
             ? { definition: { role: 'coder' } }
-            : String(url).endsWith('/symposium')
+            : String(url).endsWith('/status')
               ? { config: null, ordinaryAccountId: 'a', seats: [], runtimeAvailable: true }
               : { content: '' },
         ),
@@ -391,7 +423,7 @@ it.each(['active', 'draft', 'draft-config'])(
       const path = String(url);
       if (path.startsWith('/api/symposium/profiles/'))
         return new Response(JSON.stringify({ definition: { role: 'reviewer' } }));
-      if (path.endsWith('/symposium'))
+      if (path.endsWith('/status'))
         return new Response(JSON.stringify({ config, runtimeAvailable: true, seats: [] }));
       if (path.endsWith('/context-package')) return new Response(JSON.stringify({ content: '' }));
       if (state === 'draft-config' && path.endsWith('/selection'))
@@ -432,7 +464,7 @@ it('keeps a lost mutation response frozen when a temporarily absent seat may com
     const path = String(url);
     if (path.startsWith('/api/symposium/profiles/'))
       return new Response(JSON.stringify({ definition: { role: 'reviewer' } }));
-    if (path.endsWith('/symposium'))
+    if (path.endsWith('/status'))
       return new Response(JSON.stringify({ config, runtimeAvailable: true, seats: [] }));
     if (path.endsWith('/context-package')) return new Response(JSON.stringify({ content: '' }));
     lateSeat = JSON.parse(String(init?.body)).seatId;
@@ -450,10 +482,11 @@ it('keeps a lost mutation response frozen when a temporarily absent seat may com
   fireEvent.click(screen.getByRole('button', { name: 'Add reviewer and queue context' }));
   await screen.findByText(/Response lost/);
   await waitFor(() =>
-    expect(screen.getByRole('button', { name: 'Add reviewer and queue context' })).toBeEnabled(),
+    expect(screen.getByRole('button', { name: 'Add reviewer and queue context' })).toBeDisabled(),
   );
   expect(config.seats).toHaveLength(1);
   expect(screen.getByLabelText('Review package')).toBeDisabled();
+  config.revision++;
   config.seats.push({ id: lateSeat, accountBinding: { accountId: 'a' } });
   fireEvent.click(screen.getByRole('button', { name: 'Close' }));
   fireEvent.click(screen.getByRole('button', { name: 'Add reviewer' }));

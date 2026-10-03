@@ -1,4 +1,11 @@
 import {
+  SymposiumConfigurationOperationSchema,
+  SymposiumConfigurationOperationReceiptSchema,
+  canonicalConfigurationOperationJson,
+  type SymposiumConfigurationOperation,
+  type SymposiumConfigurationOperationReceipt,
+} from './symposium-configuration-operations.js';
+import {
   localSymposiumLifecycleOwner,
   originalSymposiumLifecycleOwnerGone,
   type SymposiumLifecycleOwner,
@@ -889,6 +896,10 @@ export class EventStore {
         db.exec('ALTER TABLE events ADD COLUMN symposium_provenance TEXT');
       }
       db.exec(`
+        CREATE TABLE IF NOT EXISTS symposium_configuration_operations (
+          session_id TEXT NOT NULL, idempotency_key TEXT NOT NULL, receipt_json TEXT NOT NULL,
+          PRIMARY KEY(session_id, idempotency_key)
+        );
         CREATE TABLE IF NOT EXISTS symposium_anchor_transfers (
           session_id TEXT NOT NULL, idempotency_key TEXT NOT NULL,
           request TEXT NOT NULL, config TEXT NOT NULL, occurred_at INTEGER NOT NULL,
@@ -2222,13 +2233,64 @@ export class EventStore {
     }).immediate();
   }
 
+  /** Read-only exact configuration commit proof; not runtime/admission authority. */
+  getSymposiumConfigurationOperation(
+    sessionId: string,
+    idempotencyKey: string,
+  ): SymposiumConfigurationOperationReceipt | undefined {
+    const row = this.db!.prepare(
+      'SELECT receipt_json FROM symposium_configuration_operations WHERE session_id = ? AND idempotency_key = ?',
+    ).get(sessionId, idempotencyKey) as { receipt_json: string } | undefined;
+    return row
+      ? SymposiumConfigurationOperationReceiptSchema.parse(JSON.parse(row.receipt_json))
+      : undefined;
+  }
+
   setSymposiumConfig(
     sessionId: string,
     input: unknown,
     expectedRevision?: number,
+    operation?: SymposiumConfigurationOperation,
   ): SymposiumConfig {
     const config = SymposiumConfigSchema.parse(input);
+    const metadata =
+      operation === undefined ? undefined : SymposiumConfigurationOperationSchema.parse(operation);
+    if (metadata && expectedRevision !== metadata.expectedRevision)
+      throw new Error('Configuration operation revision differs');
+    const receipt = metadata
+      ? SymposiumConfigurationOperationReceiptSchema.parse({
+          ...metadata,
+          sessionId,
+          config,
+          completedAt: Date.now(),
+        })
+      : undefined;
     return this.db!.transaction(() => {
+      if (metadata) {
+        const previousReceipt = this.getSymposiumConfigurationOperation(
+          sessionId,
+          metadata.idempotencyKey,
+        );
+        if (previousReceipt) {
+          const previousConfig = previousReceipt.config;
+          const previousOperation = {
+            version: previousReceipt.version,
+            actor: previousReceipt.actor,
+            action: previousReceipt.action,
+            idempotencyKey: previousReceipt.idempotencyKey,
+            expectedRevision: previousReceipt.expectedRevision,
+            request: previousReceipt.request,
+          };
+          if (
+            canonicalConfigurationOperationJson(previousOperation) !==
+              canonicalConfigurationOperationJson(metadata) ||
+            canonicalConfigurationOperationJson(previousConfig) !==
+              canonicalConfigurationOperationJson(config)
+          )
+            throw new Error('Configuration operation key conflict');
+          return previousConfig;
+        }
+      }
       this.assertSymposiumArtifactWorkAllowed(sessionId);
       const session = this.getSession(sessionId);
       if (!session) throw new Error('Cannot configure Symposium for an unknown session');
@@ -2308,6 +2370,10 @@ export class EventStore {
       if (result.changes !== 1) {
         throw new Error('Symposium configuration revision must increase');
       }
+      if (receipt)
+        this.db!.prepare(
+          'INSERT INTO symposium_configuration_operations (session_id, idempotency_key, receipt_json) VALUES (?, ?, ?)',
+        ).run(sessionId, receipt.idempotencyKey, JSON.stringify(receipt));
       return config;
     }).immediate();
   }

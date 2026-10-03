@@ -1054,6 +1054,8 @@ export interface SymposiumProductionHost {
   };
   resolveSeatPolicy?: import('./symposium-owned-seat-policy.js').SymposiumSeatPolicySelector;
   observeDurableReviewToolResult?: import('./symposium-codex-native.js').OpenAiCodexSeatInput['observeDurableReviewToolResult'];
+  /** Private host-only final RPC input metadata; omitted in ordinary production. */
+  readonly observeNativeTurnInput?: boolean;
   observeStartupConfig?: import('./symposium-codex-native.js').OpenAiCodexSeatInput['observeStartupConfig'];
   observePrelaunch?: import('./symposium-codex-native.js').OpenAiCodexSeatInput['observePrelaunch'];
   readNativeObservation?: (
@@ -1219,6 +1221,7 @@ let symposiumRuntimeForSession: (sessionId: string) => SymposiumOrchestrator | n
       profiles: host.currentProfiles(),
       currentProfiles: host.currentProfiles,
       observeDurableReviewToolResult: host.observeDurableReviewToolResult,
+      observeNativeTurnInput: host.observeNativeTurnInput,
       observeStartupConfig: host.observeStartupConfig,
       observePrelaunch: host.observePrelaunch,
       hostGrants: symposiumHostGrants,
@@ -1290,8 +1293,10 @@ const symposiumHostGrants = new SymposiumHostGrants(join(BASE_REPO || '.', '.mit
     const raw = eventStore.getSession(sessionId)?.symposiumConfig;
     return raw ? SymposiumConfigSchema.parse(JSON.parse(raw)) : null;
   },
-  commitConfig: (sessionId, config, expectedRevision) =>
-    eventStore.setSymposiumConfig(sessionId, config, expectedRevision),
+  commitConfig: (sessionId, config, expectedRevision, operation) =>
+    operation
+      ? eventStore.setSymposiumConfig(sessionId, config, expectedRevision, operation)
+      : eventStore.setSymposiumConfig(sessionId, config, expectedRevision),
   getMembership: (sessionId, seatId) =>
     eventStore.getLatestSymposiumMembership(sessionId, seatId) ?? null,
   validateSelection: (seat) => {
@@ -1312,9 +1317,10 @@ const symposiumHostGrants = new SymposiumHostGrants(join(BASE_REPO || '.', '.mit
       classification: 'mixed' as const,
       sourceRefs: contextSourceRefs,
       authority: {
-        filesystem: writable ? ('write' as const) : ('read' as const),
-        tools: writable ? ('write' as const) : ('read' as const),
-        network: 'restricted' as const,
+        filesystem:
+          seat.authorityRequest?.filesystem ?? (writable ? ('write' as const) : ('read' as const)),
+        tools: seat.authorityRequest?.tools ?? (writable ? ('write' as const) : ('read' as const)),
+        network: seat.authorityRequest?.network ?? ('restricted' as const),
       },
     };
   },

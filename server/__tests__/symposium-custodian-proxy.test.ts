@@ -5,6 +5,32 @@ import { login, authenticateToken, revokeAuthSession } from '../auth.js';
 import { createCustodianProxy } from '../symposium-custodian-proxy.js';
 import { recentAppReauthorizationHandlers } from '../connections-router.js';
 import { authMiddleware } from '../auth.js';
+it('authenticates the exact durable status read without allowing mutations or credential forwarding', async () => {
+  const token = (await login(process.env.AUTH_PASSPHRASE!))!;
+  const auth = (await authenticateToken(token))!;
+  const invoke = vi.fn(async (_input: unknown) => ({
+    status: 200,
+    body: { statusMode: 'durable' },
+  }));
+  const app = express();
+  app.use(express.json(), authMiddleware);
+  app.use(createCustodianProxy({ request: invoke, invalidate: vi.fn() }));
+  const path = '/api/sessions/s1/symposium/status';
+  expect((await request(app).get(path)).status).toBe(401);
+  expect(invoke).not.toHaveBeenCalled();
+  const response = await request(app).get(path).set('Authorization', `Bearer ${token}`);
+  expect(response.status).toBe(200);
+  expect(invoke.mock.calls[0]?.[0]).toMatchObject({
+    operation: 'director.durableStatus',
+    sessionId: 's1',
+    authorization: { id: auth.id },
+  });
+  expect(JSON.stringify(invoke.mock.calls[0]?.[0])).not.toContain(token);
+  expect(
+    (await request(app).post(path).set('Authorization', `Bearer ${token}`).send({})).status,
+  ).toBe(400);
+  expect(invoke).toHaveBeenCalledOnce();
+});
 it('forwards only middleware-verified JTI and current recent authorization without credentials', async () => {
   const token = await login(process.env.AUTH_PASSPHRASE!);
   const auth = await authenticateToken(token!);

@@ -1,3 +1,4 @@
+import type { TurnInputWriteObserver } from './codex-turn-input-receipt.js';
 import { createHash } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import { captureDeliveredInput } from './symposium-completion-checkpoints.js';
@@ -115,6 +116,8 @@ export interface OpenAiCodexSeatInput {
   observeDurableReviewToolResult?: (
     event: DurableSymposiumReviewToolObservation,
   ) => Promise<void> | void;
+  /** Trusted host diagnostic opt-in; never sourced from a message or profile. */
+  readonly observeNativeTurnInput?: boolean;
   attemptRegistry?: SymposiumAttemptRegistry;
   /** Resolves an immutable execution claim from the retained host EventStore. */
   resolveAttempt?: (claimToken: string) => SymposiumRecipientAttemptRecord | undefined;
@@ -325,6 +328,29 @@ export async function createCodexNativeSeat(
       captureDeliveredInput(input.resolveAttempt(execution.claimToken), execution),
     );
   };
+  const observeTurnStartWrite: TurnInputWriteObserver | undefined = input.observeNativeTurnInput
+    ? (receipt) => {
+        if (
+          !input.attemptRegistry ||
+          receipt.commandId !== execution.claimToken ||
+          receipt.threadId !== conversation.getThreadId()
+        )
+          throw new Error('Native input diagnostic identity changed');
+        if (receipt.boundary === 'prepared') {
+          execution.signal.throwIfAborted();
+          auth.launchIdentity?.assertCurrent();
+          const attempt = input.resolveAttempt?.(execution.claimToken);
+          if (!attempt || attempt.claimToken !== execution.claimToken)
+            throw new Error('Native input diagnostic claim unavailable');
+        }
+        input.attemptRegistry.observations.recordTurnInput(
+          execution.claimToken,
+          execution.sessionId,
+          execution.provenance,
+          receipt,
+        );
+      }
+    : undefined;
   const options: CodexConversationOptions = {
     ownerKind: 'symposium',
     conversationId: symposiumSeatRuntimeId(execution),
@@ -383,10 +409,10 @@ export async function createCodexNativeSeat(
           auth.launchIdentity,
           controllerClaimDigest(execution.claimToken),
           process.confirmStopped,
-          { lifecycle, signal: execution.signal },
+          { lifecycle, signal: execution.signal, observeTurnStartWrite },
         );
       }
-      return new CodexAppServerClient(controlled.child, { lifecycle });
+      return new CodexAppServerClient(controlled.child, { lifecycle, observeTurnStartWrite });
     },
     emit: (event) => {
       input.onEvent?.(event);

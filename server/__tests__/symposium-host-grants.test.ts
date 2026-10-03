@@ -2,7 +2,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import type { SymposiumConfig } from '@mitzo/protocol';
+import type { SymposiumConfig, SymposiumConfigurationOperation } from '@mitzo/protocol';
 import { SymposiumHostGrants } from '../symposium-host-grants.js';
 
 let directory: string;
@@ -355,3 +355,187 @@ it('rejects a portable recipe incompatible with the explicit seat provider befor
   ).toThrow(/compatible.*provider/i);
   expect(config.state).toBe('draft');
 });
+
+it('supports a custom agent without a catalog profile and retains its immutable configuration', () => {
+  config.seats[1] = {
+    ...config.seats[1],
+    role: 'agent',
+    name: 'Domain specialist',
+    systemPrompt: 'Explain tradeoffs',
+    expectedOutput: 'An evidence-backed recommendation',
+    acceptanceCriteria: ['Identify uncertainties'],
+    authorityRequest: { filesystem: 'read', tools: 'read', network: 'restricted' },
+  };
+  const result = grants.activate({ sessionId: 'chat', expectedRevision: 1, actor: 'owner' });
+  const agent = result.seats[1];
+  expect(agent).toMatchObject({
+    role: 'agent',
+    systemPrompt: 'Explain tradeoffs',
+    expectedOutput: 'An evidence-backed recommendation',
+    acceptanceCriteria: ['Identify uncertainties'],
+    authorityGrant: { filesystem: 'read', tools: 'read', network: 'restricted' },
+  });
+  expect(agent.profileBinding?.profileId).toMatch(/^host-profile:/);
+  grants.close();
+  grants = new SymposiumHostGrants(join(directory, 'events.db'), makeDeps());
+  expect(() =>
+    grants.verifySeat({ sessionId: 'chat', seat: agent, membershipGeneration: 1 }),
+  ).not.toThrow();
+  expect(() =>
+    grants.verifySeat({
+      sessionId: 'chat',
+      seat: {
+        ...agent,
+        authorityRequest: { filesystem: 'write', tools: 'write', network: 'restricted' },
+      },
+      membershipGeneration: 1,
+    }),
+  ).toThrow(/immutable/i);
+});
+
+it('caps explicit custom authority by host policy and honors narrower requests', () => {
+  config.seats[1].role = 'agent';
+  config.seats[1].authorityRequest = { filesystem: 'write', tools: 'write', network: 'restricted' };
+  config.seats[2].authorityRequest = { filesystem: 'read', tools: 'read', network: 'restricted' };
+  const result = grants.activate({ sessionId: 'chat', expectedRevision: 1, actor: 'owner' });
+  expect(result.seats[1].authorityGrant).toMatchObject({ filesystem: 'read', tools: 'read' });
+  expect(result.seats[2].authorityGrant).toMatchObject({
+    filesystem: 'read',
+    tools: 'read',
+    network: 'restricted',
+  });
+});
+
+it('uses explicit approved authority independently of a saved profile role', () => {
+  config.seats[2].authorityRequest = { filesystem: 'write', tools: 'write', network: 'restricted' };
+  const result = grants.activate({
+    sessionId: 'chat',
+    expectedRevision: 1,
+    actor: 'owner',
+    profileSelections: { builder: { profileId: 'owner-review', revision: 2 } },
+  });
+  expect(result.seats[2]).toMatchObject({
+    role: 'reviewer',
+    authorityGrant: { filesystem: 'write', tools: 'write' },
+  });
+});
+
+it('keeps a paused custom seat read-only when applying a coder profile under a writer host ceiling', () => {
+  grants.close();
+  const deps = makeDeps();
+  deps.authorizeSeat.mockImplementation(({ contextSourceRefs }) => ({
+    classification: 'mixed',
+    sourceRefs: contextSourceRefs,
+    authority: { filesystem: 'write', tools: 'write', network: 'restricted' },
+  }));
+  grants = new SymposiumHostGrants(join(directory, 'events.db'), deps);
+  config.seats[2].role = 'coder';
+  config.seats[2].authorityRequest = { filesystem: 'read', tools: 'read', network: 'restricted' };
+  grants.activate({ sessionId: 'chat', expectedRevision: 1, actor: 'owner' });
+  active = false;
+  const prior = config.seats[2];
+  const result = grants.reviseSeat({
+    sessionId: 'chat',
+    expectedRevision: 2,
+    actor: 'owner',
+    seat: {
+      id: prior.id,
+      name: prior.name,
+      role: prior.role,
+      systemPrompt: prior.systemPrompt,
+      color: prior.color,
+      model: prior.model,
+      accountBinding: prior.accountBinding,
+      authorityRequest: prior.authorityRequest,
+    },
+    profileSelection: { profileId: 'owner-coder', revision: 1 },
+  });
+  expect(result.seats[2]).toMatchObject({
+    role: 'coder',
+    expectedOutput: 'Working patch',
+    acceptanceCriteria: ['Focused checks pass'],
+    authorityRequest: { filesystem: 'read', tools: 'read', network: 'restricted' },
+    authorityGrant: { filesystem: 'read', tools: 'read', network: 'restricted' },
+  });
+  active = true; // Verify the reissued grant after the seat is explicitly restored.
+  expect(() =>
+    grants.verifySeat({ sessionId: 'chat', seat: result.seats[2], membershipGeneration: 1 }),
+  ).not.toThrow();
+});
+
+it.each([
+  { filesystem: 'none', tools: 'none', network: 'restricted' },
+  { filesystem: 'read', tools: 'read', network: 'none' },
+  { filesystem: 'read', tools: 'write', network: 'restricted' },
+])('refuses unsupported native authority requests before minting: %j', (authorityRequest) => {
+  Object.assign(config.seats[1], { authorityRequest });
+  expect(() =>
+    grants.activate({ sessionId: 'chat', expectedRevision: 1, actor: 'owner' }),
+  ).toThrow();
+  expect(config.state).toBe('draft');
+});
+
+it.each(['activate', 'seats/revise'] as const)(
+  'rejects %s receipt metadata that differs from the actual approved input before minting grants',
+  (action) => {
+    if (action === 'seats/revise') {
+      grants.activate({ sessionId: 'chat', expectedRevision: 1, actor: 'owner' });
+      active = false;
+    }
+    grants.close();
+    const deps = makeDeps();
+    grants = new SymposiumHostGrants(join(directory, 'events.db'), deps);
+    const idempotencyKey = 'approved-operation';
+    const previous = config.seats[1];
+    const seat = {
+      id: previous.id,
+      name: previous.name,
+      role: previous.role,
+      systemPrompt: previous.systemPrompt,
+      color: previous.color,
+      model: previous.model,
+      accountBinding: previous.accountBinding,
+    };
+    const request: SymposiumConfigurationOperation['request'] =
+      action === 'activate'
+        ? { expectedRevision: config.revision, idempotencyKey, contextSourceRefs: [] }
+        : {
+            expectedRevision: config.revision,
+            idempotencyKey,
+            seatId: seat.id,
+            name: seat.name,
+            role: seat.role,
+            systemPrompt: seat.systemPrompt,
+            color: seat.color,
+            accountId: seat.accountBinding!.accountId,
+            model: 'different-approved-model',
+            sharedBoundaryAcknowledged: true,
+          };
+    const configurationOperation = {
+      version: 1 as const,
+      actor: 'owner',
+      action,
+      expectedRevision: config.revision,
+      idempotencyKey,
+      request,
+    };
+    expect(() =>
+      action === 'activate'
+        ? grants.activate({
+            sessionId: 'chat',
+            expectedRevision: config.revision,
+            actor: 'owner',
+            contextSourceRefs: ['session:chat'],
+            configurationOperation,
+          })
+        : grants.reviseSeat({
+            sessionId: 'chat',
+            expectedRevision: config.revision,
+            actor: 'owner',
+            seat,
+            configurationOperation,
+          }),
+    ).toThrow(/operation.*input|input.*operation/i);
+    expect(deps.authorizeSeat).not.toHaveBeenCalled();
+  },
+);

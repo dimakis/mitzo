@@ -1756,7 +1756,7 @@ textarea:focus {
   font-size: var(--text-xs);
 }
 
-.chat-seat-attribution span::before {
+.chat-seat-attribution > span:not(.symposium-seat-label)::before {
   content: '·';
   margin-right: 0.35rem;
 }
@@ -7209,7 +7209,6 @@ option {
   color: var(--text-dim);
 }
 
-.symposium-queued-inputs,
 .symposium-share-preview {
   margin: 0.4rem 0.75rem;
   max-height: 25dvh;
@@ -7264,13 +7263,68 @@ option {
   margin: 0;
 }
 
-.symposium-director-panel label {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-  margin-right: 0.5rem;
+.symposium-director button {
+  min-height: 2.5rem;
+  padding: 0.5rem 0.8rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
 }
 
+.symposium-director button:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+.symposium-director button:disabled {
+  cursor: default;
+}
+
+.symposium-director button.btn-primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.symposium-director-panel label {
+  display: grid;
+  justify-content: stretch;
+  gap: 0.4rem;
+  margin: 0;
+  min-width: 0;
+}
+
+.symposium-director-panel label:has(input[type='checkbox']) {
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-start;
+  gap: 0.6rem;
+}
+
+.symposium-director-panel input[type='checkbox'] {
+  flex: 0 0 1.1rem;
+  width: 1.1rem;
+  height: 1.1rem;
+  margin: 0.15rem 0 0;
+}
+
+.symposium-director-panel label:has(input[type='checkbox']) span {
+  flex: 1;
+  text-align: left;
+}
+
+.symposium-advanced-controls {
+  border-top: 1px solid var(--border);
+  padding-top: 0.6rem;
+}
+
+.symposium-advanced-content {
+  margin-top: 0.6rem;
+}
+
+.symposium-director-panel select,
 .symposium-director-panel textarea,
 .symposium-director-panel input:not([type='checkbox']) {
   max-width: 100%;
@@ -7297,6 +7351,73 @@ option {
 .symposium-roster button,
 .symposium-director-panel li button {
   margin-left: 0.35rem;
+}
+
+.symposium-director-panel .symposium-roster {
+  list-style: none;
+  padding: 0;
+  gap: 0.6rem;
+}
+
+.symposium-director-panel .symposium-roster > li {
+  display: grid;
+  gap: 0.4rem;
+  padding: 0.8rem;
+  border: 1px solid var(--border);
+  border-radius: 0.6rem;
+  background: var(--surface);
+  line-height: 1.4;
+}
+
+.symposium-agent-heading,
+.symposium-agent-model,
+.symposium-agent-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem 0.8rem;
+}
+
+.symposium-agent-heading {
+  justify-content: space-between;
+}
+
+.symposium-agent-model,
+.symposium-agent-state {
+  color: var(--text-dim);
+  font-size: 0.85rem;
+}
+
+.symposium-agent-model span {
+  overflow-wrap: anywhere;
+}
+
+.symposium-roster > li > .symposium-advanced-controls {
+  padding: 0;
+  border: 0;
+}
+
+.symposium-roster > li > .symposium-advanced-controls > button {
+  padding: 0.2rem 0.5rem;
+  min-height: 2rem;
+  margin: 0;
+  background: transparent;
+}
+
+.symposium-agent-details {
+  display: grid;
+  gap: 0.6rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--border);
+}
+
+.symposium-profile-tools > button {
+  margin: 0.35rem 0.75rem;
+  padding: 0.3rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  color: var(--text-dim);
+  background: transparent;
 }
 
 .symposium-seat-selection {
@@ -7540,4 +7661,71 @@ option {
 .document-editor-status button {
   min-height: 44px;
   margin-left: 0.5rem;
+}
+
+.symposium-seat-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.symposium-seat-accent {
+  display: inline-block;
+  width: 0.65rem;
+  height: 0.65rem;
+  flex: 0 0 0.65rem;
+  border-radius: 50%;
+  outline: 1px solid currentColor;
+  outline-offset: 1px;
+}
+.symposium-recipient-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  padding: 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 0.6rem;
+}
+.symposium-recipient-picker p {
+  width: 100%;
+  margin: 0;
+}
+
+/* Delivery history belongs to the transcript scroller, leaving the composer visible. */
+.symposium-perspectives .chat-messages > * {
+  flex-shrink: 0;
+}
+
+.symposium-deliveries {
+  display: grid;
+  gap: 0.65rem;
+  min-width: 0;
+}
+
+.symposium-delivery-card {
+  border: 1px solid var(--border);
+  border-radius: 0.65rem;
+  padding: 0.65rem;
+  background: var(--surface);
+  overflow-wrap: anywhere;
+}
+
+.symposium-delivery-card summary {
+  cursor: pointer;
+  line-height: 1.5;
+}
+
+.symposium-delivery-card p {
+  margin: 0.5rem 0;
+  white-space: pre-wrap;
+}
+
+.symposium-delivery-card button {
+  min-height: 2.5rem;
+  margin: 0.25rem 0.5rem 0.25rem 0;
+}
+
+.symposium-perspective-tabs,
+.symposium-boundary-note,
+.symposium-perspectives [role='tabpanel'] > button {
+  flex-shrink: 0;
 }

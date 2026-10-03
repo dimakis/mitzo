@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { LocalPodmanArtifactEvidence } from '../symposium-podman-evidence.js';
+import { symposiumReconciliationFailureCode } from '../symposium-reconciliation-error.js';
 
 const sandboxId = 'sbx-123';
 const sandboxName = 'seat-a';
@@ -62,9 +63,10 @@ describe('local Podman artifact evidence', () => {
       if (allowed)
         await expect(evidence.verifyMount(sandboxName, sandboxId, config)).resolves.toBeUndefined();
       else
-        await expect(evidence.verifyMount(sandboxName, sandboxId, config)).rejects.toThrow(
-          'sandbox-namespace',
-        );
+        await expect(evidence.verifyMount(sandboxName, sandboxId, config)).rejects.toMatchObject({
+          code: 'SEAT_MOUNT_IDENTITY_FAILED',
+          cause: { message: expect.stringContaining('sandbox-namespace') },
+        });
     },
   );
 
@@ -91,6 +93,7 @@ describe('local Podman artifact evidence', () => {
         rows: listed,
         details: [{ ...inspected[0], Mounts: [{ ...inspected[0].Mounts[0], RW: true }] }],
         error: 'access differs',
+        code: 'SEAT_MOUNT_PHYSICAL_PROOF_FAILED',
       },
       {
         rows: listed,
@@ -101,12 +104,19 @@ describe('local Podman artifact evidence', () => {
           },
         ],
         error: 'sandbox-workspace',
+        code: 'SEAT_MOUNT_IDENTITY_FAILED',
       },
-      { rows: [...listed, listed[0]], details: inspected, error: 'exactly one' },
+      {
+        rows: [...listed, listed[0]],
+        details: inspected,
+        error: 'exactly one',
+        code: 'SEAT_MOUNT_SELECTION_FAILED',
+      },
       {
         rows: listed,
         details: [{ ...inspected[0], State: { Running: false } }],
         error: 'not running',
+        code: 'SEAT_MOUNT_IDENTITY_FAILED',
       },
     ];
     for (const testCase of cases) {
@@ -115,9 +125,10 @@ describe('local Podman artifact evidence', () => {
         .mockResolvedValueOnce(testCase.rows)
         .mockResolvedValueOnce(testCase.details);
       const evidence = new LocalPodmanArtifactEvidence('symposium-1', 'gateway-local', run);
-      await expect(evidence.verifyMount(sandboxName, sandboxId, config)).rejects.toThrow(
-        testCase.error,
-      );
+      await expect(evidence.verifyMount(sandboxName, sandboxId, config)).rejects.toMatchObject({
+        code: testCase.code,
+        cause: { message: expect.stringContaining(testCase.error) },
+      });
     }
   });
 
@@ -128,9 +139,10 @@ describe('local Podman artifact evidence', () => {
     };
     const run = vi.fn().mockResolvedValueOnce([...listed, older]);
     const evidence = new LocalPodmanArtifactEvidence('symposium-1', 'gateway-local', run);
-    await expect(evidence.verifyMount(sandboxName, sandboxId, config)).rejects.toThrow(
-      'exactly one',
-    );
+    await expect(evidence.verifyMount(sandboxName, sandboxId, config)).rejects.toMatchObject({
+      code: 'SEAT_MOUNT_SELECTION_FAILED',
+      cause: { message: expect.stringContaining('exactly one') },
+    });
     expect(run).toHaveBeenCalledOnce();
   });
 
@@ -141,9 +153,10 @@ describe('local Podman artifact evidence', () => {
       .mockResolvedValueOnce([{ Id: physicalId, Labels: olderLabels }])
       .mockResolvedValueOnce([{ ...inspected[0], Config: { Labels: olderLabels } }]);
     const evidence = new LocalPodmanArtifactEvidence('symposium-1', 'gateway-local', run);
-    await expect(evidence.verifyMount(sandboxName, sandboxId, config)).rejects.toThrow(
-      'sandbox-id',
-    );
+    await expect(evidence.verifyMount(sandboxName, sandboxId, config)).rejects.toMatchObject({
+      code: 'SEAT_MOUNT_IDENTITY_FAILED',
+      cause: { message: expect.stringContaining('sandbox-id') },
+    });
   });
 
   it.each(['sandbox-name', 'sandbox-workspace', 'sandbox-namespace'] as const)(
@@ -238,9 +251,10 @@ describe('reviewed workload artifact ownership', () => {
     if (allowed)
       await expect(evidence.verifyMount(sandboxName, sandboxId, config)).resolves.toBeUndefined();
     else
-      await expect(evidence.verifyMount(sandboxName, sandboxId, config)).rejects.toThrow(
-        'identity or effective access',
-      );
+      await expect(evidence.verifyMount(sandboxName, sandboxId, config)).rejects.toMatchObject({
+        code: 'SEAT_MOUNT_ACCESS_PROOF_FAILED',
+        cause: { message: 'Artifact owner identity or effective access is not ready' },
+      });
     expect(native).toHaveBeenCalledWith(
       sandboxName,
       sandboxId,
@@ -280,7 +294,10 @@ describe('reviewed workload artifact ownership', () => {
         image,
         failed,
       ).verifyMount(sandboxName, sandboxId, writerConfig),
-    ).rejects.toThrow('native probe unavailable');
+    ).rejects.toMatchObject({
+      code: 'SEAT_MOUNT_NATIVE_ACCESS_FAILED',
+      cause: { message: 'native probe unavailable' },
+    });
   });
   it('rejects physical identity drift after native probe', async () => {
     const details = [{ ...inspected[0], Image: image }];
@@ -289,16 +306,21 @@ describe('reviewed workload artifact ownership', () => {
       .mockResolvedValueOnce(listed)
       .mockResolvedValueOnce(details)
       .mockResolvedValueOnce([{ ...details[0], Id: 'b'.repeat(64) }]);
-    await expect(
-      new LocalPodmanArtifactEvidence(
-        'symposium-1',
-        'gateway-local',
-        run,
-        undefined,
-        image,
-        vi.fn().mockResolvedValue(good),
-      ).verifyMount(sandboxName, sandboxId, config),
-    ).rejects.toThrow('physical identity changed');
+    const failure = await new LocalPodmanArtifactEvidence(
+      'symposium-1',
+      'gateway-local',
+      run,
+      undefined,
+      image,
+      vi.fn().mockResolvedValue(good),
+    )
+      .verifyMount(sandboxName, sandboxId, config)
+      .catch((error) => error);
+    expect(failure).toMatchObject({
+      code: 'SEAT_MOUNT_POSTCHECK_FAILED',
+      cause: { message: 'Artifact physical identity changed during native access probe' },
+    });
+    expect(symposiumReconciliationFailureCode(failure)).toBe('SEAT_MOUNT_POSTCHECK_FAILED');
   });
   it('rejects a different physical image before probing', async () => {
     const run = vi
@@ -313,7 +335,10 @@ describe('reviewed workload artifact ownership', () => {
         undefined,
         image,
       ).verifyMount(sandboxName, sandboxId, config),
-    ).rejects.toThrow('image differs');
+    ).rejects.toMatchObject({
+      code: 'SEAT_MOUNT_IMAGE_FAILED',
+      cause: { message: expect.stringContaining('image differs') },
+    });
     expect(run).toHaveBeenCalledTimes(2);
   });
 });

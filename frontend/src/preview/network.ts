@@ -1,10 +1,24 @@
 // Imported only by ui-preview.html. No real accounts, messages, or services are contacted.
+import { symposiumAgentPreviewResponse } from './symposium-agent-fixtures';
 import { account, metadata, sessions } from './fixtures';
 import {
   symposiumReviewPreviewResponses,
   symposiumReviewPreviewHistory,
 } from './symposium-review-fixtures';
 import { previewProposal, symposiumPerspective, symposiumStatus } from './symposium-fixtures';
+const previewSavedProfile = {
+  profileId: 'preview-reviewer',
+  revision: 1,
+  contentHash: 'preview',
+  definition: {
+    name: 'Independent reviewer',
+    role: 'reviewer',
+    instructions: 'Review supplied evidence independently.',
+    expectedOutput: 'Findings with evidence',
+    acceptanceCriteria: ['Each finding is actionable'],
+    modelPolicyRole: 'reviewer',
+  },
+};
 const nativeFetch = window.fetch.bind(window);
 let deviceState = 'idle';
 let deviceAttemptId: string | undefined;
@@ -163,6 +177,25 @@ window.fetch = async (input, init) => {
           },
     );
   }
+  if (/^\/api\/sessions\/preview-[13]\/symposium(?:\/|$)/.test(url.pathname)) {
+    let body: Record<string, unknown> = {};
+    if (method === 'POST') {
+      try {
+        const parsed: unknown =
+          init?.body !== undefined
+            ? JSON.parse(String(init.body))
+            : input instanceof Request
+              ? await input.clone().json()
+              : {};
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return denied();
+        body = parsed as Record<string, unknown>;
+      } catch {
+        return denied();
+      }
+    }
+    const simulated = symposiumAgentPreviewResponse(url.pathname, method, body);
+    if (simulated) return simulated;
+  }
   if (method !== 'GET') return denied();
   if (url.pathname === '/api/connections')
     return Response.json({
@@ -199,22 +232,9 @@ window.fetch = async (input, init) => {
     return Response.json(
       url.searchParams.get('sessionId') === 'preview-3' ? [previewProposal] : [],
     );
-  if (url.pathname === '/api/symposium/profiles')
-    return Response.json([
-      {
-        profileId: 'preview-reviewer',
-        revision: 1,
-        contentHash: 'preview',
-        definition: {
-          name: 'Independent reviewer',
-          role: 'reviewer',
-          instructions: 'Review supplied evidence independently.',
-          expectedOutput: 'Findings with evidence',
-          acceptanceCriteria: ['Each finding is actionable'],
-          modelPolicyRole: 'reviewer',
-        },
-      },
-    ]);
+  if (url.pathname === '/api/symposium/profiles') return Response.json([previewSavedProfile]);
+  if (url.pathname === '/api/symposium/profiles/preview-reviewer/1')
+    return Response.json(previewSavedProfile);
   if (/^\/api\/sessions\/[^/]+\/symposium\/context-turns$/.test(url.pathname))
     return Response.json({
       turns: [
@@ -225,11 +245,9 @@ window.fetch = async (input, init) => {
         },
       ],
     });
-  if (
-    /^\/api\/symposium\/profiles\/preview-(?:architect|reviewer|implementer)\/1$/.test(url.pathname)
-  )
+  if (/^\/api\/symposium\/profiles\/preview-(?:architect|implementer)\/1$/.test(url.pathname))
     return Response.json({ definition: previewProposal.definition });
-  if (/^\/api\/sessions\/[^/]+\/symposium(?:\/perspectives)?$/.test(url.pathname)) {
+  if (/^\/api\/sessions\/[^/]+\/symposium(?:\/(?:perspectives|status))?$/.test(url.pathname)) {
     const sessionId = url.pathname.split('/')[3];
     if (url.pathname.endsWith('/perspectives'))
       return Response.json(symposiumPerspective(url.searchParams.get('seatId')));
@@ -239,6 +257,9 @@ window.fetch = async (input, init) => {
       sessionId,
       config: null,
       ordinaryAccountId: account.id,
+      ...(url.pathname.endsWith('/status')
+        ? { simulated: true, statusMode: 'durable', runtimeVerification: 'not_checked' }
+        : {}),
       seats: [],
       runtimeAvailable: false,
       profileBindingEnforced: false,

@@ -13,6 +13,23 @@ import type {
 import type { AccountProfiles } from './account-profiles.js';
 import type { SymposiumSeatExecution } from './symposium-orchestrator.js';
 
+/** Capability roles describe enforcement, not the custom agent's guidance or label. */
+export function supportsSymposiumSeatCapability(
+  seat: SeatConfig,
+  allowed: ReadonlySet<'implementer' | 'coder' | 'reviewer'>,
+): boolean {
+  if (!seat.authorityRequest) return allowed.has(seat.role as 'implementer' | 'coder' | 'reviewer');
+  if (
+    !seat.authorityGrant ||
+    seat.authorityGrant.filesystem === 'none' ||
+    seat.authorityGrant.tools === 'none'
+  )
+    return false;
+  return seat.authorityGrant.filesystem === 'write' && seat.authorityGrant.tools === 'write'
+    ? allowed.has('implementer') || allowed.has('coder')
+    : allowed.has('reviewer');
+}
+
 /** Read-only projection of the durable admission facts needed at the last dispatch boundary. */
 export interface SymposiumDispatchFacts {
   assertSymposiumArtifactWorkAllowed(
@@ -220,7 +237,7 @@ export function admitSymposiumSeatDispatch(
   if (seat.authorityGrant.filesystem === 'none' || seat.authorityGrant.tools === 'none')
     throw new Error('Native seat route cannot enforce a no-tool authority grant');
   const readOnly =
-    seat.role === 'reviewer' ||
+    (!seat.authorityRequest && seat.role === 'reviewer') ||
     seat.authorityGrant.filesystem !== 'write' ||
     seat.authorityGrant.tools !== 'write';
   const common = {

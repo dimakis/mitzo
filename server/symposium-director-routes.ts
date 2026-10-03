@@ -8,10 +8,15 @@ import {
   buildSymposiumContextPackage,
   SymposiumContextPackageSchema,
 } from './symposium-context-package.js';
-import { Router } from 'express';
+import { Router, type RequestHandler, type Response } from 'express';
 import { z } from 'zod';
 import {
+  SymposiumConfigurationOperationSchema,
+  SymposiumConfigurationOperationKeySchema,
+  canonicalConfigurationOperationJson,
+  type SymposiumConfigurationOperation,
   AccountBindingSchema,
+  SeatAuthorityRequestSchema,
   SymposiumConfigSchema,
   type SeatConfig,
   type ValidAccountBinding,
@@ -30,6 +35,7 @@ import type {
 
 type DirectorStore = Pick<
   EventStore,
+  | 'getSymposiumConfigurationOperation'
   | 'getSession'
   | 'getActiveSymposiumConfig'
   | 'getSymposiumMembershipHistory'
@@ -39,6 +45,7 @@ type DirectorStore = Pick<
   | 'getSymposiumSourceMessage'
   | 'setSymposiumConfig'
   | 'getSymposiumInitialProfileSelections'
+  | 'getSymposiumSeatSandbox'
 >;
 
 export interface SymposiumDirectorRouteDeps {
@@ -59,6 +66,7 @@ export interface SymposiumDirectorRouteDeps {
     actor: string;
     contextSourceRefs?: string[];
     profileSelections?: Record<string, SymposiumProfileSelection>;
+    configurationOperation?: SymposiumConfigurationOperation;
   }): z.infer<typeof SymposiumConfigSchema>;
   reviseSeat(input: {
     sessionId: string;
@@ -67,6 +75,7 @@ export interface SymposiumDirectorRouteDeps {
     seat: SeatConfig;
     contextSourceRefs?: string[];
     profileSelection?: SymposiumProfileSelection;
+    configurationOperation?: SymposiumConfigurationOperation;
   }): z.infer<typeof SymposiumConfigSchema>;
   getPerspective(
     sessionId: string,
@@ -83,6 +92,7 @@ const SelectionBody = z.strictObject({
   reasoningEffort: z.string().trim().min(1).optional(),
 });
 const ActivateBody = z.strictObject({
+  idempotencyKey: SymposiumConfigurationOperationKeySchema.optional(),
   expectedRevision: z.number().int().nonnegative(),
   sharedBoundaryAcknowledged: z.literal(true),
   crossAccountConfirmation: z.literal('ADD CROSS-ACCOUNT SEAT').optional(),
@@ -90,11 +100,15 @@ const ActivateBody = z.strictObject({
   profileSelections: z.record(z.string().trim().min(1), SymposiumProfileSelectionSchema).optional(),
 });
 const ReviseSeatBody = z.strictObject({
+  idempotencyKey: SymposiumConfigurationOperationKeySchema.optional(),
   expectedRevision: z.number().int().positive(),
   seatId: z.string().trim().min(1),
   name: z.string().trim().min(1),
   role: z.string().regex(/^[a-z][a-z0-9_-]{0,63}$/),
   systemPrompt: z.string(),
+  expectedOutput: z.string().trim().min(1).optional(),
+  acceptanceCriteria: z.array(z.string().trim().min(1)).min(1).optional(),
+  authorityRequest: SeatAuthorityRequestSchema.optional(),
   color: z.string().regex(/^#[0-9a-fA-F]{6}$/),
   accountId: z.string().trim().min(1),
   model: z.string().trim().min(1),
@@ -132,6 +146,7 @@ const MembershipBody = z.strictObject({
   crossAccountConfirmation: z.literal('ADD CROSS-ACCOUNT SEAT').optional(),
 });
 const ConfigBody = z.strictObject({
+  idempotencyKey: SymposiumConfigurationOperationKeySchema.optional(),
   expectedRevision: z.number().int().nonnegative(),
   config: SymposiumConfigSchema,
   sharedBoundaryAcknowledged: z.literal(true).optional(),
@@ -179,6 +194,92 @@ const CancelBody = z.strictObject({
 export function createSymposiumDirectorRouter(deps: SymposiumDirectorRouteDeps): Router {
   const router = Router({ mergeParams: true });
   router.post('/creation/recovery/app-reauthorize', ...recentAppReauthorizationHandlers());
+  const actorFor = (res: Response) => {
+    const id = (res.locals.authSession as { id?: string } | undefined)?.id;
+    return id ? `operator:${id}` : 'internal-operator';
+  };
+  const operationFor = (
+    action: SymposiumConfigurationOperation['action'],
+    request: Record<string, unknown>,
+    res: Response,
+  ): SymposiumConfigurationOperation | undefined | null => {
+    if (request.idempotencyKey === undefined) return undefined;
+    const parsed = SymposiumConfigurationOperationSchema.safeParse({
+      version: 1,
+      action,
+      actor: actorFor(res),
+      idempotencyKey: request.idempotencyKey,
+      expectedRevision: request.expectedRevision,
+      request: JSON.parse(JSON.stringify(request)),
+    });
+    if (parsed.success) return parsed.data;
+    res.status(400).json({
+      error: 'Invalid configuration operation identity or size',
+      ...(action === 'activate'
+        ? { activationMutation: 'not-started' }
+        : { seatMutation: 'not-started' }),
+    });
+    return null;
+  };
+  const replayOperation = (
+    sessionId: string,
+    operation: SymposiumConfigurationOperation | undefined,
+    res: Response,
+  ) => {
+    if (!operation) return false;
+    let receipt;
+    try {
+      receipt = deps.store.getSymposiumConfigurationOperation(sessionId, operation.idempotencyKey);
+    } catch {
+      res.status(409).json({ error: 'Configuration operation proof is unavailable' });
+      return true;
+    }
+    if (!receipt) return false;
+    if (receipt.actor !== operation.actor) {
+      res.status(403).json({ error: 'Configuration operation belongs to another operator' });
+      return true;
+    }
+    const config = receipt.config;
+    const original = {
+      version: receipt.version,
+      actor: receipt.actor,
+      action: receipt.action,
+      idempotencyKey: receipt.idempotencyKey,
+      expectedRevision: receipt.expectedRevision,
+      request: receipt.request,
+    };
+    if (
+      canonicalConfigurationOperationJson(original) !==
+      canonicalConfigurationOperationJson(operation)
+    )
+      res.status(409).json({ error: 'Configuration operation key conflict' });
+    else res.json(config);
+    return true;
+  };
+  router.get('/configuration-operations/:key', (req, res) => {
+    const sessionId = (req.params as unknown as { id: string }).id;
+    const key = SymposiumConfigurationOperationKeySchema.safeParse(req.params.key);
+    if (!key.success) {
+      res.status(400).json({ error: 'Invalid configuration operation key' });
+      return;
+    }
+    if (!deps.store.getSession(sessionId)) {
+      res.status(404).json({ error: 'Session not found' });
+      return;
+    }
+    let receipt;
+    try {
+      receipt = deps.store.getSymposiumConfigurationOperation(sessionId, key.data);
+    } catch {
+      res.status(409).json({ error: 'Configuration operation proof is unavailable' });
+      return;
+    }
+    if (receipt && receipt.actor !== actorFor(res)) {
+      res.status(403).json({ error: 'Configuration operation belongs to another operator' });
+      return;
+    }
+    res.json({ receipt: receipt ?? null });
+  });
   // A null author is not visibility proof. Only delivered broadcasts to every
   // active member at creation qualify; private/legacy authored turns fail closed.
   const sharedTurns = (sessionId: string) => {
@@ -295,18 +396,24 @@ export function createSymposiumDirectorRouter(deps: SymposiumDirectorRouteDeps):
   router.post('/seats/revise', (req, res) => {
     const parsed = ReviseSeatBody.safeParse(req.body);
     if (!parsed.success) {
-      res
-        .status(400)
-        .json({ error: 'Invalid Symposium seat revision or boundary acknowledgement' });
+      res.status(400).json({
+        error: 'Invalid Symposium seat revision or boundary acknowledgement',
+        seatMutation: 'not-started',
+      });
       return;
     }
     const sessionId = (req.params as { id: string }).id;
     if (!deps.store.getSession(sessionId)) {
-      res.status(404).json({ error: 'Session not found' });
+      res.status(404).json({ error: 'Session not found', seatMutation: 'not-started' });
       return;
     }
+    const operation = operationFor('seats/revise', parsed.data, res);
+    if (operation === null) return;
+    if (replayOperation(sessionId, operation, res)) return;
     if (!deps.getRuntime(sessionId)) {
-      res.status(503).json({ error: 'Symposium provider runtime is unavailable' });
+      res
+        .status(503)
+        .json({ error: 'Symposium provider runtime is unavailable', seatMutation: 'not-started' });
       return;
     }
     let mutationStarted = false;
@@ -316,6 +423,7 @@ export function createSymposiumDirectorRouter(deps: SymposiumDirectorRouteDeps):
       const anchor = current.seats.find((seat) => seat.id === current.anchorSeatId);
       if (!anchor?.accountBinding) throw new Error('Anchor account binding is unavailable');
       const input = parsed.data;
+      const prior = current.seats.find((seat) => seat.id === input.seatId);
       const binding = deps.resolveSelection(input.accountId, input.model, input.reasoningEffort);
       if (
         input.seatId === current.anchorSeatId &&
@@ -332,6 +440,17 @@ export function createSymposiumDirectorRouter(deps: SymposiumDirectorRouteDeps):
         name: input.name,
         role: input.role,
         systemPrompt: input.systemPrompt,
+        // Older editors omit these optional fields. Omission preserves the
+        // existing request/guidance; it must not select role-based authority.
+        ...((input.expectedOutput ?? prior?.expectedOutput) !== undefined
+          ? { expectedOutput: input.expectedOutput ?? prior?.expectedOutput }
+          : {}),
+        ...((input.acceptanceCriteria ?? prior?.acceptanceCriteria) !== undefined
+          ? { acceptanceCriteria: input.acceptanceCriteria ?? prior?.acceptanceCriteria }
+          : {}),
+        ...((input.authorityRequest ?? prior?.authorityRequest) !== undefined
+          ? { authorityRequest: input.authorityRequest ?? prior?.authorityRequest }
+          : {}),
         color: input.color,
         model: input.model,
         accountBinding: binding,
@@ -345,6 +464,7 @@ export function createSymposiumDirectorRouter(deps: SymposiumDirectorRouteDeps):
           expectedRevision: input.expectedRevision,
           actor: actorId ? `operator:${actorId}` : 'internal-operator',
           seat,
+          ...(operation ? { configurationOperation: operation } : {}),
           ...(input.contextSourceRefs ? { contextSourceRefs: input.contextSourceRefs } : {}),
           ...(input.profileSelection ? { profileSelection: input.profileSelection } : {}),
         }),
@@ -359,33 +479,46 @@ export function createSymposiumDirectorRouter(deps: SymposiumDirectorRouteDeps):
   router.post('/activate', (req, res) => {
     const parsed = ActivateBody.safeParse(req.body);
     if (!parsed.success) {
-      res
-        .status(409)
-        .json({ error: 'Shared boundary acknowledgement and expected revision are required' });
+      res.status(409).json({
+        error: 'Shared boundary acknowledgement and expected revision are required',
+        activationMutation: 'not-started',
+      });
       return;
     }
     const sessionId = (req.params as { id: string }).id;
     const session = deps.store.getSession(sessionId);
     if (!session) {
-      res.status(404).json({ error: 'Session not found' });
+      res.status(404).json({ error: 'Session not found', activationMutation: 'not-started' });
       return;
     }
+    const operation = operationFor('activate', parsed.data, res);
+    if (operation === null) return;
+    if (replayOperation(sessionId, operation, res)) return;
     const current = session.symposiumConfig
       ? SymposiumConfigSchema.safeParse(JSON.parse(session.symposiumConfig))
       : null;
     if (!current?.success || current.data.state !== 'draft') {
-      res.status(409).json({ error: 'A current Symposium draft is required' });
+      res.status(409).json({
+        error: 'A current Symposium draft is required',
+        activationMutation: 'not-started',
+      });
       return;
     }
     if (!deps.getRuntime(sessionId)) {
-      res.status(503).json({ error: 'Symposium provider runtime is unavailable' });
+      res.status(503).json({
+        error: 'Symposium provider runtime is unavailable',
+        activationMutation: 'not-started',
+      });
       return;
     }
     if (
       crossesAnchorAccount(current.data) &&
       parsed.data.crossAccountConfirmation !== 'ADD CROSS-ACCOUNT SEAT'
     ) {
-      res.status(409).json({ error: 'Typed cross-account seat confirmation is required' });
+      res.status(409).json({
+        error: 'Typed cross-account seat confirmation is required',
+        activationMutation: 'not-started',
+      });
       return;
     }
     const actorId = (res.locals.authSession as { id?: string } | undefined)?.id;
@@ -394,6 +527,7 @@ export function createSymposiumDirectorRouter(deps: SymposiumDirectorRouteDeps):
         deps.activateDraft({
           sessionId,
           expectedRevision: parsed.data.expectedRevision,
+          ...(operation ? { configurationOperation: operation } : {}),
           actor: actorId ? `operator:${actorId}` : 'internal-operator',
           ...(parsed.data.contextSourceRefs
             ? { contextSourceRefs: parsed.data.contextSourceRefs }
@@ -411,20 +545,37 @@ export function createSymposiumDirectorRouter(deps: SymposiumDirectorRouteDeps):
   });
   router.post('/draft', (req, res) => {
     const body = z
-      .strictObject({ expectedAccountId: z.string().min(1).max(200).optional() })
+      .strictObject({
+        expectedAccountId: z.string().min(1).max(200).optional(),
+        expectedRevision: z.number().int().nonnegative().optional(),
+        idempotencyKey: SymposiumConfigurationOperationKeySchema.optional(),
+      })
+      .refine((value) => !value.idempotencyKey || value.expectedRevision !== undefined)
       .safeParse(req.body);
     if (!body.success) {
-      res.status(400).json({ error: 'Invalid draft request' });
+      res.status(400).json({ error: 'Invalid draft request', seatMutation: 'not-started' });
       return;
     }
     const sessionId = (req.params as { id: string }).id;
     const session = deps.store.getSession(sessionId);
     if (!session) {
-      res.status(404).json({ error: 'Session not found' });
+      res.status(404).json({ error: 'Session not found', seatMutation: 'not-started' });
+      return;
+    }
+    const operation = operationFor('draft', body.data, res);
+    if (operation === null) return;
+    if (replayOperation(sessionId, operation, res)) return;
+    if (
+      body.data.expectedRevision !== undefined &&
+      body.data.expectedRevision !== (session.symposiumRevision ?? 0)
+    ) {
+      res.status(409).json({ error: 'Draft revision conflict', seatMutation: 'not-started' });
       return;
     }
     if (session.symposiumConfig) {
-      res.status(409).json({ error: 'Symposium is already configured' });
+      res
+        .status(409)
+        .json({ error: 'Symposium is already configured', seatMutation: 'not-started' });
       return;
     }
     if (
@@ -432,18 +583,24 @@ export function createSymposiumDirectorRouter(deps: SymposiumDirectorRouteDeps):
       (session.executionPhase && session.executionPhase !== 'TERMINAL') ||
       deps.hasOrdinaryRuntime?.(sessionId)
     ) {
-      res
-        .status(409)
-        .json({ error: 'Stop the ordinary conversation before creating a Symposium draft' });
+      res.status(409).json({
+        error: 'Stop the ordinary conversation before creating a Symposium draft',
+        seatMutation: 'not-started',
+      });
       return;
     }
     const binding = AccountBindingSchema.safeParse(session.accountBinding);
     if (!binding.success) {
-      res.status(409).json({ error: 'Session account binding is unavailable' });
+      res
+        .status(409)
+        .json({ error: 'Session account binding is unavailable', seatMutation: 'not-started' });
       return;
     }
     if (body.data.expectedAccountId && body.data.expectedAccountId !== binding.data.accountId) {
-      res.status(409).json({ error: 'Conversation account changed before draft creation' });
+      res.status(409).json({
+        error: 'Conversation account changed before draft creation',
+        seatMutation: 'not-started',
+      });
       return;
     }
     const draft = {
@@ -467,7 +624,16 @@ export function createSymposiumDirectorRouter(deps: SymposiumDirectorRouteDeps):
       interceptMode: 'manual' as const,
     };
     try {
-      res.json(deps.store.setSymposiumConfig(sessionId, draft, session.symposiumRevision ?? 0));
+      res.json(
+        operation
+          ? deps.store.setSymposiumConfig(
+              sessionId,
+              draft,
+              session.symposiumRevision ?? 0,
+              operation,
+            )
+          : deps.store.setSymposiumConfig(sessionId, draft, session.symposiumRevision ?? 0),
+      );
     } catch {
       res.status(409).json({ error: 'Symposium draft could not be created at this revision' });
     }
@@ -492,89 +658,121 @@ export function createSymposiumDirectorRouter(deps: SymposiumDirectorRouteDeps):
         .json({ error: 'Selected account, model, or reasoning effort is unavailable' });
     }
   });
-  router.get('/', (req, res) => {
-    const sessionId = (req.params as { id: string }).id;
-    const session = deps.store.getSession(sessionId);
-    if (!session) {
-      res.status(404).json({ error: 'Session not found' });
-      return;
-    }
-    const runtime = deps.getRuntime(sessionId);
-    const runtimeAvailable = runtime !== null;
-    if (session.sessionType !== 'symposium' || !session.symposiumConfig) {
-      const binding = AccountBindingSchema.safeParse(session.accountBinding);
-      res.json({
-        sessionId,
-        config: null,
-        ordinaryAccountId: binding.success ? binding.data.accountId : null,
-        seats: [],
-        reservedSeats: 0,
-        capacityRemaining: 0,
-        runtimeAvailable,
-        admissions: [],
-        deliveries: [],
-      });
-      return;
-    }
-    const config = SymposiumConfigSchema.parse(JSON.parse(session.symposiumConfig));
-    const history = deps.store.getSymposiumMembershipHistory(sessionId);
-    const admissions = deps.store.getSymposiumAdmissions(sessionId);
-    const deliveries = deps.store.getSymposiumDeliveries(sessionId);
-    const seats = config.seats.map((seat) => {
-      const membership = history
-        .filter((record) => record.seatId === seat.id)
-        .sort((a, b) => b.generation - a.generation)[0];
-      const admission = [...admissions]
-        .reverse()
-        .find((record) => record.seatId === seat.id && record.configRevision === config.revision);
-      const admitted = Boolean(
-        runtimeAvailable &&
-        membership?.state === 'active' &&
-        membership.reconciliation === 'confirmed' &&
-        admission?.decision === 'admitted' &&
-        (config.version === 1 || admission.membershipGeneration === membership.generation),
-      );
-      const diagnosticActor = (res.locals.authSession as { id?: string } | undefined)?.id;
-      const creationDiagnostic =
-        runtime?.creationDiagnostic?.(
-          sessionId,
-          seat.id,
-          diagnosticActor ? `operator:${diagnosticActor}` : undefined,
-        ) ?? null;
-      let executable = false;
-      if (admitted && !creationDiagnostic && membership) {
-        try {
-          executable = deps.artifactReady?.(sessionId, seat.id, membership.generation) ?? true;
-        } catch {
-          executable = false;
-        }
+  // Saved facts are useful for display but never establish current host authority.
+  // Routine roster polling must not enter the synchronous production gate.
+  const statusHandler =
+    (durable: boolean): RequestHandler =>
+    (req, res) => {
+      const sessionId = (req.params as { id: string }).id;
+      const session = deps.store.getSession(sessionId);
+      if (!session) {
+        res.status(404).json({ error: 'Session not found' });
+        return;
       }
-      return {
-        seatId: seat.id,
-        seat,
-        membership: membership ?? null,
-        admission: admission ?? null,
-        admitted: executable,
-        creationDiagnostic,
-      };
-    });
-    const reservedSeats = seats.filter((seat) => seat.membership?.state === 'active').length;
-    res.json({
-      sessionId,
-      config,
-      seats,
-      reservedSeats,
-      capacityRemaining:
-        config.version === 2 ? config.activeSeatCap - reservedSeats : 2 - reservedSeats,
-      runtimeAvailable,
-      profileBindingEnforced: deps.profileBindingEnforced === true,
-      initialProfileSelections:
-        config.state === 'draft' ? deps.store.getSymposiumInitialProfileSelections(sessionId) : {},
-      admissions,
-      deliveries,
-      sharedBoundary: config.seats[0]?.isolationRequest ?? null,
-    });
-  });
+      const runtime = durable ? null : deps.getRuntime(sessionId);
+      const runtimeAvailable = runtime !== null;
+      const projection = durable
+        ? { statusMode: 'durable', runtimeVerification: 'not_checked' }
+        : {};
+      if (session.sessionType !== 'symposium' || !session.symposiumConfig) {
+        const binding = AccountBindingSchema.safeParse(session.accountBinding);
+        res.json({
+          ...projection,
+          sessionId,
+          config: null,
+          symposiumRevision: session.symposiumRevision ?? 0,
+          ordinaryAccountId: binding.success ? binding.data.accountId : null,
+          seats: [],
+          reservedSeats: 0,
+          capacityRemaining: 0,
+          runtimeAvailable,
+          admissions: [],
+          deliveries: [],
+        });
+        return;
+      }
+      const config = SymposiumConfigSchema.parse(JSON.parse(session.symposiumConfig));
+      const history = deps.store.getSymposiumMembershipHistory(sessionId);
+      const admissions = deps.store.getSymposiumAdmissions(sessionId);
+      const deliveries = deps.store.getSymposiumDeliveries(sessionId);
+      const seats = config.seats.map((seat) => {
+        const membership = history
+          .filter((record) => record.seatId === seat.id)
+          .sort((a, b) => b.generation - a.generation)[0];
+        const admission = [...admissions]
+          .reverse()
+          .find((record) => record.seatId === seat.id && record.configRevision === config.revision);
+        const admissionRecorded = Boolean(
+          membership?.state === 'active' &&
+          membership.reconciliation === 'confirmed' &&
+          admission?.decision === 'admitted' &&
+          (config.version === 1 || admission.membershipGeneration === membership.generation),
+        );
+        const admitted = runtimeAvailable && admissionRecorded;
+        const savedSandbox =
+          durable && membership
+            ? deps.store.getSymposiumSeatSandbox(sessionId, seat.id, membership.generation)
+            : undefined;
+        const diagnosticActor = (res.locals.authSession as { id?: string } | undefined)?.id;
+        const creationDiagnostic = durable
+          ? savedSandbox?.creationFailureCode &&
+            ['reserved', 'stopped'].includes(savedSandbox.state)
+            ? {
+                phase: savedSandbox.creationPhase ?? 'create',
+                code: savedSandbox.creationFailureCode,
+                canCleanup: false,
+              }
+            : null
+          : (runtime?.creationDiagnostic?.(
+              sessionId,
+              seat.id,
+              diagnosticActor ? `operator:${diagnosticActor}` : undefined,
+            ) ?? null);
+        let executable = false;
+        if (admitted && !creationDiagnostic && membership) {
+          try {
+            executable = deps.artifactReady?.(sessionId, seat.id, membership.generation) ?? true;
+          } catch {
+            executable = false;
+          }
+        }
+        return {
+          seatId: seat.id,
+          seat,
+          membership: membership ?? null,
+          admission: admission ?? null,
+          admitted: executable,
+          creationDiagnostic,
+          ...(durable
+            ? {
+                admissionRecorded: config.state === 'active' && admissionRecorded,
+                savedRuntimeState: savedSandbox?.state ?? null,
+              }
+            : {}),
+        };
+      });
+      const reservedSeats = seats.filter((seat) => seat.membership?.state === 'active').length;
+      res.json({
+        ...projection,
+        sessionId,
+        config,
+        seats,
+        reservedSeats,
+        capacityRemaining:
+          config.version === 2 ? config.activeSeatCap - reservedSeats : 2 - reservedSeats,
+        runtimeAvailable,
+        profileBindingEnforced: deps.profileBindingEnforced === true,
+        initialProfileSelections:
+          config.state === 'draft'
+            ? deps.store.getSymposiumInitialProfileSelections(sessionId)
+            : {},
+        admissions,
+        deliveries,
+        sharedBoundary: config.seats[0]?.isolationRequest ?? null,
+      });
+    };
+  router.get('/status', statusHandler(true));
+  router.get('/', statusHandler(false));
 
   router.put('/config', (req, res) => {
     const parsed = ConfigBody.safeParse(req.body);
@@ -590,6 +788,9 @@ export function createSymposiumDirectorRouter(deps: SymposiumDirectorRouteDeps):
       res.status(404).json({ error: 'Session not found', seatMutation: 'not-started' });
       return;
     }
+    const operation = operationFor('config', parsed.data, res);
+    if (operation === null) return;
+    if (replayOperation(sessionId, operation, res)) return;
     if (
       !session.symposiumConfig &&
       (session.isActive ||
@@ -607,6 +808,7 @@ export function createSymposiumDirectorRouter(deps: SymposiumDirectorRouteDeps):
       ? SymposiumConfigSchema.safeParse(JSON.parse(session.symposiumConfig))
       : null;
     if (
+      !operation &&
       session.symposiumRevision === config.revision &&
       session.symposiumConfig === JSON.stringify(config)
     ) {
@@ -672,7 +874,11 @@ export function createSymposiumDirectorRouter(deps: SymposiumDirectorRouteDeps):
       }
       if (config.state === 'active') deps.validateActiveConfig(sessionId, config);
       mutationStarted = true;
-      res.json(deps.store.setSymposiumConfig(sessionId, config, expectedRevision));
+      res.json(
+        operation
+          ? deps.store.setSymposiumConfig(sessionId, config, expectedRevision, operation)
+          : deps.store.setSymposiumConfig(sessionId, config, expectedRevision),
+      );
     } catch (error) {
       res.status(409).json({
         error: error instanceof Error ? error.message : 'Configuration failed',
@@ -1032,7 +1238,10 @@ export function createSymposiumDirectorRouter(deps: SymposiumDirectorRouteDeps):
     }
     const runtime = deps.getRuntime(sessionId);
     if (!runtime) {
-      res.status(503).json({ error: 'Symposium provider runtime is unavailable' });
+      res.status(503).json({
+        error: 'Symposium provider runtime is unavailable',
+        dispatch: 'not-started',
+      });
       return;
     }
     try {

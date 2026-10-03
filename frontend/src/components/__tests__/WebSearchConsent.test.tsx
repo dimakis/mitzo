@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, expect, it, vi } from 'vitest';
+import { Profiler } from 'react';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { WebSearchConsent } from '../WebSearchConsent';
 import { apiFetch } from '../../lib/api-fetch';
@@ -104,6 +105,35 @@ it('keeps consent visible for a watcher without taking control', async () => {
   expect(screen.getByText(/applies to the conversation in all tabs/)).toBeTruthy();
   fireEvent.click(screen.getByRole('button', { name: 'Allow for this conversation' }));
   await screen.findByRole('button', { name: 'Web search permission: Allowed' });
+});
+
+it('refreshes when focus returns as the initial grant becomes visible, before passive effects run', async () => {
+  vi.mocked(apiFetch)
+    .mockResolvedValueOnce(response('allowed', 4))
+    .mockResolvedValueOnce(response('denied', 5));
+  let focused = false;
+  render(
+    <Profiler
+      id="consent"
+      onRender={() => {
+        if (!focused && screen.queryByRole('button', { name: 'Web search permission: Allowed' })) {
+          focused = true;
+          window.dispatchEvent(new FocusEvent('focus'));
+        }
+      }}
+    >
+      <WebSearchConsent
+        sessionId="session-1"
+        mode="agent"
+        connected
+        connectionId="watcher"
+        running={false}
+      />
+    </Profiler>,
+  );
+  await screen.findByRole('button', { name: 'Web search permission: Denied' });
+  expect(focused).toBe(true);
+  expect(apiFetch).toHaveBeenCalledTimes(2);
 });
 
 it('refreshes a grant changed in another tab when this window regains focus', async () => {
