@@ -17,7 +17,11 @@ const policyPath = z
   .refine((path) => safePath(path.endsWith('/') ? path.slice(0, -1) : path));
 const SourcePolicy = z.object({
   paths: z.array(policyPath).min(1),
+  optionalPaths: z.array(policyPath).optional(),
   excludePaths: z.array(policyPath).optional(),
+  excludePathSegments: z
+    .array(z.string().refine((part) => !part.includes('/') && safePath(part)))
+    .optional(),
   excludeHiddenPaths: z.boolean().optional(),
 });
 const Selection = z.object({ revision, directory: z.string(), manifestSha256: sha }).strict();
@@ -34,7 +38,9 @@ export interface PublishedKnowledgeSource {
   ref: string;
   githubRepository?: string;
   paths: string[];
+  optionalPaths?: string[];
   excludePaths?: string[];
+  excludePathSegments?: string[];
   excludeHiddenPaths?: boolean;
 }
 export interface KnowledgePublicationBridgeConfig {
@@ -184,7 +190,9 @@ export class KnowledgePublicationBridge {
       manifest.acceptedRef !== source.ref ||
       manifest.sourceIdentity !== hash(JSON.stringify(source)) ||
       JSON.stringify(manifest.paths) !== JSON.stringify(source.paths) ||
+      JSON.stringify(manifest.optionalPaths) !== JSON.stringify(source.optionalPaths) ||
       JSON.stringify(manifest.excludePaths) !== JSON.stringify(source.excludePaths) ||
+      JSON.stringify(manifest.excludePathSegments) !== JSON.stringify(source.excludePathSegments) ||
       manifest.excludeHiddenPaths !== source.excludeHiddenPaths
     )
       throw new Error('Publication provenance differs from configured source');
@@ -195,8 +203,11 @@ export class KnowledgePublicationBridge {
       manifest.files.some(
         (file) =>
           !file.path.endsWith('.md') ||
-          !source.paths.some((policy) => selected(file.path, policy)) ||
+          ![...source.paths, ...(source.optionalPaths ?? [])].some((policy) =>
+            selected(file.path, policy),
+          ) ||
           source.excludePaths?.some((policy) => selected(file.path, policy)) ||
+          file.path.split('/').some((part) => source.excludePathSegments?.includes(part)) ||
           (source.excludeHiddenPaths && file.path.split('/').some((part) => part.startsWith('.'))),
       ) ||
       source.paths.some((policy) => !manifest.files.some((file) => selected(file.path, policy)))

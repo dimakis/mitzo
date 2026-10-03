@@ -13,7 +13,12 @@ afterEach(async () => {
   roots.length = 0;
 });
 async function setup(
-  policy: { excludePaths?: string[]; excludeHiddenPaths?: boolean } = {},
+  policy: {
+    optionalPaths?: string[];
+    excludePaths?: string[];
+    excludePathSegments?: string[];
+    excludeHiddenPaths?: boolean;
+  } = {},
   publishedPath = 'AGENTS.md',
 ) {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'mitzo-publication-')));
@@ -68,6 +73,61 @@ async function setup(
   );
   return { root, source, directory, selection, adapt, fetcher, bridge };
 }
+async function addPublished(s: Awaited<ReturnType<typeof setup>>, path: string) {
+  const content = '# ' + path;
+  await mkdir(join(s.directory, 'source', path, '..'), { recursive: true });
+  await writeFile(join(s.directory, 'source', path), content);
+  const seed = join(s.root, 'bundle/mgmt');
+  await mkdir(join(seed, path, '..'), { recursive: true });
+  await writeFile(join(seed, path), content);
+  const baseline = JSON.parse(await readFile(join(seed, '..', 'baseline.json'), 'utf8'));
+  baseline.files[path] = { sha256: hash(content), mode: '0644' };
+  await writeFile(join(seed, '..', 'baseline.json'), JSON.stringify(baseline));
+  const manifest = JSON.parse(await readFile(join(s.directory, 'manifest.json'), 'utf8'));
+  manifest.files.push({ path, sha256: hash(content), bytes: Buffer.byteLength(content) });
+  const raw = JSON.stringify(manifest);
+  await writeFile(join(s.directory, 'manifest.json'), raw);
+  s.fetcher.mockResolvedValue(
+    new Response(JSON.stringify({ current: { ...s.selection, manifestSha256: hash(raw) } })),
+  );
+}
+it('permits absent optional guidance paths', async () => {
+  const s = await setup({
+    optionalPaths: ['CLAUDE.md', 'context/', 'spoke/AGENTS.md', 'spoke/context/'],
+  });
+  await expect(s.bridge.reconcile(new AbortController().signal)).resolves.toHaveProperty(
+    'sourceCommit',
+    s.selection.revision,
+  );
+});
+it.each(['CLAUDE.md', 'context/future.md', 'spoke/AGENTS.md', 'spoke/context/future.md'])(
+  'admits matching optional Markdown %s',
+  async (path) => {
+    const s = await setup({
+      optionalPaths: ['CLAUDE.md', 'context/', 'spoke/AGENTS.md', 'spoke/context/'],
+    });
+    await addPublished(s, path);
+    await expect(s.bridge.reconcile(new AbortController().signal)).resolves.toHaveProperty(
+      'sourceCommit',
+      s.selection.revision,
+    );
+  },
+);
+it.each(['context/scripts/private.md', 'context/category/node_modules/private.md'])(
+  'applies exclusion policy to optional path %s',
+  async (path) => {
+    const s = await setup({
+      optionalPaths: ['context/'],
+      excludePaths: ['context/scripts/'],
+      excludePathSegments: ['node_modules'],
+    });
+    await addPublished(s, path);
+    await expect(s.bridge.reconcile(new AbortController().signal)).rejects.toThrow(
+      'Publication files differ from configured source paths',
+    );
+    expect(s.adapt).not.toHaveBeenCalled();
+  },
+);
 it('uses authenticated canonical reconciliation and passes only a verified exact revision to the adapter', async () => {
   const s = await setup();
   const result = await s.bridge.reconcile(new AbortController().signal);
@@ -113,12 +173,17 @@ it.each([
   );
   expect(s.adapt).not.toHaveBeenCalled();
 });
-it.each(['excludePaths', 'excludeHiddenPaths'])(
+it.each(['optionalPaths', 'excludePaths', 'excludePathSegments', 'excludeHiddenPaths'])(
   'rejects a changed manifest %s even when its files still match',
   async (field) => {
-    const s = await setup({ excludePaths: ['absent/'], excludeHiddenPaths: true });
+    const s = await setup({
+      optionalPaths: ['missing.md'],
+      excludePaths: ['absent/'],
+      excludePathSegments: ['node_modules'],
+      excludeHiddenPaths: true,
+    });
     const manifest = JSON.parse(await readFile(join(s.directory, 'manifest.json'), 'utf8'));
-    manifest[field] = field === 'excludePaths' ? [] : false;
+    manifest[field] = field === 'excludeHiddenPaths' ? false : [];
     const raw = JSON.stringify(manifest);
     await writeFile(join(s.directory, 'manifest.json'), raw);
     s.fetcher.mockResolvedValue(
