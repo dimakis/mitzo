@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
-import { Router, json, type Request } from 'express';
+import { TelosUserUploadInput, validateUserUpload } from './telos-user-upload.js';
+import { Router, json, type Request, type RequestHandler } from 'express';
 import { TelosArtifactStore, MAX_TELOS_ARTIFACT_BYTES } from './telos-artifact-store.js';
 import {
   TelosSaveArtifactInput,
@@ -12,6 +13,7 @@ export const telosArtifactSaveJson = json({ limit: 6 * MAX_TELOS_ARTIFACT_BYTES 
 
 export function createTelosArtifactRouter(options: {
   dbPath(): string;
+  operatorAuth?: RequestHandler;
   verifyInternal(req: Request): boolean;
   sessionId(clientId: string): string | undefined;
   readFile(sessionId: string, path: string): Promise<{ path: string; bytes: Buffer }>;
@@ -105,6 +107,71 @@ export function createTelosArtifactRouter(options: {
       }
     });
   }
+  // Interactive uploads are user evidence, never attributed to an active model session.
+  router.post(
+    '/api/telos/items/:itemId/artifacts/upload',
+    options.operatorAuth ??
+      ((_req, res) => {
+        res.status(403).json({ error: 'Interactive operator authentication is required' });
+      }),
+    (req, res) => {
+      const operatorId = res.locals.authSession?.id;
+      if (typeof operatorId !== 'string' || !operatorId) {
+        res.status(403).json({ error: 'Interactive operator authentication is required' });
+        return;
+      }
+      const parsed = TelosUserUploadInput.safeParse(req.body);
+      const item = TelosFindArtifactsInput.safeParse({ itemId: req.params.itemId });
+      if (!parsed.success || !item.success) {
+        res.status(400).json({ error: 'Invalid upload input' });
+        return;
+      }
+      const { base64, ...input } = parsed.data;
+      const bytes = Buffer.from(base64, 'base64');
+      if (bytes.length > MAX_TELOS_ARTIFACT_BYTES) {
+        res.status(413).json({ error: 'Artifact exceeds 5 MB' });
+        return;
+      }
+      if (bytes.toString('base64') !== base64 || !validateUserUpload(input.filename, bytes)) {
+        res.status(400).json({ error: 'Unsupported file type, encoding or file signature' });
+        return;
+      }
+      let store: TelosArtifactStore | undefined;
+      try {
+        store = new TelosArtifactStore(options.dbPath());
+        if (!store.userUploadAllowed(item.data.itemId!)) {
+          res.status(403).json({
+            error:
+              'LifeOps documents require private case storage; shared output uploads are unavailable.',
+          });
+          return;
+        }
+        const artifact = store.save({
+          ...input,
+          itemId: item.data.itemId!,
+          bytes,
+          sessionId: `user-upload:${operatorId}`,
+          requestInputHash: createHash('sha256')
+            .update(JSON.stringify([item.data.itemId, parsed.data]))
+            .digest('hex'),
+        });
+        res.setHeader('Cache-Control', 'private, no-store');
+        res.json({ ok: true, artifact });
+      } catch (error) {
+        const status = errorStatus(error);
+        res.status(status).json({
+          error:
+            status === 503
+              ? 'Upload unavailable; your file is preserved'
+              : error instanceof Error
+                ? error.message
+                : 'Upload failed',
+        });
+      } finally {
+        store?.close();
+      }
+    },
+  );
   // Authenticated metadata browsing does not depend on an active agent session.
   router.get('/api/telos/items/:itemId/artifacts', (req, res) => {
     const input = TelosFindArtifactsInput.safeParse({ itemId: req.params.itemId, limit: 100 });

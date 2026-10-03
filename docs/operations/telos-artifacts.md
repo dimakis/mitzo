@@ -74,3 +74,47 @@ recover exact files from the original workspace, verify their hashes and backfil
 Telos with source provenance. Preserve unresolved decisions from the original
 spec instead of inventing answers. Replace temporary sandbox-only handover paths
 with durable artifact IDs and versions, while retaining the origin as provenance.
+
+## User output uploads
+
+The Outputs section accepts non-sensitive work documents from an authenticated
+operator without requiring a live model session. Uploads use the same task store,
+attachment-only retrieval and immutable revisions. Files are capped at 5 MiB;
+allowed document/image types have bounded encoding and basic header checks.
+These checks do not scan for malware or establish that a document is safe.
+A same filename saves a new revision. Retry preserves its original receipt.
+Server-derived user-upload provenance is distinct from agent session artifacts
+and external Codex report capture. Operator authority is checked before parsing
+and again immediately before saving; the internal agent token cannot substitute.
+
+This shared SQLite task store is not encrypted private evidence storage.
+Credentials and raw financial or health documents remain excluded. LifeOps-profile
+items refuse this upload endpoint and show the private-case-storage requirement.
+Secure LifeOps intake needs a configured encrypted vault adapter, trusted operator
+ownership, bounded import validation, retention/recovery policy and links to
+sanitized task outputs. No such adapter is implemented by this change; do not
+advertise these user-output uploads as secure raw LifeOps document ingestion.
+
+The LifeOps guard matches only the declared `lifeops` profile (and spelling
+variants). A case filed under `personal` has no trusted LifeOps domain binding
+in the current data model, so this guard does not establish a private intake
+boundary for that case. Do not infer domain membership from titles or block
+all personal tasks. A vault adapter needs a host-owned domain/case binding
+before private intake can be enabled or advertised. The non-sensitive upload
+reminder is a user restriction, not content detection or an encryption guarantee.
+
+## Camera selection and release acceptance
+
+The upload drawer offers separate Choose file and Camera actions. Camera requests
+rear-camera capture for JPEG, PNG or WebP through the platform file input; browsers
+without capture support use their image picker. Both paths stage a selection and
+require the explicit Upload file action. Cancelling selection preserves the previous
+file and retry identity. Closing the drawer while a save is pending leaves that
+save running; changing the selected work item aborts its client request and rejects
+late feedback for the old item.
+
+Release acceptance should verify the selected running commit, explicit upload,
+list refresh, user provenance and byte-for-byte historical retrieval using
+non-sensitive fixtures. A browser picker test does not establish physical phone
+camera capture, and authenticated retrieval does not establish browser-to-disk save
+completion. Check those platform behaviors separately before claiming acceptance.
