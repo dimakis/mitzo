@@ -1001,3 +1001,40 @@ it.each(['available', 'not-configured'] as const)(
     expect(screen.queryByRole('article', { name: 'Host account' })).toBeNull();
   },
 );
+
+it('describes a verified managed-service credential check without claiming effective access', async () => {
+  const inventory = signInInventory();
+  inventory.resources = [
+    {
+      ...inventory.resources[0],
+      id: 'managed-jira',
+      label: 'Jira credentials',
+      kind: 'managed-connection',
+      section: 'services',
+      owner: 'managed-connections',
+      provider: 'jira',
+      verification: { state: 'verified', verifiedAt: Date.now(), reason: null },
+      access: {
+        summary: 'Configured Jira read access',
+        desiredAccountIds: ['work'],
+        observedAttachments: null,
+        appliesTo: 'New conversations',
+      },
+    },
+  ];
+  vi.mocked(getConnectionsAccess).mockResolvedValue(inventory);
+  render(
+    <MemoryRouter>
+      <ConnectionsAccessView />
+    </MemoryRouter>,
+  );
+  const row = await screen.findByRole('article', { name: 'Jira credentials' });
+  expect(within(row).getByText('Credentials verified')).toBeTruthy();
+  expect(within(row).queryByText('Access verified')).toBeNull();
+  fireEvent.click(within(row).getByRole('button', { name: 'Manage Jira credentials' }));
+  const dialog = within(screen.getByRole('dialog'));
+  expect(dialog.getByText('Credential verification')).toBeTruthy();
+  expect(dialog.queryByText('Access verified')).toBeNull();
+  expect(dialog.queryByText('Access verification')).toBeNull();
+  expect(dialog.getByText(/Conversation attachments have not been observed/)).toBeTruthy();
+});

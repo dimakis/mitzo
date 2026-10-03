@@ -24,11 +24,16 @@ const sourceLabels: Record<ConnectionsAccessInventory['sources'][number]['id'], 
   legacy: 'Operator-managed services',
 };
 const verificationLabels = {
-  verified: 'Access verified',
+  verified: 'Verified',
   stale: 'Verification is stale',
   unverified: 'Not verified',
   unavailable: 'Verification unavailable',
 };
+function verificationLabel(resource: AccessResource) {
+  return resource.kind === 'managed-connection' && resource.verification.state === 'verified'
+    ? 'Credentials verified'
+    : verificationLabels[resource.verification.state];
+}
 function readableStatus(status: string) {
   const text = status.replace(/[_-]/g, ' ');
   return text.charAt(0).toUpperCase() + text.slice(1);
@@ -116,9 +121,13 @@ function ResourceDetails({
           <dd>{readableStatus(resource.status)}</dd>
         </div>
         <div>
-          <dt>Access verification</dt>
+          <dt>
+            {resource.kind === 'managed-connection'
+              ? 'Credential verification'
+              : 'Access verification'}
+          </dt>
           <dd>
-            {verificationLabels[resource.verification.state]}
+            {verificationLabel(resource)}
             {resource.verification.verifiedAt !== null && (
               <> · {new Date(resource.verification.verifiedAt).toLocaleString()}</>
             )}
@@ -497,14 +506,12 @@ export function ConnectionsAccessView() {
                             {hasAccountSignIn(resource) ? (
                               <>
                                 <span>Sign-in: {accountSignInLabel(resource)}</span>
-                                <small>
-                                  Access: {verificationLabels[resource.verification.state]}
-                                </small>
+                                <small>Access: {verificationLabel(resource)}</small>
                               </>
                             ) : (
                               <>
                                 {readableStatus(resource.status)}
-                                <small>{verificationLabels[resource.verification.state]}</small>
+                                <small>{verificationLabel(resource)}</small>
                               </>
                             )}
                           </span>
