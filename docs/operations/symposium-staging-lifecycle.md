@@ -13,7 +13,10 @@ ordinary account/runtime configuration. Production is outside this staging fleet
    active owners and their compiled files. Do not bootstrap against primary state.
 2. Create one canonical, private directory (mode `0700`) for `staging.db`. Keep it
    outside the release, plan, repository, app home, gateway state, Podman home and
-   runtime seed trees; neither ancestors nor descendants may overlap. Choose
+   runtime seed trees and every configured input path, including policy/profile
+   files, TLS/JWT files, credential-file references, CA bundles and executables.
+   Canonical symlink targets and future attestation paths are protected too;
+   neither ancestors nor descendants may overlap. Choose
    the operator fleet capacity once (recommended: three fresh owned stages). Every
    supported staging launch must use that same directory and capacity. Changing
    capacity at launch is refused. Alternate directories and custom launchers are
