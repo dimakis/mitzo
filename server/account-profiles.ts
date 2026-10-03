@@ -190,7 +190,12 @@ export class AccountProfiles {
 
   constructor(
     config: unknown,
-    private options: { codexEnabled?: boolean; modelDiscoveryTimeoutMs?: number } = {},
+    private options: {
+      codexEnabled?: boolean;
+      modelDiscoveryTimeoutMs?: number;
+      /** Supplied only by the retained personal registry, never profile JSON. */
+      personalConnectionLinks?: ReadonlyMap<string, { id: string; revision: number }>;
+    } = {},
   ) {
     const parsed = z.array(Profile).safeParse(config);
     if (!parsed.success)
@@ -222,6 +227,9 @@ export class AccountProfiles {
           id,
           label,
           provider,
+          ...(provider === 'openai-codex' && this.options.personalConnectionLinks?.has(id)
+            ? { personalConnection: { ...this.options.personalConnectionLinks.get(id)! } }
+            : {}),
           billing:
             provider === 'openai-codex'
               ? 'chatgpt-subscription'

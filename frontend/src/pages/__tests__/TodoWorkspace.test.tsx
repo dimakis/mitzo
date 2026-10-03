@@ -48,11 +48,22 @@ vi.mock('../../hooks/useTodoData', () => ({
   }),
 }));
 vi.mock('../../lib/api-fetch', () => ({
-  apiFetch: vi.fn(async (url: string) => ({
-    ok: true,
-    json: async () =>
-      url.endsWith('/artifacts') ? { artifacts: [], limit: 100 } : { items: [item] },
-  })),
+  apiFetch: vi.fn(async (url: string) => {
+    if (url === '/api/todos')
+      return {
+        ok: true,
+        json: async () => ({
+          items: [item, { ...item, id: 'second', summary: 'Review desktop work' }],
+        }),
+      };
+    if (
+      ['first', 'second'].some(
+        (id) => url === `/api/telos/items/${encodeURIComponent(id)}/artifacts`,
+      )
+    )
+      return { ok: true, json: async () => ({ artifacts: [], limit: 100 }) };
+    throw new Error(`Unexpected test API endpoint: ${url}`);
+  }),
 }));
 function Location() {
   return <output aria-label="Route">{useLocation().pathname}</output>;

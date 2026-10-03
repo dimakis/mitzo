@@ -14,6 +14,7 @@ import { Login } from './pages/Login';
 import { Today } from './pages/Today';
 import { MoreView } from './pages/MoreView';
 import { ConnectionsView } from './pages/ConnectionsView';
+import { ConnectionsAccessView } from './pages/ConnectionsAccessView';
 import { AttentionFeed } from './components/AttentionFeed';
 import { WorkspacePageHeading } from './components/WorkspacePageHeading';
 import { SessionList } from './pages/SessionList';
@@ -192,6 +193,16 @@ export function App() {
                   <ProtectedRoute>
                     <PageRoute>
                       <MoreView />
+                    </PageRoute>
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/connections-access"
+                element={
+                  <ProtectedRoute>
+                    <PageRoute>
+                      <ConnectionsAccessView />
                     </PageRoute>
                   </ProtectedRoute>
                 }

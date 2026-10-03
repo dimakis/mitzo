@@ -11,6 +11,7 @@ const secondary = [
   { label: 'Agents', icon: 'agents' as const, path: '/tasks', end: false },
   { label: 'Calendar', icon: 'calendar' as const, path: '/calendar', end: false },
   { label: 'Files', icon: 'files' as const, path: '/files', end: false },
+  { label: 'Connections', icon: 'more' as const, path: '/connections-access', end: false },
 ];
 export function WorkspaceNav({ desktop = false }: { desktop?: boolean }) {
   const { pathname } = useLocation();
@@ -28,9 +29,10 @@ export function WorkspaceNav({ desktop = false }: { desktop?: boolean }) {
         const active =
           (end ? pathname === path : pathname === path || pathname.startsWith(path + '/')) ||
           (label === 'Chats' && (pathname === '/chat' || pathname.startsWith('/chat/'))) ||
+          (label === 'Connections' && pathname === '/connections') ||
           (!desktop &&
             label === 'More' &&
-            ['/tasks', '/calendar', '/files', '/focus'].some(
+            ['/tasks', '/calendar', '/files', '/focus', '/connections', '/connections-access'].some(
               (p) => pathname === p || pathname.startsWith(p + '/'),
             ));
         return (
