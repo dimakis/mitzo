@@ -97,8 +97,24 @@ export class KnowledgePublicationBridge {
       },
     );
     if (!response.ok) throw new Error('Fresh knowledge publication unavailable');
-    const raw = await response.text();
-    if (Buffer.byteLength(raw) > 1024 * 1024) throw new Error('Publication response too large');
+    const reader = response.body?.getReader();
+    if (!reader) throw new Error('Publication response missing');
+    const chunks: Uint8Array[] = [];
+    let bytes = 0;
+    try {
+      while (true) {
+        signal.throwIfAborted();
+        const { done, value } = await reader.read();
+        if (done) break;
+        bytes += value.byteLength;
+        if (bytes > 1024 * 1024) throw new Error('Publication response too large');
+        chunks.push(value);
+      }
+    } finally {
+      await reader.cancel();
+      reader.releaseLock();
+    }
+    const raw = Buffer.concat(chunks).toString('utf8');
     const selection = Selection.parse(JSON.parse(raw).current);
     const manifest = await this.verify(selection);
     signal.throwIfAborted();

@@ -81,6 +81,25 @@ it('blocks admission on publisher failure without using an older publication', a
   );
   expect(s.adapt).not.toHaveBeenCalled();
 });
+it('stops reading and cancels an oversized publication response', async () => {
+  const s = await setup();
+  const cancel = vi.fn();
+  const body = new ReadableStream<Uint8Array>({
+    pull(controller) {
+      controller.enqueue(new Uint8Array(1024 * 1024 + 1));
+      controller.close();
+    },
+    cancel,
+  });
+  const response = new Response(body);
+  const text = vi.spyOn(response, 'text');
+  s.fetcher.mockResolvedValue(response);
+  await expect(s.bridge.reconcile(new AbortController().signal)).rejects.toThrow(
+    'Publication response too large',
+  );
+  expect(text).not.toHaveBeenCalled();
+  expect(s.adapt).not.toHaveBeenCalled();
+});
 it.each(['content', 'manifest', 'extra', 'symlink', 'foreign'])(
   'rejects %s tampering before adapter invocation',
   async (kind) => {
