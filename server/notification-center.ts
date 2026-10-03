@@ -8,6 +8,9 @@ import { hasPending, onPermissionLifecycle } from './permissions.js';
 import { NotificationStore } from './notification-store.js';
 import { createLogger } from './logger.js';
 const log = createLogger('notifications');
+// Allow an overnight quiet-hours delay, but never replay old completion banners.
+const COMPLETION_PUSH_MAX_AGE_MS = 12 * 60 * 60 * 1000;
+const TEST_PUSH_MAX_AGE_MS = 5 * 60 * 1000;
 export interface NotificationPush {
   title: string;
   body: string;
@@ -172,7 +175,11 @@ export class NotificationCenter {
     try {
       if (this.store.reconcilePermissions(hasPending)) this.changed();
       for (const item of this.store.due()) {
-        if (!this.enabled(item) || (item.readAt !== null && !item.permId)) {
+        const age = Date.now() - item.createdAt;
+        const stale =
+          (item.kind === 'session' && age >= COMPLETION_PUSH_MAX_AGE_MS) ||
+          (item.kind === 'test' && age >= TEST_PUSH_MAX_AGE_MS);
+        if (stale || !this.enabled(item) || (item.readAt !== null && !item.permId)) {
           this.store.delivery(item.id, 'cancelled');
           continue;
         }

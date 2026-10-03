@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { registerPending, resolvePending, removePending } from '../permissions.js';
 import { NotificationStore } from '../notification-store.js';
 import { NotificationCenter, nextDeliveryAt } from '../notification-center.js';
@@ -11,7 +11,7 @@ const request: PermissionRequest = {
   sessionId: 'notify-session',
   expiresAt: Date.now() + 60000,
 };
-function setup() {
+function setup(devices = () => 1) {
   const store = new NotificationStore(':memory:');
   const push = vi.fn().mockResolvedValue('accepted');
   const changed = vi.fn();
@@ -19,12 +19,55 @@ function setup() {
     push,
     changed,
     configured: () => true,
-    devices: () => 1,
+    devices,
     sessionTitle: () => 'Fix notifications',
   });
   return { store, center, push, changed };
 }
 describe('central notification delivery', () => {
+  afterEach(() => vi.useRealTimers());
+  it.each(['unavailable', 'no-device'])(
+    'ages out queued informational pushes after %s without removing feed items',
+    async (outage) => {
+      vi.useFakeTimers();
+      let deviceCount = outage === 'no-device' ? 0 : 1;
+      const { store, center, push } = setup(() => deviceCount);
+      push.mockResolvedValue('unavailable');
+      center.turnComplete('s1', 90, 'Done', 'Tests', true);
+      const testId = center.test();
+      await center.flush();
+      vi.advanceTimersByTime(13 * 60 * 60 * 1000);
+      deviceCount = 1;
+      push.mockClear().mockResolvedValue('accepted');
+      await center.flush();
+      expect(push).not.toHaveBeenCalled();
+      expect(store.due()).toHaveLength(0);
+      expect(store.get(testId)).toBeDefined();
+      expect(store.get('turn:s1:90')).toMatchObject({ resolution: null });
+      center.turnComplete('s1', 91, 'Fresh', 'Tests', true);
+      center.test();
+      await center.flush();
+      expect(push).toHaveBeenCalledTimes(2);
+      center.close();
+      store.close();
+    },
+  );
+  it('expires a queued test alert after five minutes while retaining a recent completion', async () => {
+    vi.useFakeTimers();
+    const { store, center, push } = setup();
+    push.mockResolvedValue('unavailable');
+    center.test();
+    center.turnComplete('s1', 92, 'Done', 'Tests', true);
+    await center.flush();
+    vi.advanceTimersByTime(5 * 60 * 1000);
+    push.mockClear().mockResolvedValue('accepted');
+    await center.flush();
+    expect(push).toHaveBeenCalledTimes(1);
+    expect(push.mock.calls[0][0].data.type).toBe('session');
+    expect(store.due()).toHaveLength(0);
+    center.close();
+    store.close();
+  });
   it('captures and resolves permissions from any client without duplicate pushes', async () => {
     const { store, center, push } = setup();
     const resolve = vi.fn();
