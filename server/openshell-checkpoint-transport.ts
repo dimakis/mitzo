@@ -49,7 +49,7 @@ const helperPath = resolve(
 );
 // Host-owned migration tooling is separate from immutable image runtime inputs.
 // Updating this pin requires the helper and transport to be reviewed together.
-const helperSha256 = 'cad3dae4de4e50fe51968e77cd5ceab68cf6fbc985d8214a214fc7e4dd403fcb';
+const helperSha256 = '1113341d7a3f20ad783f99aafb83f9233055081043b5add5536e7f53aae9cfce';
 const pythonBootstrap = [
   'import base64,hashlib,sys',
   'source=base64.b64decode(sys.argv[1],validate=True)',

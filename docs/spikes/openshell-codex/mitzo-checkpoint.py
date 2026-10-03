@@ -4,7 +4,7 @@ import argparse, hashlib, io, json, os, re, shutil, stat, subprocess, sys, tarfi
 
 FILES={'.sandbox_migration','goals_1.sqlite','goals_1.sqlite-wal','goals_1.sqlite-shm','installation_id','memories_1.sqlite','memories_1.sqlite-wal','memories_1.sqlite-shm','queue_1.sqlite','queue_1.sqlite-wal','queue_1.sqlite-shm','state_5.sqlite','state_5.sqlite-wal','state_5.sqlite-shm','thread_history_1.sqlite','thread_history_1.sqlite-wal','thread_history_1.sqlite-shm'}
 DIRS={'sessions','archived_sessions','skills'}
-VOLATILE={'tmp','.tmp','thread-writer-locks','logs_2.sqlite','logs_2.sqlite-wal','logs_2.sqlite-shm','shell_snapshots'}
+VOLATILE={'tmp','.tmp','thread-writer-locks','logs_2.sqlite','logs_2.sqlite-wal','logs_2.sqlite-shm','shell_snapshots','.sqlite-maintenance.lock'}
 MAX_FILES,MAX_BYTES,MAX_MANIFEST=100000,2*1024*1024*1024,65536
 def git_config(path):
  # Git parses its own syntax without includes, ambient config, or execution.
@@ -77,6 +77,9 @@ def provider(path):
  lst(path)
  for n in os.listdir(path):
   s=lst(os.path.join(path,n))
+  # The maintenance lock is process-local coordination, never portable state.
+  # Only a regular file is accepted; capture still proves writer quiescence.
+  if n=='.sqlite-maintenance.lock' and not stat.S_ISREG(s.st_mode): fail('unsupported provider state: '+n)
   if n in VOLATILE: continue
   if stat.S_ISREG(s.st_mode) and n in FILES: continue
   if stat.S_ISDIR(s.st_mode) and n in DIRS: entries(os.path.join(path,n)); continue
