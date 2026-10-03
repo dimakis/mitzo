@@ -149,11 +149,14 @@ function ResourceCard({
               <dd>{resource.details.billing}</dd>
             </div>
           )}
-          {resource.details.models && (
+          {!catalog && resource.details.models && (
             <div>
-              <dt>Available models</dt>
+              <dt>Configured models</dt>
               <dd>
                 {resource.details.models.map((model) => model.label).join(', ') || 'None reported'}
+                <p className="workspace-muted">
+                  Configured catalog; model support and effective access have not been checked.
+                </p>
               </dd>
             </div>
           )}

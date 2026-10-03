@@ -400,3 +400,47 @@ it('rejects mismatched revisions even if a presentation link claims it is curren
   );
   expect(await screen.findAllByRole('article', { name: 'Personal account' })).toHaveLength(2);
 });
+
+it.each(['account-profiles', 'symposium-account-profiles'] as const)(
+  'labels standalone %s model lists as configured with unverified support',
+  async (owner) => {
+    const inventory = linkedFacets();
+    const standalone = { ...inventory.resources[0], owner };
+    delete standalone.personalConnection;
+    inventory.resources = [standalone];
+    vi.mocked(getConnectionsAccess).mockResolvedValue(inventory);
+    render(
+      <MemoryRouter>
+        <ConnectionsAccessView />
+      </MemoryRouter>,
+    );
+    const card = within(await screen.findByRole('article', { name: 'Personal account' }));
+    expect(card.getAllByText('Configured models')).toHaveLength(1);
+    expect(card.getAllByText('Configured Luna')).toHaveLength(1);
+    expect(
+      card.getAllByText(
+        'Configured catalog; model support and effective access have not been checked.',
+      ),
+    ).toHaveLength(1);
+    expect(card.queryByText('Available models')).toBeNull();
+  },
+);
+it('keeps the grouped configured catalog and support disclaimer without duplicate model lists', async () => {
+  const inventory = linkedFacets();
+  inventory.resources[1].details.models = inventory.resources[0].details.models;
+  vi.mocked(getConnectionsAccess).mockResolvedValue(inventory);
+  render(
+    <MemoryRouter>
+      <ConnectionsAccessView />
+    </MemoryRouter>,
+  );
+  const card = within(await screen.findByRole('article', { name: 'Personal account' }));
+  expect(card.getAllByText('Configured models')).toHaveLength(1);
+  expect(card.getAllByText('Configured Luna')).toHaveLength(1);
+  expect(
+    card.getAllByText(
+      'Configured catalog; model support and effective access have not been checked.',
+    ),
+  ).toHaveLength(1);
+  expect(card.queryByText('Available models')).toBeNull();
+});
