@@ -42,7 +42,16 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
             options: [.customDismissAction]
         )
 
-        UNUserNotificationCenter.current().setNotificationCategories([sessionCategory])
+        let reviewAction = UNNotificationAction(
+            identifier: "REVIEW_PERMISSION_ACTION", title: "Review request", options: [.foreground]
+        )
+        let permissionCategory = UNNotificationCategory(
+            identifier: "SESSION_PERMISSION", actions: [reviewAction], intentIdentifiers: [], options: []
+        )
+        let updateCategory = UNNotificationCategory(
+            identifier: "NOTIFICATION_UPDATE", actions: [viewAction], intentIdentifiers: [], options: []
+        )
+        UNUserNotificationCenter.current().setNotificationCategories([sessionCategory, permissionCategory, updateCategory])
     }
 
     func applicationWillResignActive(_ application: UIApplication) {

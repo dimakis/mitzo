@@ -3,6 +3,8 @@
 // watch can read the JWT from the shared Keychain access group.
 
 import Capacitor
+import UserNotifications
+import UIKit
 import MitzoShared
 
 @objc(WatchAuthBridge)
@@ -12,7 +14,26 @@ public class WatchAuthBridge: CAPPlugin, CAPBridgedPlugin {
     public let pluginMethods: [CAPPluginMethod] = [
         CAPPluginMethod(name: "saveToken", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "clearToken", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "setNotificationBadge", returnType: CAPPluginReturnPromise),
     ]
+
+    @objc func setNotificationBadge(_ call: CAPPluginCall) {
+        guard let count = call.getInt("count"), count >= 0 else {
+            call.reject("Invalid badge count")
+            return
+        }
+        DispatchQueue.main.async {
+            if #available(iOS 16.0, *) {
+                UNUserNotificationCenter.current().setBadgeCount(count) { error in
+                    if let error = error { call.reject(error.localizedDescription) }
+                    else { call.resolve() }
+                }
+            } else {
+                UIApplication.shared.applicationIconBadgeNumber = count
+                call.resolve()
+            }
+        }
+    }
 
     private let authManager = AuthManager()
 

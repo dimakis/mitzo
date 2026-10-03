@@ -1,0 +1,256 @@
+.notifications-page {
+  max-width: 980px;
+  margin: 0 auto;
+}
+.notifications-heading,
+.notification-list-heading,
+.notification-pagination {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.notifications-heading {
+  align-items: flex-start;
+}
+.notification-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 14px;
+  min-height: 44px;
+  border: 1px solid var(--workspace-line);
+  border-radius: 10px;
+  background: var(--workspace-bg);
+  color: var(--workspace-text);
+  font: inherit;
+  cursor: pointer;
+}
+.notification-button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.notification-primary {
+  background: var(--workspace-accent);
+  color: var(--workspace-bg);
+  border-color: var(--workspace-accent);
+}
+.notification-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 4px 0 18px;
+  margin-bottom: 20px;
+  border-bottom: 1px solid var(--workspace-line);
+}
+.notification-filters button {
+  border: 0;
+  border-radius: 8px;
+  padding: 10px 13px;
+  min-height: 44px;
+  background: transparent;
+  color: var(--workspace-muted);
+  font: inherit;
+  cursor: pointer;
+}
+.notification-filters button[aria-pressed='true'] {
+  background: var(--workspace-panel);
+  color: var(--workspace-accent);
+}
+.notification-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  padding: 0 5px;
+  margin-left: 6px;
+  border-radius: 6px;
+  color: var(--workspace-accent);
+  background: var(--workspace-panel);
+  font-size: 12px;
+}
+.notification-list-heading {
+  margin-bottom: 14px;
+}
+.notification-list {
+  display: grid;
+  gap: 12px;
+}
+.notification-card {
+  border: 1px solid var(--workspace-line);
+  border-radius: 14px;
+  padding: 20px;
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr);
+  gap: 12px;
+}
+.notification-needs {
+  border-left: 3px solid var(--workspace-accent);
+}
+.notification-read {
+  background: color-mix(in srgb, var(--workspace-panel) 20%, var(--workspace-bg));
+}
+.notification-card h2 {
+  font-size: 16px;
+  margin: 5px 0;
+  overflow-wrap: anywhere;
+}
+.notification-card p {
+  margin: 4px 0;
+  overflow-wrap: anywhere;
+}
+.notification-symbol {
+  color: var(--workspace-accent);
+  padding-top: 3px;
+}
+.notification-meta {
+  color: var(--workspace-muted);
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.notification-state {
+  color: var(--workspace-accent);
+  background: var(--workspace-panel);
+  border-radius: 5px;
+  padding: 2px 6px;
+}
+.notification-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 14px;
+  align-items: center;
+}
+.notification-detail {
+  border: 1px solid var(--workspace-line);
+  border-radius: 16px;
+  padding: 22px;
+  margin: 18px 0;
+}
+.notification-detail h2 {
+  margin: 10px 0;
+}
+.notification-detail a {
+  display: inline-block;
+  margin: 6px 12px 6px 0;
+}
+.notification-command {
+  background: var(--workspace-panel);
+  color: var(--workspace-text);
+  border-radius: 10px;
+  padding: 16px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 13px;
+}
+.notification-setting {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 18px 0;
+  border-bottom: 1px solid var(--workspace-line);
+}
+.notification-setting strong {
+  font-weight: 500;
+}
+.notification-setting small {
+  display: block;
+  margin-top: 5px;
+  color: var(--workspace-muted);
+  font-size: 12px;
+}
+.notification-setting input[type='checkbox'],
+.notification-question input {
+  accent-color: var(--workspace-accent);
+}
+.notification-setting input[type='checkbox'] {
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+}
+.notification-setting select,
+.notification-time input,
+.notification-question input:not([type='checkbox']):not([type='radio']) {
+  background: var(--workspace-bg);
+  color: var(--workspace-text);
+  border: 1px solid var(--workspace-line);
+  border-radius: 8px;
+  padding: 10px;
+  font: inherit;
+  max-width: 100%;
+}
+.notification-time {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin: 14px 0;
+}
+.notification-time label {
+  display: grid;
+  gap: 6px;
+}
+.notification-question {
+  border: 0;
+  margin: 20px 0;
+  padding: 0;
+}
+.notification-question legend {
+  font-weight: 500;
+  margin-bottom: 12px;
+}
+.notification-question label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 0;
+  min-height: 44px;
+  flex-wrap: wrap;
+}
+.notification-question small {
+  display: block;
+  color: var(--workspace-muted);
+}
+.notification-result {
+  color: var(--workspace-accent);
+}
+.notification-error {
+  color: var(--error, #dc5555);
+}
+.notification-footnote {
+  color: var(--workspace-muted);
+  font-size: 12px;
+  margin-top: 22px;
+}
+.notification-empty {
+  text-align: center;
+  padding: 45px 20px;
+}
+.notification-pagination {
+  margin-top: 20px;
+}
+@media (max-width: 480px) {
+  .notification-card {
+    padding: 15px 12px;
+    grid-template-columns: 20px minmax(0, 1fr);
+    gap: 8px;
+  }
+  .notification-detail {
+    padding: 17px;
+  }
+  .notification-setting {
+    align-items: flex-start;
+  }
+  .notification-setting select {
+    max-width: 140px;
+  }
+  .notifications-page input,
+  .notifications-page select {
+    font-size: 16px;
+  }
+}
