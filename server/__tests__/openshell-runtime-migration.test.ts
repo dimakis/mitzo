@@ -42,7 +42,11 @@ function fixture(persistSource = true, owner: 'ordinary' | 'symposium' = 'ordina
     runtime: { ...source.runtime, sandboxName: 'candidate', sandboxId: 'new-id' },
   };
   const adapters: RuntimeMigrationAdapters = {
-    observe: vi.fn(async () => ({ image: 'old-digest', policy: 'policy', resourceVersion: 'r1' })),
+    observe: vi.fn(async (runtime) => ({
+      image: runtime.runtime.sandboxId === 'old-id' ? 'old-digest' : 'new-digest',
+      policy: 'policy',
+      resourceVersion: 'r1',
+    })),
     quiescent: vi.fn(async () => {}),
     capture: vi.fn(async () => ({ path: join(root, 'archive'), digest: 'digest' })),
     create: vi.fn(async (name) => {
@@ -342,4 +346,135 @@ it('still blocks legacy-image fork recovery before checkpoint or candidate creat
   await expect(migrateRetainedRuntime(f.input)).rejects.toThrow('resumable provider thread');
   expect(f.adapters.capture).not.toHaveBeenCalled();
   expect(f.adapters.create).not.toHaveBeenCalled();
+});
+it.each(['image', 'policy'] as const)(
+  'reobserves terminal migration and rejects fresh current candidate %s drift',
+  async (field) => {
+    const f = fixture();
+    await migrateRetainedRuntime(f.input);
+    const original = f.store.readRuntimeMigration('chat', binding)!.identity;
+    f.adapters.observe = vi.fn(async () => ({
+      image: field === 'image' ? 'unexpected-digest' : 'new-digest',
+      policy: field === 'policy' ? 'unexpected-policy' : 'policy',
+      resourceVersion: 'r3',
+    }));
+    await expect(migrateRetainedRuntime({ ...f.input, source: f.candidate })).rejects.toThrow(
+      'current candidate contract differs',
+    );
+    expect(f.store.readRuntimeMigration('chat', binding)!.identity).toEqual(original);
+    expect(f.adapters.create).toHaveBeenCalledTimes(1);
+  },
+);
+it('retains immutable effective policy origin, permits same-definition revision updates, and rejects provider identity drift', async () => {
+  const f = fixture();
+  const proof = {
+    basePolicyHash: 'base-hash',
+    effectivePolicyHash: 'effective-hash',
+    providers: [
+      {
+        name: 'bound-provider',
+        id: 'provider-id',
+        type: 'reviewed-type',
+        profileHash: 'profile-hash',
+        resourceVersion: 6,
+        source: 'user',
+        scope: 'workspace',
+      },
+    ],
+  };
+  f.adapters.observe = vi.fn(async () => ({
+    image: 'old-digest',
+    policy: 'policy',
+    resourceVersion: 'r1',
+    policyAttestation: proof,
+  }));
+  f.adapters.attest = vi.fn(async () => structuredClone(proof));
+  f.adapters.quiescent = vi.fn(async () => {
+    throw new Error('source writer running');
+  });
+  await expect(migrateRetainedRuntime(f.input)).rejects.toThrow('source writer running');
+  const recorded = f.store.readRuntimeMigration('chat', binding)!;
+  expect(recorded.sourcePolicyAttestation).toEqual(proof);
+  expect(() =>
+    f.store.advanceRuntimeMigration('chat', binding, recorded.generation, {
+      sourcePolicyAttestation: undefined,
+    }),
+  ).toThrow('immutable origin');
+  // Make this retry eligible without replacing immutable source/checkpoint metadata.
+  f.store.advanceRuntimeMigration('chat', binding, recorded.generation, { retryNotBefore: 0 });
+  f.adapters.quiescent = vi.fn(async () => {});
+  f.adapters.observe = vi.fn(async () => ({
+    image: 'old-digest',
+    policy: 'policy',
+    resourceVersion: 'r2',
+    policyAttestation: { ...proof, providers: [{ ...proof.providers[0], resourceVersion: 7 }] },
+  }));
+  await migrateRetainedRuntime(f.input);
+  expect(
+    f.store.readRuntimeMigration('chat', binding)!.sourcePolicyAttestation?.providers[0]
+      .resourceVersion,
+  ).toBe(6);
+  expect(f.store.readRuntimeMigration('chat', binding)!.candidatePolicyAttestation).toEqual(proof);
+});
+it('blocks source profile/provider authority drift on retry rather than relabeling existing checkpoint identity', async () => {
+  const f = fixture();
+  const proof = {
+    basePolicyHash: 'base-hash',
+    effectivePolicyHash: 'effective-hash',
+    providers: [
+      {
+        name: 'bound-provider',
+        id: 'provider-id',
+        type: 'reviewed-type',
+        profileHash: 'profile-hash',
+        source: 'user',
+        scope: 'workspace',
+      },
+    ],
+  };
+  f.adapters.observe = vi.fn(async () => ({
+    image: 'old-digest',
+    policy: 'policy',
+    resourceVersion: 'r1',
+    policyAttestation: proof,
+  }));
+  f.adapters.quiescent = vi.fn(async () => {
+    throw new Error('source writer running');
+  });
+  await expect(migrateRetainedRuntime(f.input)).rejects.toThrow('source writer running');
+  const recorded = f.store.readRuntimeMigration('chat', binding)!;
+  f.store.advanceRuntimeMigration('chat', binding, recorded.generation, { retryNotBefore: 0 });
+  f.adapters.observe = vi.fn(async () => ({
+    image: 'old-digest',
+    policy: 'policy',
+    resourceVersion: 'r2',
+    policyAttestation: {
+      ...proof,
+      providers: [{ ...proof.providers[0], id: 'different-provider-id' }],
+    },
+  }));
+  await expect(migrateRetainedRuntime(f.input)).rejects.toThrow(
+    'source effective policy authority changed',
+  );
+  expect(f.store.readRuntimeMigration('chat', binding)!.identity).toEqual(recorded.identity);
+  expect(f.adapters.create).not.toHaveBeenCalled();
+});
+it('rechecks candidate effective authority after native reattachment and blocks drift before commit', async () => {
+  const f = fixture();
+  const proof = { basePolicyHash: 'base', effectivePolicyHash: 'effective', providers: [] };
+  f.adapters.observe = vi.fn(async () => ({
+    image: 'old-digest',
+    policy: 'policy',
+    resourceVersion: 'r1',
+    policyAttestation: proof,
+  }));
+  let calls = 0;
+  f.adapters.attest = vi.fn(async () =>
+    ++calls === 1 ? proof : { ...proof, effectivePolicyHash: 'changed' },
+  );
+  await expect(migrateRetainedRuntime(f.input)).rejects.toThrow(
+    'final effective policy authority differs',
+  );
+  expect(f.store.readArtifactRuntime('chat', binding)).toEqual(f.source);
+  expect(f.store.readRuntimeMigration('chat', binding)!.identity.image).toBe('old-digest');
 });

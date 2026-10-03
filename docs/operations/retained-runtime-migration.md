@@ -17,3 +17,54 @@ Capacity is evaluated after capture and before candidate creation, using actual 
 Production rollout still requires accepted source/review/CI and an active-turn drain before any global service replacement. This implementation does not activate services or migrate production sandboxes during tests. An operator must retain original sandboxes/checkpoints until successful current-generation adoption is verified. A process restart cannot be used as proof that a provider turn completed.
 
 Offline regressions cover strict source/target identity, real archive/Git/provider preservation, source content equality under different image/physical identities, candidate attestation/native validation failure and cancellation cleanup, uncertain create replay, CAS concurrency, FIFO admission recovery, policy/account drift and exact capacity bounds. No live model calls are part of these tests.
+
+## Authored and effective policy identities
+
+The checkpoint policy SHA remains the canonical JSON digest of the original parsed
+reviewed **authored base**, including its explicit false defaults. It is never
+rewritten to the target policy, a materialized policy or a newer profile revision.
+In-flight records with a different original contract fail closed. A separate source
+and candidate attestation records the actual **full effective policy SHA**, selected
+provider instance IDs/types, reviewed profile-definition hashes, live revisions and
+scope/source metadata. Positive profile revisions may advance only when the exact
+reviewed security definition and provider authority remain unchanged.
+
+OpenShell omits explicit false `request_body_credential_rewrite` and
+`allow_uninspected_credentials` endpoint fields and serializes an unused credential
+query parameter as empty. Only these documented defaults are normalized. Runtime
+observation reconstructs the complete expected policy from the accepted base plus
+exact approved provider layers, and compares the whole object. No `_provider_*`
+prefix is ignored. The CLI `--base` view only strips that prefix and cannot supply
+this attestation. Extra endpoints, binaries, credential destinations, bypass flags,
+filesystem permissions and unknown fields block admission.
+
+OpenAI and Google Workspace definitions are pinned to the existing reviewed YAML.
+The explicit GitHub definition in `infra/openshell/providers/github-reviewed-profile.json`
+and the endpointless compatibility OAuth definition in
+`infra/openshell/providers/openai-codex-oauth-reviewed-profile.json` were independently
+matched to their [public .2 definitions](https://github.com/NVIDIA/OpenShell/blob/a44bf4ad9ee2cf1e6bce350807e4a7b8458e137d/providers/github.yaml) ([OAuth](https://github.com/NVIDIA/OpenShell/blob/a44bf4ad9ee2cf1e6bce350807e4a7b8458e137d/providers/openai-codex-oauth.yaml)):
+read-only REST/GraphQL and clone/fetch transport, with push denied. This is a reviewed
+definition pin, not a claim about the installed CLI binary's source commit. Mutable
+profile exports are observations; they never become permission authority. The OAuth
+profile keeps its exact gateway-only refresh/credential schema and contributes an
+empty named network rule; only serialized empty endpoint/binary arrays are omitted.
+
+Provider inventory omits the actual profile scope selector. The scoped catalog exposes
+both workspace profiles and platform fallbacks. Every selectable definition for each
+approved provider type must independently match its reviewed pin, with exact
+source/scope metadata and positive user revision. The export must match a catalog
+entry, and the full relevant catalog is rechecked. A possibly truncated 100-entry
+catalog, duplicate scopes or a differing global credential schema blocks admission.
+Separate catalog definition hashes/revisions are retained in policy provenance; no
+profile selector is inferred from a provider label.
+
+Observation binds scoped gateway/workspace commands to actual owned physical policy,
+selected account route, exact durable automatic/granted approvals, physical attachment
+union and provider inventory identities. Profiles, attachments, approvals, inventory
+and physical policy are rechecked before accepting the snapshot. Candidates inherit
+only the original source's freshly attested durable grants, persist intent before
+attachment and prove the same effective authority before restoring or committing.
+A committed migration remains historical: each subsequent admission verifies current
+physical image and effective policy against **current** trusted approvals, so later
+legitimate grants and ordinary thread/checkpoint recovery do not relabel the original.
+Unknown profiles and unsupported materialization contracts remain visibly blocked.

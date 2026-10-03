@@ -1,3 +1,4 @@
+import { runtimePolicyProvenance } from './openshell-runtime-policy.js';
 import { execFile } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
@@ -104,6 +105,7 @@ export async function prepareRetainedRuntimeMigration(input: {
   const probes = new Set<string>();
   let preparedSeed: { seed: string; cleanup: () => void } | undefined;
   let checkpointDigest: string | undefined;
+  let approvedSourceGrants: readonly string[] | undefined;
   let sourceProbe: { path: string; digest: string } | undefined;
   const captureOrVerify = async (
     runtime: ArtifactRuntime,
@@ -151,9 +153,11 @@ export async function prepareRetainedRuntimeMigration(input: {
           const observation = await manager
             .forSandbox(original.runtime.sandboxName)
             .observeContract(id, original.runtime, signal);
+          approvedSourceGrants = observation.approvedGrantableProviders;
           return {
+            policyAttestation: runtimePolicyProvenance(observation.attestation),
             image: await observePodmanRuntimeImage(original.runtime, signal),
-            policy: policyHash(observation.policy),
+            policy: policyHash(observation.attestation.basePolicy),
             resourceVersion: observation.resourceVersion,
           };
         },
@@ -191,7 +195,7 @@ export async function prepareRetainedRuntimeMigration(input: {
         create: async (name) => {
           const runtime = await manager
             .forSandbox(name)
-            .ensure(id, signal, undefined, preparedSeed);
+            .ensure(id, signal, undefined, preparedSeed, approvedSourceGrants);
           if (!runtime.sandboxId) throw new Error('Migration candidate has no physical identity');
           return { runtime: { ...runtime, sandboxId: runtime.sandboxId }, route: source.route };
         },
@@ -199,13 +203,14 @@ export async function prepareRetainedRuntimeMigration(input: {
           const observation = await manager
             .forSandbox(candidate.runtime.sandboxName)
             .observeContract(id, candidate.runtime, signal);
-          if (policyHash(observation.policy) !== targetPolicy)
+          if (policyHash(observation.attestation.basePolicy) !== targetPolicy)
             throw new Error('Migration target actual policy differs');
           if ((await observePodmanRuntimeImage(candidate.runtime, signal)) !== targetImage)
             throw new Error('Migration target physical image differs');
           await manager
             .forSandbox(candidate.runtime.sandboxName)
             .verifyKnowledgeRuntime(candidate.runtime, signal);
+          return runtimePolicyProvenance(observation.attestation);
         },
         restore: async (candidate, checkpoint, identity) => {
           checkpointDigest = checkpoint.digest;

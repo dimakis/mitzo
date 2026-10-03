@@ -510,6 +510,7 @@ export class CodexConversationStore {
       const next = { ...current, ...patch, generation: generation + 1 };
       // Immutable capture origin cannot be replaced by a target image or new thread.
       if (
+        Object.prototype.hasOwnProperty.call(patch, 'sourcePolicyAttestation') ||
         patch.identity ||
         patch.source ||
         patch.threadGeneration !== undefined ||

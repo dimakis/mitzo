@@ -78,6 +78,7 @@ vi.mock('../codex-app-server-client.js', () => ({
   },
 }));
 import { requireRuntimeMigrationCapacity } from '../openshell-runtime-migration-capacity.js';
+import { runtimePolicyHash } from '../openshell-runtime-policy.js';
 import { prepareRetainedRuntimeMigration } from '../openshell-runtime-migration-adapter.js';
 const roots: string[] = [];
 afterEach(() => {
@@ -127,6 +128,12 @@ function fixture() {
     forSandbox: (name: string) => ({
       observeContract: async () => ({
         policy: name === 'old' ? {} : mocks.candidatePolicy,
+        attestation: {
+          basePolicy: name === 'old' ? {} : mocks.candidatePolicy,
+          effectivePolicyHash: runtimePolicyHash(name === 'old' ? {} : mocks.candidatePolicy),
+          providers: [],
+        },
+        approvedGrantableProviders: [],
         resourceVersion: 'r1',
       }),
       ensure: async (...args: unknown[]) => {
@@ -277,6 +284,7 @@ it('capacity checks the publisher selection before freezing and ensure uses that
     f.input.signal,
     undefined,
     expect.objectContaining({ seed: expect.stringContaining('frozen-selected') }),
+    [],
   );
 });
 
