@@ -107,17 +107,22 @@ it('revalidates private adapter state before each execution', async () => {
   );
 });
 
-it.each(['physical', 'symlink'])(
-  'requires a %s publications directory while running the pinned adapter',
-  async (kind) => {
-    const f = fixture();
-    const release = join(f.root, 'release');
-    mkdirSync(join(release, 'mgmt_lib'), { recursive: true });
-    writeFileSync(join(release, '.gitignore'), '__pycache__/\n');
-    writeFileSync(join(release, 'mgmt_lib/__init__.py'), '');
-    writeFileSync(
-      join(release, 'mgmt_lib/knowledge_publication.py'),
-      `
+it.each([
+  'physical',
+  'symlink',
+  'advanced-current',
+  'missing-directory',
+  'foreign-directory',
+  'aliased-directory',
+])('requires a %s publications directory while running the pinned adapter', async (kind) => {
+  const f = fixture();
+  const release = join(f.root, 'release');
+  mkdirSync(join(release, 'mgmt_lib'), { recursive: true });
+  writeFileSync(join(release, '.gitignore'), '__pycache__/\n');
+  writeFileSync(join(release, 'mgmt_lib/__init__.py'), '');
+  writeFileSync(
+    join(release, 'mgmt_lib/knowledge_publication.py'),
+    `
 import argparse, hashlib, json, pathlib
 p=argparse.ArgumentParser()
 p.add_argument('--config')
@@ -133,52 +138,69 @@ raw=json.dumps(baseline)
 (bundle/'baseline.json').write_text(raw)
 receipt={'sourceCommit':a.published_revision,'builderCommit':c['builderCommit'],'payloadSha256':'f'*64,'baselineSha256':hashlib.sha256(raw.encode()).hexdigest()}
 (bundle/'publication.json').write_text(json.dumps(receipt))
-(root/'current').symlink_to(bundle)
-print(json.dumps({'status':'current','publishedCommit':a.published_revision,'receipt':receipt}))
+current=bundle
+if c.get('fixtureMode')=='advanced-current':
+ current=root/'later-release'
+ current.mkdir()
+(root/'current').symlink_to(current)
+output={'status':'current','publishedCommit':a.published_revision,'receipt':receipt,'publicationDirectory':str(bundle)}
+if c.get('fixtureMode')=='missing-directory': del output['publicationDirectory']
+if c.get('fixtureMode')=='foreign-directory': output['publicationDirectory']=str(root.parent/'outside')
+if c.get('fixtureMode')=='aliased-directory':
+ (root/'alias').symlink_to(bundle)
+ output['publicationDirectory']=str(root/'alias')
+print(json.dumps(output))
 `,
-    );
-    const git = (...args: string[]) =>
-      execFileSync(
-        'git',
-        ['-c', 'core.hooksPath=/dev/null', '-c', 'commit.gpgsign=false', '-C', release, ...args],
-        { encoding: 'utf8' },
-      ).trim();
-    git('init', '-q', '-b', 'main');
-    git('config', 'user.name', 'Test');
-    git('config', 'user.email', 'test@example.invalid');
-    git('add', '.');
-    git('commit', '-qm', 'test: adapter fixture');
-    const releaseCommit = git('rev-parse', 'HEAD');
-    git('checkout', '-q', '--detach');
-    const adapter = mgmtKnowledgeAdapter(
-      {
-        kind: 'mgmt-v1',
-        release,
-        releaseCommit,
-        python: '/usr/bin/python3',
-        config: f.adapterConfig,
-      },
-      f.config.stores[0] ? 'https://example.com/other.git' : '',
-    );
-    const revision = 'c'.repeat(40);
-    if (kind === 'symlink') {
-      mkdirSync(join(f.root, 'outside'));
-      symlinkSync(join(f.root, 'outside'), join(f.root, 'adapter/publications'));
-      await expect(adapter({ revision }, AbortSignal.timeout(5000))).rejects.toThrow(
-        'Knowledge bundle escaped adapter state',
-      );
-      return;
-    }
-    const result = await adapter({ revision }, AbortSignal.timeout(5000));
-    expect(result).toEqual({
-      sourceCommit: revision,
-      seed: join(f.root, 'adapter/publications/release-' + revision, 'mgmt'),
-      baselineSha256: JSON.parse(readFileSync(join(result.seed, '..', 'publication.json'), 'utf8'))
-        .baselineSha256,
-    });
-    writeFileSync(join(release, 'dirty.md'), 'unreviewed adapter code');
+  );
+  const git = (...args: string[]) =>
+    execFileSync(
+      'git',
+      ['-c', 'core.hooksPath=/dev/null', '-c', 'commit.gpgsign=false', '-C', release, ...args],
+      { encoding: 'utf8' },
+    ).trim();
+  git('init', '-q', '-b', 'main');
+  git('config', 'user.name', 'Test');
+  git('config', 'user.email', 'test@example.invalid');
+  git('add', '.');
+  git('commit', '-qm', 'test: adapter fixture');
+  const releaseCommit = git('rev-parse', 'HEAD');
+  git('checkout', '-q', '--detach');
+  const adapterConfiguration = JSON.parse(readFileSync(f.adapterConfig, 'utf8'));
+  writeFileSync(f.adapterConfig, JSON.stringify({ ...adapterConfiguration, fixtureMode: kind }));
+  const adapter = mgmtKnowledgeAdapter(
+    {
+      kind: 'mgmt-v1',
+      release,
+      releaseCommit,
+      python: '/usr/bin/python3',
+      config: f.adapterConfig,
+    },
+    f.config.stores[0] ? 'https://example.com/other.git' : '',
+  );
+  const revision = 'c'.repeat(40);
+  if (kind === 'symlink') {
+    mkdirSync(join(f.root, 'outside'));
+    symlinkSync(join(f.root, 'outside'), join(f.root, 'adapter/publications'));
     await expect(adapter({ revision }, AbortSignal.timeout(5000))).rejects.toThrow(
-      'clean pinned detached release',
+      'Knowledge bundle escaped adapter state',
     );
-  },
-);
+    return;
+  }
+  if (['missing-directory', 'foreign-directory', 'aliased-directory'].includes(kind)) {
+    await expect(adapter({ revision }, AbortSignal.timeout(5000))).rejects.toThrow(
+      'Knowledge adapter returned unsafe publication directory',
+    );
+    return;
+  }
+  const result = await adapter({ revision }, AbortSignal.timeout(5000));
+  expect(result).toEqual({
+    sourceCommit: revision,
+    seed: join(f.root, 'adapter/publications/release-' + revision, 'mgmt'),
+    baselineSha256: JSON.parse(readFileSync(join(result.seed, '..', 'publication.json'), 'utf8'))
+      .baselineSha256,
+  });
+  writeFileSync(join(release, 'dirty.md'), 'unreviewed adapter code');
+  await expect(adapter({ revision }, AbortSignal.timeout(5000))).rejects.toThrow(
+    'clean pinned detached release',
+  );
+});

@@ -122,7 +122,12 @@ export function mgmtKnowledgeAdapter(config: AdapterConfig, sourceUrl: string) {
       (await git('branch', '--show-current'))
     )
       throw new Error('Knowledge adapter requires its clean pinned detached release');
-    let output: { status?: string; publishedCommit?: string; receipt?: Record<string, unknown> };
+    let output: {
+      status?: string;
+      publishedCommit?: string;
+      publicationDirectory?: string;
+      receipt?: Record<string, unknown>;
+    };
     try {
       const result = await execute(
         config.python,
@@ -152,9 +157,22 @@ export function mgmtKnowledgeAdapter(config: AdapterConfig, sourceUrl: string) {
     privateState(adapter.root, workspaces);
     verifyPublications();
     const publications = realpathSync(publicationsPath);
-    const directory = realpathSync(join(publications, 'current'));
-    if (!directory.startsWith(publications + sep))
-      throw new Error('Knowledge bundle escaped adapter state');
+    // The adapter captures this immutable selection while holding its publication lock.
+    // Following current here would race another reconciliation's promotion.
+    const directory = output.publicationDirectory;
+    try {
+      if (
+        typeof directory !== 'string' ||
+        !isAbsolute(directory) ||
+        !directory.startsWith(publications + sep) ||
+        directory === join(publications, 'current') ||
+        realpathSync(directory) !== directory ||
+        !lstatSync(directory).isDirectory()
+      )
+        throw new Error('Unsafe immutable selection');
+    } catch {
+      throw new Error('Knowledge adapter returned unsafe publication directory');
+    }
     for (const name of ['baseline.json', 'publication.json']) {
       if (!lstatSync(join(directory, name)).isFile())
         throw new Error('Unsafe knowledge bundle metadata');
