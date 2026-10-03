@@ -154,7 +154,11 @@ export function SessionTray({
         hidden={placement === 'toolbar' && !isOpen}
         data-testid="session-tray"
         data-snap={snap}
-        style={{ '--session-tray-drag': `${dragOffset}px` } as CSSProperties}
+        style={
+          {
+            '--session-tray-drag': `${placement === 'toolbar' ? -dragOffset : dragOffset}px`,
+          } as CSSProperties
+        }
       >
         <button
           type="button"
