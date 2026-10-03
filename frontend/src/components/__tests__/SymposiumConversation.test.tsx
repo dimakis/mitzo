@@ -1,4 +1,8 @@
 // @vitest-environment jsdom
+import {
+  symposiumQueueOperations,
+  symposiumExcerptOperations,
+} from '../../lib/symposium-queue-operations';
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import {
@@ -66,6 +70,9 @@ vi.mock('../ChatArea', () => ({
 }));
 
 afterEach(() => {
+  symposiumQueueOperations.reset();
+  symposiumExcerptOperations.reset();
+  navigation.active = 'session';
   cleanup();
   vi.useRealTimers();
   vi.clearAllMocks();
@@ -419,13 +426,12 @@ describe('SymposiumConversation', () => {
     expect(screen.queryByText('Ordinary send')).toBeNull();
   });
 
-  it('retains independent uncertain audience requests and releases only confirmed keys', async () => {
+  it('fences another audience after an uncertain queue without allocating a new key', async () => {
     const bodies: { idempotencyKey: string; recipientSeatIds: string[] }[] = [];
     vi.mocked(apiFetch).mockImplementation(async (url, init) => {
       if (String(url).endsWith('/deliveries') && init?.method === 'POST') {
         bodies.push(JSON.parse(String(init.body)));
-        if (bodies.length <= 2) throw new Error('Response lost');
-        return json({});
+        throw new Error('Response lost');
       }
       return json(
         String(url).includes('/profile-proposals')
@@ -436,38 +442,50 @@ describe('SymposiumConversation', () => {
       );
     });
     render(<SymposiumConversation sessionId="session" chat={chat} ordinaryComposer={null} />);
-    const send = async (seat: string) => {
-      fireEvent.click(await screen.findByRole('tab', { name: seat }));
-      fireEvent.change(screen.getByRole('textbox', { name: `Message for ${seat}` }), {
-        target: { value: 'Hello' },
-      });
-      const button = screen.getByRole('button', { name: 'Queue for approval' });
-      await waitFor(() => expect(button.hasAttribute('disabled')).toBe(false));
-      fireEvent.click(button);
-    };
-    await send('Architect');
+    fireEvent.click(await screen.findByRole('tab', { name: 'Architect' }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'Message for Architect' }), {
+      target: { value: 'Hello' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Queue for approval' }));
     await screen.findByText('Response lost');
-    await send('Reviewer');
-    await waitFor(() => expect(bodies).toHaveLength(2));
-    await send('Architect');
-    await waitFor(() => expect(bodies).toHaveLength(3));
-    expect(bodies[2].idempotencyKey).toBe(bodies[0].idempotencyKey);
-    expect(bodies[1].idempotencyKey).not.toBe(bodies[0].idempotencyKey);
-    await send('Reviewer');
-    await waitFor(() => expect(bodies).toHaveLength(4));
-    expect(bodies[3].idempotencyKey).toBe(bodies[1].idempotencyKey);
-    await send('Architect');
-    await waitFor(() => expect(bodies).toHaveLength(5));
-    expect(bodies[4].idempotencyKey).not.toBe(bodies[0].idempotencyKey);
+    fireEvent.click(screen.getByRole('tab', { name: 'Reviewer' }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'Message for Reviewer' }), {
+      target: { value: 'Another message' },
+    });
+    expect(
+      screen.getByRole('button', { name: 'Queue for approval' }).hasAttribute('disabled'),
+    ).toBe(true);
+    fireEvent.click(screen.getByRole('button', { name: 'Queue for approval' }));
+    expect(bodies).toHaveLength(1);
+    expect(symposiumQueueOperations.snapshot().session.request.idempotencyKey).toBe(
+      bodies[0].idempotencyKey,
+    );
   });
 
-  it('retains excerpt keys across edits, clears confirmed keys, and isolates sessions', async () => {
-    const bodies: { idempotencyKey: string; excerpt: string }[] = [];
+  it('freezes an uncertain excerpt across edits while keeping its session and direct queue keys separate', async () => {
+    const bodies: Record<string, unknown>[] = [];
+    let directKey = '';
     vi.mocked(apiFetch).mockImplementation(async (url, init) => {
       if (String(url).endsWith('/share-excerpt') && init?.method === 'POST') {
-        bodies.push(JSON.parse(String(init.body)));
-        if (bodies.length <= 2) throw new Error('Response lost');
-        return json({});
+        const body = JSON.parse(String(init.body));
+        bodies.push(body);
+        if (bodies.length === 1) throw new Error('Response lost');
+        return json({
+          ...directedDelivery('awaiting_intervention'),
+          ...body,
+          sessionId: 'other',
+          originalContent: body.excerpt,
+          sourceProvenance: null,
+        });
+      }
+      if (String(url).endsWith('/deliveries') && init?.method === 'POST') {
+        const body = JSON.parse(String(init.body));
+        directKey = body.idempotencyKey;
+        return json({
+          ...directedDelivery('awaiting_intervention'),
+          ...body,
+          sessionId: 'session',
+        });
       }
       return json(
         String(url).includes('/profile-proposals')
@@ -485,31 +503,30 @@ describe('SymposiumConversation', () => {
       fireEvent.click(await screen.findByRole('button', { name: 'Share excerpt' }));
       fireEvent.click(screen.getByRole('checkbox', { name: 'Reviewer' }));
     };
-    const send = async (excerpt: string, count: number) => {
-      fireEvent.change(screen.getByRole('textbox', { name: 'Excerpt to share' }), {
-        target: { value: excerpt },
-      });
-      const button = screen.getByRole('button', { name: 'Queue excerpt for approval' });
-      await waitFor(() => expect(button.hasAttribute('disabled')).toBe(false));
-      fireEvent.click(button);
-      await waitFor(() => expect(bodies).toHaveLength(count));
-    };
     await openShare();
-    await send('Plan', 1);
-    await send('Plan'.slice(0, 2), 2);
-    await send('Plan', 3);
-    expect(bodies[2].idempotencyKey).toBe(bodies[0].idempotencyKey);
-    expect(bodies[1].idempotencyKey).not.toBe(bodies[0].idempotencyKey);
-    await waitFor(() =>
-      expect(screen.queryByRole('textbox', { name: 'Excerpt to share' })).toBeNull(),
-    );
-    await openShare();
-    await send('Plan', 4);
-    expect(bodies[3].idempotencyKey).not.toBe(bodies[0].idempotencyKey);
+    fireEvent.click(screen.getByRole('button', { name: 'Queue excerpt for approval' }));
+    await screen.findByText('Response lost');
+    fireEvent.change(screen.getByRole('textbox', { name: 'Excerpt to share' }), {
+      target: { value: 'Pl' },
+    });
+    expect(
+      screen.getByRole('button', { name: 'Queue excerpt for approval' }).hasAttribute('disabled'),
+    ).toBe(true);
+    expect(symposiumExcerptOperations.snapshot().session.request.originalContent).toBe('Plan');
+    fireEvent.change(screen.getByRole('textbox', { name: 'Message for Architect' }), {
+      target: { value: 'Separate directed message' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Queue for approval' }));
+    await waitFor(() => expect(directKey).not.toBe(''));
+    expect(directKey).not.toBe(bodies[0].idempotencyKey);
     view.rerender(<SymposiumConversation sessionId="other" chat={chat} ordinaryComposer={null} />);
     await openShare();
-    await send('Pl', 5);
-    expect(bodies[4].idempotencyKey).not.toBe(bodies[1].idempotencyKey);
+    fireEvent.click(screen.getByRole('button', { name: 'Queue excerpt for approval' }));
+    await waitFor(() => expect(bodies).toHaveLength(2));
+    expect(bodies[1].idempotencyKey).not.toBe(bodies[0].idempotencyKey);
+    expect(symposiumExcerptOperations.snapshot().session.request.idempotencyKey).toBe(
+      bodies[0].idempotencyKey,
+    );
   });
 
   it('shares the selected seat source with its membership generation', async () => {
@@ -1344,4 +1361,414 @@ it('can request a send from durable status and keeps runtime refusal explicit wi
       .mocked(apiFetch)
       .mock.calls.some(([url]) => String(url) === '/api/sessions/session/symposium'),
   ).toBe(false);
+});
+it('retains the pending directed queue identity through the actual keyed session remount', async () => {
+  let finish!: (response: Response) => void;
+  const requests: Record<string, unknown>[] = [];
+  navigation.active = 'session';
+  vi.mocked(apiFetch).mockImplementation(async (url, init) => {
+    if (String(url).endsWith('/deliveries') && init?.method === 'POST') {
+      requests.push(JSON.parse(String(init.body)));
+      return new Promise<Response>((resolve) => {
+        finish = resolve;
+      });
+    }
+    return json(
+      String(url).endsWith('/status')
+        ? { ...status, sessionId: String(url).split('/')[3] }
+        : String(url).includes('/perspectives')
+          ? page
+          : [],
+    );
+  });
+  const view = render(<ResponsiveChatView />);
+  fireEvent.click(await screen.findByRole('tab', { name: 'Architect' }));
+  fireEvent.change(screen.getByRole('textbox', { name: 'Message for Architect' }), {
+    target: { value: 'Original draft' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Queue for approval' }));
+  await waitFor(() => expect(requests).toHaveLength(1));
+  navigation.active = 'other';
+  view.rerender(<ResponsiveChatView />);
+  await screen.findByRole('tab', { name: 'Architect' });
+  navigation.active = 'session';
+  view.rerender(<ResponsiveChatView />);
+  fireEvent.click(await screen.findByRole('tab', { name: 'Architect' }));
+  fireEvent.change(screen.getByRole('textbox', { name: 'Message for Architect' }), {
+    target: { value: 'Original draft' },
+  });
+  expect(screen.getByRole('button', { name: 'Queue for approval' }).hasAttribute('disabled')).toBe(
+    true,
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Queue for approval' }));
+  expect(requests).toHaveLength(1);
+  await act(async () =>
+    finish(
+      json({
+        ...directedDelivery('awaiting_intervention'),
+        ...requests[0],
+        sessionId: 'session',
+        deliveryId: 'saved-queue',
+      }),
+    ),
+  );
+});
+it('keeps a lost directed queue fenced on return until its exact saved delivery is proven', async () => {
+  const requests: Record<string, unknown>[] = [];
+  let saved: Record<string, unknown>[] = [];
+  navigation.active = 'session';
+  vi.mocked(apiFetch).mockImplementation(async (url, init) => {
+    if (String(url).endsWith('/deliveries') && init?.method === 'POST') {
+      requests.push(JSON.parse(String(init.body)));
+      throw new Error('Queue response lost');
+    }
+    return json(
+      String(url).endsWith('/status')
+        ? { ...status, sessionId: String(url).split('/')[3], deliveries: saved }
+        : String(url).includes('/perspectives')
+          ? page
+          : [],
+    );
+  });
+  const view = render(<ResponsiveChatView />);
+  fireEvent.click(await screen.findByRole('tab', { name: 'Architect' }));
+  fireEvent.change(screen.getByRole('textbox', { name: 'Message for Architect' }), {
+    target: { value: 'Original draft' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Queue for approval' }));
+  await screen.findByText('Queue response lost');
+  navigation.active = 'other';
+  view.rerender(<ResponsiveChatView />);
+  await screen.findByRole('tab', { name: 'Architect' });
+  navigation.active = 'session';
+  view.rerender(<ResponsiveChatView />);
+  fireEvent.click(await screen.findByRole('tab', { name: 'Architect' }));
+  fireEvent.change(screen.getByRole('textbox', { name: 'Message for Architect' }), {
+    target: { value: 'A different draft' },
+  });
+  expect(screen.getByRole('button', { name: 'Queue for approval' }).hasAttribute('disabled')).toBe(
+    true,
+  );
+  for (const mismatch of [
+    { idempotencyKey: 'unrelated-key' },
+    { sessionId: 'other' },
+    { sourceSeatId: 'reviewer' },
+    { sourceMessageId: 'linked-message' },
+    { recipientSeatIds: ['reviewer'] },
+    { originalContent: 'Different content' },
+    { deliveryId: undefined },
+    { status: 'invalid' },
+  ]) {
+    saved = [
+      {
+        ...directedDelivery('awaiting_intervention'),
+        ...requests[0],
+        sessionId: 'session',
+        ...mismatch,
+      },
+    ];
+    fireEvent.click(screen.getByRole('button', { name: 'Check whether this message was queued' }));
+    await act(async () => {});
+    expect(screen.queryByText('Message already queued')).toBeNull();
+    expect(requests).toHaveLength(1);
+  }
+  saved = [
+    {
+      ...directedDelivery('awaiting_intervention'),
+      ...requests[0],
+      sessionId: 'session',
+      deliveryId: 'saved-queue',
+    },
+  ];
+  fireEvent.click(screen.getByRole('button', { name: 'Check whether this message was queued' }));
+  await screen.findByText('Message already queued');
+  expect(requests).toHaveLength(1);
+  expect(screen.getByRole('button', { name: 'Queue for approval' }).hasAttribute('disabled')).toBe(
+    true,
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Write another message' }));
+  await waitFor(() =>
+    expect(
+      screen.getByRole('button', { name: 'Queue for approval' }).hasAttribute('disabled'),
+    ).toBe(false),
+  );
+  expect(screen.getByRole('textbox', { name: 'Message for Architect' })).toHaveProperty(
+    'value',
+    'A different draft',
+  );
+});
+it.each(['transport', 'body'] as const)(
+  'bounds a stalled directed queue %s and ignores its late result after keyed navigation',
+  async (stallAt) => {
+    let finish!: (value: unknown) => void;
+    let request: Record<string, unknown> = {};
+    let signal: AbortSignal | null | undefined;
+    navigation.active = 'session';
+    vi.mocked(apiFetch).mockImplementation(async (url, init) => {
+      if (String(url).endsWith('/deliveries') && init?.method === 'POST') {
+        request = JSON.parse(String(init.body));
+        signal = init.signal;
+        const stalled = new Promise<unknown>((resolve) => {
+          finish = resolve;
+        });
+        return stallAt === 'transport'
+          ? (stalled as Promise<Response>)
+          : ({ ok: true, json: () => stalled } as Response);
+      }
+      return json(
+        String(url).endsWith('/status')
+          ? { ...status, sessionId: String(url).split('/')[3] }
+          : String(url).includes('/perspectives')
+            ? page
+            : [],
+      );
+    });
+    const view = render(<ResponsiveChatView />);
+    fireEvent.click(await screen.findByRole('tab', { name: 'Architect' }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'Message for Architect' }), {
+      target: { value: 'Original draft' },
+    });
+    vi.useFakeTimers();
+    fireEvent.click(screen.getByRole('button', { name: 'Queue for approval' }));
+    await act(async () => {});
+    expect(symposiumQueueOperations.snapshot().session.phase).toBe('pending');
+    navigation.active = 'other';
+    view.rerender(<ResponsiveChatView />);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(30_000);
+    });
+    expect(signal?.aborted).toBe(true);
+    expect(symposiumQueueOperations.snapshot().session.phase).toBe('uncertain');
+    expect(symposiumQueueOperations.snapshot().session.request.idempotencyKey).toBe(
+      request.idempotencyKey,
+    );
+    expect(symposiumQueueOperations.snapshot().other).toBeUndefined();
+    const receipt = {
+      ...directedDelivery('awaiting_intervention'),
+      ...request,
+      sessionId: 'session',
+      deliveryId: 'late-result',
+    };
+    await act(async () => finish(stallAt === 'transport' ? json(receipt) : receipt));
+    expect(symposiumQueueOperations.snapshot().session.phase).toBe('uncertain');
+    vi.useRealTimers();
+    navigation.active = 'session';
+    view.rerender(<ResponsiveChatView />);
+    fireEvent.click(await screen.findByRole('tab', { name: 'Architect' }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'Message for Architect' }), {
+      target: { value: 'Original draft' },
+    });
+    expect(
+      screen.getByRole('button', { name: 'Queue for approval' }).hasAttribute('disabled'),
+    ).toBe(true);
+    expect(
+      screen
+        .getByRole('button', { name: 'Check whether this message was queued' })
+        .hasAttribute('disabled'),
+    ).toBe(false);
+    expect(
+      vi
+        .mocked(apiFetch)
+        .mock.calls.filter(
+          ([url, init]) => String(url).endsWith('/deliveries') && init?.method === 'POST',
+        ),
+    ).toHaveLength(1);
+  },
+);
+it('fences a lost excerpt through keyed session navigation and resolves only its original source provenance', async () => {
+  navigation.active = 'session';
+  let captured: Record<string, unknown> = {};
+  let saved: Record<string, unknown>[] = [];
+  const provenance = {
+    seatId: 'architect',
+    membershipGeneration: 7,
+    accountId: 'approved-account',
+  };
+  const versionedPage = {
+    ...page,
+    items: page.items.map((item) =>
+      item.kind === 'authored' && item.seatId === 'architect' ? { ...item, provenance } : item,
+    ),
+  };
+  vi.mocked(apiFetch).mockImplementation(async (url, init) => {
+    if (String(url).endsWith('/share-excerpt') && init?.method === 'POST') {
+      captured = JSON.parse(String(init.body));
+      throw new Error('Excerpt response lost');
+    }
+    return json(
+      String(url).endsWith('/status')
+        ? { ...status, sessionId: String(url).split('/')[3], deliveries: saved }
+        : String(url).includes('/perspectives')
+          ? versionedPage
+          : [],
+    );
+  });
+  const view = render(<ResponsiveChatView />);
+  const open = async () => {
+    fireEvent.click(await screen.findByRole('tab', { name: 'Architect' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Share excerpt' }));
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Reviewer' }));
+  };
+  await open();
+  fireEvent.click(screen.getByRole('button', { name: 'Queue excerpt for approval' }));
+  await screen.findByText('Excerpt response lost');
+  navigation.active = 'other';
+  view.rerender(<ResponsiveChatView />);
+  await screen.findByRole('tab', { name: 'Architect' });
+  navigation.active = 'session';
+  view.rerender(<ResponsiveChatView />);
+  await open();
+  expect(
+    screen.getByRole('button', { name: 'Queue excerpt for approval' }).hasAttribute('disabled'),
+  ).toBe(true);
+  const receipt = {
+    ...directedDelivery('awaiting_intervention'),
+    ...captured,
+    sessionId: 'session',
+    originalContent: captured.excerpt,
+    sourceProvenance: provenance,
+  };
+  saved = [{ ...receipt, sourceProvenance: { ...provenance, membershipGeneration: 8 } }];
+  fireEvent.click(screen.getByRole('button', { name: 'Check whether this excerpt was queued' }));
+  await act(async () => {});
+  expect(screen.queryByText('Excerpt already queued')).toBeNull();
+  saved = [receipt];
+  fireEvent.click(screen.getByRole('button', { name: 'Check whether this excerpt was queued' }));
+  await screen.findByText('Excerpt already queued');
+  expect(
+    vi
+      .mocked(apiFetch)
+      .mock.calls.filter(
+        ([url, init]) => String(url).endsWith('/share-excerpt') && init?.method === 'POST',
+      ),
+  ).toHaveLength(1);
+  expect(
+    screen.getByRole('button', { name: 'Queue excerpt for approval' }).hasAttribute('disabled'),
+  ).toBe(true);
+});
+it.each(['transport', 'body'] as const)(
+  'bounds a stalled excerpt %s and retains its original key after keyed remount',
+  async (stallAt) => {
+    navigation.active = 'session';
+    let finish!: (value: unknown) => void;
+    let captured: Record<string, unknown> = {};
+    let signal: AbortSignal | null | undefined;
+    vi.mocked(apiFetch).mockImplementation(async (url, init) => {
+      if (String(url).endsWith('/share-excerpt') && init?.method === 'POST') {
+        captured = JSON.parse(String(init.body));
+        signal = init.signal;
+        const stalled = new Promise<unknown>((resolve) => {
+          finish = resolve;
+        });
+        return stallAt === 'transport'
+          ? (stalled as Promise<Response>)
+          : ({ ok: true, json: () => stalled } as Response);
+      }
+      return json(
+        String(url).endsWith('/status')
+          ? { ...status, sessionId: String(url).split('/')[3] }
+          : String(url).includes('/perspectives')
+            ? page
+            : [],
+      );
+    });
+    const view = render(<ResponsiveChatView />);
+    const open = async () => {
+      fireEvent.click(await screen.findByRole('tab', { name: 'Architect' }));
+      fireEvent.click(await screen.findByRole('button', { name: 'Share excerpt' }));
+      fireEvent.click(screen.getByRole('checkbox', { name: 'Reviewer' }));
+    };
+    await open();
+    vi.useFakeTimers();
+    fireEvent.click(screen.getByRole('button', { name: 'Queue excerpt for approval' }));
+    await act(async () => {});
+    navigation.active = 'other';
+    view.rerender(<ResponsiveChatView />);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(30_000);
+    });
+    expect(signal?.aborted).toBe(true);
+    expect(symposiumExcerptOperations.snapshot().session.phase).toBe('uncertain');
+    expect(symposiumExcerptOperations.snapshot().session.request.idempotencyKey).toBe(
+      captured.idempotencyKey,
+    );
+    expect(symposiumExcerptOperations.snapshot().other).toBeUndefined();
+    const receipt = {
+      ...directedDelivery('awaiting_intervention'),
+      ...captured,
+      originalContent: captured.excerpt,
+      sourceProvenance: null,
+      sessionId: 'session',
+    };
+    await act(async () => finish(stallAt === 'transport' ? json(receipt) : receipt));
+    expect(symposiumExcerptOperations.snapshot().session.phase).toBe('uncertain');
+    vi.useRealTimers();
+    navigation.active = 'session';
+    view.rerender(<ResponsiveChatView />);
+    await open();
+    expect(
+      screen.getByRole('button', { name: 'Queue excerpt for approval' }).hasAttribute('disabled'),
+    ).toBe(true);
+    expect(
+      vi
+        .mocked(apiFetch)
+        .mock.calls.filter(
+          ([url, init]) => String(url).endsWith('/share-excerpt') && init?.method === 'POST',
+        ),
+    ).toHaveLength(1);
+  },
+);
+it('settles a pending excerpt for its original session without closing the new session share form', async () => {
+  navigation.active = 'session';
+  let finish!: (response: Response) => void;
+  let captured: Record<string, unknown> = {};
+  vi.mocked(apiFetch).mockImplementation(async (url, init) => {
+    if (String(url).endsWith('/share-excerpt') && init?.method === 'POST') {
+      captured = JSON.parse(String(init.body));
+      return new Promise<Response>((resolve) => {
+        finish = resolve;
+      });
+    }
+    return json(
+      String(url).endsWith('/status')
+        ? { ...status, sessionId: String(url).split('/')[3] }
+        : String(url).includes('/perspectives')
+          ? page
+          : [],
+    );
+  });
+  const view = render(<ResponsiveChatView />);
+  const open = async () => {
+    fireEvent.click(await screen.findByRole('tab', { name: 'Architect' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Share excerpt' }));
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Reviewer' }));
+  };
+  await open();
+  fireEvent.click(screen.getByRole('button', { name: 'Queue excerpt for approval' }));
+  await waitFor(() => expect(finish).toBeDefined());
+  navigation.active = 'other';
+  view.rerender(<ResponsiveChatView />);
+  await open();
+  fireEvent.change(screen.getByRole('textbox', { name: 'Excerpt to share' }), {
+    target: { value: 'Pl' },
+  });
+  const events = vi.spyOn(window, 'dispatchEvent');
+  await act(async () =>
+    finish(
+      json({
+        ...directedDelivery('awaiting_intervention'),
+        ...captured,
+        sessionId: 'session',
+        originalContent: captured.excerpt,
+        sourceProvenance: null,
+      }),
+    ),
+  );
+  expect(symposiumExcerptOperations.snapshot().session.phase).toBe('confirmed');
+  expect(symposiumExcerptOperations.snapshot().other).toBeUndefined();
+  expect(screen.getByRole('textbox', { name: 'Excerpt to share' })).toHaveProperty('value', 'Pl');
+  expect(events.mock.calls.some(([event]) => event.type === 'symposium-deliveries-changed')).toBe(
+    false,
+  );
+  events.mockRestore();
 });

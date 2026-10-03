@@ -1,3 +1,9 @@
+import {
+  symposiumQueueOperations,
+  symposiumExcerptOperations,
+  matchesQueuedMessage,
+  type QueueOperation,
+} from '../lib/symposium-queue-operations';
 import { getSymposiumDeliveryActions } from '../lib/symposium-delivery-actions';
 import { canRequestAgent, canRequestRuntime } from '../lib/symposium-status';
 import { SeatLabel } from './SeatLabel';
@@ -143,13 +149,20 @@ export function SymposiumConversation({
   const [excerpt, setExcerpt] = useState('');
   const [shareRecipients, setShareRecipients] = useState<string[]>([]);
   const [shareBusy, setShareBusy] = useState(false);
+  const queueOperations = useSyncExternalStore(
+    symposiumQueueOperations.subscribe,
+    symposiumQueueOperations.snapshot,
+  );
+  const queuedOperation = sessionId ? queueOperations[sessionId] : undefined;
+  const excerptOperations = useSyncExternalStore(
+    symposiumExcerptOperations.subscribe,
+    symposiumExcerptOperations.snapshot,
+  );
+  const excerptOperation = sessionId ? excerptOperations[sessionId] : undefined;
   const deliveryStore = getSymposiumDeliveryActions();
   const deliveryActions = useSyncExternalStore(deliveryStore.subscribe, deliveryStore.snapshot);
   const setDeliveryActions = deliveryStore.update;
   const [seatSeed, setSeatSeed] = useState<SeatProfileSeed | null>(null);
-  // Keep every uncertain request until its response is confirmed, including when
-  // the operator changes audiences or revisits an excerpt.
-  const retryKeys = useRef(new Map<string, string>());
   const sessionEpoch = useRef(0);
   const base = sessionId ? `/api/sessions/${encodeURIComponent(sessionId)}/symposium` : '';
   const configRevision = status?.config?.revision;
@@ -205,6 +218,8 @@ export function SymposiumConversation({
         if (next.sessionId !== sessionId || !Array.isArray(next.seats) || !('config' in next))
           throw new Error('Symposium status is incomplete');
         if (!cancelled) {
+          symposiumQueueOperations.reconcile(sessionId!, next.deliveries ?? []);
+          symposiumExcerptOperations.reconcile(sessionId!, next.deliveries ?? []);
           setStatus(next);
           setStatusFresh(true);
           setStatusError('');
@@ -229,7 +244,9 @@ export function SymposiumConversation({
     window.addEventListener('symposium-roster-changed', onRosterChanged);
     window.addEventListener('symposium-deliveries-changed', onRosterChanged);
     const timer = window.setInterval(() => void refresh(), 8000);
+    const lifecycle = sessionEpoch;
     return () => {
+      lifecycle.current += 1;
       cancelled = true;
       cancelRead?.();
       if (statusQueue.pending === refresh) statusQueue.pending = null;
@@ -341,70 +358,147 @@ export function SymposiumConversation({
   const current = selected === 'all' ? chat.current : null;
   const queue = useCallback(
     async (recipients: string[], content: string) => {
-      const recipientSeatIds = [...recipients].sort();
-      const fingerprint = JSON.stringify({ base, kind: 'delivery', recipientSeatIds, content });
-      const key = retryKeys.current.get(fingerprint) ?? crypto.randomUUID();
-      retryKeys.current.set(fingerprint, key);
-      await readJson(`${base}/deliveries`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+      if (!sessionId || !base || symposiumQueueOperations.snapshot()[sessionId]) return false;
+      const epoch = sessionEpoch.current;
+      const operation: QueueOperation = {
+        sessionId,
+        request: {
           sourceSeatId: null,
-          recipientSeatIds,
+          recipientSeatIds: [...recipients].sort(),
           originalContent: content,
-          idempotencyKey: key,
-        }),
-      });
-      if (retryKeys.current.get(fingerprint) === key) retryKeys.current.delete(fingerprint);
-      window.dispatchEvent(new Event('symposium-deliveries-changed'));
-      return true;
+          idempotencyKey: crypto.randomUUID(),
+        },
+        phase: 'pending',
+        notice: 'Checking whether this message was queued…',
+      };
+      if (!symposiumQueueOperations.begin(operation)) return false;
+      const key = operation.request.idempotencyKey;
+      const controller = new AbortController();
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        const receipt = await Promise.race([
+          readJson<SymposiumDeliveryRecord>(`${base}/deliveries`, {
+            method: 'POST',
+            signal: controller.signal,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(operation.request),
+          }),
+          new Promise<never>((_, reject) => {
+            timer = setTimeout(() => {
+              reject(
+                new Error('The queue request timed out. Check whether this message was queued.'),
+              );
+              controller.abort();
+            }, 30_000);
+          }),
+        ]);
+        if (!matchesQueuedMessage(operation, receipt))
+          throw new Error(
+            'The queue response did not confirm this message. Check whether it was queued.',
+          );
+        symposiumQueueOperations.update(sessionId, key, (previous) => ({
+          ...previous,
+          phase: 'confirmed',
+          deliveryId: receipt.deliveryId,
+          notice: 'Message already queued',
+        }));
+        if (sessionEpoch.current !== epoch) return false;
+        symposiumQueueOperations.update(sessionId, key, () => undefined);
+        window.dispatchEvent(new Event('symposium-deliveries-changed'));
+        return true;
+      } catch (cause) {
+        symposiumQueueOperations.update(sessionId, key, (previous) =>
+          previous.phase === 'confirmed'
+            ? previous
+            : { ...previous, phase: 'uncertain', notice: 'Check whether this message was queued.' },
+        );
+        if (sessionEpoch.current !== epoch) return false;
+        throw cause;
+      } finally {
+        if (timer) clearTimeout(timer);
+      }
     },
-    [base],
+    [base, sessionId],
   );
   const submitShare = useCallback(async () => {
     if (
+      !sessionId ||
       !share ||
       !excerpt.trim() ||
       !share.content.includes(excerpt.trim()) ||
-      shareRecipients.length === 0
+      shareRecipients.length === 0 ||
+      symposiumExcerptOperations.snapshot()[sessionId]
     )
       return;
-    const request = {
-      sourceMessageId: share.messageId,
-      sourceSeatId: share.seatId,
-      ...(share.provenance?.membershipGeneration !== undefined
-        ? { sourceMembershipGeneration: share.provenance.membershipGeneration }
-        : {}),
-      excerpt: excerpt.trim(),
-      recipientSeatIds: [...shareRecipients].sort(),
+    const operation: QueueOperation = {
+      sessionId,
+      request: {
+        sourceMessageId: share.messageId,
+        sourceSeatId: share.seatId,
+        ...(share.provenance?.membershipGeneration !== undefined
+          ? { sourceMembershipGeneration: share.provenance.membershipGeneration }
+          : {}),
+        originalContent: excerpt.trim(),
+        recipientSeatIds: [...shareRecipients].sort(),
+        idempotencyKey: crypto.randomUUID(),
+      },
+      sourceProvenance: structuredClone(share.provenance),
+      phase: 'pending',
+      notice: 'Checking whether this excerpt was queued…',
     };
-    const fingerprint = JSON.stringify({ base, kind: 'excerpt', ...request });
-    const key = retryKeys.current.get(fingerprint) ?? crypto.randomUUID();
-    retryKeys.current.set(fingerprint, key);
+    if (!symposiumExcerptOperations.begin(operation)) return;
+    const key = operation.request.idempotencyKey;
     const epoch = sessionEpoch.current;
+    const controller = new AbortController();
+    let timer: ReturnType<typeof setTimeout> | undefined;
     setShareBusy(true);
     try {
-      await readJson(`${base}/share-excerpt`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ...request,
-          idempotencyKey: key,
+      const { originalContent, ...request } = operation.request;
+      const receipt = await Promise.race([
+        readJson<SymposiumDeliveryRecord>(`${base}/share-excerpt`, {
+          method: 'POST',
+          signal: controller.signal,
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...request, excerpt: originalContent }),
         }),
-      });
-      if (retryKeys.current.get(fingerprint) === key) retryKeys.current.delete(fingerprint);
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(() => {
+            reject(
+              new Error('The excerpt request timed out. Check whether this excerpt was queued.'),
+            );
+            controller.abort();
+          }, 30_000);
+        }),
+      ]);
+      if (!matchesQueuedMessage(operation, receipt))
+        throw new Error(
+          'The queue response did not confirm this excerpt. Check whether it was queued.',
+        );
+      symposiumExcerptOperations.update(sessionId, key, (previous) => ({
+        ...previous,
+        phase: 'confirmed',
+        deliveryId: receipt.deliveryId,
+        notice: 'Excerpt already queued',
+      }));
       if (sessionEpoch.current === epoch) {
+        symposiumExcerptOperations.update(sessionId, key, () => undefined);
         setShare(null);
         setError('');
         window.dispatchEvent(new Event('symposium-deliveries-changed'));
       }
     } catch (cause) {
+      symposiumExcerptOperations.update(sessionId, key, (previous) =>
+        previous.phase === 'confirmed'
+          ? previous
+          : { ...previous, phase: 'uncertain', notice: 'Check whether this excerpt was queued.' },
+      );
       if (sessionEpoch.current === epoch)
         setError(cause instanceof Error ? cause.message : 'Could not share excerpt');
     } finally {
+      if (timer) clearTimeout(timer);
       if (sessionEpoch.current === epoch) setShareBusy(false);
     }
-  }, [base, share, excerpt, shareRecipients]);
+  }, [base, sessionId, share, excerpt, shareRecipients]);
   const controlDelivery = async (deliveryId: string, action: 'approve' | 'send' | 'stop') => {
     if (
       selected === 'all' ||
@@ -601,6 +695,60 @@ export function SymposiumConversation({
           </>
         )}
       </div>
+      {queuedOperation && (
+        <section aria-label="Saved queued message">
+          <p role="status">{queuedOperation.notice}</p>
+          <p>Message: {queuedOperation.request.originalContent}</p>
+          {queuedOperation.phase === 'confirmed' ? (
+            <button
+              type="button"
+              onClick={() =>
+                symposiumQueueOperations.update(
+                  queuedOperation.sessionId,
+                  queuedOperation.request.idempotencyKey,
+                  () => undefined,
+                )
+              }
+            >
+              Write another message
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => window.dispatchEvent(new Event('symposium-deliveries-changed'))}
+            >
+              Check whether this message was queued
+            </button>
+          )}
+        </section>
+      )}
+      {excerptOperation && (
+        <section aria-label="Saved queued excerpt">
+          <p role="status">{excerptOperation.notice}</p>
+          <p>Excerpt: {excerptOperation.request.originalContent}</p>
+          {excerptOperation.phase === 'confirmed' ? (
+            <button
+              type="button"
+              onClick={() =>
+                symposiumExcerptOperations.update(
+                  excerptOperation.sessionId,
+                  excerptOperation.request.idempotencyKey,
+                  () => undefined,
+                )
+              }
+            >
+              Share another excerpt
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => window.dispatchEvent(new Event('symposium-deliveries-changed'))}
+            >
+              Check whether this excerpt was queued
+            </button>
+          )}
+        </section>
+      )}
       {(statusError || error) && <div role="alert">{statusError || error}</div>}
       {!statusFresh && (
         <p role="status">
@@ -795,6 +943,7 @@ export function SymposiumConversation({
             type="button"
             disabled={
               shareBusy ||
+              Boolean(excerptOperation) ||
               !excerpt.trim() ||
               !share.content.includes(excerpt.trim()) ||
               shareRecipients.length === 0
@@ -809,6 +958,7 @@ export function SymposiumConversation({
         </section>
       )}
       <SymposiumAudienceComposer
+        key={sessionId}
         audience={compact && anchorSeatId ? anchorSeatId : selected}
         seats={recipientChoices}
         onSelectRecipient={
@@ -828,9 +978,13 @@ export function SymposiumConversation({
               : seatName
         }
         recipients={recipients}
-        enabled={statusFresh && recipients.length > 0}
+        enabled={statusFresh && recipients.length > 0 && !queuedOperation}
         disabledReason={
-          !statusFresh ? 'Status refresh is pending. Your draft stays here.' : undefined
+          queuedOperation
+            ? 'Check the saved queued message before sending another.'
+            : !statusFresh
+              ? 'Status refresh is pending. Your draft stays here.'
+              : undefined
         }
         onQueue={queue}
       />
