@@ -1,0 +1,58 @@
+.access-modes {
+  margin-top: 1.25rem;
+}
+.access-modes h3 {
+  margin: 1rem 0 0.6rem;
+}
+.access-modes label {
+  display: block;
+  font-size: 0.85rem;
+}
+.access-modes select {
+  width: 100%;
+  margin: 0.5rem 0;
+  padding: 0.65rem;
+  color: inherit;
+  background: var(--surface, transparent);
+  border: 1px solid var(--border, #d8d0e2);
+  border-radius: 0.6rem;
+}
+.access-mode-list {
+  display: grid;
+  border: 1px solid var(--border, #d8d0e2);
+  border-radius: 0.7rem;
+  overflow: hidden;
+}
+.access-mode-list button {
+  display: grid;
+  gap: 0.35rem;
+  text-align: left;
+  padding: 0.9rem;
+  background: transparent;
+  color: inherit;
+  border: 0;
+  cursor: pointer;
+}
+.access-mode-list button + button {
+  border-top: 1px solid var(--border, #d8d0e2);
+}
+.access-mode-list button:hover {
+  background: var(--bg-hover, #f3eef8);
+}
+.access-mode-list span,
+.access-mode-list small {
+  font-size: 0.8rem;
+}
+.access-mode-detail dl {
+  display: grid;
+  gap: 0.8rem;
+}
+.access-mode-detail dt {
+  font-weight: 600;
+  font-size: 0.85rem;
+}
+.access-mode-detail dd {
+  margin: 0.3rem 0 0;
+  font-size: 0.85rem;
+  line-height: 1.55;
+}
