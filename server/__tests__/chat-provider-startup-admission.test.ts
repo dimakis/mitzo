@@ -483,7 +483,7 @@ it('rejects a changed cold-resume command before registry or transcript mutation
   }
 });
 
-it('terminalizes an admitted startup when native runtime initialization fails', async () => {
+it('sanitizes checkpoint startup failures and terminalizes admission before provider execution', async () => {
   vi.resetModules();
   const root = await mkdtemp(join(tmpdir(), 'mitzo-native-startup-failure-'));
   await writeFile(join(root, '.mitzo.json'), '{}');
@@ -491,12 +491,17 @@ it('terminalizes an admitted startup when native runtime initialization fails', 
   vi.stubEnv('WORKTREE_ENABLED', 'false');
   vi.stubEnv('MITZO_CODEX_PRIVATE_DIR', join(root, 'private'));
   stubBootContext();
-  native.connect.mockRejectedValueOnce(new Error('MCP startup failed'));
+  native.connect.mockRejectedValueOnce(
+    new Error(
+      'Command failed: ssh PRIVATE_BOOTSTRAP\ncheckpoint: unsupported provider state: .sqlite-maintenance.lock\n',
+    ),
+  );
   const chat = await import('../chat.js');
   const sessionId = '44444444-4444-4444-8444-444444444444';
 
   try {
-    await chat.startChat({ send: vi.fn(), isOpen: () => true }, 'failed-startup', 'queued', {
+    const send = vi.fn();
+    await chat.startChat({ send, isOpen: () => true }, 'failed-startup', 'queued', {
       cwd: root,
       isolation: false,
       accountId: 'work-api',
@@ -514,6 +519,16 @@ it('terminalizes an admitted startup when native runtime initialization fails', 
       executionTerminalReason: 'startup_failed',
     });
     expect(native.prompts).toEqual([]);
+    const errors = send.mock.calls
+      .map(([message]) => message)
+      .filter((message) => message.type === 'error');
+    expect(errors).toEqual([
+      expect.objectContaining({
+        error:
+          'Retained sandbox migration is blocked. The source runtime or provider layout is not supported. Its task files and provider thread are preserved.',
+      }),
+    ]);
+    expect(JSON.stringify(errors)).not.toContain('PRIVATE_BOOTSTRAP');
   } finally {
     chat.registry.dispose();
     chat.eventStore.close();

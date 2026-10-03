@@ -117,10 +117,18 @@ export async function migrateRetainedRuntime(input: {
   if (store.hasAmbiguousRuntimeActivity(id, binding))
     throw new Error('Retained migration blocked by active or ambiguous provider execution');
   if (record?.phase === 'blocked') {
+    // Older helpers rejected this process-local lock before capturing anything.
+    // The corrected helper omits it and still verifies source writer quiescence.
+    const repairedMaintenanceLock =
+      record.resumePhase === 'observed' &&
+      !record.checkpoint &&
+      !record.candidate &&
+      /(?:^|\n)checkpoint: unsupported provider state: \.sqlite-maintenance\.lock\n?$/.test(
+        record.failure ?? '',
+      );
     if (
-      !record.retryable ||
-      !record.resumePhase ||
-      Date.now() < (record.retryNotBefore ?? Infinity)
+      !repairedMaintenanceLock &&
+      (!record.retryable || !record.resumePhase || Date.now() < (record.retryNotBefore ?? Infinity))
     )
       throw new Error(
         'Retained migration blocked; inspect its preserved checkpoint and diagnostic before retrying',

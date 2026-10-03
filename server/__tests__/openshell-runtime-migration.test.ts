@@ -98,6 +98,54 @@ it.each(['capture', 'create', 'attest', 'restore', 'verifyRestored'] as const)(
     expect(f.store.readRuntimeMigration('chat', binding)?.phase).toBe('blocked');
   },
 );
+it('recovers only the known maintenance-lock rejection before any checkpoint or candidate', async () => {
+  const f = fixture();
+  f.adapters.quiescent = vi
+    .fn()
+    .mockRejectedValueOnce(
+      new Error(
+        'Command failed: ssh checkpoint capture\ncheckpoint: unsupported provider state: .sqlite-maintenance.lock\n',
+      ),
+    )
+    .mockResolvedValue(undefined);
+  await expect(migrateRetainedRuntime(f.input)).rejects.toThrow('.sqlite-maintenance.lock');
+  expect(f.store.readRuntimeMigration('chat', binding)).toMatchObject({
+    phase: 'blocked',
+    resumePhase: 'observed',
+    retryable: false,
+  });
+  expect(await migrateRetainedRuntime(f.input)).toEqual(f.candidate);
+  expect(f.adapters.capture).toHaveBeenCalledTimes(1);
+  expect(f.adapters.quiescent).toHaveBeenCalledTimes(3);
+  expect(f.store.read('chat', binding).threadId).toBe('same-thread');
+});
+it.each(['other-file', 'checkpointed', 'candidate'])(
+  'keeps the maintenance-lock recovery closed for %s',
+  async (variant) => {
+    const f = fixture();
+    f.adapters.quiescent = vi
+      .fn()
+      .mockRejectedValueOnce(
+        new Error(
+          `checkpoint: unsupported provider state: ${variant === 'other-file' ? 'other-file' : '.sqlite-maintenance.lock'}\n`,
+        ),
+      );
+    await expect(migrateRetainedRuntime(f.input)).rejects.toThrow('unsupported provider state');
+    const record = f.store.readRuntimeMigration('chat', binding)!;
+    if (variant !== 'other-file')
+      f.store.advanceRuntimeMigration(
+        'chat',
+        binding,
+        record.generation,
+        variant === 'checkpointed'
+          ? { checkpoint: { path: '/saved', digest: 'saved' } }
+          : { candidate: f.candidate },
+      );
+    await expect(migrateRetainedRuntime(f.input)).rejects.toThrow('blocked; inspect');
+    expect(f.adapters.capture).not.toHaveBeenCalled();
+    expect(f.adapters.create).not.toHaveBeenCalled();
+  },
+);
 it('rejects unknown image, policy mismatch and changed account profile before capture', async () => {
   const f = fixture();
   await expect(migrateRetainedRuntime({ ...f.input, supportedSourceImages: [] })).rejects.toThrow(

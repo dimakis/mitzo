@@ -17,6 +17,56 @@ import { afterEach, expect, it } from 'vitest';
 
 const roots: string[] = [];
 const helper = join(process.cwd(), 'docs/spikes/openshell-codex/mitzo-checkpoint.py');
+it('omits the SQLite maintenance lock but still rejects unsafe entries and active writers', () => {
+  const from = root();
+  source(from);
+  const lock = join(from, '.codex/.sqlite-maintenance.lock');
+  writeFileSync(lock, '');
+  const archive = join(root(), 'checkpoint.tar');
+  const proc = join(root(), 'proc');
+  mkdirSync(proc);
+  const args = [
+    'capture',
+    '--source',
+    from,
+    '--output',
+    archive,
+    '--require-quiescent',
+    '--proc-root',
+    proc,
+    '--conversation',
+    'c',
+    '--thread',
+    'thread',
+    '--binding',
+    'binding',
+    '--image',
+    'image',
+    '--policy',
+    'policy',
+  ];
+  run(args);
+  expect(execFileSync('tar', ['-tf', archive], { encoding: 'utf8' })).not.toContain(
+    '.sqlite-maintenance.lock',
+  );
+  expect(existsSync(lock)).toBe(true);
+  rmSync(lock);
+  mkdirSync(lock);
+  expect(() => run(args)).toThrow(/unsupported provider state/);
+  rmSync(lock, { recursive: true });
+  symlinkSync(join(from, '.codex/state_5.sqlite'), lock);
+  expect(() => run(args)).toThrow(/symlink blocked/);
+  rmSync(lock);
+  writeFileSync(lock, '');
+  mkdirSync(join(proc, '999999/fd'), { recursive: true });
+  writeFileSync(
+    join(proc, '999999/status'),
+    'Name:\tworker\nUid:\t999999\t999999\t999999\t999999\nPPid:\t1\n',
+  );
+  writeFileSync(join(proc, '999999/cmdline'), 'worker\0');
+  symlinkSync(lock, join(proc, '999999/fd/3'));
+  expect(() => run(args)).toThrow(/writer is still open/);
+});
 function root() {
   const value = mkdtempSync(join(tmpdir(), 'mitzo-checkpoint-helper-'));
   roots.push(value);
