@@ -60,8 +60,11 @@ export function WorkOutputs({ itemId, profile }: { itemId: string; profile?: str
         <div>
           <h2>Outputs</h2>
           <p>
-            Saved files for this item
-            {current && !current.error ? ` · ${current.artifacts.length}` : ''}
+            {!current
+              ? 'Loading saved files…'
+              : current.error
+                ? 'Saved files unavailable'
+                : `${current.artifacts.length} saved file${current.artifacts.length === 1 ? '' : 's'}`}
           </p>
         </div>
         {!/^life[-_ ]?ops$/i.test(profile ?? '') && (

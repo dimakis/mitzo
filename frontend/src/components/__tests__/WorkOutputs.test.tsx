@@ -123,3 +123,16 @@ it('requires private case storage rather than offering file intake for LifeOps',
   expect(screen.queryByRole('button', { name: 'Upload file' })).toBeNull();
   expect(screen.getByText(/LifeOps documents require private case storage/)).toBeTruthy();
 });
+
+it.each([0, 1, 2])('uses a concise truthful saved-file count for %i outputs', async (count) => {
+  vi.mocked(apiFetch).mockResolvedValue(response([notes, bundle].slice(0, count)));
+  render(<WorkOutputs itemId="work" />);
+  await screen.findByText(`${count} saved file${count === 1 ? '' : 's'}`);
+});
+
+it('does not imply an empty count when saved files are unavailable', async () => {
+  vi.mocked(apiFetch).mockRejectedValueOnce(new Error('Unavailable'));
+  render(<WorkOutputs itemId="work" />);
+  await screen.findByText('Saved files unavailable');
+  expect(screen.queryByText('0 saved files')).toBeNull();
+});
