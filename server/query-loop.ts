@@ -742,7 +742,7 @@ async function _runQueryLoopInner(
               completionSeq ?? Date.now(),
               extractSnippet(snapshotBlocks, NOTIFY_SNIPPET_MAX_CHARS),
               store?.getSession(resultSid)?.summary ?? undefined,
-              !registry.isAttached(clientId),
+              !registry.isAttached(clientId) && !connRegistry?.hasOpenWatchers(resultSid),
             );
           }
           if (resultSid && connRegistry?.hasOpenWatchers(resultSid)) {
