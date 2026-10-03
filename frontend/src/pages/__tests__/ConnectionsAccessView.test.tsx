@@ -50,7 +50,11 @@ it('keeps configured assignments separate from verification and observed convers
       <ConnectionsAccessView />
     </MemoryRouter>,
   );
-  const card = await screen.findByRole('article', { name: 'Jira' });
+  const row = await screen.findByRole('article', { name: 'Jira' });
+  expect(within(row).queryByText('Configured assignments')).toBeNull();
+  expect(within(row).queryByText('Management owner')).toBeNull();
+  fireEvent.click(within(row).getByRole('button', { name: 'Manage Jira' }));
+  const card = screen.getByRole('dialog', { name: 'Jira' });
   expect(within(card).getByText('Configured')).toBeTruthy();
   expect(within(card).getByText('Not verified')).toBeTruthy();
   expect(within(card).getByText('work')).toBeTruthy();
@@ -74,9 +78,12 @@ it('retains working resource groups when a source is unavailable and explains we
     </MemoryRouter>,
   );
   expect(await screen.findByText('Management service unavailable.')).toBeTruthy();
-  for (const name of ['AI accounts', 'Services', 'Web access'])
+  for (const name of ['AI accounts', 'Services', 'Website access'])
     expect(screen.getByRole('heading', { name })).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: 'View Public page reads' }));
   expect(screen.getByText(/One approved website read/)).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: 'Close details' }));
+  fireEvent.click(screen.getByRole('button', { name: 'View Sandbox network policies' }));
   expect(screen.getByText(/Persistent sandbox website access/)).toBeTruthy();
   expect(screen.queryByText(/Web access enabled/)).toBeNull();
 });
@@ -95,7 +102,7 @@ it('offers retry after a failed inventory read, without losing management naviga
     </MemoryRouter>,
   );
   expect(await screen.findByRole('alert')).toBeTruthy();
-  expect(screen.getByRole('link', { name: 'Manage connections' }).getAttribute('href')).toBe(
+  expect(screen.getByRole('link', { name: 'Add connection' }).getAttribute('href')).toBe(
     '/connections',
   );
   fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
@@ -234,8 +241,12 @@ it('distinguishes ordinary and Symposium accounts with the same native profile I
   expect(accounts).toHaveLength(2);
   expect(within(accounts[0]).getByText('Ordinary chats')).toBeTruthy();
   expect(within(accounts[1]).getByText('Symposium')).toBeTruthy();
-  expect(within(accounts[0]).getByText('account-profiles')).toBeTruthy();
-  expect(within(accounts[1]).getByText('symposium-account-profiles')).toBeTruthy();
+  expect(within(accounts[0]).queryByText('account-profiles')).toBeNull();
+  fireEvent.click(within(accounts[0]).getByRole('button', { name: 'Manage Work account' }));
+  expect(within(screen.getByRole('dialog')).getByText('account-profiles')).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: 'Close details' }));
+  fireEvent.click(within(accounts[1]).getByRole('button', { name: 'Manage Work account' }));
+  expect(within(screen.getByRole('dialog')).getByText('symposium-account-profiles')).toBeTruthy();
 });
 
 it('names an unavailable Symposium catalog separately from ordinary AI accounts', async () => {
@@ -333,7 +344,8 @@ it('presents proven lifecycle and catalog facets once without losing their ident
   );
   const cards = await screen.findAllByRole('article', { name: 'Personal account' });
   expect(cards).toHaveLength(1);
-  const card = within(cards[0]);
+  fireEvent.click(within(cards[0]).getByRole('button', { name: 'Manage Personal account' }));
+  const card = within(screen.getByRole('dialog'));
   expect(card.getByText('Connected')).toBeTruthy();
   expect(card.getByText('signed-in@example.test')).toBeTruthy();
   expect(card.getByText('ChatGPT pro')).toBeTruthy();
@@ -414,7 +426,9 @@ it.each(['account-profiles', 'symposium-account-profiles'] as const)(
         <ConnectionsAccessView />
       </MemoryRouter>,
     );
-    const card = within(await screen.findByRole('article', { name: 'Personal account' }));
+    const row = await screen.findByRole('article', { name: 'Personal account' });
+    fireEvent.click(within(row).getByRole('button', { name: 'Manage Personal account' }));
+    const card = within(screen.getByRole('dialog'));
     expect(card.getAllByText('Configured models')).toHaveLength(1);
     expect(card.getAllByText('Configured Luna')).toHaveLength(1);
     expect(
@@ -434,7 +448,9 @@ it('keeps the grouped configured catalog and support disclaimer without duplicat
       <ConnectionsAccessView />
     </MemoryRouter>,
   );
-  const card = within(await screen.findByRole('article', { name: 'Personal account' }));
+  const row = await screen.findByRole('article', { name: 'Personal account' });
+  fireEvent.click(within(row).getByRole('button', { name: 'Manage Personal account' }));
+  const card = within(screen.getByRole('dialog'));
   expect(card.getAllByText('Configured models')).toHaveLength(1);
   expect(card.getAllByText('Configured Luna')).toHaveLength(1);
   expect(
@@ -443,4 +459,30 @@ it('keeps the grouped configured catalog and support disclaimer without duplicat
     ),
   ).toHaveLength(1);
   expect(card.queryByText('Available models')).toBeNull();
+});
+
+it('traps keyboard focus, dismisses with Escape and restores the row trigger', async () => {
+  vi.mocked(getConnectionsAccess).mockResolvedValue(linkedFacets());
+  render(
+    <MemoryRouter>
+      <ConnectionsAccessView />
+    </MemoryRouter>,
+  );
+  const trigger = within(
+    await screen.findByRole('article', { name: 'Personal account' }),
+  ).getByRole('button', { name: 'Manage Personal account' });
+  trigger.focus();
+  fireEvent.click(trigger);
+  const dialog = screen.getByRole('dialog', { name: 'Personal account' });
+  const close = within(dialog).getByRole('button', { name: 'Close details' });
+  expect(document.activeElement).toBe(close);
+  fireEvent.keyDown(close, { key: 'Tab', shiftKey: true });
+  expect(document.activeElement).toBe(
+    within(dialog).getByRole('link', { name: 'Open personal account controls' }),
+  );
+  fireEvent.keyDown(document.activeElement!, { key: 'Tab' });
+  expect(document.activeElement).toBe(close);
+  fireEvent.keyDown(close, { key: 'Escape' });
+  expect(screen.queryByRole('dialog')).toBeNull();
+  expect(document.activeElement).toBe(trigger);
 });

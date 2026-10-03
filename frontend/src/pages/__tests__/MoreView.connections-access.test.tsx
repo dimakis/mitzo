@@ -16,7 +16,7 @@ it('opens the unified overview from More', () => {
       <MoreView />
     </MemoryRouter>,
   );
-  expect(screen.getByRole('link', { name: 'Connections & access' }).getAttribute('href')).toBe(
+  expect(screen.getByRole('link', { name: 'Connections' }).getAttribute('href')).toBe(
     '/connections-access',
   );
 });

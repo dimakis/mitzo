@@ -41,13 +41,13 @@ it('desktop highlights Chats inside an existing conversation', () => {
   expect(screen.getByRole('link', { name: 'Chats' }).getAttribute('aria-current')).toBe('page');
 });
 
-it('desktop opens Connections & access and retains its selection in management', () => {
+it('desktop opens Connections and retains its selection in management', () => {
   render(
     <MemoryRouter initialEntries={['/connections']}>
       <DesktopNav />
     </MemoryRouter>,
   );
-  const link = screen.getByRole('link', { name: 'Connections & access' });
+  const link = screen.getByRole('link', { name: 'Connections' });
   expect(link.getAttribute('href')).toBe('/connections-access');
   expect(link.getAttribute('aria-current')).toBe('page');
 });
