@@ -724,9 +724,16 @@ async function openCodexChatBound(
   let startup: { context?: string };
   try {
     if (runtimeManager) {
-      const context = await runtimeManager.compileContext(managedOpenShell!, signal);
-      options.onBootContext?.(context);
-      startup = { context: context.fullMarkdown };
+      // Enrolled sessions receive accepted guidance through prepareSystemPrompt
+      // on each turn. A retained writable checkout can contain older guidance;
+      // never install that context as persistent thread developer instructions.
+      if (configuredRuntime?.knowledgeStore) {
+        startup = {};
+      } else {
+        const context = await runtimeManager.compileContext(managedOpenShell!, signal);
+        options.onBootContext?.(context);
+        startup = { context: context.fullMarkdown };
+      }
     } else {
       startup = hooks
         ? await hooks.run('SessionStart', { source: options.resume ? 'resume' : 'startup' }, signal)
