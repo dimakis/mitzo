@@ -434,6 +434,8 @@ Tasks with `sessionPolicy: spawn` run only in dedicated sessions. When session s
 
 React 19 + Vite. Ten pages (`Login`, `SessionList`, `ChatView`, `DesktopChatView`, `FileViewer`, `InboxView`, `CalendarView`, `TodoView`, `TodoDetailView`, `TaskBoard`), a `useReducer`-based message state machine (`useChatMessages`), module-level WebSocket pool with 500-message buffer, and components for thinking blocks, tool pills, tool groups, permission banners, and a slash-command picker. Capacitor wraps the frontend for iOS deployment via TestFlight.
 
+The chat composer gives draft text the full width, with context information and action controls on separate rows. Session resources open from the toolbar; commands, attachments, and workspace options collapse into More in narrow composers while recording, interrupt, and send controls remain directly available.
+
 For iOS development, run `./scripts/build-ios.sh` to build the iOS web assets and open Xcode. After the build, `./scripts/build-ios.sh --sync` copies the existing `frontend/dist-ios` assets into the iOS project without rebuilding them.
 
 **Key Hooks:**

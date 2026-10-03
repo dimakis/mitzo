@@ -31,6 +31,21 @@ const props = {
 };
 
 describe('SessionTray', () => {
+  it('expands upward from a toolbar trigger without moving the trigger into the drawer', () => {
+    const { container } = render(<SessionTray {...props} placement="toolbar" />);
+    const trigger = screen.getByRole('button', { name: 'Open session tray' });
+    fireEvent.click(trigger);
+    const tray = screen.getByTestId('session-tray');
+    expect(container.contains(tray)).toBe(false);
+    const handle = screen.getByRole('button', { name: 'Close session tray' });
+    fireEvent.pointerDown(handle, { clientY: 200, pointerId: 1 });
+    fireEvent.pointerUp(handle, { clientY: 100, pointerId: 1 });
+    expect(tray.dataset.snap).toBe('full');
+    expect(container.contains(trigger)).toBe(true);
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(trigger.getAttribute('aria-expanded')).toBe('false');
+    expect(tray.hidden).toBe(true);
+  });
   it('starts as a compact top handle and opens without taking layout space', () => {
     render(<SessionTray {...props} />);
 

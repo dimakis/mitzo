@@ -245,15 +245,6 @@ export function DesktopChatView() {
                 onChange={handleModeChange}
                 disabled={modeChangeReady === false}
               />
-              {!activeSessionId && (
-                <button
-                  className={`isolation-toggle${isolation ? ' isolation-toggle--active' : ''}`}
-                  onClick={() => setIsolation((v) => !v)}
-                  title={isolation ? 'Worktree isolation: ON' : 'Worktree isolation: OFF'}
-                >
-                  {isolation ? '\u{1f512}' : '\u{1f513}'}
-                </button>
-              )}
               {activeSessionId && (
                 <button
                   className="session-close-btn"
@@ -346,6 +337,8 @@ export function DesktopChatView() {
                   initialText={searchParams.get('prompt') || undefined}
                   voice={voice}
                   branch={messages.branch || undefined}
+                  isolation={isolation}
+                  onIsolationChange={!activeSessionId ? setIsolation : undefined}
                   isWorktree={messages.isWorktree}
                   wtId={messages.wtId || undefined}
                   sessionId={activeSessionId ?? undefined}
