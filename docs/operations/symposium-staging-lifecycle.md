@@ -1,0 +1,92 @@
+# Staging lifecycle
+
+Use a single private staging registry for this operator's fresh owned trials. The
+registry records lifecycle evidence; it cannot confer gateway, agent, artifact,
+credential, or cleanup authority. Keep Symposium gateway custody separate from
+ordinary account/runtime configuration. Production is outside this staging fleet.
+
+## Prepare and launch
+
+1. Select an isolated source checkout and exact reviewed build. Follow
+   [owned release preparation](symposium-owned-release-preparation.md), including
+   fresh gateway identity, private state and an empty task repository. Preserve
+   active owners and their compiled files. Do not bootstrap against primary state.
+2. Create one canonical, private directory (mode `0700`) for `staging.db`. Choose
+   the operator fleet capacity once (recommended: three fresh owned stages). Every
+   supported staging launch must use that same directory and capacity. Changing
+   capacity at launch is refused. Alternate directories and custom launchers are
+   outside this enforcement boundary and must be reported as legacy exceptions.
+3. Write a private `0600` registration JSON with exactly `registryDirectory`,
+   `capacity`, `ownerChat`, `purpose`, `retentionReason`, and `reviewAfter` (Unix
+   milliseconds). The review deadline must be in the next seven days. Use concise
+   nonsecret labels. Never include credentials, auth payloads, environment dumps,
+   provider logs, transcripts, or capabilities.
+4. Supply fresh app authentication using the existing secure operator launch
+   mechanism, with a loopback bind and isolated port. Run:
+
+   ```sh
+   node scripts/start-staging-custodian.mjs /absolute/plan/owned-release.json /absolute/staging-registration.json
+   ```
+
+The supported staging entry uses the existing release verification, exclusive
+`launch.intent`, environment allowlist and fresh custodian constructor. A registry
+slot is reserved **before** intent claim and bootstrap. The same process retains
+the recording closure and native owners. There is no exec/restart handoff of that
+closure. The registry captures owner/purpose/retention, plan path, source/build/
+configuration identities, random launch ID, creation time, original instance and
+controller generation. App replacement updates the generation of the same instance.
+
+`launch_uncertain`, `active`, `retiring`, and `retirement_uncertain` all consume
+capacity. A stale review deadline blocks new launches, including when capacity is
+available. Process exit, an empty inventory, a timer, or a terminal model response
+cannot release a slot. Read `launches` and `policy` in `staging.db` using a private
+read-only SQLite connection; show expired `reviewAfter` values as stale. Do not
+edit rows to work around a blocked launch. The registry intentionally has no
+adopt, automatic successor, or force-retire API.
+
+## Retention review and retirement
+
+Before stopping any existing stage, establish its original launcher/control
+authority and current owner identity; check active chat/browser dependencies and
+outstanding controller/native creation, execution, artifact lease and publication
+operations. Preserve consistent private evidence and task/workspace data with an
+audit manifest. A database copy preserves history, not cancellation handles or
+custody. Retention for historical evidence alone should end after qualified drain;
+specific unresolved live diagnosis should have a named owner and review deadline.
+
+Obtain explicit operator approval naming the environment, owned ephemeral resource
+scope and expected consequences. Use only its supported original-owner shutdown
+mechanism. For a newly launched stage, retain the original launcher's process
+control handle. A discovered PID or listening port is never signal authority.
+Shutdown fences work, drains the exact controller and retires original runtimes,
+then drains/closes the gateway through the existing custody architecture.
+
+The original owner writes `custodian-retirement.json` only after successful cleanup
+and gateway closure. Only its process-local recording closure can mark the slot
+`retired`, after reading and matching that receipt's instance and generation.
+Uncertain cleanup or receipt persistence keeps the slot held. Preserve the
+registry, intent, receipt, diagnostics, transcripts, task data and cleanup audit.
+Verify exact owned-resource absence and refresh the allowlisted before/after
+inventory. Never use broad kill, container prune, or deletion of retained workspaces.
+
+## Limits and acceptance
+
+Reopening the registry lists retained records; it does not restore the recording
+closure or native custody. Custodian death, machine restart, missing original
+gateway authority and interrupted launch without the original owner remain
+unsupported for ownership recovery. Keep these environments quarantined. Do not
+delete `launch.intent` or impersonate the old instance. A copied retirement receipt
+or database is not an owner-controlled cleanup operation.
+
+Legacy stages are observation-only until their original launch authority and
+supported drain are qualified; this launcher does not retrofit running processes.
+Existing custom launchers and frontend previews require separate inventory and
+approval. Offline tests exercise reservation concurrency, stale retention,
+interrupted creation, same-owner replacement and failed/complete retirement using
+injected physical effects. They do not prove real provider or workload cleanup.
+Real model tests must select an account-supported Luna model and announce the exact
+model and charged account before calling it; obtain approval for any alternative.
+
+Changes require exact-current-head CI and Centaur final LGTM/merge recommendation,
+including parent PRs. Publishing a PR does not authorize merge, deployment, owner
+restart, credential changes or legacy retirement.
