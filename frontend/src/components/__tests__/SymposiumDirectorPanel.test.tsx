@@ -238,6 +238,7 @@ it('activates a mixed-account draft only with explicit boundary acknowledgement 
     expectedRevision: 4,
     sharedBoundaryAcknowledged: true,
     crossAccountConfirmation: 'ADD CROSS-ACCOUNT SEAT',
+    idempotencyKey: expect.any(String),
   });
 });
 
@@ -265,6 +266,7 @@ function initialEnableFixture(sessionId = 'initial-enable', seatCount = 2) {
     reconciliation,
     idempotencyKey: '',
     action: 'admit',
+    reason: 'Initial enablement by director',
   });
   const current = {
     ...draft,
@@ -1905,4 +1907,485 @@ it('distinguishes saved agents awaiting enablement from their connected provider
   expect(within(reviewer).getByText('Not enabled')).toBeTruthy();
   expect(within(reviewer).queryByText('Not connected')).toBeNull();
   expect(within(reviewer).getByText('Account: OpenAI work')).toBeTruthy();
+});
+
+function lostActivationFixture(sessionId: string) {
+  const fixture = initialEnableFixture(sessionId);
+  fixture.activeConfig.seats = fixture.activeConfig.seats.map((seat) => ({
+    ...seat,
+    profileBinding: { profileId: 'approved', profileRevision: '1' },
+    contextGrant: { grantId: 'context', revision: 1, classification: 'mixed', sourceRefs: [] },
+    authorityGrant: {
+      grantId: 'authority',
+      revision: 1,
+      filesystem: 'read',
+      tools: 'read',
+      network: 'restricted',
+    },
+    isolationRequest: { trustDomainId: 'shared', revision: 1, placement: 'reuse-compatible' },
+  })) as typeof fixture.activeConfig.seats;
+  fixture.current.config = fixture.activeConfig;
+  fixture.current.seats = fixture.current.seats.map((row) => ({
+    ...row,
+    seat: fixture.activeConfig.seats.find((seat) => seat.id === row.seatId)!,
+  }));
+  return fixture;
+}
+
+it('checks the exact saved activation after keyed navigation and only explicitly continues its original initial sequence', async () => {
+  const sessionId = 'recovered-activation';
+  const { draft, activeConfig, current, membership } = lostActivationFixture(sessionId);
+  let original: Record<string, unknown> | undefined;
+  const admissions: Record<string, unknown>[] = [];
+  vi.mocked(apiFetch).mockImplementation(async (url, init) => {
+    if (String(url).endsWith('/activate')) {
+      original = JSON.parse(String(init?.body));
+      throw new Error('Activation response lost');
+    }
+    if (String(url).includes('/configuration-operations/'))
+      return response({
+        receipt: {
+          version: 1,
+          actor: 'internal-operator',
+          sessionId,
+          idempotencyKey: original!.idempotencyKey,
+          action: 'activate',
+          expectedRevision: 4,
+          request: original,
+          config: activeConfig,
+          completedAt: 1,
+        },
+      });
+    if (String(url).endsWith('/membership')) {
+      const input = JSON.parse(String(init?.body));
+      admissions.push(input);
+      const record = {
+        ...membership(input.seatId),
+        idempotencyKey: input.idempotencyKey,
+        reason: input.reason,
+      };
+      current.seats = current.seats.map((seat) =>
+        seat.seatId === input.seatId ? { ...seat, membership: record } : seat,
+      ) as typeof current.seats;
+      return response(record);
+    }
+    return response(
+      String(url).includes('/other/')
+        ? { ...draft, sessionId: 'other' }
+        : original
+          ? {
+              ...current,
+              profileBindingEnforced: true,
+              initialProfileSelections: {
+                reviewer: { profileId: 'changed-after-request', revision: 9 },
+              },
+            }
+          : {
+              ...draft,
+              profileBindingEnforced: true,
+              initialProfileSelections: {
+                reviewer: { profileId: 'approved-reviewer', revision: 2 },
+              },
+            },
+    );
+  });
+  const view = render(<SymposiumDirectorPanel key={sessionId} sessionId={sessionId} />);
+  await enableInitialRoster();
+  await screen.findByText(/Enablement stopped/);
+  expect(typeof original!.idempotencyKey).toBe('string');
+  expect(original!.profileSelections).toEqual({
+    reviewer: { profileId: 'approved-reviewer', revision: 2 },
+  });
+  const retained =
+    getSymposiumEnableActions().snapshot()[`/api/sessions/${sessionId}/symposium`].activation!;
+  expect(Object.isFrozen(retained.request)).toBe(true);
+  expect(Object.isFrozen(retained.request.profileSelections)).toBe(true);
+  expect(Object.isFrozen(retained.orderedSeatIds)).toBe(true);
+  view.rerender(<SymposiumDirectorPanel key="other" sessionId="other" />);
+  view.rerender(<SymposiumDirectorPanel key={sessionId} sessionId={sessionId} />);
+  await userEvent.click(screen.getByRole('button', { name: 'Agents' }));
+  await userEvent.click(await screen.findByRole('button', { name: 'Check saved activation' }));
+  const continueButton = await screen.findByRole('button', { name: 'Continue enabling agents' });
+  await waitFor(() => expect(continueButton.hasAttribute('disabled')).toBe(false));
+  expect(admissions).toHaveLength(0);
+  expect(
+    vi.mocked(apiFetch).mock.calls.filter(([url]) => String(url).endsWith('/activate')),
+  ).toHaveLength(1);
+  fireEvent.click(continueButton);
+  fireEvent.click(continueButton);
+  await waitFor(() => expect(admissions).toHaveLength(2));
+  expect(admissions.map((input) => input.seatId)).toEqual(['architect', 'reviewer']);
+  for (const input of admissions)
+    expect(input).toMatchObject({
+      idempotencyKey: `${original!.idempotencyKey}:${input.seatId}`,
+      sharedBoundaryAcknowledged: true,
+      crossAccountConfirmation: 'ADD CROSS-ACCOUNT SEAT',
+    });
+});
+
+it.each([
+  'missing',
+  'key',
+  'action',
+  'payload',
+  'revision',
+  'changed-config',
+  'same-revision-change',
+  'foreign-membership',
+])('keeps a lost activation fenced for %s receipt proof', async (mismatch) => {
+  const sessionId = `unproven-activation-${mismatch}`;
+  const { draft, activeConfig, current } = lostActivationFixture(sessionId);
+  let original: Record<string, unknown> | undefined;
+  vi.mocked(apiFetch).mockImplementation(async (url, init) => {
+    if (String(url).endsWith('/activate')) {
+      original = JSON.parse(String(init?.body));
+      throw new Error('Activation response lost');
+    }
+    if (String(url).includes('/configuration-operations/'))
+      return response({
+        receipt:
+          mismatch === 'missing'
+            ? null
+            : {
+                version: 1,
+                actor: 'internal-operator',
+                sessionId,
+                idempotencyKey: mismatch === 'key' ? 'unrelated' : original!.idempotencyKey,
+                action: mismatch === 'action' ? 'seats/revise' : 'activate',
+                expectedRevision: mismatch === 'revision' ? 3 : 4,
+                request:
+                  mismatch === 'payload'
+                    ? { ...original, crossAccountConfirmation: 'OTHER' }
+                    : original,
+                config: activeConfig,
+                completedAt: 1,
+              },
+      });
+    return response(
+      original
+        ? mismatch === 'changed-config'
+          ? { ...current, config: { ...activeConfig, revision: 6 } }
+          : mismatch === 'same-revision-change'
+            ? { ...current, config: { ...activeConfig, interceptMode: 'auto' } }
+            : mismatch === 'foreign-membership'
+              ? {
+                  ...current,
+                  seats: current.seats.map((row) =>
+                    row.seatId === 'architect'
+                      ? {
+                          ...row,
+                          membership: {
+                            sessionId,
+                            seatId: 'architect',
+                            configRevision: 5,
+                            generation: 1,
+                            action: 'admit',
+                            reason: 'Initial enablement by director',
+                            state: 'active',
+                            reconciliation: 'confirmed',
+                            idempotencyKey: 'foreign',
+                          },
+                        }
+                      : row,
+                  ),
+                }
+              : current
+        : draft,
+    );
+  });
+  render(<SymposiumDirectorPanel sessionId={sessionId} />);
+  await enableInitialRoster();
+  await screen.findByText(/Enablement stopped/);
+  await userEvent.click(screen.getByRole('button', { name: 'Check saved activation' }));
+  await waitFor(() =>
+    expect(
+      getSymposiumEnableActions().snapshot()[`/api/sessions/${sessionId}/symposium`].pending,
+    ).toBe(false),
+  );
+  expect(screen.queryByRole('button', { name: 'Continue enabling agents' })).toBeNull();
+  expect(vi.mocked(apiFetch).mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(
+    1,
+  );
+});
+
+it('continues only the remaining initial seat after a lost membership response is exactly confirmed across keyed remount', async () => {
+  const sessionId = 'recovered-initial-membership';
+  const { draft, activeConfig, current, membership } = lostActivationFixture(sessionId);
+  let original: Record<string, unknown> | undefined;
+  let unavailable = false;
+  const admissions: Record<string, unknown>[] = [];
+  vi.mocked(apiFetch).mockImplementation(async (url, init) => {
+    if (String(url).endsWith('/activate')) {
+      original = JSON.parse(String(init?.body));
+      return response(activeConfig);
+    }
+    if (String(url).includes('/configuration-operations/'))
+      return response({
+        receipt: {
+          version: 1,
+          actor: 'internal-operator',
+          sessionId,
+          idempotencyKey: original!.idempotencyKey,
+          action: 'activate',
+          expectedRevision: 4,
+          request: original,
+          config: activeConfig,
+          completedAt: 1,
+        },
+      });
+    if (String(url).endsWith('/membership')) {
+      const input = JSON.parse(String(init?.body));
+      admissions.push(input);
+      const record = {
+        ...membership(input.seatId),
+        idempotencyKey: input.idempotencyKey,
+        reason: input.reason,
+      };
+      current.seats = current.seats.map((row) =>
+        row.seatId === input.seatId ? { ...row, membership: record } : row,
+      ) as typeof current.seats;
+      if (admissions.length === 1) {
+        unavailable = true;
+        throw new Error('Membership response lost');
+      }
+      return response(record);
+    }
+    if (unavailable) throw new Error('Status unavailable');
+    return response(original ? current : draft);
+  });
+  const view = render(<SymposiumDirectorPanel key={sessionId} sessionId={sessionId} />);
+  await enableInitialRoster();
+  await screen.findByText(/Enablement stopped/);
+  expect(admissions).toHaveLength(1);
+  unavailable = false;
+  view.rerender(<SymposiumDirectorPanel key="other" sessionId="other" />);
+  view.rerender(<SymposiumDirectorPanel key={sessionId} sessionId={sessionId} />);
+  await userEvent.click(screen.getByRole('button', { name: 'Agents' }));
+  await userEvent.click(await screen.findByRole('button', { name: 'Check saved activation' }));
+  const continueButton = await screen.findByRole('button', { name: 'Continue enabling agents' });
+  expect(admissions).toHaveLength(1);
+  await userEvent.click(continueButton);
+  await waitFor(() => expect(admissions).toHaveLength(2));
+  expect(admissions.map((input) => input.seatId)).toEqual(['architect', 'reviewer']);
+  expect(admissions[1].idempotencyKey).toBe(`${original!.idempotencyKey}:reviewer`);
+  expect(
+    vi.mocked(apiFetch).mock.calls.filter(([url]) => String(url).endsWith('/activate')),
+  ).toHaveLength(1);
+});
+
+it('rechecks the entire committed config before explicit continuation when it changed after receipt inspection', async () => {
+  const sessionId = 'activation-changed-after-check';
+  const { draft, activeConfig, current } = lostActivationFixture(sessionId);
+  let original: Record<string, unknown> | undefined;
+  let changed = false;
+  vi.mocked(apiFetch).mockImplementation(async (url, init) => {
+    if (String(url).endsWith('/activate')) {
+      original = JSON.parse(String(init?.body));
+      throw new Error('Activation response lost');
+    }
+    if (String(url).includes('/configuration-operations/'))
+      return response({
+        receipt: {
+          version: 1,
+          actor: 'internal-operator',
+          sessionId,
+          idempotencyKey: original!.idempotencyKey,
+          action: 'activate',
+          expectedRevision: 4,
+          request: original,
+          config: activeConfig,
+          completedAt: 1,
+        },
+      });
+    return response(
+      original
+        ? changed
+          ? { ...current, config: { ...activeConfig, interceptMode: 'auto' } }
+          : current
+        : draft,
+    );
+  });
+  render(<SymposiumDirectorPanel sessionId={sessionId} />);
+  await enableInitialRoster();
+  await screen.findByText(/Enablement stopped/);
+  await userEvent.click(screen.getByRole('button', { name: 'Check saved activation' }));
+  const continueButton = await screen.findByRole('button', { name: 'Continue enabling agents' });
+  changed = true;
+  await userEvent.click(continueButton);
+  await screen.findByText(/Enablement stopped/);
+  expect(vi.mocked(apiFetch).mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(
+    1,
+  );
+});
+
+it.each(['close', 'session', 'unmount'])(
+  'discards a late saved activation check after %s without continuing membership',
+  async (change) => {
+    const sessionId = `activation-check-${change}`;
+    const { draft, activeConfig, current } = lostActivationFixture(sessionId);
+    let original: Record<string, unknown> | undefined;
+    let resolve!: (value: Response) => void;
+    vi.mocked(apiFetch).mockImplementation(async (url, init) => {
+      if (String(url).endsWith('/activate')) {
+        original = JSON.parse(String(init?.body));
+        throw new Error('Activation response lost');
+      }
+      if (String(url).includes('/configuration-operations/'))
+        return new Promise<Response>((done) => {
+          resolve = done;
+        });
+      return response(original ? current : draft);
+    });
+    const view = render(<SymposiumDirectorPanel key={sessionId} sessionId={sessionId} />);
+    await enableInitialRoster();
+    await screen.findByText(/Enablement stopped/);
+    await userEvent.click(screen.getByRole('button', { name: 'Check saved activation' }));
+    if (change === 'close') await userEvent.click(screen.getByRole('button', { name: 'Agents' }));
+    else if (change === 'session')
+      view.rerender(<SymposiumDirectorPanel key="other" sessionId="other" />);
+    else view.unmount();
+    await act(async () =>
+      resolve(
+        response({
+          receipt: {
+            version: 1,
+            actor: 'internal-operator',
+            sessionId,
+            idempotencyKey: original!.idempotencyKey,
+            action: 'activate',
+            expectedRevision: 4,
+            request: original,
+            config: activeConfig,
+            completedAt: 1,
+          },
+        }),
+      ),
+    );
+    const action = getSymposiumEnableActions().snapshot()[`/api/sessions/${sessionId}/symposium`];
+    expect(action.pending).toBe(false);
+    expect(action.activation?.recovered).toBe(false);
+    expect(
+      vi.mocked(apiFetch).mock.calls.filter(([, init]) => init?.method === 'POST'),
+    ).toHaveLength(1);
+  },
+);
+
+it.each(['transport', 'body'])(
+  'bounds a saved activation %s check without releasing the unknown activation or accepting its late result',
+  async (stallAt) => {
+    const sessionId = `activation-check-deadline-${stallAt}`;
+    const { draft, activeConfig, current } = lostActivationFixture(sessionId);
+    let original: Record<string, unknown> | undefined;
+    let resolve!: (value: unknown) => void;
+    let signal: AbortSignal | null | undefined;
+    let deadline!: () => void;
+    const originalTimeout = globalThis.setTimeout;
+    vi.spyOn(globalThis, 'setTimeout').mockImplementation(((
+      callback: () => void,
+      delay?: number,
+      ...args: unknown[]
+    ) => {
+      if (delay === 5 * 60 * 1000) deadline = callback;
+      return originalTimeout(callback, delay, ...args);
+    }) as typeof setTimeout);
+    vi.mocked(apiFetch).mockImplementation(async (url, init) => {
+      if (String(url).endsWith('/activate')) {
+        original = JSON.parse(String(init?.body));
+        throw new Error('Activation response lost');
+      }
+      if (String(url).includes('/configuration-operations/')) {
+        signal = init?.signal;
+        const stalled = new Promise<unknown>((done) => {
+          resolve = done;
+        });
+        return stallAt === 'transport'
+          ? (stalled as Promise<Response>)
+          : ({ ok: true, json: () => stalled } as Response);
+      }
+      return response(original ? current : draft);
+    });
+    render(<SymposiumDirectorPanel sessionId={sessionId} />);
+    await enableInitialRoster();
+    await screen.findByText(/Enablement stopped/);
+    await userEvent.click(screen.getByRole('button', { name: 'Check saved activation' }));
+    await act(async () => deadline());
+    const beforeLate =
+      getSymposiumEnableActions().snapshot()[`/api/sessions/${sessionId}/symposium`];
+    expect(signal?.aborted).toBe(true);
+    expect(beforeLate.pending).toBe(false);
+    expect(beforeLate.activation?.recovered).toBe(false);
+    const body = {
+      receipt: {
+        version: 1,
+        actor: 'internal-operator',
+        sessionId,
+        idempotencyKey: original!.idempotencyKey,
+        action: 'activate',
+        expectedRevision: 4,
+        request: original,
+        config: activeConfig,
+        completedAt: 1,
+      },
+    };
+    await act(async () => resolve(stallAt === 'transport' ? response(body) : body));
+    expect(getSymposiumEnableActions().snapshot()[`/api/sessions/${sessionId}/symposium`]).toEqual(
+      beforeLate,
+    );
+    expect(screen.queryByRole('button', { name: 'Continue enabling agents' })).toBeNull();
+    expect(
+      vi.mocked(apiFetch).mock.calls.filter(([, init]) => init?.method === 'POST'),
+    ).toHaveLength(1);
+  },
+);
+
+it('does not let a retired safe-refusal status read unlock a new activation after keyed remount', async () => {
+  const sessionId = 'retired-activation-refusal';
+  const { draft, activeConfig, current, membership } = initialEnableFixture(sessionId);
+  let attempts = 0;
+  let statusReads = 0;
+  let finishOldStatus!: (value: Response) => void;
+  let finishNewActivation!: (value: Response) => void;
+  vi.mocked(apiFetch).mockImplementation(async (url, init) => {
+    if (String(url).endsWith('/activate')) {
+      if (++attempts === 1)
+        return {
+          ok: false,
+          status: 503,
+          json: async () => ({ error: 'Runtime unavailable', activationMutation: 'not-started' }),
+        } as Response;
+      return new Promise<Response>((resolve) => {
+        finishNewActivation = resolve;
+      });
+    }
+    if (String(url).endsWith('/membership')) {
+      const input = JSON.parse(String(init?.body));
+      const record = { ...membership(input.seatId), idempotencyKey: input.idempotencyKey };
+      current.seats = current.seats.map((row) =>
+        row.seatId === input.seatId ? { ...row, membership: record } : row,
+      ) as typeof current.seats;
+      return response(record);
+    }
+    if (++statusReads === 2)
+      return new Promise<Response>((resolve) => {
+        finishOldStatus = resolve;
+      });
+    return response(statusReads > 3 ? current : draft);
+  });
+  const view = render(<SymposiumDirectorPanel key="first" sessionId={sessionId} />);
+  await enableInitialRoster();
+  await waitFor(() => expect(finishOldStatus).toBeDefined());
+  view.rerender(<SymposiumDirectorPanel key="second" sessionId={sessionId} />);
+  await enableInitialRoster();
+  await waitFor(() => expect(finishNewActivation).toBeDefined());
+  const base = `/api/sessions/${sessionId}/symposium`;
+  const replacementKey = getSymposiumEnableActions().snapshot()[base].activation!.idempotencyKey;
+  expect(getSymposiumEnableActions().snapshot()[base].pending).toBe(true);
+  await act(async () => finishOldStatus(response(draft)));
+  expect(getSymposiumEnableActions().snapshot()[base].activation!.idempotencyKey).toBe(
+    replacementKey,
+  );
+  expect(getSymposiumEnableActions().snapshot()[base].pending).toBe(true);
+  await act(async () => finishNewActivation(response(activeConfig)));
+  await waitFor(() => expect(getSymposiumEnableActions().snapshot()[base]).toBeUndefined());
+  expect(attempts).toBe(2);
 });

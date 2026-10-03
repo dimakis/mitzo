@@ -1,6 +1,13 @@
 // In-memory UI simulation only. No native admission, provider execution, or persistence.
 import {
   SeatConfigSchema,
+  SymposiumConfigSchema,
+  SymposiumConfigurationOperationSchema,
+  SymposiumConfigurationOperationKeySchema,
+  SymposiumConfigurationOperationReceiptSchema,
+  canonicalConfigurationOperationJson,
+  type SeatConfig,
+  type SymposiumConfigurationOperationReceipt,
   type SymposiumConfig,
   type SymposiumDeliveryRecord,
   type SymposiumMembershipRecord,
@@ -15,18 +22,48 @@ type Fixture = {
   admitted: Set<string>;
   memberships: Map<string, PreviewMembership>;
   membershipReceipts: Map<string, PreviewMembership>;
+  configurationReceipts: Map<string, SymposiumConfigurationOperationReceipt>;
 };
 const fixtures = new Map<string, Fixture>();
+function simulatedGrantedSeat(seat: SeatConfig): SeatConfig {
+  return {
+    ...seat,
+    profileBinding: seat.profileBinding ?? {
+      profileId: `preview-${seat.id}`,
+      profileRevision: '1',
+    },
+    contextGrant: {
+      grantId: `preview-context:${seat.id}`,
+      revision: 1,
+      classification: 'mixed',
+      sourceRefs: [],
+    },
+    authorityGrant: {
+      grantId: `preview-authority:${seat.id}`,
+      revision: 1,
+      filesystem: seat.authorityRequest?.filesystem ?? 'read',
+      tools: seat.authorityRequest?.tools ?? 'read',
+      network: 'restricted',
+    },
+    isolationRequest: {
+      trustDomainId: 'preview-shared',
+      revision: 1,
+      placement: 'reuse-compatible',
+    },
+  };
+}
 function fixtureFor(sessionId: string): Fixture {
   let fixture = fixtures.get(sessionId);
   if (!fixture) {
     const config = structuredClone(symposiumStatus(sessionId).config) as unknown as SymposiumConfig;
     if (sessionId === 'preview-1')
       config.seats = config.seats.filter((seat) => seat.id !== 'implementer');
+    config.seats = config.seats.map(simulatedGrantedSeat);
     fixture = {
-      config,
+      config: SymposiumConfigSchema.parse(config),
       deliveries: [],
       membershipReceipts: new Map(),
+      configurationReceipts: new Map(),
       admitted: new Set(config.seats.map((seat) => seat.id)),
       memberships: new Map(
         config.seats.map((seat) => [
@@ -61,6 +98,7 @@ function statusFor(sessionId: string, fixture: Fixture) {
   return {
     ...symposiumStatus(sessionId),
     config: fixture.config,
+    symposiumRevision: fixture.config.revision,
     simulated: true,
     reservedSeats: fixture.config.seats.length,
     capacityRemaining: 3 - fixture.config.seats.length,
@@ -87,6 +125,19 @@ export function symposiumAgentPreviewResponse(
       { error: 'Unsupported simulated agent request', simulated: true },
       { status: 405 },
     );
+  if (suffix.startsWith('configuration-operations/') && method === 'GET') {
+    let key: string;
+    try {
+      key = decodeURIComponent(suffix.slice('configuration-operations/'.length));
+    } catch {
+      return denied();
+    }
+    if (!SymposiumConfigurationOperationKeySchema.safeParse(key).success) return denied();
+    return Response.json({
+      receipt: fixture.configurationReceipts.get(key) ?? null,
+      simulated: true,
+    });
+  }
   if (suffix === 'status' && method === 'GET') {
     const saved = statusFor(sessionId, fixture);
     return Response.json({
@@ -119,6 +170,41 @@ export function symposiumAgentPreviewResponse(
     return denied();
   }
   if (suffix === 'seats/revise') {
+    const parsedOperation =
+      body.idempotencyKey === undefined
+        ? undefined
+        : SymposiumConfigurationOperationSchema.safeParse({
+            version: 1,
+            actor: 'preview-fixture',
+            action: 'seats/revise',
+            idempotencyKey: body.idempotencyKey,
+            expectedRevision: body.expectedRevision,
+            request: body,
+          });
+    if (parsedOperation && !parsedOperation.success) return denied();
+    const operation = parsedOperation?.success ? parsedOperation.data : undefined;
+    if (operation) {
+      const saved = fixture.configurationReceipts.get(operation.idempotencyKey);
+      if (saved) {
+        const savedOperation = {
+          version: saved.version,
+          actor: saved.actor,
+          action: saved.action,
+          idempotencyKey: saved.idempotencyKey,
+          expectedRevision: saved.expectedRevision,
+          request: saved.request,
+        };
+        if (
+          canonicalConfigurationOperationJson(savedOperation) !==
+          canonicalConfigurationOperationJson(operation)
+        )
+          return Response.json(
+            { error: 'Simulated configuration operation key conflict', simulated: true },
+            { status: 409 },
+          );
+        return Response.json(saved.config);
+      }
+    }
     if (fixture.config.seats.length >= 3)
       return Response.json(
         {
@@ -147,6 +233,14 @@ export function symposiumAgentPreviewResponse(
       authorityRequest: body.authorityRequest,
       color: body.color,
       reasoningEffort: body.reasoningEffort,
+      ...(body.profileSelection && typeof body.profileSelection === 'object'
+        ? {
+            profileBinding: {
+              profileId: (body.profileSelection as { profileId: unknown }).profileId,
+              profileRevision: String((body.profileSelection as { revision: unknown }).revision),
+            },
+          }
+        : {}),
       accountBinding: {
         accountId: account.id,
         accountLabel: account.label,
@@ -157,12 +251,26 @@ export function symposiumAgentPreviewResponse(
     });
     if (!parsed.success || fixture.config.seats.some((seat) => seat.id === parsed.data.id))
       return denied();
-    fixture.config = {
+    const next = SymposiumConfigSchema.safeParse({
       ...fixture.config,
       revision: fixture.config.revision + 1,
       activeSeatCap: 3,
-      seats: [...fixture.config.seats, parsed.data],
-    } as SymposiumConfig;
+      seats: [...fixture.config.seats, simulatedGrantedSeat(parsed.data)],
+    });
+    if (!next.success) return denied();
+    const receipt = operation
+      ? SymposiumConfigurationOperationReceiptSchema.safeParse({
+          ...operation,
+          sessionId,
+          config: next.data,
+          completedAt: Date.now(),
+        })
+      : undefined;
+    if (receipt && !receipt.success) return denied();
+    // The config and its exact proof change together within this synchronous simulation.
+    fixture.config = next.data;
+    if (receipt?.success)
+      fixture.configurationReceipts.set(receipt.data.idempotencyKey, receipt.data);
     return Response.json(fixture.config);
   }
   if (suffix === 'admissions/refresh') return Response.json({ simulated: true, inference: false });
