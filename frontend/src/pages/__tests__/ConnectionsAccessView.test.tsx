@@ -526,3 +526,104 @@ it('keeps mode inspection inside the drawer and returns focus before dismissing'
   expect(screen.queryByRole('dialog')).toBeNull();
   expect(document.activeElement).toBe(trigger);
 });
+
+it('updates an open drawer from refreshed canonical resources and closes a removed account', async () => {
+  const inventory = linkedFacets();
+  let recover!: (value: ConnectionsAccessInventory) => void;
+  vi.mocked(getConnectionsAccess)
+    .mockResolvedValueOnce(inventory)
+    .mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          recover = resolve;
+        }),
+    )
+    .mockResolvedValueOnce({ generatedAt: 3, sources: [], resources: [] });
+  render(
+    <MemoryRouter>
+      <ConnectionsAccessView />
+    </MemoryRouter>,
+  );
+  const row = await screen.findByRole('article', { name: 'Personal account' });
+  fireEvent.click(screen.getByRole('button', { name: 'Refresh access' }));
+  fireEvent.click(within(row).getByRole('button', { name: 'Manage Personal account' }));
+  expect(within(screen.getByRole('dialog')).getByRole('status').textContent).toContain(
+    'Refreshing access',
+  );
+  const updated = structuredClone(inventory);
+  updated.generatedAt = 2;
+  updated.resources[1].status = 'revoked';
+  updated.resources[1].accountIdentity = 'updated@example.test';
+  updated.resources[1].revision = 4;
+  updated.resources[0].details.models = [{ id: 'new-model', label: 'Updated model' }];
+  await act(async () => recover(updated));
+  expect(within(screen.getByRole('dialog')).getByText('Revoked')).toBeTruthy();
+  expect(within(screen.getByRole('dialog')).getByText('updated@example.test')).toBeTruthy();
+  expect(within(screen.getByRole('dialog')).queryByText('Configured Luna')).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Close details' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Refresh access' }));
+  fireEvent.click(
+    within(screen.getAllByRole('article', { name: 'Personal account' })[1]).getByRole('button', {
+      name: 'Manage Personal account',
+    }),
+  );
+  await vi.waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+});
+it('exposes retained stale results inside a drawer after a failed refresh', async () => {
+  let fail!: (error: Error) => void;
+  vi.mocked(getConnectionsAccess)
+    .mockResolvedValueOnce(linkedFacets())
+    .mockImplementationOnce(
+      () =>
+        new Promise((_, reject) => {
+          fail = reject;
+        }),
+    );
+  render(
+    <MemoryRouter>
+      <ConnectionsAccessView />
+    </MemoryRouter>,
+  );
+  const row = await screen.findByRole('article', { name: 'Personal account' });
+  fireEvent.click(screen.getByRole('button', { name: 'Refresh access' }));
+  fireEvent.click(within(row).getByRole('button', { name: 'Manage Personal account' }));
+  await act(async () => fail(new Error('Unavailable')));
+  expect(within(screen.getByRole('dialog')).getByRole('alert').textContent).toContain(
+    'Showing older results',
+  );
+});
+
+it('replaces the linked model catalog during refresh and clears stale mode inspection', async () => {
+  const inventory = linkedFacets();
+  let recover!: (value: ConnectionsAccessInventory) => void;
+  vi.mocked(getConnectionsAccess)
+    .mockResolvedValueOnce(inventory)
+    .mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          recover = resolve;
+        }),
+    );
+  render(
+    <MemoryRouter>
+      <ConnectionsAccessView />
+    </MemoryRouter>,
+  );
+  const row = await screen.findByRole('article', { name: 'Personal account' });
+  fireEvent.click(screen.getByRole('button', { name: 'Refresh access' }));
+  fireEvent.click(within(row).getByRole('button', { name: 'Manage Personal account' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Inspect Agent mode' }));
+  const updated = structuredClone(inventory);
+  updated.generatedAt = 2;
+  updated.resources[0].details.models = [{ id: 'updated', label: 'Updated configured model' }];
+  updated.resources[1].revision = 4;
+  updated.resources[0].personalConnection!.revision = 4;
+  await act(async () => recover(updated));
+  const dialog = screen.getByRole('dialog');
+  expect(within(dialog).getByText('Updated configured model')).toBeTruthy();
+  expect(within(dialog).queryByText('Configured Luna')).toBeNull();
+  expect(within(dialog).queryByRole('heading', { name: 'Agent mode' })).toBeNull();
+  expect(document.activeElement).toBe(
+    within(dialog).getByRole('button', { name: 'Close details' }),
+  );
+});

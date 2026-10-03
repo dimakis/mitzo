@@ -158,7 +158,6 @@ function ResourceDetails({
     </div>
   );
 }
-type ResourceSelection = { resource: AccessResource; catalog?: AccessResource };
 const websiteAccess = [
   {
     label: 'Provider search',
@@ -209,6 +208,9 @@ function AccessDrawer({
       previous?.focus();
     };
   }, []);
+  useEffect(() => {
+    if (drawer.current && !drawer.current.contains(document.activeElement)) close.current?.focus();
+  });
   return createPortal(
     <div
       className="access-drawer-overlay"
@@ -265,12 +267,18 @@ function AccessDrawer({
   );
 }
 export function ConnectionsAccessView() {
-  const [selection, setSelection] = useState<ResourceSelection | null>(null);
+  const [selectedResourceId, setSelectedResourceId] = useState<string | null>(null);
   const [website, setWebsite] = useState<(typeof websiteAccess)[number] | null>(null);
   const [inventory, setInventory] = useState<ConnectionsAccessInventory | null>(null);
   const [error, setError] = useState(false);
   const [attempt, setAttempt] = useState(0);
   const [loading, setLoading] = useState(true);
+  const selection = inventory
+    ? connectionsAccessCards(inventory).find(({ resource }) => resource.id === selectedResourceId)
+    : undefined;
+  useEffect(() => {
+    if (selectedResourceId && inventory && !selection) setSelectedResourceId(null);
+  }, [selectedResourceId, inventory, selection]);
   function refresh() {
     setLoading(true);
     if (!inventory) setError(false);
@@ -297,7 +305,7 @@ export function ConnectionsAccessView() {
     <>
       <main
         className="workspace-page connections-access-page"
-        inert={selection !== null || website !== null}
+        inert={Boolean(selection || website)}
       >
         <div className="access-page-heading">
           <WorkspacePageHeading
@@ -361,7 +369,7 @@ export function ConnectionsAccessView() {
                     </span>
                   </div>
                   <div className="access-row-group">
-                    {resources.map(({ resource, catalog }) => (
+                    {resources.map(({ resource }) => (
                       <article key={resource.id} className="access-row" aria-label={resource.label}>
                         <span className={`access-row-icon ${section}`} aria-hidden="true">
                           {section === 'accounts' ? '✧' : '↗'}
@@ -382,7 +390,7 @@ export function ConnectionsAccessView() {
                         <button
                           className="access-row-action"
                           aria-label={`Manage ${resource.label}`}
-                          onClick={() => setSelection({ resource, catalog })}
+                          onClick={() => setSelectedResourceId(resource.id)}
                         >
                           Manage <span aria-hidden="true">›</span>
                         </button>
@@ -433,13 +441,63 @@ export function ConnectionsAccessView() {
         </p>
       </main>
       {selection && (
-        <AccessDrawer title={selection.resource.label} onClose={() => setSelection(null)}>
-          <ResourceDetails {...selection} />
+        <AccessDrawer title={selection.resource.label} onClose={() => setSelectedResourceId(null)}>
+          {loading && <p role="status">Refreshing access… Showing the last loaded results.</p>}
+          {error && (
+            <div role="alert" className="access-source-notice">
+              <p>Showing older results. Current access could not be refreshed.</p>
+              <button className="workspace-text-link" disabled={loading} onClick={refresh}>
+                Try again
+              </button>
+            </div>
+          )}
+          <ResourceDetails
+            key={`${selection.resource.id}:${inventory?.generatedAt}`}
+            {...selection}
+          />
         </AccessDrawer>
       )}
       {website && (
         <AccessDrawer title={website.label} onClose={() => setWebsite(null)}>
-          <p className="access-policy-description">{website.description}</p>
+          {website.label === 'Sandbox network policies' ? (
+            <div className="access-network-policy">
+              <p className="access-policy-description">
+                Persistent sandbox website access is a separate network policy. Actual destinations
+                depend on the sandbox and its attached connections.
+              </p>
+              <section>
+                <h3>Shared base rules</h3>
+                <p>
+                  Eligible ordinary OpenShell sandboxes share an operator base policy. Other sandbox
+                  types may use different rules.
+                </p>
+              </section>
+              <section>
+                <h3>Account-linked connections</h3>
+                <p>
+                  Connection rules apply only with eligible account assignments and active, verified
+                  access. Network reachability does not grant service actions or widen a
+                  connection’s permissions.
+                </p>
+              </section>
+              <section>
+                <h3>Chat-specific grants</h3>
+                <p>
+                  Additional grants apply to that chat’s sandbox. Approvals for directly opening
+                  public pages are separate.
+                </p>
+              </section>
+              <section>
+                <h3>Effective access not checked</h3>
+                <p>
+                  This overview does not report the destinations a conversation’s sandbox can
+                  currently reach.
+                </p>
+              </section>
+            </div>
+          ) : (
+            <p className="access-policy-description">{website.description}</p>
+          )}
           <p className="workspace-muted">
             Access decisions remain inside the chat and existing management controls.
           </p>

@@ -1004,3 +1004,18 @@
     padding-right: 22px;
   }
 }
+
+.access-network-policy section {
+  margin: 22px 0;
+  padding-top: 16px;
+  border-top: 1px solid var(--workspace-line);
+}
+.access-network-policy h3 {
+  margin: 0 0 7px;
+  font-size: 13px;
+  font-weight: 550;
+}
+.access-network-policy p {
+  margin: 0;
+  color: var(--workspace-muted);
+}
