@@ -671,6 +671,19 @@ directory. Release creation requires the sibling `baseline.json` and changes
 only the new release's copied `.env`, leaving the canonical runtime `.env`
 untouched.
 
+Before builds or service changes, deployment compares the installed LaunchAgent's
+persisted knowledge enrollment with the candidate dotenv/plist settings. An
+existing enrollment cannot silently disappear or change stores, and an enrolled
+candidate must retain its publisher read credential; credential rotation is
+allowed. Fresh and already unenrolled hosts remain valid. For a deliberate
+transition, review the staged settings and run
+`npm run deploy -- --allow-knowledge-enrollment-change` from the accepted release.
+This per-invocation opt-out does not bypass runtime preflight or required
+credential presence. Preserve canonical private host settings between releases;
+[the deployment guard contract](docs/operations/mgmt-knowledge-publication.md#preserve-enrollment-during-deployment)
+explains supported dotenv loading, fixed nonsecret diagnostics and the limits of
+comparing current on-disk configuration.
+
 Pre-commit: husky + lint-staged + commitlint (conventional commits). The hook also runs [gitleaks](https://github.com/gitleaks/gitleaks) if installed, scanning staged changes for secrets. gitleaks is **optional** — the hook skips it gracefully when not found. Install via `brew install gitleaks` (macOS) or see the [gitleaks docs](https://github.com/gitleaks/gitleaks#installing).
 
 ## Tech
