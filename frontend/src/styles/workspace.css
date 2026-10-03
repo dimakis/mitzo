@@ -1259,3 +1259,10 @@
     padding-inline: 20px;
   }
 }
+
+.output-upload-file-actions {
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}

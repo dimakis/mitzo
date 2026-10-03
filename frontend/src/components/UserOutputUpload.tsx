@@ -16,6 +16,7 @@ export function UserOutputUpload({ itemId, onUploaded }: { itemId: string; onUpl
   const trigger = useRef<HTMLButtonElement>(null);
   const close = useRef<HTMLButtonElement>(null);
   const picker = useRef<HTMLInputElement>(null);
+  const camera = useRef<HTMLInputElement>(null);
   const drawer = useRef<HTMLElement>(null);
   const titleId = useId();
   useLayoutEffect(() => {
@@ -37,6 +38,16 @@ export function UserOutputUpload({ itemId, onUploaded }: { itemId: string; onUpl
     if (opened && drawer.current && !drawer.current.contains(document.activeElement))
       close.current?.focus();
   });
+
+  function selectFile(input: HTMLInputElement) {
+    const selected = input.files?.[0];
+    input.value = '';
+    if (!selected) return;
+    setFile(selected);
+    setError(null);
+    setMessage(null);
+    requestId.current = crypto.randomUUID();
+  }
 
   async function upload() {
     if (!file || busy) return;
@@ -184,14 +195,36 @@ export function UserOutputUpload({ itemId, onUploaded }: { itemId: string; onUpl
                         ? `${file.size.toLocaleString()} bytes · Ready to upload`
                         : 'Documents and images · Up to 5 MB'}
                     </p>
-                    <button
-                      className="output-action"
-                      type="button"
-                      disabled={busy}
-                      onClick={() => picker.current?.click()}
-                    >
-                      {file ? 'Change file' : 'Choose file'}
-                    </button>
+                    <div className="output-upload-file-actions">
+                      <button
+                        className="output-action"
+                        type="button"
+                        disabled={busy}
+                        onClick={() => picker.current?.click()}
+                      >
+                        {file ? 'Change file' : 'Choose file'}
+                      </button>
+                      <button
+                        className="output-action"
+                        type="button"
+                        disabled={busy}
+                        onClick={() => camera.current?.click()}
+                      >
+                        <svg
+                          aria-hidden="true"
+                          width="16"
+                          height="16"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="1.5"
+                        >
+                          <path d="M4 6h4l2-3h4l2 3h4a1 1 0 0 1 1 1v13H3V7a1 1 0 0 1 1-1Z" />
+                          <circle cx="12" cy="13" r="4" />
+                        </svg>
+                        Camera
+                      </button>
+                    </div>
                     <input
                       ref={picker}
                       aria-label="File to upload"
@@ -200,13 +233,18 @@ export function UserOutputUpload({ itemId, onUploaded }: { itemId: string; onUpl
                       tabIndex={-1}
                       disabled={busy}
                       accept=".txt,.md,.csv,.json,.pdf,.png,.jpg,.jpeg,.webp,.docx,.xlsx"
-                      onChange={(event) => {
-                        setFile(event.target.files?.[0] ?? null);
-                        event.target.value = '';
-                        setError(null);
-                        setMessage(null);
-                        requestId.current = crypto.randomUUID();
-                      }}
+                      onChange={(event) => selectFile(event.currentTarget)}
+                    />
+                    <input
+                      ref={camera}
+                      aria-label="Photo to upload"
+                      className="output-upload-picker"
+                      type="file"
+                      tabIndex={-1}
+                      disabled={busy}
+                      accept="image/jpeg,image/png,image/webp"
+                      capture="environment"
+                      onChange={(event) => selectFile(event.currentTarget)}
                     />
                     {file && (
                       <span className="output-upload-selection">Selected file: {file.name}</span>

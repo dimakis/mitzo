@@ -137,3 +137,64 @@ it('allows closing during upload without losing its receipt or aborting the requ
   );
   await screen.findByText('Saved revision 3.');
 });
+
+it('chooses a supported camera photo without auto-upload and retries the same bytes', async () => {
+  vi.mocked(apiFetch)
+    .mockRejectedValueOnce(new Error('Offline'))
+    .mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ artifact: { revision: 1 } }),
+    } as Response);
+  render(<UserOutputUpload itemId="work" onUploaded={() => {}} />);
+  fireEvent.click(screen.getByRole('button', { name: 'Upload' }));
+  const camera = screen.getByLabelText('Photo to upload') as HTMLInputElement;
+  expect(camera.accept).toBe('image/jpeg,image/png,image/webp');
+  expect(camera.getAttribute('capture')).toBe('environment');
+  const picker = vi.spyOn(camera, 'click');
+  fireEvent.click(screen.getByRole('button', { name: 'Camera' }));
+  expect(picker).toHaveBeenCalledTimes(1);
+  fireEvent.change(camera, {
+    target: {
+      files: [new File([new Uint8Array([255, 216, 255, 1])], 'photo.jpg', { type: 'image/jpeg' })],
+    },
+  });
+  expect(apiFetch).not.toHaveBeenCalled();
+  expect(screen.getByText('Selected file: photo.jpg')).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: 'Upload file' }));
+  await screen.findByText('Offline');
+  fireEvent.click(screen.getByRole('button', { name: 'Upload file' }));
+  await screen.findByText('Saved revision 1.');
+  const inputs = vi
+    .mocked(apiFetch)
+    .mock.calls.map(([, options]) => JSON.parse(options!.body as string));
+  expect(inputs[0]).toEqual(inputs[1]);
+  expect(inputs[0]).toMatchObject({
+    filename: 'photo.jpg',
+    base64: btoa(String.fromCharCode(255, 216, 255, 1)),
+  });
+});
+
+it('keeps the selected file and retry request when camera capture is canceled', async () => {
+  vi.mocked(apiFetch)
+    .mockRejectedValueOnce(new Error('Offline'))
+    .mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ artifact: { revision: 1 } }),
+    } as Response);
+  render(<UserOutputUpload itemId="work" onUploaded={() => {}} />);
+  fireEvent.click(screen.getByRole('button', { name: 'Upload' }));
+  fireEvent.change(screen.getByLabelText('File to upload'), {
+    target: { files: [new File(['notes'], 'notes.md')] },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Upload file' }));
+  await screen.findByText('Offline');
+  fireEvent.change(screen.getByLabelText('Photo to upload'), { target: { files: [] } });
+  expect(screen.getByText('Selected file: notes.md')).toBeTruthy();
+  expect(screen.getByText('Offline')).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: 'Upload file' }));
+  await screen.findByText('Saved revision 1.');
+  const inputs = vi
+    .mocked(apiFetch)
+    .mock.calls.map(([, options]) => JSON.parse(options!.body as string));
+  expect(inputs[0]).toEqual(inputs[1]);
+});
