@@ -24,6 +24,7 @@ export interface OriginalSymposiumControllerIdentity {
 }
 /** Explicit fresh-owner entry point. No attach/reconstruct command exists. */
 export interface SymposiumCustodianConstructorHooks {
+  observeRetirement?: (state: 'retiring' | 'retired' | 'uncertain', stateParent: string) => void;
   observeOriginalProcess?: OriginalProcessObserver;
   admissionBuildSelection?: OwnedSymposiumHostOptions['admissionBuildSelection'];
   bootstrapTools?: BootstrapTools;
@@ -40,6 +41,7 @@ export interface SymposiumCustodianConstructorHooks {
 }
 export async function runSymposiumCustodian(hooks: SymposiumCustodianConstructorHooks = {}) {
   const {
+    observeRetirement,
     bootstrapTools,
     observeOriginalProcess,
     observeDurableReviewToolResult,
@@ -52,6 +54,8 @@ export async function runSymposiumCustodian(hooks: SymposiumCustodianConstructor
   } = hooks;
   if (observeNativeTurnInput !== undefined && typeof observeNativeTurnInput !== 'boolean')
     throw Error('Native input diagnostic must be a trusted constructor boolean');
+  if (observeRetirement !== undefined && typeof observeRetirement !== 'function')
+    throw Error('Retirement observer must be a trusted constructor callback');
   if (observeOriginalProcess !== undefined && typeof observeOriginalProcess !== 'function')
     throw Error('Process observer must be a trusted constructor callback');
   if (
@@ -280,8 +284,15 @@ export async function runSymposiumCustodian(hooks: SymposiumCustodianConstructor
           }),
       },
       signal,
+      observeRetirement &&
+        ((state) => observeRetirement(state, dirname(host.gateway.stateDirectory))),
     );
   } catch {
+    try {
+      observeRetirement?.('uncertain', dirname(host.gateway.stateDirectory));
+    } catch {
+      /* Keep original resources quarantined. */
+    }
     try {
       host.markShutdownUncertain();
     } catch {
