@@ -88,6 +88,7 @@ export function UserOutputUpload({ itemId, onUploaded }: { itemId: string; onUpl
           }}
         />
       </label>
+      {file && <p>Selected file: {file.name}</p>}
       <label>
         File title (optional)
         <input

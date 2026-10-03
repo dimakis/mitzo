@@ -70,6 +70,7 @@ it('clears native picker value after retaining the File so selecting the same pa
   });
   fireEvent.change(input, { target: { files: [new File(['notes'], 'notes.md')] } });
   expect(input.value).toBe('');
+  expect(screen.getByText('Selected file: notes.md')).toBeTruthy();
   expect((screen.getByRole('button', { name: 'Upload file' }) as HTMLButtonElement).disabled).toBe(
     false,
   );

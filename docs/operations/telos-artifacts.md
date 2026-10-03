@@ -94,3 +94,11 @@ Secure LifeOps intake needs a configured encrypted vault adapter, trusted operat
 ownership, bounded import validation, retention/recovery policy and links to
 sanitized task outputs. No such adapter is implemented by this change; do not
 advertise these user-output uploads as secure raw LifeOps document ingestion.
+
+The LifeOps guard matches only the declared `lifeops` profile (and spelling
+variants). A case filed under `personal` has no trusted LifeOps domain binding
+in the current data model, so this guard does not establish a private intake
+boundary for that case. Do not infer domain membership from titles or block
+all personal tasks. A vault adapter needs a host-owned domain/case binding
+before private intake can be enabled or advertised. The non-sensitive upload
+reminder is a user restriction, not content detection or an encryption guarantee.
