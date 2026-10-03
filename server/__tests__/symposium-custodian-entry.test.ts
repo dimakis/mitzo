@@ -77,9 +77,13 @@ it('requires the exact entry path rather than basename or substring for direct e
   expect(entry.isDirectSymposiumCustodianEntry(undefined)).toBe(false);
 });
 
-it.each([undefined, 'local-854b-b20-v1'] as const)(
-  'passes constructor hooks and optional trusted build %s before any child spawn',
-  async (admissionBuildSelection) => {
+it.each([
+  { admissionBuildSelection: undefined, observeNativeTurnInput: undefined },
+  { admissionBuildSelection: undefined, observeNativeTurnInput: false },
+  { admissionBuildSelection: 'local-854b-b20-v1' as const, observeNativeTurnInput: true },
+])(
+  'passes constructor hooks and optional trusted diagnostic %j before any child spawn',
+  async ({ admissionBuildSelection, observeNativeTurnInput }) => {
     effects.bootstrap.mockClear();
     effects.install.mockClear();
     vi.stubEnv('MITZO_SYMPOSIUM_CUSTODIAN_CONTROLLER', '');
@@ -104,6 +108,7 @@ it.each([undefined, 'local-854b-b20-v1'] as const)(
           observeStartupConfig: startup,
           observePrelaunch: prelaunch,
           observeRuntime: runtime,
+          ...(observeNativeTurnInput === undefined ? {} : { observeNativeTurnInput }),
           ...(admissionBuildSelection === undefined ? {} : { admissionBuildSelection }),
         }),
       ).rejects.toThrow('stop-before-any-child');
@@ -119,6 +124,7 @@ it.each([undefined, 'local-854b-b20-v1'] as const)(
         observeStartupConfig: startup,
         observePrelaunch: prelaunch,
         observeRuntime: runtime,
+        ...(observeNativeTurnInput === undefined ? {} : { observeNativeTurnInput }),
         ...(admissionBuildSelection === undefined ? {} : { admissionBuildSelection }),
       },
       undefined,
@@ -343,3 +349,19 @@ it('permanent creation journal failure fences after the sole original fork witho
   rmSync(dir, { recursive: true });
   expect(output).toHaveBeenCalledWith(expect.stringContaining('resources remain quarantined'));
 });
+
+it.each(['true', 1, null, {}, () => true])(
+  'rejects nonboolean diagnostic before constructor effects: %j',
+  async (value) => {
+    const entry = await import('../symposium-custodian-main.js');
+    const calls = effects.bootstrap.mock.calls.length;
+    const installs = effects.install.mock.calls.length;
+    const forks = effects.fork.mock.calls.length;
+    await expect(
+      entry.runSymposiumCustodian({ observeNativeTurnInput: value } as never),
+    ).rejects.toThrow('Native input diagnostic must be a trusted constructor boolean');
+    expect(effects.bootstrap.mock.calls).toHaveLength(calls);
+    expect(effects.install.mock.calls).toHaveLength(installs);
+    expect(effects.fork.mock.calls).toHaveLength(forks);
+  },
+);

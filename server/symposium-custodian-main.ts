@@ -31,6 +31,8 @@ export interface SymposiumCustodianConstructorHooks {
   observeStartupConfig?: OwnedSymposiumHostOptions['observeStartupConfig'];
   observePrelaunch?: OwnedSymposiumHostOptions['observePrelaunch'];
   observeRuntime?: OwnedSymposiumHostOptions['observeRuntime'];
+  /** Fresh-owner constructor only; never read from environment or persisted config. */
+  readonly observeNativeTurnInput?: OwnedSymposiumHostOptions['observeNativeTurnInput'];
   observeController?: (
     identity: Readonly<OriginalSymposiumControllerIdentity>,
     assertCurrent: () => void,
@@ -44,9 +46,12 @@ export async function runSymposiumCustodian(hooks: SymposiumCustodianConstructor
     observeStartupConfig,
     observePrelaunch,
     observeRuntime,
+    observeNativeTurnInput,
     observeController,
     admissionBuildSelection,
   } = hooks;
+  if (observeNativeTurnInput !== undefined && typeof observeNativeTurnInput !== 'boolean')
+    throw Error('Native input diagnostic must be a trusted constructor boolean');
   if (observeOriginalProcess !== undefined && typeof observeOriginalProcess !== 'function')
     throw Error('Process observer must be a trusted constructor callback');
   if (
@@ -81,6 +86,7 @@ export async function runSymposiumCustodian(hooks: SymposiumCustodianConstructor
       observeStartupConfig,
       observePrelaunch,
       ...(observeRuntime === undefined ? {} : { observeRuntime }),
+      ...(observeNativeTurnInput === undefined ? {} : { observeNativeTurnInput }),
       ...(admissionBuildSelection === undefined ? {} : { admissionBuildSelection }),
     },
     bootstrapTools,

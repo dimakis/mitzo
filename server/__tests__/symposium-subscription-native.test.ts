@@ -505,7 +505,7 @@ it('does not consume identity metadata on a retained legacy image', async () => 
   await seat.cancel();
 });
 
-it.each([false, true])(
+it.each([undefined, false, true])(
   'uses only trusted opt-in final input metadata (enabled=%s)',
   async (enabled) => {
     const input = await fixture();

@@ -27,6 +27,7 @@ type Dependencies = Pick<
   | 'observeStartupConfig'
   | 'observePrelaunch'
   | 'observeRuntime'
+  | 'observeNativeTurnInput'
   | 'admissionBuildSelection'
 >;
 export interface BootstrapTools {
@@ -47,6 +48,11 @@ export async function bootstrapConfiguredSymposiumHost(
   tools: BootstrapTools = defaults,
   observeOriginalProcess?: OriginalProcessObserver,
 ) {
+  if (
+    dependencies.observeNativeTurnInput !== undefined &&
+    typeof dependencies.observeNativeTurnInput !== 'boolean'
+  )
+    throw Error('Native input diagnostic must be a trusted constructor boolean');
   const config = readOwnedSymposiumHostConfig(filename);
   // Read and pin before launch. Import private immutable copies, avoiding a
   // hash-check / CLI-read race on the operator source files.

@@ -499,3 +499,50 @@ it('admits only optional same-network operator supervisor selection in the priva
     OwnedSymposiumConfigSchema.safeParse({ ...f.config, supervisorNetwork: 'network' }).success,
   ).toBe(false);
 });
+
+it.each([undefined, false, true])(
+  'forwards private constructor diagnostic to the original owned host: %s',
+  async (enabled) => {
+    const f = fixture();
+    const facts = new EventStore(join(f.root, 'diagnostic-events.db'));
+    const host = await bootstrapConfiguredSymposiumHost(
+      f.filename,
+      {
+        facts,
+        hostGrants: { verifySeat: vi.fn() },
+        ...(enabled === undefined ? {} : { observeNativeTurnInput: enabled }),
+      },
+      f.tools as unknown as BootstrapTools,
+    );
+    try {
+      expect(host.observeNativeTurnInput).toBe(enabled);
+      expect(readOwnedSymposiumHostConfig(f.filename)).not.toHaveProperty('observeNativeTurnInput');
+      expect(f.tools.launch).toHaveBeenCalledOnce();
+      host.currentProfiles();
+      expect(f.gateway.verifyCustody).toHaveBeenCalled();
+    } finally {
+      host.stop();
+      facts.close();
+    }
+  },
+);
+it('rejects persisted diagnostic selection instead of treating it as a constructor option', () => {
+  const f = fixture();
+  (f.config as unknown as { observeNativeTurnInput: boolean }).observeNativeTurnInput = true;
+  f.save();
+  expect(() => readOwnedSymposiumHostConfig(f.filename)).toThrow();
+  expect(f.tools.launch).not.toHaveBeenCalled();
+});
+it('rejects a nonboolean bootstrap diagnostic before reading configuration or launching', async () => {
+  const f = fixture();
+  await expect(
+    bootstrapConfiguredSymposiumHost(
+      join(f.root, 'absent-config.json'),
+      {
+        observeNativeTurnInput: 'serialized',
+      } as never,
+      f.tools as unknown as BootstrapTools,
+    ),
+  ).rejects.toThrow('Native input diagnostic must be a trusted constructor boolean');
+  expect(f.tools.launch).not.toHaveBeenCalled();
+});

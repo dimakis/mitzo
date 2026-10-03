@@ -1589,3 +1589,29 @@ it('default runtime config has no observation callback', async () => {
     await host.stop();
   }
 });
+
+it.each(['true', 1, null, {}, () => true])(
+  'rejects nonboolean diagnostic before owned gateway effects: %j',
+  async (value) => {
+    const f = fixture();
+    await expect(
+      createOwnedSymposiumHost({ ...f.options, observeNativeTurnInput: value } as never, f.launch),
+    ).rejects.toThrow('Native input diagnostic must be a trusted constructor boolean');
+    expect(f.launch).not.toHaveBeenCalled();
+  },
+);
+it('captures validated diagnostic selection before asynchronous gateway setup', async () => {
+  const f = fixture();
+  const options = { ...f.options, observeNativeTurnInput: true };
+  f.launch.mockImplementation(async () => {
+    (options as unknown as { observeNativeTurnInput: unknown }).observeNativeTurnInput =
+      'serialized';
+    return f.gateway as unknown as OwnedSymposiumGateway;
+  });
+  const host = await createOwnedSymposiumHost(options, f.launch);
+  try {
+    expect(host.observeNativeTurnInput).toBe(true);
+  } finally {
+    host.stop();
+  }
+});

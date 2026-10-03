@@ -122,6 +122,8 @@ export interface OwnedSymposiumHostOptions {
   observeStartupConfig?: OpenAiCodexSeatInput['observeStartupConfig'];
   observePrelaunch?: OpenAiCodexSeatInput['observePrelaunch'];
   observeRuntime?: OpenShellRuntimeConfig['observeRuntime'];
+  /** Trusted constructor opt-in only; absent preserves the ordinary host path. */
+  readonly observeNativeTurnInput?: boolean;
   criterionChecks?: readonly CheckDefinition[];
   publicationCredentials?: readonly PublicationCredentialRegistration[];
   gateway: OwnedSymposiumGatewayOptions;
@@ -157,6 +159,9 @@ export async function createOwnedSymposiumHost(
     execution: { timeout: number; input?: Buffer },
   ) => Promise<string>,
 ) {
+  const observeNativeTurnInput = options.observeNativeTurnInput;
+  if (observeNativeTurnInput !== undefined && typeof observeNativeTurnInput !== 'boolean')
+    throw Error('Native input diagnostic must be a trusted constructor boolean');
   if (
     options.admissionBuildSelection !== undefined &&
     options.admissionBuildSelection !== 'local-854b-b20-v1'
@@ -1344,6 +1349,7 @@ export async function createOwnedSymposiumHost(
           });
         }),
       currentProfiles,
+      ...(observeNativeTurnInput === undefined ? {} : { observeNativeTurnInput }),
       observeStartupConfig,
       observePrelaunch,
       observeDurableReviewToolResult,
