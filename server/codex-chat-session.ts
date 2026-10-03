@@ -960,7 +960,34 @@ async function openCodexChatBound(
           },
           beforeReconnect: async () => {
             await sharedOpenShellLifecycleCoordinator.admit(options.conversationId, async () => {
-              const recovered = await runtimeManager!.ensure(options.conversationId, signal);
+              let recovered = await runtimeManager!.ensure(options.conversationId, signal);
+              if (recovered.sandboxId && configuredRuntime) {
+                const selected = await prepareRetainedRuntimeMigration({
+                  conversationId: options.conversationId,
+                  binding: options.binding,
+                  store: privateStorage,
+                  source: {
+                    runtime: { ...recovered, sandboxId: recovered.sandboxId },
+                    route: selectedOpenShellAccountRoute(options),
+                  },
+                  config: configuredRuntime,
+                  manager: runtimeManager!,
+                  privateDirectory: codexPrivateDirectory(),
+                  signal,
+                });
+                recovered = selected.runtime;
+                runtimeManager = runtimeManager!.forSandbox(selected.runtime.sandboxName);
+                const migration = privateStorage.readRuntimeMigration(
+                  options.conversationId,
+                  options.binding,
+                );
+                if (migration?.phase === 'committed')
+                  registerMigratedOpenShellLifecycle(
+                    options.conversationId,
+                    options.binding,
+                    migration,
+                  );
+              }
               await restoreOpenShellLifecycleIfNeeded(
                 options.conversationId,
                 recovered,
@@ -970,6 +997,7 @@ async function openCodexChatBound(
                 true,
               );
               Object.assign(managedOpenShell!, recovered);
+              if (openShellClient) Object.assign(openShellClient, recovered);
               persistArtifactRuntime();
             });
             if (managedCapabilityConnection && options.binding?.accountId)

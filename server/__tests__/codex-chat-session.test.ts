@@ -74,6 +74,7 @@ import {
   waitForCodexRuntimeBySessionId,
 } from '../codex-chat-session.js';
 import { OpenShellRuntimeManager } from '../openshell-runtime.js';
+import * as migrationAdapter from '../openshell-runtime-migration-adapter.js';
 import * as lifecycleController from '../openshell-lifecycle-controller.js';
 import * as knowledgeStoreConfig from '../knowledge-store-config.js';
 import { setConnectionsRuntime } from '../connections-runtime.js';
@@ -1009,12 +1010,33 @@ it('preserves image attachments while binding a trusted capability, forcing appr
       ...(await ensure.mock.results[0].value),
       sandboxId: 'recovered-resource',
     });
+    const migration = vi
+      .spyOn(migrationAdapter, 'prepareRetainedRuntimeMigration')
+      .mockImplementationOnce(async (input) => {
+        // Reconnect must select the preserved candidate before persisting routing
+        // or opening a provider transport against the checkpointed old source.
+        expect(mocks.setArtifactRuntime).not.toHaveBeenCalled();
+        return {
+          ...input.source,
+          runtime: { ...input.source.runtime, sandboxName: 'mitzo-migrate-reconnected' },
+        };
+      });
     await beforeReconnect();
+    expect(migration).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({
+        source: expect.objectContaining({
+          runtime: expect.objectContaining({ sandboxId: 'recovered-resource' }),
+        }),
+      }),
+    );
     expect(mocks.setArtifactRuntime).toHaveBeenLastCalledWith(
       'capability-conversation',
       expect.objectContaining({ accountId: 'work' }),
       expect.objectContaining({
-        runtime: expect.objectContaining({ sandboxId: 'recovered-resource' }),
+        runtime: expect.objectContaining({
+          sandboxId: 'recovered-resource',
+          sandboxName: 'mitzo-migrate-reconnected',
+        }),
       }),
     );
     expect(recoverPendingForConversation).toHaveBeenCalledTimes(2);
