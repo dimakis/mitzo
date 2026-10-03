@@ -1,4 +1,4 @@
-import { useId, useState } from 'react';
+import { useId, useLayoutEffect, useRef, useState } from 'react';
 import type { AccessResource } from '../types/connections-access';
 import {
   connectionModes,
@@ -21,12 +21,20 @@ export function ConnectionsModeDetails({
   const [mode, setMode] = useState<ConnectionMode | null>(null);
   const model = models.find((item) => item.id === modelId) ?? models[0];
   const selectId = useId();
+  const backButton = useRef<HTMLButtonElement>(null);
+  const modeButtons = useRef<Partial<Record<ConnectionMode, HTMLButtonElement | null>>>({});
+  const lastMode = useRef<ConnectionMode | null>(null);
+  useLayoutEffect(() => {
+    if (mode) backButton.current?.focus();
+    else if (lastMode.current) modeButtons.current[lastMode.current]?.focus();
+  }, [mode]);
   return (
     <section
       className="access-modes"
       aria-label={`Model and mode reference for ${resource.label}`}
       onKeyDown={(event) => {
         if (event.key === 'Escape' && mode) {
+          event.preventDefault();
           event.stopPropagation();
           setMode(null);
         }
@@ -56,7 +64,12 @@ export function ConnectionsModeDetails({
       </p>
       {mode ? (
         <div className="access-mode-detail">
-          <button type="button" className="workspace-text-link" onClick={() => setMode(null)}>
+          <button
+            ref={backButton}
+            type="button"
+            className="workspace-text-link"
+            onClick={() => setMode(null)}
+          >
             Back to modes
           </button>
           <h3>{connectionModes.find((item) => item.id === mode)?.label} mode</h3>
@@ -87,7 +100,13 @@ export function ConnectionsModeDetails({
                 type="button"
                 key={item.id}
                 aria-label={`Inspect ${item.label} mode`}
-                onClick={() => setMode(item.id)}
+                ref={(element) => {
+                  modeButtons.current[item.id] = element;
+                }}
+                onClick={() => {
+                  lastMode.current = item.id;
+                  setMode(item.id);
+                }}
               >
                 <strong>{item.label}</strong>
                 <span>{item.summary}</span>

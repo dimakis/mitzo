@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { afterEach, expect, it } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
 import type { AccessResource } from '../../types/connections-access';
 import { ConnectionsModeDetails } from '../ConnectionsModeDetails';
 
@@ -69,4 +69,38 @@ it('uses paired catalog models and explains an absent catalog without inventing 
   expect(screen.getByText('No configured models reported.')).toBeTruthy();
   fireEvent.click(screen.getByRole('button', { name: /Inspect Ask mode/ }));
   expect(screen.getByText('Work API · Model not reported')).toBeTruthy();
+});
+it('keeps keyboard focus inside mode inspection and restores it on Back and Escape', () => {
+  const outerEscape = vi.fn();
+  render(
+    <div onKeyDown={outerEscape}>
+      <ConnectionsModeDetails resource={account} />
+    </div>,
+  );
+  const ask = screen.getByRole('button', { name: 'Inspect Ask mode' });
+  ask.focus();
+  fireEvent.click(ask);
+  const back = screen.getByRole('button', { name: 'Back to modes' });
+  expect(document.activeElement).toBe(back);
+  fireEvent.click(back);
+  expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Inspect Ask mode' }));
+  const auto = screen.getByRole('button', { name: 'Inspect Auto mode' });
+  fireEvent.click(auto);
+  fireEvent.keyDown(screen.getByRole('button', { name: 'Back to modes' }), { key: 'Escape' });
+  expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Inspect Auto mode' }));
+  expect(outerEscape).not.toHaveBeenCalled();
+});
+it('keeps read-only shell commands unavailable in Ask and preserves required approvals in Auto', () => {
+  render(<ConnectionsModeDetails resource={account} />);
+  fireEvent.click(screen.getByRole('button', { name: 'Inspect Ask mode' }));
+  expect(
+    screen.getByText(
+      'Shell commands are unavailable in Ask, including commands intended only to read.',
+    ),
+  ).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: 'Back to modes' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Inspect Auto mode' }));
+  expect(
+    screen.getByText(/Required approvals under runtime and service policy still apply/),
+  ).toBeTruthy();
 });

@@ -22,7 +22,7 @@ export function connectionModePolicy(mode: ConnectionMode) {
       label: 'Commands',
       text:
         mode === 'ask'
-          ? 'Commands are allowed only when classified as known read-only tools.'
+          ? 'Shell commands are unavailable in Ask, including commands intended only to read.'
           : mode === 'agent'
             ? 'Elevated commands require approval under general Mitzo policy.'
             : 'Elevated commands may be automatically allowed under general Mitzo policy.',
@@ -32,7 +32,7 @@ export function connectionModePolicy(mode: ConnectionMode) {
       text:
         mode === 'ask'
           ? 'Tools outside the known read-only set are unavailable under general Mitzo policy.'
-          : 'Unknown tools still require approval. Tool and workspace restrictions may require further decisions.',
+          : 'Unknown tools still require approval. Required approvals under runtime and service policy still apply. Tool and workspace restrictions may require further decisions.',
     },
     {
       label: 'Network',
@@ -45,4 +45,4 @@ export function connectionModePolicy(mode: ConnectionMode) {
   ];
 }
 export const connectionRuntimeNotes =
-  'Runtime and model compatibility are not reported by this inventory. If a chat uses Claude SDK, Ask uses SDK plan mode and Agent/Auto use SDK default mode with Mitzo policy. Host Codex tools enforce Mitzo policy; native read-only settings alone do not prevent edits. OpenShell Codex does not support Ask at startup or when switching modes; it accepts Agent and Auto.';
+  'OpenShell Codex does not support Ask. Other runtimes may differ in available tools and required approvals. Actual runtime and model support has not been checked.';
