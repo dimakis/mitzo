@@ -1019,3 +1019,243 @@
   margin: 0;
   color: var(--workspace-muted);
 }
+
+/* Task outputs share the Connections row and drawer presentation. */
+.todo-detail-outputs {
+  color: var(--workspace-text);
+}
+.output-section-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+.output-section-heading h2 {
+  margin: 0;
+  color: var(--workspace-text);
+  font-size: 14px;
+  font-weight: 550;
+  letter-spacing: 0;
+  text-transform: none;
+}
+.output-section-heading > div > p {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--workspace-muted);
+}
+.output-upload-control {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+}
+.output-upload-control p {
+  margin: 0;
+  font-size: 12px;
+}
+.todo-detail-outputs .output-action,
+.output-upload-drawer .output-action {
+  min-height: 38px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border: 1px solid color-mix(in srgb, var(--workspace-accent) 38%, var(--workspace-line));
+  border-radius: 8px;
+  background: var(--workspace-bg);
+  color: var(--workspace-accent);
+  font-size: 12px;
+  font-weight: 550;
+  cursor: pointer;
+}
+.output-action:hover:not(:disabled) {
+  background: var(--workspace-panel);
+}
+.output-action:focus-visible,
+.output-upload-title input:focus-visible {
+  outline: 2px solid var(--workspace-accent);
+  outline-offset: 3px;
+}
+.output-action:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.output-upload-trigger span {
+  font-size: 18px;
+  line-height: 1;
+}
+.todo-detail-outputs .todo-detail-output-list {
+  border: 1px solid var(--workspace-line);
+  border-radius: 12px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--workspace-bg) 78%, var(--workspace-panel));
+}
+.todo-detail-outputs .todo-detail-output-list li {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: center;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--workspace-line);
+}
+.todo-detail-outputs .todo-detail-output-list li:last-child {
+  border-bottom: 0;
+}
+.output-file-icon {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 36px;
+  border-radius: 9px;
+  background: var(--workspace-panel);
+  color: var(--workspace-accent);
+  flex-shrink: 0;
+}
+.output-row-copy {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+.output-row-copy strong {
+  font-size: 13px;
+  font-weight: 550;
+}
+.todo-detail-outputs .todo-detail-output-filename,
+.todo-detail-outputs .todo-detail-output-meta,
+.output-storage-note {
+  font-size: 11px;
+  color: var(--workspace-muted);
+}
+.output-upload-confirmation {
+  color: var(--workspace-accent);
+}
+.output-upload-error {
+  color: var(--danger, #bf4545);
+}
+.output-upload-form {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+.output-upload-body {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+.output-upload-body p {
+  margin: 0;
+}
+.output-upload-intro {
+  color: var(--workspace-muted);
+}
+.output-upload-file-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 26px 20px;
+  border: 1px dashed color-mix(in srgb, var(--workspace-accent) 38%, var(--workspace-line));
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--workspace-bg) 78%, var(--workspace-panel));
+  text-align: center;
+}
+.output-upload-file-card .output-file-icon {
+  width: 44px;
+  height: 44px;
+  font-size: 26px;
+}
+.output-upload-file-card strong {
+  max-width: 100%;
+  font-size: 14px;
+  font-weight: 550;
+  overflow-wrap: anywhere;
+}
+.output-upload-file-card p {
+  color: var(--workspace-muted);
+  font-size: 12px;
+}
+.output-upload-picker {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+.output-upload-selection {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+.output-upload-title {
+  display: grid;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 550;
+}
+.output-upload-title input {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  padding: 11px 12px;
+  border: 1px solid var(--workspace-line);
+  border-radius: 8px;
+  background: var(--workspace-bg);
+  color: var(--workspace-text);
+  font: inherit;
+  font-weight: 400;
+}
+.output-upload-title input::placeholder {
+  color: var(--workspace-muted);
+}
+.output-upload-note,
+.output-upload-privacy {
+  color: var(--workspace-muted);
+  font-size: 12px;
+}
+.output-upload-body .output-upload-privacy {
+  padding-top: 16px;
+  border-top: 1px solid var(--workspace-line);
+}
+.output-upload-footer {
+  padding: 18px 28px;
+  border-top: 1px solid var(--workspace-line);
+}
+.output-upload-footer .output-upload-submit {
+  width: 100%;
+  min-height: 44px;
+  color: var(--workspace-bg);
+  background: var(--workspace-accent);
+  border-color: var(--workspace-accent);
+}
+.output-upload-footer .output-upload-submit:hover:not(:disabled) {
+  filter: brightness(1.08);
+  background: var(--workspace-accent);
+}
+@media (max-width: 600px) {
+  .todo-detail-outputs .todo-detail-output-list li {
+    grid-template-columns: 34px minmax(0, 1fr);
+    gap: 10px 12px;
+    padding: 14px;
+  }
+  .todo-detail-outputs .todo-detail-output-actions {
+    grid-column: 2;
+  }
+  .todo-detail-outputs .output-action {
+    min-height: 44px;
+  }
+  .output-section-heading {
+    align-items: flex-start;
+  }
+  .output-upload-control {
+    max-width: 52%;
+  }
+  .output-upload-footer {
+    padding-inline: 20px;
+  }
+}
