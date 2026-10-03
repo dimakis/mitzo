@@ -82,6 +82,24 @@ it('uploads without an active model session for Telos and LifeOps, preserves rev
   expect((await upload({ requestId: 'lifeops-upload' }, 'lifeops')).status).toBe(200);
   expect((await upload({ requestId: 'missing-upload' }, 'missing')).status).toBe(404);
 });
+it('creates a revision for each new explicit upload and pins delayed retries to their original receipt', async () => {
+  const { upload, app } = setup();
+  const first = await upload();
+  const second = await upload({ requestId: 'request-two' });
+  expect(first.status).toBe(200);
+  expect(second.status).toBe(200);
+  expect(second.body.artifact).toMatchObject({
+    id: first.body.artifact.id,
+    revision: 2,
+    sha256: first.body.artifact.sha256,
+    sourceKind: 'user_upload',
+    sessionId: 'user-upload:operator-a',
+  });
+  expect((await upload()).body.artifact).toEqual(first.body.artifact);
+  expect((await upload({ requestId: 'request-two' })).body.artifact).toEqual(second.body.artifact);
+  const listed = await request(app).get('/api/telos/items/work/artifacts');
+  expect(listed.body.artifacts).toEqual([second.body.artifact]);
+});
 it('rejects traversal/control names, active types, bad binary signatures, malformed encoding and oversized decoded bytes', async () => {
   const { upload } = setup();
   for (const input of [

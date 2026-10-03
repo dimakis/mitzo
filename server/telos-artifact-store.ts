@@ -192,7 +192,11 @@ export class TelosArtifactStore {
             'SELECT * FROM telos_artifact_revisions WHERE id=? ORDER BY revision DESC LIMIT 1',
           )
           .get(id) as ArtifactRow | undefined;
+        // New authenticated operator requests represent explicit revision intent.
+        // Their retries were resolved above; agent saves retain content deduplication.
+        const explicitUpload = input.sessionId.startsWith('user-upload:') && !!input.requestId;
         if (
+          !explicitUpload &&
           previous?.sha256 === sha256 &&
           previous.title === input.title &&
           previous.session_id === input.sessionId &&
