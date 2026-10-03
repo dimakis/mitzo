@@ -12,21 +12,26 @@ afterEach(async () => {
   for (const root of roots) await rm(root, { recursive: true, force: true });
   roots.length = 0;
 });
-async function setup() {
+async function setup(
+  policy: { excludePaths?: string[]; excludeHiddenPaths?: boolean } = {},
+  publishedPath = 'AGENTS.md',
+) {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'mitzo-publication-')));
   roots.push(root);
   const source = {
     id: 'notes',
     url: 'https://example.com/notes.git',
     ref: 'refs/heads/main',
-    paths: ['AGENTS.md'],
+    paths: publishedPath.includes('/') ? ['memory/'] : ['AGENTS.md'],
+    ...policy,
   };
   const revision = 'a'.repeat(40);
   const directory = join(root, 'notes', 'snapshot-' + revision);
   await mkdir(join(directory, 'source'), { recursive: true });
   const content = '# Accepted instructions';
   const context = '{}';
-  await writeFile(join(directory, 'source/AGENTS.md'), content);
+  await mkdir(join(directory, 'source', publishedPath, '..'), { recursive: true });
+  await writeFile(join(directory, 'source', publishedPath), content);
   await writeFile(join(directory, 'context.json'), context);
   const manifest = {
     schema: 'contexgin-portable-v1',
@@ -35,7 +40,8 @@ async function setup() {
     sourceIdentity: hash(JSON.stringify(source)),
     revision,
     paths: source.paths,
-    files: [{ path: 'AGENTS.md', sha256: hash(content), bytes: Buffer.byteLength(content) }],
+    ...policy,
+    files: [{ path: publishedPath, sha256: hash(content), bytes: Buffer.byteLength(content) }],
     contextSha256: hash(context),
   };
   const raw = JSON.stringify(manifest);
@@ -46,10 +52,11 @@ async function setup() {
     .mockResolvedValue(new Response(JSON.stringify({ current: selection }), { status: 200 }));
   const seed = join(root, 'bundle/mgmt');
   await mkdir(seed, { recursive: true });
-  await writeFile(join(seed, 'AGENTS.md'), content);
+  await mkdir(join(seed, publishedPath, '..'), { recursive: true });
+  await writeFile(join(seed, publishedPath), content);
   await writeFile(
     join(seed, '..', 'baseline.json'),
-    JSON.stringify({ files: { 'AGENTS.md': { sha256: hash(content), mode: '0644' } } }),
+    JSON.stringify({ files: { [publishedPath]: { sha256: hash(content), mode: '0644' } } }),
   );
   const adapt = vi
     .fn()
@@ -77,6 +84,52 @@ it('uses authenticated canonical reconciliation and passes only a verified exact
   });
   expect(s.adapt.mock.calls[0][0]).toEqual(s.selection);
 });
+it('accepts the publisher optional exclusion policy for a complete matching adapter view', async () => {
+  const s = await setup(
+    { excludePaths: ['memory/scripts/', 'memory/manifest/', 'absent/'], excludeHiddenPaths: true },
+    'memory/accepted.md',
+  );
+  await expect(s.bridge.reconcile(new AbortController().signal)).resolves.toHaveProperty(
+    'sourceCommit',
+    s.selection.revision,
+  );
+});
+it.each([
+  'memory/scripts/leak.md',
+  'memory/manifest/leak.md',
+  'memory/private.md',
+  'memory/.hidden.md',
+  'memory/.private/leak.md',
+])('rejects excluded publisher path %s before adapting', async (path) => {
+  const s = await setup(
+    {
+      excludePaths: ['memory/scripts/', 'memory/manifest/', 'memory/private.md'],
+      excludeHiddenPaths: true,
+    },
+    path,
+  );
+  await expect(s.bridge.reconcile(new AbortController().signal)).rejects.toThrow(
+    'Publication files differ from configured source paths',
+  );
+  expect(s.adapt).not.toHaveBeenCalled();
+});
+it.each(['excludePaths', 'excludeHiddenPaths'])(
+  'rejects a changed manifest %s even when its files still match',
+  async (field) => {
+    const s = await setup({ excludePaths: ['absent/'], excludeHiddenPaths: true });
+    const manifest = JSON.parse(await readFile(join(s.directory, 'manifest.json'), 'utf8'));
+    manifest[field] = field === 'excludePaths' ? [] : false;
+    const raw = JSON.stringify(manifest);
+    await writeFile(join(s.directory, 'manifest.json'), raw);
+    s.fetcher.mockResolvedValue(
+      new Response(JSON.stringify({ current: { ...s.selection, manifestSha256: hash(raw) } })),
+    );
+    await expect(s.bridge.reconcile(new AbortController().signal)).rejects.toThrow(
+      'Publication provenance differs from configured source',
+    );
+    expect(s.adapt).not.toHaveBeenCalled();
+  },
+);
 it('blocks admission on publisher failure without using an older publication', async () => {
   const s = await setup();
   s.fetcher.mockResolvedValue(new Response('unavailable', { status: 503 }));

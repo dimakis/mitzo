@@ -12,6 +12,14 @@ const safePath = (path: string) =>
   !path.includes('\0') &&
   !isAbsolute(path) &&
   !path.split('/').some((part) => !part || part === '.' || part === '..');
+const policyPath = z
+  .string()
+  .refine((path) => safePath(path.endsWith('/') ? path.slice(0, -1) : path));
+const SourcePolicy = z.object({
+  paths: z.array(policyPath).min(1),
+  excludePaths: z.array(policyPath).optional(),
+  excludeHiddenPaths: z.boolean().optional(),
+});
 const Selection = z.object({ revision, directory: z.string(), manifestSha256: sha }).strict();
 export type PublishedKnowledgeSelection = z.infer<typeof Selection>;
 export interface KnowledgeBundleSelection {
@@ -26,6 +34,8 @@ export interface PublishedKnowledgeSource {
   ref: string;
   githubRepository?: string;
   paths: string[];
+  excludePaths?: string[];
+  excludeHiddenPaths?: boolean;
 }
 export interface KnowledgePublicationBridgeConfig {
   publisherUrl: string;
@@ -42,7 +52,7 @@ const Manifest = z
     acceptedRef: z.string(),
     sourceIdentity: sha,
     revision,
-    paths: z.array(z.string()),
+    ...SourcePolicy.shape,
     files: z
       .array(
         z
@@ -69,6 +79,8 @@ export class KnowledgePublicationBridge {
     ) => Promise<Omit<KnowledgeBundleSelection, 'baselineSha256'>>,
     private readonly fetcher: typeof fetch = fetch,
   ) {
+    // Validate without reconstructing source: property order belongs to publisher identity.
+    SourcePolicy.parse(config.source);
     this.config = structuredClone(config);
     const url = new URL(config.publisherUrl);
     if (
@@ -171,7 +183,9 @@ export class KnowledgePublicationBridge {
       manifest.source !== source.id ||
       manifest.acceptedRef !== source.ref ||
       manifest.sourceIdentity !== hash(JSON.stringify(source)) ||
-      JSON.stringify(manifest.paths) !== JSON.stringify(source.paths)
+      JSON.stringify(manifest.paths) !== JSON.stringify(source.paths) ||
+      JSON.stringify(manifest.excludePaths) !== JSON.stringify(source.excludePaths) ||
+      manifest.excludeHiddenPaths !== source.excludeHiddenPaths
     )
       throw new Error('Publication provenance differs from configured source');
     const selected = (path: string, policy: string) =>
@@ -180,7 +194,10 @@ export class KnowledgePublicationBridge {
       !manifest.files.length ||
       manifest.files.some(
         (file) =>
-          !file.path.endsWith('.md') || !source.paths.some((policy) => selected(file.path, policy)),
+          !file.path.endsWith('.md') ||
+          !source.paths.some((policy) => selected(file.path, policy)) ||
+          source.excludePaths?.some((policy) => selected(file.path, policy)) ||
+          (source.excludeHiddenPaths && file.path.split('/').some((part) => part.startsWith('.'))),
       ) ||
       source.paths.some((policy) => !manifest.files.some((file) => selected(file.path, policy)))
     )
