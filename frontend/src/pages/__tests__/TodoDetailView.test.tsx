@@ -183,6 +183,37 @@ describe('TodoDetailView', () => {
     open.mockRestore();
   });
 
+  it('clears an artifact share error when the user retries successfully', async () => {
+    vi.mocked(shareTelosArtifact)
+      .mockRejectedValueOnce(new Error('Tap Share again to open the share sheet.'))
+      .mockResolvedValueOnce(true);
+    mockLocation.mockReturnValue({
+      state: {
+        item: {
+          ...fullItem,
+          links: [
+            {
+              type: 'artifact',
+              url: '/api/telos/artifacts/' + 'a'.repeat(32),
+              title: 'Retry artifact',
+            },
+          ],
+        },
+      },
+    });
+    render(
+      <MemoryRouter>
+        <TodoDetailView />
+      </MemoryRouter>,
+    );
+    fireEvent.click(screen.getByText('Retry artifact'));
+    await screen.findByText('Tap Share again to open the share sheet.');
+    fireEvent.click(screen.getByText('Retry artifact'));
+    await waitFor(() =>
+      expect(screen.queryByText('Tap Share again to open the share sheet.')).toBeNull(),
+    );
+  });
+
   it('renders durable links and opens repo-relative links in the file viewer', () => {
     render(
       <MemoryRouter>

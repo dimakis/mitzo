@@ -120,6 +120,7 @@ export function TodoDetailView() {
 
   function handleLinkClick(url: string) {
     if (/^\/api\/telos\/artifacts\/[a-f0-9]{32}(?:\?revision=[1-9]\d*)?$/.test(url)) {
+      setPromoteError(null);
       void shareTelosArtifact(url).catch((error: unknown) => {
         setPromoteError(error instanceof Error ? error.message : 'Artifact download failed');
       });
