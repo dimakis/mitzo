@@ -1328,6 +1328,10 @@ async function openCodexChatBound(
     }
     signal.throwIfAborted();
     runtimes.set(options.session, runtime);
+    // Startup protects ensure/restore and thread ownership registration. Initial
+    // send reacquires this same coordinator for runtime and knowledge admission;
+    // release setup first so neither callback waits on its own startup fence.
+    startupReservation?.();
     if (!options.reattachOnly)
       await runtime.send({
         id: options.messageId,
