@@ -47,7 +47,16 @@ if [ -n "$RELEASE_SEED" ]; then
     echo "Refusing release: MITZO_RELEASE_SEED has no sibling baseline.json: $RELEASE_SEED" >&2
     exit 1
   }
-  RELEASE_SEED="$(cd "$RELEASE_SEED" && pwd -P)"
+  # Keep the private publisher's stable current pointer. Consumers resolve and
+  # snapshot it per selection; resolving it here would freeze all future turns.
+  RELEASE_SEED="$(cd "$RELEASE_SEED" && pwd -L)"
+  if node -e 'const m=require(process.argv[1]); process.exit(m.runtime.knowledgeSchemaVersion===1 ? 0 : 1)' \
+      "$SOURCE_ROOT/infra/openshell/production-stack.lock.json"; then
+    [ -f "$RELEASE_SEED/../publication.json" ] || {
+      echo 'Refusing release: dynamic seed has no publisher record; after merging the runtime lock, run the accepted MGMT publisher and select its current/mgmt view' >&2
+      exit 1
+    }
+  fi
 fi
 SHORT_COMMIT="$(printf '%s' "$SOURCE_COMMIT" | cut -c1-12)"
 REF_SLUG="$(printf '%s' "$REMOTE_REF" | sed 's|^origin/||; s|[^A-Za-z0-9._-]|-|g')"
