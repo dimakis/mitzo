@@ -418,7 +418,7 @@ export function handleReconnect(
             cursor: reconnectState.cursor,
             cursorValid: reconnectState.cursorValid,
             ...(offerId ? { offerId } : {}),
-            state: toClientState(durableSession.state),
+            state: reconnectState.clientState ?? toClientState(durableSession.state),
             internalState: durableSession.state,
             ...(durableSession.executionId && durableSession.executionPhase
               ? {
@@ -595,7 +595,7 @@ export async function handleSwitchSession(
         ctx.connRegistry.get(connectionId)?.transport.send({
           type: 'session_state_changed',
           sessionId: msg.sessionId,
-          state: toClientState(currentState),
+          state: ctx.eventStore.getSessionClientState(msg.sessionId) ?? toClientState(currentState),
           internalState: currentState,
           timestamp: Date.now(),
         });

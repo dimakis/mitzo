@@ -15,6 +15,27 @@ describe('EventStore', () => {
     store.close();
   });
 
+  it('keeps a completed turn idle when its transport reattaches', () => {
+    store.upsertSession({ sessionId: 'completed' });
+    store.setSessionState('completed', 'ACTIVE');
+    store.append('completed', 'user_message', { messageId: 'input' });
+    store.append('completed', 'message_start', { messageId: 'reply' });
+    store.append('completed', 'session_end', { sessionId: 'completed' });
+    store.setSessionState('completed', 'DETACHED');
+    store.setSessionState('completed', 'ACTIVE', { reason: 'reattach' });
+    expect(store.getSessionEvents('completed').at(-1)?.payload.state).toBe('idle');
+    expect(store.captureReconnectState('completed', 0).clientState).toBe('idle');
+    store.append('completed', 'user_message', { messageId: 'next-input' });
+    expect(store.captureReconnectState('completed', 0).clientState).toBe('running');
+    store.append('completed', 'session_end', { sessionId: 'completed' });
+    store.append('completed', 'message_start', {
+      messageId: 'seat-reply',
+      seatId: 'seat-2',
+      symposiumProvenance: { seatId: 'seat-2' },
+    });
+    expect(store.captureReconnectState('completed', 0).clientState).toBe('idle');
+  });
+
   describe('constructor', () => {
     it('creates tables on initialization', () => {
       const seq = store.append('sess-1', 'message_start', { messageId: 'm1' });

@@ -108,6 +108,7 @@ function mockEventStore() {
     getSession: vi.fn().mockReturnValue(null),
     upsertSession: vi.fn(),
     getSessionState: vi.fn().mockReturnValue('ACTIVE'),
+    getSessionClientState: vi.fn().mockReturnValue(null),
     setSessionState: vi.fn(),
   };
   store.captureReconnectState.mockImplementation(
@@ -326,6 +327,45 @@ describe('handleReconnect', () => {
       providerAttempts: [],
       pendingPermissions: [],
     });
+  });
+
+  it('keeps a completed attached turn idle in reconnect and switch snapshots', async () => {
+    const eventStore = mockEventStore();
+    eventStore.getSession.mockReturnValue({ sessionId: 'sess-1', state: 'ACTIVE' });
+    eventStore.getSessionClientState.mockReturnValue('idle');
+    eventStore.captureReconnectState.mockReturnValue({
+      session: { sessionId: 'sess-1', state: 'ACTIVE' },
+      clientState: 'idle',
+      cursor: 42,
+      cursorValid: true,
+      providerAttempts: [],
+      events: [],
+    });
+    const ctx = createContext({
+      eventStore: eventStore as unknown as V2HandlerContext['eventStore'],
+    });
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+    handleReconnect(
+      'c1',
+      { type: 'reconnect', sessions: [{ sessionId: 'sess-1', lastSeq: 42 }] },
+      ctx,
+    );
+    expect(transport.sent).toContainEqual(
+      expect.objectContaining({
+        type: 'session_reconnect_snapshot',
+        state: 'idle',
+        internalState: 'ACTIVE',
+      }),
+    );
+    await handleSwitchSession('c1', { type: 'switch_session', sessionId: 'sess-1' }, ctx);
+    expect(transport.sent).toContainEqual(
+      expect.objectContaining({
+        type: 'session_state_changed',
+        state: 'idle',
+        internalState: 'ACTIVE',
+      }),
+    );
   });
 
   it('offers a fenced applied snapshot without advancing on transport send', () => {
