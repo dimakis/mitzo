@@ -6,6 +6,41 @@ import {
 } from '../symposium-custodian-protocol.js';
 
 describe('finite custodian protocol', () => {
+  it('round-trips only the exact read-only configuration receipt and bounded stage key', () => {
+    const sessionId = 'session-1';
+    const resourceId = 'original-key:revise';
+    const path = `/api/sessions/${sessionId}/symposium/configuration-operations/${resourceId}`;
+    const selected = selectCustodianOperation('GET', path);
+    expect(selected).toEqual({
+      operation: 'director.configurationOperation',
+      sessionId,
+      resourceId,
+    });
+    expect(custodianRoute(selected!)).toEqual({ method: 'GET', path });
+    const decoded = decodeCustodianRequest({
+      ...selected,
+      requestId: 'lookup-1',
+      epoch: 1,
+      body: {},
+      query: {},
+      authorization: { id: 'verified-operator', expiresAt: 1000 },
+    });
+    expect(decoded.resourceId).toBe(resourceId);
+    expect(
+      selectCustodianOperation('GET', path.replace(resourceId, 'k'.repeat(200))),
+    ).not.toBeNull();
+    for (const invalid of ['a/b', 'a%2Fb', 'a b', '_leading', 'é-key', 'k'.repeat(201)]) {
+      expect(selectCustodianOperation('GET', path.replace(resourceId, invalid))).toBeNull();
+      expect(() => decodeCustodianRequest({ ...decoded, resourceId: invalid })).toThrow();
+    }
+    expect(selectCustodianOperation('POST', path)).toBeNull();
+    expect(selectCustodianOperation('GET', `${path}/extra`)).toBeNull();
+    expect(() => decodeCustodianRequest({ ...decoded, revision: '1' })).toThrow();
+    expect(() =>
+      decodeCustodianRequest({ ...decoded, body: { actor: 'operator:forged' } }),
+    ).toThrow();
+  });
+
   it('routes the durable director projection through one exact read-only operation', () => {
     const path = '/api/sessions/s-1/symposium/status';
     expect(selectCustodianOperation('GET', path)).toEqual({
