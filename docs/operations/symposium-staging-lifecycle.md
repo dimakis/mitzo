@@ -11,7 +11,9 @@ ordinary account/runtime configuration. Production is outside this staging fleet
    [owned release preparation](symposium-owned-release-preparation.md), including
    fresh gateway identity, private state and an empty task repository. Preserve
    active owners and their compiled files. Do not bootstrap against primary state.
-2. Create one canonical, private directory (mode `0700`) for `staging.db`. Choose
+2. Create one canonical, private directory (mode `0700`) for `staging.db`. Keep it
+   outside the release, plan, repository, app home, gateway state, Podman home and
+   runtime seed trees; neither ancestors nor descendants may overlap. Choose
    the operator fleet capacity once (recommended: three fresh owned stages). Every
    supported staging launch must use that same directory and capacity. Changing
    capacity at launch is refused. Alternate directories and custom launchers are
@@ -34,7 +36,9 @@ slot is reserved **before** intent claim and bootstrap. The same process retains
 the recording closure and native owners. There is no exec/restart handoff of that
 closure. The registry captures owner/purpose/retention, plan path, source/build/
 configuration identities, random launch ID, creation time, original instance and
-controller generation. App replacement updates the generation of the same instance.
+controller generation. App replacement updates the generation of the same instance. Retirement also
+reconciles its original custodian snapshot when attachment preceded shutdown but
+the replacement child had not sent hello; a receipt alone cannot do this.
 
 `launch_uncertain`, `active`, `retiring`, and `retirement_uncertain` all consume
 capacity. A stale review deadline blocks new launches, including when capacity is
