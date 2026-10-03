@@ -182,7 +182,10 @@ or agent-supplied program is executed. Mitzo calls the adapter with
 `--once --published-revision <verified-source-sha>` and requires an exact matching
 receipt before selecting its immutable bundle. The adapter must preserve the
 publisher's Markdown path policy; the existing runtime verifier independently
-checks bundle bytes, modes, generated indexes and compatibility.
+checks bundle bytes, modes, generated indexes and compatibility. The bridge returns
+the exact verified baseline digest, and admission requires the frozen upload's
+baseline to match it. Replacing a bundle with another self-consistent bundle after
+path-policy verification therefore blocks delivery.
 
 New ordinary OpenShell Codex sandboxes reconcile before seed selection. Existing
 enrolled chats reconcile before each safe turn, wait for conversion of the selected
@@ -197,7 +200,11 @@ SQLite adoption receipts are account-scoped and bind the conversation, command
 attempt, provider thread and acknowledged turn to the exact source, payload,
 manifest, delivered-context hash, sandbox identity, knowledge path and runtime
 compiler/recipe identities. A selection or uploaded folder is insufficient to
-record adoption. The provider's successful `turn/start` acknowledgement records the
+record adoption. `runtimeContractImageDigest` identifies the configured compatibility
+contract's image, not the actual image of a retained sandbox. The physical `sandboxId`
+and independently attested protected compiler, recipe and runtime inputs establish
+the runtime evidence; the observed control-plane schema does not expose the actual
+image digest. The provider's successful `turn/start` acknowledgement records the
 receipt, which survives a Mitzo restart. Acknowledgement proves delivery through the
 provider interface; it does not prove every fact influenced the model's answer.
 

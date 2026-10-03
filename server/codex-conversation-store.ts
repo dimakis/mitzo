@@ -79,7 +79,8 @@ const KnowledgeAdoption = z
     knowledgeRoot: z
       .string()
       .regex(/^\/sandbox\/workspaces\/knowledge\/knowledge-[a-f0-9]{64}\/mgmt$/),
-    runtimeImageDigest: z.string().regex(/^sha256:[a-f0-9]{64}$/),
+    // Configured compatibility contract, not an observed retained-sandbox image digest.
+    runtimeContractImageDigest: z.string().regex(/^sha256:[a-f0-9]{64}$/),
     compilerSha256: z.string().regex(/^[a-f0-9]{64}$/),
     recipeSha256: z.string().regex(/^[a-f0-9]{64}$/),
   })

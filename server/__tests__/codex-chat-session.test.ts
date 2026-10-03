@@ -486,7 +486,7 @@ it('advertises reviewed per-chat provider grants to a managed OpenShell runtime'
       manifestSha256: 'c'.repeat(64),
       sandboxId: 'verified-resource',
       knowledgeRoot: '/sandbox/workspaces/knowledge/knowledge-' + 'c'.repeat(64) + '/mgmt',
-      runtimeImageDigest: 'sha256:' + 'd'.repeat(64),
+      runtimeContractImageDigest: 'sha256:' + 'd'.repeat(64),
       compilerSha256: 'e'.repeat(64),
       recipeSha256: 'f'.repeat(64),
     };

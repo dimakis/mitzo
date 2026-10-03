@@ -767,7 +767,7 @@ it('persists exact knowledge adoption across restart and rejects cross-account o
     contextSha256: 'd'.repeat(64),
     sandboxId: 'physical-one',
     knowledgeRoot: '/sandbox/workspaces/knowledge/knowledge-' + 'c'.repeat(64) + '/mgmt',
-    runtimeImageDigest: 'sha256:' + 'e'.repeat(64),
+    runtimeContractImageDigest: 'sha256:' + 'e'.repeat(64),
     compilerSha256: 'f'.repeat(64),
     recipeSha256: '1'.repeat(64),
   };

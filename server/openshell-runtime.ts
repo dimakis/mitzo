@@ -1727,7 +1727,10 @@ export class OpenShellRuntimeManager {
           manifestSha256: selection.manifestSha256,
           knowledgeRoot: selection.knowledgeRoot,
           sandboxId: runtime.sandboxId,
-          runtimeImageDigest: String(contract.digest),
+          // This identifies the configured compatibility contract. Retained sandboxes
+          // separately attest protected compiler/recipe/runtime inputs above; their
+          // actual image digest is not exposed by the observed control-plane schema.
+          runtimeContractImageDigest: String(contract.digest),
           compilerSha256: String(contract.knowledgeCompilerSha256),
           recipeSha256: String(contract.knowledgeRecipeSha256),
         },

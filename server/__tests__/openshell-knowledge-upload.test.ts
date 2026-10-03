@@ -232,6 +232,11 @@ it('adopts a verified knowledge view in a retained sandbox without replacing tas
   };
   const first = await manager.adoptKnowledge(conversation, runtime, AbortSignal.timeout(5000));
   expect(first?.sourceCommit).toBe('a'.repeat(40));
+  expect(first?.adoption).toHaveProperty(
+    'runtimeContractImageDigest',
+    config.seedStackManifest.runtime.digest,
+  );
+  expect(first?.adoption).not.toHaveProperty('runtimeImageDigest');
   expect(first?.knowledgeRoot).toMatch(
     /^\/sandbox\/workspaces\/knowledge\/knowledge-[a-f0-9]{64}\/mgmt$/,
   );
