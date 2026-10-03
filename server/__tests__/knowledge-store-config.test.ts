@@ -1,6 +1,14 @@
 import { execFileSync } from 'node:child_process';
 import { afterEach, expect, it } from 'vitest';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, realpathSync, chmodSync } from 'node:fs';
+import {
+  mkdtempSync,
+  mkdirSync,
+  writeFileSync,
+  rmSync,
+  realpathSync,
+  chmodSync,
+  symlinkSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { knowledgeStoreFromEnvironment, mgmtKnowledgeAdapter } from '../knowledge-store-config.js';
@@ -98,15 +106,17 @@ it('revalidates private adapter state before each execution', async () => {
   );
 });
 
-it('runs a pinned detached adapter for the exact revision and captures its immutable bundle', async () => {
-  const f = fixture();
-  const release = join(f.root, 'release');
-  mkdirSync(join(release, 'mgmt_lib'), { recursive: true });
-  writeFileSync(join(release, '.gitignore'), '__pycache__/\n');
-  writeFileSync(join(release, 'mgmt_lib/__init__.py'), '');
-  writeFileSync(
-    join(release, 'mgmt_lib/knowledge_publication.py'),
-    `
+it.each(['physical', 'symlink'])(
+  'requires a %s publications directory while running the pinned adapter',
+  async (kind) => {
+    const f = fixture();
+    const release = join(f.root, 'release');
+    mkdirSync(join(release, 'mgmt_lib'), { recursive: true });
+    writeFileSync(join(release, '.gitignore'), '__pycache__/\n');
+    writeFileSync(join(release, 'mgmt_lib/__init__.py'), '');
+    writeFileSync(
+      join(release, 'mgmt_lib/knowledge_publication.py'),
+      `
 import argparse, hashlib, json, pathlib
 p=argparse.ArgumentParser()
 p.add_argument('--config')
@@ -125,38 +135,47 @@ receipt={'sourceCommit':a.published_revision,'builderCommit':c['builderCommit'],
 (root/'current').symlink_to(bundle)
 print(json.dumps({'status':'current','publishedCommit':a.published_revision,'receipt':receipt}))
 `,
-  );
-  const git = (...args: string[]) =>
-    execFileSync(
-      'git',
-      ['-c', 'core.hooksPath=/dev/null', '-c', 'commit.gpgsign=false', '-C', release, ...args],
-      { encoding: 'utf8' },
-    ).trim();
-  git('init', '-q', '-b', 'main');
-  git('config', 'user.name', 'Test');
-  git('config', 'user.email', 'test@example.invalid');
-  git('add', '.');
-  git('commit', '-qm', 'test: adapter fixture');
-  const releaseCommit = git('rev-parse', 'HEAD');
-  git('checkout', '-q', '--detach');
-  const adapter = mgmtKnowledgeAdapter(
-    {
-      kind: 'mgmt-v1',
-      release,
-      releaseCommit,
-      python: '/usr/bin/python3',
-      config: f.adapterConfig,
-    },
-    f.config.stores[0] ? 'https://example.com/other.git' : '',
-  );
-  const revision = 'c'.repeat(40);
-  const result = await adapter({ revision }, AbortSignal.timeout(5000));
-  expect(result).toEqual({
-    sourceCommit: revision,
-    seed: join(f.root, 'adapter/publications/release-' + revision, 'mgmt'),
-  });
-  writeFileSync(join(release, 'dirty.md'), 'unreviewed adapter code');
-  await expect(adapter({ revision }, AbortSignal.timeout(5000))).rejects.toThrow(
-    'clean pinned detached release',
-  );
-});
+    );
+    const git = (...args: string[]) =>
+      execFileSync(
+        'git',
+        ['-c', 'core.hooksPath=/dev/null', '-c', 'commit.gpgsign=false', '-C', release, ...args],
+        { encoding: 'utf8' },
+      ).trim();
+    git('init', '-q', '-b', 'main');
+    git('config', 'user.name', 'Test');
+    git('config', 'user.email', 'test@example.invalid');
+    git('add', '.');
+    git('commit', '-qm', 'test: adapter fixture');
+    const releaseCommit = git('rev-parse', 'HEAD');
+    git('checkout', '-q', '--detach');
+    const adapter = mgmtKnowledgeAdapter(
+      {
+        kind: 'mgmt-v1',
+        release,
+        releaseCommit,
+        python: '/usr/bin/python3',
+        config: f.adapterConfig,
+      },
+      f.config.stores[0] ? 'https://example.com/other.git' : '',
+    );
+    const revision = 'c'.repeat(40);
+    if (kind === 'symlink') {
+      mkdirSync(join(f.root, 'outside'));
+      symlinkSync(join(f.root, 'outside'), join(f.root, 'adapter/publications'));
+      await expect(adapter({ revision }, AbortSignal.timeout(5000))).rejects.toThrow(
+        'Knowledge bundle escaped adapter state',
+      );
+      return;
+    }
+    const result = await adapter({ revision }, AbortSignal.timeout(5000));
+    expect(result).toEqual({
+      sourceCommit: revision,
+      seed: join(f.root, 'adapter/publications/release-' + revision, 'mgmt'),
+    });
+    writeFileSync(join(release, 'dirty.md'), 'unreviewed adapter code');
+    await expect(adapter({ revision }, AbortSignal.timeout(5000))).rejects.toThrow(
+      'clean pinned detached release',
+    );
+  },
+);

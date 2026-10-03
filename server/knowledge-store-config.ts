@@ -86,12 +86,22 @@ export function mgmtKnowledgeAdapter(config: AdapterConfig, sourceUrl: string) {
     ...(isAbsolute(sourceUrl) ? [sourceUrl] : []),
   ];
   privateState(adapter.root, workspaces);
+  const publicationsPath = join(adapter.root, 'publications');
+  const verifyPublications = () => {
+    const stat = lstatSync(publicationsPath, { throwIfNoEntry: false });
+    if (
+      stat &&
+      (!stat.isDirectory() || realpathSync(publicationsPath) !== resolve(publicationsPath))
+    )
+      throw new Error('Knowledge bundle escaped adapter state');
+  };
   return async (
     selection: { revision: string },
     signal: AbortSignal,
   ): Promise<KnowledgeBundleSelection> => {
     signal.throwIfAborted();
     privateState(adapter.root, workspaces);
+    verifyPublications();
     const env = Object.fromEntries(
       Object.entries(process.env).filter(
         ([key]) => !key.startsWith('GIT_') && !['PYTHONPATH', 'PYTHONHOME'].includes(key),
@@ -140,7 +150,8 @@ export function mgmtKnowledgeAdapter(config: AdapterConfig, sourceUrl: string) {
     )
       throw new Error('Knowledge adapter returned another publication');
     privateState(adapter.root, workspaces);
-    const publications = realpathSync(join(adapter.root, 'publications'));
+    verifyPublications();
+    const publications = realpathSync(publicationsPath);
     const directory = realpathSync(join(publications, 'current'));
     if (!directory.startsWith(publications + sep))
       throw new Error('Knowledge bundle escaped adapter state');
