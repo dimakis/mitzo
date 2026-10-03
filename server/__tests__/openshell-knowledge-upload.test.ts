@@ -5,6 +5,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  readdirSync,
   realpathSync,
   rmSync,
   writeFileSync,
@@ -13,7 +14,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it, vi } from 'vitest';
 import { canonicalJsonPayload } from '../../scripts/verify-openshell-production.mjs';
-import { OpenShellRuntimeManager } from '../openshell-runtime.js';
+import { OpenShellRuntimeManager, preparePublishedOpenShellSeed } from '../openshell-runtime.js';
 
 let root = '';
 afterEach(() => {
@@ -119,6 +120,65 @@ function digest(content: string) {
   return createHash('sha256').update(content).digest('hex');
 }
 
+it('reconciles configured knowledge before snapshotting and rejects another bundle revision', async () => {
+  const config = publication();
+  const baselineSha256 = digest(readFileSync(join(config.seed, '..', 'baseline.json'), 'utf8'));
+  const reconcile = vi
+    .fn()
+    .mockResolvedValue({ seed: config.seed, sourceCommit: 'a'.repeat(40), baselineSha256 });
+  const selected = { ...config, seed: '/stale/seed', knowledgeStore: { id: 'notes', reconcile } };
+  const prepared = await preparePublishedOpenShellSeed(selected, AbortSignal.timeout(5000));
+  try {
+    expect(reconcile).toHaveBeenCalledOnce();
+    expect(prepared.seed).not.toBe(config.seed);
+    expect(
+      JSON.parse(readFileSync(join(prepared.seed, '..', 'baseline.json'), 'utf8')).startingCommit,
+    ).toBe('a'.repeat(40));
+  } finally {
+    prepared.cleanup();
+  }
+  reconcile.mockResolvedValue({ seed: config.seed, sourceCommit: 'b'.repeat(40), baselineSha256 });
+  await expect(preparePublishedOpenShellSeed(selected, AbortSignal.timeout(5000))).rejects.toThrow(
+    'Selected bundle revision differs',
+  );
+});
+it('rejects a self-consistent bundle changed after publisher policy verification', async () => {
+  const config = publication();
+  const baselinePath = join(config.seed, '..', 'baseline.json');
+  const selectedDigest = digest(readFileSync(baselinePath, 'utf8'));
+  const reconcile = vi.fn(async () => {
+    const baseline = JSON.parse(readFileSync(baselinePath, 'utf8'));
+    writeFileSync(join(config.seed, 'memory/private.md'), 'Unselected private information');
+    chmodSync(join(config.seed, 'memory/private.md'), 0o644);
+    baseline.files['memory/private.md'] = {
+      sha256: digest('Unselected private information'),
+      mode: '0644',
+    };
+    const payload = { ...baseline };
+    delete payload.payloadSha256;
+    baseline.payloadSha256 = digest(canonicalJsonPayload(payload));
+    const bytes = JSON.stringify(baseline);
+    writeFileSync(baselinePath, bytes);
+    const receiptPath = join(config.seed, '..', 'publication.json');
+    const receipt = JSON.parse(readFileSync(receiptPath, 'utf8'));
+    writeFileSync(
+      receiptPath,
+      JSON.stringify({
+        ...receipt,
+        payloadSha256: baseline.payloadSha256,
+        baselineSha256: digest(bytes),
+      }),
+    );
+    return { seed: config.seed, sourceCommit: 'a'.repeat(40), baselineSha256: selectedDigest };
+  });
+  await expect(
+    preparePublishedOpenShellSeed(
+      { ...config, knowledgeStore: { id: 'notes', reconcile } },
+      AbortSignal.timeout(5000),
+    ),
+  ).rejects.toThrow('Selected bundle baseline differs from verified publication');
+  expect(readdirSync(join(root, 'private/knowledge-uploads'))).toEqual([]);
+});
 it('adopts a verified knowledge view in a retained sandbox without replacing task files', async () => {
   const config = publication();
   const conversation = 'retained-chat';
@@ -173,6 +233,11 @@ it('adopts a verified knowledge view in a retained sandbox without replacing tas
   };
   const first = await manager.adoptKnowledge(conversation, runtime, AbortSignal.timeout(5000));
   expect(first?.sourceCommit).toBe('a'.repeat(40));
+  expect(first?.adoption).toHaveProperty(
+    'runtimeContractImageDigest',
+    config.seedStackManifest.runtime.digest,
+  );
+  expect(first?.adoption).not.toHaveProperty('runtimeImageDigest');
   expect(first?.knowledgeRoot).toMatch(
     /^\/sandbox\/workspaces\/knowledge\/knowledge-[a-f0-9]{64}\/mgmt$/,
   );

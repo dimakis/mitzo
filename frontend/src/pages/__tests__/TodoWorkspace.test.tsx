@@ -48,9 +48,10 @@ vi.mock('../../hooks/useTodoData', () => ({
   }),
 }));
 vi.mock('../../lib/api-fetch', () => ({
-  apiFetch: vi.fn(async () => ({
+  apiFetch: vi.fn(async (url: string) => ({
     ok: true,
-    json: async () => ({ items: [item] }),
+    json: async () =>
+      url.endsWith('/artifacts') ? { artifacts: [], limit: 100 } : { items: [item] },
   })),
 }));
 function Location() {
@@ -89,6 +90,7 @@ describe('TELOS workspace', () => {
     mount('/todos/first');
     const inspector = screen.getByRole('region', { name: 'Work details' });
     expect(await within(inspector).findByText('Inspect current pages')).toBeTruthy();
+    expect(await within(inspector).findByText('No saved outputs yet.')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Review desktop work' })).toBeTruthy();
   });
   it('keeps mobile detail as a separate page', () => {

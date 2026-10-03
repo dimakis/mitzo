@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { afterEach, expect, it, vi } from 'vitest';
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -14,6 +15,7 @@ const mocks = vi.hoisted(() => ({
   getWebSearchGrant: vi.fn(),
   store: vi.fn(),
   setArtifactRuntime: vi.fn(),
+  recordKnowledgeAdoption: vi.fn(),
   privateDirectory: '/tmp',
   conversationOptions: undefined as Record<string, unknown> | undefined,
   useTls: false,
@@ -29,6 +31,7 @@ vi.mock('../codex-conversation-store.js', () => ({
     }
     recoverAtStartup() {}
     setArtifactRuntime = mocks.setArtifactRuntime;
+    recordKnowledgeAdoption = mocks.recordKnowledgeAdoption;
   },
 }));
 vi.mock('../codex-conversation.js', () => ({
@@ -66,6 +69,7 @@ import {
 } from '../codex-chat-session.js';
 import { OpenShellRuntimeManager } from '../openshell-runtime.js';
 import * as lifecycleController from '../openshell-lifecycle-controller.js';
+import * as knowledgeStoreConfig from '../knowledge-store-config.js';
 import { setConnectionsRuntime } from '../connections-runtime.js';
 import { getLiveCapabilityConversationBinding } from '../capability-conversation-binding.js';
 import { SymposiumProfileProposalStore } from '../symposium-profile-proposals.js';
@@ -476,9 +480,21 @@ it('advertises reviewed per-chat provider grants to a managed OpenShell runtime'
       expect.arrayContaining([expect.objectContaining({ name: 'RequestWebAccess' })]),
     );
     expect(mocks.conversationOptions?.systemPrompt).toContain('GrantIntegrationAccess');
+    const adoptionEvidence = {
+      storeId: 'notes',
+      sourceCommit: 'a'.repeat(40),
+      payloadSha256: 'b'.repeat(64),
+      manifestSha256: 'c'.repeat(64),
+      sandboxId: 'verified-resource',
+      knowledgeRoot: '/sandbox/workspaces/knowledge/knowledge-' + 'c'.repeat(64) + '/mgmt',
+      runtimeContractImageDigest: 'sha256:' + 'd'.repeat(64),
+      compilerSha256: 'e'.repeat(64),
+      recipeSha256: 'f'.repeat(64),
+    };
     const adoption = vi
       .spyOn(OpenShellRuntimeManager.prototype, 'adoptKnowledge')
       .mockResolvedValue({
+        adoption: adoptionEvidence,
         sourceCommit: 'a'.repeat(40),
         payloadSha256: 'b'.repeat(64),
         manifestSha256: 'c'.repeat(64),
@@ -499,6 +515,22 @@ it('advertises reviewed per-chat provider grants to a managed OpenShell runtime'
       signal: AbortSignal,
     ) => Promise<string>;
     const refreshed = await prepareContext(AbortSignal.timeout(5000));
+    expect(mocks.recordKnowledgeAdoption).not.toHaveBeenCalled();
+    const acknowledged = mocks.conversationOptions?.onApplicationContextAccepted as (
+      command: string,
+      thread: string,
+      turn: string,
+      context: string,
+    ) => void;
+    acknowledged('message', 'provider-thread', 'provider-turn', refreshed);
+    expect(mocks.recordKnowledgeAdoption).toHaveBeenCalledWith(
+      'conversation',
+      expect.objectContaining({ accountId: 'work' }),
+      'message',
+      'provider-thread',
+      'provider-turn',
+      { ...adoptionEvidence, contextSha256: createHash('sha256').update(refreshed).digest('hex') },
+    );
     expect(refreshed).toContain('Fresh knowledge B');
     expect(refreshed).toContain('/sandbox/workspaces/knowledge/revision/mgmt');
     expect(refreshed).toContain('GrantIntegrationAccess');
@@ -1367,6 +1399,91 @@ it('preserves first launch and valid restore while failing closed for a replacem
       identity: expect.objectContaining({ threadId: 'thread-generation-2' }),
     });
     chat.close();
+    // Enroll a retained task checkout whose boot guidance is older than the
+    // accepted publication. It must never become persistent thread instructions.
+    const enrollment = vi
+      .spyOn(knowledgeStoreConfig, 'knowledgeStoreFromEnvironment')
+      .mockReturnValue({
+        id: 'mgmt',
+        reconcile: vi.fn(),
+      });
+    ensure.mockResolvedValue(restored);
+    compile.mockClear();
+    compile.mockResolvedValue({
+      type: 'boot_context',
+      scope: 'sandbox',
+      sourceCount: 1,
+      tokenCount: 1,
+      tokenBudget: 12000,
+      sources: [],
+      included: [],
+      trimmed: [],
+      fullMarkdown: 'OLD TASK CHECKOUT GUIDANCE',
+    });
+    const adoption = vi
+      .spyOn(OpenShellRuntimeManager.prototype, 'adoptKnowledge')
+      .mockResolvedValue({
+        sourceCommit: 'a'.repeat(40),
+        payloadSha256: 'b'.repeat(64),
+        manifestSha256: 'c'.repeat(64),
+        knowledgeRoot: '/sandbox/workspaces/knowledge/fresh/mgmt',
+        adoption: {
+          storeId: 'mgmt',
+          sourceCommit: 'a'.repeat(40),
+          payloadSha256: 'b'.repeat(64),
+          manifestSha256: 'c'.repeat(64),
+          sandboxId: 'restored-id',
+          knowledgeRoot: '/sandbox/workspaces/knowledge/fresh/mgmt',
+          runtimeContractImageDigest: 'sha256:' + 'd'.repeat(64),
+          compilerSha256: 'e'.repeat(64),
+          recipeSha256: 'f'.repeat(64),
+        },
+        context: {
+          type: 'boot_context',
+          scope: 'sandbox',
+          sourceCount: 1,
+          tokenCount: 1,
+          tokenBudget: 12000,
+          sources: [],
+          included: [],
+          trimmed: [],
+          fullMarkdown: 'FRESH ACCEPTED GUIDANCE',
+        },
+      });
+    try {
+      const enrolled = await openCodexChat(chatOptions('valid-lifecycle-state', true));
+      // CodexConversation passes systemPrompt to thread/start developerInstructions.
+      expect(mocks.conversationOptions?.systemPrompt).not.toContain('OLD TASK CHECKOUT GUIDANCE');
+      expect(compile).not.toHaveBeenCalled();
+      const prepare = mocks.conversationOptions?.prepareSystemPrompt as (
+        signal: AbortSignal,
+      ) => Promise<string>;
+      const accepted = mocks.conversationOptions?.onApplicationContextAccepted as (
+        command: string,
+        thread: string,
+        turn: string,
+        context: string,
+      ) => void;
+      for (const turn of ['turn-one', 'turn-two']) {
+        const context = await prepare(AbortSignal.timeout(5000));
+        expect(context).toContain('FRESH ACCEPTED GUIDANCE');
+        expect(context).not.toContain('OLD TASK CHECKOUT GUIDANCE');
+        accepted(turn, 'thread', turn, context);
+        expect(mocks.recordKnowledgeAdoption).toHaveBeenLastCalledWith(
+          'valid-lifecycle-state',
+          binding,
+          turn,
+          'thread',
+          turn,
+          expect.objectContaining({ sourceCommit: 'a'.repeat(40), sandboxId: 'restored-id' }),
+        );
+      }
+      expect(adoption).toHaveBeenCalledTimes(2);
+      enrolled.close();
+    } finally {
+      enrollment.mockRestore();
+      adoption.mockRestore();
+    }
   } finally {
     ensure.mockRestore();
     provisional.mockRestore();
