@@ -14,7 +14,7 @@ import type { EventStore } from './event-store.js';
 import { updateSessionSdkId } from './session-index.js';
 import { sendTurnCompleteNotification as ntfyTurnComplete } from './notify.js';
 import { sendTurnCompleteNotification as pushoverTurnComplete } from './pushover.js';
-import { sendTurnCompleteNotification as apnsTurnComplete } from './apns.js';
+import { recordTurnNotification } from './notification-center.js';
 import { extractSnippet } from './notification-helpers.js';
 import { NOTIFY_SNIPPET_MAX_CHARS } from './constants.js';
 import { createGoal, reportUsage, deriveGoalTitle } from './goal-client.js';
@@ -131,7 +131,8 @@ function sendOrBuffer(
   store?: EventStore,
   sessionId?: string,
   connRegistry?: ConnectionRegistry,
-) {
+): number | undefined {
+  let persistedSeq: number | undefined;
   let enriched: Record<string, unknown> = data;
   // Tag v2 events with sessionId for v2 client demuxing. v1 clients
   // ignore the extra field. Persist to the durable store before delivery.
@@ -140,6 +141,7 @@ function sendOrBuffer(
     if (store) {
       const seq = store.append(sessionId, data.type as string, enriched);
       enriched = { ...enriched, seq };
+      persistedSeq = seq;
     }
   }
 
@@ -153,7 +155,7 @@ function sendOrBuffer(
     if (sessionId && connRegistry?.hasOpenWatchers(sessionId)) {
       connRegistry.broadcast(sessionId, enriched);
     }
-    return;
+    return persistedSeq;
   }
 
   // v2 path: deliver via ConnectionRegistry when there are open connections
@@ -162,7 +164,7 @@ function sendOrBuffer(
   // reconnect the original connection is gone but new ones may be watching.
   if (sessionId && connRegistry?.hasOpenWatchers(sessionId)) {
     connRegistry.broadcast(sessionId, enriched);
-    return;
+    return persistedSeq;
   }
 
   // v1 path (or pre-sessionId fallback for v2): driver transport + observers
@@ -173,6 +175,7 @@ function sendOrBuffer(
     }
     broadcastToObservers(session.observers, enriched);
   }
+  return persistedSeq;
 }
 
 function v2(type: string, rest: Record<string, unknown> = {}): Record<string, unknown> {
@@ -348,7 +351,7 @@ async function _runQueryLoopInner(
     if (!resolvedSessionId && data.v === 2) {
       preSessionBuffer.push(data);
     }
-    sendOrBuffer(data, clientId, registry, store, resolvedSessionId, connRegistry);
+    return sendOrBuffer(data, clientId, registry, store, resolvedSessionId, connRegistry);
   }
 
   /** Flush buffered pre-sessionId events to the durable store. */
@@ -724,7 +727,7 @@ async function _runQueryLoopInner(
           span.setAttribute('session.total_tokens', currentSession.cumulativeSessionTokens);
           span.setAttribute('session.duration_ms', usageData.durationMs);
           span.setAttribute('session.cost_usd', usageData.totalCostUsd);
-          emit(
+          const completionSeq = emit(
             v2('session_end', {
               sessionId: msg.session_id,
               usage: usageData,
@@ -733,6 +736,15 @@ async function _runQueryLoopInner(
             }),
           );
           const resultSid = (msg.session_id as string) || currentSession.sessionId;
+          if (resultSid) {
+            recordTurnNotification(
+              resultSid,
+              completionSeq ?? Date.now(),
+              extractSnippet(snapshotBlocks, NOTIFY_SNIPPET_MAX_CHARS),
+              store?.getSession(resultSid)?.summary ?? undefined,
+              !registry.isAttached(clientId),
+            );
+          }
           if (resultSid && connRegistry?.hasOpenWatchers(resultSid)) {
             for (const { connectionId: cid } of connRegistry.getConnectionsWatching(
               resultSid,
@@ -750,7 +762,6 @@ async function _runQueryLoopInner(
             const sessionTitle = sid ? (store?.getSession(sid)?.summary ?? undefined) : undefined;
             ntfyTurnComplete(sid, snippet, sessionTitle).catch(() => {});
             pushoverTurnComplete(sid, snippet, sessionTitle).catch(() => {});
-            apnsTurnComplete(sid, snippet, sessionTitle).catch(() => {});
           }
           options?.onResult?.(
             clientId,

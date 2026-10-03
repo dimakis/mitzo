@@ -1,3 +1,12 @@
+import { NotificationStore } from './notification-store.js';
+import { NotificationCenter, setNotificationCenter } from './notification-center.js';
+import { notificationRouter } from './notification-routes.js';
+import {
+  deliverNotification,
+  sendBadgeUpdate,
+  isConfigured as apnsConfigured,
+  getTokens as pushTokens,
+} from './apns.js';
 import { OPEN_SHELL_ARTIFACT_HELPER } from './openshell-artifact-reader.js';
 import { createTelosArtifactRouter, telosArtifactSaveJson } from './telos-artifact-routes.js';
 import { writeHostArtifact } from './host-artifact-writer.js';
@@ -501,6 +510,19 @@ setTokenStorePath(join(mitzoDir, 'device-tokens.json'));
 
 export const sseRegistry = new SseRegistry();
 export const chatSseRegistry = new SessionSseRegistry();
+export const notificationCenter = new NotificationCenter(
+  new NotificationStore(join(mitzoDir, 'notifications.db')),
+  {
+    push: deliverNotification,
+    badge: sendBadgeUpdate,
+    changed: () => sseRegistry.broadcast('notifications_changed', {}),
+    configured: apnsConfigured,
+    devices: () => pushTokens().length,
+    sessionTitle: (id) => eventStore.getSession(id)?.summary ?? undefined,
+  },
+);
+setNotificationCenter(notificationCenter);
+if (process.env.NODE_ENV !== 'test') notificationCenter.start();
 
 export function setUpdateBroadcast(fn: () => void) {
   onUpdateAvailable = fn;
@@ -3184,6 +3206,7 @@ app.post('/api/inbox', (req, res) => {
     res.status(500).json({ error: 'Failed to create inbox item' });
     return;
   }
+  notificationCenter.update(item.filename, item.title, item.preview, item.filename);
   res.status(201).json(item);
   broadcastInboxUpdate();
 });
@@ -3231,6 +3254,8 @@ app.delete('/api/inbox/:filename', (req, res) => {
   res.json({ ok: true });
   broadcastInboxUpdate();
 });
+
+app.use('/api/notifications', notificationRouter(notificationCenter));
 
 // --- Push notification device token registration ---
 

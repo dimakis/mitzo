@@ -3,6 +3,7 @@
 import { readFileSync, writeFileSync, existsSync } from 'fs';
 import { createRequire } from 'module';
 import { createLogger } from '@mitzo/harness';
+import type { NotificationPush } from './notification-center.js';
 
 const require = createRequire(import.meta.url);
 
@@ -108,7 +109,7 @@ export async function sendPush(
     notification.alert = { title, body };
     notification.topic = APNS_BUNDLE_ID;
     notification.sound = 'default';
-    notification.badge = 1;
+    notification.badge = 0;
     if (data) notification.payload = data;
     if (options?.threadId) notification.threadId = options.threadId;
     if (options?.category) notification.category = options.category;
@@ -126,6 +127,58 @@ export async function sendPush(
     log.error('failed to send push notification', {
       error: err instanceof Error ? err.message : 'unknown',
     });
+  }
+}
+
+export function notificationFields(message: NotificationPush) {
+  return {
+    alert: { title: message.title, body: message.body },
+    badge: message.badge,
+    topic: APNS_BUNDLE_ID,
+    sound: 'default',
+    payload: message.data,
+    threadId: message.threadId,
+    category: message.category,
+  };
+}
+
+/** Success means APNs accepted at least one device, not proof of Watch delivery. */
+export async function deliverNotification(
+  message: NotificationPush,
+): Promise<'accepted' | 'failed' | 'unavailable'> {
+  const provider = getProvider();
+  if (!provider || tokens.length === 0) return 'unavailable';
+  try {
+    const apn = require('@parse/node-apn');
+    const notification = Object.assign(new apn.Notification(), notificationFields(message));
+    const result = await provider.send(notification, [...tokens]);
+    for (const failure of result.failed) {
+      if (String(failure.status) === '410' || failure.response?.reason === 'Unregistered')
+        removeToken(failure.device);
+    }
+    return result.sent.length ? 'accepted' : 'failed';
+  } catch (err: unknown) {
+    log.warn('notification delivery failed', {
+      error: err instanceof Error ? err.message : 'unknown',
+    });
+    return 'failed';
+  }
+}
+
+export async function sendBadgeUpdate(badge: number): Promise<void> {
+  const provider = getProvider();
+  if (!provider || !tokens.length) return;
+  try {
+    const apn = require('@parse/node-apn');
+    const notification = new apn.Notification();
+    notification.topic = APNS_BUNDLE_ID;
+    notification.badge = badge;
+    notification.contentAvailable = true;
+    notification.priority = 5;
+    notification.pushType = 'background';
+    await provider.send(notification, [...tokens]);
+  } catch (err: unknown) {
+    log.warn('badge update failed', { error: err instanceof Error ? err.message : 'unknown' });
   }
 }
 
