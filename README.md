@@ -565,19 +565,20 @@ passes compatibility fields from that commit's runtime lock. Each publication
 binds exact source, content hashes and modes, compiler/recipe identities and
 runtime inputs in a trusted record; knowledge A and B can share one runtime
 without changing a fixed application payload pin. Ordinary new seed uploads
-verify the selected publication and use a private verified copy. Current
-production locks lack this dynamic attestation, so this lane remains blocked
-until the Stage 2 context contract and compatible runtime baseline are released.
+verify the selected publication and use a private verified copy. The checked-in runtime lock records actual compiler, protected write boundary,
+frozen-input and target-marker attestation from the accepted-source runtime.
+This release metadata does not itself activate publication or enroll a consumer.
 Retained ordinary Codex chats can select a verified publication between turns,
 copy it into a separate versioned knowledge directory, and refresh the existing
 provider thread's per-turn application context. Their writable task Git and checkpoint
 history remain intact. Cached views are verified before reuse; a damaged selected
 cache is replaced from the verified publication before compilation, preserving
 task files and unrelated versions. The pinned ContexGin compiler includes tracked `AGENTS.md`.
+
 Runtime staging fingerprints the installed compiler dependency closure and recipe
 and observes the target Python markers inside the image. These paths require a
 reviewed dynamic runtime lock and enrollment at `publications/current/mgmt`;
-they are not enabled by the legacy production lock. Host, Claude, Responses and
+legacy deployed environments remain unenrolled until explicitly migrated. Host, Claude, Responses and
 Symposium consumer enrollment still require their respective adoption contracts.
 
 Set host-only `MITZO_KNOWLEDGE_STORE_CONFIG` to enroll ordinary OpenShell Codex
