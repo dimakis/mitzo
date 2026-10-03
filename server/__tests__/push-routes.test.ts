@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeAll, afterAll } from 'vitest';
+import { sendBadgeUpdate } from '../apns.js';
 import type { Express } from 'express';
 import request from 'supertest';
 import { mkdirSync, rmSync } from 'fs';
@@ -52,6 +53,11 @@ vi.mock('../chat.js', () => {
   };
 });
 
+vi.mock('../apns.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../apns.js')>()),
+  sendBadgeUpdate: vi.fn().mockResolvedValue(undefined),
+}));
+
 let app: Express;
 let authCookie: string;
 
@@ -76,6 +82,18 @@ afterAll(() => {
 });
 
 describe('POST /api/push/register', () => {
+  it('forces the current badge to a newly registered device even when the count is unchanged', async () => {
+    const { notificationCenter } = await import('../app.js');
+    notificationCenter.changed();
+    await vi.waitFor(() => expect(sendBadgeUpdate).toHaveBeenCalledWith(0));
+    vi.mocked(sendBadgeUpdate).mockClear();
+    const response = await request(app)
+      .post('/api/push/register')
+      .set('Cookie', authCookie)
+      .send({ token: 'new-device-after-startup' });
+    expect(response.status).toBe(200);
+    await vi.waitFor(() => expect(sendBadgeUpdate).toHaveBeenCalledWith(0));
+  });
   it('registers a device token', async () => {
     const res = await request(app)
       .post('/api/push/register')

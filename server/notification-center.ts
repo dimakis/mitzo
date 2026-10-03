@@ -68,9 +68,17 @@ export class NotificationCenter {
     this.deps.changed();
     const count = this.store.feed('needs').needsYou;
     if (count !== this.lastBadge) {
-      this.lastBadge = count;
-      this.badgeQueue = this.badgeQueue.then(() => this.deps.badge?.(count)).catch(() => undefined);
+      void this.queueBadge(count);
     }
+  }
+  /** Registration must resync even when the count was already cached without devices. */
+  syncBadge(): Promise<void> {
+    return this.queueBadge(this.store.feed('needs').needsYou);
+  }
+  private queueBadge(count: number): Promise<void> {
+    this.lastBadge = count;
+    this.badgeQueue = this.badgeQueue.then(() => this.deps.badge?.(count)).catch(() => undefined);
+    return this.badgeQueue;
   }
   start(): void {
     this.timer ??= setInterval(() => {

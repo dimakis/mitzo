@@ -3266,6 +3266,8 @@ app.post('/api/push/register', (req, res) => {
     return;
   }
   registerToken(token);
+  notificationCenter.changed();
+  void notificationCenter.syncBadge();
   res.json({ ok: true });
 });
 
