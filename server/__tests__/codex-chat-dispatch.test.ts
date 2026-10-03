@@ -43,6 +43,7 @@ vi.mock('../credentials.js', async (original) => ({
 vi.mock('../codex-chat-session.js', () => ({
   openCodexChat: vi.fn(),
   getCodexRuntime: () => undefined,
+  publicCodexRuntimeError: (error: Error) => error.message,
 }));
 vi.mock('../codex-app-server-client.js', () => ({
   CodexAppServerClient: {
