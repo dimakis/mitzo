@@ -40,3 +40,73 @@ export function connectionsAccessCards(inventory: ConnectionsAccessInventory): A
     .filter((resource) => !catalogs.has(resource.id))
     .map((resource) => ({ resource, catalog: paired.get(resource.id) }));
 }
+
+/** Authentication evidence is independent of generic access verification. */
+export function accountSignInLabel(resource: AccessResource): string {
+  const signIn = resource.signIn;
+  if (!signIn) return 'Not checked';
+  switch (signIn.status) {
+    case 'verified':
+      if (signIn.source === 'openshell-provider-grant') return 'Connected';
+      if (signIn.source === 'host-account-read' || signIn.source === 'isolated-native-auth')
+        return 'Signed in';
+      return 'Not checked';
+    case 'stale':
+      return 'Check is stale';
+    case 'failed':
+      return 'Check failed';
+    case 'unsupported':
+      return 'Unsupported';
+    default:
+      return 'Not checked';
+  }
+}
+
+export function accountSignInIdentity(resource: AccessResource) {
+  const signIn = resource.signIn;
+  const observed =
+    signIn?.status === 'verified' &&
+    (signIn.source === 'host-account-read' || signIn.source === 'isolated-native-auth')
+      ? signIn.observedIdentity
+      : null;
+  return {
+    observed,
+    configuredEmail: signIn?.configuredIdentity.email ?? resource.accountIdentity,
+    configuredPlan: signIn?.configuredIdentity.planType ?? null,
+  };
+}
+
+export function hasAccountSignIn(resource: AccessResource): boolean {
+  return (
+    Boolean(resource.signIn) ||
+    (resource.kind === 'ai-account' && resource.provider === 'openai-codex')
+  );
+}
+
+/** Retained evidence expires even while the inventory view stays open. */
+export function expireAccountSignIns(
+  inventory: ConnectionsAccessInventory,
+): ConnectionsAccessInventory {
+  const now = Date.now();
+  let changed = false;
+  const resources = inventory.resources.map((resource): AccessResource => {
+    const signIn = resource.signIn;
+    if (signIn?.status !== 'verified') return resource;
+    if (
+      signIn.checkedAt !== null &&
+      now - signIn.checkedAt < 5 * 60_000 &&
+      (resource.details.expiresAt == null || resource.details.expiresAt > now)
+    )
+      return resource;
+    changed = true;
+    return {
+      ...resource,
+      signIn: {
+        ...signIn,
+        status: 'stale',
+        explanation: 'The sign-in check is out of date. Refresh access to check again.',
+      },
+    };
+  });
+  return changed ? { ...inventory, resources } : inventory;
+}

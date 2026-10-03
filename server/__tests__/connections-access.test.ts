@@ -41,7 +41,7 @@ const account = {
   modelDiscovery: { updatedAt: 999, stale: false },
   capabilities: { streaming: true, tools: true, images: false },
   credentialRef: '/secret',
-} satisfies ReturnType<NonNullable<ConnectionsAccessSources['accounts']>>[number] & {
+} satisfies Awaited<ReturnType<NonNullable<ConnectionsAccessSources['accounts']>>>[number] & {
   credentialRef: string;
 };
 const sources = () => ({

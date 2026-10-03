@@ -4,7 +4,13 @@ import { Link } from 'react-router-dom';
 import { ConnectionsModeDetails } from '../components/ConnectionsModeDetails';
 import { WorkspacePageHeading } from '../components/WorkspacePageHeading';
 import { getConnectionsAccess } from '../lib/connections-access-api';
-import { connectionsAccessCards } from '../lib/connections-access-presentation';
+import {
+  accountSignInIdentity,
+  accountSignInLabel,
+  hasAccountSignIn,
+  expireAccountSignIns,
+  connectionsAccessCards,
+} from '../lib/connections-access-presentation';
 import type { AccessResource, ConnectionsAccessInventory } from '../types/connections-access';
 
 const sourceLabels: Record<ConnectionsAccessInventory['sources'][number]['id'], string> = {
@@ -16,7 +22,7 @@ const sourceLabels: Record<ConnectionsAccessInventory['sources'][number]['id'], 
   legacy: 'Operator-managed services',
 };
 const verificationLabels = {
-  verified: 'Verified',
+  verified: 'Access verified',
   stale: 'Verification is stale',
   unverified: 'Not verified',
   unavailable: 'Verification unavailable',
@@ -32,6 +38,8 @@ function ResourceDetails({
   resource: AccessResource;
   catalog?: AccessResource;
 }) {
+  const isAccount = hasAccountSignIn(resource);
+  const identity = accountSignInIdentity(resource);
   return (
     <div className="access-resource-content">
       <dl className="access-resource-facts">
@@ -45,10 +53,46 @@ function ResourceDetails({
             <dd>{runtimeLabel(resource)}</dd>
           </div>
         )}
-        <div>
-          <dt>Account</dt>
-          <dd>{resource.accountIdentity ?? 'Identity not reported'}</dd>
-        </div>
+        {isAccount ? (
+          <>
+            {identity.observed?.email && (
+              <div>
+                <dt>Account</dt>
+                <dd>{identity.observed.email}</dd>
+              </div>
+            )}
+            <div>
+              <dt>Configured account</dt>
+              <dd>{identity.configuredEmail ?? 'Identity not reported'}</dd>
+            </div>
+            {(identity.observed?.planType || identity.configuredPlan) && (
+              <div>
+                <dt>{identity.observed?.planType ? 'Account plan' : 'Configured plan'}</dt>
+                <dd>{identity.observed?.planType ?? identity.configuredPlan}</dd>
+              </div>
+            )}
+            <div>
+              <dt>Sign-in</dt>
+              <dd>
+                <span>{accountSignInLabel(resource)}</span>
+                <p className="workspace-muted">
+                  {resource.signIn?.explanation ?? 'Sign-in has not been checked for this account.'}
+                </p>
+              </dd>
+            </div>
+            {resource.signIn?.checkedAt != null && (
+              <div>
+                <dt>Last sign-in check</dt>
+                <dd>{new Date(resource.signIn.checkedAt).toLocaleString()}</dd>
+              </div>
+            )}
+          </>
+        ) : (
+          <div>
+            <dt>Account</dt>
+            <dd>{resource.accountIdentity ?? 'Identity not reported'}</dd>
+          </div>
+        )}
         <div>
           <dt>Access</dt>
           <dd>{resource.access.summary}</dd>
@@ -70,7 +114,7 @@ function ResourceDetails({
           <dd>{readableStatus(resource.status)}</dd>
         </div>
         <div>
-          <dt>Last verified</dt>
+          <dt>Access verification</dt>
           <dd>
             {verificationLabels[resource.verification.state]}
             {resource.verification.verifiedAt !== null && (
@@ -294,6 +338,13 @@ export function ConnectionsAccessView() {
   useEffect(() => {
     if (selectedResourceId && inventory && !selection) setSelectedResourceId(null);
   }, [selectedResourceId, inventory, selection]);
+  useEffect(() => {
+    if (!inventory?.resources.some((resource) => resource.signIn?.status === 'verified')) return;
+    const timer = setInterval(() => {
+      setInventory((previous) => previous && expireAccountSignIns(previous));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [inventory]);
   function refresh() {
     setLoading(true);
     if (!inventory) setError(false);
@@ -304,12 +355,33 @@ export function ConnectionsAccessView() {
     getConnectionsAccess(controller.signal)
       .then((result) => {
         if (!controller.signal.aborted) {
-          setInventory(result);
+          setInventory(expireAccountSignIns(result));
           setError(false);
         }
       })
       .catch(() => {
-        if (!controller.signal.aborted) setError(true);
+        if (!controller.signal.aborted) {
+          setError(true);
+          setInventory(
+            (previous) =>
+              previous && {
+                ...previous,
+                resources: previous.resources.map((resource) =>
+                  resource.signIn?.status === 'verified'
+                    ? {
+                        ...resource,
+                        signIn: {
+                          ...resource.signIn,
+                          status: 'stale',
+                          explanation:
+                            'Current sign-in could not be refreshed. Showing an older check.',
+                        },
+                      }
+                    : resource,
+                ),
+              },
+          );
+        }
       })
       .finally(() => {
         if (!controller.signal.aborted) setLoading(false);
@@ -386,36 +458,65 @@ export function ConnectionsAccessView() {
                     </span>
                   </div>
                   <div className="access-row-group">
-                    {resources.map(({ resource }) => (
-                      <article key={resource.id} className="access-row" aria-label={resource.label}>
-                        <span className={`access-row-icon ${section}`} aria-hidden="true">
-                          {section === 'accounts' ? '✧' : '↗'}
-                        </span>
-                        <div className="access-row-copy">
-                          <h3>
-                            {resource.label}
-                            {runtimeLabel(resource) && (
-                              <span className="access-runtime-badge">{runtimeLabel(resource)}</span>
-                            )}
-                          </h3>
-                          <p>{resource.accountIdentity ?? resource.provider}</p>
-                        </div>
-                        <span className="access-row-status">
-                          {readableStatus(resource.status)}
-                          <small>{verificationLabels[resource.verification.state]}</small>
-                        </span>
-                        <button
-                          className="access-row-action"
-                          aria-label={`Manage ${resource.label}`}
-                          onClick={(event) => {
-                            opener.current = event.currentTarget;
-                            setSelectedResourceId(resource.id);
-                          }}
+                    {resources.map(({ resource }) => {
+                      const identity = accountSignInIdentity(resource);
+                      return (
+                        <article
+                          key={resource.id}
+                          className="access-row"
+                          aria-label={resource.label}
                         >
-                          Manage <span aria-hidden="true">›</span>
-                        </button>
-                      </article>
-                    ))}
+                          <span className={`access-row-icon ${section}`} aria-hidden="true">
+                            {section === 'accounts' ? '✧' : '↗'}
+                          </span>
+                          <div className="access-row-copy">
+                            <h3>
+                              {resource.label}
+                              {runtimeLabel(resource) && (
+                                <span className="access-runtime-badge">
+                                  {runtimeLabel(resource)}
+                                </span>
+                              )}
+                            </h3>
+                            {hasAccountSignIn(resource) ? (
+                              <>
+                                {identity.observed?.email && <p>{identity.observed.email}</p>}
+                                <p>
+                                  Configured: {identity.configuredEmail ?? 'Identity not reported'}
+                                </p>
+                              </>
+                            ) : (
+                              <p>{resource.accountIdentity ?? resource.provider}</p>
+                            )}
+                          </div>
+                          <span className="access-row-status">
+                            {hasAccountSignIn(resource) ? (
+                              <>
+                                <span>Sign-in: {accountSignInLabel(resource)}</span>
+                                <small>
+                                  Access: {verificationLabels[resource.verification.state]}
+                                </small>
+                              </>
+                            ) : (
+                              <>
+                                {readableStatus(resource.status)}
+                                <small>{verificationLabels[resource.verification.state]}</small>
+                              </>
+                            )}
+                          </span>
+                          <button
+                            className="access-row-action"
+                            aria-label={`Manage ${resource.label}`}
+                            onClick={(event) => {
+                              opener.current = event.currentTarget;
+                              setSelectedResourceId(resource.id);
+                            }}
+                          >
+                            Manage <span aria-hidden="true">›</span>
+                          </button>
+                        </article>
+                      );
+                    })}
                   </div>
                   {!resources.length && (
                     <p className="workspace-muted">

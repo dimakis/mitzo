@@ -8,7 +8,10 @@ import type { ConnectionsAccessInventory } from '../../types/connections-access'
 import { act } from 'react';
 
 vi.mock('../../lib/connections-access-api', () => ({ getConnectionsAccess: vi.fn() }));
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.useRealTimers();
+});
 beforeEach(() => vi.resetAllMocks());
 
 it('keeps configured assignments separate from verification and observed conversation access', async () => {
@@ -671,4 +674,152 @@ it('replaces the linked model catalog during refresh and clears stale mode inspe
   expect(document.activeElement).toBe(
     within(dialog).getByRole('button', { name: 'Close details' }),
   );
+});
+
+function signInInventory(signIn?: ConnectionsAccessInventory['resources'][number]['signIn']) {
+  const inventory = linkedFacets();
+  const resource = inventory.resources[0];
+  delete resource.personalConnection;
+  inventory.resources = [
+    {
+      ...resource,
+      label: 'Host account',
+      owner: 'account-profiles',
+      accountIdentity: 'configured@example.test',
+      verification: { state: 'verified', verifiedAt: 1, reason: null },
+      signIn,
+    },
+  ];
+  return inventory;
+}
+const checkedSignIn = {
+  status: 'verified' as const,
+  source: 'host-account-read' as const,
+  checkedAt: Date.now(),
+  configuredIdentity: { email: 'configured@example.test', planType: 'pro' },
+  observedIdentity: { email: 'observed@example.test', planType: 'team' },
+  profileRevision: 'revision-1',
+  explanation: 'Host account identity was read without making a model call.',
+};
+async function renderSignIn(signIn?: ConnectionsAccessInventory['resources'][number]['signIn']) {
+  vi.mocked(getConnectionsAccess).mockResolvedValue(signInInventory(signIn));
+  render(
+    <MemoryRouter>
+      <ConnectionsAccessView />
+    </MemoryRouter>,
+  );
+  return screen.findByRole('article', { name: 'Host account' });
+}
+it('shows observed host sign-in separately from configured identity and access verification', async () => {
+  const row = await renderSignIn(checkedSignIn);
+  expect(within(row).getByText('Sign-in: Signed in')).toBeTruthy();
+  expect(within(row).getByText('observed@example.test')).toBeTruthy();
+  expect(within(row).getByText('Configured: configured@example.test')).toBeTruthy();
+  fireEvent.click(within(row).getByRole('button', { name: 'Manage Host account' }));
+  const dialog = within(screen.getByRole('dialog'));
+  expect(dialog.getByText('Sign-in')).toBeTruthy();
+  expect(dialog.getByText('Signed in')).toBeTruthy();
+  expect(dialog.getByText('Configured account')).toBeTruthy();
+  expect(dialog.getByText('configured@example.test')).toBeTruthy();
+  expect(dialog.getByText('Account plan')).toBeTruthy();
+  expect(dialog.getByText('team')).toBeTruthy();
+  expect(dialog.getByText('Last sign-in check')).toBeTruthy();
+  expect(dialog.getByText(new Date(checkedSignIn.checkedAt).toLocaleString())).toBeTruthy();
+  expect(dialog.getByText('Access verification')).toBeTruthy();
+});
+it('labels a live provider grant Connected without treating its configured email as observed', async () => {
+  const row = await renderSignIn({
+    ...checkedSignIn,
+    source: 'openshell-provider-grant',
+    observedIdentity: null,
+  });
+  expect(within(row).getByText('Sign-in: Connected')).toBeTruthy();
+  expect(within(row).getByText('Configured: configured@example.test')).toBeTruthy();
+  expect(within(row).queryByText('Signed in')).toBeNull();
+  fireEvent.click(within(row).getByRole('button', { name: 'Manage Host account' }));
+  const dialog = within(screen.getByRole('dialog'));
+  expect(dialog.getByText('Configured account')).toBeTruthy();
+  expect(dialog.queryByText('Account')).toBeNull();
+});
+it.each([
+  ['stale', 'Check is stale'],
+  ['failed', 'Check failed'],
+  ['not-checked', 'Not checked'],
+  ['unsupported', 'Unsupported'],
+] as const)('keeps %s sign-in independent of access verification', async (status, label) => {
+  const row = await renderSignIn({ ...checkedSignIn, status, observedIdentity: null });
+  expect(within(row).getByText(`Sign-in: ${label}`)).toBeTruthy();
+  expect(within(row).queryByText('Sign-in: Signed in')).toBeNull();
+  expect(within(row).queryByText('Signed out')).toBeNull();
+  fireEvent.click(within(row).getByRole('button', { name: 'Manage Host account' }));
+  const dialog = within(screen.getByRole('dialog'));
+  expect(dialog.getByText(label)).toBeTruthy();
+  expect(dialog.getByText(checkedSignIn.explanation)).toBeTruthy();
+  expect(dialog.getByText('Access verification')).toBeTruthy();
+});
+it('treats absent sign-in evidence as Not checked even if generic access was verified', async () => {
+  const row = await renderSignIn();
+  expect(within(row).getByText('Sign-in: Not checked')).toBeTruthy();
+  expect(within(row).getByText('Configured: configured@example.test')).toBeTruthy();
+  fireEvent.click(within(row).getByRole('button', { name: 'Manage Host account' }));
+  expect(within(screen.getByRole('dialog')).getByText('Not checked')).toBeTruthy();
+  expect(within(screen.getByRole('dialog')).queryByText('Signed out')).toBeNull();
+});
+
+it.each(['non-Codex API', 'personal identity'] as const)(
+  'preserves %s display when sign-in evidence is absent',
+  async (scenario) => {
+    const inventory = signInInventory();
+    inventory.resources[0].provider = scenario === 'non-Codex API' ? 'vertex' : 'openai-codex';
+    inventory.resources[0].kind =
+      scenario === 'personal identity' ? 'personal-connection' : 'ai-account';
+    vi.mocked(getConnectionsAccess).mockResolvedValue(inventory);
+    render(
+      <MemoryRouter>
+        <ConnectionsAccessView />
+      </MemoryRouter>,
+    );
+    const row = await screen.findByRole('article', { name: 'Host account' });
+    expect(within(row).getByText('configured@example.test')).toBeTruthy();
+    expect(within(row).queryByText('Configured: configured@example.test')).toBeNull();
+    expect(within(row).queryByText('Sign-in: Not checked')).toBeNull();
+    fireEvent.click(within(row).getByRole('button', { name: 'Manage Host account' }));
+    const dialog = within(screen.getByRole('dialog'));
+    expect(dialog.getByText('Account')).toBeTruthy();
+    expect(dialog.queryByText('Sign-in')).toBeNull();
+  },
+);
+
+it('marks previously verified sign-in stale when inventory refresh fails and recovers after a successful check', async () => {
+  const inventory = signInInventory({
+    ...checkedSignIn,
+    source: 'openshell-provider-grant',
+    observedIdentity: null,
+  });
+  vi.mocked(getConnectionsAccess)
+    .mockResolvedValueOnce(inventory)
+    .mockRejectedValueOnce(new Error('Unavailable'))
+    .mockResolvedValueOnce(inventory);
+  render(
+    <MemoryRouter>
+      <ConnectionsAccessView />
+    </MemoryRouter>,
+  );
+  const row = await screen.findByRole('article', { name: 'Host account' });
+  expect(within(row).getByText('Sign-in: Connected')).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: 'Refresh access' }));
+  await within(row).findByText('Sign-in: Check is stale');
+  expect(within(row).queryByText('Sign-in: Connected')).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+  await within(row).findByText('Sign-in: Connected');
+});
+
+it('expires displayed sign-in evidence after five minutes without making a new request', async () => {
+  vi.useFakeTimers({ toFake: ['Date', 'setInterval', 'clearInterval'] });
+  const row = await renderSignIn({ ...checkedSignIn, checkedAt: Date.now() });
+  expect(within(row).getByText('Sign-in: Signed in')).toBeTruthy();
+  await act(async () => vi.advanceTimersByTimeAsync(5 * 60_000 + 1000));
+  expect(within(row).getByText('Sign-in: Check is stale')).toBeTruthy();
+  expect(within(row).queryByText('Sign-in: Signed in')).toBeNull();
+  expect(getConnectionsAccess).toHaveBeenCalledTimes(1);
 });

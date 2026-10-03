@@ -2116,13 +2116,14 @@ app.use(
   createConnectionsAccessRouter((auth) => {
     const runtime = getConnectionsRuntime();
     return {
-      accounts: () =>
-        loadAccountProfiles()
-          .catalog()
-          .map((account) => ({
-            ...account,
-            label: accountAliases.label(account.id, account.label),
-          })),
+      accounts: async (signal: AbortSignal) => {
+        const profiles = loadAccountProfiles();
+        await profiles.checkSignIn(signal);
+        return profiles.catalog().map((account) => ({
+          ...account,
+          label: accountAliases.label(account.id, account.label),
+        }));
+      },
       ...(runtime
         ? {
             managed: () => runtime.store.list('operator'),

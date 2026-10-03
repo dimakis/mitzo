@@ -9,7 +9,9 @@ import type {
 } from './connections-access-types.js';
 
 export interface ConnectionsAccessSources {
-  accounts?: () => ReturnType<AccountProfiles['catalog']>;
+  accounts?: (
+    signal: AbortSignal,
+  ) => ReturnType<AccountProfiles['catalog']> | Promise<ReturnType<AccountProfiles['catalog']>>;
   symposiumAccounts?: (
     signal: AbortSignal,
   ) => ReturnType<AccountProfiles['catalog']> | Promise<ReturnType<AccountProfiles['catalog']>>;
@@ -158,6 +160,11 @@ export async function readConnectionsAccess(
               ? 'current'
               : 'stale',
         };
+      }
+      if (account.signIn) {
+        row.signIn = account.signIn;
+        row.accountIdentity = account.signIn.observedIdentity?.email ?? null;
+        row.access.summary = 'Configured models; effective conversation access not checked';
       }
       row.details = {
         billing: account.billing,
