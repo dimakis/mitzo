@@ -13,13 +13,13 @@
   margin: 0.5rem 0;
   padding: 0.65rem;
   color: inherit;
-  background: var(--surface, transparent);
-  border: 1px solid var(--border, #d8d0e2);
+  background: var(--workspace-panel);
+  border: 1px solid var(--workspace-line);
   border-radius: 0.6rem;
 }
 .access-mode-list {
   display: grid;
-  border: 1px solid var(--border, #d8d0e2);
+  border: 1px solid var(--workspace-line);
   border-radius: 0.7rem;
   overflow: hidden;
 }
@@ -34,10 +34,10 @@
   cursor: pointer;
 }
 .access-mode-list button + button {
-  border-top: 1px solid var(--border, #d8d0e2);
+  border-top: 1px solid var(--workspace-line);
 }
 .access-mode-list button:hover {
-  background: var(--bg-hover, #f3eef8);
+  background: var(--workspace-panel);
 }
 .access-mode-list span,
 .access-mode-list small {
