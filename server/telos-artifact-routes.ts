@@ -145,16 +145,14 @@ export function createTelosArtifactRouter(options: {
       res.json({ ok: true, artifact });
     } catch (error) {
       const status = errorStatus(error);
-      res
-        .status(status)
-        .json({
-          error:
-            status === 503
-              ? 'Upload unavailable; your file is preserved'
-              : error instanceof Error
-                ? error.message
-                : 'Upload failed',
-        });
+      res.status(status).json({
+        error:
+          status === 503
+            ? 'Upload unavailable; your file is preserved'
+            : error instanceof Error
+              ? error.message
+              : 'Upload failed',
+      });
     } finally {
       store?.close();
     }
