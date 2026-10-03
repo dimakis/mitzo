@@ -34,6 +34,7 @@ import {
   openCodexChat,
   getCodexRuntime,
   trackCodexProviderAdmission,
+  publicCodexRuntimeError,
 } from './codex-chat-session.js';
 import {
   loadAccountProfiles,
@@ -1806,8 +1807,12 @@ async function _startChatInner(
         error: 'Session expired. Send your message again to start fresh.',
       });
     } else {
-      log.error('startChat failed after register, cleaning up', { clientId, error: message });
-      send(transport, { type: 'error', error: message });
+      const publicMessage =
+        accountBinding?.provider === 'openai-codex' || accountBinding?.provider === 'openai'
+          ? publicCodexRuntimeError(err instanceof Error ? err : new Error(message))
+          : message;
+      log.error('startChat failed after register, cleaning up', { clientId, error: publicMessage });
+      send(transport, { type: 'error', error: publicMessage });
     }
     if (newSdkSessionId) {
       // Retain its binding: the SDK may have written history before startup failed.
