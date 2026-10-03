@@ -595,7 +595,9 @@ See the operating contract for the configuration schema and delivery scope.
 Supported retained ordinary Codex sandboxes migrate at resume or a completed-turn
 admission boundary into an attested candidate. The transition preserves dirty and
 untracked task Git state, the provider thread/account route and queued FIFO, and
-keeps the original sandbox and immutable checkpoint. Actual image/policy, ordinary
+keeps the original sandbox and immutable checkpoint. Read-only profile catalog
+admission uses the deployed CLI’s scoped `provider list-profiles --output json`
+command, with exact reviewed definitions and the same initial/final fences. Actual image/policy, ordinary
 ownership, idle provider activity and measured host/VM capacity must verify; unknown
 source contracts and unsupported Git/provider layouts remain visibly blocked.
 Runtime admission verifies the full effective policy against reviewed provider

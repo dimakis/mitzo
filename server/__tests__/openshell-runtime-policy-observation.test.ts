@@ -103,6 +103,8 @@ function runtimeFixture(types = ['mitzo-openai-keychain-spike']) {
         ],
       });
     if (args[0] === 'provider' && args.includes('profile') && args.includes('list'))
+      throw new Error('installed CLI rejects nested profile list');
+    if (args[0] === 'provider' && args.includes('list-profiles'))
       return JSON.stringify(data.providers.map((p) => p.profile));
     if (args[0] === 'provider' && args.includes('export'))
       return JSON.stringify(
@@ -312,7 +314,7 @@ it('real observation rejects a different global credential schema despite equal 
   const original = f.run.getMockImplementation()!;
   f.run.mockImplementation(async (args) => {
     const output = await original(args);
-    if (args.includes('profile') && args.includes('list')) {
+    if (args.includes('list-profiles')) {
       const profiles = JSON.parse(output);
       const global = structuredClone(profiles[0]);
       global.scope = 'platform';
@@ -331,7 +333,7 @@ it('real observation attests identical workspace and platform selectors and thei
   const original = f.run.getMockImplementation()!;
   f.run.mockImplementation(async (args) => {
     const output = await original(args);
-    if (args.includes('profile') && args.includes('list')) {
+    if (args.includes('list-profiles')) {
       const profiles = JSON.parse(output);
       profiles.push({ ...structuredClone(profiles[0]), scope: 'platform', resource_version: 19 });
       return JSON.stringify(profiles);
@@ -357,7 +359,7 @@ it.each(['truncated', 'unknown-scope', 'changed'])(
     let reads = 0;
     f.run.mockImplementation(async (args) => {
       const output = await original(args);
-      if (args.includes('profile') && args.includes('list')) {
+      if (args.includes('list-profiles')) {
         const profiles = JSON.parse(output);
         reads++;
         if (failure === 'truncated')
@@ -500,3 +502,29 @@ it.each(['grant', 'revoke'])(
     ).toHaveLength(1);
   },
 );
+
+it('uses installed list-profiles grammar for initial and final scoped catalog reads', async () => {
+  const f = runtimeFixture();
+  const proof = await f.manager.observeContract(
+    f.conversation,
+    f.runtime,
+    new AbortController().signal,
+  );
+  expect(proof.attestation.effectivePolicyHash).toBe(runtimePolicyHash(f.data.observed));
+  const catalogs = f.run.mock.calls.filter(([args]) => args.includes('list-profiles'));
+  expect(catalogs).toHaveLength(2);
+  for (const [args] of catalogs)
+    expect(args).toEqual([
+      'provider',
+      '--gateway',
+      f.config.gateway,
+      '--workspace',
+      f.config.workspace,
+      'list-profiles',
+      '--output',
+      'json',
+    ]);
+  expect(f.run.mock.calls.some(([args]) => args.includes('profile') && args.includes('list'))).toBe(
+    false,
+  );
+});
