@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
 import { afterEach, expect, it, vi } from 'vitest';
-import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { apiFetch } from '../../lib/api-fetch';
-import { SymposiumDirectorPanel } from '../SymposiumDirectorPanel';
+import { SymposiumDirectorPanel, getSymposiumEnableActions } from '../SymposiumDirectorPanel';
 
 vi.mock('../../lib/api-fetch', () => ({ apiFetch: vi.fn() }));
 vi.mock('../AccountModelPicker', () => ({
@@ -118,6 +118,9 @@ async function openAdvancedSettings() {
 
 afterEach(() => {
   cleanup();
+  getSymposiumEnableActions().update(() => ({}));
+  vi.useRealTimers();
+  vi.restoreAllMocks();
   vi.resetAllMocks();
 });
 
@@ -229,13 +232,431 @@ it('activates a mixed-account draft only with explicit boundary acknowledgement 
     'ADD CROSS-ACCOUNT SEAT',
   );
   await userEvent.click(activate);
-  await waitFor(() => expect(apiFetch).toHaveBeenCalledTimes(3));
+  await waitFor(() => expect(apiFetch).toHaveBeenCalledTimes(4));
   const [, request] = vi.mocked(apiFetch).mock.calls[1];
   expect(JSON.parse(String(request?.body))).toEqual({
     expectedRevision: 4,
     sharedBoundaryAcknowledged: true,
     crossAccountConfirmation: 'ADD CROSS-ACCOUNT SEAT',
   });
+});
+
+function initialEnableFixture(sessionId = 'initial-enable', seatCount = 2) {
+  const rows = status(false).seats;
+  if (seatCount === 3)
+    rows.push({
+      ...rows[1],
+      seatId: 'auditor',
+      seat: { ...rows[1].seat, id: 'auditor', name: 'Auditor' },
+    });
+  const draft = {
+    ...status(false),
+    sessionId,
+    config: { ...config, state: 'draft', seats: rows.map((row) => row.seat).reverse() },
+    seats: rows.map((seat) => ({ ...seat, membership: null })),
+  };
+  const activeConfig = { ...draft.config, state: 'active', revision: 5 };
+  const membership = (seatId: string, reconciliation = 'confirmed') => ({
+    sessionId,
+    seatId,
+    configRevision: 5,
+    generation: 1,
+    state: 'active',
+    reconciliation,
+    idempotencyKey: '',
+    action: 'admit',
+  });
+  const current = {
+    ...draft,
+    config: activeConfig,
+    seats: draft.seats.map((seat) => ({
+      ...seat,
+      membership: null as ReturnType<typeof membership> | null,
+    })),
+  };
+  return { draft, activeConfig, current, membership };
+}
+
+async function enableInitialRoster() {
+  await userEvent.click(screen.getByRole('button', { name: 'Agents' }));
+  await screen.findByRole('button', { name: 'Enable agents' });
+  await userEvent.click(screen.getByRole('checkbox', { name: /I understand these agents/ }));
+  await userEvent.type(
+    screen.getByRole('textbox', { name: /To use another account/ }),
+    'ADD CROSS-ACCOUNT SEAT',
+  );
+  await userEvent.click(screen.getByRole('button', { name: 'Enable agents' }));
+}
+
+it.each([2, 3])(
+  'enables a %s-seat initial roster with one click, admitting the anchor first at the activated revision',
+  async (seatCount) => {
+    const { draft, activeConfig, current, membership } = initialEnableFixture(
+      'initial-enable',
+      seatCount,
+    );
+    const requests: Record<string, unknown>[] = [];
+    vi.mocked(apiFetch).mockImplementation(async (url, init) => {
+      if (String(url).endsWith('/activate')) return response(activeConfig);
+      if (String(url).endsWith('/membership')) {
+        const input = JSON.parse(String(init?.body));
+        requests.push(input);
+        const record = { ...membership(input.seatId), idempotencyKey: input.idempotencyKey };
+        current.seats = current.seats.map((seat) =>
+          seat.seatId === input.seatId ? { ...seat, membership: record } : seat,
+        ) as typeof current.seats;
+        return response(record);
+      }
+      return response(
+        requests.length ||
+          vi.mocked(apiFetch).mock.calls.some(([path]) => String(path).endsWith('/activate'))
+          ? current
+          : draft,
+      );
+    });
+    render(<SymposiumDirectorPanel sessionId="initial-enable" />);
+    await enableInitialRoster();
+    await waitFor(() => expect(requests).toHaveLength(seatCount));
+    expect(requests.map((input) => input.seatId)).toEqual(
+      seatCount === 3 ? ['architect', 'auditor', 'reviewer'] : ['architect', 'reviewer'],
+    );
+    for (const input of requests)
+      expect(input).toMatchObject({
+        action: 'admit',
+        expectedGeneration: 0,
+        configRevision: 5,
+        sharedBoundaryAcknowledged: true,
+        crossAccountConfirmation: 'ADD CROSS-ACCOUNT SEAT',
+      });
+    expect(new Set(requests.map((input) => input.idempotencyKey)).size).toBe(seatCount);
+  },
+);
+
+it('stops after a recovery-required membership receipt and preserves the partially enabled roster', async () => {
+  const { draft, activeConfig, current, membership } = initialEnableFixture('initial-failure');
+  let activated = false;
+  vi.mocked(apiFetch).mockImplementation(async (url, init) => {
+    if (String(url).endsWith('/activate')) {
+      activated = true;
+      return response(activeConfig);
+    }
+    if (String(url).endsWith('/membership')) {
+      const record = {
+        ...membership('architect', 'recovery_required'),
+        idempotencyKey: JSON.parse(String(init?.body)).idempotencyKey,
+      };
+      current.seats = current.seats.map((seat) =>
+        seat.seatId === 'architect' ? { ...seat, membership: record } : seat,
+      ) as typeof current.seats;
+      return response(record);
+    }
+    return response(activated ? current : draft);
+  });
+  render(<SymposiumDirectorPanel sessionId="initial-failure" />);
+  await enableInitialRoster();
+  await screen.findByText(/Enablement stopped/);
+  expect(
+    vi.mocked(apiFetch).mock.calls.filter(([url]) => String(url).endsWith('/membership')),
+  ).toHaveLength(1);
+  expect(screen.queryByRole('button', { name: 'Enable agents' })).toBeNull();
+});
+
+it.each(['close', 'session', 'unmount'])(
+  'does not continue initial admission after %s while activation is pending',
+  async (change) => {
+    const sessionId = `initial-${change}`;
+    const { draft, activeConfig } = initialEnableFixture(sessionId);
+    let resolve!: (value: Response) => void;
+    vi.mocked(apiFetch).mockImplementation(async (url) =>
+      String(url).endsWith('/activate')
+        ? new Promise<Response>((done) => {
+            resolve = done;
+          })
+        : response(draft),
+    );
+    const view = render(<SymposiumDirectorPanel sessionId={sessionId} />);
+    await enableInitialRoster();
+    if (change === 'close') await userEvent.click(screen.getByRole('button', { name: 'Agents' }));
+    else if (change === 'session')
+      view.rerender(<SymposiumDirectorPanel sessionId="other-initial-session" />);
+    else view.unmount();
+    await act(async () => {
+      resolve(response(activeConfig));
+    });
+    expect(
+      vi.mocked(apiFetch).mock.calls.some(([url]) => String(url).endsWith('/membership')),
+    ).toBe(false);
+  },
+);
+
+it.each([
+  'session',
+  'seat',
+  'revision',
+  'generation',
+  'pending',
+  'transport',
+  'status-generation',
+  'key',
+  'action',
+])('stops initial enablement on a %s mismatch without another admission', async (kind) => {
+  const sessionId = `initial-mismatch-${kind}`;
+  const { draft, activeConfig, current, membership } = initialEnableFixture(sessionId);
+  let activated = false;
+  let membershipRequests = 0;
+  vi.mocked(apiFetch).mockImplementation(async (url, init) => {
+    if (String(url).endsWith('/activate')) {
+      activated = true;
+      return response(activeConfig);
+    }
+    if (String(url).endsWith('/membership')) {
+      membershipRequests++;
+      if (kind === 'transport') throw new Error('Lost connection');
+      const record = {
+        ...membership('architect'),
+        idempotencyKey: JSON.parse(String(init?.body)).idempotencyKey,
+        ...(kind === 'session' ? { sessionId: 'other' } : {}),
+        ...(kind === 'seat' ? { seatId: 'reviewer' } : {}),
+        ...(kind === 'revision' ? { configRevision: 4 } : {}),
+        ...(kind === 'generation' ? { generation: 2 } : {}),
+        ...(kind === 'key' ? { idempotencyKey: 'unrelated-key' } : {}),
+        ...(kind === 'action' ? { action: 'restore' } : {}),
+        ...(kind === 'pending' ? { reconciliation: 'pending' } : {}),
+      };
+      current.seats = current.seats.map((seat) =>
+        seat.seatId === 'architect'
+          ? {
+              ...seat,
+              membership: {
+                ...record,
+                ...(kind === 'status-generation' ? { generation: 2 } : {}),
+              },
+            }
+          : seat,
+      );
+      return response(record);
+    }
+    return response(activated ? current : draft);
+  });
+  render(<SymposiumDirectorPanel sessionId={sessionId} />);
+  await enableInitialRoster();
+  await screen.findByText(/Enablement stopped/);
+  expect(membershipRequests).toBe(1);
+  expect(vi.mocked(apiFetch).mock.calls.some(([url]) => String(url).endsWith('/deliveries'))).toBe(
+    false,
+  );
+});
+
+it('keeps an uncertain activation fenced after a finite deadline and a keyed remount', async () => {
+  const { draft } = initialEnableFixture('initial-deadline');
+  vi.mocked(apiFetch).mockImplementation(async (url) =>
+    String(url).endsWith('/activate') ? new Promise<Response>(() => {}) : response(draft),
+  );
+  let deadline!: () => void;
+  const originalTimeout = globalThis.setTimeout;
+  vi.spyOn(globalThis, 'setTimeout').mockImplementation(((
+    callback: () => void,
+    delay?: number,
+    ...args: unknown[]
+  ) => {
+    if (delay === 5 * 60 * 1000) deadline = callback;
+    return originalTimeout(callback, delay, ...args);
+  }) as typeof setTimeout);
+  const view = render(<SymposiumDirectorPanel sessionId="initial-deadline" />);
+  await enableInitialRoster();
+  await act(async () => {
+    deadline();
+  });
+  expect(screen.getByText(/Enablement stopped/).textContent).toContain('timed out');
+  vi.useRealTimers();
+  view.unmount();
+  render(<SymposiumDirectorPanel sessionId="initial-deadline" />);
+  await userEvent.click(screen.getByRole('button', { name: 'Agents' }));
+  const enable = await screen.findByRole('button', { name: 'Enable agents' });
+  expect(enable.hasAttribute('disabled')).toBe(true);
+  await userEvent.click(enable);
+  expect(
+    vi.mocked(apiFetch).mock.calls.filter(([url]) => String(url).endsWith('/activate')),
+  ).toHaveLength(1);
+});
+
+it('preserves the activated configuration when its first status read fails', async () => {
+  const { draft, activeConfig } = initialEnableFixture('initial-status-failure');
+  let activated = false;
+  vi.mocked(apiFetch).mockImplementation(async (url) => {
+    if (String(url).endsWith('/activate')) {
+      activated = true;
+      return response(activeConfig);
+    }
+    if (activated) throw new Error('Status unavailable');
+    return response(draft);
+  });
+  render(<SymposiumDirectorPanel sessionId="initial-status-failure" />);
+  await enableInitialRoster();
+  await screen.findByText(/Enablement stopped/);
+  expect(screen.queryByRole('button', { name: 'Enable agents' })).toBeNull();
+  expect(vi.mocked(apiFetch).mock.calls.some(([url]) => String(url).endsWith('/membership'))).toBe(
+    false,
+  );
+});
+
+it.each(['close', 'session', 'unmount'])(
+  'does not continue the next initial seat after %s during admission',
+  async (change) => {
+    const sessionId = `initial-admission-${change}`;
+    const { draft, activeConfig, current, membership } = initialEnableFixture(sessionId);
+    let activated = false;
+    let resolve!: (value: Response) => void;
+    vi.mocked(apiFetch).mockImplementation(async (url) => {
+      if (String(url).endsWith('/activate')) {
+        activated = true;
+        return response(activeConfig);
+      }
+      if (String(url).endsWith('/membership'))
+        return new Promise<Response>((done) => {
+          resolve = done;
+        });
+      return response(activated ? current : draft);
+    });
+    const view = render(<SymposiumDirectorPanel sessionId={sessionId} />);
+    await enableInitialRoster();
+    await waitFor(() => expect(resolve).toBeDefined());
+    if (change === 'close') await userEvent.click(screen.getByRole('button', { name: 'Agents' }));
+    else if (change === 'session')
+      view.rerender(<SymposiumDirectorPanel sessionId="other-admission-session" />);
+    else view.unmount();
+    await act(async () => {
+      resolve(response(membership('architect')));
+    });
+    expect(
+      vi.mocked(apiFetch).mock.calls.filter(([url]) => String(url).endsWith('/membership')),
+    ).toHaveLength(1);
+  },
+);
+
+it('holds the initial enablement lock across duplicate clicks and a remount before activation settles', async () => {
+  const { draft, activeConfig } = initialEnableFixture('initial-lock');
+  let resolve!: (value: Response) => void;
+  vi.mocked(apiFetch).mockImplementation(async (url) =>
+    String(url).endsWith('/activate')
+      ? new Promise<Response>((done) => {
+          resolve = done;
+        })
+      : response(draft),
+  );
+  const view = render(<SymposiumDirectorPanel sessionId="initial-lock" />);
+  await enableInitialRoster();
+  const enable = screen.getByRole('button', { name: 'Enable agents' });
+  fireEvent.click(enable);
+  fireEvent.click(enable);
+  view.unmount();
+  render(<SymposiumDirectorPanel sessionId="initial-lock" />);
+  await userEvent.click(screen.getByRole('button', { name: 'Agents' }));
+  const reopened = await screen.findByRole('button', { name: 'Enable agents' });
+  expect(reopened.hasAttribute('disabled')).toBe(true);
+  await act(async () => {
+    resolve(response(activeConfig));
+  });
+  expect(
+    vi.mocked(apiFetch).mock.calls.filter(([url]) => String(url).endsWith('/activate')),
+  ).toHaveLength(1);
+  expect(vi.mocked(apiFetch).mock.calls.some(([url]) => String(url).endsWith('/membership'))).toBe(
+    false,
+  );
+  expect(reopened.hasAttribute('disabled')).toBe(true);
+});
+
+it('fences an uncertain initial admission across failed status, refresh, and remount until its exact receipt is saved', async () => {
+  const sessionId = 'initial-uncertain-seat';
+  const { draft, activeConfig, current, membership } = initialEnableFixture(sessionId);
+  draft.runtimeAvailable = true;
+  current.runtimeAvailable = true;
+  let activated = false;
+  let admissionAttempted = false;
+  let statusUnavailable = true;
+  let key = '';
+  vi.mocked(apiFetch).mockImplementation(async (url, init) => {
+    if (String(url).endsWith('/activate')) {
+      activated = true;
+      return response(activeConfig);
+    }
+    if (String(url).endsWith('/membership')) {
+      admissionAttempted = true;
+      key = JSON.parse(String(init?.body)).idempotencyKey;
+      throw new Error('Membership response lost');
+    }
+    if (admissionAttempted && statusUnavailable) throw new Error('Status unavailable');
+    return response(activated ? current : draft);
+  });
+  const view = render(<SymposiumDirectorPanel sessionId={sessionId} />);
+  await enableInitialRoster();
+  await screen.findByText(/Enablement stopped/);
+  await waitFor(() =>
+    expect(screen.getByRole('button', { name: 'Refresh status' }).hasAttribute('disabled')).toBe(
+      false,
+    ),
+  );
+  await userEvent.click(
+    within(screen.getByRole('listitem', { name: 'Architect agent' })).getByRole('button', {
+      name: 'View details',
+    }),
+  );
+  const enable = within(screen.getByRole('listitem', { name: 'Architect agent' })).getByRole(
+    'button',
+    { name: 'Enable agent' },
+  );
+  expect(enable.hasAttribute('disabled')).toBe(true);
+  await userEvent.click(enable);
+  statusUnavailable = false;
+  await userEvent.click(screen.getByRole('button', { name: 'Refresh status' }));
+  await waitFor(() => expect(screen.queryByText('Checking agent status…')).toBeNull());
+  expect(enable.hasAttribute('disabled')).toBe(true);
+  view.unmount();
+  render(<SymposiumDirectorPanel sessionId={sessionId} />);
+  await openAdvancedSettings();
+  const remounted = within(screen.getByRole('listitem', { name: 'Architect agent' })).getByRole(
+    'button',
+    { name: 'Enable agent' },
+  );
+  expect(remounted.hasAttribute('disabled')).toBe(true);
+  current.seats = current.seats.map((seat) =>
+    seat.seatId === 'architect'
+      ? { ...seat, membership: { ...membership('architect'), idempotencyKey: 'unrelated-key' } }
+      : seat,
+  );
+  await userEvent.click(screen.getByRole('button', { name: 'Refresh status' }));
+  await waitFor(() => expect(screen.queryByText('Checking agent status…')).toBeNull());
+  expect(
+    getSymposiumEnableActions().snapshot()[`/api/sessions/${sessionId}/symposium`]
+      .uncertainAdmission,
+  ).toBeDefined();
+  current.seats = current.seats.map((seat) =>
+    seat.seatId === 'architect'
+      ? { ...seat, membership: { ...membership('architect'), idempotencyKey: key } }
+      : seat,
+  );
+  await userEvent.click(screen.getByRole('button', { name: 'Refresh status' }));
+  await waitFor(() =>
+    expect(
+      getSymposiumEnableActions().snapshot()[`/api/sessions/${sessionId}/symposium`]
+        .uncertainAdmission,
+    ).toBeUndefined(),
+  );
+  expect(
+    vi.mocked(apiFetch).mock.calls.filter(([url]) => String(url).endsWith('/membership')),
+  ).toHaveLength(1);
+});
+
+it('does not activate an initial draft whose configured roster exceeds its seat cap', async () => {
+  const { draft } = initialEnableFixture('initial-capacity', 3);
+  draft.config.activeSeatCap = 2;
+  vi.mocked(apiFetch).mockResolvedValue(response(draft));
+  render(<SymposiumDirectorPanel sessionId="initial-capacity" />);
+  await enableInitialRoster();
+  await screen.findByRole('alert');
+  expect(vi.mocked(apiFetch).mock.calls.some(([url]) => String(url).endsWith('/activate'))).toBe(
+    false,
+  );
 });
 
 it('sends saved profile selection outside draft seat config only when host binding is enforced', async () => {
@@ -258,7 +679,7 @@ it('sends saved profile selection outside draft seat config only when host bindi
     'ADD CROSS-ACCOUNT SEAT',
   );
   await userEvent.click(screen.getByRole('button', { name: 'Enable agents' }));
-  await waitFor(() => expect(apiFetch).toHaveBeenCalledTimes(3));
+  await waitFor(() => expect(apiFetch).toHaveBeenCalledTimes(4));
   const [, request] = vi.mocked(apiFetch).mock.calls[1];
   expect(JSON.parse(String(request?.body)).profileSelections).toEqual({
     reviewer: { profileId: 'owner-review', revision: 2 },

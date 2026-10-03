@@ -2,7 +2,14 @@ import './SymposiumDirectorPanel.css';
 import { canRequestAgent, canRequestRuntime } from '../lib/symposium-status';
 import { SeatLabel } from './SeatLabel';
 import { SymposiumSourceImportPanel } from './SymposiumSourceImportPanel';
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type ReactNode,
+} from 'react';
 import type {
   SeatConfig,
   SymposiumConfig,
@@ -14,6 +21,61 @@ import type {
 import { apiFetch } from '../lib/api-fetch';
 import { AccountModelPicker, type AccountSelection } from './AccountModelPicker';
 import { SymposiumProfilePicker, type SymposiumProfileSelection } from './SymposiumProfilePicker';
+
+type EnableAction = {
+  pending: boolean;
+  notice: string;
+  revision: number;
+  uncertainAdmission?: {
+    sessionId: string;
+    seatId: string;
+    configRevision: number;
+    expectedGeneration: number;
+    idempotencyKey: string;
+  };
+};
+// Like delivery action fences, this survives keyed navigation within the page.
+// A lost activation response must never cause a new activation on remount.
+let enableActions: Record<string, EnableAction> = {};
+const enableListeners = new Set<() => void>();
+const enableActionStore = {
+  snapshot: () => enableActions,
+  subscribe: (listener: () => void) => {
+    enableListeners.add(listener);
+    return () => {
+      enableListeners.delete(listener);
+    };
+  },
+  update: (change: (old: typeof enableActions) => typeof enableActions) => {
+    enableActions = change(enableActions);
+    enableListeners.forEach((listener) => listener());
+  },
+};
+// eslint-disable-next-line react-refresh/only-export-components -- Shared page-lifetime fence, exposed for remount contract tests.
+export const getSymposiumEnableActions = () => enableActionStore;
+const enableRequestDeadlineMs = 5 * 60 * 1000;
+
+async function readEnableJson<T>(path: string, init?: RequestInit): Promise<T> {
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      readJson<T>(path, { ...init, signal: controller.signal }),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => {
+          reject(
+            new Error(
+              'The connection check timed out. Its host outcome may still be pending. Check status before taking another action.',
+            ),
+          );
+          controller.abort();
+        }, enableRequestDeadlineMs);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
 
 function AdvancedControls({
   label,
@@ -77,6 +139,35 @@ interface DirectorStatus {
   reservedSeats: number;
   capacityRemaining: number;
   deliveries: SymposiumDeliveryRecord[];
+}
+
+function resolveInitialAdmission(base: string, status: DirectorStatus) {
+  const action = enableActions[base];
+  const uncertain = action?.uncertainAdmission;
+  if (
+    !uncertain ||
+    status.sessionId !== uncertain.sessionId ||
+    status.config?.revision !== uncertain.configRevision ||
+    status.config.state !== 'active'
+  )
+    return;
+  const member = status.seats.find((seat) => seat.seatId === uncertain.seatId)?.membership;
+  if (
+    !member ||
+    member.sessionId !== status.sessionId ||
+    member.seatId !== uncertain.seatId ||
+    member.configRevision !== uncertain.configRevision ||
+    member.generation !== uncertain.expectedGeneration + 1 ||
+    member.idempotencyKey !== uncertain.idempotencyKey ||
+    member.action !== 'admit' ||
+    member.state !== 'active' ||
+    !['confirmed', 'recovery_required'].includes(member.reconciliation)
+  )
+    return;
+  enableActionStore.update((old) => ({
+    ...old,
+    [base]: { ...old[base], uncertainAdmission: undefined },
+  }));
 }
 
 const confirmation = 'ADD CROSS-ACCOUNT SEAT';
@@ -381,7 +472,7 @@ function SessionDirectorPanel({
     Record<string, { pending: boolean; error?: string }>
   >({});
   const [loading, setLoading] = useState(false);
-  const [busy, setBusy] = useState(false);
+  const [localBusy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [selected, setSelected] = useState<string[]>([]);
   const [message, setMessage] = useState('');
@@ -402,6 +493,22 @@ function SessionDirectorPanel({
   const pendingKeys = useRef(new Map<string, string>());
   const refreshGeneration = useRef(0);
   const base = `/api/sessions/${encodeURIComponent(sessionId)}/symposium`;
+  const actionSnapshot = useSyncExternalStore(
+    enableActionStore.subscribe,
+    enableActionStore.snapshot,
+  );
+  const enableAction = actionSnapshot[base];
+  const busy =
+    localBusy || enableAction?.pending === true || Boolean(enableAction?.uncertainAdmission);
+  const lifecycle = useRef(0);
+  const enableLock = useRef(false);
+  useEffect(() => {
+    lifecycle.current++;
+    const ownedLifecycle = lifecycle;
+    return () => {
+      ownedLifecycle.current++;
+    };
+  }, [open]);
 
   const refresh = useCallback(
     async (preservedError?: string) => {
@@ -412,6 +519,7 @@ function SessionDirectorPanel({
       try {
         const next = await readJson<DirectorStatus>(`${base}/status`);
         if (generation !== refreshGeneration.current) return;
+        resolveInitialAdmission(base, next);
         setStatus(next);
         setDetailChecks({});
         // Typed cleanup consent belongs to the status the operator inspected.
@@ -604,25 +712,229 @@ function SessionDirectorPanel({
 
   async function activateRoster() {
     const config = status?.config;
-    if (!config || config.state !== 'draft' || !boundaryAcknowledged || busy) return;
-    setBusy(true);
+    if (
+      !config ||
+      config.version !== 2 ||
+      config.state !== 'draft' ||
+      !boundaryAcknowledged ||
+      busy ||
+      enableLock.current ||
+      enableActions[base]
+    )
+      return;
+    if (config.seats.length > config.activeSeatCap) {
+      setError(
+        'Too many agents are configured for this conversation. Reduce the roster before enabling agents. Your draft is saved.',
+      );
+      return;
+    }
+    // Set the page-lifetime fence synchronously before any network work.
+    enableLock.current = true;
+    const epoch = lifecycle.current;
+    const current = () => lifecycle.current === epoch;
+    const assertCurrent = () => {
+      if (!current())
+        throw new Error(
+          'Agent setup was interrupted by navigation. Check the saved agent status before continuing.',
+        );
+    };
+    const boundary = {
+      sharedBoundaryAcknowledged: true,
+      ...(typedConfirmation === confirmation ? { crossAccountConfirmation: confirmation } : {}),
+    };
+    const key = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`;
+    let progress = 'Saving approved agent setup';
+    enableActionStore.update((old) => ({
+      ...old,
+      [base]: { pending: true, notice: '', revision: config.revision },
+    }));
     setError('');
     try {
-      await readJson(`${base}/activate`, {
+      const activated = await readEnableJson<SymposiumConfig>(`${base}/activate`, {
         method: 'POST',
         headers: jsonHeaders,
         body: JSON.stringify({
           expectedRevision: config.revision,
-          sharedBoundaryAcknowledged: true,
-          ...(typedConfirmation === confirmation ? { crossAccountConfirmation: confirmation } : {}),
+          ...boundary,
           ...(status?.profileBindingEnforced ? { profileSelections } : {}),
         }),
       });
-      await refresh();
+      assertCurrent();
+      if (
+        activated.version !== 2 ||
+        activated.state !== 'active' ||
+        activated.revision !== config.revision + 1 ||
+        activated.anchorSeatId !== config.anchorSeatId ||
+        activated.seats.length !== config.seats.length ||
+        config.seats.some((seat) => !activated.seats.some((next) => next.id === seat.id))
+      )
+        throw new Error('The activated agent setup changed. Refresh status before continuing.');
+      setStatus((saved) =>
+        saved
+          ? {
+              ...saved,
+              config: activated,
+              seats: activated.seats.map((seat) => ({
+                ...(saved.seats.find((row) => row.seatId === seat.id) ?? {
+                  membership: null,
+                  admitted: false,
+                }),
+                seatId: seat.id,
+                seat,
+              })),
+            }
+          : saved,
+      );
+      const readExactStatus = async () => {
+        const next = await readEnableJson<DirectorStatus>(`${base}/status`);
+        assertCurrent();
+        if (
+          next.sessionId !== sessionId ||
+          next.config?.state !== 'active' ||
+          next.config.version !== 2 ||
+          next.config.anchorSeatId !== activated.anchorSeatId ||
+          next.config.revision !== activated.revision ||
+          next.seats.length !== activated.seats.length ||
+          activated.seats.some((seat) => !next.seats.some((row) => row.seatId === seat.id))
+        )
+          throw new Error(
+            'Agent setup changed during enablement. Refresh status before continuing.',
+          );
+        setStatus(next);
+        return next;
+      };
+      let next = await readExactStatus();
+      if (
+        next.seats.some((seat) => seat.membership) ||
+        activated.seats.length > activated.activeSeatCap
+      )
+        throw new Error(
+          'Initial agent membership or capacity changed. Check the saved roster before continuing.',
+        );
+      const ordered = [
+        activated.anchorSeatId,
+        ...activated.seats.map((seat) => seat.id).filter((id) => id !== activated.anchorSeatId),
+      ];
+      const completed = new Set<string>();
+      for (const seatId of ordered) {
+        assertCurrent();
+        if (
+          next.seats.some((seat) =>
+            completed.has(seat.seatId)
+              ? seat.membership?.generation !== 1 ||
+                seat.membership.configRevision !== activated.revision ||
+                seat.membership.state !== 'active' ||
+                seat.membership.reconciliation !== 'confirmed'
+              : seat.membership !== null,
+          )
+        )
+          throw new Error(
+            'Agent membership changed during enablement. Check the saved roster before continuing.',
+          );
+        progress = `Connecting ${activated.seats.find((seat) => seat.id === seatId)!.name}`;
+        const idempotencyKey = `${key}:${seatId}`;
+        enableActionStore.update((old) => ({
+          ...old,
+          [base]: {
+            ...old[base],
+            uncertainAdmission: {
+              sessionId,
+              seatId,
+              configRevision: activated.revision,
+              expectedGeneration: 0,
+              idempotencyKey,
+            },
+          },
+        }));
+        const record = await readEnableJson<SymposiumMembershipRecord>(`${base}/membership`, {
+          method: 'POST',
+          headers: jsonHeaders,
+          body: JSON.stringify({
+            seatId,
+            action: 'admit',
+            expectedGeneration: 0,
+            configRevision: activated.revision,
+            reason: 'Initial enablement by director',
+            idempotencyKey,
+            ...boundary,
+          }),
+        });
+        assertCurrent();
+        if (
+          record.sessionId !== sessionId ||
+          record.seatId !== seatId ||
+          record.configRevision !== activated.revision ||
+          record.idempotencyKey !== idempotencyKey ||
+          record.action !== 'admit' ||
+          record.generation !== 1 ||
+          record.state !== 'active'
+        )
+          throw new Error(
+            'The agent membership receipt does not match this setup. Check status before continuing.',
+          );
+        if (['confirmed', 'recovery_required'].includes(record.reconciliation))
+          enableActionStore.update((old) => ({
+            ...old,
+            [base]: { ...old[base], uncertainAdmission: undefined },
+          }));
+        // Retain the committed receipt even if the following status read fails.
+        next = {
+          ...next,
+          seats: next.seats.map((seat) =>
+            seat.seatId === seatId ? { ...seat, membership: record } : seat,
+          ),
+        };
+        setStatus(next);
+        if (record.reconciliation !== 'confirmed')
+          throw new Error(
+            'The host retained this agent membership but connection recovery is required. No further agents were enabled.',
+          );
+        completed.add(seatId);
+        next = await readExactStatus();
+      }
+      if (
+        next.seats.some(
+          (seat) =>
+            !completed.has(seat.seatId) ||
+            seat.membership?.generation !== 1 ||
+            seat.membership.configRevision !== activated.revision ||
+            seat.membership.state !== 'active' ||
+            seat.membership.reconciliation !== 'confirmed',
+        )
+      )
+        throw new Error(
+          'Final agent membership changed. Check the saved roster before continuing.',
+        );
+      assertCurrent();
+      window.dispatchEvent(new Event('symposium-roster-changed'));
+      enableActionStore.update((old) => {
+        const next = { ...old };
+        delete next[base];
+        return next;
+      });
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Could not activate roster');
+      const notice = `Enablement stopped: ${progress}. ${cause instanceof Error ? cause.message : 'Could not enable agents'} Your saved setup and any completed membership are retained. No automatic retry will run.`;
+      enableActionStore.update((old) => ({
+        ...old,
+        [base]: { ...old[base], pending: true, notice, revision: config.revision },
+      }));
+      if (current()) {
+        setError(notice);
+        try {
+          const saved = await readEnableJson<DirectorStatus>(`${base}/status`);
+          if (current() && saved.sessionId === sessionId) {
+            resolveInitialAdmission(base, saved);
+            setStatus(saved);
+          }
+        } catch {
+          /* Keep the last saved config and membership receipts. */
+        }
+      }
     } finally {
-      setBusy(false);
+      enableLock.current = false;
+      enableActionStore.update((old) =>
+        old[base] ? { ...old, [base]: { ...old[base], pending: false } } : old,
+      );
     }
   }
 
@@ -827,16 +1139,21 @@ function SessionDirectorPanel({
       </button>
       {open && (
         <div className="symposium-director-panel">
-          <button type="button" disabled={loading || busy} onClick={() => void refresh()}>
+          <button
+            type="button"
+            disabled={loading || localBusy || enableAction?.pending === true}
+            onClick={() => void refresh()}
+          >
             Refresh status
           </button>
           {loading && <p role="status">Checking agent status…</p>}
-          {busy && (
+          {(localBusy || enableAction?.pending === true) && (
             <p role="status">
               Working on your request… Connecting an agent can take several minutes while its
               account and workspace access are checked.
             </p>
           )}
+          {enableAction?.notice && <p role="status">{enableAction.notice}</p>}
           {error && (
             <div role="alert">
               <p>The request couldn’t be completed.</p>
@@ -901,6 +1218,7 @@ function SessionDirectorPanel({
                         className="btn-primary"
                         disabled={
                           busy ||
+                          Boolean(enableAction) ||
                           !boundaryAcknowledged ||
                           (crossesAnchorAccount(status.config) &&
                             typedConfirmation !== confirmation)
@@ -1112,31 +1430,32 @@ function SessionDirectorPanel({
                               )
                             }
                           >
-                            {busy
+                            {localBusy || enableAction?.pending === true
                               ? 'Working…'
                               : seat.membership?.state === 'suspended'
                                 ? 'Resume agent'
                                 : 'Enable agent'}
                           </button>
                         )}
-                        {seat.membership?.state !== 'active' && (
-                          <SeatModelEditor
-                            sessionId={sessionId}
-                            seat={seat}
-                            config={status.config!}
-                            profileSelection={
-                              profileSelections[seat.seatId] ??
-                              (seat.seat.profileBinding &&
-                              !seat.seat.profileBinding.profileId.startsWith('host-profile:')
-                                ? {
-                                    profileId: seat.seat.profileBinding.profileId,
-                                    revision: Number(seat.seat.profileBinding.profileRevision),
-                                  }
-                                : null)
-                            }
-                            onSaved={refresh}
-                          />
-                        )}
+                        {seat.membership?.state !== 'active' &&
+                          !enableAction?.uncertainAdmission && (
+                            <SeatModelEditor
+                              sessionId={sessionId}
+                              seat={seat}
+                              config={status.config!}
+                              profileSelection={
+                                profileSelections[seat.seatId] ??
+                                (seat.seat.profileBinding &&
+                                !seat.seat.profileBinding.profileId.startsWith('host-profile:')
+                                  ? {
+                                      profileId: seat.seat.profileBinding.profileId,
+                                      revision: Number(seat.seat.profileBinding.profileRevision),
+                                    }
+                                  : null)
+                              }
+                              onSaved={refresh}
+                            />
+                          )}
                         {status.profileBindingEnforced && (
                           <div>
                             {seat.seat.profileBinding && (
