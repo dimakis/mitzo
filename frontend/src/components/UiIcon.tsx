@@ -6,6 +6,8 @@ const paths = {
   agents: 'M8 4h8v6H8ZM4 16h6v5H4Zm10 0h6v5h-6ZM12 10v3M7 16v-3h10v3',
   calendar: 'M5 5h14v16H5ZM8 3v4m8-4v4M5 11h14',
   files: 'M3 6h7l2 3h9v11H3Z',
+  worktree:
+    'M6 3v12m0-7h7a5 5 0 0 0 5-5M3 18a3 3 0 1 0 6 0a3 3 0 1 0-6 0M15 3a3 3 0 1 0 6 0a3 3 0 1 0-6 0',
   more: 'M5 11h1v2H5Zm6 0h1v2h-1Zm6 0h1v2h-1Z',
   panel: 'M3 4h18v16H3ZM9 4v16',
   up: 'm6 15 6-6 6 6',

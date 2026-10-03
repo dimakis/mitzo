@@ -134,17 +134,20 @@ it('adopts a verified knowledge view in a retained sandbox without replacing tas
     }),
   );
   let present = false;
+  let damaged = false;
   const ssh = vi.fn(async (args: readonly string[]) =>
     args.join(' ').includes('attest-knowledge-runtime.py')
       ? JSON.stringify(config.seedStackManifest.runtime)
-      : args.join(' ').includes('else')
-        ? String(present)
-        : JSON.stringify({
-            sourceCommit: 'a'.repeat(40),
-            payloadSha256: JSON.parse(
-              readFileSync(join(config.seed, '..', 'baseline.json'), 'utf8'),
-            ).payloadSha256,
-          }),
+      : args.join(' ').includes('knowledge-cache-status')
+        ? String(present && !damaged)
+        : args.join(' ').includes('os.path.lexists')
+          ? String(present)
+          : JSON.stringify({
+              sourceCommit: 'a'.repeat(40),
+              payloadSha256: JSON.parse(
+                readFileSync(join(config.seed, '..', 'baseline.json'), 'utf8'),
+              ).payloadSha256,
+            }),
   );
   const manager = new OpenShellRuntimeManager(config, run, undefined, ssh);
   const compile = vi.spyOn(manager, 'compileContext').mockResolvedValue({
@@ -177,9 +180,10 @@ it('adopts a verified knowledge view in a retained sandbox without replacing tas
   const uploads = run.mock.calls.filter(([args]) => args.includes('upload'));
   expect(uploads).toHaveLength(1);
   expect(uploads[0][0].at(-1)).toBe('/sandbox/workspaces/knowledge');
+  present = true;
   await manager.adoptKnowledge(conversation, runtime, AbortSignal.timeout(5000));
   expect(run.mock.calls.filter(([args]) => args.includes('upload'))).toHaveLength(1);
-  expect(ssh).toHaveBeenCalledTimes(7);
+  expect(ssh).toHaveBeenCalledTimes(9);
   present = true;
   const resumed = new OpenShellRuntimeManager(config, run, undefined, ssh);
   vi.spyOn(resumed, 'compileContext').mockResolvedValue(await compile.mock.results[0].value);
@@ -187,6 +191,29 @@ it('adopts a verified knowledge view in a retained sandbox without replacing tas
   expect(reused?.knowledgeRoot).toBe(first?.knowledgeRoot);
   expect(run.mock.calls.filter(([args]) => args.includes('upload'))).toHaveLength(1);
   expect(runtime.workdir).toBe('/sandbox/workspaces/mgmt');
+  damaged = true;
+  ssh.mockImplementation(async (args: readonly string[]) => {
+    const command = args.join(' ');
+    if (command.includes('attest-knowledge-runtime.py'))
+      return JSON.stringify(config.seedStackManifest.runtime);
+    if (command.includes('knowledge-cache-status')) return String(!damaged);
+    if (command.includes('os.path.lexists')) return String(present);
+    if (command.includes('knowledge-cache-repair')) {
+      damaged = false;
+      return '';
+    }
+    if (damaged) throw new Error('knowledge mode changed');
+    return JSON.stringify({
+      sourceCommit: 'a'.repeat(40),
+      payloadSha256: JSON.parse(readFileSync(join(config.seed, '..', 'baseline.json'), 'utf8'))
+        .payloadSha256,
+    });
+  });
+  await resumed.adoptKnowledge(conversation, runtime, AbortSignal.timeout(5000));
+  expect(run.mock.calls.filter(([args]) => args.includes('upload'))).toHaveLength(2);
+  expect(damaged).toBe(false);
+  await resumed.adoptKnowledge(conversation, runtime, AbortSignal.timeout(5000));
+  expect(run.mock.calls.filter(([args]) => args.includes('upload'))).toHaveLength(2);
 });
 
 it('refuses knowledge adoption by an incompatible retained runtime before uploading', async () => {

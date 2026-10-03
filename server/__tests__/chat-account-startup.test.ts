@@ -57,6 +57,15 @@ it.each([
       if (!sdkId) throw new Error('missing preallocated ID');
       const meta = chat.eventStore.getSession(sdkId);
       expect(meta?.accountBinding).toEqual(profiles.resolve('work', 'claude-sonnet-4-6'));
+      expect(chat.registry.get('binding-test')?.accountBinding).toEqual(
+        profiles.resolve('work', 'claude-sonnet-4-6'),
+      );
+      expect(args.options?.allowedTools).toContain('mcp__mitzo-web-access__RequestWebAccess');
+      expect(args.options?.mcpServers?.['mitzo-web-access']).toMatchObject({
+        type: 'sdk',
+        name: 'mitzo-web-access',
+      });
+      expect(args.options?.disallowedTools).toEqual(['WebSearch', 'WebFetch']);
       expect(meta?.bootContext).toBeTruthy();
       expect(meta?.mode).toBe(updatedMode);
       persistedBeforeQuery = true;

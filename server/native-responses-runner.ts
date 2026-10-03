@@ -98,6 +98,9 @@ export class NativeResponsesRunner {
   isRunning() {
     return !!this.active || this.prepared.size > 0;
   }
+  getSelectedModel() {
+    return this.selectedModel;
+  }
   waitUntilIdle() {
     if (!this.active) return Promise.resolve();
     return new Promise<void>((resolve) => this.idleWaiters.push(resolve));

@@ -569,7 +569,7 @@ async function _runQueryLoopInner(
                 // Store the initial prompt as a user_message event so
                 // extractRecentPrompts() can find it for auto-rename.
                 const now = Date.now();
-                store.append(resolvedSessionId, 'user_message', {
+                emit({
                   v: 2,
                   type: 'user_message',
                   ts: now,

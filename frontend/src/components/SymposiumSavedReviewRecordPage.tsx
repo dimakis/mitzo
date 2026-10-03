@@ -13,6 +13,7 @@ export function SymposiumSavedReviewRecordPage() {
   const activeSession = useMitzoStore((s) => s.sessions.active);
   const permission = useMitzoStore((s) => s.messages.permission);
   const respond = useMitzoStore((s) => s.respondToPermission);
+  const expire = useMitzoStore((s) => s.expirePermission);
   const getConnectionId = useMitzoStore((s) => s.getTransportConnectionId);
   const [opened, setOpened] = useState(false);
   const [error, setError] = useState('');
@@ -53,6 +54,7 @@ export function SymposiumSavedReviewRecordPage() {
           {permission && (
             <PermissionBanner
               {...permission}
+              onExpire={expire}
               onRespond={(id, decision, _tool, answers) => respond(id, decision, answers)}
             />
           )}

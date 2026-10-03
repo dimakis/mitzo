@@ -1242,6 +1242,14 @@ describe('runQueryLoop', () => {
       const stored = store.getSessionEvents('sess-ip');
       const userMsgEvents = stored.filter((e) => e.type === 'user_message');
       expect(userMsgEvents).toHaveLength(1);
+      expect(transport.sent).toContainEqual(
+        expect.objectContaining({
+          type: 'user_message',
+          messageId: userMsgEvents[0].payload.messageId,
+          sessionId: 'sess-ip',
+          seq: userMsgEvents[0].seq,
+        }),
+      );
       expect(userMsgEvents[0].payload).toMatchObject({
         text: 'Hello, this is my first message',
         images: ['data:image/png;base64,cHJldmlldw=='],

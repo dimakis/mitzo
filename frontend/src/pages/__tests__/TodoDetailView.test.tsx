@@ -2,8 +2,16 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, cleanup, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
+import { shareTelosArtifact } from '../../lib/share-file';
+vi.mock('../../lib/share-file', () => ({ shareTelosArtifact: vi.fn().mockResolvedValue(true) }));
 import { TodoDetailView } from '../TodoDetailView';
 import type { TodoItem } from '../../types/todo';
+
+const mockPendingSession = vi.fn();
+vi.mock('@mitzo/client/hooks', () => ({
+  useMitzoStore: (selector: (s: unknown) => unknown) =>
+    selector({ setPendingSession: mockPendingSession }),
+}));
 
 const mockNavigate = vi.fn();
 const mockLocation = vi.fn();
@@ -150,6 +158,24 @@ describe('TodoDetailView', () => {
     expect(snippets[1]?.textContent).toContain('Related Jira ticket');
   });
 
+  it('downloads Telos artifact links without resolving them as workspace paths', () => {
+    const url = '/api/telos/artifacts/' + 'a'.repeat(32) + '?revision=1';
+    const open = vi.spyOn(window, 'open').mockImplementation(() => null);
+    mockLocation.mockReturnValue({
+      state: { item: { ...fullItem, links: [{ type: 'artifact', url, title: 'Recovery spec' }] } },
+    });
+    render(
+      <MemoryRouter>
+        <TodoDetailView />
+      </MemoryRouter>,
+    );
+    fireEvent.click(screen.getByText('Recovery spec'));
+    expect(shareTelosArtifact).toHaveBeenCalledWith(url);
+    expect(open).not.toHaveBeenCalled();
+    expect(mockNavigate).not.toHaveBeenCalled();
+    open.mockRestore();
+  });
+
   it('renders durable links and opens repo-relative links in the file viewer', () => {
     render(
       <MemoryRouter>
@@ -213,7 +239,7 @@ describe('TodoDetailView', () => {
     });
   });
 
-  it('navigates to chat with prompt on "Open in Chat" click', () => {
+  it('navigates to chat with a reviewable draft on "Open in Chat" click', () => {
     const { container } = render(
       <MemoryRouter>
         <TodoDetailView />
@@ -223,7 +249,9 @@ describe('TodoDetailView', () => {
     expect(mockNavigate).toHaveBeenCalledTimes(1);
     const call = mockNavigate.mock.calls[0][0] as string;
     expect(call).toContain('/chat?');
-    expect(call).toContain('prompt=');
+    expect(mockPendingSession).toHaveBeenCalledWith(
+      expect.objectContaining({ prompt: expect.stringContaining('Fix authentication middleware') }),
+    );
     expect(call).toContain('extraTools=Bash');
   });
 
@@ -531,4 +559,21 @@ describe('TodoDetailView', () => {
       vi.restoreAllMocks();
     });
   });
+});
+
+it('opens Telos as a reviewable launch with the task identity and context', () => {
+  render(
+    <MemoryRouter>
+      <TodoDetailView />
+    </MemoryRouter>,
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Open in Chat' }));
+  expect(mockPendingSession).toHaveBeenCalledWith(
+    expect.objectContaining({
+      telosTaskId: 'abc123',
+      agentName: 'mitzo-telos',
+      context: expect.stringContaining('Fix authentication middleware'),
+    }),
+  );
+  expect(mockNavigate).toHaveBeenCalledWith('/chat?extraTools=Bash');
 });

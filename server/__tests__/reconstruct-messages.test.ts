@@ -347,6 +347,26 @@ describe('replayEventsToTranscript — bounded in-flight restore', () => {
     ).toEqual(['first output', 'second output']);
   });
 
+  it('restores history when a resumed provider emits an unlabelled result with no recorded call', () => {
+    const events = [
+      evt(1, 'message_start', { messageId: 'first' }),
+      evt(2, 'block_start', { messageId: 'first', blockId: 'b0', blockType: 'text' }),
+      evt(3, 'block_delta', { messageId: 'first', blockId: 'b0', delta: 'Saved answer' }),
+      evt(4, 'message_end', { messageId: 'first' }),
+      evt(5, 'tool_result', { messageId: null, toolId: 'unrecorded', result: 'old result' }),
+      evt(6, 'message_start', { messageId: 'second' }),
+      evt(7, 'block_start', { messageId: 'second', blockId: 'b0', blockType: 'text' }),
+      evt(8, 'block_delta', { messageId: 'second', blockId: 'b0', delta: 'New answer' }),
+      evt(9, 'message_end', { messageId: 'second' }),
+    ];
+    const restored = replayEventsToTranscript(events);
+    expect(restored.messages.map((message) => message.blocks[0].content)).toEqual([
+      'Saved answer',
+      'New answer',
+    ]);
+    expect(restored.messages.every((message) => !message.blocks[0].toolResult)).toBe(true);
+  });
+
   it('attaches a late unlabelled tool result only to a unique prior tool occurrence', () => {
     const events = [
       evt(1, 'message_start', { messageId: 'first' }),

@@ -1,3 +1,5 @@
+import { OPEN_SHELL_ARTIFACT_HELPER } from './openshell-artifact-reader.js';
+import { createTelosArtifactRouter, telosArtifactSaveJson } from './telos-artifact-routes.js';
 import { writeHostArtifact } from './host-artifact-writer.js';
 import { writeOpenShellArtifact } from './artifact-writer.js';
 import { custodianPublicationApproval } from './symposium-custodian-authority.js';
@@ -417,6 +419,8 @@ app.use('/api/capability-operations', authMiddleware, (req, res, next) => {
 });
 // Two 5 MiB UTF-8 documents can each expand sixfold when JSON escapes control bytes.
 app.put('/api/files/write', authMiddleware, express.json({ limit: 60 * 1024 * 1024 + 64 * 1024 }));
+// Authenticate before accepting the expanded JSON envelope; decoded document bytes remain capped at 5 MiB.
+app.post('/api/internal/telos/artifacts/save', authMiddleware, telosArtifactSaveJson);
 app.use(express.json({ limit: '10mb' }));
 
 const loginLimiter = rateLimit({
@@ -1524,6 +1528,43 @@ app.post('/api/internal/task-tools/artifact', (req, res) => {
   });
 });
 
+app.use(
+  createTelosArtifactRouter({
+    dbPath: () =>
+      process.env.TELOS_DB_PATH || join(BASE_REPO, 'command_center', 'data', 'smart_todo.db'),
+    verifyInternal: verifyInternalToken,
+    sessionId: (clientId) => registry.get(clientId)?.sessionId,
+    readFile: async (sessionId, requestedPath) => {
+      if (isRemoteSessionArtifact(sessionId))
+        return readRemoteSessionArtifact(sessionId, requestedPath);
+      const session = registry.findBySessionId(sessionId)?.session;
+      const roots = [
+        session?.cwd,
+        ...[...(session?.worktreePaths?.values() ?? [])].map((entry) => entry.path),
+      ].filter((path): path is string => !!path);
+      const filePath = resolveArtifactPath(requestedPath, sessionId);
+      const root = roots.find((candidate) => containsPath(candidate, filePath));
+      if (!root || !isAllowedPath(filePath, sessionId))
+        throw new OpenShellArtifactReadError(403, 'Path is outside this session workspace');
+      const { stdout } = await execFileAsync(
+        'python3',
+        ['-I', '-c', OPEN_SHELL_ARTIFACT_HELPER, resolve(root), filePath],
+        { timeout: 15_000, maxBuffer: 7 * 1024 * 1024 },
+      );
+      const result = JSON.parse(stdout);
+      if (result.error || result.path !== filePath || typeof result.data !== 'string')
+        throw new OpenShellArtifactReadError(
+          result.error === 'too_large' ? 413 : 403,
+          'Workspace artifact unavailable',
+        );
+      const bytes = Buffer.from(result.data, 'base64');
+      if (bytes.toString('base64') !== result.data)
+        throw new OpenShellArtifactReadError(503, 'Invalid workspace artifact');
+      return { path: filePath, bytes };
+    },
+  }),
+);
+
 app.post('/api/internal/telos/outcomes', async (req, res) => {
   if (!verifyInternalToken(req)) {
     res.status(401).json({ ok: false, error: 'Internal token required' });
@@ -2627,6 +2668,9 @@ function sessionArtifactBrowserRoot(
 }
 
 function resolveArtifactPath(filePath: string, sessionId: string | undefined): string {
+  // Home shorthand is expanded on the host, then checked against the same
+  // configured/session workspace boundaries as every absolute artifact path.
+  if (filePath.startsWith('~/')) filePath = resolve(homedir(), filePath.slice(2));
   const workspace = sessionArtifactRoot(sessionId);
   if (!isAbsolute(filePath)) return resolve(workspace ?? BASE_REPO, filePath);
   const requested = resolve(filePath);

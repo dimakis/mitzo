@@ -5,6 +5,12 @@ Claude Code on your phone. A self-hosted web UI built on the [Agent SDK](https:/
 <!-- ![Home Screen](docs/screenshots/home.png) -->
 <!-- ![Chat with Tools](docs/screenshots/chat-tools.png) -->
 
+### New chat account and model
+
+Expand **Workspace** in chat to choose the account and model. **Make default for new chats** saves that pair (and thinking setting) on this browser; **Clear new-chat default** removes it. Existing conversations keep their bound account. When no default is saved, select an account or confirm the suggested account with **Use** before sending. If a saved account or model is unavailable, choose a replacement explicitly.
+
+Telos **Open in Chat** and **Start Session** open a launch preview with Workspace expanded. Review the account and model, then select **Send launch prompt**. The chat follows the session created for that launch and keeps its Telos context and task identity. The preview stays available until delivery is confirmed through the HTTP receipt or a matching persisted WebSocket user-message echo; a failed send can be retried with the same task context.
+
 ## Features
 
 The dormant [Symposium artifact snapshot observer](docs/features/symposium-artifact-snapshots.md) records bounded host observations; it does not yet enable automated review or publication.
@@ -24,20 +30,21 @@ Symposium director status resolves the verified runtime once per request and reu
 - **Streaming chat** with thinking blocks, tool pills, and markdown
 - **Session settings at a glance** — a single session header shows the account profile, model, and thinking level even when collapsed. Expand it for account, permission, web access, and reviewer controls; Outputs / Sources is beside the composer. The summary wraps compactly on mobile.
 - **Live token usage** — the chat token bar shows context and session totals for OpenAI Responses turns after the provider reports usage at completion.
+- **Request web access** — ordinary chats on ChatGPT/Codex (including OpenShell), OpenAI API, Gemini/Vertex and Claude SDK can request an approval card for a concrete search query or public HTTPS website read. Search uses the selected account and model; unsupported search combinations fail without fallback. Website reads are credential-free, bounded and restricted to public addresses and one origin. Approval covers one request and does not grant shell networking or authenticated browsing. Deploy the backend and updated frontend/iOS assets for request-only approval buttons and Google search suggestions. See [request web access](docs/features/request-web-access.md) for provider behavior and validation limits.
 - **Three modes** — Ask (read-only), Agent (file edits allowed), Auto (shell too). Switch mid-chat.
 - **Slash-command skills** — `/simplify`, `/risk-scan`, `/pr-review`, `/person`, `/review-response`, `/land-pr`, `/pr-shepherd`. Type `/` to browse.
 - **Native deliberation** — `/deliberate <task>` runs an Opus/Gemini debate with durable command admission. Repeated delivery does not repeat provider calls. If an attempt ends with an uncertain outcome, review the conversation before explicitly starting another with `/deliberate --confirm-ambiguous <task>`; this may repeat provider work. `/deliberate` alone shows usage.
 - **Native fusion** — `/fuse <task>` runs a parallel panel, judge, and synthesis with durable admission; `/fuse --self <task>` uses two independent slots of the same model. Exact retries do not repeat provider work. Uncertain panel outcomes stop later phases; explicitly start another attempt with `/fuse --confirm-ambiguous <task>` (retain `--self` when applicable). Usage-only commands make no provider calls. See [fusion admission](docs/design/fusion-admission.md).
 - **Voice** — tap to start/stop recording with live transcription previews (STT) and explicit per-message read-aloud (TTS) via [Yapper](https://github.com/dimakis/yapper). The final audio chunk is sent before transcription ends; if streaming disconnects or times out, the complete recording is transcribed through the batch endpoint. Cancelling discards the recording and releases the microphone. Voice features degrade gracefully when Yapper is offline.
 - **MCP tools** — reads `~/.cursor/mcp.json`, passes servers to every session
-- **File browser** — view and edit repo files, generated session artifacts, and worktree roots; Markdown links in existing conversations open in their original workspace. In browsers, use Download in the file viewer, Markdown preview or message file links to save the original filename and bytes directly, even when the system share sheet is blocked. Use Share to send the original file or choose Save to Files on supported iOS devices; browsers without file sharing fall back to a download. Markdown retains its `.md` filename and document MIME type. File viewing and sharing support Vertex and both OpenAI API-key and subscription conversations, including OpenShell workspaces. Older sandbox conversations without a verified workspace record need one resume in the same conversation before file access; the workspace and file must still exist. Rollout requires updating the backend and the bundled iOS app.
+- **File browser** — view and edit repo files, generated session artifacts, and worktree roots; Markdown links in existing conversations open in their original workspace, including `~/` home paths within allowed workspaces. Returning from a file keeps a disabled input placeholder visible while session type is checked; the ordinary composer and its queued-message effects mount only after the chat is confirmed as ordinary. In browsers, use Download in the file viewer, Markdown preview or message file links to save the original filename and bytes directly, even when the system share sheet is blocked. Use Share to send the original file or choose Save to Files on supported iOS devices; browsers without file sharing fall back to a download. Markdown retains its `.md` filename and document MIME type. File viewing and sharing support Vertex and both OpenAI API-key and subscription conversations, including OpenShell workspaces. Older sandbox conversations without a verified workspace record need one resume in the same conversation before file access; the workspace and file must still exist. Rollout requires updating the backend and the bundled iOS app.
 - **Document editor** — Markdown and HTML source, preview and split views; Markdown formatting, undo/redo, keyboard shortcuts, unsaved draft recovery within the current browser tab, and a layout that follows the mobile keyboard. Saves preserve drafts on errors and detect changes made by agents or other editors. Review the latest saved version before choosing whether to use it or keep your draft for the next save. Vertex and host OpenAI files use the host workspace; API-key and subscription OpenShell documents save in the verified conversation workspace without host fallback. Sandbox editing requires the original document content and an available workspace.
 - **Markdown diagrams** — Mermaid fences render in chat, Files, inline previews and document previews, with theme-aware SVG, copy controls, and readable source for invalid or incomplete diagrams. Expanded chat previews stay open across message and navigation updates.
 - **HTML artifacts** — preview and edit self-contained `.html` prototypes from Files or expandable chat links in a sandboxed, no-network renderer
 - **Task board** — recursive multi-session task orchestration with spec mode, completion summaries, and verification hooks
-- **Durable Telos capture** — agents can create approved outcomes in live Telos; OpenShell sessions execute the write through a trusted host tool so credentials and persistence stay outside the sandbox
+- **Durable Telos capture** — agents can create approved outcomes and save versioned task documents in live Telos. `TelosSaveArtifact`, `TelosFindArtifacts`, and `TelosReadArtifact` provide upload and historical retrieval through trusted host tools/MCP; session instructions teach agents to recover prior work and retain persistence receipts. Documents and item links live in the canonical Telos SQLite store outside the sandbox; code remains in Git and reusable guidance belongs in knowledge. [Operating contract](docs/operations/telos-artifacts.md).
 - **Worktree sandbox** — opt-in git worktree isolation per session, multi-repo support via `.mitzo.json`
-- **Session resilience** — phone sleeps, WS drops, session survives. Reattach on reconnect. Message snapshot recovery for iOS silent drops.
+- **Session resilience** — phone sleeps, WS drops, session survives. Reattach on reconnect. Message snapshot recovery for iOS silent drops. Session opening coordinates live replay with the restored history cursor; expired approvals clear locally so later requests remain accessible.
 - **Durable inactivity closeout** — automatic closeout is admitted once per detach episode before runtime dispatch. Exact retries and restart recovery never repeat paid provider work. See [closeout admission](docs/design/closeout-admission.md).
 - **Closeout live canary** — an opt-in Luna-only harness validates one durable closeout attempt against an isolated controller and explicit billing account. See [closeout live canary](docs/operations/closeout-live-canary.md).
 - **iOS app** — native wrapper via Capacitor with push notifications and home-screen install
@@ -433,6 +440,8 @@ Tasks with `sessionPolicy: spawn` run only in dedicated sessions. When session s
 
 React 19 + Vite. Ten pages (`Login`, `SessionList`, `ChatView`, `DesktopChatView`, `FileViewer`, `InboxView`, `CalendarView`, `TodoView`, `TodoDetailView`, `TaskBoard`), a `useReducer`-based message state machine (`useChatMessages`), module-level WebSocket pool with 500-message buffer, and components for thinking blocks, tool pills, tool groups, permission banners, and a slash-command picker. Capacitor wraps the frontend for iOS deployment via TestFlight.
 
+The chat composer gives draft text the full width, with context information and action controls on separate rows. Session resources open from the toolbar; commands, attachments, and workspace options collapse into More in narrow composers while recording, interrupt, and send controls remain directly available.
+
 For iOS development, run `./scripts/build-ios.sh` to build the iOS web assets and open Xcode. After the build, `./scripts/build-ios.sh --sync` copies the existing `frontend/dist-ios` assets into the iOS project without rebuilding them.
 
 **Key Hooks:**
@@ -560,8 +569,11 @@ frozen-input and target-marker attestation from the accepted-source runtime.
 This release metadata does not itself activate publication or enroll a consumer.
 Retained ordinary Codex chats can select a verified publication between turns,
 copy it into a separate versioned knowledge directory, and refresh the existing
-provider thread with per-turn application context. Their writable task Git and checkpoint
-history remain intact. The pinned ContexGin compiler includes tracked `AGENTS.md`.
+provider thread's per-turn application context. Their writable task Git and checkpoint
+history remain intact. Cached views are verified before reuse; a damaged selected
+cache is replaced from the verified publication before compilation, preserving
+task files and unrelated versions. The pinned ContexGin compiler includes tracked `AGENTS.md`.
+
 Runtime staging fingerprints the installed compiler dependency closure and recipe
 and observes the target Python markers inside the image. These paths require a
 reviewed dynamic runtime lock and enrollment at `publications/current/mgmt`;
@@ -771,3 +783,5 @@ An uncertain sealed publication can be verified after fresh app authentication w
 custodian and credential handle remain retained. The explicit exact-operation action performs
 read-only reconciliation; it never reissues Create PR, replaces an approval, or reconstructs
 credentials after custodian loss. See [publication recovery](docs/operations/symposium-sealed-publication-authority.md#fresh-app-authentication-and-read-only-recovery).
+
+The `Centaur merge gate` workflow publishes a `Centaur final LGTM` commit status. Main branch protection requires it alongside CI: only a final Centaur LGTM with a merge recommendation and zero blockers for the current head passes. Pushes invalidate old approvals; review edits and dismissals recheck the status. A review-cycle limit requires an explicit final review, never a bypass. The workflow executes no pull-request code with its status-write token.

@@ -4,6 +4,7 @@ import {
   mkdtempSync,
   mkdirSync,
   writeFileSync,
+  readFileSync,
   rmSync,
   chmodSync,
   realpathSync,
@@ -15,8 +16,11 @@ import { join } from 'node:path';
 import { afterEach, expect, it } from 'vitest';
 import {
   knowledgeVerificationCommand,
+  knowledgePresenceCommand,
   knowledgeViewManifest,
   knowledgeCleanupCommand,
+  knowledgeCacheStatusCommand,
+  knowledgeCacheRepairCommand,
 } from '../knowledge-view.js';
 
 let root = '';
@@ -71,6 +75,11 @@ it.each(['content', 'mode', 'extra', 'symlink', 'manifest'])(
     writeFileSync(join(root, 'knowledge-view.json'), bytes);
     const command = knowledgeVerificationCommand(root, sha(bytes));
     expect(() => execFileSync('/bin/sh', ['-c', command])).not.toThrow();
+    expect(
+      execFileSync('/bin/sh', ['-c', knowledgeCacheStatusCommand(root, sha(bytes))], {
+        encoding: 'utf8',
+      }).trim(),
+    ).toBe('true');
     if (tamper === 'content') writeFileSync(note, 'draft');
     if (tamper === 'mode') chmodSync(note, 0o755);
     if (tamper === 'extra') writeFileSync(join(root, 'mgmt/injected.md'), 'extra');
@@ -79,5 +88,42 @@ it.each(['content', 'mode', 'extra', 'symlink', 'manifest'])(
       execFileSync('ln', ['-s', note, join(root, 'mgmt/injected.md')]);
     }
     expect(() => execFileSync('/bin/sh', ['-c', command], { stdio: 'pipe' })).toThrow();
+    expect(
+      execFileSync('/bin/sh', ['-c', knowledgeCacheStatusCommand(root, sha(bytes))], {
+        encoding: 'utf8',
+      }).trim(),
+    ).toBe('false');
+  },
+);
+
+it.each([
+  '/sandbox/workspaces/mgmt',
+  '/tmp/knowledge-' + 'a'.repeat(64),
+  '/sandbox/workspaces/knowledge/../mgmt',
+])('never repairs a task or unrelated path: %s', (path) => {
+  expect(() => knowledgeCacheRepairCommand(path)).toThrow();
+});
+
+it.each(['file', 'directory', 'symlink', 'dangling-symlink'])(
+  'repairs only the selected invalid %s cache entry',
+  (kind) => {
+    root = realpathSync(mkdtempSync(join(tmpdir(), 'knowledge-repair-')));
+    const cache = join(root, 'knowledge-' + sha('selected'));
+    const task = join(root, 'task-data');
+    writeFileSync(task, 'preserve');
+    if (kind === 'file') writeFileSync(cache, 'invalid');
+    if (kind === 'directory') mkdirSync(cache);
+    if (kind === 'symlink') execFileSync('ln', ['-s', task, cache]);
+    if (kind === 'dangling-symlink') execFileSync('ln', ['-s', join(root, 'absent-target'), cache]);
+    expect(
+      execFileSync('/bin/sh', ['-c', knowledgePresenceCommand(cache)], { encoding: 'utf8' }).trim(),
+    ).toBe('true');
+    // Relocate the fixed sandbox prefix into this disposable local fixture.
+    const command = knowledgeCacheRepairCommand(
+      '/sandbox/workspaces/knowledge/knowledge-' + sha('selected'),
+    ).replaceAll('/sandbox/workspaces/knowledge', root);
+    execFileSync('/bin/sh', ['-c', command], { stdio: 'pipe' });
+    expect(existsSync(cache)).toBe(false);
+    expect(readFileSync(task, 'utf8')).toBe('preserve');
   },
 );

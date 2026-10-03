@@ -7,7 +7,7 @@ vi.mock('../api-fetch', () => ({
 
 import { apiFetch } from '../api-fetch';
 import { Capacitor } from '@capacitor/core';
-import { shareFile, downloadFile } from '../share-file';
+import { shareFile, downloadFile, shareTelosArtifact } from '../share-file';
 
 const mockApiFetch = vi.mocked(apiFetch);
 
@@ -45,6 +45,26 @@ describe('shareFile', () => {
   afterEach(() => {
     vi.restoreAllMocks();
     vi.useRealTimers();
+  });
+
+  it('fetches Telos bytes through apiFetch and shares a named file on mobile', async () => {
+    vi.spyOn(Capacitor, 'isNativePlatform').mockReturnValue(true);
+    const share = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'canShare', { value: () => true, configurable: true });
+    Object.defineProperty(navigator, 'share', { value: share, configurable: true });
+    mockApiFetch.mockResolvedValue(
+      new Response('# Document', {
+        headers: { 'Content-Disposition': "attachment; filename*=UTF-8''Recovery%20spec.md" },
+      }),
+    );
+    const url = '/api/telos/artifacts/' + 'a'.repeat(32) + '?revision=1';
+    expect(await shareTelosArtifact(url)).toBe(true);
+    expect(mockApiFetch).toHaveBeenLastCalledWith(url);
+    expect(share.mock.calls[0][0].files[0]).toMatchObject({
+      name: 'Recovery spec.md',
+      type: 'text/markdown',
+    });
+    expect(createObjectURLSpy).not.toHaveBeenCalled();
   });
 
   it('downloads file and triggers browser download when canShare is unavailable', async () => {

@@ -1,4 +1,11 @@
 import type { GeminiOptions } from './gemini-session.js';
+import {
+  webAccessDefinition,
+  REQUEST_WEB_ACCESS,
+  WEB_ACCESS_INSTRUCTIONS,
+} from './request-web-access.js';
+import { createWebAccessTool } from './web-access-tool.js';
+import { searchOpenAI, searchGemini } from './web-search-adapters.js';
 import { HOST_TOOL_INSTRUCTIONS } from './session-permission-policy.js';
 import { createNativeHooks } from './native-hooks.js';
 import { mkdirSync } from 'node:fs';
@@ -151,17 +158,25 @@ export async function openResponsesChat(options: Options) {
     systemPrompt:
       options.systemPrompt +
       HOST_TOOL_INSTRUCTIONS +
+      WEB_ACCESS_INSTRUCTIONS +
       (startup.context ? `\n\n${startup.context}` : ''),
     maxTokens: 8192,
     selectedModel: options.selectedModel,
     reasoningEffort: options.reasoningEffort ?? undefined,
-    tools: [...nativeToolDefinitions, ...mcp.definitions],
+    tools: [...nativeToolDefinitions, ...mcp.definitions, webAccessDefinition],
     executeTool: async (block, signal) => {
       const result = await hooks.executeTool(
         block.name,
         block.input,
         signal,
         async (input, forcePrompt) => {
+          if (block.name === REQUEST_WEB_ACCESS) {
+            return createWebAccessTool(options.conversationId, options.registry, (query, signal) =>
+              options.gemini
+                ? searchGemini(query, signal, options.gemini, runner.getSelectedModel())
+                : searchOpenAI(query, signal, options.apiKey!, runner.getSelectedModel()),
+            )(input, signal);
+          }
           const owner = options.registry.findBySessionId(options.conversationId);
           if (!owner) throw new Error('Session unavailable');
           if (mcp.definitions.some((t) => t.name === block.name)) {

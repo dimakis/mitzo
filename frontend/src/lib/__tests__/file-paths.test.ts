@@ -289,3 +289,42 @@ describe('explicit file URI authority', () => {
     },
   );
 });
+
+describe('home-relative artifact paths', () => {
+  it('keeps the home prefix in detected and linkified paths', () => {
+    const path = '~/redhat/mgmt/.scratch/report.md';
+    expect(detectFilePaths(`Saved at ${path}`)).toEqual([{ path, start: 9, end: 9 + path.length }]);
+    expect(linkifyFilePaths(path)).toBe(`[${path}](${FILE_SCHEME}${encodeURIComponent(path)})`);
+  });
+  it('resolves home links independently of the containing file', () => {
+    expect(linkedArtifactPath('~/notes/report.md', '/repo/output.md')).toBe('~/notes/report.md');
+    expect(absoluteMarkdownArtifactPath('~/notes/report.md')).toBe('~/notes/report.md');
+  });
+});
+
+describe('review regressions for home artifact paths', () => {
+  it.each(['html', 'txt', 'png', 'csv', 'pdf', 'md', 'mdx'])(
+    'preserves a home-relative %s link in an artifact',
+    (ext) => {
+      expect(linkedArtifactPath(`~/notes/report.${ext}`, '/repo/output.md')).toBe(
+        `~/notes/report.${ext}`,
+      );
+      expect(linkedArtifactPath(`~/notes/report.${ext}?download=1#part`, 'outputs/report.md')).toBe(
+        `~/notes/report.${ext}`,
+      );
+    },
+  );
+  it.each([
+    'https://example.com/~/report.md',
+    'http://example.com/deep/~/report.html',
+    'HTTPS://example.com/~/report.md?path=~/other.md',
+    '<https://example.com/~/report.md>',
+  ])('leaves the web URL %s intact', (url) => {
+    expect(detectFilePaths(url)).toEqual([]);
+    expect(linkifyFilePaths(url)).toBe(url);
+    const text = `${url} and ~/notes/report.md`;
+    expect(detectFilePaths(text)).toEqual([
+      { path: '~/notes/report.md', start: url.length + 5, end: text.length },
+    ]);
+  });
+});

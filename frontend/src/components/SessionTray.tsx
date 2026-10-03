@@ -9,10 +9,13 @@ import {
 import { MAX_IMAGE_ATTACHMENTS } from '../lib/constants';
 import { ContextPanel } from './ContextPanel';
 import { SessionBanner } from './SessionBanner';
+import { UiIcon } from './UiIcon';
+import { createPortal } from 'react-dom';
 
 type TraySnap = 'peek' | 'half' | 'full';
 
 interface Props {
+  placement?: 'overlay' | 'toolbar';
   messages: FinishedMessage[];
   current?: StreamingMessage | null;
   bootContext?: BootContextMeta | null;
@@ -70,6 +73,7 @@ function ResourceRow({ resource }: { resource: SessionResource }) {
 }
 
 export function SessionTray({
+  placement = 'overlay',
   messages,
   current,
   bootContext,
@@ -101,6 +105,7 @@ export function SessionTray({
   const sourcesCount = resources.sources.length + draftImages.length;
   const resourceCount = sourcesCount + outputsCount;
   const pendingAttachmentCount = draftImages.length + selectedContextBlocks.length;
+  const toolbarCount = resourceCount + selectedContextBlocks.length;
   const isOpen = snap !== 'peek';
 
   const keyForDraftImage = (image: ImageAttachment) => {
@@ -130,10 +135,11 @@ export function SessionTray({
     window.setTimeout(() => {
       suppressClick.current = false;
     }, 400);
-    setSnap((value) => moveSnap(value, delta > 0 ? 1 : -1));
+    const expanding = placement === 'toolbar' ? delta < 0 : delta > 0;
+    setSnap((value) => moveSnap(value, expanding ? 1 : -1));
   };
 
-  return (
+  const tray = (
     <>
       {isOpen && (
         <button
@@ -144,7 +150,8 @@ export function SessionTray({
         />
       )}
       <aside
-        className="session-tray"
+        className={`session-tray${placement === 'toolbar' ? ' session-tray--toolbar' : ''}`}
+        hidden={placement === 'toolbar' && !isOpen}
         data-testid="session-tray"
         data-snap={snap}
         style={{ '--session-tray-drag': `${dragOffset}px` } as CSSProperties}
@@ -301,6 +308,30 @@ export function SessionTray({
           </div>
         </div>
       </aside>
+    </>
+  );
+  return (
+    <>
+      {placement === 'toolbar' && (
+        <button
+          type="button"
+          className="chat-input-btn composer-session-trigger"
+          aria-label="Open session tray"
+          title="Session outputs and sources"
+          aria-expanded={isOpen}
+          aria-controls={contentId}
+          onClick={() => setSnap((value) => (value === 'peek' ? 'half' : 'peek'))}
+        >
+          <UiIcon name="files" />
+          <span className="composer-toolbar-label">Session</span>
+          {(resourceCount > 0 || pendingAttachmentCount > 0) && (
+            <span className="composer-resource-count">
+              {toolbarCount > 99 ? '99+' : toolbarCount}
+            </span>
+          )}
+        </button>
+      )}
+      {placement === 'toolbar' ? createPortal(tray, document.body) : tray}
     </>
   );
 }

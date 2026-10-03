@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import type { PermissionRequest, UserQuestion } from '@mitzo/protocol';
 import type { PermissionResult } from '@anthropic-ai/claude-agent-sdk';
@@ -56,6 +57,25 @@ export function permissionDisplayInput(
   toolName: string,
   input: Record<string, unknown>,
 ): string | undefined {
+  // Summarize document bytes only; preserve the exact original input for approval/execution.
+  if (
+    (toolName === 'TelosSaveArtifact' || toolName === 'mcp__telos__TelosSaveArtifact') &&
+    typeof input.content === 'string'
+  ) {
+    const { content, ...destination } = input;
+    const display = JSON.stringify(
+      {
+        ...destination,
+        contentBytes: Buffer.byteLength(content, 'utf8'),
+        contentSha256: createHash('sha256').update(content).digest('hex'),
+        contentPreview: content.slice(0, 1000),
+        contentPreviewTruncated: content.length > 1000,
+      },
+      null,
+      2,
+    );
+    return display.length <= PERMISSION_INPUT_MAX_CHARS ? display : undefined;
+  }
   const full = serializePermissionDisplayInput(toolName, input);
   if (full === undefined) return undefined;
   return full.length <= PERMISSION_INPUT_MAX_CHARS ? full : undefined;
@@ -115,7 +135,7 @@ export function buildPermissionHandler(
       forcePrompt?: boolean;
       /** Allow a forced prompt to honor an explicit session-wide grant. */
       allowSessionGrant?: boolean;
-      approvalScope?: 'session' | 'conversation';
+      approvalScope?: 'session' | 'conversation' | 'request';
       /**
        * A server-owned control-plane approval (for example, attaching a
        * reviewed integration) may bypass a skill's model-tool ceiling. It

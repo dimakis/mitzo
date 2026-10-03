@@ -108,6 +108,7 @@ function mockEventStore() {
     getSession: vi.fn().mockReturnValue(null),
     upsertSession: vi.fn(),
     getSessionState: vi.fn().mockReturnValue('ACTIVE'),
+    getSessionClientState: vi.fn().mockReturnValue(null),
     setSessionState: vi.fn(),
   };
   store.captureReconnectState.mockImplementation(
@@ -326,6 +327,45 @@ describe('handleReconnect', () => {
       providerAttempts: [],
       pendingPermissions: [],
     });
+  });
+
+  it('keeps a completed attached turn idle in reconnect and switch snapshots', async () => {
+    const eventStore = mockEventStore();
+    eventStore.getSession.mockReturnValue({ sessionId: 'sess-1', state: 'ACTIVE' });
+    eventStore.getSessionClientState.mockReturnValue('idle');
+    eventStore.captureReconnectState.mockReturnValue({
+      session: { sessionId: 'sess-1', state: 'ACTIVE' },
+      clientState: 'idle',
+      cursor: 42,
+      cursorValid: true,
+      providerAttempts: [],
+      events: [],
+    });
+    const ctx = createContext({
+      eventStore: eventStore as unknown as V2HandlerContext['eventStore'],
+    });
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+    handleReconnect(
+      'c1',
+      { type: 'reconnect', sessions: [{ sessionId: 'sess-1', lastSeq: 42 }] },
+      ctx,
+    );
+    expect(transport.sent).toContainEqual(
+      expect.objectContaining({
+        type: 'session_reconnect_snapshot',
+        state: 'idle',
+        internalState: 'ACTIVE',
+      }),
+    );
+    await handleSwitchSession('c1', { type: 'switch_session', sessionId: 'sess-1' }, ctx);
+    expect(transport.sent).toContainEqual(
+      expect.objectContaining({
+        type: 'session_state_changed',
+        state: 'idle',
+        internalState: 'ACTIVE',
+      }),
+    );
   });
 
   it('offers a fenced applied snapshot without advancing on transport send', () => {
@@ -809,6 +849,74 @@ describe('handleUnwatch', () => {
 // ─── handleSwitchSession ─────────────────────────────────────────────────────
 
 describe('handleSwitchSession', () => {
+  it('starts a newly watched session at the REST history boundary instead of syncing from zero', async () => {
+    const eventStore = mockEventStore();
+    eventStore.getSession.mockReturnValue({ sessionId: 'long-session', mode: 'agent' });
+    eventStore.captureReconnectState.mockReturnValue({
+      cursor: 7000,
+      events: [],
+      cursorValid: true,
+    });
+    const ctx = createContext({
+      eventStore: eventStore as unknown as V2HandlerContext['eventStore'],
+    });
+    ctx.connRegistry.register('c1', mockTransport());
+    const reset = vi.spyOn(ctx.connRegistry, 'resetCursor');
+    await handleSwitchSession('c1', { type: 'switch_session', sessionId: 'long-session' }, ctx);
+    expect(reset).toHaveBeenCalledWith('c1', 'long-session', 7000);
+    reset.mockClear();
+    await handleSwitchSession('c1', { type: 'switch_session', sessionId: 'long-session' }, ctx);
+    expect(reset).not.toHaveBeenCalled();
+  });
+
+  it('retries the REST-to-switch gap even when the session ended and no subsequent live event arrives', async () => {
+    const eventStore = mockEventStore();
+    eventStore.getSession.mockReturnValue({ sessionId: 'history-race', mode: 'agent' });
+    eventStore.captureReconnectState.mockReturnValue({ cursor: 42, events: [], cursorValid: true });
+    const ctx = createContext({
+      eventStore: eventStore as unknown as V2HandlerContext['eventStore'],
+    });
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+    await handleSwitchSession('c1', { type: 'switch_session', sessionId: 'history-race' }, ctx);
+    const reset = vi.spyOn(ctx.connRegistry, 'resetCursor');
+    await handleSwitchSession(
+      'c1',
+      {
+        type: 'switch_session',
+        sessionId: 'history-race',
+        historyCursor: 40,
+      },
+      ctx,
+    );
+    expect(reset).toHaveBeenCalledWith('c1', 'history-race', 40);
+    // No later live event arrives to expose a gap. Periodic sync alone must
+    // deliver both events that occurred after REST captured its boundary.
+    ctx.connRegistry.setEventStore({
+      isSessionActive: () => false,
+      getEventsAfter: (_id, afterSeq) =>
+        [41, 42]
+          .filter((seq) => seq > afterSeq)
+          .map((seq) => ({
+            seq,
+            type: 'message_end',
+            sessionId: 'history-race',
+            payload: { messageId: `m${seq}` },
+          })),
+    });
+    vi.useFakeTimers();
+    try {
+      ctx.connRegistry.startPeriodicSync();
+      vi.advanceTimersByTime(5000);
+      expect(
+        transport.sent.filter((event) => event.type === 'message_end').map((event) => event.seq),
+      ).toEqual([41, 42]);
+    } finally {
+      ctx.connRegistry.stopPeriodicSync();
+      vi.useRealTimers();
+    }
+  });
+
   it('scopes unexpected discovery errors to the requested session', async () => {
     const ctx = createContext();
     const transport = mockTransport();
@@ -2063,6 +2171,7 @@ describe('handleSendV2 routing', () => {
     expect(transport.sent).toContainEqual({
       type: 'error',
       error: 'Session is not accepting input. Please retry.',
+      clientMsgId: 'cmsg-1',
     });
   });
 
@@ -2205,7 +2314,7 @@ describe('handleSendV2 routing', () => {
 
     expect(startChat).toHaveBeenCalledTimes(1);
     expect(startChat).toHaveBeenCalledWith(
-      transport,
+      expect.objectContaining({ send: expect.any(Function), isOpen: expect.any(Function) }),
       expect.any(String),
       'hi',
       expect.objectContaining({ cwd: '/tmp/test-repo' }),
@@ -2976,6 +3085,7 @@ describe('handleSendV2 state-based routing', () => {
     expect(transport.sent).toContainEqual({
       type: 'session_id',
       sessionId: 'native-initial-retry',
+      clientMsgId: 'initial-retry',
     });
     expect(ctx.connRegistry.get('c1')?.watchedSessions.has('native-initial-retry')).toBe(true);
     expect(ctx.connRegistry.get('c1')?.activeSession).toBe('native-initial-retry');
@@ -5109,7 +5219,7 @@ describe('resumed session permission authority', () => {
       ctx,
     );
     expect(startChat).toHaveBeenCalledWith(
-      transport,
+      expect.objectContaining({ send: expect.any(Function), isOpen: expect.any(Function) }),
       'c1:sess-1',
       'continue',
       expect.objectContaining({
@@ -5139,7 +5249,7 @@ describe('resumed session permission authority', () => {
       ctx,
     );
     expect(startChat).toHaveBeenCalledWith(
-      transport,
+      expect.objectContaining({ send: expect.any(Function), isOpen: expect.any(Function) }),
       'c1:sess-1',
       'continue',
       expect.objectContaining({ resumePermission: { mode: 'ask', revision: undefined } }),
@@ -5187,4 +5297,101 @@ describe('Symposium ordinary transport fence', () => {
     expect(interruptChat).toHaveBeenCalledTimes(interrupts);
     expect(ctx.sessionRegistry.findBySessionId).not.toHaveBeenCalled();
   });
+});
+
+it('correlates a startup rejection with the send even after session assignment', async () => {
+  const ctx = createContext();
+  const transport = mockTransport();
+  ctx.connRegistry.register('startup-conn', transport);
+  vi.mocked(startChat).mockImplementationOnce(async () => {
+    transport.send({ type: 'session_id', sessionId: 'startup-session' });
+    throw new Error('Could not persist initial prompt');
+  });
+  await handleSendV2(
+    'startup-conn',
+    transport,
+    { type: 'send', sessionId: null, prompt: 'Launch', clientMsgId: 'launch-id' },
+    ctx,
+  );
+  expect(transport.sent).toContainEqual(
+    expect.objectContaining({
+      type: 'error',
+      clientMsgId: 'launch-id',
+      error: 'Could not persist initial prompt',
+    }),
+  );
+});
+
+it('correlates a delayed new-session assignment with its original launch command', async () => {
+  const ctx = createContext();
+  const transport = mockTransport();
+  ctx.connRegistry.register('startup-conn', transport);
+  vi.mocked(startChat).mockImplementationOnce(async (startupTransport) => {
+    startupTransport.send({ type: 'session_id', sessionId: 'startup-session' });
+  });
+  await handleSendV2(
+    'startup-conn',
+    transport,
+    { type: 'send', sessionId: null, prompt: 'Launch', clientMsgId: 'launch-id' },
+    ctx,
+  );
+  expect(transport.sent).toContainEqual(
+    expect.objectContaining({
+      type: 'session_id',
+      sessionId: 'startup-session',
+      clientMsgId: 'launch-id',
+    }),
+  );
+});
+
+it('correlates a caught startup error after assigning the launch session', async () => {
+  const ctx = createContext();
+  const transport = mockTransport();
+  ctx.connRegistry.register('startup-conn', transport);
+  vi.mocked(startChat).mockImplementationOnce(
+    async (startupTransport, _clientId, _prompt, options) => {
+      startupTransport.send({ type: 'session_id', sessionId: 'startup-session' });
+      options?.onStartupAdmission?.(new Error('Startup failed'));
+      startupTransport.send({ type: 'error', error: 'Startup failed' });
+    },
+  );
+  await handleSendV2(
+    'startup-conn',
+    transport,
+    { type: 'send', sessionId: null, prompt: 'Launch', clientMsgId: 'launch-id' },
+    ctx,
+  );
+  expect(transport.sent).toContainEqual(
+    expect.objectContaining({
+      type: 'error',
+      error: 'Startup failed',
+      clientMsgId: 'launch-id',
+    }),
+  );
+});
+
+it('correlates an SDK startup error after admission but before initial prompt delivery', async () => {
+  const ctx = createContext();
+  const transport = mockTransport();
+  ctx.connRegistry.register('startup-conn', transport);
+  vi.mocked(startChat).mockImplementationOnce(
+    async (startupTransport, _clientId, _prompt, options) => {
+      startupTransport.send({ type: 'session_id', sessionId: 'startup-session' });
+      options?.onStartupAdmission?.();
+      startupTransport.send({ type: 'error', error: 'SDK startup failed' });
+    },
+  );
+  await handleSendV2(
+    'startup-conn',
+    transport,
+    { type: 'send', sessionId: null, prompt: 'Launch', clientMsgId: 'launch-id' },
+    ctx,
+  );
+  expect(transport.sent).toContainEqual(
+    expect.objectContaining({
+      type: 'error',
+      error: 'SDK startup failed',
+      clientMsgId: 'launch-id',
+    }),
+  );
 });
