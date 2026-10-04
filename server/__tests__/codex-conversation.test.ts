@@ -2532,3 +2532,36 @@ it('keeps a no-completed-turn recovery start pending while retaining its recover
     threadGeneration: 1,
   });
 });
+
+it('rejects an empty first-turn ACK without promoting the replacement or issuing receipts', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mitzo-empty-turn-ack-'));
+  const store = new CodexConversationStore(join(dir, 'private.db'));
+  cleanup.push(() => {
+    store.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+  store.create('app', binding, '/workspace');
+  store.bindThread('app', binding, 'durable-parent');
+  const args: Parameters<typeof setup> = [];
+  args[0] = store;
+  args[4] = async () => binding;
+  args[17] = true;
+  args[13] = async () => 'verified context';
+  const accepted = vi.fn();
+  const adoption = vi.fn();
+  args[10] = accepted;
+  args[14] = adoption;
+  const f = await setup(...args);
+  const request = f.rpc.request.getMockImplementation()!;
+  f.rpc.request.mockImplementation(async (method, params) =>
+    method === 'turn/start' ? { turn: { id: '' } } : request(method, params),
+  );
+  await expect(f.c.send({ id: 'malformed-ack', prompt: 'Continue.' })).rejects.toThrow();
+  expect(store.read('app', binding)).toMatchObject({
+    threadId: 'durable-parent',
+    threadGeneration: 0,
+  });
+  expect(() => store.assertNoPendingThreadDispatch('app', binding)).toThrow('explicit recovery');
+  expect(accepted).not.toHaveBeenCalled();
+  expect(adoption).not.toHaveBeenCalled();
+});

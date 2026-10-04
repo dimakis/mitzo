@@ -1163,7 +1163,7 @@ export class CodexConversation {
           pending.thread,
           command,
         );
-      const result = z.object({ turn: z.object({ id: z.string() }) }).parse(
+      const result = z.object({ turn: z.object({ id: z.string().min(1) }) }).parse(
         await this.client.request('turn/start', {
           threadId: this.threadId,
           clientUserMessageId: command.id,
