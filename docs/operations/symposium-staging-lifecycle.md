@@ -97,3 +97,45 @@ model and charged account before calling it; obtain approval for any alternative
 Changes require exact-current-head CI and Centaur final LGTM/merge recommendation,
 including parent PRs. Publishing a PR does not authorize merge, deployment, owner
 restart, credential changes or legacy retirement.
+
+## Retaining a trial across a human handoff on macOS
+
+A foreground agent-tool command is not a service lifetime guarantee. For a fresh
+trial that must survive sign-in or a new chat turn, prepare a unique launchd job
+for the existing registered staging entry after owned-release preparation:
+
+```sh
+node scripts/prepare-staging-service.mjs /absolute/plan/owned-release.json /absolute/staging-registration.json 19994
+```
+
+This writes `staging-operator.json` and `staging-custodian.plist` exclusively in
+the private plan directory. App authentication is freshly generated and stored in
+the mode `0600` operator file; provider credentials are not copied. Authentication
+values never enter the plist or command arguments. The same existing staging
+launcher reads that file, applies the existing environment allowlist, reserves a
+registry slot, claims the exclusive intent and becomes the original custodian.
+
+Preparation prints a unique service label and paths only. It neither loads nor
+starts a service. After checking the exact plan, registration and prepared plist,
+use `launchctl bootstrap gui/UID /absolute/plan/staging-custodian.plist` and
+`launchctl kickstart gui/UID/LABEL`, substituting the current operator UID and
+returned label. Retain that exact freshly created service identity as the original
+launch control handle. Do not use `kickstart -k`, enable automatic restart, or
+start a second job with the same plan. `RunAtLoad` and `KeepAlive` are false; the
+exclusive intent refuses a later launch even after service exit.
+
+Use the private file for local app login; never paste its values into a transcript.
+Check live `/api/symposium/custody` against this original service and verify it
+again after returning from sign-in. Launchd registration and a stored receipt
+alone cannot establish custody. Logs stay in the private plan directory as
+`owner.stdout.log` and `owner.stderr.log`. Preparation refuses existing log
+destinations and registration files that collide with them. Review them using bounded metadata,
+not broad credential or environment dumps. The service has a 180-second exit
+allowance for the existing 120-second original-owner drain.
+
+An explicitly approved shutdown of this exact original service uses its retained
+service control handle. Wait for the existing retirement receipt and original
+registry recording, and verify resource settlement before unloading the job.
+If drain is uncertain, retain the original owner for diagnosis. Do not treat
+launchd exit or unload as a cleanup receipt. This path does not retrofit control
+or recover custody for any historical staging process.
