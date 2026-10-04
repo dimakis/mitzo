@@ -1,4 +1,4 @@
-import { mkdtempSync, chmodSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, chmodSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createPrivateOriginalProcessJournal } from '../symposium-original-process-retention.js';
@@ -28,6 +28,8 @@ vi.mock('../app.js', () => ({
   resumeSymposiumController: vi.fn(),
   drainSymposiumController: vi.fn(async () => {}),
   setSymposiumCustodianBroadcast: vi.fn(),
+  beginSymposiumShutdown: vi.fn(),
+  retireRetainedSymposiumRuntimes: vi.fn(async () => {}),
 }));
 vi.mock('../symposium-owned-config.js', () => ({
   bootstrapConfiguredSymposiumHost: effects.bootstrap,
@@ -365,3 +367,59 @@ it.each(['true', 1, null, {}, () => true])(
     expect(effects.fork.mock.calls).toHaveLength(forks);
   },
 );
+
+it('reports original attached generation at terminal retirement even before child hello', async () => {
+  vi.stubEnv('MITZO_SYMPOSIUM_CUSTODIAN_CONTROLLER', '');
+  vi.stubEnv('MITZO_SYMPOSIUM_OWNED_HOST_CONFIG', '/synthetic-entry-only.json');
+  const root = mkdtempSync(join(tmpdir(), 'custodian-prehello-'));
+  chmodSync(root, 0o700);
+  mkdirSync(join(root, 'gateway'), { mode: 0o700 });
+  const child = Object.assign(new EventEmitter(), {
+    pid: 9876,
+    connected: true,
+    exitCode: null as number | null,
+    signalCode: null,
+    kill: vi.fn(),
+    disconnect() {
+      this.connected = false;
+    },
+  });
+  effects.bootstrap.mockResolvedValue({
+    ...effects.host,
+    gateway: { stateDirectory: join(root, 'gateway') },
+    beginShutdown() {},
+    async drain() {},
+    async closeAfterDrain() {},
+  });
+  effects.install.mockReset();
+  effects.fork.mockReturnValue(child);
+  effects.serve.mockImplementation(async (_channel, controller) => {
+    controller.attach();
+    child.exitCode = 0;
+    process.emit('SIGTERM');
+  });
+  const entry = await import('../symposium-custodian-main.js');
+  const observe = vi.fn();
+  const descriptor = Object.getOwnPropertyDescriptor(process, 'send');
+  Object.defineProperty(process, 'send', { configurable: true, value: undefined });
+  const oldTerm = new Set(process.listeners('SIGTERM')),
+    oldInt = new Set(process.listeners('SIGINT'));
+  try {
+    await entry.runSymposiumCustodian({ observeRetirement: observe });
+    expect(observe.mock.calls[0]).toEqual([
+      'retiring',
+      root,
+      expect.objectContaining({ instanceId: expect.any(String), controllerGeneration: 1 }),
+    ]);
+    expect(observe.mock.calls.at(-1)).toEqual(['retired', root, observe.mock.calls[0][2]]);
+  } finally {
+    if (descriptor) Object.defineProperty(process, 'send', descriptor);
+    else delete process.send;
+    for (const listener of process.listeners('SIGTERM'))
+      if (!oldTerm.has(listener)) process.off('SIGTERM', listener);
+    for (const listener of process.listeners('SIGINT'))
+      if (!oldInt.has(listener)) process.off('SIGINT', listener);
+    rmSync(root, { recursive: true, force: true });
+    effects.serve.mockReset();
+  }
+});

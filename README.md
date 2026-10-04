@@ -735,6 +735,7 @@ stores immutable linkage and bounded untrusted findings without enabling dispatc
 Pending failed-seat cleanup supports [scoped fresh app reauthorization](docs/operations/symposium-native-create-receipts.md#fresh-app-authentication-for-a-pending-cleanup) in the Director UI and operator API while the original host retains custody. Authorization and cleanup require separate explicit actions; this does not provide restart recovery.
 
 - [Local Symposium custodian](docs/operations/symposium-local-custodian.md): optional fresh-fixture owner process survives app loss, fences epochs and drains exact workloads before explicit restoration; custodian death remains quarantined.
+- [Staging lifecycle](docs/operations/symposium-staging-lifecycle.md): use `scripts/start-staging-custodian.mjs` for registered fresh trials. Capacity and retention deadlines fence new launches; only the original owner's verified terminal retirement releases a slot. Legacy environments require separate ownership qualification and approval.
 
 [Selected Work Vertex provisioning](docs/operations/symposium-work-vertex.md) binds an explicit ADC snapshot and verified principal to a fresh gateway-owned provider. The reviewed native variant and retained owner require fresh provider readiness and a separately verified policy for each Vertex seat.
 
