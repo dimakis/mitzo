@@ -631,7 +631,9 @@ chats in the configurable ContexGin publisher bridge. The selected store identif
 its accepted Git source and a clean pinned `mgmt-v1` adapter release. A signed
 GitHub webhook wakes publication; sandbox creation and safe-turn admission also
 reconcile the accepted ref, verify its snapshot and wait for exact revision
-conversion. Provider acknowledgement records an account-scoped durable adoption
+conversion. Frozen upload copies preserve the publication’s verified bytes and
+file modes inside a private host directory, including under a restrictive host
+umask. Provider acknowledgement records an account-scoped durable adoption
 receipt. Shared knowledge updates preserve writable task branches and dirty
 worktrees. This requires supervised publisher storage, adapter dependencies and a
 compatible reviewed runtime; configuration alone cannot upgrade a legacy image.
