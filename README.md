@@ -792,3 +792,13 @@ An uncertain sealed publication can be verified after fresh app authentication w
 custodian and credential handle remain retained. The explicit exact-operation action performs
 read-only reconciliation; it never reissues Create PR, replaces an approval, or reconstructs
 credentials after custodian loss. See [publication recovery](docs/operations/symposium-sealed-publication-authority.md#fresh-app-authentication-and-read-only-recovery).
+
+### Retained Symposium staging on macOS
+
+For a fresh staging trial that must stay alive while you finish provider sign-in,
+prepare a manually started launchd job with
+`scripts/prepare-staging-service.mjs`. It uses the existing registered custodian,
+stores freshly generated app authentication in a private file, and disables
+automatic parent restart. It does not install, start, adopt or retire resources.
+Follow the [staging service procedure](docs/operations/symposium-staging-lifecycle.md#retaining-a-trial-across-a-human-handoff-on-macos) for preparation, explicit start,
+live custody verification and approved original-owner shutdown.
