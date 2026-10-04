@@ -183,6 +183,7 @@ async function setup(
   ) => void,
   beforeRuntimeAdmission?: (close: () => Promise<void>) => Promise<boolean>,
   reconnectGuard?: (work: () => Promise<void>) => Promise<void>,
+  deferToolSurfaceReplacement = false,
 ) {
   const dir = mkdtempSync(join(tmpdir(), 'mitzo-codex-'));
   const store = existingStore ?? new CodexConversationStore(join(dir, 'private.db'));
@@ -265,6 +266,7 @@ async function setup(
     onApplicationContextAccepted,
     beforeRuntimeAdmission,
     reconnectGuard,
+    deferToolSurfaceReplacement,
     onProviderDispatch,
     onProviderComplete,
     onProviderAccepted,
@@ -2223,4 +2225,310 @@ it('checks current grants before migration admission and keeps revoked work queu
   await c.send({ id: 'later', prompt: 'next' });
   expect(order.indexOf('grant')).toBeLessThan(order.indexOf('migration'));
   expect(requests.filter((r) => r.method === 'turn/start')).toHaveLength(1);
+});
+
+it('keeps the durable parent through an idle OpenShell tool refresh and shutdown', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mitzo-idle-rollover-'));
+  const store = new CodexConversationStore(join(dir, 'private.db'));
+  cleanup.push(() => {
+    store.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+  store.create('app', binding, '/workspace');
+  store.bindThread('app', binding, 'durable-parent');
+  const args: Parameters<typeof setup> = [];
+  args[0] = store;
+  args[4] = async () => binding;
+  args[17] = true;
+  const first = await setup(...args);
+  expect(store.read('app', binding)).toMatchObject({
+    threadId: 'durable-parent',
+    threadGeneration: 0,
+  });
+  expect(first.c.getDurableThreadId()).toBe('durable-parent');
+  first.c.close(); // Native thread/start child has no rollout until its first turn.
+  const next = await setup(...args);
+  expect(next.requests.filter((r) => r.method === 'thread/resume')).toHaveLength(0);
+  expect(store.read('app', binding).threadId).toBe('durable-parent');
+  await next.c.send({ id: 'new-turn', prompt: 'Continue.' });
+  expect(store.read('app', binding)).toMatchObject({
+    threadId: 'provider-thread',
+    threadGeneration: 1,
+  });
+  expect(
+    next.requests.find((r) => r.method === 'turn/start')?.params.additionalContext,
+  ).toMatchObject({
+    'mitzo.tool-surface-rollover': {
+      kind: 'untrusted',
+      value: expect.stringContaining('Keep the existing workstream.'),
+    },
+  });
+});
+
+it('retains the parent when published knowledge fails before replacement dispatch', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mitzo-pre-dispatch-rollover-'));
+  const store = new CodexConversationStore(join(dir, 'private.db'));
+  cleanup.push(() => {
+    store.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+  store.create('app', binding, '/workspace');
+  store.bindThread('app', binding, 'durable-parent');
+  const args: Parameters<typeof setup> = [];
+  args[0] = store;
+  args[4] = async () => binding;
+  args[17] = true;
+  args[13] = async () => {
+    throw new Error('publication unavailable');
+  };
+  const first = await setup(...args);
+  await expect(first.c.send({ id: 'failed-preparation', prompt: 'Continue.' })).rejects.toThrow(
+    'publication unavailable',
+  );
+  expect(first.requests.filter((r) => r.method === 'turn/start')).toHaveLength(0);
+  expect(store.read('app', binding)).toMatchObject({
+    threadId: 'durable-parent',
+    threadGeneration: 0,
+  });
+  first.c.close();
+  args[13] = undefined;
+  const next = await setup(...args);
+  expect(next.requests.filter((r) => r.method === 'thread/resume')).toHaveLength(0);
+  expect(next.c.queue()).toMatchObject([{ id: 'failed-preparation', status: 'failed' }]);
+});
+
+it('fences a replacement whose turn dispatch acknowledgment was lost across reopen', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mitzo-lost-ack-rollover-'));
+  const path = join(dir, 'private.db');
+  let store = new CodexConversationStore(path);
+  cleanup.push(() => {
+    store.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+  store.create('app', binding, '/workspace');
+  store.bindThread('app', binding, 'durable-parent');
+  const args: Parameters<typeof setup> = [];
+  args[0] = store;
+  args[4] = async () => binding;
+  args[17] = true;
+  const first = await setup(...args);
+  const request = first.rpc.request.getMockImplementation()!;
+  first.rpc.request.mockImplementation(async (method, params) => {
+    if (method === 'turn/start') throw new Error('transport lost after write');
+    return request(method, params);
+  });
+  await expect(first.c.send({ id: 'ambiguous', prompt: 'Continue.' })).rejects.toThrow(
+    'transport lost',
+  );
+  expect(store.read('app', binding)).toMatchObject({
+    threadId: 'durable-parent',
+    threadGeneration: 0,
+  });
+  await expect(first.c.send({ id: 'queued-after-ambiguity', prompt: 'New task.' })).rejects.toThrow(
+    'explicit recovery',
+  );
+  expect(first.c.queue()).toMatchObject([
+    { id: 'ambiguous', status: 'failed' },
+    { id: 'queued-after-ambiguity', status: 'queued' },
+  ]);
+  first.c.close();
+  store.close();
+  store = new CodexConversationStore(path);
+  args[0] = store;
+  await expect(setup(...args)).rejects.toThrow(
+    'pending provider thread dispatch requires explicit recovery',
+  );
+  expect(store.commands('app', binding)).toMatchObject([
+    { id: 'ambiguous', status: 'failed' },
+    { id: 'queued-after-ambiguity', status: 'queued' },
+  ]);
+});
+
+it('promotes a replacement before exact adoption callbacks and suppresses them if promotion fails', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mitzo-ack-rollover-'));
+  const store = new CodexConversationStore(join(dir, 'private.db'));
+  cleanup.push(() => {
+    store.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+  store.create('app', binding, '/workspace');
+  store.bindThread('app', binding, 'durable-parent');
+  const args: Parameters<typeof setup> = [];
+  args[0] = store;
+  args[4] = async () => binding;
+  args[17] = true;
+  args[13] = async () => 'verified context';
+  const accepted = vi.fn(() => expect(store.read('app', binding).threadId).toBe('provider-thread'));
+  args[14] = accepted;
+  const first = await setup(...args);
+  vi.spyOn(store, 'acceptThreadReplacement').mockImplementationOnce(() => {
+    throw new Error('promotion failed');
+  });
+  await expect(
+    first.c.send({ id: 'accepted-but-uncommitted', prompt: 'Continue.' }),
+  ).rejects.toThrow('promotion failed');
+  expect(accepted).not.toHaveBeenCalled();
+  expect(store.read('app', binding).threadId).toBe('durable-parent');
+  expect(() => store.assertNoPendingThreadDispatch('app', binding)).toThrow('explicit recovery');
+});
+
+it('recreates an idle initial native thread after shutdown without resuming a missing rollout', async () => {
+  const args: Parameters<typeof setup> = [];
+  args[4] = async () => binding;
+  args[17] = true;
+  const first = await setup(...args);
+  const store = first.store;
+  expect(store.read('app', binding).threadId).toBeNull();
+  expect(first.c.getDurableThreadId()).toBeUndefined();
+  first.c.close();
+  args[0] = store;
+  const next = await setup(...args);
+  expect(next.requests.filter((r) => r.method === 'thread/resume')).toHaveLength(0);
+  expect(next.requests.filter((r) => r.method === 'thread/start')).toHaveLength(1);
+  await next.c.send({ id: 'initial-after-restart', prompt: 'Continue.' });
+  expect(store.read('app', binding)).toMatchObject({
+    threadId: 'provider-thread',
+    threadGeneration: 0,
+  });
+  expect(() => store.assertNoPendingThreadDispatch('app', binding)).not.toThrow();
+});
+
+it('keeps the replacement dispatch fence and durable parent until the exact turn response', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mitzo-response-rollover-'));
+  const store = new CodexConversationStore(join(dir, 'private.db'));
+  cleanup.push(() => {
+    store.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+  store.create('app', binding, '/workspace');
+  store.bindThread('app', binding, 'durable-parent');
+  const args: Parameters<typeof setup> = [];
+  args[0] = store;
+  args[4] = async () => binding;
+  args[17] = true;
+  const accepted = vi.fn((_command: string, thread: string) =>
+    expect(store.read('app', binding).threadId).toBe(thread),
+  );
+  args[10] = accepted;
+  const f = await setup(...args);
+  const request = f.rpc.request.getMockImplementation()!;
+  let ack!: () => void;
+  f.rpc.request.mockImplementation(async (method, params) => {
+    if (method === 'turn/start')
+      await new Promise<void>((resolve) => {
+        ack = resolve;
+      });
+    return request(method, params);
+  });
+  const sending = f.c.send({ id: 'awaiting-ack', prompt: 'Continue.' });
+  await vi.waitFor(() => expect(ack).toBeTypeOf('function'));
+  expect(store.read('app', binding).threadId).toBe('durable-parent');
+  expect(accepted).not.toHaveBeenCalled();
+  f.callbacks.onNotification('turn/started', {
+    threadId: 'provider-thread',
+    turn: { id: 'turn-1' },
+  });
+  f.callbacks.onNotification('turn/completed', {
+    threadId: 'provider-thread',
+    turn: { id: 'turn-1', status: 'completed' },
+  });
+  expect(store.read('app', binding).threadId).toBe('durable-parent');
+  expect(() => store.assertNoPendingThreadDispatch('app', binding)).toThrow('explicit recovery');
+  ack();
+  await sending;
+  expect(accepted).toHaveBeenCalledExactlyOnceWith('awaiting-ack', 'provider-thread', 'turn-1');
+  expect(() => store.assertNoPendingThreadDispatch('app', binding)).not.toThrow();
+});
+
+it.each([
+  [-32602, 'invalid_request'],
+  [-32600, 'invalid_request'],
+  [-32601, 'invalid_request'],
+  [-32000, 'invalid_request'],
+  [-32000, 'authentication'],
+  [-32000, 'rate_limit'],
+  [-32000, 'context_limit'],
+] as const)(
+  'distinguishes pre-execution rejection %s/%s from ambiguous server rejection',
+  async (code, category) => {
+    const dir = mkdtempSync(join(tmpdir(), 'mitzo-rejected-rollover-'));
+    const store = new CodexConversationStore(join(dir, 'private.db'));
+    cleanup.push(() => {
+      store.close();
+      rmSync(dir, { recursive: true, force: true });
+    });
+    store.create('app', binding, '/workspace');
+    store.bindThread('app', binding, 'durable-parent');
+    const args: Parameters<typeof setup> = [];
+    args[0] = store;
+    args[4] = async () => binding;
+    args[17] = true;
+    const f = await setup(...args);
+    const request = f.rpc.request.getMockImplementation()!;
+    f.rpc.request.mockImplementation(async (method, params) => {
+      if (method === 'turn/start') throw new CodexRequestError('turn/start', category, code);
+      return request(method, params);
+    });
+    await expect(f.c.send({ id: 'rejected', prompt: 'Continue.' })).rejects.toBeInstanceOf(
+      CodexRequestError,
+    );
+    expect(store.read('app', binding).threadId).toBe('durable-parent');
+    if (code === -32000) {
+      expect(() => store.assertNoPendingThreadDispatch('app', binding)).toThrow(
+        'explicit recovery',
+      );
+      f.c.close();
+      await expect(setup(...args)).rejects.toThrow('explicit recovery');
+      return;
+    }
+    expect(() => store.assertNoPendingThreadDispatch('app', binding)).not.toThrow();
+    f.c.close();
+    const next = await setup(...args);
+    expect(next.requests.filter((r) => r.method === 'thread/resume')).toHaveLength(0);
+    expect(next.c.queue()).toMatchObject([{ id: 'rejected', status: 'failed' }]);
+  },
+);
+
+it('keeps a no-completed-turn recovery start pending while retaining its recovery reason', async () => {
+  const initial = await setup(undefined, undefined, undefined, undefined, async () => binding);
+  const revision = initial.store.read('app', binding).toolSurfaceRevision!;
+  initial.c.close();
+  const dir = mkdtempSync(join(tmpdir(), 'mitzo-empty-recovery-'));
+  const store = new CodexConversationStore(join(dir, 'private.db'));
+  cleanup.push(() => {
+    store.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+  store.create('app', binding, '/workspace');
+  store.bindThread('app', binding, 'durable-uncompleted-parent', revision);
+  store.enqueue('app', binding, { id: 'old-failed', prompt: 'Old attempt.' });
+  store.claimNext('app', binding);
+  store.pauseForRecovery('app', binding, 'old-failed', 'failed', 'fork');
+  const args: Parameters<typeof setup> = [];
+  args[0] = store;
+  args[4] = async () => binding;
+  args[17] = true;
+  const first = await setup(...args);
+  expect(store.read('app', binding)).toMatchObject({
+    threadId: 'durable-uncompleted-parent',
+    threadGeneration: 0,
+  });
+  first.c.close();
+  const next = await setup(...args);
+  const promoted = vi.spyOn(store, 'replaceThread');
+  await next.c.send({ id: 'explicit-recovery', prompt: 'New work.' });
+  expect(promoted).toHaveBeenCalledWith(
+    'app',
+    binding,
+    'durable-uncompleted-parent',
+    'provider-thread',
+    'provider_transport_failure',
+    undefined,
+    revision,
+    undefined,
+  );
+  expect(store.read('app', binding)).toMatchObject({
+    threadId: 'provider-thread',
+    threadGeneration: 1,
+  });
 });

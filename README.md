@@ -618,6 +618,8 @@ history remain intact. Cached views are verified before reuse; a damaged selecte
 cache is replaced from the verified publication before compilation, preserving
 task files and unrelated versions. The pinned ContexGin compiler includes tracked `AGENTS.md`.
 
+Ordinary Codex tool-surface replacements preserve the canonical parent until a matching provider turn acknowledgment. Unknown post-dispatch outcomes block reopening; the [unpersisted-thread recovery contract](docs/operations/unpersisted-codex-thread-recovery.md) documents the exact scoped legacy quarantine and its preservation guards.
+
 Runtime staging fingerprints the installed compiler dependency closure and recipe
 and observes the target Python markers inside the image. These paths require a
 reviewed dynamic runtime lock and enrollment at `publications/current/mgmt`;

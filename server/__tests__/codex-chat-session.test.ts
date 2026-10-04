@@ -48,6 +48,7 @@ vi.mock('../codex-conversation.js', () => ({
     }
     initialize = mocks.initialize;
     getThreadId = vi.fn(() => 'thread');
+    getDurableThreadId = vi.fn(() => 'thread');
     assertPermissionModeChange = mocks.assertPermissionModeChange;
     setWebSearchGrant = mocks.setWebSearchGrant;
     getWebSearchGrant = mocks.getWebSearchGrant;

@@ -281,7 +281,7 @@ it('retains setup fence through thread/artifact registration, then real initial 
     chat = await bounded(opening);
     await competing;
     expect(competingAdmission).toBe(true);
-    expect(releaseSnapshots.get(f.id)).toEqual({ thread: 'thread-' + f.id, artifact: true });
+    expect(releaseSnapshots.get(f.id)).toEqual({ thread: undefined, artifact: true });
     expect(f.requests.filter((method) => method === 'turn/start')).toHaveLength(1);
     expect(releaseCounts.get(f.id)).toBe(4); // startup, competing, migration admission, system context
     expect(getCodexConversationStore().commands(f.id, binding)).toMatchObject([
@@ -331,7 +331,7 @@ it('reattach-only initializes registration and releases its fence without admitt
     expect(f.requests).toContain('thread/start');
     expect(f.requests).not.toContain('turn/start');
     expect(getCodexConversationStore().commands(f.id, binding)).toEqual([]);
-    expect(releaseSnapshots.get(f.id)).toEqual({ thread: 'thread-' + f.id, artifact: true });
+    expect(releaseSnapshots.get(f.id)).toEqual({ thread: undefined, artifact: true });
     expect(releaseCounts.get(f.id)).toBe(1);
   } finally {
     chat?.close();

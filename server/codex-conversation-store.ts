@@ -211,6 +211,10 @@ export class CodexConversationStore {
         PRIMARY KEY(conversation_id,call_id),
         FOREIGN KEY(conversation_id,command_id) REFERENCES codex_commands(conversation_id,id));
       CREATE INDEX IF NOT EXISTS codex_commands_queue_status ON codex_commands(conversation_id,status,sequence);`);
+    this.db.exec(`CREATE TABLE IF NOT EXISTS codex_pending_thread_dispatches (
+      conversation_id TEXT PRIMARY KEY REFERENCES codex_conversations(id),
+      parent_thread_id TEXT, thread_id TEXT NOT NULL,
+      command_id TEXT NOT NULL, attempt INTEGER NOT NULL);`);
     this.db.exec(`CREATE TABLE IF NOT EXISTS codex_knowledge_adoptions (
       conversation_id TEXT NOT NULL, command_id TEXT NOT NULL,
       attempt INTEGER NOT NULL, thread_id TEXT NOT NULL, turn_id TEXT NOT NULL,
@@ -651,6 +655,91 @@ export class CodexConversationStore {
           throw new Error('Codex conversation owner is unavailable or changed');
       })
       .immediate();
+  }
+  /** A pre-RPC fence: a lost acknowledgment must never recreate/replay a child. */
+  beginThreadReplacementDispatch(
+    id: string,
+    b: AccountBinding,
+    parent: string | undefined,
+    thread: string,
+    command: CodexCommand,
+  ) {
+    this.db.transaction(() => {
+      if ((this.read(id, b).threadId ?? undefined) !== parent)
+        throw new Error('Codex provider thread generation changed');
+      const active = this.commands(id, b).find((c) => c.id === command.id);
+      if (active?.status !== 'running' || active.attempt !== command.attempt)
+        throw new Error('Codex replacement dispatch command changed');
+      this.db
+        .prepare(
+          'INSERT INTO codex_pending_thread_dispatches(conversation_id,parent_thread_id,thread_id,command_id,attempt) VALUES (?,?,?,?,?)',
+        )
+        .run(id, parent ?? null, thread, command.id, command.attempt);
+    })();
+  }
+  assertNoPendingThreadDispatch(id: string, b: AccountBinding) {
+    this.read(id, b);
+    if (
+      this.db
+        .prepare('SELECT 1 FROM codex_pending_thread_dispatches WHERE conversation_id=?')
+        .get(id)
+    )
+      throw new Error('Codex pending provider thread dispatch requires explicit recovery');
+  }
+  rejectThreadReplacementDispatch(
+    id: string,
+    b: AccountBinding,
+    thread: string,
+    command: CodexCommand,
+  ) {
+    this.db.transaction(() => {
+      this.read(id, b);
+      const deleted = this.db
+        .prepare(
+          'DELETE FROM codex_pending_thread_dispatches WHERE conversation_id=? AND thread_id=? AND command_id=? AND attempt=?',
+        )
+        .run(id, thread, command.id, command.attempt);
+      if (deleted.changes !== 1) throw new Error('Codex replacement rejection fence changed');
+    })();
+  }
+  acceptThreadReplacement(
+    id: string,
+    b: AccountBinding,
+    parent: string | undefined,
+    thread: string,
+    command: CodexCommand,
+    revision: string,
+    context?: string,
+    reason: 'tool_surface_change' | 'provider_transport_failure' = 'tool_surface_change',
+  ) {
+    this.db.transaction(() => {
+      const pending = this.db
+        .prepare('SELECT * FROM codex_pending_thread_dispatches WHERE conversation_id=?')
+        .get(id) as
+        | {
+            parent_thread_id: string | null;
+            thread_id: string;
+            command_id: string;
+            attempt: number;
+          }
+        | undefined;
+      if (
+        !pending ||
+        pending.parent_thread_id !== (parent ?? null) ||
+        pending.thread_id !== thread ||
+        pending.command_id !== command.id ||
+        pending.attempt !== command.attempt
+      )
+        throw new Error('Codex replacement acknowledgment changed');
+      const active = this.commands(id, b).find((c) => c.id === command.id);
+      if (active?.status !== 'running' || active.attempt !== command.attempt)
+        throw new Error('Codex replacement acknowledgment command changed');
+      if (parent) this.replaceThread(id, b, parent, thread, reason, undefined, revision, context);
+      else this.bindThread(id, b, thread, revision);
+      this.db
+        .prepare('DELETE FROM codex_pending_thread_dispatches WHERE conversation_id=?')
+        .run(id);
+    })();
   }
   bindThread(id: string, b: AccountBinding, threadId: string, toolSurfaceRevision?: string) {
     this.db.transaction(() => {

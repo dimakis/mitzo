@@ -103,6 +103,8 @@ export interface CodexConversationOptions {
   ) => void;
   /** Trusted native adapter: each initialize owns a fresh private provider home. */
   providerThreadLifecycle?: 'attempt';
+  /** Ordinary OpenShell: defer initial/tool-refresh thread binding until the first turn ACK. */
+  deferToolSurfaceReplacement?: boolean;
   loadConversationHistory?: () => ConversationHistoryEntry[];
   onClosed?: () => void;
   onError?: (error: Error) => void;
@@ -186,6 +188,13 @@ export class CodexConversation {
   private transportGeneration = 0;
   private binding?: AccountBinding;
   private threadId?: string;
+  private pendingToolSurface?: {
+    parent?: string;
+    thread: string;
+    revision: string;
+    context?: string;
+    reason?: 'provider_transport_failure';
+  };
   private mapper?: CodexSessionEvents;
   private active?: {
     command: CodexCommand;
@@ -276,6 +285,7 @@ export class CodexConversation {
       this.opts.ownerKind,
     );
     const state = this.opts.store.read(this.opts.conversationId, this.binding);
+    this.opts.store.assertNoPendingThreadDispatch(this.opts.conversationId, this.binding);
     this.paused = !!state.recovery;
     const configResponse = z.object({ config: z.unknown() }).parse(
       await this.client.request('config/read', {
@@ -322,7 +332,9 @@ export class CodexConversation {
     )
       throw new Error('Codex execution binding changed');
     this.threadId = result.thread.id;
-    if (!replacingProviderThread)
+    if (!state.threadId && this.opts.deferToolSurfaceReplacement) {
+      this.pendingToolSurface = { thread: result.thread.id, revision: toolSurfaceRevision };
+    } else if (!replacingProviderThread)
       this.opts.store.bindThread(
         this.opts.conversationId,
         this.binding,
@@ -345,6 +357,9 @@ export class CodexConversation {
   }
   /** Exposed only to the server lifecycle bridge after initialize has bound the
    * provider thread. Undefined means no checkpoint/deletion record may exist. */
+  getDurableThreadId() {
+    return this.pendingToolSurface ? this.pendingToolSurface.parent : this.threadId;
+  }
   getThreadId() {
     return this.threadId;
   }
@@ -538,6 +553,7 @@ export class CodexConversation {
   }
   private async continueRecovery() {
     if (this.closed) throw new Error('Codex conversation unavailable');
+    this.opts.store.assertNoPendingThreadDispatch(this.opts.conversationId, this.binding!);
     if (!this.ready) await this.reconnect();
     // A provider turn may continue after turn/start returns. Recovery progress
     // is only for workspace startup and transport reattachment, not generation.
@@ -582,29 +598,46 @@ export class CodexConversation {
         codexRuntimeOverrides(configResponse.config, this.opts.profile.workspaceId);
       const modelProvider = this.opts.modelProvider ?? 'openai';
       const state = this.opts.store.read(this.opts.conversationId, this.binding);
+      this.opts.store.assertNoPendingThreadDispatch(this.opts.conversationId, this.binding);
       const threadOptions = this.threadOptions(runtimeConfig, modelProvider, state);
       const toolSurfaceRevision = this.toolSurfaceRevision();
-      const replacingStaleToolSurface = state.toolSurfaceRevision !== toolSurfaceRevision;
+      const replacingInitialThread = !state.threadId && this.opts.deferToolSurfaceReplacement;
+      const replacingStaleToolSurface =
+        !!state.threadId && state.toolSurfaceRevision !== toolSurfaceRevision;
       const replacingProviderThread =
-        replacingStaleToolSurface || state.recoveryStrategy === 'fork';
+        replacingInitialThread || replacingStaleToolSurface || state.recoveryStrategy === 'fork';
       if (!replacingProviderThread) this.mapper?.beginReconnectReplay();
-      const result = replacingStaleToolSurface
-        ? await this.replaceStaleToolSurface(client, state, threadOptions, toolSurfaceRevision)
-        : replacingProviderThread
-          ? await this.replaceFailedProviderThread(client, state, threadOptions)
-          : z
-              .object({
-                thread: z.object({ id: z.string().min(1) }),
-                model: z.string(),
-                modelProvider: z.string(),
-              })
-              .parse(
-                await client.request('thread/resume', {
-                  threadId: this.threadId,
-                  ...threadOptions,
-                  allowProviderModelFallback: false,
-                }),
-              );
+      const result = replacingInitialThread
+        ? z
+            .object({
+              thread: z.object({ id: z.string().min(1) }),
+              model: z.string(),
+              modelProvider: z.string(),
+            })
+            .parse(
+              await client.request('thread/start', {
+                ...threadOptions,
+                allowProviderModelFallback: false,
+                ...this.dynamicToolsOption(),
+              }),
+            )
+        : replacingStaleToolSurface
+          ? await this.replaceStaleToolSurface(client, state, threadOptions, toolSurfaceRevision)
+          : replacingProviderThread
+            ? await this.replaceFailedProviderThread(client, state, threadOptions)
+            : z
+                .object({
+                  thread: z.object({ id: z.string().min(1) }),
+                  model: z.string(),
+                  modelProvider: z.string(),
+                })
+                .parse(
+                  await client.request('thread/resume', {
+                    threadId: this.threadId,
+                    ...threadOptions,
+                    allowProviderModelFallback: false,
+                  }),
+                );
       if (
         (!replacingProviderThread && result.thread.id !== this.threadId) ||
         result.model !== this.binding.model ||
@@ -612,6 +645,8 @@ export class CodexConversation {
       )
         throw new Error('Codex execution binding changed');
       this.threadId = result.thread.id;
+      if (replacingInitialThread)
+        this.pendingToolSurface = { thread: result.thread.id, revision: toolSurfaceRevision };
       if (replacingProviderThread) this.resetMapper(this.threadId);
       this.ready = true;
     } catch (error) {
@@ -679,6 +714,10 @@ export class CodexConversation {
         expectedRevision,
         grant,
       );
+      if (this.pendingToolSurface) {
+        await this.reconnectBound();
+        return updated;
+      }
       client = this.createClient();
       this.client = client;
       await client.initialize();
@@ -844,6 +883,15 @@ export class CodexConversation {
       result.modelProvider !== (this.opts.modelProvider ?? 'openai')
     )
       throw new Error('Codex execution binding changed');
+    if (this.opts.deferToolSurfaceReplacement) {
+      this.pendingToolSurface = {
+        parent: state.threadId,
+        thread: result.thread.id,
+        revision: toolSurfaceRevision,
+        context: rolloverContext,
+      };
+      return result;
+    }
     this.opts.store.replaceThread(
       this.opts.conversationId,
       this.binding!,
@@ -923,6 +971,16 @@ export class CodexConversation {
       result.modelProvider !== (this.opts.modelProvider ?? 'openai')
     )
       throw new Error('Codex execution binding changed');
+    if (this.opts.deferToolSurfaceReplacement && !lastCompletedTurnId) {
+      this.pendingToolSurface = {
+        parent: state.threadId,
+        thread: result.thread.id,
+        revision: this.toolSurfaceRevision(),
+        context: state.rolloverContext ?? undefined,
+        reason: 'provider_transport_failure',
+      };
+      return result;
+    }
     this.opts.store.replaceThread(
       this.opts.conversationId,
       this.binding!,
@@ -1084,7 +1142,9 @@ export class CodexConversation {
       active.span.setAttribute('mitzo.route', 'chatgpt-subscription');
       active.span.setAttribute('gen_ai.request.model', model);
       const state = this.opts.store.read(this.opts.conversationId, this.binding!);
-      const rolloverContext = state.threadId === this.threadId ? state.rolloverContext : null;
+      const rolloverContext =
+        this.pendingToolSurface?.context ??
+        (state.threadId === this.threadId ? state.rolloverContext : null);
       if (rolloverContext)
         additionalContext[
           this.opts.providerThreadLifecycle === 'attempt'
@@ -1094,6 +1154,15 @@ export class CodexConversation {
           kind: 'untrusted',
           value: rolloverContext,
         };
+      const pending = this.pendingToolSurface;
+      if (pending)
+        this.opts.store.beginThreadReplacementDispatch(
+          this.opts.conversationId,
+          this.binding!,
+          pending.parent,
+          pending.thread,
+          command,
+        );
       const result = z.object({ turn: z.object({ id: z.string() }) }).parse(
         await this.client.request('turn/start', {
           threadId: this.threadId,
@@ -1116,6 +1185,20 @@ export class CodexConversation {
         if (active.turnId && active.turnId !== result.turn.id)
           throw new Error('Codex turn identity changed');
         active.turnId = result.turn.id;
+        if (pending) {
+          this.opts.store.acceptThreadReplacement(
+            this.opts.conversationId,
+            this.binding!,
+            pending.parent,
+            pending.thread,
+            command,
+            pending.revision,
+            pending.context,
+            pending.reason,
+          );
+          this.pendingToolSurface = undefined;
+          await this.opts.onThreadChanged?.(pending.thread);
+        }
         this.opts.onProviderAccepted?.(command.id, this.threadId!, active.turnId);
         if (systemPrompt !== undefined)
           this.opts.onApplicationContextAccepted?.(
@@ -1145,6 +1228,25 @@ export class CodexConversation {
       // transportClosed() already paused and persisted this command. Do not
       // propagate the old RPC rejection into the adapter's close path.
       if (transportGeneration !== this.transportGeneration) return;
+      // An exact, definitive rejection with no competing native turn identity
+      // proves this request did not start a turn. Transport errors/lost responses
+      // remain fenced, including a contradictory turn/started notification.
+      if (
+        this.pendingToolSurface &&
+        error instanceof CodexRequestError &&
+        error.method === 'turn/start' &&
+        error.category === 'invalid_request' &&
+        [-32600, -32601, -32602].includes(error.code ?? 0) &&
+        !active.turnId &&
+        active.completions.size === 0
+      ) {
+        this.opts.store.rejectThreadReplacementDispatch(
+          this.opts.conversationId,
+          this.binding!,
+          this.pendingToolSurface.thread,
+          command,
+        );
+      }
       const replaceProviderThread = requiresProviderThreadReplacement(error);
       if (this.active === active) this.finishTurnSpan('failed', 'dispatch');
       this.opts.onProviderComplete?.(command.id, 'failed');
