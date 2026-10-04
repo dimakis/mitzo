@@ -49,35 +49,50 @@ function ResourceDetails({
   const identity = accountSignInIdentity(resource);
   return (
     <div className="access-resource-content">
-      <dl className="access-resource-facts">
-        <div>
-          <dt>Provider</dt>
-          <dd>{resource.provider}</dd>
-        </div>
-        {runtimeLabel(resource) && (
+      <section className="access-detail-card" aria-label="Account details">
+        <h3>Account details</h3>
+        <dl className="access-resource-facts">
           <div>
-            <dt>Account use</dt>
-            <dd>{runtimeLabel(resource)}</dd>
+            <dt>Provider</dt>
+            <dd>{resource.provider}</dd>
           </div>
-        )}
-        {isAccount ? (
-          <>
-            {identity.observed?.email && (
-              <div>
-                <dt>Account</dt>
-                <dd>{identity.observed.email}</dd>
-              </div>
-            )}
+          {runtimeLabel(resource) && (
             <div>
-              <dt>Configured account</dt>
-              <dd>{identity.configuredEmail ?? 'Identity not reported'}</dd>
+              <dt>Account use</dt>
+              <dd>{runtimeLabel(resource)}</dd>
             </div>
-            {(identity.observed?.planType || identity.configuredPlan) && (
+          )}
+          {isAccount ? (
+            <>
+              {identity.observed?.email && (
+                <div>
+                  <dt>Account</dt>
+                  <dd>{identity.observed.email}</dd>
+                </div>
+              )}
               <div>
-                <dt>{identity.observed?.planType ? 'Account plan' : 'Configured plan'}</dt>
-                <dd>{identity.observed?.planType ?? identity.configuredPlan}</dd>
+                <dt>Configured account</dt>
+                <dd>{identity.configuredEmail ?? 'Identity not reported'}</dd>
               </div>
-            )}
+              {(identity.observed?.planType || identity.configuredPlan) && (
+                <div>
+                  <dt>{identity.observed?.planType ? 'Account plan' : 'Configured plan'}</dt>
+                  <dd>{identity.observed?.planType ?? identity.configuredPlan}</dd>
+                </div>
+              )}
+            </>
+          ) : (
+            <div>
+              <dt>Account</dt>
+              <dd>{resource.accountIdentity ?? 'Identity not reported'}</dd>
+            </div>
+          )}
+        </dl>
+      </section>
+      {isAccount && (
+        <section className="access-detail-card" aria-label="Sign-in details">
+          <h3>Sign-in details</h3>
+          <dl className="access-resource-facts">
             <div>
               <dt>Sign-in</dt>
               <dd>
@@ -93,50 +108,54 @@ function ResourceDetails({
                 <dd>{new Date(resource.signIn.checkedAt).toLocaleString()}</dd>
               </div>
             )}
-          </>
-        ) : (
+          </dl>
+        </section>
+      )}
+      <section className="access-detail-card" aria-label="Access and scope">
+        <h3>Access and scope</h3>
+        <dl className="access-resource-facts">
           <div>
-            <dt>Account</dt>
-            <dd>{resource.accountIdentity ?? 'Identity not reported'}</dd>
+            <dt>Access</dt>
+            <dd>{resource.access.summary}</dd>
           </div>
-        )}
-        <div>
-          <dt>Access</dt>
-          <dd>{resource.access.summary}</dd>
-        </div>
-        <div>
-          <dt>Applies to</dt>
-          <dd>{resource.access.appliesTo}</dd>
-        </div>
-        <div>
-          <dt>Configured assignments</dt>
-          <dd>
-            {resource.access.desiredAccountIds.length
-              ? resource.access.desiredAccountIds.join(', ')
-              : 'No account assignments reported'}
-          </dd>
-        </div>
-        <div>
-          <dt>Status</dt>
-          <dd>{readableStatus(resource.status)}</dd>
-        </div>
-        <div>
-          <dt>
-            {resource.kind === 'managed-connection'
-              ? 'Credential verification'
-              : 'Access verification'}
-          </dt>
-          <dd>
-            {verificationLabel(resource)}
-            {resource.verification.verifiedAt !== null && (
-              <> · {new Date(resource.verification.verifiedAt).toLocaleString()}</>
-            )}
-            {resource.verification.reason && (
-              <p className="workspace-muted">{resource.verification.reason}</p>
-            )}
-          </dd>
-        </div>
-      </dl>
+          <div>
+            <dt>Applies to</dt>
+            <dd>{resource.access.appliesTo}</dd>
+          </div>
+          <div>
+            <dt>Configured assignments</dt>
+            <dd>
+              {resource.access.desiredAccountIds.length
+                ? resource.access.desiredAccountIds.join(', ')
+                : 'No account assignments reported'}
+            </dd>
+          </div>
+          <div>
+            <dt>Status</dt>
+            <dd>{readableStatus(resource.status)}</dd>
+          </div>
+          <div>
+            <dt>
+              {resource.kind === 'managed-connection'
+                ? 'Credential verification'
+                : 'Access verification'}
+            </dt>
+            <dd>
+              {verificationLabel(resource)}
+              {resource.verification.verifiedAt !== null && (
+                <> · {new Date(resource.verification.verifiedAt).toLocaleString()}</>
+              )}
+              {resource.verification.reason && (
+                <p className="workspace-muted">{resource.verification.reason}</p>
+              )}
+            </dd>
+          </div>
+        </dl>
+        <p className="workspace-muted">
+          Conversation attachments have not been observed. Configuration and past verification do
+          not establish current conversation access.
+        </p>
+      </section>
       {resource.section === 'accounts' && (
         <ConnectionsModeDetails resource={resource} catalog={catalog} />
       )}
@@ -152,10 +171,6 @@ function ResourceDetails({
             : 'Personal account details could not be checked. This catalog is shown separately.'}
         </p>
       )}
-      <p className="workspace-muted">
-        Conversation attachments have not been observed. Configuration and past verification do not
-        establish current conversation access.
-      </p>
       <div className="access-resource-actions" aria-label={`Actions for ${resource.label}`}>
         <span className="workspace-muted">Actions</span>
         {resource.actions.map((action) => (
@@ -246,8 +261,10 @@ function AccessDrawer({
   title,
   children,
   onClose,
+  resource,
 }: {
   title: string;
+  resource?: AccessResource;
   children: React.ReactNode;
   onClose: () => void;
 }) {
@@ -300,9 +317,17 @@ function AccessDrawer({
         }}
       >
         <header className="access-drawer-heading">
-          <div>
+          {resource && (
+            <span className={`access-row-icon ${resource.section}`} aria-hidden="true">
+              {resource.section === 'accounts' ? '✧' : '↗'}
+            </span>
+          )}
+          <div className="access-drawer-heading-copy">
             <p className="workspace-eyebrow">Connections</p>
             <h2 id="access-drawer-title">{title}</h2>
+            {resource && runtimeLabel(resource) && (
+              <span className="access-runtime-badge">{runtimeLabel(resource)}</span>
+            )}
           </div>
           <button
             ref={close}
@@ -576,7 +601,11 @@ export function ConnectionsAccessView() {
         </p>
       </main>
       {selection && (
-        <AccessDrawer title={selection.resource.label} onClose={() => setSelectedResourceId(null)}>
+        <AccessDrawer
+          title={selection.resource.label}
+          resource={selection.resource}
+          onClose={() => setSelectedResourceId(null)}
+        >
           {loading && <p role="status">Refreshing access… Showing the last loaded results.</p>}
           {error && (
             <div role="alert" className="access-source-notice">
