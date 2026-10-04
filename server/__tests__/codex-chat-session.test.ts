@@ -48,6 +48,7 @@ vi.mock('../codex-conversation.js', () => ({
     }
     initialize = mocks.initialize;
     getThreadId = vi.fn(() => 'thread');
+    getDurableThreadId = vi.fn(() => 'thread');
     assertPermissionModeChange = mocks.assertPermissionModeChange;
     setWebSearchGrant = mocks.setWebSearchGrant;
     getWebSearchGrant = mocks.getWebSearchGrant;
@@ -1172,6 +1173,7 @@ it('never loads trusted project hooks on the host for OpenShell sessions', async
       ...options(new AbortController()),
       session: { ...options(new AbortController()).session, cwd },
     });
+    expect(mocks.conversationOptions?.beforeComplete).toBeUndefined();
     expect(existsSync(marker)).toBe(false);
   } finally {
     vi.unstubAllEnvs();

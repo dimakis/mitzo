@@ -821,3 +821,47 @@ it('persists exact knowledge adoption across restart and rejects cross-account o
   ]);
   s.close();
 });
+
+it.each(['dispatch', 'ownership', 'repaired'] as const)(
+  'refuses retry without mutating a %s replacement dispatch ledger',
+  (phase) => {
+    const { path } = setup();
+    let s = new CodexConversationStore(path);
+    s.create('app', binding, '/workspace');
+    s.bindThread('app', binding, 'parent');
+    s.enqueue('app', binding, { id: 'accepted', prompt: 'continue' });
+    const command = s.claimNext('app', binding)!;
+    s.beginThreadReplacementDispatch('app', binding, 'parent', 'child', command);
+    if (phase !== 'dispatch') {
+      s.acceptThreadReplacement(
+        'app',
+        binding,
+        'parent',
+        'child',
+        command,
+        'revision',
+        undefined,
+        'tool_surface_change',
+        'turn-one',
+      );
+      if (phase === 'repaired') s.completeThreadOwnership('app', binding, 'child');
+    }
+    // Represents the historical transport callback's wrong failed classification.
+    s.pauseForRecovery('app', binding, command.id, 'failed', 'resume', undefined, true, true);
+    s.enqueue('app', binding, { id: 'next', prompt: 'next' });
+    s.close();
+    s = new CodexConversationStore(path);
+    try {
+      const before = s.commands('app', binding);
+      expect(s.retryLatestFailed('app', binding, Date.now(), true)).toBe('not_retryable');
+      expect(s.commands('app', binding)).toEqual(before);
+      expect(s.read('app', binding).recovery).toBe(1);
+      if (phase !== 'repaired') {
+        expect(() => s.acknowledgeRecovery('app', binding)).toThrow('requires');
+        expect(s.commands('app', binding)).toEqual(before);
+      }
+    } finally {
+      s.close();
+    }
+  },
+);

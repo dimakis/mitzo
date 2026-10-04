@@ -861,15 +861,18 @@ async function openCodexChatBound(
     profile: options.profile,
     storedBinding: options.binding,
     store: privateStorage,
+    deferToolSurfaceReplacement: !!runtimeManager,
     webSearchBackend: openShell ? 'openshell' : 'host',
     webSearchDeploymentRevision: openShell
       ? 'openshell-runtime-config-v1'
       : `codex-cli:${SUPPORTED_CODEX_CLI_VERSION}`,
     getMode: () => options.session.mode,
     systemPrompt: baseSystemPrompt + (startup.context ? `\n\n${startup.context}` : ''),
-    beforeComplete: async (signal) => {
-      await hooks?.run('Stop', { stop_hook_active: false }, signal);
-    },
+    beforeComplete: connectedOpenShell
+      ? undefined
+      : async (signal) => {
+          await hooks?.run('Stop', { stop_hook_active: false }, signal);
+        },
     ...(runtimeManager
       ? {
           prepareSystemPrompt: async (signal: AbortSignal) =>
@@ -1314,17 +1317,19 @@ async function openCodexChatBound(
       );
     }
     if (runtimeManager && managedOpenShell) {
-      const threadId = runtime.getThreadId();
-      if (!threadId) throw new Error('OpenShell provider thread was not initialized');
+      const threadId = runtime.getDurableThreadId();
       persistArtifactRuntime();
-      registerOpenShellLifecycle(
-        options.conversationId,
-        managedOpenShell,
-        options.binding,
-        selectedOpenShellAccountRoute(options),
-        threadId,
-        options.registry.findBySessionId(options.conversationId)?.clientId,
-      );
+      // New native threads are ephemeral until the first turn ACK. Keep the
+      // provisional ownership row until onThreadChanged registers that identity.
+      if (threadId)
+        registerOpenShellLifecycle(
+          options.conversationId,
+          managedOpenShell,
+          options.binding,
+          selectedOpenShellAccountRoute(options),
+          threadId,
+          options.registry.findBySessionId(options.conversationId)?.clientId,
+        );
     }
     signal.throwIfAborted();
     runtimes.set(options.session, runtime);
