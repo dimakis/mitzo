@@ -55,6 +55,13 @@ connection stores, provider continuation stores, notifications, profiles/reviews
 workspace files, external attachments, manual YAML and sandbox volumes are separate
 required groups before ecosystem protection can be claimed.
 
+`app.ts` exports a host-only `captureMitzoTelosCoreBackup(destination)` capability
+bound to the existing running EventStore and TaskStore. It resolves the same
+canonical Telos path as artifact operations when invoked, opens an existing Telos
+owner, and closes that temporary owner after capture or failure. Binding itself
+opens no Telos database and runs no capture. A missing canonical database fails;
+it never substitutes an empty store. No HTTP route exposes this capability.
+
 Each owner exposes supported SQLite backup and a change watermark. Before capture,
 the coordinator records all source versions without yielding. It checks the same
 owners again after snapshot validation and durable capture writes. Own DML uses

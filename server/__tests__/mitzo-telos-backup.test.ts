@@ -124,3 +124,36 @@ it('fails before capture when a required owner is unavailable or has a live tran
     captureMitzoTelosCore({ owners: f.owners, destination: f.destination }),
   ).rejects.toThrow();
 });
+
+it('binds captures to existing running owners and resolves canonical Telos only when invoked', async () => {
+  const f = await fixture();
+  const { bindMitzoTelosCoreCapture } = await import('../backup/mitzo-telos-binding.js');
+  const telosPath = vi.fn(() => f.path);
+  const capture = bindMitzoTelosCoreCapture({
+    events: f.owners.events,
+    tasks: f.owners.tasks,
+    telosPath,
+  });
+  expect(telosPath).not.toHaveBeenCalled();
+  await capture(f.destination);
+  expect(telosPath).toHaveBeenCalledOnce();
+  expect(
+    JSON.parse(await readFile(join(f.destination, 'coverage.json'), 'utf8')).required,
+  ).toHaveLength(3);
+  // Reopening for another invocation must not retain a closed Telos owner.
+  await capture(join(f.root, 'second-capture'));
+  expect(telosPath).toHaveBeenCalledTimes(2);
+});
+it('does not create a missing Telos database or leak its configured path', async () => {
+  const f = await fixture();
+  const { bindMitzoTelosCoreCapture } = await import('../backup/mitzo-telos-binding.js');
+  const missing = join(f.root, 'private-missing-telos.db');
+  const capture = bindMitzoTelosCoreCapture({
+    events: f.owners.events,
+    tasks: f.owners.tasks,
+    telosPath: () => missing,
+  });
+  await expect(capture(f.destination)).rejects.toThrow('Mitzo/Telos backup unavailable');
+  await expect(access(missing)).rejects.toThrow();
+  await expect(access(f.destination)).rejects.toThrow();
+});
