@@ -9,10 +9,11 @@ import {
   claimOwnedLaunch,
 } from '../dist/symposium-owned-release.js';
 import { ownedCustodianEnvironment } from '../dist/symposium-custodian-launch.js';
+import { readStagingOperatorEnvironment } from '../dist/symposium-staging-service.js';
 import { launchStagingCustodian, StagingLaunchSchema } from '../dist/symposium-staging-launch.js';
 import { runSymposiumCustodian } from '../dist/symposium-custodian-main.js';
 try {
-  if (process.argv.length !== 4 || process.send) throw Error();
+  if (![4, 5].includes(process.argv.length) || process.send) throw Error();
   const releaseRoot = dirname(dirname(fileURLToPath(import.meta.url)));
   const plan = readOwnedReleasePlan(resolve(process.argv[2]));
   if (
@@ -21,7 +22,10 @@ try {
     plan.entry !== 'dist/symposium-custodian-main.js'
   )
     throw Error();
-  const env = ownedCustodianEnvironment(plan, process.env);
+  const env =
+    process.argv.length === 5
+      ? readStagingOperatorEnvironment(plan, resolve(process.argv[4]), process.env)
+      : ownedCustodianEnvironment(plan, process.env);
   const fd = openSync(resolve(process.argv[3]), constants.O_RDONLY | constants.O_NOFOLLOW);
   let registration;
   try {
