@@ -45,6 +45,31 @@ restore. Existing destinations are refused.
 No HTTP route, background scheduler, production credential access, live upload,
 retention deletion or service shutdown is enabled by this foundation.
 
+## Mitzo/Telos core capture
+
+`captureMitzoTelosCore` binds three required existing SQLite owners: EventStore,
+TaskStore (including its shared workload/template tables), and TelosArtifactStore.
+It includes all Telos database tables, DB-only relationships/session links, saved
+artifact revisions and their bytes. It covers **only this core group**; account and
+connection stores, provider continuation stores, notifications, profiles/reviews,
+workspace files, external attachments, manual YAML and sandbox volumes are separate
+required groups before ecosystem protection can be claimed.
+
+Each owner exposes supported SQLite backup and a change watermark. Before capture,
+the coordinator records all source versions without yielding. It checks the same
+owners again after snapshot validation and durable capture writes. Own DML uses
+`total_changes()`, other connections use `data_version`, and schema/persistent header
+versions are included. Open transactions or closed owners reject capture. A changed
+source discards the entire candidate; live writes continue and durable retry policy
+belongs to the scheduler. Sustained activity can prevent a candidate completing;
+this does not promise bounded completion or substitute for a future cooperative
+quiescence API. Source paths are never reopened or raw-copied by this coordinator.
+
+Only one capture can use a given owner at a time in this process. Cross-process job
+fencing remains a deployment requirement. Restore destinations must be new; the
+synthetic test deletes all original source databases before opening restored owners.
+No private-state capture or upload is enabled by adding these APIs.
+
 ## Current inventory and owner contracts
 
 Runtime paths must be resolved from the active deployment, not copied from a
