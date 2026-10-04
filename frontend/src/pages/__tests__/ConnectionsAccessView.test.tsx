@@ -1038,3 +1038,48 @@ it('describes a verified managed-service credential check without claiming effec
   expect(dialog.queryByText('Access verification')).toBeNull();
   expect(dialog.getByText(/Conversation attachments have not been observed/)).toBeTruthy();
 });
+
+it('groups account identity, sign-in evidence and access scope in separate named regions', async () => {
+  const row = await renderSignIn({ ...checkedSignIn, checkedAt: Date.now() });
+  fireEvent.click(within(row).getByRole('button', { name: 'Manage Host account' }));
+  const dialog = within(screen.getByRole('dialog', { name: 'Host account' }));
+  const account = within(dialog.getByRole('region', { name: 'Account details' }));
+  const signIn = within(dialog.getByRole('region', { name: 'Sign-in details' }));
+  const access = within(dialog.getByRole('region', { name: 'Access and scope' }));
+  expect(account.getByText('configured@example.test')).toBeTruthy();
+  expect(account.getByText('observed@example.test')).toBeTruthy();
+  expect(account.getByText('Ordinary chats')).toBeTruthy();
+  expect(signIn.getByText('Signed in')).toBeTruthy();
+  expect(signIn.getByText('Last sign-in check')).toBeTruthy();
+  expect(signIn.getByText(checkedSignIn.explanation)).toBeTruthy();
+  expect(access.getByText('Access verification')).toBeTruthy();
+  expect(access.getByText(/Conversation attachments have not been observed/)).toBeTruthy();
+  expect(account.queryByText('Signed in')).toBeNull();
+  expect(access.queryByText('Signed in')).toBeNull();
+});
+it('keeps service identity and credential checks accessible without an invented sign-in region', async () => {
+  const inventory = signInInventory();
+  inventory.resources[0].kind = 'managed-connection';
+  inventory.resources[0].section = 'services';
+  inventory.resources[0].provider = 'jira';
+  vi.mocked(getConnectionsAccess).mockResolvedValue(inventory);
+  render(
+    <MemoryRouter>
+      <ConnectionsAccessView />
+    </MemoryRouter>,
+  );
+  const row = await screen.findByRole('article', { name: 'Host account' });
+  fireEvent.click(within(row).getByRole('button', { name: 'Manage Host account' }));
+  const dialog = within(screen.getByRole('dialog'));
+  expect(
+    within(dialog.getByRole('region', { name: 'Account details' })).getByText(
+      'configured@example.test',
+    ),
+  ).toBeTruthy();
+  expect(
+    within(dialog.getByRole('region', { name: 'Access and scope' })).getByText(
+      'Credential verification',
+    ),
+  ).toBeTruthy();
+  expect(dialog.queryByRole('region', { name: 'Sign-in details' })).toBeNull();
+});
