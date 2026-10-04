@@ -119,3 +119,20 @@ it('refuses overlapping registration and an existing launch intent', () => {
     prepareStagingService(f.plan, f.registrationPath, process.execPath, 19994),
   ).toThrow();
 });
+
+it.each(['owner.stdout.log', 'owner.stderr.log'])(
+  'refuses a registration or pre-existing output at %s without creating service files',
+  (name) => {
+    const f = fixture();
+    const logPath = join(f.plan.planDirectory, name);
+    writeFileSync(logPath, '{"audit":"preserve"}', { mode: 0o600 });
+    for (const registrationPath of [logPath, f.registrationPath]) {
+      expect(() =>
+        prepareStagingService(f.plan, registrationPath, process.execPath, 19994),
+      ).toThrow();
+      expect(readFileSync(logPath, 'utf8')).toBe('{"audit":"preserve"}');
+      expect(existsSync(join(f.plan.planDirectory, 'staging-operator.json'))).toBe(false);
+      expect(existsSync(join(f.plan.planDirectory, 'staging-custodian.plist'))).toBe(false);
+    }
+  },
+);
