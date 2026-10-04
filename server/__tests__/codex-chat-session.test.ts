@@ -1173,6 +1173,7 @@ it('never loads trusted project hooks on the host for OpenShell sessions', async
       ...options(new AbortController()),
       session: { ...options(new AbortController()).session, cwd },
     });
+    expect(mocks.conversationOptions?.beforeComplete).toBeUndefined();
     expect(existsSync(marker)).toBe(false);
   } finally {
     vi.unstubAllEnvs();

@@ -21,6 +21,49 @@ function need(ok, code) {
   if (!ok) throw new Error(code);
 }
 const argv = process.argv.slice(2);
+function validateOptions(args) {
+  const valued = new Set([
+    '--accepted-head',
+    '--env',
+    '--database',
+    '--events-database',
+    '--conversation',
+    '--expected',
+    '--snapshot-out',
+  ]);
+  const switches = new Set(['--apply', '--confirmed-held-inputs']);
+  const seen = new Set();
+  for (let i = 0; i < args.length; i++) {
+    const flag = args[i];
+    need(
+      (valued.has(flag) || switches.has(flag)) && !seen.has(flag),
+      'quarantine_cli_options_invalid',
+    );
+    seen.add(flag);
+    if (valued.has(flag)) {
+      const argument = args[++i];
+      need(argument && !argument.startsWith('--'), 'quarantine_cli_options_invalid');
+      if (flag !== '--accepted-head' && flag !== '--conversation')
+        need(isAbsolute(argument), 'quarantine_cli_options_invalid');
+    }
+  }
+  need(!(seen.has('--apply') && seen.has('--snapshot-out')), 'quarantine_cli_options_invalid');
+  need(!seen.has('--apply') || seen.has('--expected'), 'quarantine_cli_options_invalid');
+  for (const flag of [
+    '--accepted-head',
+    '--env',
+    '--database',
+    '--events-database',
+    '--conversation',
+    '--confirmed-held-inputs',
+  ])
+    need(seen.has(flag), 'quarantine_cli_options_invalid');
+  need(
+    /^[a-f0-9]{40}$/.test(value('--accepted-head')) &&
+      value('--conversation') === LEGACY_SCOPE.conversationId,
+    'quarantine_cli_options_invalid',
+  );
+}
 function value(flag) {
   const i = argv.indexOf(flag);
   return i < 0 ? undefined : argv[i + 1];
@@ -37,6 +80,8 @@ function serverOff() {
   );
 }
 async function main() {
+  // Parse the complete operation before Git, files, services, native probes or SQLite.
+  validateOptions(argv);
   const release = dirname(dirname(fileURLToPath(import.meta.url)));
   const accepted = value('--accepted-head');
   const git = (...a) =>
@@ -165,7 +210,6 @@ async function main() {
       apply,
     });
     if (value('--snapshot-out')) {
-      need(!apply && isAbsolute(value('--snapshot-out')), 'snapshot_output_requires_dry_run');
       writeFileSync(value('--snapshot-out'), JSON.stringify(expected, null, 2) + '\n', {
         mode: 0o600,
         flag: 'wx',
@@ -181,10 +225,13 @@ async function main() {
     }
   }
 }
-main().catch(() => {
+main().catch((error) => {
   console.error(
     JSON.stringify({
-      error: 'quarantine_precondition_or_cas_failed',
+      error:
+        error?.message === 'quarantine_cli_options_invalid'
+          ? 'quarantine_cli_options_invalid'
+          : 'quarantine_precondition_or_cas_failed',
       modelCalls: 0,
       serviceActions: 0,
     }),

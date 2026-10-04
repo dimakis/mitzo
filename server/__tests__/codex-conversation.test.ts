@@ -184,6 +184,7 @@ async function setup(
   beforeRuntimeAdmission?: (close: () => Promise<void>) => Promise<boolean>,
   reconnectGuard?: (work: () => Promise<void>) => Promise<void>,
   deferToolSurfaceReplacement = false,
+  onThreadChanged?: (threadId: string) => void | Promise<void>,
 ) {
   const dir = mkdtempSync(join(tmpdir(), 'mitzo-codex-'));
   const store = existingStore ?? new CodexConversationStore(join(dir, 'private.db'));
@@ -267,6 +268,7 @@ async function setup(
     beforeRuntimeAdmission,
     reconnectGuard,
     deferToolSurfaceReplacement,
+    onThreadChanged,
     onProviderDispatch,
     onProviderComplete,
     onProviderAccepted,
@@ -2564,4 +2566,275 @@ it('rejects an empty first-turn ACK without promoting the replacement or issuing
   expect(() => store.assertNoPendingThreadDispatch('app', binding)).toThrow('explicit recovery');
   expect(accepted).not.toHaveBeenCalled();
   expect(adoption).not.toHaveBeenCalled();
+});
+
+it('retains a durable accepted turn and recovery fence when lifecycle ownership persistence fails', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mitzo-accepted-owner-failure-'));
+  const path = join(dir, 'private.db');
+  let store = new CodexConversationStore(path);
+  cleanup.push(() => {
+    store.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+  store.create('app', binding, '/workspace');
+  store.bindThread('app', binding, 'durable-parent');
+  const args: Parameters<typeof setup> = [];
+  args[0] = store;
+  args[4] = async () => binding;
+  args[17] = true;
+  const accepted = vi.fn();
+  const adoption = vi.fn();
+  args[10] = accepted;
+  args[13] = async () => 'verified context';
+  args[14] = adoption;
+  args[18] = async () => {
+    throw new Error('lifecycle persistence unavailable');
+  };
+  const first = await setup(...args);
+  await first.c.send({ id: 'accepted-before-owner-error', prompt: 'Continue.' }).catch(() => {});
+  expect(store.commands('app', binding)).toMatchObject([
+    { id: 'accepted-before-owner-error', status: 'interrupted' },
+  ]);
+  expect(accepted).toHaveBeenCalledExactlyOnceWith(
+    'accepted-before-owner-error',
+    'provider-thread',
+    'turn-1',
+  );
+  expect(adoption).toHaveBeenCalledExactlyOnceWith(
+    'accepted-before-owner-error',
+    'provider-thread',
+    'turn-1',
+    'verified context',
+  );
+  expect(first.c.isPaused()).toBe(true);
+  expect(store.readThreadAcceptances('app', binding)).toMatchObject([
+    {
+      commandId: 'accepted-before-owner-error',
+      attempt: 1,
+      threadId: 'provider-thread',
+      turnId: 'turn-1',
+      ownershipPending: true,
+    },
+  ]);
+  first.c.close();
+  store.close();
+  store = new CodexConversationStore(path);
+  args[0] = store;
+  args[18] = vi.fn(async () => {
+    throw new Error('ownership retry unavailable');
+  });
+  await expect(setup(...args)).rejects.toThrow('ownership retry unavailable');
+  expect(store.readThreadAcceptances('app', binding)).toMatchObject([
+    { ownershipPending: true, turnId: 'turn-1' },
+  ]);
+  args[18] = vi.fn(async () => {});
+  const reopened = await setup(...args);
+  expect(args[18]).toHaveBeenCalledExactlyOnceWith('provider-thread');
+  expect(reopened.requests.filter((r) => r.method === 'turn/start')).toHaveLength(0);
+  expect(store.readThreadAcceptances('app', binding)).toMatchObject([
+    { turnId: 'turn-1', ownershipPending: false },
+  ]);
+  expect(reopened.c.isPaused()).toBe(true);
+  expect(store.commands('app', binding)).toMatchObject([
+    { id: 'accepted-before-owner-error', status: 'interrupted' },
+  ]);
+});
+
+it('retains the native ACK if the ownership observer closes its own transport asynchronously', async () => {
+  const args: Parameters<typeof setup> = [];
+  args[4] = async () => binding;
+  args[17] = true;
+  args[18] = async () => {
+    await Promise.resolve();
+    f.c.close();
+  };
+  const f = await setup(...args);
+  await f.c.send({ id: 'accepted-close', prompt: 'Continue.' });
+  expect(f.store.commands('app', binding)).toMatchObject([
+    { id: 'accepted-close', status: 'interrupted' },
+  ]);
+  expect(f.store.readThreadAcceptances('app', binding)).toMatchObject([
+    { commandId: 'accepted-close', turnId: 'turn-1', ownershipPending: true },
+  ]);
+});
+
+it('keeps a buffered native completion truthful when ownership persistence fails after ACK', async () => {
+  const args: Parameters<typeof setup> = [];
+  args[2] = async () => {}; // Even a trusted asynchronous completion hook must retain its outcome.
+  args[4] = async () => binding;
+  args[17] = true;
+  args[18] = async () => {
+    throw new Error('ownership unavailable');
+  };
+  const f = await setup(...args);
+  const request = f.rpc.request.getMockImplementation()!;
+  f.rpc.request.mockImplementation(async (method, params) => {
+    if (method === 'turn/start')
+      f.callbacks.onNotification('turn/completed', {
+        threadId: 'provider-thread',
+        turn: { id: 'turn-1', status: 'completed' },
+      });
+    return request(method, params);
+  });
+  await f.c.send({ id: 'completed-before-ownership', prompt: 'Continue.' });
+  expect(f.store.commands('app', binding)).toMatchObject([
+    { id: 'completed-before-ownership', status: 'completed' },
+  ]);
+  expect(f.store.readThreadAcceptances('app', binding)).toMatchObject([
+    { turnId: 'turn-1', ownershipPending: true },
+  ]);
+  expect(f.c.isPaused()).toBe(true);
+  expect(f.requests.filter((r) => r.method === 'turn/start')).toHaveLength(1);
+});
+
+it('reports conflicting buffered native terminals even if ownership observer fails after ACK', async () => {
+  const args: Parameters<typeof setup> = [];
+  args[4] = async () => binding;
+  args[17] = true;
+  args[18] = async () => {
+    throw new Error('ownership unavailable');
+  };
+  const conflict = vi.fn();
+  args[12] = conflict;
+  const f = await setup(...args);
+  const request = f.rpc.request.getMockImplementation()!;
+  f.rpc.request.mockImplementation(async (method, params) => {
+    if (method === 'turn/start') {
+      for (const status of ['completed', 'failed'])
+        f.callbacks.onNotification('turn/completed', {
+          threadId: 'provider-thread',
+          turn: { id: 'turn-1', status },
+        });
+    }
+    return request(method, params);
+  });
+  await f.c.send({ id: 'conflicting-owner-error', prompt: 'Continue.' });
+  expect(conflict).toHaveBeenCalledExactlyOnceWith(
+    'conflicting-owner-error',
+    'provider-thread',
+    'turn-1',
+    'failed',
+    'completed',
+  );
+  expect(f.store.commands('app', binding)).toMatchObject([
+    { id: 'conflicting-owner-error', status: 'interrupted' },
+  ]);
+  expect(() => f.store.pendingThreadOwnership('app', binding)).toThrow(
+    'conflicting terminal outcomes',
+  );
+  expect(f.store.readThreadAcceptances('app', binding)).toMatchObject([
+    { turnId: 'turn-1', ownershipPending: true },
+  ]);
+  expect(f.rpc.close).toHaveBeenCalled();
+});
+
+it('retains native acceptance when adoption receipt persistence fails without claiming delivery', async () => {
+  const args: Parameters<typeof setup> = [];
+  args[4] = async () => binding;
+  args[17] = true;
+  args[13] = async () => 'verified context';
+  args[14] = () => {
+    throw new Error('receipt persistence unavailable');
+  };
+  const owned = vi.fn(async () => {});
+  args[18] = owned;
+  const f = await setup(...args);
+  await expect(f.c.send({ id: 'receipt-write-error', prompt: 'Continue.' })).rejects.toThrow(
+    'receipt persistence unavailable',
+  );
+  expect(f.store.commands('app', binding)).toMatchObject([
+    { id: 'receipt-write-error', status: 'interrupted' },
+  ]);
+  expect(f.store.readThreadAcceptances('app', binding)).toMatchObject([
+    { commandId: 'receipt-write-error', turnId: 'turn-1', ownershipPending: true },
+  ]);
+  expect(owned).not.toHaveBeenCalled();
+  expect(f.c.isPaused()).toBe(true);
+  expect(f.rpc.close).toHaveBeenCalled();
+});
+
+it('retains a live terminal conflict while an asynchronous ownership observer later resolves', async () => {
+  const args: Parameters<typeof setup> = [];
+  args[4] = async () => binding;
+  args[17] = true;
+  let release!: () => void;
+  args[18] = async () => {
+    await new Promise<void>((resolve) => {
+      release = resolve;
+    });
+  };
+  const f = await setup(...args);
+  const sending = f.c.send({ id: 'live-owner-conflict', prompt: 'Continue.' });
+  await vi.waitFor(() => expect(release).toBeTypeOf('function'));
+  for (const status of ['completed', 'failed'])
+    f.callbacks.onNotification('turn/completed', {
+      threadId: 'provider-thread',
+      turn: { id: 'turn-1', status },
+    });
+  release();
+  await sending;
+  expect(f.store.readThreadAcceptances('app', binding)).toMatchObject([
+    { ownershipPending: true, terminalConflict: true },
+  ]);
+  expect(f.store.commands('app', binding)).toMatchObject([
+    { id: 'live-owner-conflict', status: 'interrupted' },
+  ]);
+  expect(() => f.store.pendingThreadOwnership('app', binding)).toThrow(
+    'conflicting terminal outcomes',
+  );
+});
+
+it('durably fences a late contradictory terminal after completed acceptance and ownership', async () => {
+  const args: Parameters<typeof setup> = [];
+  args[4] = async () => binding;
+  args[17] = true;
+  const f = await setup(...args);
+  await f.c.send({ id: 'late-owner-conflict', prompt: 'Continue.' });
+  for (const status of ['completed', 'failed'])
+    f.callbacks.onNotification('turn/completed', {
+      threadId: 'provider-thread',
+      turn: { id: 'turn-1', status },
+    });
+  expect(f.store.readThreadAcceptances('app', binding)).toMatchObject([
+    { ownershipPending: true, terminalConflict: true },
+  ]);
+  expect(f.store.commands('app', binding)).toMatchObject([
+    { id: 'late-owner-conflict', status: 'interrupted' },
+  ]);
+  expect(() => f.store.pendingThreadOwnership('app', binding)).toThrow(
+    'conflicting terminal outcomes',
+  );
+});
+
+it('does not invoke ownership repair after transport closes during native resume', async () => {
+  const args: Parameters<typeof setup> = [];
+  args[4] = async () => binding;
+  args[17] = true;
+  const observer = vi.fn(async (): Promise<void> => {
+    throw new Error('initial ownership persistence failed');
+  });
+  args[18] = observer;
+  const f = await setup(...args);
+  await f.c.send({ id: 'accepted-before-close-race', prompt: 'Continue.' });
+  observer.mockImplementation(async () => {});
+  const request = f.rpc.request.getMockImplementation()!;
+  f.rpc.request.mockImplementation(async (method, params) => {
+    if (method === 'thread/resume') {
+      await Promise.resolve();
+      f.c.close();
+    }
+    return request(method, params);
+  });
+  await expect(f.c.send({ id: 'queued-during-owner-repair', prompt: 'New work.' })).rejects.toThrow(
+    'ownership transport changed',
+  );
+  expect(observer).toHaveBeenCalledTimes(1);
+  expect(f.store.readThreadAcceptances('app', binding)).toMatchObject([
+    { turnId: 'turn-1', ownershipPending: true },
+  ]);
+  expect(f.store.commands('app', binding)).toMatchObject([
+    { id: 'accepted-before-close-race', status: 'interrupted' },
+    { id: 'queued-during-owner-repair', status: 'queued' },
+  ]);
+  expect(f.requests.filter((r) => r.method === 'turn/start')).toHaveLength(1);
 });

@@ -200,8 +200,10 @@ export class CodexConversation {
     command: CodexCommand;
     turnId?: string;
     accepted: boolean;
+    ownershipPending?: boolean;
     completions: Map<string, { first: ObjectValue; conflict?: ObjectValue }>;
     completionHook?: 'pending' | 'done';
+    completionOperation?: Promise<void>;
     interruptRequested?: boolean;
     abort: AbortController;
     span?: Span;
@@ -298,6 +300,8 @@ export class CodexConversation {
       codexRuntimeOverrides(configResponse.config, this.opts.profile.workspaceId);
     const modelProvider = this.opts.modelProvider ?? 'openai';
     const threadOptions = this.threadOptions(runtimeConfig, modelProvider, state);
+    await this.repairThreadOwnership(this.client, threadOptions);
+
     const replacingStaleToolSurface =
       !!state.threadId && state.toolSurfaceRevision !== toolSurfaceRevision;
     const replacingFailedThread = !!state.threadId && state.recoveryStrategy === 'fork';
@@ -345,6 +349,49 @@ export class CodexConversation {
     this.ready = true;
     this.opts.emit({ type: 'system', subtype: 'init', session_id: this.opts.conversationId });
     this.opts.onQueueChange?.();
+  }
+  private async repairThreadOwnership(client: Rpc, options: Record<string, unknown>) {
+    const pending = this.opts.store.pendingThreadOwnership(this.opts.conversationId, this.binding!);
+    if (!pending) return;
+    const generation = this.transportGeneration;
+    const result = z
+      .object({
+        thread: z.object({ id: z.string().min(1) }),
+        model: z.string(),
+        modelProvider: z.string(),
+      })
+      .parse(
+        await client.request('thread/resume', {
+          ...options,
+          threadId: pending.threadId,
+          allowProviderModelFallback: false,
+        }),
+      );
+    if (this.closed || generation !== this.transportGeneration)
+      throw new Error('Codex accepted provider thread ownership transport changed');
+    if (
+      result.thread.id !== pending.threadId ||
+      result.model !== this.binding!.model ||
+      result.modelProvider !== (this.opts.modelProvider ?? 'openai')
+    )
+      throw new Error('Codex accepted provider thread ownership identity changed');
+    const current = this.opts.store.pendingThreadOwnership(this.opts.conversationId, this.binding!);
+    if (
+      !current ||
+      current.commandId !== pending.commandId ||
+      current.attempt !== pending.attempt ||
+      current.threadId !== pending.threadId ||
+      current.generation !== pending.generation
+    )
+      throw new Error('Codex accepted provider thread ownership identity changed');
+    await this.opts.onThreadChanged?.(pending.threadId);
+    if (this.closed || generation !== this.transportGeneration)
+      throw new Error('Codex accepted provider thread ownership transport changed');
+    this.opts.store.completeThreadOwnership(
+      this.opts.conversationId,
+      this.binding!,
+      pending.threadId,
+    );
   }
   isPaused() {
     return this.paused;
@@ -600,6 +647,7 @@ export class CodexConversation {
       const state = this.opts.store.read(this.opts.conversationId, this.binding);
       this.opts.store.assertNoPendingThreadDispatch(this.opts.conversationId, this.binding);
       const threadOptions = this.threadOptions(runtimeConfig, modelProvider, state);
+      await this.repairThreadOwnership(client, threadOptions);
       const toolSurfaceRevision = this.toolSurfaceRevision();
       const replacingInitialThread = !state.threadId && this.opts.deferToolSurfaceReplacement;
       const replacingStaleToolSurface =
@@ -1062,7 +1110,7 @@ export class CodexConversation {
   }
   private finishTurnSpan(
     status: 'completed' | 'interrupted' | 'failed',
-    failureCategory: 'none' | 'provider' | 'dispatch' | 'transport' | 'close',
+    failureCategory: 'none' | 'provider' | 'dispatch' | 'transport' | 'close' | 'acknowledgment',
   ) {
     const span = this.active?.span;
     if (!span) return;
@@ -1097,6 +1145,7 @@ export class CodexConversation {
         throw error;
       }
     }
+    this.opts.store.assertNoPendingThreadOwnership(this.opts.conversationId, this.binding!);
     const command = this.opts.store.claimNext(this.opts.conversationId, this.binding!);
     if (!command) return;
     const active = {
@@ -1104,6 +1153,8 @@ export class CodexConversation {
       abort: new AbortController(),
       turnId: undefined as string | undefined,
       accepted: false,
+      ownershipPending: false,
+      completionOperation: undefined as Promise<void> | undefined,
       completions: new Map<string, { first: ObjectValue; conflict?: ObjectValue }>(),
       interruptRequested: false,
       span: undefined as Span | undefined,
@@ -1195,9 +1246,11 @@ export class CodexConversation {
             pending.revision,
             pending.context,
             pending.reason,
+            active.turnId,
           );
           this.pendingToolSurface = undefined;
-          await this.opts.onThreadChanged?.(pending.thread);
+          active.accepted = true;
+          active.ownershipPending = true;
         }
         this.opts.onProviderAccepted?.(command.id, this.threadId!, active.turnId);
         if (systemPrompt !== undefined)
@@ -1208,6 +1261,61 @@ export class CodexConversation {
             systemPrompt,
           );
         active.accepted = true;
+        if (pending) {
+          try {
+            await this.opts.onThreadChanged?.(pending.thread);
+            if (this.closed || transportGeneration !== this.transportGeneration) return;
+            this.opts.store.completeThreadOwnership(
+              this.opts.conversationId,
+              this.binding!,
+              pending.thread,
+            );
+          } catch (error) {
+            // Native acceptance is durable. Ownership failure cannot turn that
+            // accepted turn into a failed dispatch or authorize replay.
+            this.paused = true;
+            active.ownershipPending = false;
+            const terminal = active.completions.get(active.turnId);
+            if (terminal) {
+              this.notification('turn/completed', terminal.first);
+              if (terminal.conflict) {
+                this.notification('turn/completed', terminal.conflict);
+                this.opts.store.recordAcceptedThreadConflict(
+                  this.opts.conversationId,
+                  this.binding!,
+                  command,
+                  pending.thread,
+                  active.turnId,
+                );
+              }
+              if (active.completionOperation) await active.completionOperation;
+            }
+            if (this.active === active) {
+              this.opts.store.pauseForRecovery(
+                this.opts.conversationId,
+                this.binding!,
+                command.id,
+                'interrupted',
+                'resume',
+                undefined,
+                true,
+                true,
+              );
+              this.opts.onProviderComplete?.(command.id, 'interrupted');
+              active.abort.abort();
+              this.active = undefined;
+            }
+            this.opts.onError?.(
+              error instanceof Error
+                ? error
+                : new Error('Codex provider thread ownership requires recovery'),
+            );
+            this.retireTransportForRecovery();
+            this.opts.onQueueChange?.();
+            return;
+          }
+          active.ownershipPending = false;
+        }
         const completion = active.completions.get(active.turnId);
         if (completion) {
           this.notification('turn/completed', completion.first);
@@ -1248,25 +1356,41 @@ export class CodexConversation {
         );
       }
       const replaceProviderThread = requiresProviderThreadReplacement(error);
-      if (this.active === active) this.finishTurnSpan('failed', 'dispatch');
-      this.opts.onProviderComplete?.(command.id, 'failed');
+      if (this.active === active)
+        this.finishTurnSpan('failed', active.accepted ? 'acknowledgment' : 'dispatch');
+      const failedStatus = active.accepted ? 'interrupted' : 'failed';
+      this.opts.onProviderComplete?.(command.id, failedStatus);
       this.paused = true;
       active.abort.abort();
       this.opts.store.pauseForRecovery(
         this.opts.conversationId,
         this.binding!,
         command.id,
-        'failed',
+        failedStatus,
         replaceProviderThread ? 'fork' : 'resume',
         undefined,
         true,
         true,
       );
       if (this.active === active) this.active = undefined;
-      if (replaceProviderThread) this.retireTransportForRecovery();
+      if (replaceProviderThread || active.accepted) this.retireTransportForRecovery();
       this.opts.onQueueChange?.();
       throw error;
     }
+  }
+  private persistAcceptedTerminalConflict(thread: string, turn: string) {
+    if (!this.opts.deferToolSurfaceReplacement || !this.binding) return;
+    const receipt = this.opts.store
+      .readThreadAcceptances(this.opts.conversationId, this.binding)
+      .find((row) => row.threadId === thread && row.turnId === turn);
+    if (receipt)
+      this.opts.store.recordAcceptedThreadConflict(
+        this.opts.conversationId,
+        this.binding,
+        { id: receipt.commandId, attempt: receipt.attempt },
+        thread,
+        turn,
+      );
   }
   private notification(method: string, params: ObjectValue) {
     if (this.closed || params.threadId !== this.threadId) return;
@@ -1294,6 +1418,7 @@ export class CodexConversation {
           previous.status !== turn.data.status
         ) {
           try {
+            this.persistAcceptedTerminalConflict(this.threadId!, turn.data.id);
             this.opts.onProviderTerminalConflict?.(
               previous.commandId,
               this.threadId!,
@@ -1330,6 +1455,7 @@ export class CodexConversation {
         buffered.conflict ??= params;
         if (this.active.accepted) {
           try {
+            this.persistAcceptedTerminalConflict(this.threadId!, turn.data.id);
             this.opts.onProviderTerminalConflict?.(
               this.active.command.id,
               this.threadId!,
@@ -1345,7 +1471,7 @@ export class CodexConversation {
         return;
       }
       // Even turn/started is not an acceptance receipt: wait for turn/start's exact response.
-      if (!this.active.accepted) return;
+      if (!this.active.accepted || this.active.ownershipPending) return;
       if (
         this.opts.beforeComplete &&
         turn.data.status === 'completed' &&
@@ -1362,7 +1488,7 @@ export class CodexConversation {
             reject(new Error('Project completion hook timed out'));
           }, this.opts.completionHookTimeoutMs ?? 30_000);
         });
-        Promise.race([
+        active.completionOperation = Promise.race([
           this.opts.beforeComplete(AbortSignal.any([active.abort.signal, hookAbort.signal])),
           timeout,
         ])
@@ -1540,7 +1666,9 @@ export class CodexConversation {
     this.closed = true;
     this.paused = true;
     this.finishTurnSpan('failed', 'close');
-    if (this.active) this.opts.onProviderComplete?.(this.active.command.id, 'failed');
+    const closeStatus =
+      this.active?.accepted && this.opts.deferToolSurfaceReplacement ? 'interrupted' : 'failed';
+    if (this.active) this.opts.onProviderComplete?.(this.active.command.id, closeStatus);
     this.active?.abort.abort();
     try {
       if (this.binding)
@@ -1548,7 +1676,7 @@ export class CodexConversation {
           this.opts.conversationId,
           this.binding,
           this.active?.command.id,
-          'failed',
+          closeStatus,
           'resume',
           undefined,
           true,

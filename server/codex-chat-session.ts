@@ -868,9 +868,11 @@ async function openCodexChatBound(
       : `codex-cli:${SUPPORTED_CODEX_CLI_VERSION}`,
     getMode: () => options.session.mode,
     systemPrompt: baseSystemPrompt + (startup.context ? `\n\n${startup.context}` : ''),
-    beforeComplete: async (signal) => {
-      await hooks?.run('Stop', { stop_hook_active: false }, signal);
-    },
+    beforeComplete: connectedOpenShell
+      ? undefined
+      : async (signal) => {
+          await hooks?.run('Stop', { stop_hook_active: false }, signal);
+        },
     ...(runtimeManager
       ? {
           prepareSystemPrompt: async (signal: AbortSignal) =>

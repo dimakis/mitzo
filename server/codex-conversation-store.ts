@@ -211,6 +211,12 @@ export class CodexConversationStore {
         PRIMARY KEY(conversation_id,call_id),
         FOREIGN KEY(conversation_id,command_id) REFERENCES codex_commands(conversation_id,id));
       CREATE INDEX IF NOT EXISTS codex_commands_queue_status ON codex_commands(conversation_id,status,sequence);`);
+    this.db.exec(`CREATE TABLE IF NOT EXISTS codex_thread_acceptances (
+      conversation_id TEXT NOT NULL REFERENCES codex_conversations(id),
+      command_id TEXT NOT NULL, attempt INTEGER NOT NULL,
+      thread_id TEXT NOT NULL, turn_id TEXT NOT NULL, generation INTEGER NOT NULL,
+      ownership_pending INTEGER NOT NULL, accepted_at INTEGER NOT NULL, terminal_conflict INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY(conversation_id,command_id,attempt));`);
     this.db.exec(`CREATE TABLE IF NOT EXISTS codex_pending_thread_dispatches (
       conversation_id TEXT PRIMARY KEY REFERENCES codex_conversations(id),
       parent_thread_id TEXT, thread_id TEXT NOT NULL,
@@ -711,8 +717,10 @@ export class CodexConversationStore {
     revision: string,
     context?: string,
     reason: 'tool_surface_change' | 'provider_transport_failure' = 'tool_surface_change',
+    turnId?: string,
   ) {
     this.db.transaction(() => {
+      if (!turnId) throw new Error('Codex replacement acknowledgment turn is missing');
       const pending = this.db
         .prepare('SELECT * FROM codex_pending_thread_dispatches WHERE conversation_id=?')
         .get(id) as
@@ -737,9 +745,109 @@ export class CodexConversationStore {
       if (parent) this.replaceThread(id, b, parent, thread, reason, undefined, revision, context);
       else this.bindThread(id, b, thread, revision);
       this.db
+        .prepare(
+          'INSERT INTO codex_thread_acceptances(conversation_id,command_id,attempt,thread_id,turn_id,generation,ownership_pending,accepted_at) VALUES (?,?,?,?,?,?,?,?)',
+        )
+        .run(
+          id,
+          command.id,
+          command.attempt,
+          thread,
+          turnId,
+          this.read(id, b).threadGeneration,
+          1,
+          Date.now(),
+        );
+      this.db
         .prepare('DELETE FROM codex_pending_thread_dispatches WHERE conversation_id=?')
         .run(id);
     })();
+  }
+  readThreadAcceptances(id: string, b: AccountBinding) {
+    this.read(id, b);
+    const rows = this.db
+      .prepare(
+        'SELECT command_id AS commandId, attempt, thread_id AS threadId, turn_id AS turnId, generation, ownership_pending AS ownershipPending, accepted_at AS acceptedAt, terminal_conflict AS terminalConflict FROM codex_thread_acceptances WHERE conversation_id=? ORDER BY accepted_at',
+      )
+      .all(id) as Array<{
+      commandId: string;
+      attempt: number;
+      threadId: string;
+      turnId: string;
+      generation: number;
+      ownershipPending: number;
+      acceptedAt: number;
+      terminalConflict: number;
+    }>;
+    return rows.map((row) => ({
+      ...row,
+      ownershipPending: !!row.ownershipPending,
+      terminalConflict: !!row.terminalConflict,
+    }));
+  }
+  pendingThreadOwnership(id: string, b: AccountBinding) {
+    const current = this.read(id, b);
+    const pending = this.readThreadAcceptances(id, b).filter((row) => row.ownershipPending);
+    if (!pending.length) return undefined;
+    if (pending.some((row) => row.terminalConflict))
+      throw new Error(
+        'Codex accepted provider turn has conflicting terminal outcomes; inspect recovery',
+      );
+    if (
+      pending.length !== 1 ||
+      pending[0].threadId !== current.threadId ||
+      pending[0].generation !== current.threadGeneration
+    )
+      throw new Error('Codex accepted provider thread ownership identity changed');
+    return pending[0];
+  }
+  completeThreadOwnership(id: string, b: AccountBinding, thread: string) {
+    this.db.transaction(() => {
+      const pending = this.pendingThreadOwnership(id, b);
+      if (!pending || pending.threadId !== thread)
+        throw new Error('Codex provider thread ownership fence changed');
+      const changed = this.db
+        .prepare(
+          'UPDATE codex_thread_acceptances SET ownership_pending=0 WHERE conversation_id=? AND command_id=? AND attempt=? AND ownership_pending=1',
+        )
+        .run(id, pending.commandId, pending.attempt);
+      if (changed.changes !== 1) throw new Error('Codex provider thread ownership fence changed');
+    })();
+  }
+  recordAcceptedThreadConflict(
+    id: string,
+    b: AccountBinding,
+    command: Pick<CodexCommand, 'id' | 'attempt'>,
+    thread: string,
+    turn: string,
+  ) {
+    this.db.transaction(() => {
+      const current = this.read(id, b);
+      if (current.threadId !== thread)
+        throw new Error('Codex accepted provider thread identity changed');
+      const updated = this.db
+        .prepare(
+          'UPDATE codex_thread_acceptances SET terminal_conflict=1,ownership_pending=1 WHERE conversation_id=? AND command_id=? AND attempt=? AND thread_id=? AND turn_id=? AND generation=?',
+        )
+        .run(id, command.id, command.attempt, thread, turn, current.threadGeneration);
+      if (updated.changes !== 1)
+        throw new Error('Codex accepted provider terminal conflict differs');
+      this.db
+        .prepare(
+          "UPDATE codex_commands SET status='interrupted',ambiguous=1,recovery_acknowledged=0 WHERE conversation_id=? AND id=? AND attempt=?",
+        )
+        .run(id, command.id, command.attempt);
+      this.db.prepare('UPDATE codex_conversations SET recovery=1 WHERE id=?').run(id);
+      this.db
+        .prepare(
+          'UPDATE codex_thread_generations SET last_completed_turn_id=NULL WHERE conversation_id=? AND generation=? AND last_completed_turn_id=?',
+        )
+        .run(id, current.threadGeneration, turn);
+    })();
+  }
+  assertNoPendingThreadOwnership(id: string, b: AccountBinding) {
+    if (this.pendingThreadOwnership(id, b))
+      throw new Error('Codex accepted provider thread ownership requires recovery');
   }
   bindThread(id: string, b: AccountBinding, threadId: string, toolSurfaceRevision?: string) {
     this.db.transaction(() => {
