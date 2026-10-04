@@ -1132,9 +1132,22 @@ export class CodexConversationStore {
   ): 'queued' | 'not_found' | 'too_early' | 'not_retryable' | 'confirmation_required' {
     return this.db.transaction(() => {
       this.read(id, b);
+      // A pending replacement still owns this exact attempt. Retry must not
+      // mutate its identity before admission or ownership reconciliation.
+      if (
+        this.db
+          .prepare('SELECT 1 FROM codex_pending_thread_dispatches WHERE conversation_id=?')
+          .get(id) ||
+        this.db
+          .prepare(
+            'SELECT 1 FROM codex_thread_acceptances WHERE conversation_id=? AND ownership_pending=1',
+          )
+          .get(id)
+      )
+        return 'not_retryable';
       const row = this.db
         .prepare(
-          `SELECT id,retry_not_before,retryable,ambiguous
+          `SELECT id,attempt,retry_not_before,retryable,ambiguous
           FROM codex_commands
           WHERE conversation_id=? AND status='failed' AND recovery_acknowledged=0
           ORDER BY sequence DESC LIMIT 1`,
@@ -1142,12 +1155,23 @@ export class CodexConversationStore {
         .get(id) as
         | {
             id: string;
+            attempt: number;
             retry_not_before: number | null;
             retryable: number | null;
             ambiguous: number | null;
           }
         | undefined;
       if (!row) return 'not_found';
+      // A durable native ACK is not a failed dispatch, including ledgers written
+      // by older transport callbacks. Ownership repair cannot authorize replay.
+      if (
+        this.db
+          .prepare(
+            'SELECT 1 FROM codex_thread_acceptances WHERE conversation_id=? AND command_id=? AND attempt=?',
+          )
+          .get(id, row.id, row.attempt)
+      )
+        return 'not_retryable';
       if (row.retryable !== 1) return 'not_retryable';
       if (row.retry_not_before && now < row.retry_not_before) return 'too_early';
       if (row.ambiguous === 1 && !confirmAmbiguous) return 'confirmation_required';
@@ -1277,7 +1301,8 @@ export class CodexConversationStore {
   }
   acknowledgeRecovery(id: string, b: AccountBinding) {
     this.db.transaction(() => {
-      this.read(id, b);
+      this.assertNoPendingThreadDispatch(id, b);
+      this.assertNoPendingThreadOwnership(id, b);
       this.db
         .prepare(
           "UPDATE codex_commands SET recovery_acknowledged=1 WHERE conversation_id=? AND status IN ('interrupted','failed')",

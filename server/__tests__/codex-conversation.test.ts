@@ -1,3 +1,4 @@
+import Database from 'better-sqlite3';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -486,10 +487,10 @@ it('marks a dispatched command ambiguous when its transport is lost', async () =
   callbacks.onClose(new Error('transport lost'));
 
   expect(onProviderDispatch).toHaveBeenCalledWith('closeout-command');
-  expect(onProviderComplete).toHaveBeenCalledWith('closeout-command', 'failed');
+  expect(onProviderComplete).toHaveBeenCalledWith('closeout-command', 'interrupted');
   expect(onProviderTerminal).not.toHaveBeenCalled();
-  expect(c.queue()).toMatchObject([{ id: 'closeout-command', status: 'failed' }]);
-  await expect(c.retryLatestFailed()).resolves.toBe('confirmation_required');
+  expect(c.queue()).toMatchObject([{ id: 'closeout-command', status: 'interrupted' }]);
+  await expect(c.retryLatestFailed()).resolves.toBe('not_found');
 });
 
 it('keeps an explicit interrupt ambiguous when transport loss occurs before completion', async () => {
@@ -518,9 +519,9 @@ it('keeps an explicit interrupt ambiguous when transport loss occurs before comp
   await c.send({ id: 'closeout-command', prompt: 'close safely' });
   await c.interrupt();
 
-  expect(onProviderComplete).toHaveBeenCalledWith('closeout-command', 'failed');
-  expect(c.queue()).toMatchObject([{ id: 'closeout-command', status: 'failed' }]);
-  await expect(c.retryLatestFailed()).resolves.toBe('confirmation_required');
+  expect(onProviderComplete).toHaveBeenCalledWith('closeout-command', 'interrupted');
+  expect(c.queue()).toMatchObject([{ id: 'closeout-command', status: 'interrupted' }]);
+  await expect(c.retryLatestFailed()).resolves.toBe('not_found');
 });
 
 it('marks active work ambiguous when forced shutdown closes the runtime', async () => {
@@ -819,7 +820,7 @@ it('treats a new send as recovery acknowledgement, reconnects, resumes queued FI
   expect(requests.filter((request) => request.method === 'turn/start')[1].params.input).toEqual([
     { type: 'text', text: 'already sent' },
   ]);
-  expect(c.queue().map((q) => q.status)).toEqual(['failed', 'running', 'queued']);
+  expect(c.queue().map((q) => q.status)).toEqual(['interrupted', 'running', 'queued']);
   callbacks.onNotification('turn/completed', {
     threadId: 'provider-thread',
     turn: { id: 'turn-2', status: 'completed' },
@@ -965,7 +966,7 @@ it('reconnects an interrupted turn without replaying it when no later command is
   await c.send({ id: 'a', prompt: 'hello' });
   callbacks.onClose(new Error('process lost'));
 
-  expect(c.queue().map((command) => command.status)).toEqual(['failed']);
+  expect(c.queue().map((command) => command.status)).toEqual(['interrupted']);
   await c.acknowledgeRecovery();
 
   expect(requests.filter((request) => request.method === 'thread/resume')).toHaveLength(1);
@@ -1190,7 +1191,7 @@ it('does not reconnect or replay interrupted work until a new send explicitly re
     threadId: 'provider-thread',
     turn: { id: 'turn-2', status: 'completed' },
   });
-  expect(c.queue().map((q) => q.status)).toEqual(['failed', 'completed']);
+  expect(c.queue().map((q) => q.status)).toEqual(['interrupted', 'completed']);
 });
 
 it('restarts a disconnected provider and runs an already queued follow-up exactly once', async () => {
@@ -2837,4 +2838,55 @@ it('does not invoke ownership repair after transport closes during native resume
     { id: 'queued-during-owner-repair', status: 'queued' },
   ]);
   expect(f.requests.filter((r) => r.method === 'turn/start')).toHaveLength(1);
+});
+
+it('never retries an accepted turn after transport loss during ownership registration and reopen', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mitzo-accepted-disconnect-'));
+  const path = join(dir, 'private.db');
+  let store = new CodexConversationStore(path);
+  cleanup.push(() => {
+    store.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+  store.create('app', binding, '/workspace');
+  store.bindThread('app', binding, 'durable-parent');
+  const args: Parameters<typeof setup> = [];
+  args[0] = store;
+  args[4] = async () => binding;
+  args[17] = true;
+  let release!: () => void;
+  args[18] = async () =>
+    await new Promise<void>((resolve) => {
+      release = resolve;
+    });
+  const first = await setup(...args);
+  const sending = first.c.send({ id: 'accepted-disconnect', prompt: 'Continue.' });
+  await vi.waitFor(() => expect(release).toBeTypeOf('function'));
+  first.callbacks.onClose(new Error('transport disconnected while ownership pending'));
+  release();
+  await sending;
+  expect(store.commands('app', binding)).toMatchObject([
+    { id: 'accepted-disconnect', status: 'interrupted', attempt: 1 },
+  ]);
+  const raw = new Database(path);
+  expect(
+    raw
+      .prepare('SELECT ambiguous,recovery_acknowledged FROM codex_commands WHERE id=?')
+      .get('accepted-disconnect'),
+  ).toEqual({ ambiguous: 1, recovery_acknowledged: 0 });
+  raw.close();
+  first.c.close();
+  store.close();
+  store = new CodexConversationStore(path);
+  args[0] = store;
+  args[18] = vi.fn(async () => {});
+  const reopened = await setup(...args);
+  expect(args[18]).toHaveBeenCalledExactlyOnceWith('provider-thread');
+  expect(store.readThreadAcceptances('app', binding)).toMatchObject([
+    { commandId: 'accepted-disconnect', turnId: 'turn-1', ownershipPending: false },
+  ]);
+  const before = store.commands('app', binding);
+  expect(await reopened.c.retryLatestFailed(true)).toBe('not_found');
+  expect(store.commands('app', binding)).toEqual(before);
+  expect(reopened.requests.filter((r) => r.method === 'turn/start')).toHaveLength(0);
 });

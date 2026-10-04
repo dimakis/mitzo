@@ -8,6 +8,7 @@ import dotenv from 'dotenv';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, isAbsolute, join } from 'node:path';
+import { userInfo } from 'node:os';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import {
   fingerprint,
@@ -79,6 +80,98 @@ function serverOff() {
     launch.status !== 0 && /Could not find service/.test(launch.stderr ?? '') && ports.status === 1
   );
 }
+function installedEnvironment(suppliedPath) {
+  // The installed service remains authoritative while stopped. A copied env
+  // cannot redefine the ledger that this exact-target operator mutates.
+  const home = userInfo().homedir;
+  const plistPath = physical(join(home, 'Library/LaunchAgents/com.mitzo.server.plist'), false);
+  const plist = JSON.parse(
+    execFileSync('/usr/bin/plutil', ['-convert', 'json', '-o', '-', plistPath], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+    }),
+  );
+  need(
+    plist.Label === 'com.mitzo.server' &&
+      (!plist.Program || plist.Program === join(plist.WorkingDirectory, 'scripts/start.sh')) &&
+      isAbsolute(plist.WorkingDirectory ?? '') &&
+      JSON.stringify(plist.ProgramArguments) ===
+        JSON.stringify([join(plist.WorkingDirectory, 'scripts/start.sh')]),
+    'installed_server_environment_required',
+  );
+  const installedBytes = readFileSync(physical(join(plist.WorkingDirectory, '.env')));
+  need(
+    installedBytes.equals(readFileSync(physical(suppliedPath))),
+    'installed_server_environment_required',
+  );
+  const authored = dotenv.parse(installedBytes);
+  const overrides = plist.EnvironmentVariables ?? {};
+  need(
+    overrides &&
+      typeof overrides === 'object' &&
+      !Array.isArray(overrides) &&
+      Object.values(overrides).every((v) => typeof v === 'string'),
+    'installed_server_environment_required',
+  );
+  const domain = spawnSync('/bin/launchctl', ['print', `gui/${process.getuid()}`], {
+    encoding: 'utf8',
+  });
+  need(!domain.error && domain.status === 0, 'installed_server_environment_required');
+  const lines = (domain.stdout ?? '').split('\n');
+  const starts = lines.flatMap((line, i) => (line === '\tenvironment = {' ? [i] : []));
+  need(starts.length === 1, 'installed_server_environment_required');
+  const end = lines.indexOf('\t}', starts[0] + 1);
+  need(end >= 0, 'installed_server_environment_required');
+  const inheritedNames = new Set();
+  for (const line of lines.slice(starts[0] + 1, end)) {
+    const match = /^\t\t([A-Za-z_][A-Za-z0-9_]*) => /.exec(line);
+    need(match && !inheritedNames.has(match[1]), 'installed_server_environment_required');
+    inheritedNames.add(match[1]);
+  }
+  const inherited = {};
+  const controls = [
+    'HOME',
+    'MITZO_CODEX_PRIVATE_DIR',
+    'REPO_PATH',
+    'MITZO_OPENSHELL_LIFECYCLE_ENABLED',
+    'DOTENV_CONFIG_PATH',
+    'DOTENV_CONFIG_OVERRIDE',
+    'DOTENV_CONFIG_ENCODING',
+    'DOTENV_CONFIG_DOTENV_KEY',
+    'DOTENV_KEY',
+    'NODE_OPTIONS',
+    'BASH_ENV',
+    'ENV',
+  ];
+  for (const key of new Set([...Object.keys(authored), ...Object.keys(overrides), ...controls])) {
+    if (!inheritedNames.has(key)) continue;
+    const result = spawnSync('/bin/launchctl', ['getenv', key], { encoding: 'utf8' });
+    need(
+      !result.error && result.status === 0 && !result.stderr,
+      'installed_server_environment_required',
+    );
+    if (result.status === 0) inherited[key] = (result.stdout ?? '').replace(/\n$/, '');
+  }
+  // dotenv/config fills absent inherited keys; plist values override launchd.
+  const effective = { ...authored, ...inherited, ...overrides };
+  need(
+    effective.HOME === undefined || effective.HOME === home,
+    'installed_server_environment_required',
+  );
+  for (const key of [
+    'DOTENV_CONFIG_PATH',
+    'DOTENV_CONFIG_OVERRIDE',
+    'DOTENV_CONFIG_ENCODING',
+    'DOTENV_CONFIG_DOTENV_KEY',
+    'DOTENV_KEY',
+    'NODE_OPTIONS',
+    'BASH_ENV',
+    'ENV',
+  ])
+    need(!effective[key], 'unsupported_installed_environment_override');
+  effective.HOME = home;
+  return effective;
+}
 async function main() {
   // Parse the complete operation before Git, files, services, native probes or SQLite.
   validateOptions(argv);
@@ -110,12 +203,19 @@ async function main() {
     argv.includes('--confirmed-held-inputs') && serverOff(),
     'confirmed_server_off_window_required',
   );
-  const env = dotenv.parse(readFileSync(physical(value('--env'))));
+  const env = installedEnvironment(value('--env'));
   need(
     env.MITZO_OPENSHELL_LIFECYCLE_ENABLED !== '1',
     'lifecycle_enabled_recovery_requires_separate_review',
   );
+  const privateDirectory =
+    env.MITZO_CODEX_PRIVATE_DIR || join(env.HOME, '.mitzo', 'private', 'codex');
+  need(isAbsolute(privateDirectory), 'authoritative_native_database_required');
   const database = physical(value('--database'), false);
+  need(
+    database === join(privateDirectory, 'conversations.db'),
+    'authoritative_native_database_required',
+  );
   const eventsDatabase = physical(value('--events-database'), false);
   need(
     eventsDatabase === join(env.REPO_PATH, '.mitzo/events.db'),
@@ -200,6 +300,10 @@ async function main() {
       lifecycleEnabled: false,
       observedAt,
     };
+    need(
+      fingerprint(installedEnvironment(value('--env'))) === fingerprint(env),
+      'installed_server_environment_changed',
+    );
     const result = quarantine({
       db,
       expected,
@@ -228,10 +332,11 @@ async function main() {
 main().catch((error) => {
   console.error(
     JSON.stringify({
-      error:
-        error?.message === 'quarantine_cli_options_invalid'
-          ? 'quarantine_cli_options_invalid'
-          : 'quarantine_precondition_or_cas_failed',
+      error: ['quarantine_cli_options_invalid', 'authoritative_native_database_required'].includes(
+        error?.message,
+      )
+        ? error.message
+        : 'quarantine_precondition_or_cas_failed',
       modelCalls: 0,
       serviceActions: 0,
     }),

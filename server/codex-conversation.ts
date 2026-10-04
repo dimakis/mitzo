@@ -237,12 +237,12 @@ export class CodexConversation {
     this.transportGeneration += 1;
     this.ready = false;
     const active = this.active;
-    this.finishTurnSpan('failed', 'transport');
+    const status = active?.accepted ? 'interrupted' : 'failed';
+    this.finishTurnSpan(status, 'transport');
     const commandId = active?.command.id;
     // Transport loss occurs after dispatch and has an unknown provider outcome.
-    // An interrupt is only a confirmed cancellation after its turn completion
-    // notification arrives; the provider may otherwise continue remotely.
-    const status = 'failed';
+    // An accepted command stays interrupted and ambiguous, never a failed
+    // dispatch eligible for replay. This does not claim remote cancellation.
     if (commandId) this.opts.onProviderComplete?.(commandId, status);
     this.active?.abort.abort();
     this.active = undefined;
@@ -256,7 +256,7 @@ export class CodexConversation {
           'resume',
           undefined,
           true,
-          status === 'failed',
+          true,
         );
     } catch (persistenceError) {
       this.opts.onError?.(
