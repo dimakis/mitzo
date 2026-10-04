@@ -17,8 +17,8 @@ async function fixture() {
   const path = join(root, 'telos.db');
   const db = new Database(path);
   db.pragma('journal_mode = WAL');
-  db.exec(`CREATE TABLE items(id TEXT PRIMARY KEY, summary TEXT, parent_id TEXT REFERENCES items(id), session_id TEXT);
-    INSERT INTO items VALUES ('parent','Parent',NULL,NULL),('child','Child','parent','session-a');
+  db.exec(`CREATE TABLE items(id TEXT PRIMARY KEY, summary TEXT, parent_id TEXT REFERENCES items(id), context_hints TEXT);
+    INSERT INTO items VALUES ('parent','Parent',NULL,'{}'),('child','Child','parent','{"session_ids":["session-a"]}');
     CREATE TABLE links(id TEXT PRIMARY KEY, item_id TEXT REFERENCES items(id), type TEXT, url TEXT, title TEXT, description TEXT, created_at TEXT);`);
   db.close();
   const owners = {
@@ -63,10 +63,11 @@ it('restores actual owner stores with DB-only Telos relationships, artifact byte
     expect(telos.read(artifact.id).bytes.toString()).toBe('SYNTHETIC-EVIDENCE');
     const db = new Database(join(f.destination, 'telos', 'store.db'), { readonly: true });
     try {
-      expect(db.prepare('SELECT parent_id,session_id FROM items WHERE id=?').get('child')).toEqual({
-        parent_id: 'parent',
-        session_id: 'session-a',
-      });
+      const restoredItem = db
+        .prepare('SELECT parent_id,context_hints FROM items WHERE id=?')
+        .get('child') as { parent_id: string; context_hints: string };
+      expect(restoredItem.parent_id).toBe('parent');
+      expect(JSON.parse(restoredItem.context_hints)).toEqual({ session_ids: ['session-a'] });
       expect(db.prepare('SELECT url FROM links WHERE item_id=?').get('child')).toEqual({
         url: `/api/telos/artifacts/${artifact.id}`,
       });
