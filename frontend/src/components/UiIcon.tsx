@@ -1,4 +1,8 @@
 const paths = {
+  bell: 'M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4',
+  shield: 'M12 3 4 6v6c0 5 8 9 8 9s8-4 8-9V6Zm-4 9 3 3 5-6',
+  check: 'm5 12 4 4L19 6',
+  back: 'm14 6-6 6 6 6',
   today: 'M3 10 12 3l9 7v11h-6v-7H9v7H3Z',
   chats: 'M4 4h16v12H9l-5 4Z',
   proposals: 'M4 4h16v16H4ZM4 14h5l2 3h2l2-3h5',
@@ -6,6 +10,8 @@ const paths = {
   agents: 'M8 4h8v6H8ZM4 16h6v5H4Zm10 0h6v5h-6ZM12 10v3M7 16v-3h10v3',
   calendar: 'M5 5h14v16H5ZM8 3v4m8-4v4M5 11h14',
   files: 'M3 6h7l2 3h9v11H3Z',
+  worktree:
+    'M6 3v12m0-7h7a5 5 0 0 0 5-5M3 18a3 3 0 1 0 6 0a3 3 0 1 0-6 0M15 3a3 3 0 1 0 6 0a3 3 0 1 0-6 0',
   more: 'M5 11h1v2H5Zm6 0h1v2h-1Zm6 0h1v2h-1Z',
   panel: 'M3 4h18v16H3ZM9 4v16',
   up: 'm6 15 6-6 6 6',

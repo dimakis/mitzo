@@ -139,7 +139,7 @@ it.each([false, true])(
     mockRequests({ draft });
     render(<AddAgentSheet sessionId="chat" />);
     await fill();
-    expect(screen.getByLabelText('Context package')).toHaveValue('independent');
+    expect(screen.getByLabelText('Conversation context to share')).toHaveValue('independent');
     fireEvent.change(screen.getByLabelText('Agent permissions'), { target: { value: 'write' } });
     fireEvent.click(screen.getByRole('button', { name: 'Add agent and queue message' }));
     await screen.findByText(/Agent added/);

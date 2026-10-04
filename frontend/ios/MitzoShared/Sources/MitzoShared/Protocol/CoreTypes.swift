@@ -157,6 +157,7 @@ public struct PermissionRequest: Codable, Sendable {
     public let displayName: String?
     public let tier: ToolTier?
     public let approvalScope: ApprovalScope?
+    public let questions: [NotificationQuestion]?
 }
 
 // MARK: - Image Attachment

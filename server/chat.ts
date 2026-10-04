@@ -1,4 +1,14 @@
+import { localHttpBaseUrl, localServerUsesTls } from './local-server-url.js';
+import { TELOS_ARTIFACT_INSTRUCTIONS } from './telos-artifact-tools.js';
 import { requireCustodianOrdinaryRuntime } from './custodian-ordinary-runtime.js';
+import {
+  createWebAccessSdkServer,
+  webAccessSdkPermission,
+  WEB_ACCESS_SDK_TOOL,
+} from './web-access-sdk.js';
+import { createWebAccessTool } from './web-access-tool.js';
+import { WEB_ACCESS_INSTRUCTIONS } from './request-web-access.js';
+import { searchSdk } from './web-search-adapters.js';
 import { custodianControllerMode, custodianOwnerMode } from './symposium-custodian-mode.js';
 import { permissionRevision, type ResumePermission } from './session-permission-revision.js';
 import { GoogleAuth } from 'google-auth-library';
@@ -24,6 +34,7 @@ import {
   openCodexChat,
   getCodexRuntime,
   trackCodexProviderAdmission,
+  publicCodexRuntimeError,
 } from './codex-chat-session.js';
 import {
   loadAccountProfiles,
@@ -756,12 +767,18 @@ function buildTaskMcpServer(clientId: string): Record<string, McpServerConfig> |
 }
 
 function buildTelosMcpServer(clientId: string): Record<string, McpServerConfig> {
-  const port = process.env.PORT || '3100';
+  const port = Number.parseInt(process.env.PORT || '3100', 10);
   const entrypoint = resolveBundledMcpEntrypoint(import.meta.url, 'telos-mcp-server');
   return {
     [TELOS_MCP_SERVER_NAME]: {
       command: entrypoint.command,
-      args: [...entrypoint.args, '--base-url', `http://localhost:${port}`, '--client-id', clientId],
+      args: [
+        ...entrypoint.args,
+        '--base-url',
+        localHttpBaseUrl(port, localServerUsesTls()),
+        '--client-id',
+        clientId,
+      ],
       env: { MITZO_INTERNAL_TOKEN: INTERNAL_TOKEN },
     },
   };
@@ -1379,6 +1396,7 @@ async function _startChatInner(
     sessionAllowList: new Set<string>(),
     worktreePath,
     agentName,
+    ...(accountBinding ? { accountBinding } : {}),
     // Set sessionId early so pre-assistant events are persisted (iOS reconnect).
     ...((options.resume ?? options.initialSessionId)
       ? { sessionId: options.resume ?? options.initialSessionId }
@@ -1499,6 +1517,7 @@ async function _startChatInner(
   const systemPromptAppend =
     'This is Mitzo, a mobile chat interface. The user is on their phone.\n' +
     SESSION_PERMISSION_INSTRUCTIONS +
+    TELOS_ARTIFACT_INSTRUCTIONS +
     '- Read operations are fine without asking.\n' +
     '- Keep responses concise — small screen.\n' +
     '- Read CLAUDE.md and .cursor/rules/ for project context before doing substantive work.' +
@@ -1652,7 +1671,25 @@ async function _startChatInner(
         makeUserMessage(fullPrompt, 'now', initialMessageId, initialProviderAdmission),
       );
       options.onStartupAdmission?.();
-    } else
+    } else {
+      const decide = webAccessSdkPermission(
+        buildPermissionHandler(clientId, registry, {
+          onDemandCreate: buildOnDemandCreate(wtId, clientId),
+        }),
+      );
+      const webAccess = createWebAccessSdkServer(
+        createWebAccessTool(
+          () => session.sessionId ?? options.resume ?? newSdkSessionId ?? '',
+          registry,
+          (query, signal) =>
+            searchSdk(query, signal, {
+              env: sessionEnv,
+              cwd,
+              model: parseModelSpec(session.model ?? accountBinding?.model ?? '').model,
+            }),
+        ),
+        abortController.signal,
+      );
       q = adaptSdkQuery(
         query({
           prompt: inputQueue as AsyncIterable<SDKUserMessage>,
@@ -1665,27 +1702,22 @@ async function _startChatInner(
             systemPrompt: {
               type: 'preset',
               preset: 'claude_code',
-              append: systemPromptAppend,
+              append: systemPromptAppend + WEB_ACCESS_INSTRUCTIONS,
             },
             permissionMode: MODE_TO_SDK[session.mode] as 'plan' | 'default',
-            allowedTools: [...mcpAllowed, ...extraTools],
+            allowedTools: [...mcpAllowed, ...extraTools, WEB_ACCESS_SDK_TOOL],
+            disallowedTools: ['WebSearch', 'WebFetch'],
             thinking: resolveThinking(options.model),
             ...(options.model ? { model: parseModelSpec(options.model).model } : {}),
             ...(resolvedResume ? { resume: resolvedResume } : {}),
             ...(newSdkSessionId ? { sessionId: newSdkSessionId } : {}),
-            ...(Object.keys(allMcpServers).length > 0 ? { mcpServers: allMcpServers } : {}),
-            hooks: buildSessionPermissionHooks(
-              buildPermissionHandler(clientId, registry, {
-                onDemandCreate: buildOnDemandCreate(wtId, clientId),
-              }),
-              hooks,
-            ),
-            canUseTool: buildPermissionHandler(clientId, registry, {
-              onDemandCreate: buildOnDemandCreate(wtId, clientId),
-            }),
+            mcpServers: { ...allMcpServers, 'mitzo-web-access': webAccess },
+            hooks: buildSessionPermissionHooks(decide, hooks),
+            canUseTool: decide,
           },
         }),
       );
+    }
 
     session.queryInstance = q;
 
@@ -1775,8 +1807,12 @@ async function _startChatInner(
         error: 'Session expired. Send your message again to start fresh.',
       });
     } else {
-      log.error('startChat failed after register, cleaning up', { clientId, error: message });
-      send(transport, { type: 'error', error: message });
+      const publicMessage =
+        accountBinding?.provider === 'openai-codex' || accountBinding?.provider === 'openai'
+          ? publicCodexRuntimeError(err instanceof Error ? err : new Error(message))
+          : message;
+      log.error('startChat failed after register, cleaning up', { clientId, error: publicMessage });
+      send(transport, { type: 'error', error: publicMessage });
     }
     if (newSdkSessionId) {
       // Retain its binding: the SDK may have written history before startup failed.
@@ -3298,6 +3334,13 @@ function replaySingleEventsToTranscript(
   const pendingResults = new Map<string, Array<Record<string, unknown>>>();
   const pendingBlocks = new Map<string, string[]>();
   const toolOwners = new Map<string, Set<string>>();
+  const recordedToolIds = new Set(
+    events.flatMap((event) =>
+      event.type === 'block_end' && typeof event.payload.toolId === 'string'
+        ? [event.payload.toolId]
+        : [],
+    ),
+  );
   let activeMessageId: string | null = null;
   for (const event of events) {
     const p = event.payload;
@@ -3311,6 +3354,16 @@ function replaySingleEventsToTranscript(
           throw new Error('Ambiguous or unattributed late tool result in stored transcript');
         messageId = owners?.size === 1 ? [...owners][0] : activeMessageId;
       }
+      // Resumed legacy providers may repeat results for calls absent from
+      // the durable stream. There is no block to display them on. Leave the
+      // stored event intact and restore the rest of the conversation.
+      if (
+        !messageId &&
+        event.seatId === undefined &&
+        event.symposiumProvenance === undefined &&
+        !recordedToolIds.has(p.toolId)
+      )
+        continue;
       if (!messageId)
         throw new Error('Ambiguous or unattributed late tool result in stored transcript');
       const key = JSON.stringify([messageId, p.toolId]);

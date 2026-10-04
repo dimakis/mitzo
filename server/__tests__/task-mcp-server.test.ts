@@ -20,6 +20,14 @@ describe('task-board MCP integration', () => {
     expect(getToolTier('mcp__telos__TelosCreateOutcome')).toBe('unknown');
   });
 
+  it('permits read-only Telos recovery and requires approval for document uploads', () => {
+    for (const prefix of ['', 'mcp__telos__']) {
+      expect(getToolTier(prefix + 'TelosFindArtifacts')).toBe('safe');
+      expect(getToolTier(prefix + 'TelosReadArtifact')).toBe('safe');
+      expect(getToolTier(prefix + 'TelosSaveArtifact')).toBe('unknown');
+    }
+  });
+
   // --- Tool summaries ---
 
   it('summarizes TaskSet input', () => {

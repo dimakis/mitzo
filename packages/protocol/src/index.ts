@@ -233,3 +233,10 @@ export { SymposiumProvenanceV3Schema } from './symposium.js';
 export * from './symposium-artifact-reader.js';
 
 export * from './symposium-configuration-operations.js';
+
+export { NotificationKind, NotificationFilter, NotificationPreferences } from './notifications.js';
+export type {
+  MitzoNotification,
+  NotificationResolution,
+  NotificationFeed,
+} from './notifications.js';

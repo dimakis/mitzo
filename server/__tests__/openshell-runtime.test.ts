@@ -2820,3 +2820,21 @@ it('rejects a persisted artifact target name different from the inspected owned 
     manager.inspect('conversation', 'sandbox-id', new AbortController().signal, 'other-target'),
   ).rejects.toThrow('target name changed');
 });
+
+it('creates an explicitly named migration candidate without falling back to the retained legacy source', async () => {
+  const run = vi.fn(async (args: readonly string[]) => {
+    if (args.includes('get')) throw new Error('sandbox not found');
+    if (args.includes('create')) throw new Error('offline candidate creation reached');
+    return '{}';
+  });
+  await expect(
+    new OpenShellRuntimeManager(config, run)
+      .forSandbox('mitzo-migrate-offline')
+      .ensure('conversation', new AbortController().signal),
+  ).rejects.toThrow('offline candidate creation');
+  expect(
+    run.mock.calls
+      .filter(([args]) => args.includes('get'))
+      .map(([args]) => args[args.indexOf('get') + 1]),
+  ).toEqual(['mitzo-migrate-offline']);
+});

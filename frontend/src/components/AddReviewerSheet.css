@@ -96,3 +96,21 @@
   flex: 1;
   text-align: left;
 }
+
+.reviewer-trigger {
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  padding: 0.55rem 0.8rem;
+  min-height: 2.75rem;
+  background: var(--bg-secondary);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.reviewer-workflow {
+  padding: 0.9rem 0.9rem 0.9rem 2rem;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 0.6rem;
+  line-height: 1.6;
+}

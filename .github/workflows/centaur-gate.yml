@@ -1,0 +1,105 @@
+name: Centaur merge gate
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened]
+  schedule:
+    - cron: '*/5 * * * *'
+  issue_comment:
+    types: [created, edited, deleted]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: Pull request to recheck
+        required: true
+
+permissions:
+  contents: read
+  pull-requests: read
+
+# One queue for every event, including periodic reconciliation of fork reviews.
+concurrency:
+  group: centaur-status-writer
+  cancel-in-progress: false
+
+jobs:
+  centaur:
+    if: github.event_name != 'issue_comment' || github.event.issue.pull_request
+    runs-on: ubuntu-latest
+    # This environment MUST allow deployment only from the default branch.
+    # Its dedicated App key must never be a repository-level secret.
+    environment: centaur-status-writer
+    steps:
+      - uses: actions/create-github-app-token@v2
+        id: status-token
+        with:
+          app-id: ${{ vars.CENTAUR_STATUS_APP_ID }}
+          private-key: ${{ secrets.CENTAUR_STATUS_APP_PRIVATE_KEY }}
+          permission-statuses: write
+          permission-pull-requests: read
+          permission-issues: read
+      # No checkout or execution of pull-request code with the status-write token.
+      - uses: actions/github-script@v9
+        env:
+          CENTAUR_STATUS_APP_LOGIN: ${{ steps.status-token.outputs.app-slug }}[bot]
+          CENTAUR_REVIEWER_LOGIN: ${{ vars.CENTAUR_REVIEWER_LOGIN || github.repository_owner }}
+        with:
+          github-token: ${{ steps.status-token.outputs.token }}
+          script: |
+            const repo = {owner: context.repo.owner, repo: context.repo.repo};
+            let numbers = [context.payload.pull_request?.number ?? context.payload.issue?.number ??
+              Number(context.payload.inputs?.pr_number)];
+            if (!numbers[0]) {
+              const candidates = await github.paginate(github.rest.pulls.list,
+                {...repo, state: 'open', per_page: 100});
+              numbers = candidates.map(pr => pr.number);
+            }
+            for (const number of new Set(numbers)) {
+            if (!Number.isSafeInteger(number) || number <= 0) throw new Error('Invalid PR');
+            const {data: pr} = await github.rest.pulls.get({...repo, pull_number: number});
+            if (pr.state !== 'open') continue;
+            const head = pr.head.sha;
+            const reviews = await github.paginate(github.rest.pulls.listReviews,
+              {...repo, pull_number: number, per_page: 100});
+            const comments = await github.paginate(github.rest.issues.listComments,
+              {...repo, issue_number: number, per_page: 100});
+            const reviewer = (process.env.CENTAUR_REVIEWER_LOGIN?.trim() || context.repo.owner).toLowerCase();
+            const reports = [...reviews, ...comments].filter(r =>
+              r.user?.login?.toLowerCase() === reviewer && r.body?.includes('## Centaur Review'));
+            reports.sort((a, b) => (a.submitted_at || a.created_at || '')
+              .localeCompare(b.submitted_at || b.created_at || ''));
+            const latest = reports.at(-1);
+            const body = latest?.body || '';
+            const current = /^[a-f0-9]{40}$/.test(head) &&
+              body.includes(`<!-- centaur:sha:${head} -->`) &&
+              (latest.commit_id === undefined || latest.commit_id === head);
+            const approved = current && latest.state !== 'DISMISSED' &&
+              new RegExp(`^<!-- centaur:sha:${head} -->\\s*## Centaur Review\\s*` +
+                'LGTM — no issues found\\.\\s*### Convergence\\s*' +
+                '\\*\\*Recommendation:\\*\\* `merge`[^\\n]*\\n').test(body) &&
+              body.split('**Recommendation:**').length === 2 &&
+              body.split('## Centaur Review').length === 2 &&
+              body.split('<!-- centaur:sha:').length === 2 &&
+              body.split('New blocking findings:').length === 2 &&
+              body.split('Unresolved blocking findings:').length === 2 &&
+              /^- New blocking findings: 0[ \t]*$/m.test(body) &&
+              /^- Unresolved blocking findings: 0[ \t]*$/m.test(body);
+            // A head advance must never receive a verdict computed for the old head.
+            const {data: refreshed} = await github.rest.pulls.get({...repo, pull_number: number});
+            if (refreshed.state !== 'open' || refreshed.head.sha !== head) continue;
+            const state = approved ? 'success' : current ? 'failure' : 'pending';
+            const appLogin = process.env.CENTAUR_STATUS_APP_LOGIN;
+            if (!appLogin) throw new Error('Missing dedicated status App identity');
+            const statuses = await github.paginate(github.rest.repos.listCommitStatuses,
+              {...repo, ref: head, per_page: 100});
+            // The API returns newest first. Ignore statuses from other identities;
+            // branch protection is bound to our dedicated App, not their statuses.
+            const previous = statuses.find(s => s.context === 'Centaur final LGTM' &&
+              s.creator?.login?.toLowerCase() === appLogin.toLowerCase());
+            if (previous?.state === state) continue;
+            await github.rest.repos.createCommitStatus({...repo, sha: head,
+              context: 'Centaur final LGTM', state,
+              description: approved ? 'Final Centaur LGTM for this commit' :
+                current ? 'Centaur findings or invalid approval block merge' :
+                'Waiting for final Centaur review of this commit'});
+            }

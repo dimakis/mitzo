@@ -2,8 +2,9 @@
 set -eu
 export PATH="/opt/mgmt-venv/bin:$PATH"
 /sandbox/initialize-mitzo-workspace /sandbox/workspaces/mgmt
-if [ "$(codex --version)" != "codex-cli 0.159.1" ]; then
-  echo "Unsupported Codex CLI version; expected 0.159.1" >&2
+expected_codex_version="$(cat /etc/mitzo-codex-version)"
+if [ "$(codex --version)" != "codex-cli $expected_codex_version" ]; then
+  echo "Unsupported Codex CLI version; expected $expected_codex_version" >&2
   exit 1
 fi
 # Codex requires a non-empty provider key, but OpenShell strips this public
@@ -11,7 +12,7 @@ fi
 export OPENAI_API_KEY=unused
 # Keep all Mitzo OpenShell launchers on the inspectable request shape. This
 # also prevents an upgraded Codex CLI from enabling zstd for this adapter.
-exec codex app-server --stdio \
+exec /usr/libexec/mitzo/knowledge-write-scope codex app-server --stdio \
   -c 'model_provider="openshell"' \
   -c 'features.enable_request_compression=false' \
   -c 'model_providers.openshell={ name = "OpenShell Subscription", base_url = "https://inference.local/v1", env_key = "OPENAI_API_KEY", wire_api = "responses" }'

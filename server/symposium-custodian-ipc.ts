@@ -143,22 +143,39 @@ export function createCustodianIpcClient(
           approval && input.operation === 'publication.publish'
             ? serveControllerPublicationApproval(channel, { ...input, epoch: epoch! }, approval)
             : () => {};
-        const cancel = () => {
+        const inventoryRead = ['personal.list', 'account.catalog'].includes(input.operation);
+        const cancelPublication = () => {
           if (['publication.publish', 'publication.recover'].includes(input.operation) && !closed)
             send({ kind: 'publication-request-cancel', epoch, requestId: input.requestId });
+        };
+        const cancel = () => {
+          if (!inventoryRead) return cancelPublication();
+          // Cancel the read at both ends; metadata has no durable outcome to reconcile.
+          if (!closed) send({ kind: 'read-request-cancel', epoch, requestId: input.requestId });
+          const item = pending.get(input.requestId);
+          if (!item) return;
+          pending.delete(input.requestId);
+          clearTimeout(item.timer);
+          item.closeApproval();
+          item.reject(Error('Custodian read cancelled'));
         };
         const closeApproval = () => {
           removeApproval();
           signal?.removeEventListener('abort', cancel);
         };
-        signal?.addEventListener('abort', cancel, { once: true });
         const timer = setTimeout(() => {
-          cancel();
+          if (inventoryRead) return cancel();
+          cancelPublication();
           pending.delete(input.requestId);
           closeApproval();
           reject(Error('Custodian response timed out; operation outcome unknown'));
         }, options.requestTimeoutMs ?? 600_000);
         pending.set(input.requestId, { resolve, reject, timer, closeApproval });
+        signal?.addEventListener('abort', cancel, { once: true });
+        if (signal?.aborted) {
+          cancel();
+          if (inventoryRead) return;
+        }
         try {
           send({ kind: 'request', command: { ...input, epoch } });
         } catch (error) {
@@ -192,11 +209,13 @@ export function serveCustodianController(
     lastHeartbeat = Date.now();
   const heartbeatMs = options.heartbeatMs ?? 120_000;
   const publications = new Map<string, AbortController>();
+  const reads = new Map<string, AbortController>();
   return new Promise<void>((resolve, reject) => {
     const stop = (failure?: Error) => {
       if (lost) return;
       lost = true;
       for (const abort of publications.values()) abort.abort();
+      for (const abort of reads.values()) abort.abort();
       clearInterval(timer);
       channel.off('message', message);
       void connection.lost().then(() => (failure ? reject(failure) : resolve()), reject);
@@ -263,6 +282,16 @@ export function serveCustodianController(
         publications.get(frame.requestId)?.abort();
         return;
       }
+      if (
+        frame.kind === 'read-request-cancel' &&
+        frame.epoch === connection.epoch &&
+        typeof frame.requestId === 'string' &&
+        frame.requestId.length <= 200 &&
+        Object.keys(frame).length === 3
+      ) {
+        reads.get(frame.requestId)?.abort();
+        return;
+      }
       if (frame.kind !== 'request' || Object.keys(frame).length !== 2) return;
       const command = frame.command as Record<string, unknown> | undefined;
       if (!command || typeof command.requestId !== 'string' || command.requestId.length > 200)
@@ -274,7 +303,7 @@ export function serveCustodianController(
         send({ kind: 'response', requestId: command.requestId, failed: true });
         return;
       }
-      if (publications.has(parsed.requestId)) {
+      if (publications.has(parsed.requestId) || reads.has(parsed.requestId)) {
         send({ kind: 'response', requestId: parsed.requestId, failed: true });
         return;
       }
@@ -284,19 +313,26 @@ export function serveCustodianController(
         ? new AbortController()
         : undefined;
       if (publicationAbort) publications.set(parsed.requestId, publicationAbort);
+      const readAbort = ['personal.list', 'account.catalog'].includes(parsed.operation)
+        ? new AbortController()
+        : undefined;
+      if (readAbort) reads.set(parsed.requestId, readAbort);
       void connection
         .request(
           parsed,
           parsed.operation === 'publication.publish'
             ? controllerPublicationApproval(channel, parsed)
             : undefined,
-          publicationAbort?.signal,
+          publicationAbort?.signal ?? readAbort?.signal,
         )
         .then(
           (result) => send({ kind: 'response', requestId: command.requestId, result }),
           () => send({ kind: 'response', requestId: command.requestId, failed: true }),
         )
-        .finally(() => publications.delete(parsed.requestId));
+        .finally(() => {
+          publications.delete(parsed.requestId);
+          reads.delete(parsed.requestId);
+        });
     };
     channel.on('message', message);
     channel.once('disconnect', () => stop());

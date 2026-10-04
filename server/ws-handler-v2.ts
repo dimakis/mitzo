@@ -418,7 +418,7 @@ export function handleReconnect(
             cursor: reconnectState.cursor,
             cursorValid: reconnectState.cursorValid,
             ...(offerId ? { offerId } : {}),
-            state: toClientState(durableSession.state),
+            state: reconnectState.clientState ?? toClientState(durableSession.state),
             internalState: durableSession.state,
             ...(durableSession.executionId && durableSession.executionPhase
               ? {
@@ -548,11 +548,27 @@ export async function handleSwitchSession(
       if (prev && prev !== msg.sessionId) {
         ctx.connRegistry.unwatch(connectionId, prev);
       }
+      // Opening uses REST for the existing transcript. Seed a new watch at
+      // that boundary so periodic sync cannot animate the entire history if
+      // the REST read fails. Live events after this boundary remain retryable.
+      if (
+        msg.historyCursor === undefined &&
+        !ctx.connRegistry.get(connectionId)?.watchedSessions.has(msg.sessionId)
+      ) {
+        const boundary = ctx.eventStore.captureReconnectState(msg.sessionId, 0, false);
+        ctx.connRegistry.resetCursor(connectionId, msg.sessionId, boundary.cursor);
+      }
       // Watch the session immediately so events from a running query loop
       // reach this client before the first send. Without this, the client
       // sits in a blind spot between switch_session and the first send —
       // any events emitted by the query loop during that window are lost.
       ctx.connRegistry.watch(connectionId, msg.sessionId);
+      if (msg.historyCursor !== undefined) {
+        // Use the transcript actually installed by this client. Applied-cursor
+        // delivery also retries the remaining suffix after a session ends;
+        // delivery alone cannot claim those events were rendered.
+        ctx.connRegistry.enableAppliedCursor(connectionId, msg.sessionId, msg.historyCursor);
+      }
       ctx.connRegistry.setActive(connectionId, msg.sessionId);
 
       // Cross-reference registry with durable state to avoid reporting
@@ -579,7 +595,7 @@ export async function handleSwitchSession(
         ctx.connRegistry.get(connectionId)?.transport.send({
           type: 'session_state_changed',
           sessionId: msg.sessionId,
-          state: toClientState(currentState),
+          state: ctx.eventStore.getSessionClientState(msg.sessionId) ?? toClientState(currentState),
           internalState: currentState,
           timestamp: Date.now(),
         });
@@ -636,6 +652,7 @@ export function handleSendV2(
           : undefined;
         let emitSkillInvoked = () => {};
         let skillInvoked = false;
+        let initialPromptDelivered = false;
         const onStartupAdmission = (error?: unknown) => {
           if (error) rejectStartupAdmission?.(error);
           else {
@@ -645,6 +662,18 @@ export function handleSendV2(
             }
             resolveStartupAdmission?.();
           }
+        };
+        const startupTransport: SessionTransport = {
+          isOpen: () => transport.isOpen(),
+          send: (event) => {
+            if (event.type === 'user_message' && event.messageId === msg.clientMsgId)
+              initialPromptDelivered = true;
+            transport.send(
+              event.type === 'session_id' || (event.type === 'error' && !initialPromptDelivered)
+                ? { ...event, clientMsgId: msg.clientMsgId }
+                : event,
+            );
+          },
         };
         const storedMeta = msg.sessionId ? ctx.eventStore.getSession(msg.sessionId) : undefined;
         const storedBinding = storedMeta?.accountBinding;
@@ -778,6 +807,7 @@ export function handleSendV2(
                           commandTransport.send({
                             type: 'session_id',
                             sessionId: commandSessionId,
+                            clientMsgId: msg.clientMsgId,
                           });
                           if (ctx.eventStore.getSessionState(commandSessionId) !== 'ENDED')
                             ctx.eventStore.setSessionState(commandSessionId, 'ENDED', {
@@ -1012,7 +1042,7 @@ export function handleSendV2(
           ctx.connRegistry.watch(connectionId, sessionId);
           ctx.connRegistry.setActive(connectionId, sessionId);
           span.setAttribute('routing.decision', 'resume');
-          startChat(transport, sessionClientId, prompt, {
+          startChat(startupTransport, sessionClientId, prompt, {
             resume: sessionId,
             cwd: validatedCwd,
             model: effectiveSelection.model,
@@ -1033,6 +1063,7 @@ export function handleSendV2(
           }).catch((err: unknown) =>
             transport.send({
               type: 'error',
+              clientMsgId: msg.clientMsgId,
               error: err instanceof Error ? err.message : 'Session startup failed',
             }),
           );
@@ -1057,7 +1088,11 @@ export function handleSendV2(
             });
             ctx.connRegistry.watch(connectionId, startupSessionId);
             ctx.connRegistry.setActive(connectionId, startupSessionId);
-            transport.send({ type: 'session_id', sessionId: startupSessionId });
+            transport.send({
+              type: 'session_id',
+              sessionId: startupSessionId,
+              clientMsgId: msg.clientMsgId,
+            });
             return;
           }
           const sessionClientId = `${connectionId}:new-${randomUUID().slice(0, 8)}`;
@@ -1066,7 +1101,7 @@ export function handleSendV2(
             ctx.connRegistry.watch(connectionId, resolvedId);
             ctx.connRegistry.setActive(connectionId, resolvedId);
           };
-          startChat(transport, sessionClientId, prompt, {
+          startChat(startupTransport, sessionClientId, prompt, {
             initialSessionId: delivery?.initialSessionId,
             cwd: validatedCwd,
             model: effectiveSelection.model,
@@ -1088,6 +1123,7 @@ export function handleSendV2(
           }).catch((err: unknown) =>
             transport.send({
               type: 'error',
+              clientMsgId: msg.clientMsgId,
               error: err instanceof Error ? err.message : 'Session startup failed',
             }),
           );
@@ -1100,6 +1136,7 @@ export function handleSendV2(
         span.setStatus({ code: SpanStatusCode.ERROR, message });
         transport.send({
           type: 'error',
+          clientMsgId: msg.clientMsgId,
           error: err instanceof Error ? err.message : 'Send failed',
         });
         if (

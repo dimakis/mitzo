@@ -187,7 +187,7 @@ export class MitzoConnection {
 
   /** Drain the pending-send queue (e.g. on session switch to avoid cross-session message leaks). */
   clearPendingSends(): void {
-    this.pendingSends = [];
+    this.rejectPendingSends('Chat changed before this message could be sent.');
   }
 
   getTrackedSessions(): string[] {

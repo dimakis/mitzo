@@ -22,6 +22,17 @@ function thinkingBlock(id = 'th-1'): FinishedBlock {
 }
 
 describe('groupBlocks', () => {
+  it.each(['RequestWebAccess', 'mcp__mitzo-web-access__RequestWebAccess'])(
+    'keeps %s source results outside collapsed tool groups',
+    (toolName) => {
+      const web = { ...toolBlock('web'), toolName };
+      expect(groupBlocks([toolBlock('before'), web, toolBlock('after')])).toMatchObject([
+        { type: 'tool-group' },
+        { type: 'block', block: web },
+        { type: 'tool-group' },
+      ]);
+    },
+  );
   it('groups a single ordinary tool call', () => {
     const blocks = [textBlock(), toolBlock('t1')];
     const grouped = groupBlocks(blocks);

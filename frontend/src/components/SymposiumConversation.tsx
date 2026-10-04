@@ -25,6 +25,7 @@ import type {
 } from '@mitzo/protocol';
 import { apiFetch } from '../lib/api-fetch';
 import { ChatArea, type ChatAreaProps, type SymposiumContextItem } from './ChatArea';
+import { UiIcon } from './UiIcon';
 import { SymposiumAudienceComposer } from './SymposiumAudienceComposer';
 import { SymposiumPerspectiveTabs } from './SymposiumPerspectiveTabs';
 import { SymposiumProfileProposals, type SeatProfileSeed } from './SymposiumProfileProposals';
@@ -641,11 +642,31 @@ export function SymposiumConversation({
     return (
       <>
         <ChatArea {...chat} />
-        {statusError || error ? (
-          <div role="alert">{statusError || error}</div>
-        ) : (
-          <div role="status">Loading Symposium…</div>
-        )}
+        {/* Keep the input area visible without mounting queue/send effects. */}
+        <div className="chat-input" aria-busy="true">
+          <div className="chat-input-row">
+            <textarea
+              className="chat-input-field"
+              aria-label="Message Mitzo"
+              placeholder="Message Mitzo..."
+              rows={1}
+              disabled
+            />
+            <div className="composer-toolbar">
+              <div className="composer-actions">
+                <button
+                  type="button"
+                  className="chat-input-btn chat-input-btn--send"
+                  aria-label="Send message"
+                  disabled
+                >
+                  <UiIcon name="send" />
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+        {(statusError || error) && <div role="alert">{statusError || error}</div>}
       </>
     );
   if (!status?.config)

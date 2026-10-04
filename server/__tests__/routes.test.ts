@@ -4,8 +4,8 @@ import { listenOnLoopback, closeTestServer } from './loopback-test-server.js';
 import request from 'supertest';
 import Database from 'better-sqlite3';
 import { mkdirSync, writeFileSync, readFileSync, symlinkSync } from 'fs';
-import { join } from 'path';
-import { tmpdir } from 'os';
+import { join, relative } from 'path';
+import { tmpdir, homedir } from 'os';
 
 const mockRemoteArtifactRead = vi.hoisted(() => vi.fn());
 const mockRemoteArtifactFactory = vi.hoisted(() => vi.fn());
@@ -186,7 +186,8 @@ vi.mock('../codex-chat-session.js', async (importOriginal) => {
   return { ...actual, readCodexQueue: vi.fn(actual.readCodexQueue) };
 });
 
-vi.mock('../permissions.js', () => ({
+vi.mock('../permissions.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../permissions.js')>()),
   resolvePending: vi.fn().mockReturnValue(true),
 }));
 
@@ -897,6 +898,18 @@ describe('file routes', () => {
       .query({ dir: join(TEST_REPO, 'nope') })
       .set('Cookie', authCookie);
     expect(res.status).toBe(404);
+  });
+
+  it('GET /api/files/read — expands a home path before enforcing workspace access', async () => {
+    const path = `~/${relative(homedir(), join(TEST_REPO, 'test.txt'))}`;
+    const res = await request(app).get('/api/files/read').query({ path }).set('Cookie', authCookie);
+    expect(res.status).toBe(200);
+    expect(res.body.content).toBe('hello world');
+    const denied = await request(app)
+      .get('/api/files/read')
+      .query({ path: '~/private.md' })
+      .set('Cookie', authCookie);
+    expect(denied.status).toBe(403);
   });
 
   it('GET /api/files/read — reads file content', async () => {

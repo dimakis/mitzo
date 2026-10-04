@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { z } from 'zod';
 import type { MitzoMode } from '@mitzo/protocol';
 import { apiFetch } from '../lib/api-fetch';
@@ -13,6 +13,8 @@ const Consent = z.object({
 type ConsentState = z.infer<typeof Consent>;
 
 // Allow 2 seconds for a newly switched Codex runtime to attach before offering a retry.
+class WebAccessLoadError extends Error {}
+
 const CONSENT_ATTACH_RETRY_DELAYS_MS = [0, 500, 1500] as const;
 
 export function WebSearchConsent({
@@ -33,42 +35,76 @@ export function WebSearchConsent({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [reload, setReload] = useState(0);
+  const previousTurn = useRef({ sessionId, running });
+  const pendingTurnRetry = useRef(false);
+  const loadPending = useRef(false);
   const canRefresh = !!consent || !!error;
 
   useEffect(() => {
     setConsent(null);
     setOpen(false);
     setError('');
+    pendingTurnRetry.current = false;
   }, [sessionId]);
 
   useEffect(() => {
     let cancelled = false;
     if (!sessionId || !connected || !connectionId) return;
     const controller = new AbortController();
+    loadPending.current = true;
     void (async () => {
       try {
+        let transientFailure: Error | null = null;
         // The session switch can reach the UI before the Codex runtime is ready.
         for (const delay of CONSENT_ATTACH_RETRY_DELAYS_MS) {
           if (delay) await new Promise((resolve) => setTimeout(resolve, delay));
           if (cancelled) return;
-          const response = await apiFetch(
-            `/api/chat/web-search-consent/${encodeURIComponent(sessionId)}`,
-            { signal: controller.signal, headers: { 'X-Connection-ID': connectionId } },
-          );
+          let response: Response;
+          try {
+            response = await apiFetch(
+              `/api/chat/web-search-consent/${encodeURIComponent(sessionId)}`,
+              { signal: controller.signal, headers: { 'X-Connection-ID': connectionId } },
+            );
+          } catch {
+            transientFailure = new WebAccessLoadError(
+              'Cannot reach the server to load web access. Retry when connected.',
+            );
+            continue;
+          }
+          transientFailure = null;
           if (response.status === 404) continue;
-          if (!response.ok) throw new Error('Could not load web access setting.');
-          const value = Consent.parse(await response.json());
+          if (!response.ok) {
+            const failure = new WebAccessLoadError(
+              `Web access setting request was rejected (HTTP ${response.status}).`,
+            );
+            if (response.status >= 500) {
+              transientFailure = failure;
+              continue;
+            }
+            throw failure;
+          }
+          let value: ConsentState;
+          try {
+            value = Consent.parse(await response.json());
+          } catch {
+            throw new WebAccessLoadError('The server returned an invalid web access setting.');
+          }
           if (!cancelled) {
+            pendingTurnRetry.current = false;
             setConsent(value);
             setError('');
           }
           return;
         }
+        if (transientFailure) throw transientFailure;
         // A 404 can mean either another provider or a Codex runtime still starting.
         const metaResponse = await apiFetch(`/api/sessions/${encodeURIComponent(sessionId)}/meta`, {
           signal: controller.signal,
         });
-        if (!metaResponse.ok) throw new Error('Could not load session metadata.');
+        if (!metaResponse.ok)
+          throw new WebAccessLoadError(
+            `Could not check this chat's web access support (HTTP ${metaResponse.status}).`,
+          );
         const isCodex = z
           .object({ codexQueue: z.object({}).passthrough() })
           .safeParse(await metaResponse.json()).success;
@@ -76,15 +112,35 @@ export function WebSearchConsent({
           setConsent(null);
           if (isCodex) setError('Web search setting is still starting.');
         }
-      } catch {
-        if (!cancelled) setError('Could not load web access setting.');
+      } catch (cause) {
+        if (!cancelled)
+          setError(
+            cause instanceof WebAccessLoadError
+              ? cause.message
+              : 'Cannot reach the server to load web access. Retry when connected.',
+          );
+      } finally {
+        if (!cancelled) loadPending.current = false;
       }
     })();
     return () => {
       cancelled = true;
+      loadPending.current = false;
       controller.abort();
     };
   }, [sessionId, connected, connectionId, reload]);
+
+  useEffect(() => {
+    const finished =
+      previousTurn.current.sessionId === sessionId && previousTurn.current.running && !running;
+    previousTurn.current = { sessionId, running };
+    // Keep one retry available if a still-pending read fails after turn completion.
+    if (finished && (loadPending.current || !consent || error)) pendingTurnRetry.current = true;
+    if (!running && error && pendingTurnRetry.current && connected && connectionId) {
+      pendingTurnRetry.current = false;
+      setReload((value) => value + 1);
+    }
+  }, [sessionId, running, consent, error, connected, connectionId]);
 
   // Install refresh listeners before a newly visible grant can receive focus.
   useLayoutEffect(() => {

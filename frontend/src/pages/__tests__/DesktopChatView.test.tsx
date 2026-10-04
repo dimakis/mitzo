@@ -1,10 +1,9 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
-import { render, screen, within, cleanup, fireEvent, act } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
-import { createStore } from 'zustand/vanilla';
+import { render, screen, within, cleanup, fireEvent, act, waitFor } from '@testing-library/react';
+import { MemoryRouter, Routes, Route, useLocation } from 'react-router-dom';
+import { createTestStore } from '../../test-utils/createTestStore';
 import { MitzoStoreProvider } from '@mitzo/client/hooks';
-import type { MitzoStoreState } from '@mitzo/client';
 import { INITIAL_MESSAGES_STATE, messagesReducer } from '@mitzo/client';
 
 const voiceMocks = vi.hoisted(() => ({
@@ -117,7 +116,8 @@ vi.mock('../../hooks/useVoice', () => ({
 import { DesktopChatView } from '../DesktopChatView';
 
 function createMockStore() {
-  const store = createStore<MitzoStoreState>(() => ({
+  const store = createTestStore();
+  store.setState({
     getTransportConnectionId: () => null,
     sessions: { list: [], active: null, loading: false },
     messages: INITIAL_MESSAGES_STATE,
@@ -137,7 +137,7 @@ function createMockStore() {
     },
     workload: { items: [], profiles: [] },
     inbox: { items: [], count: 0 },
-    calendar: { events: [], sprints: [], loading: false },
+    calendar: { events: [], sprints: [] },
     todos: { items: [], profiles: [] },
     config: { contextBlocks: {}, skills: [], mode: 'agent', modelId: 'claude-sonnet-4-6' },
     tokens: {
@@ -162,6 +162,7 @@ function createMockStore() {
     interruptMessage: vi.fn(),
     stopGeneration: vi.fn(),
     respondToPermission: vi.fn(),
+    expirePermission: vi.fn(),
     setMode: vi.fn(),
     setModel: vi.fn(),
     loadSessions: vi.fn().mockResolvedValue(undefined),
@@ -192,7 +193,7 @@ function createMockStore() {
     forceReconnect: vi.fn(),
     sendSuspend: vi.fn(),
     closeSession: vi.fn().mockResolvedValue(undefined),
-  }));
+  });
   store.setState({
     dispatchMessages: (action) =>
       store.setState((state) => ({ messages: messagesReducer(state.messages, action) })),
@@ -374,6 +375,8 @@ it('uses the account catalog on desktop and sends the explicit subscription choi
   );
   await screen.findByLabelText('Account');
   expect((screen.getByLabelText('Model') as HTMLSelectElement).value).toBe('luna');
+  fireEvent.click(screen.getByRole('button', { name: /^Workspace/ }));
+  fireEvent.click(screen.getByRole('button', { name: 'Use My subscription · Luna' }));
   fireEvent.click(screen.getByText('Test send'));
   expect(store.getState().sendMessage).toHaveBeenCalledWith(
     'hello',
@@ -620,4 +623,136 @@ it('does not reuse ordinary controls while switching to an unclassified session'
   expect(screen.queryByTitle('Close session')).toBeNull();
   expect(screen.queryByRole('button', { name: 'Ask' })).toBeNull();
   expect(screen.getByText('Loading conversation settings')).toBeTruthy();
+});
+
+it('reviews a Telos launch, sends the chosen account once, and follows its assigned session', async () => {
+  vi.mocked(fetch).mockResolvedValue({
+    ok: true,
+    json: async () => [
+      { id: 'work', label: 'Work Vertex', models: [{ id: 'opus', label: 'Opus' }] },
+      { id: 'test', label: 'Personal ChatGPT', models: [{ id: 'luna', label: 'Luna' }] },
+    ],
+  } as Response);
+  const store = createMockStore();
+  const launch = {
+    prompt: 'Review Telos task',
+    context: 'Task context',
+    telosTaskId: 'task-a',
+    agentName: 'mitzo-telos',
+  };
+  store.setState({
+    pendingSession: launch,
+    clearPendingSession: () => store.setState({ pendingSession: null }),
+  });
+  function Location() {
+    return <div data-testid="location">{useLocation().pathname}</div>;
+  }
+  render(
+    <MemoryRouter initialEntries={['/chat']}>
+      <MitzoStoreProvider value={store}>
+        <Location />
+        <Routes>
+          <Route path="/chat/:sessionId?" element={<DesktopChatView />} />
+        </Routes>
+      </MitzoStoreProvider>
+    </MemoryRouter>,
+  );
+  await screen.findByRole('button', { name: 'Send launch prompt' });
+  expect(store.getState().sendMessage).not.toHaveBeenCalled();
+  fireEvent.change(await screen.findByRole('combobox', { name: 'Account' }), {
+    target: { value: 'test' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Send launch prompt' }));
+  expect(store.getState().sendMessage).toHaveBeenCalledExactlyOnceWith(
+    'Review Telos task',
+    expect.objectContaining({
+      accountId: 'test',
+      model: 'luna',
+      telosTaskId: 'task-a',
+      agentName: 'mitzo-telos',
+    }),
+  );
+  expect(store.getState().messages.sessionContext).toBe('Task context');
+  act(() => store.setState((s) => ({ sessions: { ...s.sessions, active: 'target-session' } })));
+  await waitFor(() =>
+    expect(screen.getByTestId('location').textContent).toBe('/chat/target-session'),
+  );
+  expect(store.getState().sessions.active).toBe('target-session');
+});
+
+it('adopts a target assigned in the same render batch as clearing the previous chat', async () => {
+  const store = createMockStore();
+  store.setState({
+    sessions: { ...store.getState().sessions, active: 'old-session' },
+    newSession: () => {
+      store.setState((s) => ({ sessions: { ...s.sessions, active: null } }));
+      store.setState((s) => ({ sessions: { ...s.sessions, active: 'target-session' } }));
+    },
+  });
+  function Location() {
+    return <div data-testid="location">{useLocation().pathname}</div>;
+  }
+  render(
+    <MemoryRouter initialEntries={['/chat']}>
+      <MitzoStoreProvider value={store}>
+        <Location />
+        <Routes>
+          <Route path="/chat/:sessionId?" element={<DesktopChatView />} />
+        </Routes>
+      </MitzoStoreProvider>
+    </MemoryRouter>,
+  );
+  await waitFor(() =>
+    expect(screen.getByTestId('location').textContent).toBe('/chat/target-session'),
+  );
+});
+
+it('reviews a carried launch in its own desktop draft before confirming the account and sending', async () => {
+  vi.mocked(fetch).mockImplementation(
+    async (url) =>
+      ({
+        ok: true,
+        json: async () =>
+          String(url).includes('/symposium/status')
+            ? { sessionId: 'unrelated', seats: [], config: null }
+            : String(url).includes('/accounts')
+              ? [
+                  {
+                    id: 'personal',
+                    label: 'Personal ChatGPT',
+                    models: [{ id: 'luna', label: 'Luna' }],
+                  },
+                ]
+              : [],
+      }) as Response,
+  );
+  const store = createTestStore();
+  const sendMessage = vi.fn();
+  store.setState({
+    sessions: { ...store.getState().sessions, active: 'unrelated' },
+    pendingSession: { prompt: 'Launch', context: 'Telos', telosTaskId: 'task' },
+    sendMessage,
+  });
+  function Location() {
+    return <div data-testid="location">{useLocation().pathname}</div>;
+  }
+  render(
+    <MemoryRouter initialEntries={['/chat/unrelated']}>
+      <MitzoStoreProvider value={store}>
+        <Location />
+        <Routes>
+          <Route path="/chat/:sessionId?" element={<DesktopChatView />} />
+        </Routes>
+      </MitzoStoreProvider>
+    </MemoryRouter>,
+  );
+  fireEvent.click(await screen.findByRole('button', { name: 'Review launch in new chat' }));
+  await waitFor(() => expect(screen.getByTestId('location').textContent).toBe('/chat'));
+  expect(sendMessage).not.toHaveBeenCalled();
+  fireEvent.click(await screen.findByRole('button', { name: 'Use Personal ChatGPT · Luna' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Send launch prompt' }));
+  expect(sendMessage).toHaveBeenCalledExactlyOnceWith(
+    'Launch',
+    expect.objectContaining({ accountId: 'personal', model: 'luna', telosTaskId: 'task' }),
+  );
 });

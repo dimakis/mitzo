@@ -340,6 +340,7 @@ export interface ConversationTextEvent {
 /** One transactionally consistent durable boundary used by reconnect delivery. */
 export interface ReconnectState {
   session: SessionMeta | null;
+  clientState: ClientSessionState | null;
   events: StoredEvent[];
   /** Highest event sequence included in the durable boundary. */
   cursor: number;
@@ -2128,6 +2129,26 @@ export class EventStore {
     return events;
   }
 
+  /** Transport attachment does not start another turn. Recover the last durable turn signal. */
+  getSessionClientState(sessionId: string): ClientSessionState | null {
+    const session = this.getSession(sessionId);
+    if (!session?.state) return null;
+    if (session.state !== 'ACTIVE' && session.state !== 'STARTING')
+      return toClientState(session.state);
+    const turn = this.db!.prepare(
+      `SELECT type, json_extract(payload, '$.clientState') AS client_state FROM events
+       WHERE session_id = ?
+         AND type IN ('user_message', 'message_start', 'session_end', 'execution_state_changed')
+         AND seat_id IS NULL
+         AND json_extract(payload, '$.symposiumProvenance') IS NULL
+       ORDER BY seq DESC LIMIT 1`,
+    ).get(sessionId) as { type: string; client_state: ClientSessionState | null } | undefined;
+    if (turn?.type === 'execution_state_changed' && turn.client_state) return turn.client_state;
+    if (turn?.type === 'session_end') return 'idle';
+    if (turn) return 'running';
+    return toClientState(session.state);
+  }
+
   /** Capture aggregate state and its replay suffix in one SQLite read transaction. */
   captureReconnectState(sessionId: string, afterSeq: number, includeEvents = true): ReconnectState {
     if (!Number.isSafeInteger(afterSeq) || afterSeq < 0) {
@@ -2160,6 +2181,7 @@ export class EventStore {
           : [];
       return {
         session,
+        clientState: this.getSessionClientState(sessionId),
         events,
         cursor,
         cursorValid,
@@ -6167,7 +6189,7 @@ export class EventStore {
     this.stmts.setSessionState.run(newState, now, isActive, sessionId);
 
     // Emit session_state_changed event for client consumption (P0)
-    const clientState = toClientState(newState);
+    const clientState = this.getSessionClientState(sessionId) ?? toClientState(newState);
     this.append(sessionId, 'session_state_changed', {
       sessionId,
       state: clientState,

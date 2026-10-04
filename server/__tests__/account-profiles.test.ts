@@ -483,6 +483,33 @@ describe('brokered ChatGPT subscription profile', () => {
     expect(brokerDiscovery.close).toHaveBeenCalledTimes(1);
   });
 
+  it('reuses discovery only for the same deployment runtime and account route', async () => {
+    prepareBrokeredTransport();
+    brokerDiscovery.request.mockResolvedValue(discoveryPage());
+    const profiles = new AccountProfiles([{ ...subscription, id: 'runtime-bound-discovery' }], {
+      codexEnabled: true,
+    });
+    await profiles.refresh(true);
+    const original = brokerDiscovery.ensure.mock.calls[0][0];
+    await profiles.refresh(true);
+    expect(brokerDiscovery.ensure.mock.calls[1][0]).toBe(original);
+
+    for (const change of [
+      { image: 'upgraded-image' },
+      { seedStackManifest: { runtime: { digest: 'sha256:new-runtime' } } },
+      { gateway: 'another-gateway' },
+      { workspace: 'another-workspace' },
+    ]) {
+      brokerDiscovery.runtimeConfig.mockReturnValue({ ...runtimeConfig, ...change });
+      await profiles.refresh(true);
+      expect(brokerDiscovery.ensure.mock.calls.at(-1)?.[0]).not.toBe(original);
+    }
+
+    brokerDiscovery.runtimeConfig.mockReturnValue(runtimeConfig);
+    await profiles.refresh(true);
+    expect(brokerDiscovery.ensure.mock.calls.at(-1)?.[0]).toBe(original);
+  });
+
   it('keeps the configured seed as a stale fallback when broker discovery cannot start', async () => {
     vi.clearAllMocks();
     brokerDiscovery.managerConfigs.length = 0;

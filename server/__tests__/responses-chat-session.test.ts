@@ -96,7 +96,10 @@ it('runs successive user turns with a private credential and closes its input qu
   expect(JSON.stringify(events)).not.toContain('private-test-key');
   expect(calls.options[0].apiKey).toBe('private-test-key');
   expect(calls.options[0].tools).toEqual(
-    expect.arrayContaining([expect.objectContaining({ name: 'AskUserQuestion' })]),
+    expect.arrayContaining([
+      expect.objectContaining({ name: 'AskUserQuestion' }),
+      expect.objectContaining({ name: 'RequestWebAccess' }),
+    ]),
   );
   registry.dispose();
 });

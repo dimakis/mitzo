@@ -13,6 +13,7 @@ import { extractImageFiles } from '../lib/paste-images';
 import { MAX_IMAGE_ATTACHMENTS } from '../lib/constants';
 import { SlashPicker } from './SlashPicker';
 import { SessionTray } from './SessionTray';
+import { ComposerTools } from './ComposerTools';
 import { UiIcon } from './UiIcon';
 import { MicButton } from './MicButton';
 import { impactMedium } from '../lib/haptics';
@@ -33,6 +34,8 @@ interface Props {
   voice?: UseVoiceReturn;
   branch?: string;
   isWorktree?: boolean;
+  isolation?: boolean;
+  onIsolationChange?: (enabled: boolean) => void;
   wtId?: string;
   sessionId?: string;
   /** When provided, uses these context blocks instead of internal state. Hides @ picker. */
@@ -55,6 +58,11 @@ export function ChatInput({
   sendDisabledReason,
   cwd,
   voice,
+  branch,
+  isWorktree,
+  wtId,
+  isolation,
+  onIsolationChange,
   sessionId,
   externalContextBlocks,
   tokenState,
@@ -302,23 +310,6 @@ export function ChatInput({
 
   return (
     <div className="chat-input chat-input--compact">
-      {!useExternal && (
-        <SessionTray
-          messages={messages}
-          current={current}
-          bootContext={bootContext}
-          sessionContext={sessionContext}
-          selectedContextBlocks={contextBlocks}
-          draftImages={images}
-          onToggleContextBlock={(name) =>
-            setContextBlocks((prev) =>
-              prev.includes(name) ? prev.filter((value) => value !== name) : [...prev, name],
-            )
-          }
-          onAddImages={() => fileInputRef.current?.click()}
-          onRemoveImage={removeImage}
-        />
-      )}
       {images.length > 0 && (
         <div className="chat-input-previews">
           {images.map((image, index) => (
@@ -383,6 +374,11 @@ export function ChatInput({
           placeholder={running ? 'Type to queue or interrupt...' : 'Message Mitzo...'}
           rows={1}
         />
+        {tokenState && tokenState.turnIndex > 0 && (
+          <div className="composer-info">
+            <TokenBar tokenState={tokenState} />
+          </div>
+        )}
         <div className="composer-toolbar">
           <div
             className="chat-input-command-strip"
@@ -392,29 +388,22 @@ export function ChatInput({
               }
             }}
           >
-            <button
-              className="chat-input-btn chat-input-btn--skills"
-              onClick={() => {
+            <ComposerTools
+              onCommands={() => {
                 if (!text.trim()) setText('/');
                 setShowSlashPicker(true);
                 textareaRef.current?.focus();
               }}
-              title="Skills"
-              aria-label="Commands"
-              aria-expanded={showSlashPicker}
-            >
-              <span aria-hidden="true">/</span>
-              <span className="chat-input-command-label">Commands</span>
-            </button>
-            <button
-              className="chat-input-btn chat-input-btn--attach"
-              onClick={() => fileInputRef.current?.click()}
-              disabled={images.length >= MAX_IMAGE_ATTACHMENTS}
-              title="Attach image"
-              aria-label="Attach image"
-            >
-              +
-            </button>
+              commandsExpanded={showSlashPicker}
+              onAttach={() => fileInputRef.current?.click()}
+              attachmentDisabled={images.length >= MAX_IMAGE_ATTACHMENTS}
+              onDismiss={() => textareaRef.current?.focus()}
+              isolation={isolation}
+              onIsolationChange={onIsolationChange}
+              branch={branch}
+              isWorktree={isWorktree}
+              wtId={wtId}
+            />
             <input
               ref={fileInputRef}
               type="file"
@@ -424,7 +413,24 @@ export function ChatInput({
               onChange={handleFileChange}
               className="sr-only"
             />
-            {tokenState && <TokenBar tokenState={tokenState} />}
+            {!useExternal && (
+              <SessionTray
+                placement="toolbar"
+                messages={messages}
+                current={current}
+                bootContext={bootContext}
+                sessionContext={sessionContext}
+                selectedContextBlocks={contextBlocks}
+                draftImages={images}
+                onToggleContextBlock={(name) =>
+                  setContextBlocks((prev) =>
+                    prev.includes(name) ? prev.filter((value) => value !== name) : [...prev, name],
+                  )
+                }
+                onAddImages={() => fileInputRef.current?.click()}
+                onRemoveImage={removeImage}
+              />
+            )}
           </div>
           <div className="composer-actions">
             {micProps && <MicButton {...micProps} />}
@@ -433,6 +439,7 @@ export function ChatInput({
                 {canSend && onInterrupt && (
                   <button
                     className="chat-input-btn chat-input-btn--interrupt"
+                    aria-label="Interrupt and send now"
                     onClick={handleInterrupt}
                     title="Interrupt — send now, mid-thinking"
                   >
@@ -442,6 +449,7 @@ export function ChatInput({
                 {canSend && (
                   <button
                     className="chat-input-btn chat-input-btn--queue"
+                    aria-label="Queue message"
                     onClick={handleQueue}
                     title="Queue — send after current turn"
                   >

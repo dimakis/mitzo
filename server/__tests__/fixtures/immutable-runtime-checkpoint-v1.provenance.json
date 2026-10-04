@@ -1,0 +1,9 @@
+{
+  "helperSha256": "055a0dbc99bf57c3e9af26bd08f5d1aa94694860da2e5cee6dfd0bcbfaab812f",
+  "capturedPath": "/sandbox/mitzo-checkpoint.py",
+  "imageDigests": [
+    "sha256:b89016abe4c17850ee31e2c4613697f6a4871356953952b0edcdb4fdfb8db624",
+    "sha256:eefa0731c0e41d08cfde069e4975f180017db68f91cbb563fbcbba99ccd063ab"
+  ],
+  "capture": "Read-only /bin/cat in disposable --network=none image containers; both returned identical bytes. No image or retained sandbox modified."
+}

@@ -320,26 +320,36 @@ export function ReviewerSheetHost({
   children,
   generic = true,
 }: {
-  sessionId: string;
+  sessionId: string | null;
   children: ReactNode;
   generic?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [visited, setVisited] = useState(false);
   const [attempt, setAttempt] = useState(0);
+  useEffect(() => {
+    setOpen(false);
+    setVisited(false);
+    setAttempt(0);
+  }, [sessionId]);
   return (
     <ReviewerFlowContext.Provider
-      value={{
-        sessionId,
-        generic,
-        open: () => {
-          setVisited(true);
-          setOpen(true);
-        },
-      }}
+      value={
+        sessionId
+          ? {
+              sessionId,
+              generic,
+              open: () => {
+                setVisited(true);
+                setOpen(true);
+              },
+            }
+          : null
+      }
     >
       {children}
       {visited &&
+        sessionId &&
         createPortal(
           <ReviewerForm
             key={`${sessionId}:${attempt}`}
@@ -988,7 +998,7 @@ function ReviewerForm({
         className="reviewer-sheet"
         role="dialog"
         aria-modal="true"
-        aria-label={generic ? 'Add agent' : 'Ask another agent'}
+        aria-label={generic ? 'Add agent' : 'Add an AI reviewer'}
         onKeyDown={(event) => {
           if (event.key === 'Escape' && !busy) onClose();
           if (event.key === 'Tab') {
@@ -1015,7 +1025,7 @@ function ReviewerForm({
         }}
       >
         <header>
-          <h2>{generic ? 'Add agent' : 'Ask another agent'}</h2>
+          <h2>{generic ? 'Add agent' : 'Add an AI reviewer'}</h2>
           <button type="button" disabled={busy} onClick={onClose}>
             Close
           </button>
@@ -1027,6 +1037,17 @@ function ReviewerForm({
                 ? 'Agent added. The selected context is queued. Approve and send it in the conversation.'
                 : 'Reviewer added. The selected context is queued for approval in Director controls.'}
             </p>
+            <button
+              type="button"
+              onClick={() => {
+                onClose();
+                window.dispatchEvent(
+                  new CustomEvent('symposium-open-team', { detail: { sessionId } }),
+                );
+              }}
+            >
+              Go to review approvals
+            </button>
             <button type="button" onClick={onClose}>
               Done
             </button>
@@ -1039,9 +1060,17 @@ function ReviewerForm({
             <p>
               {generic
                 ? 'Give this agent a name and tell it what to do.'
-                : 'Choose a saved profile and the account that will receive this review request.'}
+                : 'A reviewer checks your work and returns findings. It can read shared workspace files, but cannot edit them.'}
             </p>
+            {!generic && (
+              <ol className="reviewer-workflow" aria-label="Review workflow">
+                <li>Choose a reviewer and describe what to check.</li>
+                <li>Approve the request, then send it in Agents and approvals.</li>
+                <li>Read the results in Open review findings.</li>
+              </ol>
+            )}
             <fieldset disabled={busy || locked}>
+              {!generic && <h3>1. Choose your reviewer</h3>}
               {generic && <h3>Guidance</h3>}
               {generic && (
                 <>
@@ -1188,8 +1217,9 @@ function ReviewerForm({
                   </p>
                 </>
               )}
+              {!generic && <h3>2. Set the review request</h3>}
               <label>
-                {generic ? 'Initial message' : 'Review package'}
+                {generic ? 'Initial message' : 'What should the reviewer check?'}
                 <textarea
                   value={brief}
                   onChange={(event) => setBrief(event.target.value)}
@@ -1197,7 +1227,7 @@ function ReviewerForm({
                 />
               </label>
               <label>
-                Context package
+                Conversation context to share
                 <select
                   value={mode}
                   onChange={(event) => {
@@ -1242,6 +1272,7 @@ function ReviewerForm({
                   legacy turns without audience proof are excluded.
                 </p>
               )}
+              <h3>3. Confirm sharing</h3>
               <p>
                 Only this agent receives the message and selected context after you approve sending.
               </p>
@@ -1252,8 +1283,9 @@ function ReviewerForm({
                   onChange={(event) => setAcknowledged(event.target.checked)}
                 />
                 <span>
-                  I understand this agent can access shared files within its permissions, and its
-                  provider account may retain the message and chosen context.
+                  {generic
+                    ? 'I understand this agent can access shared files within its permissions, and its provider account may retain the message and chosen context.'
+                    : 'I understand this reviewer can read shared workspace files, and its provider account may retain the request and selected context.'}
                 </span>
               </label>
               {crossAccount && (
@@ -1264,7 +1296,7 @@ function ReviewerForm({
                     onChange={(event) => setTyped(event.target.value)}
                     placeholder={confirmation}
                   />
-                  <span>Required if this account differs from the conversation account.</span>
+                  <span>Type {confirmation} to allow sharing with a different account.</span>
                 </label>
               )}
             </fieldset>
@@ -1327,7 +1359,7 @@ function ReviewerForm({
                 ? 'Connecting agent…'
                 : generic
                   ? 'Add agent and queue message'
-                  : 'Add reviewer and queue context'}
+                  : 'Add reviewer & queue request'}
             </button>
             {(error || retained?.notice) && (
               <div role="alert">

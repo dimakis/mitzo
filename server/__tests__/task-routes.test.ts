@@ -40,7 +40,8 @@ vi.mock('../chat.js', () => {
   };
 });
 
-vi.mock('../permissions.js', () => ({
+vi.mock('../permissions.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../permissions.js')>()),
   resolvePending: vi.fn().mockReturnValue(true),
 }));
 

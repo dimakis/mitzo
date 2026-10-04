@@ -12,6 +12,35 @@ function wrap(ui: React.ReactElement) {
 }
 
 describe('ToolPill', () => {
+  it('keeps Google grounding and unchanged suggestions visible while tool details are collapsed', () => {
+    const renderedContent =
+      '<div><a href="https://www.google.com/search?q=Revenue" target="_blank">Revenue</a></div>';
+    render(
+      wrap(
+        <ToolPill
+          block={{
+            blockId: 'web',
+            blockType: 'tool_use',
+            content: '',
+            toolName: 'RequestWebAccess',
+            toolResult: JSON.stringify({
+              provider: 'google-vertex',
+              answer: 'Official [Revenue](https://www.revenue.ie/) guidance.',
+              searchSuggestions: renderedContent,
+            }),
+          }}
+        />,
+      ),
+    );
+    expect(screen.getByRole('link', { name: 'Revenue' }).getAttribute('href')).toBe(
+      'https://www.revenue.ie/',
+    );
+    const frame = screen.getByTitle('Google Search suggestions');
+    expect(frame.getAttribute('srcdoc')).toContain(renderedContent);
+    expect(frame.getAttribute('sandbox')).not.toContain('allow-scripts');
+    expect(frame.getAttribute('sandbox')).not.toContain('allow-same-origin');
+    expect(screen.getByRole('button').getAttribute('aria-expanded')).toBe('false');
+  });
   it('keeps the session scope when a read result opens in Files', () => {
     const block: FinishedBlock = {
       blockId: 'read-artifact',

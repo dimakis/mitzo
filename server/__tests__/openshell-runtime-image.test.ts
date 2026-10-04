@@ -56,19 +56,27 @@ describe('OpenShell runtime image builder', () => {
         resolve('docs/spikes/openshell-codex/Dockerfile.mgmt-runtime'),
         'utf8',
       );
-      const version = dockerfile.match(/npm install --global @openai\/codex@(\d+\.\d+\.\d+)/)?.[1];
+      const version = readFileSync(
+        resolve('docs/spikes/openshell-codex/runtime-codex-version'),
+        'utf8',
+      ).trim();
+      expect(dockerfile).toContain('COPY runtime-codex-version');
       expect(version).toBeDefined();
       const root = mkdtempSync(join(tmpdir(), 'mitzo-launcher-version-'));
       try {
+        writeFileSync(join(root, 'version'), version + '\n');
         const capture = join(root, 'native-launch');
         const runner = join(root, 'runner');
         // Replace only workspace initialization; all version/exec logic is real.
         writeFileSync(
           runner,
-          readFileSync(sourceRunner, 'utf8').replace(
-            '/sandbox/initialize-mitzo-workspace /sandbox/workspaces/mgmt',
-            '/usr/bin/true',
-          ),
+          readFileSync(sourceRunner, 'utf8')
+            .replace('/usr/libexec/mitzo/knowledge-write-scope ', '')
+            .replaceAll('/etc/mitzo-codex-version', join(root, 'version'))
+            .replace(
+              '/sandbox/initialize-mitzo-workspace /sandbox/workspaces/mgmt',
+              '/usr/bin/true',
+            ),
         );
         writeFileSync(
           join(root, 'codex'),
@@ -98,6 +106,42 @@ describe('OpenShell runtime image builder', () => {
     },
   );
 
+  it('allows both app-server launchers only when the binary matches the image version pin', () => {
+    const root = mkdtempSync(join(tmpdir(), 'mitzo-codex-version-'));
+    const versionFile = join(root, 'version');
+    const codex = join(root, 'codex');
+    const pinnedVersion = readFileSync(
+      resolve('docs/spikes/openshell-codex/runtime-codex-version'),
+      'utf8',
+    ).trim();
+    writeFileSync(versionFile, pinnedVersion + '\n');
+    writeFileSync(
+      codex,
+      '#!/bin/sh\nif [ "$1" = --version ]; then echo "codex-cli $TEST_CODEX_VERSION"; else echo APP_SERVER_STARTED; fi\n',
+    );
+    chmodSync(codex, 0o700);
+    for (const source of [apiRunner, subscriptionRunner]) {
+      const runner = join(root, 'runner');
+      writeFileSync(
+        runner,
+        readFileSync(source, 'utf8')
+          .replace('/usr/libexec/mitzo/knowledge-write-scope ', '')
+          .replace('/sandbox/initialize-mitzo-workspace /sandbox/workspaces/mgmt', ':')
+          .replaceAll('/etc/mitzo-codex-version', versionFile),
+      );
+      const launch = (version: string) =>
+        spawnSync('/bin/sh', [runner], {
+          encoding: 'utf8',
+          env: { ...process.env, PATH: `${root}:${process.env.PATH}`, TEST_CODEX_VERSION: version },
+        });
+      expect(launch(pinnedVersion).stdout).toContain('APP_SERVER_STARTED');
+      const mismatch = launch('0.0.0');
+      expect(mismatch.status).not.toBe(0);
+      expect(mismatch.stdout).not.toContain('APP_SERVER_STARTED');
+    }
+    rmSync(root, { recursive: true, force: true });
+  });
+
   it('installs the vendored Jira notebook runtime from its checked-in frozen lock', () => {
     const dockerfile = readFileSync(
       resolve('docs/spikes/openshell-codex/Dockerfile.mgmt-runtime'),
@@ -108,16 +152,14 @@ describe('OpenShell runtime image builder', () => {
     expect(dockerfile).toContain(
       'UV_PROJECT_ENVIRONMENT=/opt/mgmt-venv uv sync --no-cache --frozen --no-dev --no-install-project',
     );
-    expect(dockerfile).toContain(
-      'RUN cd /opt/mgmt-deps \\\n    && uv lock --no-cache \\\n    && UV_PROJECT_ENVIRONMENT=/opt/mgmt-venv uv sync --no-cache --frozen --no-dev --no-install-project',
-    );
+    expect(dockerfile).not.toContain('uv lock --no-cache');
     expect(dockerfile).toContain(
       'COPY jira_process/pyproject.toml jira_process/uv.lock /opt/mgmt-jira-runtime/',
     );
     expect(dockerfile).toContain(
       'UV_PYTHON=/usr/bin/python3 UV_NO_MANAGED_PYTHON=1 UV_PROJECT_ENVIRONMENT=/opt/mgmt-jira-venv uv sync --no-cache --frozen --no-dev --no-install-project',
     );
-    expect(dockerfile.match(/uv (?:lock|sync) --no-cache/g)).toHaveLength(3);
+    expect(dockerfile.match(/uv (?:lock|sync) --no-cache/g)).toHaveLength(2);
     expect(dockerfile).toContain(
       'find /opt/mgmt-jira-venv/lib -mindepth 2 -maxdepth 2 -type d -name site-packages -print',
     );
@@ -139,6 +181,33 @@ describe('OpenShell runtime image builder', () => {
     expect(build).toContain('cp "$mgmt_repo/jira_process/uv.lock"');
     expect(build).toContain('cp "$mgmt_repo/pyproject.toml"');
     expect(build).toContain('cp "$mgmt_repo/uv.lock"');
+  });
+
+  it('builds the exact pinned compiler with its frozen installed dependencies and attester', () => {
+    const dockerfile = readFileSync(
+      resolve('docs/spikes/openshell-codex/Dockerfile.mgmt-runtime'),
+      'utf8',
+    );
+    const build = readFileSync(builder, 'utf8');
+    expect(build).toContain('git -C "$compiler_repo" archive "$compiler_commit"');
+    expect(build).toContain('npm ci --ignore-scripts');
+    expect(build).toContain('compiler_source/package-lock.json');
+    expect(build).not.toContain('node_modules/contexgin/dist');
+    expect(dockerfile).toContain('npm ci --omit=dev --ignore-scripts');
+    expect(dockerfile).toContain('ln -sf /usr/lib/googleworkspace-cli');
+    expect(dockerfile).toContain(
+      'COPY attest-knowledge-runtime.py /usr/libexec/mitzo/attest-knowledge-runtime.py',
+    );
+  });
+
+  it('installs the same Codex CLI version that the adapter supports', () => {
+    const build = readFileSync(builder, 'utf8');
+    const dockerfile = readFileSync(
+      resolve('docs/spikes/openshell-codex/Dockerfile.mgmt-runtime'),
+      'utf8',
+    );
+    expect(build).toContain('cp "$root/runtime-codex-version" "$context/runtime-codex-version"');
+    expect(dockerfile).toContain('@openai/codex@$(cat /etc/mitzo-codex-version)');
   });
 
   it('executes a notebook copy from an isolated image-owned Jupyter runtime', () => {

@@ -5,6 +5,12 @@ Claude Code on your phone. A self-hosted web UI built on the [Agent SDK](https:/
 <!-- ![Home Screen](docs/screenshots/home.png) -->
 <!-- ![Chat with Tools](docs/screenshots/chat-tools.png) -->
 
+### New chat account and model
+
+Expand **Workspace** in chat to choose the account and model. **Make default for new chats** saves that pair (and thinking setting) on this browser; **Clear new-chat default** removes it. Existing conversations keep their bound account. When no default is saved, select an account or confirm the suggested account with **Use** before sending. If a saved account or model is unavailable, choose a replacement explicitly.
+
+Telos **Open in Chat** and **Start Session** open a launch preview with Workspace expanded. Review the account and model, then select **Send launch prompt**. The chat follows the session created for that launch and keeps its Telos context and task identity. The preview stays available until delivery is confirmed through the HTTP receipt or a matching persisted WebSocket user-message echo; a failed send can be retried with the same task context.
+
 ## Features
 
 The dormant [Symposium artifact snapshot observer](docs/features/symposium-artifact-snapshots.md) records bounded host observations; it does not yet enable automated review or publication.
@@ -26,26 +32,29 @@ Symposium director status resolves the verified runtime once per request and reu
 - **Streaming chat** with thinking blocks, tool pills, and markdown
 - **Session settings at a glance** — a single session header shows the account profile, model, and thinking level even when collapsed. Expand it for account, permission, web access, and reviewer controls; Outputs / Sources is beside the composer. The summary wraps compactly on mobile.
 - **Live token usage** — the chat token bar shows context and session totals for OpenAI Responses turns after the provider reports usage at completion.
+- **Request web access** — ordinary chats on ChatGPT/Codex (including OpenShell), OpenAI API, Gemini/Vertex and Claude SDK can request an approval card for a concrete search query or public HTTPS website read. Search uses the selected account and model; unsupported search combinations fail without fallback. Website reads are credential-free, bounded and restricted to public addresses and one origin. Approval covers one request and does not grant shell networking or authenticated browsing. Deploy the backend and updated frontend/iOS assets for request-only approval buttons and Google search suggestions. See [request web access](docs/features/request-web-access.md) for provider behavior and validation limits.
 - **Three modes** — Ask (read-only), Agent (file edits allowed), Auto (shell too). Switch mid-chat.
 - **Slash-command skills** — `/simplify`, `/risk-scan`, `/pr-review`, `/person`, `/review-response`, `/land-pr`, `/pr-shepherd`. Type `/` to browse.
 - **Native deliberation** — `/deliberate <task>` runs an Opus/Gemini debate with durable command admission. Repeated delivery does not repeat provider calls. If an attempt ends with an uncertain outcome, review the conversation before explicitly starting another with `/deliberate --confirm-ambiguous <task>`; this may repeat provider work. `/deliberate` alone shows usage.
 - **Native fusion** — `/fuse <task>` runs a parallel panel, judge, and synthesis with durable admission; `/fuse --self <task>` uses two independent slots of the same model. Exact retries do not repeat provider work. Uncertain panel outcomes stop later phases; explicitly start another attempt with `/fuse --confirm-ambiguous <task>` (retain `--self` when applicable). Usage-only commands make no provider calls. See [fusion admission](docs/design/fusion-admission.md).
 - **Voice** — tap to start/stop recording with live transcription previews (STT) and explicit per-message read-aloud (TTS) via [Yapper](https://github.com/dimakis/yapper). The final audio chunk is sent before transcription ends; if streaming disconnects or times out, the complete recording is transcribed through the batch endpoint. Cancelling discards the recording and releases the microphone. Voice features degrade gracefully when Yapper is offline.
 - **MCP tools** — reads `~/.cursor/mcp.json`, passes servers to every session
-- **File browser** — view and edit repo files, generated session artifacts, and worktree roots; Markdown links in existing conversations open in their original workspace. Use Share in the file viewer or Markdown preview to send the original file or choose Save to Files on supported iOS devices; desktop browsers download the file. File viewing and sharing support Vertex and both OpenAI API-key and subscription conversations, including OpenShell workspaces. Older sandbox conversations without a verified workspace record need one resume in the same conversation before file access; the workspace and file must still exist. Rollout requires updating the backend and the bundled iOS app.
+- **File browser** — view and edit repo files, generated session artifacts, and worktree roots; Markdown links in existing conversations open in their original workspace, including `~/` home paths within allowed workspaces. Returning from a file keeps a disabled input placeholder visible while session type is checked; the ordinary composer and its queued-message effects mount only after the chat is confirmed as ordinary. In browsers, use Download in the file viewer, Markdown preview or message file links to save the original filename and bytes directly, even when the system share sheet is blocked. Use Share to send the original file or choose Save to Files on supported iOS devices; browsers without file sharing fall back to a download. Markdown retains its `.md` filename and document MIME type. File viewing and sharing support Vertex and both OpenAI API-key and subscription conversations, including OpenShell workspaces. Older sandbox conversations without a verified workspace record need one resume in the same conversation before file access; the workspace and file must still exist. Rollout requires updating the backend and the bundled iOS app.
 - **Document editor** — Markdown and HTML source, preview and split views; Markdown formatting, undo/redo, keyboard shortcuts, unsaved draft recovery within the current browser tab, and a layout that follows the mobile keyboard. Saves preserve drafts on errors and detect changes made by agents or other editors. Review the latest saved version before choosing whether to use it or keep your draft for the next save. Vertex and host OpenAI files use the host workspace; API-key and subscription OpenShell documents save in the verified conversation workspace without host fallback. Sandbox editing requires the original document content and an available workspace.
 - **Markdown diagrams** — Mermaid fences render in chat, Files, inline previews and document previews, with theme-aware SVG, copy controls, and readable source for invalid or incomplete diagrams. Expanded chat previews stay open across message and navigation updates.
 - **HTML artifacts** — preview and edit self-contained `.html` prototypes from Files or expandable chat links in a sandboxed, no-network renderer
 - **Task board** — recursive multi-session task orchestration with spec mode, completion summaries, and verification hooks
-- **Durable Telos capture** — agents can create approved outcomes in live Telos; OpenShell sessions execute the write through a trusted host tool so credentials and persistence stay outside the sandbox
+- **Durable Telos capture** — agents can create approved outcomes and save versioned task documents in live Telos. `TelosSaveArtifact`, `TelosFindArtifacts`, and `TelosReadArtifact` provide upload and historical retrieval through trusted host tools/MCP; session instructions teach agents to recover prior work and retain persistence receipts. Documents and item links live in the canonical Telos SQLite store outside the sandbox; code remains in Git and reusable guidance belongs in knowledge. [Operating contract](docs/operations/telos-artifacts.md).
+- **Work outputs** — each Telos work detail shows its latest saved file revisions before milestones and reference material. Markdown, archives, images and other file bytes use the same durable store (5 MiB per file); Download and Share target the exact listed revision without an active agent session. Native clients use Share. A saved output is not automatically reviewed or delivered. Folder snapshots and external destination tracking are subsequent slices.
+- **Upload work files** — the Outputs upload drawer accepts non-sensitive documents and images up to 5 MiB. Choose file or use Camera to request rear-camera capture on supported phones, review the selection, then upload explicitly. Reusing a filename retains immutable revisions; failed uploads preserve the selection for retry. Credentials and private financial or health evidence require private case storage, not this shared output store.
 - **Worktree sandbox** — opt-in git worktree isolation per session, multi-repo support via `.mitzo.json`
-- **Session resilience** — phone sleeps, WS drops, session survives. Reattach on reconnect. Message snapshot recovery for iOS silent drops.
+- **Session resilience** — phone sleeps, WS drops, session survives. Reattach on reconnect. Message snapshot recovery for iOS silent drops. Session opening coordinates live replay with the restored history cursor; expired approvals clear locally so later requests remain accessible.
 - **Durable inactivity closeout** — automatic closeout is admitted once per detach episode before runtime dispatch. Exact retries and restart recovery never repeat paid provider work. See [closeout admission](docs/design/closeout-admission.md).
 - **Closeout live canary** — an opt-in Luna-only harness validates one durable closeout attempt against an isolated controller and explicit billing account. See [closeout live canary](docs/operations/closeout-live-canary.md).
 - **iOS app** — native wrapper via Capacitor with push notifications and home-screen install
 - **Auto-rename sessions** — sessions get meaningful names via LLM summarization after every few prompts
 - **Quick actions** — one-tap commands via `.mitzo.json`
-- **Push notifications** — ntfy + Pushover (Apple Watch) when Claude needs approval
+- **Notifications center** — shared desktop/mobile feed for approvals, questions, session completions, and new Inbox arrivals, with native iPhone/Apple Watch delivery
 - **Image attachments** — send photos/screenshots from your camera
 - **Session history** — resume past conversations, swipe to dismiss
 - **Managed Connections** — attach reviewed Jira, GitHub, and bounded custom REST providers to eligible accounts; publish GitHub pull requests through an approved controller operation
@@ -64,9 +73,13 @@ Access from your phone: install [Tailscale](https://tailscale.com/download) on s
 
 ### Managed Connections
 
+**Connections** is the global overview of configured AI accounts and services. Compact rows open account and service details, configured models, and read-only Ask/Agent/Auto policy explanations. Mode availability is not inferred from a provider label; runtime and model compatibility remain unchecked unless reported by an authoritative source. Configured assignments, past verification, and effective conversation access remain separate. **Add connection** opens the existing management controls. Website access distinguishes provider search, public page reads, and sandbox network policies; effective network access depends on each sandbox’s base rules, attached connections, and chat-specific grants.
+
+For ordinary ChatGPT accounts, **Sign-in** is separate from effective access. An OpenShell account shows **Connected** only after a read-only check of its bound provider and current, unexpired subscription grant. Its email and plan are labelled **Configured** because the broker does not report the host login identity. A host account can show **Signed in** after its existing account discovery verifies the reported email and plan. Checks age after five minutes (or earlier grant expiry); failed checks and failed overview refreshes are explicit. Loading the overview does not start a chat, create a sandbox, refresh credentials, or call a model.
+
 Connections are optional and require the reviewed OpenShell gateway setup. Enable `MITZO_CONNECTIONS_ENABLED=1` and configure the provider probe policies from [`infra/openshell/production.env.example`](infra/openshell/production.env.example). The [Connections acceptance guide](docs/connections-live-acceptance.md) lists the gateway requirements and checks to run before enabling providers in production.
 
-Open **More → Connections** to choose a provider, enter its one-shot credential, review the exact scope, and assign eligible accounts. For GitHub, enter the repositories as `owner/repository` pairs and the allowed base branches. The GitHub sandbox provider remains read-only. Publishing a committed feature branch and creating or updating a pull request uses the separate `github.publish-pr` operation with an explicit approval. Set a controller-only `GH_TOKEN` or `GITHUB_TOKEN` to enable that operation; it is never injected into the sandbox. Custom REST is an advanced, bounded provider and remains unavailable until its reviewed gateway probe and DNS policy are configured.
+Open **More → Connections → Add connection** to choose a provider, enter its one-shot credential, review the exact scope, and assign eligible accounts. For GitHub, enter the repositories as `owner/repository` pairs and the allowed base branches. The GitHub sandbox provider remains read-only. Publishing a committed feature branch and creating or updating a pull request uses the separate `github.publish-pr` operation with an explicit approval. Set a controller-only `GH_TOKEN` or `GITHUB_TOKEN` to enable that operation; it is never injected into the sandbox. Custom REST is an advanced, bounded provider and remains unavailable until its reviewed gateway probe and DNS policy are configured.
 
 After a connection is verified, expand **Manage capability grants** on its card, select the assigned profiles allowed to request a reviewed capability, and save the grant. Reauthorization is required to save or revoke a grant. A grant permits a profile to request the action; each invocation still needs explicit approval and is recorded in the capability operation audit. The setup wizard enables no mutation capability on its own.
 
@@ -112,8 +125,8 @@ never automatically redispatch a turn.
 Changing a draft seat to a model without a thinking-level option clears the previous
 model’s thinking level, so selecting Work Vertex Haiku after Personal Luna remains valid.
 
-The mobile and desktop ChatViews include **Director controls** for the Symposium
-roster and directed-delivery approval. Use **Refresh director status** to load
+The mobile and desktop ChatViews include **Review team & approvals** for the Symposium
+roster and directed-delivery approval. Use **Refresh review team** to load
 newly queued deliveries while the panel is open. The conversation view offers
 an all-seat audience, per-seat asides, and explicit excerpt sharing; queued
 messages require approval before dispatch. Uncertain retries retain the original
@@ -124,7 +137,7 @@ sending an ordinary chat prompt. Select the dedicated Symposium account/model,
 a supported coder or reviewer role, and an exact saved profile revision; the
 profile picker also supports creating or importing a profile. **Create Symposium
 draft** allocates only durable session and roster metadata. Review the draft and
-acknowledge its boundary in Director controls before activation; all production
+acknowledge its boundary in Review team & approvals before activation; all production
 admission checks still apply. Retried creation requests reuse the same session.
 An explicitly installed owned host also prepares a private named artifact volume for
 new drafts. If preparation is unavailable, the draft remains saved and the creation
@@ -162,7 +175,7 @@ Adding a reviewer can prepare a stopped ordinary conversation's isolated roster,
 but admission still requires the verified runtime. Roster changes revalidate
 existing confirmed seats at the new configuration revision without resetting
 their membership generations or sandbox identity. A partially completed setup
-remains visible in Director controls. Removing the last reviewer simplifies the
+remains visible in Review team & approvals. Removing the last reviewer simplifies the
 composer while preserving durable membership history and isolated routing; it
 never switches the session back to ordinary execution. The development-only
 `ui-preview.html` includes isolated simulated Add agent and delivery controls for
@@ -414,6 +427,44 @@ Tasks with `sessionPolicy: spawn` run only in dedicated sessions. When session s
 | `apns.ts`                 | Apple Push Notification Service (iOS native) |
 | `notification-helpers.ts` | Shared notification formatting utilities     |
 
+The authenticated `/notifications` page uses a durable local SQLite feed at
+`.mitzo/notifications.db`. Desktop navigation and mobile **More** show the number
+of unresolved requests, rather than the size of an unread backlog. Reading an
+item does not grant permission; a response on any client resolves the shared
+request. Expired or already resolved requests cannot be approved. Conversation
+access grants must be reviewed in the session; ordinary requests support **Allow
+once**, **Deny**, and structured question answers.
+
+Preferences control native APNs approvals, questions, completion alerts
+(unattended by default, all sessions, or off), preview privacy, and quiet hours
+in an explicit timezone. Quiet hours defer pushes while requests retain their
+existing deadlines. Lock-screen previews are generic unless enabled. New Inbox
+POSTs appear in the feed; proposals and existing files do not trigger push or a
+historical replay. This does not change existing ntfy/Pushover configuration.
+
+Configure the existing `APNS_*` environment variables and register an iPhone to
+enable native delivery. Push taps open the corresponding notification, session
+completion alerts retain inline replies, and badge-only pushes use Apple's
+[alert push type](https://developer.apple.com/documentation/usernotifications/sending-notification-requests-to-apns).
+The new native badge bridge also clears the icon to zero on authenticated refresh.
+The preferences screen shows server/device readiness and offers a real test alert;
+APNs acceptance is not proof of physical delivery. iPhone permissions, Focus,
+and Watch mirroring settings determine what reaches the wrist.
+
+The Watch app's **Notifications** entry loads the latest ten items through the
+paired iPhone's authenticated relay, shows full request details, and supports
+ordinary one-shot approval or denial. Questions and conversation access grants
+are reviewed on iPhone. Oversized relay payloads fail with a request to review on
+iPhone, rather than truncating approval details. A reachable paired iPhone is
+required. Ship an updated iOS/Watch binary for the new native entry and badge
+bridge; a web deployment alone cannot update installed native code.
+
+| File                     | Purpose                                                                   |
+| ------------------------ | ------------------------------------------------------------------------- |
+| `notification-store.ts`  | Durable feed, read state, delivery queue, and preferences                 |
+| `notification-center.ts` | Permission lifecycle, session completion events, and APNs delivery policy |
+| `notification-routes.ts` | Operator-authenticated feed and response API                              |
+
 **WebSocket & Transport**
 
 | File                | Purpose                                                            |
@@ -456,6 +507,8 @@ Tasks with `sessionPolicy: spawn` run only in dedicated sessions. When session s
 ### Frontend (`frontend/`) — React 19 + Vite
 
 React 19 + Vite. Ten pages (`Login`, `SessionList`, `ChatView`, `DesktopChatView`, `FileViewer`, `InboxView`, `CalendarView`, `TodoView`, `TodoDetailView`, `TaskBoard`), a `useReducer`-based message state machine (`useChatMessages`), module-level WebSocket pool with 500-message buffer, and components for thinking blocks, tool pills, tool groups, permission banners, and a slash-command picker. Capacitor wraps the frontend for iOS deployment via TestFlight.
+
+The chat composer gives draft text the full width, with context information and action controls on separate rows. Session resources open from the toolbar; commands, attachments, and workspace options collapse into More in narrow composers while recording, interrupt, and send controls remain directly available.
 
 For iOS development, run `./scripts/build-ios.sh` to build the iOS web assets and open Xcode. After the build, `./scripts/build-ios.sh --sync` copies the existing `frontend/dist-ios` assets into the iOS project without rebuilding them.
 
@@ -579,11 +632,53 @@ passes compatibility fields from that commit's runtime lock. Each publication
 binds exact source, content hashes and modes, compiler/recipe identities and
 runtime inputs in a trusted record; knowledge A and B can share one runtime
 without changing a fixed application payload pin. Ordinary new seed uploads
-verify the selected publication and use a private verified copy. Current
-production locks lack this dynamic attestation, so this lane remains blocked
-until the Stage 2 context contract and compatible runtime baseline are released.
-Automatic catch-up, artifact-backed knowledge delivery and retained-chat
-adoption are subsequent phases.
+verify the selected publication and use a private verified copy. The checked-in runtime lock records actual compiler, protected write boundary,
+frozen-input and target-marker attestation from the accepted-source runtime.
+This release metadata does not itself activate publication or enroll a consumer.
+Retained ordinary Codex chats can select a verified publication between turns,
+copy it into a separate versioned knowledge directory, and refresh the existing
+provider thread's per-turn application context. Their writable task Git and checkpoint
+history remain intact. Cached views are verified before reuse; a damaged selected
+cache is replaced from the verified publication before compilation, preserving
+task files and unrelated versions. The pinned ContexGin compiler includes tracked `AGENTS.md`.
+
+Runtime staging fingerprints the installed compiler dependency closure and recipe
+and observes the target Python markers inside the image. These paths require a
+reviewed dynamic runtime lock and enrollment at `publications/current/mgmt`;
+legacy deployed environments remain unenrolled until explicitly migrated. Host, Claude, Responses and
+Symposium consumer enrollment still require their respective adoption contracts.
+
+Set host-only `MITZO_KNOWLEDGE_STORE_CONFIG` to enroll ordinary OpenShell Codex
+chats in the configurable ContexGin publisher bridge. The selected store identifies
+its accepted Git source and a clean pinned `mgmt-v1` adapter release. A signed
+GitHub webhook wakes publication; sandbox creation and safe-turn admission also
+reconcile the accepted ref, verify its snapshot and wait for exact revision
+conversion. Provider acknowledgement records an account-scoped durable adoption
+receipt. Shared knowledge updates preserve writable task branches and dirty
+worktrees. This requires supervised publisher storage, adapter dependencies and a
+compatible reviewed runtime; configuration alone cannot upgrade a legacy image.
+See the operating contract for the configuration schema and delivery scope.
+
+Supported retained ordinary Codex sandboxes migrate at resume or a completed-turn
+admission boundary into an attested candidate. The transition preserves dirty and
+untracked task Git state, the provider thread/account route and queued FIFO, and
+keeps the original sandbox and immutable checkpoint. Read-only profile catalog
+admission uses the deployed CLI’s scoped `provider list-profiles --output json`
+command, with exact reviewed definitions and the same initial/final fences. Actual image/policy, ordinary
+ownership, idle provider activity and measured host/VM capacity must verify; unknown
+source contracts and unsupported Git/provider layouts remain visibly blocked.
+Runtime admission verifies the full effective policy against reviewed provider
+profiles and current approved attachments, including brokered OpenAI, automatic
+GitHub and approved Google Workspace layers. Serializer defaults do not erase
+credential inspection or unexpected permissions. Migration preserves the original
+base-policy checkpoint identity and records separate effective-policy provenance.
+Current runtimes retain normal provider recovery without entering migration. See
+[retained runtime migration](docs/operations/retained-runtime-migration.md) for
+transaction recovery, eligibility and rollout drain requirements.
+
+Ordinary Codex startup holds its lifecycle reservation through sandbox recovery
+and provider-thread registration, then releases it before the first queued turn
+reacquires admission for runtime and knowledge checks.
 
 Production deploys use `./scripts/create-release.sh origin/main`. The command
 fetches only current `origin/main`, refuses every other commit, creates a
@@ -599,6 +694,19 @@ When advancing the prepared MGMT seed, set `MITZO_RELEASE_SEED` to its `mgmt`
 directory. Release creation requires the sibling `baseline.json` and changes
 only the new release's copied `.env`, leaving the canonical runtime `.env`
 untouched.
+
+Before builds or service changes, deployment compares the installed LaunchAgent's
+persisted knowledge enrollment with the candidate dotenv/plist settings. An
+existing enrollment cannot silently disappear or change stores, and an enrolled
+candidate must retain its publisher read credential; credential rotation is
+allowed. Fresh and already unenrolled hosts remain valid. For a deliberate
+transition, review the staged settings and run
+`npm run deploy -- --allow-knowledge-enrollment-change` from the accepted release.
+This per-invocation opt-out does not bypass runtime preflight or required
+credential presence. Preserve canonical private host settings between releases;
+[the deployment guard contract](docs/operations/mgmt-knowledge-publication.md#preserve-enrollment-during-deployment)
+explains supported dotenv loading, fixed nonsecret diagnostics and the limits of
+comparing current on-disk configuration.
 
 Pre-commit: husky + lint-staged + commitlint (conventional commits). The hook also runs [gitleaks](https://github.com/gitleaks/gitleaks) if installed, scanning staged changes for secrets. gitleaks is **optional** — the hook skips it gracefully when not found. Install via `brew install gitleaks` (macOS) or see the [gitleaks docs](https://github.com/gitleaks/gitleaks#installing).
 
@@ -792,3 +900,13 @@ An uncertain sealed publication can be verified after fresh app authentication w
 custodian and credential handle remain retained. The explicit exact-operation action performs
 read-only reconciliation; it never reissues Create PR, replaces an approval, or reconstructs
 credentials after custodian loss. See [publication recovery](docs/operations/symposium-sealed-publication-authority.md#fresh-app-authentication-and-read-only-recovery).
+
+The `Centaur merge gate` workflow publishes a `Centaur final LGTM` commit status. Main branch protection requires it alongside CI: only a final Centaur LGTM with a merge recommendation and zero blockers for the current head passes. Pushes invalidate old approvals; review edits and dismissals recheck the status. A review-cycle limit requires an explicit final review, never a bypass. The workflow executes no pull-request code with its status-write token.
+
+### Encrypted ecosystem backups
+
+An opt-in backup foundation provides store-owner SQLite snapshots, Restic encryption,
+and immutable incremental export to iCloud Drive. It is not enabled in production.
+Live store fences, independent recovery keys, upload verification, scheduling and
+replacement-machine acceptance must be configured before claiming protection. See
+[the implementation and rollout contract](docs/operations/icloud-ecosystem-backup.md).
