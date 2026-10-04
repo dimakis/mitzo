@@ -20,12 +20,14 @@ import { parseProviderAttachments } from './connections-gateway.js';
 import { execFile } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import {
+  chmodSync,
   cpSync,
   existsSync,
   lstatSync,
   mkdtempSync,
   mkdirSync,
   readFileSync,
+  readdirSync,
   realpathSync,
   renameSync,
   rmSync,
@@ -488,6 +490,33 @@ export function prepareOpenShellSeed(
     const publication = existsSync(publicationPath) ? readFileSync(publicationPath) : undefined;
     const seed = join(snapshotRoot, 'mgmt');
     cpSync(selected, seed, { recursive: true, dereference: false });
+    // cpSync applies the daemon's umask on some hosts. Restore only verified
+    // regular-file modes inside this private copy, never the publication source.
+    // Walk physical copied paths instead of trusting baseline keys as chmod paths.
+    const files = (JSON.parse(baseline.toString('utf8')) as { files?: unknown }).files;
+    if (!files || typeof files !== 'object' || Array.isArray(files))
+      throw new Error('Frozen knowledge file manifest is invalid');
+    const restoreModes = (directory: string, prefix = '') => {
+      const info = lstatSync(directory);
+      if (!info.isDirectory() || info.isSymbolicLink())
+        throw new Error('Frozen knowledge contains an unsafe directory');
+      for (const name of readdirSync(directory)) {
+        const path = join(directory, name);
+        const relativePath = prefix ? `${prefix}/${name}` : name;
+        const info = lstatSync(path);
+        if (info.isSymbolicLink()) throw new Error('Frozen knowledge contains an unsafe symlink');
+        if (info.isDirectory()) restoreModes(path, relativePath);
+        else if (info.isFile()) {
+          const entry = Object.hasOwn(files, relativePath)
+            ? (files as Record<string, { mode?: unknown }>)[relativePath]
+            : undefined;
+          if (!entry || typeof entry.mode !== 'string' || !/^0[0-7]{3}$/.test(entry.mode))
+            throw new Error('Frozen knowledge file mode is invalid');
+          chmodSync(path, Number.parseInt(entry.mode, 8));
+        } else throw new Error('Frozen knowledge contains an unsupported path');
+      }
+    };
+    restoreModes(seed);
     writeFileSync(join(snapshotRoot, 'baseline.json'), baseline, { mode: 0o600 });
     if (publication)
       writeFileSync(join(snapshotRoot, 'publication.json'), publication, { mode: 0o600 });
