@@ -128,14 +128,22 @@ export function prepareStagingService(
     throw Error('Staging service inputs refused');
   const operatorPath = join(plan.planDirectory, operatorName);
   const plistPath = join(plan.planDirectory, 'staging-custodian.plist');
+  const logPaths = ['owner.stdout.log', 'owner.stderr.log'].map((name) =>
+    join(plan.planDirectory, name),
+  );
   if (
-    [operatorPath, plistPath, join(plan.planDirectory, 'owned-release.json')].includes(
+    [operatorPath, plistPath, join(plan.planDirectory, 'owned-release.json'), ...logPaths].includes(
       registrationPath,
     )
   )
     throw Error('Staging service inputs overlap');
   privateBytes(registrationPath);
-  for (const path of [operatorPath, plistPath, join(plan.planDirectory, 'launch.intent')])
+  for (const path of [
+    operatorPath,
+    plistPath,
+    join(plan.planDirectory, 'launch.intent'),
+    ...logPaths,
+  ])
     absent(path);
   const settings = {
     AUTH_PASSPHRASE: randomBytes(32).toString('hex'),

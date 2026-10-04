@@ -128,7 +128,8 @@ Use the private file for local app login; never paste its values into a transcri
 Check live `/api/symposium/custody` against this original service and verify it
 again after returning from sign-in. Launchd registration and a stored receipt
 alone cannot establish custody. Logs stay in the private plan directory as
-`owner.stdout.log` and `owner.stderr.log`. Review them using bounded metadata,
+`owner.stdout.log` and `owner.stderr.log`. Preparation refuses existing log
+destinations and registration files that collide with them. Review them using bounded metadata,
 not broad credential or environment dumps. The service has a 180-second exit
 allowance for the existing 120-second original-owner drain.
 
