@@ -1,12 +1,18 @@
 .access-modes {
-  margin-top: 1.25rem;
+  margin: 0 0 16px;
+  padding: 16px 20px;
+  border: 1px solid var(--workspace-line);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--workspace-bg) 78%, var(--workspace-panel));
 }
 .access-modes h3 {
-  margin: 1rem 0 0.6rem;
+  margin: 16px 0 8px;
+  font-size: 14px;
+  font-weight: 550;
 }
 .access-modes label {
   display: block;
-  font-size: 0.85rem;
+  font-size: 12px;
 }
 .access-modes select {
   width: 100%;
@@ -15,12 +21,12 @@
   color: inherit;
   background: var(--workspace-panel);
   border: 1px solid var(--workspace-line);
-  border-radius: 0.6rem;
+  border-radius: 8px;
 }
 .access-mode-list {
   display: grid;
   border: 1px solid var(--workspace-line);
-  border-radius: 0.7rem;
+  border-radius: 12px;
   overflow: hidden;
 }
 .access-mode-list button {
@@ -41,7 +47,7 @@
 }
 .access-mode-list span,
 .access-mode-list small {
-  font-size: 0.8rem;
+  font-size: 12px;
 }
 .access-mode-detail dl {
   display: grid;
@@ -49,10 +55,19 @@
 }
 .access-mode-detail dt {
   font-weight: 600;
-  font-size: 0.85rem;
+  font-size: 12px;
 }
 .access-mode-detail dd {
   margin: 0.3rem 0 0;
-  font-size: 0.85rem;
+  font-size: 12px;
   line-height: 1.55;
+}
+
+.access-modes > h3:first-child {
+  margin-top: 0;
+}
+@media (max-width: 600px) {
+  .access-modes {
+    padding: 14px;
+  }
 }

@@ -3,6 +3,7 @@ import { expect, test } from '@playwright/test';
 // Both configured Playwright projects cover this regression: phone WebKit and desktop Chromium.
 test('shows broker connection evidence, configured identity and access scope separately', async ({
   page,
+  isMobile,
 }) => {
   await page.routeWebSocket('**/*', (socket) => socket.close());
   let sourceUnavailable = false;
@@ -90,6 +91,28 @@ test('shows broker connection evidence, configured identity and access scope sep
     dialog.getByText('Effective conversation access has not been checked.', { exact: true }),
   ).toBeVisible();
   await expect(dialog.getByText('Account', { exact: true })).toHaveCount(0);
+  const accountDetails = dialog.getByRole('region', { name: 'Account details' });
+  await expect(accountDetails.getByText('configured@example.test', { exact: true })).toBeVisible();
+  await expect(
+    dialog.getByRole('region', { name: 'Sign-in details' }).getByText('Connected', { exact: true }),
+  ).toBeVisible();
+  await expect(
+    dialog
+      .getByRole('region', { name: 'Access and scope' })
+      .getByText('Access verification', { exact: true }),
+  ).toBeVisible();
+  const labelBox = await accountDetails
+    .getByText('Configured account', { exact: true })
+    .boundingBox();
+  const valueBox = await accountDetails
+    .getByText('configured@example.test', { exact: true })
+    .boundingBox();
+  if (isMobile) {
+    expect(valueBox!.y).toBeGreaterThanOrEqual(labelBox!.y + labelBox!.height);
+  } else {
+    expect(valueBox!.x).toBeGreaterThan(labelBox!.x);
+  }
+  expect(await dialog.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
   // Access uncertainty must not contradict the observed provider grant.
   await expect(dialog.locator('p').filter({ hasText: /sign-in.*not.*checked/i })).toHaveCount(0);
   await page.screenshot({

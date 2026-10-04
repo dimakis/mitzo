@@ -883,15 +883,19 @@
 }
 .access-drawer-heading {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
-  gap: 20px;
-  padding: 25px 28px 20px;
+  gap: 14px;
+  padding: 20px;
   border-bottom: 1px solid var(--workspace-line);
 }
+.access-drawer-heading-copy {
+  flex: 1;
+  min-width: 0;
+}
 .access-drawer-heading h2 {
-  margin: 7px 0 0;
-  font-size: 22px;
+  margin: 4px 0 7px;
+  font-size: 17px;
   font-weight: 550;
   letter-spacing: -0.025em;
 }
@@ -911,35 +915,59 @@
   line-height: 1;
 }
 .access-drawer-body {
-  padding: 24px 28px;
+  padding: 20px;
   overflow-y: auto;
   min-height: 0;
   flex: 1;
   font-size: 13px;
   line-height: 1.6;
 }
+.access-detail-card {
+  margin: 0 0 16px;
+  border: 1px solid var(--workspace-line);
+  border-radius: 12px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--workspace-bg) 78%, var(--workspace-panel));
+}
+.access-detail-card > h3 {
+  margin: 0;
+  padding: 16px 20px 4px;
+  font-size: 14px;
+  font-weight: 550;
+}
+.access-detail-card > .workspace-muted {
+  margin: 0;
+  padding: 12px 20px 16px;
+  font-size: 12px;
+}
 .access-drawer .access-resource-facts {
   grid-template-columns: minmax(0, 1fr);
   gap: 0;
-  margin: 0 0 22px;
+  margin: 0;
 }
 .access-drawer .access-resource-facts > div {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
   align-items: baseline;
-  justify-content: space-between;
-  gap: 20px;
-  padding: 11px 0;
+  gap: 12px;
+  padding: 12px 20px;
   border-bottom: 1px solid var(--workspace-line);
 }
-.access-drawer .access-resource-facts dt {
-  font-size: 12px;
-  flex-shrink: 0;
-  max-width: 45%;
+.access-drawer .access-resource-facts > div:last-child {
+  border-bottom: 0;
 }
+.access-drawer .access-resource-facts dt,
 .access-drawer .access-resource-facts dd {
   font-size: 12px;
-  text-align: right;
+  text-align: left;
   min-width: 0;
+}
+.access-drawer .access-resource-facts dt {
+  margin-bottom: 0;
+}
+.access-drawer .access-resource-details .access-resource-facts > div {
+  padding-left: 0;
+  padding-right: 0;
 }
 .access-drawer .access-resource-details h3 {
   font-size: 12px;
@@ -1000,8 +1028,19 @@
   }
   .access-drawer-heading,
   .access-drawer-body {
-    padding-left: 22px;
-    padding-right: 22px;
+    padding-left: 14px;
+    padding-right: 14px;
+  }
+  .access-detail-card > h3 {
+    padding: 14px 14px 4px;
+  }
+  .access-detail-card > .workspace-muted {
+    padding: 12px 14px 14px;
+  }
+  .access-drawer .access-resource-facts > div {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 4px;
+    padding: 12px 14px;
   }
 }
 
