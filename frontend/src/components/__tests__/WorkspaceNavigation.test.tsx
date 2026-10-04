@@ -40,3 +40,32 @@ it('desktop highlights Chats inside an existing conversation', () => {
   );
   expect(screen.getByRole('link', { name: 'Chats' }).getAttribute('aria-current')).toBe('page');
 });
+
+it('desktop opens Connections and retains its selection in management', () => {
+  render(
+    <MemoryRouter initialEntries={['/connections']}>
+      <DesktopNav />
+    </MemoryRouter>,
+  );
+  const link = screen.getByRole('link', { name: 'Connections' });
+  expect(link.getAttribute('href')).toBe('/connections-access');
+  expect(link.getAttribute('aria-current')).toBe('page');
+});
+it('mobile keeps More selected in the connections overview', () => {
+  render(
+    <MemoryRouter initialEntries={['/connections-access']}>
+      <TabBar />
+    </MemoryRouter>,
+  );
+  expect(screen.getByRole('link', { name: 'More' }).getAttribute('aria-current')).toBe('page');
+  expect(screen.getAllByRole('link')).toHaveLength(5);
+});
+
+it('mobile keeps More selected while reviewing notifications', () => {
+  render(
+    <MemoryRouter initialEntries={['/notifications?item=p1']}>
+      <TabBar />
+    </MemoryRouter>,
+  );
+  expect(screen.getByRole('link', { name: 'More' }).getAttribute('aria-current')).toBe('page');
+});

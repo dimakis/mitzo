@@ -5,6 +5,7 @@ import { getToolStatus, type ToolBlock } from '../lib/tool-status';
 import { SubagentCard } from './SubagentCard';
 import { CodeBlock } from './CodeBlock';
 import { artifactViewerUrl } from '../lib/file-paths';
+import { GoogleSearchResult } from './GoogleSearchResult';
 
 interface Props {
   block: ToolBlock;
@@ -166,6 +167,10 @@ export function ToolPill({ block, sessionId }: Props) {
         {done && hasError && <span className="tool-pill-status">Failed</span>}
         <span className="tool-pill-chevron">{expanded ? '▾' : '▸'}</span>
       </button>
+      {['RequestWebAccess', 'mcp__mitzo-web-access__RequestWebAccess'].includes(
+        block.toolName ?? '',
+      ) &&
+        !hasError && <GoogleSearchResult result={block.toolResult} />}
       {expanded && (
         <div id={detailId} className="tool-pill-detail">
           {block.rawInput ? (

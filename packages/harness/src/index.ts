@@ -26,6 +26,7 @@ export type { SseClient } from './sse-registry.js';
 
 // Permissions
 export {
+  onPermissionLifecycle,
   registerPending,
   resolvePending,
   removePending,

@@ -1,3 +1,4 @@
+import { usePendingLaunch } from '../hooks/usePendingLaunch';
 import { SymposiumReviewEntry } from '../components/SymposiumReviewPanel';
 import { AddAgentSheet } from '../components/AddReviewerSheet';
 import { NewSymposium } from '../components/NewSymposium';
@@ -32,6 +33,8 @@ export function DesktopChatView() {
 
   // Store state
   const messages = useMessages();
+  const sendError = useMitzoStore((s) => s.sendError);
+  const sendStatus = useMitzoStore((s) => s.sendStatus);
   const historyLoading = useMitzoStore((s) => s.historyLoading);
   const historyError = useMitzoStore((s) => s.historyError);
   const connection = useConnection();
@@ -40,11 +43,12 @@ export function DesktopChatView() {
   const modeChangeReady = useMitzoStore((s) => s.modeChangeReady);
 
   // Select individual action functions — stable references, no new-object trap
-  const storeSendMessage = useMitzoStore((s) => s.sendMessage);
   const storeInterruptMessage = useMitzoStore((s) => s.interruptMessage);
   const storeStopGeneration = useMitzoStore((s) => s.stopGeneration);
   const storeRespondToPermission = useMitzoStore((s) => s.respondToPermission);
+  const storeExpirePermission = useMitzoStore((s) => s.expirePermission);
   const storeSwitchSession = useMitzoStore((s) => s.switchSession);
+  const chatDraftRevision = useMitzoStore((s) => s.chatDraftRevision);
   const storeNewSession = useMitzoStore((s) => s.newSession);
   const storeCloseSession = useMitzoStore((s) => s.closeSession);
   const storeSetMode = useMitzoStore((s) => s.setMode);
@@ -55,6 +59,14 @@ export function DesktopChatView() {
   const sessionContext = useMitzoStore((s) => s.messages.sessionContext);
   const bootContext = useMitzoStore((s) => s.messages.bootContext);
   const progressByToolId = useProgressByToolId();
+
+  const {
+    launch,
+    launchSending,
+    dismissLaunch,
+    sendMessage: storeSendMessage,
+    sendLaunch,
+  } = usePendingLaunch();
 
   const connected = connection.status === 'connected';
 
@@ -108,13 +120,15 @@ export function DesktopChatView() {
   }, []);
 
   const awaitingNewSession = useRef(false);
+  const clearedSessionId = useRef<string | null>(null);
   const resetFailedDraftOnMount = useRef(
     !sessionId && !activeSessionId && !messages.running && messages.messages.length > 0,
   );
 
   // Sync route param → store session
   useEffect(() => {
-    awaitingNewSession.current = !sessionId && !activeSessionId;
+    awaitingNewSession.current = !sessionId;
+    clearedSessionId.current = !sessionId ? activeSessionId : null;
     if (sessionId && sessionId !== activeSessionId) {
       storeSwitchSession(sessionId);
     } else if (!sessionId && (activeSessionId || resetFailedDraftOnMount.current)) {
@@ -143,7 +157,12 @@ export function DesktopChatView() {
   // When store assigns a session (new conversation), update URL
   useEffect(() => {
     if (!sessionId && !activeSessionId) awaitingNewSession.current = true;
-    if (activeSessionId && !sessionId && awaitingNewSession.current) {
+    if (
+      activeSessionId &&
+      activeSessionId !== clearedSessionId.current &&
+      !sessionId &&
+      awaitingNewSession.current
+    ) {
       awaitingNewSession.current = false;
       navigate(`/chat/${activeSessionId}`, { replace: true });
     }
@@ -158,14 +177,20 @@ export function DesktopChatView() {
 
   // ── Actions ──────────────────────────────────────────────────────────────
 
-  function handleSend(text: string, images?: ImageAttachment[], ctxBlocks?: string[]): boolean {
+  function handleSend(
+    text: string,
+    images?: ImageAttachment[],
+    ctxBlocks?: string[],
+    launching = false,
+  ): boolean {
+    if (launching && activeSessionId) return sendLaunch();
     if (!activeSessionId && !accountSelection) return false;
     if (activeSessionId && connection.status !== 'connected') {
       storeDispatchMessages({ type: 'CONNECTION_LOST' });
       return false;
     }
     voice.stopSpeaking();
-    storeSendMessage(text, {
+    const options = {
       images,
       contextBlocks: ctxBlocks,
       ...(accountSelection ?? {}),
@@ -173,9 +198,10 @@ export function DesktopChatView() {
       cwd: searchParams.get('cwd') ?? undefined,
       extraTools: searchParams.get('extraTools') ?? undefined,
       ...(!activeSessionId && !isolation ? { isolation: false } : {}),
-    });
+    };
+    const queued = launching ? sendLaunch(options) : storeSendMessage(text, options);
     forceScrollToBottom();
-    return true;
+    return queued;
   }
 
   function handleInterrupt(text: string, images?: ImageAttachment[], ctxBlocks?: string[]): void {
@@ -223,6 +249,7 @@ export function DesktopChatView() {
       center={
         <div className="desktop-chat-center workspace-chat">
           <WorkspaceControls
+            attention={!!launch}
             summary={workspaceSummary}
             status={
               isSymposium
@@ -250,6 +277,7 @@ export function DesktopChatView() {
                 </span>
               )}
               <AccountModelPicker
+                key={chatDraftRevision}
                 sessionId={activeSessionId}
                 preferredModel={modelState}
                 onChange={selectAccount}
@@ -314,6 +342,9 @@ export function DesktopChatView() {
             </div>
           </WorkspaceControls>
 
+          {(sendError || sendStatus) && (
+            <div role={sendError ? 'alert' : 'status'}>{sendError || sendStatus}</div>
+          )}
           {(historyLoading || (sessionId && sessionId !== activeSessionId)) && (
             <div role="status">Loading conversation…</div>
           )}
@@ -343,12 +374,35 @@ export function DesktopChatView() {
               running: messages.running,
               permission: messages.permission,
               onPermissionRespond: handlePermission,
+              onPermissionExpire: storeExpirePermission,
               scrollRef,
               progressByToolId,
               voice,
             }}
             ordinaryComposer={
               <>
+                {launch && (
+                  <div role="status" className="chat-account-bar">
+                    <p>
+                      Which account and model should handle this task? Check Workspace above, then
+                      send.
+                    </p>
+                    <details className="chat-launch-prompt">
+                      <summary>Review launch prompt</summary>
+                      <p>{launch.prompt}</p>
+                    </details>
+                    <button
+                      disabled={
+                        launchSending ||
+                        (!activeSessionId && (!accountSelection || messages.running))
+                      }
+                      onClick={() => handleSend(launch.prompt, undefined, undefined, true)}
+                    >
+                      {activeSessionId ? 'Review launch in new chat' : 'Send launch prompt'}
+                    </button>
+                    <button onClick={dismissLaunch}>Dismiss launch</button>
+                  </div>
+                )}
                 <CodexQueueStatus sessionId={activeSessionId} />
                 <ChatInput
                   sendDisabledReason={
@@ -363,6 +417,8 @@ export function DesktopChatView() {
                   initialText={searchParams.get('prompt') || undefined}
                   voice={voice}
                   branch={messages.branch || undefined}
+                  isolation={isolation}
+                  onIsolationChange={!activeSessionId ? setIsolation : undefined}
                   isWorktree={messages.isWorktree}
                   wtId={messages.wtId || undefined}
                   sessionId={activeSessionId ?? undefined}

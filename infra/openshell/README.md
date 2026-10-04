@@ -60,7 +60,7 @@ file remains the optional observability stack.
 
 1. Merge the runtime changes so the clean Mitzo and MGMT checkouts are both at
    current `origin/main`.
-2. Stage the immutable image, prepared seed, synchronized stack lock and
+2. Stage the immutable image, diagnostic draft seed, synchronized stack lock and
    environment example, and focused verification with one command:
 
    ```bash
@@ -71,17 +71,24 @@ file remains the optional observability stack.
 
    This command never deploys. It fails closed on dirty or stale checkouts,
    existing artifact names, image provenance drift, a legacy todo skill in the
-   seed, or failed tests. Review and merge its generated lock diff.
+   seed, or failed tests. The draft baseline is not a trusted publication and
+   cannot be used to activate a dynamic release. Review and merge its lock diff.
 3. If provider or account bindings changed, import the reviewed profiles and
    update the ignored account-profile file. Otherwise retain the already pinned
    gateway state. Every OpenAI API account must name its sandbox provider; every
    personal subscription account must use a complete `openai-codex-oauth`
    provider/grant binding and must not retain a host `credentialRef`.
 4. Review and merge the generated stack-lock diff after CI and code review pass.
-5. Create and activate the immutable release from current `origin/main` with
-   `MITZO_RELEASE_SEED` set to the new
-   prepared seed's `mgmt` directory. The release command validates the sibling
-   `baseline.json`, rewrites only the release copy of `.env`, and runs
+5. Run the accepted MGMT publication service with its builder pinned to the
+   newly accepted Mitzo runtime lock. Require a successful `--once` reconciliation
+   and `status=current`, then validate its `current/mgmt` view with
+   `verifyPreparedSeed()` against that lock. This creates and verifies both
+   `baseline.json` and the trusted `publication.json`; staging does not.
+   Create and activate the immutable release from current `origin/main` with
+   `MITZO_RELEASE_SEED` set to the publisher's absolute `publications/current/mgmt`
+   path. Keep this logical selection path so later accepted publications can be
+   adopted between turns. The release command validates both sibling records,
+   rewrites only the release copy of `.env`, and runs
    `verify-openshell-production.mjs` against that coherent release before it
    becomes active. It does not modify or preflight against the canonical
    runtime environment, whose old seed intentionally remains paired with the

@@ -54,7 +54,9 @@ export class SymposiumCustodianController {
       authorize();
       if (pending.size >= 64) throw Error('Custodian request capacity unavailable');
       sessions.add(command.authorization.id);
-      const work = this.owner.dispatch(
+      const inventoryRead = ['personal.list', 'account.catalog'].includes(command.operation);
+      if (inventoryRead) signal?.throwIfAborted();
+      const dispatched = this.owner.dispatch(
         command,
         authorize,
         approval &&
@@ -66,13 +68,29 @@ export class SymposiumCustodianController {
           }),
         signal,
       );
+      let onAbort: (() => void) | undefined;
+      // Only metadata reads may release capacity before an uncooperative handler settles.
+      // Side-effecting operations retain their reconciliation/drain contract.
+      const work =
+        inventoryRead && signal
+          ? Promise.race([
+              dispatched,
+              new Promise<never>((_resolve, reject) => {
+                onAbort = () => reject(Error('Custodian read cancelled'));
+                signal.addEventListener('abort', onAbort, { once: true });
+                if (signal.aborted) onAbort();
+              }),
+            ])
+          : dispatched;
       pending.add(work);
       try {
         const result = await work;
         authorize();
+        if (inventoryRead) signal?.throwIfAborted();
         return result;
       } finally {
         pending.delete(work);
+        if (onAbort) signal?.removeEventListener('abort', onAbort);
       }
     };
     return {

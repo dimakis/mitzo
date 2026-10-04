@@ -72,6 +72,7 @@ describe('buildPrompt', () => {
     const prompt = buildPrompt(fullItem);
 
     expect(prompt).toContain('**Fix authentication middleware**');
+    expect(prompt).toContain('Telos item ID: abc123');
     expect(prompt).toContain('Source: https://github.com/dimakis/mitzo/issues/42');
     expect(prompt).toContain('The auth middleware fails to validate tokens');
     expect(prompt).toContain('Repos: dimakis/mitzo, dimakis/contexgin');
@@ -85,6 +86,7 @@ describe('buildPrompt', () => {
   });
 
   it('includes durable links in session context', () => {
+    expect(buildTodoContext(fullItem)).toContain('Telos item ID: abc123');
     expect(buildTodoContext(fullItem)).toContain(
       'Link: Authentication design (design_doc)\n  URL: docs/auth-design.md',
     );
@@ -108,6 +110,7 @@ describe('buildPrompt', () => {
 
     const prompt = buildPrompt(minimalItem);
     expect(prompt).toContain('**Fix authentication middleware**');
+    expect(prompt).toContain('Telos item ID: abc123');
     expect(prompt).not.toContain('Context:');
     expect(prompt).toContain('Start by reading the relevant code');
   });
@@ -128,6 +131,7 @@ describe('buildPrompt', () => {
 
     const prompt = buildPrompt(noSnippetItem);
     expect(prompt).toContain('**Fix authentication middleware**');
+    expect(prompt).toContain('Telos item ID: abc123');
     expect(prompt).not.toContain('Source:');
     expect(prompt).toContain('Repos:');
   });

@@ -51,6 +51,7 @@ export function SymposiumPersonalConnections({
   const version = useRef(0);
   const mounted = useRef(false);
   const observedRevisions = useRef(new Map<string, number>());
+  const completedCallbackRevisions = useRef(new Map<string, number>());
   const mutation = useRef(false);
   const observedPendingDiscovery = useRef(new Set<string>());
   const accountsChanged = useRef(onAccountsChanged);
@@ -80,6 +81,12 @@ export function SymposiumPersonalConnections({
         ([id, revision]) => revisions.get(id) !== revision,
       );
       observedRevisions.current = revisions;
+      // Only a confirmed connected snapshot ends the previous callback UI epoch.
+      // Connecting revision changes must retain its live receipt and poller.
+      for (const row of body.connections)
+        if (row.state === 'connected') completedCallbackRevisions.current.set(row.id, row.revision);
+      for (const id of completedCallbackRevisions.current.keys())
+        if (!revisions.has(id)) completedCallbackRevisions.current.delete(id);
       observedPendingDiscovery.current = pending;
       setConnections(body.connections);
       if (finished || revised) notifyAccountsChanged();
@@ -348,6 +355,7 @@ export function SymposiumPersonalConnections({
               <details>
                 <summary>Browser callback alternative for {connection.label}</summary>
                 <SymposiumSubscriptionLogin
+                  key={`${connection.id}:${completedCallbackRevisions.current.get(connection.id) ?? 0}`}
                   connectionId={connection.id}
                   expectedRevision={connection.revision}
                   disabled={

@@ -1,5 +1,6 @@
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
+import { readFileSync } from 'node:fs';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   CodexAppServerClient,
@@ -66,6 +67,15 @@ describe('Codex app-server transport', () => {
       await expect(request).rejects.not.toThrow('PRIVATE-TOKEN');
     },
   );
+
+  it('uses the same version pin as the image and sandbox launchers', () => {
+    expect(SUPPORTED_CODEX_CLI_VERSION).toBe(
+      readFileSync(
+        new URL('../../docs/spikes/openshell-codex/runtime-codex-version', import.meta.url),
+        'utf8',
+      ).trim(),
+    );
+  });
   it('accepts only the reviewed Codex CLI contract version', () => {
     expect(() =>
       assertSupportedCodexCliVersion(`codex-cli ${SUPPORTED_CODEX_CLI_VERSION}\n`),

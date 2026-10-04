@@ -52,7 +52,10 @@ selectSession('preview-1');
 store.setState({
   connection: { status: 'connected', clientId: 'preview' },
   switchSession: async (id) => selectSession(id),
-  newSession: () => selectSession(null),
+  newSession: () => {
+    store.setState((s) => ({ chatDraftRevision: s.chatDraftRevision + 1 }));
+    selectSession(null);
+  },
   fetchSessionMeta: async () => {},
   closeSession: () => selectSession(null),
   sendMessage: () => {},

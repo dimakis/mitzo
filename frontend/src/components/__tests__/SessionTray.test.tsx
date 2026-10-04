@@ -31,6 +31,56 @@ const props = {
 };
 
 describe('SessionTray', () => {
+  it.each([
+    ['toolbar', -80, 'full'],
+    ['overlay', 80, 'full'],
+    ['toolbar', 80, 'peek'],
+    ['overlay', -80, 'peek'],
+  ] as const)(
+    'tracks the drag direction before snapping in %s placement (%i px)',
+    (placement, delta, snap) => {
+      render(<SessionTray {...props} placement={placement} />);
+      fireEvent.click(screen.getByRole('button', { name: 'Open session tray' }));
+      const tray = screen.getByTestId('session-tray');
+      const handle = screen.getByRole('button', { name: 'Close session tray' });
+      fireEvent.pointerDown(handle, { clientY: 200, pointerId: 1 });
+      fireEvent.pointerMove(handle, { clientY: 200 + delta, pointerId: 1 });
+      const heightChange = Number.parseFloat(tray.style.getPropertyValue('--session-tray-drag'));
+      expect(heightChange > 0).toBe(snap === 'full');
+      expect(Math.abs(heightChange)).toBe(80);
+      fireEvent.pointerUp(handle, { clientY: 200 + delta, pointerId: 1 });
+      expect(tray.dataset.snap).toBe(snap);
+      expect(tray.style.getPropertyValue('--session-tray-drag')).toBe('0px');
+    },
+  );
+
+  it('resets an interrupted toolbar drag without changing its snap', () => {
+    render(<SessionTray {...props} placement="toolbar" />);
+    fireEvent.click(screen.getByRole('button', { name: 'Open session tray' }));
+    const handle = screen.getByRole('button', { name: 'Close session tray' });
+    fireEvent.pointerDown(handle, { clientY: 200, pointerId: 1 });
+    fireEvent.pointerMove(handle, { clientY: 120, pointerId: 1 });
+    fireEvent.pointerCancel(handle, { pointerId: 1 });
+    const tray = screen.getByTestId('session-tray');
+    expect(tray.dataset.snap).toBe('half');
+    expect(tray.style.getPropertyValue('--session-tray-drag')).toBe('0px');
+  });
+
+  it('expands upward from a toolbar trigger without moving the trigger into the drawer', () => {
+    const { container } = render(<SessionTray {...props} placement="toolbar" />);
+    const trigger = screen.getByRole('button', { name: 'Open session tray' });
+    fireEvent.click(trigger);
+    const tray = screen.getByTestId('session-tray');
+    expect(container.contains(tray)).toBe(false);
+    const handle = screen.getByRole('button', { name: 'Close session tray' });
+    fireEvent.pointerDown(handle, { clientY: 200, pointerId: 1 });
+    fireEvent.pointerUp(handle, { clientY: 100, pointerId: 1 });
+    expect(tray.dataset.snap).toBe('full');
+    expect(container.contains(trigger)).toBe(true);
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(trigger.getAttribute('aria-expanded')).toBe('false');
+    expect(tray.hidden).toBe(true);
+  });
   it('starts as a compact top handle and opens without taking layout space', () => {
     render(<SessionTray {...props} />);
 

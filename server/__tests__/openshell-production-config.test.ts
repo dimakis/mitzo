@@ -1,12 +1,14 @@
 import { execFileSync, spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import {
   chmodSync,
   cpSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
-  realpathSync,
   writeFileSync,
+  symlinkSync,
+  unlinkSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -19,6 +21,7 @@ import {
   verifyAccountBindings,
   verifyOpenAiHeaderAuthentication,
   verifyPreparedSeed,
+  canonicalJsonPayload,
 } from '../../scripts/verify-openshell-production.mjs';
 
 const manifest = {
@@ -380,6 +383,14 @@ describe('OpenShell production bundle validation', () => {
     expect(stage).toContain('HEAD $head is not current origin/main $main');
     expect(stage).toContain('build-mgmt-runtime.sh');
     expect(stage).toContain('prepare-mgmt-seed.sh');
+    expect(stage).toContain('podman run --rm --network none');
+    expect(stage).toContain('/usr/libexec/mitzo/attest-knowledge-runtime.py');
+    expect(stage).toContain('runtime-resolution-contract.py');
+    expect(stage).toContain('export MGMT_DYNAMIC_SEED=1');
+    expect(stage.indexOf('export MGMT_DYNAMIC_SEED=1')).toBeLessThan(
+      stage.indexOf('"$repo_root/docs/spikes/openshell-codex/prepare-mgmt-seed.sh"'),
+    );
+
     expect(stage).toContain('legacy todo skill survived in prepared seed');
     expect(stage).toContain('policy_digest=');
     expect(stage).toContain('update-openshell-release-lock.mjs');
@@ -515,10 +526,48 @@ describe('OpenShell production bundle validation', () => {
     }).trim();
     execFileSync('git', ['-C', source, 'checkout', '--detach', mainRevision]);
     mkdirSync(seed, { recursive: true });
-    writeFileSync(
-      join(preparedSeed, 'baseline.json'),
-      `${JSON.stringify({ startingCommit: stack.runtime.mgmtSourceCommit })}\n`,
-    );
+    const sha = (value: string) => createHash('sha256').update(value).digest('hex');
+    const files: Record<string, { sha256: string; mode: string }> = {};
+    mkdirSync(join(seed, 'memory/manifest'), { recursive: true });
+    for (const name of ['index.json', 'wikilinks.json', 'by_type.json', 'by_tag.json']) {
+      const content = JSON.stringify({ sourceCommit: stack.runtime.mgmtSourceCommit });
+      const path = `memory/manifest/${name}`;
+      writeFileSync(join(seed, path), content);
+      chmodSync(join(seed, path), 0o644);
+      files[path] = { sha256: sha(content), mode: '0644' };
+    }
+    const payload = {
+      startingCommit: stack.runtime.mgmtSourceCommit,
+      runtimeBaseCommit: stack.runtime.mgmtSourceCommit,
+      runtimeDependencyProjectionSha256: stack.runtime.dependencyProjectionSha256,
+      knowledgeSchemaVersion: stack.runtime.knowledgeSchemaVersion,
+      knowledgeCompilerSha256: stack.runtime.knowledgeCompilerSha256,
+      knowledgeRecipeSha256: stack.runtime.knowledgeRecipeSha256,
+      runtimeJiraInputsSha256: stack.runtime.jiraRuntimeInputsSha256,
+      files,
+    };
+    const baseline = { ...payload, payloadSha256: sha(canonicalJsonPayload(payload)) };
+    const baselineBytes = JSON.stringify(baseline);
+    writeFileSync(join(preparedSeed, 'baseline.json'), baselineBytes);
+    const record = {
+      schemaVersion: 1,
+      builderCommit: mainRevision,
+      sourceCommit: baseline.startingCommit,
+      payloadSha256: baseline.payloadSha256,
+      baselineSha256: sha(baselineBytes),
+      runtimeImage: stack.runtime.image,
+      runtimeDigest: stack.runtime.digest,
+      ...Object.fromEntries(
+        Object.entries(baseline).filter(
+          ([key]) => !['files', 'startingCommit', 'payloadSha256'].includes(key),
+        ),
+      ),
+      validation: { pinnedBuilder: true, runtimeContract: true, manifestProvenance: true },
+    };
+    writeFileSync(join(preparedSeed, 'publication.json'), JSON.stringify(record));
+    const current = join(root, 'current');
+    symlinkSync(preparedSeed, current, 'dir');
+    const logicalSeed = join(current, 'mgmt');
     writeFileSync(accounts, '[]\n');
     mkdirSync(bin);
     const openshell = join(bin, 'openshell');
@@ -579,9 +628,9 @@ describe('OpenShell production bundle validation', () => {
         MITZO_RELEASE_ROOT: releases,
         EXPECTED_REVISION: mainRevision,
         EXPECTED_BRANCH: 'main',
-        EXPECTED_SEED: realpathSync(seed),
+        EXPECTED_SEED: logicalSeed,
         MARKER: marker,
-        MITZO_RELEASE_SEED: seed,
+        MITZO_RELEASE_SEED: logicalSeed,
         ...verificationEnv,
       },
       encoding: 'utf8',
@@ -593,7 +642,29 @@ describe('OpenShell production bundle validation', () => {
       'MITZO_OPENSHELL_SEED=/unchanged/canonical/seed',
     );
 
-    writeFileSync(join(preparedSeed, 'baseline.json'), '{"startingCommit":"drifted"}\n');
+    unlinkSync(join(preparedSeed, 'publication.json'));
+    const missingRecord = spawnSync(
+      'bash',
+      [join(repoRoot, 'scripts/create-release.sh'), mainRevision],
+      {
+        env: {
+          ...process.env,
+          PATH: `${bin}:${process.env.PATH}`,
+          MITZO_SOURCE_ROOT: source,
+          MITZO_RUNTIME_ROOT: source,
+          MITZO_RELEASE_ROOT: join(root, 'missing-record-releases'),
+          MITZO_RELEASE_SEED: logicalSeed,
+        },
+        encoding: 'utf8',
+      },
+    );
+    expect(missingRecord.status).not.toBe(0);
+    expect(missingRecord.stderr).toContain('dynamic seed has no publisher record');
+    writeFileSync(join(preparedSeed, 'publication.json'), JSON.stringify(record));
+    writeFileSync(
+      join(preparedSeed, 'baseline.json'),
+      JSON.stringify({ ...baseline, runtimeBaseCommit: '0'.repeat(40) }),
+    );
     const mismatchResult = spawnSync(
       'bash',
       [join(repoRoot, 'scripts/create-release.sh'), mainRevision],
@@ -606,7 +677,7 @@ describe('OpenShell production bundle validation', () => {
           MITZO_RELEASE_ROOT: join(root, 'mismatch-releases'),
           EXPECTED_REVISION: mainRevision,
           EXPECTED_BRANCH: 'main',
-          EXPECTED_SEED: realpathSync(seed),
+          EXPECTED_SEED: seed,
           MARKER: join(root, 'mismatch-publication-verified'),
           MITZO_RELEASE_SEED: seed,
           ...verificationEnv,
@@ -615,7 +686,9 @@ describe('OpenShell production bundle validation', () => {
       },
     );
     expect(mismatchResult.status).not.toBe(0);
-    expect(mismatchResult.stderr).toContain('prepared seed commit does not match the stack lock');
+    expect(mismatchResult.stderr).toContain(
+      'prepared seed runtime base does not match the stack lock',
+    );
 
     execFileSync('git', [
       '-C',

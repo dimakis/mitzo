@@ -74,63 +74,6 @@
 .workspace-chat .token-bar-icon {
   display: none;
 }
-.workspace-chat .session-tray {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  transform: none;
-  --session-tray-handle-height: 44px;
-  border-radius: 0 0 16px 16px;
-  color: var(--workspace-text);
-  background: var(--workspace-bg);
-  border-color: var(--workspace-line);
-}
-.workspace-chat .session-tray[data-snap='peek'] {
-  position: static;
-  align-self: flex-end;
-  width: auto;
-  height: 32px;
-  min-height: 32px;
-  border: 0;
-  border-radius: 0;
-  pointer-events: auto;
-}
-.workspace-chat .session-tray[data-snap='peek'] .session-tray-handle {
-  position: static;
-  width: auto;
-  height: 32px;
-  padding: 0 8px;
-  transform: none;
-  border-radius: 6px;
-  border: 0;
-  background: var(--workspace-panel);
-  cursor: pointer;
-}
-.workspace-chat .session-tray[data-snap='peek'] .session-tray-grabber {
-  display: none;
-}
-.workspace-chat .session-tray-handle-label,
-.workspace-chat .session-tray[data-snap='peek'] .session-tray-handle-label,
-.workspace-chat .session-tray[data-snap='peek'] .session-tray-count {
-  display: inline-block;
-  font-size: 12px;
-}
-.workspace-chat .session-tray-handle {
-  color: var(--workspace-text);
-  background: var(--workspace-bg);
-}
-.workspace-chat .session-tray-grabber,
-.workspace-chat .session-tray[data-snap='peek'] .session-tray-grabber {
-  top: 4px;
-  height: 2px;
-}
-.workspace-chat .session-tray[data-snap='peek'] .session-tray-pending-count {
-  position: static;
-  margin-left: 4px;
-  background: var(--workspace-panel);
-  color: var(--workspace-accent);
-}
 .session-tray-size-controls {
   display: flex;
   justify-content: flex-end;
@@ -144,15 +87,15 @@
   border: 1px solid var(--workspace-line);
   border-radius: 8px;
 }
-.workspace-chat .session-tray-resource {
+:is(.workspace-chat, .session-tray--toolbar) .session-tray-resource {
   min-height: 44px;
   padding: 10px;
   border: 1px solid var(--workspace-line);
   border-radius: 10px;
   background: transparent;
 }
-.workspace-chat .session-tray-add,
-.workspace-chat .session-tray-remove {
+:is(.workspace-chat, .session-tray--toolbar) .session-tray-add,
+:is(.workspace-chat, .session-tray--toolbar) .session-tray-remove {
   min-width: 44px;
   min-height: 44px;
 }
@@ -187,9 +130,6 @@
   .desktop-chat-center .desktop-chat-header {
     padding: 10px 24px 14px;
     gap: 10px;
-  }
-  .desktop-chat-center .session-tray {
-    --session-tray-min-height: 44px;
   }
   .session-panel {
     padding: 12px;
@@ -254,12 +194,12 @@
   }
 }
 @media (min-width: 1200px) {
-  .workspace-chat .session-tray-columns {
+  .session-tray--toolbar .session-tray-columns {
     display: grid;
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
     gap: 24px;
   }
-  .workspace-chat .session-tray-section + .session-tray-section {
+  .session-tray--toolbar .session-tray-section + .session-tray-section {
     margin: 0;
     padding: 0 0 0 24px;
     border-top: 0;
@@ -377,8 +317,28 @@
 }
 .chat-input--compact .chat-input-field {
   width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
   flex: none;
   padding: 6px;
+  font-size: 16px;
+  line-height: 1.5;
+}
+.composer-info {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  min-width: 0;
+}
+.composer-info .token-bar {
+  margin-left: 0;
+  max-width: 100%;
+  white-space: normal;
+}
+.composer-info .token-bar-detail {
+  width: 100%;
+  box-sizing: border-box;
 }
 .composer-toolbar {
   display: flex;
@@ -925,71 +885,53 @@
     padding: 0.3rem 0.45rem;
   }
 
-  /* The idle composer is one dense row; richer/running states can wrap naturally. */
+  /* Text owns the full width; information and actions have separate rows. */
   .workspace-chat .chat-input {
-    gap: 0.2rem;
-    padding: 0.35rem 0.5rem;
-    padding-bottom: 0.5rem;
+    gap: 6px;
+    padding: 8px;
   }
   .workspace-chat .chat-input-row {
-    flex-direction: row;
-    align-items: center;
+    flex-direction: column;
+    align-items: stretch;
     min-width: 0;
-    gap: 4px;
-    padding: 1px 2px 1px 8px;
+    gap: 8px;
+    padding: 8px;
     border-radius: 14px;
   }
   .workspace-chat .chat-input-field {
-    width: auto;
-    flex: 1 1 0;
-    min-width: 0;
-    min-height: 2.25rem;
-    padding: 0.25rem 0;
+    width: 100%;
+    flex: none;
+    min-height: 44px;
+    padding: 6px;
   }
   .workspace-chat .composer-toolbar {
+    width: 100%;
     min-width: 0;
-    flex: 0 1 auto;
-    flex-wrap: nowrap;
-    gap: 4px;
+    flex-wrap: wrap;
+    gap: 8px;
   }
   .workspace-chat .chat-input-command-strip {
     flex: 0 1 auto;
-    flex-wrap: nowrap;
-    gap: 2px;
+    flex-wrap: wrap;
+    gap: 6px;
   }
   .workspace-chat .chat-input-command-label {
     display: none;
   }
   .workspace-chat .chat-input-btn--skills {
-    width: 40px;
-    min-width: 40px;
+    width: 44px;
+    min-width: 44px;
     padding: 0;
   }
-  .workspace-chat .token-bar {
-    max-width: 4.5rem;
-    margin-left: 0;
-    overflow: hidden;
-    padding: 0.1rem 0.3rem;
-  }
   .workspace-chat .composer-actions {
-    gap: 2px;
+    gap: 6px;
+    flex-wrap: wrap;
   }
   .workspace-chat .chat-input--compact :is(.chat-input-btn, .mic-btn) {
+    min-width: 44px;
+    height: 44px;
+    flex-shrink: 0;
     border-radius: 9px;
-  }
-
-  /* Keep controls reachable on the narrowest supported mobile screens. */
-  @media (max-width: 359px) {
-    .workspace-chat .chat-input-row {
-      flex-wrap: wrap;
-    }
-    .workspace-chat .chat-input-field {
-      flex-basis: 100%;
-    }
-    .workspace-chat .composer-toolbar {
-      flex: 1 1 100%;
-      justify-content: flex-end;
-    }
   }
 
   /* Preserve labels and safe-area support while trimming excess tab-bar height. */
@@ -1001,13 +943,9 @@
 
 @media (max-width: 767px) {
   .chat-mobile-topbar {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr);
-    align-items: start;
+    display: flex;
+    flex-direction: column;
     flex-shrink: 0;
-  }
-  .workspace-chat .conversation-heading {
-    padding-right: 4px;
   }
   .workspace-chat .workspace-controls {
     position: relative;
@@ -1019,6 +957,7 @@
     min-height: 48px;
     gap: 4px 8px;
     padding: 8px 12px;
+    flex-wrap: wrap;
   }
   .workspace-chat .workspace-controls > div:not([hidden]) {
     position: absolute;
@@ -1033,4 +972,191 @@
     border-radius: 0 0 0 14px;
     box-shadow: 0 10px 28px #0003;
   }
+}
+
+/* The composer adapts to its actual width, including narrow desktop panels. */
+.chat-input--compact {
+  container-type: inline-size;
+}
+.chat-input--compact .composer-toolbar {
+  align-items: center;
+  gap: 6px;
+}
+.chat-input--compact .chat-input-command-strip {
+  position: relative;
+  align-items: center;
+  flex: 0 1 auto;
+  gap: 6px;
+}
+.composer-tools {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.chat-input--compact .composer-tools-toggle,
+.composer-tools-label {
+  display: none;
+}
+.chat-input--compact .composer-session-trigger {
+  position: relative;
+  width: auto;
+  padding: 0 10px;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text);
+}
+.chat-input--compact .chat-input-btn--worktree {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+}
+.chat-input--compact .chat-input-btn--worktree[aria-pressed='true'] {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.composer-resource-count {
+  padding: 2px 4px;
+  border-radius: 8px;
+  background: var(--workspace-panel);
+  color: var(--workspace-accent);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+.composer-workspace-details {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  z-index: 60;
+  width: min(320px, 80vw);
+  padding: 14px;
+  margin: 0;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  font-size: 13px;
+  line-height: 1.5;
+  box-shadow: 0 8px 32px #0004;
+}
+.composer-workspace-details dt {
+  color: var(--text-dim);
+}
+.composer-workspace-details dd {
+  margin: 0 0 8px;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+.session-tray--toolbar {
+  top: auto;
+  bottom: max(12px, env(safe-area-inset-bottom));
+  width: min(calc(100% - 24px), 720px);
+  --session-tray-handle-height: 44px;
+  --session-tray-min-height: 44px;
+  color: var(--workspace-text);
+  background: var(--workspace-bg);
+  border: 1px solid var(--workspace-line);
+  border-radius: 16px;
+}
+.session-tray--toolbar[hidden] {
+  display: none;
+}
+.session-tray--toolbar .session-tray-handle {
+  min-height: 44px;
+}
+@media (max-width: 767px) {
+  .session-tray--toolbar {
+    bottom: calc(61px + env(safe-area-inset-bottom));
+  }
+}
+@container (max-width: 520px) {
+  .chat-input--compact .composer-toolbar,
+  .chat-input--compact .chat-input-command-strip,
+  .chat-input--compact .composer-actions {
+    flex-wrap: nowrap;
+    gap: 4px;
+  }
+  .chat-input--compact :is(.chat-input-btn, .mic-btn) {
+    width: 44px;
+    min-width: 44px;
+    height: 44px;
+    flex-shrink: 0;
+  }
+  .chat-input--compact .composer-tools-toggle {
+    display: inline-flex;
+    background: transparent;
+    color: var(--text-dim);
+    border: 1px solid var(--border);
+  }
+  .chat-input--compact .composer-session-trigger {
+    width: auto;
+    padding: 0 8px;
+  }
+  .composer-resource-count {
+    position: absolute;
+    right: -3px;
+    top: -4px;
+  }
+  .composer-tools {
+    display: none;
+    position: absolute;
+    bottom: calc(100% + 8px);
+    left: 0;
+    z-index: 60;
+    width: min(280px, 80vw);
+    padding: 6px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--bg);
+    box-shadow: 0 8px 32px #0004;
+  }
+  .composer-tools[data-expanded='true'] {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .chat-input--compact .composer-tools .chat-input-btn {
+    justify-content: flex-start;
+    width: 100%;
+    padding: 0 12px;
+    gap: 10px;
+    border: 0;
+  }
+  .composer-tools-label,
+  .workspace-chat .composer-tools .chat-input-command-label {
+    display: inline;
+    font-size: 13px;
+    color: var(--text);
+  }
+  .composer-workspace-details {
+    position: static;
+    width: 100%;
+    border: 0;
+    box-shadow: none;
+  }
+}
+.composer-tools-anchor {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+@container (max-width: 360px) {
+  .chat-input--compact .composer-session-trigger {
+    width: 44px;
+    padding: 0;
+  }
+  .composer-toolbar-label {
+    display: none;
+  }
+}
+
+/* Launch review stays compact until the user asks to inspect the full prompt. */
+.chat-launch-prompt {
+  max-width: 100%;
+}
+.chat-launch-prompt p {
+  max-height: 12rem;
+  overflow: auto;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
 }

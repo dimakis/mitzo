@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { SessionRegistry } from '../src/session-registry.js';
-import { buildPermissionHandler } from '../src/permission-handler.js';
-import { resolvePending } from '../src/permissions.js';
+import { buildPermissionHandler, permissionDisplayInput } from '../src/permission-handler.js';
+import { resolvePending, onPermissionLifecycle } from '../src/permissions.js';
 import { setSkillPolicy } from '../src/skill-policy.js';
 import { applyTierOverrides } from '../src/tool-tiers.js';
 import type { SessionTransport } from '../src/session-transport.js';
@@ -25,6 +25,71 @@ describe('buildPermissionHandler', () => {
   afterEach(() => {
     registry.dispose();
     applyTierOverrides({});
+  });
+
+  it.each(['mode', 'skill'])(
+    'records the actual denial when a pending approval is rejected by a changed %s policy',
+    async (policy) => {
+      const transport = fakeTransport();
+      registry.register('client-1', {
+        transport,
+        abortController: new AbortController(),
+        mode: 'agent',
+        sessionAllowList: new Set(),
+      });
+      const lifecycle = vi.fn();
+      const unsubscribe = onPermissionLifecycle(lifecycle);
+      try {
+        const resultPromise = buildPermissionHandler('client-1', registry)(
+          'mcp__custom__tool',
+          {},
+          {
+            signal: new AbortController().signal,
+            toolUseID: 'policy-change',
+          },
+        );
+        await Promise.resolve();
+        if (policy === 'mode') registry.setMode('client-1', 'ask');
+        else setSkillPolicy(registry, 'client-1', []);
+        const permId = transport.sent[0].permId as string;
+        resolvePending(permId, 'always');
+        expect(await resultPromise).toMatchObject({ behavior: 'deny' });
+        expect(lifecycle).toHaveBeenLastCalledWith({
+          type: 'resolved',
+          permId,
+          resolution: 'denied',
+        });
+      } finally {
+        unsubscribe();
+      }
+    },
+  );
+
+  it('approves a large inline document using a bounded card and returns exact execution bytes', async () => {
+    const transport = fakeTransport();
+    registry.register('client-1', {
+      transport,
+      abortController: new AbortController(),
+      mode: 'agent',
+      sessionAllowList: new Set(),
+    });
+    const input = {
+      itemId: 'task',
+      filename: 'spec.md',
+      title: 'Spec',
+      requestId: 'a',
+      content: 'x'.repeat(5 * 1024 * 1024),
+    };
+    const pending = buildPermissionHandler('client-1', registry)('TelosSaveArtifact', input, {
+      signal: new AbortController().signal,
+      toolUseID: 'save-a',
+      forcePrompt: true,
+    });
+    await Promise.resolve();
+    const card = transport.sent.find((event) => event.type === 'permission_request')!;
+    expect((card.toolInput as string).length).toBeLessThan(10000);
+    resolvePending(card.permId as string, 'once');
+    expect(await pending).toMatchObject({ behavior: 'allow', updatedInput: input });
   });
 
   it('auto-allows safe tools in agent mode', async () => {
@@ -480,4 +545,26 @@ describe('buildPermissionHandler', () => {
     resolvePending(transport.sent[0].permId as string, 'once', { 'Which file?': ['README.md'] });
     expect((await promise).behavior).toBe('allow');
   });
+});
+
+it('bounds native and MCP Telos inline approval cards without hiding destination metadata', () => {
+  const input = {
+    itemId: 'task',
+    filename: 'spec.md',
+    title: 'Spec',
+    requestId: 'save-a',
+    content: 'x'.repeat(20000),
+  };
+  for (const name of ['TelosSaveArtifact', 'mcp__telos__TelosSaveArtifact']) {
+    const display = permissionDisplayInput(name, input);
+    expect(display).toBeDefined();
+    expect(display!.length).toBeLessThan(10000);
+    expect(JSON.parse(display!)).toMatchObject({
+      itemId: 'task',
+      filename: 'spec.md',
+      contentBytes: 20000,
+    });
+  }
+  expect(input.content).toHaveLength(20000);
+  expect(permissionDisplayInput('Other', input)).toBeUndefined();
 });

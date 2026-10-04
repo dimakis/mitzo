@@ -3,6 +3,7 @@
 import { readFileSync, writeFileSync, existsSync } from 'fs';
 import { createRequire } from 'module';
 import { createLogger } from '@mitzo/harness';
+import type { NotificationPush, NotificationDeliveryResult } from './notification-center.js';
 
 const require = createRequire(import.meta.url);
 
@@ -108,7 +109,7 @@ export async function sendPush(
     notification.alert = { title, body };
     notification.topic = APNS_BUNDLE_ID;
     notification.sound = 'default';
-    notification.badge = 1;
+    notification.badge = 0;
     if (data) notification.payload = data;
     if (options?.threadId) notification.threadId = options.threadId;
     if (options?.category) notification.category = options.category;
@@ -126,6 +127,70 @@ export async function sendPush(
     log.error('failed to send push notification', {
       error: err instanceof Error ? err.message : 'unknown',
     });
+  }
+}
+
+export function notificationFields(message: NotificationPush) {
+  return {
+    alert: { title: message.title, body: message.body },
+    badge: message.badge,
+    topic: APNS_BUNDLE_ID,
+    sound: 'default',
+    payload: message.data,
+    threadId: message.threadId,
+    category: message.category,
+  };
+}
+
+/** Success means APNs accepted every remaining device, not proof of Watch delivery. */
+export async function deliverNotification(
+  message: NotificationPush,
+): Promise<NotificationDeliveryResult> {
+  const provider = getProvider();
+  if (!provider || tokens.length === 0) return { status: 'unavailable', acceptedDevices: [] };
+  const remaining = tokens.filter((token) => !message.deliveredDevices?.includes(token));
+  if (!remaining.length) return { status: 'accepted', acceptedDevices: [] };
+  try {
+    const apn = require('@parse/node-apn');
+    const notification = Object.assign(new apn.Notification(), notificationFields(message));
+    const result = await provider.send(notification, remaining);
+    for (const failure of result.failed) {
+      if (String(failure.status) === '410' || failure.response?.reason === 'Unregistered')
+        removeToken(failure.device);
+    }
+    return {
+      status: result.sent.length > 0 && result.failed.length === 0 ? 'accepted' : 'failed',
+      acceptedDevices: result.sent.map((sent) => sent.device),
+    };
+  } catch (err: unknown) {
+    log.warn('notification delivery failed', {
+      error: err instanceof Error ? err.message : 'unknown',
+    });
+    return { status: 'failed', acceptedDevices: [] };
+  }
+}
+
+/** Apple requires alert push type for any badge payload, even without a banner. */
+export function badgeFields(badge: number) {
+  return { topic: APNS_BUNDLE_ID, badge, priority: 10, pushType: 'alert' };
+}
+export async function sendBadgeUpdate(
+  badge: number,
+): Promise<'accepted' | 'failed' | 'unavailable'> {
+  const provider = getProvider();
+  if (!provider || !tokens.length) return 'unavailable';
+  try {
+    const apn = require('@parse/node-apn');
+    const notification = Object.assign(new apn.Notification(), badgeFields(badge));
+    const result = await provider.send(notification, [...tokens]);
+    for (const failure of result.failed) {
+      if (String(failure.status) === '410' || failure.response?.reason === 'Unregistered')
+        removeToken(failure.device);
+    }
+    return result.sent.length > 0 && result.failed.length === 0 ? 'accepted' : 'failed';
+  } catch (err: unknown) {
+    log.warn('badge update failed', { error: err instanceof Error ? err.message : 'unknown' });
+    return 'failed';
   }
 }
 

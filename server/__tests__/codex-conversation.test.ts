@@ -4,6 +4,10 @@ import { tmpdir } from 'node:os';
 import { afterEach, expect, it, vi } from 'vitest';
 import { CodexConversation, codexTurnFailureDiagnostic } from '../codex-conversation.js';
 import { CodexConversationStore } from '../codex-conversation-store.js';
+import {
+  migrateRetainedRuntime,
+  type RuntimeMigrationAdapters,
+} from '../openshell-runtime-migration.js';
 import type { CodexLifecycleTransport } from '../codex-app-server-client.js';
 import type { AccountBinding } from '@mitzo/protocol';
 import { CodexRequestError } from '../codex-app-server-client.js';
@@ -17,11 +21,60 @@ const binding = {
   model: 'test-model',
   profileRevision: 'chatgpt:test@example.com:test',
 };
+
+it('delivers accepted application context only between turns and preserves the provider thread', async () => {
+  let knowledge = 'context A';
+  const prepare = vi.fn(async () => knowledge);
+  const args: Parameters<typeof setup> = [];
+  args[13] = prepare;
+  const { c, callbacks, requests } = await setup(...args);
+  await c.send({ id: 'knowledge-a', prompt: 'first task' });
+  const first = requests.find((r) => r.method === 'turn/start');
+  expect(first?.params.additionalContext).toEqual({
+    'mitzo.published-project-context': { kind: 'application', value: 'context A' },
+  });
+  knowledge = 'context B';
+  await c.send({ id: 'knowledge-b', prompt: 'continue' });
+  expect(prepare).toHaveBeenCalledTimes(1);
+  callbacks.onNotification('turn/completed', {
+    threadId: 'provider-thread',
+    turn: { id: 'turn-1', status: 'completed' },
+  });
+  await vi.waitFor(() => expect(requests.filter((r) => r.method === 'turn/start')).toHaveLength(2));
+  expect(requests.filter((r) => r.method === 'thread/resume')).toHaveLength(0);
+  const turns = requests.filter((r) => r.method === 'turn/start');
+  expect(turns.map((r) => r.params.additionalContext)).toEqual([
+    { 'mitzo.published-project-context': { kind: 'application', value: 'context A' } },
+    { 'mitzo.published-project-context': { kind: 'application', value: 'context B' } },
+  ]);
+  expect(turns.every((r) => r.params.threadId === 'provider-thread')).toBe(true);
+  expect(requests.filter((r) => r.method === 'thread/start')).toHaveLength(1);
+  expect(requests.filter((r) => r.method === 'turn/start').map((r) => r.params.input)).toEqual([
+    [{ type: 'text', text: 'first task' }],
+    [{ type: 'text', text: 'continue' }],
+  ]);
+});
 afterEach(() => {
   vi.restoreAllMocks();
   cleanup.splice(0).forEach((f) => f());
 });
 
+it('acknowledges exact application context only after provider turn acceptance', async () => {
+  const accepted = vi.fn();
+  const args: Parameters<typeof setup> = [];
+  args[13] = async () => 'verified knowledge';
+  args[14] = accepted;
+  const { c } = await setup(...args);
+  await c.send({ id: 'knowledge-command', prompt: 'continue' });
+  expect(accepted).toHaveBeenCalledOnce();
+  expect(accepted).toHaveBeenCalledWith(
+    'knowledge-command',
+    'provider-thread',
+    'turn-1',
+    'verified knowledge',
+  );
+  c.close();
+});
 it.each([
   ['completed', 'completed', 'none'],
   ['interrupted', 'interrupted', 'none'],
@@ -121,6 +174,15 @@ async function setup(
     turnId: string,
     status: 'completed' | 'interrupted' | 'failed',
   ) => void,
+  prepareSystemPrompt?: (signal: AbortSignal) => Promise<string | undefined>,
+  onApplicationContextAccepted?: (
+    commandId: string,
+    threadId: string,
+    turnId: string,
+    context: string,
+  ) => void,
+  beforeRuntimeAdmission?: (close: () => Promise<void>) => Promise<boolean>,
+  reconnectGuard?: (work: () => Promise<void>) => Promise<void>,
   nativeTool?: {
     ownerKind: 'symposium';
     onToolResultDurable?: (
@@ -209,6 +271,10 @@ async function setup(
     completionHookTimeoutMs,
     beforeReconnect,
     prepareTurn,
+    prepareSystemPrompt,
+    onApplicationContextAccepted,
+    beforeRuntimeAdmission,
+    reconnectGuard,
     onProviderDispatch,
     onProviderComplete,
     onProviderAccepted,
@@ -692,6 +758,10 @@ it('replays the exact durable symposium tool result for a duplicate provider cal
     undefined,
     undefined,
     undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
     { ownerKind: 'symposium', onToolResultDurable: delivered },
   );
   await c.send({ id: 'review-claim', prompt: 'review' });
@@ -713,6 +783,46 @@ it('replays the exact durable symposium tool result for a duplicate provider cal
     callbacks.onRequest('item/tool/call', { ...call, arguments: { pageIndex: 2 } }, signal),
   ).rejects.toThrow(/identity/);
 });
+
+it.each(['functions', '', null, undefined])(
+  'dispatches declared host tools with protocol namespace %s',
+  async (namespace) => {
+    const { c, callbacks, execute } = await setup();
+    await c.send({ id: 'namespace', prompt: 'read' });
+    const result = await callbacks.onRequest(
+      'item/tool/call',
+      {
+        threadId: 'provider-thread',
+        turnId: 'turn-1',
+        callId: 'namespaced-call',
+        namespace,
+        tool: 'Read',
+        arguments: { file_path: 'note' },
+      },
+      new AbortController().signal,
+    );
+    expect(result).toMatchObject({ success: true });
+    expect(execute).toHaveBeenCalledWith('Read', { file_path: 'note' }, expect.any(AbortSignal), {
+      callId: 'namespaced-call',
+      turnId: 'turn-1',
+    });
+    await expect(
+      callbacks.onRequest(
+        'item/tool/call',
+        {
+          threadId: 'provider-thread',
+          turnId: 'turn-1',
+          callId: 'unknown-call',
+          namespace,
+          tool: 'Unknown',
+          arguments: {},
+        },
+        new AbortController().signal,
+      ),
+    ).rejects.toThrow('tool');
+    expect(execute).toHaveBeenCalledOnce();
+  },
+);
 it('interrupts the current turn, keeps queued follow-ups paused, and cancels a pending host tool', async () => {
   const { c, callbacks, execute, requests } = await setup();
   await c.send({ id: 'a', prompt: 'read' });
@@ -2206,4 +2316,145 @@ it('keeps an undefined startup rejection fail-closed', async () => {
   await expect(c.initialize()).rejects.toBeUndefined();
   expect(requests).not.toContain('thread/start');
   await expect(c.initialize()).rejects.toThrow('permanently vetoed');
+});
+
+it('pauses admission failure before claim and resumes the preserved FIFO on explicit send', async () => {
+  let blocked = true;
+  const admission = vi.fn(async (close: () => Promise<void>) => {
+    if (blocked) {
+      await close();
+      throw new Error('writer is still open');
+    }
+    return false;
+  });
+  const args: Parameters<typeof setup> = [];
+  args[15] = admission;
+  const { c, callbacks, requests } = await setup(...args);
+  await expect(c.send({ id: 'preserved', prompt: 'first' })).rejects.toThrow('writer');
+  expect(c.isPaused()).toBe(true);
+  expect(c.queue().map(({ id, status }) => ({ id, status }))).toEqual([
+    { id: 'preserved', status: 'queued' },
+  ]);
+  expect(requests.filter((r) => r.method === 'turn/start')).toHaveLength(0);
+  blocked = false;
+  await c.send({ id: 'new', prompt: 'second' });
+  expect(c.isPaused()).toBe(false);
+  expect(requests.filter((r) => r.method === 'turn/start')).toHaveLength(1);
+  callbacks.onNotification('turn/completed', {
+    threadId: 'provider-thread',
+    turn: { id: 'turn-1', status: 'completed' },
+  });
+  await vi.waitFor(() => expect(requests.filter((r) => r.method === 'turn/start')).toHaveLength(2));
+  expect(requests.filter((r) => r.method === 'turn/start').map((r) => r.params.input)).toEqual([
+    [{ type: 'text', text: 'first' }],
+    [{ type: 'text', text: 'second' }],
+  ]);
+});
+
+it('performs ordinary provider fork recovery on a current runtime through the real migration admission engine', async () => {
+  const source = {
+    runtime: {
+      sandboxName: 'current',
+      sandboxId: 'current-id',
+      workdir: '/sandbox/workspaces/mgmt',
+      appServerCommand: '/sandbox/run-mitzo-app-server' as const,
+      cli: 'openshell',
+      workspace: 'default',
+      gateway: 'g',
+      gatewayInsecure: false,
+    },
+    route: { kind: 'api' as const, provider: 'bound-provider', model: binding.model },
+  };
+  const forbidden = vi.fn(async () => {
+    throw new Error('a current runtime must not migrate');
+  });
+  const adapters: RuntimeMigrationAdapters = {
+    observe: vi.fn(async () => ({ image: 'target', policy: 'policy', resourceVersion: 'r1' })),
+    quiescent: forbidden,
+    capture: forbidden,
+    create: forbidden,
+    attest: forbidden,
+    restore: forbidden,
+    verifyRestored: forbidden,
+  };
+  const beforeReconnect = vi.fn(async () => {
+    expect(store.read('app', binding).recoveryStrategy).toBe('fork');
+    expect(
+      await migrateRetainedRuntime({
+        conversationId: 'app',
+        binding,
+        store,
+        source,
+        targetImage: 'target',
+        targetPolicy: 'policy',
+        supportedSourceImages: ['legacy'],
+        adapters,
+      }),
+    ).toEqual(source);
+  });
+  const fixture = await setup(
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    async () => binding,
+    beforeReconnect,
+  );
+  const store = fixture.store;
+  store.setArtifactRuntime('app', binding, source);
+  await fixture.c.send({ id: 'good', prompt: 'establish context' });
+  fixture.callbacks.onNotification('turn/completed', {
+    threadId: 'provider-thread',
+    turn: { id: 'turn-1', status: 'completed' },
+  });
+  await fixture.c.send({ id: 'failed', prompt: 'provider failure' });
+  fixture.callbacks.onNotification('turn/completed', {
+    threadId: 'provider-thread',
+    turn: {
+      id: 'turn-2',
+      status: 'failed',
+      error: { message: 'stream disconnected before completion' },
+    },
+  });
+  await fixture.c.send({ id: 'resumed', prompt: 'continue safely' });
+  expect(beforeReconnect).toHaveBeenCalledOnce();
+  expect(adapters.observe).toHaveBeenCalledOnce();
+  expect(forbidden).not.toHaveBeenCalled();
+  expect(fixture.requests.find((r) => r.method === 'thread/fork')?.params).toMatchObject({
+    threadId: 'provider-thread',
+    lastTurnId: 'turn-1',
+  });
+  expect(fixture.requests.filter((r) => r.method === 'turn/start')).toHaveLength(3);
+  expect(fixture.c.queue().map(({ id, status }) => ({ id, status }))).toEqual([
+    { id: 'good', status: 'completed' },
+    { id: 'failed', status: 'failed' },
+    { id: 'resumed', status: 'running' },
+  ]);
+});
+
+it('checks current grants before migration admission and keeps revoked work queued', async () => {
+  let allowed = true;
+  const order: string[] = [];
+  const admission = vi.fn(async () => {
+    order.push('migration');
+    return true;
+  });
+  const guard = vi.fn(async (work: () => Promise<void>) => {
+    order.push('grant');
+    if (!allowed) throw new Error('Connection permissions changed');
+    await work();
+  });
+  const args: Parameters<typeof setup> = [];
+  args[15] = admission;
+  args[16] = guard;
+  const { c, requests } = await setup(...args);
+  allowed = false;
+  await expect(c.send({ id: 'revoked', prompt: 'retained' })).rejects.toThrow('permissions');
+  expect(admission).not.toHaveBeenCalled();
+  expect(requests.filter((r) => r.method === 'turn/start')).toHaveLength(0);
+  expect(c.queue()).toMatchObject([{ id: 'revoked', status: 'queued' }]);
+  allowed = true;
+  await c.send({ id: 'later', prompt: 'next' });
+  expect(order.indexOf('grant')).toBeLessThan(order.indexOf('migration'));
+  expect(requests.filter((r) => r.method === 'turn/start')).toHaveLength(1);
 });

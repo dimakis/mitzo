@@ -77,6 +77,7 @@ vi.mock('../symposium-subscription-host.js', () => ({
   },
 }));
 import { createPersonalSubscriptionHost } from '../symposium-personal-host.js';
+import { AccountProfiles } from '../account-profiles.js';
 const roots: string[] = [];
 afterEach(() => {
   state.adapters.clear();
@@ -437,4 +438,40 @@ it('requires retained credential cleanup after discovery cleanup and retries onl
   expect(recover).toHaveBeenCalledTimes(1);
   expect(adapter.disconnect).toHaveBeenCalledTimes(2);
   expect(host.personalConnections.list()[0].state).toBe('reauth_required');
+});
+
+it('projects personal lifecycle provenance from the original retained adapter snapshot', async () => {
+  const host = fixture();
+  const row = await connected(host);
+  expect(host.currentProfiles.catalog()[0]).toMatchObject({
+    personalConnection: { id: row.id, revision: row.revision },
+  });
+  await host.personalConnections.disconnect(row.id, row.revision);
+  expect(host.currentProfiles.catalog()).toEqual([]);
+});
+
+it('refuses a retained adapter definition that is not bound to its registry row', async () => {
+  const host = fixture();
+  const row = await connected(host);
+  const adapter = state.adapters.get(row.id)!;
+  const definition = (adapter as unknown as { activeDefinition: object }).activeDefinition;
+  Object.defineProperty(adapter, 'activeDefinition', {
+    value: { ...definition, id: 'different-account' },
+  });
+  expect(() => host.currentProfiles.catalog()).toThrow('Personal catalog binding changed');
+});
+it('does not accept personal provenance from authored profile JSON', () => {
+  expect(
+    () =>
+      new AccountProfiles([
+        {
+          id: 'ordinary',
+          label: 'Ordinary',
+          provider: 'openai',
+          credentialRef: { provider: 'keychain', service: 'staging', account: 'test' },
+          models: [{ id: 'luna', label: 'Luna' }],
+          personalConnection: { id: 'default', revision: 3 },
+        },
+      ]),
+  ).toThrow('Invalid account profiles');
 });

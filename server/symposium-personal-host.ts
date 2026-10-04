@@ -135,15 +135,23 @@ export function createPersonalSubscriptionHost(
     },
     get currentProfiles() {
       options.gateway.verifyCustody();
-      return new AccountProfiles(
-        [
-          ...options.workProfiles,
-          ...connections
-            .activeAdapters()
-            .flatMap((a) => (a.activeDefinition ? [a.activeDefinition] : [])),
-        ],
-        { codexEnabled: true },
-      );
+      // Capture provenance from the registry that owns each exact adapter. The
+      // catalog and lifecycle reads may settle at different revisions; consumers
+      // must compare this snapshot before presenting them as one account.
+      const links = new Map<string, { id: string; revision: number }>();
+      const personal = connections.list().flatMap((row) => {
+        if (row.state !== 'connected') return [];
+        const definition = connections.adapter(row.id).activeDefinition;
+        if (!definition) return [];
+        if (typeof definition !== 'object' || !('id' in definition) || definition.id !== row.id)
+          throw new Error('Personal catalog binding changed');
+        links.set(row.id, { id: row.id, revision: row.revision });
+        return [definition];
+      });
+      return new AccountProfiles([...options.workProfiles, ...personal], {
+        codexEnabled: true,
+        personalConnectionLinks: links,
+      });
     },
     personalConnections: {
       list: () =>

@@ -8,7 +8,9 @@ export function WorkspaceControls({
   children,
   status,
   summary,
+  attention = false,
 }: {
+  attention?: boolean;
   children: ReactNode;
   status: string;
   summary?: WorkspaceSummary | null;
@@ -28,7 +30,7 @@ export function WorkspaceControls({
         aria-label={['Workspace controls', summary?.profile, summary?.model, summary?.thinking]
           .filter(Boolean)
           .join(', ')}
-        aria-expanded={expanded}
+        aria-expanded={expanded || attention}
         aria-controls={id}
         onClick={() => {
           const next = !expanded;
@@ -59,7 +61,7 @@ export function WorkspaceControls({
         <span className="conversation-state">{status}</span>
         <UiIcon name={expanded ? 'up' : 'down'} />
       </button>
-      <div id={id} hidden={!expanded}>
+      <div id={id} hidden={!expanded && !attention}>
         {children}
       </div>
     </section>

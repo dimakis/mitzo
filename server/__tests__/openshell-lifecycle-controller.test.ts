@@ -1,3 +1,5 @@
+import type { RuntimeMigration } from '../openshell-runtime-migration.js';
+import type { AccountBinding } from '@mitzo/protocol';
 import { basename, dirname, join } from 'node:path';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -8,6 +10,7 @@ import {
   checkpointDirectoryForConversation,
   initializeOpenShellLifecycle,
   openShellLifecyclePhaseCounts,
+  registerMigratedOpenShellLifecycle,
   registerOpenShellLifecycle,
   registerOpenShellLifecycleProvisional,
   restoreOpenShellLifecycleIfNeeded,
@@ -558,6 +561,113 @@ it('counts configured recordless providers once while retaining partial inventor
     expect(inventory).toHaveBeenCalledTimes(2);
   } finally {
     inventory.mockRestore();
+    lifecycle.store.close();
+    vi.unstubAllEnvs();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+it('repairs a committed migration once and preserves later ordinary thread and physical generations', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'migration-lifecycle-'));
+  const policy = join(directory, 'policy.yaml');
+  writeFileSync(policy, 'reviewed: policy\n');
+  vi.stubEnv('MITZO_CODEX_PRIVATE_DIR', directory);
+  vi.stubEnv('MITZO_OPENSHELL_LIFECYCLE_ENABLED', '1');
+  const lifecycle = initializeOpenShellLifecycle(
+    {
+      cli: 'openshell',
+      image: 'target',
+      policy,
+      seed: '/seed',
+      serviceProviders: [],
+      grantableServiceProviders: [],
+      workspace: 'default',
+      gateway: 'g',
+      gatewayInsecure: false,
+      createDetached: true,
+      sandboxIdLength: 13,
+      workdir: '/sandbox/workspaces/mgmt',
+      webSearch: 'disabled',
+    },
+    {
+      registry: { findBySessionId: () => undefined, entries: function* () {} },
+      eventStore: { getSession: () => ({}) },
+      taskStore: { getTree: () => [] },
+      queue: () => ({ queued: 0, running: 0, recovery: false }),
+    },
+  )!;
+  try {
+    const binding: AccountBinding = {
+      accountLabel: 'Offline fixture',
+      accountId: 'account',
+      provider: 'codex',
+      model: 'offline',
+      profileRevision: 'r1',
+    };
+    const route = { kind: 'api' as const, provider: 'bound', model: 'offline' };
+    const source = {
+      runtime: {
+        sandboxName: 'old',
+        sandboxId: 'old-id',
+        workdir: '/sandbox/workspaces/mgmt',
+        appServerCommand: '/sandbox/run-mitzo-app-server' as const,
+        cli: 'openshell',
+        workspace: 'default',
+        gateway: 'g',
+        gatewayInsecure: false,
+      },
+      route,
+    };
+    const candidate = {
+      ...source,
+      runtime: { ...source.runtime, sandboxName: 'candidate', sandboxId: 'new-id' },
+    };
+    registerOpenShellLifecycle('chat', source.runtime, binding, route, 'original-thread');
+    const record: RuntimeMigration = {
+      generation: 5,
+      phase: 'committed' as const,
+      threadGeneration: 0,
+      source,
+      candidate,
+      candidateName: 'candidate',
+      targetImage: 'target',
+      targetPolicy: 'policy',
+      identity: {
+        conversation: 'chat',
+        thread: 'original-thread',
+        binding: 'account-bound',
+        sandboxId: 'old-id',
+        resourceVersion: 'r1',
+        image: 'old-image',
+        policy: 'policy',
+        accountProvider: 'bound',
+        accountId: 'account',
+        provider: 'codex',
+        model: 'offline',
+        profileRevision: 'r1',
+        runtimeScope: 'default',
+        routeKind: 'api',
+        routeProvider: 'bound',
+      },
+    };
+    registerMigratedOpenShellLifecycle('chat', binding, record);
+    expect(lifecycle.store.get('chat')).toMatchObject({
+      physicalSandboxId: 'new-id',
+      identity: { threadId: 'original-thread', image: 'target' },
+    });
+    registerOpenShellLifecycle(
+      'chat',
+      { ...candidate.runtime, sandboxId: 'recreated-id' },
+      binding,
+      route,
+      'rolled-thread',
+    );
+    const current = lifecycle.store.get('chat');
+    registerMigratedOpenShellLifecycle('chat', binding, record);
+    expect(lifecycle.store.get('chat')).toEqual(current);
+    expect(record.identity.thread).toBe('original-thread');
+    expect(record.source.runtime.sandboxId).toBe('old-id');
+  } finally {
     lifecycle.store.close();
     vi.unstubAllEnvs();
     rmSync(directory, { recursive: true, force: true });

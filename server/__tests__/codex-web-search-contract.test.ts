@@ -15,34 +15,31 @@ type Contract = {
 };
 
 const fixture = fileURLToPath(
-  new URL(
-    '../../docs/spikes/codex-web-search-policy/app-server-contract-0.153.4.json',
-    import.meta.url,
-  ),
+  new URL('../../docs/spikes/codex-web-search-policy/app-server-contract.json', import.meta.url),
 );
 const contract = JSON.parse(readFileSync(fixture, 'utf8')) as Contract;
 
 describe('pinned Codex native web-search contract', () => {
-  it('records the historical reviewed CLI snapshot', () => {
-    expect(contract.codexCliVersion).toBe('0.153.4');
+  it('records the CLI version deployed by OpenShell', () => {
+    expect(contract.codexCliVersion).toBe(
+      readFileSync(
+        fileURLToPath(
+          new URL('../../docs/spikes/openshell-codex/runtime-codex-version', import.meta.url),
+        ),
+        'utf8',
+      ).trim(),
+    );
   });
 
-  it('fences newly built management sandboxes at their recipe-pinned CLI version', () => {
-    const dockerfile = readFileSync(
-      fileURLToPath(
-        new URL('../../docs/spikes/openshell-codex/Dockerfile.mgmt-runtime', import.meta.url),
-      ),
-      'utf8',
-    );
-    const version = dockerfile.match(/npm install --global @openai\/codex@(\d+\.\d+\.\d+)/)?.[1];
-    expect(version).toBeDefined();
+  it('fences retained OpenShell sandboxes at the reviewed CLI version', () => {
     for (const launcher of ['run-mitzo-app-server', 'run-mitzo-subscription-app-server']) {
       const contents = readFileSync(
         fileURLToPath(new URL(`../../docs/spikes/openshell-codex/${launcher}`, import.meta.url)),
         'utf8',
       );
       expect(contents).toContain('$(codex --version)');
-      expect(contents).toContain(`codex-cli ${version}`);
+      expect(contents).toContain('$(cat /etc/mitzo-codex-version)');
+      expect(contents).toContain('codex-cli $expected_codex_version');
     }
   });
 

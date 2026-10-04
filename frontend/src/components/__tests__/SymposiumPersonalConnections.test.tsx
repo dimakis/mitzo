@@ -433,20 +433,39 @@ it('blocks the callback alternative while the same slot has a pending device sig
 it('releases callback status-error lock when refresh proves the slot connected', async () => {
   let connected = false;
   vi.mocked(apiFetch).mockImplementation(async (url) => {
-    if (url.endsWith('/connections'))
+    if (url === '/api/symposium/personal/connections')
       return response({
-        connections: [rows[0], { ...rows[1], state: connected ? 'connected' : 'reauth_required' }],
+        connections: [
+          rows[0],
+          {
+            ...rows[1],
+            state: connected ? 'connected' : 'reauth_required',
+            revision: connected ? 5 : 3,
+          },
+        ],
       });
-    if (url.includes('attemptId=')) return response({}, false);
-    return response({ state: 'pending', attemptId: 'callback', connectionId: 'personal-b' });
+    if (url === '/api/symposium/personal/login/status?attemptId=callback&connectionId=personal-b')
+      return response({}, false);
+    if (url === '/api/symposium/personal/login/status?connectionId=personal-b')
+      return response({ state: 'pending', attemptId: 'callback', connectionId: 'personal-b' });
+    throw new Error('Unexpected endpoint');
   });
   render(<SymposiumPersonalConnections />);
   await screen.findByText('two@example.test');
   const second = within(screen.getByRole('region', { name: 'Second account' }));
-  fireEvent.click(second.getByRole('button', { name: 'Connect personal subscription' }));
+  // Settle the mocked receipt and pending-lock effects before simulating the
+  // next server observation; a rendered error alone does not flush effects.
+  await act(async () => {
+    fireEvent.click(second.getByRole('button', { name: 'Connect personal subscription' }));
+  });
   await second.findByRole('button', { name: 'Retry status' });
+  expect((second.getByRole('button', { name: 'Connect' }) as HTMLButtonElement).disabled).toBe(
+    true,
+  );
   connected = true;
-  fireEvent.click(screen.getByRole('button', { name: 'Refresh personal accounts' }));
+  await act(async () => {
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh personal accounts' }));
+  });
   await waitFor(() =>
     expect((second.getByRole('button', { name: 'Reconnect' }) as HTMLButtonElement).disabled).toBe(
       false,
@@ -701,4 +720,50 @@ it('does not offer cleanup for legacy quarantine without retained proof', async 
   render(<SymposiumPersonalConnections />);
   await screen.findByText('Host recovery required');
   expect(screen.queryByRole('button', { name: 'Clean up model discovery' })).toBeNull();
+});
+
+it('retains a pending callback across connecting revisions and fences late status failure after connected metadata', async () => {
+  let state = 'connecting';
+  let revision = 4;
+  let finishPoll: ((value: Response) => void) | undefined;
+  vi.mocked(apiFetch).mockImplementation(async (url) => {
+    if (url === '/api/symposium/personal/connections')
+      return response({ connections: [{ ...rows[1], state, revision }] });
+    if (url === '/api/symposium/personal/login/status?connectionId=personal-b')
+      return response({ state: 'pending', attemptId: 'callback', connectionId: 'personal-b' });
+    if (url === '/api/symposium/personal/login/status?attemptId=callback&connectionId=personal-b')
+      return new Promise<Response>((resolve) => {
+        finishPoll = resolve;
+      });
+    throw new Error('Unexpected endpoint');
+  });
+  render(<SymposiumPersonalConnections />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Recover callback sign-in' }));
+  await waitFor(() => expect(finishPoll).toBeDefined());
+  const second = within(screen.getByRole('region', { name: rows[1].label }));
+  revision = 5;
+  fireEvent.click(screen.getByRole('button', { name: 'Refresh personal accounts' }));
+  await second.findByText('Connection version 5');
+  expect(
+    (second.getByRole('button', { name: 'Continue sign-in' }) as HTMLButtonElement).disabled,
+  ).toBe(true);
+  expect(second.getByText(/Continue in the already-open login browser/)).toBeTruthy();
+  state = 'connected';
+  revision = 6;
+  fireEvent.click(screen.getByRole('button', { name: 'Refresh personal accounts' }));
+  await waitFor(() =>
+    expect((second.getByRole('button', { name: 'Reconnect' }) as HTMLButtonElement).disabled).toBe(
+      false,
+    ),
+  );
+  await act(async () => {
+    finishPoll!(response({}, false));
+  });
+  expect((second.getByRole('button', { name: 'Reconnect' }) as HTMLButtonElement).disabled).toBe(
+    false,
+  );
+  expect(apiFetch).not.toHaveBeenCalledWith(
+    '/api/symposium/personal/login',
+    expect.objectContaining({ method: 'POST' }),
+  );
 });

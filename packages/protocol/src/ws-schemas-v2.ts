@@ -67,6 +67,7 @@ export const UnwatchMessage = z.object({
 export const SwitchSessionMessage = z.object({
   type: z.literal('switch_session'),
   sessionId: z.string().min(1).nullable(),
+  historyCursor: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).optional(),
 });
 
 export const SessionSuspendMessage = z.object({

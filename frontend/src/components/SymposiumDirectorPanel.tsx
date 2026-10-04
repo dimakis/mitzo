@@ -106,12 +106,17 @@ function AdvancedControls({
   label,
   children,
   onOpen,
+  revealKey,
 }: {
   label: string;
   children: ReactNode;
   onOpen?: () => void;
+  revealKey?: number;
 }) {
   const [open, setOpen] = useState(false);
+  useEffect(() => {
+    if (revealKey) setOpen(true);
+  }, [revealKey]);
   return (
     <div className="symposium-advanced-controls">
       <button
@@ -512,6 +517,7 @@ function SessionDirectorPanel({
   const [error, setError] = useState('');
   const [selected, setSelected] = useState<string[]>([]);
   const [message, setMessage] = useState('');
+  const [reviewHandoff, setReviewHandoff] = useState(0);
   const [editContent, setEditContent] = useState('');
   const [primarySelection, setPrimarySelection] = useState('');
   const [primaryConfirmation, setPrimaryConfirmation] = useState('');
@@ -648,6 +654,17 @@ function SessionDirectorPanel({
       }));
     }
   }
+
+  useEffect(() => {
+    const openTeam = (event: Event) => {
+      if ((event as CustomEvent<{ sessionId: string }>).detail?.sessionId !== sessionId) return;
+      setReviewHandoff((current) => current + 1);
+      if (open) void refresh();
+      else setOpen(() => true);
+    };
+    window.addEventListener('symposium-open-team', openTeam);
+    return () => window.removeEventListener('symposium-open-team', openTeam);
+  }, [sessionId, open, refresh, setOpen]);
 
   async function mutate(path: string, payload: Record<string, unknown>, method = 'POST') {
     if (busy) return;
@@ -1354,6 +1371,9 @@ function SessionDirectorPanel({
       </button>
       {open && (
         <div className="symposium-director-panel">
+          <p className="symposium-team-intro">
+            You direct the team: choose which agents participate and what each receives.
+          </p>
           <button
             type="button"
             disabled={loading || localBusy || enableAction?.pending === true}
@@ -1411,7 +1431,7 @@ function SessionDirectorPanel({
               >
                 Set up agents
               </button>
-              <AdvancedControls label="Advanced and troubleshooting">
+              <AdvancedControls label="Advanced and troubleshooting" revealKey={reviewHandoff}>
                 <SymposiumSourceImportPanel key={sessionId} sessionId={sessionId} />
               </AdvancedControls>
             </div>
@@ -1466,6 +1486,11 @@ function SessionDirectorPanel({
                   </ol>
                 </section>
               )}
+              <h3>Team members</h3>
+              <p>
+                The primary agent handles the conversation. Reviewers provide read-only feedback.
+                Suspend pauses an agent; Remove takes it off the team.
+              </p>
               <ul className="symposium-roster">
                 {status.seats.map((seat) => (
                   <li key={seat.seatId} aria-label={`${seat.seat.name} agent`}>
@@ -1737,7 +1762,7 @@ function SessionDirectorPanel({
                   </li>
                 ))}
               </ul>
-              <AdvancedControls label="Advanced and troubleshooting">
+              <AdvancedControls label="Advanced and troubleshooting" revealKey={reviewHandoff}>
                 <SymposiumSourceImportPanel key={sessionId} sessionId={sessionId} />
                 {status.config.state === 'active' && (
                   <p>
@@ -1939,9 +1964,9 @@ function SessionDirectorPanel({
                     </label>
                   ))}
                   <label>
-                    Director message{' '}
+                    Message for the selected agents{' '}
                     <textarea
-                      aria-label="Director message"
+                      aria-label="Message for the selected agents"
                       value={message}
                       onChange={(event) => setMessage(event.target.value)}
                     />
@@ -1963,7 +1988,10 @@ function SessionDirectorPanel({
                     Queue message for selected agents
                   </button>
                 </fieldset>
-                <h3>Directed deliveries</h3>
+                <h3>Review requests</h3>
+                {status.deliveries.length === 0 && (
+                  <p>No review requests yet. Add an agent or queue a message.</p>
+                )}
                 <ul>
                   {status.deliveries.map((delivery) => (
                     <li key={delivery.deliveryId}>
@@ -2050,6 +2078,10 @@ function SessionDirectorPanel({
               </AdvancedControls>
             </>
           )}
+          <details className="symposium-advanced">
+            <summary>Advanced: import context from another conversation</summary>
+            <SymposiumSourceImportPanel key={sessionId} sessionId={sessionId} />
+          </details>
         </div>
       )}
     </section>

@@ -1,0 +1,73 @@
+.access-modes {
+  margin: 0 0 16px;
+  padding: 16px 20px;
+  border: 1px solid var(--workspace-line);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--workspace-bg) 78%, var(--workspace-panel));
+}
+.access-modes h3 {
+  margin: 16px 0 8px;
+  font-size: 14px;
+  font-weight: 550;
+}
+.access-modes label {
+  display: block;
+  font-size: 12px;
+}
+.access-modes select {
+  width: 100%;
+  margin: 0.5rem 0;
+  padding: 0.65rem;
+  color: inherit;
+  background: var(--workspace-panel);
+  border: 1px solid var(--workspace-line);
+  border-radius: 8px;
+}
+.access-mode-list {
+  display: grid;
+  border: 1px solid var(--workspace-line);
+  border-radius: 12px;
+  overflow: hidden;
+}
+.access-mode-list button {
+  display: grid;
+  gap: 0.35rem;
+  text-align: left;
+  padding: 0.9rem;
+  background: transparent;
+  color: inherit;
+  border: 0;
+  cursor: pointer;
+}
+.access-mode-list button + button {
+  border-top: 1px solid var(--workspace-line);
+}
+.access-mode-list button:hover {
+  background: var(--workspace-panel);
+}
+.access-mode-list span,
+.access-mode-list small {
+  font-size: 12px;
+}
+.access-mode-detail dl {
+  display: grid;
+  gap: 0.8rem;
+}
+.access-mode-detail dt {
+  font-weight: 600;
+  font-size: 12px;
+}
+.access-mode-detail dd {
+  margin: 0.3rem 0 0;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.access-modes > h3:first-child {
+  margin-top: 0;
+}
+@media (max-width: 600px) {
+  .access-modes {
+    padding: 14px;
+  }
+}

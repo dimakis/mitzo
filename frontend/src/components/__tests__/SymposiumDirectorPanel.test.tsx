@@ -150,7 +150,7 @@ it('injects only explicitly selected admitted recipients', async () => {
   await screen.findByText(/OpenAI work · gpt/);
   await userEvent.click(screen.getByRole('checkbox', { name: 'Send to Reviewer' }));
   await userEvent.type(
-    screen.getByRole('textbox', { name: 'Director message' }),
+    screen.getByRole('textbox', { name: 'Message for the selected agents' }),
     'Review this patch',
   );
   await userEvent.click(screen.getByRole('button', { name: 'Queue message for selected agents' }));
@@ -855,13 +855,20 @@ it('clears the previous session roster and form state immediately on navigation'
   await openAdvancedSettings();
   await screen.findByText(/OpenAI work · gpt/);
   await userEvent.click(screen.getByRole('checkbox', { name: 'Send to Reviewer' }));
-  await userEvent.type(screen.getByRole('textbox', { name: 'Director message' }), 'Old message');
+  await userEvent.type(
+    screen.getByRole('textbox', { name: 'Message for the selected agents' }),
+    'Old message',
+  );
   rerender(<SymposiumDirectorPanel sessionId="next" />);
   expect(screen.queryByRole('button', { name: 'Suspend' })).toBeNull();
   await openAdvancedSettings();
   await screen.findByText(/OpenAI work · gpt/);
   expect(
-    (screen.getByRole('textbox', { name: 'Director message' }) as HTMLTextAreaElement).value,
+    (
+      screen.getByRole('textbox', {
+        name: 'Message for the selected agents',
+      }) as HTMLTextAreaElement
+    ).value,
   ).toBe('');
   expect(
     (screen.getByRole('checkbox', { name: 'Send to Reviewer' }) as HTMLInputElement).checked,
@@ -1520,7 +1527,7 @@ it('shows a compact failed agent card without exposing recovery operations', asy
   expect(within(card).getByText('Workspace setup failed. No message was sent.')).toBeTruthy();
   expect(screen.queryByText(/SEAT_MOUNT_FAILED/)).toBeNull();
   expect(screen.queryByRole('button', { name: 'Clean up failed seat' })).toBeNull();
-  expect(screen.queryByRole('textbox', { name: 'Director message' })).toBeNull();
+  expect(screen.queryByRole('textbox', { name: 'Message for the selected agents' })).toBeNull();
   await userEvent.click(within(card).getByRole('button', { name: 'View details' }));
   expect(within(card).getByText(/SEAT_MOUNT_FAILED/)).toBeTruthy();
   expect(
@@ -1552,7 +1559,10 @@ it('offers recorded agents as request targets without claiming a fresh connectio
   await userEvent.click(screen.getByRole('button', { name: 'Advanced and troubleshooting' }));
   expect(screen.queryByRole('checkbox', { name: 'Send to Architect' })).toBeNull();
   await userEvent.click(screen.getByRole('checkbox', { name: 'Send to Reviewer' }));
-  await userEvent.type(screen.getByRole('textbox', { name: 'Director message' }), 'Review this');
+  await userEvent.type(
+    screen.getByRole('textbox', { name: 'Message for the selected agents' }),
+    'Review this',
+  );
   await userEvent.click(screen.getByRole('button', { name: 'Queue message for selected agents' }));
   expect(
     vi
@@ -2388,4 +2398,65 @@ it('does not let a retired safe-refusal status read unlock a new activation afte
   await act(async () => finishNewActivation(response(activeConfig)));
   await waitFor(() => expect(getSymposiumEnableActions().snapshot()[base]).toBeUndefined());
   expect(attempts).toBe(2);
+});
+
+it('explains the approval workflow and opens only for a matching reviewer handoff', async () => {
+  vi.mocked(apiFetch).mockResolvedValue(response(status(true)));
+  render(<SymposiumDirectorPanel sessionId="session" />);
+  const trigger = screen.getByRole('button', { name: 'Agents' });
+  expect(trigger.getAttribute('aria-expanded')).toBe('false');
+  act(() =>
+    window.dispatchEvent(
+      new CustomEvent('symposium-open-team', { detail: { sessionId: 'other' } }),
+    ),
+  );
+  expect(trigger.getAttribute('aria-expanded')).toBe('false');
+  act(() =>
+    window.dispatchEvent(
+      new CustomEvent('symposium-open-team', { detail: { sessionId: 'session' } }),
+    ),
+  );
+  expect(trigger.getAttribute('aria-expanded')).toBe('true');
+  expect(await screen.findByText(/You direct the team/)).toBeTruthy();
+  expect(await screen.findByRole('heading', { name: 'Review requests' })).toBeTruthy();
+  expect(screen.getByText(/No review requests yet/)).toBeTruthy();
+});
+
+it('refreshes queued requests on a matching handoff when the panel is already open', async () => {
+  const initial = status(true);
+  const updated = {
+    ...initial,
+    deliveries: [
+      {
+        deliveryId: 'new-review',
+        recipientSeatIds: ['reviewer'],
+        status: 'awaiting_intervention',
+        originalContent: 'Review the newly added reviewer request',
+      },
+    ],
+  };
+  vi.mocked(apiFetch)
+    .mockResolvedValueOnce(response(initial))
+    .mockResolvedValueOnce(response(updated));
+  render(<SymposiumDirectorPanel sessionId="session" />);
+  await openAdvancedSettings();
+  await screen.findByText(/No review requests yet/);
+  act(() =>
+    window.dispatchEvent(
+      new CustomEvent('symposium-open-team', {
+        detail: { sessionId: 'other' },
+      }),
+    ),
+  );
+  expect(apiFetch).toHaveBeenCalledTimes(1);
+  act(() =>
+    window.dispatchEvent(
+      new CustomEvent('symposium-open-team', {
+        detail: { sessionId: 'session' },
+      }),
+    ),
+  );
+  expect(await screen.findByText(updated.deliveries[0].originalContent)).toBeTruthy();
+  expect(screen.getByRole('button', { name: 'Approve' })).toBeTruthy();
+  expect(apiFetch).toHaveBeenCalledTimes(2);
 });

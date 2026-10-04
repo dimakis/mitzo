@@ -12,12 +12,13 @@ export function MoreView() {
     <main className="workspace-page">
       <WorkspacePageHeading title="More" description="Your tools and preferences." />
       {[
+        ['Notifications', '/notifications'],
         ['Calendar', '/calendar'],
         ['Agent taskboard', '/tasks'],
         ['Files', '/files'],
         ['All attention', '/focus'],
         ['Chat history and quick actions', '/sessions'],
-        ['Connections', '/connections'],
+        ['Connections', '/connections-access'],
       ].map(([label, to]) => (
         <Link className="workspace-record" key={to} to={to}>
           {label}

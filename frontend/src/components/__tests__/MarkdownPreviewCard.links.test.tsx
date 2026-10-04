@@ -5,7 +5,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { MarkdownPreviewCard } from '../MarkdownPreviewCard';
 import { apiFetch } from '../../lib/api-fetch';
 
-vi.mock('../../lib/share-file', () => ({ shareFile: vi.fn().mockResolvedValue(true) }));
+vi.mock('../../lib/share-file', () => ({
+  shareFile: vi.fn().mockResolvedValue(true),
+  downloadFile: vi.fn().mockResolvedValue(true),
+}));
 import { shareFile } from '../../lib/share-file';
 
 vi.mock('../../lib/api-fetch', () => ({ apiFetch: vi.fn() }));

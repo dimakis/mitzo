@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { searchCodex } from './codex-approved-search.js';
 import { context, SpanStatusCode, type Span } from '@opentelemetry/api';
 import { createHash } from 'node:crypto';
 import { performance } from 'node:perf_hooks';
@@ -108,6 +109,8 @@ export interface CodexConversationOptions {
     turn: { providerPrompt: string; userIntent?: string; turnId: string },
     signal: AbortSignal,
   ) => Promise<string | void>;
+  /** Select verified project context at a safe boundary; never append it as user text. */
+  prepareSystemPrompt?: (signal: AbortSignal) => Promise<string | undefined>;
   beforeComplete?: (signal: AbortSignal) => Promise<void>;
   /** Private bounded trusted observer; must stop its reads when the supplied signal aborts. */
   observeStartupConfig?: (
@@ -117,6 +120,8 @@ export interface CodexConversationOptions {
   /** Original execution cancellation; trusted construction only. */
   startupSignal?: AbortSignal;
   beforeReconnect?: () => Promise<void>;
+  /** Completed-turn boundary, before claiming queued work. */
+  beforeRuntimeAdmission?: (closeOwnedTransport: () => Promise<void>) => Promise<boolean>;
   reconnectGuard?: (work: () => Promise<void>) => Promise<void>;
   completionHookTimeoutMs?: number;
   runtimeCwd?: string;
@@ -133,6 +138,13 @@ export interface CodexConversationOptions {
   onProviderDispatch?: (commandId: string) => void;
   /** Persist an exact provider turn receipt after turn/start confirms its ID. */
   onProviderAccepted?: (commandId: string, threadId: string, turnId: string) => void;
+  /** Called only after the provider confirms the exact turn/start request carrying this context. */
+  onApplicationContextAccepted?: (
+    commandId: string,
+    threadId: string,
+    turnId: string,
+    context: string,
+  ) => void;
   onProviderComplete?: (commandId: string, status: 'completed' | 'interrupted' | 'failed') => void;
   /** Only the matching native turn/completed notification, never transport loss or close. */
   onProviderTerminal?: (
@@ -183,7 +195,8 @@ const ToolCall = z.object({
   threadId: z.string(),
   turnId: z.string(),
   callId: z.string().min(1),
-  namespace: z.null().optional(),
+  // Codex code-mode dispatch can supply a string namespace for flat host tools.
+  namespace: z.string().nullable().optional(),
   tool: z.string(),
   arguments: z.record(z.string(), z.unknown()),
 });
@@ -500,6 +513,36 @@ export class CodexConversation {
   getWebSearchGrant(): PersistedWebSearchGrant {
     if (!this.binding) throw new Error('Codex account binding unavailable');
     return this.opts.store.readWebSearchGrant(this.opts.conversationId, this.binding);
+  }
+  /** Explicit per-request approval is performed by the host tool before entering here. */
+  async searchWeb(query: string, signal: AbortSignal): Promise<string> {
+    if (
+      this.closed ||
+      !this.ready ||
+      !this.binding ||
+      this.webSearchDeploymentCeiling !== 'live' ||
+      this.opts.getMode?.() === 'ask'
+    )
+      throw new Error('Search is unavailable on this deployment or session');
+    const binding = this.binding;
+    return searchCodex(query, signal, {
+      createClient: this.opts.createClient,
+      verify: async (client) => {
+        const current = this.opts.verifyBinding
+          ? await this.opts.verifyBinding(client, binding)
+          : await verifyCodexAccount(client, this.opts.profile, binding);
+        if (
+          current.accountId !== binding.accountId ||
+          current.profileRevision !== binding.profileRevision
+        )
+          throw new Error('Search account binding changed');
+      },
+      model: this.active?.command.model ?? binding.model,
+      modelProvider: this.opts.modelProvider ?? 'openai',
+      cwd: this.opts.runtimeCwd ?? this.opts.cwd,
+      runtimeConfig: this.opts.runtimeConfig,
+      workspaceId: this.opts.profile.workspaceId,
+    });
   }
   queue() {
     if (!this.binding) return [];
@@ -1101,6 +1144,30 @@ export class CodexConversation {
     span.end();
   }
   private async beginNext() {
+    if (this.opts.beforeRuntimeAdmission && this.binding && !this.active) {
+      await this.verifyCurrentBinding(this.binding);
+      try {
+        const admit = async () => {
+          const changed = await this.opts.beforeRuntimeAdmission!(async () => {
+            this.transportGeneration += 1;
+            this.ready = false;
+            this.client.close();
+          });
+          if (changed || !this.ready) await this.reconnectBound();
+        };
+        // Hold the current grant reservation across migration and reattachment;
+        // validating only afterward could already provision revoked connections.
+        if (this.opts.reconnectGuard) await this.opts.reconnectGuard(admit);
+        else await admit();
+      } catch (error) {
+        // Admission precedes claimNext: preserve queued FIFO and expose an
+        // explicit recovery pause even when only our idle transport was closed.
+        this.paused = true;
+        this.opts.store.pauseForRecovery(this.opts.conversationId, this.binding);
+        this.opts.onQueueChange?.();
+        throw error;
+      }
+    }
     const command = this.opts.store.claimNext(this.opts.conversationId, this.binding!);
     if (!command) return;
     const active = {
@@ -1121,6 +1188,20 @@ export class CodexConversation {
       this.mapper?.setModel(model);
       await this.verifyCurrentBinding(this.binding);
       active.abort.signal.throwIfAborted();
+      const systemPrompt = await this.opts.prepareSystemPrompt?.(active.abort.signal);
+      // Native threads have no persisted rollout before their first turn.
+      // Deliver the selection through the public per-turn application context
+      // contract, preserving both provider identity and unchanged user input.
+      const additionalContext: Record<
+        string,
+        { kind: 'application' | 'untrusted'; value: string }
+      > = {};
+      if (systemPrompt !== undefined)
+        additionalContext['mitzo.published-project-context'] = {
+          kind: 'application',
+          value: systemPrompt,
+        };
+      active.abort.signal.throwIfAborted();
       const preparedPrompt =
         (await this.opts.prepareTurn?.(
           { providerPrompt: command.prompt, userIntent: command.intent, turnId: command.id },
@@ -1140,6 +1221,11 @@ export class CodexConversation {
       active.span = tracer.startSpan('codex.turn', {}, context.active());
       active.span.setAttribute('mitzo.route', 'chatgpt-subscription');
       active.span.setAttribute('gen_ai.request.model', model);
+      if (rolloverContext && !attemptContext)
+        additionalContext['mitzo.tool-surface-rollover'] = {
+          kind: 'untrusted',
+          value: rolloverContext,
+        };
       const result = z.object({ turn: z.object({ id: z.string() }) }).parse(
         await this.client.request('turn/start', {
           threadId: this.threadId,
@@ -1156,16 +1242,7 @@ export class CodexConversation {
           approvalPolicy: 'never',
           sandboxPolicy: this.opts.turnSandboxPolicy ?? { type: 'readOnly' },
           ...(command.reasoningEffort ? { effort: command.reasoningEffort } : {}),
-          ...(rolloverContext && !attemptContext
-            ? {
-                additionalContext: {
-                  'mitzo.tool-surface-rollover': {
-                    kind: 'untrusted',
-                    value: rolloverContext,
-                  },
-                },
-              }
-            : {}),
+          ...(Object.keys(additionalContext).length ? { additionalContext } : {}),
         }),
       );
       if (this.active === active) {
@@ -1173,6 +1250,13 @@ export class CodexConversation {
           throw new Error('Codex turn identity changed');
         active.turnId = result.turn.id;
         this.opts.onProviderAccepted?.(command.id, this.threadId!, active.turnId);
+        if (systemPrompt !== undefined)
+          this.opts.onApplicationContextAccepted?.(
+            command.id,
+            this.threadId!,
+            active.turnId,
+            systemPrompt,
+          );
         active.accepted = true;
         const completion = active.completions.get(active.turnId);
         if (completion) {

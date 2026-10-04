@@ -7,7 +7,7 @@ vi.mock('../api-fetch', () => ({
 
 import { apiFetch } from '../api-fetch';
 import { Capacitor } from '@capacitor/core';
-import { shareFile } from '../share-file';
+import { shareFile, downloadFile, shareTelosArtifact } from '../share-file';
 
 const mockApiFetch = vi.mocked(apiFetch);
 
@@ -47,6 +47,26 @@ describe('shareFile', () => {
     vi.useRealTimers();
   });
 
+  it('fetches Telos bytes through apiFetch and shares a named file on mobile', async () => {
+    vi.spyOn(Capacitor, 'isNativePlatform').mockReturnValue(true);
+    const share = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'canShare', { value: () => true, configurable: true });
+    Object.defineProperty(navigator, 'share', { value: share, configurable: true });
+    mockApiFetch.mockResolvedValue(
+      new Response('# Document', {
+        headers: { 'Content-Disposition': "attachment; filename*=UTF-8''Recovery%20spec.md" },
+      }),
+    );
+    const url = '/api/telos/artifacts/' + 'a'.repeat(32) + '?revision=1';
+    expect(await shareTelosArtifact(url)).toBe(true);
+    expect(mockApiFetch).toHaveBeenLastCalledWith(url);
+    expect(share.mock.calls[0][0].files[0]).toMatchObject({
+      name: 'Recovery spec.md',
+      type: 'text/markdown',
+    });
+    expect(createObjectURLSpy).not.toHaveBeenCalled();
+  });
+
   it('downloads file and triggers browser download when canShare is unavailable', async () => {
     const blob = new Blob(['# Hello'], { type: 'application/octet-stream' });
     mockApiFetch.mockResolvedValue(new Response(blob, { status: 200 }));
@@ -60,6 +80,43 @@ describe('shareFile', () => {
     expect(appendChildSpy).toHaveBeenCalled();
     expect(removeChildSpy).toHaveBeenCalled();
     expect(result).toBe(true);
+  });
+
+  it('downloads directly even when the browser supports native sharing', async () => {
+    const share = vi.fn().mockRejectedValue(new DOMException('Blocked', 'NotAllowedError'));
+    Object.defineProperty(navigator, 'canShare', { value: () => true, configurable: true });
+    Object.defineProperty(navigator, 'share', { value: share, configurable: true });
+    mockApiFetch.mockResolvedValue(
+      new Response('# Document', { headers: { 'Content-Type': 'text/plain' } }),
+    );
+    vi.useFakeTimers();
+    expect(await downloadFile('/workspace/report.md', 'session-1')).toBe(true);
+    expect(share).not.toHaveBeenCalled();
+    expect(clickedHrefs).toEqual(['blob:test-url']);
+    expect(createObjectURLSpy.mock.calls[0][0]).toMatchObject({
+      name: 'report.md',
+      type: 'text/markdown',
+    });
+    expect(mockApiFetch).toHaveBeenLastCalledWith(
+      '/api/files/download?path=%2Fworkspace%2Freport.md&sessionId=session-1',
+    );
+    expect(revokeObjectURLSpy).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(revokeObjectURLSpy).toHaveBeenCalledWith('blob:test-url');
+  });
+
+  it('shares Markdown with its document MIME type even if served as plain text', async () => {
+    const share = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'canShare', { value: () => true, configurable: true });
+    Object.defineProperty(navigator, 'share', { value: share, configurable: true });
+    mockApiFetch.mockResolvedValue(
+      new Response('# Document', { headers: { 'Content-Type': 'text/plain; charset=utf-8' } }),
+    );
+    await shareFile('document.md');
+    expect(share.mock.calls[0][0].files[0]).toMatchObject({
+      name: 'document.md',
+      type: 'text/markdown',
+    });
   });
 
   it('uses native share when canShare returns true', async () => {

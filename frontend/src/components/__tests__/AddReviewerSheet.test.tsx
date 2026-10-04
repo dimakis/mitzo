@@ -42,8 +42,8 @@ it('starts independent and keeps controls out of the composer until opened', asy
   expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole('button', { name: 'Add reviewer' }));
   expect(await screen.findByRole('dialog')).toBeInTheDocument();
-  expect(screen.getByLabelText('Context package')).toHaveValue('independent');
-  expect(screen.getByRole('button', { name: 'Add reviewer and queue context' })).toBeDisabled();
+  expect(screen.getByLabelText('Conversation context to share')).toHaveValue('independent');
+  expect(screen.getByRole('button', { name: 'Add reviewer & queue request' })).toBeDisabled();
 });
 it('does not read history for independent review or enable addition without explicit profile and boundary', async () => {
   vi.mocked(apiFetch).mockResolvedValue(
@@ -56,7 +56,7 @@ it('does not read history for independent review or enable addition without expl
     vi.mocked(apiFetch).mock.calls.some(([url]) => String(url).includes('context-turns')),
   ).toBe(false);
   fireEvent.click(screen.getByText('Choose account'));
-  expect(screen.getByRole('button', { name: 'Add reviewer and queue context' })).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Add reviewer & queue request' })).toBeDisabled();
 });
 
 it('adds a read-only reviewer with empty history grants and queues only the explicit package', async () => {
@@ -121,18 +121,23 @@ it('adds a read-only reviewer with empty history grants and queues only the expl
   fireEvent.click(screen.getByRole('button', { name: 'Add reviewer' }));
   fireEvent.click(await screen.findByText('Choose account'));
   fireEvent.click(screen.getByText('Choose profile'));
-  fireEvent.change(screen.getByLabelText('Review package'), {
+  fireEvent.change(screen.getByLabelText('What should the reviewer check?'), {
     target: { value: 'Review diff for acceptance criteria A; tests passed' },
   });
   fireEvent.click(screen.getByRole('checkbox'));
   await waitFor(() =>
-    expect(screen.getByRole('button', { name: 'Add reviewer and queue context' })).toBeEnabled(),
+    expect(screen.getByRole('button', { name: 'Add reviewer & queue request' })).toBeEnabled(),
   );
   act(() => accountPicker.onChange?.(null));
-  expect(screen.getByRole('button', { name: 'Add reviewer and queue context' })).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Add reviewer & queue request' })).toBeDisabled();
   fireEvent.click(screen.getByText('Choose account'));
-  fireEvent.click(screen.getByRole('button', { name: 'Add reviewer and queue context' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Add reviewer & queue request' }));
   await screen.findByText(/Reviewer added/);
+  const handoff = vi.fn();
+  window.addEventListener('symposium-open-team', handoff, { once: true });
+  fireEvent.click(screen.getByRole('button', { name: 'Go to review approvals' }));
+  expect(handoff).toHaveBeenCalledWith(expect.objectContaining({ detail: { sessionId: 'chat' } }));
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   const revise = vi
     .mocked(apiFetch)
     .mock.calls.find(([url]) => String(url).endsWith('/seats/revise'))!;
@@ -179,12 +184,12 @@ it('lets an ordinary conversation prepare its isolated roster before runtime adm
   fireEvent.click(screen.getByRole('button', { name: 'Add reviewer' }));
   fireEvent.click(await screen.findByText('Choose account'));
   fireEvent.click(screen.getByText('Choose profile'));
-  fireEvent.change(screen.getByLabelText('Review package'), {
+  fireEvent.change(screen.getByLabelText('What should the reviewer check?'), {
     target: { value: 'Review supplied diff' },
   });
   fireEvent.click(screen.getByRole('checkbox'));
   await waitFor(() =>
-    expect(screen.getByRole('button', { name: 'Add reviewer and queue context' })).toBeEnabled(),
+    expect(screen.getByRole('button', { name: 'Add reviewer & queue request' })).toBeEnabled(),
   );
 });
 
@@ -254,22 +259,22 @@ it('retains an admitted reviewer and frozen context across close/reopen after qu
   fireEvent.click(screen.getByRole('button', { name: 'Add reviewer' }));
   fireEvent.click(await screen.findByText('Choose account'));
   fireEvent.click(screen.getByText('Choose profile'));
-  fireEvent.change(screen.getByLabelText('Review package'), {
+  fireEvent.change(screen.getByLabelText('What should the reviewer check?'), {
     target: { value: 'Frozen package' },
   });
   fireEvent.click(screen.getByRole('checkbox'));
   await waitFor(() =>
-    expect(screen.getByRole('button', { name: 'Add reviewer and queue context' })).toBeEnabled(),
+    expect(screen.getByRole('button', { name: 'Add reviewer & queue request' })).toBeEnabled(),
   );
-  fireEvent.click(screen.getByRole('button', { name: 'Add reviewer and queue context' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Add reviewer & queue request' }));
   await screen.findByText(/Queue unavailable/);
   act(() => accountPicker.onChange?.(null));
   act(() => profilePicker.onChange?.({ profileId: 'review', revision: 2 }));
-  expect(screen.getByRole('button', { name: 'Add reviewer and queue context' })).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Add reviewer & queue request' })).toBeDisabled();
   fireEvent.click(screen.getByRole('button', { name: 'Close' }));
   fireEvent.click(screen.getByRole('button', { name: 'Add reviewer' }));
-  expect(screen.getByLabelText('Review package')).toBeDisabled();
-  expect(screen.getByRole('button', { name: 'Add reviewer and queue context' })).toBeDisabled();
+  expect(screen.getByLabelText('What should the reviewer check?')).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Add reviewer & queue request' })).toBeDisabled();
   const writes = vi.mocked(apiFetch).mock.calls;
   expect(writes.filter(([url]) => String(url).endsWith('/seats/revise'))).toHaveLength(1);
   expect(writes.filter(([url]) => String(url).endsWith('/deliveries'))).toHaveLength(1);
@@ -306,19 +311,21 @@ it('refreshes unavailable runtime on reopen while preserving reviewer choices', 
   fireEvent.click(screen.getByRole('button', { name: 'Add reviewer' }));
   fireEvent.click(await screen.findByText('Choose account'));
   fireEvent.click(screen.getByText('Choose profile'));
-  fireEvent.change(screen.getByLabelText('Review package'), {
+  fireEvent.change(screen.getByLabelText('What should the reviewer check?'), {
     target: { value: 'Review current diff' },
   });
   fireEvent.click(screen.getByRole('checkbox'));
   await screen.findByText('This agent can’t connect yet. Your choices stay in this form.');
-  expect(screen.getByRole('button', { name: 'Add reviewer and queue context' })).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Add reviewer & queue request' })).toBeDisabled();
   fireEvent.click(screen.getByRole('button', { name: 'Close' }));
   available = true;
   fireEvent.click(screen.getByRole('button', { name: 'Add reviewer' }));
   await waitFor(() =>
-    expect(screen.getByRole('button', { name: 'Add reviewer and queue context' })).toBeEnabled(),
+    expect(screen.getByRole('button', { name: 'Add reviewer & queue request' })).toBeEnabled(),
   );
-  expect(screen.getByLabelText('Review package')).toHaveValue('Review current diff');
+  expect(screen.getByLabelText('What should the reviewer check?')).toHaveValue(
+    'Review current diff',
+  );
   expect(apiFetch).toHaveBeenCalledTimes(2);
 });
 
@@ -339,14 +346,16 @@ it('requires cross-account confirmation before converting an ordinary conversati
   fireEvent.click(screen.getByRole('button', { name: 'Add reviewer' }));
   fireEvent.click(await screen.findByText('Choose account'));
   fireEvent.click(screen.getByText('Choose profile'));
-  fireEvent.change(screen.getByLabelText('Review package'), { target: { value: 'Review diff' } });
+  fireEvent.change(screen.getByLabelText('What should the reviewer check?'), {
+    target: { value: 'Review diff' },
+  });
   fireEvent.click(screen.getByRole('checkbox'));
-  expect(screen.getByRole('button', { name: 'Add reviewer and queue context' })).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Add reviewer & queue request' })).toBeDisabled();
   expect(apiFetch).not.toHaveBeenCalledWith(expect.stringContaining('/draft'), expect.anything());
   fireEvent.change(screen.getByLabelText(/Cross-account confirmation/), {
     target: { value: 'ADD CROSS-ACCOUNT SEAT' },
   });
-  expect(screen.getByRole('button', { name: 'Add reviewer and queue context' })).toBeEnabled();
+  expect(screen.getByRole('button', { name: 'Add reviewer & queue request' })).toBeEnabled();
 });
 
 it('rechecks the ordinary account before creating a draft when its binding changes', async () => {
@@ -372,9 +381,11 @@ it('rechecks the ordinary account before creating a draft when its binding chang
   fireEvent.click(screen.getByRole('button', { name: 'Add reviewer' }));
   fireEvent.click(await screen.findByText('Choose account'));
   fireEvent.click(screen.getByText('Choose profile'));
-  fireEvent.change(screen.getByLabelText('Review package'), { target: { value: 'Review diff' } });
+  fireEvent.change(screen.getByLabelText('What should the reviewer check?'), {
+    target: { value: 'Review diff' },
+  });
   fireEvent.click(screen.getByRole('checkbox'));
-  fireEvent.click(screen.getByRole('button', { name: 'Add reviewer and queue context' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Add reviewer & queue request' }));
   await screen.findByText(/Confirm the cross-account transfer/);
   expect(apiFetch).not.toHaveBeenCalledWith(expect.stringContaining('/draft'), expect.anything());
 });
@@ -396,14 +407,14 @@ it('rejects a non-reviewer profile before converting an ordinary conversation', 
   fireEvent.click(screen.getByRole('button', { name: 'Add reviewer' }));
   fireEvent.click(await screen.findByText('Choose account'));
   fireEvent.click(screen.getByText('Choose profile'));
-  fireEvent.change(screen.getByLabelText('Review package'), {
+  fireEvent.change(screen.getByLabelText('What should the reviewer check?'), {
     target: { value: 'Review this diff' },
   });
   fireEvent.click(screen.getByRole('checkbox'));
   await waitFor(() =>
-    expect(screen.getByRole('button', { name: 'Add reviewer and queue context' })).toBeEnabled(),
+    expect(screen.getByRole('button', { name: 'Add reviewer & queue request' })).toBeEnabled(),
   );
-  fireEvent.click(screen.getByRole('button', { name: 'Add reviewer and queue context' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Add reviewer & queue request' }));
   await screen.findByText(/Choose a profile with the reviewer role/);
   expect(vi.mocked(apiFetch).mock.calls.some(([, init]) => init?.method === 'POST')).toBe(false);
   expect(screen.getByText('Choose profile').closest('fieldset')).not.toBeDisabled();
@@ -437,17 +448,19 @@ it.each(['active', 'draft', 'draft-config'])(
     fireEvent.click(screen.getByRole('button', { name: 'Add reviewer' }));
     fireEvent.click(await screen.findByText('Choose account'));
     fireEvent.click(screen.getByText('Choose profile'));
-    fireEvent.change(screen.getByLabelText('Review package'), { target: { value: 'Review diff' } });
+    fireEvent.change(screen.getByLabelText('What should the reviewer check?'), {
+      target: { value: 'Review diff' },
+    });
     fireEvent.click(screen.getByRole('checkbox'));
     await waitFor(() =>
-      expect(screen.getByRole('button', { name: 'Add reviewer and queue context' })).toBeEnabled(),
+      expect(screen.getByRole('button', { name: 'Add reviewer & queue request' })).toBeEnabled(),
     );
-    fireEvent.click(screen.getByRole('button', { name: 'Add reviewer and queue context' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Add reviewer & queue request' }));
     await screen.findByText(/Selected model is unavailable/);
     await waitFor(() =>
       expect(screen.getByText('Choose account').closest('fieldset')).not.toBeDisabled(),
     );
-    expect(screen.getByLabelText('Review package')).toBeEnabled();
+    expect(screen.getByLabelText('What should the reviewer check?')).toBeEnabled();
   },
 );
 
@@ -474,24 +487,40 @@ it('keeps a lost mutation response frozen when a temporarily absent seat may com
   fireEvent.click(screen.getByRole('button', { name: 'Add reviewer' }));
   fireEvent.click(await screen.findByText('Choose account'));
   fireEvent.click(screen.getByText('Choose profile'));
-  fireEvent.change(screen.getByLabelText('Review package'), { target: { value: 'Frozen diff' } });
+  fireEvent.change(screen.getByLabelText('What should the reviewer check?'), {
+    target: { value: 'Frozen diff' },
+  });
   fireEvent.click(screen.getByRole('checkbox'));
   await waitFor(() =>
-    expect(screen.getByRole('button', { name: 'Add reviewer and queue context' })).toBeEnabled(),
+    expect(screen.getByRole('button', { name: 'Add reviewer & queue request' })).toBeEnabled(),
   );
-  fireEvent.click(screen.getByRole('button', { name: 'Add reviewer and queue context' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Add reviewer & queue request' }));
   await screen.findByText(/Response lost/);
   await waitFor(() =>
-    expect(screen.getByRole('button', { name: 'Add reviewer and queue context' })).toBeDisabled(),
+    expect(screen.getByRole('button', { name: 'Add reviewer & queue request' })).toBeDisabled(),
   );
   expect(config.seats).toHaveLength(1);
-  expect(screen.getByLabelText('Review package')).toBeDisabled();
+  expect(screen.getByLabelText('What should the reviewer check?')).toBeDisabled();
   config.revision++;
   config.seats.push({ id: lateSeat, accountBinding: { accountId: 'a' } });
   fireEvent.click(screen.getByRole('button', { name: 'Close' }));
   fireEvent.click(screen.getByRole('button', { name: 'Add reviewer' }));
-  expect(screen.getByLabelText('Review package')).toBeDisabled();
+  expect(screen.getByLabelText('What should the reviewer check?')).toBeDisabled();
   expect(
     vi.mocked(apiFetch).mock.calls.filter(([url]) => String(url).endsWith('/seats/revise')),
   ).toHaveLength(1);
+});
+
+it('explains read-only review and the separate approval and send steps before setup', async () => {
+  vi.mocked(apiFetch).mockResolvedValue(
+    new Response(JSON.stringify({ config: null, seats: [], runtimeAvailable: false })),
+  );
+  render(<AddReviewerSheet sessionId="chat" />);
+  fireEvent.click(screen.getByRole('button', { name: 'Add reviewer' }));
+  expect(await screen.findByRole('heading', { name: 'Add an AI reviewer' })).toBeTruthy();
+  expect(screen.getByText(/A reviewer checks your work and returns findings/)).toBeTruthy();
+  expect(screen.getByText(/Approve the request, then send it/)).toBeTruthy();
+  expect(screen.getByRole('heading', { name: '1. Choose your reviewer' })).toBeTruthy();
+  expect(screen.getByRole('heading', { name: '2. Set the review request' })).toBeTruthy();
+  expect(screen.getByRole('heading', { name: '3. Confirm sharing' })).toBeTruthy();
 });

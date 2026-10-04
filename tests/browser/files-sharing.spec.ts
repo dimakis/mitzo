@@ -1,3 +1,4 @@
+import { readFile } from 'node:fs/promises';
 import { expect, test } from '@playwright/test';
 
 test('a file reopened from an existing conversation can follow links and share its original bytes', async ({
@@ -62,4 +63,50 @@ test('a file reopened from an existing conversation can follow links and share i
   expect(downloads).toHaveLength(1);
   expect(downloads[0].searchParams.get('sessionId')).toBe(sessionId);
   expect(downloads[0].searchParams.get('path')).toBe('/workspace/notes.md');
+});
+
+test('Download saves the original document when the browser share sheet is blocked', async ({
+  page,
+}) => {
+  const document = '# Document\n\n**Formatting** stays in Markdown.\n';
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, 'canShare', { value: () => true, configurable: true });
+    Object.defineProperty(navigator, 'share', {
+      configurable: true,
+      value: async () => {
+        throw new DOMException('Sharing blocked', 'NotAllowedError');
+      },
+    });
+  });
+  await page.routeWebSocket('**/*', (socket) => socket.close());
+  await page.route('**/api/**', (route) => {
+    const url = new URL(route.request().url());
+    if (url.pathname === '/api/files/read')
+      return route.fulfill({
+        json: { path: '/workspace/document.md', ext: '.md', content: document },
+      });
+    if (url.pathname === '/api/files/download') {
+      expect(url.searchParams.get('sessionId')).toBe('saved-session');
+      expect(url.searchParams.get('path')).toBe('/workspace/document.md');
+      return route.fulfill({ contentType: 'text/plain', body: document });
+    }
+    if (url.pathname === '/api/files/roots') return route.fulfill({ json: [] });
+    if (url.pathname === '/api/git/info')
+      return route.fulfill({ json: { branch: 'main', repoPath: '/workspace', worktrees: [] } });
+    return route.fulfill({ json: {} });
+  });
+  await page.goto('/files?path=%2Fworkspace%2Fdocument.md&sessionId=saved-session');
+  await expect(page.getByRole('heading', { name: 'Document' })).toBeVisible();
+  // Reproduce the reported share error, then recover with the independent Download action.
+  await page.getByRole('button', { name: 'Share file', exact: true }).click();
+  await expect(page.getByRole('alert')).toContainText('Tap Share again');
+  const downloadButton = page.getByRole('button', { name: 'Download file', exact: true });
+  await expect(downloadButton).toBeInViewport();
+  const downloaded = page.waitForEvent('download');
+  await downloadButton.click();
+  const file = await downloaded;
+  expect(file.suggestedFilename()).toBe('document.md');
+  expect(await file.failure()).toBeNull();
+  expect(await readFile((await file.path())!, 'utf8')).toBe(document);
+  await expect(page.getByRole('button', { name: 'Downloaded', exact: true })).toBeVisible();
 });

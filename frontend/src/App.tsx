@@ -1,3 +1,5 @@
+import { NotificationProvider } from './components/NotificationProvider';
+import { NotificationsView } from './pages/NotificationsView';
 import { SymposiumSavedReviewRecordPage } from './components/SymposiumSavedReviewRecordPage';
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { useState, useEffect } from 'react';
@@ -14,6 +16,7 @@ import { Login } from './pages/Login';
 import { Today } from './pages/Today';
 import { MoreView } from './pages/MoreView';
 import { ConnectionsView } from './pages/ConnectionsView';
+import { ConnectionsAccessView } from './pages/ConnectionsAccessView';
 import { AttentionFeed } from './components/AttentionFeed';
 import { WorkspacePageHeading } from './components/WorkspacePageHeading';
 import { SessionList } from './pages/SessionList';
@@ -153,149 +156,171 @@ export function App() {
     <ErrorBoundary>
       <div onClickCapture={dismissKeyboard}>
         <BrowserRouter>
-          <MobileShell>
-            <Routes>
-              <Route path="/login" element={<Login />} />
-              <Route
-                path="/sessions/:sessionId/review-records/:recordId"
-                element={
-                  <ProtectedRoute>
-                    <PageRoute>
-                      <SymposiumSavedReviewRecordPage />
-                    </PageRoute>
-                  </ProtectedRoute>
-                }
-              />
-              <Route
-                path="/"
-                element={
-                  <ProtectedRoute>
-                    <ErrorBoundary>
-                      <HomeRoute />
-                    </ErrorBoundary>
-                  </ProtectedRoute>
-                }
-              />
-              <Route
-                path="/sessions"
-                element={
-                  <ProtectedRoute>
-                    <PageRoute>
-                      <SessionList />
-                    </PageRoute>
-                  </ProtectedRoute>
-                }
-              />
-              <Route
-                path="/more"
-                element={
-                  <ProtectedRoute>
-                    <PageRoute>
-                      <MoreView />
-                    </PageRoute>
-                  </ProtectedRoute>
-                }
-              />
-              <Route
-                path="/connections"
-                element={
-                  <ProtectedRoute>
-                    <PageRoute>
-                      <ConnectionsView />
-                    </PageRoute>
-                  </ProtectedRoute>
-                }
-              />
-              <Route
-                path="/focus"
-                element={
-                  <ProtectedRoute>
-                    <PageRoute>
-                      <main className="workspace-page">
-                        <WorkspacePageHeading
-                          title="Attention"
-                          description="The items that need a decision or a closer look."
-                        />
-                        <AttentionFeed />
-                      </main>
-                    </PageRoute>
-                  </ProtectedRoute>
-                }
-              />
-              <Route
-                path="/chat"
-                element={
-                  <ProtectedRoute>
-                    <ErrorBoundary>
-                      <ChatRoute />
-                    </ErrorBoundary>
-                  </ProtectedRoute>
-                }
-              />
-              <Route
-                path="/chat/:sessionId"
-                element={
-                  <ProtectedRoute>
-                    <ErrorBoundary>
-                      <ChatRoute />
-                    </ErrorBoundary>
-                  </ProtectedRoute>
-                }
-              />
-              <Route
-                path="/inbox"
-                element={
-                  <ProtectedRoute>
-                    <PageRoute>
-                      <CollectionRoute page="proposals" />
-                    </PageRoute>
-                  </ProtectedRoute>
-                }
-              />
-              <Route
-                path="/calendar"
-                element={
-                  <ProtectedRoute>
-                    <PageRoute>
-                      <CollectionRoute page="calendar" />
-                    </PageRoute>
-                  </ProtectedRoute>
-                }
-              />
-              <Route
-                path="/todos/:id?"
-                element={
-                  <ProtectedRoute>
-                    <PageRoute>
-                      <TodoWorkspace />
-                    </PageRoute>
-                  </ProtectedRoute>
-                }
-              />
-              <Route
-                path="/tasks"
-                element={
-                  <ProtectedRoute>
-                    <PageRoute>
-                      <TaskBoardRoute />
-                    </PageRoute>
-                  </ProtectedRoute>
-                }
-              />
-              <Route
-                path="/files"
-                element={
-                  <ProtectedRoute>
-                    <ErrorBoundary>
+          <NotificationProvider>
+            <MobileShell>
+              <Routes>
+                <Route path="/login" element={<Login />} />
+                <Route
+                  path="/sessions/:sessionId/review-records/:recordId"
+                  element={
+                    <ProtectedRoute>
                       <PageRoute>
-                        <FileViewer />
+                        <SymposiumSavedReviewRecordPage />
                       </PageRoute>
-                    </ErrorBoundary>
-                  </ProtectedRoute>
-                }
-              />
-            </Routes>
-          </MobileShell>
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/"
+                  element={
+                    <ProtectedRoute>
+                      <ErrorBoundary>
+                        <HomeRoute />
+                      </ErrorBoundary>
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/sessions"
+                  element={
+                    <ProtectedRoute>
+                      <PageRoute>
+                        <SessionList />
+                      </PageRoute>
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/more"
+                  element={
+                    <ProtectedRoute>
+                      <PageRoute>
+                        <MoreView />
+                      </PageRoute>
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/connections-access"
+                  element={
+                    <ProtectedRoute>
+                      <PageRoute>
+                        <ConnectionsAccessView />
+                      </PageRoute>
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/notifications"
+                  element={
+                    <ProtectedRoute>
+                      <PageRoute>
+                        <NotificationsView />
+                      </PageRoute>
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/connections"
+                  element={
+                    <ProtectedRoute>
+                      <PageRoute>
+                        <ConnectionsView />
+                      </PageRoute>
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/focus"
+                  element={
+                    <ProtectedRoute>
+                      <PageRoute>
+                        <main className="workspace-page">
+                          <WorkspacePageHeading
+                            title="Attention"
+                            description="The items that need a decision or a closer look."
+                          />
+                          <AttentionFeed />
+                        </main>
+                      </PageRoute>
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/chat"
+                  element={
+                    <ProtectedRoute>
+                      <ErrorBoundary>
+                        <ChatRoute />
+                      </ErrorBoundary>
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/chat/:sessionId"
+                  element={
+                    <ProtectedRoute>
+                      <ErrorBoundary>
+                        <ChatRoute />
+                      </ErrorBoundary>
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/inbox"
+                  element={
+                    <ProtectedRoute>
+                      <PageRoute>
+                        <CollectionRoute page="proposals" />
+                      </PageRoute>
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/calendar"
+                  element={
+                    <ProtectedRoute>
+                      <PageRoute>
+                        <CollectionRoute page="calendar" />
+                      </PageRoute>
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/todos/:id?"
+                  element={
+                    <ProtectedRoute>
+                      <PageRoute>
+                        <TodoWorkspace />
+                      </PageRoute>
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/tasks"
+                  element={
+                    <ProtectedRoute>
+                      <PageRoute>
+                        <TaskBoardRoute />
+                      </PageRoute>
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/files"
+                  element={
+                    <ProtectedRoute>
+                      <ErrorBoundary>
+                        <PageRoute>
+                          <FileViewer />
+                        </PageRoute>
+                      </ErrorBoundary>
+                    </ProtectedRoute>
+                  }
+                />
+              </Routes>
+            </MobileShell>
+          </NotificationProvider>
         </BrowserRouter>
       </div>
     </ErrorBoundary>

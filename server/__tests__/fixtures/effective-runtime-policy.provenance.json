@@ -1,0 +1,18 @@
+{
+  "source": "credential-free reconstruction of the owned ordinary canary policy observation",
+  "authoredBaseCanonicalSha256": "365cf2bcf08f34b01cd08d4496ac9d79b28ea1ac8112f40db7d6d3762221eb09",
+  "actualEffectiveCanonicalSha256": "3ff6057ab97edb0c3458f84e5382ab6b231ce3b604e1b5cb2d12b20e32386561",
+  "transformation": [
+    "omit only the two explicit-false endpoint protobuf defaults",
+    "add exactly the selected provider rule from the accepted reviewed OpenAI profile"
+  ],
+  "profileDefinitionSource": "docs/spikes/openshell-codex/openai-keychain-spike-profile.yaml",
+  "githubDefinitionSource": "https://github.com/NVIDIA/OpenShell/blob/a44bf4ad9ee2cf1e6bce350807e4a7b8458e137d/providers/github.yaml",
+  "githubDefaults": ["inference_capable=false", "unused credential query_param is empty"],
+  "buildProvenanceClaim": "none: matching a public tag or CLI version does not prove binary build identity",
+  "containsCredentialValues": false,
+  "containsAccountOrThreadIdentities": false,
+  "modelCalls": false,
+  "oauthDefinitionSource": "https://github.com/NVIDIA/OpenShell/blob/a44bf4ad9ee2cf1e6bce350807e4a7b8458e137d/providers/openai-codex-oauth.yaml",
+  "selectorProof": "scoped profile list emits workspace and platform fallback definitions; all selectable definitions are pinned and rechecked"
+}

@@ -42,7 +42,8 @@ vi.mock('../chat.js', () => {
   };
 });
 
-vi.mock('../permissions.js', () => ({
+vi.mock('../permissions.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../permissions.js')>()),
   resolvePending: vi.fn().mockReturnValue(true),
 }));
 
@@ -80,6 +81,11 @@ beforeAll(async () => {
 });
 
 describe('todo routes', () => {
+  it('saved output metadata and downloads require operator authentication', async () => {
+    expect((await request(app).get('/api/telos/items/t/artifacts')).status).toBe(401);
+    expect((await request(app).get('/api/telos/artifacts/' + 'a'.repeat(32))).status).toBe(401);
+  });
+
   it('GET /api/todos — unauthenticated returns 401', async () => {
     const res = await request(app).get('/api/todos');
     expect(res.status).toBe(401);

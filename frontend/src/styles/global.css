@@ -5084,7 +5084,7 @@ textarea:focus {
 
 .todo-card {
   position: relative;
-  background: transparent;
+  background: var(--bg);
   padding: 16px 4px;
   cursor: pointer;
   touch-action: pan-y;
@@ -5095,7 +5095,7 @@ textarea:focus {
 
 .todo-card:hover,
 .todo-card:focus-within {
-  background: color-mix(in srgb, var(--surface) 55%, transparent);
+  background: color-mix(in srgb, var(--surface) 55%, var(--bg));
 }
 
 /* ─── 3-line card layout ──────────────────────────────────────────── */
@@ -7728,4 +7728,147 @@ option {
 .symposium-boundary-note,
 .symposium-perspectives [role='tabpanel'] > button {
   flex-shrink: 0;
+}
+
+.symposium-review-help {
+  margin: 0.5rem 0;
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+
+.symposium-team-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 2.75rem;
+  width: 100%;
+  padding: 0.55rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--bg-secondary);
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.symposium-team-intro {
+  line-height: 1.5;
+}
+
+.symposium-director-panel h3 {
+  margin: 0.6rem 0 0;
+  font-size: 1rem;
+}
+
+.symposium-director-panel > ul > li {
+  padding: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 0.6rem;
+  background: var(--bg-secondary);
+  overflow-wrap: anywhere;
+}
+
+.symposium-director-panel > ul {
+  padding-left: 0;
+  list-style: none;
+}
+
+.symposium-advanced > summary {
+  padding-block: 0.65rem;
+  cursor: pointer;
+  color: var(--text-secondary);
+}
+
+.symposium-director-panel button {
+  border: 1px solid var(--border);
+  min-height: 2.75rem;
+  justify-self: start;
+  margin-block: 0.25rem;
+}
+
+.symposium-director-panel label {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  margin-block: 0.5rem;
+}
+
+.symposium-director-panel label:has(input[type='checkbox']) {
+  flex-direction: row;
+  align-items: center;
+}
+
+.symposium-director-panel input[type='checkbox'] {
+  width: 1.1rem;
+  height: 1.1rem;
+  flex: 0 0 1.1rem;
+}
+
+.symposium-director-panel fieldset {
+  padding: 0.75rem;
+}
+
+.symposium-director-panel legend {
+  font-weight: 600;
+  padding-inline: 0.3rem;
+}
+
+/* Durable work outputs stay readable and actionable on narrow screens. */
+.todo-detail-output-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.todo-detail-output-list li {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--border);
+  overflow-wrap: anywhere;
+}
+.todo-detail-output-filename,
+.todo-detail-output-meta,
+.todo-detail-output-note {
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+.todo-detail-output-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.todo-detail-outputs button {
+  min-height: 44px;
+  padding: 8px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  cursor: pointer;
+}
+.todo-detail-outputs button:disabled {
+  opacity: 0.5;
+  cursor: wait;
+}
+
+.todo-output-upload {
+  display: grid;
+  gap: 0.6rem;
+  margin-bottom: 1rem;
+}
+.todo-output-upload label {
+  display: grid;
+  gap: 0.3rem;
+  min-width: 0;
+}
+.todo-output-upload input {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+}
+.todo-output-upload p {
+  margin: 0;
 }

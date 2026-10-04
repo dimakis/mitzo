@@ -783,3 +783,73 @@ it('does not reassign an existing owner through another connection or adopt lega
     second.close();
   }
 });
+
+it('persists exact knowledge adoption across restart and rejects cross-account or conflicting receipts', () => {
+  const { path } = setup();
+  let s = new CodexConversationStore(path);
+  s.create('knowledge-chat', binding, '/workspace');
+  s.bindThread('knowledge-chat', binding, 'thread-knowledge');
+  s.enqueue('knowledge-chat', binding, { id: 'command', prompt: 'continue' });
+  s.claimNext('knowledge-chat', binding);
+  const selection = {
+    storeId: 'notes',
+    sourceCommit: 'a'.repeat(40),
+    payloadSha256: 'b'.repeat(64),
+    manifestSha256: 'c'.repeat(64),
+    contextSha256: 'd'.repeat(64),
+    sandboxId: 'physical-one',
+    knowledgeRoot: '/sandbox/workspaces/knowledge/knowledge-' + 'c'.repeat(64) + '/mgmt',
+    runtimeContractImageDigest: 'sha256:' + 'e'.repeat(64),
+    compilerSha256: 'f'.repeat(64),
+    recipeSha256: '1'.repeat(64),
+  };
+  expect(s.knowledgeAdoptions('knowledge-chat', binding)).toEqual([]);
+  s.recordKnowledgeAdoption(
+    'knowledge-chat',
+    binding,
+    'command',
+    'thread-knowledge',
+    'turn-one',
+    selection,
+  );
+  s.recordKnowledgeAdoption(
+    'knowledge-chat',
+    binding,
+    'command',
+    'thread-knowledge',
+    'turn-one',
+    selection,
+  );
+  expect(() =>
+    s.recordKnowledgeAdoption(
+      'knowledge-chat',
+      binding,
+      'command',
+      'thread-knowledge',
+      'turn-two',
+      selection,
+    ),
+  ).toThrow('Conflicting knowledge adoption');
+  expect(() =>
+    s.recordKnowledgeAdoption(
+      'knowledge-chat',
+      { ...binding, accountId: 'other' },
+      'command',
+      'thread-knowledge',
+      'turn-one',
+      selection,
+    ),
+  ).toThrow();
+  s.close();
+  s = new CodexConversationStore(path);
+  expect(s.knowledgeAdoptions('knowledge-chat', binding)).toMatchObject([
+    {
+      commandId: 'command',
+      attempt: 1,
+      threadId: 'thread-knowledge',
+      turnId: 'turn-one',
+      selection,
+    },
+  ]);
+  s.close();
+});

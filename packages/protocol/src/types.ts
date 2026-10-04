@@ -219,7 +219,7 @@ export interface PermissionRequest {
   description?: string;
   displayName?: string;
   tier?: ToolTier;
-  approvalScope?: 'session' | 'conversation';
+  approvalScope?: 'session' | 'conversation' | 'request';
   responseError?: string;
 }
 

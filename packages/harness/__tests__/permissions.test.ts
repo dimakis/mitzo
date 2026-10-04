@@ -8,6 +8,27 @@ import {
 } from '../src/permissions.js';
 
 describe('permissions module', () => {
+  it('treats a legacy always response to an exact-request card as one-time approval', () => {
+    let result: Record<string, unknown> | undefined;
+    registerPending(
+      'web-request',
+      'RequestWebAccess',
+      (value) => {
+        result = value;
+      },
+      { operation: 'search', query: 'Revenue' },
+      undefined,
+      'session',
+      {
+        permId: 'web-request',
+        toolName: 'RequestWebAccess',
+        toolInput: '{}',
+        approvalScope: 'request',
+      },
+    );
+    expect(resolvePending('web-request', 'always')).toBe(true);
+    expect(result?.decisionClassification).toBe('user_temporary');
+  });
   const permId = 'test-perm-001';
   const toolInput = { command: 'ls' };
 

@@ -2,7 +2,9 @@ import type { PermissionResult } from '@anthropic-ai/claude-agent-sdk';
 import type { PermissionRequest, QuestionAnswers } from '@mitzo/protocol';
 import type { ToolTier } from './tool-tiers.js';
 
-type PermissionResolver = (result: PermissionResult) => void;
+// A policy-aware resolver can return the final SDK result. Legacy callbacks may
+// return nothing (or incidental values), in which case the input is authoritative.
+type PermissionResolver = (result: PermissionResult) => unknown;
 
 interface PendingEntry {
   resolver: PermissionResolver;
@@ -15,6 +17,28 @@ interface PendingEntry {
 
 const pending = new Map<string, PendingEntry>();
 
+export type PermissionLifecycleEvent =
+  | { type: 'requested'; request: PermissionRequest }
+  | { type: 'resolved'; permId: string; resolution: 'allowed' | 'denied' | 'expired' };
+const lifecycleListeners = new Set<(event: PermissionLifecycleEvent) => void>();
+export function onPermissionLifecycle(
+  listener: (event: PermissionLifecycleEvent) => void,
+): () => void {
+  lifecycleListeners.add(listener);
+  return () => {
+    lifecycleListeners.delete(listener);
+  };
+}
+function notifyLifecycle(event: PermissionLifecycleEvent): void {
+  for (const listener of lifecycleListeners) {
+    try {
+      listener(structuredClone(event));
+    } catch {
+      /* Notification failures cannot change authority. */
+    }
+  }
+}
+
 export function registerPending(
   permId: string,
   toolName: string,
@@ -25,6 +49,7 @@ export function registerPending(
   request?: PermissionRequest,
 ) {
   pending.set(permId, { resolver, toolName, toolInput, tier, sessionId, request });
+  if (request) notifyLifecycle({ type: 'requested', request });
 }
 
 export function resolvePending(
@@ -39,7 +64,11 @@ export function resolvePending(
   let toolInput = entry.toolInput;
   // Questions never grant session-wide tool permission. Treat a legacy/malformed
   // "always" response as a one-shot answer instead of leaving it pending forever.
-  const effectiveDecision = entry.request?.questions && decision === 'always' ? 'once' : decision;
+  const effectiveDecision =
+    (entry.request?.questions || entry.request?.approvalScope === 'request') &&
+    decision === 'always'
+      ? 'once'
+      : decision;
   if (entry.request?.questions && effectiveDecision !== 'deny') {
     if (!answers || Object.keys(answers).length !== entry.request.questions.length) return false;
     for (const question of entry.request.questions) {
@@ -70,31 +99,50 @@ export function resolvePending(
   pending.delete(permId);
   const { resolver } = entry;
 
+  let requestedResult: PermissionResult;
   if (effectiveDecision === 'always') {
-    resolver({
+    requestedResult = {
       behavior: 'allow',
       decisionClassification: 'user_permanent',
       updatedInput: toolInput,
-    });
+    };
   } else if (effectiveDecision === 'once') {
-    resolver({
+    requestedResult = {
       behavior: 'allow',
       decisionClassification: 'user_temporary',
       updatedInput: toolInput,
-    });
+    };
   } else {
-    resolver({
+    requestedResult = {
       behavior: 'deny',
       message: 'User denied',
       decisionClassification: 'user_reject',
-    });
+    };
   }
+  const appliedResult = resolver(requestedResult);
+  const behavior =
+    appliedResult &&
+    typeof appliedResult === 'object' &&
+    'behavior' in appliedResult &&
+    (appliedResult.behavior === 'allow' || appliedResult.behavior === 'deny')
+      ? appliedResult.behavior
+      : requestedResult.behavior;
 
+  notifyLifecycle({
+    type: 'resolved',
+    permId,
+    resolution:
+      entry.request?.expiresAt !== undefined && entry.request.expiresAt <= Date.now()
+        ? 'expired'
+        : behavior === 'deny'
+          ? 'denied'
+          : 'allowed',
+  });
   return true;
 }
 
 export function removePending(permId: string) {
-  pending.delete(permId);
+  if (pending.delete(permId)) notifyLifecycle({ type: 'resolved', permId, resolution: 'expired' });
 }
 
 export function hasPending(permId: string): boolean {
@@ -130,6 +178,7 @@ export function denyPendingBySession(sessionId: string): number {
         message: 'Session taken over by another device',
         decisionClassification: 'user_reject',
       });
+      notifyLifecycle({ type: 'resolved', permId, resolution: 'expired' });
       denied++;
     }
   }

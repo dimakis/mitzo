@@ -18,6 +18,17 @@ import {
   createSymposiumApplicationDispatchPolicy,
   selectSymposiumApplicationClaim,
 } from './symposium-application-dispatch.js';
+import { NotificationStore } from './notification-store.js';
+import { NotificationCenter, setNotificationCenter } from './notification-center.js';
+import { notificationRouter } from './notification-routes.js';
+import {
+  deliverNotification,
+  sendBadgeUpdate,
+  isConfigured as apnsConfigured,
+  getTokens as pushTokens,
+} from './apns.js';
+import { OPEN_SHELL_ARTIFACT_HELPER } from './openshell-artifact-reader.js';
+import { createTelosArtifactRouter, telosArtifactSaveJson } from './telos-artifact-routes.js';
 import { writeHostArtifact } from './host-artifact-writer.js';
 import { writeOpenShellArtifact } from './artifact-writer.js';
 import { custodianPublicationApproval } from './symposium-custodian-authority.js';
@@ -177,11 +188,17 @@ import {
 import { DEFAULT_AGENT_NAME, GIT_BRANCH_TIMEOUT_MS } from './constants.js';
 import { isValidInternalToken } from './internal-token.js';
 import { createConnectionsRouter } from './connections-router.js';
+import { createConnectionsAccessRouter } from './connections-access-router.js';
+import {
+  personalInventorySource,
+  symposiumAccountsInventorySource,
+} from './connections-access-custodian.js';
 import { createCapabilityOperationsRouter } from './connections/capabilities/router.js';
 import { capabilityApprovalForConversation } from './connections/capabilities/approval.js';
 import { getLiveCapabilityConversationBinding } from './capability-conversation-binding.js';
 import {
   setConnectionsRuntime as setActiveConnectionsRuntime,
+  getConnectionsRuntime,
   type ConnectionsRuntime,
 } from './connections-runtime.js';
 import { getLocalCommit, isUpdateAvailable } from './git-version.js';
@@ -442,6 +459,13 @@ app.use('/api/capability-operations', authMiddleware, (req, res, next) => {
 });
 // Two 5 MiB UTF-8 documents can each expand sixfold when JSON escapes control bytes.
 app.put('/api/files/write', authMiddleware, express.json({ limit: 60 * 1024 * 1024 + 64 * 1024 }));
+// Authenticate before accepting the expanded JSON envelope; decoded document bytes remain capped at 5 MiB.
+app.post('/api/internal/telos/artifacts/save', authMiddleware, telosArtifactSaveJson);
+app.post(
+  '/api/telos/items/:itemId/artifacts/upload',
+  operatorAuthMiddleware,
+  express.json({ limit: '8mb' }),
+);
 app.use(express.json({ limit: '10mb' }));
 
 const loginLimiter = rateLimit({
@@ -516,6 +540,19 @@ setTokenStorePath(join(mitzoDir, 'device-tokens.json'));
 
 export const sseRegistry = new SseRegistry();
 export const chatSseRegistry = new SessionSseRegistry();
+export const notificationCenter = new NotificationCenter(
+  new NotificationStore(join(mitzoDir, 'notifications.db')),
+  {
+    push: deliverNotification,
+    badge: sendBadgeUpdate,
+    changed: () => sseRegistry.broadcast('notifications_changed', {}),
+    configured: apnsConfigured,
+    devices: () => pushTokens().length,
+    sessionTitle: (id) => eventStore.getSession(id)?.summary ?? undefined,
+  },
+);
+setNotificationCenter(notificationCenter);
+if (process.env.NODE_ENV !== 'test') notificationCenter.start();
 
 export function setUpdateBroadcast(fn: () => void) {
   onUpdateAvailable = fn;
@@ -1781,6 +1818,44 @@ app.post('/api/internal/task-tools/artifact', (req, res) => {
   });
 });
 
+app.use(
+  createTelosArtifactRouter({
+    operatorAuth: operatorAuthMiddleware,
+    dbPath: () =>
+      process.env.TELOS_DB_PATH || join(BASE_REPO, 'command_center', 'data', 'smart_todo.db'),
+    verifyInternal: verifyInternalToken,
+    sessionId: (clientId) => registry.get(clientId)?.sessionId,
+    readFile: async (sessionId, requestedPath) => {
+      if (isRemoteSessionArtifact(sessionId))
+        return readRemoteSessionArtifact(sessionId, requestedPath);
+      const session = registry.findBySessionId(sessionId)?.session;
+      const roots = [
+        session?.cwd,
+        ...[...(session?.worktreePaths?.values() ?? [])].map((entry) => entry.path),
+      ].filter((path): path is string => !!path);
+      const filePath = resolveArtifactPath(requestedPath, sessionId);
+      const root = roots.find((candidate) => containsPath(candidate, filePath));
+      if (!root || !isAllowedPath(filePath, sessionId))
+        throw new OpenShellArtifactReadError(403, 'Path is outside this session workspace');
+      const { stdout } = await execFileAsync(
+        'python3',
+        ['-I', '-c', OPEN_SHELL_ARTIFACT_HELPER, resolve(root), filePath],
+        { timeout: 15_000, maxBuffer: 7 * 1024 * 1024 },
+      );
+      const result = JSON.parse(stdout);
+      if (result.error || result.path !== filePath || typeof result.data !== 'string')
+        throw new OpenShellArtifactReadError(
+          result.error === 'too_large' ? 413 : 403,
+          'Workspace artifact unavailable',
+        );
+      const bytes = Buffer.from(result.data, 'base64');
+      if (bytes.toString('base64') !== result.data)
+        throw new OpenShellArtifactReadError(503, 'Invalid workspace artifact');
+      return { path: filePath, bytes };
+    },
+  }),
+);
+
 app.post('/api/internal/telos/outcomes', async (req, res) => {
   if (!verifyInternalToken(req)) {
     res.status(401).json({ ok: false, error: 'Internal token required' });
@@ -2337,6 +2412,49 @@ app.get('/api/symposium/accounts', (_req, res) => {
     res.status(503).json({ error: 'Symposium account catalog unavailable.' });
   }
 });
+
+app.use(
+  '/api/connections-access',
+  operatorAuthMiddleware,
+  createConnectionsAccessRouter((auth) => {
+    const runtime = getConnectionsRuntime();
+    return {
+      accounts: async (signal: AbortSignal) => {
+        const profiles = loadAccountProfiles();
+        await profiles.checkSignIn(signal);
+        return profiles.catalog().map((account) => ({
+          ...account,
+          label: accountAliases.label(account.id, account.label),
+        }));
+      },
+      ...(runtime
+        ? {
+            managed: () => runtime.store.list('operator'),
+            legacy: runtime.legacyProviders,
+            gateway: runtime.gateway,
+            workspace: runtime.workspace,
+            ...(runtime.googleWorkspace
+              ? { google: (signal: AbortSignal) => runtime.googleWorkspace!.status(signal) }
+              : {}),
+          }
+        : {}),
+      symposiumAccounts: symposiumAccountsInventorySource(
+        auth,
+        custodianControllerClient,
+        symposiumProductionHost
+          ? () => symposiumProductionHost!.currentProfiles().catalog()
+          : undefined,
+      ),
+      personal: personalInventorySource(
+        auth,
+        custodianControllerClient,
+        symposiumProductionHost?.personalConnections
+          ? () => symposiumProductionHost!.personalConnections!.list()
+          : undefined,
+      ),
+    };
+  }),
+);
 
 app.get('/api/accounts', async (req, res) => {
   try {
@@ -2902,6 +3020,9 @@ function sessionArtifactBrowserRoot(
 }
 
 function resolveArtifactPath(filePath: string, sessionId: string | undefined): string {
+  // Home shorthand is expanded on the host, then checked against the same
+  // configured/session workspace boundaries as every absolute artifact path.
+  if (filePath.startsWith('~/')) filePath = resolve(homedir(), filePath.slice(2));
   const workspace = sessionArtifactRoot(sessionId);
   if (!isAbsolute(filePath)) return resolve(workspace ?? BASE_REPO, filePath);
   const requested = resolve(filePath);
@@ -3367,6 +3488,7 @@ app.post('/api/inbox', (req, res) => {
     res.status(500).json({ error: 'Failed to create inbox item' });
     return;
   }
+  notificationCenter.update(item.filename, item.title, item.preview, item.filename);
   res.status(201).json(item);
   broadcastInboxUpdate();
 });
@@ -3415,6 +3537,8 @@ app.delete('/api/inbox/:filename', (req, res) => {
   broadcastInboxUpdate();
 });
 
+app.use('/api/notifications', notificationRouter(notificationCenter));
+
 // --- Push notification device token registration ---
 
 app.post('/api/push/register', (req, res) => {
@@ -3424,6 +3548,8 @@ app.post('/api/push/register', (req, res) => {
     return;
   }
   registerToken(token);
+  notificationCenter.changed();
+  void notificationCenter.syncBadge();
   res.json({ ok: true });
 });
 

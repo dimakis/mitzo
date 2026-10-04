@@ -101,7 +101,7 @@ export function NewSymposium() {
             <>
               <p>
                 Create a draft without sending a prompt. Choose its first seat, then review and
-                activate it in Director controls.
+                activate it in Review team & approvals.
               </p>
               <label>
                 Symposium title
