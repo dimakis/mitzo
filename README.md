@@ -603,7 +603,9 @@ reviewed and merged first.
 
 A completed retained-runtime migration preserves its original checkpoint history while
 allowing supported model changes within the same account and provider. Provider and grant
-authority changes still block reopening.
+authority changes still block reopening. Connection reservations protect sandbox setup
+and are released before first-turn admission reacquires the current grants, so a cold
+chat start does not wait on its own setup lock.
 
 Enrolled Codex chats report unavailable knowledge publication as an admission failure:
 an admitted follow-up remains queued, and no provider turn starts until the publisher is healthy.

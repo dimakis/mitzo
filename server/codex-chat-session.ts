@@ -444,25 +444,40 @@ export async function openCodexChat(options: Options) {
   if (options.profile.nativeAuth)
     throw new Error('Native personal ChatGPT accounts require the isolated Symposium runtime');
   const service = getConnectionsRuntime()?.service;
-  if (service && openShellRuntimeConfig(process.env))
-    // On-demand connections are supplied only as grant candidates. They are
-    // intentionally excluded from withAccountRuntime's automatic selection.
-    return service.withAccountRuntimes(
+  if (service && openShellRuntimeConfig(process.env)) {
+    // Setup holds the connection reservation through sandbox verification and
+    // thread registration. First-turn admission reacquires it; release setup
+    // before sending so the non-reentrant service gate cannot wait on itself.
+    const query = await service.withAccountRuntimes(
       options.binding.accountId,
       (connections) =>
         openCodexChatBound(
           options,
           connections,
           service.onDemandForAccount(options.binding.accountId),
+          true,
         ),
       options.session.abortController.signal,
     );
+    try {
+      if (!options.reattachOnly) {
+        const runtime = getCodexRuntime(options.session);
+        if (!runtime) throw new Error('Codex conversation unavailable');
+        await sendInitialCodexTurn(options, runtime);
+      }
+      return query;
+    } catch (error) {
+      query.close();
+      throw error;
+    }
+  }
   return openCodexChatBound(options);
 }
 async function openCodexChatBound(
   options: Options,
   managedConnections: readonly Connection[] = [],
   onDemandConnections: readonly Connection[] = [],
+  deferInitialSend = false,
 ) {
   const managedConnection =
     managedConnections.find((connection) => connection.templateId === 'jira-readonly') ??
@@ -1340,15 +1355,7 @@ async function openCodexChatBound(
     // send reacquires this same coordinator for runtime and knowledge admission;
     // release setup first so neither callback waits on its own startup fence.
     startupReservation?.();
-    if (!options.reattachOnly)
-      await runtime.send({
-        id: options.messageId,
-        prompt: options.prompt,
-        intent: options.intent,
-        model: options.model,
-        reasoningEffort: options.reasoningEffort,
-        images: options.images,
-      });
+    if (!options.reattachOnly && !deferInitialSend) await sendInitialCodexTurn(options, runtime);
   } catch (error) {
     close();
     throw error;
@@ -1373,4 +1380,16 @@ async function openCodexChatBound(
       throw new Error('Codex subagents are unavailable');
     },
   };
+}
+
+async function sendInitialCodexTurn(options: Options, runtime: CodexConversation) {
+  options.session.abortController.signal.throwIfAborted();
+  await runtime.send({
+    id: options.messageId,
+    prompt: options.prompt,
+    intent: options.intent,
+    model: options.model,
+    reasoningEffort: options.reasoningEffort,
+    images: options.images,
+  });
 }

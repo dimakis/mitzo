@@ -79,6 +79,7 @@ import { OpenShellRuntimeManager } from '../openshell-runtime.js';
 import * as migrationAdapter from '../openshell-runtime-migration-adapter.js';
 import * as lifecycleController from '../openshell-lifecycle-controller.js';
 import * as knowledgeStoreConfig from '../knowledge-store-config.js';
+import { ConnectionsService } from '../connections-service.js';
 import { setConnectionsRuntime } from '../connections-runtime.js';
 import { getLiveCapabilityConversationBinding } from '../capability-conversation-binding.js';
 import { SymposiumProfileProposalStore } from '../symposium-profile-proposals.js';
@@ -1278,6 +1279,115 @@ it('rejects a grantable account provider before opening a managed OpenShell chat
     vi.unstubAllEnvs();
   }
 });
+
+it.each(['send', 'reattach', 'failure'] as const)(
+  'releases the real connection reservation before first-turn admission (%s)',
+  async (mode) => {
+    vi.clearAllMocks();
+    vi.stubEnv('MITZO_OPENSHELL_ENABLED', '1');
+    vi.stubEnv('MITZO_OPENSHELL_IMAGE', 'mitzo-runtime:1');
+    vi.stubEnv('MITZO_OPENSHELL_POLICY', '/config/policy.yaml');
+    vi.stubEnv('MITZO_OPENSHELL_SEED', '/seed/mgmt');
+    const service = new ConnectionsService(
+      {} as import('../connections-store.js').ConnectionStore,
+      {} as import('../connections-gateway.js').ConnectionGateway,
+    );
+    vi.spyOn(service, 'resolveAutomaticForAccount').mockReturnValue([]);
+    vi.spyOn(service, 'onDemandForAccount').mockReturnValue([]);
+    const ensure = vi.spyOn(OpenShellRuntimeManager.prototype, 'ensure').mockResolvedValue({
+      sandboxName: 'mitzo-lock-test',
+      sandboxId: 'physical-lock-test',
+      workdir: '/sandbox/workspaces/mgmt',
+      appServerCommand: '/sandbox/run-mitzo-app-server',
+      cli: 'openshell',
+      gateway: 'openshell',
+      workspace: 'default',
+      gatewayInsecure: false,
+    });
+    const compile = vi
+      .spyOn(OpenShellRuntimeManager.prototype, 'compileContext')
+      .mockResolvedValue({
+        type: 'boot_context',
+        scope: 'sandbox',
+        sourceCount: 0,
+        tokenCount: 0,
+        tokenBudget: 12000,
+        sources: [],
+        included: [],
+        trimmed: [],
+        fullMarkdown: '',
+      });
+    setConnectionsRuntime({
+      service,
+    } as unknown as import('../connections-runtime.js').ConnectionsRuntime);
+    let admitted = false;
+    mocks.send.mockImplementationOnce(async () => {
+      const guard = mocks.conversationOptions!.reconnectGuard as (
+        work: () => Promise<void>,
+      ) => Promise<void>;
+      await guard(async () => {
+        admitted = true;
+      });
+      if (mode === 'failure') throw new Error('first-turn admission failed');
+    });
+    const abort = new AbortController();
+    try {
+      const base = options(abort);
+      const session = base.session;
+      const request = openCodexChat({
+        ...base,
+        conversationId: 'lock-' + mode,
+        binding: {
+          accountId: 'work',
+          accountLabel: 'Work',
+          provider: 'openai',
+          model: 'test-model',
+          profileRevision: '1',
+        },
+        profile: {
+          accountId: 'work',
+          accountLabel: 'Work',
+          email: 'work@example.com',
+          planType: 'api',
+          model: 'test-model',
+          sandboxProvider: 'openai-work',
+        },
+        registry: {
+          findBySessionId: () => ({ clientId: 'client', session }),
+        } as unknown as import('@mitzo/harness').SessionRegistry,
+        prompt: 'test',
+        messageId: 'first-turn',
+        systemPrompt: 'base',
+        env: {},
+        reattachOnly: mode === 'reattach',
+      });
+      let timer: ReturnType<typeof setTimeout>;
+      const bounded = Promise.race([
+        request,
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(() => reject(new Error('connection reservation deadlocked')), 500);
+        }),
+      ]).finally(() => clearTimeout(timer));
+      if (mode === 'failure') {
+        await expect(bounded).rejects.toThrow('first-turn admission failed');
+        expect(mocks.close).toHaveBeenCalled();
+      } else {
+        const chat = await bounded;
+        expect(admitted).toBe(mode === 'send');
+        expect(mocks.send).toHaveBeenCalledTimes(mode === 'send' ? 1 : 0);
+        chat.close();
+      }
+      // Setup and admission both release the actual service's serial gate.
+      await service.withAccountRuntimes('work', async () => undefined);
+    } finally {
+      abort.abort();
+      setConnectionsRuntime(null);
+      ensure.mockRestore();
+      compile.mockRestore();
+      mocks.send.mockReset();
+    }
+  },
+);
 
 it('preserves first launch and valid restore while failing closed for a replacement with no lifecycle state', async () => {
   vi.clearAllMocks();
