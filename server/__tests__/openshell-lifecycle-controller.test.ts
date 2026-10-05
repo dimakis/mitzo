@@ -673,3 +673,128 @@ it('repairs a committed migration once and preserves later ordinary thread and p
     rmSync(directory, { recursive: true, force: true });
   }
 });
+
+it('reopens retained and deleted lifecycle runtimes after same-account model selection', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'lifecycle-model-selection-'));
+  const policy = join(directory, 'policy.yaml');
+  writeFileSync(policy, 'reviewed: policy\n');
+  vi.stubEnv('MITZO_CODEX_PRIVATE_DIR', directory);
+  vi.stubEnv('MITZO_OPENSHELL_LIFECYCLE_ENABLED', '1');
+  const lifecycle = initializeOpenShellLifecycle(
+    {
+      cli: 'openshell',
+      image: 'mitzo-runtime:1',
+      policy,
+      seed: '/seed/mgmt',
+      serviceProviders: [],
+      grantableServiceProviders: [],
+      workspace: 'default',
+      gateway: 'openshell',
+      gatewayInsecure: false,
+      createDetached: true,
+      sandboxIdLength: 13,
+      workdir: '/sandbox/workspaces/mgmt',
+      webSearch: 'disabled',
+    },
+    {
+      registry: { findBySessionId: () => undefined, entries: function* () {} },
+      eventStore: { getSession: () => ({}) },
+      taskStore: { getTree: () => [] },
+      queue: () => ({ queued: 0, running: 0, recovery: false }),
+    },
+  )!;
+  const runtime = {
+    sandboxName: 'retained',
+    sandboxId: 'original-id',
+    workdir: '/sandbox/workspaces/mgmt',
+    appServerCommand: '/sandbox/run-mitzo-subscription-app-server' as const,
+    cli: 'openshell',
+    gateway: 'openshell',
+    workspace: 'default',
+    gatewayInsecure: false,
+  };
+  const binding = {
+    accountId: 'personal',
+    accountLabel: 'Offline',
+    provider: 'openai-codex',
+    model: 'offline',
+    profileRevision: '1',
+  };
+  const account = {
+    kind: 'chatgpt-subscription' as const,
+    provider: 'bound',
+    providerType: 'openai-codex-oauth' as const,
+    providerId: 'provider-id',
+    grantId: 'grant-id',
+    model: 'offline',
+  };
+  const selected = { ...account, model: 'offline-next' };
+  const restore = vi
+    .spyOn(OpenShellCheckpointTransport.prototype, 'restore')
+    .mockResolvedValue(undefined);
+  try {
+    registerOpenShellLifecycle('chat', runtime, binding, account, 'thread', 'owner');
+    await expect(
+      restoreOpenShellLifecycleIfNeeded(
+        'chat',
+        runtime,
+        AbortSignal.timeout(1000),
+        binding,
+        selected,
+        true,
+      ),
+    ).resolves.toBeUndefined();
+    expect(restore).not.toHaveBeenCalled();
+    for (const field of ['provider', 'kind', 'providerType', 'providerId', 'grantId']) {
+      await expect(
+        restoreOpenShellLifecycleIfNeeded(
+          'chat',
+          runtime,
+          AbortSignal.timeout(1000),
+          binding,
+          { ...selected, [field]: 'other' },
+          true,
+        ),
+      ).rejects.toThrow('account binding changed');
+    }
+    const saved = lifecycle.store.get('chat')!;
+    lifecycle.store.upsert({
+      ...saved,
+      phase: 'deleted',
+      generation: saved.generation + 1,
+      checkpoint: {
+        path: '/private/checkpoint',
+        digest: 'a'.repeat(64),
+        version: 1,
+        sandboxId: 'original-id',
+        sourceResourceVersion: 'original-version',
+      },
+    });
+    await expect(
+      restoreOpenShellLifecycleIfNeeded(
+        'chat',
+        { ...runtime, sandboxId: 'replacement-id', created: true },
+        AbortSignal.timeout(1000),
+        binding,
+        selected,
+        true,
+      ),
+    ).resolves.toBeUndefined();
+    expect(restore).toHaveBeenCalledOnce();
+    expect(restore.mock.calls[0][1]).toMatchObject({
+      routeKind: account.kind,
+      routeProvider: account.provider,
+      routeProviderType: account.providerType,
+      routeProviderId: account.providerId,
+      routeGrantId: account.grantId,
+      model: 'offline',
+      sandboxId: 'original-id',
+    });
+    expect(lifecycle.store.get('chat')?.identity?.route).toEqual(account);
+  } finally {
+    restore.mockRestore();
+    lifecycle.store.close();
+    vi.unstubAllEnvs();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
