@@ -602,7 +602,7 @@ together, and runs focused tests. It never deploys; its generated diff is
 reviewed and merged first.
 
 Enrolled Codex chats report unavailable knowledge publication as an admission failure:
-the message remains queued, and no provider turn starts until the publisher is healthy.
+an admitted follow-up remains queued, and no provider turn starts until the publisher is healthy.
 Check the publisher and retry the saved message. Deploy/start preflight also requires
 working host Git with an executable HTTPS helper when a knowledge store is configured.
 Run it in the service environment; the publisher's independent Git installation and

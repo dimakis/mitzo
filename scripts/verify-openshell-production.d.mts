@@ -38,3 +38,5 @@ export function validateRuntimeMarkerEnvironment(
   encoded: unknown,
   targetPlatform: unknown,
 ): Record<string, string>;
+
+export function verifyKnowledgeGit(config: Record<string, string | undefined>): void;
