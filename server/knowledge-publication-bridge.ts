@@ -138,14 +138,19 @@ export class KnowledgePublicationBridge {
     try {
       while (true) {
         signal.throwIfAborted();
-        const { done, value } = await reader.read();
+        const { done, value } = await reader.read().catch(() => {
+          signal.throwIfAborted();
+          throw new KnowledgePublicationUnavailableError();
+        });
         if (done) break;
         bytes += value.byteLength;
         if (bytes > 1024 * 1024) throw new Error('Publication response too large');
         chunks.push(value);
       }
     } finally {
-      await reader.cancel();
+      // An errored stream also rejects cancel(); cleanup must not replace the
+      // bounded transport diagnostic or the caller's original abort reason.
+      await reader.cancel().catch(() => {});
       reader.releaseLock();
     }
     const raw = Buffer.concat(chunks).toString('utf8');

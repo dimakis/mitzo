@@ -316,3 +316,22 @@ it('bounds publication transport diagnostics and never adopts stale knowledge', 
     await expect(s.adapt).not.toHaveBeenCalled();
   }
 });
+
+it('bounds a failed publication body stream and preserves caller cancellation', async () => {
+  const s = await setup();
+  for (const abort of [false, true]) {
+    const signal = new AbortController();
+    const reason = new Error('caller stopped admission');
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (abort) signal.abort(reason);
+        controller.error(new Error('transport failure with Bearer secret'));
+      },
+    });
+    s.fetcher.mockResolvedValueOnce(new Response(body));
+    const result = s.bridge.reconcile(signal.signal);
+    if (abort) await expect(result).rejects.toBe(reason);
+    else await expect(result).rejects.toBeInstanceOf(KnowledgePublicationUnavailableError);
+    expect(s.adapt).not.toHaveBeenCalled();
+  }
+});
