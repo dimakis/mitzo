@@ -48,3 +48,5 @@ export function loadServiceGitEnvironment(
   inheritedEnv?: NodeJS.ProcessEnv,
   releaseEnv?: NodeJS.ProcessEnv,
 ): NodeJS.ProcessEnv;
+
+export function main(argv?: string[], inheritedEnv?: NodeJS.ProcessEnv): void;

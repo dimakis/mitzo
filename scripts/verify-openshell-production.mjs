@@ -668,28 +668,27 @@ export function verifyKnowledgeGit(config, executionEnv = config) {
 
 export function main(argv = process.argv.slice(2), inheritedEnv = process.env) {
   const envPath = resolve(argv[0] ?? resolve(repoRoot, '.env'));
-  // The release-owned file is authoritative for deploy-critical values. This
-  // prevents an operator's inherited shell variables from validating a
-  // different stack than launchd will load.
-  const config = loadProductionConfig(envPath, inheritedEnv);
-  if (config.MITZO_OPENSHELL_ENABLED !== '1') {
-    console.log('OPENSHELL_PRODUCTION_PREFLIGHT=disabled');
-    return;
-  }
-
+  // Candidate launchd settings and dotenv's fill-missing semantics define what
+  // will actually run. Operator shell overrides must not validate another service.
+  const releaseConfig = loadProductionConfig(envPath, inheritedEnv);
   invariant(
     argv.length <= 1 || (argv.length === 3 && argv[1] === '--service-plist'),
     'Unsupported production preflight arguments',
   );
-  const serviceEnv =
-    argv[1] === '--service-plist'
-      ? loadServiceGitEnvironment(
-          resolve(argv[2]),
-          inheritedEnv,
-          existsSync(envPath) ? parse(readFileSync(envPath)) : {},
-        )
-      : { ...config, ...inheritedEnv };
-  verifyKnowledgeGit(config, serviceEnv);
+  const hasServicePlist = argv[1] === '--service-plist';
+  const serviceEnv = hasServicePlist
+    ? loadServiceGitEnvironment(
+        resolve(argv[2]),
+        inheritedEnv,
+        existsSync(envPath) ? parse(readFileSync(envPath)) : {},
+      )
+    : { ...releaseConfig, ...inheritedEnv };
+  const config = hasServicePlist ? serviceEnv : releaseConfig;
+  if (config.MITZO_OPENSHELL_ENABLED !== '1') {
+    console.log('OPENSHELL_PRODUCTION_PREFLIGHT=disabled');
+    return;
+  }
+  verifyKnowledgeGit(serviceEnv);
   const manifestPath = absoluteExisting(config, 'MITZO_OPENSHELL_STACK_MANIFEST', 'file');
   const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
   invariant(manifest.schemaVersion === 1, 'unsupported OpenShell stack lock schema');

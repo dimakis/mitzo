@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import {
   verifyKnowledgeGit,
   loadServiceGitEnvironment,
+  main,
 } from '../../scripts/verify-openshell-production.mjs';
 
 const roots: string[] = [];
@@ -86,3 +87,23 @@ it('excludes shell-only toolchain overrides but honors release and service setti
     loadServiceGitEnvironment(plist, caller, { DEVELOPER_DIR: '/release/tools' }).DEVELOPER_DIR,
   ).toBe('/service/tools');
 });
+
+it.each(['release', 'service'])(
+  'checks plist-only knowledge enrollment with OpenShell enabled by %s',
+  (enabledBy) => {
+    const service = fixture(true);
+    const root = roots[roots.length - 1];
+    const plist = join(root, 'service.plist');
+    const envPath = join(root, '.env');
+    writeFileSync(envPath, enabledBy === 'release' ? 'MITZO_OPENSHELL_ENABLED=1\n' : '');
+    writeFileSync(
+      plist,
+      `<plist version="1.0"><dict><key>EnvironmentVariables</key><dict><key>PATH</key><string>${service.PATH}</string>${enabledBy === 'service' ? '<key>MITZO_OPENSHELL_ENABLED</key><string>1</string>' : ''}<key>MITZO_KNOWLEDGE_STORE_CONFIG</key><string>/host/store.json</string></dict></dict></plist>`,
+    );
+    const caller = { ...process.env };
+    delete caller.MITZO_KNOWLEDGE_STORE_CONFIG;
+    expect(() => main([envPath, '--service-plist', plist], caller)).toThrow(
+      'Repair Git before deployment.',
+    );
+  },
+);
