@@ -601,6 +601,10 @@ the immutable image and seed, updates the stack lock and environment example
 together, and runs focused tests. It never deploys; its generated diff is
 reviewed and merged first.
 
+A completed retained-runtime migration preserves its original checkpoint history while
+allowing supported model changes within the same account and provider. Provider and grant
+authority changes still block reopening.
+
 Enrolled Codex chats report unavailable knowledge publication as an admission failure:
 an admitted follow-up remains queued, and no provider turn starts until the publisher is healthy.
 Check the publisher and retry the saved message. Deploy/start preflight also requires

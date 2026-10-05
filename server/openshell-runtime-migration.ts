@@ -1,3 +1,4 @@
+import { sameOpenShellRouteAuthority } from './openshell-route-authority.js';
 import {
   sameRuntimePolicyAuthority,
   type RuntimePolicyProvenance,
@@ -91,8 +92,8 @@ export async function migrateRetainedRuntime(input: {
       !current ||
       current.runtime.sandboxName !== record.candidateName ||
       input.source.runtime.sandboxName !== record.candidateName ||
-      !isDeepStrictEqual(current.route, record.candidate.route) ||
-      !isDeepStrictEqual(input.source.route, record.candidate.route) ||
+      !sameOpenShellRouteAuthority(current.route, record.candidate.route) ||
+      !sameOpenShellRouteAuthority(input.source.route, record.candidate.route) ||
       input.source.runtime.workspace !== record.candidate.runtime.workspace ||
       input.source.runtime.gateway !== record.candidate.runtime.gateway ||
       input.source.runtime.gatewayEndpoint !== record.candidate.runtime.gatewayEndpoint ||
