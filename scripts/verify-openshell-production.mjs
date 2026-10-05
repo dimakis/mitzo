@@ -2,8 +2,16 @@
 import { execFileSync } from 'node:child_process';
 import console from 'node:console';
 import { createHash } from 'node:crypto';
-import { existsSync, lstatSync, readdirSync, readFileSync, statSync } from 'node:fs';
-import { isAbsolute, relative, resolve, sep } from 'node:path';
+import {
+  accessSync,
+  constants,
+  existsSync,
+  lstatSync,
+  readdirSync,
+  readFileSync,
+  statSync,
+} from 'node:fs';
+import { join, isAbsolute, relative, resolve, sep } from 'node:path';
 import process from 'node:process';
 import { fileURLToPath, URL } from 'node:url';
 import { parse } from 'dotenv';
@@ -602,6 +610,26 @@ export function verifyPreparedSeed(seedPath, expectedCommit) {
   }
 }
 
+/** Validate the host Git used by the pinned knowledge adapter, without fetching or leaking stderr. */
+export function verifyKnowledgeGit(config) {
+  if (!config.MITZO_KNOWLEDGE_STORE_CONFIG) return;
+  const env = Object.fromEntries(Object.entries(config).filter(([key]) => !key.startsWith('GIT_')));
+  try {
+    const options = { env, encoding: 'utf8', timeout: 10000, stdio: ['ignore', 'pipe', 'ignore'] };
+    invariant(
+      execFileSync('git', ['--version'], options).startsWith('git version '),
+      'Invalid Git',
+    );
+    const execPath = execFileSync('git', ['--exec-path'], options).trim();
+    invariant(isAbsolute(execPath), 'Invalid Git helper directory');
+    accessSync(join(execPath, 'git-remote-https'), constants.X_OK);
+  } catch {
+    throw new Error(
+      'Knowledge publication requires working Git with HTTPS support in the service PATH. Repair Git before deployment.',
+    );
+  }
+}
+
 export function main(argv = process.argv.slice(2), inheritedEnv = process.env) {
   const envPath = resolve(argv[0] ?? resolve(repoRoot, '.env'));
   // The release-owned file is authoritative for deploy-critical values. This
@@ -613,6 +641,7 @@ export function main(argv = process.argv.slice(2), inheritedEnv = process.env) {
     return;
   }
 
+  verifyKnowledgeGit(config);
   const manifestPath = absoluteExisting(config, 'MITZO_OPENSHELL_STACK_MANIFEST', 'file');
   const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
   invariant(manifest.schemaVersion === 1, 'unsupported OpenShell stack lock schema');

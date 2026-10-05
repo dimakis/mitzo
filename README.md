@@ -601,6 +601,15 @@ the immutable image and seed, updates the stack lock and environment example
 together, and runs focused tests. It never deploys; its generated diff is
 reviewed and merged first.
 
+Enrolled Codex chats report unavailable knowledge publication as an admission failure:
+the message remains queued, and no provider turn starts until the publisher is healthy.
+Check the publisher and retry the saved message. Deploy/start preflight also requires
+working host Git with an executable HTTPS helper when a knowledge store is configured.
+Run it in the service environment; the publisher's independent Git installation and
+service PATH must also work. On macOS, resolve toolchain/license configuration or install
+a working Git in the service PATH before releasing. The preflight does not accept licenses
+or change host tools automatically.
+
 The [MGMT knowledge publication contract](docs/operations/mgmt-knowledge-publication.md)
 defines an independent publication lane for compatible knowledge. The MGMT
 publisher extracts the complete builder bundle from a pinned Mitzo commit and
