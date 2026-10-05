@@ -57,6 +57,11 @@ export interface RuntimeMigrationAdapters {
   /** Offline native protocol resume must confirm the same persisted thread before switching. */
   verifyRestored(candidate: ArtifactRuntime, identity: CheckpointIdentity): Promise<void>;
 }
+/** Model choice may change after migration; account and grant authority may not. */
+function sameRouteAuthority(left: ArtifactRuntime['route'], right: ArtifactRuntime['route']) {
+  return isDeepStrictEqual({ ...left, model: undefined }, { ...right, model: undefined });
+}
+
 export async function migrateRetainedRuntime(input: {
   conversationId: string;
   binding: AccountBinding;
@@ -91,8 +96,8 @@ export async function migrateRetainedRuntime(input: {
       !current ||
       current.runtime.sandboxName !== record.candidateName ||
       input.source.runtime.sandboxName !== record.candidateName ||
-      !isDeepStrictEqual(current.route, record.candidate.route) ||
-      !isDeepStrictEqual(input.source.route, record.candidate.route) ||
+      !sameRouteAuthority(current.route, record.candidate.route) ||
+      !sameRouteAuthority(input.source.route, record.candidate.route) ||
       input.source.runtime.workspace !== record.candidate.runtime.workspace ||
       input.source.runtime.gateway !== record.candidate.runtime.gateway ||
       input.source.runtime.gatewayEndpoint !== record.candidate.runtime.gatewayEndpoint ||

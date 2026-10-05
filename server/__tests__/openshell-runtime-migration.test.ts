@@ -623,3 +623,31 @@ it('synchronous pending-source-policy fence blocks ownership commit after final 
   expect(f.store.readArtifactRuntime('chat', binding)).toEqual(f.source);
   expect(f.store.readRuntimeMigration('chat', binding)?.checkpoint?.digest).toBe('digest');
 });
+
+it('keeps committed migration history immutable across same-account model selection and reopen', async () => {
+  const f = fixture();
+  await migrateRetainedRuntime(f.input);
+  const selected = { ...f.candidate, route: { ...f.candidate.route, model: 'offline-next' } };
+  expect(await migrateRetainedRuntime({ ...f.input, source: selected })).toEqual(selected);
+  f.store.setArtifactRuntime('chat', binding, selected);
+  expect(await migrateRetainedRuntime({ ...f.input, source: selected })).toEqual(selected);
+  expect(f.store.readRuntimeMigration('chat', binding)?.candidate?.route.model).toBe('offline');
+  expect(f.adapters.create).toHaveBeenCalledTimes(1);
+  expect(f.adapters.capture).toHaveBeenCalledTimes(1);
+  expect(f.adapters.restore).toHaveBeenCalledTimes(1);
+});
+it.each(['provider', 'kind', 'providerId', 'providerType', 'grantId'])(
+  'still rejects committed routing authority drift in %s during model selection',
+  async (field) => {
+    const f = fixture();
+    await migrateRetainedRuntime(f.input);
+    const selected = {
+      ...f.candidate,
+      route: { ...f.candidate.route, model: 'offline-next', [field]: 'different' },
+    };
+    await expect(migrateRetainedRuntime({ ...f.input, source: selected })).rejects.toThrow(
+      'committed routing changed',
+    );
+    expect(f.adapters.create).toHaveBeenCalledTimes(1);
+  },
+);
