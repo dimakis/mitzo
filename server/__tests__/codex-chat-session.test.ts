@@ -1738,3 +1738,11 @@ it('explains unavailable knowledge without exposing publication transport detail
     'Knowledge publication is unavailable. Check the knowledge publisher before retrying. No provider turn was started.',
   );
 });
+
+it('describes an active transport interruption without claiming a failed provider turn', () => {
+  expect(
+    publicCodexRuntimeError(new Error('Codex transport disconnected; recovery is available')),
+  ).toBe(
+    'The Codex connection was interrupted. The turn outcome is unknown; inspect saved work before continuing.',
+  );
+});

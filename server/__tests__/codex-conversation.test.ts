@@ -199,6 +199,7 @@ async function setup(
   const events: Record<string, unknown>[] = [];
   const onClosed = vi.fn();
   const onError = vi.fn();
+  const onTransportClosed = vi.fn();
   const requestUserInput = vi.fn(async () => ({ answers: { q1: { answers: ['Work'] } } }));
   const execute = vi.fn(
     async (_name: string, _input: Record<string, unknown>, _signal: AbortSignal) => ({
@@ -299,6 +300,7 @@ async function setup(
     emit: (e) => events.push(e),
     onClosed,
     onError,
+    onTransportClosed,
     validateModel: (model: string) => {
       if (!['test-model', 'other-model'].includes(model)) throw new Error('Model unavailable');
     },
@@ -321,6 +323,7 @@ async function setup(
     execute,
     onClosed,
     onError,
+    onTransportClosed,
     requestUserInput,
     getBinding: () => (c as unknown as { binding: AccountBinding }).binding,
     getProviderThread: () => providerThread,
@@ -885,7 +888,7 @@ it('retains the event mapper across same-thread reconnect so replayed reasoning 
 
 it('recovers an idle dead transport before persisting the explicit send', async () => {
   const beforeReconnect = vi.fn(async () => {});
-  const { c, callbacks, rpc, requests } = await setup(
+  const { c, callbacks, rpc, requests, onError, onTransportClosed } = await setup(
     undefined,
     undefined,
     undefined,
@@ -916,6 +919,19 @@ it('recovers an idle dead transport before persisting the explicit send', async 
   expect(beforeReconnect).toHaveBeenCalledOnce();
   expect(c.queue().map((command) => command.status)).toEqual(['running']);
   expect(c.isPaused()).toBe(false);
+  expect(onError).not.toHaveBeenCalled();
+  expect(onTransportClosed).toHaveBeenCalledWith({ activeTurn: false, reason: 'closed' });
+});
+
+it('reports transport loss during an active turn and preserves its unknown outcome', async () => {
+  const { c, callbacks, onError } = await setup();
+  await c.send({ id: 'active-loss', prompt: 'hello' });
+  callbacks.onClose(new Error('connection closed'));
+  expect(onError).toHaveBeenCalledWith(
+    expect.objectContaining({ message: 'Codex transport disconnected; recovery is available' }),
+  );
+  expect(c.isPaused()).toBe(true);
+  expect(c.queue()[0]).toMatchObject({ status: 'interrupted' });
 });
 
 it('does not persist an explicit send cancelled during its transport probe', async () => {
