@@ -108,6 +108,10 @@ export interface CodexConversationOptions {
   loadConversationHistory?: () => ConversationHistoryEntry[];
   onClosed?: () => void;
   onError?: (error: Error) => void;
+  onTransportClosed?: (diagnostic: {
+    activeTurn: boolean;
+    reason: 'closed' | 'timeout' | 'protocol';
+  }) => void;
 }
 
 function sendCancelledError(): Error {
@@ -230,7 +234,7 @@ export class CodexConversation {
       onClose: (error) => this.transportClosed(generation, error),
     });
   }
-  private transportClosed(generation: number, _error: Error) {
+  private transportClosed(generation: number, error: Error) {
     if (this.closed || generation !== this.transportGeneration) return;
     // Invalidate every in-flight request owned by this transport. Its rejection
     // is recovery fallout, not a second fatal send failure.
@@ -267,7 +271,19 @@ export class CodexConversation {
     }
     this.paused = true;
     this.opts.onQueueChange?.();
-    this.opts.onError?.(new Error('Codex transport disconnected; recovery is available'));
+    this.opts.onTransportClosed?.({
+      activeTurn: !!active,
+      reason:
+        error.message === 'Codex request timed out; retry explicitly'
+          ? 'timeout'
+          : error.message === 'Invalid Codex protocol'
+            ? 'protocol'
+            : 'closed',
+    });
+    // An idle connection can expire between sends. The pre-send probe reconnects
+    // it before dispatch; no provider turn has failed in that case.
+    if (active)
+      this.opts.onError?.(new Error('Codex transport disconnected; recovery is available'));
   }
   private verifyCurrentBinding(stored?: AccountBinding) {
     return this.opts.verifyBinding

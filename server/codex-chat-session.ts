@@ -214,6 +214,8 @@ export function publicCodexRuntimeError(error: Error): string {
   }
 
   if (error instanceof ProviderFailureError) return error.failure.message;
+  if (error.message === 'Codex transport disconnected; recovery is available')
+    return 'The Codex connection was interrupted. The turn outcome is unknown; inspect saved work before continuing.';
   const message = error.message;
   if (
     message ===
@@ -1286,6 +1288,12 @@ async function openCodexChatBound(
           },
         }
       : {}),
+    onTransportClosed: (diagnostic) => {
+      log.info('Codex transport closed', {
+        conversationId: options.conversationId,
+        ...diagnostic,
+      });
+    },
     onError: (error) => {
       log.warn('Codex runtime reported an error', {
         conversationId: options.conversationId,
