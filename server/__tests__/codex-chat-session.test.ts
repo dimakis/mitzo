@@ -1280,7 +1280,7 @@ it('rejects a grantable account provider before opening a managed OpenShell chat
   }
 });
 
-it.each(['send', 'reattach', 'failure'] as const)(
+it.each(['send', 'reattach', 'failure', 'revoked'] as const)(
   'releases the real connection reservation before first-turn admission (%s)',
   async (mode) => {
     vi.clearAllMocks();
@@ -1289,10 +1289,25 @@ it.each(['send', 'reattach', 'failure'] as const)(
     vi.stubEnv('MITZO_OPENSHELL_POLICY', '/config/policy.yaml');
     vi.stubEnv('MITZO_OPENSHELL_SEED', '/seed/mgmt');
     const service = new ConnectionsService(
-      {} as import('../connections-store.js').ConnectionStore,
-      {} as import('../connections-gateway.js').ConnectionGateway,
+      {
+        get: () => ({
+          archivedAt: null,
+          ownerId: 'operator',
+          gateway: 'openshell',
+          workspace: 'default',
+        }),
+      } as unknown as import('../connections-store.js').ConnectionStore,
+      {
+        get: vi.fn(async () => ({
+          name: 'changed-provider',
+          id: 'changed-provider',
+          workspace: 'default',
+          type: 'github',
+        })),
+        validateBinding: vi.fn(),
+      } as unknown as import('../connections-gateway.js').ConnectionGateway,
     );
-    vi.spyOn(service, 'resolveAutomaticForAccount').mockReturnValue([]);
+    const resolveConnections = vi.spyOn(service, 'resolveAutomaticForAccount').mockReturnValue([]);
     vi.spyOn(service, 'onDemandForAccount').mockReturnValue([]);
     const ensure = vi.spyOn(OpenShellRuntimeManager.prototype, 'ensure').mockResolvedValue({
       sandboxName: 'mitzo-lock-test',
@@ -1322,6 +1337,17 @@ it.each(['send', 'reattach', 'failure'] as const)(
     } as unknown as import('../connections-runtime.js').ConnectionsRuntime);
     let admitted = false;
     mocks.send.mockImplementationOnce(async () => {
+      if (mode === 'revoked')
+        resolveConnections.mockReturnValue([
+          {
+            id: 'changed-connection',
+            templateId: 'github-readonly',
+            templateVersion: 1,
+            workspace: 'default',
+            gatewayProviderName: 'changed-provider',
+            gatewayProviderId: 'changed-provider',
+          } as import('../connections-store.js').Connection,
+        ]);
       const guard = mocks.conversationOptions!.reconnectGuard as (
         work: () => Promise<void>,
       ) => Promise<void>;
@@ -1368,8 +1394,13 @@ it.each(['send', 'reattach', 'failure'] as const)(
           timer = setTimeout(() => reject(new Error('connection reservation deadlocked')), 500);
         }),
       ]).finally(() => clearTimeout(timer));
-      if (mode === 'failure') {
-        await expect(bounded).rejects.toThrow('first-turn admission failed');
+      if (mode === 'failure' || mode === 'revoked') {
+        await expect(bounded).rejects.toThrow(
+          mode === 'failure'
+            ? 'first-turn admission failed'
+            : 'Connection permissions changed. Start a new conversation.',
+        );
+        expect(admitted).toBe(mode === 'failure');
         expect(mocks.close).toHaveBeenCalled();
       } else {
         const chat = await bounded;
