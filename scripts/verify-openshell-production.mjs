@@ -2,9 +2,18 @@
 import { execFileSync } from 'node:child_process';
 import console from 'node:console';
 import { createHash } from 'node:crypto';
-import { existsSync, lstatSync, readdirSync, readFileSync, statSync } from 'node:fs';
-import { isAbsolute, relative, resolve, sep } from 'node:path';
+import {
+  accessSync,
+  constants,
+  existsSync,
+  lstatSync,
+  readdirSync,
+  readFileSync,
+  statSync,
+} from 'node:fs';
+import { join, isAbsolute, relative, resolve, sep } from 'node:path';
 import process from 'node:process';
+import { userInfo } from 'node:os';
 import { fileURLToPath, URL } from 'node:url';
 import { parse } from 'dotenv';
 import { load } from 'js-yaml';
@@ -602,17 +611,84 @@ export function verifyPreparedSeed(seedPath, expectedCommit) {
   }
 }
 
+/** Reproduce dotenv's fill-missing semantics for launchd; never log environment values. */
+export function loadServiceGitEnvironment(plistPath, inheritedEnv = process.env, releaseEnv = {}) {
+  try {
+    const raw = execFileSync(
+      'python3',
+      [
+        '-I',
+        '-c',
+        `
+import json,plistlib,sys
+with open(sys.argv[1], 'rb') as f: p=plistlib.load(f)
+env=p.get('EnvironmentVariables', {})
+if not isinstance(env, dict) or any(not isinstance(k,str) or not isinstance(v,str) or chr(0) in v for k,v in env.items()): raise ValueError()
+if not env.get('PATH'): raise ValueError()
+sys.stdout.write(json.dumps(env))
+`,
+        plistPath,
+      ],
+      { env: inheritedEnv, encoding: 'utf8', timeout: 10000, stdio: ['ignore', 'pipe', 'ignore'] },
+    );
+    const account = userInfo();
+    return {
+      HOME: account.homedir,
+      USER: account.username,
+      LOGNAME: account.username,
+      ...releaseEnv,
+      ...JSON.parse(raw),
+    };
+  } catch {
+    throw new Error('Candidate service Git environment is unavailable.');
+  }
+}
+
+/** Validate the host Git used by the pinned knowledge adapter, without fetching or leaking stderr. */
+export function verifyKnowledgeGit(config, executionEnv = config) {
+  if (!config.MITZO_KNOWLEDGE_STORE_CONFIG) return;
+  const env = Object.fromEntries(
+    Object.entries(executionEnv).filter(([key]) => !key.startsWith('GIT_')),
+  );
+  try {
+    const options = { env, encoding: 'utf8', timeout: 10000, stdio: ['ignore', 'pipe', 'ignore'] };
+    invariant(
+      execFileSync('git', ['--version'], options).startsWith('git version '),
+      'Invalid Git',
+    );
+    const execPath = execFileSync('git', ['--exec-path'], options).trim();
+    invariant(isAbsolute(execPath), 'Invalid Git helper directory');
+    accessSync(join(execPath, 'git-remote-https'), constants.X_OK);
+  } catch {
+    throw new Error(
+      'Knowledge publication requires working Git with HTTPS support in the service PATH. Repair Git before deployment.',
+    );
+  }
+}
+
 export function main(argv = process.argv.slice(2), inheritedEnv = process.env) {
   const envPath = resolve(argv[0] ?? resolve(repoRoot, '.env'));
-  // The release-owned file is authoritative for deploy-critical values. This
-  // prevents an operator's inherited shell variables from validating a
-  // different stack than launchd will load.
-  const config = loadProductionConfig(envPath, inheritedEnv);
+  // Candidate launchd settings and dotenv's fill-missing semantics define what
+  // will actually run. Operator shell overrides must not validate another service.
+  const releaseConfig = loadProductionConfig(envPath, inheritedEnv);
+  invariant(
+    argv.length <= 1 || (argv.length === 3 && argv[1] === '--service-plist'),
+    'Unsupported production preflight arguments',
+  );
+  const hasServicePlist = argv[1] === '--service-plist';
+  const serviceEnv = hasServicePlist
+    ? loadServiceGitEnvironment(
+        resolve(argv[2]),
+        inheritedEnv,
+        existsSync(envPath) ? parse(readFileSync(envPath)) : {},
+      )
+    : { ...releaseConfig, ...inheritedEnv };
+  const config = hasServicePlist ? serviceEnv : releaseConfig;
   if (config.MITZO_OPENSHELL_ENABLED !== '1') {
     console.log('OPENSHELL_PRODUCTION_PREFLIGHT=disabled');
     return;
   }
-
+  verifyKnowledgeGit(serviceEnv);
   const manifestPath = absoluteExisting(config, 'MITZO_OPENSHELL_STACK_MANIFEST', 'file');
   const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
   invariant(manifest.schemaVersion === 1, 'unsupported OpenShell stack lock schema');

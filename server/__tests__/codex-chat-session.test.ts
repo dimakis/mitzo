@@ -74,6 +74,7 @@ import {
   waitForCodexRuntime,
   waitForCodexRuntimeBySessionId,
 } from '../codex-chat-session.js';
+import { KnowledgePublicationUnavailableError } from '../knowledge-publication-bridge.js';
 import { OpenShellRuntimeManager } from '../openshell-runtime.js';
 import * as migrationAdapter from '../openshell-runtime-migration-adapter.js';
 import * as lifecycleController from '../openshell-lifecycle-controller.js';
@@ -1589,4 +1590,10 @@ it.each([
   expect(message).toContain('task files and provider thread are preserved');
   expect(message).not.toContain('secret');
   expect(message).not.toContain('private');
+});
+
+it('explains unavailable knowledge without exposing publication transport details', () => {
+  expect(publicCodexRuntimeError(new KnowledgePublicationUnavailableError())).toBe(
+    'Knowledge publication is unavailable. Check the knowledge publisher before retrying. No provider turn was started.',
+  );
 });

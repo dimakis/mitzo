@@ -1,3 +1,4 @@
+import { KnowledgePublicationUnavailableError } from './knowledge-publication-bridge.js';
 import { prepareRetainedRuntimeMigration } from './openshell-runtime-migration-adapter.js';
 import {
   executeTelosArtifactTool,
@@ -188,6 +189,8 @@ function capabilityToolsForConversation(
 }
 /** Only transport safe, stable runtime diagnostics to the client. */
 export function publicCodexRuntimeError(error: Error): string {
+  if (error instanceof KnowledgePublicationUnavailableError)
+    return 'Knowledge publication is unavailable. Check the knowledge publisher before retrying. No provider turn was started.';
   if (
     /^(Retained migration|Migration |Runtime (source|image)|OpenShell migration|Runtime migration)/.test(
       error.message,
