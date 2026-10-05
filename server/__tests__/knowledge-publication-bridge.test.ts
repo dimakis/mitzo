@@ -3,7 +3,10 @@ import { mkdtemp, mkdir, writeFile, readFile, rm, symlink, realpath } from 'node
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
-import { KnowledgePublicationBridge } from '../knowledge-publication-bridge.js';
+import {
+  KnowledgePublicationBridge,
+  KnowledgePublicationUnavailableError,
+} from '../knowledge-publication-bridge.js';
 
 const roots: string[] = [];
 const hash = (value: string) => createHash('sha256').update(value).digest('hex');
@@ -297,4 +300,19 @@ it('rejects manifest files outside its configured source paths even with valid h
     'Publication files differ from configured source paths',
   );
   expect(s.adapt).not.toHaveBeenCalled();
+});
+
+it('bounds publication transport diagnostics and never adopts stale knowledge', async () => {
+  const s = await setup();
+  for (const failure of [
+    new Response('Bearer secret https://private.example', { status: 503 }),
+    new Error('Bearer secret https://private.example'),
+  ]) {
+    if (failure instanceof Response) s.fetcher.mockResolvedValueOnce(failure);
+    else s.fetcher.mockRejectedValueOnce(failure);
+    await expect(s.bridge.reconcile(new AbortController().signal)).rejects.toBeInstanceOf(
+      KnowledgePublicationUnavailableError,
+    );
+    await expect(s.adapt).not.toHaveBeenCalled();
+  }
 });

@@ -74,6 +74,14 @@ const Manifest = z
   })
   .strict();
 
+/** A bounded admission failure; never retain transport bodies, URLs, or credentials. */
+export class KnowledgePublicationUnavailableError extends Error {
+  constructor() {
+    super('Fresh knowledge publication unavailable');
+    this.name = 'KnowledgePublicationUnavailableError';
+  }
+}
+
 export class KnowledgePublicationBridge {
   private readonly config: KnowledgePublicationBridgeConfig;
   private readonly url: string;
@@ -107,16 +115,22 @@ export class KnowledgePublicationBridge {
 
   async reconcile(signal: AbortSignal): Promise<KnowledgeBundleSelection> {
     signal.throwIfAborted();
-    const response = await this.fetcher(
-      this.url + '/api/publications/' + this.config.source.id + '/reconcile',
-      {
-        method: 'POST',
-        redirect: 'error',
-        headers: { authorization: 'Bearer ' + this.config.token },
-        signal: AbortSignal.any([signal, AbortSignal.timeout(180000)]),
-      },
-    );
-    if (!response.ok) throw new Error('Fresh knowledge publication unavailable');
+    let response: Response;
+    try {
+      response = await this.fetcher(
+        this.url + '/api/publications/' + this.config.source.id + '/reconcile',
+        {
+          method: 'POST',
+          redirect: 'error',
+          headers: { authorization: 'Bearer ' + this.config.token },
+          signal: AbortSignal.any([signal, AbortSignal.timeout(180000)]),
+        },
+      );
+    } catch {
+      signal.throwIfAborted();
+      throw new KnowledgePublicationUnavailableError();
+    }
+    if (!response.ok) throw new KnowledgePublicationUnavailableError();
     const reader = response.body?.getReader();
     if (!reader) throw new Error('Publication response missing');
     const chunks: Uint8Array[] = [];

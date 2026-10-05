@@ -2246,11 +2246,11 @@ export async function sendToChat(
         selectionReasoningEffort = selection.reasoningEffort;
         acknowledge();
         commitSelection();
-        void codex.resumeAfterExplicitSend().catch(() =>
+        void codex.resumeAfterExplicitSend().catch((error: unknown) =>
           send(session.transport, {
             type: 'error',
             sessionId: session.sessionId,
-            error: 'Message saved. Mitzo could not reconnect yet.',
+            error: `Message saved. ${publicCodexRuntimeError(error instanceof Error ? error : new Error('Reconnect failed'))}`,
           }),
         );
       } catch {
