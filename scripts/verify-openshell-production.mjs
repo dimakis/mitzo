@@ -610,10 +610,38 @@ export function verifyPreparedSeed(seedPath, expectedCommit) {
   }
 }
 
+/** Read only the candidate service's PATH, never its credential environment. */
+export function loadServiceGitEnvironment(plistPath, inheritedEnv = process.env) {
+  try {
+    const path = execFileSync(
+      'python3',
+      [
+        '-I',
+        '-c',
+        `
+import plistlib,sys
+with open(sys.argv[1], 'rb') as f: p=plistlib.load(f)
+path=p.get('EnvironmentVariables', {}).get('PATH')
+if not isinstance(path, str) or not path or chr(0) in path: raise ValueError()
+sys.stdout.write(path)
+`,
+        plistPath,
+      ],
+      { env: inheritedEnv, encoding: 'utf8', timeout: 10000, stdio: ['ignore', 'pipe', 'ignore'] },
+    );
+    invariant(path.length > 0, 'Missing service PATH');
+    return { ...inheritedEnv, PATH: path };
+  } catch {
+    throw new Error('Candidate service Git environment is unavailable.');
+  }
+}
+
 /** Validate the host Git used by the pinned knowledge adapter, without fetching or leaking stderr. */
-export function verifyKnowledgeGit(config) {
+export function verifyKnowledgeGit(config, executionEnv = config) {
   if (!config.MITZO_KNOWLEDGE_STORE_CONFIG) return;
-  const env = Object.fromEntries(Object.entries(config).filter(([key]) => !key.startsWith('GIT_')));
+  const env = Object.fromEntries(
+    Object.entries(executionEnv).filter(([key]) => !key.startsWith('GIT_')),
+  );
   try {
     const options = { env, encoding: 'utf8', timeout: 10000, stdio: ['ignore', 'pipe', 'ignore'] };
     invariant(
@@ -641,7 +669,15 @@ export function main(argv = process.argv.slice(2), inheritedEnv = process.env) {
     return;
   }
 
-  verifyKnowledgeGit(config);
+  invariant(
+    argv.length <= 1 || (argv.length === 3 && argv[1] === '--service-plist'),
+    'Unsupported production preflight arguments',
+  );
+  const serviceEnv =
+    argv[1] === '--service-plist'
+      ? loadServiceGitEnvironment(resolve(argv[2]), inheritedEnv)
+      : inheritedEnv;
+  verifyKnowledgeGit(config, { ...config, ...serviceEnv });
   const manifestPath = absoluteExisting(config, 'MITZO_OPENSHELL_STACK_MANIFEST', 'file');
   const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
   invariant(manifest.schemaVersion === 1, 'unsupported OpenShell stack lock schema');

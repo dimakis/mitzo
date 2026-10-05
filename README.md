@@ -605,7 +605,7 @@ Enrolled Codex chats report unavailable knowledge publication as an admission fa
 an admitted follow-up remains queued, and no provider turn starts until the publisher is healthy.
 Check the publisher and retry the saved message. Deploy/start preflight also requires
 working host Git with an executable HTTPS helper when a knowledge store is configured.
-Run it in the service environment; the publisher's independent Git installation and
+Deployment preflight uses the candidate launchd service PATH before restarting; the publisher's independent Git installation and
 service PATH must also work. On macOS, resolve toolchain/license configuration or install
 a working Git in the service PATH before releasing. The preflight does not accept licenses
 or change host tools automatically.

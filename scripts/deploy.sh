@@ -38,7 +38,7 @@ if ! podman machine inspect --format '{{.State}}' 2>/dev/null | grep -qi '^runni
 fi
 
 echo "Validating OpenShell production bundle..."
-NODE_ENV=production node scripts/verify-openshell-production.mjs .env
+NODE_ENV=production node scripts/verify-openshell-production.mjs .env --service-plist com.mitzo.server.plist
 
 # Generate launchd plist from template (replaces __MITZO_HOME__ placeholder)
 echo "Installing launchd plist..."

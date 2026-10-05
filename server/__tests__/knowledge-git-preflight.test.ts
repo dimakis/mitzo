@@ -2,7 +2,10 @@ import { afterEach, expect, it } from 'vitest';
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { verifyKnowledgeGit } from '../../scripts/verify-openshell-production.mjs';
+import {
+  verifyKnowledgeGit,
+  loadServiceGitEnvironment,
+} from '../../scripts/verify-openshell-production.mjs';
 
 const roots: string[] = [];
 afterEach(() => {
@@ -39,4 +42,28 @@ it.each([
 });
 it('does not require Git for deployments without a knowledge store', () => {
   expect(() => verifyKnowledgeGit({ PATH: '/missing' })).not.toThrow();
+});
+
+it('uses the candidate launchd PATH instead of an operator shell with working Git', () => {
+  const shell = fixture();
+  const service = fixture(true);
+  const plist = join(roots[roots.length - 1], 'service.plist');
+  writeFileSync(
+    plist,
+    `<?xml version="1.0" encoding="UTF-8"?><plist version="1.0"><dict><key>EnvironmentVariables</key><dict><key>PATH</key><string>${service.PATH}</string></dict></dict></plist>`,
+  );
+  const environment = loadServiceGitEnvironment(plist, {
+    ...process.env,
+    PATH: shell.PATH + ':' + process.env.PATH,
+  });
+  expect(environment.PATH).toBe(service.PATH);
+  expect(() => verifyKnowledgeGit(shell, environment)).toThrow('Repair Git before deployment.');
+});
+it('rejects a candidate service without an explicit PATH', () => {
+  fixture();
+  const plist = join(roots[roots.length - 1], 'service.plist');
+  writeFileSync(plist, '<plist version="1.0"><dict/></plist>');
+  expect(() => loadServiceGitEnvironment(plist, process.env)).toThrow(
+    'Candidate service Git environment is unavailable.',
+  );
 });
