@@ -13,6 +13,7 @@ import {
 } from 'node:fs';
 import { join, isAbsolute, relative, resolve, sep } from 'node:path';
 import process from 'node:process';
+import { userInfo } from 'node:os';
 import { fileURLToPath, URL } from 'node:url';
 import { parse } from 'dotenv';
 import { load } from 'js-yaml';
@@ -610,27 +611,34 @@ export function verifyPreparedSeed(seedPath, expectedCommit) {
   }
 }
 
-/** Read only the candidate service's PATH, never its credential environment. */
-export function loadServiceGitEnvironment(plistPath, inheritedEnv = process.env) {
+/** Reproduce dotenv's fill-missing semantics for launchd; never log environment values. */
+export function loadServiceGitEnvironment(plistPath, inheritedEnv = process.env, releaseEnv = {}) {
   try {
-    const path = execFileSync(
+    const raw = execFileSync(
       'python3',
       [
         '-I',
         '-c',
         `
-import plistlib,sys
+import json,plistlib,sys
 with open(sys.argv[1], 'rb') as f: p=plistlib.load(f)
-path=p.get('EnvironmentVariables', {}).get('PATH')
-if not isinstance(path, str) or not path or chr(0) in path: raise ValueError()
-sys.stdout.write(path)
+env=p.get('EnvironmentVariables', {})
+if not isinstance(env, dict) or any(not isinstance(k,str) or not isinstance(v,str) or chr(0) in v for k,v in env.items()): raise ValueError()
+if not env.get('PATH'): raise ValueError()
+sys.stdout.write(json.dumps(env))
 `,
         plistPath,
       ],
       { env: inheritedEnv, encoding: 'utf8', timeout: 10000, stdio: ['ignore', 'pipe', 'ignore'] },
     );
-    invariant(path.length > 0, 'Missing service PATH');
-    return { ...inheritedEnv, PATH: path };
+    const account = userInfo();
+    return {
+      HOME: account.homedir,
+      USER: account.username,
+      LOGNAME: account.username,
+      ...releaseEnv,
+      ...JSON.parse(raw),
+    };
   } catch {
     throw new Error('Candidate service Git environment is unavailable.');
   }
@@ -675,9 +683,13 @@ export function main(argv = process.argv.slice(2), inheritedEnv = process.env) {
   );
   const serviceEnv =
     argv[1] === '--service-plist'
-      ? loadServiceGitEnvironment(resolve(argv[2]), inheritedEnv)
-      : inheritedEnv;
-  verifyKnowledgeGit(config, { ...config, ...serviceEnv });
+      ? loadServiceGitEnvironment(
+          resolve(argv[2]),
+          inheritedEnv,
+          existsSync(envPath) ? parse(readFileSync(envPath)) : {},
+        )
+      : { ...config, ...inheritedEnv };
+  verifyKnowledgeGit(config, serviceEnv);
   const manifestPath = absoluteExisting(config, 'MITZO_OPENSHELL_STACK_MANIFEST', 'file');
   const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
   invariant(manifest.schemaVersion === 1, 'unsupported OpenShell stack lock schema');

@@ -67,3 +67,22 @@ it('rejects a candidate service without an explicit PATH', () => {
     'Candidate service Git environment is unavailable.',
   );
 });
+
+it('excludes shell-only toolchain overrides but honors release and service settings', () => {
+  const git = fixture();
+  const plist = join(roots[roots.length - 1], 'service.plist');
+  const xml = (extra: string) =>
+    `<plist version="1.0"><dict><key>EnvironmentVariables</key><dict><key>PATH</key><string>${git.PATH}</string>${extra}</dict></dict></plist>`;
+  writeFileSync(plist, xml(''));
+  const caller = { ...process.env, DEVELOPER_DIR: '/operator/tools', SHELL_ONLY: 'operator' };
+  const service = loadServiceGitEnvironment(plist, caller);
+  expect(service).not.toHaveProperty('DEVELOPER_DIR');
+  expect(service).not.toHaveProperty('SHELL_ONLY');
+  expect(
+    loadServiceGitEnvironment(plist, caller, { DEVELOPER_DIR: '/release/tools' }).DEVELOPER_DIR,
+  ).toBe('/release/tools');
+  writeFileSync(plist, xml('<key>DEVELOPER_DIR</key><string>/service/tools</string>'));
+  expect(
+    loadServiceGitEnvironment(plist, caller, { DEVELOPER_DIR: '/release/tools' }).DEVELOPER_DIR,
+  ).toBe('/service/tools');
+});

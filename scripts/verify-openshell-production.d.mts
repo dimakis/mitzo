@@ -46,4 +46,5 @@ export function verifyKnowledgeGit(
 export function loadServiceGitEnvironment(
   plistPath: string,
   inheritedEnv?: NodeJS.ProcessEnv,
+  releaseEnv?: NodeJS.ProcessEnv,
 ): NodeJS.ProcessEnv;
