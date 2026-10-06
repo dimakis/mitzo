@@ -84,16 +84,17 @@ export function SymposiumAccessRequests({ sessionId }: { sessionId: string }) {
       setBusy(null);
     }
   };
-  const dismiss = async (row: RequestRow) => {
+  const dismiss = async (row: RequestRow, action: 'dismiss' | 'handoff' = 'dismiss') => {
     setBusy(row.id);
     setError('');
     try {
-      const response = await apiFetch(`${path}/${encodeURIComponent(row.id)}/dismiss`, {
+      const response = await apiFetch(`${path}/${encodeURIComponent(row.id)}/${action}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ hash: row.hash }),
       });
       if (!response.ok) throw new Error('Publication request changed; refresh and try again.');
+      if (action === 'handoff') setReview(sessionId);
       setState((previous) =>
         previous.sessionId === sessionId
           ? { ...previous, rows: previous.rows.filter((item) => item.id !== row.id) }
@@ -154,7 +155,13 @@ export function SymposiumAccessRequests({ sessionId }: { sessionId: string }) {
                 <p>{row.input.draft ? 'Draft pull request' : 'Ready for review pull request'}</p>
               </details>
               <p>Review and seal the artifact, then select and approve its publication.</p>
-              <button type="button" onClick={() => setReview(sessionId)}>
+              <button
+                type="button"
+                disabled={busy !== null}
+                onClick={() => {
+                  void dismiss(row, 'handoff');
+                }}
+              >
                 Open artifact review
               </button>
               <button

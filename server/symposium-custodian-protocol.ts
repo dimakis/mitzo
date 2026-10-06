@@ -8,6 +8,10 @@ const operations = {
     'POST',
     '/api/sessions/:sessionId/symposium/access-requests/:resourceId/decision',
   ],
+  'access.handoff': [
+    'POST',
+    '/api/sessions/:sessionId/symposium/access-requests/:resourceId/handoff',
+  ],
   'access.dismiss': [
     'POST',
     '/api/sessions/:sessionId/symposium/access-requests/:resourceId/dismiss',

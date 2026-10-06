@@ -41,7 +41,7 @@ it('shows the complete origin and addresses and sends only the immutable approva
   const call = vi.mocked(apiFetch).mock.calls.find(([, init]) => init?.method === 'POST')!;
   expect(JSON.parse(call[1]!.body as string)).toEqual({ hash: row.hash, approved: true });
 });
-it('opens artifact review for a publication request without invoking a direct publish or approval API', async () => {
+it('hands the suggestion to artifact review and clears its pending card without publishing', async () => {
   vi.mocked(apiFetch).mockResolvedValue({
     ok: true,
     json: async () => [
@@ -65,6 +65,10 @@ it('opens artifact review for a publication request without invoking a direct pu
   } as Response);
   render(<SymposiumAccessRequests sessionId="session" />);
   fireEvent.click(await screen.findByRole('button', { name: 'Open artifact review' }));
-  expect(screen.getByText('Artifact review')).toBeTruthy();
-  expect(vi.mocked(apiFetch).mock.calls.some(([, init]) => init?.method === 'POST')).toBe(false);
+  await screen.findByText('Artifact review');
+  const posts = vi.mocked(apiFetch).mock.calls.filter(([, init]) => init?.method === 'POST');
+  expect(posts).toHaveLength(1);
+  expect(posts[0][0]).toBe('/api/sessions/session/symposium/access-requests/request/handoff');
+  expect(JSON.parse(posts[0][1]!.body as string)).toEqual({ hash: 'a'.repeat(64) });
+  expect(screen.queryByText('Publish fix')).toBeNull();
 });

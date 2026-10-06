@@ -3,7 +3,12 @@ import request from 'supertest';
 import { expect, it, vi } from 'vitest';
 import { createSymposiumAccessRouter } from '../symposium-access-router.js';
 it('requires interactive authentication and rejects edited approval payloads', async () => {
-  const service = { list: vi.fn().mockReturnValue([]), decide: vi.fn(), dismiss: vi.fn() };
+  const service = {
+    list: vi.fn().mockReturnValue([]),
+    decide: vi.fn(),
+    dismiss: vi.fn(),
+    handoff: vi.fn(),
+  };
   const app = express();
   app.use(express.json());
   app.use((req, res, next) => {
@@ -37,4 +42,13 @@ it('requires interactive authentication and rejects edited approval payloads', a
     ).status,
   ).toBe(200);
   expect(service.decide).toHaveBeenCalledWith('session', 'request', 'a'.repeat(64), true);
+  expect(
+    (
+      await request(app)
+        .post('/sessions/session/access/request/handoff')
+        .set('x-test-auth', 'yes')
+        .send({ hash: 'a'.repeat(64) })
+    ).status,
+  ).toBe(200);
+  expect(service.handoff).toHaveBeenCalledWith('session', 'request', 'a'.repeat(64));
 });

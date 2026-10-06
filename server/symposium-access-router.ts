@@ -4,7 +4,7 @@ import type { SymposiumAccessRequests } from './symposium-access-tools.js';
 import { requireSameOriginJson } from './connections-router.js';
 const Hash = z.string().regex(/^[a-f0-9]{64}$/);
 export function createSymposiumAccessRouter(
-  service: Pick<SymposiumAccessRequests, 'list' | 'decide' | 'dismiss'>,
+  service: Pick<SymposiumAccessRequests, 'list' | 'decide' | 'dismiss' | 'handoff'>,
   hasSession: (id: string) => boolean,
 ) {
   const router = Router({ mergeParams: true });
@@ -35,15 +35,16 @@ export function createSymposiumAccessRouter(
       res.status(409).json({ error: 'Access request changed or executing seat unavailable' });
     }
   });
-  router.post('/:requestId/dismiss', (req: Request, res) => {
-    const input = z.strictObject({ hash: Hash }).safeParse(req.body);
-    if (!input.success) return res.status(400).json({ error: 'Invalid request dismissal' });
-    try {
-      service.dismiss(String(req.params.id), String(req.params.requestId), input.data.hash);
-      res.json({ ok: true });
-    } catch {
-      res.status(409).json({ error: 'Publication request changed' });
-    }
-  });
+  for (const action of ['dismiss', 'handoff'] as const)
+    router.post(`/:requestId/${action}`, (req: Request, res) => {
+      const input = z.strictObject({ hash: Hash }).safeParse(req.body);
+      if (!input.success) return res.status(400).json({ error: 'Invalid request dismissal' });
+      try {
+        service[action](String(req.params.id), String(req.params.requestId), input.data.hash);
+        res.json({ ok: true });
+      } catch {
+        res.status(409).json({ error: 'Publication request changed' });
+      }
+    });
   return router;
 }

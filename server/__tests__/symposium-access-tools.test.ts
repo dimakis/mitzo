@@ -120,6 +120,12 @@ it('queues publishing for artifact review and never treats a model request as pu
       true,
     ),
   ).toThrow();
+  const row = f.service.list('session')[0];
+  expect(() => f.service.handoff('other', row.id, row.hash)).toThrow();
+  expect(() => f.service.handoff('session', row.id, 'stale')).toThrow();
+  f.service.handoff('session', row.id, row.hash);
+  expect(f.service.list('session')[0].status).toBe('review_handed_off');
+  expect(() => f.service.handoff('session', row.id, row.hash)).toThrow();
 });
 it('cannot reuse a previous executing claim grant or accept model-selected account identities', async () => {
   const f = fixture();

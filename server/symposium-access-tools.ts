@@ -117,7 +117,18 @@ export class SymposiumAccessRequests {
     resolveSeatAccessNotification(sessionId, id, approved ? 'allowed' : 'denied');
     pending.finish(approved);
   }
+  handoff(sessionId: string, id: string, hash: string) {
+    this.resolvePublication(sessionId, id, hash, 'review_handed_off');
+  }
   dismiss(sessionId: string, id: string, hash: string) {
+    this.resolvePublication(sessionId, id, hash, 'dismissed');
+  }
+  private resolvePublication(
+    sessionId: string,
+    id: string,
+    hash: string,
+    status: 'review_handed_off' | 'dismissed',
+  ) {
     const row = this.row(id);
     if (
       !row ||
@@ -128,10 +139,10 @@ export class SymposiumAccessRequests {
       throw new Error('Publication request changed');
     this.db
       .prepare(
-        "UPDATE symposium_access_requests SET status='dismissed' WHERE id=? AND status='review_requested'",
+        "UPDATE symposium_access_requests SET status=? WHERE id=? AND status='review_requested'",
       )
-      .run(id);
-    resolveSeatAccessNotification(sessionId, id, 'denied');
+      .run(status, id);
+    resolveSeatAccessNotification(sessionId, id, status === 'dismissed' ? 'denied' : 'allowed');
   }
   private enqueue(sessionId: string, identity: string, card: Card, status: string) {
     const hash = digest(card);
