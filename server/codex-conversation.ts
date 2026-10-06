@@ -5,7 +5,11 @@ import { createHash } from 'node:crypto';
 import { CodexUserInput } from './codex-user-input.js';
 import type { AccountBinding, MitzoMode } from '@mitzo/protocol';
 import type { ToolDefinition } from '@mitzo/harness';
-import { CodexRequestError, type CodexLifecycleTransport } from './codex-app-server-client.js';
+import {
+  CodexHostToolRequestError,
+  CodexRequestError,
+  type CodexLifecycleTransport,
+} from './codex-app-server-client.js';
 import { verifyCodexAccount, type CodexAccountProfile } from './codex-account.js';
 import {
   CodexConversationStore,
@@ -1608,22 +1612,28 @@ export class CodexConversation {
       return this.opts.requestUserInput(params, questionSignal);
     }
     if (method !== 'item/tool/call') throw new Error('Unsupported Codex host request');
-    const call = ToolCall.parse(params);
+    const parsedCall = ToolCall.safeParse(params);
+    if (!parsedCall.success) throw new CodexHostToolRequestError('invalid_tool_request');
+    const call = parsedCall.data;
     const active = this.active;
     if (this.closed || !active || call.threadId !== this.threadId || call.turnId !== active.turnId)
-      throw new Error('Codex tool identity mismatch');
+      throw new CodexHostToolRequestError('tool_identity_mismatch');
     if (!this.opts.tools.some((t) => t.name === call.tool))
-      throw new Error('Unsupported Codex tool');
+      throw new CodexHostToolRequestError('tool_unavailable');
     const toolSignal = AbortSignal.any([signal, active.abort.signal]);
     toolSignal.throwIfAborted();
-    if (
-      !this.opts.store.claimTool(
+    let claimed: boolean;
+    try {
+      claimed = this.opts.store.claimTool(
         this.opts.conversationId,
         this.binding!,
         active.command.id,
         call.callId,
-      )
-    )
+      );
+    } catch {
+      throw new CodexHostToolRequestError('tool_ledger_unavailable');
+    }
+    if (!claimed)
       return {
         success: false,
         contentItems: [
