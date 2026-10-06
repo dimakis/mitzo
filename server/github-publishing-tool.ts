@@ -1,3 +1,4 @@
+import { realpathSync } from 'node:fs';
 import { createHash, randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import { z } from 'zod';
@@ -220,4 +221,21 @@ export function createGithubPublishingTool(
       bound = undefined;
     },
   });
+}
+
+/** Caller supplies configured Git storage roots from host setup, never tool arguments. */
+export function hostGithubPublishingSource(
+  session: { cwd?: string },
+  gitStorageRoots: readonly string[] = [],
+): GithubPublishingSource | undefined {
+  try {
+    if (!session.cwd) return undefined;
+    return {
+      runtime: 'host',
+      workspace: realpathSync(session.cwd),
+      gitStorageRoots: gitStorageRoots.map((root) => realpathSync(root)),
+    };
+  } catch {
+    return undefined;
+  }
 }

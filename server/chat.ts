@@ -1,3 +1,8 @@
+import {
+  createGithubPublishingTool,
+  GITHUB_PUBLISHING_INSTRUCTIONS,
+  hostGithubPublishingSource,
+} from './github-publishing-tool.js';
 import { localHttpBaseUrl, localServerUsesTls } from './local-server-url.js';
 import { TELOS_ARTIFACT_INSTRUCTIONS } from './telos-artifact-tools.js';
 import { requireCustodianOrdinaryRuntime } from './custodian-ordinary-runtime.js';
@@ -5,6 +10,7 @@ import {
   createWebAccessSdkServer,
   webAccessSdkPermission,
   WEB_ACCESS_SDK_TOOL,
+  GITHUB_PUBLISH_SDK_TOOL,
 } from './web-access-sdk.js';
 import { createWebAccessTool } from './web-access-tool.js';
 import { WEB_ACCESS_INSTRUCTIONS } from './request-web-access.js';
@@ -1620,6 +1626,9 @@ async function _startChatInner(
         mcpServers: allMcpServers,
         eventStore,
         onDemandCreate: buildOnDemandCreate(wtId, clientId),
+        publishingGitStorageRoots: [BASE_REPO, ...Object.values(getRepoConfig().repos)]
+          .filter(Boolean)
+          .map((root) => join(root, '.git')),
         onBootContext: (context) => {
           const message: BootContextMessage = { ...context, source: 'sandbox' };
           send(transport, { ...message, sessionId: conversationId });
@@ -1652,6 +1661,9 @@ async function _startChatInner(
         env: sessionEnv,
         mcpServers: allMcpServers,
         onDemandCreate: buildOnDemandCreate(wtId, clientId),
+        publishingGitStorageRoots: [BASE_REPO, ...Object.values(getRepoConfig().repos)]
+          .filter(Boolean)
+          .map((root) => join(root, '.git')),
       });
       if (!initialProviderAdmission) {
         throw new Error('Native provider startup is missing durable command admission');
@@ -1677,6 +1689,20 @@ async function _startChatInner(
           onDemandCreate: buildOnDemandCreate(wtId, clientId),
         }),
       );
+      const githubPublishing = createGithubPublishingTool(
+        () => session.sessionId ?? options.resume ?? newSdkSessionId ?? '',
+        registry,
+        () =>
+          hostGithubPublishingSource(
+            session,
+            [BASE_REPO, ...Object.values(getRepoConfig().repos)]
+              .filter(Boolean)
+              .map((root) => join(root, '.git')),
+          ),
+      );
+      abortController.signal.addEventListener('abort', () => githubPublishing.close(), {
+        once: true,
+      });
       const webAccess = createWebAccessSdkServer(
         createWebAccessTool(
           () => session.sessionId ?? options.resume ?? newSdkSessionId ?? '',
@@ -1689,6 +1715,7 @@ async function _startChatInner(
             }),
         ),
         abortController.signal,
+        githubPublishing,
       );
       q = adaptSdkQuery(
         query({
@@ -1702,10 +1729,15 @@ async function _startChatInner(
             systemPrompt: {
               type: 'preset',
               preset: 'claude_code',
-              append: systemPromptAppend + WEB_ACCESS_INSTRUCTIONS,
+              append: systemPromptAppend + WEB_ACCESS_INSTRUCTIONS + GITHUB_PUBLISHING_INSTRUCTIONS,
             },
             permissionMode: MODE_TO_SDK[session.mode] as 'plan' | 'default',
-            allowedTools: [...mcpAllowed, ...extraTools, WEB_ACCESS_SDK_TOOL],
+            allowedTools: [
+              ...mcpAllowed,
+              ...extraTools,
+              WEB_ACCESS_SDK_TOOL,
+              GITHUB_PUBLISH_SDK_TOOL,
+            ],
             disallowedTools: ['WebSearch', 'WebFetch'],
             thinking: resolveThinking(options.model),
             ...(options.model ? { model: parseModelSpec(options.model).model } : {}),

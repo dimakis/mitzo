@@ -301,6 +301,7 @@ it('does not advertise unavailable host tools to an OpenShell runtime', async ()
     expect.objectContaining({ name: 'TelosReadArtifact' }),
     expect.objectContaining({ name: 'SymposiumProposeProfile' }),
     expect.objectContaining({ name: 'RequestWebAccess' }),
+    expect.objectContaining({ name: 'RequestGithubPublish' }),
   ]);
   expect(mocks.conversationOptions?.systemPrompt).toContain(
     'never use a sandbox-local todo script',
@@ -485,16 +486,17 @@ it('advertises reviewed per-chat provider grants to a managed OpenShell runtime'
         }),
       }),
       expect.objectContaining({ name: 'RequestWebAccess' }),
+      expect.objectContaining({ name: 'RequestGithubPublish' }),
     ]);
     expect(mocks.conversationOptions?.tools).toEqual(
       expect.arrayContaining([expect.objectContaining({ name: 'RequestWebAccess' })]),
     );
     expect(mocks.conversationOptions?.systemPrompt).toContain('GrantIntegrationAccess');
     expect(mocks.conversationOptions?.systemPrompt).toContain(
-      'GitHub publishing is unavailable in this conversation',
+      'Use RequestGithubPublish to publish committed local changes',
     );
     expect(mocks.conversationOptions?.systemPrompt).toContain(
-      'Do not attempt direct git push or gh API writes',
+      'Do not substitute direct git push or gh API writes after denial',
     );
     const adoptionEvidence = {
       storeId: 'notes',
