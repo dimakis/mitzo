@@ -303,7 +303,7 @@ export function ConnectionsView() {
     <main className="workspace-page connections-page">
       <WorkspacePageHeading
         title="Connections"
-        description={`Assignments apply to ${data.appliesTo}. Adding a connection never expands a retained conversation; removal and revocation reduce managed access immediately.`}
+        description="Choose services for your AI accounts. Existing chats can request GitHub publishing after approval. Other service connections are checked when a chat connects; removal and revocation reduce access immediately."
       />
       <SymposiumPersonalConnections />
       {message && (
