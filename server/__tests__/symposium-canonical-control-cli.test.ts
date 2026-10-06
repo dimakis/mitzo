@@ -44,6 +44,12 @@ function fixture(mode = 'confirmed') {
   writeFileSync(join(release, 'package.json'), '{"type":"module"}');
   symlinkSync(realpathSync('node_modules'), join(release, 'node_modules'));
   cpSync('scripts/symposium-staging.mjs', join(release, 'scripts/symposium-staging.mjs'));
+  // Select only the macOS adapter branch; keep Node/native-addon platform real.
+  const cliPath = join(release, 'scripts/symposium-staging.mjs');
+  writeFileSync(
+    cliPath,
+    readFileSync(cliPath, 'utf8').replace("process.platform !== 'darwin'", 'false'),
+  );
   for (const name of [
     'symposium-staging-service',
     'symposium-staging-identity',
@@ -138,7 +144,7 @@ function fixture(mode = 'confirmed') {
   writeFileSync(
     prelude,
     `import os from 'node:os';import cp from 'node:child_process';import {syncBuiltinESMExports} from 'node:module';import {readFileSync,writeFileSync} from 'node:fs';import Database from 'better-sqlite3';
-Object.defineProperty(process,'platform',{value:'darwin'});const original=os.userInfo;os.userInfo=()=>({...original(),homedir:${JSON.stringify(home)}});let stopped=false;const mode=${JSON.stringify(mode)},release=${JSON.stringify(release)},state=${JSON.stringify(state)};
+const original=os.userInfo;os.userInfo=()=>({...original(),homedir:${JSON.stringify(home)}});let stopped=false;const mode=${JSON.stringify(mode)},release=${JSON.stringify(release)},state=${JSON.stringify(state)};
 cp.execFileSync=(program,args)=>{
  if(program==='/bin/launchctl'&&args[0]==='print')return stopped?'state = not running':'pid = 111';
  if(program==='/bin/launchctl'&&args[0]==='kill'){
