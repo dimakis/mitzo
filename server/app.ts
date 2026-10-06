@@ -1,5 +1,5 @@
-import { SymposiumAccessRequests } from './symposium-access-tools.js';
-import { createSymposiumAccessRouter } from './symposium-access-router.js';
+import { createHostBackupService } from './backup/host.js';
+import { createBackupRouter } from './backup/router.js';
 import { bindMitzoTelosCoreCapture } from './backup/mitzo-telos-binding.js';
 import { NotificationStore } from './notification-store.js';
 import { NotificationCenter, setNotificationCenter } from './notification-center.js';
@@ -47,6 +47,8 @@ import {
   type ReviewPublicationDependencies,
 } from './symposium-review-publication.js';
 import { SymposiumReviewStore } from './symposium-review-workflows.js';
+import { SymposiumAccessRequests } from './symposium-access-tools.js';
+import { createSymposiumAccessRouter } from './symposium-access-router.js';
 import {
   createSymposiumReviewRouter,
   type SymposiumInteractiveReviewHost,
@@ -1586,6 +1588,11 @@ export const captureMitzoTelosCoreBackup = bindMitzoTelosCoreCapture({
   tasks: taskStore,
   telosPath: telosDatabasePath,
 });
+
+app.use(
+  '/api/backups',
+  createBackupRouter(createHostBackupService(captureMitzoTelosCoreBackup), operatorAuthMiddleware),
+);
 
 app.use(
   createTelosArtifactRouter({

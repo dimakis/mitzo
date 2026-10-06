@@ -9,6 +9,7 @@ const primary = [
   { label: 'Work', icon: 'work' as const, path: '/todos', end: false },
 ];
 const secondary = [
+  { label: 'Backups', icon: 'files' as const, path: '/backups', end: false },
   { label: 'Notifications', icon: 'bell' as const, path: '/notifications', end: false },
   { label: 'Agents', icon: 'agents' as const, path: '/tasks', end: false },
   { label: 'Calendar', icon: 'calendar' as const, path: '/calendar', end: false },
@@ -43,6 +44,7 @@ export function WorkspaceNav({ desktop = false }: { desktop?: boolean }) {
               '/focus',
               '/connections',
               '/connections-access',
+              '/backups',
             ].some((p) => pathname === p || pathname.startsWith(p + '/')));
         return (
           <Link

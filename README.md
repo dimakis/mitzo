@@ -909,3 +909,13 @@ owner, including DB-only relationships and saved artifact bytes. It validates al
 source change watermarks before finalizing; overlapping writes discard the candidate
 without blocking saves. This limited group is not full ecosystem coverage and has
 no live upload schedule. See the [backup contract](docs/operations/icloud-ecosystem-backup.md).
+
+### Backup dashboard
+
+Backups is available in desktop navigation and the mobile More menu. It shows setup,
+coverage, durable recent runs and separately verified local capture and iCloud upload.
+An interactive operator can manually capture the Mitzo/Telos database group, encrypt
+and verify it with Restic, export it to iCloud and later check upload evidence.
+Host configuration and independent recovery confirmation are required before actions
+are enabled. Scheduling, retention and broader ecosystem coverage remain incomplete;
+see [backup operations](docs/operations/icloud-ecosystem-backup.md).
