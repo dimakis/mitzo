@@ -1,5 +1,5 @@
 import { afterEach, expect, it } from 'vitest';
-import { mkdtemp, writeFile, symlink, rm, realpath } from 'node:fs/promises';
+import { mkdtemp, writeFile, symlink, rm, realpath, access } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
@@ -11,6 +11,8 @@ afterEach(async () => {
 async function fixture() {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'mitzo-host-publish-')));
   roots.push(root);
+  const privateDirectory = await mkdtemp(join(tmpdir(), 'mitzo-git-private-'));
+  roots.push(privateDirectory);
   const git = (...args: string[]) =>
     execFileSync(
       'git',
@@ -42,6 +44,7 @@ async function fixture() {
     input: {
       workspace: root,
       gitStorageRoots: [] as string[],
+      privateDirectory,
       repositoryPath: root,
       baseBranch: 'main',
       signal: new AbortController().signal,
@@ -106,4 +109,17 @@ it('rejects symlinked objects and alternate object storage', async () => {
   await rm(pack, { recursive: true });
   await symlink(join(other.root, '.git/objects/pack'), pack);
   await expect(inspectHostGithubRepository(f.input)).rejects.toThrow();
+});
+
+it('does not execute repository-configured filters while inspecting committed source', async () => {
+  const f = await fixture();
+  const marker = join(f.root, 'filter-executed');
+  await writeFile(join(f.root, '.gitattributes'), '*.txt filter=unsafe');
+  f.git('add', '.gitattributes');
+  f.git('commit', '-qm', 'attributes');
+  f.git('config', 'filter.unsafe.clean', `touch ${marker}; cat`);
+  f.git('config', 'filter.unsafe.required', 'true');
+  await writeFile(join(f.root, 'note.txt'), 'different bytes to require a refresh');
+  await inspectHostGithubRepository(f.input);
+  await expect(access(marker)).rejects.toThrow();
 });

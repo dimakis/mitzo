@@ -1,7 +1,18 @@
 import { execFile } from 'node:child_process';
-import { lstat, realpath, readFile, readdir } from 'node:fs/promises';
+import {
+  lstat,
+  realpath,
+  readFile,
+  readdir,
+  mkdtemp,
+  mkdir,
+  writeFile,
+  copyFile,
+  rm,
+} from 'node:fs/promises';
 import { resolve, relative, isAbsolute, join } from 'node:path';
 import { promisify } from 'node:util';
+import { codexPrivateDirectory } from './codex-private-path.js';
 import type { GithubSandboxInspection } from './connections/capabilities/github-publish-pr.js';
 const exec = promisify(execFile);
 interface Source {
@@ -10,6 +21,8 @@ interface Source {
   repositoryPath: string;
   baseBranch: string;
   signal: AbortSignal;
+  /** Controller-owned staging; tests use an isolated private directory. */
+  privateDirectory?: string;
 }
 const within = (root: string, path: string) => {
   const rel = relative(root, path);
@@ -33,6 +46,7 @@ function gitEnv() {
     GIT_CONFIG_NOSYSTEM: '1',
     GIT_CONFIG_GLOBAL: '/dev/null',
     GIT_NO_LAZY_FETCH: '1',
+    GIT_NO_REPLACE_OBJECTS: '1',
     GIT_TERMINAL_PROMPT: '0',
     GIT_ALTERNATE_OBJECT_DIRECTORIES: '',
   };
@@ -102,6 +116,70 @@ async function boundary(source: Source) {
     }
   }
 }
+async function safeStatus(source: Source): Promise<string> {
+  const parent = source.privateDirectory ?? join(codexPrivateDirectory(), 'github-inspection');
+  await mkdir(parent, { recursive: true, mode: 0o700 });
+  const directory = await mkdtemp(join(parent, 'source-'));
+  try {
+    const read = async (...args: string[]) =>
+      (await git(source, args)).stdout.toString('utf8').trim();
+    const [oid, gitdir, common, format, top] = await Promise.all([
+      read('rev-parse', 'HEAD'),
+      read('rev-parse', '--absolute-git-dir'),
+      read('rev-parse', '--git-common-dir'),
+      read('rev-parse', '--show-object-format'),
+      read('rev-parse', '--show-toplevel'),
+    ]);
+    if (!['sha1', 'sha256'].includes(format) || (await realpath(top)) !== source.repositoryPath)
+      throw new Error('Repository workspace is ambiguous');
+    await exec(
+      'git',
+      [
+        'init',
+        '--quiet',
+        '--template=',
+        '--initial-branch=mitzo-inspect',
+        `--object-format=${format}`,
+        directory,
+      ],
+      { env: gitEnv(), signal: source.signal },
+    );
+    const safeDir = join(directory, '.git');
+    await writeFile(join(safeDir, 'HEAD'), oid + '\n', { mode: 0o600 });
+    try {
+      await copyFile(join(gitdir, 'index'), join(safeDir, 'index'));
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    }
+    const result = await exec(
+      'git',
+      [
+        '-C',
+        source.repositoryPath,
+        '-c',
+        'core.hooksPath=/dev/null',
+        '-c',
+        'core.fsmonitor=false',
+        'status',
+        '--porcelain=v1',
+        '--untracked-files=all',
+      ],
+      {
+        env: {
+          ...gitEnv(),
+          GIT_DIR: safeDir,
+          GIT_WORK_TREE: source.repositoryPath,
+          GIT_OBJECT_DIRECTORY: join(resolve(source.repositoryPath, common), 'objects'),
+        },
+        signal: source.signal,
+        maxBuffer: 128 * 1024,
+      },
+    );
+    return result.stdout.trimEnd();
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+}
 export async function inspectHostGithubRepository(
   source: Source,
 ): Promise<GithubSandboxInspection> {
@@ -110,7 +188,7 @@ export async function inspectHostGithubRepository(
   const read = async (...args: string[]) =>
     (await git(source, args)).stdout.toString('utf8').trimEnd();
   const [status, sourceOid, sourceBranch, originUrl, count, files] = await Promise.all([
-    read('status', '--porcelain=v1', '--untracked-files=all'),
+    safeStatus(source),
     read('rev-parse', 'HEAD'),
     read('symbolic-ref', '--quiet', '--short', 'HEAD'),
     read('remote', 'get-url', 'origin'),
