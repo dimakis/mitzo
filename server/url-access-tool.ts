@@ -152,8 +152,11 @@ export function createUrlAccessTool(
         !isDeepStrictEqual(grant.account, current.session.accountBinding) ||
         grant.model !== current.session.model
       ) {
-        grants.get(current.session)?.delete(url.origin);
-        return undefined;
+        return {
+          content:
+            'URL read access expired or the account/model changed. Use request_access to approve this origin again.',
+          isError: true,
+        };
       }
       if (!allowed(current.clientId, current.session))
         return { content: 'Session permissions changed; URL reads are unavailable', isError: true };

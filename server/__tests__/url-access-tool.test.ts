@@ -91,7 +91,10 @@ it('expires and revokes exact-origin grants', async () => {
   const input = { operation: 'request_access', url: 'https://example.com/', reason: 'why' };
   await f.tool.request(input, new AbortController().signal);
   f.expire();
-  expect(await f.tool.fetch(input.url, new AbortController().signal)).toBeUndefined();
+  expect(await f.tool.fetch(input.url, new AbortController().signal)).toMatchObject({
+    isError: true,
+    content: expect.stringContaining('request_access'),
+  });
   await f.tool.request(input, new AbortController().signal);
   expect(
     await f.tool.request({ ...input, operation: 'revoke_access' }, new AbortController().signal),
