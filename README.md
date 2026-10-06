@@ -908,3 +908,11 @@ owner, including DB-only relationships and saved artifact bytes. It validates al
 source change watermarks before finalizing; overlapping writes discard the candidate
 without blocking saves. This limited group is not full ecosystem coverage and has
 no live upload schedule. See the [backup contract](docs/operations/icloud-ecosystem-backup.md).
+
+### Canonical staging on the configured macOS host
+
+Reuse the singleton `com.mitzo.staging` service at `http://mitzo-staging.localhost:3190`.
+The [operating procedure](docs/operations/canonical-staging.md) describes integrity/freshness
+checks, exact-commit preparation, plan/apply updates, private audit/snapshots and uncertain
+shutdown handling. Staging operations keep production and retained diagnostic resources
+outside their scope; provider setup is separate.

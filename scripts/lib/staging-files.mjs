@@ -1,3 +1,4 @@
+import process from 'node:process';
 import { createHash, randomUUID } from 'node:crypto';
 import {
   constants,
