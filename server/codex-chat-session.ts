@@ -457,7 +457,8 @@ export async function openCodexChat(options: Options) {
   if (options.profile.nativeAuth)
     throw new Error('Native personal ChatGPT accounts require the isolated Symposium runtime');
   const service = getConnectionsRuntime()?.service;
-  if (service && openShellRuntimeConfig(process.env)) {
+  const configuredRuntime = openShellRuntimeConfig(process.env);
+  if (service && configuredRuntime) {
     // Setup holds the connection reservation through sandbox verification and
     // thread registration. First-turn admission reacquires it; release setup
     // before sending so the non-reentrant service gate cannot wait on itself.
@@ -471,6 +472,25 @@ export async function openCodexChat(options: Options) {
           true,
         ),
       options.session.abortController.signal,
+      options.resume
+        ? async (candidates) => {
+            const routed = store().readArtifactRuntime(options.conversationId, options.binding);
+            const names = routed
+              ? [routed.runtime.sandboxName]
+              : [
+                  sandboxNameForConversation(
+                    options.conversationId,
+                    configuredRuntime.sandboxIdLength,
+                  ),
+                  `mitzo-${createHash('sha256').update(options.conversationId).digest('hex').slice(0, 24)}`,
+                ];
+            return service.retainedAutomaticConnections(
+              names,
+              candidates,
+              options.session.abortController.signal,
+            );
+          }
+        : undefined,
     );
     try {
       if (!options.reattachOnly) {
@@ -522,19 +542,6 @@ async function openCodexChatBound(
   const routedRuntime = options.resume
     ? store().readArtifactRuntime(options.conversationId, options.binding)
     : null;
-  if (options.resume && connectionService && configuredRuntime) {
-    const retainedNames = routedRuntime
-      ? [routedRuntime.runtime.sandboxName]
-      : [
-          sandboxNameForConversation(options.conversationId, configuredRuntime.sandboxIdLength),
-          `mitzo-${createHash('sha256').update(options.conversationId).digest('hex').slice(0, 24)}`,
-        ];
-    managedConnections = await connectionService.retainedAutomaticConnections(
-      retainedNames,
-      managedConnections,
-      options.session.abortController.signal,
-    );
-  }
   let runtimeManager = configuredRuntime
     ? new OpenShellRuntimeManager({
         ...configuredRuntime,
@@ -990,6 +997,14 @@ async function openCodexChatBound(
                     await work();
                   },
                   signal,
+                  (candidates) =>
+                    candidates.filter((candidate) =>
+                      managedConnections.some(
+                        (original) =>
+                          original.id === candidate.id &&
+                          original.gatewayProviderId === candidate.gatewayProviderId,
+                      ),
+                    ),
                 )
             : undefined,
           beforeRuntimeAdmission: async (closeOwnedTransport: () => Promise<void>) => {

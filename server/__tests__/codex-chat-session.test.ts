@@ -1297,7 +1297,17 @@ it('rejects a grantable account provider before opening a managed OpenShell chat
   }
 });
 
-it.each(['send', 'reattach', 'failure', 'revoked', 'added', 'retained'] as const)(
+it.each([
+  'send',
+  'reattach',
+  'failure',
+  'revoked',
+  'added',
+  'retained',
+  'unavailable-retained',
+  'unavailable-added',
+  'jira-retained',
+] as const)(
   'releases the real connection reservation before first-turn admission (%s)',
   async (mode) => {
     vi.clearAllMocks();
@@ -1315,12 +1325,16 @@ it.each(['send', 'reattach', 'failure', 'revoked', 'added', 'retained'] as const
         }),
       } as unknown as import('../connections-store.js').ConnectionStore,
       {
-        get: vi.fn(async () => ({
-          name: 'changed-provider',
-          id: 'changed-provider',
-          workspace: 'default',
-          type: 'github',
-        })),
+        get: vi.fn(async () => {
+          if (mode === 'unavailable-retained' || mode === 'unavailable-added')
+            throw new Error('added provider unavailable');
+          return {
+            name: 'changed-provider',
+            id: 'changed-provider',
+            workspace: 'default',
+            type: mode === 'jira-retained' ? 'jira-readonly' : 'github',
+          };
+        }),
         validateBinding: vi.fn(),
         sandbox: vi.fn().mockResolvedValue({ name: 'retained' }),
         sandboxProviders: vi.fn().mockResolvedValue([]),
@@ -1328,7 +1342,8 @@ it.each(['send', 'reattach', 'failure', 'revoked', 'added', 'retained'] as const
     );
     const connection = {
       id: 'changed-connection',
-      templateId: 'github-readonly',
+      templateId: mode === 'jira-retained' ? 'jira-readonly' : 'github-readonly',
+      publicConfig: { email: 'person@example.com' },
       templateVersion: 1,
       workspace: 'default',
       gatewayProviderName: 'changed-provider',
@@ -1336,12 +1351,12 @@ it.each(['send', 'reattach', 'failure', 'revoked', 'added', 'retained'] as const
     } as import('../connections-store.js').Connection;
     const resolveConnections = vi
       .spyOn(service, 'resolveAutomaticForAccount')
-      .mockReturnValue(mode === 'revoked' || mode === 'retained' ? [connection] : []);
+      .mockReturnValue(mode === 'revoked' || mode.endsWith('retained') ? [connection] : []);
     vi.spyOn(service, 'onDemandForAccount').mockReturnValue([]);
     const ensure = vi
       .spyOn(OpenShellRuntimeManager.prototype, 'ensure')
       .mockImplementation(async function () {
-        if (mode === 'retained')
+        if (mode.endsWith('retained'))
           expect(
             (this as unknown as { config: { serviceProviders: string[] } }).config.serviceProviders,
           ).not.toContain(connection.gatewayProviderName);
@@ -1375,7 +1390,8 @@ it.each(['send', 'reattach', 'failure', 'revoked', 'added', 'retained'] as const
     let admitted = false;
     mocks.send.mockImplementationOnce(async () => {
       if (mode === 'revoked') resolveConnections.mockReturnValue([]);
-      if (mode === 'added') resolveConnections.mockReturnValue([connection]);
+      if (mode === 'added' || mode === 'unavailable-added')
+        resolveConnections.mockReturnValue([connection]);
       const guard = mocks.conversationOptions!.reconnectGuard as (
         work: () => Promise<void>,
       ) => Promise<void>;
@@ -1414,7 +1430,7 @@ it.each(['send', 'reattach', 'failure', 'revoked', 'added', 'retained'] as const
         systemPrompt: 'base',
         env: {},
         reattachOnly: mode === 'reattach',
-        resume: mode === 'retained',
+        resume: mode.endsWith('retained'),
       });
       let timer: ReturnType<typeof setTimeout>;
       const bounded = Promise.race([
@@ -1433,11 +1449,16 @@ it.each(['send', 'reattach', 'failure', 'revoked', 'added', 'retained'] as const
         expect(mocks.close).toHaveBeenCalled();
       } else {
         const chat = await bounded;
-        expect(admitted).toBe(mode === 'send' || mode === 'added' || mode === 'retained');
+        expect(admitted).toBe(mode !== 'reattach');
+        if (mode === 'jira-retained')
+          expect(mocks.conversationOptions!.systemPrompt).not.toContain(
+            'verified read-only Jira access',
+          );
         expect(mocks.send).toHaveBeenCalledTimes(mode === 'reattach' ? 0 : 1);
         chat.close();
       }
       // Setup and admission both release the actual service's serial gate.
+      resolveConnections.mockReturnValue([]);
       await service.withAccountRuntimes('work', async () => undefined);
     } finally {
       abort.abort();

@@ -324,10 +324,16 @@ export class ConnectionsService {
     accountId: string,
     work: (connections: readonly Connection[]) => Promise<T>,
     signal = AbortSignal.timeout(120_000),
+    select?: (
+      candidates: readonly Connection[],
+    ) => readonly Connection[] | Promise<readonly Connection[]>,
   ) {
     return this.serial(async () => {
       signal.throwIfAborted();
-      const connections = this.resolveAutomaticForAccount(accountId);
+      const candidates = this.resolveAutomaticForAccount(accountId);
+      const connections = select ? await select(candidates) : candidates;
+      if (connections.some((connection) => !candidates.includes(connection)))
+        throw new Error('Selected connection is not eligible for this account');
       for (const connection of connections) await this.boundProvider(connection, signal);
       return work(connections);
     });
