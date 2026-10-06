@@ -51,7 +51,7 @@ Symposium director status resolves the verified runtime once per request and reu
 - **Session resilience** — phone sleeps, WS drops, session survives. Reattach on reconnect. Message snapshot recovery for iOS silent drops. Session opening coordinates live replay with the restored history cursor; expired approvals clear locally so later requests remain accessible.
 - **Durable inactivity closeout** — automatic closeout is admitted once per detach episode before runtime dispatch. Exact retries and restart recovery never repeat paid provider work. See [closeout admission](docs/design/closeout-admission.md).
 - **Closeout live canary** — an opt-in Luna-only harness validates one durable closeout attempt against an isolated controller and explicit billing account. See [closeout live canary](docs/operations/closeout-live-canary.md).
-- **iOS app** — native wrapper via Capacitor with push notifications and home-screen install
+- **iOS app** — native wrapper via Capacitor with push notifications and home-screen install. Xcode 27 builds use a single storyboard-backed UIKit scene, required to launch on iOS 27; scene callbacks preserve Capacitor links and watch relay background/foreground handling.
 - **Auto-rename sessions** — sessions get meaningful names via LLM summarization after every few prompts
 - **Quick actions** — one-tap commands via `.mitzo.json`
 - **Notifications center** — shared desktop/mobile feed for approvals, questions, session completions, and new Inbox arrivals, with native iPhone/Apple Watch delivery
