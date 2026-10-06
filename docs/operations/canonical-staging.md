@@ -16,6 +16,7 @@ fingerprint and the registered job's directory/listener. It reads current main
 without updating the active release's remote refs. `safe` describes integrity and
 runtime identity; `stale` means main has advanced. A stale stage can remain the
 explicitly selected test baseline. Startup checks its pinned commit, tree, clean source and accepted-main ancestry; refreshing the cached main ref does not invalidate that baseline. `check --offline` does not verify main freshness.
+A retained deployment lock marks the check unsafe even if the app is running.
 There is no unattended upgrade or scheduled drift monitor.
 
 ## Prepare and plan an update
@@ -46,7 +47,7 @@ Deployment defaults to a plan. The explicit apply form is:
 Before controlling the job, the CLI and its support modules must be identical to
 those in the accepted candidate. This keeps a locally edited, unaccepted controller
 from applying deployment. The controller reserves an exclusive private lock,
-revalidates the exact current release and original job/listener, then requests
+revalidates the exact requested candidate receipt, current release and original pinned PID/job/listener, then requests
 SIGTERM through the staging service's existing launchd control handle. It does not
 signal discovered PIDs or call production deployment scripts.
 

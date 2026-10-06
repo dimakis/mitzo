@@ -9,6 +9,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import {
   cpSync,
   existsSync,
+  lstatSync,
   readFileSync,
   realpathSync,
   writeFileSync,
@@ -24,6 +25,7 @@ import {
   compareStage,
   promoteStage,
   assertPinnedStageSource,
+  assertStageCandidate,
 } from './lib/staging-operations.mjs';
 import {
   privateJson,
@@ -206,6 +208,7 @@ async function check() {
     artifacts: artifactOK,
     dependencies: dependencyOK,
     runtime: runtimeOK,
+    locked: Boolean(lstatSync(join(root, 'service/deployment.lock'), { throwIfNoEntry: false })),
   });
   console.log(
     JSON.stringify({
@@ -280,8 +283,10 @@ async function deploy() {
   if (!/^[a-f0-9]{40}$/.test(expected ?? '')) throw Error('Exact expected-current commit required');
   const active = current(),
     next = privateJson(join(path, 'staging-release.json'));
+  assertStageCandidate(next, target, path);
   validateRelease(next, main());
-  assertStageJob(job(), active);
+  const originalJob = job();
+  assertStageJob(originalJob, active);
   if (active.sourceCommit !== expected) throw Error('Current stage changed since plan');
   const id = randomUUID(),
     backup = join(root, 'service/deployments', id);
@@ -327,13 +332,14 @@ async function deploy() {
       },
       audit: async (event) => audit({ id, ...event }),
       validate: async () => {
+        assertStageCandidate(next, target, path);
         validateRelease(next, main());
         validateRelease(active);
-        assertStageJob(job(), active);
+        assertStageJob(job(), active, originalJob.pid);
       },
       current: async () => current().sourceCommit,
       stop: async () => {
-        assertStageJob(job(), active);
+        assertStageJob(job(), active, originalJob.pid);
         run('launchctl', ['kill', 'SIGTERM', 'gui/' + process.getuid() + '/' + label]);
         const deadline = Date.now() + 180000;
         while (Date.now() < deadline) {

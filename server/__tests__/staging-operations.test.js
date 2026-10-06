@@ -212,3 +212,34 @@ it.each([
 ])('refuses pinned source identity or acceptance drift %j', (change) =>
   expect(() => assertPinnedStageSource({ ...pinned, ...change })).toThrow(),
 );
+
+it('refuses a replacement staging PID from the same release', () =>
+  expect(() =>
+    assertStageJob(
+      { pid: 43, cwd: fixture().release, portPids: [43], protectedPids: [] },
+      fixture(),
+      42,
+    ),
+  ).toThrow());
+import { assertStageCandidate } from '../../scripts/lib/staging-operations.mjs';
+it.each([{ sourceCommit: nextSha }, { release: '/private/stage/releases/other' }])(
+  'refuses a candidate receipt mismatching the requested target/path %j',
+  (change) =>
+    expect(() =>
+      assertStageCandidate({ ...fixture(), ...change }, oldSha, fixture().release),
+    ).toThrow(),
+);
+it('accepts a receipt matching the requested target and path', () =>
+  expect(() => assertStageCandidate(fixture(), oldSha, fixture().release)).not.toThrow());
+it('reports an intact running stage with a retained deployment lock as unsafe', () =>
+  expect(
+    compareStage({
+      expected: oldSha,
+      main: oldSha,
+      source: oldSha,
+      artifacts: true,
+      dependencies: true,
+      runtime: true,
+      locked: true,
+    }),
+  ).toEqual({ safe: false, stale: false, issues: ['deployment-lock'] }));

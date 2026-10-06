@@ -11,12 +11,21 @@ export function stagingBoundary({ root, label, port, bind, workspace, release, s
   )
     throw Error('Canonical staging boundary refused');
 }
-export function compareStage({ expected, main, source, artifacts, dependencies, runtime }) {
+export function compareStage({
+  expected,
+  main,
+  source,
+  artifacts,
+  dependencies,
+  runtime,
+  locked = false,
+}) {
   const issues = [];
   if (source !== expected) issues.push('source');
   if (!artifacts) issues.push('artifacts');
   if (!dependencies) issues.push('dependencies');
   if (!runtime) issues.push('runtime');
+  if (locked) issues.push('deployment-lock');
   return { safe: issues.length === 0, stale: main !== expected, issues };
 }
 /** Effects retain the original staging job control. No force stop, rollback,
@@ -70,4 +79,9 @@ export function assertPinnedStageSource({
     acceptedAncestor !== true
   )
     throw Error('Pinned staging source drift or unaccepted history');
+}
+
+export function assertStageCandidate(receipt, target, path) {
+  if (receipt.sourceCommit !== target || receipt.release !== path)
+    throw Error('Candidate receipt does not match requested staging target/path');
 }
