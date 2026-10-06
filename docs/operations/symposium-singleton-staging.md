@@ -98,3 +98,10 @@ replace exact-head CI/review or physical admission evidence.
 The canonical app child uses staging-only unconfigured sidecar ports5191–5193
 for Yapper, ContexGin and Centaur, and its own3190 app URL. Production defaults
 are not inherited; any future sidecar enrollment needs separate staging setup.
+
+Canonical plans are identified from their paths, independently of optional CLI
+flags. Ordinary trial preparation and unregistered owned launch refuse those
+plans. Prepare the owned bundle with --canonical after creating the capacity-one
+registration; it omits the unregistered custodian plist. Only the registered
+canonical launcher can start that plan. Removing --canonical never selects an
+ordinary trial or bypasses its registry/port checks.

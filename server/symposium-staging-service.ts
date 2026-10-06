@@ -212,6 +212,8 @@ export function prepareStagingService(
   node: string,
   port: number,
 ) {
+  if (requiresCanonicalStaging(plan))
+    throw Error('Canonical plan requires canonical staging preparation');
   return prepareService(plan, registrationPath, node, port, stagingServiceLabel(plan));
 }
 export function prepareCanonicalStagingService(
@@ -222,4 +224,15 @@ export function prepareCanonicalStagingService(
 ) {
   assertCanonicalStagingService(plan, registrationPath, root);
   return prepareService(plan, registrationPath, node, 3190, 'com.mitzo.staging');
+}
+
+export function requiresCanonicalStaging(
+  plan: Pick<OwnedReleasePlan, 'planDirectory' | 'releaseRoot'>,
+) {
+  const root = canonicalStagingRoot();
+  return (
+    plan.planDirectory === join(root, 'symposium/service') ||
+    plan.releaseRoot.startsWith(join(root, 'releases') + '/') ||
+    plan.planDirectory.endsWith('/symposium/service')
+  );
 }

@@ -1,5 +1,7 @@
 #!/usr/bin/env node
+import process from 'node:process';
 // Explicit fresh launch only. This wrapper never bootstraps a provider itself.
+import { requiresCanonicalStaging } from '../dist/symposium-staging-service.js';
 import { dirname, join, resolve } from 'node:path';
 import { ownedCustodianEnvironment } from '../dist/symposium-custodian-launch.js';
 import { fileURLToPath } from 'node:url';
@@ -13,6 +15,8 @@ try {
   const source = process.env;
   const releaseRoot = dirname(dirname(fileURLToPath(import.meta.url)));
   const plan = readOwnedReleasePlan(resolve(process.argv[2]));
+  if (requiresCanonicalStaging(plan))
+    throw Error('Canonical plans require the registered canonical launcher');
   if (
     plan.releaseRoot !== releaseRoot ||
     resolve(process.argv[2]) !== join(plan.planDirectory, 'owned-release.json') ||

@@ -235,3 +235,11 @@ it('retains the validated canonical registration when the file is replaced', () 
   expect(checked.registryDirectory).toBe(join(f.root, 'registry'));
   expect(() => assertCanonicalStagingService(f.plan, f.registrationPath, f.root)).toThrow();
 });
+
+it('refuses ordinary trial preparation for a canonical plan before creating files', () => {
+  const f = canonicalFixture();
+  expect(() => prepareStagingService(f.plan, f.registrationPath, process.execPath, 19994)).toThrow(
+    /canonical/i,
+  );
+  expect(existsSync(join(f.plan.planDirectory, 'staging-operator.json'))).toBe(false);
+});

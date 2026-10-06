@@ -9,6 +9,7 @@ import {
   prepareStagingService,
   prepareCanonicalStagingService,
   canonicalStagingRoot,
+  requiresCanonicalStaging,
 } from '../dist/symposium-staging-service.js';
 try {
   const canonical = process.argv.length === 6 && process.argv[5] === '--canonical';
@@ -24,6 +25,8 @@ try {
   if (plan.releaseRoot !== root || planPath !== join(plan.planDirectory, 'owned-release.json'))
     throw Error();
   verifyOwnedRelease(plan);
+  if (requiresCanonicalStaging(plan) && !canonical)
+    throw Error('Canonical plan requires canonical preparation');
   const prepared = canonical
     ? prepareCanonicalStagingService(
         plan,

@@ -14,6 +14,7 @@ import {
   readStagingOperatorEnvironment,
   assertCanonicalStagingService,
   canonicalStagingRoot,
+  requiresCanonicalStaging,
 } from '../dist/symposium-staging-service.js';
 import { launchStagingCustodian, StagingLaunchSchema } from '../dist/symposium-staging-launch.js';
 import { runSymposiumCustodian } from '../dist/symposium-custodian-main.js';
@@ -28,6 +29,8 @@ try {
     plan.entry !== 'dist/symposium-custodian-main.js'
   )
     throw Error();
+  if (requiresCanonicalStaging(plan) && !canonical)
+    throw Error('Canonical plan requires canonical launch');
   let registration = canonical
     ? assertCanonicalStagingService(plan, resolve(process.argv[3]), canonicalStagingRoot())
     : undefined;
