@@ -1,10 +1,13 @@
+import { createHash } from 'node:crypto';
 import {
+  chmodSync,
   existsSync,
   readFileSync,
   mkdirSync,
   mkdtempSync,
   realpathSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -78,22 +81,53 @@ it('loads an explicitly selected absolute stack manifest for the runtime consume
   ).toThrow(/stack manifest.*absolute/);
 });
 
-it('uploads a private snapshot that survives changes to the selected publication and cleans up', () => {
-  const config = fixture();
-  const commit = 'a'.repeat(40);
-  vi.stubEnv('MITZO_CODEX_PRIVATE_DIR', root);
-  writeFileSync(join(root, 'baseline.json'), JSON.stringify({ startingCommit: commit }));
-  writeFileSync(join(config.seed, 'note.md'), 'Accepted A');
-  const prepared = prepareOpenShellSeed({
-    ...config,
-    seedStackManifest: {
-      runtime: { image: config.image, mgmtSourceCommit: commit },
-    },
-  });
-  expect(prepared.seed).not.toBe(config.seed);
-  writeFileSync(join(config.seed, 'note.md'), 'Later B');
-  expect(readFileSync(join(prepared.seed, 'note.md'), 'utf8')).toBe('Accepted A');
-  const snapshot = prepared.seed;
-  prepared.cleanup();
-  expect(existsSync(snapshot)).toBe(false);
-});
+it.each(['exact', 'absent', 'stale'] as const)(
+  'uploads an immutable private snapshot with static file manifest metadata=%s',
+  (withFiles) => {
+    const config = fixture();
+    const commit = 'a'.repeat(40);
+    vi.stubEnv('MITZO_CODEX_PRIVATE_DIR', root);
+    const content = 'Accepted A';
+    const note = 'AGENTS.md';
+    const baseline = JSON.stringify({
+      startingCommit: commit,
+      ...(withFiles !== 'absent'
+        ? {
+            files: {
+              [note]: {
+                sha256: createHash('sha256').update(content).digest('hex'),
+                mode: withFiles === 'stale' ? '0600' : '0644',
+              },
+            },
+          }
+        : {}),
+    });
+    writeFileSync(join(root, 'baseline.json'), baseline);
+    writeFileSync(join(config.seed, note), content);
+    chmodSync(join(config.seed, note), 0o644);
+    const previous = process.umask(0o077);
+    let prepared: ReturnType<typeof prepareOpenShellSeed>;
+    try {
+      prepared = prepareOpenShellSeed({
+        ...config,
+        seedStackManifest: {
+          runtime: { image: config.image, mgmtSourceCommit: commit },
+        },
+      });
+    } finally {
+      process.umask(previous);
+    }
+    expect(statSync(join(prepared.seed, '..')).mode & 0o777).toBe(0o700);
+    expect(prepared.seed).not.toBe(config.seed);
+    expect(readFileSync(join(config.seed, note), 'utf8')).toBe(content);
+    expect(statSync(join(config.seed, note)).mode & 0o777).toBe(0o644);
+    writeFileSync(join(config.seed, note), 'Later B');
+    writeFileSync(join(root, 'baseline.json'), JSON.stringify({ startingCommit: 'b'.repeat(40) }));
+    expect(readFileSync(join(prepared.seed, note), 'utf8')).toBe('Accepted A');
+    expect(readFileSync(join(prepared.seed, '..', 'baseline.json'), 'utf8')).toBe(baseline);
+    expect(statSync(join(prepared.seed, note)).mode & 0o777).toBe(0o644);
+    const snapshot = prepared.seed;
+    prepared.cleanup();
+    expect(existsSync(snapshot)).toBe(false);
+  },
+);

@@ -6,6 +6,7 @@ import {
   CodexAppServerClient,
   CodexRequestError,
   CodexTransportError,
+  CodexHostToolRequestError,
   SUPPORTED_CODEX_CLI_VERSION,
   assertSupportedCodexCliVersion,
   type OpenShellCodexOptions,
@@ -296,6 +297,75 @@ describe('Codex app-server transport', () => {
     release({ ok: true });
     await vi.waitFor(() => expect(sent).toContainEqual({ id: 'host-1', result: { ok: true } }));
     expect(child.kill).not.toHaveBeenCalled();
+    client.close();
+  });
+
+  it.each(['item/tool/call', 'item/tool/requestUserInput'])(
+    'returns a safe tool failure only for dynamic tool calls (%s)',
+    async (method) => {
+      const { child, sent, reply } = processStub();
+      const lifecycle = {
+        onNotification: vi.fn(),
+        onRequest: vi.fn(async () => {
+          throw new Error('private URL bearer SECRET');
+        }),
+        onClose: vi.fn(),
+      };
+      const client = new CodexAppServerClient(child, { lifecycle });
+      reply({ id: 'host-failed', method, params: { arguments: { secret: 'SECRET' } } });
+      await vi.waitFor(() => expect(sent).toHaveLength(1));
+      if (method === 'item/tool/call') {
+        expect(sent[0]).toEqual({
+          id: 'host-failed',
+          result: {
+            success: false,
+            contentItems: [
+              {
+                type: 'inputText',
+                text: 'Mitzo could not dispatch this tool request. No external action was confirmed. Inspect current state before retrying.',
+              },
+            ],
+          },
+        });
+      } else {
+        expect(sent[0]).toEqual({
+          id: 'host-failed',
+          error: { code: -32603, message: 'Host request failed' },
+        });
+      }
+      expect(JSON.stringify(sent)).not.toContain('SECRET');
+      expect(child.kill).not.toHaveBeenCalled();
+      client.close();
+    },
+  );
+
+  it('preserves the bounded rejection class without exposing request data', async () => {
+    const { child, sent, reply } = processStub();
+    const lifecycle = {
+      onNotification: vi.fn(),
+      onRequest: vi.fn(async () => {
+        const error = new CodexHostToolRequestError('tool_identity_mismatch');
+        error.message = 'SECRET';
+        throw error;
+      }),
+      onClose: vi.fn(),
+    };
+    const client = new CodexAppServerClient(child, { lifecycle });
+    reply({ id: 'stale', method: 'item/tool/call', params: { threadId: 'SECRET' } });
+    await vi.waitFor(() => expect(sent).toHaveLength(1));
+    expect(sent[0]).toEqual({
+      id: 'stale',
+      result: {
+        success: false,
+        contentItems: [
+          {
+            type: 'inputText',
+            text: new CodexHostToolRequestError('tool_identity_mismatch').message,
+          },
+        ],
+      },
+    });
+    expect(JSON.stringify(sent)).not.toContain('SECRET');
     client.close();
   });
 

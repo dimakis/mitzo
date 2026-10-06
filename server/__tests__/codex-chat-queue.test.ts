@@ -9,7 +9,8 @@ const runtime = vi.hoisted(() => ({
   send: vi.fn().mockResolvedValue(undefined),
   resumeAfterExplicitSend: vi.fn().mockResolvedValue(undefined),
 }));
-vi.mock('../codex-chat-session.js', () => ({
+vi.mock('../codex-chat-session.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../codex-chat-session.js')>()),
   getCodexRuntime: () => runtime,
   openCodexChat: vi.fn(),
 }));
@@ -101,5 +102,31 @@ it('queues image and thinking input on an existing conversation', async () => {
       images,
     },
     undefined,
+  );
+});
+
+it('keeps an admitted message saved and reports a bounded reconnect failure', async () => {
+  const { KnowledgePublicationUnavailableError } =
+    await import('../knowledge-publication-bridge.js');
+  const send = vi.fn();
+  vi.spyOn(chat.registry, 'get').mockReturnValue({
+    inputQueue: {},
+    sessionId: 's',
+    cwd: root,
+    transport: { send, isOpen: () => true },
+    observers: new Set(),
+  } as unknown as ManagedSession);
+  vi.spyOn(chat.eventStore, 'hasUserMessage').mockReturnValue(true);
+  runtime.resumeAfterExplicitSend.mockRejectedValueOnce(new KnowledgePublicationUnavailableError());
+  await expect(chat.sendToChat('c', 'hello', undefined, undefined, 'saved-id')).resolves.toBe(true);
+  await vi.waitFor(() =>
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'error',
+        sessionId: 's',
+        error:
+          'Message saved. Knowledge publication is unavailable. Check the knowledge publisher before retrying. No provider turn was started.',
+      }),
+    ),
   );
 });

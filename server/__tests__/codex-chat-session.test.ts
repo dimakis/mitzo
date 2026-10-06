@@ -48,6 +48,7 @@ vi.mock('../codex-conversation.js', () => ({
     }
     initialize = mocks.initialize;
     getThreadId = vi.fn(() => 'thread');
+    getDurableThreadId = vi.fn(() => 'thread');
     assertPermissionModeChange = mocks.assertPermissionModeChange;
     setWebSearchGrant = mocks.setWebSearchGrant;
     getWebSearchGrant = mocks.getWebSearchGrant;
@@ -73,10 +74,12 @@ import {
   waitForCodexRuntime,
   waitForCodexRuntimeBySessionId,
 } from '../codex-chat-session.js';
+import { KnowledgePublicationUnavailableError } from '../knowledge-publication-bridge.js';
 import { OpenShellRuntimeManager } from '../openshell-runtime.js';
 import * as migrationAdapter from '../openshell-runtime-migration-adapter.js';
 import * as lifecycleController from '../openshell-lifecycle-controller.js';
 import * as knowledgeStoreConfig from '../knowledge-store-config.js';
+import { ConnectionsService } from '../connections-service.js';
 import { setConnectionsRuntime } from '../connections-runtime.js';
 import { getLiveCapabilityConversationBinding } from '../capability-conversation-binding.js';
 import { SymposiumProfileProposalStore } from '../symposium-profile-proposals.js';
@@ -298,6 +301,7 @@ it('does not advertise unavailable host tools to an OpenShell runtime', async ()
     expect.objectContaining({ name: 'TelosReadArtifact' }),
     expect.objectContaining({ name: 'SymposiumProposeProfile' }),
     expect.objectContaining({ name: 'RequestWebAccess' }),
+    expect.objectContaining({ name: 'RequestGithubPublish' }),
   ]);
   expect(mocks.conversationOptions?.systemPrompt).toContain(
     'never use a sandbox-local todo script',
@@ -482,11 +486,18 @@ it('advertises reviewed per-chat provider grants to a managed OpenShell runtime'
         }),
       }),
       expect.objectContaining({ name: 'RequestWebAccess' }),
+      expect.objectContaining({ name: 'RequestGithubPublish' }),
     ]);
     expect(mocks.conversationOptions?.tools).toEqual(
       expect.arrayContaining([expect.objectContaining({ name: 'RequestWebAccess' })]),
     );
     expect(mocks.conversationOptions?.systemPrompt).toContain('GrantIntegrationAccess');
+    expect(mocks.conversationOptions?.systemPrompt).toContain(
+      'Use RequestGithubPublish to publish committed local changes',
+    );
+    expect(mocks.conversationOptions?.systemPrompt).toContain(
+      'Do not substitute direct git push or gh API writes after denial',
+    );
     const adoptionEvidence = {
       storeId: 'notes',
       sourceCommit: 'a'.repeat(40),
@@ -965,6 +976,10 @@ it('preserves image attachments while binding a trusted capability, forcing appr
       item.name.startsWith('Capability_github_publish_pr'),
     );
     expect(tool).toBeDefined();
+    expect(mocks.conversationOptions?.systemPrompt).toContain('Use RequestGithubPublish');
+    expect(mocks.conversationOptions?.systemPrompt).not.toContain(
+      'GitHub publishing is unavailable',
+    );
     expect(mocks.send).toHaveBeenCalledWith(
       expect.objectContaining({ images: [{ data: 'cHJldmlldw==', mediaType: 'image/png' }] }),
     );
@@ -1172,6 +1187,7 @@ it('never loads trusted project hooks on the host for OpenShell sessions', async
       ...options(new AbortController()),
       session: { ...options(new AbortController()).session, cwd },
     });
+    expect(mocks.conversationOptions?.beforeComplete).toBeUndefined();
     expect(existsSync(marker)).toBe(false);
   } finally {
     vi.unstubAllEnvs();
@@ -1275,6 +1291,146 @@ it('rejects a grantable account provider before opening a managed OpenShell chat
     vi.unstubAllEnvs();
   }
 });
+
+it.each(['send', 'reattach', 'failure', 'revoked'] as const)(
+  'releases the real connection reservation before first-turn admission (%s)',
+  async (mode) => {
+    vi.clearAllMocks();
+    vi.stubEnv('MITZO_OPENSHELL_ENABLED', '1');
+    vi.stubEnv('MITZO_OPENSHELL_IMAGE', 'mitzo-runtime:1');
+    vi.stubEnv('MITZO_OPENSHELL_POLICY', '/config/policy.yaml');
+    vi.stubEnv('MITZO_OPENSHELL_SEED', '/seed/mgmt');
+    const service = new ConnectionsService(
+      {
+        get: () => ({
+          archivedAt: null,
+          ownerId: 'operator',
+          gateway: 'openshell',
+          workspace: 'default',
+        }),
+      } as unknown as import('../connections-store.js').ConnectionStore,
+      {
+        get: vi.fn(async () => ({
+          name: 'changed-provider',
+          id: 'changed-provider',
+          workspace: 'default',
+          type: 'github',
+        })),
+        validateBinding: vi.fn(),
+      } as unknown as import('../connections-gateway.js').ConnectionGateway,
+    );
+    const resolveConnections = vi.spyOn(service, 'resolveAutomaticForAccount').mockReturnValue([]);
+    vi.spyOn(service, 'onDemandForAccount').mockReturnValue([]);
+    const ensure = vi.spyOn(OpenShellRuntimeManager.prototype, 'ensure').mockResolvedValue({
+      sandboxName: 'mitzo-lock-test',
+      sandboxId: 'physical-lock-test',
+      workdir: '/sandbox/workspaces/mgmt',
+      appServerCommand: '/sandbox/run-mitzo-app-server',
+      cli: 'openshell',
+      gateway: 'openshell',
+      workspace: 'default',
+      gatewayInsecure: false,
+    });
+    const compile = vi
+      .spyOn(OpenShellRuntimeManager.prototype, 'compileContext')
+      .mockResolvedValue({
+        type: 'boot_context',
+        scope: 'sandbox',
+        sourceCount: 0,
+        tokenCount: 0,
+        tokenBudget: 12000,
+        sources: [],
+        included: [],
+        trimmed: [],
+        fullMarkdown: '',
+      });
+    setConnectionsRuntime({
+      service,
+    } as unknown as import('../connections-runtime.js').ConnectionsRuntime);
+    let admitted = false;
+    mocks.send.mockImplementationOnce(async () => {
+      if (mode === 'revoked')
+        resolveConnections.mockReturnValue([
+          {
+            id: 'changed-connection',
+            templateId: 'github-readonly',
+            templateVersion: 1,
+            workspace: 'default',
+            gatewayProviderName: 'changed-provider',
+            gatewayProviderId: 'changed-provider',
+          } as import('../connections-store.js').Connection,
+        ]);
+      const guard = mocks.conversationOptions!.reconnectGuard as (
+        work: () => Promise<void>,
+      ) => Promise<void>;
+      await guard(async () => {
+        admitted = true;
+      });
+      if (mode === 'failure') throw new Error('first-turn admission failed');
+    });
+    const abort = new AbortController();
+    try {
+      const base = options(abort);
+      const session = base.session;
+      const request = openCodexChat({
+        ...base,
+        conversationId: 'lock-' + mode,
+        binding: {
+          accountId: 'work',
+          accountLabel: 'Work',
+          provider: 'openai',
+          model: 'test-model',
+          profileRevision: '1',
+        },
+        profile: {
+          accountId: 'work',
+          accountLabel: 'Work',
+          email: 'work@example.com',
+          planType: 'api',
+          model: 'test-model',
+          sandboxProvider: 'openai-work',
+        },
+        registry: {
+          findBySessionId: () => ({ clientId: 'client', session }),
+        } as unknown as import('@mitzo/harness').SessionRegistry,
+        prompt: 'test',
+        messageId: 'first-turn',
+        systemPrompt: 'base',
+        env: {},
+        reattachOnly: mode === 'reattach',
+      });
+      let timer: ReturnType<typeof setTimeout>;
+      const bounded = Promise.race([
+        request,
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(() => reject(new Error('connection reservation deadlocked')), 500);
+        }),
+      ]).finally(() => clearTimeout(timer));
+      if (mode === 'failure' || mode === 'revoked') {
+        await expect(bounded).rejects.toThrow(
+          mode === 'failure'
+            ? 'first-turn admission failed'
+            : 'Connection permissions changed. Start a new conversation.',
+        );
+        expect(admitted).toBe(mode === 'failure');
+        expect(mocks.close).toHaveBeenCalled();
+      } else {
+        const chat = await bounded;
+        expect(admitted).toBe(mode === 'send');
+        expect(mocks.send).toHaveBeenCalledTimes(mode === 'send' ? 1 : 0);
+        chat.close();
+      }
+      // Setup and admission both release the actual service's serial gate.
+      await service.withAccountRuntimes('work', async () => undefined);
+    } finally {
+      abort.abort();
+      setConnectionsRuntime(null);
+      ensure.mockRestore();
+      compile.mockRestore();
+      mocks.send.mockReset();
+    }
+  },
+);
 
 it('preserves first launch and valid restore while failing closed for a replacement with no lifecycle state', async () => {
   vi.clearAllMocks();
@@ -1587,4 +1743,18 @@ it.each([
   expect(message).toContain('task files and provider thread are preserved');
   expect(message).not.toContain('secret');
   expect(message).not.toContain('private');
+});
+
+it('explains unavailable knowledge without exposing publication transport details', () => {
+  expect(publicCodexRuntimeError(new KnowledgePublicationUnavailableError())).toBe(
+    'Knowledge publication is unavailable. Check the knowledge publisher before retrying. No provider turn was started.',
+  );
+});
+
+it('describes an active transport interruption without claiming a failed provider turn', () => {
+  expect(
+    publicCodexRuntimeError(new Error('Codex transport disconnected; recovery is available')),
+  ).toBe(
+    'The Codex connection was interrupted. The turn outcome is unknown; inspect saved work before continuing.',
+  );
 });

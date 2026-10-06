@@ -18,6 +18,7 @@ import {
   createSymposiumApplicationDispatchPolicy,
   selectSymposiumApplicationClaim,
 } from './symposium-application-dispatch.js';
+import { bindMitzoTelosCoreCapture } from './backup/mitzo-telos-binding.js';
 import { NotificationStore } from './notification-store.js';
 import { NotificationCenter, setNotificationCenter } from './notification-center.js';
 import { notificationRouter } from './notification-routes.js';
@@ -1818,11 +1819,19 @@ app.post('/api/internal/task-tools/artifact', (req, res) => {
   });
 });
 
+const telosDatabasePath = () =>
+  process.env.TELOS_DB_PATH || join(BASE_REPO, 'command_center', 'data', 'smart_todo.db');
+/** Host-only capture capability. No route, scheduler or upload is enabled here. */
+export const captureMitzoTelosCoreBackup = bindMitzoTelosCoreCapture({
+  events: eventStore,
+  tasks: taskStore,
+  telosPath: telosDatabasePath,
+});
+
 app.use(
   createTelosArtifactRouter({
     operatorAuth: operatorAuthMiddleware,
-    dbPath: () =>
-      process.env.TELOS_DB_PATH || join(BASE_REPO, 'command_center', 'data', 'smart_todo.db'),
+    dbPath: telosDatabasePath,
     verifyInternal: verifyInternalToken,
     sessionId: (clientId) => registry.get(clientId)?.sessionId,
     readFile: async (sessionId, requestedPath) => {

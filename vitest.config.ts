@@ -5,6 +5,10 @@ export default defineConfig({
   resolve: {
     alias: {
       // Resolve workspace packages to local source (worktree-safe)
+      '@mitzo/protocol/database-backup': resolve(
+        __dirname,
+        'packages/protocol/src/database-backup.ts',
+      ),
       '@mitzo/protocol/event-store': resolve(__dirname, 'packages/protocol/src/event-store.ts'),
       '@mitzo/protocol': resolve(__dirname, 'packages/protocol/src/index.ts'),
       '@mitzo/client/hooks': resolve(__dirname, 'packages/client/src/hooks/index.ts'),

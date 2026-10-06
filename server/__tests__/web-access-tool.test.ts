@@ -76,3 +76,37 @@ describe('shared web access tool wiring', () => {
     expect(await execute(input, new AbortController().signal)).toMatchObject({ isError: false });
   });
 });
+
+it('routes exact URL access requests through the shared session approval tool', async () => {
+  const session = {
+    mode: 'agent',
+    activeSkillPolicy: null,
+    accountBinding: { accountId: 'a', provider: 'openai', model: 'm', profileRevision: '1' },
+  } as unknown as ManagedSession;
+  const registry = {
+    get: () => session,
+    findBySessionId: () => ({ clientId: 'owner', session }),
+  } as unknown as SessionRegistry;
+  approve.mockImplementation(async (_name, input) => ({ behavior: 'allow', updatedInput: input }));
+  const execute = createWebAccessTool('conversation', registry, vi.fn());
+  expect(
+    await execute(
+      {
+        operation: 'request_access',
+        url: 'http://127.0.0.1:8123/',
+        reason: 'Access my HA instance',
+      },
+      new AbortController().signal,
+    ),
+  ).toMatchObject({ isError: false });
+  expect(approve.mock.calls.at(-1)?.[1]).toMatchObject({
+    origin: 'http://127.0.0.1:8123',
+    resolvedAddresses: ['127.0.0.1'],
+  });
+  expect(
+    await execute(
+      { operation: 'revoke_access', url: 'http://127.0.0.1:8123/', reason: 'Remove access' },
+      new AbortController().signal,
+    ),
+  ).toMatchObject({ isError: false });
+});

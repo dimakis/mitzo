@@ -21,12 +21,14 @@ import { parseProviderAttachments } from './connections-gateway.js';
 import { execFile } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import {
+  chmodSync,
   cpSync,
   existsSync,
   lstatSync,
   mkdtempSync,
   mkdirSync,
   readFileSync,
+  readdirSync,
   realpathSync,
   renameSync,
   rmSync,
@@ -757,7 +759,58 @@ export function prepareOpenShellSeed(
     const publicationPath = join(selected, '..', 'publication.json');
     const publication = existsSync(publicationPath) ? readFileSync(publicationPath) : undefined;
     const seed = join(snapshotRoot, 'mgmt');
+    const captured = JSON.parse(baseline.toString('utf8')) as { files?: unknown };
+    const files = captured.files;
+    const legacyModes = new Map<string, string>();
+    const dynamic = Object.hasOwn(captured, 'runtimeBaseCommit');
+    if (!dynamic) {
+      // Static legacy baselines intentionally attest only their commit. Preserve
+      // that contract while capturing modes from physical source files before cp.
+      const captureModes = (directory: string, prefix = '') => {
+        const info = lstatSync(directory);
+        if (!info.isDirectory() || info.isSymbolicLink())
+          throw new Error('Legacy knowledge contains an unsafe directory');
+        for (const name of readdirSync(directory)) {
+          const path = join(directory, name);
+          const relativePath = prefix ? `${prefix}/${name}` : name;
+          const info = lstatSync(path);
+          if (info.isSymbolicLink()) throw new Error('Legacy knowledge contains an unsafe symlink');
+          if (info.isDirectory()) captureModes(path, relativePath);
+          else if (info.isFile() && (info.mode & 0o7000) === 0)
+            legacyModes.set(relativePath, (info.mode & 0o777).toString(8).padStart(4, '0'));
+          else throw new Error('Legacy knowledge contains an unsupported path');
+        }
+      };
+      captureModes(selected);
+    } else if (!files || typeof files !== 'object' || Array.isArray(files)) {
+      throw new Error('Frozen knowledge file manifest is invalid');
+    }
     cpSync(selected, seed, { recursive: true, dereference: false });
+    // cpSync applies the daemon's umask on some hosts. Restore only captured
+    // regular-file modes inside this private copy, never the publication source.
+    // Walk physical copied paths instead of trusting baseline keys as chmod paths.
+    const restoreModes = (directory: string, prefix = '') => {
+      const info = lstatSync(directory);
+      if (!info.isDirectory() || info.isSymbolicLink())
+        throw new Error('Frozen knowledge contains an unsafe directory');
+      for (const name of readdirSync(directory)) {
+        const path = join(directory, name);
+        const relativePath = prefix ? `${prefix}/${name}` : name;
+        const info = lstatSync(path);
+        if (info.isSymbolicLink()) throw new Error('Frozen knowledge contains an unsafe symlink');
+        if (info.isDirectory()) restoreModes(path, relativePath);
+        else if (info.isFile()) {
+          const mode =
+            dynamic && files && Object.hasOwn(files, relativePath)
+              ? (files as Record<string, { mode?: unknown }>)[relativePath]?.mode
+              : legacyModes.get(relativePath);
+          if (typeof mode !== 'string' || !/^0[0-7]{3}$/.test(mode))
+            throw new Error('Frozen knowledge file mode is invalid');
+          chmodSync(path, Number.parseInt(mode, 8));
+        } else throw new Error('Frozen knowledge contains an unsupported path');
+      }
+    };
+    restoreModes(seed);
     writeFileSync(join(snapshotRoot, 'baseline.json'), baseline, { mode: 0o600 });
     if (publication)
       writeFileSync(join(snapshotRoot, 'publication.json'), publication, { mode: 0o600 });

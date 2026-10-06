@@ -66,6 +66,7 @@ export class OpenShellGithubSandboxTransport implements GithubSandboxTransport {
   constructor(
     private readonly run: OpenShellControlRunner,
     private readonly workspace: string,
+    private readonly workdir?: string,
   ) {}
   private async git(
     sandboxName: string,
@@ -77,6 +78,11 @@ export class OpenShellGithubSandboxTransport implements GithubSandboxTransport {
     checked(sandboxName, safeSandbox, 'Sandbox identity is invalid');
     checked(repositoryPath, safePath, 'Repository path is invalid');
     checked(this.workspace, safeSandbox, 'OpenShell workspace is invalid');
+    const root = checked(
+      this.workdir ?? `/sandbox/workspaces/${this.workspace}`,
+      safePath,
+      'Sandbox workdir is invalid',
+    );
     try {
       return await this.run(
         [
@@ -94,7 +100,7 @@ export class OpenShellGithubSandboxTransport implements GithubSandboxTransport {
           '-c',
           githubGitBoundaryScript,
           'mitzo-github-git',
-          `/sandbox/workspaces/${this.workspace}`,
+          root,
           repositoryPath,
           ...args,
         ],
@@ -103,6 +109,21 @@ export class OpenShellGithubSandboxTransport implements GithubSandboxTransport {
     } catch {
       return commandFailure();
     }
+  }
+  async origin(input: {
+    sandboxName: string;
+    repositoryPath: string;
+    signal: AbortSignal;
+  }): Promise<string> {
+    return (
+      await this.git(
+        input.sandboxName,
+        input.repositoryPath,
+        ['remote', 'get-url', 'origin'],
+        input.signal,
+        4096,
+      )
+    ).trim();
   }
   async inspect(input: {
     sandboxName: string;
@@ -385,6 +406,12 @@ function sameGithubPullRequestUrl(left: string, right: string) {
 export class GitHubCliHostPublisher implements GithubHostPublisher {
   private readonly cleanupParents = new Set<string>();
   constructor(private readonly runHost: GithubHostCommandRunner = host) {}
+  async identity(signal: AbortSignal): Promise<string> {
+    const response = await this.runHost('gh', ['api', 'user'], signal);
+    return z
+      .object({ login: z.string().regex(/^[a-z\d](?:[a-z\d-]{0,37}[a-z\d])?$/i) })
+      .parse(JSON.parse(response.stdout)).login;
+  }
   async policy(input: { repository: string; sourceBranch: string; signal: AbortSignal }) {
     checked(input.repository, safeRepository, 'Repository is invalid');
     checked(input.sourceBranch, safeBranch, 'Source branch is invalid');

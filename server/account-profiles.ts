@@ -419,8 +419,9 @@ export class AccountProfiles {
     );
   }
 
-  /** Only profiles with an enabled sandbox binding can receive managed service credentials. */
-  connectionEligibleIds(): string[] {
+  /** GitHub controller publication does not mount sandbox credentials. Other services retain their sandbox ceiling. */
+  connectionEligibleIds(templateId?: string): string[] {
+    if (templateId === 'github-readonly') return this.catalog().map((account) => account.id);
     const visible = new Set(this.catalog().map((account) => account.id));
     return this.profiles
       .filter(
