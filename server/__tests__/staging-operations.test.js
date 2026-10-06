@@ -11,6 +11,7 @@ function fixture(overrides = {}) {
     root: '/private/stage',
     label: 'com.mitzo.staging',
     port: 3190,
+    bind: '127.0.0.1',
     workspace: '/private/stage/workspace',
     release: '/private/stage/releases/' + oldSha.slice(0, 12),
     sourceCommit: oldSha,
@@ -170,3 +171,22 @@ it('accepts the original stage job only when its directory and listener match', 
       fixture(),
     ),
   ).not.toThrow());
+
+import { stageDirectory, appendAudit } from '../../scripts/lib/staging-files.mjs';
+it('rejects an aliased state/audit directory before writing outside staging', () => {
+  const root = mkdtempSync(join(tmpdir(), 'stage-directory-'));
+  const outside = mkdtempSync(join(tmpdir(), 'stage-outside-'));
+  try {
+    mkdirSync(join(root, 'service'));
+    symlinkSync(outside, join(root, 'service', 'deployments'));
+    expect(() => stageDirectory(root, 'service/deployments/run', true)).toThrow();
+    symlinkSync(join(outside, 'record'), join(root, 'service', 'audit.jsonl'));
+    expect(() => appendAudit(join(root, 'service', 'audit.jsonl'), { phase: 'test' })).toThrow();
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+    rmSync(outside, { recursive: true, force: true });
+  }
+});
+
+it('rejects a non-loopback binding in the stage receipt', () =>
+  expect(() => stagingBoundary({ ...fixture(), bind: '0.0.0.0' })).toThrow());

@@ -1,10 +1,11 @@
 import { join } from 'node:path';
 const sha = /^[a-f0-9]{40}$/;
-export function stagingBoundary({ root, label, port, workspace, release, sourceCommit }) {
+export function stagingBoundary({ root, label, port, bind, workspace, release, sourceCommit }) {
   if (
     !sha.test(sourceCommit) ||
     label !== 'com.mitzo.staging' ||
     port !== 3190 ||
+    bind !== '127.0.0.1' ||
     workspace !== join(root, 'workspace') ||
     release !== join(root, 'releases', sourceCommit.slice(0, 12))
   )

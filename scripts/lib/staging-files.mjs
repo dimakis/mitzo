@@ -12,6 +12,7 @@ import {
   writeFileSync,
   fsyncSync,
   renameSync,
+  mkdirSync,
 } from 'node:fs';
 import { join, relative, dirname } from 'node:path';
 export function fingerprintDirectory(root, directory) {
@@ -97,4 +98,51 @@ export function artifacts(root) {
     walk(join(root, directory));
   }
   return result;
+}
+
+export function stageDirectory(root, directory, create = false) {
+  root = realpathSync(root);
+  let path = root;
+  for (const component of directory.split('/')) {
+    if (!component || component === '.' || component === '..')
+      throw Error('Unsafe staging directory');
+    path = join(path, component);
+    let stat;
+    try {
+      stat = lstatSync(path);
+    } catch (error) {
+      if (error.code !== 'ENOENT' || !create) throw error;
+      mkdirSync(path, { mode: 0o700 });
+      stat = lstatSync(path);
+    }
+    if (
+      !stat.isDirectory() ||
+      stat.isSymbolicLink() ||
+      stat.uid !== process.getuid() ||
+      realpathSync(path) !== path
+    )
+      throw Error('Aliased staging directory refused');
+  }
+  return path;
+}
+export function appendAudit(path, event) {
+  const fd = openSync(
+    path,
+    constants.O_APPEND | constants.O_CREAT | constants.O_WRONLY | constants.O_NOFOLLOW,
+    0o600,
+  );
+  try {
+    const stat = fstatSync(fd);
+    if (
+      !stat.isFile() ||
+      stat.uid !== process.getuid() ||
+      stat.nlink !== 1 ||
+      (stat.mode & 0o777) !== 0o600
+    )
+      throw Error('Private audit file refused');
+    writeFileSync(fd, JSON.stringify(event) + '\n');
+    fsyncSync(fd);
+  } finally {
+    closeSync(fd);
+  }
 }
