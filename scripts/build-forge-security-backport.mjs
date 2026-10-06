@@ -1,9 +1,10 @@
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, writeFileSync, rmSync, copyFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync, rmSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { canonicalPackageArchive } from './security-backport-archive.mjs';
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const vendor = join(root, 'vendor/security');
 const upstream = join(vendor, 'node-forge-1.4.0.tgz');
@@ -21,7 +22,7 @@ try {
   const packagePath = join(packageRoot, 'package.json');
   const metadata = JSON.parse(readFileSync(packagePath, 'utf8'));
   metadata.name = '@mitzo/node-forge-security';
-  metadata.version = '1.4.0-mitzo.2';
+  metadata.version = '1.4.0-mitzo.3';
   metadata.mitzoSecurityBackport = {
     upstream: 'node-forge@1.4.0',
     integrity,
@@ -34,28 +35,20 @@ try {
   delete metadata.scripts;
   delete metadata.devDependencies;
   writeFileSync(packagePath, JSON.stringify(metadata, null, 2) + '\n');
-  const packed = JSON.parse(
-    execFileSync(
-      'npm',
-      [
-        'pack',
-        '--ignore-scripts',
-        '--cache',
-        join(build, 'npm-cache'),
-        '--offline',
-        '--json',
-        '--pack-destination',
-        build,
-      ],
-      { cwd: packageRoot, encoding: 'utf8' },
-    ),
-  )[0];
-  const output = join(vendor, packed.filename);
-  const result = readFileSync(join(build, packed.filename));
+  const files = [
+    'LICENSE',
+    'README.md',
+    'package.json',
+    ...readdirSync(join(packageRoot, 'lib'))
+      .filter((name) => name.endsWith('.js'))
+      .map((name) => 'lib/' + name),
+  ].map((name) => ({ name: 'package/' + name, data: readFileSync(join(packageRoot, name)) }));
+  const output = join(vendor, 'mitzo-node-forge-security-' + metadata.version + '.tgz');
+  const result = canonicalPackageArchive(files);
   if (process.argv.includes('--verify')) {
     if (!result.equals(readFileSync(output)))
       throw new Error('Forge backport archive is not reproducible from pinned input and patch');
-  } else copyFileSync(join(build, packed.filename), output);
+  } else writeFileSync(output, result);
   console.log(
     'Verified forge security backport: ' + createHash('sha256').update(result).digest('hex'),
   );

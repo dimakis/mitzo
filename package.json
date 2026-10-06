@@ -73,7 +73,7 @@
     "tldts": "7.4.12",
     "ws": "^8.18.0",
     "zod": "4.3.6",
-    "node-forge": "file:vendor/security/mitzo-node-forge-security-1.4.0-mitzo.2.tgz",
+    "node-forge": "file:vendor/security/mitzo-node-forge-security-1.4.0-mitzo.3.tgz",
     "http-proxy": "^1.18.1"
   },
   "devDependencies": {
@@ -116,7 +116,8 @@
     "katex": "0.18.2"
   },
   "engines": {
-    "npm": ">=11.18.0"
+    "npm": ">=11.18.0",
+    "node": ">=24"
   },
   "packageManager": "npm@11.18.0"
 }
