@@ -1,3 +1,5 @@
+import { createHostBackupService } from './backup/host.js';
+import { createBackupRouter } from './backup/router.js';
 import { bindMitzoTelosCoreCapture } from './backup/mitzo-telos-binding.js';
 import { NotificationStore } from './notification-store.js';
 import { NotificationCenter, setNotificationCenter } from './notification-center.js';
@@ -1570,6 +1572,11 @@ export const captureMitzoTelosCoreBackup = bindMitzoTelosCoreCapture({
   tasks: taskStore,
   telosPath: telosDatabasePath,
 });
+
+app.use(
+  '/api/backups',
+  createBackupRouter(createHostBackupService(captureMitzoTelosCoreBackup), operatorAuthMiddleware),
+);
 
 app.use(
   createTelosArtifactRouter({
