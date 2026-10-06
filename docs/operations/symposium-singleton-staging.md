@@ -142,6 +142,74 @@ A stopped process alone is insufficient. Uncertain shutdown retains the lock and
 evidence. No force escalation, automatic replacement, rollback or startup command
 is included. The VM must stay running until native retirement is confirmed.
 
-This controller does not perform the initial ordinary-to-owned transition. That
-transition still requires a reviewed source/configuration bundle and the existing
-ordinary service's original control; do not use drain to adopt an old custodian.
+The owned check/drain controller never performs the initial transition or adopts
+an old custodian. The separate initial-transition command below retains the
+existing ordinary service's original control.
+
+## Initial ordinary-to-owned transition
+
+The initial transition is prepared and reviewed as code; this document does not
+activate it. It depends on the original canonical ordinary controller's private
+release receipt and installed service layout (the controller work in PR745).
+It does not import that feature branch or claim its code has reached main.
+
+Run from the exact independent built release selected by the canonical owned plan,
+using full source identities for both the candidate and existing ordinary app:
+
+```sh
+node scripts/symposium-staging-transition.mjs prepare \
+  --commit TARGET_SHA --expected-current ORDINARY_SHA
+node scripts/symposium-staging-transition.mjs plan \
+  --commit TARGET_SHA --expected-current ORDINARY_SHA
+```
+
+Preparation creates one exclusive `symposium/service/transition.json` receipt. It
+pins the old receipt, installed controller/service files, original PID and birth,
+release directory, prepared plan/configuration/operator/registration/plist hashes.
+The private registry must be empty; launch intent, old owner records and preexisting
+owner log targets refuse preparation. No native registrations or model calls are
+created. Plan rereads these files and identities without changing launchd.
+
+The explicit control command is:
+
+```sh
+node scripts/symposium-staging-transition.mjs apply \
+  --commit TARGET_SHA --expected-current ORDINARY_SHA
+```
+
+Apply requires the executing controller to be in the selected verified built
+release and the target to equal freshly fetched accepted main. Local script edits,
+compiled/configuration drift and unaccepted target sources refuse control. This
+is a deliberately stricter rollout gate: an independently reviewed feature target
+cannot currently run under a separate accepted-main controller. Supporting that
+split requires a separately verified controller source/tree/build/dependency
+receipt and review; there is no exception flag. Source acceptance and independently
+reviewed staging configuration remain prerequisites. Exact-head CI and final
+review remain acceptance requirements outside this command.
+
+Apply reserves the same `service/deployment.lock` used by ordinary updates and
+owned drain. It rechecks immutable inputs, accepted main, the original launchd
+control path, PID/birth/release/listener and production listener exclusions before
+SIGTERM through `gui/UID/com.mitzo.staging`. It requires the exact old PID, job PID
+and3190 listener to disappear. A stopped ordinary process alone does not authorize
+adopting another owner.
+
+After confirmed exit, it copies only the ordinary workspace, state, HOME,
+settings, bin and original service artifacts to `service/transitions/UUID`. The
+existing originals and Symposium workspace/HOME/configuration/VM remain retained.
+It installs the prepared plist under the same `com.mitzo.staging` identity with
+KeepAlive and RunAtLoad false, removes the old stopped launchd registration,
+bootstraps that identity and requests one start. Static qualification and production
+exclusions are rechecked before bootstrap/start. There is no second label, backend,
+VM stop, force kill, fallback credential source or automatic rollback.
+
+The canonical wrapper's `bin/staging.mjs` becomes an owned-only router for check
+and drain. It pins the source in `service/topology.json` and refuses ordinary
+prepare/deploy/restart commands. The retained ordinary controller also fails its
+original job/listener checks against a custodian parent/app topology; do not run
+retained launchers directly. The transition verifies the original owner record,
+private capacity-one registry, parent/app birth and relationship, exact source and
+3190 listener, production exclusions and HTTP readiness before releasing its lock.
+An attempted stop followed by any uncertainty retains the lock and audit evidence;
+no replacement, retry or rollback is started. Inspect any partial preparation or
+transition instead of deleting its intent or lock.
