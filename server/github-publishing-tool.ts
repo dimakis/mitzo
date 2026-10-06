@@ -31,7 +31,7 @@ const Input = z.object(GithubPublishingFields).strict();
 export const githubPublishingDefinition: ToolDefinition = {
   name: REQUEST_GITHUB_PUBLISH,
   description:
-    'Request approval to publish committed workspace changes to a GitHub feature branch and create or update its pull request. Mitzo selects the configured connection for this session account and can ask the user for a missing publishing grant. Credentials remain on the controller. Supply the absolute local repository path inside the current workspace, base branch, title, body and draft choice; do not use direct GitHub writes.',
+    'Request approval to publish committed workspace changes to a GitHub feature branch and create or update its pull request. Mitzo resolves the GitHub repository from the current workspace and selects its configured connection for this session account. It asks the user for repository-specific access when needed. Credentials remain on the controller. Supply the absolute local repository path inside the current workspace, base branch, title, body and draft choice; do not use direct GitHub writes.',
   input_schema: z.toJSONSchema(Input),
 };
 export const GITHUB_PUBLISHING_INSTRUCTIONS =
@@ -87,18 +87,35 @@ export function createGithubPublishingTool(
           content: 'Session permissions changed; retry the publishing request',
           isError: true,
         };
+      if (!sourceIdentity || !runtime.resolveGithubPublishingRepository)
+        return {
+          content: 'The live repository cannot be resolved; reconnect before publishing',
+          isError: true,
+        };
+      const repository = await runtime.resolveGithubPublishingRepository(
+        sourceIdentity,
+        parsed.data.repositoryPath,
+        parsed.data.baseBranch,
+        signal,
+      );
+      if (!isCurrent())
+        return { content: 'Session permissions changed; retry publishing', isError: true };
       const connections = runtime.store
         .list('operator')
         .filter(
           (c) =>
             c.templateId === 'github-readonly' &&
             c.status === 'active' &&
-            c.desiredAccountIds.includes(account.accountId),
+            c.desiredAccountIds.includes(account.accountId) &&
+            Array.isArray(c.publicConfig.allowedRepositories) &&
+            c.publicConfig.allowedRepositories.some(
+              (value) => typeof value === 'string' && value.toLowerCase() === repository,
+            ),
         );
       if (connections.length !== 1)
         return {
           content:
-            'Assign one active managed GitHub connection to this AI account in Connections before publishing. Local changes are preserved.',
+            'Assign one active managed GitHub connection scoped to this repository and AI account in Connections before publishing. Local changes are preserved.',
           isError: true,
         };
       const connection = connections[0]!;
@@ -129,14 +146,22 @@ export function createGithubPublishingTool(
           1,
         ),
       );
-      if (grant?.status !== 'active' || !grant.accountIds.includes(account.accountId)) {
+      const repositoryScope = {
+        connectionId: connection.id,
+        connectionRevision: connection.revision,
+        accountId: identity.accountId,
+        repository,
+      };
+      const hasAccountGrant =
+        grant?.status === 'active' && grant.accountIds.includes(account.accountId);
+      if (!hasAccountGrant || !runtime.capabilityStore.hasGithubRepositoryAccess(repositoryScope)) {
         const payload = {
           connectionId: connection.id,
           connectionRevision: connection.revision,
           accountId: account.accountId,
           githubIdentity: connection.identity,
           capability: 'github.publish-pr',
-          allowedRepositories: connection.publicConfig.allowedRepositories ?? [],
+          repository,
           allowedBaseBranches: connection.publicConfig.allowedBaseBranches ?? [],
         };
         const decision = await buildPermissionHandler(owner.clientId, registry)(
@@ -148,9 +173,9 @@ export function createGithubPublishingTool(
             forcePrompt: true,
             allowSessionGrant: false,
             approvalScope: 'request',
-            title: 'Enable GitHub publishing requests for this account?',
+            title: `Allow publishing requests for ${repository}?`,
             description:
-              'Enables the selected AI account to request publication within this connection’s repository and branch scope. Each publication still requires its own approval.',
+              'Enables the selected AI account to request publication for this repository within the configured branch scope. Each publication still requires its own approval.',
           },
         );
         signal.throwIfAborted();
@@ -159,9 +184,17 @@ export function createGithubPublishingTool(
             content: 'GitHub publishing access declined. Local changes are preserved.',
             isError: true,
           };
+        const approvedRepository = await runtime.resolveGithubPublishingRepository(
+          sourceIdentity,
+          parsed.data.repositoryPath,
+          parsed.data.baseBranch,
+          signal,
+        );
+        signal.throwIfAborted();
         if (
           !isCurrent() ||
           !currentConnection() ||
+          approvedRepository !== repository ||
           !isDeepStrictEqual(
             runtime.capabilityStore.getGrant(
               connection.id,
@@ -174,19 +207,21 @@ export function createGithubPublishingTool(
           !isDeepStrictEqual(decision.updatedInput, payload)
         )
           return { content: 'Publishing access changed during approval; retry', isError: true };
-        runtime.capabilities.setGrant({
-          connectionId: connection.id,
-          connectionRevision: connection.revision,
-          capabilityId: 'github.publish-pr',
-          capabilityVersion: 1,
-          accountIds: [
-            ...new Set([
-              ...(grant?.status === 'active' ? grant.accountIds : []),
-              identity.accountId,
-            ]),
-          ],
-          status: 'active',
-        });
+        if (!hasAccountGrant)
+          runtime.capabilities.setGrant({
+            connectionId: connection.id,
+            connectionRevision: connection.revision,
+            capabilityId: 'github.publish-pr',
+            capabilityVersion: 1,
+            accountIds: [
+              ...new Set([
+                ...(grant?.status === 'active' ? grant.accountIds : []),
+                identity.accountId,
+              ]),
+            ],
+            status: 'active',
+          });
+        runtime.capabilityStore.approveGithubRepository(repositoryScope);
       }
       const resolved = source();
       if (!resolved || !isCurrent() || !currentConnection())
@@ -220,7 +255,19 @@ export function createGithubPublishingTool(
           content: `An earlier publishing operation still needs verification: ${unresolved.map((operation) => operation.id).join(', ')}. Inspect its result before publishing again.`,
           isError: true,
         };
-      if (!isCurrent() || !currentConnection())
+      const recoveredRepository = await runtime.resolveGithubPublishingRepository(
+        sourceIdentity,
+        parsed.data.repositoryPath,
+        parsed.data.baseBranch,
+        signal,
+      );
+      signal.throwIfAborted();
+      if (
+        !isCurrent() ||
+        !currentConnection() ||
+        !runtime.capabilityStore.hasGithubRepositoryAccess(repositoryScope) ||
+        recoveredRepository !== repository
+      )
         return { content: 'Publishing access changed during recovery; retry', isError: true };
       const operation = await runtime.capabilities.invoke(
         {

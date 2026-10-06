@@ -3,7 +3,11 @@ import { mkdtemp, writeFile, symlink, rm, realpath, access } from 'node:fs/promi
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { inspectHostGithubRepository, exportHostGithubBundle } from '../github-host-source.js';
+import {
+  inspectHostGithubRepository,
+  exportHostGithubBundle,
+  resolveHostGithubRepository,
+} from '../github-host-source.js';
 const roots: string[] = [];
 afterEach(async () => {
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
@@ -122,4 +126,17 @@ it('does not execute repository-configured filters while inspecting committed so
   await writeFile(join(f.root, 'note.txt'), 'different bytes to require a refresh');
   await inspectHostGithubRepository(f.input);
   await expect(access(marker)).rejects.toThrow();
+});
+
+it('resolves only canonical GitHub origins inside the session boundary', async () => {
+  const f = await fixture();
+  expect(await resolveHostGithubRepository(f.input)).toBe('example/repo');
+  f.git('remote', 'set-url', 'origin', 'git@github.com:Example/Repo.git');
+  expect(await resolveHostGithubRepository(f.input)).toBe('example/repo');
+  f.git('remote', 'set-url', 'origin', 'https://token@github.com/example/repo.git');
+  await expect(resolveHostGithubRepository(f.input)).rejects.toThrow();
+  const other = await fixture();
+  await expect(
+    resolveHostGithubRepository({ ...f.input, repositoryPath: other.root }),
+  ).rejects.toThrow();
 });

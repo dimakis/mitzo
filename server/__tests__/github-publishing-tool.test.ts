@@ -50,8 +50,13 @@ function fixture(provider: string) {
   });
   mocks.runtime = {
     verifyGithubPublishingIdentity: vi.fn().mockResolvedValue(true),
+    resolveGithubPublishingRepository: vi.fn().mockResolvedValue('example/repo'),
     store: { list: () => [connection], get: () => connection },
-    capabilityStore: { getGrant: () => grant },
+    capabilityStore: {
+      getGrant: () => grant,
+      hasGithubRepositoryAccess: vi.fn().mockReturnValue(true),
+      approveGithubRepository: vi.fn(),
+    },
     capabilities: {
       invoke,
       setGrant: vi.fn(),
@@ -249,4 +254,69 @@ it('serializes recovery and publication admission across runtime instances of on
   expect(
     await successor(input, new AbortController().signal, { turnId: 'later', callId: 'third' }),
   ).toMatchObject({ isError: false });
+});
+
+it('selects the connection matching the actual repository among multiple repo-scoped connections', async () => {
+  const f = fixture('openai');
+  const runtime = mocks.runtime as { store: { list: () => unknown[] } };
+  runtime.store.list = () => [
+    { ...f.connection, id: 'other', publicConfig: { allowedRepositories: ['example/other'] } },
+    f.connection,
+  ];
+  expect(
+    await f.execute(input, new AbortController().signal, { turnId: 'turn', callId: 'call' }),
+  ).toMatchObject({ isError: false });
+  expect(f.invoke.mock.calls[0][0].connectionId).toBe('github');
+});
+it('asks for exactly one repository even when the connection already grants other repositories', async () => {
+  const f = fixture('openai');
+  f.connection.publicConfig.allowedRepositories.push('example/other');
+  const runtime = mocks.runtime as {
+    capabilityStore: {
+      hasGithubRepositoryAccess: ReturnType<typeof vi.fn>;
+      approveGithubRepository: ReturnType<typeof vi.fn>;
+    };
+  };
+  runtime.capabilityStore.hasGithubRepositoryAccess.mockReturnValue(false);
+  runtime.capabilityStore.approveGithubRepository.mockImplementation(() =>
+    runtime.capabilityStore.hasGithubRepositoryAccess.mockReturnValue(true),
+  );
+  mocks.approve.mockImplementation(async (_name, value) => ({
+    behavior: 'allow',
+    updatedInput: value,
+  }));
+  expect(
+    await f.execute(input, new AbortController().signal, { turnId: 'turn', callId: 'call' }),
+  ).toMatchObject({ isError: false });
+  expect(mocks.approve.mock.calls[0][1]).toMatchObject({
+    repository: 'example/repo',
+    accountId: 'selected',
+  });
+  expect(mocks.approve.mock.calls[0][1]).not.toHaveProperty('allowedRepositories');
+  expect(runtime.capabilityStore.approveGithubRepository).toHaveBeenCalledWith({
+    connectionId: 'github',
+    connectionRevision: 1,
+    accountId: 'selected',
+    repository: 'example/repo',
+  });
+});
+it('rejects a changed repository after access approval without recording consent or publishing', async () => {
+  const f = fixture('openai');
+  const runtime = mocks.runtime as {
+    resolveGithubPublishingRepository: ReturnType<typeof vi.fn>;
+    capabilityStore: {
+      hasGithubRepositoryAccess: ReturnType<typeof vi.fn>;
+      approveGithubRepository: ReturnType<typeof vi.fn>;
+    };
+  };
+  runtime.capabilityStore.hasGithubRepositoryAccess.mockReturnValue(false);
+  mocks.approve.mockImplementation(async (_name, value) => {
+    runtime.resolveGithubPublishingRepository.mockResolvedValue('example/other');
+    return { behavior: 'allow', updatedInput: value };
+  });
+  expect(
+    await f.execute(input, new AbortController().signal, { turnId: 'turn', callId: 'call' }),
+  ).toMatchObject({ isError: true });
+  expect(f.invoke).not.toHaveBeenCalled();
+  expect(runtime.capabilityStore.approveGithubRepository).not.toHaveBeenCalled();
 });
