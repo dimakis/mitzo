@@ -579,7 +579,7 @@ export function resolveSshAuthSock(): string | null {
   }
 }
 
-function sdkEnv(): Record<string, string> {
+export function buildSdkChildEnvironment(): Record<string, string> {
   const env = { ...process.env } as Record<string, string>;
   env.CLAUDE_CODE_USE_VERTEX = process.env.CLAUDE_CODE_USE_VERTEX || '1';
   env.ANTHROPIC_VERTEX_PROJECT_ID = process.env.ANTHROPIC_VERTEX_PROJECT_ID || '';
@@ -603,6 +603,9 @@ function sdkEnv(): Record<string, string> {
   delete env.AUTH_PASSPHRASE;
   delete env.AUTH_SECRET;
   delete env.NTFY_AUTH_TOKEN;
+  // The approved publisher uses these on the controller; models must not inherit them.
+  delete env.GH_TOKEN;
+  delete env.GITHUB_TOKEN;
   return env;
 }
 
@@ -1164,7 +1167,7 @@ async function _startChatInner(
           };
         } else apiCredentialRef = profile.credentialRef;
         accountEnv = openShellRequested ? restrictedChildEnv() : nativeExecutionEnv();
-      } else accountEnv = profiles!.sdkEnv(accountBinding, sdkEnv());
+      } else accountEnv = profiles!.sdkEnv(accountBinding, buildSdkChildEnvironment());
     }
   } catch (err: unknown) {
     options.onStartupAdmission?.(err);
@@ -1466,7 +1469,7 @@ async function _startChatInner(
   }
 
   // Build session env with worktree paths for the agent (all repos including primary)
-  const sessionEnv = accountEnv ?? sdkEnv();
+  const sessionEnv = accountEnv ?? buildSdkChildEnvironment();
   sessionEnv.MITZO_SESSION_ID = wtId;
   sessionEnv.MITZO_AGENT_NAME = agentName;
   for (const [name, { path }] of repoWorktrees) {
