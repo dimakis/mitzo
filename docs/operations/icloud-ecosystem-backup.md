@@ -157,7 +157,7 @@ The host must configure all of these before manual actions are available:
 
 - `MITZO_BACKUP_ROOT`: a dedicated absolute local directory, owned by the host
   operator with permissions 0700, outside iCloud and all source stores. The service
-  owns its `repository`, `temporary`, `captures`, `runs.json` and `writer.lock` names.
+  owns its `repository`, `temporary`, `captures`, `runs.json` and both `writer.lock`/`admission.lock` names.
 - `MITZO_BACKUP_ICLOUD_DIRECTORY`: a dedicated absolute directory beneath the
   operator's iCloud Drive. It must be separate from the local backup root.
 - `MITZO_BACKUP_RESTIC_BINARY`: the absolute trusted Restic executable, installed
@@ -179,7 +179,11 @@ Use a local root that does not overlap a captured source; this is trusted host
 configuration. Only the backup service may mutate its Restic repository while it
 is enabled. Do not run independent Restic writers, prune or cleanup tools against
 it. All service writers, including upload verification, hold an atomic directory
-fence at `writer.lock`. Captures use the running Mitzo owners and a canonical Telos
+fence at `writer.lock`. A separate atomic `admission.lock` guard serializes
+acquisition with release/recovery; it is durable before the writer fence is removed.
+Its atomic removal is the final release operation, with no fallible directory sync
+after admission reopens. A crash can leave a conservative orphan guard, requiring
+host inspection, rather than allowing admission during a failed release. Captures use the running Mitzo owners and a canonical Telos
 owner, preserving the optimistic multi-store consistency check from the core
 capture integration. Concurrent ordinary saves continue; a changed capture fails
 and can be retried manually. Restic checks all data before export. Plaintext capture
@@ -208,7 +212,7 @@ After a crash, an unfinished receipt is shown as unresolved and an abandoned loc
 blocks all further writes. Do not clear it just to make the UI green. The host operator
 must establish that no service/Restic writer remains, inspect repository integrity,
 remove any leftover plaintext under `captures`, and reconcile the receipt before
-removing the fence. If another process owns the fence, leave it untouched. Receipt
+removing both fences. If another process owns the fence, leave it untouched. Receipt
 or cleanup failures also retain the fence. This conservative recovery is intentional;
 there is no browser unlock action or automatic replay of an uncertain run.
 

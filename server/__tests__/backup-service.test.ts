@@ -245,3 +245,42 @@ it('retains the fence if per-run plaintext cleanup itself fails', async () => {
   expect(view.runs[0].status).toBe('interrupted');
   await expect(service.start()).rejects.toThrow();
 });
+it('blocks another instance throughout failed release and recovery', async () => {
+  const { root, service, driver } = await fixture();
+  let finishPeer: (() => void) | undefined;
+  const peer = new BackupService({
+    root,
+    driver: {
+      ...driver,
+      initialize: () =>
+        new Promise<void>((resolve) => {
+          finishPeer = resolve;
+        }),
+    },
+  });
+  const actual = files.syncDirectory;
+  let attempted = false;
+  let blocked = false;
+  vi.spyOn(files, 'syncDirectory').mockImplementation(async (path) => {
+    if (path === root && !existsSync(join(root, 'writer.lock')) && !attempted) {
+      attempted = true;
+      try {
+        await peer.start();
+      } catch {
+        blocked = true;
+      }
+      throw Error('release sync failed after concurrent admission attempt');
+    }
+    await actual(path);
+  });
+  await service.start();
+  await service.idle();
+  if (finishPeer) {
+    finishPeer();
+    await peer.idle();
+  }
+  expect(attempted).toBe(true);
+  expect(blocked).toBe(true);
+  expect((await service.overview()).busy).toBe(true);
+  await expect(peer.start()).rejects.toThrow();
+});
