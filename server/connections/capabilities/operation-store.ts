@@ -54,6 +54,12 @@ function grant(row: Record<string, unknown>): CapabilityGrant {
   };
 }
 
+export interface GithubRepositoryAccess {
+  connectionId: string;
+  connectionRevision: number;
+  accountId: string;
+  repository: string;
+}
 /** Durable capability grant, operation, and redacted audit store. */
 export class CapabilityOperationStore {
   private readonly db: Database.Database;
@@ -67,6 +73,11 @@ export class CapabilityOperationStore {
       capability_id TEXT NOT NULL, capability_version INTEGER NOT NULL CHECK(capability_version > 0), account_ids TEXT NOT NULL,
       status TEXT NOT NULL CHECK(status IN ('active','revoked')), created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
       UNIQUE(connection_id, connection_revision, capability_id, capability_version)
+    );
+    CREATE TABLE IF NOT EXISTS github_repository_access (
+      connection_id TEXT NOT NULL, connection_revision INTEGER NOT NULL,
+      account_id TEXT NOT NULL, repository TEXT NOT NULL,
+      PRIMARY KEY(connection_id, connection_revision, account_id, repository)
     );
     CREATE TABLE IF NOT EXISTS capability_operations (
       id TEXT PRIMARY KEY, connection_id TEXT NOT NULL, connection_revision INTEGER NOT NULL, capability_id TEXT NOT NULL,
@@ -119,6 +130,13 @@ export class CapabilityOperationStore {
           input.capabilityId,
           input.capabilityVersion,
         ) as Record<string, unknown> | undefined;
+      // Any account or status update invalidates consent, including remove/re-add races.
+      if (input.capabilityId === 'github.publish-pr')
+        this.db
+          .prepare(
+            'DELETE FROM github_repository_access WHERE connection_id=? AND connection_revision=?',
+          )
+          .run(input.connectionId, input.connectionRevision);
       if (existing) {
         this.db
           .prepare('UPDATE capability_grants SET account_ids=?, status=?, updated_at=? WHERE id=?')
@@ -164,6 +182,41 @@ export class CapabilityOperationStore {
       )
       .get(connectionId, revision, capabilityId, version) as Record<string, unknown> | undefined;
     return row ? grant(row) : undefined;
+  }
+  hasGithubRepositoryAccess(scope: GithubRepositoryAccess): boolean {
+    const grant = this.getGrant(
+      scope.connectionId,
+      scope.connectionRevision,
+      'github.publish-pr',
+      1,
+    );
+    if (grant?.status !== 'active' || !grant.accountIds.includes(scope.accountId)) return false;
+    return Boolean(
+      this.db
+        .prepare(
+          'SELECT 1 FROM github_repository_access WHERE connection_id=? AND connection_revision=? AND account_id=? AND repository=?',
+        )
+        .get(scope.connectionId, scope.connectionRevision, scope.accountId, scope.repository),
+    );
+  }
+  approveGithubRepository(scope: GithubRepositoryAccess): void {
+    this.db.transaction(() => {
+      const grant = this.getGrant(
+        scope.connectionId,
+        scope.connectionRevision,
+        'github.publish-pr',
+        1,
+      );
+      if (
+        !/^[a-z0-9][a-z0-9-]*\/[a-z0-9_.-]+$/.test(scope.repository) ||
+        grant?.status !== 'active' ||
+        !grant.accountIds.includes(scope.accountId)
+      )
+        throw new Error('Repository access requires an active account grant and exact repository');
+      this.db
+        .prepare('INSERT OR IGNORE INTO github_repository_access VALUES (?, ?, ?, ?)')
+        .run(scope.connectionId, scope.connectionRevision, scope.accountId, scope.repository);
+    })();
   }
   grants(connectionId: string): CapabilityGrant[] {
     return (
