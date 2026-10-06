@@ -12,6 +12,21 @@ import type {
 
 const log = createLogger('hooks');
 
+function hookEnvironment(base: NodeJS.ProcessEnv): Record<string, string> {
+  const controllerKeys = new Set([
+    'GH_TOKEN',
+    'GITHUB_TOKEN',
+    'AUTH_PASSPHRASE',
+    'AUTH_SECRET',
+    'NTFY_AUTH_TOKEN',
+  ]);
+  return Object.fromEntries(
+    Object.entries(base).filter(
+      ([key, value]) => typeof value === 'string' && !controllerKeys.has(key),
+    ),
+  ) as Record<string, string>;
+}
+
 /** Shape of a single hook entry in settings.json */
 interface SettingsHookCommand {
   type: 'command';
@@ -104,11 +119,13 @@ export function createCommandCallback(
   command: string,
   cwd: string,
   timeoutMs: number,
+  environment: Record<string, string> = hookEnvironment(process.env),
 ): (
   input: HookInput,
   toolUseID: string | undefined,
   options: { signal: AbortSignal },
 ) => Promise<HookJSONOutput> {
+  const env = hookEnvironment(environment);
   return async (input, _toolUseID, options) => {
     const hookEventName =
       input && typeof input === 'object' && 'hook_event_name' in input
@@ -122,7 +139,7 @@ export function createCommandCallback(
       const child = execFile(
         '/bin/sh',
         ['-c', command],
-        { cwd, timeout: timeoutMs },
+        { cwd, timeout: timeoutMs, env },
         (err, stdout) => {
           if (err) {
             log.warn(`hook command failed: ${command}`, { error: err.message });
@@ -167,14 +184,15 @@ export function createCommandCallback(
  */
 export function loadProjectHooks(
   cwd: string,
+  environment: Record<string, string> = hookEnvironment(process.env),
 ): Partial<Record<HookEvent, HookCallbackMatcher[]>> | undefined {
   const settingsPath = join(cwd, '.claude', 'settings.json');
   const raw = parseSettingsHooks(settingsPath);
   if (!raw) return undefined;
 
   const env: Record<string, string> = {
+    ...hookEnvironment(environment),
     CLAUDE_PROJECT_DIR: cwd,
-    ...(process.env as Record<string, string>),
   };
 
   const result: Partial<Record<HookEvent, HookCallbackMatcher[]>> = {};
@@ -193,7 +211,7 @@ export function loadProjectHooks(
         .map((h) => {
           const expanded = expandEnvVars(h.command, env);
           const timeoutMs = (matcher.timeout ?? 60) * 1000;
-          return createCommandCallback(expanded, cwd, timeoutMs);
+          return createCommandCallback(expanded, cwd, timeoutMs, env);
         });
 
       if (callbacks.length === 0) continue;

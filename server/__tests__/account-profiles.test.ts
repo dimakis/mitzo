@@ -141,6 +141,8 @@ describe('explicit account binding', () => {
       CLAUDE_CODE_USE_BEDROCK: '1',
       OPENAI_API_KEY: 'personal',
       GOOGLE_APPLICATION_CREDENTIALS: '/wrong.json',
+      GH_TOKEN: 'controller-publisher',
+      GITHUB_TOKEN: 'controller-publisher-fallback',
     });
     expect(env).toMatchObject({
       PATH: '/bin',
@@ -155,6 +157,8 @@ describe('explicit account binding', () => {
       'ANTHROPIC_BASE_URL',
       'CLAUDE_CODE_USE_BEDROCK',
       'OPENAI_API_KEY',
+      'GH_TOKEN',
+      'GITHUB_TOKEN',
     ])
       expect(env[key]).toBeUndefined();
   });
