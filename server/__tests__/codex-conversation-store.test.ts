@@ -292,6 +292,43 @@ it('records tool claims before execution and never repeats an uncertain effect',
   expect(() => s.claimTool('c', binding, 'one', 'call-2')).toThrow('running');
   s.close();
 });
+it('claims host tools after reopening a ledger with additional nullable tool columns', () => {
+  const { path } = setup();
+  let s = new CodexConversationStore(path);
+  s.create('c', binding, '/workspace');
+  s.enqueue('c', binding, { id: 'one', prompt: 'edit' });
+  s.claimNext('c', binding);
+  s.close();
+  const db = new Database(path);
+  for (const column of [
+    'turn_id TEXT',
+    'tool_name TEXT',
+    'request_hash TEXT',
+    'result_content TEXT',
+    'result_is_error INTEGER',
+  ]) {
+    db.exec(`ALTER TABLE codex_tools ADD COLUMN ${column}`);
+  }
+  db.close();
+  s = new CodexConversationStore(path);
+  expect(s.claimTool('c', binding, 'one', 'call-1')).toBe(true);
+  expect(s.claimTool('c', binding, 'one', 'call-1')).toBe(false);
+  s.close();
+  const persisted = new Database(path, { readonly: true });
+  expect(persisted.prepare('SELECT * FROM codex_tools').all()).toEqual([
+    {
+      conversation_id: 'c',
+      command_id: 'one',
+      call_id: 'call-1',
+      turn_id: null,
+      tool_name: null,
+      request_hash: null,
+      result_content: null,
+      result_is_error: null,
+    },
+  ]);
+  persisted.close();
+});
 it('durably pauses same-process replacement without requiring startup recovery', () => {
   const { path } = setup();
   const s = new CodexConversationStore(path);
