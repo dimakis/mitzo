@@ -79,9 +79,14 @@ function fixture(canonical = false) {
   const registrationPath = canonical
     ? join(canonicalRoot, 'symposium/settings/staging-registration.json')
     : join(root, 'registration.json');
-  const registration = canonical
-    ? { capacity: 1, registryDirectory: join(canonicalRoot, 'registry') }
-    : {};
+  const registration = {
+    capacity: 1,
+    registryDirectory: canonical ? join(canonicalRoot, 'registry') : join(root, 'registry'),
+    ownerChat: 'cli-test',
+    purpose: 'canonical entry coverage',
+    retentionReason: 'synthetic test only',
+    reviewAfter: Date.now() + 86400000,
+  };
   writeFileSync(registrationPath, JSON.stringify(registration), { mode: 0o600 });
   const operator = {
     AUTH_PASSPHRASE: 'synthetic-offline-passphrase-000000000000',
@@ -98,8 +103,22 @@ function fixture(canonical = false) {
     `import {readFileSync,writeFileSync} from 'node:fs'; export const readOwnedReleasePlan=p=>JSON.parse(readFileSync(p)); export const verifyOwnedRelease=()=>{}; export const claimOwnedLaunch=p=>writeFileSync(p.planDirectory+'/launch.intent','claimed',{flag:'wx'});`,
   );
   writeFileSync(
+    join(root, 'dist/actual-staging-launch.js'),
+    ts.transpileModule(readFileSync('server/symposium-staging-launch.ts', 'utf8'), {
+      compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
+    }).outputText,
+  );
+  writeFileSync(
+    join(root, 'dist/symposium-staging-registry.js'),
+    `export const openStagingRegistry=()=>{throw Error('No native registry in auth/schema fixture');};`,
+  );
+  writeFileSync(
+    join(root, 'dist/symposium-owned-config-schema.js'),
+    `export const readOwnedSymposiumHostConfig=()=>{throw Error('No native configuration in auth/schema fixture');};`,
+  );
+  writeFileSync(
     join(root, 'dist/symposium-staging-launch.js'),
-    `export const StagingLaunchSchema={parse:x=>x}; export const launchStagingCustodian=async(p,r,d)=>{d.verify(p); d.claim(p); await d.run({});};`,
+    `export {StagingLaunchSchema} from './actual-staging-launch.js'; export const launchStagingCustodian=async(p,r,d)=>{d.verify(p); d.claim(p); await d.run({});};`,
   );
   writeFileSync(
     join(root, 'dist/symposium-custodian-main.js'),
@@ -159,22 +178,27 @@ it('starts the canonical CLI path with the actual registration/auth guards', () 
   expect(JSON.parse(result.stdout)).toMatchObject({ port: '3190', bind: '127.0.0.1', ambient: [] });
   expect(existsSync(join(f.plan.planDirectory, 'launch.intent'))).toBe(true);
 });
-it.each(['capacity', 'registry', 'production-port', 'other-port', 'missing-canonical'])(
-  'refuses canonical CLI %s drift before claiming a launch',
-  (kind) => {
-    const f = fixture(true);
-    if (kind === 'capacity') f.registration.capacity = 2;
-    if (kind === 'registry') f.registration.registryDirectory = join(f.root, 'other-registry');
-    if (kind === 'production-port') f.operator.PORT = '3100';
-    if (kind === 'other-port') f.operator.PORT = '3191';
-    if (kind === 'missing-canonical') f.args.pop();
-    writeFileSync(f.registrationPath, JSON.stringify(f.registration));
-    writeFileSync(f.operatorPath, JSON.stringify(f.operator));
-    const result = spawnSync(process.execPath, f.args, {
-      encoding: 'utf8',
-      env: { PATH: process.env.PATH },
-    });
-    expect(result.status).not.toBe(0);
-    expect(existsSync(join(f.plan.planDirectory, 'launch.intent'))).toBe(false);
-  },
-);
+it.each([
+  'capacity',
+  'registry',
+  'production-port',
+  'other-port',
+  'missing-canonical',
+  'missing-purpose',
+])('refuses canonical CLI %s drift before claiming a launch', (kind) => {
+  const f = fixture(true);
+  if (kind === 'capacity') f.registration.capacity = 2;
+  if (kind === 'registry') f.registration.registryDirectory = join(f.root, 'other-registry');
+  if (kind === 'production-port') f.operator.PORT = '3100';
+  if (kind === 'other-port') f.operator.PORT = '3191';
+  if (kind === 'missing-canonical') f.args.pop();
+  if (kind === 'missing-purpose') Object.assign(f.registration, { purpose: undefined });
+  writeFileSync(f.registrationPath, JSON.stringify(f.registration));
+  writeFileSync(f.operatorPath, JSON.stringify(f.operator));
+  const result = spawnSync(process.execPath, f.args, {
+    encoding: 'utf8',
+    env: { PATH: process.env.PATH },
+  });
+  expect(result.status).not.toBe(0);
+  expect(existsSync(join(f.plan.planDirectory, 'launch.intent'))).toBe(false);
+});
