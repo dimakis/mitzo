@@ -1,3 +1,4 @@
+import { clearUrlAccessGrants } from './url-access-tool.js';
 import {
   createGithubPublishingTool,
   GITHUB_PUBLISHING_INSTRUCTIONS,
@@ -2207,7 +2208,10 @@ export async function sendToChat(
             : {}),
         });
       }
-      if (model) session.model = model;
+      if (model) {
+        if (model !== session.model) clearUrlAccessGrants(session);
+        session.model = model;
+      }
     };
     const failPreparedProviderCommand = (error: unknown): never => {
       if (!responses || !providerAdmission) throw error;
@@ -2421,7 +2425,10 @@ export async function interruptChat(
         reasoningEffort,
       );
     }
-    if (model) session.model = model;
+    if (model) {
+      if (model !== session.model) clearUrlAccessGrants(session);
+      session.model = model;
+    }
     if (session.sessionId && (model || reasoningEffort !== undefined)) {
       eventStore.upsertSession({
         sessionId: session.sessionId,

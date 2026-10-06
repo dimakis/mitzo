@@ -30,6 +30,12 @@ interface Grant {
 }
 const revisions = new WeakMap<ManagedSession, Map<string, number>>();
 const grants = new WeakMap<ManagedSession, Map<string, Grant>>();
+/** Model selection changes permanently retire existing approvals, including pending cards. */
+export function clearUrlAccessGrants(session: ManagedSession) {
+  grants.delete(session);
+  const versions = revisions.get(session);
+  for (const [origin, revision] of versions ?? []) versions!.set(origin, revision + 1);
+}
 interface Dependencies {
   resolve(value: string): Promise<ApprovedUrlTarget>;
   fetch(value: string, target: ApprovedUrlTarget, signal: AbortSignal): Promise<string>;
@@ -148,6 +154,11 @@ export function createUrlAccessTool(
       const grant = grants.get(current.session)?.get(url.origin);
       if (!grant) return undefined;
       if (
+        !isDeepStrictEqual(grant.account, current.session.accountBinding) ||
+        grant.model !== current.session.model
+      )
+        clearUrlAccessGrants(current.session);
+      if (
         grant.expires <= deps.now() ||
         !isDeepStrictEqual(grant.account, current.session.accountBinding) ||
         grant.model !== current.session.model
@@ -164,6 +175,11 @@ export function createUrlAccessTool(
         signal.throwIfAborted();
         const content = await deps.fetch(url.href, grant.target, signal);
         signal.throwIfAborted();
+        if (
+          !isDeepStrictEqual(grant.account, current.session.accountBinding) ||
+          grant.model !== current.session.model
+        )
+          grants.get(current.session)?.delete(url.origin);
         if (
           grants.get(current.session)?.get(url.origin) !== grant ||
           grant.expires <= deps.now() ||

@@ -119,11 +119,13 @@ export function createGithubPublishingTool(
           current.desiredAccountIds.includes(identity.accountId)
         );
       };
-      const grant = runtime.capabilityStore.getGrant(
-        connection.id,
-        connection.revision,
-        'github.publish-pr',
-        1,
+      const grant = structuredClone(
+        runtime.capabilityStore.getGrant(
+          connection.id,
+          connection.revision,
+          'github.publish-pr',
+          1,
+        ),
       );
       if (grant?.status !== 'active' || !grant.accountIds.includes(account.accountId)) {
         const payload = {
@@ -158,6 +160,15 @@ export function createGithubPublishingTool(
         if (
           !isCurrent() ||
           !currentConnection() ||
+          !isDeepStrictEqual(
+            runtime.capabilityStore.getGrant(
+              connection.id,
+              connection.revision,
+              'github.publish-pr',
+              1,
+            ),
+            grant,
+          ) ||
           !isDeepStrictEqual(decision.updatedInput, payload)
         )
           return { content: 'Publishing access changed during approval; retry', isError: true };

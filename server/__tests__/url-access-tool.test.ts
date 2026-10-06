@@ -5,7 +5,7 @@ vi.mock('@mitzo/harness', async (original) => ({
   ...(await original<typeof import('@mitzo/harness')>()),
   buildPermissionHandler: () => approve,
 }));
-import { createUrlAccessTool } from '../url-access-tool.js';
+import { createUrlAccessTool, clearUrlAccessGrants } from '../url-access-tool.js';
 beforeEach(() => {
   approve.mockReset();
 });
@@ -166,4 +166,37 @@ it('cancels a URL request while name resolution is pending', async () => {
     ]),
   ).toMatchObject({ isError: true });
   expect(approve).not.toHaveBeenCalled();
+});
+
+it.each(['account', 'model'])(
+  'never revives URL approval after an observed %s switch back',
+  async (selection) => {
+    const f = fixture();
+    approve.mockImplementation(async (_name, input) => ({
+      behavior: 'allow',
+      updatedInput: input,
+    }));
+    const input = { operation: 'request_access', url: 'https://example.com/', reason: 'why' };
+    await f.tool.request(input, new AbortController().signal);
+    const originalModel = f.session.model;
+    if (selection === 'account') f.session.accountBinding!.accountId = 'b';
+    else f.session.model = 'other';
+    expect(await f.tool.fetch(input.url, new AbortController().signal)).toMatchObject({
+      isError: true,
+    });
+    if (selection === 'account') f.session.accountBinding!.accountId = 'a';
+    else f.session.model = originalModel;
+    expect(await f.tool.fetch(input.url, new AbortController().signal)).toBeUndefined();
+    expect(f.fetch).not.toHaveBeenCalled();
+  },
+);
+
+it('invalidates all URL approvals at a model-selection transition without a fetch', async () => {
+  const f = fixture();
+  approve.mockImplementation(async (_name, input) => ({ behavior: 'allow', updatedInput: input }));
+  const input = { operation: 'request_access', url: 'https://example.com/', reason: 'why' };
+  await f.tool.request(input, new AbortController().signal);
+  clearUrlAccessGrants(f.session);
+  expect(await f.tool.fetch(input.url, new AbortController().signal)).toBeUndefined();
+  expect(f.fetch).not.toHaveBeenCalled();
 });

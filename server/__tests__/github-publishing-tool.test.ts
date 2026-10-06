@@ -193,3 +193,24 @@ it('rejects a different controller publishing identity before creating a grant',
   expect(mocks.approve).not.toHaveBeenCalled();
   expect(f.invoke).not.toHaveBeenCalled();
 });
+
+it.each(['revoked', 'accounts_removed'])(
+  'does not restore a grant changed during approval: %s',
+  async (change) => {
+    const f = fixture('openai');
+    f.grant.accountIds = ['other'];
+    mocks.approve.mockImplementation(async (_name, value) => {
+      if (change === 'revoked') f.grant.status = 'revoked';
+      else f.grant.accountIds = [];
+      return { behavior: 'allow', updatedInput: value };
+    });
+    expect(
+      await f.execute(input, new AbortController().signal, { turnId: 'turn', callId: 'call' }),
+    ).toMatchObject({ isError: true });
+    expect(
+      (mocks.runtime as { capabilities: { setGrant: ReturnType<typeof vi.fn> } }).capabilities
+        .setGrant,
+    ).not.toHaveBeenCalled();
+    expect(f.invoke).not.toHaveBeenCalled();
+  },
+);

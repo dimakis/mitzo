@@ -33,8 +33,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'bf4bf70d935aab2c5d8c9561ad484bec23c10cf47f4921b099ed2a6a6933d262',
   '../github-host-source.ts': 'bf560c952f6fdb9f174c667a5dc91c237a1b2e5e8542d3692d3e8fb11df0e6d6',
   '../github-publishing-tool.ts':
-    '3f4f3a11dca762365487cbe3f36e8ef9bded3891122ef5d8b664c9127e4304bc',
+    'd2d0ccf529400d8eb5d578ada0e5f058e1cbfefbc33575a15ab3f3b47d6bc272',
   '../capability-conversation-binding.ts':
     '147a328d161f167aeeb31bf0017d5fea25cc3f22933392249a228d7bd61e89aa',
   '../connections-runtime.ts': 'bc760b9e8e033789325c5f5ca8c19c31679ba286ed300e6eaed04d22be439b24',
+  'capabilities/service.ts': '450b3ffe67c376aeab43edc3aa3bda5a625a807470dce0d4b6e7aad1136f054e',
 });
