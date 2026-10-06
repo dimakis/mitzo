@@ -62,6 +62,12 @@ export function createGithubPublishingTool(
             'GitHub publishing needs a configured managed GitHub connection in Connections. Local changes are preserved.',
           isError: true,
         };
+      if (runtime.githubPublishEnabled === false)
+        return {
+          content:
+            'The controller GitHub publisher is not configured. Configure its GitHub authorization before granting publishing access. Local changes are preserved.',
+          isError: true,
+        };
       const identity = structuredClone(account);
       const sourceIdentity = structuredClone(source());
       const isCurrent = () =>

@@ -43,13 +43,11 @@ function fixture(provider: string) {
     publicConfig: { allowedRepositories: ['example/repo'] },
   };
   const grant = { status: 'active', accountIds: ['selected'] };
-  const invoke = vi
-    .fn()
-    .mockResolvedValue({
-      id: 'operation',
-      status: 'succeeded',
-      result: { url: 'https://github.com/example/repo/pull/1' },
-    });
+  const invoke = vi.fn().mockResolvedValue({
+    id: 'operation',
+    status: 'succeeded',
+    result: { url: 'https://github.com/example/repo/pull/1' },
+  });
   mocks.runtime = {
     store: { list: () => [connection], get: () => connection },
     capabilityStore: { getGrant: () => grant },
@@ -124,5 +122,31 @@ it('never accepts model-supplied connection or account selectors', async () => {
       { turnId: 'turn', callId: 'call' },
     ),
   ).toMatchObject({ isError: true });
+  expect(f.invoke).not.toHaveBeenCalled();
+});
+
+it('clears a host publishing binding when its runtime closes', async () => {
+  const f = fixture('google-vertex');
+  await f.execute(input, new AbortController().signal, { turnId: 'turn', callId: 'call' });
+  expect(getLiveCapabilityConversationBinding('conversation')).toBeDefined();
+  f.execute.close();
+  expect(getLiveCapabilityConversationBinding('conversation')).toBeUndefined();
+});
+it('preserves distinct native turns in operation idempotency', async () => {
+  const f = fixture('openai');
+  await f.execute(input, new AbortController().signal, { turnId: 'first', callId: 'same-call' });
+  await f.execute(input, new AbortController().signal, { turnId: 'second', callId: 'same-call' });
+  expect(f.invoke.mock.calls[0][0].idempotencyKey).not.toBe(
+    f.invoke.mock.calls[1][0].idempotencyKey,
+  );
+});
+
+it('reports a disabled controller publisher before requesting access or invoking it', async () => {
+  const f = fixture('openai');
+  (mocks.runtime as { githubPublishEnabled: boolean }).githubPublishEnabled = false;
+  expect(
+    await f.execute(input, new AbortController().signal, { turnId: 'turn', callId: 'call' }),
+  ).toMatchObject({ isError: true });
+  expect(mocks.approve).not.toHaveBeenCalled();
   expect(f.invoke).not.toHaveBeenCalled();
 });

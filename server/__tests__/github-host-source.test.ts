@@ -95,3 +95,15 @@ it('permits registered host worktree storage and rejects unregistered storage', 
     await inspectHostGithubRepository({ ...input, gitStorageRoots: [join(f.root, '.git')] }),
   ).toMatchObject({ sourceBranch: 'worktree-feature', commitsAhead: 1 });
 });
+
+it('rejects symlinked objects and alternate object storage', async () => {
+  const f = await fixture();
+  const other = await fixture();
+  await writeFile(join(f.root, '.git/objects/info/alternates'), join(other.root, '.git/objects'));
+  await expect(inspectHostGithubRepository(f.input)).rejects.toThrow();
+  await rm(join(f.root, '.git/objects/info/alternates'));
+  const pack = join(f.root, '.git/objects/pack');
+  await rm(pack, { recursive: true });
+  await symlink(join(other.root, '.git/objects/pack'), pack);
+  await expect(inspectHostGithubRepository(f.input)).rejects.toThrow();
+});

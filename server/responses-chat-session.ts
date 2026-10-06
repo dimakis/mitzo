@@ -159,6 +159,7 @@ export async function openResponsesChat(options: Options) {
     options.registry,
     () => hostGithubPublishingSource(options.session, options.publishingGitStorageRoots),
   );
+  let publishingTurnId: string = randomUUID();
   let interrupted = false;
   let activeTurnFinalized: Promise<void> | undefined;
   let completeActiveTurn: (() => void) | undefined;
@@ -190,7 +191,7 @@ export async function openResponsesChat(options: Options) {
         signal,
         async (input, forcePrompt) => {
           if (block.name === REQUEST_GITHUB_PUBLISH)
-            return githubPublishing(input, signal, { turnId: 'native', callId: block.id });
+            return githubPublishing(input, signal, { turnId: publishingTurnId, callId: block.id });
           if (block.name === REQUEST_WEB_ACCESS) {
             return createWebAccessTool(options.conversationId, options.registry, (query, signal) =>
               options.gemini
@@ -312,6 +313,7 @@ export async function openResponsesChat(options: Options) {
               completeActiveTurn = resolve;
             });
           }
+          publishingTurnId = message.mitzoMessageId ?? randomUUID();
           interrupted = false;
           let providerTerminalized = false;
           let executionTerminalized = false;

@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { lstat, realpath, readFile } from 'node:fs/promises';
+import { lstat, realpath, readFile, readdir } from 'node:fs/promises';
 import { resolve, relative, isAbsolute, join } from 'node:path';
 import { promisify } from 'node:util';
 import type { GithubSandboxInspection } from './connections/capabilities/github-publish-pr.js';
@@ -52,6 +52,18 @@ async function git(source: Source, args: readonly string[], maxBytes = 128 * 102
     { env: gitEnv(), signal: source.signal, encoding: 'buffer', maxBuffer: maxBytes },
   );
 }
+async function rejectLinkedStorage(root: string) {
+  const pending = [root];
+  let entries = 0;
+  while (pending.length) {
+    const directory = pending.pop()!;
+    for (const entry of await readdir(directory, { withFileTypes: true })) {
+      if (++entries > 100_000 || entry.isSymbolicLink())
+        throw new Error('Git storage is ambiguous');
+      if (entry.isDirectory()) pending.push(join(directory, entry.name));
+    }
+  }
+}
 /** Root and permitted Git storage are controller-owned session metadata, never model input. */
 async function boundary(source: Source) {
   source.signal.throwIfAborted();
@@ -73,6 +85,7 @@ async function boundary(source: Source) {
       ![source.workspace, ...source.gitStorageRoots].some((root) => within(root, canonical))
     )
       throw new Error('Git storage escapes approved roots');
+    await rejectLinkedStorage(canonical);
     try {
       if ((await readFile(join(canonical, 'objects/info/alternates'), 'utf8')).trim())
         throw new Error('Alternate Git storage is unavailable');

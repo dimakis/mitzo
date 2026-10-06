@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import {
   GithubPublishingFields,
   githubPublishingDefinition,
@@ -23,6 +24,7 @@ export function createWebAccessSdkServer(
     call: { turnId: string; callId: string },
   ) => Promise<{ content: string; isError: boolean }>,
 ): McpSdkServerConfigWithInstance {
+  const publishingRuntimeId = randomUUID();
   const instance = new McpServer({ name: 'mitzo-web-access', version: '1.0.0' });
   instance.registerTool(
     REQUEST_WEB_ACCESS,
@@ -41,7 +43,7 @@ export function createWebAccessSdkServer(
       { description: githubPublishingDefinition.description, inputSchema: GithubPublishingFields },
       async (input, extra) => {
         const result = await publish(input, AbortSignal.any([sessionSignal, extra.signal]), {
-          turnId: 'sdk',
+          turnId: `sdk:${publishingRuntimeId}`,
           callId: String(extra.requestId),
         });
         return { content: [{ type: 'text', text: result.content }], isError: result.isError };

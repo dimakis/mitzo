@@ -6,7 +6,9 @@ vi.mock('@mitzo/harness', async (original) => ({
   buildPermissionHandler: () => approve,
 }));
 import { createUrlAccessTool } from '../url-access-tool.js';
-beforeEach(() => approve.mockReset());
+beforeEach(() => {
+  approve.mockReset();
+});
 function fixture() {
   const session = {
     sessionId: 'conversation',
@@ -107,4 +109,40 @@ it('never accepts embedded URL credentials or non-HTTP schemes', async () => {
     ).toMatchObject({ isError: true });
   expect(approve).not.toHaveBeenCalled();
   expect(f.resolve).not.toHaveBeenCalled();
+});
+
+it('discards an approval that arrives after access was revoked', async () => {
+  const f = fixture();
+  let finish!: (value: unknown) => void;
+  approve.mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  const input = { operation: 'request_access', url: 'https://example.com/', reason: 'why' };
+  const pending = f.tool.request(input, new AbortController().signal);
+  await vi.waitFor(() => expect(approve).toHaveBeenCalledOnce());
+  await f.tool.request({ ...input, operation: 'revoke_access' }, new AbortController().signal);
+  finish({ behavior: 'allow', updatedInput: approve.mock.calls[0][1] });
+  expect(await pending).toMatchObject({ isError: true });
+  expect(await f.tool.fetch(input.url, new AbortController().signal)).toBeUndefined();
+});
+it('discards a page result when its grant is revoked while the read is pending', async () => {
+  const f = fixture();
+  approve.mockImplementation(async (_name, input) => ({ behavior: 'allow', updatedInput: input }));
+  const input = { operation: 'request_access', url: 'https://example.com/', reason: 'why' };
+  await f.tool.request(input, new AbortController().signal);
+  let finish!: (value: string) => void;
+  f.fetch.mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  const pending = f.tool.fetch(input.url, new AbortController().signal);
+  await vi.waitFor(() => expect(f.fetch).toHaveBeenCalledOnce());
+  await f.tool.request({ ...input, operation: 'revoke_access' }, new AbortController().signal);
+  finish('page');
+  expect(await pending).toMatchObject({ isError: true });
 });

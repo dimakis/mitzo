@@ -24,6 +24,7 @@ import {
 
 const exec = promisify(execFile);
 export interface ConnectionsRuntime {
+  githubPublishEnabled?: boolean;
   store: ConnectionStore;
   service: ConnectionsService;
   capabilityStore: CapabilityOperationStore;
@@ -273,6 +274,7 @@ export function createConnectionsRuntime(options: {
     approve: async () => false,
   });
   return {
+    githubPublishEnabled,
     store,
     service,
     capabilityStore,

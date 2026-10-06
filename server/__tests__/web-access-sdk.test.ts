@@ -46,7 +46,7 @@ describe('Claude SDK web access surface', () => {
       expect(execute).toHaveBeenCalledWith(
         input,
         expect.any(AbortSignal),
-        expect.objectContaining({ turnId: 'sdk' }),
+        expect.objectContaining({ turnId: expect.stringMatching(/^sdk:/) }),
       );
     } finally {
       await client.close();
