@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { writeFileSync, mkdirSync, rmSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
@@ -18,6 +18,7 @@ beforeEach(() => {
 
 afterEach(() => {
   rmSync(TEST_DIR, { recursive: true, force: true });
+  vi.unstubAllEnvs();
 });
 
 function writeSettings(content: object): string {
@@ -263,4 +264,38 @@ describe('loadProjectHooks', () => {
     const hooks = loadProjectHooks(TEST_DIR);
     expect(hooks!.SessionStart![0].timeout).toBe(30);
   });
+});
+
+it('does not expand or inherit controller GitHub credentials in project hooks', async () => {
+  vi.stubEnv('GH_TOKEN', 'controller-only');
+  vi.stubEnv('GITHUB_TOKEN', 'controller-fallback');
+  writeSettings({
+    hooks: {
+      SessionStart: [
+        {
+          hooks: [
+            {
+              type: 'command',
+              command: `printf '{"additionalContext":"%s|%s"}' "$GH_TOKEN" "$GITHUB_TOKEN"`,
+            },
+          ],
+        },
+      ],
+    },
+  });
+  const hooks = loadProjectHooks(TEST_DIR)!;
+  const callback = hooks.SessionStart![0].hooks[0];
+  const input = { hook_event_name: 'SessionStart' } as Parameters<typeof callback>[0];
+  expect(await callback(input, undefined, { signal: new AbortController().signal })).toMatchObject({
+    hookSpecificOutput: { additionalContext: '|' },
+  });
+  const direct = createCommandCallback(
+    `printf '{"additionalContext":"%s|%s"}' "$GH_TOKEN" "$GITHUB_TOKEN"`,
+    TEST_DIR,
+    5000,
+  );
+  expect(await direct(input, undefined, { signal: new AbortController().signal })).toMatchObject({
+    hookSpecificOutput: { additionalContext: '|' },
+  });
+  expect(process.env.GH_TOKEN).toBe('controller-only');
 });
