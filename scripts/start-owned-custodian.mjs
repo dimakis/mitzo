@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import process from 'node:process';
 // Explicit fresh launch only. This wrapper never bootstraps a provider itself.
-import { requiresCanonicalStaging } from '../dist/symposium-staging-service.js';
+import { requiresCanonicalStaging } from '../dist/symposium-staging-identity.js';
 import { dirname, join, resolve } from 'node:path';
 import { ownedCustodianEnvironment } from '../dist/symposium-custodian-launch.js';
 import { fileURLToPath } from 'node:url';

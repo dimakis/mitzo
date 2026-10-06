@@ -10,10 +10,11 @@ import {
   realpathSync,
   writeFileSync,
 } from 'node:fs';
-import { userInfo } from 'node:os';
 import { isAbsolute, join, resolve } from 'node:path';
 import { z } from 'zod';
 import { ownedCustodianEnvironment } from './symposium-custodian-launch.js';
+import { requiresCanonicalStaging } from './symposium-staging-identity.js';
+export { canonicalStagingRoot, requiresCanonicalStaging } from './symposium-staging-identity.js';
 import { StagingLaunchSchema } from './symposium-staging-launch.js';
 import type { OwnedReleasePlan } from './symposium-owned-release.js';
 
@@ -203,9 +204,7 @@ export function assertCanonicalStagingService(
     throw Error('Canonical Symposium staging requires one registry slot');
   return registration;
 }
-export function canonicalStagingRoot() {
-  return join(userInfo().homedir, '.local/share/mitzo-staging');
-}
+
 export function prepareStagingService(
   plan: OwnedReleasePlan,
   registrationPath: string,
@@ -224,15 +223,4 @@ export function prepareCanonicalStagingService(
 ) {
   assertCanonicalStagingService(plan, registrationPath, root);
   return prepareService(plan, registrationPath, node, 3190, 'com.mitzo.staging');
-}
-
-export function requiresCanonicalStaging(
-  plan: Pick<OwnedReleasePlan, 'planDirectory' | 'releaseRoot'>,
-) {
-  const root = canonicalStagingRoot();
-  return (
-    plan.planDirectory === join(root, 'symposium/service') ||
-    plan.releaseRoot.startsWith(join(root, 'releases') + '/') ||
-    plan.planDirectory.endsWith('/symposium/service')
-  );
 }

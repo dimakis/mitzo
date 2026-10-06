@@ -36,6 +36,12 @@ function fixture() {
       compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
     }).outputText,
   );
+  writeFileSync(
+    join(root, 'dist/symposium-staging-identity.js'),
+    ts.transpileModule(readFileSync('server/symposium-staging-identity.ts', 'utf8'), {
+      compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
+    }).outputText,
+  );
   const plan = {
     appHome: root,
     releaseRoot: root,
@@ -118,4 +124,20 @@ it.each([
   );
   expect(result.status).not.toBe(0);
   expect(() => readFileSync(join(f.root, 'plan/launch.intent'))).toThrow();
+});
+
+it('rejects an unregistered canonical plan before claiming or executing', () => {
+  const f = fixture();
+  const dir = join(f.root, 'symposium/service');
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
+  const path = join(dir, 'owned-release.json');
+  writeFileSync(path, JSON.stringify({ ...f.plan, planDirectory: dir }));
+  const result = spawnSync(
+    process.execPath,
+    [join(f.root, 'scripts/start-owned-custodian.mjs'), path],
+    { encoding: 'utf8', env: authEnv },
+  );
+  expect(result.status).not.toBe(0);
+  expect(() => readFileSync(join(dir, 'launch.intent'))).toThrow();
+  expect(result.stdout).toBe('');
 });
