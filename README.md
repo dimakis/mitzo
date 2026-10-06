@@ -902,3 +902,9 @@ and immutable incremental export to iCloud Drive. It is not enabled in productio
 Live store fences, independent recovery keys, upload verification, scheduling and
 replacement-machine acceptance must be configured before claiming protection. See
 [the implementation and rollout contract](docs/operations/icloud-ecosystem-backup.md).
+
+The Mitzo/Telos core capture binds the running event/task owners and canonical Telos
+owner, including DB-only relationships and saved artifact bytes. It validates all
+source change watermarks before finalizing; overlapping writes discard the candidate
+without blocking saves. This limited group is not full ecosystem coverage and has
+no live upload schedule. See the [backup contract](docs/operations/icloud-ecosystem-backup.md).

@@ -1,3 +1,4 @@
+import { databaseBackupWatermark, backupOwnedDatabase } from '@mitzo/protocol/database-backup';
 import Database from 'better-sqlite3';
 import { randomUUID } from 'crypto';
 import { createLogger } from './logger.js';
@@ -209,6 +210,14 @@ export class TaskStore {
     db.exec(SCHEMA);
     this.runMigrations(db);
     log.info('TaskStore initialized', { dbPath });
+  }
+
+  /** Captured only through the existing owner connection; source files remain live. */
+  backupWatermark(): string {
+    return databaseBackupWatermark(this.getDatabase());
+  }
+  backupSnapshot(destination: string): Promise<void> {
+    return backupOwnedDatabase(this.getDatabase(), destination);
   }
 
   close(): void {

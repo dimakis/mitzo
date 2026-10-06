@@ -1,3 +1,4 @@
+import { databaseBackupWatermark, backupOwnedDatabase } from '@mitzo/protocol/database-backup';
 import Database from 'better-sqlite3';
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
@@ -91,6 +92,14 @@ export class TelosArtifactStore {
       throw error;
     }
   }
+  /** Captured only through the existing owner connection; source files remain live. */
+  backupWatermark(): string {
+    return databaseBackupWatermark(this.db);
+  }
+  backupSnapshot(destination: string): Promise<void> {
+    return backupOwnedDatabase(this.db, destination);
+  }
+
   close() {
     this.db.close();
   }

@@ -1,3 +1,4 @@
+import { databaseBackupWatermark, backupOwnedDatabase } from './database-backup.js';
 import Database from 'better-sqlite3';
 import { createHash, randomUUID } from 'node:crypto';
 import {
@@ -1173,6 +1174,16 @@ export class EventStore {
       `CREATE INDEX IF NOT EXISTS idx_events_user_msg_dedup
        ON events (session_id, type, json_extract(payload, '$.messageId'))`,
     );
+  }
+
+  /** Captured only through the existing owner connection; source files remain live. */
+  backupWatermark(): string {
+    if (!this.db) throw Error('Backup owner closed');
+    return databaseBackupWatermark(this.db);
+  }
+  backupSnapshot(destination: string): Promise<void> {
+    if (!this.db) throw Error('Backup owner closed');
+    return backupOwnedDatabase(this.db, destination);
   }
 
   close(): void {
