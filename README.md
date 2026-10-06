@@ -939,6 +939,7 @@ seats rather than creating a backend/custodian per session. It currently runs
 ordinary main with providers disabled; Symposium activation requires the reviewed
 integration candidate and retained-owner configuration. Follow the
 [singleton staging contract](docs/operations/symposium-singleton-staging.md).
+For an accepted owned release, `scripts/prepare-staging-service.mjs ... 3190 --canonical` prepares the fixed `com.mitzo.staging` identity and rechecks the capacity-one registration at launch. Preparation does not activate it.
 The ordinary staging deployment controller cannot replace an active Symposium
 custodian; owned custody and original-owner drain must be qualified first.
 

@@ -16,6 +16,8 @@ import { tmpdir } from 'node:os';
 import type { OwnedReleasePlan } from '../symposium-owned-release.js';
 import {
   prepareStagingService,
+  prepareCanonicalStagingService,
+  assertCanonicalStagingService,
   readStagingOperatorEnvironment,
   stagingServiceLabel,
 } from '../symposium-staging-service.js';
@@ -136,3 +138,78 @@ it.each(['owner.stdout.log', 'owner.stderr.log'])(
     }
   },
 );
+
+function canonicalFixture() {
+  const f = fixture();
+  const root = f.root;
+  const planDirectory = join(root, 'symposium/service');
+  mkdirSync(planDirectory, { recursive: true, mode: 0o700 });
+  mkdirSync(join(root, 'symposium/settings'), { mode: 0o700 });
+  const sourceCommit = 'a'.repeat(40);
+  const plan = {
+    ...f.plan,
+    sourceCommit,
+    planDirectory,
+    releaseRoot: join(root, 'releases', sourceCommit.slice(0, 12)),
+    repositoryPath: join(root, 'symposium/workspace'),
+    appHome: join(root, 'symposium/home'),
+    configPath: join(root, 'symposium/settings/owned-host.json'),
+  };
+  const registrationPath = join(root, 'symposium/settings/staging-registration.json');
+  const registration = {
+    registryDirectory: join(root, 'registry'),
+    capacity: 1,
+    ownerChat: 'canonical-stage',
+    purpose: 'Symposium',
+    retentionReason: 'shared development stage',
+    reviewAfter: Date.now() + 86400000,
+  };
+  writeFileSync(registrationPath, JSON.stringify(registration), { mode: 0o600 });
+  return { root, plan, registrationPath, registration };
+}
+it('prepares exactly one canonical Symposium service identity without starting it', () => {
+  const f = canonicalFixture();
+  const result = prepareCanonicalStagingService(
+    f.plan,
+    f.registrationPath,
+    process.execPath,
+    f.root,
+  );
+  const plist = readFileSync(result.plistPath, 'utf8');
+  expect(result.label).toBe('com.mitzo.staging');
+  expect(JSON.parse(readFileSync(result.operatorPath, 'utf8')).PORT).toBe('3190');
+  expect(plist).toContain('<key>KeepAlive</key><false/>');
+  expect(plist).toContain('<string>--canonical</string>');
+  expect(plist).toContain('<key>RunAtLoad</key><false/>');
+  expect(existsSync(join(f.plan.planDirectory, 'launch.intent'))).toBe(false);
+  f.registration.capacity = 2;
+  writeFileSync(f.registrationPath, JSON.stringify(f.registration));
+  expect(() => assertCanonicalStagingService(f.plan, f.registrationPath, f.root)).toThrow();
+});
+it.each([
+  'capacity',
+  'registry',
+  'repository',
+  'home',
+  'config',
+  'release',
+  'commit',
+  'registration-path',
+])('refuses canonical staging %s drift before creating service files', (kind) => {
+  const f = canonicalFixture();
+  if (kind === 'capacity') f.registration.capacity = 2;
+  if (kind === 'registry') f.registration.registryDirectory = join(f.root, 'other-registry');
+  if (kind === 'repository') f.plan.repositoryPath = join(f.root, 'other-workspace');
+  if (kind === 'home') f.plan.appHome = '/private/production';
+  if (kind === 'config') f.plan.configPath = join(f.root, 'other-config.json');
+  if (kind === 'release') f.plan.releaseRoot = '/private/production';
+  if (kind === 'commit') f.plan.sourceCommit = 'main';
+  writeFileSync(f.registrationPath, JSON.stringify(f.registration));
+  let path = f.registrationPath;
+  if (kind === 'registration-path') {
+    path = join(f.root, 'another.json');
+    writeFileSync(path, JSON.stringify(f.registration), { mode: 0o600 });
+  }
+  expect(() => prepareCanonicalStagingService(f.plan, path, process.execPath, f.root)).toThrow();
+  expect(existsSync(join(f.plan.planDirectory, 'staging-operator.json'))).toBe(false);
+});

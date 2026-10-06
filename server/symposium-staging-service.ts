@@ -13,6 +13,7 @@ import {
 import { isAbsolute, join, resolve } from 'node:path';
 import { z } from 'zod';
 import { ownedCustodianEnvironment } from './symposium-custodian-launch.js';
+import { StagingLaunchSchema } from './symposium-staging-launch.js';
 import type { OwnedReleasePlan } from './symposium-owned-release.js';
 
 const operatorName = 'staging-operator.json';
@@ -108,11 +109,12 @@ function writeExclusive(path: string, value: string) {
 }
 /** Prepare the existing staging launcher for OS supervision. Never install/start,
  * restart an owner, or transfer custody from a receipt. Partial writes stay fenced. */
-export function prepareStagingService(
+function prepareService(
   plan: OwnedReleasePlan,
   registrationPath: string,
   node: string,
   port: number,
+  label: string,
 ) {
   privatePlan(plan);
   if (
@@ -152,13 +154,13 @@ export function prepareStagingService(
     MITZO_BIND_HOST: '127.0.0.1',
   };
   ownedCustodianEnvironment(plan, settings);
-  const label = stagingServiceLabel(plan);
   const args = [
     node,
     join(plan.releaseRoot, 'scripts/start-staging-custodian.mjs'),
     join(plan.planDirectory, 'owned-release.json'),
     registrationPath,
     operatorPath,
+    ...(label === 'com.mitzo.staging' ? ['--canonical'] : []),
   ];
   const plist = `<?xml version="1.0" encoding="UTF-8"?>\n<plist version="1.0"><dict><key>Label</key><string>${label}</string><key>ProgramArguments</key><array>${args.map((x) => `<string>${xml(x)}</string>`).join('')}</array><key>EnvironmentVariables</key><dict><key>NODE_OPTIONS</key><string></string><key>NODE_PATH</key><string></string><key>DOTENV_CONFIG_PATH</key><string>/dev/null</string></dict><key>WorkingDirectory</key><string>${xml(plan.releaseRoot)}</string><key>StandardOutPath</key><string>${xml(join(plan.planDirectory, 'owner.stdout.log'))}</string><key>StandardErrorPath</key><string>${xml(join(plan.planDirectory, 'owner.stderr.log'))}</string><key>KeepAlive</key><false/><key>RunAtLoad</key><false/><key>ExitTimeOut</key><integer>180</integer></dict></plist>\n`;
   writeExclusive(operatorPath, JSON.stringify(settings) + '\n');
@@ -170,4 +172,49 @@ export function prepareStagingService(
     closeSync(parent);
   }
   return { label, operatorPath, plistPath };
+}
+
+/** Explicit canonical mode. Root is supplied by the host CLI, never host JSON. */
+export function assertCanonicalStagingService(
+  plan: OwnedReleasePlan,
+  registrationPath: string,
+  root: string,
+) {
+  const stat = lstatSync(root);
+  if (
+    !isAbsolute(root) ||
+    realpathSync(root) !== root ||
+    !stat.isDirectory() ||
+    stat.uid !== process.getuid?.() ||
+    (stat.mode & 0o777) !== 0o700 ||
+    !/^[a-f0-9]{40}$/.test(plan.sourceCommit) ||
+    plan.planDirectory !== join(root, 'symposium/service') ||
+    plan.repositoryPath !== join(root, 'symposium/workspace') ||
+    plan.appHome !== join(root, 'symposium/home') ||
+    plan.configPath !== join(root, 'symposium/settings/owned-host.json') ||
+    plan.releaseRoot !== join(root, 'releases', plan.sourceCommit.slice(0, 12)) ||
+    registrationPath !== join(root, 'symposium/settings/staging-registration.json')
+  )
+    throw Error('Canonical Symposium staging paths refused');
+  privatePlan(plan);
+  const registration = StagingLaunchSchema.parse(JSON.parse(privateBytes(registrationPath)));
+  if (registration.capacity !== 1 || registration.registryDirectory !== join(root, 'registry'))
+    throw Error('Canonical Symposium staging requires one registry slot');
+}
+export function prepareStagingService(
+  plan: OwnedReleasePlan,
+  registrationPath: string,
+  node: string,
+  port: number,
+) {
+  return prepareService(plan, registrationPath, node, port, stagingServiceLabel(plan));
+}
+export function prepareCanonicalStagingService(
+  plan: OwnedReleasePlan,
+  registrationPath: string,
+  node: string,
+  root: string,
+) {
+  assertCanonicalStagingService(plan, registrationPath, root);
+  return prepareService(plan, registrationPath, node, 3190, 'com.mitzo.staging');
 }

@@ -57,3 +57,32 @@ restart, old launch-intent deletion, automatic rollback or parallel replacement.
 
 See the [product acceptance checklist](../features/symposium-integrated-acceptance.md)
 and [owned service preparation](symposium-staging-lifecycle.md).
+
+## Preparing the canonical service
+
+After the exact detached release is reviewed, built and prepared as an owned
+release, its plan uses these paths inside the existing private root:
+
+- plan: `symposium/service/owned-release.json`
+- host config: `symposium/settings/owned-host.json`
+- registration: `symposium/settings/staging-registration.json`
+- workspace: `symposium/workspace`; app HOME: `symposium/home`
+- registry: `registry`, with capacity exactly one
+- release: `releases/<12-character source commit>`
+
+Run this from that verified release:
+
+```sh
+node scripts/prepare-staging-service.mjs \
+  ~/.local/share/mitzo-staging/symposium/service/owned-release.json \
+  ~/.local/share/mitzo-staging/symposium/settings/staging-registration.json \
+  3190 --canonical
+```
+
+Canonical preparation emits only `com.mitzo.staging`, private fresh app
+credentials and a manually started plist. The launcher rechecks canonical paths,
+registry capacity and loopback port before claiming any ownership. A changed
+registration or launch intent prevents reuse. This command never installs the
+plist, stops the existing service, authenticates a provider or launches a model.
+The ordinary stage stays running until the reviewed original-control transition
+is ready; do not bootstrap a second label alongside it.
