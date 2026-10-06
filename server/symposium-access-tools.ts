@@ -74,9 +74,11 @@ export class SymposiumAccessRequests {
   list(sessionId: string) {
     const rows = this.db
       .prepare(
-        'SELECT * FROM symposium_access_requests WHERE session_id=? ORDER BY created_at DESC LIMIT 50',
+        `SELECT * FROM symposium_access_requests WHERE session_id=? AND status IN ('pending','review_requested','review_handed_off')
+         UNION ALL SELECT * FROM (SELECT * FROM symposium_access_requests WHERE session_id=? AND status NOT IN ('pending','review_requested','review_handed_off') ORDER BY created_at DESC LIMIT 50)
+         ORDER BY created_at DESC`,
       )
-      .all(sessionId) as Row[];
+      .all(sessionId, sessionId) as Row[];
     for (const row of rows) {
       if (row.status === 'pending' && !this.pending.has(row.id)) {
         this.db

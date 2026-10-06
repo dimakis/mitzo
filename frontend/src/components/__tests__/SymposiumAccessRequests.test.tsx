@@ -4,7 +4,18 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { apiFetch } from '../../lib/api-fetch';
 import { SymposiumAccessRequests } from '../SymposiumAccessRequests';
 vi.mock('../../lib/api-fetch', () => ({ apiFetch: vi.fn() }));
-vi.mock('../SymposiumReviewPanel', () => ({ SymposiumReviewPanel: () => <p>Artifact review</p> }));
+vi.mock('../SymposiumReviewPanel', () => ({
+  SymposiumReviewPanel: ({
+    publicationSuggestion,
+  }: {
+    publicationSuggestion?: { input: { title?: string } };
+  }) => (
+    <div>
+      <p>Artifact review</p>
+      <p>{publicationSuggestion?.input.title}</p>
+    </div>
+  ),
+}));
 afterEach(() => {
   cleanup();
   vi.resetAllMocks();
@@ -70,5 +81,5 @@ it('hands the suggestion to artifact review and clears its pending card without 
   expect(posts).toHaveLength(1);
   expect(posts[0][0]).toBe('/api/sessions/session/symposium/access-requests/request/handoff');
   expect(JSON.parse(posts[0][1]!.body as string)).toEqual({ hash: 'a'.repeat(64) });
-  expect(screen.queryByText('Publish fix')).toBeNull();
+  expect(screen.getByText('Publish fix')).toBeTruthy();
 });

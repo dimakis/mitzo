@@ -178,3 +178,29 @@ it('bounds simultaneous user approval cards for one seat', async () => {
     await Promise.all([...pending, extra]);
   }
 });
+
+it('keeps outstanding requests visible after more than fifty completed history records', async () => {
+  const f = fixture();
+  const pending = f.tool.executeTool('RequestWebAccess', request, f.abort.signal, call);
+  await vi.waitFor(() => expect(f.service.list('session')).toHaveLength(1));
+  const original = f.service.list('session')[0];
+  for (let index = 0; index < 55; index++) {
+    await f.tool.executeTool(
+      'RequestGithubPublish',
+      {
+        repositoryPath: '/sandbox/workspaces/mgmt',
+        baseBranch: 'main',
+        title: 'History',
+        body: '',
+        draft: true,
+      },
+      f.abort.signal,
+      { ...call, callId: `history-${index}` },
+    );
+    const row = f.service.list('session').find((item) => item.status === 'review_requested')!;
+    f.service.dismiss('session', row.id, row.hash);
+  }
+  expect(f.service.list('session').find((item) => item.id === original.id)?.status).toBe('pending');
+  f.abort.abort();
+  await pending;
+});

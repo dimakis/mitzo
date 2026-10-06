@@ -30,6 +30,7 @@ export function SymposiumAccessRequests({ sessionId }: { sessionId: string }) {
   const [error, setError] = useState('');
   const [busy, setBusy] = useState<string | null>(null);
   const [review, setReview] = useState<string | null>(null);
+  const [suggestion, setSuggestion] = useState<RequestRow | undefined>();
   const path = `/api/sessions/${encodeURIComponent(sessionId)}/symposium/access-requests`;
   useEffect(() => {
     let alive = true;
@@ -94,7 +95,10 @@ export function SymposiumAccessRequests({ sessionId }: { sessionId: string }) {
         body: JSON.stringify({ hash: row.hash }),
       });
       if (!response.ok) throw new Error('Publication request changed; refresh and try again.');
-      if (action === 'handoff') setReview(sessionId);
+      if (action === 'handoff') {
+        setSuggestion(row);
+        setReview(sessionId);
+      }
       setState((previous) =>
         previous.sessionId === sessionId
           ? { ...previous, rows: previous.rows.filter((item) => item.id !== row.id) }
@@ -178,7 +182,9 @@ export function SymposiumAccessRequests({ sessionId }: { sessionId: string }) {
         </section>
       ))}
       {error && <p role="alert">{error}</p>}
-      {review === sessionId && <SymposiumReviewPanel sessionId={sessionId} />}
+      {review === sessionId && (
+        <SymposiumReviewPanel sessionId={sessionId} publicationSuggestion={suggestion} />
+      )}
     </aside>
   );
 }
