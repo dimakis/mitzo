@@ -38,14 +38,12 @@ it('rejects DNS rebinding and cross-origin redirects before contacting the new d
     origin: 'https://example.com',
     addresses: [{ address: '203.0.113.1', family: 4 }],
   };
-  const read = vi
-    .fn()
-    .mockResolvedValue({
-      status: 302,
-      location: 'http://127.0.0.1/',
-      type: 'text/plain',
-      body: '',
-    });
+  const read = vi.fn().mockResolvedValue({
+    status: 302,
+    location: 'http://127.0.0.1/',
+    type: 'text/plain',
+    body: '',
+  });
   await expect(
     fetchApprovedUrl(target.url, target, new AbortController().signal, {
       resolve: async () => target,
