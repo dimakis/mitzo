@@ -34,7 +34,13 @@ export function assertCanonicalOwnedSource(release: string, root: string) {
       if (!/^[a-f0-9]{40}$/.test(value)) fail();
     } else if (name === 'source_ref') {
       // Informational only: never selects source, supplies ancestry or executes.
-      if (!/^[^\s\x00-\x1f\x7f]{1,1024}$/.test(value)) fail();
+      if (
+        !value ||
+        value.length > 1024 ||
+        /\s/.test(value) ||
+        [...value].some((c) => c.charCodeAt(0) < 32 || c.charCodeAt(0) === 127)
+      )
+        fail();
     } else if (name === 'created_at') {
       if (
         !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/.test(value) ||
