@@ -976,9 +976,7 @@ it('preserves image attachments while binding a trusted capability, forcing appr
       item.name.startsWith('Capability_github_publish_pr'),
     );
     expect(tool).toBeDefined();
-    expect(mocks.conversationOptions?.systemPrompt).toContain(
-      `For GitHub publishing, use ${tool!.name}`,
-    );
+    expect(mocks.conversationOptions?.systemPrompt).toContain('Use RequestGithubPublish');
     expect(mocks.conversationOptions?.systemPrompt).not.toContain(
       'GitHub publishing is unavailable',
     );
