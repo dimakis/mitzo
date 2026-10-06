@@ -1482,7 +1482,7 @@ async function _startChatInner(
   const allMcpServers = { ...mcpServers, ...taskMcp, ...telosMcp };
 
   // Load project hooks from .claude/settings.json (e.g. SessionStart boot context)
-  const hooks = loadProjectHooks(cwd);
+  const hooks = loadProjectHooks(cwd, sessionEnv);
 
   // Fetch boot context BEFORE building system prompt so it's part of the
   // system prompt append and survives SDK context compaction.
