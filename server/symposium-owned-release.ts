@@ -1,3 +1,5 @@
+import { userInfo } from 'node:os';
+import { assertCanonicalOwnedSource } from './symposium-canonical-source.js';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 /** Static release preparation only. Never imports the host/bootstrap/auth owners. */
@@ -173,26 +175,35 @@ function inspect(input: OwnedReleaseInput, digest: (path: string) => string) {
   pathMetadata(input.repositoryPath, true, true);
   pathMetadata(input.configPath, false, true);
   if (readdirSync(input.repositoryPath).length) fail();
-  const sourceGuard = execFileSync(
-    '/bin/bash',
-    [join(input.releaseRoot, 'scripts/assert-deployable.sh'), '--offline'],
-    {
-      encoding: 'utf8',
-      timeout: 15000,
-      maxBuffer: 65536,
-      env: {
-        PATH: '/usr/bin:/bin',
-        HOME: input.planDirectory,
-        GIT_CONFIG_NOSYSTEM: '1',
-        GIT_CONFIG_GLOBAL: '/dev/null',
+  const canonicalRoot = join(userInfo().homedir, '.local/share/mitzo-staging');
+  let sourceCommit: string | undefined, sourceTree: string | undefined;
+  if (
+    input.releaseRoot.startsWith(join(canonicalRoot, 'releases') + '/') &&
+    /^[a-f0-9]{12}$/.test(relative(join(canonicalRoot, 'releases'), input.releaseRoot))
+  ) {
+    ({ sourceCommit, sourceTree } = assertCanonicalOwnedSource(input.releaseRoot, canonicalRoot));
+  } else {
+    const sourceGuard = execFileSync(
+      '/bin/bash',
+      [join(input.releaseRoot, 'scripts/assert-deployable.sh'), '--offline'],
+      {
+        encoding: 'utf8',
+        timeout: 15000,
+        maxBuffer: 65536,
+        env: {
+          PATH: '/usr/bin:/bin',
+          HOME: input.planDirectory,
+          GIT_CONFIG_NOSYSTEM: '1',
+          GIT_CONFIG_GLOBAL: '/dev/null',
+        },
+        stdio: ['ignore', 'pipe', 'pipe'],
       },
-      stdio: ['ignore', 'pipe', 'pipe'],
-    },
-  );
-  const sourceCommit = /^DEPLOYMENT_COMMIT=([a-f0-9]{40})$/m.exec(sourceGuard)?.[1];
-  const sourceTree = /^source_tree=([a-f0-9]{40})$/m.exec(
-    bytes(join(input.releaseRoot, 'release.txt'), 65536).toString('utf8'),
-  )?.[1];
+    );
+    sourceCommit = /^DEPLOYMENT_COMMIT=([a-f0-9]{40})$/m.exec(sourceGuard)?.[1];
+    sourceTree = /^source_tree=([a-f0-9]{40})$/m.exec(
+      bytes(join(input.releaseRoot, 'release.txt'), 65536).toString('utf8'),
+    )?.[1];
+  }
   if (!sourceCommit || !sourceTree) fail();
   const raw = bytes(input.configPath, 1024 * 1024),
     config = OwnedSymposiumConfigSchema.parse(JSON.parse(raw.toString('utf8')));

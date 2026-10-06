@@ -86,3 +86,11 @@ registration or launch intent prevents reuse. This command never installs the
 plist, stops the existing service, authenticates a provider or launches a model.
 The ordinary stage stays running until the reviewed original-control transition
 is ready; do not bootstrap a second label alongside it.
+
+Canonical owned-release integrity checks pin the exact detached commit, tree and
+recorded accepted-main baseline in release.txt, clean tracked files and the
+published source ref. The baseline must be in both the selected source and
+accepted-main history. A later cached main ref does not invalidate unchanged
+source; operators still check freshness separately. Other owned trials and
+production retain their existing deployment guards. These source checks do not
+replace exact-head CI/review or physical admission evidence.
