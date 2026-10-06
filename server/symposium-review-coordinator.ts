@@ -404,6 +404,7 @@ export class SymposiumReviewCoordinator {
       const state = this.scoped(context, workflowId);
       if (!isApplicationPolicy(state.limits))
         return this.reserve(context, workflowId, kind, attemptId);
+      if (state.decisionCode) return decision(state.decisionCode);
       if (!this.host?.prepareApplicationTransition || !this.host.completeApplicationTransition)
         return decision('trusted_transition_host_unavailable');
       if (!this.current(context, state)) return decision('artifact_changed');
@@ -422,6 +423,8 @@ export class SymposiumReviewCoordinator {
         policy: state.limits,
       });
       if ('code' in prepared) return prepared;
+      const current = this.scoped(context, workflowId);
+      if (current.decisionCode) return decision(current.decisionCode);
       if (
         prepared.workflowId !== workflowId ||
         prepared.attemptId !== attemptId ||
@@ -530,9 +533,12 @@ export class SymposiumReviewCoordinator {
   }
 
   async stop(context: ReviewContext, workflowId: string) {
+    // Persist the admission fence before waiting for an original transition owner.
+    // Its physical operation may be uncertain; cleanup still requires that owner's
+    // lock, and late results cannot pass the store's stopped-policy checks.
+    this.scoped(context, workflowId);
+    this.store.stopApplication(workflowId, context.owner, 'user_stop');
     return withTransitionLock(workflowId, async () => {
-      this.scoped(context, workflowId);
-      this.store.stopApplication(workflowId, context.owner, 'user_stop');
       await this.settleStopped(context, workflowId);
       return this.scoped(context, workflowId);
     });
@@ -585,6 +591,7 @@ export class SymposiumReviewCoordinator {
 
   continue(context: ReviewContext, workflowId: string, limits: ApplicationPolicy, reason: string) {
     this.scoped(context, workflowId);
+    if (transitionLocks.has(workflowId)) return decision('application_transition_pending');
     const authorization = this.host?.authorizeContinuation?.(context, workflowId, limits, reason);
     if (!authorization) return decision('interactive_continuation_authority_required');
     return this.store.continueApplication({

@@ -213,7 +213,7 @@ it('fences a stopped bound transition until its exact staged delivery is reconci
   store.close();
 });
 
-it('waits for an in-flight transition before stopping so it cannot strand preparing state', async () => {
+it('persists Stop immediately while retaining the transition lock for original preparation cleanup', async () => {
   const store = new SymposiumReviewStore(':memory:');
   store.create(create());
   const prep = reviewPreparation('concurrent-review');
@@ -229,11 +229,11 @@ it('waits for an in-flight transition before stopping so it cannot strand prepar
   const host = {
     currentArtifact: () => ({ revision: 'a', hash }),
     prepareApplicationTransition: async () => prep,
-    completeApplicationTransition: async () => {
+    completeApplicationTransition: vi.fn(async () => {
       entered();
       await hold;
       return { kind: 'decision_required' as const, code: 'physical_transition_uncertain' };
-    },
+    }),
     settleStoppedApplicationPreparation: vi.fn(async () => 'not_applied' as const),
     cancelApplicationAttempts: vi.fn(async () => {}),
   } as unknown as SymposiumReviewHost;
@@ -244,19 +244,83 @@ it('waits for an in-flight transition before stopping so it cannot strand prepar
     'concurrent-review',
   );
   await reached;
+  const duplicate = new SymposiumReviewCoordinator(store, host).reserveWithTransition(
+    context,
+    'w',
+    'review',
+    'concurrent-review',
+  );
   let stopped = false;
   const stop = new SymposiumReviewCoordinator(store, host).stop(context, 'w').then(() => {
     stopped = true;
   });
   await Promise.resolve();
   expect(stopped).toBe(false);
+  const fenced = store.get('w');
   release();
   await first;
+  const duplicateResult = await duplicate;
   await stop;
+  expect(fenced).toMatchObject({ status: 'decision_required', decisionCode: 'user_stop' });
+  expect(duplicateResult).toEqual({ kind: 'decision_required', code: 'user_stop' });
+  expect(host.completeApplicationTransition).toHaveBeenCalledTimes(1);
   expect(store.getApplicationPreparation('w', 'concurrent-review')).toMatchObject({
     status: 'settled',
     disposition: 'not_applied',
   });
+  store.close();
+});
+it('fences a stalled preparation before it can admit a later transition result', async () => {
+  const store = new SymposiumReviewStore(':memory:');
+  store.create(create());
+  const prep = reviewPreparation('stalled-preparation');
+  const context = { owner: 'user', sessionId: 's' };
+  let release!: (preparation: typeof prep) => void;
+  let entered!: () => void;
+  const reached = new Promise<void>((resolve) => {
+    entered = resolve;
+  });
+  const held = new Promise<typeof prep>((resolve) => {
+    release = resolve;
+  });
+  const host = {
+    currentArtifact: () => ({ revision: 'a', hash }),
+    prepareApplicationTransition: async () => {
+      entered();
+      return held;
+    },
+    completeApplicationTransition: vi.fn(async () => ({
+      kind: 'decision_required' as const,
+      code: 'physical_transition_uncertain',
+    })),
+    cancelApplicationAttempts: vi.fn(async () => {}),
+    authorizeContinuation: vi.fn(() => ({ authorizationId: 'explicit-continuation' })),
+  } as unknown as SymposiumReviewHost;
+  const coordinator = new SymposiumReviewCoordinator(store, host);
+  const transition = coordinator.reserveWithTransition(context, 'w', 'review', prep.attemptId);
+  await reached;
+  const stopped = coordinator.stop(context, 'w');
+  const fenced = store.get('w');
+  const continuation = coordinator.continue(
+    context,
+    'w',
+    { ...create().limits, maxHostTurns: 3 },
+    'resume',
+  );
+  release(prep);
+  const result = await transition;
+  await stopped;
+  expect(fenced).toMatchObject({ status: 'decision_required', decisionCode: 'user_stop' });
+  expect(continuation).toEqual({
+    kind: 'decision_required',
+    code: 'application_transition_pending',
+  });
+  expect(result).toEqual({ kind: 'decision_required', code: 'user_stop' });
+  expect(host.completeApplicationTransition).not.toHaveBeenCalled();
+  expect(store.get('w')?.applicationAttempts).toHaveLength(0);
+  expect(
+    coordinator.continue(context, 'w', { ...create().limits, maxHostTurns: 3 }, 'resume'),
+  ).toMatchObject({ status: 'awaiting_review' });
   store.close();
 });
 describe('persisted application admission', () => {

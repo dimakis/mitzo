@@ -5,12 +5,20 @@ const render = (node: ReactNode) =>
   baseRender(<MitzoStoreProvider value={createTestStore()}>{node}</MitzoStoreProvider>);
 // @vitest-environment jsdom
 import { afterEach, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render as baseRender, screen, waitFor } from '@testing-library/react';
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render as baseRender,
+  screen,
+  waitFor,
+} from '@testing-library/react';
 import { apiFetch } from '../../lib/api-fetch';
 import { SymposiumReviewPanel } from '../SymposiumReviewPanel';
 vi.mock('../../lib/api-fetch', () => ({ apiFetch: vi.fn() }));
 afterEach(() => {
   cleanup();
+  vi.useRealTimers();
   vi.resetAllMocks();
 });
 const response = (body: unknown) => ({ ok: true, json: async () => body }) as Response;
@@ -752,6 +760,141 @@ it('keeps Stop available when artifact refresh disables execution', async () => 
     (screen.getByRole('button', { name: 'Run initial implementation' }) as HTMLButtonElement)
       .disabled,
   ).toBe(true);
+});
+
+it('can stop a review while its execution request is still pending', async () => {
+  const { symposiumReviewPreviewResponses } =
+    await import('../../preview/symposium-review-fixtures');
+  let workflow = {
+    ...symposiumReviewPreviewResponses.findings.workflows[0],
+    status: 'awaiting_review',
+    limits: policy,
+    applicationAttempts: [],
+    decisionCode: undefined as string | undefined,
+  };
+  let completeReview!: (response: Response) => void;
+  vi.mocked(apiFetch).mockImplementation(async (_path, init) => {
+    if (init?.method === 'POST') {
+      const body = JSON.parse(init.body as string);
+      if (body.action === 'review')
+        return new Promise<Response>((resolve) => {
+          completeReview = resolve;
+        });
+      if (body.action === 'stop') {
+        workflow = { ...workflow, status: 'decision_required', decisionCode: 'user_stop' };
+        return response(workflow);
+      }
+    }
+    return response({ available: true, workflows: [workflow] });
+  });
+  render(<SymposiumReviewPanel sessionId="session" />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Run review' }));
+  const stop = screen.getByRole('button', { name: 'Stop review' });
+  expect((stop as HTMLButtonElement).disabled).toBe(false);
+  fireEvent.click(stop);
+  await screen.findByText('Stopped: user_stop');
+  expect(screen.getByText(/Stop recorded.*cleanup.*not confirmed/i)).toBeTruthy();
+  expect(vi.mocked(apiFetch).mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(
+    2,
+  );
+  expect(
+    JSON.parse(
+      vi
+        .mocked(apiFetch)
+        .mock.calls.find(
+          ([, init]) =>
+            init?.method === 'POST' && JSON.parse(init.body as string).action === 'stop',
+        )![1]!.body as string,
+    ),
+  ).toEqual({
+    action: 'stop',
+    expectedArtifactRevision: workflow.artifactRevision,
+    expectedArtifactHash: workflow.artifactHash,
+  });
+  completeReview(response(workflow));
+  await waitFor(() =>
+    expect(
+      (screen.getByRole('button', { name: 'Refresh review' }) as HTMLButtonElement).disabled,
+    ).toBe(false),
+  );
+});
+
+it('bounds an unresponsive Stop, retains uncertainty, and allows an explicit retry', async () => {
+  const { symposiumReviewPreviewResponses } =
+    await import('../../preview/symposium-review-fixtures');
+  const workflow = {
+    ...symposiumReviewPreviewResponses.findings.workflows[0],
+    status: 'awaiting_review',
+    limits: policy,
+    applicationAttempts: [],
+  };
+  vi.mocked(apiFetch).mockImplementation(async (_path, init) => {
+    if (init?.method === 'POST') return new Promise<Response>(() => {});
+    return response({ available: true, workflows: [workflow] });
+  });
+  render(<SymposiumReviewPanel sessionId="session" />);
+  const stop = await screen.findByRole('button', { name: 'Stop review' });
+  vi.useFakeTimers();
+  fireEvent.click(stop);
+  fireEvent.click(stop);
+  expect((stop as HTMLButtonElement).disabled).toBe(true);
+  expect(vi.mocked(apiFetch).mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(
+    1,
+  );
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(30_000);
+  });
+  expect(screen.getByText(/Stop is unconfirmed.*timed out/)).toBeTruthy();
+  expect((stop as HTMLButtonElement).disabled).toBe(false);
+  expect(
+    vi.mocked(apiFetch).mock.calls.find(([, init]) => init?.method === 'POST')![1]!.signal!.aborted,
+  ).toBe(true);
+  fireEvent.click(stop);
+  expect(vi.mocked(apiFetch).mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(
+    2,
+  );
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(30_000);
+  });
+});
+
+it('can refresh the saved outcome after an unconfirmed Stop while review remains pending', async () => {
+  const { symposiumReviewPreviewResponses } =
+    await import('../../preview/symposium-review-fixtures');
+  const workflow = {
+    ...symposiumReviewPreviewResponses.findings.workflows[0],
+    status: 'awaiting_review',
+    limits: policy,
+    applicationAttempts: [],
+  };
+  vi.mocked(apiFetch).mockImplementation(async (_path, init) => {
+    if (init?.method === 'POST') {
+      if (JSON.parse(init.body as string).action === 'stop') throw new Error('Connection lost');
+      return new Promise<Response>(() => {});
+    }
+    return response({ available: true, workflows: [workflow] });
+  });
+  render(<SymposiumReviewPanel sessionId="session" />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Run review' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Stop review' }));
+  await screen.findByText(/Stop is unconfirmed.*Connection lost/);
+  const refresh = screen.getByRole('button', { name: 'Refresh review' });
+  expect((refresh as HTMLButtonElement).disabled).toBe(false);
+  const readsBefore = vi
+    .mocked(apiFetch)
+    .mock.calls.filter(
+      ([path, init]) => path === '/api/sessions/session/symposium/reviews' && !init?.method,
+    ).length;
+  fireEvent.click(refresh);
+  await waitFor(() =>
+    expect(
+      vi
+        .mocked(apiFetch)
+        .mock.calls.filter(
+          ([path, init]) => path === '/api/sessions/session/symposium/reviews' && !init?.method,
+        ),
+    ).toHaveLength(readsBefore + 1),
+  );
 });
 
 it('discovers a registered criterion and requires exact artifact confirmation before running its check', async () => {

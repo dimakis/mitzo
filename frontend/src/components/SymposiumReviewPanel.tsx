@@ -2,7 +2,7 @@ import { SymposiumPublication } from './SymposiumPublication';
 import { SymposiumSavedReviewRecord } from './SymposiumSavedReviewRecord';
 import { SymposiumReviewHistory } from './SymposiumReviewHistory';
 import './SymposiumReviewPanel.css';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { apiFetch } from '../lib/api-fetch';
 
 import type {
@@ -45,6 +45,13 @@ function ReviewPanel({ sessionId }: { sessionId: string }) {
   });
   const [loaded, setLoaded] = useState(false);
   const [busy, setBusy] = useState(false);
+  const stopInFlight = useRef(false);
+  const mounted = useRef(true);
+  const stopController = useRef<AbortController | null>(null);
+  const [stopBusy, setStopBusy] = useState(false);
+  const [stopNotice, setStopNotice] = useState('');
+  const refreshInFlight = useRef(false);
+  const [refreshBusy, setRefreshBusy] = useState(false);
   const [error, setError] = useState('');
   const [selected, setSelected] = useState<string[]>([]);
   const [reason, setReason] = useState('');
@@ -84,11 +91,16 @@ function ReviewPanel({ sessionId }: { sessionId: string }) {
     [base],
   );
   useEffect(() => {
+    mounted.current = true;
     const controller = new AbortController();
     void reload(controller.signal).catch((error) => {
       if (!controller.signal.aborted) setError(String(error));
     });
-    return () => controller.abort();
+    return () => {
+      mounted.current = false;
+      controller.abort();
+      stopController.current?.abort();
+    };
   }, [reload]);
   async function action(path: string, body: unknown) {
     setBusy(true);
@@ -226,10 +238,86 @@ function ReviewPanel({ sessionId }: { sessionId: string }) {
     </fieldset>
   );
   const endpoint = workflow ? `${base}/${encodeURIComponent(workflow.workflowId)}/actions` : base;
+  async function refreshReview() {
+    if (refreshInFlight.current) return;
+    refreshInFlight.current = true;
+    setRefreshBusy(true);
+    const controller = new AbortController();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([
+        reload(controller.signal),
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(() => {
+            reject(new Error('Review status request timed out. The saved outcome is unconfirmed.'));
+            controller.abort();
+          }, 30_000);
+        }),
+      ]);
+    } catch (error) {
+      if (mounted.current) setError(String(error));
+    } finally {
+      if (timer) clearTimeout(timer);
+      refreshInFlight.current = false;
+      if (mounted.current) setRefreshBusy(false);
+    }
+  }
+  async function stopReview() {
+    if (!workflow || stopInFlight.current) return;
+    stopInFlight.current = true;
+    setStopBusy(true);
+    setStopNotice('Requesting Stop…');
+    const controller = new AbortController();
+    stopController.current = controller;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([
+        (async () => {
+          const response = await apiFetch(endpoint, {
+            method: 'POST',
+            signal: controller.signal,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              action: 'stop',
+              expectedArtifactRevision: workflow.artifactRevision,
+              expectedArtifactHash: workflow.artifactHash,
+            }),
+          });
+          const result = await response.json();
+          if (!response.ok) throw new Error(result.error || result.code || 'Stop failed');
+        })(),
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(() => {
+            reject(new Error('Stop request timed out.'));
+            controller.abort();
+          }, 30_000);
+        }),
+      ]);
+      if (!mounted.current) return;
+      setStopNotice('Stop recorded. Provider cleanup is not confirmed; history is preserved.');
+      void reload().catch(() => {
+        if (!mounted.current) return;
+        setStopNotice(
+          'Stop recorded. Status refresh failed; provider cleanup is not confirmed. Refresh review to check the saved outcome.',
+        );
+      });
+    } catch (error) {
+      if (!mounted.current) return;
+      setStopNotice(
+        `Stop is unconfirmed. Refresh review or retry Stop. ${error instanceof Error ? error.message : 'Stop failed'}`,
+      );
+    } finally {
+      if (timer) clearTimeout(timer);
+      stopInFlight.current = false;
+      stopController.current = null;
+      if (mounted.current) setStopBusy(false);
+    }
+  }
   return (
     <section aria-label="Review findings" className="symposium-review-panel">
       <h3>Review findings</h3>
       {error && <p role="alert">{error}</p>}
+      {stopNotice && <p role="status">{stopNotice}</p>}
       {!loaded && !error && <p>Loading review history…</p>}
       {loaded && !available && (
         <p>
@@ -296,10 +384,7 @@ function ReviewPanel({ sessionId }: { sessionId: string }) {
               </p>
               <p>Application limits; no guaranteed token or spend cap.</p>
               {!workflow.decisionCode && (
-                <button
-                  disabled={busy || !stopAvailable}
-                  onClick={() => void action(endpoint, { action: 'stop' })}
-                >
+                <button disabled={stopBusy || !stopAvailable} onClick={() => void stopReview()}>
                   Stop review
                 </button>
               )}
@@ -719,10 +804,7 @@ function ReviewPanel({ sessionId }: { sessionId: string }) {
         />
       )}
       <SymposiumPublication sessionId={sessionId} record={recordReference} />
-      <button
-        disabled={busy}
-        onClick={() => void reload().catch((error) => setError(String(error)))}
-      >
+      <button disabled={refreshBusy} onClick={() => void refreshReview()}>
         Refresh review
       </button>
     </section>
