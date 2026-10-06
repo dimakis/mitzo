@@ -1,4 +1,4 @@
-import { expect, it } from 'vitest';
+import { expect, it, vi } from 'vitest';
 import { CapabilityOperationStore } from '../connections/capabilities/operation-store.js';
 it('persists repository access for exactly one account, repository and connection revision', () => {
   const store = new CapabilityOperationStore(':memory:');
@@ -33,4 +33,26 @@ it('persists repository access for exactly one account, repository and connectio
   store.upsertGrant(grant);
   expect(store.hasGithubRepositoryAccess(scope)).toBe(false);
   store.close();
+});
+
+it('changes the grant fence even when revocation and reapproval happen in the same millisecond', () => {
+  const clock = vi.spyOn(Date, 'now').mockReturnValue(1000);
+  const store = new CapabilityOperationStore(':memory:');
+  try {
+    const grant = {
+      connectionId: 'github',
+      connectionRevision: 1,
+      capabilityId: 'github.publish-pr',
+      capabilityVersion: 1,
+      accountIds: ['one'],
+      status: 'active' as const,
+    };
+    const before = store.upsertGrant(grant);
+    store.upsertGrant({ ...grant, status: 'revoked' });
+    const after = store.upsertGrant(grant);
+    expect(after.updatedAt).toBeGreaterThan(before.updatedAt);
+  } finally {
+    store.close();
+    clock.mockRestore();
+  }
 });

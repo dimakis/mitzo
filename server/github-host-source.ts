@@ -13,6 +13,7 @@ import {
 import { resolve, relative, isAbsolute, join } from 'node:path';
 import { promisify } from 'node:util';
 import { codexPrivateDirectory } from './codex-private-path.js';
+import { githubRepositoryFromOrigin } from './connections/capabilities/github-publish-pr.js';
 import type { GithubSandboxInspection } from './connections/capabilities/github-publish-pr.js';
 const exec = promisify(execFile);
 interface Source {
@@ -179,6 +180,13 @@ async function safeStatus(source: Source): Promise<string> {
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
+}
+export async function resolveHostGithubRepository(source: Source): Promise<string> {
+  await boundary(source);
+  const origin = (await git(source, ['remote', 'get-url', 'origin'], 4096)).stdout
+    .toString('utf8')
+    .trim();
+  return githubRepositoryFromOrigin(origin);
 }
 export async function inspectHostGithubRepository(
   source: Source,

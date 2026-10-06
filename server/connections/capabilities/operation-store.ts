@@ -140,7 +140,12 @@ export class CapabilityOperationStore {
       if (existing) {
         this.db
           .prepare('UPDATE capability_grants SET account_ids=?, status=?, updated_at=? WHERE id=?')
-          .run(JSON.stringify(accountIds), input.status, now, existing.id);
+          .run(
+            JSON.stringify(accountIds),
+            input.status,
+            Math.max(now, Number(existing.updated_at) + 1),
+            existing.id,
+          );
         return grant(
           this.db.prepare('SELECT * FROM capability_grants WHERE id=?').get(existing.id) as Record<
             string,
