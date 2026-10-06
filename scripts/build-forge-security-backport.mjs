@@ -21,7 +21,7 @@ try {
   const packagePath = join(packageRoot, 'package.json');
   const metadata = JSON.parse(readFileSync(packagePath, 'utf8'));
   metadata.name = '@mitzo/node-forge-security';
-  metadata.version = '1.4.0-mitzo.1';
+  metadata.version = '1.4.0-mitzo.2';
   metadata.mitzoSecurityBackport = {
     upstream: 'node-forge@1.4.0',
     integrity,

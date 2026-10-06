@@ -67,3 +67,8 @@ it('loads the reviewed fork for all consumers and reproduces its locked archive'
     '--verify',
   ]);
 });
+it('does not ship the vulnerable unpatched browser bundles', async () => {
+  const { existsSync } = await import('node:fs');
+  const { dirname, join } = await import('node:path');
+  expect(existsSync(join(dirname(require.resolve('node-forge/package.json')), 'dist'))).toBe(false);
+});
