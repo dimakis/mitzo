@@ -1,3 +1,4 @@
+import { withWebAbort } from './request-web-access.js';
 import { lookup } from 'node:dns/promises';
 import { request as httpRequest } from 'node:http';
 import { request as httpsRequest } from 'node:https';
@@ -92,7 +93,7 @@ export async function fetchApprovedUrl(
     signal.throwIfAborted();
     if (url.origin !== target.origin)
       throw new Error(`Request separate URL approval for ${url.href}`);
-    const current = await deps.resolve(url.href);
+    const current = await withWebAbort(deps.resolve(url.href), signal);
     signal.throwIfAborted();
     if (
       !current.addresses.length ||

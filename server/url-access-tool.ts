@@ -14,7 +14,7 @@ import {
   fetchApprovedUrl,
   type ApprovedUrlTarget,
 } from './approved-url-fetch.js';
-import { REQUEST_WEB_ACCESS } from './request-web-access.js';
+import { REQUEST_WEB_ACCESS, withWebAbort } from './request-web-access.js';
 const Input = z
   .object({
     operation: z.enum(['request_access', 'revoke_access']),
@@ -71,7 +71,10 @@ export function createUrlAccessTool(
         }
         const account = structuredClone(current.session.accountBinding);
         const model = current.session.model;
-        const target = await deps.resolve(url.href);
+        const target = await withWebAbort(
+          deps.resolve(url.href),
+          AbortSignal.any([signal, AbortSignal.timeout(20_000)]),
+        );
         signal.throwIfAborted();
         if (target.origin !== url.origin || !target.addresses.length)
           return { content: 'URL destination could not be resolved safely', isError: true };
@@ -170,7 +173,7 @@ export function createUrlAccessTool(
       } catch {
         return {
           content:
-            'Approved URL read failed or its resolved destination changed. Request URL access again before retrying.',
+            'Approved URL read failed. Check website reachability or authorization; request access again if its resolved destination changed.',
           isError: true,
         };
       }

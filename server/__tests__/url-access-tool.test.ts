@@ -146,3 +146,21 @@ it('discards a page result when its grant is revoked while the read is pending',
   finish('page');
   expect(await pending).toMatchObject({ isError: true });
 });
+
+it('cancels a URL request while name resolution is pending', async () => {
+  const f = fixture();
+  f.resolve.mockImplementation(() => new Promise(() => {}));
+  const abort = new AbortController();
+  const pending = f.tool.request(
+    { operation: 'request_access', url: 'https://example.com/', reason: 'why' },
+    abort.signal,
+  );
+  abort.abort();
+  expect(
+    await Promise.race([
+      pending,
+      new Promise((resolve) => setTimeout(() => resolve('not cancelled'), 100)),
+    ]),
+  ).toMatchObject({ isError: true });
+  expect(approve).not.toHaveBeenCalled();
+});
