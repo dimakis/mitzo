@@ -186,8 +186,11 @@ function configureConnectionsRuntime(): void {
       ...(githubProfileFingerprint ? { githubProfileFingerprint } : {}),
       ...(customProbePolicy ? { customProbePolicy } : {}),
       resolveConversationBinding: (conversationId) => {
+        const live = registry.findBySessionId(conversationId, true)?.session;
         const accountId = eventStore.getSession(conversationId)?.accountBinding?.accountId;
-        return accountId ? { accountId } : undefined;
+        return accountId && live?.accountBinding?.accountId === accountId
+          ? { accountId }
+          : undefined;
       },
     });
     setAppConnectionsRuntime(runtime);

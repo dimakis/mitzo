@@ -66,6 +66,7 @@ export class OpenShellGithubSandboxTransport implements GithubSandboxTransport {
   constructor(
     private readonly run: OpenShellControlRunner,
     private readonly workspace: string,
+    private readonly workdir?: string,
   ) {}
   private async git(
     sandboxName: string,
@@ -77,6 +78,11 @@ export class OpenShellGithubSandboxTransport implements GithubSandboxTransport {
     checked(sandboxName, safeSandbox, 'Sandbox identity is invalid');
     checked(repositoryPath, safePath, 'Repository path is invalid');
     checked(this.workspace, safeSandbox, 'OpenShell workspace is invalid');
+    const root = checked(
+      this.workdir ?? `/sandbox/workspaces/${this.workspace}`,
+      safePath,
+      'Sandbox workdir is invalid',
+    );
     try {
       return await this.run(
         [
@@ -94,7 +100,7 @@ export class OpenShellGithubSandboxTransport implements GithubSandboxTransport {
           '-c',
           githubGitBoundaryScript,
           'mitzo-github-git',
-          `/sandbox/workspaces/${this.workspace}`,
+          root,
           repositoryPath,
           ...args,
         ],

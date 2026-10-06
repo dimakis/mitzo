@@ -1,3 +1,4 @@
+import { inspectHostGithubRepository, exportHostGithubBundle } from './github-host-source.js';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { join } from 'node:path';
@@ -15,7 +16,7 @@ import { CapabilityExecutorRegistry } from './connections/capabilities/registry.
 import { CapabilityService } from './connections/capabilities/service.js';
 import type { CapabilityExecutor } from './connections/capabilities/types.js';
 import { getLiveCapabilityConversationBinding } from './capability-conversation-binding.js';
-import { createGithubPublishPrExecutor } from './connections/capabilities/github-publish-pr.js';
+import { createGithubArtifactPublishPrExecutor } from './connections/capabilities/github-publish-pr.js';
 import {
   GitHubCliHostPublisher,
   OpenShellGithubSandboxTransport,
@@ -178,22 +179,54 @@ export function createConnectionsRuntime(options: {
       throw new Error('OpenShell control transport failed');
     }
   };
-  const githubSandbox = new OpenShellGithubSandboxTransport(runControl, options.workspace);
   const githubHost = new GitHubCliHostPublisher();
-  const githubExecutor = createGithubPublishPrExecutor({
-    sandbox: githubSandbox,
+  const publishingSource = (
+    operation: import('./connections/capabilities/types.js').CapabilityOperation,
+  ) => {
+    const live = getLiveCapabilityConversationBinding(operation.conversationId);
+    if (
+      !live ||
+      live.accountId !== operation.accountId ||
+      live.connectionId !== operation.connectionId ||
+      live.connectionRevision !== operation.connectionRevision ||
+      !live.workspace
+    )
+      return undefined;
+    if (live.runtime === 'host') return live;
+    return live.sandboxName ? live : undefined;
+  };
+  const githubExecutor = createGithubArtifactPublishPrExecutor({
     host: githubHost,
-    resolveConversation: (operation) => {
-      const live = getLiveCapabilityConversationBinding(operation.conversationId);
-      if (
-        !live ||
-        live.connectionId !== operation.connectionId ||
-        live.connectionRevision !== operation.connectionRevision ||
-        !live.sandboxName ||
-        !live.workspace
-      )
-        return undefined;
-      return { sandboxName: live.sandboxName, workspace: live.workspace };
+    resolveWorkspace: (operation) => publishingSource(operation)?.workspace,
+    inspect: async (input) => {
+      const live = publishingSource(input.operation);
+      if (!live?.workspace) throw new Error('Live publishing workspace unavailable');
+      if (live.runtime === 'host')
+        return inspectHostGithubRepository({
+          ...input,
+          workspace: live.workspace,
+          gitStorageRoots: live.gitStorageRoots ?? [],
+        });
+      return new OpenShellGithubSandboxTransport(
+        runControl,
+        options.workspace,
+        live.workspace,
+      ).inspect({ ...input, sandboxName: live.sandboxName! });
+    },
+    exportBundle: async (input) => {
+      const live = publishingSource(input.operation);
+      if (!live?.workspace) throw new Error('Live publishing workspace unavailable');
+      if (live.runtime === 'host')
+        return exportHostGithubBundle({
+          ...input,
+          workspace: live.workspace,
+          gitStorageRoots: live.gitStorageRoots ?? [],
+        });
+      return new OpenShellGithubSandboxTransport(
+        runControl,
+        options.workspace,
+        live.workspace,
+      ).exportBundle({ ...input, sandboxName: live.sandboxName! });
     },
     resolvePublicConfig: (operation) => {
       const connection = store.get(operation.connectionId);
