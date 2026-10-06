@@ -1,3 +1,4 @@
+import { MemoryRouter } from 'react-router-dom';
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
@@ -27,7 +28,11 @@ it('blocks backups until setup is ready and names uncovered stores', async () =>
     ready: false,
     setup: ['Confirm independent recovery.'],
   });
-  render(<BackupsView />);
+  render(
+    <MemoryRouter>
+      <BackupsView />
+    </MemoryRouter>,
+  );
   await screen.findByText('Confirm independent recovery.');
   expect((screen.getByRole('button', { name: 'Back up now' }) as HTMLButtonElement).disabled).toBe(
     true,
@@ -49,7 +54,11 @@ it('submits manual actions once and distinguishes pending upload from cloud prot
     ],
   });
   vi.mocked(backupAction).mockResolvedValue();
-  render(<BackupsView />);
+  render(
+    <MemoryRouter>
+      <BackupsView />
+    </MemoryRouter>,
+  );
   await screen.findByText('Waiting for iCloud');
   expect(screen.getByText('No confirmed upload')).toBeTruthy();
   fireEvent.click(screen.getByRole('button', { name: 'Back up now' }));
@@ -60,7 +69,11 @@ it('submits manual actions once and distinguishes pending upload from cloud prot
 });
 it('retains failures visibly and disables actions while status is unavailable', async () => {
   vi.mocked(getBackups).mockRejectedValue(Error('offline'));
-  render(<BackupsView />);
+  render(
+    <MemoryRouter>
+      <BackupsView />
+    </MemoryRouter>,
+  );
   await screen.findByRole('alert');
   expect((screen.getByRole('button', { name: 'Back up now' }) as HTMLButtonElement).disabled).toBe(
     true,

@@ -147,7 +147,8 @@ References: [Restic backup](https://restic.readthedocs.io/en/stable/040_backup.h
 
 ## Manual service and dashboard
 
-`/backups` is available from desktop navigation and mobile More. Its operator-only
+`/settings/backups` is available from Settings on desktop and More → Settings on
+mobile. Existing `/backups` links redirect to the new location. Its operator-only
 API is `GET /api/backups`, `POST /api/backups/run` and `POST /api/backups/refresh`.
 POST bodies must be empty JSON objects; paths, credentials, capture selection and
 host configuration cannot be supplied by an agent or browser. Actions return 202

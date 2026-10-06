@@ -1,3 +1,4 @@
+import { Link } from 'react-router-dom';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { BackupOverview, BackupRunStatus } from '@mitzo/protocol';
 import { WorkspacePageHeading } from '../components/WorkspacePageHeading';
@@ -73,6 +74,9 @@ export function BackupsView() {
   const latestExport = view?.runs.find((run) => run.bytes !== undefined);
   return (
     <main className="workspace-page backups-page">
+      <Link className="workspace-text-link" to="/settings">
+        ← Settings
+      </Link>
       <WorkspacePageHeading
         title="Backups"
         description="Encrypted backups to your iCloud storage."

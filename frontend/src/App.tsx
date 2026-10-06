@@ -1,3 +1,4 @@
+import { SettingsView } from './pages/SettingsView';
 import { BackupsView } from './pages/BackupsView';
 import { NotificationProvider } from './components/NotificationProvider';
 import { NotificationsView } from './pages/NotificationsView';
@@ -161,11 +162,22 @@ export function App() {
             <MobileShell>
               <Routes>
                 <Route
-                  path="/backups"
+                  path="/settings/backups"
                   element={
                     <ProtectedRoute>
                       <PageRoute>
                         <BackupsView />
+                      </PageRoute>
+                    </ProtectedRoute>
+                  }
+                />
+                <Route path="/backups" element={<Navigate to="/settings/backups" replace />} />
+                <Route
+                  path="/settings"
+                  element={
+                    <ProtectedRoute>
+                      <PageRoute>
+                        <SettingsView />
                       </PageRoute>
                     </ProtectedRoute>
                   }
