@@ -1,6 +1,7 @@
 import UIKit
 import UserNotifications
 import Capacitor
+import MitzoShared
 
 @UIApplicationMain
 class AppDelegate: UIResponder, UIApplicationDelegate {
@@ -102,6 +103,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 // compile the same scene delegate without an additional project-file entry.
 class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     var window: UIWindow?
+    private var relayLifecycle = SceneForegroundReconnect()
 
     func scene(_ scene: UIScene, willConnectTo session: UISceneSession,
                options connectionOptions: UIScene.ConnectionOptions) {
@@ -118,10 +120,12 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     }
 
     func sceneDidEnterBackground(_ scene: UIScene) {
+        relayLifecycle.didEnterBackground()
         (UIApplication.shared.delegate as? AppDelegate)?.suspendWatchRelay()
     }
 
     func sceneWillEnterForeground(_ scene: UIScene) {
+        guard relayLifecycle.consumeForegroundReconnect() else { return }
         (UIApplication.shared.delegate as? AppDelegate)?.reconnectWatchRelay()
     }
 }
