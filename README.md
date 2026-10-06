@@ -912,7 +912,7 @@ no live upload schedule. See the [backup contract](docs/operations/icloud-ecosys
 
 ### Backup dashboard
 
-Backups is available in desktop navigation and the mobile More menu. It shows setup,
+Backups is available under Settings on desktop and More → Settings on mobile. It shows setup,
 coverage, durable recent runs and separately verified local capture and iCloud upload.
 An interactive operator can manually capture the Mitzo/Telos database group, encrypt
 and verify it with Restic, export it to iCloud and later check upload evidence.
