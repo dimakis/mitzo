@@ -106,7 +106,20 @@ export async function fetchApprovedUrl(
       )
     )
       throw new Error('URL destination addresses changed; request access again');
-    const response = await deps.read(url, current.addresses[0]!, signal);
+    let response: Awaited<ReturnType<typeof read>> | undefined;
+    for (const address of current.addresses) {
+      signal.throwIfAborted();
+      try {
+        response = await deps.read(url, address, signal);
+        break;
+      } catch (error) {
+        signal.throwIfAborted();
+        const code = (error as NodeJS.ErrnoException)?.code;
+        if (!['ECONNREFUSED', 'ENETUNREACH', 'EHOSTUNREACH', 'ETIMEDOUT'].includes(code ?? ''))
+          throw error;
+      }
+    }
+    if (!response) throw new Error('No approved URL destination could be reached');
     signal.throwIfAborted();
     if ([301, 302, 303, 307, 308].includes(response.status) && response.location) {
       url = canonicalApprovalUrl(new URL(response.location, url).href);

@@ -68,3 +68,47 @@ it('rejects URL credentials and non-HTTP schemes', () => {
   ])
     expect(() => canonicalApprovalUrl(value)).toThrow();
 });
+
+it('tries another approved address when the first connection is refused', async () => {
+  const target = {
+    url: 'http://localhost:8123/',
+    origin: 'http://localhost:8123',
+    addresses: [
+      { address: '::1', family: 6 },
+      { address: '127.0.0.1', family: 4 },
+    ],
+  };
+  const read = vi
+    .fn()
+    .mockRejectedValueOnce(Object.assign(new Error('connection refused'), { code: 'ECONNREFUSED' }))
+    .mockResolvedValue({ status: 200, type: 'text/plain', body: 'page' });
+  expect(
+    await fetchApprovedUrl(target.url, target, new AbortController().signal, {
+      resolve: async () => target,
+      read,
+    }),
+  ).toContain('page');
+  expect(read.mock.calls.map((call) => call[1])).toEqual(target.addresses);
+});
+it('does not retry certificate failures on another approved address', async () => {
+  const target = {
+    url: 'https://example.com/',
+    origin: 'https://example.com',
+    addresses: [
+      { address: '203.0.113.1', family: 4 },
+      { address: '203.0.113.2', family: 4 },
+    ],
+  };
+  const read = vi
+    .fn()
+    .mockRejectedValue(
+      Object.assign(new Error('certificate rejected'), { code: 'CERT_HAS_EXPIRED' }),
+    );
+  await expect(
+    fetchApprovedUrl(target.url, target, new AbortController().signal, {
+      resolve: async () => target,
+      read,
+    }),
+  ).rejects.toThrow('certificate rejected');
+  expect(read).toHaveBeenCalledOnce();
+});
