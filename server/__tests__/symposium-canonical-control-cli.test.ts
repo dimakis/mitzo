@@ -183,7 +183,7 @@ it('signals only the original staging job and confirms the real registry/receipt
   expect(result.status, result.stderr).toBe(0);
   expect(JSON.parse(result.stdout)).toMatchObject({ retired: true, replacementStarted: false });
   expect(JSON.parse(readFileSync(f.calls, 'utf8'))).toEqual([
-    ['/bin/launchctl', 'kill', 'SIGTERM', 'gui/' + process.getuid() + '/com.mitzo.staging'],
+    ['/bin/launchctl', 'kill', 'SIGTERM', 'gui/' + process.getuid?.() + '/com.mitzo.staging'],
   ]);
   expect(existsSync(join(f.root, 'service/deployment.lock'))).toBe(false);
   expect(readFileSync(join(f.service, 'launch.intent'), 'utf8')).toBe('original');
