@@ -94,3 +94,7 @@ accepted-main history. A later cached main ref does not invalidate unchanged
 source; operators still check freshness separately. Other owned trials and
 production retain their existing deployment guards. These source checks do not
 replace exact-head CI/review or physical admission evidence.
+
+The canonical app child uses staging-only unconfigured sidecar ports5191–5193
+for Yapper, ContexGin and Centaur, and its own3190 app URL. Production defaults
+are not inherited; any future sidecar enrollment needs separate staging setup.

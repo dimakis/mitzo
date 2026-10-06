@@ -163,3 +163,16 @@ it('preserves explicit ordinary sandbox routing without forwarding provider mana
   expect(env.OPENSHELL_TOKEN).toBeUndefined();
   expect(env.MITZO_SYMPOSIUM_OWNED_HOST_CONFIG).toBeUndefined();
 });
+
+it('keeps canonical staging app sidecar routes away from production defaults', () => {
+  const env = custodianAppEnvironment({
+    MITZO_SYMPOSIUM_CANONICAL_STAGE: '1',
+    PORT: '3190',
+    CENTAUR_URL: 'http://127.0.0.1:8642',
+  });
+  expect(env.CENTAUR_URL).toBe('http://127.0.0.1:5193');
+  expect(env.CONTEXGIN_URL).toBe('http://127.0.0.1:5192');
+  expect(env.YAPPER_PROXY_TARGET).toBe('http://127.0.0.1:5191');
+  expect(env.MITZO_URL).toBe('http://127.0.0.1:3190');
+  expect(env.MITZO_SYMPOSIUM_CANONICAL_STAGE).toBeUndefined();
+});

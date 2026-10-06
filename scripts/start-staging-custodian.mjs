@@ -52,6 +52,7 @@ try {
     }
   }
   if (canonical && (env.PORT !== '3190' || env.MITZO_BIND_HOST !== '127.0.0.1')) throw Error();
+  if (canonical) env.MITZO_SYMPOSIUM_CANONICAL_STAGE = '1';
   // Same process retains the original recorder and runtime authority throughout startup/shutdown.
   for (const key of Object.keys(process.env)) delete process.env[key];
   Object.assign(process.env, env);

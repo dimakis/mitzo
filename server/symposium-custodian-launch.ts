@@ -105,5 +105,13 @@ export function custodianAppEnvironment(source: NodeJS.ProcessEnv): NodeJS.Proce
     'OTEL_EXPORTER_OTLP_ENDPOINT',
   ])
     if (source[name] !== undefined) result[name] = source[name];
+  if (source.MITZO_SYMPOSIUM_CANONICAL_STAGE === '1') {
+    Object.assign(result, {
+      YAPPER_PROXY_TARGET: 'http://127.0.0.1:5191',
+      CONTEXGIN_URL: 'http://127.0.0.1:5192',
+      CENTAUR_URL: 'http://127.0.0.1:5193',
+      MITZO_URL: 'http://127.0.0.1:3190',
+    });
+  }
   return result;
 }
