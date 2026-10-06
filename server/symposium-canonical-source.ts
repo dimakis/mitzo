@@ -84,7 +84,9 @@ export function assertCanonicalOwnedSource(release: string, root: string) {
     git(['rev-parse', 'HEAD']) !== sourceCommit ||
     git(['rev-parse', 'HEAD^{tree}']) !== sourceTree ||
     git(['status', '--porcelain', '--untracked-files=no']) ||
-    git(['remote', 'get-url', 'origin']) !== 'https://github.com/dimakis/mitzo.git' ||
+    !['https://github.com/dimakis/mitzo.git', 'git@github.com:dimakis/mitzo.git'].includes(
+      git(['remote', 'get-url', 'origin']),
+    ) ||
     git(['rev-parse', '--abbrev-ref', 'HEAD']) !== 'HEAD'
   )
     fail();

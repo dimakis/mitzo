@@ -106,3 +106,11 @@ it.each([
   writeFileSync(join(f.release, 'release.txt'), f.manifest + extra + '\n');
   expect(() => assertCanonicalOwnedSource(f.release, f.stage)).toThrow();
 });
+
+it('accepts the pinned SSH origin without accepting other repositories', () => {
+  const f = fixture();
+  f.git(['remote', 'set-url', 'origin', 'git@github.com:dimakis/mitzo.git']);
+  expect(() => assertCanonicalOwnedSource(f.release, f.stage)).not.toThrow();
+  f.git(['remote', 'set-url', 'origin', 'git@github.com:other/mitzo.git']);
+  expect(() => assertCanonicalOwnedSource(f.release, f.stage)).toThrow();
+});
