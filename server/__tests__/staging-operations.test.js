@@ -135,3 +135,22 @@ it('does not release another deployment lock when lock acquisition fails', async
   );
   expect(effects.unlock).not.toHaveBeenCalled();
 });
+
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { fingerprintDirectory } from '../../scripts/lib/staging-files.mjs';
+it('fingerprints dependency content and symlink text without following outside the release', () => {
+  const root = mkdtempSync(join(tmpdir(), 'stage-fingerprint-'));
+  try {
+    mkdirSync(join(root, 'node_modules'));
+    writeFileSync(join(root, 'node_modules', 'entry'), 'one');
+    const first = fingerprintDirectory(root, 'node_modules');
+    writeFileSync(join(root, 'node_modules', 'entry'), 'two');
+    expect(fingerprintDirectory(root, 'node_modules')).not.toBe(first);
+    symlinkSync('/usr/bin', join(root, 'node_modules', 'outside'));
+    expect(() => fingerprintDirectory(root, 'node_modules')).toThrow('escaped');
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
