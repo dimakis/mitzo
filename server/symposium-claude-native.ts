@@ -1,3 +1,5 @@
+import { createSymposiumHostToolBridge } from './symposium-host-tool-bridge.js';
+import type { SymposiumNativeProfileTools } from './symposium-native-profile-tools.js';
 import type { ControlledAttemptSandbox } from './symposium-attempt-transport.js';
 import { createHash } from 'node:crypto';
 import type { EventEmitter } from 'node:events';
@@ -187,6 +189,10 @@ export interface ClaudeVertexSeatInput {
   /** Required by the reviewed owned Claude variant; legacy adapters stay unavailable. */
   requireModelReceipts?: boolean;
   verifiedLauncher?: boolean;
+  hostTools?: SymposiumNativeProfileTools;
+  verifyHostTools?: () => void;
+  /** Trusted fake transport seam for no-model tests. */
+  createHostToolBridge?: typeof createSymposiumHostToolBridge;
   spawnProcess?: (spec: ReturnType<typeof openShellSshArgvProcessSpec>) => ClaudeProcess;
   onEvent?: (event: Record<string, unknown>) => void;
 }
@@ -216,6 +222,22 @@ export async function createClaudeVertexSeat(
   const { execution, route } = input;
   const continuity = execution.providerThreadId ? claudeContinuity(input) : undefined;
   const legacyArgv = claudeVertexArgv(route, { ...execution, providerThreadId: undefined });
+  if (input.hostTools && (!input.verifiedLauncher || !input.verifyHostTools))
+    throw new Error('Verified seat host-tool route unavailable');
+  const bridge = input.hostTools
+    ? await (input.createHostToolBridge ?? createSymposiumHostToolBridge)({
+        sandbox: input.sandbox,
+        claimToken: execution.claimToken,
+        signal: execution.signal,
+        tools: input.hostTools,
+        verifyCurrent: input.verifyHostTools!,
+      })
+    : undefined;
+  if (bridge && input.hostTools) {
+    const prompt = legacyArgv.indexOf('--append-system-prompt') + 1;
+    legacyArgv[prompt] += '\n\n' + input.hostTools.instructions;
+    legacyArgv.push(...bridge.argv);
+  }
   const argv = input.verifiedLauncher
     ? [
         '/usr/local/bin/symposium-claude-vertex',
@@ -230,7 +252,7 @@ export async function createClaudeVertexSeat(
   let confirmStopped: (() => Promise<void>) | undefined;
   let terminalConfirmed = false;
   let rejectActive: (() => void) | undefined;
-  return {
+  const native: SymposiumNativeSeat = {
     verifyThreadMigration(previous, next) {
       if (
         !continuity ||
@@ -347,6 +369,7 @@ export async function createClaudeVertexSeat(
                     accepted = true;
                     try {
                       callbacks.accepted(event.threadId, event.turnId!);
+                      bridge?.activate();
                     } catch {
                       return fail();
                     }
@@ -427,6 +450,27 @@ export async function createClaudeVertexSeat(
       // Terminating a host SSH relay does not prove its remote Claude process
       // stopped; retain the durable cleanup reservation for reconciliation.
       throw new Error('Claude native cleanup is unconfirmed');
+    },
+  };
+  if (!bridge) return native;
+  return {
+    verifyThreadMigration: native.verifyThreadMigration?.bind(native),
+    async run(currentExecution, callbacks) {
+      try {
+        return await Promise.race([native.run(currentExecution, callbacks), bridge.failed]);
+      } catch (error) {
+        await native.cancel();
+        throw error;
+      } finally {
+        await bridge.close();
+      }
+    },
+    async cancel() {
+      try {
+        await native.cancel();
+      } finally {
+        await bridge.close();
+      }
     },
   };
 }

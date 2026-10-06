@@ -1,3 +1,4 @@
+import type { SymposiumAccessRequests } from './symposium-access-tools.js';
 import type {
   SymposiumSeatPolicy,
   SymposiumSeatPolicySelector,
@@ -31,6 +32,7 @@ import type { SqliteArtifactLeaseHost } from './symposium-artifact-host.js';
 import type { SymposiumAttemptRegistry } from './symposium-attempt-registry.js';
 import {
   createSymposiumNativeProfileTools,
+  type SymposiumNativeProfileTools,
   assertSymposiumProfileAttemptCurrent,
 } from './symposium-native-profile-tools.js';
 import type { SymposiumProfileStore } from './symposium-profiles.js';
@@ -1299,6 +1301,7 @@ export interface SymposiumSessionRuntimeDeps extends Omit<
   codexStore: CodexConversationStore;
   profileCatalogStore?: Pick<SymposiumProfileStore, 'list' | 'get'>;
   profileProposalStore?: Pick<SymposiumProfileProposalStore, 'propose'>;
+  accessRequests?: SymposiumAccessRequests;
   recordAccepted: SymposiumOpenShellSeatExecutorDeps['recordAccepted'];
   /** Trusted override owns durable persistence and live publication when supplied. */
   recordEvent?: SymposiumOpenShellSeatExecutorDeps['recordEvent'];
@@ -1402,37 +1405,64 @@ export function createSymposiumSessionRuntime(deps: SymposiumSessionRuntimeDeps)
           openNative:
             deps.openNative ??
             ((input) => {
+              const verifyCurrent = () => {
+                const capability = deps.verifyHostCapability?.();
+                assertSymposiumProfileAttemptCurrent(deps.store, input.execution);
+                const current = admitSymposiumSeatDispatch(
+                  deps.store,
+                  deps.currentProfiles?.() ?? deps.profiles,
+                  input.execution,
+                  deps.hostGrants,
+                );
+                if (JSON.stringify(current) !== JSON.stringify(input.route))
+                  throw new Error('Symposium seat route changed before profile proposal');
+                if (capability)
+                  assertSymposiumAttestedProvider(capability, {
+                    name: current.provider,
+                    id: current.providerId,
+                    type:
+                      current.kind === 'chatgpt-subscription-native'
+                        ? 'codex'
+                        : current.kind === 'openai-api'
+                          ? 'openai'
+                          : 'google-vertex-ai',
+                  });
+              };
               const profileTools = deps.profileProposalStore
                 ? createSymposiumNativeProfileTools({
                     store: deps.profileProposalStore,
                     catalogStore: deps.profileCatalogStore,
                     owner: 'user',
                     execution: input.execution,
-                    verifyCurrent: () => {
-                      const capability = deps.verifyHostCapability?.();
-                      assertSymposiumProfileAttemptCurrent(deps.store, input.execution);
-                      const current = admitSymposiumSeatDispatch(
-                        deps.store,
-                        deps.currentProfiles?.() ?? deps.profiles,
-                        input.execution,
-                        deps.hostGrants,
-                      );
-                      if (JSON.stringify(current) !== JSON.stringify(input.route))
-                        throw new Error('Symposium seat route changed before profile proposal');
-                      if (capability)
-                        assertSymposiumAttestedProvider(capability, {
-                          name: current.provider,
-                          id: current.providerId,
-                          type:
-                            current.kind === 'chatgpt-subscription-native'
-                              ? 'codex'
-                              : current.kind === 'openai-api'
-                                ? 'openai'
-                                : 'google-vertex-ai',
-                        });
-                    },
+                    verifyCurrent,
                   })
                 : undefined;
+              const accessTools = deps.accessRequests?.createTools({
+                execution: input.execution,
+                workdir: input.sandbox.workdir,
+                verifyCurrent,
+              });
+              const hostTools = accessTools
+                ? {
+                    tools: [...(profileTools?.tools ?? []), ...accessTools.tools],
+                    instructions: [profileTools?.instructions, accessTools.instructions]
+                      .filter(Boolean)
+                      .join('\n\n'),
+                    executeTool: (
+                      name: string,
+                      args: Parameters<SymposiumNativeProfileTools['executeTool']>[1],
+                      signal: AbortSignal,
+                      context: { turnId: string; callId: string },
+                    ) =>
+                      accessTools.tools.some((tool) => tool.name === name)
+                        ? accessTools.executeTool(name, args, signal, context)
+                        : (profileTools?.executeTool(name, args, signal, context) ??
+                          Promise.resolve({
+                            content: 'Seat host tool unavailable',
+                            isError: true,
+                          })),
+                  }
+                : profileTools;
               const loadConversationHistory = () =>
                 symposiumSeatRolloverHistory(
                   deps.store,
@@ -1454,7 +1484,7 @@ export function createSymposiumSessionRuntime(deps: SymposiumSessionRuntimeDeps)
                     store: deps.codexStore,
                     loadConversationHistory,
                     resolveAttempt,
-                    profileTools,
+                    profileTools: hostTools,
                     attemptRegistry: deps.attemptRegistry,
                     verifiedControllerCommand: deps.verifiedCodexControllerCommand,
                   })
@@ -1464,7 +1494,7 @@ export function createSymposiumSessionRuntime(deps: SymposiumSessionRuntimeDeps)
                       store: deps.codexStore,
                       loadConversationHistory,
                       resolveAttempt,
-                      profileTools,
+                      profileTools: hostTools,
                       attemptRegistry: deps.attemptRegistry,
                       verifiedControllerCommand: deps.verifiedSubscriptionControllerCommand,
                       verifyPrivateAuth: deps.verifySubscriptionPrivateAuth!,
@@ -1476,6 +1506,8 @@ export function createSymposiumSessionRuntime(deps: SymposiumSessionRuntimeDeps)
                       loadConversationHistory,
                       requireModelReceipts: true,
                       verifiedLauncher: true,
+                      hostTools,
+                      verifyHostTools: verifyCurrent,
                       attemptRegistry: deps.attemptRegistry,
                     });
             }),

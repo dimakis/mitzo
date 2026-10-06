@@ -47,6 +47,8 @@ import {
   type ReviewPublicationDependencies,
 } from './symposium-review-publication.js';
 import { SymposiumReviewStore } from './symposium-review-workflows.js';
+import { SymposiumAccessRequests } from './symposium-access-tools.js';
+import { createSymposiumAccessRouter } from './symposium-access-router.js';
 import {
   createSymposiumReviewRouter,
   type SymposiumInteractiveReviewHost,
@@ -883,6 +885,9 @@ receiveCustodianEvents(broadcastDurableSymposiumEvent);
 const symposiumProfileStore = new SymposiumProfileStore(
   join(BASE_REPO || '.', '.mitzo', 'events.db'),
 );
+const symposiumAccessRequests = new SymposiumAccessRequests(
+  join(BASE_REPO || '.', '.mitzo', 'events.db'),
+);
 const symposiumProfileProposalStore = new SymposiumProfileProposalStore(
   join(BASE_REPO || '.', '.mitzo', 'events.db'),
 );
@@ -1098,6 +1103,7 @@ let symposiumRuntimeForSession: (sessionId: string) => SymposiumOrchestrator | n
       hostGrants: symposiumHostGrants,
       codexStore: getCodexConversationStore(),
       profileProposalStore: symposiumProfileProposalStore,
+      accessRequests: symposiumAccessRequests,
       profileCatalogStore: symposiumProfileStore,
       resolveProviderIdentity: createOpenShellProviderIdentityResolver(runtimeConfig),
       runtimeConfig,
@@ -1203,9 +1209,19 @@ const symposiumReviewStore = new SymposiumReviewStore(
   join(BASE_REPO || '.', '.mitzo', 'events.db'),
 );
 app.use(
+  '/api/sessions/:id/symposium/access-requests',
+  operatorAuthMiddleware,
+  createSymposiumAccessRouter(
+    symposiumAccessRequests,
+    (id) => eventStore.getSession(id)?.sessionType === 'symposium',
+  ),
+);
+app.use(
   '/api/sessions/:id/symposium/publication',
   operatorAuthMiddleware,
   createPublicationRouter({
+    onPublicationCompleted: (sessionId, publication, operation) =>
+      symposiumAccessRequests.publicationCompleted(sessionId, publication, operation),
     registration: () => symposiumPublication,
     hasSession: (id) => eventStore.getSession(id)?.sessionType === 'symposium',
     approval: (req, session, conversationId) =>

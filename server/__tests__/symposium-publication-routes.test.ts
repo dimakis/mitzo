@@ -249,3 +249,61 @@ it('rechecks pending publication after awaited grant reads and before persisting
     rmSync(directory, { recursive: true, force: true });
   }
 });
+it('resolves publication suggestions only from successful controller-derived artifact publications', async () => {
+  const completed = vi.fn();
+  const result = { id: 'operation', status: 'succeeded' };
+  const runtime = {
+    authorize: () => signal,
+    authority: {
+      require: async () => ({ grant: { scope: { operatorId: 'login', sessionId: 'session' } } }),
+    },
+    artifact: { require: async () => ({ repositoryPath: '/sealed-artifact' }) },
+    service: { invoke: vi.fn(async () => result) },
+  } as unknown as PublicationRegistration;
+  const app = express();
+  app.use(express.json());
+  app.use((_req, res, next) => {
+    res.locals.authSession = { id: 'login', expiresAt: Date.now() + 60000 };
+    next();
+  });
+  app.use(
+    '/sessions/:id/publication',
+    createPublicationRouter({
+      registration: () => runtime,
+      hasSession: (id) => id === 'session',
+      approval: () => async () => true,
+      onPublicationCompleted: completed,
+    }),
+  );
+  const input = {
+    grantId: 'grant',
+    bindingHash: 'a'.repeat(64),
+    turnId: 'turn',
+    idempotencyKey: 'key',
+    baseBranch: 'main',
+    title: 'PR',
+    body: '',
+    draft: true,
+  };
+  expect(
+    (await request(app).post('/sessions/session/publication/publish').send(input)).status,
+  ).toBe(200);
+  expect(completed).toHaveBeenCalledWith(
+    'session',
+    expect.objectContaining({ repositoryPath: '/sealed-artifact', baseBranch: 'main' }),
+    result,
+  );
+  completed.mockClear();
+  result.status = 'verification_pending';
+  expect(
+    (await request(app).post('/sessions/session/publication/publish').send(input)).status,
+  ).toBe(200);
+  expect(completed).not.toHaveBeenCalled();
+  result.status = 'succeeded';
+  completed.mockImplementation(() => {
+    throw Error('Advisory cleanup unavailable');
+  });
+  expect(
+    (await request(app).post('/sessions/session/publication/publish').send(input)).status,
+  ).toBe(200);
+});

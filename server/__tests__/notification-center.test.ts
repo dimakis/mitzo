@@ -242,3 +242,30 @@ describe('central notification delivery', () => {
     store.close();
   });
 });
+
+it('notifies about a seat access request without offering a blind permission action, then resolves only that session notice', async () => {
+  const { center, store, push } = setup();
+  try {
+    center.seatAccessRequest('symposium', 'request', 'url', 'Builder', Date.now() + 60000);
+    expect(center.feed('needs').items[0]).toMatchObject({
+      id: 'seat-access:request',
+      kind: 'approval',
+      sessionId: 'symposium',
+    });
+    expect(center.feed('needs').items[0].permId).toBeUndefined();
+    await center.flush();
+    expect(push).toHaveBeenCalledWith(
+      expect.objectContaining({
+        category: 'NOTIFICATION_UPDATE',
+        data: expect.objectContaining({ sessionId: 'symposium' }),
+      }),
+    );
+    center.resolveSeatAccessRequest('other', 'request', 'allowed');
+    expect(center.feed('needs').needsYou).toBe(1);
+    center.resolveSeatAccessRequest('symposium', 'request', 'denied');
+    expect(center.feed('needs').needsYou).toBe(0);
+  } finally {
+    center.close();
+    store.close();
+  }
+});

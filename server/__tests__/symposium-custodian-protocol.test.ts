@@ -47,3 +47,16 @@ describe('finite custodian protocol', () => {
     expect(() => decodeCustodianRequest({ ...valid, sessionId: '../../secret' })).toThrow();
   });
 });
+
+it('transports only the seat access listing, exact decisions and dismissals', () => {
+  expect(selectCustodianOperation('GET', '/api/sessions/s/symposium/access-requests')).toEqual({
+    operation: 'access.list',
+    sessionId: 's',
+  });
+  expect(
+    selectCustodianOperation('POST', '/api/sessions/s/symposium/access-requests/r/decision'),
+  ).toEqual({ operation: 'access.decide', sessionId: 's', resourceId: 'r' });
+  expect(
+    selectCustodianOperation('POST', '/api/sessions/s/symposium/access-requests/r/fetch'),
+  ).toBeNull();
+});

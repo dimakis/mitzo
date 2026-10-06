@@ -1,3 +1,4 @@
+import { SymposiumAccessRequests } from './SymposiumAccessRequests';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type {
   FinishedMessage,
@@ -394,6 +395,7 @@ export function SymposiumConversation({
           onSeatSeedDone={() => setSeatSeed(null)}
         />
       )}
+      {sessionId && <SymposiumAccessRequests sessionId={sessionId} />}
       {error && <div role="alert">{error}</div>}
       {visiblePage.nextSeq !== null && (
         <div role="status">Showing the first 2,000 durable events. More history is available.</div>
