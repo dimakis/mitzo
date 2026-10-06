@@ -11,14 +11,14 @@ import * as files from '../backup/files.js';
 import { BackupService } from '../backup/service.js';
 vi.mock('node:fs/promises', async (load) => {
   const actual = await load<typeof import('node:fs/promises')>();
-  return { ...actual, rm: vi.fn(actual.rm) };
+  return { ...actual, rm: vi.fn(actual.rm), mkdir: vi.fn(actual.mkdir) };
 });
 const roots: string[] = [];
 afterEach(async () => {
   vi.restoreAllMocks();
-  vi.mocked(filesystem.rm).mockImplementation(
-    (await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises')).rm,
-  );
+  const actualFs = await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises');
+  vi.mocked(filesystem.rm).mockImplementation(actualFs.rm);
+  vi.mocked(filesystem.mkdir).mockImplementation(actualFs.mkdir);
   for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true });
 });
 async function fixture() {
@@ -283,4 +283,38 @@ it('blocks another instance throughout failed release and recovery', async () =>
   expect(blocked).toBe(true);
   expect((await service.overview()).busy).toBe(true);
   await expect(peer.start()).rejects.toThrow();
+});
+
+it('waits for a competing acquisition to release its transient guard before finishing', async () => {
+  const { root, service, driver } = await fixture();
+  const generation = await driver.publish();
+  let finishPublish!: (value: Generation) => void;
+  driver.publish.mockImplementation(
+    () =>
+      new Promise<Generation>((resolve) => {
+        finishPublish = resolve;
+      }),
+  );
+  await service.start();
+  await vi.waitFor(() => expect(finishPublish).toBeTruthy());
+  const actualFs = await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises');
+  let finishAttempt!: () => void;
+  vi.mocked(filesystem.mkdir).mockImplementation(async (path, options) => {
+    if (String(path) === join(root, 'writer.lock') && existsSync(join(root, 'writer.lock')))
+      await new Promise<void>((resolve) => {
+        finishAttempt = resolve;
+      });
+    return actualFs.mkdir(path, options);
+  });
+  const peer = new BackupService({ root, driver });
+  const rejected = expect(peer.start()).rejects.toThrow();
+  await vi.waitFor(() => expect(finishAttempt).toBeTruthy());
+  finishPublish(generation);
+  await new Promise((resolve) => setTimeout(resolve, 25));
+  finishAttempt();
+  await rejected;
+  await service.idle();
+  expect((await service.overview()).busy).toBe(false);
+  expect(existsSync(join(root, 'writer.lock'))).toBe(false);
+  expect(existsSync(join(root, 'admission.lock'))).toBe(false);
 });

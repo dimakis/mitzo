@@ -182,7 +182,9 @@ it. All service writers, including upload verification, hold an atomic directory
 fence at `writer.lock`. A separate atomic `admission.lock` guard serializes
 acquisition with release/recovery; it is durable before the writer fence is removed.
 Its atomic removal is the final release operation, with no fallible directory sync
-after admission reopens. A crash can leave a conservative orphan guard, requiring
+after admission reopens. Release waits up to roughly ten seconds for a transient
+competing acquisition to drop its own guard; it never deletes or expires an
+uncertain retained guard. A crash can leave a conservative orphan guard, requiring
 host inspection, rather than allowing admission during a failed release. Captures use the running Mitzo owners and a canonical Telos
 owner, preserving the optimistic multi-store consistency check from the core
 capture integration. Concurrent ordinary saves continue; a changed capture fails

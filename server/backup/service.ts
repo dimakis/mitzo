@@ -1,3 +1,4 @@
+import { setTimeout as delay } from 'node:timers/promises';
 import { randomUUID } from 'node:crypto';
 import { lstat, mkdir, rm, rmdir } from 'node:fs/promises';
 import { isAbsolute, join } from 'node:path';
@@ -92,7 +93,9 @@ export class BackupService {
   private async journal() {
     if (!this.options) return journalSchema.parse({ version: 1, runs: [] });
     try {
-      return journalSchema.parse(JSON.parse(await readSmall(join(this.options.root, 'runs.json'))));
+      return journalSchema.parse(
+        JSON.parse(await readSmall(join(this.options.root, 'runs.json'), 64 * 1024)),
+      );
     } catch (e) {
       if ((e as NodeJS.ErrnoException).code === 'ENOENT')
         return journalSchema.parse({ version: 1, runs: [] });
@@ -189,11 +192,24 @@ export class BackupService {
       throw Error('Backup unavailable or busy');
     }
   }
+  private async claimReleaseAdmission(path: string) {
+    // A competing acquisition may briefly own the guard while rejecting our
+    // active writer. Wait for it, but never remove an uncertain retained guard.
+    for (let attempt = 0; ; attempt++) {
+      try {
+        await mkdir(path, { mode: 0o700 });
+        return;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'EEXIST' || attempt >= 999) throw error;
+        await delay(10);
+      }
+    }
+  }
   private async release() {
     const root = this.options!.root;
     const lock = join(root, 'writer.lock');
     const admission = join(root, 'admission.lock');
-    await mkdir(admission, { mode: 0o700 });
+    await this.claimReleaseAdmission(admission);
     // Make the guard durable before removing the primary fence. All acquisitions
     // must take this guard, so no other writer can enter during release or recovery.
     await syncDirectory(root);
