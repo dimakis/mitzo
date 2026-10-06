@@ -43,6 +43,7 @@ function read(
       url,
       {
         method: 'GET',
+        rejectUnauthorized: true,
         agent: false,
         signal,
         family: address.family,

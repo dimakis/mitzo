@@ -25,6 +25,11 @@ import {
 const exec = promisify(execFile);
 export interface ConnectionsRuntime {
   githubPublishEnabled?: boolean;
+  verifyGithubPublishingIdentity?(
+    connectionId: string,
+    signal: AbortSignal,
+    revision?: number,
+  ): Promise<boolean>;
   store: ConnectionStore;
   service: ConnectionsService;
   capabilityStore: CapabilityOperationStore;
@@ -181,6 +186,27 @@ export function createConnectionsRuntime(options: {
     }
   };
   const githubHost = new GitHubCliHostPublisher();
+  const verifyGithubPublishingIdentity = async (
+    connectionId: string,
+    signal: AbortSignal,
+    revision?: number,
+  ) => {
+    const connection = store.get(connectionId);
+    if (
+      !connection ||
+      connection.status !== 'active' ||
+      !connection.identity ||
+      (revision !== undefined && connection.revision !== revision)
+    )
+      return false;
+    const identity = await githubHost.identity(signal);
+    const current = store.get(connectionId);
+    return (
+      current?.status === 'active' &&
+      current.revision === connection.revision &&
+      identity.toLowerCase() === current.identity?.toLowerCase()
+    );
+  };
   const publishingSource = (
     operation: import('./connections/capabilities/types.js').CapabilityOperation,
   ) => {
@@ -200,6 +226,14 @@ export function createConnectionsRuntime(options: {
     host: githubHost,
     resolveWorkspace: (operation) => publishingSource(operation)?.workspace,
     inspect: async (input) => {
+      if (
+        !(await verifyGithubPublishingIdentity(
+          input.operation.connectionId,
+          input.signal,
+          input.operation.connectionRevision,
+        ))
+      )
+        throw new Error('Controller GitHub identity differs from the selected connection');
       const live = publishingSource(input.operation);
       if (!live?.workspace) throw new Error('Live publishing workspace unavailable');
       if (live.runtime === 'host')
@@ -215,6 +249,14 @@ export function createConnectionsRuntime(options: {
       ).inspect({ ...input, sandboxName: live.sandboxName! });
     },
     exportBundle: async (input) => {
+      if (
+        !(await verifyGithubPublishingIdentity(
+          input.operation.connectionId,
+          input.signal,
+          input.operation.connectionRevision,
+        ))
+      )
+        throw new Error('Controller GitHub identity differs from the selected connection');
       const live = publishingSource(input.operation);
       if (!live?.workspace) throw new Error('Live publishing workspace unavailable');
       if (live.runtime === 'host')
@@ -275,6 +317,7 @@ export function createConnectionsRuntime(options: {
   });
   return {
     githubPublishEnabled,
+    verifyGithubPublishingIdentity,
     store,
     service,
     capabilityStore,

@@ -634,6 +634,14 @@ describe('github.publish-pr capability', () => {
     await publisher.cleanup(rebuilt.cleanupDirectory!);
     await expect(stat(rebuilt.cleanupDirectory!)).rejects.toThrow();
   });
+  it('reads only the controller GitHub login for publishing identity verification', async () => {
+    const run = vi.fn().mockResolvedValue({ stdout: '{"login":"operator"}', stderr: '' });
+    const publisher = new GitHubCliHostPublisher(run);
+    expect(await publisher.identity(new AbortController().signal)).toBe('operator');
+    expect(run).toHaveBeenCalledWith('gh', ['api', 'user'], expect.any(AbortSignal));
+    run.mockResolvedValue({ stdout: '{"login":"Bearer SECRET"}', stderr: '' });
+    await expect(publisher.identity(new AbortController().signal)).rejects.toThrow();
+  });
   it('keeps gateway workspace separate from the trusted sandbox workdir', async () => {
     const run = vi.fn(async (args: readonly string[]) => {
       const joined = args.join(' ');

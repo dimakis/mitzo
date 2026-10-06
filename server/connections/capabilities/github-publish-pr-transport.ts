@@ -391,6 +391,12 @@ function sameGithubPullRequestUrl(left: string, right: string) {
 export class GitHubCliHostPublisher implements GithubHostPublisher {
   private readonly cleanupParents = new Set<string>();
   constructor(private readonly runHost: GithubHostCommandRunner = host) {}
+  async identity(signal: AbortSignal): Promise<string> {
+    const response = await this.runHost('gh', ['api', 'user'], signal);
+    return z
+      .object({ login: z.string().regex(/^[a-z\d](?:[a-z\d-]{0,37}[a-z\d])?$/i) })
+      .parse(JSON.parse(response.stdout)).login;
+  }
   async policy(input: { repository: string; sourceBranch: string; signal: AbortSignal }) {
     checked(input.repository, safeRepository, 'Repository is invalid');
     checked(input.sourceBranch, safeBranch, 'Source branch is invalid');

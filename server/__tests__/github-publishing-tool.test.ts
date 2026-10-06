@@ -49,9 +49,14 @@ function fixture(provider: string) {
     result: { url: 'https://github.com/example/repo/pull/1' },
   });
   mocks.runtime = {
+    verifyGithubPublishingIdentity: vi.fn().mockResolvedValue(true),
     store: { list: () => [connection], get: () => connection },
     capabilityStore: { getGrant: () => grant },
-    capabilities: { invoke, setGrant: vi.fn() },
+    capabilities: {
+      invoke,
+      setGrant: vi.fn(),
+      recoverPendingForConversation: vi.fn().mockResolvedValue([]),
+    },
   };
   return {
     session,
@@ -161,4 +166,30 @@ it('does not let a retired runtime clear its successor publishing binding', asyn
   expect(getLiveCapabilityConversationBinding('conversation')).toBe(current);
   successor.execute.close();
   expect(getLiveCapabilityConversationBinding('conversation')).toBeUndefined();
+});
+
+it('does not start another publication while an earlier outcome is ambiguous', async () => {
+  const f = fixture('openai');
+  const capabilities = (
+    mocks.runtime as { capabilities: { recoverPendingForConversation: ReturnType<typeof vi.fn> } }
+  ).capabilities;
+  capabilities.recoverPendingForConversation.mockResolvedValue([
+    { id: 'pending-operation', status: 'verification_pending' },
+  ]);
+  expect(
+    await f.execute(input, new AbortController().signal, { turnId: 'turn', callId: 'call' }),
+  ).toMatchObject({ isError: true });
+  expect(f.invoke).not.toHaveBeenCalled();
+});
+it('rejects a different controller publishing identity before creating a grant', async () => {
+  const f = fixture('google-vertex');
+  f.grant.accountIds = [];
+  (
+    mocks.runtime as { verifyGithubPublishingIdentity: ReturnType<typeof vi.fn> }
+  ).verifyGithubPublishingIdentity.mockResolvedValue(false);
+  expect(
+    await f.execute(input, new AbortController().signal, { turnId: 'turn', callId: 'call' }),
+  ).toMatchObject({ isError: true });
+  expect(mocks.approve).not.toHaveBeenCalled();
+  expect(f.invoke).not.toHaveBeenCalled();
 });

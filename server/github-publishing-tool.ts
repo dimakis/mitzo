@@ -29,7 +29,7 @@ const Input = z.object(GithubPublishingFields).strict();
 export const githubPublishingDefinition: ToolDefinition = {
   name: REQUEST_GITHUB_PUBLISH,
   description:
-    'Request approval to publish committed workspace changes to a GitHub feature branch and create or update its pull request. Mitzo selects the configured connection for this session account and can ask the user for a missing publishing grant. Credentials remain on the controller. Supply the local repository, base branch, title, body and draft choice; do not use direct GitHub writes.',
+    'Request approval to publish committed workspace changes to a GitHub feature branch and create or update its pull request. Mitzo selects the configured connection for this session account and can ask the user for a missing publishing grant. Credentials remain on the controller. Supply the absolute local repository path inside the current workspace, base branch, title, body and draft choice; do not use direct GitHub writes.',
   input_schema: z.toJSONSchema(Input),
 };
 export const GITHUB_PUBLISHING_INSTRUCTIONS =
@@ -100,6 +100,17 @@ export function createGithubPublishingTool(
           isError: true,
         };
       const connection = connections[0]!;
+      if (
+        !runtime.verifyGithubPublishingIdentity ||
+        !(await runtime.verifyGithubPublishingIdentity(connection.id, signal, connection.revision))
+      )
+        return {
+          content:
+            'The controller GitHub publishing identity does not match this connection. Check its publishing authorization; local changes are preserved.',
+          isError: true,
+        };
+      if (!isCurrent())
+        return { content: 'Session permissions changed; retry publishing', isError: true };
       const currentConnection = () => {
         const current = runtime.store.get(connection.id);
         return (
@@ -119,6 +130,7 @@ export function createGithubPublishingTool(
           connectionId: connection.id,
           connectionRevision: connection.revision,
           accountId: account.accountId,
+          githubIdentity: connection.identity,
           capability: 'github.publish-pr',
           allowedRepositories: connection.publicConfig.allowedRepositories ?? [],
           allowedBaseBranches: connection.publicConfig.allowedBaseBranches ?? [],
@@ -182,6 +194,21 @@ export function createGithubPublishingTool(
         connectionRevision: connection.revision,
         gatewayProviderId: connection.gatewayProviderId,
       });
+      const recovered = await runtime.capabilities.recoverPendingForConversation(
+        identity.accountId,
+        conversationId,
+        signal,
+      );
+      const unresolved = recovered.filter((operation) =>
+        ['pending_approval', 'running', 'verification_pending'].includes(operation.status),
+      );
+      if (unresolved.length)
+        return {
+          content: `An earlier publishing operation still needs verification: ${unresolved.map((operation) => operation.id).join(', ')}. Inspect its result before publishing again.`,
+          isError: true,
+        };
+      if (!isCurrent() || !currentConnection())
+        return { content: 'Publishing access changed during recovery; retry', isError: true };
       const operation = await runtime.capabilities.invoke(
         {
           connectionId: connection.id,
