@@ -72,7 +72,7 @@ export class ConnectionsService {
     private readonly options: {
       gateway?: string;
       workspace?: string;
-      eligibleAccountIds?: () => string[];
+      eligibleAccountIds?: (templateId?: string) => string[];
     } = {},
   ) {}
   private async serial<T>(work: () => Promise<T>): Promise<T> {
@@ -207,11 +207,11 @@ export class ConnectionsService {
       actor: c.ownerId,
     });
   }
-  private validateAccounts(ids: string[]) {
+  private validateAccounts(ids: string[], templateId?: string) {
     if (
       new Set(ids).size !== ids.length ||
       (this.options.eligibleAccountIds &&
-        ids.some((id) => !this.options.eligibleAccountIds!().includes(id)))
+        ids.some((id) => !this.options.eligibleAccountIds!(templateId).includes(id)))
     )
       throw new Error('Account is not eligible');
   }
@@ -399,7 +399,7 @@ export class ConnectionsService {
   ) {
     return this.serial(async () => {
       const c = this.current(id, revision);
-      this.validateAccounts(accountIds);
+      this.validateAccounts(accountIds, c.templateId);
       const existing = this.store.pendingAssignments().find((x) => x.connectionId === id);
       if (actor !== c.ownerId || (c.status !== 'active' && !existing))
         throw new Error('Connection is not active');
@@ -422,7 +422,7 @@ export class ConnectionsService {
     signal: AbortSignal,
   ) {
     await this.drain(c, signal, removed);
-    this.validateAccounts(accountIds);
+    this.validateAccounts(accountIds, c.templateId);
     this.store.completeAssignment(c.id, accountIds, c.ownerId);
   }
   async createAndProvision(
@@ -430,7 +430,10 @@ export class ConnectionsService {
     credentials: Credentials | string,
     signal: AbortSignal,
   ) {
-    this.validateAccounts(input.desiredAccountIds);
+    this.validateAccounts(
+      input.desiredAccountIds,
+      'templateId' in input ? input.templateId : 'jira-readonly',
+    );
     if (!isGenericCreateInput(input)) {
       // Database callers from pre-registry releases remain supported during migration.
       const c = this.store.create(input);
@@ -590,7 +593,7 @@ export class ConnectionsService {
           c = this.change(c, { gatewayProviderId: p.id }, 'provision', 'provider_created');
         }
         const identity = await this.runProbe(c, signal);
-        this.validateAccounts(c.desiredAccountIds);
+        this.validateAccounts(c.desiredAccountIds, c.templateId);
         return this.change(
           c,
           {

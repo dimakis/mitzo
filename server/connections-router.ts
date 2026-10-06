@@ -204,7 +204,7 @@ function error(res: express.Response, value: unknown, fallback: string) {
 export function createConnectionsRouter(options: {
   store: ConnectionStore;
   service: ConnectionsService;
-  eligibleAccounts: () => string[];
+  eligibleAccounts: (templateId?: string) => string[];
   gateway: string;
   workspace: string;
   legacyProviders: () => Promise<Array<{ name: string; type: string }>>;
@@ -241,6 +241,11 @@ export function createConnectionsRouter(options: {
       connections: options.store.list(OWNER).map(publicConnection),
       legacy,
       eligibleAccounts: options.eligibleAccounts(),
+      eligibleAccountsByTemplate: Object.fromEntries(
+        connectionTemplateRegistry
+          .providerTemplates()
+          .map((template) => [template.id, options.eligibleAccounts(template.id)]),
+      ),
       appliesTo: 'new conversations only',
       ...(options.googleWorkspace ? { googleWorkspaceManaged: true } : {}),
     });
@@ -319,7 +324,16 @@ export function createConnectionsRouter(options: {
       const parsed = ConnectionCreateBody.safeParse(req.body);
       if (!parsed.success) return res.status(400).json({ error: 'Invalid connection request' });
       if (!requireRecentConnectionAuthorization(res, req.header('x-csrf-token') ?? '')) return;
-      if (parsed.data.accountIds.some((id) => !options.eligibleAccounts().includes(id)))
+      if (
+        parsed.data.accountIds.some(
+          (id) =>
+            !options
+              .eligibleAccounts(
+                'templateId' in parsed.data ? parsed.data.templateId : 'jira-readonly',
+              )
+              .includes(id),
+        )
+      )
         return res.status(400).json({ error: 'Account is not eligible for managed access' });
       try {
         const generic =
@@ -471,8 +485,10 @@ export function createConnectionsRouter(options: {
       if (!requireRecentConnectionAuthorization(res, parsed.data.csrf)) return;
       const c = options.store.get(connectionId(req));
       if (!c || c.ownerId !== OWNER) return missing(res);
-      if (parsed.data.accountIds.some((id) => !options.eligibleAccounts().includes(id)))
-        return res.status(400).json({ error: 'Account is not eligible for managed Jira access' });
+      if (parsed.data.accountIds.some((id) => !options.eligibleAccounts(c.templateId).includes(id)))
+        return res
+          .status(400)
+          .json({ error: 'Account is not eligible for this managed connection' });
       try {
         return res.json({
           connection: publicConnection(

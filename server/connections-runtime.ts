@@ -28,7 +28,7 @@ export interface ConnectionsRuntime {
   service: ConnectionsService;
   capabilityStore: CapabilityOperationStore;
   capabilities: CapabilityService;
-  eligibleAccountIds: () => string[];
+  eligibleAccountIds: (templateId?: string) => string[];
   gateway: string;
   workspace: string;
   legacyProviders: () => Promise<Array<{ name: string; type: string }>>;
@@ -45,7 +45,7 @@ export function getConnectionsRuntime() {
 /** Explicit bootstrap: no gateway process or filesystem work occurs at import. */
 export function createConnectionsRuntime(options: {
   directory: string;
-  eligibleAccountIds: () => string[];
+  eligibleAccountIds: (templateId?: string) => string[];
   cli: string;
   workspace: string;
   gateway?: string;

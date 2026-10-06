@@ -172,7 +172,7 @@ function configureConnectionsRuntime(): void {
     }
     const runtime = createConnectionsRuntime({
       directory: join(BASE_REPO, '.mitzo'),
-      eligibleAccountIds: () => loadAccountProfiles().connectionEligibleIds(),
+      eligibleAccountIds: (templateId) => loadAccountProfiles().connectionEligibleIds(templateId),
       cli: openShell.cli,
       workspace: openShell.workspace,
       gateway: openShell.gateway,

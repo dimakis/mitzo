@@ -100,5 +100,6 @@ export interface ConnectionsCatalog {
   connections: ManagedConnection[];
   legacy: Array<{ id: string; label: string; management: string }>;
   eligibleAccounts: string[];
+  eligibleAccountsByTemplate?: Record<string, string[]>;
   appliesTo: string;
 }

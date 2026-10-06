@@ -374,7 +374,7 @@ export function ConnectionsView() {
             )}
             {template && step === 'assignments' && (
               <Assignments
-                accounts={data.eligibleAccounts}
+                accounts={data.eligibleAccountsByTemplate?.[template.id] ?? data.eligibleAccounts}
                 selected={accounts}
                 onToggle={(id) => toggle(id, accounts, setAccounts)}
               />
@@ -473,7 +473,9 @@ export function ConnectionsView() {
                 (item) =>
                   item.id === connection.templateId && item.version === connection.templateVersion,
               )}
-              accounts={data.eligibleAccounts}
+              accounts={
+                data.eligibleAccountsByTemplate?.[connection.templateId] ?? data.eligibleAccounts
+              }
               capabilityCatalog={templates?.capabilities ?? []}
               refreshEpoch={connectionRefreshEpoch}
               csrf={csrf}
