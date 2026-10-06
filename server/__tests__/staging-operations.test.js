@@ -154,3 +154,19 @@ it('fingerprints dependency content and symlink text without following outside t
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+import { assertStageJob } from '../../scripts/lib/staging-job.mjs';
+it.each([
+  { pid: 42, cwd: '/private/production', portPids: [42], protectedPids: [] },
+  { pid: 42, cwd: fixture().release, portPids: [42], protectedPids: [42] },
+  { pid: 42, cwd: fixture().release, portPids: [43], protectedPids: [] },
+])('refuses a changed staging job or protected process %j', (job) =>
+  expect(() => assertStageJob(job, fixture())).toThrow(),
+);
+it('accepts the original stage job only when its directory and listener match', () =>
+  expect(() =>
+    assertStageJob(
+      { pid: 42, cwd: fixture().release, portPids: [42], protectedPids: [99] },
+      fixture(),
+    ),
+  ).not.toThrow());
