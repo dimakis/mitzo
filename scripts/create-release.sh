@@ -126,7 +126,7 @@ EOF
 (
   cd "$RELEASE_DIR"
   npm ci
-  node scripts/verify-openshell-production.mjs .env
+  node scripts/verify-openshell-production.mjs .env --service-plist com.mitzo.server.plist
 )
 
 rewrite_env_value MITZO_OPENSHELL_STACK_MANIFEST "$FINAL_RELEASE_DIR/infra/openshell/production-stack.lock.json"

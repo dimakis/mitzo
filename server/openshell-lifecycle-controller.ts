@@ -1,3 +1,4 @@
+import { sameOpenShellRouteAuthority } from './openshell-route-authority.js';
 import type { RuntimeMigration } from './openshell-runtime-migration.js';
 import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync } from 'node:fs';
@@ -482,7 +483,7 @@ export async function restoreOpenShellLifecycleIfNeeded(
         record.identity.provider !== binding.provider ||
         record.identity.model !== binding.model ||
         record.identity.profileRevision !== binding.profileRevision)) ||
-    (account && JSON.stringify(record.identity.route) !== JSON.stringify(account))
+    (account && !sameOpenShellRouteAuthority(record.identity.route, account))
   )
     throw new Error('OpenShell lifecycle account binding changed');
   // Validates current runtime image, policy content, gateway, and provider route.

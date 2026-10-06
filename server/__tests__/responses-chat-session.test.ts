@@ -99,6 +99,7 @@ it('runs successive user turns with a private credential and closes its input qu
     expect.arrayContaining([
       expect.objectContaining({ name: 'AskUserQuestion' }),
       expect.objectContaining({ name: 'RequestWebAccess' }),
+      expect.objectContaining({ name: 'RequestGithubPublish' }),
     ]),
   );
   registry.dispose();

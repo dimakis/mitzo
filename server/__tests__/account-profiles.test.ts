@@ -916,3 +916,10 @@ describe('native personal ChatGPT selection', () => {
     expect(profiles.catalog()[0].modelDiscovery.stale).toBe(true);
   });
 });
+
+it('allows direct Vertex accounts to receive GitHub publishing without sandbox credentials', () => {
+  const profiles = new AccountProfiles([profile]);
+  expect(profiles.connectionEligibleIds()).toEqual([]);
+  expect(profiles.connectionEligibleIds('jira-readonly')).toEqual([]);
+  expect(profiles.connectionEligibleIds('github-readonly')).toEqual(['work']);
+});

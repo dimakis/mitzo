@@ -30,7 +30,8 @@ Symposium director status resolves the verified runtime once per request and reu
 - **Streaming chat** with thinking blocks, tool pills, and markdown
 - **Session settings at a glance** — a single session header shows the account profile, model, and thinking level even when collapsed. Expand it for account, permission, web access, and reviewer controls; Outputs / Sources is beside the composer. The summary wraps compactly on mobile.
 - **Live token usage** — the chat token bar shows context and session totals for OpenAI Responses turns after the provider reports usage at completion.
-- **Request web access** — ordinary chats on ChatGPT/Codex (including OpenShell), OpenAI API, Gemini/Vertex and Claude SDK can request an approval card for a concrete search query or public HTTPS website read. Search uses the selected account and model; unsupported search combinations fail without fallback. Website reads are credential-free, bounded and restricted to public addresses and one origin. Approval covers one request and does not grant shell networking or authenticated browsing. Deploy the backend and updated frontend/iOS assets for request-only approval buttons and Google search suggestions. See [request web access](docs/features/request-web-access.md) for provider behavior and validation limits.
+- **Request web access** — ordinary ChatGPT/Codex (host or OpenShell), OpenAI API, Gemini/Vertex and Claude SDK chats can ask the user for web search or URL access. `request_access` shows the exact HTTP(S) origin and resolved addresses, including local/private hosts and custom ports, and enables credential-free reads through the web tool for 15 minutes. `fetch` reuses that approval; `revoke_access` removes it. Redirects to another origin and changed destination addresses require separate approval. Ungranted `fetch` keeps the single public HTTPS read flow. Search uses the selected account/model without fallback. See [request web access](docs/features/request-web-access.md).
+- **Approved GitHub publishing** — ordinary Codex subscription, OpenShell, API-key, Gemini/Vertex and Claude SDK chats expose `RequestGithubPublish`. It selects the current AI account’s active managed GitHub connection, can request a missing publishing grant, and then asks approval for the exact feature branch, source commit and pull request. Host and OpenShell workspaces use separate validated source transports; GitHub write credentials stay on the controller. Connections now includes host-only and Vertex accounts for GitHub assignments. A managed connection and controller publishing authorization remain required; the legacy read-only provider alone does not grant publishing.
 - **Three modes** — Ask (read-only), Agent (file edits allowed), Auto (shell too). Switch mid-chat.
 - **Slash-command skills** — `/simplify`, `/risk-scan`, `/pr-review`, `/person`, `/review-response`, `/land-pr`, `/pr-shepherd`. Type `/` to browse.
 - **Native deliberation** — `/deliberate <task>` runs an Opus/Gemini debate with durable command admission. Repeated delivery does not repeat provider calls. If an attempt ends with an uncertain outcome, review the conversation before explicitly starting another with `/deliberate --confirm-ambiguous <task>`; this may repeat provider work. `/deliberate` alone shows usage.
@@ -600,6 +601,21 @@ clean Mitzo and MGMT checkouts at current `origin/main`, then builds and verifie
 the immutable image and seed, updates the stack lock and environment example
 together, and runs focused tests. It never deploys; its generated diff is
 reviewed and merged first.
+
+A completed retained-runtime migration preserves its original checkpoint history while
+allowing supported model changes within the same account and provider. Provider and grant
+authority changes still block reopening. Connection reservations protect sandbox setup
+and are released before first-turn admission reacquires the current grants, so a cold
+chat start does not wait on its own setup lock.
+
+Enrolled Codex chats report unavailable knowledge publication as an admission failure:
+an admitted follow-up remains queued, and no provider turn starts until the publisher is healthy.
+Check the publisher and retry the saved message. Deploy/start preflight also requires
+working host Git with an executable HTTPS helper when a knowledge store is configured.
+Deployment preflight uses the candidate launchd service PATH before restarting; the publisher's independent Git installation and
+service PATH must also work. On macOS, resolve toolchain/license configuration or install
+a working Git in the service PATH before releasing. The preflight does not accept licenses
+or change host tools automatically.
 
 The [MGMT knowledge publication contract](docs/operations/mgmt-knowledge-publication.md)
 defines an independent publication lane for compatible knowledge. The MGMT

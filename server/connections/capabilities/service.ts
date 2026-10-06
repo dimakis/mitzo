@@ -244,6 +244,11 @@ export class CapabilityService {
     const recovered: CapabilityOperation[] = [];
     for (const operation of this.options.store.pendingRecovery()) {
       if (this.options.ownsOperation && !this.options.ownsOperation(operation)) continue;
+      if (this.inFlight.has(operation.id)) {
+        const recovery = this.inFlight.get(operation.id);
+        recovered.push(recovery ? await recovery : operation);
+        continue;
+      }
       const template = this.options.getTemplate(
         operation.capabilityId,
         operation.capabilityVersion,
@@ -302,6 +307,11 @@ export class CapabilityService {
       if (this.options.ownsOperation && !this.options.ownsOperation(operation)) continue;
       if (operation.accountId !== accountId || operation.conversationId !== conversationId)
         continue;
+      if (this.inFlight.has(operation.id)) {
+        const recovery = this.inFlight.get(operation.id);
+        recovered.push(recovery ? await recovery : operation);
+        continue;
+      }
       const template = this.options.getTemplate(
         operation.capabilityId,
         operation.capabilityVersion,

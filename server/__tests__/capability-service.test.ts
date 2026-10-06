@@ -703,3 +703,43 @@ it('generic bulk and reconnect cannot enter an exact fresh-auth recovery claim',
   }
   expect((await exact).status).toBe('succeeded');
 });
+
+it.each(['approval', 'execution'])(
+  'reconnect recovery observes in-flight %s without cancelling it',
+  async (stage) => {
+    const f = await fixture();
+    let finish!: () => void;
+    const pending = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    if (stage === 'approval')
+      f.approve.mockImplementationOnce(async () => {
+        await pending;
+        return true;
+      });
+    else
+      f.execute.mockImplementationOnce(async () => {
+        await pending;
+        return { output: { ok: true }, externalResultId: 'external-1' };
+      });
+    const first = f.service.invoke(request(), new AbortController().signal);
+    await vi.waitFor(() =>
+      expect(stage === 'approval' ? f.approve : f.execute).toHaveBeenCalledOnce(),
+    );
+    try {
+      const recovered = await f.service.recoverPendingForConversation(
+        'account-1',
+        'conversation-1',
+        new AbortController().signal,
+      );
+      expect(recovered).toHaveLength(1);
+      expect(recovered[0].status).toBe(
+        stage === 'approval' ? 'pending_approval' : 'verification_pending',
+      );
+    } finally {
+      finish();
+    }
+    expect(await first).toMatchObject({ status: 'succeeded' });
+    expect(f.execute).toHaveBeenCalledOnce();
+  },
+);
