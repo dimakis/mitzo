@@ -125,7 +125,7 @@ EOF
 
 (
   cd "$RELEASE_DIR"
-  npm ci
+  npx --yes --package=npm@11.18.0 npm ci
   node scripts/verify-openshell-production.mjs .env --service-plist com.mitzo.server.plist
 )
 
