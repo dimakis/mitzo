@@ -12,7 +12,7 @@
     "dev:server": "tsx watch server/index.ts",
     "build": "cd frontend && npm run build",
     "compile:server": "tsc -b packages/protocol packages/harness packages/client && tsc -p tsconfig.build.json",
-    "build:server": "npm run compile:server --silent && node scripts/check-reviewed-handler-artifacts.mjs && node scripts/check-iana-address-data.mjs",
+    "build:server": "npm run compile:server --silent && node scripts/check-reviewed-handler-artifacts.mjs && node scripts/check-iana-address-data.mjs && npm run check:security-backport --silent",
     "check:reviewed-handler-artifacts": "npm run build:server --silent && node scripts/check-reviewed-handler-artifacts.mjs",
     "print:reviewed-handler-artifacts": "npm run compile:server --silent && node scripts/check-reviewed-handler-artifacts.mjs --print",
     "generate:iana-address-data": "node scripts/generate-iana-address-data.mjs",
@@ -41,7 +41,8 @@
     "tracing:down": "docker compose stop jaeger && docker compose rm -f jaeger",
     "observability:up": "docker compose up -d",
     "observability:down": "docker compose down",
-    "prepare": "husky || true"
+    "prepare": "husky || true",
+    "check:security-backport": "node scripts/build-forge-security-backport.mjs --verify"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.141",
@@ -72,7 +73,8 @@
     "pino-roll": "^4.0.0",
     "tldts": "7.4.12",
     "ws": "^8.18.0",
-    "zod": "4.3.6"
+    "zod": "4.3.6",
+    "node-forge": "file:vendor/security/mitzo-node-forge-security-1.4.0-mitzo.1.tgz"
   },
   "devDependencies": {
     "@commitlint/cli": "^21.2.2",
@@ -106,6 +108,7 @@
     "uuid": "^11.1.1",
     "brace-expansion": "5.0.12",
     "fast-uri": "3.1.8",
-    "ip-address": "10.7.2"
+    "ip-address": "10.7.2",
+    "node-forge": "$node-forge"
   }
 }

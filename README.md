@@ -919,3 +919,5 @@ and verify it with Restic, export it to iCloud and later check upload evidence.
 Host configuration and independent recovery confirmation are required before actions
 are enabled. Scheduling, retention and broader ecosystem coverage remain incomplete;
 see [backup operations](docs/operations/icloud-ecosystem-backup.md).
+
+Dependency security checks remain enabled. The Node-only `node-forge` RSA verification backport is pinned and reproduced from its upstream archive during builds; malformed-signature regression tests cover the patched behavior. See [security backport provenance](vendor/security/README.md).
