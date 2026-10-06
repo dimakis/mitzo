@@ -2,13 +2,13 @@
 import process from 'node:process';
 import console from 'node:console';
 // Prepare only: no launchctl, bootstrap, provider login or model requests.
-import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readOwnedReleasePlan, verifyOwnedRelease } from '../dist/symposium-owned-release.js';
 import {
   prepareStagingService,
   prepareCanonicalStagingService,
+  canonicalStagingRoot,
 } from '../dist/symposium-staging-service.js';
 try {
   const canonical = process.argv.length === 6 && process.argv[5] === '--canonical';
@@ -29,7 +29,7 @@ try {
         plan,
         resolve(process.argv[3]),
         process.execPath,
-        join(homedir(), '.local/share/mitzo-staging'),
+        canonicalStagingRoot(),
       )
     : prepareStagingService(
         plan,

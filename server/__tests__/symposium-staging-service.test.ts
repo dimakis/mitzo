@@ -12,12 +12,13 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { join } from 'node:path';
-import { tmpdir } from 'node:os';
+import { tmpdir, userInfo } from 'node:os';
 import type { OwnedReleasePlan } from '../symposium-owned-release.js';
 import {
   prepareStagingService,
   prepareCanonicalStagingService,
   assertCanonicalStagingService,
+  canonicalStagingRoot,
   readStagingOperatorEnvironment,
   stagingServiceLabel,
 } from '../symposium-staging-service.js';
@@ -212,4 +213,25 @@ it.each([
   }
   expect(() => prepareCanonicalStagingService(f.plan, path, process.execPath, f.root)).toThrow();
   expect(existsSync(join(f.plan.planDirectory, 'staging-operator.json'))).toBe(false);
+});
+
+it('derives the canonical root from the operator identity despite ambient HOME', () => {
+  const old = process.env.HOME;
+  try {
+    process.env.HOME = '/private/production';
+    expect(canonicalStagingRoot()).toBe(join(userInfo().homedir, '.local/share/mitzo-staging'));
+  } finally {
+    if (old === undefined) delete process.env.HOME;
+    else process.env.HOME = old;
+  }
+});
+it('retains the validated canonical registration when the file is replaced', () => {
+  const f = canonicalFixture();
+  const checked = assertCanonicalStagingService(f.plan, f.registrationPath, f.root);
+  f.registration.capacity = 2;
+  f.registration.registryDirectory = join(f.root, 'another-registry');
+  writeFileSync(f.registrationPath, JSON.stringify(f.registration));
+  expect(checked.capacity).toBe(1);
+  expect(checked.registryDirectory).toBe(join(f.root, 'registry'));
+  expect(() => assertCanonicalStagingService(f.plan, f.registrationPath, f.root)).toThrow();
 });

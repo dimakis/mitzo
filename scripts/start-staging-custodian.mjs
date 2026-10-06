@@ -2,7 +2,6 @@
 import process from 'node:process';
 // Fresh launch only: registration cannot adopt existing custody or resume a launch intent.
 import { closeSync, constants, fstatSync, openSync, readFileSync } from 'node:fs';
-import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
@@ -14,6 +13,7 @@ import { ownedCustodianEnvironment } from '../dist/symposium-custodian-launch.js
 import {
   readStagingOperatorEnvironment,
   assertCanonicalStagingService,
+  canonicalStagingRoot,
 } from '../dist/symposium-staging-service.js';
 import { launchStagingCustodian, StagingLaunchSchema } from '../dist/symposium-staging-launch.js';
 import { runSymposiumCustodian } from '../dist/symposium-custodian-main.js';
@@ -28,30 +28,28 @@ try {
     plan.entry !== 'dist/symposium-custodian-main.js'
   )
     throw Error();
-  if (canonical)
-    assertCanonicalStagingService(
-      plan,
-      resolve(process.argv[3]),
-      join(homedir(), '.local/share/mitzo-staging'),
-    );
+  let registration = canonical
+    ? assertCanonicalStagingService(plan, resolve(process.argv[3]), canonicalStagingRoot())
+    : undefined;
   const env =
     canonical || process.argv.length === 5
       ? readStagingOperatorEnvironment(plan, resolve(process.argv[4]), process.env)
       : ownedCustodianEnvironment(plan, process.env);
-  const fd = openSync(resolve(process.argv[3]), constants.O_RDONLY | constants.O_NOFOLLOW);
-  let registration;
-  try {
-    const stat = fstatSync(fd);
-    if (
-      !stat.isFile() ||
-      stat.uid !== process.getuid?.() ||
-      (stat.mode & 0o777) !== 0o600 ||
-      stat.size > 8192
-    )
-      throw Error();
-    registration = StagingLaunchSchema.parse(JSON.parse(readFileSync(fd, 'utf8')));
-  } finally {
-    closeSync(fd);
+  if (!canonical) {
+    const fd = openSync(resolve(process.argv[3]), constants.O_RDONLY | constants.O_NOFOLLOW);
+    try {
+      const stat = fstatSync(fd);
+      if (
+        !stat.isFile() ||
+        stat.uid !== process.getuid?.() ||
+        (stat.mode & 0o777) !== 0o600 ||
+        stat.size > 8192
+      )
+        throw Error();
+      registration = StagingLaunchSchema.parse(JSON.parse(readFileSync(fd, 'utf8')));
+    } finally {
+      closeSync(fd);
+    }
   }
   if (canonical && (env.PORT !== '3190' || env.MITZO_BIND_HOST !== '127.0.0.1')) throw Error();
   // Same process retains the original recorder and runtime authority throughout startup/shutdown.

@@ -10,6 +10,7 @@ import {
   realpathSync,
   writeFileSync,
 } from 'node:fs';
+import { userInfo } from 'node:os';
 import { isAbsolute, join, resolve } from 'node:path';
 import { z } from 'zod';
 import { ownedCustodianEnvironment } from './symposium-custodian-launch.js';
@@ -200,6 +201,10 @@ export function assertCanonicalStagingService(
   const registration = StagingLaunchSchema.parse(JSON.parse(privateBytes(registrationPath)));
   if (registration.capacity !== 1 || registration.registryDirectory !== join(root, 'registry'))
     throw Error('Canonical Symposium staging requires one registry slot');
+  return registration;
+}
+export function canonicalStagingRoot() {
+  return join(userInfo().homedir, '.local/share/mitzo-staging');
 }
 export function prepareStagingService(
   plan: OwnedReleasePlan,
