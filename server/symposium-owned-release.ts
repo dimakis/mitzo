@@ -167,10 +167,51 @@ export interface OwnedReleasePlan extends OwnedReleaseInput {
 function inspect(input: OwnedReleaseInput, digest: (path: string) => string, fresh = true) {
   pathMetadata(input.releaseRoot, true);
   if (
-    readdirSync(input.releaseRoot).some((name) => name.startsWith('.env')) ||
+    readdirSync(input.releaseRoot).some(
+      (name) => name.startsWith('.env') && name !== '.env.example',
+    ) ||
     entryExists(join(input.releaseRoot, 'certs'))
   )
     fail();
+  if (entryExists(join(input.releaseRoot, '.env.example'))) {
+    const template = lstatSync(join(input.releaseRoot, '.env.example'));
+    // Metadata only: never read a private alias as a public template. The source
+    // guard below checks tracked content; hidden index flags cannot exempt it.
+    if (!template.isFile() || template.isSymbolicLink() || template.nlink !== 1) fail();
+    let tracked: string;
+    try {
+      tracked = execFileSync(
+        '/usr/bin/git',
+        [
+          '-c',
+          'core.fsmonitor=false',
+          '-c',
+          'core.hooksPath=/dev/null',
+          'ls-files',
+          '-v',
+          '--error-unmatch',
+          '--',
+          '.env.example',
+        ],
+        {
+          cwd: input.releaseRoot,
+          encoding: 'utf8',
+          timeout: 15000,
+          maxBuffer: 65536,
+          env: {
+            PATH: '/usr/bin:/bin',
+            HOME: input.planDirectory,
+            GIT_CONFIG_NOSYSTEM: '1',
+            GIT_CONFIG_GLOBAL: '/dev/null',
+          },
+          stdio: ['ignore', 'pipe', 'pipe'],
+        },
+      ).trim();
+    } catch {
+      fail();
+    }
+    if (tracked !== 'H .env.example') fail();
+  }
   pathMetadata(input.planDirectory, true, true);
   pathMetadata(input.repositoryPath, true, true);
   pathMetadata(input.configPath, false, true);
