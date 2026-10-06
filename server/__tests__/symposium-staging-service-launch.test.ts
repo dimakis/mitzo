@@ -25,7 +25,11 @@ function fixture() {
   writeFileSync(join(root, 'package.json'), '{"type":"module"}');
   cpSync('scripts/start-staging-custodian.mjs', join(root, 'scripts/start-staging-custodian.mjs'));
   // Actual auth reader and environment allowlist; physical owner is synthetic.
-  for (const name of ['symposium-custodian-launch', 'symposium-staging-service'])
+  for (const name of [
+    'symposium-custodian-launch',
+    'symposium-staging-identity',
+    'symposium-staging-service',
+  ])
     writeFileSync(
       join(root, 'dist', name + '.js'),
       ts.transpileModule(readFileSync('server/' + name + '.ts', 'utf8'), {
