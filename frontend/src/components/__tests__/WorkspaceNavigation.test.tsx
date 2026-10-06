@@ -69,3 +69,28 @@ it('mobile keeps More selected while reviewing notifications', () => {
   );
   expect(screen.getByRole('link', { name: 'More' }).getAttribute('aria-current')).toBe('page');
 });
+
+it('groups backup navigation under Settings and gives Connections a distinct icon', () => {
+  render(
+    <MemoryRouter initialEntries={['/settings/backups']}>
+      <DesktopNav />
+    </MemoryRouter>,
+  );
+  expect(screen.queryByRole('link', { name: 'Backups' })).toBeNull();
+  const settings = screen.getByRole('link', { name: 'Settings' });
+  expect(settings.getAttribute('aria-current')).toBe('page');
+  expect(settings.getAttribute('href')).toBe('/settings');
+  const icon = (name: string) =>
+    screen.getByRole('link', { name }).querySelector('svg path')?.getAttribute('d');
+  expect(icon('Connections')).not.toBe(icon('Settings'));
+  expect(icon('Connections')).not.toBe(icon('More'));
+});
+it('keeps mobile More selected inside Settings and Backups', () => {
+  render(
+    <MemoryRouter initialEntries={['/settings/backups']}>
+      <TabBar />
+    </MemoryRouter>,
+  );
+  expect(screen.getByRole('link', { name: 'More' }).getAttribute('aria-current')).toBe('page');
+  expect(screen.getAllByRole('link')).toHaveLength(5);
+});

@@ -48,7 +48,22 @@ test('backup dashboard preserves scope and upload distinction on desktop and mob
       return route.fulfill({ json: { items: [], needsYou: 0, unread: 0 } });
     return route.fulfill({ json: {} });
   });
+  await page.goto('/settings');
+  await page.getByRole('link', { name: /Backups/ }).click();
+  await expect(page).toHaveURL(/\/settings\/backups$/);
+  await expect(
+    page
+      .getByRole('navigation', { name: 'Main navigation' })
+      .getByRole('link', { name: 'Backups', exact: true }),
+  ).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: 'Backups', exact: true })).toBeVisible();
+  if (!isMobile)
+    await expect(page.getByRole('link', { name: 'Settings', exact: true })).toHaveAttribute(
+      'aria-current',
+      'page',
+    );
   await page.goto('/backups');
+  await expect(page).toHaveURL(/\/settings\/backups$/);
   await expect(page.getByRole('heading', { name: 'Backups', exact: true })).toBeVisible();
   await expect(page.getByText('No confirmed upload', { exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Check iCloud upload' })).toBeEnabled();
