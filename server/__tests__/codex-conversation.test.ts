@@ -779,6 +779,40 @@ it.each(['functions', '', null, undefined])(
   },
 );
 
+it('classifies invalid, stale, unavailable, and ledger failures before execution', async () => {
+  const { c, callbacks, execute, store } = await setup();
+  await c.send({ id: 'rejections', prompt: 'read' });
+  const signal = new AbortController().signal;
+  const input = {
+    threadId: 'provider-thread',
+    turnId: 'turn-1',
+    callId: 'failed',
+    tool: 'Read',
+    arguments: {},
+  };
+  for (const [params, category] of [
+    [{ ...input, arguments: 'SECRET' }, 'invalid_tool_request'],
+    [{ ...input, turnId: 'stale' }, 'tool_identity_mismatch'],
+    [{ ...input, tool: 'Unknown' }, 'tool_unavailable'],
+  ] as const) {
+    await expect(callbacks.onRequest('item/tool/call', params, signal)).rejects.toMatchObject({
+      category,
+    });
+  }
+  const claim = vi.spyOn(store, 'claimTool').mockImplementation(() => {
+    throw new Error('SECRET');
+  });
+  await expect(callbacks.onRequest('item/tool/call', input, signal)).rejects.toMatchObject({
+    category: 'tool_ledger_unavailable',
+  });
+  expect(execute).not.toHaveBeenCalled();
+  claim.mockRestore();
+  expect(await callbacks.onRequest('item/tool/call', input, signal)).toMatchObject({
+    success: true,
+  });
+  expect(execute).toHaveBeenCalledOnce();
+});
+
 it('interrupts the current turn, keeps queued follow-ups paused, and cancels a pending host tool', async () => {
   const { c, callbacks, execute, requests } = await setup();
   await c.send({ id: 'a', prompt: 'read' });

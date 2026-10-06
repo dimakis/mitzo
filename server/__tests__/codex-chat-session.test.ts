@@ -490,6 +490,12 @@ it('advertises reviewed per-chat provider grants to a managed OpenShell runtime'
       expect.arrayContaining([expect.objectContaining({ name: 'RequestWebAccess' })]),
     );
     expect(mocks.conversationOptions?.systemPrompt).toContain('GrantIntegrationAccess');
+    expect(mocks.conversationOptions?.systemPrompt).toContain(
+      'GitHub publishing is unavailable in this conversation',
+    );
+    expect(mocks.conversationOptions?.systemPrompt).toContain(
+      'Do not attempt direct git push or gh API writes',
+    );
     const adoptionEvidence = {
       storeId: 'notes',
       sourceCommit: 'a'.repeat(40),
@@ -968,6 +974,12 @@ it('preserves image attachments while binding a trusted capability, forcing appr
       item.name.startsWith('Capability_github_publish_pr'),
     );
     expect(tool).toBeDefined();
+    expect(mocks.conversationOptions?.systemPrompt).toContain(
+      `For GitHub publishing, use ${tool!.name}`,
+    );
+    expect(mocks.conversationOptions?.systemPrompt).not.toContain(
+      'GitHub publishing is unavailable',
+    );
     expect(mocks.send).toHaveBeenCalledWith(
       expect.objectContaining({ images: [{ data: 'cHJldmlldw==', mediaType: 'image/png' }] }),
     );
