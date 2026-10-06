@@ -1276,7 +1276,9 @@ export class CodexConversationStore {
         return false;
       if (!this.commands(id, b).some((c) => c.id === commandId && c.status === 'running'))
         throw new Error('Codex command is not running');
-      this.db.prepare('INSERT INTO codex_tools VALUES (?,?,?)').run(id, commandId, callId);
+      this.db
+        .prepare('INSERT INTO codex_tools(conversation_id,command_id,call_id) VALUES (?,?,?)')
+        .run(id, commandId, callId);
       return true;
     })();
   }

@@ -110,6 +110,21 @@ export class OpenShellGithubSandboxTransport implements GithubSandboxTransport {
       return commandFailure();
     }
   }
+  async origin(input: {
+    sandboxName: string;
+    repositoryPath: string;
+    signal: AbortSignal;
+  }): Promise<string> {
+    return (
+      await this.git(
+        input.sandboxName,
+        input.repositoryPath,
+        ['remote', 'get-url', 'origin'],
+        input.signal,
+        4096,
+      )
+    ).trim();
+  }
   async inspect(input: {
     sandboxName: string;
     repositoryPath: string;
