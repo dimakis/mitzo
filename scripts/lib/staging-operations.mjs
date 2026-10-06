@@ -49,3 +49,25 @@ export async function promoteStage({ expectedCurrent, target }, effects) {
   }
   await effects.unlock();
 }
+
+/** Accepted history may advance without invalidating an intact pinned stage. */
+export function assertPinnedStageSource({
+  expected,
+  expectedTree,
+  source,
+  tree,
+  dirty,
+  origin,
+  acceptedAncestor,
+}) {
+  if (
+    !sha.test(expected) ||
+    !sha.test(expectedTree) ||
+    source !== expected ||
+    tree !== expectedTree ||
+    dirty ||
+    origin !== 'https://github.com/dimakis/mitzo.git' ||
+    acceptedAncestor !== true
+  )
+    throw Error('Pinned staging source drift or unaccepted history');
+}

@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { homedir } from 'node:os';
 import { existsSync, unlinkSync } from 'node:fs';
+import { assertPinnedStageSource } from './control-lib/staging-operations.mjs';
 import { fingerprintDirectory } from './control-lib/staging-files.mjs';
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 if (root !== join(homedir(), '.local/share/mitzo-staging') || realpathSync(root) !== root)
@@ -40,12 +41,38 @@ if (
   receipt.workspace !== join(root, 'workspace')
 )
   throw Error('Staging boundaries changed');
-const guard = spawnSync('/bin/bash', [join(release, 'scripts/assert-deployable.sh'), '--offline'], {
-  cwd: release,
-  env: { PATH: '/opt/homebrew/bin:/usr/bin:/bin', HOME: join(root, 'home') },
-  encoding: 'utf8',
+function git(args, allowFailure = false) {
+  const result = spawnSync(
+    'git',
+    ['-c', 'core.fsmonitor=false', '-c', 'core.hooksPath=/dev/null', ...args],
+    {
+      cwd: release,
+      env: {
+        PATH: '/opt/homebrew/bin:/usr/bin:/bin',
+        HOME: join(root, 'home'),
+        GIT_CONFIG_NOSYSTEM: '1',
+        GIT_CONFIG_GLOBAL: '/dev/null',
+        GIT_OPTIONAL_LOCKS: '0',
+      },
+      encoding: 'utf8',
+    },
+  );
+  if (allowFailure) return result.status === 0;
+  if (result.status !== 0) throw Error('Pinned staging Git identity unavailable');
+  return result.stdout.trim();
+}
+assertPinnedStageSource({
+  expected: receipt.sourceCommit,
+  expectedTree: receipt.sourceTree,
+  source: git(['rev-parse', 'HEAD']),
+  tree: git(['rev-parse', 'HEAD^{tree}']),
+  dirty: git(['status', '--porcelain', '--untracked-files=no']),
+  origin: git(['remote', 'get-url', 'origin']),
+  acceptedAncestor: git(
+    ['merge-base', '--is-ancestor', receipt.sourceCommit, 'refs/remotes/origin/main'],
+    true,
+  ),
 });
-if (guard.status !== 0) throw Error('Staging release guard refused');
 for (const [path, expected] of Object.entries(receipt.compiledArtifacts)) {
   if (
     createHash('sha256')

@@ -19,7 +19,12 @@ import {
   unlinkSync,
 } from 'node:fs';
 import { spawnSync } from 'node:child_process';
-import { stagingBoundary, compareStage, promoteStage } from './lib/staging-operations.mjs';
+import {
+  stagingBoundary,
+  compareStage,
+  promoteStage,
+  assertPinnedStageSource,
+} from './lib/staging-operations.mjs';
 import {
   privateJson,
   replacePrivateJson,
@@ -138,7 +143,29 @@ function validateRelease(r, freshMain) {
     fingerprintDirectory(r.release, 'node_modules') !== r.dependencyFingerprint
   )
     throw Error('Release dependency drift');
-  run('/bin/bash', [join(r.release, 'scripts/assert-deployable.sh'), '--offline'], r.release);
+  assertPinnedStageSource({
+    expected: r.sourceCommit,
+    expectedTree: r.sourceTree,
+    source: run('git', ['rev-parse', 'HEAD'], r.release),
+    tree: run('git', ['rev-parse', 'HEAD^{tree}'], r.release),
+    dirty: run('git', ['status', '--porcelain', '--untracked-files=no'], r.release),
+    origin: run('git', ['remote', 'get-url', 'origin'], r.release),
+    acceptedAncestor:
+      spawnSync(
+        'git',
+        [
+          '-c',
+          'core.fsmonitor=false',
+          '-c',
+          'core.hooksPath=/dev/null',
+          'merge-base',
+          '--is-ancestor',
+          r.sourceCommit,
+          'refs/remotes/origin/main',
+        ],
+        { cwd: r.release, env },
+      ).status === 0,
+  });
 }
 function candidate(commit) {
   if (!/^[a-f0-9]{40}$/.test(commit ?? '')) throw Error('Exact target commit required');
@@ -151,7 +178,7 @@ async function check() {
     dependencyOK = Boolean(r.dependencyFingerprint),
     runtimeOK = true;
   try {
-    stageDirectory(r.release, '.git');
+    validateRelease(r);
     source = run('git', ['rev-parse', 'HEAD'], r.release);
     if (
       run('git', ['status', '--porcelain', '--untracked-files=no'], r.release) ||
@@ -333,6 +360,10 @@ async function deploy() {
         cpSync(
           new URL('./lib/staging-files.mjs', import.meta.url),
           join(root, 'service/control-lib/staging-files.mjs'),
+        );
+        cpSync(
+          new URL('./lib/staging-operations.mjs', import.meta.url),
+          join(root, 'service/control-lib/staging-operations.mjs'),
         );
         const launcher = readFileSync(
           new URL('./lib/staging-launcher-template.mjs', import.meta.url),

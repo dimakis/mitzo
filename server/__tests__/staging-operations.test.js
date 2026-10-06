@@ -190,3 +190,25 @@ it('rejects an aliased state/audit directory before writing outside staging', ()
 
 it('rejects a non-loopback binding in the stage receipt', () =>
   expect(() => stagingBoundary({ ...fixture(), bind: '0.0.0.0' })).toThrow());
+
+import { assertPinnedStageSource } from '../../scripts/lib/staging-operations.mjs';
+const pinned = {
+  expected: oldSha,
+  expectedTree: nextSha,
+  source: oldSha,
+  tree: nextSha,
+  dirty: '',
+  origin: 'https://github.com/dimakis/mitzo.git',
+  acceptedAncestor: true,
+};
+it('allows an intact accepted staging release when main advances', () =>
+  expect(() => assertPinnedStageSource(pinned)).not.toThrow());
+it.each([
+  { source: nextSha },
+  { tree: oldSha },
+  { dirty: ' M server/index.ts' },
+  { origin: '/private/production' },
+  { acceptedAncestor: false },
+])('refuses pinned source identity or acceptance drift %j', (change) =>
+  expect(() => assertPinnedStageSource({ ...pinned, ...change })).toThrow(),
+);

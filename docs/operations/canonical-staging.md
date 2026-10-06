@@ -15,7 +15,7 @@ The command verifies source/tree cleanliness, compiled output, the dependency
 fingerprint and the registered job's directory/listener. It reads current main
 without updating the active release's remote refs. `safe` describes integrity and
 runtime identity; `stale` means main has advanced. A stale stage can remain the
-explicitly selected test baseline. `check --offline` does not verify main freshness.
+explicitly selected test baseline. Startup checks its pinned commit, tree, clean source and accepted-main ancestry; refreshing the cached main ref does not invalidate that baseline. `check --offline` does not verify main freshness.
 There is no unattended upgrade or scheduled drift monitor.
 
 ## Prepare and plan an update
