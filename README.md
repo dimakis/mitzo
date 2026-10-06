@@ -921,3 +921,5 @@ are enabled. Scheduling, retention and broader ecosystem coverage remain incompl
 see [backup operations](docs/operations/icloud-ecosystem-backup.md).
 
 Dependency security checks remain enabled. The Node-only `node-forge` RSA verification backport is pinned and reproduced from its upstream archive during builds; malformed-signature regression tests cover the patched behavior. See [security backport provenance](vendor/security/README.md).
+
+Voice HTTP and WebSocket forwarding uses a fixed-route proxy without the recursive glob/brace parser. Raw audio bodies, path/query forwarding, TLS certificate verification and unavailable-service errors are covered by regression tests.

@@ -64,7 +64,6 @@
     "express-rate-limit": "^8.3.2",
     "google-auth-library": "^10.9.1",
     "helmet": "^8.1.0",
-    "http-proxy-middleware": "^3.0.5",
     "jose": "^5.9.0",
     "js-yaml": "^4.2.0",
     "nanoid": "^5.0.9",
@@ -74,7 +73,8 @@
     "tldts": "7.4.12",
     "ws": "^8.18.0",
     "zod": "4.3.6",
-    "node-forge": "file:vendor/security/mitzo-node-forge-security-1.4.0-mitzo.1.tgz"
+    "node-forge": "file:vendor/security/mitzo-node-forge-security-1.4.0-mitzo.1.tgz",
+    "http-proxy": "^1.18.1"
   },
   "devDependencies": {
     "@commitlint/cli": "^21.2.2",
@@ -101,7 +101,8 @@
     "tsx": "^4.23.13",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.70.0",
-    "vitest": "^4.1.2"
+    "vitest": "^4.1.2",
+    "@types/http-proxy": "^1.17.17"
   },
   "overrides": {
     "qs": "^6.16.0",
