@@ -1,3 +1,10 @@
+import {
+  createGithubPublishingTool,
+  githubPublishingDefinition,
+  GITHUB_PUBLISHING_INSTRUCTIONS,
+  REQUEST_GITHUB_PUBLISH,
+  hostGithubPublishingSource,
+} from './github-publishing-tool.js';
 import { KnowledgePublicationUnavailableError } from './knowledge-publication-bridge.js';
 import { prepareRetainedRuntimeMigration } from './openshell-runtime-migration-adapter.js';
 import {
@@ -60,6 +67,7 @@ import { connectionTemplateRegistry } from './connections/registry.js';
 import { capabilityApprovalForConversation } from './connections/capabilities/approval.js';
 import {
   bindLiveCapabilityConversation,
+  getLiveCapabilityConversationBinding,
   clearLiveCapabilityConversationBinding,
 } from './capability-conversation-binding.js';
 import { sharedOpenShellLifecycleCoordinator } from './openshell-lifecycle.js';
@@ -383,6 +391,7 @@ export function readCodexLifecycleQueue(conversationId: string, binding: Account
   return store().lifecycleQueue(conversationId, binding);
 }
 interface Options {
+  publishingGitStorageRoots?: readonly string[];
   resume?: boolean;
   conversationId: string;
   binding: AccountBinding;
@@ -842,11 +851,26 @@ async function openCodexChatBound(
     options.binding?.accountId ?? '',
     managedCapabilityConnection,
   );
+  const githubPublishing = createGithubPublishingTool(
+    options.conversationId,
+    options.registry,
+    () =>
+      connectedOpenShell
+        ? managedOpenShell
+          ? {
+              runtime: 'openshell',
+              workspace: managedOpenShell.workdir,
+              sandboxName: managedOpenShell.sandboxName,
+            }
+          : undefined
+        : hostGithubPublishingSource(options.session, options.publishingGitStorageRoots),
+  );
   const events = new AsyncQueue<Record<string, unknown>>();
   let closed = false;
   function finish() {
     if (closed) return;
     closed = true;
+    githubPublishing.close();
     cancelTrackedProviderAdmissions(options.session);
     if (hooks)
       void hooks
@@ -858,22 +882,22 @@ async function openCodexChatBound(
     events.close();
     void mcp.close();
     runtimes.delete(options.session);
-    if (managedCapabilityConnection)
+    const livePublishingOwner = getLiveCapabilityConversationBinding(
+      options.conversationId,
+    )?.runtimeOwnerId;
+    if (
+      managedCapabilityConnection &&
+      (!livePublishingOwner || livePublishingOwner === githubPublishing.runtimeOwnerId)
+    )
       clearLiveCapabilityConversationBinding(options.conversationId, {
         connectionId: managedCapabilityConnection.id,
         connectionRevision: managedCapabilityConnection.revision,
       });
   }
-  const githubPublishTool = [...capabilityTools.bindings].find(
-    ([, binding]) => binding.capabilityId === 'github.publish-pr',
-  )?.[0];
-  const githubPublishInstructions = githubPublishTool
-    ? `\nFor GitHub publishing, use ${githubPublishTool} after committing the local branch. It requests approval and publishes only within the managed connection's repository and branch scope. Do not attempt direct git push or gh API writes; sandbox GitHub access is read-only.\n`
-    : '\nGitHub publishing is unavailable in this conversation: no eligible managed GitHub publishing tool is exposed. Do not attempt direct git push or gh API writes, even if GitHub reads succeed. Preserve local changes and explain that publishing requires an active managed GitHub connection and a publishing capability grant for this AI account in Connections. GrantIntegrationAccess attaches an integration provider; it does not grant GitHub publishing.\n';
   const baseSystemPrompt =
     options.systemPrompt +
     WEB_ACCESS_INSTRUCTIONS +
-    (connectedOpenShell ? githubPublishInstructions : '') +
+    GITHUB_PUBLISHING_INSTRUCTIONS +
     `\nWhen the user asks you to build a reusable Symposium agent profile in this conversation, use ${SYMPOSIUM_PROPOSE_PROFILE_TOOL} to submit portable guidance for review. The tool only drafts a proposal; tell the user to edit and save it in Mitzo. Do not include credentials, transcript text, session or machine paths, account bindings, or runtime grants.\n` +
     (connectedOpenShell
       ? `\nOpenShell contains the provider loop and its built-in tools. Use those tools directly inside the supplied sandbox workspace. Current Mitzo mode: ${options.session.mode}. In Agent or Auto mode, a user request to edit that workspace is the required approval: execute it without asking again. ${TELOS_ARTIFACT_INSTRUCTIONS} Use ${TELOS_CREATE_OUTCOME_TOOL} for durable Telos capture; never use a sandbox-local todo script for persistent Telos work.${integrationTools.length ? ` Mitzo preflights explicit requests for grantable integrations before the turn begins. If you discover that you need a grantable service which the user did not request explicitly, call ${GRANT_INTEGRATION_TOOL} before using it. A CLI being installed does not mean its provider is attached, and a tunnel error from an unattached provider is not evidence of a gateway outage.` : ''}\n`
@@ -1043,13 +1067,19 @@ async function openCodexChatBound(
       loadAccountProfiles().validateModel(options.binding, model, reasoningEffort);
     },
     tools: connectedOpenShell
-      ? [...openShellHostTools, ...capabilityTools.definitions, webAccessDefinition]
+      ? [
+          ...openShellHostTools,
+          ...capabilityTools.definitions,
+          webAccessDefinition,
+          githubPublishingDefinition,
+        ]
       : [
           symposiumProposeProfileDefinition,
           ...nativeToolDefinitions,
           ...mcp.definitions,
           ...capabilityTools.definitions,
           webAccessDefinition,
+          githubPublishingDefinition,
         ],
     displayToolName: mcp.displayName,
     createClient: (callbacks) =>
@@ -1109,6 +1139,7 @@ async function openCodexChatBound(
         }
       : {}),
     executeTool: async (name, input, signal, callContext) => {
+      if (name === REQUEST_GITHUB_PUBLISH) return githubPublishing(input, signal, callContext);
       if (name === SYMPOSIUM_PROPOSE_PROFILE_TOOL) {
         signal.throwIfAborted();
         if (!options.eventStore.getSession(options.conversationId))

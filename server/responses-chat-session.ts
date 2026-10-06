@@ -1,3 +1,10 @@
+import {
+  createGithubPublishingTool,
+  githubPublishingDefinition,
+  GITHUB_PUBLISHING_INSTRUCTIONS,
+  REQUEST_GITHUB_PUBLISH,
+  hostGithubPublishingSource,
+} from './github-publishing-tool.js';
 import type { GeminiOptions } from './gemini-session.js';
 import {
   webAccessDefinition,
@@ -93,6 +100,7 @@ function store() {
   return privateStore;
 }
 interface Options {
+  publishingGitStorageRoots?: readonly string[];
   resume?: boolean;
   conversationId: string;
   binding: AccountBinding;
@@ -146,6 +154,12 @@ export async function openResponsesChat(options: Options) {
     dispose();
     throw error;
   });
+  const githubPublishing = createGithubPublishingTool(
+    options.conversationId,
+    options.registry,
+    () => hostGithubPublishingSource(options.session, options.publishingGitStorageRoots),
+  );
+  let publishingTurnId: string = randomUUID();
   let interrupted = false;
   let activeTurnFinalized: Promise<void> | undefined;
   let completeActiveTurn: (() => void) | undefined;
@@ -159,17 +173,25 @@ export async function openResponsesChat(options: Options) {
       options.systemPrompt +
       HOST_TOOL_INSTRUCTIONS +
       WEB_ACCESS_INSTRUCTIONS +
+      GITHUB_PUBLISHING_INSTRUCTIONS +
       (startup.context ? `\n\n${startup.context}` : ''),
     maxTokens: 8192,
     selectedModel: options.selectedModel,
     reasoningEffort: options.reasoningEffort ?? undefined,
-    tools: [...nativeToolDefinitions, ...mcp.definitions, webAccessDefinition],
+    tools: [
+      ...nativeToolDefinitions,
+      ...mcp.definitions,
+      webAccessDefinition,
+      githubPublishingDefinition,
+    ],
     executeTool: async (block, signal) => {
       const result = await hooks.executeTool(
         block.name,
         block.input,
         signal,
         async (input, forcePrompt) => {
+          if (block.name === REQUEST_GITHUB_PUBLISH)
+            return githubPublishing(input, signal, { turnId: publishingTurnId, callId: block.id });
           if (block.name === REQUEST_WEB_ACCESS) {
             return createWebAccessTool(options.conversationId, options.registry, (query, signal) =>
               options.gemini
@@ -223,6 +245,7 @@ export async function openResponsesChat(options: Options) {
         conversationId: options.conversationId,
       });
     } finally {
+      githubPublishing.close();
       runtimes.delete(options.session);
       void hooks
         .run('SessionEnd', { reason: 'other' }, AbortSignal.timeout(5000))
@@ -290,6 +313,7 @@ export async function openResponsesChat(options: Options) {
               completeActiveTurn = resolve;
             });
           }
+          publishingTurnId = message.mitzoMessageId ?? randomUUID();
           interrupted = false;
           let providerTerminalized = false;
           let executionTerminalized = false;
