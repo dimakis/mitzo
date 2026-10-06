@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { ConnectionsAccessView } from '../ConnectionsAccessView';
@@ -505,7 +505,7 @@ it.each(['Manage Personal account', 'View Public page reads'])(
     fireEvent.click(trigger);
     fireEvent.keyDown(screen.getByRole('button', { name: 'Close details' }), { key: 'Escape' });
     expect(screen.queryByRole('dialog')).toBeNull();
-    expect(document.activeElement).toBe(trigger);
+    await waitFor(() => expect(document.activeElement).toBe(trigger));
   },
 );
 
