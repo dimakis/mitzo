@@ -60,6 +60,7 @@ function fixture(provider: string) {
   };
   return {
     session,
+    registry,
     grant,
     connection,
     invoke,
@@ -214,3 +215,38 @@ it.each(['revoked', 'accounts_removed'])(
     expect(f.invoke).not.toHaveBeenCalled();
   },
 );
+
+it('serializes recovery and publication admission across runtime instances of one conversation', async () => {
+  const f = fixture('openai');
+  const capabilities = (
+    mocks.runtime as { capabilities: { recoverPendingForConversation: ReturnType<typeof vi.fn> } }
+  ).capabilities;
+  let finish!: (value: unknown[]) => void;
+  capabilities.recoverPendingForConversation.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  const successor = createGithubPublishingTool('conversation', f.registry, () => ({
+    runtime: 'host',
+    workspace: '/workspace',
+    gitStorageRoots: [],
+  }));
+  const first = f.execute(input, new AbortController().signal, { turnId: 'turn', callId: 'first' });
+  await vi.waitFor(() => expect(capabilities.recoverPendingForConversation).toHaveBeenCalledOnce());
+  try {
+    expect(
+      await successor(input, new AbortController().signal, { turnId: 'turn', callId: 'second' }),
+    ).toMatchObject({ isError: true });
+    expect(capabilities.recoverPendingForConversation).toHaveBeenCalledOnce();
+    expect(f.invoke).not.toHaveBeenCalled();
+  } finally {
+    finish([]);
+  }
+  expect(await first).toMatchObject({ isError: false });
+  expect(f.invoke).toHaveBeenCalledOnce();
+  expect(
+    await successor(input, new AbortController().signal, { turnId: 'later', callId: 'third' }),
+  ).toMatchObject({ isError: false });
+});

@@ -18,6 +18,8 @@ import {
 import { capabilityApprovalForConversation } from './connections/capabilities/approval.js';
 import { canonicalJson } from './connections/capabilities/input-validation.js';
 export const REQUEST_GITHUB_PUBLISH = 'RequestGithubPublish';
+// Shared across runtime replacements; closing one runtime cannot release its active operation.
+const publishingAdmissions = new Set<string>();
 export const GithubPublishingFields = {
   repositoryPath: z.string().min(1).max(256),
   baseBranch: z.string().min(1).max(128),
@@ -45,7 +47,7 @@ export function createGithubPublishingTool(
   const runtimeOwnerId = randomUUID();
   let bound:
     { conversationId: string; connectionId: string; connectionRevision: number } | undefined;
-  const execute = async (
+  const run = async (
     input: unknown,
     signal: AbortSignal,
     call: { turnId: string; callId: string },
@@ -260,6 +262,21 @@ export function createGithubPublishingTool(
           'GitHub publishing did not complete. Inspect the recorded operation before retrying; no fallback account was used.',
         isError: true,
       };
+    }
+  };
+  const execute = async (...args: Parameters<typeof run>) => {
+    const conversationId = typeof conversation === 'function' ? conversation() : conversation;
+    if (publishingAdmissions.has(conversationId))
+      return {
+        content:
+          'A publishing request is already in progress for this conversation. Wait for its result before retrying.',
+        isError: true,
+      };
+    publishingAdmissions.add(conversationId);
+    try {
+      return await run(...args);
+    } finally {
+      publishingAdmissions.delete(conversationId);
     }
   };
   return Object.assign(execute, {
