@@ -18,6 +18,7 @@ import { createHash } from 'node:crypto';
 import {
   prepareOwnedRelease,
   verifyOwnedRelease,
+  verifyRetainedOwnedRelease,
   claimOwnedLaunch,
   renderOwnedPlist,
 } from '../symposium-owned-release.js';
@@ -466,3 +467,15 @@ it.each(['tls', 'jwt'] as const)(
     expect(observed).toEqual([]);
   },
 );
+
+it('checks immutable retained inputs while allowing owned state to develop without granting a fresh launch', () => {
+  const f = fixture();
+  const plan = prepareOwnedRelease(f.input, f.digest);
+  writeFileSync(join(f.input.repositoryPath, 'task.txt'), 'owned task');
+  writeFileSync(join(f.config.gateway.stateParent, 'gateway.db'), 'owned state');
+  writeFileSync(f.config.attestationPath, 'runtime evidence');
+  expect(() => verifyOwnedRelease(plan, f.digest)).toThrow();
+  expect(() => verifyRetainedOwnedRelease(plan, f.digest)).not.toThrow();
+  writeFileSync(f.config.runtime.policy, 'drift');
+  expect(() => verifyRetainedOwnedRelease(plan, f.digest)).toThrow();
+});

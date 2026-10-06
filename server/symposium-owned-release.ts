@@ -164,7 +164,7 @@ export interface OwnedReleasePlan extends OwnedReleaseInput {
   runtime: ReturnType<typeof reviewedSymposiumOwnedRuntime>['build'];
   admissionVerified: false;
 }
-function inspect(input: OwnedReleaseInput, digest: (path: string) => string) {
+function inspect(input: OwnedReleaseInput, digest: (path: string) => string, fresh = true) {
   pathMetadata(input.releaseRoot, true);
   if (
     readdirSync(input.releaseRoot).some((name) => name.startsWith('.env')) ||
@@ -174,7 +174,7 @@ function inspect(input: OwnedReleaseInput, digest: (path: string) => string) {
   pathMetadata(input.planDirectory, true, true);
   pathMetadata(input.repositoryPath, true, true);
   pathMetadata(input.configPath, false, true);
-  if (readdirSync(input.repositoryPath).length) fail();
+  if (fresh && readdirSync(input.repositoryPath).length) fail();
   const canonicalRoot = join(userInfo().homedir, '.local/share/mitzo-staging');
   let sourceCommit: string | undefined, sourceTree: string | undefined;
   if (
@@ -268,13 +268,13 @@ function inspect(input: OwnedReleaseInput, digest: (path: string) => string) {
     fail();
   if (
     config.artifacts.length ||
-    entryExists(config.attestationPath) ||
+    (fresh && entryExists(config.attestationPath)) ||
     !config.runtime.createDetached ||
     config.runtime.sandboxIdLength !== 13
   )
     fail();
   pathMetadata(config.gateway.stateParent, true, true);
-  if (readdirSync(config.gateway.stateParent).length) fail();
+  if (fresh && readdirSync(config.gateway.stateParent).length) fail();
   pathMetadata(config.podman.environment.HOME, true, true);
   for (const path of [...Object.values(config.gateway.tls), ...Object.values(config.gateway.jwt)])
     pathMetadata(path, false, true);
@@ -350,7 +350,11 @@ export function prepareOwnedRelease(
     admissionVerified: false,
   };
 }
-export function verifyOwnedRelease(plan: OwnedReleasePlan, digest = fileDigest): void {
+function verifyRelease(
+  plan: OwnedReleasePlan,
+  digest: (path: string) => string,
+  fresh: boolean,
+): void {
   if (
     plan.schemaVersion !== 1 ||
     plan.mode !== 'owned-custodian' ||
@@ -358,7 +362,7 @@ export function verifyOwnedRelease(plan: OwnedReleasePlan, digest = fileDigest):
     plan.admissionVerified !== false
   )
     fail();
-  const actual = inspect(plan, digest);
+  const actual = inspect(plan, digest, fresh);
   const accounts = join(plan.planDirectory, 'empty-accounts.json');
   pathMetadata(accounts, false, true);
   if (bytes(accounts, 16).toString('utf8') !== '[]\n') fail();
@@ -373,6 +377,15 @@ export function verifyOwnedRelease(plan: OwnedReleasePlan, digest = fileDigest):
     'runtime',
   ] as const)
     if (JSON.stringify(plan[key]) !== JSON.stringify(actual[key])) fail();
+}
+/** Fresh launch keeps the original empty-state checks. */
+export function verifyOwnedRelease(plan: OwnedReleasePlan, digest = fileDigest): void {
+  verifyRelease(plan, digest, true);
+}
+/** Read-only immutable input verification for the already retained owner.
+ * This does not admit a new launch or reconstruct native capabilities. */
+export function verifyRetainedOwnedRelease(plan: OwnedReleasePlan, digest = fileDigest): void {
+  verifyRelease(plan, digest, false);
 }
 export function claimOwnedLaunch(plan: OwnedReleasePlan, digest = fileDigest) {
   verifyOwnedRelease(plan, digest);

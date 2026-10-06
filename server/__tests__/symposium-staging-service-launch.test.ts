@@ -27,6 +27,8 @@ function fixture() {
   // Actual auth reader and environment allowlist; physical owner is synthetic.
   for (const name of [
     'symposium-custodian-launch',
+    'symposium-canonical-control',
+    'symposium-canonical-owner-record',
     'symposium-staging-identity',
     'symposium-staging-service',
   ])

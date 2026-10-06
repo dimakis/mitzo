@@ -9,7 +9,10 @@ import {
   verifyOwnedRelease,
   claimOwnedLaunch,
 } from '../dist/symposium-owned-release.js';
-import { ownedCustodianEnvironment } from '../dist/symposium-custodian-launch.js';
+import {
+  ownedCustodianEnvironment,
+  canonicalCustodianEnvironment,
+} from '../dist/symposium-custodian-launch.js';
 import {
   readStagingOperatorEnvironment,
   assertCanonicalStagingService,
@@ -17,6 +20,7 @@ import {
   requiresCanonicalStaging,
 } from '../dist/symposium-staging-service.js';
 import { launchStagingCustodian, StagingLaunchSchema } from '../dist/symposium-staging-launch.js';
+import { createCanonicalOwnerRecorder } from '../dist/symposium-canonical-owner-record.js';
 import { runSymposiumCustodian } from '../dist/symposium-custodian-main.js';
 try {
   const canonical = process.argv.length === 6 && process.argv[5] === '--canonical';
@@ -55,7 +59,8 @@ try {
     }
   }
   if (canonical && (env.PORT !== '3190' || env.MITZO_BIND_HOST !== '127.0.0.1')) throw Error();
-  if (canonical) env.MITZO_SYMPOSIUM_CANONICAL_STAGE = '1';
+  if (canonical) Object.assign(env, canonicalCustodianEnvironment(env));
+  const recordOwner = canonical ? createCanonicalOwnerRecorder(plan) : undefined;
   // Same process retains the original recorder and runtime authority throughout startup/shutdown.
   for (const key of Object.keys(process.env)) delete process.env[key];
   Object.assign(process.env, env);
@@ -63,7 +68,18 @@ try {
   await launchStagingCustodian(plan, registration, {
     verify: verifyOwnedRelease,
     claim: claimOwnedLaunch,
-    run: runSymposiumCustodian,
+    run: (hooks) =>
+      runSymposiumCustodian(
+        recordOwner
+          ? {
+              ...hooks,
+              observeController(identity, current) {
+                hooks.observeController?.(identity, current);
+                recordOwner(identity, current);
+              },
+            }
+          : hooks,
+      ),
   });
 } catch {
   process.stderr.write(

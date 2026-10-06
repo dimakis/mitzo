@@ -1,5 +1,8 @@
 import { expect, it } from 'vitest';
-import { custodianAppEnvironment } from '../symposium-custodian-launch.js';
+import {
+  custodianAppEnvironment,
+  canonicalCustodianEnvironment,
+} from '../symposium-custodian-launch.js';
 it('passes explicit app configuration without provider secrets or a second owned-host bootstrap', () => {
   const env = custodianAppEnvironment({
     PATH: '/usr/bin',
@@ -175,4 +178,21 @@ it('keeps canonical staging app sidecar routes away from production defaults', (
   expect(env.YAPPER_PROXY_TARGET).toBe('http://127.0.0.1:5191');
   expect(env.MITZO_URL).toBe('http://127.0.0.1:3190');
   expect(env.MITZO_SYMPOSIUM_CANONICAL_STAGE).toBeUndefined();
+});
+
+it('isolates canonical parent imports as well as the app child', () => {
+  const parent = canonicalCustodianEnvironment({
+    PORT: '3190',
+    MITZO_BIND_HOST: '127.0.0.1',
+    CENTAUR_URL: 'http://127.0.0.1:8642',
+  });
+  for (const env of [parent, custodianAppEnvironment(parent)]) {
+    expect(env.CENTAUR_URL).toBe('http://127.0.0.1:5193');
+    expect(env.CONTEXGIN_URL).toBe('http://127.0.0.1:5192');
+    expect(env.YAPPER_PROXY_TARGET).toBe('http://127.0.0.1:5191');
+    expect(env.MITZO_URL).toBe('http://127.0.0.1:3190');
+  }
+  expect(() =>
+    canonicalCustodianEnvironment({ PORT: '3100', MITZO_BIND_HOST: '127.0.0.1' }),
+  ).toThrow();
 });

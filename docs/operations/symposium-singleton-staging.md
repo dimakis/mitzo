@@ -105,3 +105,43 @@ plans. Prepare the owned bundle with --canonical after creating the capacity-one
 registration; it omits the unregistered custodian plist. Only the registered
 canonical launcher can start that plan. Removing --canonical never selects an
 ordinary trial or bypasses its registry/port checks.
+
+## Original-owner check and retirement
+
+The registered canonical launcher records `original-owner.json` from the live
+custodian callback. It includes the original parent and app child, their process
+birth times, controller epoch, source and immutable-input identities. The recorder
+cannot reopen a previous owner or adopt a record. A planned controller handoff
+updates only through the original callback, preserving the parent identity.
+
+After activation, run the selected release's controller:
+
+```sh
+node ~/.local/share/mitzo-staging/releases/SOURCE_PREFIX/scripts/symposium-staging.mjs check
+```
+
+This verifies pinned source, compiled/public inputs, the capacity-one registry,
+original parent, exact app child/parent relationship, and the3190 listener.
+Production listener PIDs are excluded. Check and drain never create registry
+records or reconstruct native capability. Offline check leaves freshness unknown.
+The ordinary controller continues to refuse this parent/child topology.
+
+A retirement plan requires the exact identities printed by check:
+
+```sh
+node ~/.local/share/mitzo-staging/releases/SOURCE_PREFIX/scripts/symposium-staging.mjs drain \
+  --source FULL_SOURCE_SHA --instance ORIGINAL_INSTANCE_ID --epoch CONTROLLER_EPOCH
+```
+
+Only adding `--apply` requests SIGTERM through the same `com.mitzo.staging` job.
+The exclusive deployment lock is shared with ordinary staging operations. Before
+control the script rechecks identities and unchanged evidence. Success requires
+both processes and the3190 listener to disappear, plus the original registry's
+retired state and matching native retirement receipt after the requested drain.
+A stopped process alone is insufficient. Uncertain shutdown retains the lock and
+evidence. No force escalation, automatic replacement, rollback or startup command
+is included. The VM must stay running until native retirement is confirmed.
+
+This controller does not perform the initial ordinary-to-owned transition. That
+transition still requires a reviewed source/configuration bundle and the existing
+ordinary service's original control; do not use drain to adopt an old custodian.
