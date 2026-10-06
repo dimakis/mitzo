@@ -2,12 +2,23 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { mkdtemp, realpath, rm, mkdir, access } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { writeFile, readFile } from 'node:fs/promises';
+import { writeFile, readFile, readdir } from 'node:fs/promises';
 import { ResticRepository } from '../backup/restic.js';
-import { ICloudBackupTransport } from '../backup/icloud-transport.js';
+import { ICloudBackupTransport, type Generation } from '../backup/icloud-transport.js';
+import * as filesystem from 'node:fs/promises';
+import { existsSync } from 'node:fs';
+import * as files from '../backup/files.js';
 import { BackupService } from '../backup/service.js';
+vi.mock('node:fs/promises', async (load) => {
+  const actual = await load<typeof import('node:fs/promises')>();
+  return { ...actual, rm: vi.fn(actual.rm) };
+});
 const roots: string[] = [];
 afterEach(async () => {
+  vi.restoreAllMocks();
+  vi.mocked(filesystem.rm).mockImplementation(
+    (await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises')).rm,
+  );
   for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true });
 });
 async function fixture() {
@@ -27,7 +38,7 @@ async function fixture() {
     initialize: vi.fn(async () => {}),
     backup: vi.fn(async () => 'a'.repeat(64)),
     check: vi.fn(async () => {}),
-    publish: vi.fn(async () => generation),
+    publish: vi.fn(async (): Promise<Generation> => generation),
     refresh: vi.fn(async () => ({ ...generation, status: 'uploaded' as const })),
   };
   const service = new BackupService({ root, driver });
@@ -172,3 +183,65 @@ it.runIf(!!process.env.MITZO_TEST_RESTIC_BINARY)(
   },
   60000,
 );
+
+it('removes failed core capture staging siblings before releasing the fence', async () => {
+  const { root, service, driver } = await fixture();
+  driver.capture.mockImplementation(async (path) => {
+    await mkdir(path + '.capture-orphan');
+    await writeFile(join(path + '.capture-orphan', 'private.txt'), 'synthetic private bytes');
+    throw Error('core cleanup failed');
+  });
+  await service.start();
+  await service.idle();
+  expect(await readdir(join(root, 'captures'))).toEqual([]);
+  expect((await service.overview()).runs[0].status).toBe('failed');
+});
+it('restores the writer fence when its release directory sync fails', async () => {
+  const { root, service } = await fixture();
+  const actual = files.syncDirectory;
+  let failed = false;
+  vi.spyOn(files, 'syncDirectory').mockImplementation(async (path) => {
+    if (path === root && !existsSync(join(root, 'writer.lock')) && !failed) {
+      failed = true;
+      throw Error('release sync failed');
+    }
+    await actual(path);
+  });
+  await service.start();
+  await service.idle();
+  expect(failed).toBe(true);
+  expect((await service.overview()).busy).toBe(true);
+  await expect(service.start()).rejects.toThrow();
+});
+it('preserves upload evidence beyond the bounded run history and after restart', async () => {
+  const { root, service, driver } = await fixture();
+  const generation = await driver.publish();
+  driver.publish.mockResolvedValueOnce({ ...generation, status: 'uploaded' });
+  await service.start();
+  await service.idle();
+  const confirmed = (await service.overview()).lastCloudUpload;
+  expect(confirmed).toBeTruthy();
+  for (let n = 0; n < 51; n++) {
+    await service.start();
+    await service.idle();
+  }
+  const view = await new BackupService({ root, driver }).overview();
+  expect(view.runs).toHaveLength(50);
+  expect(view.runs.every((run) => run.status === 'pending')).toBe(true);
+  expect(view.lastCloudUpload).toBe(confirmed);
+}, 15000);
+
+it('retains the fence if per-run plaintext cleanup itself fails', async () => {
+  const { root, service } = await fixture();
+  const actual = (await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises')).rm;
+  vi.mocked(filesystem.rm).mockImplementation(async (path, options) => {
+    if (String(path).startsWith(join(root, 'captures') + '/')) throw Error('cleanup failed');
+    await actual(path, options);
+  });
+  await service.start();
+  await service.idle();
+  const view = await service.overview();
+  expect(view.busy).toBe(true);
+  expect(view.runs[0].status).toBe('interrupted');
+  await expect(service.start()).rejects.toThrow();
+});

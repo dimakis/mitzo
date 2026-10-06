@@ -41,7 +41,12 @@ const runSchema = z
   })
   .strict();
 const journalSchema = z
-  .object({ version: z.literal(1), runs: z.array(runSchema).max(50) })
+  .object({
+    version: z.literal(1),
+    runs: z.array(runSchema).max(50),
+    lastCapture: z.string().datetime().nullable().default(null),
+    lastCloudUpload: z.string().datetime().nullable().default(null),
+  })
   .strict();
 const coverage: BackupOverview['coverage'] = [
   {
@@ -84,20 +89,40 @@ export class BackupService {
   ) {
     if (options && !isAbsolute(options.root)) throw Error('Backup root must be absolute');
   }
-  private async runs(): Promise<BackupRun[]> {
-    if (!this.options) return [];
+  private async journal() {
+    if (!this.options) return journalSchema.parse({ version: 1, runs: [] });
     try {
-      return journalSchema.parse(JSON.parse(await readSmall(join(this.options.root, 'runs.json'))))
-        .runs;
+      return journalSchema.parse(JSON.parse(await readSmall(join(this.options.root, 'runs.json'))));
     } catch (e) {
-      if ((e as NodeJS.ErrnoException).code === 'ENOENT') return [];
+      if ((e as NodeJS.ErrnoException).code === 'ENOENT')
+        return journalSchema.parse({ version: 1, runs: [] });
       throw Error('Backup history unavailable', { cause: e });
     }
   }
+  private async runs(): Promise<BackupRun[]> {
+    return (await this.journal()).runs;
+  }
   private async save(runs: BackupRun[]) {
+    const previous = await this.journal();
+    const latest = (values: Array<string | null | undefined>) =>
+      values
+        .filter((value): value is string => !!value)
+        .sort()
+        .at(-1) ?? null;
     await durableJson(
       join(this.options!.root, 'runs.json'),
-      journalSchema.parse({ version: 1, runs: runs.slice(0, 50) }),
+      journalSchema.parse({
+        version: 1,
+        runs: runs.slice(0, 50),
+        lastCapture: latest([
+          previous.lastCapture,
+          ...runs.filter((run) => run.snapshot).map((run) => run.startedAt),
+        ]),
+        lastCloudUpload: latest([
+          previous.lastCloudUpload,
+          ...runs.filter((run) => run.status === 'uploaded').map((run) => run.cloudVerifiedAt),
+        ]),
+      }),
     );
   }
   private async locked(): Promise<boolean> {
@@ -111,7 +136,8 @@ export class BackupService {
     }
   }
   async overview(): Promise<BackupOverview> {
-    const runs = await this.runs();
+    const journal = await this.journal();
+    const runs = journal.runs;
     const locked = await this.locked();
     return {
       ready: !!this.options,
@@ -126,8 +152,11 @@ export class BackupService {
       runs: runs.map((r) =>
         !this.busy && running.has(r.status) ? { ...r, status: 'interrupted' } : r,
       ),
-      lastCapture: runs.find((r) => r.snapshot)?.startedAt ?? null,
-      lastCloudUpload: runs.find((r) => r.status === 'uploaded')?.cloudVerifiedAt ?? null,
+      lastCapture: journal.lastCapture ?? runs.find((r) => r.snapshot)?.startedAt ?? null,
+      lastCloudUpload:
+        journal.lastCloudUpload ??
+        runs.find((r) => r.status === 'uploaded')?.cloudVerifiedAt ??
+        null,
       coverage: coverage.map((c) => ({ ...c })),
     };
   }
@@ -146,8 +175,19 @@ export class BackupService {
     }
   }
   private async release() {
-    await rm(join(this.options!.root, 'writer.lock'), { recursive: true });
-    await syncDirectory(this.options!.root);
+    const lock = join(this.options!.root, 'writer.lock');
+    try {
+      await rm(lock, { recursive: true });
+      await syncDirectory(this.options!.root);
+    } catch {
+      // Restore admission fencing if removal could not be durably completed.
+      // EEXIST may belong to another writer: never delete or replace that fence.
+      await mkdir(lock, { mode: 0o700 }).catch((error: NodeJS.ErrnoException) => {
+        if (error.code !== 'EEXIST') throw error;
+      });
+      await syncDirectory(this.options!.root);
+      throw Error('Backup writer lock release incomplete');
+    }
   }
   async start(): Promise<void> {
     await this.acquire();
@@ -171,11 +211,12 @@ export class BackupService {
   private async capture(runs: BackupRun[]) {
     const { root, driver } = this.options!;
     const run = runs[0];
-    const source = join(root, 'captures', run.id);
+    const workspace = join(root, 'captures', run.id);
+    const source = join(workspace, 'snapshot');
     let generation: Generation | undefined;
     try {
+      await safeDirectory(workspace, true);
       await driver.initialize();
-      await safeDirectory(join(root, 'captures'), true);
       await driver.capture(source);
       run.status = 'encrypting';
       await this.save(runs);
@@ -190,7 +231,8 @@ export class BackupService {
       run.error = failure;
     }
     // Remove plaintext before recording completion and releasing the repository fence.
-    await rm(source, { recursive: true, force: true });
+    await rm(workspace, { recursive: true, force: true });
+    await syncDirectory(join(root, 'captures'));
     run.completedAt = new Date().toISOString();
     if (generation) {
       run.generation = generation.id;

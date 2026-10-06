@@ -4,7 +4,15 @@ import { expect, it, vi } from 'vitest';
 import { createBackupRouter } from '../backup/router.js';
 it('requires interactive authentication for reads and actions; accepts no paths or configuration', async () => {
   const service = {
-    overview: vi.fn(async () => ({ ready: false })),
+    overview: vi.fn(async () => ({
+      ready: false,
+      busy: false,
+      setup: [],
+      runs: [],
+      lastCapture: null,
+      lastCloudUpload: null,
+      coverage: [],
+    })),
     start: vi.fn(async () => {}),
     refresh: vi.fn(async () => {}),
   };

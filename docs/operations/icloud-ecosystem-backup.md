@@ -183,7 +183,9 @@ fence at `writer.lock`. Captures use the running Mitzo owners and a canonical Te
 owner, preserving the optimistic multi-store consistency check from the core
 capture integration. Concurrent ordinary saves continue; a changed capture fails
 and can be retried manually. Restic checks all data before export. Plaintext capture
-folders are removed before the run is recorded complete and the fence is released.
+workspaces include all core staging siblings and are removed before the run is recorded
+complete and the fence is released. The capture parent directory is synced after removal.
+A failed fence-removal sync restores a fence and requires host inspection before retry.
 
 `pending` means the encrypted repository was exported locally, but every encrypted
 object and catalogue has not yet been confirmed uploaded by macOS. `uploaded`
@@ -194,7 +196,8 @@ that generation's logical encrypted export footprint, not an account quota readi
 or the sum of retained generations. The last confirmed upload is historical evidence,
 not a continuous guarantee that Apple still retains the remote copy.
 
-The private journal retains the latest 50 receipts (metadata only). This limit is
+The private journal retains the latest 50 receipts (metadata only), plus independent
+last-capture and last-confirmed-upload timestamps that survive history eviction. This limit is
 not backup retention: Restic snapshots and encrypted cloud generations are not
 pruned. Scheduling, retention configuration, automatic retries, restore controls
 and non-core ecosystem capture are not part of this iteration. The dashboard states
