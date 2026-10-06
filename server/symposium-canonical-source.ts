@@ -27,9 +27,23 @@ export function assertCanonicalOwnedSource(release: string, root: string) {
     fail();
   const fields = new Map<string, string>();
   for (const line of readFileSync(path, 'utf8').trim().split('\n')) {
-    const match = /^(source_commit|source_tree|base_main)=([a-f0-9]{40})$/.exec(line);
+    const match = /^([a-z_]+)=(.*)$/.exec(line);
     if (!match || fields.has(match[1])) fail();
-    fields.set(match[1], match[2]);
+    const [, name, value] = match;
+    if (['source_commit', 'source_tree', 'base_main'].includes(name)) {
+      if (!/^[a-f0-9]{40}$/.test(value)) fail();
+    } else if (name === 'source_ref') {
+      // Informational only: never selects source, supplies ancestry or executes.
+      if (!/^[^\s\x00-\x1f\x7f]{1,1024}$/.test(value)) fail();
+    } else if (name === 'created_at') {
+      if (
+        !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/.test(value) ||
+        Number.isNaN(Date.parse(value)) ||
+        new Date(value).toISOString().replace('.000Z', 'Z') !== value
+      )
+        fail();
+    } else fail();
+    fields.set(name, value);
   }
   const sourceCommit = fields.get('source_commit'),
     sourceTree = fields.get('source_tree'),

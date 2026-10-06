@@ -83,3 +83,26 @@ it.each(['dirty', 'unpublished', 'unaccepted-base', 'wrong-tree', 'wrong-root'])
     );
   },
 );
+
+it('accepts the standard release manifest metadata without trusting it as source identity', () => {
+  const f = fixture();
+  writeFileSync(
+    join(f.release, 'release.txt'),
+    f.manifest + 'source_ref=origin/feature\ncreated_at=2026-10-06T18:00:00Z\n',
+  );
+  expect(assertCanonicalOwnedSource(f.release, f.stage)).toEqual({
+    sourceCommit: f.source,
+    sourceTree: f.tree,
+    baseMain: f.base,
+  });
+});
+it.each([
+  'source_commit=' + 'a'.repeat(40),
+  'source_ref=first\nsource_ref=second',
+  'created_at=not-a-date',
+  'unexpected=value',
+])('rejects ambiguous or malformed release metadata %s', (extra) => {
+  const f = fixture();
+  writeFileSync(join(f.release, 'release.txt'), f.manifest + extra + '\n');
+  expect(() => assertCanonicalOwnedSource(f.release, f.stage)).toThrow();
+});
