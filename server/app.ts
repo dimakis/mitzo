@@ -124,7 +124,7 @@ import { execFileSync, execFile } from 'child_process';
 import { promisify } from 'util';
 import { createHash, randomUUID } from 'crypto';
 import { fileURLToPath } from 'url';
-import { createProxyMiddleware } from 'http-proxy-middleware';
+import { createVoiceProxy } from './voice-proxy.js';
 import {
   login,
   authenticateToken,
@@ -341,21 +341,11 @@ if (CORS_ALLOWED_ORIGINS.length > 0) {
 
 const YAPPER_TARGET = process.env.YAPPER_PROXY_TARGET || 'http://localhost:8700';
 
-export const yapperHttpProxy = createProxyMiddleware({
-  target: YAPPER_TARGET,
-  changeOrigin: true,
-  pathRewrite: { '^/api/yapper': '' },
-});
-
-export const yapperWsProxy = createProxyMiddleware({
-  target: YAPPER_TARGET.replace(/^http/, 'ws'),
-  changeOrigin: true,
-  ws: true,
-  pathRewrite: { '^/api/yapper-ws': '' },
-});
+export const yapperHttpProxy = createVoiceProxy(YAPPER_TARGET, '/api/yapper').http;
+export const yapperWsProxy = createVoiceProxy(YAPPER_TARGET, '/api/yapper-ws');
 
 app.use('/api/yapper', yapperHttpProxy);
-app.use('/api/yapper-ws', yapperWsProxy);
+app.use('/api/yapper-ws', yapperWsProxy.http);
 
 app.use(cookieParser());
 

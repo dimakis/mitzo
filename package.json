@@ -12,7 +12,7 @@
     "dev:server": "tsx watch server/index.ts",
     "build": "cd frontend && npm run build",
     "compile:server": "tsc -b packages/protocol packages/harness packages/client && tsc -p tsconfig.build.json",
-    "build:server": "npm run compile:server --silent && node scripts/check-reviewed-handler-artifacts.mjs && node scripts/check-iana-address-data.mjs",
+    "build:server": "npm run compile:server --silent && node scripts/check-reviewed-handler-artifacts.mjs && node scripts/check-iana-address-data.mjs && npm run check:security-backport --silent",
     "check:reviewed-handler-artifacts": "npm run build:server --silent && node scripts/check-reviewed-handler-artifacts.mjs",
     "print:reviewed-handler-artifacts": "npm run compile:server --silent && node scripts/check-reviewed-handler-artifacts.mjs --print",
     "generate:iana-address-data": "node scripts/generate-iana-address-data.mjs",
@@ -41,14 +41,15 @@
     "tracing:down": "docker compose stop jaeger && docker compose rm -f jaeger",
     "observability:up": "docker compose up -d",
     "observability:down": "docker compose down",
-    "prepare": "husky || true"
+    "prepare": "husky || true",
+    "check:security-backport": "node scripts/build-forge-security-backport.mjs --verify"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.141",
     "@anthropic-ai/sandbox-runtime": "0.0.75",
     "@anthropic-ai/sdk": "^0.124.0",
     "@anthropic-ai/vertex-sdk": "^0.19.7",
-    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@modelcontextprotocol/sdk": "^1.32.1",
     "@opentelemetry/api": "^1.9.1",
     "@opentelemetry/exporter-trace-otlp-http": "^0.222.0",
     "@opentelemetry/resources": "^2.11.0",
@@ -63,7 +64,6 @@
     "express-rate-limit": "^8.3.2",
     "google-auth-library": "^10.9.1",
     "helmet": "^8.1.0",
-    "http-proxy-middleware": "^3.0.5",
     "jose": "^5.9.0",
     "js-yaml": "^4.2.0",
     "nanoid": "^5.0.9",
@@ -72,7 +72,9 @@
     "pino-roll": "^4.0.0",
     "tldts": "7.4.12",
     "ws": "^8.18.0",
-    "zod": "4.3.6"
+    "zod": "4.3.6",
+    "node-forge": "file:vendor/security/mitzo-node-forge-security-1.4.0-mitzo.3.tgz",
+    "http-proxy": "^1.18.1"
   },
   "devDependencies": {
     "@commitlint/cli": "^21.2.2",
@@ -99,13 +101,23 @@
     "tsx": "^4.23.13",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.70.0",
-    "vitest": "^4.1.2"
+    "vitest": "^4.1.2",
+    "@types/http-proxy": "^1.17.17"
   },
   "overrides": {
     "qs": "^6.16.0",
     "uuid": "^11.1.1",
     "brace-expansion": "5.0.12",
     "fast-uri": "3.1.8",
-    "ip-address": "10.7.2"
-  }
+    "ip-address": "10.7.2",
+    "node-forge": "$node-forge",
+    "proxy-addr": "2.0.8",
+    "source-map-js": "1.2.2",
+    "katex": "0.18.2"
+  },
+  "engines": {
+    "npm": ">=11.18.0",
+    "node": ">=24"
+  },
+  "packageManager": "npm@11.18.0"
 }
