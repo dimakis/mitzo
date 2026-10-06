@@ -71,7 +71,9 @@ describe('MobileShell navigation', () => {
     );
     const mobileStyles = styles.slice(styles.indexOf('/* Keep the composer above'));
     const composer = ruleBody(mobileStyles, '.workspace-chat .chat-input');
-    expect(composer).toMatch(/padding:\s*8px/);
+    // Explicit composer padding overrides the global safe-area padding; its
+    // exact size can change without making the composer own the inset again.
+    expect(composer).toMatch(/padding:\s*[^;]+;/);
     expect(composer).not.toContain('safe-area-inset-bottom');
   });
 
