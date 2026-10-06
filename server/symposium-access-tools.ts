@@ -30,6 +30,7 @@ interface Row {
   hash: string;
   payload: string;
   status: string;
+  completed_operation_id?: string | null;
   created_at: number;
 }
 interface Dependencies {
@@ -60,8 +61,13 @@ export class SymposiumAccessRequests {
     this.db.pragma('journal_mode = WAL');
     this.db.exec(`CREATE TABLE IF NOT EXISTS symposium_access_requests (
       id TEXT PRIMARY KEY, session_id TEXT NOT NULL, identity TEXT NOT NULL UNIQUE,
-      hash TEXT NOT NULL, payload TEXT NOT NULL, status TEXT NOT NULL, created_at INTEGER NOT NULL
+      hash TEXT NOT NULL, payload TEXT NOT NULL, status TEXT NOT NULL, created_at INTEGER NOT NULL, completed_operation_id TEXT
     )`);
+    const columns = this.db.pragma('table_info(symposium_access_requests)') as Array<{
+      name: string;
+    }>;
+    if (!columns.some((column) => column.name === 'completed_operation_id'))
+      this.db.exec('ALTER TABLE symposium_access_requests ADD COLUMN completed_operation_id TEXT');
   }
   close() {
     for (const request of [...this.pending.values()]) request.cancel();
@@ -96,6 +102,7 @@ export class SymposiumAccessRequests {
       hash: row.hash,
       status: row.status,
       createdAt: row.created_at,
+      publicationOperationId: row.completed_operation_id ?? undefined,
     }));
   }
   decide(sessionId: string, id: string, hash: string, approved: boolean) {
@@ -146,6 +153,34 @@ export class SymposiumAccessRequests {
       .run(status, id);
     resolveSeatAccessNotification(sessionId, id, status === 'dismissed' ? 'denied' : 'allowed');
   }
+  /** Advisory cleanup only: the controller has already completed the separately approved sealed publication. */
+  publicationCompleted(
+    sessionId: string,
+    publication: { repositoryPath: string; baseBranch: string },
+    operation: { id: string; status: string },
+  ) {
+    if (
+      operation.status !== 'succeeded' ||
+      !operation.id ||
+      operation.id.length > 256 ||
+      posix.resolve(publication.repositoryPath) !== publication.repositoryPath
+    )
+      return;
+    const rows = this.db
+      .prepare(
+        "SELECT * FROM symposium_access_requests WHERE session_id=? AND status IN ('review_requested','review_handed_off') AND json_extract(payload,'$.kind')='publication' AND json_extract(payload,'$.input.repositoryPath')=? AND json_extract(payload,'$.input.baseBranch')=?",
+      )
+      .all(sessionId, publication.repositoryPath, publication.baseBranch) as Row[];
+    this.db.transaction(() => {
+      for (const row of rows)
+        this.db
+          .prepare(
+            "UPDATE symposium_access_requests SET status='publication_completed', completed_operation_id=? WHERE id=? AND status IN ('review_requested','review_handed_off')",
+          )
+          .run(operation.id, row.id);
+    })();
+    for (const row of rows) resolveSeatAccessNotification(sessionId, row.id, 'allowed');
+  }
   private enqueue(sessionId: string, identity: string, card: Card, status: string) {
     const hash = digest(card);
     const existing = this.db
@@ -175,7 +210,9 @@ export class SymposiumAccessRequests {
       throw new Error('Too many outstanding seat requests');
     const id = randomUUID();
     this.db
-      .prepare('INSERT INTO symposium_access_requests VALUES (?, ?, ?, ?, ?, ?, ?)')
+      .prepare(
+        'INSERT INTO symposium_access_requests (id,session_id,identity,hash,payload,status,created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      )
       .run(id, sessionId, identity, hash, JSON.stringify(card), status, Date.now());
     recordSeatAccessNotification(
       sessionId,

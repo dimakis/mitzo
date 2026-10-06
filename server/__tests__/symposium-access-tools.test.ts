@@ -204,3 +204,52 @@ it('keeps outstanding requests visible after more than fifty completed history r
   f.abort.abort();
   await pending;
 });
+it('resolves queued suggestions after confirmed sealed publication of their repository and branch', async () => {
+  const f = fixture();
+  const input = {
+    repositoryPath: '/sandbox/workspaces/mgmt',
+    baseBranch: 'main',
+    title: 'Suggested title',
+    body: 'Suggestion',
+    draft: true,
+  };
+  for (const [index, value] of [
+    input,
+    input,
+    { ...input, baseBranch: 'other' },
+    { ...input, repositoryPath: input.repositoryPath + '/other' },
+  ].entries()) {
+    await f.tool.executeTool('RequestGithubPublish', value, f.abort.signal, {
+      ...call,
+      callId: `pub-${index}`,
+    });
+  }
+  const rows = f.service.list('session');
+  f.service.handoff('session', rows[0].id, rows[0].hash);
+  f.service.publicationCompleted('session', input, {
+    id: 'operation',
+    status: 'verification_pending',
+  });
+  expect(f.service.list('session').some((row) => row.status === 'publication_completed')).toBe(
+    false,
+  );
+  f.service.publicationCompleted('other-session', input, { id: 'operation', status: 'succeeded' });
+  expect(f.service.list('session').some((row) => row.status === 'publication_completed')).toBe(
+    false,
+  );
+  f.service.publicationCompleted('session', input, { id: 'operation', status: 'succeeded' });
+  expect(
+    f.service.list('session').filter((row) => row.status === 'publication_completed'),
+  ).toHaveLength(2);
+  expect(
+    f.service
+      .list('session')
+      .filter((row) => row.status === 'publication_completed')
+      .every((row) => row.publicationOperationId === 'operation'),
+  ).toBe(true);
+  expect(
+    f.service
+      .list('session')
+      .filter((row) => ['review_requested', 'review_handed_off'].includes(row.status)),
+  ).toHaveLength(2);
+});
