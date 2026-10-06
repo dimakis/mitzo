@@ -1,3 +1,4 @@
+import { waitOriginalControllerExit } from './symposium-custodian-exit.js';
 import type { OriginalProcessObserver } from './symposium-original-process-retention.js';
 import { fork, type ChildProcess } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
@@ -254,12 +255,13 @@ export async function runSymposiumCustodian(hooks: SymposiumCustodianConstructor
         stopping = true;
         throw Error('Controller lost; retained resources remain quarantined');
       } finally {
-        if (exactChild.exitCode === null && exactChild.signalCode === null) {
-          exactChild.kill('SIGTERM');
-          const timer = setTimeout(() => exactChild.kill('SIGKILL'), 5000);
-          await exited;
-          clearTimeout(timer);
-        }
+        await waitOriginalControllerExit(
+          exactChild,
+          exited,
+          process.env.MITZO_SYMPOSIUM_CANONICAL_STAGE === '1',
+        );
+        // A canonical timeout throws before this assignment and native cleanup:
+        // retain the original child/host and record retirement uncertainty.
         child = undefined;
       }
       // Never auto-retry an app startup failure in a tight loop.
