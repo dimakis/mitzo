@@ -150,3 +150,15 @@ it('reports a disabled controller publisher before requesting access or invoking
   expect(mocks.approve).not.toHaveBeenCalled();
   expect(f.invoke).not.toHaveBeenCalled();
 });
+
+it('does not let a retired runtime clear its successor publishing binding', async () => {
+  const first = fixture('openai');
+  await first.execute(input, new AbortController().signal, { turnId: 'old', callId: 'call' });
+  const successor = fixture('openai');
+  await successor.execute(input, new AbortController().signal, { turnId: 'new', callId: 'call' });
+  const current = getLiveCapabilityConversationBinding('conversation');
+  first.execute.close();
+  expect(getLiveCapabilityConversationBinding('conversation')).toBe(current);
+  successor.execute.close();
+  expect(getLiveCapabilityConversationBinding('conversation')).toBeUndefined();
+});

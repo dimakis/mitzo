@@ -13,6 +13,7 @@ import { getConnectionsRuntime } from './connections-runtime.js';
 import {
   bindLiveCapabilityConversation,
   clearLiveCapabilityConversationBinding,
+  getLiveCapabilityConversationBinding,
 } from './capability-conversation-binding.js';
 import { capabilityApprovalForConversation } from './connections/capabilities/approval.js';
 import { canonicalJson } from './connections/capabilities/input-validation.js';
@@ -41,6 +42,7 @@ export function createGithubPublishingTool(
   registry: SessionRegistry,
   source: () => GithubPublishingSource | undefined,
 ) {
+  const runtimeOwnerId = randomUUID();
   let bound:
     { conversationId: string; connectionId: string; connectionRevision: number } | undefined;
   const execute = async (
@@ -174,6 +176,7 @@ export function createGithubPublishingTool(
       };
       bindLiveCapabilityConversation(conversationId, {
         ...resolved,
+        runtimeOwnerId,
         accountId: identity.accountId,
         connectionId: connection.id,
         connectionRevision: connection.revision,
@@ -222,8 +225,14 @@ export function createGithubPublishingTool(
     }
   };
   return Object.assign(execute, {
+    runtimeOwnerId,
     close: () => {
-      if (bound) clearLiveCapabilityConversationBinding(bound.conversationId, bound);
+      if (
+        bound &&
+        getLiveCapabilityConversationBinding(bound.conversationId)?.runtimeOwnerId ===
+          runtimeOwnerId
+      )
+        clearLiveCapabilityConversationBinding(bound.conversationId, bound);
       bound = undefined;
     },
   });

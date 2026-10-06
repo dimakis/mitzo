@@ -67,6 +67,7 @@ import { connectionTemplateRegistry } from './connections/registry.js';
 import { capabilityApprovalForConversation } from './connections/capabilities/approval.js';
 import {
   bindLiveCapabilityConversation,
+  getLiveCapabilityConversationBinding,
   clearLiveCapabilityConversationBinding,
 } from './capability-conversation-binding.js';
 import { sharedOpenShellLifecycleCoordinator } from './openshell-lifecycle.js';
@@ -881,7 +882,13 @@ async function openCodexChatBound(
     events.close();
     void mcp.close();
     runtimes.delete(options.session);
-    if (managedCapabilityConnection)
+    const livePublishingOwner = getLiveCapabilityConversationBinding(
+      options.conversationId,
+    )?.runtimeOwnerId;
+    if (
+      managedCapabilityConnection &&
+      (!livePublishingOwner || livePublishingOwner === githubPublishing.runtimeOwnerId)
+    )
       clearLiveCapabilityConversationBinding(options.conversationId, {
         connectionId: managedCapabilityConnection.id,
         connectionRevision: managedCapabilityConnection.revision,

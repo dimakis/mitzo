@@ -13,6 +13,7 @@ export interface LiveCapabilityConversationBinding {
   workspace?: string;
   /** Controller-bound source type; host workspaces do not impersonate a sandbox. */
   runtime?: 'host' | 'openshell';
+  runtimeOwnerId?: string;
   gitStorageRoots?: readonly string[];
 }
 
