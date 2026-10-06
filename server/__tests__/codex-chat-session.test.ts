@@ -104,6 +104,11 @@ it('forwards only recognized sanitized Codex diagnostics', () => {
     'Codex turn failed. Inspect queued work before retrying.',
   );
 });
+it('reports connection admission rejection without claiming a provider turn failed', () => {
+  expect(
+    publicCodexRuntimeError(new Error('Connection permissions changed. Start a new conversation.')),
+  ).toBe('Connection permissions changed. Start a new conversation.');
+});
 it('scopes capability idempotency to the authoritative conversation identity', () => {
   const binding = {
     capabilityId: 'github.publish-pr',
@@ -1292,7 +1297,7 @@ it('rejects a grantable account provider before opening a managed OpenShell chat
   }
 });
 
-it.each(['send', 'reattach', 'failure', 'revoked'] as const)(
+it.each(['send', 'reattach', 'failure', 'revoked', 'added', 'retained'] as const)(
   'releases the real connection reservation before first-turn admission (%s)',
   async (mode) => {
     vi.clearAllMocks();
@@ -1317,20 +1322,40 @@ it.each(['send', 'reattach', 'failure', 'revoked'] as const)(
           type: 'github',
         })),
         validateBinding: vi.fn(),
+        sandbox: vi.fn().mockResolvedValue({ name: 'retained' }),
+        sandboxProviders: vi.fn().mockResolvedValue([]),
       } as unknown as import('../connections-gateway.js').ConnectionGateway,
     );
-    const resolveConnections = vi.spyOn(service, 'resolveAutomaticForAccount').mockReturnValue([]);
-    vi.spyOn(service, 'onDemandForAccount').mockReturnValue([]);
-    const ensure = vi.spyOn(OpenShellRuntimeManager.prototype, 'ensure').mockResolvedValue({
-      sandboxName: 'mitzo-lock-test',
-      sandboxId: 'physical-lock-test',
-      workdir: '/sandbox/workspaces/mgmt',
-      appServerCommand: '/sandbox/run-mitzo-app-server',
-      cli: 'openshell',
-      gateway: 'openshell',
+    const connection = {
+      id: 'changed-connection',
+      templateId: 'github-readonly',
+      templateVersion: 1,
       workspace: 'default',
-      gatewayInsecure: false,
-    });
+      gatewayProviderName: 'changed-provider',
+      gatewayProviderId: 'changed-provider',
+    } as import('../connections-store.js').Connection;
+    const resolveConnections = vi
+      .spyOn(service, 'resolveAutomaticForAccount')
+      .mockReturnValue(mode === 'revoked' || mode === 'retained' ? [connection] : []);
+    vi.spyOn(service, 'onDemandForAccount').mockReturnValue([]);
+    const ensure = vi
+      .spyOn(OpenShellRuntimeManager.prototype, 'ensure')
+      .mockImplementation(async function () {
+        if (mode === 'retained')
+          expect(
+            (this as unknown as { config: { serviceProviders: string[] } }).config.serviceProviders,
+          ).not.toContain(connection.gatewayProviderName);
+        return {
+          sandboxName: 'mitzo-lock-test',
+          sandboxId: 'physical-lock-test',
+          workdir: '/sandbox/workspaces/mgmt',
+          appServerCommand: '/sandbox/run-mitzo-app-server',
+          cli: 'openshell',
+          gateway: 'openshell',
+          workspace: 'default',
+          gatewayInsecure: false,
+        };
+      });
     const compile = vi
       .spyOn(OpenShellRuntimeManager.prototype, 'compileContext')
       .mockResolvedValue({
@@ -1349,17 +1374,8 @@ it.each(['send', 'reattach', 'failure', 'revoked'] as const)(
     } as unknown as import('../connections-runtime.js').ConnectionsRuntime);
     let admitted = false;
     mocks.send.mockImplementationOnce(async () => {
-      if (mode === 'revoked')
-        resolveConnections.mockReturnValue([
-          {
-            id: 'changed-connection',
-            templateId: 'github-readonly',
-            templateVersion: 1,
-            workspace: 'default',
-            gatewayProviderName: 'changed-provider',
-            gatewayProviderId: 'changed-provider',
-          } as import('../connections-store.js').Connection,
-        ]);
+      if (mode === 'revoked') resolveConnections.mockReturnValue([]);
+      if (mode === 'added') resolveConnections.mockReturnValue([connection]);
       const guard = mocks.conversationOptions!.reconnectGuard as (
         work: () => Promise<void>,
       ) => Promise<void>;
@@ -1398,6 +1414,7 @@ it.each(['send', 'reattach', 'failure', 'revoked'] as const)(
         systemPrompt: 'base',
         env: {},
         reattachOnly: mode === 'reattach',
+        resume: mode === 'retained',
       });
       let timer: ReturnType<typeof setTimeout>;
       const bounded = Promise.race([
@@ -1416,8 +1433,8 @@ it.each(['send', 'reattach', 'failure', 'revoked'] as const)(
         expect(mocks.close).toHaveBeenCalled();
       } else {
         const chat = await bounded;
-        expect(admitted).toBe(mode === 'send');
-        expect(mocks.send).toHaveBeenCalledTimes(mode === 'send' ? 1 : 0);
+        expect(admitted).toBe(mode === 'send' || mode === 'added' || mode === 'retained');
+        expect(mocks.send).toHaveBeenCalledTimes(mode === 'reattach' ? 0 : 1);
         chat.close();
       }
       // Setup and admission both release the actual service's serial gate.

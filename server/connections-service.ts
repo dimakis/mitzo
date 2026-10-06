@@ -114,6 +114,21 @@ export class ConnectionsService {
         (c.templateId !== 'custom-rest-readonly' || c.publicConfig.attachmentMode === 'automatic'),
     );
   }
+  /** Under the account reservation: retained sandboxes keep their existing automatic grants. */
+  async retainedAutomaticConnections(
+    sandboxNames: readonly string[],
+    candidates: readonly Connection[],
+    signal: AbortSignal,
+  ): Promise<readonly Connection[]> {
+    for (const name of sandboxNames) {
+      if (!(await this.gateway.sandbox(name, signal))) continue;
+      const attached = new Set(await this.gateway.sandboxProviders(name, signal));
+      // Unknown or revoked attachments are deliberately not adopted here:
+      // verifyRuntimeSandbox rejects them before any sandbox mutation.
+      return candidates.filter((connection) => attached.has(connection.gatewayProviderName));
+    }
+    return candidates;
+  }
   /** Candidate custom providers for explicit per-conversation grants only. */
   onDemandForAccount(accountId: string, ownerId = 'operator') {
     return this.catalog(ownerId).filter(
