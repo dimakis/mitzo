@@ -1,3 +1,7 @@
+import {
+  recordSeatAccessNotification,
+  resolveSeatAccessNotification,
+} from './notification-center.js';
 import Database from 'better-sqlite3';
 import { createHash, randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
@@ -81,6 +85,7 @@ export class SymposiumAccessRequests {
           )
           .run(row.id);
         row.status = 'cancelled';
+        resolveSeatAccessNotification(sessionId, row.id, 'expired');
       }
     }
     return rows.map((row) => ({
@@ -109,6 +114,7 @@ export class SymposiumAccessRequests {
       )
       .run(approved ? 'approved' : 'denied', id, hash);
     if (result.changes !== 1) throw new Error('Access request changed');
+    resolveSeatAccessNotification(sessionId, id, approved ? 'allowed' : 'denied');
     pending.finish(approved);
   }
   dismiss(sessionId: string, id: string, hash: string) {
@@ -125,6 +131,7 @@ export class SymposiumAccessRequests {
         "UPDATE symposium_access_requests SET status='dismissed' WHERE id=? AND status='review_requested'",
       )
       .run(id);
+    resolveSeatAccessNotification(sessionId, id, 'denied');
   }
   private enqueue(sessionId: string, identity: string, card: Card, status: string) {
     const hash = digest(card);
@@ -135,10 +142,35 @@ export class SymposiumAccessRequests {
       if (existing.hash !== hash) throw new Error('Conflicting access request identity');
       return { row: existing, created: false };
     }
+    // Orphaned approvals cannot be revived after a controller restart.
+    const pendingRows = this.db
+      .prepare("SELECT id FROM symposium_access_requests WHERE session_id=? AND status='pending'")
+      .all(sessionId) as { id: string }[];
+    for (const pending of pendingRows)
+      if (!this.pending.has(pending.id))
+        this.db
+          .prepare(
+            "UPDATE symposium_access_requests SET status='cancelled' WHERE id=? AND status='pending'",
+          )
+          .run(pending.id);
+    const outstanding = this.db
+      .prepare(
+        "SELECT count(*) AS count FROM symposium_access_requests WHERE session_id=? AND status=? AND json_extract(payload, '$.seatId')=?",
+      )
+      .get(sessionId, status, card.seatId) as { count: number };
+    if (outstanding.count >= (status === 'pending' ? 3 : 10))
+      throw new Error('Too many outstanding seat requests');
     const id = randomUUID();
     this.db
       .prepare('INSERT INTO symposium_access_requests VALUES (?, ?, ?, ?, ?, ?, ?)')
       .run(id, sessionId, identity, hash, JSON.stringify(card), status, Date.now());
+    recordSeatAccessNotification(
+      sessionId,
+      id,
+      card.kind,
+      card.seatName,
+      status === 'pending' ? Date.now() + 5 * 60 * 1000 : undefined,
+    );
     return { row: this.row(id)!, created: true };
   }
   private approve(row: Row, verify: () => void, signal: AbortSignal): Promise<boolean> {
@@ -154,6 +186,7 @@ export class SymposiumAccessRequests {
             "UPDATE symposium_access_requests SET status='cancelled' WHERE id=? AND status='pending'",
           )
           .run(row.id);
+        resolveSeatAccessNotification(row.session_id, row.id, 'expired');
         cleanup();
         reject(new Error('Access request cancelled'));
       };
@@ -206,7 +239,12 @@ export class SymposiumAccessRequests {
     });
     return {
       tools: [
-        webAccessDefinition,
+        {
+          ...webAccessDefinition,
+          description:
+            'Request user approval for bounded HTTP(S) website reads by this seat, then fetch pages on the approved origin or revoke that access.',
+          input_schema: z.toJSONSchema(WebInput),
+        },
         {
           ...githubPublishingDefinition,
           description:

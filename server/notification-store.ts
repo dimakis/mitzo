@@ -63,7 +63,7 @@ export class NotificationStore {
   expire(now = Date.now()): number {
     return this.db
       .prepare(
-        "UPDATE notifications SET resolved_at=?, resolution='expired', delivery_status='cancelled' WHERE perm_id IS NOT NULL AND resolved_at IS NULL AND expires_at <= ?",
+        "UPDATE notifications SET resolved_at=?, resolution='expired', delivery_status='cancelled' WHERE (perm_id IS NOT NULL OR id LIKE 'seat-access:%') AND resolved_at IS NULL AND expires_at <= ?",
       )
       .run(now, now).changes;
   }
@@ -84,6 +84,18 @@ export class NotificationStore {
         "UPDATE notifications SET resolved_at=?, resolution=?, delivery_status='cancelled' WHERE perm_id=? AND resolved_at IS NULL",
       )
       .run(now, resolution, permId).changes;
+  }
+  resolveSessionNotice(
+    id: string,
+    sessionId: string,
+    resolution: NotificationResolution,
+    now = Date.now(),
+  ): number {
+    return this.db
+      .prepare(
+        "UPDATE notifications SET resolved_at=?, resolution=?, delivery_status='cancelled' WHERE id=? AND json_extract(data, '$.sessionId')=? AND perm_id IS NULL AND resolved_at IS NULL",
+      )
+      .run(now, resolution, id, sessionId).changes;
   }
   markRead(id: string, now = Date.now()): boolean {
     return (

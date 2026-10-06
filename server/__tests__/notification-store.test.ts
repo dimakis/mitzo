@@ -69,3 +69,25 @@ describe('durable notification state', () => {
     store.close();
   });
 });
+
+it('expires a seat access notice without a local permission-queue entry', () => {
+  const store = new NotificationStore(':memory:');
+  try {
+    store.record(
+      {
+        id: 'seat-access:request',
+        kind: 'approval',
+        title: 'Read site?',
+        body: 'Open conversation',
+        sessionId: 's1',
+        expiresAt: 2000,
+      },
+      1000,
+    );
+    expect(store.feed('needs', 1500).needsYou).toBe(1);
+    store.expire(2001);
+    expect(store.feed('needs', 2001).needsYou).toBe(0);
+  } finally {
+    store.close();
+  }
+});

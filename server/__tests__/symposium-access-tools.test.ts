@@ -142,3 +142,33 @@ it('cannot reuse a previous executing claim grant or accept model-selected accou
   ).toMatchObject({ isError: true });
   expect(f.service.list('session')).toEqual([]);
 });
+
+it('bounds simultaneous user approval cards for one seat', async () => {
+  const f = fixture();
+  const pending = [0, 1, 2].map((index) =>
+    f.tool.executeTool(
+      'RequestWebAccess',
+      { ...request, url: `http://localhost:${8123 + index}/` },
+      f.abort.signal,
+      { ...call, callId: String(index) },
+    ),
+  );
+  await vi.waitFor(() => expect(f.service.list('session')).toHaveLength(3));
+  const extra = f.tool.executeTool(
+    'RequestWebAccess',
+    { ...request, url: 'http://localhost:9000/' },
+    f.abort.signal,
+    { ...call, callId: 'extra' },
+  );
+  try {
+    expect(
+      await Promise.race([
+        extra,
+        new Promise((resolve) => setTimeout(() => resolve('still waiting'), 100)),
+      ]),
+    ).toMatchObject({ isError: true });
+  } finally {
+    f.abort.abort();
+    await Promise.all([...pending, extra]);
+  }
+});
