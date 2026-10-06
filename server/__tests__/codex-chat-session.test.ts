@@ -1344,6 +1344,20 @@ it.each([
       id: 'changed-connection',
       templateId: mode === 'jira-retained' ? 'jira-readonly' : 'github-readonly',
       publicConfig: { email: 'person@example.com' },
+      ownerId: 'operator',
+      label: 'Added connection',
+      endpoint: 'https://api.github.com',
+      gateway: 'openshell',
+      submittedEmail: '',
+      status: 'active',
+      revision: 1,
+      desiredAccountIds: ['work'],
+      identity: 'test',
+      verifiedAt: 1,
+      errorCode: null,
+      archivedAt: null,
+      createdAt: 1,
+      updatedAt: 1,
       templateVersion: 1,
       workspace: 'default',
       gatewayProviderName: 'changed-provider',
@@ -1355,7 +1369,7 @@ it.each([
     vi.spyOn(service, 'onDemandForAccount').mockReturnValue([]);
     const ensure = vi
       .spyOn(OpenShellRuntimeManager.prototype, 'ensure')
-      .mockImplementation(async function () {
+      .mockImplementation(async function (this: OpenShellRuntimeManager) {
         if (mode.endsWith('retained'))
           expect(
             (this as unknown as { config: { serviceProviders: string[] } }).config.serviceProviders,
