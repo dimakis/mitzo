@@ -26,8 +26,8 @@ separate reviewed configuration; this command cannot adopt their ownership.
 Use a full 40-character commit ID, not a moving branch name:
 
 ```sh
-mitzo-staging prepare --commit TARGET_SHA
-mitzo-staging deploy --commit TARGET_SHA --expected-current CURRENT_SHA
+~/.local/share/mitzo-staging/bin/mitzo-staging prepare --commit TARGET_SHA
+~/.local/share/mitzo-staging/bin/mitzo-staging deploy --commit TARGET_SHA --expected-current CURRENT_SHA
 ```
 
 Preparation clones independent source from the public repository and builds it
@@ -40,7 +40,7 @@ selected commit after the build. Preparation creates no app, provider or model t
 Deployment defaults to a plan. The explicit apply form is:
 
 ```sh
-mitzo-staging deploy --commit TARGET_SHA --expected-current CURRENT_SHA --apply
+~/.local/share/mitzo-staging/bin/mitzo-staging deploy --commit TARGET_SHA --expected-current CURRENT_SHA --apply
 ```
 
 Before controlling the job, the CLI and its support modules must be identical to
