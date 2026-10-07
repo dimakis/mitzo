@@ -18,6 +18,8 @@ const requestMethods = new Set([
 
 /** Only fixed diagnostics from typed errors; never relay upstream exception text. */
 export function codexRuntimeDiagnostic(error: Error): string | undefined {
+  if (error.message === 'Codex conversation binding unavailable or changed')
+    return 'This chat has no matching native conversation binding. Its saved messages are preserved. Inspect startup recovery before continuing.';
   if (error instanceof CodexTransportError) {
     return {
       timeout: 'The Codex connection timed out. Inspect saved work before retrying.',
@@ -48,6 +50,8 @@ export function codexRuntimeDiagnostic(error: Error): string | undefined {
 
 /** Shared by startup and running turns, with bounded fields safe for logs. */
 export function codexRuntimeErrorTelemetry(error: Error): Record<string, unknown> {
+  if (error.message === 'Codex conversation binding unavailable or changed')
+    return { conversationBindingUnavailable: true };
   if (error instanceof ProviderFailureError) return providerFailureTelemetry(error.failure);
   if (error instanceof CodexTransportError) return { transportErrorCategory: error.category };
   if (!(error instanceof CodexRequestError)) return {};

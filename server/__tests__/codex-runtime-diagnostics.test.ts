@@ -42,3 +42,14 @@ it('does not relay unknown exceptions or arbitrary request methods', () => {
   expect(codexRuntimeErrorTelemetry(error)).toEqual({ requestErrorCategory: 'unknown' });
   expect(JSON.stringify(codexRuntimeErrorTelemetry(error))).not.toContain(secret);
 });
+
+it('explains a failed resume with no matching native binding without inventing provider history', () => {
+  const error = new Error('Codex conversation binding unavailable or changed');
+  expect(codexRuntimeDiagnostic(error)).toBe(
+    'This chat has no matching native conversation binding. Its saved messages are preserved. Inspect startup recovery before continuing.',
+  );
+  expect(codexRuntimeErrorTelemetry(error)).toEqual({ conversationBindingUnavailable: true });
+  const upstream = new Error(error.message + ': Bearer sk-secret');
+  expect(codexRuntimeDiagnostic(upstream)).toBeUndefined();
+  expect(codexRuntimeErrorTelemetry(upstream)).toEqual({});
+});
