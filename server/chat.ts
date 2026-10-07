@@ -631,11 +631,34 @@ function nativeExecutionEnv(): Record<string, string> {
 
 export function resolveThinking(
   spec?: string,
-): { type: 'adaptive' } | { type: 'enabled'; budgetTokens: number } | undefined {
+):
+  | { type: 'adaptive'; display: 'summarized' }
+  | { type: 'enabled'; budgetTokens: number; display: 'summarized' }
+  | undefined {
   const { model, effort } = parseModelSpec(spec);
-  if (model.includes('opus') && effort === 'max') return { type: 'enabled', budgetTokens: 128_000 };
-  if (!model || model.includes('opus')) return { type: 'adaptive' };
-  if (model.includes('sonnet')) return { type: 'enabled', budgetTokens: 10_000 };
+  // Opus 4.7+ rejects fixed budgets and omits thinking text unless opted in.
+  const adaptiveOnlyOpus = /^claude-opus-(?:4-[7-9]|[5-9])(?:[.@-]|$)/.test(model);
+  if (model.includes('opus') && effort === 'max' && !adaptiveOnlyOpus)
+    return { type: 'enabled', budgetTokens: 128_000, display: 'summarized' };
+  if (!model || model.includes('opus')) return { type: 'adaptive', display: 'summarized' };
+  if (model.includes('sonnet'))
+    return { type: 'enabled', budgetTokens: 10_000, display: 'summarized' };
+  return undefined;
+}
+
+export function resolveClaudeEffort(
+  spec?: string,
+  reasoningEffort?: string | null,
+): 'low' | 'medium' | 'high' | 'xhigh' | 'max' | undefined {
+  const effort = reasoningEffort ?? parseModelSpec(spec).effort;
+  if (
+    effort === 'low' ||
+    effort === 'medium' ||
+    effort === 'high' ||
+    effort === 'xhigh' ||
+    effort === 'max'
+  )
+    return effort;
   return undefined;
 }
 
@@ -1745,6 +1768,7 @@ async function _startChatInner(
             ],
             disallowedTools: ['WebSearch', 'WebFetch'],
             thinking: resolveThinking(options.model),
+            effort: resolveClaudeEffort(options.model, options.reasoningEffort),
             ...(options.model ? { model: parseModelSpec(options.model).model } : {}),
             ...(resolvedResume ? { resume: resolvedResume } : {}),
             ...(newSdkSessionId ? { sessionId: newSdkSessionId } : {}),

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseModelSpec, resolveThinking } from '../chat.js';
+import { parseModelSpec, resolveThinking, resolveClaudeEffort } from '../chat.js';
 
 describe('parseModelSpec', () => {
   it('returns empty model and no effort for undefined', () => {
@@ -34,21 +34,21 @@ describe('parseModelSpec', () => {
 
 describe('resolveThinking', () => {
   it('returns adaptive for undefined (default)', () => {
-    expect(resolveThinking(undefined)).toEqual({ type: 'adaptive' });
+    expect(resolveThinking(undefined)).toEqual({ type: 'adaptive', display: 'summarized' });
   });
 
   it('returns adaptive for plain opus model', () => {
-    expect(resolveThinking('claude-opus-4-8')).toEqual({ type: 'adaptive' });
+    expect(resolveThinking('claude-opus-4-8')).toEqual({ type: 'adaptive', display: 'summarized' });
   });
 
   it('returns adaptive for opus 4-6', () => {
-    expect(resolveThinking('claude-opus-4-6')).toEqual({ type: 'adaptive' });
+    expect(resolveThinking('claude-opus-4-6')).toEqual({ type: 'adaptive', display: 'summarized' });
   });
 
-  it('returns 128k budget for opus :max', () => {
+  it('keeps Opus 4.8 :max adaptive with visible summaries', () => {
     expect(resolveThinking('claude-opus-4-8:max')).toEqual({
-      type: 'enabled',
-      budgetTokens: 128_000,
+      type: 'adaptive',
+      display: 'summarized',
     });
   });
 
@@ -56,6 +56,7 @@ describe('resolveThinking', () => {
     expect(resolveThinking('claude-sonnet-4-6')).toEqual({
       type: 'enabled',
       budgetTokens: 10_000,
+      display: 'summarized',
     });
   });
 
@@ -63,10 +64,32 @@ describe('resolveThinking', () => {
     expect(resolveThinking('claude-sonnet-5')).toEqual({
       type: 'enabled',
       budgetTokens: 10_000,
+      display: 'summarized',
     });
   });
 
   it('returns undefined for haiku', () => {
     expect(resolveThinking('claude-haiku-4-5')).toBeUndefined();
   });
+});
+
+it.each(['claude-opus-4-7', 'claude-opus-4-8@20260901:max'])(
+  'requests visible adaptive thinking for %s',
+  (model) => {
+    expect(resolveThinking(model)).toEqual({ type: 'adaptive', display: 'summarized' });
+  },
+);
+it('preserves the legacy Opus 4.6 max budget', () => {
+  expect(resolveThinking('claude-opus-4-6:max')).toEqual({
+    type: 'enabled',
+    budgetTokens: 128_000,
+    display: 'summarized',
+  });
+});
+it('passes max as SDK effort rather than a thinking budget', () => {
+  expect(resolveClaudeEffort('claude-opus-4-8:max')).toBe('max');
+  expect(resolveClaudeEffort('claude-opus-4-8', 'high')).toBe('high');
+  expect(resolveClaudeEffort('claude-opus-4-8:max', 'low')).toBe('low');
+  expect(resolveClaudeEffort('claude-opus-4-8')).toBeUndefined();
+  expect(resolveClaudeEffort('claude-opus-4-8:invalid')).toBeUndefined();
 });
