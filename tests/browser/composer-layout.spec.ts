@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import { build } from 'esbuild';
 
 // Render the real composer without a backend, provider, or Vite preview.
-async function composerAssets() {
+async function composerAssets(running = false) {
   const result = await build({
     stdin: {
       resolveDir: process.cwd(),
@@ -19,7 +19,7 @@ async function composerAssets() {
           startRecording() {}, stopRecording: async () => '', cancelRecording() {} };
         createRoot(document.getElementById('root')).render(
           <div className="workspace-chat" style={{paddingTop: 200}}>
-            <ChatInput onSend={() => true} onStop={() => {}} running={false} voice={voice}
+            <ChatInput onSend={() => true} onStop={() => {}} onInterrupt={() => true} running={${running}} voice={voice}
               tokenState={{agentContext: 50000, contextCeiling: 200000, sessionTotal: 90000,
                 numTurns: 3, turnIndex: 1, numCompactions: 1}} />
           </div>
@@ -69,3 +69,27 @@ for (const width of [320, 390]) {
     expect(await composer.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
   });
 }
+
+test('running controls stay reachable with a draft at 320px', async ({ page }) => {
+  const assets = await composerAssets(true);
+  await page.setViewportSize({ width: 320, height: 640 });
+  await page.route('**/*', (route) => route.abort());
+  await page.setContent(
+    `<meta name="viewport" content="width=device-width, initial-scale=1.0"><style>${assets.css}</style><div id="root"></div>`,
+  );
+  await page.addScriptTag({ content: assets.js });
+  const field = page.getByRole('textbox', { name: 'Message Mitzo' });
+  await field.fill('Follow up while the agent is running');
+  for (const name of ['Stop generation', 'Queue message', 'Interrupt and send now']) {
+    const control = page.getByRole('button', { name, exact: true });
+    await expect(control).toBeVisible();
+    const bounds = (await control.boundingBox())!;
+    expect(bounds.width).toBeGreaterThanOrEqual(44);
+    expect(bounds.height).toBeGreaterThanOrEqual(44);
+    expect(bounds.x).toBeGreaterThanOrEqual(0);
+    expect(bounds.x + bounds.width).toBeLessThanOrEqual(320);
+  }
+  expect(await page.locator('.chat-input').evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(
+    true,
+  );
+});
