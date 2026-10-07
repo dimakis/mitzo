@@ -868,7 +868,7 @@ describe('ConnectionsView', () => {
     expect(container.textContent).not.toContain('secret');
     expect(vi.mocked(connections.getConnections).mock.calls.length).toBeGreaterThan(1);
   });
-  it('clears create credentials before rejecting an expired reauthorization', async () => {
+  it('preserves create credentials when authorization expires before submission', async () => {
     vi.mocked(connections.reauthorize).mockResolvedValue({
       csrf: 'c'.repeat(32),
       expiresAt: Date.now() - 1,
@@ -884,7 +884,7 @@ describe('ConnectionsView', () => {
     await act(async () => button('Back').click());
     await act(async () => button('Back').click());
     await act(async () => button('Back').click());
-    expect(input('API token').value).toBe('');
+    expect(input('API token').value).toBe('secret');
   });
   it('shows unsupported templates as forthcoming and prevents them entering the wizard', async () => {
     await render();
@@ -957,7 +957,7 @@ describe('ConnectionsView', () => {
     expect(container.textContent).toContain('Rotation failed');
     expect(container.textContent).not.toContain('rotate-secret');
   });
-  it('clears rotation credentials before rejecting expired reauthorization', async () => {
+  it('preserves rotation credentials when authorization expires before submission', async () => {
     vi.mocked(connections.reauthorize).mockResolvedValue({
       csrf: 'c'.repeat(32),
       expiresAt: Date.now() - 1,
@@ -969,7 +969,7 @@ describe('ConnectionsView', () => {
       fireEvent.change(input('Replacement API token'), { target: { value: 'rotate-secret' } }),
     );
     await act(async () => button('Verify and rotate').click());
-    expect(input('Replacement API token').value).toBe('');
+    expect(input('Replacement API token').value).toBe('rotate-secret');
     expect(connections.rotateConnection).not.toHaveBeenCalled();
   });
   it('keeps retry and removal behind the existing Jira lifecycle safeguards', async () => {

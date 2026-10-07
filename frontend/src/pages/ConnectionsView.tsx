@@ -422,9 +422,9 @@ export function ConnectionsView() {
                       !scopeValid(template, scope)
                     }
                     onClick={() => {
+                      if (!requireReauthorization()) return;
                       const oneShot = credentials;
                       setCredentials({});
-                      if (!requireReauthorization()) return;
                       void run(
                         'create',
                         () =>
@@ -1359,9 +1359,9 @@ function ConnectionCard({
           onSubmit={(event) => {
             event.preventDefault();
             if (!secretValid(credentialFields, rotationCredentials)) return;
+            if (!requireReauthorization()) return;
             const oneShot = rotationCredentials;
             onRotationCredentials({});
-            if (!requireReauthorization()) return;
             onRotateClose();
             void onAction(
               `rotate:${connection.id}`,
