@@ -23,29 +23,31 @@ import { canonicalJson } from './connections/capabilities/input-validation.js';
 export const REQUEST_GITHUB_PUBLISH = 'RequestGithubPublish';
 // Shared across runtime replacements; closing one runtime cannot release its active operation.
 const publishingAdmissions = new Set<string>();
-const operatorPublishing = new Map<
-  string,
-  {
-    registry: SessionRegistry;
-    ownerId: string;
-    session?: unknown;
-    account?: unknown;
-    execute: (
-      input: unknown,
-      signal: AbortSignal,
-      call: { turnId: string; callId: string },
-    ) => Promise<{ content: string; isError: boolean }>;
-  }
->();
+interface OperatorPublishingRegistration {
+  registry: SessionRegistry;
+  conversationId: () => string;
+  session?: unknown;
+  account?: unknown;
+  execute: (
+    input: unknown,
+    signal: AbortSignal,
+    call: { turnId: string; callId: string },
+  ) => Promise<{ content: string; isError: boolean }>;
+}
+// Runtime identity is stable before an SDK assigns its conversation ID.
+const operatorPublishing = new Map<string, OperatorPublishingRegistration>();
 export async function requestOperatorGithubPublication(
   conversationId: string,
   registry: SessionRegistry,
   input: unknown,
   signal: AbortSignal,
 ) {
-  const active = operatorPublishing.get(conversationId);
-  if (!active || active.registry !== registry)
-    throw new Error('No live publishing runtime is registered for this conversation');
+  let active: OperatorPublishingRegistration | undefined;
+  for (const registered of operatorPublishing.values()) {
+    if (registered.registry === registry && registered.conversationId() === conversationId)
+      active = registered;
+  }
+  if (!active) throw new Error('No live publishing runtime is registered for this conversation');
   const current = registry.findBySessionId(conversationId);
   if (
     !current ||
@@ -81,6 +83,7 @@ export function createGithubPublishingTool(
   conversation: string | (() => string),
   registry: SessionRegistry,
   source: () => GithubPublishingSource | undefined,
+  ownerSession?: ReturnType<SessionRegistry['get']>,
 ) {
   const runtimeOwnerId = randomUUID();
   let closed = false;
@@ -389,21 +392,28 @@ export function createGithubPublishingTool(
       publishingAdmissions.delete(conversationId);
     }
   };
-  const operatorConversationId = typeof conversation === 'function' ? conversation() : conversation;
-  const operatorOwner = registry.findBySessionId(operatorConversationId);
-  operatorPublishing.set(operatorConversationId, {
+  const conversationId = () => (typeof conversation === 'function' ? conversation() : conversation);
+  const operatorSession = ownerSession ?? registry.findBySessionId(conversationId())?.session;
+  for (const [id, registered] of operatorPublishing) {
+    if (
+      operatorSession &&
+      registered.registry === registry &&
+      registered.session === operatorSession
+    )
+      operatorPublishing.delete(id);
+  }
+  operatorPublishing.set(runtimeOwnerId, {
     registry,
-    ownerId: runtimeOwnerId,
+    conversationId,
     execute,
-    session: operatorOwner?.session,
-    account: structuredClone(operatorOwner?.session.accountBinding),
+    session: operatorSession,
+    account: structuredClone(operatorSession?.accountBinding),
   });
   return Object.assign(execute, {
     runtimeOwnerId,
     close: () => {
       closed = true;
-      if (operatorPublishing.get(operatorConversationId)?.ownerId === runtimeOwnerId)
-        operatorPublishing.delete(operatorConversationId);
+      operatorPublishing.delete(runtimeOwnerId);
       if (
         bound &&
         getLiveCapabilityConversationBinding(bound.conversationId)?.runtimeOwnerId ===

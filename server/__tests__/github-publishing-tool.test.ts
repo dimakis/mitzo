@@ -382,3 +382,81 @@ it('does not let an operator use a superseded account or a closed runtime', asyn
   ).toMatchObject({ isError: true });
   expect(f.invoke).not.toHaveBeenCalled();
 });
+it('follows a newly assigned SDK conversation ID while retaining its original session and account', async () => {
+  const { requestOperatorGithubPublication } = await import('../github-publishing-tool.js');
+  const f = fixture('anthropic-vertex');
+  f.execute.close();
+  let conversationId = '';
+  f.session.sessionId = undefined;
+  f.registry.findBySessionId = ((id: string) =>
+    conversationId && id === conversationId
+      ? { clientId: 'owner', session: f.session }
+      : undefined) as SessionRegistry['findBySessionId'];
+  const execute = createGithubPublishingTool(
+    () => conversationId,
+    f.registry,
+    () => ({ runtime: 'host', workspace: '/workspace', gitStorageRoots: [] }),
+    f.session,
+  );
+  await expect(
+    requestOperatorGithubPublication(
+      'resolved-sdk',
+      f.registry,
+      input,
+      new AbortController().signal,
+    ),
+  ).rejects.toThrow(/live/);
+  conversationId = 'resolved-sdk';
+  f.session.sessionId = conversationId;
+  expect(
+    await requestOperatorGithubPublication(
+      conversationId,
+      f.registry,
+      input,
+      new AbortController().signal,
+    ),
+  ).toMatchObject({ isError: false });
+  expect(f.invoke).toHaveBeenCalledWith(
+    expect.objectContaining({ conversationId }),
+    expect.any(AbortSignal),
+    expect.any(Function),
+  );
+  f.session.accountBinding = { ...f.session.accountBinding!, accountId: 'replacement' };
+  await expect(
+    requestOperatorGithubPublication(
+      conversationId,
+      f.registry,
+      input,
+      new AbortController().signal,
+    ),
+  ).rejects.toThrow(/changed/);
+  execute.close();
+  await expect(
+    requestOperatorGithubPublication(
+      conversationId,
+      f.registry,
+      input,
+      new AbortController().signal,
+    ),
+  ).rejects.toThrow(/live/);
+});
+it('does not restore a superseded publisher when its replacement closes', async () => {
+  const { requestOperatorGithubPublication } = await import('../github-publishing-tool.js');
+  const f = fixture('openai');
+  const replacement = createGithubPublishingTool(
+    'conversation',
+    f.registry,
+    () => ({ runtime: 'host', workspace: '/workspace', gitStorageRoots: [] }),
+    f.session,
+  );
+  replacement.close();
+  await expect(
+    requestOperatorGithubPublication(
+      'conversation',
+      f.registry,
+      input,
+      new AbortController().signal,
+    ),
+  ).rejects.toThrow(/live/);
+  f.execute.close();
+});
