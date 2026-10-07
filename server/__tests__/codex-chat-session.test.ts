@@ -77,6 +77,7 @@ import {
   openCodexChat,
   publicCodexRuntimeError,
   publicCodexStartupError,
+  ordinaryRuntimeServiceProviders,
   selectedOpenShellAccountRoute,
   waitForCodexRuntime,
   waitForCodexRuntimeBySessionId,
@@ -96,6 +97,24 @@ import { SymposiumProfileStore } from '../symposium-profiles.js';
 afterEach(() => {
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
+});
+it('uses assigned GitHub credentials instead of the legacy fallback on a new runtime', () => {
+  const managed = [
+    { templateId: 'github-readonly', gatewayProviderName: 'mitzo-conn-github' },
+    { templateId: 'jira-readonly', gatewayProviderName: 'mitzo-conn-jira' },
+  ];
+  expect(ordinaryRuntimeServiceProviders(['github', 'google-workspace'], managed)).toEqual([
+    'google-workspace',
+    'mitzo-conn-github',
+    'mitzo-conn-jira',
+  ]);
+  expect(ordinaryRuntimeServiceProviders(['github'], managed.slice(1))).toEqual([
+    'github',
+    'mitzo-conn-jira',
+  ]);
+  // Retained selection excludes a newly assigned connection absent from that
+  // physical sandbox, so an existing legacy GitHub binding stays selected.
+  expect(ordinaryRuntimeServiceProviders(['github'], [])).toEqual(['github']);
 });
 
 it('forwards only recognized sanitized Codex diagnostics', () => {

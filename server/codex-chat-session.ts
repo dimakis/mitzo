@@ -99,6 +99,21 @@ import {
   SYMPOSIUM_PROPOSE_PROFILE_TOOL,
 } from './symposium-profile-tool.js';
 
+/** Assigned GitHub connections replace the legacy credential fallback. Retained
+ * runtimes supply only their already attached managed connections here. */
+export function ordinaryRuntimeServiceProviders(
+  configured: readonly string[],
+  managed: readonly Pick<Connection, 'templateId' | 'gatewayProviderName'>[],
+): string[] {
+  const managedGithub = managed.some((connection) => connection.templateId === 'github-readonly');
+  return [
+    ...new Set([
+      ...configured.filter((provider) => provider !== 'github' || !managedGithub),
+      ...managed.map((connection) => connection.gatewayProviderName),
+    ]),
+  ];
+}
+
 const runtimes = new WeakMap<ManagedSession, CodexConversation>();
 interface PendingProviderAdmission {
   admission: ProviderDispatchAdmission;
@@ -589,10 +604,10 @@ async function openCodexChatBound(
     ? new OpenShellRuntimeManager({
         ...configuredRuntime,
         ...(routedRuntime ? { sandboxNameOverride: routedRuntime.runtime.sandboxName } : {}),
-        serviceProviders: [
-          ...configuredRuntime.serviceProviders,
-          ...managedConnections.map((connection) => connection.gatewayProviderName),
-        ],
+        serviceProviders: ordinaryRuntimeServiceProviders(
+          configuredRuntime.serviceProviders,
+          managedConnections,
+        ),
         grantableServiceProviders: [
           ...configuredRuntime.grantableServiceProviders,
           ...onDemandConnections.map((connection) => connection.gatewayProviderName),

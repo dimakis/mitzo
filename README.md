@@ -19,7 +19,7 @@ Codex startup failures distinguish known account, workspace-routing, transport a
 
 Ordinary OpenShell Codex chats reserve their account-bound native ledger before provisioning. If provisioning fails before provider initialization, a later send finishes that reserved startup under the same chat ID. Once provider initialization begins, an unacknowledged thread outcome blocks ordinary resume; existing legacy history is never marked undispatched automatically.
 
-Accounts with multiple managed connections can provision new sandboxes without exceeding the gateway's 63-character label-value limit. Oversized provider-policy fingerprints use a stable bounded hash; valid historical labels and connection assignments are preserved.
+Accounts with multiple managed connections can provision new sandboxes without exceeding the gateway's 63-character label-value limit. Oversized provider-policy fingerprints use a stable bounded hash; valid historical labels and connection assignments are preserved. New runtimes prefer an assigned managed GitHub connection over the legacy GitHub fallback, avoiding duplicate `GITHUB_TOKEN` credentials. Retained runtimes keep their existing automatic grants; conflicting GitHub attachments require recovery before startup.
 
 ## Features
 
