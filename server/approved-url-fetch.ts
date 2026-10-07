@@ -3,6 +3,11 @@ import { lookup } from 'node:dns/promises';
 import { request as httpRequest } from 'node:http';
 import { request as httpsRequest } from 'node:https';
 import { isIP } from 'node:net';
+export class ApprovedUrlRedirect extends Error {
+  constructor(readonly url: string) {
+    super(`Request separate URL approval for ${url}`);
+  }
+}
 export interface ApprovedUrlTarget {
   url: string;
   origin: string;
@@ -92,8 +97,7 @@ export async function fetchApprovedUrl(
   let url = canonicalApprovalUrl(value);
   for (let hop = 0; hop <= 3; hop++) {
     signal.throwIfAborted();
-    if (url.origin !== target.origin)
-      throw new Error(`Request separate URL approval for ${url.href}`);
+    if (url.origin !== target.origin) throw new ApprovedUrlRedirect(url.href);
     const current = await withWebAbort(deps.resolve(url.href), signal);
     signal.throwIfAborted();
     if (

@@ -9,6 +9,7 @@ import {
   type SessionRegistry,
 } from '@mitzo/harness';
 import {
+  ApprovedUrlRedirect,
   canonicalApprovalUrl,
   resolveApprovedUrl,
   fetchApprovedUrl,
@@ -54,8 +55,8 @@ export function createUrlAccessTool(
     owner()?.clientId === clientId &&
     effectivePermissionMode(session) !== 'ask' &&
     checkSkillPolicy(registry, clientId, REQUEST_WEB_ACCESS) !== 'deny';
-  return {
-    async request(input: unknown, signal: AbortSignal) {
+  const tool = {
+    async request(input: unknown, signal: AbortSignal, redirectedFrom?: string) {
       try {
         signal.throwIfAborted();
         const parsed = Input.safeParse(input);
@@ -101,8 +102,13 @@ export function createUrlAccessTool(
             forcePrompt: true,
             allowSessionGrant: false,
             approvalScope: 'request',
-            title: 'Allow this session to read this website?',
+            title: redirectedFrom
+              ? 'Approve redirected destination?'
+              : 'Allow this session to read this website?',
             description:
+              (redirectedFrom
+                ? `The approved page at ${new URL(redirectedFrom).origin} moved to ${url.origin}. Approve the destination to continue this read. `
+                : '') +
               'Allows credential-free reads through Mitzo’s web tool on the exact origin and resolved addresses shown below. Includes private or local destinations when explicitly shown. Other origins and credentials require separate access.',
           },
         );
@@ -171,24 +177,59 @@ export function createUrlAccessTool(
       }
       if (!allowed(current.clientId, current.session))
         return { content: 'Session permissions changed; URL reads are unavailable', isError: true };
+      const chain = [{ origin: url.origin, grant }];
+      const chainCurrent = () =>
+        allowed(current.clientId, current.session) &&
+        chain.every(
+          ({ origin, grant }) =>
+            grants.get(current.session)?.get(origin) === grant &&
+            grant.expires > deps.now() &&
+            isDeepStrictEqual(grant.account, current.session.accountBinding) &&
+            grant.model === current.session.model,
+        );
+      let activeGrant = grant;
       try {
-        signal.throwIfAborted();
-        const content = await deps.fetch(url.href, grant.target, signal);
-        signal.throwIfAborted();
-        if (
-          !isDeepStrictEqual(grant.account, current.session.accountBinding) ||
-          grant.model !== current.session.model
-        )
-          grants.get(current.session)?.delete(url.origin);
-        if (
-          grants.get(current.session)?.get(url.origin) !== grant ||
-          grant.expires <= deps.now() ||
-          !allowed(current.clientId, current.session) ||
-          !isDeepStrictEqual(grant.account, current.session.accountBinding) ||
-          grant.model !== current.session.model
-        )
-          return { content: 'Session permissions changed during URL read', isError: true };
-        return { content, isError: false };
+        for (let hop = 0; hop <= 3; hop++) {
+          signal.throwIfAborted();
+          if (!chainCurrent())
+            return { content: 'Session permissions changed during URL read', isError: true };
+          try {
+            const content = await deps.fetch(url.href, activeGrant.target, signal);
+            signal.throwIfAborted();
+            if (!chainCurrent())
+              return { content: 'Session permissions changed during URL read', isError: true };
+            return { content, isError: false };
+          } catch (error) {
+            signal.throwIfAborted();
+            if (!(error instanceof ApprovedUrlRedirect)) throw error;
+            if (!chainCurrent())
+              return { content: 'Session permissions changed during URL read', isError: true };
+            if (hop === 3)
+              return { content: 'Approved read reached the redirect limit.', isError: true };
+            const destination = canonicalApprovalUrl(error.url);
+            // Never reuse the source grant for a new origin, including private hosts.
+            const decision = await tool.request(
+              {
+                operation: 'request_access',
+                url: destination.href,
+                reason: 'Continue the approved website read after a redirect',
+              },
+              signal,
+              url.href,
+            );
+            signal.throwIfAborted();
+            if (decision.isError) return decision;
+            if (!chainCurrent())
+              return { content: 'Session permissions changed during URL read', isError: true };
+            const destinationGrant = grants.get(current.session)?.get(destination.origin);
+            if (!destinationGrant)
+              return { content: 'URL access changed during approval; retry', isError: true };
+            url = destination;
+            activeGrant = destinationGrant;
+            chain.push({ origin: url.origin, grant: activeGrant });
+          }
+        }
+        return { content: 'Approved read reached the redirect limit.', isError: true };
       } catch {
         return {
           content:
@@ -198,4 +239,5 @@ export function createUrlAccessTool(
       }
     },
   };
+  return tool;
 }
