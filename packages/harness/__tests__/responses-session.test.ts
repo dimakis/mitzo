@@ -559,41 +559,53 @@ it.each(['gpt-4.1', 'gpt-4o', 'gpt-5.3-chat-latest'])(
   },
 );
 
-it('keeps completed-only reasoning before the streamed answer', async () => {
-  const reasoning = {
-    type: 'reasoning',
-    id: 'rs',
-    summary: [{ type: 'summary_text', text: 'Consider the constraints' }],
-  };
-  const answer = textEvents('The answer');
-  const completed = answer.at(-1) as { response: { output: object[] } };
-  vi.stubGlobal(
-    'fetch',
-    vi.fn().mockResolvedValue(
-      response([
-        answer[0],
-        {
-          type: 'response.output_item.added',
-          output_index: 0,
-          item: { type: 'reasoning', id: 'rs', summary: [] },
-        },
-        ...answer.slice(1, -1).map((event) => ({ ...event, output_index: 1 })),
-        {
-          ...answer.at(-1),
-          response: { ...completed.response, output: [reasoning, ...completed.response.output] },
-        },
-      ]),
-    ),
-  );
-  const session = new ResponsesSession(config, { accountId: 'work', apiKey: 'test' });
-  const translated = await collect(session);
-  expect(
-    translated
-      .filter((event) => event.type === 'content_block_start')
-      .map((event) => event.content_block.type),
-  ).toEqual(['thinking', 'text']);
-  expect(session.checkpoint().history.at(-1)?.content).toEqual([
-    { type: 'thinking', thinking: 'Consider the constraints' },
-    { type: 'text', text: 'The answer' },
-  ]);
-});
+it.each([false, true])(
+  'keeps completed-only reasoning before the streamed answer (empty done: %s)',
+  async (emptyDone) => {
+    const reasoning = {
+      type: 'reasoning',
+      id: 'rs',
+      summary: [{ type: 'summary_text', text: 'Consider the constraints' }],
+    };
+    const answer = textEvents('The answer');
+    const completed = answer.at(-1) as { response: { output: object[] } };
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        response([
+          answer[0],
+          {
+            type: 'response.output_item.added',
+            output_index: 0,
+            item: { type: 'reasoning', id: 'rs', summary: [] },
+          },
+          ...(emptyDone
+            ? [
+                {
+                  type: 'response.output_item.done',
+                  output_index: 0,
+                  item: { type: 'reasoning', id: 'rs', summary: [] },
+                },
+              ]
+            : []),
+          ...answer.slice(1, -1).map((event) => ({ ...event, output_index: 1 })),
+          {
+            ...answer.at(-1),
+            response: { ...completed.response, output: [reasoning, ...completed.response.output] },
+          },
+        ]),
+      ),
+    );
+    const session = new ResponsesSession(config, { accountId: 'work', apiKey: 'test' });
+    const translated = await collect(session);
+    expect(
+      translated
+        .filter((event) => event.type === 'content_block_start')
+        .map((event) => event.content_block.type),
+    ).toEqual(['thinking', 'text']);
+    expect(session.checkpoint().history.at(-1)?.content).toEqual([
+      { type: 'thinking', thinking: 'Consider the constraints' },
+      { type: 'text', text: 'The answer' },
+    ]);
+  },
+);

@@ -58,7 +58,7 @@ export function SubagentCard({ subagent, description, sessionId }: SubagentCardP
         <div className="tool-pill-detail">
           {blocks.map((block) => {
             if (block.blockType === 'thinking' || block.blockType === 'redacted_thinking') {
-              return <ThinkingBlock key={block.blockId} block={block} />;
+              return <ThinkingBlock key={block.blockId} block={block} streaming={isRunning} />;
             }
             if (block.blockType === 'tool_use') {
               return <ToolPill key={block.blockId} block={block} sessionId={sessionId} />;

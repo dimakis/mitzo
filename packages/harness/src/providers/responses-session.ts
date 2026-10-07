@@ -121,9 +121,14 @@ async function* orderedEvents(body: ReadableStream<Uint8Array>) {
   const blocked = (event: Event) =>
     event.output_index !== undefined &&
     [...pendingReasoning].some((index) => index < event.output_index!);
-  function* deliver(event: Event): Generator<Event> {
+  function* deliver(event: Event, completed = false): Generator<Event> {
     yield event;
-    if (event.type === 'response.output_item.done' && event.item?.type === 'reasoning')
+    // An empty item.done can precede summaries supplied only at response.completed.
+    if (
+      event.type === 'response.output_item.done' &&
+      event.item?.type === 'reasoning' &&
+      (completed || (Array.isArray(event.item.summary) && event.item.summary.length > 0))
+    )
       pendingReasoning.delete(event.output_index!);
   }
   function* drain(): Generator<Event> {
@@ -135,7 +140,10 @@ async function* orderedEvents(body: ReadableStream<Uint8Array>) {
     if (event.type === 'response.completed') {
       for (const [outputIndex, item] of (event.response?.output ?? []).entries()) {
         if (item.type === 'reasoning' && pendingReasoning.has(outputIndex)) {
-          yield* deliver({ type: 'response.output_item.done', output_index: outputIndex, item });
+          yield* deliver(
+            { type: 'response.output_item.done', output_index: outputIndex, item },
+            true,
+          );
           yield* drain();
         }
       }
