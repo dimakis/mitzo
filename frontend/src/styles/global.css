@@ -5119,10 +5119,15 @@ textarea:focus {
   min-width: 0;
   text-align: left;
   white-space: normal;
+}
+
+/* Safari cannot reliably line-clamp a button; clamp its text child instead. */
+.todo-card-title {
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
+  overflow-wrap: anywhere;
 }
 
 .todo-card-intent {
