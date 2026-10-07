@@ -10,6 +10,7 @@ const CapacityRecovery = z.object({
   nextRetryAt: z.number().int().positive().optional(),
   attempts: z.number().int().min(0).max(5),
   maxAttempts: z.literal(5),
+  requiresInspection: z.boolean().optional(),
 });
 const Queue = z.object({
   paused: z.boolean(),
@@ -258,17 +259,19 @@ export function CodexQueueStatus({ sessionId }: { sessionId: string | null }) {
     ? Math.max(0, Math.ceil((capacity.nextRetryAt - now) / 1000))
     : 0;
   const capacityStatus = capacity
-    ? capacity.status === 'waiting'
-      ? capacitySeconds > 0
-        ? `Trying again in ${capacitySeconds}s (attempt ${capacity.attempts + 1} of ${capacity.maxAttempts}).`
-        : 'Waiting to continue saved work.'
-      : capacity.status === 'queued'
-        ? 'Continuation queued. Saved messages keep their order.'
-        : capacity.status === 'running'
-          ? `Continuing saved work (attempt ${capacity.attempts} of ${capacity.maxAttempts}).`
-          : capacity.status === 'exhausted'
-            ? `Automatic retries finished (${capacity.attempts} of ${capacity.maxAttempts}). Try again starts a new retry cycle.`
-            : 'Automatic attempts stopped. Saved work is preserved.'
+    ? capacity.requiresInspection && ['stopped', 'exhausted'].includes(capacity.status)
+      ? 'Inspect saved progress before continuing. This attempt cannot be retried safely.'
+      : capacity.status === 'waiting'
+        ? capacitySeconds > 0
+          ? `Trying again in ${capacitySeconds}s (attempt ${capacity.attempts + 1} of ${capacity.maxAttempts}).`
+          : 'Waiting to continue saved work.'
+        : capacity.status === 'queued'
+          ? 'Continuation queued. Saved messages keep their order.'
+          : capacity.status === 'running'
+            ? `Continuing saved work (attempt ${capacity.attempts} of ${capacity.maxAttempts}).`
+            : capacity.status === 'exhausted'
+              ? `Automatic retries finished (${capacity.attempts} of ${capacity.maxAttempts}). Try again starts a new retry cycle.`
+              : 'Automatic attempts stopped. Saved work is preserved.'
     : undefined;
   const status =
     capacityStatus ??
@@ -377,6 +380,7 @@ export function CodexQueueStatus({ sessionId }: { sessionId: string | null }) {
   };
   const actOnCapacity = async (action: 'retry' | 'stop') => {
     if (!sessionId || !capacity || capacityRequest.current) return;
+    if (action === 'retry' && capacity.requiresInspection) return;
     const request = Symbol();
     capacityRequest.current = request;
     const epoch = sessionEpoch.current;
@@ -515,7 +519,10 @@ export function CodexQueueStatus({ sessionId }: { sessionId: string | null }) {
                 type="button"
                 className="codex-queue-status-continue"
                 disabled={
-                  !!capacityAction || capacity.status === 'queued' || capacity.status === 'running'
+                  !!capacityAction ||
+                  !!capacity.requiresInspection ||
+                  capacity.status === 'queued' ||
+                  capacity.status === 'running'
                 }
                 onClick={() => void actOnCapacity('retry')}
               >

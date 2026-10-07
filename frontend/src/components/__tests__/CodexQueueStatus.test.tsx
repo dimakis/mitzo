@@ -119,6 +119,59 @@ it('stops only the identified capacity recovery while preserving the unrelated q
   ).toHaveLength(1);
 });
 
+it('requires inspection after Stop interrupts a running continuation and sends no retry', async () => {
+  let stopped = false;
+  vi.mocked(apiFetch).mockImplementation(async (path) => {
+    if (String(path).endsWith('/capacity-stop')) {
+      stopped = true;
+      return { ok: true, json: async () => ({ ok: true, status: 'stopped' }) } as Response;
+    }
+    return meta(
+      capacity({
+        status: stopped ? 'stopped' : 'running',
+        attempts: 1,
+        requiresInspection: stopped,
+      }),
+    );
+  });
+  render(<CodexQueueStatus sessionId="capacity" />);
+  await userEvent.click(await screen.findByRole('button', { name: 'Stop' }));
+  await screen.findByText(
+    'Inspect saved progress before continuing. This attempt cannot be retried safely.',
+  );
+  const retry = screen.getByRole('button', { name: 'Try again' });
+  expect(retry.hasAttribute('disabled')).toBe(true);
+  fireEvent.click(retry);
+  expect(
+    vi.mocked(apiFetch).mock.calls.filter(([path]) => String(path).endsWith('/capacity-retry')),
+  ).toHaveLength(0);
+});
+
+it('allows an authoritative safe stopped backoff to start a manual retry cycle', async () => {
+  let stopped = false;
+  vi.mocked(apiFetch).mockImplementation(async (path) => {
+    if (String(path).endsWith('/capacity-stop')) {
+      stopped = true;
+      return { ok: true, json: async () => ({ ok: true, status: 'stopped' }) } as Response;
+    }
+    if (String(path).endsWith('/capacity-retry'))
+      return { ok: true, json: async () => ({ ok: true, status: 'queued' }) } as Response;
+    return meta(capacity({ status: stopped ? 'stopped' : 'waiting', requiresInspection: false }));
+  });
+  render(<CodexQueueStatus sessionId="capacity" />);
+  await userEvent.click(await screen.findByRole('button', { name: 'Stop' }));
+  await screen.findByText(/Automatic attempts stopped/);
+  expect(screen.getByRole('button', { name: 'Try again' }).hasAttribute('disabled')).toBe(false);
+  await userEvent.click(screen.getByRole('button', { name: 'Try again' }));
+  expect(apiFetch).toHaveBeenCalledWith(
+    '/api/sessions/capacity/codex-queue/capacity-retry',
+    expect.objectContaining({
+      method: 'POST',
+      body: JSON.stringify({ recoveryId: 'recovery-one', sourceCommandId: 'failed-one' }),
+    }),
+  );
+});
+
 it('shows exhausted capacity attempts with an explicit manual new cycle and no automatic reattach', async () => {
   vi.mocked(apiFetch).mockResolvedValue(
     meta({ ...capacity({ status: 'exhausted', attempts: 5 }), connected: false }),
@@ -193,12 +246,16 @@ it.each(['queued', 'running'])(
     vi.mocked(apiFetch).mockImplementation(async (path) =>
       String(path).endsWith('/codex-queue')
         ? commands([{ id: 'unrelated', preview: 'Saved follow-up' }])
-        : meta({ ...capacity({ status, attempts: 1 }), queued: 1 }),
+        : meta({
+            ...capacity({ status, attempts: 1, requiresInspection: status === 'running' }),
+            queued: 1,
+          }),
     );
     render(<CodexQueueStatus sessionId="capacity" />);
     const button = await screen.findByRole('button', { name: 'Try again' });
     expect(button.hasAttribute('disabled')).toBe(true);
     expect(screen.getByRole('button', { name: 'Stop' })).toBeTruthy();
+    expect(screen.queryByText(/Inspect saved progress before continuing/)).toBeNull();
     expect(screen.queryByRole('button', { name: 'Reconnect and continue' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Retry saved turn' })).toBeNull();
     expect(vi.mocked(apiFetch).mock.calls.every(([, options]) => options?.method !== 'POST')).toBe(
