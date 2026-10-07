@@ -13,8 +13,33 @@ export function isSessionSearchApproval(request?: PermissionRequest): boolean {
     return false;
   }
 }
-export function permissionNotificationCategory(request?: PermissionRequest): string {
-  if (!request || request.questions || request.approvalScope === 'conversation')
+export function permissionNotificationCategory(
+  request?: PermissionRequest,
+  previews = false,
+): string {
+  if (
+    !previews ||
+    !request ||
+    request.questions ||
+    request.approvalScope === 'conversation' ||
+    Buffer.byteLength(request.toolInput, 'utf8') > 768
+  )
     return 'SESSION_PERMISSION';
+  // Only inputs whose complete execution parameters are present in the card
+  // can be displayed and approved in a bounded notification. Summary-only
+  // document writes and arbitrary integration grants require the full review UI.
+  try {
+    const input = JSON.parse(request.toolInput);
+    if (
+      !(request.toolName === 'Bash' && typeof input.command === 'string') &&
+      !(
+        request.toolName === 'RequestWebAccess' &&
+        ['search', 'fetch', 'request_access'].includes(input.operation)
+      )
+    )
+      return 'SESSION_PERMISSION';
+  } catch {
+    return 'SESSION_PERMISSION';
+  }
   return isSessionSearchApproval(request) ? 'SESSION_SEARCH_PERMISSION' : 'SESSION_APPROVAL';
 }

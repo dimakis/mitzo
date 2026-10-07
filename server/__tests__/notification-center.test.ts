@@ -174,6 +174,7 @@ describe('central notification delivery', () => {
     'selects actions appropriate to %s approval scope',
     async (operation, approvalScope, category) => {
       const { store, center, push } = setup();
+      store.setPreferences({ sensitivePreviews: true });
       const permId = `category-${operation}`;
       registerPending(permId, 'RequestWebAccess', vi.fn(), {}, 'unknown', 's1', {
         permId,
@@ -185,6 +186,61 @@ describe('central notification delivery', () => {
       await center.flush();
       expect(push.mock.calls[0][0].category).toBe(category);
       removePending(permId);
+      center.close();
+      store.close();
+    },
+  );
+  it.each([false, true])(
+    'quick approval requires the full request to be disclosed (previews: %s)',
+    async (previews) => {
+      const { store, center, push } = setup();
+      store.setPreferences({ sensitivePreviews: previews });
+      const toolInput = JSON.stringify({ command: 'echo exact-command' });
+      registerPending('visible-command', 'Bash', vi.fn(), {}, 'elevated', 's1', {
+        permId: 'visible-command',
+        toolName: 'Bash',
+        toolInput,
+        sessionId: 's1',
+        approvalScope: 'request',
+      });
+      await center.flush();
+      const message = push.mock.calls[0][0];
+      expect(message.category).toBe(previews ? 'SESSION_APPROVAL' : 'SESSION_PERMISSION');
+      if (previews) {
+        expect(message.body).toContain(toolInput);
+        expect(message.data).toMatchObject({ approvalInput: toolInput, approvalToolName: 'Bash' });
+      } else {
+        expect(message.body).not.toContain(toolInput);
+        expect(message.data.approvalInput).toBeUndefined();
+      }
+      removePending('visible-command');
+      center.close();
+      store.close();
+    },
+  );
+  it.each(['oversized', 'unknown'])(
+    'keeps %s requests review-only even with previews enabled',
+    async (kind) => {
+      const { store, center, push } = setup();
+      store.setPreferences({ sensitivePreviews: true });
+      registerPending(
+        'review-only',
+        kind === 'unknown' ? 'CustomGrant' : 'Bash',
+        vi.fn(),
+        {},
+        'elevated',
+        's1',
+        {
+          permId: 'review-only',
+          toolName: kind === 'unknown' ? 'CustomGrant' : 'Bash',
+          toolInput: kind === 'oversized' ? 'x'.repeat(2000) : '{}',
+          sessionId: 's1',
+        },
+      );
+      await center.flush();
+      expect(push.mock.calls[0][0].category).toBe('SESSION_PERMISSION');
+      expect(push.mock.calls[0][0].data.approvalInput).toBeUndefined();
+      removePending('review-only');
       center.close();
       store.close();
     },
