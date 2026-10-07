@@ -157,12 +157,11 @@ function SwipeableSession({
     }
   }
 
-  function handleClick() {
-    if (longPress.consumeClick() || editing || previewing) return;
-    if (moved.current) {
-      moved.current = false;
-      return;
-    }
+  function handleClick(keyboard = false) {
+    const held = longPress.consumeClick();
+    const dragged = moved.current;
+    moved.current = false;
+    if (editing || previewing || (!keyboard && (held || dragged))) return;
     if (revealed) {
       closeReveal();
       return;
@@ -182,7 +181,7 @@ function SwipeableSession({
       <div
         ref={ref}
         className="session-item"
-        onClick={handleClick}
+        onClick={() => handleClick()}
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
@@ -192,6 +191,7 @@ function SwipeableSession({
           closeReveal();
         }}
         onContextMenu={(event) => {
+          if (editing) return;
           event.preventDefault();
           showPreview();
         }}
@@ -227,7 +227,7 @@ function SwipeableSession({
                   showPreview();
                 } else if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) {
                   e.preventDefault();
-                  onClick(session.id);
+                  handleClick(true);
                 }
               }}
             >

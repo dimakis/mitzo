@@ -163,3 +163,28 @@ it('opens a preview on desktop right click', async () => {
   await act(async () => {});
   expect(screen.getByRole('dialog', { name: 'Preview Review UI' })).toBeTruthy();
 });
+
+it.each(['Enter', ' '])(
+  'keeps %s activation closing a revealed swipe action before navigating',
+  (key) => {
+    const row = mount();
+    touch(row, 'start');
+    touch(row, 'move', -50, 50);
+    touch(row, 'end');
+    fireEvent.keyDown(row, { key });
+    expect(screen.queryByText('Selected conversation')).toBeNull();
+    expect(row.closest<HTMLElement>('.session-item')?.style.transform).toBe('translateX(0px)');
+    fireEvent.keyDown(row, { key });
+    expect(screen.getByText('Selected conversation')).toBeTruthy();
+  },
+);
+
+it('preserves the native context menu in the rename input', async () => {
+  const row = mount();
+  await hold(row);
+  fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Rename' }));
+  const event = new MouseEvent('contextmenu', { bubbles: true, cancelable: true });
+  fireEvent(screen.getByRole('textbox'), event);
+  expect(event.defaultPrevented).toBe(false);
+  expect(screen.queryByRole('dialog')).toBeNull();
+});
