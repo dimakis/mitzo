@@ -1,10 +1,11 @@
-import { useRef, useCallback } from 'react';
+import { useRef, useCallback, useEffect } from 'react';
 
 export function useLongPress(callback: () => void, ms = 500) {
   const timerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const firedRef = useRef(false);
 
   const start = useCallback(() => {
+    clearTimeout(timerRef.current);
     firedRef.current = false;
     timerRef.current = setTimeout(() => {
       firedRef.current = true;
@@ -18,5 +19,13 @@ export function useLongPress(callback: () => void, ms = 500) {
 
   const didFire = useCallback(() => firedRef.current, []);
 
-  return { start, cancel, didFire };
+  const consumeClick = useCallback(() => {
+    const fired = firedRef.current;
+    firedRef.current = false;
+    return fired;
+  }, []);
+
+  useEffect(() => cancel, [cancel]);
+
+  return { start, cancel, didFire, consumeClick };
 }
