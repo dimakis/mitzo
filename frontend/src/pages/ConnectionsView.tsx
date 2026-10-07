@@ -48,6 +48,7 @@ export function ConnectionsView({ mode = 'add', connectionId }: ConnectionsViewP
   const [connectionRefreshEpoch, setConnectionRefreshEpoch] = useState(0);
   const [templates, setTemplates] = useState<ConnectionTemplateCatalog | null>(null);
   const [loadError, setLoadError] = useState('');
+  const [connectionsRefreshing, setConnectionsRefreshing] = useState(false);
   const [templateError, setTemplateError] = useState('');
   const [message, setMessage] = useState('');
   const [failed, setFailed] = useState(false);
@@ -56,6 +57,8 @@ export function ConnectionsView({ mode = 'add', connectionId }: ConnectionsViewP
   const [authorizationOpen, setAuthorizationOpen] = useState(false);
   const [passphrase, setPassphrase] = useState('');
   const [personalChosen, setPersonalChosen] = useState(false);
+  const [personalCreationUncertain, setPersonalCreationUncertain] = useState(false);
+  const [personalCreationBusy, setPersonalCreationBusy] = useState(false);
   const [selectedTemplateKey, setSelectedTemplateKey] = useState('');
   const [label, setLabel] = useState('');
   const [scope, setScope] = useState<Record<string, string>>({});
@@ -86,18 +89,22 @@ export function ConnectionsView({ mode = 'add', connectionId }: ConnectionsViewP
   }, []);
   const refresh = useCallback(async () => {
     const generation = ++refreshGeneration.current;
-    setLoadError('');
+    setConnectionsRefreshing(true);
     setTemplateError('');
     const connectionsRefresh = getConnections().then(
       (value) => {
         if (generation === refreshGeneration.current) {
           setData(value);
+          setLoadError('');
+          setConnectionsRefreshing(false);
           setConnectionRefreshEpoch((current) => current + 1);
         }
       },
       (reason) => {
-        if (generation === refreshGeneration.current)
+        if (generation === refreshGeneration.current) {
           setLoadError(reason instanceof Error ? reason.message : 'Unable to load connections.');
+          setConnectionsRefreshing(false);
+        }
       },
     );
     latestConnectionRefresh.current = connectionsRefresh;
@@ -153,6 +160,19 @@ export function ConnectionsView({ mode = 'add', connectionId }: ConnectionsViewP
       ) ?? null,
     [selectedTemplateKey, setupTemplates],
   );
+  useEffect(() => {
+    if (!data || !template) return;
+    const eligible = data.eligibleAccountsByTemplate?.[template.id] ?? data.eligibleAccounts;
+    if (!accounts.some((id) => !eligible.includes(id))) return;
+    setAccounts(accounts.filter((id) => eligible.includes(id)));
+    setAuthorizationOpen(false);
+    setPassphrase('');
+    setMessage(
+      (current) =>
+        `${current ? `${current} ` : ''}Eligible AI accounts changed. Review access before connecting.`,
+    );
+    setStep(secretValid(template.credentialFields, credentials) ? 'assignments' : 'authenticate');
+  }, [data, template, accounts, credentials]);
   const run = async (
     name: string,
     action: () => Promise<unknown>,
@@ -183,6 +203,11 @@ export function ConnectionsView({ mode = 'add', connectionId }: ConnectionsViewP
     }
   };
   const requireReauthorization = () => {
+    if (connectionsRefreshing || loadError) {
+      setMessage('Refresh connection details before changing access.');
+      setFailed(true);
+      return false;
+    }
     if (csrf && csrfExpiresAt > Date.now()) return true;
     setCsrf('');
     setCsrfExpiresAt(0);
@@ -236,6 +261,7 @@ export function ConnectionsView({ mode = 'add', connectionId }: ConnectionsViewP
       inFlight.current ||
       !template ||
       !data ||
+      connectionsRefreshing ||
       loadError ||
       !label.trim() ||
       !secretValid(template.credentialFields, credentials) ||
@@ -398,10 +424,19 @@ export function ConnectionsView({ mode = 'add', connectionId }: ConnectionsViewP
           </section>
         ) : personalChosen ? (
           <>
-            <button className="workspace-text-link" onClick={() => setPersonalChosen(false)}>
+            <button
+              className="workspace-text-link"
+              disabled={personalCreationBusy}
+              onClick={() => setPersonalChosen(false)}
+            >
               Choose another connection
             </button>
-            <SymposiumPersonalConnections mode="add" />
+            <SymposiumPersonalConnections
+              mode="add"
+              creationBlocked={personalCreationUncertain}
+              onCreationUncertain={() => setPersonalCreationUncertain(true)}
+              onCreationPendingChange={setPersonalCreationBusy}
+            />
           </>
         ) : step === 'service' ? (
           <>
@@ -541,7 +576,7 @@ export function ConnectionsView({ mode = 'add', connectionId }: ConnectionsViewP
                   disabled={
                     busy !== null ||
                     !stepValid ||
-                    (step === 'assignments' && (!data || !!loadError))
+                    (step === 'assignments' && (!data || !!loadError || connectionsRefreshing))
                   }
                   onClick={() => setStep(steps[steps.indexOf(step) + 1]!)}
                 >
@@ -551,7 +586,7 @@ export function ConnectionsView({ mode = 'add', connectionId }: ConnectionsViewP
                 !authorizationOpen && (
                   <button
                     className="workspace-primary"
-                    disabled={busy !== null || !data || !!loadError}
+                    disabled={busy !== null || !data || !!loadError || connectionsRefreshing}
                     onClick={() => void submit()}
                   >
                     {busy === 'create'
@@ -605,6 +640,7 @@ export function ConnectionsView({ mode = 'add', connectionId }: ConnectionsViewP
             ))}
           {data && mode === 'manage' && (
             <>
+              {connectionsRefreshing && <p role="status">Refreshing connection details…</p>}
               <button className="workspace-text-link" onClick={() => void refresh()}>
                 Refresh connection
               </button>
@@ -631,7 +667,7 @@ export function ConnectionsView({ mode = 'add', connectionId }: ConnectionsViewP
                   capabilityCatalog={templates?.capabilities ?? []}
                   refreshEpoch={connectionRefreshEpoch}
                   csrf={csrf}
-                  busy={busy ?? (loadError ? 'refresh-required' : null)}
+                  busy={busy ?? (loadError || connectionsRefreshing ? 'refresh-required' : null)}
                   audit={audit[connection.id]}
                   rotateOpen={rotateId === connection.id}
                   rotationCredentials={rotationCredentials}

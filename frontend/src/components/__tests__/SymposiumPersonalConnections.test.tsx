@@ -836,3 +836,21 @@ it('keeps an uncertain saved-slot creation from offering another account creatio
   expect(screen.queryByRole('button', { name: 'Save and continue' })).toBeNull();
   expect(screen.getByRole('link', { name: 'Back to Connections' })).toBeTruthy();
 });
+
+it('treats a personal creation HTTP 400 as uncertain because persistence may already have happened', async () => {
+  vi.mocked(apiFetch).mockImplementation(async (_url, init) =>
+    init?.method === 'POST'
+      ? response({ error: 'Persistence failure' }, false, 400)
+      : response({ connections: rows }),
+  );
+  render(
+    <MemoryRouter>
+      <SymposiumPersonalConnections mode="add" />
+    </MemoryRouter>,
+  );
+  await waitFor(() => expect(screen.queryByText('Loading personal accounts…')).toBeNull());
+  fireEvent.change(screen.getByLabelText('Account label'), { target: { value: 'Research' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Save and continue' }));
+  await screen.findByText(/Account setup could not be confirmed/);
+  expect(screen.queryByRole('button', { name: 'Save and continue' })).toBeNull();
+});

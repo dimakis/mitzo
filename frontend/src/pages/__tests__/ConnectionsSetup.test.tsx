@@ -341,3 +341,62 @@ it('requests fresh authorization after the server rejects a previously valid pro
   expect(screen.getByLabelText('Passphrase')).toBeTruthy();
   expect(api.createConnection).toHaveBeenCalledTimes(1);
 });
+
+it('removes no-longer-eligible accounts from a recovered setup draft', async () => {
+  let changed = false;
+  vi.mocked(api.getConnections).mockImplementation(async () =>
+    changed ? { ...catalog, eligibleAccountsByTemplate: { 'jira-readonly': ['other'] } } : catalog,
+  );
+  vi.mocked(api.createConnection).mockImplementationOnce(async () => {
+    changed = true;
+    throw new api.ConnectionCreationFailure('Account is no longer eligible', null, true);
+  });
+  await reviewJira();
+  await click('Verify and connect Jira');
+  fill('Passphrase', 'pass');
+  await click('Authorize and connect Jira');
+  fill('API token', 'replacement');
+  await click('Continue');
+  expect(screen.queryByLabelText('work')).toBeNull();
+  await click('Continue');
+  expect(screen.getByText('No AI accounts selected. You can assign access later.')).toBeTruthy();
+});
+
+it('retains uncertain ChatGPT creation across chooser navigation until Connections is reviewed', async () => {
+  vi.mocked(apiFetch).mockImplementation(async (_url, init) => {
+    if (init?.method === 'POST') throw new Error('Response lost');
+    return { ok: true, json: async () => ({ connections: [] }) } as Response;
+  });
+  await start();
+  await click('Choose ChatGPT');
+  fill('Account label', 'Research');
+  await click('Save and continue');
+  expect(screen.getByText(/Account setup could not be confirmed/)).toBeTruthy();
+  await click('Choose another connection');
+  await click('Choose ChatGPT');
+  expect(screen.queryByRole('button', { name: 'Save and continue' })).toBeNull();
+  expect(screen.getByRole('link', { name: 'Back to Connections' })).toBeTruthy();
+  expect(vi.mocked(apiFetch).mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(
+    1,
+  );
+});
+
+it('holds cached mutations through a pending retry after a failed refresh', async () => {
+  await start({ mode: 'manage', connectionId: 'jira-1' });
+  vi.mocked(api.getConnections).mockRejectedValue(new Error('Access unavailable'));
+  await click('Refresh connection');
+  let finish!: (value: ConnectionsCatalog) => void;
+  vi.mocked(api.getConnections).mockReturnValue(
+    new Promise((resolve) => {
+      finish = resolve;
+    }),
+  );
+  await click('Refresh connection');
+  expect(
+    (screen.getByRole('button', { name: 'Test identity' }) as HTMLButtonElement).disabled,
+  ).toBe(true);
+  await act(async () => finish(catalog));
+  expect(
+    (screen.getByRole('button', { name: 'Test identity' }) as HTMLButtonElement).disabled,
+  ).toBe(false);
+});

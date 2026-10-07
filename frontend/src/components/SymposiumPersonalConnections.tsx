@@ -39,11 +39,17 @@ export function SymposiumPersonalConnections({
   disabled = false,
   mode = 'all',
   connectionId,
+  creationBlocked = false,
+  onCreationUncertain,
+  onCreationPendingChange,
 }: {
   disabled?: boolean;
   onAccountsChanged?(): void;
   mode?: 'all' | 'add' | 'manage';
   connectionId?: string;
+  creationBlocked?: boolean;
+  onCreationUncertain?(): void;
+  onCreationPendingChange?(pending: boolean): void;
 }) {
   const [connections, setConnections] = useState<Connection[]>([]);
   const [loaded, setLoaded] = useState(false);
@@ -243,6 +249,7 @@ export function SymposiumPersonalConnections({
     setBusy(true);
     setMessage('');
     const creating = path === endpoint && mode === 'add';
+    if (creating) onCreationPendingChange?.(true);
     let rejectedBeforeCreation = false;
     try {
       const response = await apiFetch(path, {
@@ -251,7 +258,7 @@ export function SymposiumPersonalConnections({
         body: JSON.stringify(body),
       });
       if (!response.ok) {
-        rejectedBeforeCreation = [400, 401, 403].includes(response.status);
+        rejectedBeforeCreation = [401, 403].includes(response.status);
         throw new Error('Request failed');
       }
       if (creating) {
@@ -264,6 +271,7 @@ export function SymposiumPersonalConnections({
       if (path === endpoint) setLabel('');
       notifyAccountsChanged();
     } catch {
+      if (creating && !rejectedBeforeCreation) onCreationUncertain?.();
       if (!mounted.current) return;
       if (creating && !rejectedBeforeCreation) setCreationUncertain(true);
       setMessage(
@@ -274,6 +282,7 @@ export function SymposiumPersonalConnections({
     } finally {
       await refresh();
       mutation.current = false;
+      if (creating) onCreationPendingChange?.(false);
       if (mounted.current) setBusy(false);
     }
   }
@@ -284,6 +293,7 @@ export function SymposiumPersonalConnections({
   const visibleConnections = connections.filter((connection) =>
     mode === 'add' ? connection.id === createdId : !connectionId || connection.id === connectionId,
   );
+  const uncertainCreation = creationUncertain || creationBlocked;
   return (
     <section
       className={`personal-connections${mode !== 'all' ? ' personal-connections-focused' : ''}`}
@@ -320,7 +330,12 @@ export function SymposiumPersonalConnections({
         </>
       )}
       {!loaded && !error && <p role="status">Loading personal accounts…</p>}
-      {message && <p role={creationUncertain ? 'alert' : 'status'}>{message}</p>}
+      {(message || uncertainCreation) && (
+        <p role={uncertainCreation ? 'alert' : 'status'}>
+          {message ||
+            'Account setup could not be confirmed. Check Connections before adding it again.'}
+        </p>
+      )}
       {visibleConnections.map((connection) => (
         <section
           key={connection.id}
@@ -454,7 +469,7 @@ export function SymposiumPersonalConnections({
       {loaded && mode === 'all' && connections.length === 0 && (
         <p>No saved personal accounts yet.</p>
       )}
-      {(mode === 'all' || (mode === 'add' && !createdId && !creationUncertain)) && (
+      {(mode === 'all' || (mode === 'add' && !createdId && !uncertainCreation)) && (
         <form
           onSubmit={(event) => {
             event.preventDefault();
@@ -496,7 +511,7 @@ export function SymposiumPersonalConnections({
           Continue pending sign-in
         </Link>
       )}
-      {mode === 'add' && (createdId || creationUncertain) && (
+      {mode === 'add' && (createdId || uncertainCreation) && (
         <Link className="workspace-text-link" to="/connections-access">
           Back to Connections
         </Link>
