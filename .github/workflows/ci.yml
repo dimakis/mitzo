@@ -4,10 +4,57 @@ on:
   push:
     branches: [main]
   pull_request:
-    types: [opened, synchronize, reopened, edited]
+    types: [opened, synchronize, reopened]
+
+# Keep main validation intact; newer PR commits supersede older runs.
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  changes:
+    name: Select CI jobs
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      browser: ${{ steps.select.outputs.browser }}
+      native: ${{ steps.select.outputs.native }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Select dependent checks
+        id: select
+        uses: actions/github-script@v9
+        with:
+          script: |
+            const { selectCiJobs } = await import(
+              '${{ github.workspace }}/scripts/ci-selection.mjs'
+            );
+            let files = [];
+            let complete = false;
+            if (context.eventName === 'pull_request') {
+              try {
+                files = await github.paginate(github.rest.pulls.listFiles, {
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  pull_number: context.issue.number,
+                  per_page: 100,
+                });
+                complete = files.length === context.payload.pull_request.changed_files;
+              } catch (error) {
+                core.warning(`Could not read complete PR diff; running all jobs: ${error.message}`);
+              }
+            }
+            const selected = selectCiJobs({ eventName: context.eventName, files, complete });
+            for (const [job, run] of Object.entries(selected)) {
+              core.setOutput(job, String(run));
+              core.info(`${job}: ${run ? 'run' : 'no dependent changes'}`);
+            }
+
   browser:
+    needs: changes
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.browser == 'true') }}
     name: Connections browser regression
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -24,40 +71,9 @@ jobs:
       - run: npx playwright install --with-deps webkit chromium
       - run: npm run test:browser
 
-  documentation:
-    name: Documentation gate
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      pull-requests: read
-    steps:
-      - uses: actions/checkout@v7
-
-      - name: Require README review for production changes
-        uses: actions/github-script@v9
-        with:
-          script: |
-            const files = await github.paginate(github.rest.pulls.listFiles, {
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              pull_number: context.issue.number,
-              per_page: 100,
-            });
-
-            const { evaluateDocumentationGate } = await import(
-              '${{ github.workspace }}/scripts/documentation-gate.mjs'
-            );
-            const result = evaluateDocumentationGate({
-              files,
-              body: context.payload.pull_request.body || '',
-            });
-
-            if (!result.ok) {
-              core.setFailed(result.errors.join('\n'));
-            }
-
   native:
+    needs: changes
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.native == 'true') }}
     name: Native Swift tests and builds
     runs-on: macos-26
     timeout-minutes: 15

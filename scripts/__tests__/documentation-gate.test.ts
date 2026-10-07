@@ -100,7 +100,7 @@ describe('documentation gate', () => {
 
   it('reruns when the PR description is edited', async () => {
     const workflow = await readFile(
-      resolve(import.meta.dirname, '../../.github/workflows/ci.yml'),
+      resolve(import.meta.dirname, '../../.github/workflows/documentation.yml'),
       'utf8',
     );
     expect(workflow).toContain('types: [opened, synchronize, reopened, edited]');
