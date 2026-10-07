@@ -18,6 +18,7 @@ export interface AccessResource {
   label: string;
   provider: string;
   status: string;
+  errorCode?: string | null;
   revision: number | null;
   /** Catalog facet provenance; facet identity itself is never replaced. */
   personalConnection?: {

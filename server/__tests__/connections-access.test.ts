@@ -189,7 +189,7 @@ it('distinguishes GitHub repository reads from current, enabled publication gran
   const github = {
     ...connection,
     templateId: 'github-readonly',
-    publicConfig: { repositories: ['dimakis/mgmt'] },
+    publicConfig: { allowedRepositories: ['dimakis/mgmt'] },
   };
   const grant = {
     id: 'grant',
@@ -212,7 +212,7 @@ it('distinguishes GitHub repository reads from current, enabled publication gran
       managed: () => [{ ...github, capabilityGrants: [...capabilityGrants], publishingEnabled }],
     });
     expect(inventory.resources[0].details.permissions).toEqual(permissions);
-    expect(inventory.resources[0].details.scope).toEqual({ repositories: ['dimakis/mgmt'] });
+    expect(inventory.resources[0].details.scope).toEqual({ allowedRepositories: ['dimakis/mgmt'] });
   }
 });
 
@@ -231,6 +231,23 @@ it('keeps ambiguous provider records and omits an unused Google management integ
   expect(
     inventory.resources.find((row) => row.nativeId === 'google-workspace')?.details.serviceName,
   ).toBe('Google Workspace');
+});
+
+it('reconciles provider records only when their current identifiers and workspace agree', async () => {
+  for (const [id, workspace, legacyCount] of [
+    ['provider-1', 'default', 0],
+    ['replacement', 'default', 1],
+    ['provider-1', 'other', 1],
+  ] as const) {
+    const inventory = await readConnectionsAccess({
+      ...sources(),
+      managed: () => [{ ...connection, gatewayProviderId: 'provider-1' }],
+      legacy: async () => [{ name: connection.gatewayProviderName, type: 'jira', id, workspace }],
+    });
+    expect(inventory.resources.filter((row) => row.kind === 'legacy-provider')).toHaveLength(
+      legacyCount,
+    );
+  }
 });
 
 it('includes the current Symposium catalog with owner-scoped identity even when native account IDs match', async () => {

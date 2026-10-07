@@ -843,6 +843,20 @@
   margin-top: 3px;
   font-size: 11px;
 }
+.access-web-guide {
+  border-top: 1px solid var(--workspace-line);
+  padding-top: 20px;
+}
+.access-web-options {
+  display: grid;
+  gap: 12px;
+  margin-top: 16px;
+}
+.access-web-option {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
 .access-row-action {
   display: flex;
   align-items: center;
@@ -1024,8 +1038,8 @@
     max-width: none;
   }
   .access-row-status small {
-    display: inline;
-    margin-left: 8px;
+    display: block;
+    margin-left: 0;
   }
   .access-drawer-heading,
   .access-drawer-body {

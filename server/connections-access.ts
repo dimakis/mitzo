@@ -10,6 +10,12 @@ import type {
   ConnectionsAccessInventory,
 } from './connections-access-types.js';
 
+export interface LegacyAccessProvider {
+  name: string;
+  type: string;
+  id?: string;
+  workspace?: string;
+}
 export interface ConnectionsAccessSources {
   accounts?: (signal: AbortSignal) =>
     | Array<
@@ -32,7 +38,7 @@ export interface ConnectionsAccessSources {
   >;
   personal?: (signal: AbortSignal) => PersonalConnection[] | Promise<PersonalConnection[]>;
   google?: (signal: AbortSignal) => Promise<GoogleWorkspaceHealth>;
-  legacy?: () => Promise<Array<{ name: string; type: string }>>;
+  legacy?: () => Promise<LegacyAccessProvider[]>;
   gateway?: string;
   workspace?: string;
 }
@@ -216,7 +222,9 @@ export async function readConnectionsAccess(
       result.resources.push(row);
     }
   }
-  const managed = (value<Connection[]>('managed') ?? []).filter((c) => !c.archivedAt);
+  const managed = (
+    value<ReturnType<NonNullable<ConnectionsAccessSources['managed']>>>('managed') ?? []
+  ).filter((c) => !c.archivedAt);
   for (const connection of managed) {
     const row = base(
       'managed-connection',
@@ -228,6 +236,7 @@ export async function readConnectionsAccess(
       connection.workspace,
     );
     row.status = connection.status;
+    row.errorCode = connection.errorCode;
     row.revision = connection.revision;
     row.accountIdentity = connection.identity;
     row.verification = {
@@ -349,7 +358,7 @@ export async function readConnectionsAccess(
       source.reason = 'Google access could not be checked. Retry later.';
     }
   }
-  for (const provider of value<Array<{ name: string; type: string }>>('legacy') ?? []) {
+  for (const provider of value<LegacyAccessProvider[]>('legacy') ?? []) {
     // Labels alone are not identity; match only authoritative primary scope.
     if (
       gateway !== null &&
@@ -358,12 +367,15 @@ export async function readConnectionsAccess(
         (c) =>
           c.gateway === gateway &&
           c.workspace === workspace &&
-          c.gatewayProviderName === provider.name,
+          c.gatewayProviderName === provider.name &&
+          (provider.id === undefined || c.gatewayProviderId === provider.id) &&
+          (provider.workspace === undefined || provider.workspace === c.workspace),
       ).length === 1 ||
         (google &&
           google.health !== 'not_configured' &&
           google.health !== 'unavailable' &&
-          provider.name === 'google-workspace'))
+          provider.name === 'google-workspace' &&
+          (provider.workspace === undefined || provider.workspace === workspace)))
     )
       continue;
     const row = base(
@@ -373,7 +385,7 @@ export async function readConnectionsAccess(
       provider.name,
       provider.type,
       gateway,
-      workspace,
+      provider.workspace ?? workspace,
     );
     row.status = 'operator-managed';
     row.access.summary = 'Operator-managed policy; permissions not checked';
