@@ -57,6 +57,14 @@ public actor MitzoAPIClient {
         guard result.ok else { throw APIError.invalidResponse }
     }
 
+    public func getNotification(id: String) async throws -> MitzoNotification {
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_:"))
+        guard !id.isEmpty, id.unicodeScalars.allSatisfy({ allowed.contains($0) }) else {
+            throw APIError.invalidResponse
+        }
+        return try await get(path: "/api/notifications/\(id)")
+    }
+
     private struct NotificationResponseResult: Decodable { let ok: Bool }
 
     // MARK: - Generic Request
