@@ -1058,13 +1058,15 @@ export class CodexConversationStore {
       | undefined;
     const failed = this.db
       .prepare(
-        `SELECT retry_not_before,retryable,ambiguous
+        `SELECT id,attempt,retry_not_before,retryable,ambiguous
         FROM codex_commands
         WHERE conversation_id=? AND status='failed' AND recovery_acknowledged=0
         ORDER BY sequence DESC LIMIT 1`,
       )
       .get(id) as
       | {
+          id: string;
+          attempt: number;
           retry_not_before: number | null;
           retryable: number | null;
           ambiguous: number | null;
@@ -1080,7 +1082,7 @@ export class CodexConversationStore {
       reasoningEffort:
         latest?.reasoning_effort_type === null ? undefined : latest?.reasoning_effort,
       ...(failed?.retry_not_before ? { retryAvailableAt: failed.retry_not_before } : {}),
-      ...(failed ? { retryable: failed.retryable === 1 } : {}),
+      ...(failed ? { retryable: failed.retryable === 1 && !this.retryFenced(id, failed) } : {}),
       ...(failed ? { requiresRetryConfirmation: failed.ambiguous === 1 } : {}),
     };
   }
@@ -1137,6 +1139,24 @@ export class CodexConversationStore {
   /** Provider call IDs do not provide semantic side-effect deduplication. Some
    * provider-native tools also execute outside claimTool(), so every ambiguous
    * turn requires explicit confirmation rather than guessing that it was safe. */
+  private retryFenced(id: string, command?: { id: string; attempt: number }): boolean {
+    return !!(
+      this.db
+        .prepare('SELECT 1 FROM codex_pending_thread_dispatches WHERE conversation_id=?')
+        .get(id) ||
+      this.db
+        .prepare(
+          'SELECT 1 FROM codex_thread_acceptances WHERE conversation_id=? AND ownership_pending=1',
+        )
+        .get(id) ||
+      (command &&
+        this.db
+          .prepare(
+            'SELECT 1 FROM codex_thread_acceptances WHERE conversation_id=? AND command_id=? AND attempt=?',
+          )
+          .get(id, command.id, command.attempt))
+    );
+  }
   retryLatestFailed(
     id: string,
     b: AccountBinding,
@@ -1147,17 +1167,7 @@ export class CodexConversationStore {
       this.read(id, b);
       // A pending replacement still owns this exact attempt. Retry must not
       // mutate its identity before admission or ownership reconciliation.
-      if (
-        this.db
-          .prepare('SELECT 1 FROM codex_pending_thread_dispatches WHERE conversation_id=?')
-          .get(id) ||
-        this.db
-          .prepare(
-            'SELECT 1 FROM codex_thread_acceptances WHERE conversation_id=? AND ownership_pending=1',
-          )
-          .get(id)
-      )
-        return 'not_retryable';
+      if (this.retryFenced(id)) return 'not_retryable';
       const row = this.db
         .prepare(
           `SELECT id,attempt,retry_not_before,retryable,ambiguous
@@ -1177,14 +1187,7 @@ export class CodexConversationStore {
       if (!row) return 'not_found';
       // A durable native ACK is not a failed dispatch, including ledgers written
       // by older transport callbacks. Ownership repair cannot authorize replay.
-      if (
-        this.db
-          .prepare(
-            'SELECT 1 FROM codex_thread_acceptances WHERE conversation_id=? AND command_id=? AND attempt=?',
-          )
-          .get(id, row.id, row.attempt)
-      )
-        return 'not_retryable';
+      if (this.retryFenced(id, row)) return 'not_retryable';
       if (row.retryable !== 1) return 'not_retryable';
       if (row.retry_not_before && now < row.retry_not_before) return 'too_early';
       if (row.ambiguous === 1 && !confirmAmbiguous) return 'confirmation_required';

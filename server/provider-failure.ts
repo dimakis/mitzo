@@ -3,6 +3,7 @@ import type { ProviderFailure, ProviderFailureCategory } from '@mitzo/protocol';
 const MAX_RETRY_AFTER_SECONDS = 300;
 const SAFE_PROVIDER_CODES = new Set([
   'server_is_overloaded',
+  'server_overloaded',
   'server_error',
   'service_unavailable_error',
   'rate_limit_error',
@@ -28,14 +29,17 @@ const NON_RETRYABLE_LIMIT_CODES = new Set([
 
 const PUBLIC_MESSAGES: Record<ProviderFailureCategory, string> = {
   overloaded:
-    'OpenAI is temporarily overloaded. This turn is saved and can be retried when capacity is available.',
-  rate_limited: 'OpenAI is limiting requests. This turn is saved and can be retried later.',
-  timeout: 'The provider request timed out. This turn is saved and can be retried.',
+    'The provider is temporarily unavailable or busy. Wait before trying a new turn. Inspect saved work before retrying.',
+  rate_limited:
+    'The provider is limiting requests. Wait for the limit to reset. Inspect saved work before retrying.',
+  timeout:
+    'The provider request timed out. Its outcome may be unknown; inspect saved work before continuing.',
   transport: 'The provider connection ended before the turn completed. This turn is saved.',
   policy: 'OpenShell blocked the provider request because it did not satisfy the active policy.',
   context: 'The provider rejected the turn because its context is too large.',
   authentication: 'The provider rejected the configured account credentials or permissions.',
-  unknown: 'The provider did not complete the turn. The failed turn was saved.',
+  unknown:
+    'Unrecognized provider failure. Inspect saved work before continuing and report the chat and time if the problem persists.',
 };
 
 function record(value: unknown): Record<string, unknown> | undefined {
@@ -58,10 +62,58 @@ function diagnosticText(value: unknown, depth = 0): string {
 function sanitizedCode(value: unknown): string | undefined {
   const object = record(value);
   if (!object) return undefined;
-  for (const candidate of [record(object.error)?.code, object.code, object.type]) {
+  for (const candidate of [
+    object.codex_error_info,
+    object.codexErrorInfo,
+    record(object.error)?.codex_error_info,
+    record(object.error)?.code,
+    object.code,
+    object.type,
+  ]) {
     if (typeof candidate === 'string' && SAFE_PROVIDER_CODES.has(candidate)) return candidate;
   }
   return undefined;
+}
+
+// Only reviewed native tags become public codes; provider-controlled payloads
+// and unknown tag details never enter messages or telemetry.
+function nativeFailure(
+  value: unknown,
+): { category: ProviderFailureCategory; code: string; permanent?: boolean } | undefined {
+  const object = record(value);
+  const info =
+    object?.codex_error_info ?? object?.codexErrorInfo ?? record(object?.error)?.codex_error_info;
+  const known: Record<
+    string,
+    { category: ProviderFailureCategory; code: string; permanent?: boolean }
+  > = {
+    serverOverloaded: { category: 'overloaded', code: 'server_overloaded' },
+    server_overloaded: { category: 'overloaded', code: 'server_overloaded' },
+    contextWindowExceeded: { category: 'context', code: 'context_window_exceeded' },
+    context_window_exceeded: { category: 'context', code: 'context_window_exceeded' },
+    usageLimitExceeded: { category: 'rate_limited', code: 'usage_limit_exceeded', permanent: true },
+    usage_limit_exceeded: {
+      category: 'rate_limited',
+      code: 'usage_limit_exceeded',
+      permanent: true,
+    },
+    sessionBudgetExceeded: {
+      category: 'rate_limited',
+      code: 'session_budget_exceeded',
+      permanent: true,
+    },
+    session_budget_exceeded: {
+      category: 'rate_limited',
+      code: 'session_budget_exceeded',
+      permanent: true,
+    },
+    rateLimitExceeded: { category: 'rate_limited', code: 'rate_limit_exceeded' },
+    rate_limit_exceeded: { category: 'rate_limited', code: 'rate_limit_exceeded' },
+    unauthorized: { category: 'authentication', code: 'unauthorized' },
+    internalServerError: { category: 'overloaded', code: 'internal_server_error' },
+    internal_server_error: { category: 'overloaded', code: 'internal_server_error' },
+  };
+  return typeof info === 'string' && Object.hasOwn(known, info) ? known[info] : undefined;
 }
 
 function httpStatus(value: unknown): number | undefined {
@@ -89,7 +141,7 @@ function retryAfterMs(value: unknown, now = Date.now()): number | undefined {
 
 function categoryFor(text: string, status?: number): ProviderFailureCategory {
   if (
-    /(?:server_is_overloaded|server_error|service_unavailable_error|temporar(?:ily)? overloaded|high demand)/i.test(
+    /(?:server_is_overloaded|server_overloaded|server_error|service_unavailable_error|temporar(?:ily)? overloaded|high demand|model is at capacity)/i.test(
       text,
     )
   )
@@ -133,9 +185,14 @@ export function classifyProviderFailure(
   context: { correlationId: string; attempt?: number },
 ): ProviderFailure {
   const text = diagnosticText(value);
-  const category = categoryFor(text, httpStatus(value));
-  const code = sanitizedCode(value);
+  const native = nativeFailure(value);
+  const code = native?.code ?? sanitizedCode(value);
+  const codedCategory = code ? categoryFor(code) : 'unknown';
+  const category =
+    native?.category ??
+    (codedCategory !== 'unknown' ? codedCategory : categoryFor(text, httpStatus(value)));
   const permanentLimit =
+    native?.permanent === true ||
     (!!code && NON_RETRYABLE_LIMIT_CODES.has(code)) ||
     /(?:insufficient[_ -]?quota|quota (?:exhausted|exceeded)|spend[_ -]?limit|usage[_ -]?limit|credit balance)/i.test(
       text,
@@ -154,7 +211,13 @@ export function classifyProviderFailure(
     attempt: Math.max(1, Math.trunc(context.attempt ?? 1)),
     correlationId: context.correlationId,
     ...(delay ? { retryAfterMs: delay } : {}),
-    message: PUBLIC_MESSAGES[category],
+    message:
+      code === 'server_overloaded' ||
+      (category === 'overloaded' && /model is at capacity/i.test(text))
+        ? 'The selected model is at capacity. Wait for capacity or choose another available model. Inspect saved work before retrying.'
+        : permanentLimit && category === 'rate_limited'
+          ? 'The selected account has reached a usage or budget limit. Check its limits or choose another available account. Inspect saved work before continuing.'
+          : PUBLIC_MESSAGES[category],
   };
 }
 

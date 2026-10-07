@@ -13,6 +13,8 @@ Expand **Workspace** in chat to choose the account and model. **Make default for
 
 Telos **Open in Chat** and **Start Session** open a launch preview with Workspace expanded. Review the account and model, then select **Send launch prompt**. The chat follows the session created for that launch and keeps its Telos context and task identity. The preview stays available until delivery is confirmed through the HTTP receipt or a matching persisted WebSocket user-message echo; a failed send can be retried with the same task context.
 
+Codex provider failures show sanitized, actionable messages for known capacity, account, context and connection failures. Capacity errors suggest waiting or selecting another available model; saved work and acceptance receipts remain intact. A capacity failure never automatically retries a turn, and accepted or ambiguous work retains its recovery safeguards.
+
 ## Features
 
 Experimental [Symposium conversations](docs/features/symposium-integrated-acceptance.md) combine implementer and independently configured read-only reviewer seats with selected context, attributed results and explicit Stop controls. Provider sign-in, physical runtime admission and live workflow acceptance remain required. Use the [canonical singleton staging procedure](docs/operations/symposium-singleton-staging.md) for qualification; production activation is separate.

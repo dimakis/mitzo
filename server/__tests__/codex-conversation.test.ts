@@ -1740,7 +1740,9 @@ it('marks failed provider turns as errors without exposing provider diagnostics'
     expect.objectContaining({ type: 'result', session_id: 'app', is_error: true }),
   );
   expect(onError).toHaveBeenCalledWith(
-    expect.objectContaining({ message: 'The provider did not complete the turn.' }),
+    expect.objectContaining({
+      message: 'The provider rejected the configured account credentials or permissions.',
+    }),
   );
   expect(c.isPaused()).toBe(true);
 });
@@ -1776,7 +1778,7 @@ it('attaches a sanitized typed failure to a failed provider result', async () =>
         correlationId: 'turn-1',
         retryAfterMs: 9_000,
         message:
-          'OpenAI is temporarily overloaded. This turn is saved and can be retried when capacity is available.',
+          'The provider is temporarily unavailable or busy. Wait before trying a new turn. Inspect saved work before retrying.',
       },
     }),
   );
@@ -3176,4 +3178,122 @@ it('never retries an accepted turn after transport loss during ownership registr
   expect(await reopened.c.retryLatestFailed(true)).toBe('not_found');
   expect(store.commands('app', binding)).toEqual(before);
   expect(reopened.requests.filter((r) => r.method === 'turn/start')).toHaveLength(0);
+});
+
+it('delivers actionable native model capacity errors while retaining explicit retry confirmation', async () => {
+  const { c, callbacks, events, onError, requests } = await setup();
+  await c.send({ id: 'native-capacity', prompt: 'hello' });
+  callbacks.onNotification('turn/completed', {
+    threadId: 'provider-thread',
+    turn: {
+      id: 'turn-1',
+      status: 'failed',
+      error: {
+        message: 'Selected model is at capacity. Please try a different model.',
+        codex_error_info: 'server_overloaded',
+      },
+    },
+  });
+  const message =
+    'The selected model is at capacity. Wait for capacity or choose another available model. Inspect saved work before retrying.';
+  expect(events).toContainEqual(
+    expect.objectContaining({
+      type: 'result',
+      is_error: true,
+      provider_failure: expect.objectContaining({
+        category: 'overloaded',
+        code: 'server_overloaded',
+        message,
+        retryable: true,
+        ambiguous: true,
+      }),
+    }),
+  );
+  expect(onError).toHaveBeenCalledWith(
+    expect.objectContaining({ message, failure: expect.objectContaining({ message }) }),
+  );
+  expect(codexTurnFailureDiagnostic({ codex_error_info: 'server_overloaded' })).toBe(message);
+  expect(c.isPaused()).toBe(true);
+  expect(await c.retryLatestFailed()).toBe('confirmation_required');
+  expect(requests.filter(({ method }) => method === 'turn/start')).toHaveLength(1);
+  expect(c.queue()).toMatchObject([{ id: 'native-capacity', status: 'failed', attempt: 1 }]);
+});
+
+it('preserves accepted tools and adoption after capacity failure without advertising a forbidden retry', async () => {
+  const args: Parameters<typeof setup> = [];
+  args[4] = async () => binding;
+  args[13] = async () => 'verified context';
+  args[14] = vi.fn();
+  args[17] = true;
+  const f = await setup(...args);
+  await f.c.send({ id: 'accepted-capacity', prompt: 'hello' });
+  await f.callbacks.onRequest(
+    'item/tool/call',
+    {
+      threadId: 'provider-thread',
+      turnId: 'turn-1',
+      callId: 'tool-capacity',
+      tool: 'Read',
+      arguments: {},
+    },
+    new AbortController().signal,
+  );
+  expect(f.execute).toHaveBeenCalledOnce();
+  expect(args[14]).toHaveBeenCalledExactlyOnceWith(
+    'accepted-capacity',
+    'provider-thread',
+    'turn-1',
+    'verified context',
+  );
+  const acceptance = f.store.readThreadAcceptances('app', binding);
+  f.callbacks.onNotification('turn/completed', {
+    threadId: 'provider-thread',
+    turn: {
+      id: 'turn-1',
+      status: 'failed',
+      error: {
+        message: 'Bearer sk-private at https://private.invalid',
+        codex_error_info: 'server_overloaded',
+      },
+    },
+  });
+  expect(f.store.readThreadAcceptances('app', binding)).toEqual(acceptance);
+  expect(f.store.queueSummary('app', binding)).toMatchObject({
+    failed: 1,
+    retryable: false,
+    requiresRetryConfirmation: true,
+  });
+  expect(await f.c.retryLatestFailed(true)).toBe('not_retryable');
+  expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(1);
+  expect(f.c.queue()).toMatchObject([{ id: 'accepted-capacity', status: 'failed', attempt: 1 }]);
+  expect(JSON.stringify(f.events)).not.toMatch(/sk-private|private.invalid|Bearer/);
+  expect(f.execute).toHaveBeenCalledOnce();
+});
+
+it('does not fork or automatically continue queued work for capacity with a misleading stream message', async () => {
+  const args: Parameters<typeof setup> = [];
+  args[4] = async () => binding;
+  const f = await setup(...args);
+  await f.c.send({ id: 'capacity-stream', prompt: 'hello' });
+  f.c.enqueue({ id: 'later', prompt: 'later' });
+  f.callbacks.onNotification('turn/completed', {
+    threadId: 'provider-thread',
+    turn: {
+      id: 'turn-1',
+      status: 'failed',
+      error: {
+        codex_error_info: 'server_overloaded',
+        message: 'stream disconnected before completion: selected model is at capacity',
+      },
+    },
+  });
+  expect(f.store.read('app', binding).recoveryStrategy).toBe('resume');
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  expect(f.c.isPaused()).toBe(true);
+  expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(1);
+  expect(f.requests.filter(({ method }) => method === 'thread/fork')).toHaveLength(0);
+  expect(f.c.queue()).toMatchObject([
+    { id: 'capacity-stream', status: 'failed' },
+    { id: 'later', status: 'queued' },
+  ]);
 });

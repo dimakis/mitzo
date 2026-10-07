@@ -23,7 +23,7 @@ describe('classifyProviderFailure', () => {
       correlationId: 'turn-123',
       retryAfterMs: 12_000,
       message:
-        'OpenAI is temporarily overloaded. This turn is saved and can be retried when capacity is available.',
+        'The provider is temporarily unavailable or busy. Wait before trying a new turn. Inspect saved work before retrying.',
     });
   });
 
@@ -185,4 +185,66 @@ describe('classifyProviderFailure', () => {
       providerFailureCorrelationId: 'message-auth',
     });
   });
+});
+
+it.each([
+  {
+    message: 'Selected model is at capacity. Please try a different model.',
+    codex_error_info: 'server_overloaded',
+  },
+  { codex_error_info: 'server_overloaded' },
+  {
+    message: 'Bearer sk-private credential at https://private.invalid',
+    codex_error_info: 'server_overloaded',
+  },
+])('classifies structured native capacity failures without retaining raw diagnostics', (error) => {
+  const failure = classifyProviderFailure(error, { correlationId: 'native-turn', attempt: 3 });
+  expect(failure).toMatchObject({
+    category: 'overloaded',
+    code: 'server_overloaded',
+    retryable: true,
+    ambiguous: true,
+    attempt: 3,
+  });
+  expect(failure.message).toBe(
+    'The selected model is at capacity. Wait for capacity or choose another available model. Inspect saved work before retrying.',
+  );
+  expect(providerFailureTelemetry(failure)).toMatchObject({
+    providerFailureCode: 'server_overloaded',
+    providerFailureAmbiguous: true,
+  });
+  expect(JSON.stringify(failure)).not.toMatch(/sk-private|private.invalid|Bearer/);
+});
+
+it.each([
+  ['serverOverloaded', 'overloaded', true],
+  ['contextWindowExceeded', 'context', false],
+  ['usageLimitExceeded', 'rate_limited', false],
+  ['sessionBudgetExceeded', 'rate_limited', false],
+  ['rateLimitExceeded', 'rate_limited', true],
+  ['unauthorized', 'authentication', false],
+  ['internalServerError', 'overloaded', true],
+] as const)('uses allowlisted native %s ahead of raw messages', (code, category, retryable) => {
+  const failure = classifyProviderFailure(
+    { codexErrorInfo: code, message: 'Bearer secret credential' },
+    { correlationId: 'turn-known' },
+  );
+  expect(failure).toMatchObject({ category, retryable });
+  expect(failure).toHaveProperty('code');
+  expect(failure.message).not.toContain('secret');
+  if (code === 'internalServerError') expect(failure.message).not.toContain('model is at capacity');
+});
+
+it('keeps unknown structured tags and details private with an actionable fallback', () => {
+  const failure = classifyProviderFailure(
+    {
+      codex_error_info: { other: { private: 'sk-private' } },
+      message: 'unfamiliar detail at https://private.invalid',
+    },
+    { correlationId: 'turn-unknown' },
+  );
+  expect(failure.category).toBe('unknown');
+  expect(failure).not.toHaveProperty('code');
+  expect(failure.message).toMatch(/Unrecognized provider failure.*chat and time/);
+  expect(JSON.stringify(failure)).not.toMatch(/sk-private|private.invalid/);
 });

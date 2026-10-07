@@ -218,11 +218,16 @@ const ToolCall = z.object({
  * any provider-controlled text.
  */
 export function codexTurnFailureDiagnostic(value: unknown): string {
+  const failure = classifyProviderFailure(value, { correlationId: 'diagnostic' });
+  if (failure.code) return failure.message;
   const message =
     typeof value === 'string'
       ? value
       : z.object({ message: z.string().optional() }).passthrough().safeParse(value).data?.message;
-  if (typeof message !== 'string') return 'The provider did not complete the turn.';
+  if (typeof message !== 'string')
+    return failure.category === 'unknown'
+      ? 'The provider did not complete the turn.'
+      : failure.message;
   if (/(?:credential.*traffic.*denied|credential[ -]bearing.*cannot be inspected)/i.test(message))
     return 'OpenShell denied the provider request because its credential-bearing body could not be inspected.';
   if (/stream disconnected before completion/i.test(message))
@@ -230,7 +235,9 @@ export function codexTurnFailureDiagnostic(value: unknown): string {
   if (/context[_ -]length[_ -]exceeded/i.test(message))
     return 'The provider rejected the turn because its context is too large.';
   if (/timed? out/i.test(message)) return 'The provider request timed out.';
-  return 'The provider did not complete the turn.';
+  return failure.category === 'unknown'
+    ? 'The provider did not complete the turn.'
+    : failure.message;
 }
 
 function isRecoverableProviderTransportFailure(value: unknown): boolean {
@@ -1680,7 +1687,9 @@ export class CodexConversation {
       }
       this.opts.onProviderComplete?.(this.active.command.id, status);
       const providerTransportFailed =
-        status === 'failed' && isRecoverableProviderTransportFailure(turn.data.error);
+        status === 'failed' &&
+        providerFailure?.category === 'transport' &&
+        isRecoverableProviderTransportFailure(turn.data.error);
       const recoverQueuedFollowUp =
         providerTransportFailed &&
         !this.automaticTransportRecoveryAttempted &&
