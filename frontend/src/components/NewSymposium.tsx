@@ -13,18 +13,33 @@ export function NewSymposium() {
   const [title, setTitle] = useState('Symposium');
   const [role, setRole] = useState<'coder' | 'reviewer'>('coder');
   const [account, setAccount] = useState<AccountSelection | null>(null);
-  const [profile, setProfile] = useState<SymposiumProfileSelection | null>(null);
+  const pickerEpoch = useRef(0);
+  const [pickerGeneration, setPickerGeneration] = useState(0);
+  const [profile, setProfile] = useState<{
+    selection: SymposiumProfileSelection;
+    role: 'coder' | 'reviewer';
+    generation: number;
+  } | null>(null);
+  const profileSelection =
+    profile?.role === role && profile.generation === pickerGeneration ? profile.selection : null;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [draft, setDraft] = useState<string | null>(null);
   const retry = useRef<{ payload: string; key: string } | null>(null);
   async function create() {
-    if (busy || !account?.accountId || !profile || !title.trim()) return;
+    if (
+      busy ||
+      !account?.accountId ||
+      !profileSelection ||
+      profile?.generation !== pickerEpoch.current ||
+      !title.trim()
+    )
+      return;
     const payload = JSON.stringify({
       title: title.trim(),
       ...account,
       role,
-      profileSelection: profile,
+      profileSelection,
     });
     if (retry.current?.payload !== payload) retry.current = { payload, key: crypto.randomUUID() };
     setBusy(true);
@@ -122,6 +137,8 @@ export function NewSymposium() {
                       value={role}
                       disabled={busy}
                       onChange={(event) => {
+                        pickerEpoch.current += 1;
+                        setPickerGeneration(pickerEpoch.current);
                         setRole(event.target.value as 'coder' | 'reviewer');
                         setProfile(null);
                       }}
@@ -152,9 +169,16 @@ export function NewSymposium() {
                   import a profile in Manage profiles.
                 </p>
                 <SymposiumProfilePicker
-                  key={role}
-                  value={profile}
-                  onChange={setProfile}
+                  key={`${role}:${pickerGeneration}`}
+                  value={profileSelection}
+                  onChange={(selection) => {
+                    // A retired save/import may finish after a role change, including
+                    // a round trip to the same role. Only this picker can select.
+                    if (pickerGeneration !== pickerEpoch.current) return;
+                    setProfile(
+                      selection ? { selection, role, generation: pickerGeneration } : null,
+                    );
+                  }}
                   disabled={busy}
                   requiredRole={role}
                   compact
@@ -165,7 +189,7 @@ export function NewSymposium() {
                 <button
                   className="btn-primary"
                   type="button"
-                  disabled={busy || !account?.accountId || !profile || !title.trim()}
+                  disabled={busy || !account?.accountId || !profileSelection || !title.trim()}
                   onClick={() => void create()}
                 >
                   {busy ? 'Creating Symposium…' : 'Create Symposium draft'}
