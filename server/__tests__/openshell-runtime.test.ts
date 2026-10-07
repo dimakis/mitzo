@@ -56,6 +56,54 @@ const providerList = (sandbox: string, providers: string[]) =>
     : `No providers attached to sandbox ${sandbox}.`;
 
 describe('OpenShell runtime lifecycle', () => {
+  it('creates a sandbox with multiple managed connections using a stable Kubernetes-safe policy label', async () => {
+    const connections = [
+      'mitzo-conn-11111111-1111-4111-8111-111111111111',
+      'mitzo-conn-22222222-2222-4222-8222-222222222222',
+    ];
+    const createWith = async (providers: string[]) => {
+      let created = false;
+      let policy = '';
+      const run = vi.fn(async (args: readonly string[]) => {
+        if (args.includes('get')) {
+          if (!created) throw new Error('sandbox not found');
+          return ready('Ready', policy);
+        }
+        if (args.includes('create')) {
+          const labels = args.filter((_, i) => args[i - 1] === '--label');
+          for (const label of labels) {
+            const value = label.slice(label.indexOf('=') + 1);
+            if (value.length > 63) throw new Error('gateway rejected label value longer than 63');
+            expect(value).toMatch(/^[A-Za-z0-9](?:[A-Za-z0-9_.-]*[A-Za-z0-9])?$/);
+          }
+          policy = labels
+            .find((label) => label.startsWith('mitzo.provider_policy='))!
+            .split('=')[1];
+          created = true;
+          return ready('Ready', policy);
+        }
+        if (args.includes('list')) return providerList('sandbox', ['openai-work', ...providers]);
+        return '{}';
+      });
+      await new OpenShellRuntimeManager({ ...config, serviceProviders: providers }, run).ensure(
+        'conversation',
+        new AbortController().signal,
+      );
+      return policy;
+    };
+    const policy = await createWith(['github', ...connections]);
+    expect(policy.length).toBeLessThanOrEqual(63);
+    expect(await createWith([...connections].reverse().concat('github', connections[0]))).toBe(
+      policy,
+    );
+    expect(
+      await createWith([
+        'github',
+        ...connections,
+        'mitzo-conn-33333333-3333-4333-8333-333333333333',
+      ]),
+    ).not.toBe(policy);
+  });
   it('requires OpenShell 0.1 and physical attestation for an artifact mount', async () => {
     const artifactDriverConfig = {
       podman: {
