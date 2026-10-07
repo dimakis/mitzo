@@ -136,6 +136,7 @@ function validateRelease(r, freshMain) {
   stagingBoundary({ ...r, root });
   if (realpathSync(r.release) !== r.release) throw Error('Release path alias refused');
   if (
+    realpathSync(run('git', ['rev-parse', '--show-toplevel'], r.release)) !== r.release ||
     run('git', ['rev-parse', 'HEAD'], r.release) !== r.sourceCommit ||
     run('git', ['rev-parse', 'HEAD^{tree}'], r.release) !== r.sourceTree ||
     run('git', ['status', '--porcelain', '--untracked-files=no'], r.release)
