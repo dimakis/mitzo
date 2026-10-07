@@ -194,6 +194,7 @@ import {
   generateWtId,
 } from './chat.js';
 import { NullTransport } from './null-transport.js';
+import { getAccountUseStore } from './account-use-store.js';
 import { getImage } from './image-store.js';
 import {
   createWorktree,
@@ -2465,10 +2466,23 @@ app.use(
       accounts: async (signal: AbortSignal) => {
         const profiles = loadAccountProfiles();
         await profiles.checkSignIn(signal);
-        return profiles.catalog().map((account) => ({
-          ...account,
-          label: accountAliases.label(account.id, account.label),
-        }));
+        return profiles.catalog().map((account) => {
+          // Missing history must not hide otherwise available accounts.
+          let lastSuccessfulUse;
+          try {
+            lastSuccessfulUse = getAccountUseStore().latest(
+              profiles.resolve(account.id, account.models[0].id),
+              account.models.map((model) => model.id),
+            );
+          } catch {
+            /* History is best effort; it is not an access check. */
+          }
+          return {
+            ...account,
+            label: accountAliases.label(account.id, account.label),
+            lastSuccessfulUse,
+          };
+        });
       },
       ...(runtime
         ? {

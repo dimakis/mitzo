@@ -1,4 +1,5 @@
 import type { AccountSignIn } from './account-profiles.js';
+import type { SuccessfulAccountUse } from './account-use-store.js';
 /** Nonsecret read model. Actions only navigate to existing owning controls. */
 export type AccessResourceKind =
   | 'ai-account'
@@ -26,6 +27,7 @@ export interface AccessResource {
   };
   accountIdentity: string | null;
   signIn?: AccountSignIn;
+  lastSuccessfulUse?: SuccessfulAccountUse;
   verification: {
     state: 'verified' | 'stale' | 'unverified' | 'unavailable';
     verifiedAt: number | null;

@@ -3,6 +3,7 @@ import type { Connection } from './connections-store.js';
 import type { PersonalConnection } from './symposium-personal-connections.js';
 import type { GoogleWorkspaceHealth } from './google-workspace-management.js';
 import type { CapabilityGrant } from './connections/capabilities/types.js';
+import type { SuccessfulAccountUse } from './account-use-store.js';
 import type {
   AccessResource,
   AccessResourceKind,
@@ -10,9 +11,19 @@ import type {
 } from './connections-access-types.js';
 
 export interface ConnectionsAccessSources {
-  accounts?: (
-    signal: AbortSignal,
-  ) => ReturnType<AccountProfiles['catalog']> | Promise<ReturnType<AccountProfiles['catalog']>>;
+  accounts?: (signal: AbortSignal) =>
+    | Array<
+        ReturnType<AccountProfiles['catalog']>[number] & {
+          lastSuccessfulUse?: SuccessfulAccountUse;
+        }
+      >
+    | Promise<
+        Array<
+          ReturnType<AccountProfiles['catalog']>[number] & {
+            lastSuccessfulUse?: SuccessfulAccountUse;
+          }
+        >
+      >;
   symposiumAccounts?: (
     signal: AbortSignal,
   ) => ReturnType<AccountProfiles['catalog']> | Promise<ReturnType<AccountProfiles['catalog']>>;
@@ -136,7 +147,13 @@ export async function readConnectionsAccess(
   const value = <T>(id: (typeof keys)[number]) =>
     reads.find((r) => r.id === id)?.value as T | undefined;
   for (const source of ['accounts', 'symposiumAccounts'] as const) {
-    for (const account of value<ReturnType<AccountProfiles['catalog']>>(source) ?? []) {
+    for (const account of value<
+      Array<
+        ReturnType<AccountProfiles['catalog']>[number] & {
+          lastSuccessfulUse?: SuccessfulAccountUse;
+        }
+      >
+    >(source) ?? []) {
       const row = base(
         'ai-account',
         source === 'accounts' ? 'account-profiles' : 'symposium-account-profiles',
@@ -185,6 +202,14 @@ export async function readConnectionsAccess(
         billing: account.billing,
         models: account.models.map((model) => ({ id: model.id, label: model.label })),
       };
+      if (
+        account.lastSuccessfulUse &&
+        Number.isSafeInteger(account.lastSuccessfulUse.succeededAt) &&
+        account.lastSuccessfulUse.succeededAt >= 0 &&
+        account.lastSuccessfulUse.succeededAt <= now &&
+        account.models.some((model) => model.id === account.lastSuccessfulUse!.model)
+      )
+        row.lastSuccessfulUse = { ...account.lastSuccessfulUse };
       row.verification.reason = account.signIn
         ? 'Effective conversation access has not been checked.'
         : 'Configured account profile only. Credential controls are unavailable here; sign-in and effective access have not been checked.';

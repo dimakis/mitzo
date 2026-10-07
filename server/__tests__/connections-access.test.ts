@@ -146,6 +146,25 @@ it('reports the recorded credential check without declaring an enabled connectio
   });
 });
 
+it('reports successful account use as history without turning it into an authentication check', async () => {
+  const inventory = await readConnectionsAccess(
+    { accounts: () => [{ ...account, lastSuccessfulUse: { model: 'luna', succeededAt: 100 } }] },
+    { now: 200 },
+  );
+  expect(inventory.resources[0].lastSuccessfulUse).toEqual({ model: 'luna', succeededAt: 100 });
+  expect(inventory.resources[0].verification.state).toBe('unverified');
+  for (const lastSuccessfulUse of [
+    { model: 'other', succeededAt: 100 },
+    { model: 'luna', succeededAt: 300 },
+  ]) {
+    const invalid = await readConnectionsAccess(
+      { accounts: () => [{ ...account, lastSuccessfulUse }] },
+      { now: 200 },
+    );
+    expect(invalid.resources[0].lastSuccessfulUse).toBeUndefined();
+  }
+});
+
 it('exposes service scope and configured identity without presenting the Jira account ID as a name', async () => {
   const inventory = await readConnectionsAccess({
     managed: () => [

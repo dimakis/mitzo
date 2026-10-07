@@ -137,6 +137,45 @@ describe('runQueryLoop', () => {
   const clientId = 'test-client';
   let abortController: AbortController;
 
+  it('records only successful provider results with a primary observed model, not selected or subagent models', async () => {
+    const binding = {
+      accountId: 'work',
+      accountLabel: 'Work',
+      provider: 'openai',
+      profileRevision: 'route-1',
+      model: 'selected-but-unused',
+    };
+    registry.get(clientId)!.accountBinding = binding;
+    const onSuccessfulAccountUse = vi.fn();
+    await runQueryLoop(
+      eventStream([
+        {
+          type: 'stream_event',
+          event: { type: 'message_start', message: { model: 'luna', usage: {} } },
+        },
+        {
+          type: 'stream_event',
+          parent_tool_use_id: 'subagent',
+          event: { type: 'message_start', message: { model: 'other-model', usage: {} } },
+        },
+        { type: 'result', session_id: 'sess-use', is_error: false },
+        {
+          type: 'stream_event',
+          event: { type: 'message_start', message: { model: 'failed-model', usage: {} } },
+        },
+        { type: 'result', session_id: 'sess-use', is_error: true },
+        { type: 'result', session_id: 'sess-use', is_error: false },
+      ]),
+      clientId,
+      registry,
+      abortController,
+      undefined,
+      undefined,
+      { onSuccessfulAccountUse },
+    );
+    expect(onSuccessfulAccountUse).toHaveBeenCalledExactlyOnceWith({ ...binding, model: 'luna' });
+  });
+
   beforeEach(() => {
     transport = fakeTransport();
     registry = fakeRegistry(transport);

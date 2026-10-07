@@ -21,7 +21,7 @@ import { createGoal, reportUsage, deriveGoalTitle } from './goal-client.js';
 import { tracer } from './tracing.js';
 import { context, trace, SpanStatusCode, type Span } from '@opentelemetry/api';
 import { ProgressTracker } from './progress-tracker.js';
-import type { ProviderFailure } from '@mitzo/protocol';
+import type { ProviderFailure, AccountBinding } from '@mitzo/protocol';
 import { providerFailureTelemetry } from './provider-failure.js';
 const log = createLogger('query-loop');
 
@@ -200,6 +200,8 @@ export interface QueryLoopOptions {
   onUserInput?: (clientId: string, inputUuid: string) => void;
   /** Called after the SDK emits a terminal result, paired with its echoed parent input UUID. */
   onResult?: (clientId: string, result: { is_error?: boolean }, inputUuid?: string) => void;
+  /** Historical use, only after a successful result for a primary observed model. */
+  onSuccessfulAccountUse?: (binding: AccountBinding) => void;
 }
 
 export async function runQueryLoop(
@@ -307,6 +309,7 @@ async function _runQueryLoopInner(
   // use that echo to complete durable work for the active turn.
   let parentInputCorrelationAmbiguous = false;
   let parentTurnActive = false;
+  const primaryModels = new Map<string, AccountBinding>();
   let resolvedGoalId: string | undefined;
   let goalCreationPromise: Promise<string | null> | undefined;
   let goalTitle: string | undefined;
@@ -498,6 +501,19 @@ async function _runQueryLoopInner(
 
         log.debug('sdk event', { clientId, type: msg.type });
 
+        if (!msg.parent_tool_use_id && currentSession.accountBinding) {
+          const message =
+            msg.type === 'stream_event'
+              ? (msg.event as { type?: string; message?: { model?: unknown } })
+              : msg.type === 'assistant'
+                ? { type: 'message_start', message: msg.message as { model?: unknown } }
+                : undefined;
+          if (message?.type === 'message_start' && typeof message.message?.model === 'string') {
+            const model = message.message.model;
+            primaryModels.set(model, { ...currentSession.accountBinding, model });
+          }
+        }
+
         if (msg.type === 'assistant') {
           const parentToolUseId = msg.parent_tool_use_id as string | undefined;
 
@@ -617,6 +633,20 @@ async function _runQueryLoopInner(
           // Extract usage data from SDK result event
           const result = msg as SdkResultEvent;
           const isError = result.is_error === true;
+          if (
+            !isError &&
+            !result.provider_failure &&
+            !msg.parent_tool_use_id &&
+            !abortController.signal.aborted
+          ) {
+            try {
+              for (const binding of primaryModels.values())
+                options?.onSuccessfulAccountUse?.(binding);
+            } catch {
+              log.warn('could not record successful account use', { clientId });
+            }
+          }
+          primaryModels.clear();
           const providerFailure = isError ? result.provider_failure : undefined;
           caughtError ||= isError;
           if (isError) {
