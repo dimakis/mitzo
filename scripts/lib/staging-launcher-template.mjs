@@ -1,14 +1,13 @@
 import process from 'node:process';
 import console from 'node:console';
 import { constants, openSync, fstatSync, readFileSync, closeSync, realpathSync } from 'node:fs';
-import { createHash } from 'node:crypto';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { homedir } from 'node:os';
 import { existsSync, unlinkSync } from 'node:fs';
 import { assertPinnedStageSource } from './control-lib/staging-operations.mjs';
-import { fingerprintDirectory } from './control-lib/staging-files.mjs';
+import { artifacts, fingerprintDirectory } from './control-lib/staging-files.mjs';
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 if (root !== join(homedir(), '.local/share/mitzo-staging') || realpathSync(root) !== root)
   throw Error('Staging root refused');
@@ -73,14 +72,19 @@ assertPinnedStageSource({
     true,
   ),
 });
-for (const [path, expected] of Object.entries(receipt.compiledArtifacts)) {
-  if (
-    createHash('sha256')
-      .update(readFileSync(join(release, path)))
-      .digest('hex') !== expected
-  )
-    throw Error('Staging compiled artifact changed');
-}
+const expectedArtifacts = receipt.compiledArtifacts;
+if (
+  !expectedArtifacts ||
+  typeof expectedArtifacts !== 'object' ||
+  Array.isArray(expectedArtifacts) ||
+  !Object.keys(expectedArtifacts).length
+)
+  throw Error('Staging compiled artifact inventory missing');
+const canonicalMap = (value) =>
+  JSON.stringify(Object.fromEntries(Object.entries(value).sort(([a], [b]) => a.localeCompare(b))));
+if (canonicalMap(artifacts(release)) !== canonicalMap(expectedArtifacts))
+  throw Error('Staging compiled artifact inventory changed');
+
 const resolved = spawnSync(
   process.execPath,
   [
