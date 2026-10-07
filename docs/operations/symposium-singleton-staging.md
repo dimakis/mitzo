@@ -153,18 +153,22 @@ activate it. It depends on the original canonical ordinary controller's private
 release receipt and installed service layout (the controller work in PR745).
 It does not import that feature branch or claim its code has reached main.
 
-Run from the exact independent built release selected by the canonical owned plan,
-using full source identities for both the candidate and existing ordinary app:
+Run from an independent built **controller** release prepared by the canonical
+ordinary controller at accepted main. Its private `staging-release.json` receipt
+qualifies its source/tree, complete compiled inventory and dependency fingerprint.
+The separately prepared owned plan selects the independently reviewed app target.
+Use full source identities for controller, target and existing ordinary app:
 
 ```sh
 node scripts/symposium-staging-transition.mjs prepare \
-  --commit TARGET_SHA --expected-current ORDINARY_SHA
+  --commit TARGET_SHA --expected-current ORDINARY_SHA --controller-commit CONTROLLER_SHA
 node scripts/symposium-staging-transition.mjs plan \
-  --commit TARGET_SHA --expected-current ORDINARY_SHA
+  --commit TARGET_SHA --expected-current ORDINARY_SHA --controller-commit CONTROLLER_SHA
 ```
 
 Preparation creates one exclusive `symposium/service/transition.json` receipt. It
-pins the old receipt, installed controller/service files, original PID and birth,
+pins the accepted-controller qualification, old receipt, installed ordinary
+controller/service files, original PID and birth,
 release directory, prepared plan/configuration/operator/registration/plist hashes.
 The private registry must be empty; launch intent, old owner records and preexisting
 owner log targets refuse preparation. No native registrations or model calls are
@@ -174,18 +178,34 @@ The explicit control command is:
 
 ```sh
 node scripts/symposium-staging-transition.mjs apply \
-  --commit TARGET_SHA --expected-current ORDINARY_SHA
+  --commit TARGET_SHA --expected-current ORDINARY_SHA --controller-commit CONTROLLER_SHA
 ```
 
-Apply requires the executing controller to be in the selected verified built
-release and the target to equal freshly fetched accepted main. Local script edits,
-compiled/configuration drift and unaccepted target sources refuse control. This
-is a deliberately stricter rollout gate: an independently reviewed feature target
-cannot currently run under a separate accepted-main controller. Supporting that
-split requires a separately verified controller source/tree/build/dependency
-receipt and review; there is no exception flag. Source acceptance and independently
-reviewed staging configuration remain prerequisites. Exact-head CI and final
-review remain acceptance requirements outside this command.
+Apply requires the executing controller release to match the explicit
+`CONTROLLER_SHA` and freshly fetched accepted main. Its HEAD/tree, clean tracked
+source, unhidden index, public repository origin and accepted ancestry, complete
+compiled artifact inventory and dependency fingerprint are checked. The private
+ordinary-preparation receipt, controller script hashes, source tree and build and
+dependency identities are pinned separately in the version-two transition intent
+and rechecked under the shared lock immediately before control. Local aliases,
+controller drift, missing receipts and an unaccepted controller refuse control.
+
+`TARGET_SHA` may be a different independently reviewed published source. It remains
+qualified by the owned plan's source/tree, build/runtime inputs and configuration
+checks, its accepted-main baseline and all canonical static gates. There is no
+exception flag and no substitution of target verification code for the executing
+accepted controller. Exact-head CI and final independent review of the controller
+and target, plus independently reviewed staging configuration, remain source
+acceptance prerequisites outside this command.
+
+This separation does not qualify the current feature controller as accepted main.
+A narrow controller change including its owned-release verification dependencies
+must first be reviewed and accepted on main, then independently prepared through
+the ordinary exact-commit command to obtain its `staging-release.json`. The existing
+feature stack need not be treated as accepted main. These commands do not clone,
+build, adopt a service or make an activation exception to obtain that prerequisite.
+Version-one transition intents cannot be reused; preserve them as evidence and
+prepare a separately reviewed fresh transition without deleting uncertain state.
 
 Apply reserves the same `service/deployment.lock` used by ordinary updates and
 owned drain. It rechecks immutable inputs, accepted main, the original launchd

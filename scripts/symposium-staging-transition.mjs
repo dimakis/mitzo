@@ -54,9 +54,12 @@ const env = {
   GIT_CONFIG_GLOBAL: '/dev/null',
   GIT_CONFIG_NOSYSTEM: '1',
   GIT_TERMINAL_PROMPT: '0',
+  GIT_OPTIONAL_LOCKS: '0',
 };
 const hash = (bytes) => createHash('sha256').update(bytes).digest('hex');
 function run(program, args, cwd = root) {
+  if (program === 'git')
+    args = ['-c', 'core.fsmonitor=false', '-c', 'core.hooksPath=/dev/null', ...args];
   const p = spawnSync(program, args, {
     cwd,
     env,
@@ -161,8 +164,7 @@ function fingerprint(path, base = path) {
   walk(path);
   return h.digest('hex');
 }
-function ordinaryReceipt() {
-  const r = readCanonicalPrivateJson(receiptPath);
+function verifyStageReceipt(r) {
   if (
     !/^[a-f0-9]{40}$/.test(r.sourceCommit) ||
     r.release !== join(root, 'releases', r.sourceCommit.slice(0, 12)) ||
@@ -173,23 +175,6 @@ function ordinaryReceipt() {
   )
     throw Error('Ordinary canonical receipt required');
   directory(r.release);
-  const plist = JSON.parse(
-    run('/usr/bin/plutil', [
-      '-convert',
-      'json',
-      '-o',
-      '-',
-      join(service, 'com.mitzo.staging.plist'),
-    ]),
-  );
-  if (
-    plist.Label !== 'com.mitzo.staging' ||
-    plist.KeepAlive !== false ||
-    plist.WorkingDirectory !== r.release ||
-    JSON.stringify(plist.ProgramArguments) !==
-      JSON.stringify([process.execPath, join(service, 'start.mjs')])
-  )
-    throw Error('Original ordinary service changed');
   if (
     run('git', ['rev-parse', 'HEAD'], r.release) !== r.sourceCommit ||
     run('git', ['rev-parse', 'HEAD^{tree}'], r.release) !== r.sourceTree ||
@@ -238,6 +223,7 @@ function ordinaryReceipt() {
     );
   if (sorted(actualArtifacts) !== sorted(r.compiledArtifacts))
     throw Error('Ordinary compiled inventory drift');
+  directory(join(r.release, 'node_modules'));
   if (
     !r.dependencyFingerprint ||
     fingerprint(join(r.release, 'node_modules'), r.release) !== r.dependencyFingerprint
@@ -245,6 +231,28 @@ function ordinaryReceipt() {
     throw Error('Ordinary dependencies changed');
   return r;
 }
+function ordinaryReceipt() {
+  const r = verifyStageReceipt(readCanonicalPrivateJson(receiptPath));
+  const plist = JSON.parse(
+    run('/usr/bin/plutil', [
+      '-convert',
+      'json',
+      '-o',
+      '-',
+      join(service, 'com.mitzo.staging.plist'),
+    ]),
+  );
+  if (
+    plist.Label !== 'com.mitzo.staging' ||
+    plist.KeepAlive !== false ||
+    plist.WorkingDirectory !== r.release ||
+    JSON.stringify(plist.ProgramArguments) !==
+      JSON.stringify([process.execPath, join(service, 'start.mjs')])
+  )
+    throw Error('Original ordinary service changed');
+  return r;
+}
+
 function ordinaryFiles() {
   const files = {};
   for (const tree of ['bin', 'service']) {
@@ -338,25 +346,51 @@ function prepared(target) {
   ];
   return { plan, inputs: Object.fromEntries(files.map((path) => [path, hash(bytes(path))])) };
 }
-function accepted(plan) {
-  verifyOwnedRelease(plan);
-  if (controllerRoot !== plan.releaseRoot)
-    throw Error('Apply requires the selected built release controller');
+// Reuse the ordinary prepare receipt; the controller and app are distinct releases.
+function controllerIdentity(commit) {
+  const path = join(controllerRoot, 'staging-release.json');
+  const receipt = verifyStageReceipt(readCanonicalPrivateJson(path));
+  if (
+    receipt.sourceCommit !== commit ||
+    receipt.release !== controllerRoot ||
+    realpathSync(controllerRoot) !== controllerRoot
+  )
+    throw Error('Executing canonical controller release does not match explicit controller commit');
   const files = [
     'scripts/symposium-staging-transition.mjs',
     'scripts/lib/symposium-staging-transition.mjs',
     'scripts/lib/symposium-staging-router.mjs',
   ];
-  assertAcceptedTransition(
-    plan.sourceCommit,
-    freshMain(),
-    files.every(
-      (name) =>
-        hash(bytes(join(controllerRoot, name), false)) ===
-        hash(bytes(join(plan.releaseRoot, name), false)),
+  run('git', ['ls-files', '--error-unmatch', ...files], controllerRoot);
+  const index = run('git', ['ls-files', '-v'], controllerRoot).split('\n').filter(Boolean);
+  if (!index.length || index.some((line) => !line.startsWith('H ')))
+    throw Error('Controller hidden tracked-file flags refused');
+  return {
+    sourceCommit: commit,
+    sourceTree: receipt.sourceTree,
+    releaseRoot: controllerRoot,
+    receiptSha256: hash(bytes(path)),
+    scripts: Object.fromEntries(
+      files.map((name) => [name, hash(bytes(join(controllerRoot, name), false))]),
     ),
-  );
+    compiledArtifactsSha256: hash(
+      JSON.stringify(
+        Object.fromEntries(
+          Object.entries(receipt.compiledArtifacts).sort(([a], [b]) => a.localeCompare(b)),
+        ),
+      ),
+    ),
+    dependencyFingerprint: receipt.dependencyFingerprint,
+  };
 }
+function accepted(plan, controller) {
+  verifyOwnedRelease(plan);
+  const current = controllerIdentity(controller.sourceCommit);
+  if (JSON.stringify(current) !== JSON.stringify(controller))
+    throw Error('Prepared controller identity changed');
+  assertAcceptedTransition(controller.sourceCommit, freshMain(), true);
+}
+
 try {
   const command = process.argv[2],
     args = process.argv.slice(3),
@@ -365,13 +399,22 @@ try {
     throw Error('Use prepare/plan/apply on canonical macOS stage');
   for (let i = 0; i < args.length; i++) {
     const key = args[i];
-    if (!['--commit', '--expected-current'].includes(key) || flags[key] || !args[i + 1])
+    if (
+      !['--commit', '--expected-current', '--controller-commit'].includes(key) ||
+      flags[key] ||
+      !args[i + 1]
+    )
       throw Error('Exact commit arguments required');
     flags[key] = args[++i];
   }
   const target = flags['--commit'],
-    expected = flags['--expected-current'];
-  if (!/^[a-f0-9]{40}$/.test(target ?? '') || !/^[a-f0-9]{40}$/.test(expected ?? ''))
+    expected = flags['--expected-current'],
+    controllerCommit = flags['--controller-commit'];
+  if (
+    !/^[a-f0-9]{40}$/.test(target ?? '') ||
+    !/^[a-f0-9]{40}$/.test(expected ?? '') ||
+    !/^[a-f0-9]{40}$/.test(controllerCommit ?? '')
+  )
     throw Error('Full commit identities required');
   for (const p of [
     root,
@@ -386,7 +429,8 @@ try {
   absent(lockPath);
   absent(topologyPath);
   const { plan, inputs } = prepared(target),
-    old = ordinaryReceipt();
+    old = ordinaryReceipt(),
+    controller = controllerIdentity(controllerCommit);
   if (old.sourceCommit !== expected) throw Error('Expected ordinary source changed');
   const live = observe(),
     original = {
@@ -401,7 +445,8 @@ try {
     exclusive(
       intentPath,
       JSON.stringify({
-        version: 1,
+        version: 2,
+        controller,
         id: randomUUID(),
         target,
         expected,
@@ -426,13 +471,14 @@ try {
     const intent = readCanonicalPrivateJson(intentPath);
     if (
       !/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(intent.id) ||
-      intent.version !== 1
+      intent.version !== 2
     )
       throw Error('Prepared transition identity invalid');
     function validate() {
       const candidate = prepared(target);
       if (
         intent.target !== target ||
+        JSON.stringify(intent.controller) !== JSON.stringify(controller) ||
         intent.expected !== expected ||
         hash(bytes(receiptPath)) !== intent.receiptSha256 ||
         JSON.stringify(candidate.inputs) !== JSON.stringify(intent.inputs) ||
@@ -452,17 +498,21 @@ try {
           original: intent.original,
           apply: false,
           acceptedMainRequired: true,
+          controllerSource: controller.sourceCommit,
           productionActions: [],
         }),
       );
     else {
-      accepted(plan);
+      accepted(plan, controller);
       const backup = join(service, 'transitions', intent.id),
         lock = {
           id: intent.id,
           target,
           expected,
           mode: 'ordinary-to-owned',
+          controllerSource: controller.sourceCommit,
+          controllerTree: controller.sourceTree,
+          controllerReceiptSha256: controller.receiptSha256,
           requestedAt: Date.now(),
         };
       let lockFd;
@@ -479,11 +529,11 @@ try {
         },
         async validate() {
           validate();
-          accepted(plan);
+          accepted(plan, controller);
         },
         async stop() {
           validate();
-          accepted(plan);
+          accepted(plan, controller);
           assertOrdinaryOwner(intent.original, observe());
           run('/bin/launchctl', ['kill', 'SIGTERM', job]);
           const until = Date.now() + 180000;
@@ -530,7 +580,7 @@ try {
             [...portPids(3100), ...portPids(3101)].includes(intent.original.pid)
           )
             throw Error('Stopped service changed or protected PID reused');
-          accepted(plan);
+          accepted(plan, controller);
           if (JSON.stringify(prepared(target).inputs) !== JSON.stringify(intent.inputs))
             throw Error('Prepared service drift');
           exclusive(
@@ -544,7 +594,7 @@ try {
           const temporary = join(root, 'bin/staging.mjs.' + intent.id);
           exclusive(
             temporary,
-            bytes(join(plan.releaseRoot, 'scripts/lib/symposium-staging-router.mjs'), false),
+            bytes(join(controllerRoot, 'scripts/lib/symposium-staging-router.mjs'), false),
           );
           renameSync(temporary, join(root, 'bin/staging.mjs'));
           syncParent(temporary);
@@ -560,7 +610,7 @@ try {
           ]);
         },
         async start() {
-          accepted(plan);
+          accepted(plan, controller);
           if (
             JSON.stringify(prepared(target).inputs) !== JSON.stringify(intent.inputs) ||
             jobPid() ||

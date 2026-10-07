@@ -7,6 +7,10 @@ import {
   readFileSync,
   realpathSync,
   rmSync,
+  readdirSync,
+  lstatSync,
+  readlinkSync,
+  renameSync,
   symlinkSync,
   writeFileSync,
 } from 'node:fs';
@@ -21,6 +25,7 @@ function fixture(mode = 'ok') {
   const home = realpathSync(mkdtempSync(join(tmpdir(), 'staging-transition-cli-'))),
     root = join(home, '.local/share/mitzo-staging');
   roots.push(home);
+  const controllerCommit = mode.startsWith('split') ? 'f'.repeat(40) : 'b'.repeat(40);
   const old = 'a'.repeat(40),
     target = 'b'.repeat(40),
     release = join(root, 'releases', target.slice(0, 12)),
@@ -52,10 +57,15 @@ function fixture(mode = 'ok') {
     'scripts/lib/symposium-staging-router.mjs',
   ])
     cpSync(n, join(release, n));
-  const cli = join(release, 'scripts/symposium-staging-transition.mjs');
+  let cli = join(release, 'scripts/symposium-staging-transition.mjs');
   writeFileSync(cli, readFileSync(cli, 'utf8').replace("process.platform !== 'darwin'", 'false'));
   json(join(release, 'package.json'), { type: 'module' });
-  symlinkSync(realpathSync('node_modules'), join(release, 'node_modules'));
+  mkdirSync(join(release, 'node_modules'), { mode: 0o700 });
+  for (const name of ['zod', 'better-sqlite3', 'bindings', 'file-uri-to-path'])
+    cpSync(realpathSync(join('node_modules', name)), join(release, 'node_modules', name), {
+      recursive: true,
+      verbatimSymlinks: true,
+    });
   for (const name of ['symposium-canonical-owner-record', 'symposium-canonical-control'])
     writeFileSync(
       join(release, 'dist', name + '.js'),
@@ -125,8 +135,8 @@ function fixture(mode = 'ok') {
 const root=${JSON.stringify(root)},oldRelease=${JSON.stringify(oldRelease)},release=${JSON.stringify(release)},owned=${JSON.stringify(owned)},mode=${JSON.stringify(mode)},calls=${JSON.stringify(calls)};let stopped=false,booted=false,started=false,tick=Date.now();if(mode==='uncertain')Date.now=()=>{tick+=200000;return tick;};
 function record(program,args){const c=JSON.parse(readFileSync(calls));c.push([program,...args]);writeFileSync(calls,JSON.stringify(c));}
 cp.execFileSync=(program,args)=>{if(program==='/bin/ps')return args.includes('lstart=')?(args[1]==='42'?'old birth':args[1]==='111'?'parent birth':'app birth'):(args[1]==='112'?'111':'1');if(program==='/usr/sbin/lsof')return 'p'+args[3]+'\\nfcwd\\nn'+(args[2]==='42'?oldRelease:release);throw Error('Unmocked OS execution '+program);};
-cp.spawnSync=(program,args)=>{
- if(program==='git'){if(args[0]==='ls-remote')return {status:0,stdout:(mode==='main-mismatch'?${JSON.stringify(old)}:${JSON.stringify(target)})+' refs/heads/main'};if(args[0]==='rev-parse')return {status:0,stdout:args[1]==='HEAD'?${JSON.stringify(old)}:'e'.repeat(40)};if(args[0]==='remote')return {status:0,stdout:'https://github.com/dimakis/mitzo.git'};return {status:0,stdout:''};}
+cp.spawnSync=(program,args,options)=>{
+ if(program==='git'){if(args[0]==='-c')args=args.slice(4);if(args[0]==='ls-remote')return {status:0,stdout:(mode==='main-mismatch'?${JSON.stringify(old)}:${JSON.stringify(controllerCommit)})+' refs/heads/main'};if(args[0]==='rev-parse')return {status:0,stdout:args[1]==='HEAD'?(options?.cwd===oldRelease?${JSON.stringify(old)}:${JSON.stringify(controllerCommit)}):'e'.repeat(40)};if(args[0]==='ls-files'&&args[1]==='-v')return {status:0,stdout:(mode==='split-hidden-index'?'h ':'H ')+'scripts/symposium-staging-transition.mjs'};if(args[0]==='remote')return {status:0,stdout:'https://github.com/dimakis/mitzo.git'};return {status:0,stdout:''};}
  if(program==='/usr/bin/plutil'){const canonical=args.at(-1).includes('/symposium/');const plist=canonical?{Label:'com.mitzo.staging',ProgramArguments:[process.execPath,release+'/scripts/start-staging-custodian.mjs',owned+'/owned-release.json',root+'/symposium/settings/staging-registration.json',owned+'/staging-operator.json','--canonical'],EnvironmentVariables:{NODE_OPTIONS:'',NODE_PATH:'',DOTENV_CONFIG_PATH:'/dev/null'},WorkingDirectory:release,StandardOutPath:owned+'/owner.stdout.log',StandardErrorPath:owned+'/owner.stderr.log',KeepAlive:false,RunAtLoad:false,ExitTimeOut:180}:{Label:'com.mitzo.staging',KeepAlive:false,WorkingDirectory:oldRelease,ProgramArguments:[process.execPath,root+'/service/start.mjs']};if(mode==='unsafe-plist'&&canonical)plist.EnvironmentVariables.NODE_OPTIONS='--import /production/hook.mjs';return {status:0,stdout:JSON.stringify(plist)};}
  if(program==='/usr/sbin/lsof'){const port=args.find(x=>x.startsWith('-iTCP:')).split(':')[1],pids=port==='3190'?(started?[112]:stopped?[]:[42]):port==='3100'?(mode==='production'?[42]:[900]):[];return {status:pids.length?0:1,stdout:pids.join('\\n')};}
  if(program==='/bin/ps')return {status:stopped&&mode!=='uncertain'?1:0,stdout:stopped?'':'42'};
@@ -136,13 +146,67 @@ cp.spawnSync=(program,args)=>{
  throw Error('Unmocked OS execution '+program);
 };import {chmodSync} from 'node:fs';function awaitNo(){return {chmodSync};}globalThis.fetch=async()=>({ok:true});syncBuiltinESMExports();`,
   );
+  const controllerRoot = join(root, 'releases', controllerCommit.slice(0, 12));
+  if (controllerRoot !== release) {
+    cpSync(release, controllerRoot, { recursive: true, verbatimSymlinks: true });
+    cli = join(controllerRoot, 'scripts/symposium-staging-transition.mjs');
+  }
+  const controllerArtifacts: Record<string, string> = {};
+  const inventory = (path: string) => {
+    for (const n of readdirSync(path).sort()) {
+      const p = join(path, n);
+      if (lstatSync(p).isDirectory()) inventory(p);
+      else controllerArtifacts[p.slice(controllerRoot.length + 1)] = hash(readFileSync(p));
+    }
+  };
+  for (const n of [
+    'dist',
+    'frontend/dist',
+    'packages/protocol/dist',
+    'packages/harness/dist',
+    'packages/client/dist',
+  ]) {
+    mkdirSync(join(controllerRoot, n), { recursive: true, mode: 0o700 });
+    inventory(join(controllerRoot, n));
+  }
+  const dh = createHash('sha256');
+  const deps = (p: string) => {
+    const st = lstatSync(p);
+    dh.update(JSON.stringify([p.slice(controllerRoot.length + 1), st.mode & 0o777]) + '\n');
+    if (st.isSymbolicLink()) dh.update('link:' + readlinkSync(p) + '\n');
+    else if (st.isDirectory()) for (const n of readdirSync(p).sort()) deps(join(p, n));
+    else dh.update(hash(readFileSync(p)) + '\n');
+  };
+  deps(join(controllerRoot, 'node_modules'));
+  json(join(controllerRoot, 'staging-release.json'), {
+    sourceCommit: controllerCommit,
+    sourceTree: 'e'.repeat(40),
+    release: controllerRoot,
+    label: 'com.mitzo.staging',
+    port: 3190,
+    bind: '127.0.0.1',
+    workspace: join(root, 'workspace'),
+    compiledArtifacts: controllerArtifacts,
+    dependencyFingerprint: dh.digest('hex'),
+  });
   const run = (command: string) =>
     spawnSync(
       process.execPath,
-      ['--import', prelude, cli, command, '--commit', target, '--expected-current', old],
+      [
+        '--import',
+        prelude,
+        cli,
+        command,
+        '--commit',
+        target,
+        '--expected-current',
+        old,
+        '--controller-commit',
+        controllerCommit,
+      ],
       { encoding: 'utf8', timeout: 10000, env: { PATH: process.env.PATH } },
     );
-  return { root, owned, service, calls, run, home, target };
+  return { root, owned, service, calls, run, home, target, controllerRoot, controllerCommit };
 }
 it('actual CLI prepare and plan do not signal; tampered private input refuses apply', () => {
   const f = fixture();
@@ -234,5 +298,70 @@ it('unexpected compiled artifacts refuse ordinary source qualification', () => {
   const f = fixture();
   writeFileSync(join(f.root, 'releases', 'a'.repeat(12), 'dist', 'unexpected.js'), 'added');
   expect(f.run('prepare').status).not.toBe(0);
+  expect(JSON.parse(readFileSync(f.calls, 'utf8'))).toEqual([]);
+});
+
+it('accepted-main controller can transition a separately verified experimental target', () => {
+  const f = fixture('split');
+  const p = f.run('prepare');
+  expect(p.status, p.stderr).toBe(0);
+  const intent = JSON.parse(readFileSync(join(f.owned, 'transition.json'), 'utf8'));
+  expect(intent.controller.sourceCommit).toBe(f.controllerCommit);
+  expect(intent.target).not.toBe(f.controllerCommit);
+  const r = f.run('apply');
+  expect(r.status, r.stderr).toBe(0);
+  expect(JSON.parse(readFileSync(f.calls, 'utf8')).map((x: string[]) => x[1])).toEqual([
+    'kill',
+    'bootout',
+    'bootstrap',
+    'kickstart',
+  ]);
+});
+it('a changed accepted controller build or dependency refuses original control', () => {
+  for (const path of ['dist/symposium-staging-service.js', 'node_modules/bindings/bindings.js']) {
+    const f = fixture('split');
+    const p = f.run('prepare');
+    expect(p.status, p.stderr).toBe(0);
+    writeFileSync(
+      join(f.controllerRoot, path),
+      readFileSync(join(f.controllerRoot, path), 'utf8') + '\n// drift',
+    );
+    expect(f.run('apply').status).not.toBe(0);
+    expect(JSON.parse(readFileSync(f.calls, 'utf8'))).toEqual([]);
+  }
+});
+
+it('hidden controller tracked-file flags and a stale receipt identity cannot qualify control', () => {
+  const hidden = fixture('split-hidden-index');
+  expect(hidden.run('prepare').status).not.toBe(0);
+  expect(JSON.parse(readFileSync(hidden.calls, 'utf8'))).toEqual([]);
+  const f = fixture('split');
+  const p = f.run('prepare');
+  expect(p.status, p.stderr).toBe(0);
+  const path = join(f.controllerRoot, 'staging-release.json'),
+    receipt = JSON.parse(readFileSync(path, 'utf8'));
+  receipt.sourceTree = '9'.repeat(40);
+  writeFileSync(path, JSON.stringify(receipt));
+  expect(f.run('apply').status).not.toBe(0);
+  expect(JSON.parse(readFileSync(f.calls, 'utf8'))).toEqual([]);
+});
+
+it('controller dependency root aliases cannot qualify even with a matching link receipt', () => {
+  const f = fixture('split');
+  renameSync(join(f.controllerRoot, 'node_modules'), join(f.controllerRoot, 'dependencies'));
+  symlinkSync('dependencies', join(f.controllerRoot, 'node_modules'));
+  const path = join(f.controllerRoot, 'staging-release.json'),
+    receipt = JSON.parse(readFileSync(path, 'utf8'));
+  receipt.dependencyFingerprint = createHash('sha256')
+    .update(
+      JSON.stringify([
+        'node_modules',
+        lstatSync(join(f.controllerRoot, 'node_modules')).mode & 0o777,
+      ]) + '\nlink:dependencies\n',
+    )
+    .digest('hex');
+  writeFileSync(path, JSON.stringify(receipt));
+  const r = f.run('prepare');
+  expect(r.status, r.stderr).not.toBe(0);
   expect(JSON.parse(readFileSync(f.calls, 'utf8'))).toEqual([]);
 });
