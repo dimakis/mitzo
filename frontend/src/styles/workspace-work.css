@@ -75,7 +75,7 @@
     font-size: 16px;
   }
   .todo-filter-pill {
-    min-height: 36px;
+    min-height: 44px;
     border-radius: 8px;
   }
   .todo-filters {
@@ -213,6 +213,12 @@
   max-width: none;
   padding: 0 16px;
   background: var(--workspace-bg);
+}
+.workspace-work .todo-collection-heading {
+  padding: 16px 0;
+}
+.workspace-work .todo-collection-heading .workspace-page-heading {
+  display: none;
 }
 .workspace-work .page-header {
   flex-wrap: wrap;
