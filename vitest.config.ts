@@ -26,6 +26,7 @@ export default defineConfig({
   test: {
     exclude: [
       ...configDefaults.exclude,
+      '**/dist/**', // Workspace builds emit test copies; run their source only.
       '**/.claude/worktrees/**',
       '**/.cursor/worktrees/**',
       'tests/browser/**',

@@ -627,6 +627,12 @@ npm run lint         # eslint
 npm run format:check # prettier
 ```
 
+CI runs the full source test suite without compiled test copies. New PR commits
+cancel superseded code-validation runs; description edits rerun only the
+documentation gate. Browser and native checks follow their changed-file
+dependencies, with both checks retained for shared tooling, unknown paths,
+incomplete diffs, and every push to main.
+
 Production artifacts are staged with
 `./scripts/stage-openshell-release.sh <mgmt-repo> <new-seed-output>`. It requires
 clean Mitzo and MGMT checkouts at current `origin/main`, then builds and verifies
