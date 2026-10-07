@@ -239,3 +239,78 @@ it('lets an operator explicitly replace a credential after a failed rotation wit
   expect(repaired.revision).toBe(disabled.revision + 1);
   expect(service.catalog('session')[0].access).toBe('approval_required');
 });
+
+it('rejects stale rotation completion without overwriting a newer credential revision or grant', async () => {
+  const { service, store, vault, send } = setup();
+  const c = await service.create(input, { secret: 'old' });
+  let finishFirst!: (ref: { service: string; account: string }) => void;
+  vault.save.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finishFirst = resolve;
+      }),
+  );
+  const first = service.rotate(c.id, c.revision, 'first');
+  const firstResult = expect(first).rejects.toThrow('Connection changed');
+  const disabled = store.get(c.id)!;
+  const secondService = new CredentialConnections(store, vault, send);
+  const newestRef = { service: 'mitzo.connection.newest', account: 'newest' };
+  vault.save.mockResolvedValueOnce(newestRef);
+  const newest = await secondService.rotate(c.id, disabled.revision, 'newest');
+  secondService.grant('approved-newest', c.id, newest.revision);
+  const staleRef = { service: 'mitzo.connection.stale', account: 'stale' };
+  finishFirst(staleRef);
+  await firstResult;
+  expect(store.get(c.id)?.revision).toBe(newest.revision);
+  expect(store.get(c.id)?.credentialRef).toEqual(newestRef);
+  expect(secondService.catalog('approved-newest')[0].access).toBe('approved');
+  expect(vault.remove).toHaveBeenCalledWith(staleRef);
+  expect(vault.remove).not.toHaveBeenCalledWith(newestRef);
+});
+
+it.each(['pa"ss\\word', 'sëcret', 'slash/secret', 'tab\tsecret', '"'])(
+  'redacts JSON string escapes of credential %j including keys and authentication echoes',
+  async (secret) => {
+    const { service, vault, send } = setup();
+    const c = await service.create(input, { secret });
+    vault.read.mockResolvedValueOnce(secret);
+    service.grant('a', c.id, c.revision);
+    // Force mixed escapes rather than only JSON.stringify's canonical spelling.
+    const escaped = JSON.stringify({ [secret]: secret, nested: [`Bearer ${secret}`, 'safe'] })
+      .replaceAll('/', '\\/')
+      .replaceAll('ë', '\\u00eb');
+    send.mockResolvedValueOnce({ status: 200, body: escaped });
+    const result = await service.request(
+      'a',
+      c.id,
+      { path: '/api/', method: 'GET' },
+      new AbortController().signal,
+    );
+    const decoded = JSON.parse(result.body);
+    expect(decoded).toEqual({ '[redacted]': '[redacted]', nested: ['[redacted]', 'safe'] });
+    expect(JSON.stringify(decoded)).not.toContain(JSON.stringify(secret).slice(1, -1));
+  },
+);
+
+it('keeps a connection disabled when a newer pending replacement fails and an older save completes', async () => {
+  const { service, store, vault } = setup();
+  const c = await service.create(input, { secret: 'old' });
+  let finish!: (ref: { service: string; account: string }) => void;
+  vault.save.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  const older = service.rotate(c.id, c.revision, 'older');
+  const olderResult = expect(older).rejects.toThrow('Connection changed');
+  const pending = store.get(c.id)!;
+  vault.save.mockRejectedValueOnce(new Error('Keychain locked'));
+  await expect(service.rotate(c.id, pending.revision, 'newer')).rejects.toThrow('Keychain locked');
+  const failed = store.get(c.id)!;
+  finish({ service: 'mitzo.connection.stale', account: 'older' });
+  await olderResult;
+  expect(store.get(c.id)).toEqual(failed);
+  expect(failed.status).toBe('disabled');
+  expect(service.sessions(c.id)).toEqual([]);
+});

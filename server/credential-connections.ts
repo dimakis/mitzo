@@ -123,6 +123,13 @@ export class CredentialConnectionStore {
       .prepare('INSERT OR REPLACE INTO credential_connections VALUES (?, ?)')
       .run(c.id, JSON.stringify(c));
   }
+  replaceAtRevision(c: CredentialConnection, revision: number): boolean {
+    return this.db.transaction(() => {
+      if (this.get(c.id)?.revision !== revision) return false;
+      this.put(c);
+      return true;
+    })();
+  }
   grant(session: string, c: CredentialConnection) {
     this.db
       .prepare('INSERT OR REPLACE INTO credential_connection_grants VALUES (?, ?, ?)')
@@ -291,7 +298,8 @@ export class CredentialConnections {
     this.store.revokeAll(id);
     this.cancel(id);
     const next = { ...c, revision: revision + 1, status: 'disabled' as const, verifiedAt: null };
-    this.store.put(next);
+    if (!this.store.replaceAtRevision(next, revision))
+      throw new Error('Connection changed; refresh and try again');
     const credentialRef = await this.vault.save(`${id}-${next.revision}`, secret);
     const updated: CredentialConnection = {
       ...next,
@@ -299,20 +307,26 @@ export class CredentialConnections {
       credentialRef,
       ownsCredential: true,
     };
-    this.store.put(updated);
+    // Another replacement can begin while Keychain is writing. Never restore its
+    // older revision or revive access after a newer operation has taken ownership.
+    if (!this.store.replaceAtRevision(updated, next.revision)) {
+      await this.removeUnusedCredential(credentialRef);
+      throw new Error('Connection changed; refresh and try again');
+    }
     // Linked items remain owned by their original app; never update or delete them.
+    if (c.ownsCredential) await this.removeUnusedCredential(c.credentialRef);
+    return publicCredentialConnection(updated);
+  }
+  private async removeUnusedCredential(ref: VaultReference) {
     const shared = this.store
       .list()
-      .some(
-        (other) =>
-          other.id !== c.id &&
-          (c.credentialRef.persistentRef
-            ? other.credentialRef.persistentRef === c.credentialRef.persistentRef
-            : other.credentialRef.service === c.credentialRef.service &&
-              other.credentialRef.account === c.credentialRef.account),
+      .some((other) =>
+        ref.persistentRef
+          ? other.credentialRef.persistentRef === ref.persistentRef
+          : other.credentialRef.service === ref.service &&
+            other.credentialRef.account === ref.account,
       );
-    if (c.ownsCredential && !shared) await this.vault.remove(c.credentialRef).catch(() => {});
-    return publicCredentialConnection(updated);
+    if (!shared) await this.vault.remove(ref).catch(() => {});
   }
   async request(
     session: string,
@@ -370,17 +384,41 @@ export class CredentialConnections {
       );
       combined.throwIfAborted();
       check();
-      let body = response.body;
-      for (const value of [
-        secret,
-        encodeURIComponent(secret),
-        Buffer.from(secret).toString('base64'),
-        ...Object.values(headers).flatMap((value) => [
-          value,
-          value.replace(/^(Basic|Bearer) /, ''),
+      const values = [
+        ...new Set([
+          secret,
+          encodeURIComponent(secret),
+          Buffer.from(secret).toString('base64'),
+          ...Object.values(headers).flatMap((value) => [
+            value,
+            value.replace(/^(Basic|Bearer) /, ''),
+          ]),
         ]),
-      ])
-        body = body.split(value).join('[redacted]');
+      ].sort((a, b) => b.length - a.length);
+      const redact = (text: string) => {
+        for (const value of values) text = text.split(value).join('[redacted]');
+        return text;
+      };
+      // Decode each JSON string before redacting: quote/backslash, Unicode and
+      // slash escapes can otherwise hide echoed secrets in both keys and values.
+      const decoded = response.body.replace(
+        // eslint-disable-next-line no-control-regex -- JSON strings exclude unescaped control characters.
+        /"(?:[^"\\\x00-\x1f]|\\(?:["\\/bfnrt]|u[0-9a-fA-F]{4}))*"/g,
+        (token) => {
+          const text = JSON.parse(token) as string;
+          const safe = redact(text);
+          return safe === text ? token : JSON.stringify(safe);
+        },
+      );
+      let body: string;
+      try {
+        // In valid JSON, punctuation is structural rather than an echoed secret
+        // (for example a password consisting of a quote). Keep it intact.
+        JSON.parse(response.body);
+        body = decoded;
+      } catch {
+        body = redact(decoded);
+      }
       return { status: response.status, body };
     } catch (error) {
       if (error instanceof Error && error.name === 'KeychainUnavailableError') throw error;
