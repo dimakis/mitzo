@@ -5,10 +5,6 @@ const mockUpsertSession = vi.fn();
 const mockGetSession = vi.fn();
 const mockGetKnownSessionIds = vi.fn();
 
-vi.mock('../repo-config.js', () => ({
-  loadRepoConfig: () => ({ repos: { configured: '/configured-sdk-history' }, roots: [] }),
-}));
-
 vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
   query: vi.fn(),
   listSessions: vi.fn().mockResolvedValue([]),
@@ -46,20 +42,86 @@ vi.mock('@mitzo/protocol/event-store', () => ({
 }));
 
 vi.mock('../repo-config.js', () => ({
-  loadRepoConfig: vi.fn().mockReturnValue({ repos: {}, roots: [] }),
+  loadRepoConfig: vi
+    .fn()
+    .mockReturnValue({ repos: { configured: '/configured-sdk-history' }, roots: [] }),
 }));
 
 vi.mock('../mcp-config.js', () => ({
   loadMcpServers: vi.fn().mockReturnValue({}),
 }));
 
-beforeEach(() => {
+beforeEach(async () => {
   vi.clearAllMocks();
+  mockGetSession.mockReset();
+  mockGetSessionInfo.mockReset();
+  mockEventStore.getInternalSdkExecution.mockReset().mockReturnValue(null);
+  mockEventStore.isSessionHidden.mockReset().mockReturnValue(false);
+  const sdk = await import('@anthropic-ai/claude-agent-sdk');
+  vi.mocked(sdk.listSessions).mockReset().mockResolvedValue([]);
+  vi.mocked(sdk.getSessionMessages)
+    .mockReset()
+    .mockResolvedValue([{ type: 'user' }] as never);
   mockEventStore.getSessionEvents.mockReturnValue([]);
   mockEventStore.getSessionEventsThroughCursor.mockReturnValue([]);
 });
 
 describe('importSdkConversation', () => {
+  it('preserves an already registered active conversation without consulting provider history', async () => {
+    const active = {
+      sessionId: 'active-mitzo',
+      conversationSource: 'mitzo',
+      isActive: true,
+      summary: 'Controller title',
+      cwd: '/controller/worktree',
+      accountBinding: { accountId: 'selected-account', provider: 'anthropic' },
+    };
+    mockGetSession.mockReturnValue(active);
+    mockGetSessionInfo.mockResolvedValue({
+      sessionId: active.sessionId,
+      summary: 'Provider title',
+      cwd: '/provider/worktree',
+      lastModified: Date.now(),
+    });
+    const { importSdkConversation } = await import('../chat.js');
+    expect(await importSdkConversation(active.sessionId)).toBe(active);
+    expect(mockGetSessionInfo).not.toHaveBeenCalled();
+    expect(mockUpsertSession).not.toHaveBeenCalled();
+  });
+
+  it.each(['registered', 'hidden', 'internal'] as const)(
+    'does not adopt history whose ownership becomes %s while provider history is loading',
+    async (state) => {
+      const active = {
+        sessionId: 'racing-history',
+        conversationSource: 'mitzo',
+        isActive: true,
+        summary: 'Registered during provider lookup',
+      };
+      mockGetSession.mockReturnValue(null);
+      mockGetSessionInfo.mockResolvedValue({
+        sessionId: active.sessionId,
+        summary: 'External SDK title',
+        cwd: '/external/worktree',
+        lastModified: Date.now(),
+      });
+      const sdk = await import('@anthropic-ai/claude-agent-sdk');
+      vi.mocked(sdk.getSessionMessages).mockImplementation(async () => {
+        if (state === 'registered') mockGetSession.mockReturnValue(active);
+        if (state === 'hidden') mockEventStore.isSessionHidden.mockReturnValue(true);
+        if (state === 'internal')
+          mockEventStore.getInternalSdkExecution.mockReturnValue({ parentSessionId: 'parent' });
+        return [{ type: 'user' }] as never;
+      });
+      const { importSdkConversation } = await import('../chat.js');
+      expect(await importSdkConversation(active.sessionId)).toBe(
+        state === 'registered' ? active : null,
+      );
+      expect(sdk.getSessionMessages).toHaveBeenCalled();
+      expect(mockUpsertSession).not.toHaveBeenCalled();
+    },
+  );
+
   it('returns backfilled SessionMeta when SDK finds the session', async () => {
     mockGetSessionInfo.mockResolvedValue({
       sessionId: 'sess-orphan',
@@ -99,7 +161,7 @@ describe('importSdkConversation', () => {
   it('does not backfill a title-only record as a conversation', async () => {
     mockGetSessionInfo.mockResolvedValue({ sessionId: 'ghost', summary: 'Pricing inquiry' });
     const sdk = await import('@anthropic-ai/claude-agent-sdk');
-    vi.mocked(sdk.getSessionMessages).mockResolvedValueOnce([]);
+    vi.mocked(sdk.getSessionMessages).mockResolvedValue([]);
     const { importSdkConversation } = await import('../chat.js');
     expect(await importSdkConversation('ghost')).toBeNull();
     expect(mockUpsertSession).not.toHaveBeenCalled();
@@ -120,7 +182,7 @@ describe('importSdkConversation', () => {
       lastModified: Date.now(),
     });
     const sdk = await import('@anthropic-ai/claude-agent-sdk');
-    vi.mocked(sdk.getSessionMessages).mockResolvedValueOnce([]);
+    vi.mocked(sdk.getSessionMessages).mockResolvedValue([]);
     const { importSdkConversation } = await import('../chat.js');
     expect(await importSdkConversation('stale-index')).toBeNull();
     expect(mockUpsertSession).not.toHaveBeenCalled();

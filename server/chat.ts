@@ -3201,11 +3201,17 @@ export async function importSdkConversation(
 ): Promise<import('./event-store.js').SessionMeta | null> {
   if (eventStore.getInternalSdkExecution(sessionId) || eventStore.isSessionHidden(sessionId))
     return null;
+  const registered = eventStore.getSession(sessionId);
+  if (isRegisteredConversation(registered)) return registered;
   for (const dir of getSessionDirs().filter(Boolean)) {
     try {
       const info = await getSessionInfo(sessionId, { dir });
       if (!info || info.sessionId !== sessionId || !(await hasSdkConversation(info, dir))) continue;
+      // Provider reads yield; controller ownership may have changed while loading history.
+      if (eventStore.getInternalSdkExecution(sessionId) || eventStore.isSessionHidden(sessionId))
+        return null;
       const existing = eventStore.getSession(sessionId);
+      if (isRegisteredConversation(existing)) return existing;
       eventStore.upsertSession({
         sessionId,
         conversationSource: 'external_import',
