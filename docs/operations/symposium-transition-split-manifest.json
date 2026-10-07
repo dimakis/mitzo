@@ -113,5 +113,14 @@
       "successorSha256": "b908ba9bf37f7b5befa1e2ea7bd88c38305cca10f59686c4a24a752b5e013b6e"
     }
   ],
-  "dependencyMergeCommit": "32ae912e8432f035772d944c3ddfb2ae9951bdc2"
+  "dependencyMergeCommit": "32ae912e8432f035772d944c3ddfb2ae9951bdc2",
+  "consolidation": {
+    "acceptedMain": "01ab311572d3b63725a18671ffd54aa646cd7dd8",
+    "controllerReconciliation": "4f99c1e03ad1355f26952728c0706eae00956b63",
+    "mergeCommit": "a1cd6ba4f7b02eb67f167371d0f0f6773320f746",
+    "mergeTree": "0e471a6c563a11bbe2a00c414a6dcc0c768d285e",
+    "sourceDelta": "55 files; 6665 insertions and 81 deletions before this provenance-only record",
+    "reviewScope": "Complete main-facing ordinary controller, pure static foundation and operator transition; prior stacked-base approvals do not qualify this full diff",
+    "runtimeActions": []
+  }
 }
