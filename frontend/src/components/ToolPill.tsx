@@ -5,7 +5,7 @@ import { getToolStatus, type ToolBlock } from '../lib/tool-status';
 import { SubagentCard } from './SubagentCard';
 import { CodeBlock } from './CodeBlock';
 import { artifactViewerUrl } from '../lib/file-paths';
-import { webAccessOutcome } from '../lib/web-access-outcome';
+import { webAccessOutcome, webAccessSummary } from '../lib/web-access-outcome';
 import { GoogleSearchResult } from './GoogleSearchResult';
 
 interface Props {
@@ -140,7 +140,7 @@ export function ToolPill({ block, sessionId }: Props) {
   const { done, hasError } = getToolStatus(block);
   const input = block.toolInput || '';
   const webOutcome = webAccessOutcome(block);
-  const webName = /["']operation["']\s*:\s*["']search/.test(input) ? 'Web search' : 'Website read';
+  const webSummary = webAccessSummary(input);
 
   const handlePopOut = useCallback(
     (filePath: string) => {
@@ -164,8 +164,8 @@ export function ToolPill({ block, sessionId }: Props) {
         <span
           className={`tool-pill-dot ${done ? (hasError ? 'tool-pill-dot--error' : 'tool-pill-dot--done') : 'tool-pill-dot--pending'}`}
         />
-        <span className="tool-pill-name">{webOutcome ? webName : block.toolName}</span>
-        <span className="tool-pill-input">{input}</span>
+        <span className="tool-pill-name">{webOutcome ? webSummary.name : block.toolName}</span>
+        <span className="tool-pill-input">{webOutcome ? webSummary.target : input}</span>
         {webOutcome ? (
           <span className="tool-pill-status">{webOutcome}</span>
         ) : (

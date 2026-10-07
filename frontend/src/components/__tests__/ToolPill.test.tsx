@@ -336,3 +336,60 @@ it.each([
   expect(screen.getByText('Website read')).toBeTruthy();
   expect(screen.queryByText('Failed')).toBeNull();
 });
+
+it('shows the destination instead of JSON in the collapsed website row', () => {
+  render(
+    wrap(
+      <ToolPill
+        block={{
+          blockId: 'web',
+          blockType: 'tool_use',
+          content: '',
+          toolName: 'RequestWebAccess',
+          toolInput: JSON.stringify({
+            operation: 'fetch',
+            url: 'https://claude.com/pricing',
+            reason: 'Verify pricing',
+          }),
+          toolResult: 'page',
+        }}
+      />,
+    ),
+  );
+  expect(screen.getByText('claude.com/pricing')).toBeTruthy();
+});
+it('names searches and origin grants separately from reads', () => {
+  const { rerender } = render(
+    wrap(
+      <ToolPill
+        block={{
+          blockId: 'web',
+          blockType: 'tool_use',
+          content: '',
+          toolName: 'RequestWebAccess',
+          toolInput: JSON.stringify({ operation: 'search', query: 'Pricing', reason: 'why' }),
+        }}
+      />,
+    ),
+  );
+  expect(screen.getByText('Web search')).toBeTruthy();
+  expect(screen.getByText('Pricing')).toBeTruthy();
+  rerender(
+    wrap(
+      <ToolPill
+        block={{
+          blockId: 'web',
+          blockType: 'tool_use',
+          content: '',
+          toolName: 'RequestWebAccess',
+          toolInput: JSON.stringify({
+            operation: 'request_access',
+            url: 'https://claude.com/',
+            reason: 'why',
+          }),
+        }}
+      />,
+    ),
+  );
+  expect(screen.getByText('Website access')).toBeTruthy();
+});

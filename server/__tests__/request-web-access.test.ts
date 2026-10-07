@@ -149,12 +149,10 @@ describe('redirect continuation', () => {
         url: 'https://example.com/',
         reason: 'Verify pricing',
       };
-      const approve = vi
-        .fn()
-        .mockImplementation(async (request) => ({
-          behavior: request.url === input.url ? 'allow' : behavior,
-          updatedInput: request,
-        }));
+      const approve = vi.fn().mockImplementation(async (request) => ({
+        behavior: request.url === input.url ? 'allow' : behavior,
+        updatedInput: request,
+      }));
       const fetchPage = vi
         .fn()
         .mockRejectedValueOnce(new WebAccessRedirect('https://other.example/pricing'))
@@ -188,4 +186,21 @@ describe('redirect continuation', () => {
     expect(result.isError).toBe(true);
     expect(fetchPage).toHaveBeenCalledTimes(1);
   });
+});
+
+it('bounds redirect approval chains without dispatching an extra read', async () => {
+  const input = { operation: 'fetch' as const, url: 'https://example.com/', reason: 'why' };
+  const fetchPage = vi.fn().mockRejectedValue(new WebAccessRedirect('https://other.example/'));
+  const approve = vi
+    .fn()
+    .mockImplementation(async (request) => ({ behavior: 'allow', updatedInput: request }));
+  const result = await executeWebAccess(input, new AbortController().signal, {
+    isCurrent: () => true,
+    approve,
+    fetchPage,
+    search: vi.fn(),
+  });
+  expect(result).toEqual({ content: 'Approved read reached the redirect limit.', isError: true });
+  expect(approve).toHaveBeenCalledTimes(4);
+  expect(fetchPage).toHaveBeenCalledTimes(4);
 });

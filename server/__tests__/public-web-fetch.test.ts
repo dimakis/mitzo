@@ -106,3 +106,17 @@ it.each([
     }),
   ).rejects.toThrow(message as string);
 });
+
+it.each([
+  ['ENOTFOUND', 'Approved read could not resolve the website address. Retry the read.'],
+  ['ECONNRESET', 'Approved read could not connect securely to the website. Retry the read.'],
+])('reports %s without leaking transport errors', async (code, message) => {
+  await expect(
+    fetchPublicPage('https://example.com/', new AbortController().signal, {
+      resolve: publicDns,
+      send: async () => {
+        throw Object.assign(new Error('secret credential'), { code });
+      },
+    }),
+  ).rejects.toThrow(message);
+});
