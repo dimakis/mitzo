@@ -292,6 +292,48 @@ it.each(['pa"ss\\word', 'sëcret', 'slash/secret', 'tab\tsecret', '"'])(
   },
 );
 
+it.each([
+  ['123456', '123456', '123457'],
+  ['-123456', '-123456', '123456'],
+  ['123.456', '1.23456e2', '123.457'],
+  ['-1.23456e2', '-123.4560', '-123.457'],
+  ['9007199254740992', '9007199254740992', '9007199254740993'],
+  ['1e400', '10e399', '2e400'],
+])(
+  'redacts numeric JSON echoes of credential %j without rounding other values',
+  async (secret, echo, other) => {
+    const { service, vault, send } = setup();
+    const c = await service.create(input, { secret });
+    vault.read.mockResolvedValue(secret);
+    service.grant('a', c.id, c.revision);
+    send.mockResolvedValueOnce({
+      status: 200,
+      body: `{"token":${echo},"nested":[${echo},${other}],"text":"safe ${other}"}`,
+    });
+    const result = await service.request(
+      'a',
+      c.id,
+      { path: '/api/', method: 'GET' },
+      new AbortController().signal,
+    );
+    expect(result.body).toBe(
+      `{"token":"[redacted]","nested":["[redacted]",${other}],"text":"safe ${other}"}`,
+    );
+    expect(JSON.parse(result.body).token).toBe('[redacted]');
+    send.mockResolvedValueOnce({ status: 200, body: echo });
+    expect(
+      (
+        await service.request(
+          'a',
+          c.id,
+          { path: '/api/', method: 'GET' },
+          new AbortController().signal,
+        )
+      ).body,
+    ).toBe('"[redacted]"');
+  },
+);
+
 it('keeps a connection disabled when a newer pending replacement fails and an older save completes', async () => {
   const { service, store, vault } = setup();
   const c = await service.create(input, { secret: 'old' });

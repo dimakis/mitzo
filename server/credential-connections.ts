@@ -3,6 +3,19 @@ import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import type { CredentialVault, VaultReference } from './keychain-vault.js';
 
+function normalizedJsonNumber(value: string): string | undefined {
+  const match = /^(-?)(0|[1-9]\d*)(?:\.(\d+))?(?:[eE]([+-]?\d+))?$/.exec(value);
+  if (!match) return undefined;
+  const fraction = match[3] ?? '';
+  const digits = `${match[2]}${fraction}`.replace(/^0+/, '');
+  if (!digits) return '0';
+  const coefficient = digits.replace(/0+$/, '');
+  // Compare exact decimal values without floating-point rounding or overflow.
+  const exponent =
+    BigInt(match[4] ?? '0') - BigInt(fraction.length) + BigInt(digits.length - coefficient.length);
+  return `${match[1]}${coefficient}e${exponent}`;
+}
+
 const header = z
   .string()
   .regex(/^[A-Za-z][A-Za-z0-9-]{0,63}$/)
@@ -415,7 +428,18 @@ export class CredentialConnections {
         // In valid JSON, punctuation is structural rather than an echoed secret
         // (for example a password consisting of a quote). Keep it intact.
         JSON.parse(response.body);
-        body = decoded;
+        const numbers = new Set(
+          values.map(normalizedJsonNumber).filter((value) => value !== undefined),
+        );
+        body = decoded.replace(
+          // Match whole strings too, so their numeric contents cannot be changed here.
+          // eslint-disable-next-line no-control-regex -- JSON strings exclude unescaped control characters.
+          /"(?:[^"\\\x00-\x1f]|\\(?:["\\/bfnrt]|u[0-9a-fA-F]{4}))*"|-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?/g,
+          (token) => {
+            const number = normalizedJsonNumber(token);
+            return number !== undefined && numbers.has(number) ? '"[redacted]"' : token;
+          },
+        );
       } catch {
         body = redact(decoded);
       }
