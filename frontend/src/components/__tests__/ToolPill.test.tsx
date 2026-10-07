@@ -311,3 +311,28 @@ describe('ToolPill', () => {
     });
   });
 });
+
+it.each([
+  ['The website refused the approved read (HTTP 403).', 'Approved · Website blocked access'],
+  ['Approved read exceeded the 128 KB page limit.', 'Approved · Page too large'],
+  ['Approved read timed out. Retry the read.', 'Approved · Read timed out'],
+  ['Web access declined', 'Access declined'],
+])('shows the web outcome without opening technical details', (toolResult, label) => {
+  render(
+    wrap(
+      <ToolPill
+        block={{
+          blockId: 'web',
+          blockType: 'tool_use',
+          content: '',
+          toolName: 'mcp__mitzo-web-access__RequestWebAccess',
+          toolResult,
+          toolError: true,
+        }}
+      />,
+    ),
+  );
+  expect(screen.getByText(label)).toBeTruthy();
+  expect(screen.getByText('Website read')).toBeTruthy();
+  expect(screen.queryByText('Failed')).toBeNull();
+});

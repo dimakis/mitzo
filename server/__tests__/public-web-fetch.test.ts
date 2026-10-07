@@ -91,3 +91,18 @@ describe('approved credential-free public website reads', () => {
     expect(send).not.toHaveBeenCalled();
   });
 });
+
+it.each([
+  [{ ...page, body: 'x'.repeat(131073) }, 'Approved read exceeded the 128 KB page limit.'],
+  [
+    { ...page, headers: { 'content-type': 'application/octet-stream' } },
+    'Approved read returned an unsupported format or compression.',
+  ],
+])('preserves actionable safe errors', async (response, message) => {
+  await expect(
+    fetchPublicPage('https://example.com/', new AbortController().signal, {
+      resolve: publicDns,
+      send: async () => response as typeof page,
+    }),
+  ).rejects.toThrow(message as string);
+});
