@@ -26,6 +26,12 @@ it('retains safe transport failure classes', () => {
   expect(codexRuntimeDiagnostic(error)).toMatch(/timed out/);
   expect(codexRuntimeErrorTelemetry(error)).toEqual({ transportErrorCategory: 'timeout' });
 });
+it.each(['config/read', 'thread/turns/list'])('retains the known %s RPC method', (method) => {
+  expect(codexRuntimeErrorTelemetry(new CodexRequestError(method, 'invalid_request'))).toEqual({
+    requestMethod: method,
+    requestErrorCategory: 'invalid_request',
+  });
+});
 
 it('does not relay unknown exceptions or arbitrary request methods', () => {
   const secret = 'Bearer sk-secret https://private.example';

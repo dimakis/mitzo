@@ -6,10 +6,12 @@ const requestMethods = new Set([
   'initialize',
   'account/read',
   'model/list',
+  'config/read',
   'thread/start',
   'thread/resume',
   'thread/fork',
   'thread/read',
+  'thread/turns/list',
   'turn/start',
   'turn/interrupt',
 ]);

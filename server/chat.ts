@@ -1,5 +1,5 @@
 import { clearUrlAccessGrants } from './url-access-tool.js';
-import { codexRuntimeErrorTelemetry } from './codex-runtime-diagnostics.js';
+import { codexRuntimeDiagnostic, codexRuntimeErrorTelemetry } from './codex-runtime-diagnostics.js';
 import {
   createGithubPublishingTool,
   GITHUB_PUBLISHING_INSTRUCTIONS,
@@ -1173,9 +1173,16 @@ async function _startChatInner(
     }
   } catch (err: unknown) {
     options.onStartupAdmission?.(err);
+    const diagnostic = err instanceof Error ? codexRuntimeDiagnostic(err) : undefined;
+    if (diagnostic)
+      log.warn('Codex account preflight failed', {
+        clientId,
+        ...codexRuntimeErrorTelemetry(err as Error),
+        error: diagnostic,
+      });
     send(transport, {
       type: 'error',
-      error: err instanceof Error ? err.message : 'Account selection failed',
+      error: diagnostic ?? (err instanceof Error ? err.message : 'Account selection failed'),
     });
     return;
   }
