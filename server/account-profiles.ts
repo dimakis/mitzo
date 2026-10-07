@@ -818,6 +818,9 @@ export class AccountProfiles {
       if (
         /^(ANTHROPIC_|OPENAI_|CLAUDE_CODE_USE_|CLAUDE_CODE_SKIP_|VERTEX_REGION_)/.test(key) ||
         [
+          // Controller-only publishing authority is independent of inference routing.
+          'GH_TOKEN',
+          'GITHUB_TOKEN',
           'CLOUD_ML_REGION',
           'CLAUDE_CODE_OAUTH_TOKEN',
           'GOOGLE_API_KEY',

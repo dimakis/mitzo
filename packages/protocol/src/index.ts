@@ -240,3 +240,5 @@ export type {
   NotificationResolution,
   NotificationFeed,
 } from './notifications.js';
+
+export type { BackupRunStatus, BackupRun, BackupOverview } from './backup.js';

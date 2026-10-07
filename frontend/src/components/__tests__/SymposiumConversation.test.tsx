@@ -35,6 +35,11 @@ vi.mock('../../lib/symposium-delivery-actions', async (importOriginal) => {
 beforeEach(() => {
   vi.mocked(getSymposiumDeliveryActions).mockReturnValue(createSymposiumDeliveryActions());
 });
+vi.mock('../SymposiumAccessRequests', () => ({
+  SymposiumAccessRequests: ({ sessionId }: { sessionId: string }) => (
+    <div data-testid="access-request-session">{sessionId}</div>
+  ),
+}));
 
 vi.mock('../../lib/api-fetch', () => ({ apiFetch: vi.fn(), getApiBaseUrl: () => '' }));
 vi.mock('../SessionTray', () => ({ SessionTray: () => null }));
@@ -151,6 +156,24 @@ const chat = {
   permission: null,
   onPermissionRespond: vi.fn(),
 };
+
+it('mounts main access-request controls for the current Symposium conversation across navigation', async () => {
+  vi.mocked(apiFetch).mockImplementation(async (url) =>
+    json(
+      String(url).endsWith('/status')
+        ? { ...status, sessionId: String(url).includes('/other/') ? 'other' : 'session' }
+        : page,
+    ),
+  );
+  const view = render(
+    <SymposiumConversation sessionId="session" chat={chat} ordinaryComposer={null} />,
+  );
+  expect((await screen.findByTestId('access-request-session')).textContent).toBe('session');
+  view.rerender(<SymposiumConversation sessionId="other" chat={chat} ordinaryComposer={null} />);
+  await waitFor(() =>
+    expect(screen.getByTestId('access-request-session').textContent).toBe('other'),
+  );
+});
 
 describe('SymposiumConversation', () => {
   it('does not dispatch or remove persisted queued input while session type is pending', async () => {

@@ -144,3 +144,81 @@ document or iCloud upload is exercised. It is not cloud acceptance.
 References: [Restic backup](https://restic.readthedocs.io/en/stable/040_backup.html),
 [Apple upload resource key](https://developer.apple.com/documentation/foundation/urlresourcekey/ubiquitousitemisuploadedkey),
 [Apple account recovery](https://support.apple.com/en-ie/108756).
+
+## Manual service and dashboard
+
+`/settings/backups` is available from Settings on desktop and More → Settings on
+mobile. Existing `/backups` links redirect to the new location. Its operator-only
+API is `GET /api/backups`, `POST /api/backups/run` and `POST /api/backups/refresh`.
+POST bodies must be empty JSON objects; paths, credentials, capture selection and
+host configuration cannot be supplied by an agent or browser. Actions return 202
+once admitted, then the dashboard polls durable status. No scheduler starts.
+
+The host must configure all of these before manual actions are available:
+
+- `MITZO_BACKUP_ROOT`: a dedicated absolute local directory, owned by the host
+  operator with permissions 0700, outside iCloud and all source stores. The service
+  owns its `repository`, `temporary`, `captures`, `runs.json` and both `writer.lock`/`admission.lock` names.
+- `MITZO_BACKUP_ICLOUD_DIRECTORY`: a dedicated absolute directory beneath the
+  operator's iCloud Drive. It must be separate from the local backup root.
+- `MITZO_BACKUP_RESTIC_BINARY`: the absolute trusted Restic executable, installed
+  outside backup storage and iCloud.
+- `MITZO_BACKUP_UPLOAD_PROBE`: the absolute compiled upload-status helper, installed
+  outside backup storage and iCloud (see compilation instructions above).
+- `MITZO_BACKUP_RECOVERY_CONFIRMED=true`: set only after the operator has stored an
+  independent recovery copy of the Restic password and checked how to retrieve it
+  after losing this Mac. This is an operator attestation, not proof of recovery.
+
+Store the same Restic password in the macOS login Keychain as a generic password
+with service `mitzo.backup` and account `repository`, using Keychain Access. No
+password is accepted by or returned to the dashboard, written to a credential file
+or journal, or included in command arguments. The service obtains it from the fixed
+Keychain entry only when Restic runs. Keychain denial or a locked keychain fails the
+run with a sanitized error. Existing repositories must use the same password.
+
+Use a local root that does not overlap a captured source; this is trusted host
+configuration. Only the backup service may mutate its Restic repository while it
+is enabled. Do not run independent Restic writers, prune or cleanup tools against
+it. All service writers, including upload verification, hold an atomic directory
+fence at `writer.lock`. A separate atomic `admission.lock` guard serializes
+acquisition with release/recovery; it is durable before the writer fence is removed.
+Its atomic removal is the final release operation, with no fallible directory sync
+after admission reopens. Release waits up to roughly ten seconds for a transient
+competing acquisition to drop its own guard; it never deletes or expires an
+uncertain retained guard. A crash can leave a conservative orphan guard, requiring
+host inspection, rather than allowing admission during a failed release. Captures use the running Mitzo owners and a canonical Telos
+owner, preserving the optimistic multi-store consistency check from the core
+capture integration. Concurrent ordinary saves continue; a changed capture fails
+and can be retried manually. Restic checks all data before export. Plaintext capture
+workspaces include all core staging siblings and are removed before the run is recorded
+complete and the fence is released. The capture parent directory is synced after removal.
+A failed fence-removal sync restores a fence and requires host inspection before retry.
+
+`pending` means the encrypted repository was exported locally, but every encrypted
+object and catalogue has not yet been confirmed uploaded by macOS. `uploaded`
+requires the existing transport's complete hash/size checks and upload evidence.
+“Check iCloud upload” refreshes pending generations without taking another capture.
+A later verification error preserves the pending receipt. The repository size is
+that generation's logical encrypted export footprint, not an account quota reading
+or the sum of retained generations. The last confirmed upload is historical evidence,
+not a continuous guarantee that Apple still retains the remote copy.
+
+The private journal retains the latest 50 receipts (metadata only), plus independent
+last-capture and last-confirmed-upload timestamps that survive history eviction. This limit is
+not backup retention: Restic snapshots and encrypted cloud generations are not
+pruned. Scheduling, retention configuration, automatic retries, restore controls
+and non-core ecosystem capture are not part of this iteration. The dashboard states
+those coverage and recovery limits explicitly. The root is host-owned; corrupt,
+symlinked or oversized journals fail closed rather than being silently replaced.
+
+After a crash, an unfinished receipt is shown as unresolved and an abandoned lock
+blocks all further writes. Do not clear it just to make the UI green. The host operator
+must establish that no service/Restic writer remains, inspect repository integrity,
+remove any leftover plaintext under `captures`, and reconcile the receipt before
+removing both fences. If another process owns the fence, leave it untouched. Receipt
+or cleanup failures also retain the fence. This conservative recovery is intentional;
+there is no browser unlock action or automatic replay of an uncertain run.
+
+Validation uses synthetic stores/credentials only. The first production upload still
+requires accepted deployment sources, explicit destination/recovery setup and an
+independently downloaded iCloud restore rehearsal before ecosystem backup is complete.

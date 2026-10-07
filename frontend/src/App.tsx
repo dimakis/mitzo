@@ -1,3 +1,5 @@
+import { SettingsView } from './pages/SettingsView';
+import { BackupsView } from './pages/BackupsView';
 import { NotificationProvider } from './components/NotificationProvider';
 import { NotificationsView } from './pages/NotificationsView';
 import { SymposiumSavedReviewRecordPage } from './components/SymposiumSavedReviewRecordPage';
@@ -159,6 +161,27 @@ export function App() {
           <NotificationProvider>
             <MobileShell>
               <Routes>
+                <Route
+                  path="/settings/backups"
+                  element={
+                    <ProtectedRoute>
+                      <PageRoute>
+                        <BackupsView />
+                      </PageRoute>
+                    </ProtectedRoute>
+                  }
+                />
+                <Route path="/backups" element={<Navigate to="/settings/backups" replace />} />
+                <Route
+                  path="/settings"
+                  element={
+                    <ProtectedRoute>
+                      <PageRoute>
+                        <SettingsView />
+                      </PageRoute>
+                    </ProtectedRoute>
+                  }
+                />
                 <Route path="/login" element={<Login />} />
                 <Route
                   path="/sessions/:sessionId/review-records/:recordId"

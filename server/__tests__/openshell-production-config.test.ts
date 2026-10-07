@@ -598,6 +598,11 @@ describe('OpenShell production bundle validation', () => {
       podman,
       '#!/bin/sh\nif [ "$1" = run ]; then exit 0; fi\n[ "$1 $2" = "image inspect" ] || exit 76\ncase "$3|$5" in\n  "$EXPECTED_IMAGE|{{.Digest}}") printf \'%s\\n\' "$EXPECTED_IMAGE_DIGEST" ;;\n  "$EXPECTED_IMAGE|{{json .Labels}}") printf \'{"io.mitzo.source-commit":"%s","io.mitzo.mgmt-source-commit":"%s","io.mitzo.openshell.base-image":"%s"}\\n\' "$EXPECTED_MITZO_COMMIT" "$EXPECTED_MGMT_COMMIT" "$EXPECTED_BASE_IMAGE" ;;\n  "$EXPECTED_SUPERVISOR|{{.Digest}}"|"localhost/openshell/supervisor:dev|{{.Digest}}") printf \'%s\\n\' "$EXPECTED_SUPERVISOR_DIGEST" ;;\n  "$EXPECTED_SUPERVISOR|{{ index .Labels \\"org.opencontainers.image.revision\\" }}") printf \'%s\\n\' "$EXPECTED_SUPERVISOR_COMMIT" ;;\n  *) exit 77 ;;\nesac\n',
     );
+    writeFileSync(
+      join(bin, 'npx'),
+      '#!/bin/sh\n[ "$*" = "--yes --package=npm@11.18.0 npm ci" ] || exit 78\nexec npm ci\n',
+    );
+    chmodSync(join(bin, 'npx'), 0o755);
     chmodSync(join(bin, 'shlock'), 0o755);
     chmodSync(join(bin, 'npm'), 0o755);
     chmodSync(openshell, 0o755);

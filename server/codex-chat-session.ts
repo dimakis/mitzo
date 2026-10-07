@@ -55,6 +55,7 @@ import {
 import type { McpServerConfig } from './mcp-config.js';
 import {
   OpenShellRuntimeManager,
+  sandboxNameForConversation,
   openShellCodexRuntimeConfig,
   openShellRuntimeConfig,
   type OpenShellAccountRoute,
@@ -230,7 +231,8 @@ export function publicCodexRuntimeError(error: Error): string {
       'OpenShell denied the provider request because its credential-bearing body could not be inspected.' ||
     message === 'The provider stream disconnected before completion.' ||
     message === 'The provider rejected the turn because its context is too large.' ||
-    message === 'The provider request timed out.'
+    message === 'The provider request timed out.' ||
+    message === 'Connection permissions changed. Start a new conversation.'
   )
     return message;
   return 'Codex turn failed. Inspect queued work before retrying.';
@@ -455,7 +457,8 @@ export async function openCodexChat(options: Options) {
   if (options.profile.nativeAuth)
     throw new Error('Native personal ChatGPT accounts require the isolated Symposium runtime');
   const service = getConnectionsRuntime()?.service;
-  if (service && openShellRuntimeConfig(process.env)) {
+  const configuredRuntime = openShellRuntimeConfig(process.env);
+  if (service && configuredRuntime) {
     // Setup holds the connection reservation through sandbox verification and
     // thread registration. First-turn admission reacquires it; release setup
     // before sending so the non-reentrant service gate cannot wait on itself.
@@ -469,6 +472,25 @@ export async function openCodexChat(options: Options) {
           true,
         ),
       options.session.abortController.signal,
+      options.resume
+        ? async (candidates) => {
+            const routed = store().readArtifactRuntime(options.conversationId, options.binding);
+            const names = routed
+              ? [routed.runtime.sandboxName]
+              : [
+                  sandboxNameForConversation(
+                    options.conversationId,
+                    configuredRuntime.sandboxIdLength,
+                  ),
+                  `mitzo-${createHash('sha256').update(options.conversationId).digest('hex').slice(0, 24)}`,
+                ];
+            return service.retainedAutomaticConnections(
+              names,
+              candidates,
+              options.session.abortController.signal,
+            );
+          }
+        : undefined,
     );
     try {
       if (!options.reattachOnly) {
@@ -962,11 +984,10 @@ async function openCodexChatBound(
                   options.binding.accountId,
                   async (current) => {
                     if (
-                      current.length !== managedConnections.length ||
-                      current.some(
-                        (connection) =>
-                          !managedConnections.some(
-                            (original) =>
+                      managedConnections.some(
+                        (original) =>
+                          !current.some(
+                            (connection) =>
                               original.id === connection.id &&
                               original.gatewayProviderId === connection.gatewayProviderId,
                           ),
@@ -976,6 +997,14 @@ async function openCodexChatBound(
                     await work();
                   },
                   signal,
+                  (candidates) =>
+                    candidates.filter((candidate) =>
+                      managedConnections.some(
+                        (original) =>
+                          original.id === candidate.id &&
+                          original.gatewayProviderId === candidate.gatewayProviderId,
+                      ),
+                    ),
                 )
             : undefined,
           beforeRuntimeAdmission: async (closeOwnedTransport: () => Promise<void>) => {

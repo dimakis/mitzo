@@ -1,3 +1,7 @@
+import {
+  SymposiumPublicationSuggestions,
+  type PublicationSuggestion,
+} from './SymposiumPublicationSuggestions';
 import { SymposiumPublication } from './SymposiumPublication';
 import { SymposiumSavedReviewRecord } from './SymposiumSavedReviewRecord';
 import { SymposiumReviewHistory } from './SymposiumReviewHistory';
@@ -23,10 +27,28 @@ export function SymposiumReviewEntry({ sessionId }: { sessionId: string }) {
   );
 }
 
-export function SymposiumReviewPanel({ sessionId }: { sessionId: string }) {
-  return <ReviewPanel key={sessionId} sessionId={sessionId} />;
+export function SymposiumReviewPanel({
+  sessionId,
+  publicationSuggestion,
+}: {
+  sessionId: string;
+  publicationSuggestion?: PublicationSuggestion;
+}) {
+  return (
+    <ReviewPanel
+      key={sessionId}
+      sessionId={sessionId}
+      publicationSuggestion={publicationSuggestion}
+    />
+  );
 }
-function ReviewPanel({ sessionId }: { sessionId: string }) {
+function ReviewPanel({
+  sessionId,
+  publicationSuggestion,
+}: {
+  sessionId: string;
+  publicationSuggestion?: PublicationSuggestion;
+}) {
   const base = `/api/sessions/${encodeURIComponent(sessionId)}/symposium/reviews`;
   const [workflows, setWorkflows] = useState<Workflow[]>([]);
   const [criterionChecks, setCriterionChecks] = useState<CriterionCheck[]>([]);
@@ -315,6 +337,10 @@ function ReviewPanel({ sessionId }: { sessionId: string }) {
   }
   return (
     <section aria-label="Review findings" className="symposium-review-panel">
+      <SymposiumPublicationSuggestions
+        sessionId={sessionId}
+        initialSuggestion={publicationSuggestion}
+      />
       <h3>Review findings</h3>
       {error && <p role="alert">{error}</p>}
       {stopNotice && <p role="status">{stopNotice}</p>}

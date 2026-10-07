@@ -4,6 +4,7 @@ import {
   atSymposiumReconciliationStageAsync,
 } from './symposium-reconciliation-error.js';
 import type { SubscriptionLaunchIdentity } from './symposium-subscription-identity.js';
+import type { SymposiumAccessRequests } from './symposium-access-tools.js';
 import type {
   SymposiumSeatPolicy,
   SymposiumSeatPolicySelector,
@@ -38,6 +39,7 @@ import type { SqliteArtifactLeaseHost } from './symposium-artifact-host.js';
 import type { SymposiumAttemptRegistry } from './symposium-attempt-registry.js';
 import {
   createSymposiumNativeProfileTools,
+  type SymposiumNativeProfileTools,
   assertSymposiumProfileAttemptCurrent,
 } from './symposium-native-profile-tools.js';
 import { createSymposiumNativeReviewTool } from './symposium-native-review-tool.js';
@@ -1517,6 +1519,7 @@ export interface SymposiumSessionRuntimeDeps extends Omit<
     | 'markReviewPageDelivered'
     | 'issueReviewPageChallenge'
   >;
+  accessRequests?: SymposiumAccessRequests;
   recordAccepted: SymposiumOpenShellSeatExecutorDeps['recordAccepted'];
   /** Trusted override owns durable persistence and live publication when supplied. */
   recordEvent?: SymposiumOpenShellSeatExecutorDeps['recordEvent'];
@@ -1787,6 +1790,32 @@ export function createSymposiumSessionRuntime(deps: SymposiumSessionRuntimeDeps)
                       verifyCurrent: verifyNativeToolCurrent,
                     })
                   : undefined);
+              const accessTools = deps.accessRequests?.createTools({
+                execution: input.execution,
+                workdir: input.sandbox.workdir,
+                verifyCurrent: verifyNativeToolCurrent,
+              });
+              const hostTools = accessTools
+                ? {
+                    tools: [...(profileTools?.tools ?? []), ...accessTools.tools],
+                    instructions: [profileTools?.instructions, accessTools.instructions]
+                      .filter(Boolean)
+                      .join('\n\n'),
+                    executeTool: (
+                      name: string,
+                      args: Parameters<SymposiumNativeProfileTools['executeTool']>[1],
+                      signal: AbortSignal,
+                      context: { turnId: string; callId: string },
+                    ) =>
+                      accessTools.tools.some((tool) => tool.name === name)
+                        ? accessTools.executeTool(name, args, signal, context)
+                        : (profileTools?.executeTool(name, args, signal, context) ??
+                          Promise.resolve({
+                            content: 'Seat host tool unavailable',
+                            isError: true,
+                          })),
+                  }
+                : profileTools;
               const loadConversationHistory = () =>
                 symposiumSeatRolloverHistory(
                   deps.store,
@@ -1809,7 +1838,7 @@ export function createSymposiumSessionRuntime(deps: SymposiumSessionRuntimeDeps)
                     loadConversationHistory,
                     resolveAttempt,
                     observeNativeTurnInput: deps.observeNativeTurnInput,
-                    profileTools,
+                    profileTools: hostTools,
                     ...(deps.observePrelaunch
                       ? {
                           observePrelaunch: deps.observePrelaunch,
@@ -1840,7 +1869,7 @@ export function createSymposiumSessionRuntime(deps: SymposiumSessionRuntimeDeps)
                       loadConversationHistory,
                       resolveAttempt,
                       observeNativeTurnInput: deps.observeNativeTurnInput,
-                      profileTools,
+                      profileTools: hostTools,
                       attemptRegistry: deps.attemptRegistry,
                       verifiedControllerCommand: deps.verifiedSubscriptionControllerCommand,
                       verifyPrivateAuth: deps.verifySubscriptionPrivateAuth!,
@@ -1862,6 +1891,8 @@ export function createSymposiumSessionRuntime(deps: SymposiumSessionRuntimeDeps)
                           : undefined,
                       requireModelReceipts: true,
                       verifiedLauncher: true,
+                      hostTools,
+                      verifyHostTools: verifyNativeToolCurrent,
                       attemptRegistry: deps.attemptRegistry,
                     });
             }),

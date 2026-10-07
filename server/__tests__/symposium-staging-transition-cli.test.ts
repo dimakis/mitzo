@@ -1,6 +1,7 @@
 import { afterEach, expect, it } from 'vitest';
 import {
   cpSync,
+  chmodSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -61,6 +62,7 @@ function fixture(mode = 'ok') {
   writeFileSync(cli, readFileSync(cli, 'utf8').replace("process.platform !== 'darwin'", 'false'));
   json(join(release, 'package.json'), { type: 'module' });
   mkdirSync(join(release, 'node_modules'), { mode: 0o700 });
+  if (mode === 'split-deps755') chmodSync(join(release, 'node_modules'), 0o755);
   for (const name of ['zod', 'better-sqlite3', 'bindings', 'file-uri-to-path'])
     cpSync(realpathSync(join('node_modules', name)), join(release, 'node_modules', name), {
       recursive: true,
@@ -114,7 +116,11 @@ function fixture(mode = 'ok') {
     artifacts[n + '/one.js'] = hash('original');
   }
   mkdirSync(join(oldRelease, 'node_modules'), { mode: 0o700 });
-  const fp = hash(JSON.stringify(['node_modules', 0o700]) + '\n');
+  if (mode === 'split-deps755') chmodSync(join(oldRelease, 'node_modules'), 0o755);
+  const fp = hash(
+    JSON.stringify(['node_modules', lstatSync(join(oldRelease, 'node_modules')).mode & 0o777]) +
+      '\n',
+  );
   json(join(service, 'release-receipt.json'), {
     sourceCommit: old,
     sourceTree: 'e'.repeat(40),
@@ -364,4 +370,13 @@ it('controller dependency root aliases cannot qualify even with a matching link 
   const r = f.run('prepare');
   expect(r.status, r.stderr).not.toBe(0);
   expect(JSON.parse(readFileSync(f.calls, 'utf8'))).toEqual([]);
+});
+
+it('ordinary copied dependencies retain usable0755 mode inside the private release', () => {
+  const f = fixture('split-deps755');
+  expect(lstatSync(join(f.controllerRoot, 'node_modules')).mode & 0o777).toBe(0o755);
+  const prepared = f.run('prepare');
+  expect(prepared.status, prepared.stderr).toBe(0);
+  const result = f.run('apply');
+  expect(result.status, result.stderr).toBe(0);
 });

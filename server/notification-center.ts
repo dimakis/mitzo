@@ -131,6 +131,30 @@ export class NotificationCenter {
       request,
     });
   }
+  seatAccessRequest(
+    sessionId: string,
+    requestId: string,
+    kind: 'url' | 'publication',
+    seatName: string,
+    expiresAt?: number,
+  ): void {
+    this.publish({
+      id: `seat-access:${requestId}`,
+      kind: 'approval',
+      title: kind === 'url' ? 'A seat requests website access' : 'A seat requests artifact review',
+      body: `${seatName}: open the conversation to review the full request.`,
+      sessionId,
+      expiresAt,
+    });
+  }
+  resolveSeatAccessRequest(
+    sessionId: string,
+    requestId: string,
+    resolution: 'allowed' | 'denied' | 'expired',
+  ): void {
+    if (this.store.resolveSessionNotice(`seat-access:${requestId}`, sessionId, resolution))
+      this.changed();
+  }
   turnComplete(
     sessionId: string,
     seq: number,
@@ -266,5 +290,30 @@ export function recordTurnNotification(
     current?.turnComplete(sessionId, seq, snippet, title, unattended);
   } catch (err) {
     log.warn('could not record notification', { error: String(err) });
+  }
+}
+
+export function recordSeatAccessNotification(
+  sessionId: string,
+  requestId: string,
+  kind: 'url' | 'publication',
+  seatName: string,
+  expiresAt?: number,
+) {
+  try {
+    current?.seatAccessRequest(sessionId, requestId, kind, seatName, expiresAt);
+  } catch {
+    /* Delivery failure cannot change access authority. */
+  }
+}
+export function resolveSeatAccessNotification(
+  sessionId: string,
+  requestId: string,
+  resolution: 'allowed' | 'denied' | 'expired',
+) {
+  try {
+    current?.resolveSeatAccessRequest(sessionId, requestId, resolution);
+  } catch {
+    /* Approval remains recorded by its owning service. */
   }
 }

@@ -18,6 +18,8 @@ import {
   createSymposiumApplicationDispatchPolicy,
   selectSymposiumApplicationClaim,
 } from './symposium-application-dispatch.js';
+import { createHostBackupService } from './backup/host.js';
+import { createBackupRouter } from './backup/router.js';
 import { bindMitzoTelosCoreCapture } from './backup/mitzo-telos-binding.js';
 import { NotificationStore } from './notification-store.js';
 import { NotificationCenter, setNotificationCenter } from './notification-center.js';
@@ -70,6 +72,8 @@ import {
   type ReviewPublicationDependencies,
 } from './symposium-review-publication.js';
 import { SymposiumReviewStore } from './symposium-review-workflows.js';
+import { SymposiumAccessRequests } from './symposium-access-tools.js';
+import { createSymposiumAccessRouter } from './symposium-access-router.js';
 import {
   createSymposiumReviewRouter,
   type SymposiumInteractiveReviewHost,
@@ -145,7 +149,7 @@ import { execFileSync, execFile } from 'child_process';
 import { promisify } from 'util';
 import { createHash, randomUUID } from 'crypto';
 import { fileURLToPath } from 'url';
-import { createProxyMiddleware } from 'http-proxy-middleware';
+import { createVoiceProxy } from './voice-proxy.js';
 import {
   login,
   authenticateToken,
@@ -362,21 +366,11 @@ if (CORS_ALLOWED_ORIGINS.length > 0) {
 
 const YAPPER_TARGET = process.env.YAPPER_PROXY_TARGET || 'http://localhost:8700';
 
-export const yapperHttpProxy = createProxyMiddleware({
-  target: YAPPER_TARGET,
-  changeOrigin: true,
-  pathRewrite: { '^/api/yapper': '' },
-});
-
-export const yapperWsProxy = createProxyMiddleware({
-  target: YAPPER_TARGET.replace(/^http/, 'ws'),
-  changeOrigin: true,
-  ws: true,
-  pathRewrite: { '^/api/yapper-ws': '' },
-});
+export const yapperHttpProxy = createVoiceProxy(YAPPER_TARGET, '/api/yapper').http;
+export const yapperWsProxy = createVoiceProxy(YAPPER_TARGET, '/api/yapper-ws');
 
 app.use('/api/yapper', yapperHttpProxy);
-app.use('/api/yapper-ws', yapperWsProxy);
+app.use('/api/yapper-ws', yapperWsProxy.http);
 
 app.use(cookieParser());
 
@@ -906,6 +900,9 @@ receiveCustodianEvents(broadcastDurableSymposiumEvent);
 const symposiumProfileStore = new SymposiumProfileStore(
   join(BASE_REPO || '.', '.mitzo', 'events.db'),
 );
+const symposiumAccessRequests = new SymposiumAccessRequests(
+  join(BASE_REPO || '.', '.mitzo', 'events.db'),
+);
 const symposiumProfileProposalStore = new SymposiumProfileProposalStore(
   join(BASE_REPO || '.', '.mitzo', 'events.db'),
 );
@@ -1265,6 +1262,7 @@ let symposiumRuntimeForSession: (sessionId: string) => SymposiumOrchestrator | n
       hostGrants: symposiumHostGrants,
       codexStore: getCodexConversationStore(),
       profileProposalStore: symposiumProfileProposalStore,
+      accessRequests: symposiumAccessRequests,
       profileCatalogStore: symposiumProfileStore,
       reviewStore: symposiumReviewStore,
       resolveProviderIdentity: createOpenShellProviderIdentityResolver(runtimeConfig),
@@ -1422,9 +1420,19 @@ const symposiumReviewStore = new SymposiumReviewStore(
   join(BASE_REPO || '.', '.mitzo', 'events.db'),
 );
 app.use(
+  '/api/sessions/:id/symposium/access-requests',
+  operatorAuthMiddleware,
+  createSymposiumAccessRouter(
+    symposiumAccessRequests,
+    (id) => eventStore.getSession(id)?.sessionType === 'symposium',
+  ),
+);
+app.use(
   '/api/sessions/:id/symposium/publication',
   operatorAuthMiddleware,
   createPublicationRouter({
+    onPublicationCompleted: (sessionId, publication, operation) =>
+      symposiumAccessRequests.publicationCompleted(sessionId, publication, operation),
     registration: () => symposiumPublication,
     hasSession: (id) => eventStore.getSession(id)?.sessionType === 'symposium',
     approval: (req, session, conversationId) =>
@@ -1827,6 +1835,11 @@ export const captureMitzoTelosCoreBackup = bindMitzoTelosCoreCapture({
   tasks: taskStore,
   telosPath: telosDatabasePath,
 });
+
+app.use(
+  '/api/backups',
+  createBackupRouter(createHostBackupService(captureMitzoTelosCoreBackup), operatorAuthMiddleware),
+);
 
 app.use(
   createTelosArtifactRouter({

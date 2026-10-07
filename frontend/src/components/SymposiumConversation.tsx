@@ -1,3 +1,4 @@
+import { SymposiumAccessRequests } from './SymposiumAccessRequests';
 import {
   symposiumQueueOperations,
   symposiumExcerptOperations,
@@ -694,6 +695,7 @@ export function SymposiumConversation({
           available in the recipient agent stream.
         </p>
       )}
+      {sessionId && <SymposiumAccessRequests sessionId={sessionId} />}
       {visiblePage.nextSeq !== null && (
         <div role="status">Showing the first 2,000 durable events. More history is available.</div>
       )}
