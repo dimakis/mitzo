@@ -27,9 +27,19 @@ vi.mock('../AccountModelPicker', () => ({
   },
 }));
 vi.mock('../SymposiumProfilePicker', () => ({
-  SymposiumProfilePicker: ({ onChange }: { onChange: (value: unknown) => void }) => (
-    <button onClick={() => onChange({ profileId: 'builder', revision: 2 })}>
-      Select saved builder
+  SymposiumProfilePicker: ({
+    onChange,
+    requiredRole,
+  }: {
+    onChange: (value: unknown) => void;
+    requiredRole?: string;
+  }) => (
+    <button
+      onClick={() =>
+        onChange({ profileId: requiredRole === 'reviewer' ? 'reviewer' : 'builder', revision: 2 })
+      }
+    >
+      Select saved {requiredRole === 'reviewer' ? 'reviewer' : 'builder'}
     </button>
   ),
 }));
@@ -96,6 +106,33 @@ it('retains idempotency after uncertain failure and shows account/profile reject
   const bodies = vi.mocked(apiFetch).mock.calls.map(([, init]) => JSON.parse(init!.body as string));
   expect(bodies[1].idempotencyKey).toBe(bodies[0].idempotencyKey);
   expect(screen.getByLabelText('Location').textContent).toBe('/');
+});
+
+it('requires a matching profile after changing the first role without discarding account selection', async () => {
+  vi.mocked(apiFetch).mockResolvedValue({
+    ok: true,
+    json: async () => ({ sessionId: 'reviewer-draft' }),
+  } as Response);
+  render(
+    <MemoryRouter>
+      <NewSymposium />
+    </MemoryRouter>,
+  );
+  await userEvent.click(screen.getByRole('button', { name: 'New Symposium' }));
+  await userEvent.click(screen.getByRole('button', { name: 'Select owned work Luna' }));
+  await userEvent.click(screen.getByRole('button', { name: 'Select saved builder' }));
+  await userEvent.selectOptions(screen.getByLabelText('First seat role'), 'reviewer');
+  const create = screen.getByRole('button', { name: 'Create Symposium draft' });
+  expect(create.hasAttribute('disabled')).toBe(true);
+  expect(apiFetch).not.toHaveBeenCalled();
+  await userEvent.click(screen.getByRole('button', { name: 'Select saved reviewer' }));
+  expect(create.hasAttribute('disabled')).toBe(false);
+  await userEvent.click(create);
+  expect(JSON.parse(vi.mocked(apiFetch).mock.calls[0][1]!.body as string)).toMatchObject({
+    accountId: 'work',
+    role: 'reviewer',
+    profileSelection: { profileId: 'reviewer', revision: 2 },
+  });
 });
 it('keeps a pending draft accessible and retries its shared files without creating another session', async () => {
   vi.mocked(apiFetch)
