@@ -2997,7 +2997,10 @@ export async function renameSessionById(
   title: string,
   manual = true,
 ): Promise<void> {
-  const provider = eventStore.getSession(sessionId)?.accountBinding?.provider;
+  const session = eventStore.getSession(sessionId);
+  if (!isRegisteredConversation(session))
+    throw new Error('Only registered conversations can be renamed; import external history first');
+  const provider = session.accountBinding?.provider;
   if (provider === 'openai' || provider === 'openai-codex' || provider === 'google-vertex') {
     if (manual) eventStore.markManuallyRenamed(sessionId);
     eventStore.upsertSession({ sessionId, summary: title });
@@ -3215,12 +3218,12 @@ export async function importSdkConversation(
       eventStore.upsertSession({
         sessionId,
         conversationSource: 'external_import',
-        summary: existing?.manuallyRenamed ? existing.summary : info.summary || null,
+        summary: info.summary || null,
         sdkTranscriptVerified: true,
         cwd: info.cwd ?? dir,
         branch: info.gitBranch ?? null,
         isActive: false,
-        createdAt: existing?.createdAt ?? info.createdAt ?? info.lastModified,
+        createdAt: info.createdAt ?? info.lastModified,
         updatedAt: info.lastModified,
       });
       return eventStore.getSession(sessionId);

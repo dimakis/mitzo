@@ -11,6 +11,7 @@ vi.mock('@anthropic-ai/claude-agent-sdk', async (original) => ({
   listSessions: vi.fn(),
   getSessionInfo: vi.fn(),
   getSessionMessages: vi.fn(),
+  renameSession: vi.fn(),
 }));
 vi.mock('../mcp-config.js', () => ({ loadMcpServers: () => ({}) }));
 
@@ -33,6 +34,7 @@ it('keeps a fully persisted SDK search owned by its parent across discovery, adm
     vi.stubEnv('WORKTREE_ENABLED', 'false');
     chat = await import('../chat.js');
     const sdk = await import('@anthropic-ai/claude-agent-sdk');
+    vi.mocked(sdk.renameSession).mockResolvedValue(undefined);
     const { searchSdk } = await import('../web-search-adapters.js');
     const { admitProviderDispatch } = await import('../provider-execution.js');
     vi.mocked(sdk.listSessions).mockImplementation(async () =>
@@ -150,6 +152,26 @@ it('keeps a fully persisted SDK search owned by its parent across discovery, adm
     expect(await sdk.getSessionMessages(internalId)).toHaveLength(2);
 
     const assertBoundary = async (controller: typeof import('../chat.js')) => {
+      vi.mocked(sdk.renameSession).mockClear();
+      const upsert = vi.spyOn(controller.eventStore, 'upsertSession');
+      upsert.mockClear();
+      for (const id of [internalId, externalId]) {
+        await expect(controller.renameSessionById(id, 'Illegal chat rename')).rejects.toThrow(
+          /registered|import|internal/i,
+        );
+      }
+      expect(sdk.renameSession).not.toHaveBeenCalled();
+      expect(upsert).not.toHaveBeenCalled();
+      await expect(
+        controller.renameSessionById(parentId, 'Document verification'),
+      ).resolves.toBeUndefined();
+      expect(sdk.renameSession).toHaveBeenCalledWith(
+        parentId,
+        'Document verification',
+        expect.any(Object),
+      );
+      expect(controller.eventStore.getSession(parentId)?.summary).toBe('Document verification');
+      upsert.mockRestore();
       expect((await controller.getSessions()).sessions.map(({ id }) => id)).toEqual([parentId]);
       expect(controller.getSessionsCached().sessions.map(({ id }) => id)).toEqual([parentId]);
       expect((await controller.listImportableSdkConversations()).map(({ id }) => id)).toEqual([
@@ -228,6 +250,13 @@ it('keeps a fully persisted SDK search owned by its parent across discovery, adm
     );
     expect(await chat.listImportableSdkConversations()).toEqual([]);
     expect(await chat.getMessages(externalId)).toHaveLength(2);
+    await expect(chat.renameSessionById(externalId, 'Imported CLI chat')).resolves.toBeUndefined();
+    expect(sdk.renameSession).toHaveBeenCalledWith(
+      externalId,
+      'Imported CLI chat',
+      expect.any(Object),
+    );
+    expect(chat.eventStore.getSession(externalId)?.summary).toBe('Imported CLI chat');
     expect(chat.eventStore.getSession(internalId)).toBeNull();
   } finally {
     chat?.registry.dispose();
