@@ -26,30 +26,13 @@ Pre-commit hooks (husky + lint-staged) run lint and format on staged files. Conv
 
 ## Dev Build Testing
 
-To test frontend changes without restarting the production server:
-
-1. **Symlink `.env`** — worktrees don't have it (gitignored):
-
-   ```bash
-   ln -s ~/tools/mitzo/.env <worktree-path>/.env
-   ```
-
-2. **Start Vite on a separate port** from the worktree:
-
-   ```bash
-   cd <worktree-path>/frontend && npx vite --port 3102 --host
-   ```
-
-3. **HTTPS proxy** — the production server runs HTTPS. The default `vite.config.ts` proxies to `http://localhost:3100` which won't work against a TLS backend. Override locally (do not commit):
-
-   ```ts
-   '/api': { target: 'https://localhost:3100', secure: false },
-   '/ws':  { target: 'wss://localhost:3100', ws: true, secure: false },
-   ```
-
-4. **Access** from phone/browser at `http://<tailscale-hostname>:3102`
-
-The production backend stays untouched on `:3100`. Only the frontend is swapped.
+On the configured macOS host, reuse the canonical staging service at
+`http://mitzo-staging.localhost:3190`. Read
+[the staging procedure](docs/operations/canonical-staging.md) and run its check
+command before live testing. Prepare a pinned accepted-main release and inspect
+the exact-current plan before applying an update. Do not symlink production `.env`
+or start additional staging backends/custodians/background previews. Experimental
+branch testing and provider enrollment require separate reviewed configuration.
 
 ## Architecture
 
