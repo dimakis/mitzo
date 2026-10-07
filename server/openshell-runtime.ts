@@ -373,7 +373,13 @@ const PROVIDER_POLICY_VERSION = 'state-v2';
 const PROVIDER_POLICY_QUEUES = new Map<string, Promise<void>>();
 
 function providerPolicyFingerprint(serviceProviders: string[]) {
-  return `${PROVIDER_POLICY_VERSION}-${[...new Set(serviceProviders)].sort().join('.') || 'none'}`;
+  const providers = [...new Set(serviceProviders)].sort().join('.') || 'none';
+  const legacy = `${PROVIDER_POLICY_VERSION}-${providers}`;
+  // Retain valid historical labels; managed connection names can otherwise
+  // exceed Kubernetes' 63-character value limit before sandbox creation.
+  return legacy.length <= 63
+    ? legacy
+    : `state-v3-${createHash('sha256').update(providers).digest('hex').slice(0, 54)}`;
 }
 
 interface ProviderPolicyRecord {

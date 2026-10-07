@@ -30,6 +30,12 @@ vi.mock('../codex-conversation-store.js', () => ({
       mocks.store();
     }
     recoverAtStartup() {}
+    reserveStartup() {}
+    assertStartupResumeSafe() {}
+    startupNeedsProvisioning() {
+      return false;
+    }
+    markStartupProviderInitializing() {}
     readArtifactRuntime() {
       return null;
     }
@@ -70,11 +76,14 @@ import {
   managedJiraConnectionEnv,
   openCodexChat,
   publicCodexRuntimeError,
+  publicCodexStartupError,
+  ordinaryRuntimeServiceProviders,
   selectedOpenShellAccountRoute,
   waitForCodexRuntime,
   waitForCodexRuntimeBySessionId,
 } from '../codex-chat-session.js';
 import { KnowledgePublicationUnavailableError } from '../knowledge-publication-bridge.js';
+import { CodexRequestError } from '../codex-app-server-client.js';
 import { OpenShellRuntimeManager } from '../openshell-runtime.js';
 import * as migrationAdapter from '../openshell-runtime-migration-adapter.js';
 import * as lifecycleController from '../openshell-lifecycle-controller.js';
@@ -88,6 +97,24 @@ import { SymposiumProfileStore } from '../symposium-profiles.js';
 afterEach(() => {
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
+});
+it('uses assigned GitHub credentials instead of the legacy fallback on a new runtime', () => {
+  const managed = [
+    { templateId: 'github-readonly', gatewayProviderName: 'mitzo-conn-github' },
+    { templateId: 'jira-readonly', gatewayProviderName: 'mitzo-conn-jira' },
+  ];
+  expect(ordinaryRuntimeServiceProviders(['github', 'google-workspace'], managed)).toEqual([
+    'google-workspace',
+    'mitzo-conn-github',
+    'mitzo-conn-jira',
+  ]);
+  expect(ordinaryRuntimeServiceProviders(['github'], managed.slice(1))).toEqual([
+    'github',
+    'mitzo-conn-jira',
+  ]);
+  // Retained selection excludes a newly assigned connection absent from that
+  // physical sandbox, so an existing legacy GitHub binding stays selected.
+  expect(ordinaryRuntimeServiceProviders(['github'], [])).toEqual(['github']);
 });
 
 it('forwards only recognized sanitized Codex diagnostics', () => {
@@ -108,6 +135,14 @@ it('reports connection admission rejection without claiming a provider turn fail
   expect(
     publicCodexRuntimeError(new Error('Connection permissions changed. Start a new conversation.')),
   ).toBe('Connection permissions changed. Start a new conversation.');
+});
+it('reports startup request failures without discarding their safe category', () => {
+  const error = new CodexRequestError('thread/start', 'authentication', 401);
+  expect(publicCodexRuntimeError(error)).toMatch(/credentials or permissions/);
+  expect(publicCodexStartupError(error)).toMatch(/credentials or permissions/);
+  expect(publicCodexStartupError(new Error('Bearer sk-secret'))).toBe(
+    'Codex could not start this chat. Inspect conversation recovery before retrying.',
+  );
 });
 it('scopes capability idempotency to the authoritative conversation identity', () => {
   const binding = {

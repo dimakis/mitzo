@@ -57,7 +57,8 @@ jobs:
     if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.browser == 'true') }}
     name: Connections browser regression
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # A cold browser download can consume ten minutes before tests begin.
+    timeout-minutes: 20
     permissions:
       contents: read
     steps:

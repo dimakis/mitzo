@@ -25,7 +25,7 @@ vi.mock('../codex-app-server-client.js', async (importOriginal) => ({
   CodexAppServerClient: { launchOpenShell: (...args: unknown[]) => native.launch(...args) },
 }));
 import { getCodexConversationStore, openCodexChat } from '../codex-chat-session.js';
-import { openShellRuntimeConfig } from '../openshell-runtime.js';
+import { OpenShellRuntimeManager, openShellRuntimeConfig } from '../openshell-runtime.js';
 import { initializeOpenShellLifecycle } from '../openshell-lifecycle-controller.js';
 import { sharedOpenShellLifecycleCoordinator } from '../openshell-lifecycle.js';
 import { loadAccountProfiles } from '../account-profiles.js';
@@ -249,6 +249,58 @@ function fixture(
     },
   };
 }
+it('finishes a resumed chat after a provisioning failure before any provider initialization', async () => {
+  const f = fixture();
+  const ensure = vi.spyOn(OpenShellRuntimeManager.prototype, 'ensure');
+  ensure.mockRejectedValueOnce(new Error('transient provisioning failure'));
+  try {
+    await expect(openCodexChat(f.options)).rejects.toThrow('transient provisioning failure');
+    expect(native.launch).not.toHaveBeenCalled();
+    const query = await openCodexChat({ ...f.options, resume: true, messageId: 'retry-' + f.id });
+    expect(f.requests.filter((method) => method === 'thread/start')).toHaveLength(1);
+    expect(f.requests.filter((method) => method === 'turn/start')).toHaveLength(1);
+    expect(getCodexConversationStore().read(f.id, binding).threadId).toBe('thread-' + f.id);
+    query.close();
+  } finally {
+    ensure.mockRestore();
+  }
+});
+
+it('rechecks startup phase after waiting behind an initialization with no acknowledgment', async () => {
+  const f = fixture('initialize-error');
+  let release!: () => void;
+  let entered!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const entry = new Promise<void>((resolve) => {
+    entered = resolve;
+  });
+  const original = OpenShellRuntimeManager.prototype.ensure;
+  const ensure = vi
+    .spyOn(OpenShellRuntimeManager.prototype, 'ensure')
+    .mockImplementationOnce(async function (this: OpenShellRuntimeManager, ...args) {
+      entered();
+      await gate;
+      return original.apply(this, args);
+    });
+  const first = openCodexChat(f.options);
+  void first.catch(() => {});
+  await entry;
+  const second = openCodexChat({ ...f.options, resume: true });
+  void second.catch(() => {});
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  release();
+  try {
+    await expect(first).rejects.toThrow('native initialization failed');
+    await expect(second).rejects.toThrow(/unverified/);
+    expect(native.launch).toHaveBeenCalledTimes(1);
+  } finally {
+    release();
+    ensure.mockRestore();
+  }
+});
+
 async function bounded<T>(promise: Promise<T>): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
@@ -316,6 +368,10 @@ it.each(['initialize-error', 'initialize-abort', 'send-error'] as const)(
           { id: f.options.messageId, status: 'failed' },
         ]);
       else expect(f.requests).not.toContain('turn/start');
+      if (mode === 'initialize-error') {
+        await expect(openCodexChat({ ...f.options, resume: true })).rejects.toThrow(/unverified/);
+        expect(native.launch).toHaveBeenCalledTimes(1);
+      }
     } finally {
       releases.get(f.id)?.();
       await opening.catch(() => {});
@@ -323,16 +379,20 @@ it.each(['initialize-error', 'initialize-abort', 'send-error'] as const)(
     }
   },
 );
-it('reattach-only initializes registration and releases its fence without admitting initial work', async () => {
+it('reattach-only leaves reserved provisioning available for the next explicit send', async () => {
   const f = fixture();
   let chat: Awaited<ReturnType<typeof openCodexChat>> | undefined;
   try {
     chat = await bounded(openCodexChat({ ...f.options, reattachOnly: true }));
-    expect(f.requests).toContain('thread/start');
-    expect(f.requests).not.toContain('turn/start');
+    expect(native.launch).not.toHaveBeenCalled();
+    expect(f.requests).toEqual([]);
     expect(getCodexConversationStore().commands(f.id, binding)).toEqual([]);
-    expect(releaseSnapshots.get(f.id)).toEqual({ thread: undefined, artifact: true });
+    expect(releaseSnapshots.get(f.id)).toEqual({ thread: undefined, artifact: false });
     expect(releaseCounts.get(f.id)).toBe(1);
+    chat.close();
+    chat = await openCodexChat({ ...f.options, resume: true });
+    expect(f.requests.filter((method) => method === 'thread/start')).toHaveLength(1);
+    expect(f.requests.filter((method) => method === 'turn/start')).toHaveLength(1);
   } finally {
     chat?.close();
     await sharedOpenShellLifecycleCoordinator.admit(f.id, async () => {});

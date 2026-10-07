@@ -125,7 +125,15 @@ export class ConnectionsService {
       const attached = new Set(await this.gateway.sandboxProviders(name, signal));
       // Unknown or revoked attachments are deliberately not adopted here:
       // verifyRuntimeSandbox rejects them before any sandbox mutation.
-      return candidates.filter((connection) => attached.has(connection.gatewayProviderName));
+      const selected = candidates.filter((connection) =>
+        attached.has(connection.gatewayProviderName),
+      );
+      if (
+        attached.has('github') &&
+        selected.some((connection) => connection.templateId === 'github-readonly')
+      )
+        throw new Error('Retained sandbox has conflicting GitHub credential attachments');
+      return selected;
     }
     return candidates;
   }
