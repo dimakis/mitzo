@@ -569,23 +569,21 @@ it('keeps completed-only reasoning before the streamed answer', async () => {
   const completed = answer.at(-1) as { response: { output: object[] } };
   vi.stubGlobal(
     'fetch',
-    vi
-      .fn()
-      .mockResolvedValue(
-        response([
-          answer[0],
-          {
-            type: 'response.output_item.added',
-            output_index: 0,
-            item: { type: 'reasoning', id: 'rs', summary: [] },
-          },
-          ...answer.slice(1, -1).map((event) => ({ ...event, output_index: 1 })),
-          {
-            ...answer.at(-1),
-            response: { ...completed.response, output: [reasoning, ...completed.response.output] },
-          },
-        ]),
-      ),
+    vi.fn().mockResolvedValue(
+      response([
+        answer[0],
+        {
+          type: 'response.output_item.added',
+          output_index: 0,
+          item: { type: 'reasoning', id: 'rs', summary: [] },
+        },
+        ...answer.slice(1, -1).map((event) => ({ ...event, output_index: 1 })),
+        {
+          ...answer.at(-1),
+          response: { ...completed.response, output: [reasoning, ...completed.response.output] },
+        },
+      ]),
+    ),
   );
   const session = new ResponsesSession(config, { accountId: 'work', apiKey: 'test' });
   const translated = await collect(session);
