@@ -28,7 +28,6 @@ With native push delivery configured and iOS notifications enabled, expand the a
 
 The same search choices appear in the notification details screen. iOS controls banner presentation, lock-screen authentication, Focus, and notification settings. These changes require distributing the updated native iOS bundle as well as deploying the backend. Existing app versions offer their registered categories and cannot gain native background actions from a server update alone. See [Apple’s actionable notification documentation](https://developer.apple.com/documentation/usernotifications/declaring-your-actionable-notification-types).
 
-
 Search uses the conversation's selected account and model. Provider search and model charges may apply. Mitzo never selects another account or substitutes a model after a rejection. Provider/model combinations without hosted search return an explicit failure; website reads remain independent of hosted-search support.
 
 ## Session URL approval
