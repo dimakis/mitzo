@@ -124,3 +124,18 @@ it('refuses a new compiled symlink instead of following its target', () => {
   expect(f.run().status).not.toBe(0);
   expect(readFileSync(outside, 'utf8')).toBe('// retained outside fixture');
 });
+
+it('actual startup refuses changed contained dependency payload despite unchanged link and receipt', () => {
+  const f = fixture();
+  mkdirSync(join(f.release, 'vendor'));
+  writeFileSync(join(f.release, 'vendor/tool.js'), 'one');
+  symlinkSync('../vendor', join(f.release, 'node_modules/vendor'));
+  f.receipt.dependencyFingerprint = fingerprintDirectory(f.release, 'node_modules');
+  f.save();
+  const valid = f.run();
+  expect(valid.status, valid.stderr).toBe(0);
+  writeFileSync(join(f.release, 'vendor/tool.js'), 'two');
+  const changed = f.run();
+  expect(changed.status, changed.stderr).not.toBe(0);
+  expect(changed.stderr).toContain('dependency drift');
+});

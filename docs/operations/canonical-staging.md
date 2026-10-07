@@ -80,3 +80,16 @@ and the always-applied Cursor rule provide the same routing after this change la
 Existing sessions must reread the guidance; it is not a cross-chat broadcast or
 provider-context adoption receipt. Real model tests require explicitly supported
 Luna, with the exact model and charged account announced before execution.
+
+Dependency receipts now use a version-two closure fingerprint: contained symlink
+target paths, modes and payloads are included, with cycle and outside-release
+refusal. Valid workspace and .bin links remain supported. The literal transfer
+checksum used while copying node_modules is separate and never qualifies a
+release. New candidate receipts are recorded only after the selected source builds;
+the original dependency closure is rechecked before and after copying/building.
+
+Historical link-text-only fingerprints are deliberately refused. Do not regenerate
+or overwrite a live receipt to make it pass: migration or requalification requires
+a separately reviewed source/dependency audit. This source change performs no
+private-state migration, restart or fallback. Missing dependency proof refuses
+candidate validation before any original service control.
