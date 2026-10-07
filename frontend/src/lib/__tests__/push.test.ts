@@ -49,6 +49,36 @@ beforeEach(() => {
 });
 
 describe('initPushNotifications', () => {
+  it.each(['registrationError', 'pushNotificationReceived', 'pushNotificationActionPerformed'])(
+    'resumes listener setup after %s fails without duplicating installed callbacks',
+    async (failedEvent) => {
+      vi.mocked(Capacitor.isNativePlatform).mockReturnValue(true);
+      let failed = false;
+      const installed: Record<string, Array<(data: unknown) => void>> = {};
+      vi.mocked(PushNotifications.addListener).mockImplementation(((
+        event: string,
+        callback: (data: unknown) => void,
+      ) => {
+        if (event === failedEvent && !failed) {
+          failed = true;
+          return Promise.reject(new Error('Native listener setup failed'));
+        }
+        (installed[event] ??= []).push(callback);
+        return Promise.resolve({ remove: vi.fn() });
+      }) as typeof PushNotifications.addListener);
+      await initPushNotifications();
+      expect(PushNotifications.register).not.toHaveBeenCalled();
+      window.dispatchEvent(new Event('mitzo:auth-restored'));
+      // A simultaneous foreground retry must join the same setup attempt.
+      await initPushNotifications();
+      expect(PushNotifications.register).toHaveBeenCalledOnce();
+      for (const callbacks of Object.values(installed)) expect(callbacks).toHaveLength(1);
+      expect(Object.keys(installed)).toHaveLength(4);
+      for (const callback of installed.registration) callback({ value: 'device-token' });
+      expect(apiFetch).toHaveBeenCalledOnce();
+    },
+  );
+
   it('retries device enrollment after login without duplicating native listeners', async () => {
     vi.mocked(Capacitor.isNativePlatform).mockReturnValue(true);
     vi.mocked(apiFetch).mockResolvedValueOnce({ ok: false, status: 401 } as Response);

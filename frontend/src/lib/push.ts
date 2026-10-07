@@ -9,6 +9,15 @@ let initialized = false;
 let initialization: Promise<void> | undefined;
 let deviceToken: string | undefined;
 let authListener: (() => void) | undefined;
+const installedListeners = new Set<string>();
+
+async function installListenerOnce(event: string, install: () => Promise<unknown>): Promise<void> {
+  if (installedListeners.has(event)) return;
+  await install();
+  // Keep successful listeners across partial failures; the shared initialization
+  // promise serializes retries, which resume at the first missing listener.
+  installedListeners.add(event);
+}
 
 async function enrollDevice(): Promise<void> {
   if (!deviceToken) return;
@@ -31,6 +40,7 @@ export function _resetForTest(): void {
   deviceToken = undefined;
   if (authListener) window.removeEventListener(AUTH_RESTORED_EVENT, authListener);
   authListener = undefined;
+  installedListeners.clear();
 }
 
 export async function initPushNotifications(): Promise<void> {
@@ -62,22 +72,27 @@ async function initializePush(): Promise<void> {
   const permission = await PushNotifications.requestPermissions();
   if (permission.receive !== 'granted') return;
 
-  await PushNotifications.addListener('registration', (token) => {
-    deviceToken = (token as { value: string }).value;
-    void enrollDevice();
-  });
+  await installListenerOnce('registration', () =>
+    PushNotifications.addListener('registration', (token) => {
+      deviceToken = (token as { value: string }).value;
+      void enrollDevice();
+    }),
+  );
 
-  await PushNotifications.addListener('registrationError', (error) => {
-    console.error('Push registration failed:', error);
-  });
+  await installListenerOnce('registrationError', () =>
+    PushNotifications.addListener('registrationError', (error) => {
+      console.error('Push registration failed:', error);
+    }),
+  );
 
-  await PushNotifications.addListener('pushNotificationReceived', (_notification) => {
-    window.dispatchEvent(new Event(NOTIFICATIONS_REFRESH_EVENT));
-  });
+  await installListenerOnce('pushNotificationReceived', () =>
+    PushNotifications.addListener('pushNotificationReceived', (_notification) => {
+      window.dispatchEvent(new Event(NOTIFICATIONS_REFRESH_EVENT));
+    }),
+  );
 
-  await PushNotifications.addListener(
-    'pushNotificationActionPerformed',
-    (action: ActionPerformed) => {
+  await installListenerOnce('pushNotificationActionPerformed', () =>
+    PushNotifications.addListener('pushNotificationActionPerformed', (action: ActionPerformed) => {
       const { actionId, inputValue } = action;
       const data = action.notification.data as Record<string, string> | undefined;
       const sessionId = data?.sessionId;
@@ -112,7 +127,7 @@ async function initializePush(): Promise<void> {
           window.location.href = `/chat/${sessionId}`;
         }
       }
-    },
+    }),
   );
 
   initialized = true;
