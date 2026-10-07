@@ -1703,6 +1703,7 @@ async function _startChatInner(
               .filter(Boolean)
               .map((root) => join(root, '.git')),
           ),
+        session,
       );
       abortController.signal.addEventListener('abort', () => githubPublishing.close(), {
         once: true,

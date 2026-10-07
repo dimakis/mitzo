@@ -1,3 +1,4 @@
+import { configuredGithubSeedBaselinePaths } from './github-seed-baselines.js';
 import { custodianControllerMode, custodianOwnerMode } from './symposium-custodian-mode.js';
 import { closeCapabilityOperationStores } from './capability-operation-owner.js';
 import { createSymposiumShutdown, settleSymposiumCleanup } from './symposium-shutdown.js';
@@ -172,6 +173,7 @@ function configureConnectionsRuntime(): void {
     }
     const runtime = createConnectionsRuntime({
       directory: join(BASE_REPO, '.mitzo'),
+      githubSeedBaselinePaths: configuredGithubSeedBaselinePaths(openShell.seed),
       eligibleAccountIds: (templateId) => loadAccountProfiles().connectionEligibleIds(templateId),
       cli: openShell.cli,
       workspace: openShell.workspace,

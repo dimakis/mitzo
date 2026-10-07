@@ -5,7 +5,9 @@ Claude Code on your phone. A self-hosted web UI built on the [Agent SDK](https:/
 <!-- ![Home Screen](docs/screenshots/home.png) -->
 <!-- ![Chat with Tools](docs/screenshots/chat-tools.png) -->
 
-### New chat account and model
+#Isolated seeded workspaces can publish committed task deltas through the shared GitHub approval broker once their original host baseline is registered. The task history stays intact; only reviewed changes are projected onto upstream. See [seeded GitHub publication](docs/operations/seeded-github-publication.md) for configuration and failure diagnostics.
+
+## New chat account and model
 
 Expand **Workspace** in chat to choose the account and model. **Make default for new chats** saves that pair (and thinking setting) on this browser; **Clear new-chat default** removes it. Existing conversations keep their bound account. When no default is saved, select an account or confirm the suggested account with **Use** before sending. If a saved account or model is unavailable, choose a replacement explicitly.
 
@@ -914,6 +916,8 @@ no live upload schedule. See the [backup contract](docs/operations/icloud-ecosys
 
 Backups is available under Settings on desktop and More → Settings on mobile. It shows setup,
 coverage, durable recent runs and separately verified local capture and iCloud upload.
+The iCloud destination card opens a host setup guide for storage, encryption/recovery
+and verification; disabled actions explain their prerequisites.
 An interactive operator can manually capture the Mitzo/Telos database group, encrypt
 and verify it with Restic, export it to iCloud and later check upload evidence.
 Host configuration and independent recovery confirmation are required before actions

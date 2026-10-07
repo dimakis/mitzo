@@ -79,3 +79,59 @@ it('retains failures visibly and disables actions while status is unavailable', 
     true,
   );
 });
+
+it('opens host setup from the destination card and rechecks without enabling backups', async () => {
+  vi.mocked(getBackups).mockResolvedValue({
+    ...view,
+    ready: false,
+    setup: ['Confirm independent recovery.'],
+  });
+  render(
+    <MemoryRouter>
+      <BackupsView />
+    </MemoryRouter>,
+  );
+  fireEvent.click(await screen.findByRole('button', { name: 'Set up backups' }));
+  expect(screen.getByRole('region', { name: 'Backup setup guide' })).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: 'Encryption and recovery' }));
+  expect(screen.getByText(/mitzo.backup/)).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: 'Check setup again' }));
+  await waitFor(() => expect(getBackups).toHaveBeenCalledTimes(2));
+  expect(backupAction).not.toHaveBeenCalled();
+  expect((screen.getByRole('button', { name: 'Back up now' }) as HTMLButtonElement).disabled).toBe(
+    true,
+  );
+});
+it('explains why upload verification is unavailable before an export', async () => {
+  vi.mocked(getBackups).mockResolvedValue(view);
+  render(
+    <MemoryRouter>
+      <BackupsView />
+    </MemoryRouter>,
+  );
+  await screen.findByText('Run a backup first to check its iCloud upload.');
+  expect(
+    screen.getByRole('button', { name: 'Check iCloud upload' }).getAttribute('aria-describedby'),
+  ).toBe('backup-action-help');
+});
+it('shows retained-lock instructions directly rather than telling the operator to wait', async () => {
+  vi.mocked(getBackups).mockResolvedValue({
+    ...view,
+    busy: true,
+    setup: ['Inspect the retained writer lock on the host.'],
+  });
+  render(
+    <MemoryRouter>
+      <BackupsView />
+    </MemoryRouter>,
+  );
+  await screen.findByText('Inspect the retained writer lock on the host.');
+  expect(
+    screen.getByText('Inspect the retained writer lock on the host.').closest('details'),
+  ).toBeNull();
+  expect(
+    screen.getByText(
+      'Backup storage is locked. Check the current run and host requirements before retrying.',
+    ),
+  ).toBeTruthy();
+});

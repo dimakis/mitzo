@@ -1,11 +1,15 @@
 // @vitest-environment jsdom
 import { afterEach, expect, it, vi } from 'vitest';
-import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, useLocation } from 'react-router-dom';
 import { NewSymposium } from '../NewSymposium';
 import { apiFetch } from '../../lib/api-fetch';
 vi.mock('../../lib/api-fetch', () => ({ apiFetch: vi.fn() }));
+const pendingProfiles = vi.hoisted(() => ({
+  save: undefined as ((value: unknown) => void) | undefined,
+  import: undefined as ((value: unknown) => void) | undefined,
+}));
 vi.mock('../AccountModelPicker', () => ({
   AccountModelPicker: ({
     scope,
@@ -27,10 +31,36 @@ vi.mock('../AccountModelPicker', () => ({
   },
 }));
 vi.mock('../SymposiumProfilePicker', () => ({
-  SymposiumProfilePicker: ({ onChange }: { onChange: (value: unknown) => void }) => (
-    <button onClick={() => onChange({ profileId: 'builder', revision: 2 })}>
-      Select saved builder
-    </button>
+  SymposiumProfilePicker: ({
+    onChange,
+    requiredRole,
+  }: {
+    onChange: (value: unknown) => void;
+    requiredRole?: string;
+  }) => (
+    <>
+      <button
+        onClick={() =>
+          onChange({ profileId: requiredRole === 'reviewer' ? 'reviewer' : 'builder', revision: 2 })
+        }
+      >
+        Select saved {requiredRole === 'reviewer' ? 'reviewer' : 'builder'}
+      </button>
+      <button
+        onClick={() => {
+          pendingProfiles.save = onChange;
+        }}
+      >
+        Start profile save
+      </button>
+      <button
+        onClick={() => {
+          pendingProfiles.import = onChange;
+        }}
+      >
+        Start profile import
+      </button>
+    </>
   ),
 }));
 function Location() {
@@ -39,6 +69,8 @@ function Location() {
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
+  pendingProfiles.save = undefined;
+  pendingProfiles.import = undefined;
 });
 it('opens before an ordinary account exists, selects dedicated account/profile and navigates without a prompt', async () => {
   vi.mocked(apiFetch).mockResolvedValue({
@@ -97,6 +129,76 @@ it('retains idempotency after uncertain failure and shows account/profile reject
   expect(bodies[1].idempotencyKey).toBe(bodies[0].idempotencyKey);
   expect(screen.getByLabelText('Location').textContent).toBe('/');
 });
+
+it('requires a matching profile after changing the first role without discarding account selection', async () => {
+  vi.mocked(apiFetch).mockResolvedValue({
+    ok: true,
+    json: async () => ({ sessionId: 'reviewer-draft' }),
+  } as Response);
+  render(
+    <MemoryRouter>
+      <NewSymposium />
+    </MemoryRouter>,
+  );
+  await userEvent.click(screen.getByRole('button', { name: 'New Symposium' }));
+  await userEvent.click(screen.getByRole('button', { name: 'Select owned work Luna' }));
+  await userEvent.click(screen.getByRole('button', { name: 'Select saved builder' }));
+  await userEvent.selectOptions(screen.getByLabelText('First seat role'), 'reviewer');
+  const create = screen.getByRole('button', { name: 'Create Symposium draft' });
+  expect(create.hasAttribute('disabled')).toBe(true);
+  expect(apiFetch).not.toHaveBeenCalled();
+  await userEvent.click(screen.getByRole('button', { name: 'Select saved reviewer' }));
+  expect(create.hasAttribute('disabled')).toBe(false);
+  await userEvent.click(create);
+  expect(JSON.parse(vi.mocked(apiFetch).mock.calls[0][1]!.body as string)).toMatchObject({
+    accountId: 'work',
+    role: 'reviewer',
+    profileSelection: { profileId: 'reviewer', revision: 2 },
+  });
+});
+
+it.each([
+  ['save', false],
+  ['import', false],
+  ['save', true],
+  ['import', true],
+] as const)(
+  'ignores late profile %s after role change (round trip: %s)',
+  async (operation, roundTrip) => {
+    vi.mocked(apiFetch).mockResolvedValue({
+      ok: true,
+      json: async () => ({ sessionId: 'fresh-draft' }),
+    } as Response);
+    render(
+      <MemoryRouter>
+        <NewSymposium />
+      </MemoryRouter>,
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'New Symposium' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Select owned work Luna' }));
+    await userEvent.click(screen.getByRole('button', { name: `Start profile ${operation}` }));
+    await userEvent.selectOptions(screen.getByLabelText('First seat role'), 'reviewer');
+    if (roundTrip) await userEvent.selectOptions(screen.getByLabelText('First seat role'), 'coder');
+    act(() => pendingProfiles[operation]!({ profileId: 'old-builder', revision: 2 }));
+    const create = screen.getByRole('button', { name: 'Create Symposium draft' });
+    expect(create.hasAttribute('disabled')).toBe(true);
+    await userEvent.click(create);
+    expect(apiFetch).not.toHaveBeenCalled();
+    await userEvent.click(
+      screen.getByRole('button', {
+        name: roundTrip ? 'Select saved builder' : 'Select saved reviewer',
+      }),
+    );
+    // A late completion must also leave the current selection untouched.
+    act(() => pendingProfiles[operation]!({ profileId: 'old-builder', revision: 2 }));
+    await userEvent.click(create);
+    expect(JSON.parse(vi.mocked(apiFetch).mock.calls[0][1]!.body as string)).toMatchObject({
+      accountId: 'work',
+      role: roundTrip ? 'coder' : 'reviewer',
+      profileSelection: { profileId: roundTrip ? 'builder' : 'reviewer', revision: 2 },
+    });
+  },
+);
 it('keeps a pending draft accessible and retries its shared files without creating another session', async () => {
   vi.mocked(apiFetch)
     .mockResolvedValueOnce({

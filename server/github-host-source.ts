@@ -15,6 +15,7 @@ import { promisify } from 'node:util';
 import { codexPrivateDirectory } from './codex-private-path.js';
 import { githubRepositoryFromOrigin } from './connections/capabilities/github-publish-pr.js';
 import type { GithubSandboxInspection } from './connections/capabilities/github-publish-pr.js';
+import { GithubSeedPublicationError } from './github-seeded-source.js';
 const exec = promisify(execFile);
 interface Source {
   workspace: string;
@@ -181,12 +182,102 @@ async function safeStatus(source: Source): Promise<string> {
     await rm(directory, { recursive: true, force: true });
   }
 }
-export async function resolveHostGithubRepository(source: Source): Promise<string> {
+export async function readHostGithubOrigin(source: Source): Promise<string> {
   await boundary(source);
-  const origin = (await git(source, ['remote', 'get-url', 'origin'], 4096)).stdout
-    .toString('utf8')
-    .trim();
+  try {
+    return (await git(source, ['config', '--local', '--get', 'remote.origin.url'], 4096)).stdout
+      .toString('utf8')
+      .trim();
+  } catch (error) {
+    if ((error as { code?: unknown }).code === 1) return '';
+    throw error;
+  }
+}
+export async function resolveHostGithubRepository(source: Source): Promise<string> {
+  const origin = await readHostGithubOrigin(source);
+  if (!origin)
+    throw new GithubSeedPublicationError(
+      'REPOSITORY_ORIGIN_MISSING',
+      'Repository has no origin remote',
+    );
   return githubRepositoryFromOrigin(origin);
+}
+export async function inspectHostGithubSeed(source: Source) {
+  await boundary(source);
+  const read = async (...args: string[]) =>
+    (await git(source, args)).stdout.toString('utf8').trim();
+  const roots = (await read('rev-list', '--max-parents=0', 'HEAD')).split('\n');
+  if (roots.length !== 1 || !/^[a-f0-9]{40}$/.test(roots[0]!))
+    throw new GithubSeedPublicationError(
+      'SEEDED_HISTORY_INVALID',
+      'Seeded workspace history has no unambiguous baseline',
+    );
+  const seedOid = roots[0]!;
+  const [status, originalSourceOid, sourceBranch, seedTreeOid, count, files] = await Promise.all([
+    safeStatus(source),
+    read('rev-parse', 'HEAD'),
+    read('symbolic-ref', '--quiet', '--short', 'HEAD'),
+    read('rev-parse', seedOid + '^{tree}'),
+    read('rev-list', '--count', seedOid + '..HEAD'),
+    read(
+      '-c',
+      'core.quotepath=true',
+      'diff-tree',
+      '--root',
+      '--no-commit-id',
+      '-r',
+      '--name-only',
+      '--no-renames',
+      seedOid + '..HEAD',
+    ),
+  ]);
+  ref(sourceBranch);
+  const commitsAhead = Number(count);
+  if (
+    !/^[a-f0-9]{40}$/.test(originalSourceOid) ||
+    !Number.isSafeInteger(commitsAhead) ||
+    commitsAhead < 1
+  )
+    throw new GithubSeedPublicationError(
+      'SEEDED_HISTORY_INVALID',
+      'Seeded workspace has no committed task change',
+    );
+  return {
+    status,
+    seedOid,
+    seedTreeOid,
+    originalSourceOid,
+    sourceBranch,
+    commitsAhead,
+    changedFiles: [...new Set(files.split('\n').filter(Boolean))].sort(),
+  };
+}
+export async function exportHostGithubSeedPatch(
+  source: Source & { seedOid: string; originalSourceOid: string },
+): Promise<Buffer> {
+  await boundary(source);
+  if (![source.seedOid, source.originalSourceOid].every((v) => /^[a-f0-9]{40}$/.test(v)))
+    throw new GithubSeedPublicationError(
+      'SEEDED_SOURCE_INVALID',
+      'Seed commit selection is invalid',
+    );
+  const result = await git(
+    source,
+    [
+      'diff',
+      '--binary',
+      '--full-index',
+      '--no-ext-diff',
+      '--no-textconv',
+      source.seedOid,
+      source.originalSourceOid,
+      '--',
+    ],
+    4 * 1024 * 1024,
+  );
+  if (!result.stdout.length)
+    throw new GithubSeedPublicationError('SEEDED_EXPORT_INVALID', 'Seeded change export is empty');
+  return result.stdout;
 }
 export async function inspectHostGithubRepository(
   source: Source,
