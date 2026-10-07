@@ -44,8 +44,10 @@ vi.mock('../codex-chat-session.js', () => ({
   openCodexChat: vi.fn(),
   getCodexRuntime: () => undefined,
   publicCodexRuntimeError: (error: Error) => error.message,
+  publicCodexStartupError: (error: Error) => error.message,
 }));
-vi.mock('../codex-app-server-client.js', () => ({
+vi.mock('../codex-app-server-client.js', async (original) => ({
+  ...(await original<object>()),
   CodexAppServerClient: {
     launch: codexLaunch,
   },

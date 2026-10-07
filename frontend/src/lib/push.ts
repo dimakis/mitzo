@@ -7,6 +7,7 @@ import { apiFetch, AUTH_RESTORED_EVENT } from './api-fetch';
 
 let initialized = false;
 let initialization: Promise<void> | undefined;
+let pendingAuthRetry = false;
 let deviceToken: string | undefined;
 let authListener: (() => void) | undefined;
 const installedListeners = new Set<string>();
@@ -37,6 +38,7 @@ async function enrollDevice(): Promise<void> {
 export function _resetForTest(): void {
   initialized = false;
   initialization = undefined;
+  pendingAuthRetry = false;
   deviceToken = undefined;
   if (authListener) window.removeEventListener(AUTH_RESTORED_EVENT, authListener);
   authListener = undefined;
@@ -47,6 +49,10 @@ export async function initPushNotifications(): Promise<void> {
   if (!Capacitor.isNativePlatform()) return;
   if (!authListener) {
     authListener = () => {
+      if (initialization) {
+        pendingAuthRetry = true;
+        return;
+      }
       void initPushNotifications();
     };
     window.addEventListener(AUTH_RESTORED_EVENT, authListener);
@@ -58,6 +64,10 @@ export async function initPushNotifications(): Promise<void> {
     })
     .finally(() => {
       initialization = undefined;
+      if (pendingAuthRetry) {
+        pendingAuthRetry = false;
+        void initPushNotifications();
+      }
     });
   return initialization;
 }

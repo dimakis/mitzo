@@ -1,4 +1,5 @@
 import { clearUrlAccessGrants } from './url-access-tool.js';
+import { codexRuntimeDiagnostic, codexRuntimeErrorTelemetry } from './codex-runtime-diagnostics.js';
 import {
   createGithubPublishingTool,
   GITHUB_PUBLISHING_INSTRUCTIONS,
@@ -42,6 +43,7 @@ import {
   getCodexRuntime,
   trackCodexProviderAdmission,
   publicCodexRuntimeError,
+  publicCodexStartupError,
 } from './codex-chat-session.js';
 import {
   loadAccountProfiles,
@@ -1171,9 +1173,16 @@ async function _startChatInner(
     }
   } catch (err: unknown) {
     options.onStartupAdmission?.(err);
+    const diagnostic = err instanceof Error ? codexRuntimeDiagnostic(err) : undefined;
+    if (diagnostic)
+      log.warn('Codex account preflight failed', {
+        clientId,
+        ...codexRuntimeErrorTelemetry(err as Error),
+        error: diagnostic,
+      });
     send(transport, {
       type: 'error',
-      error: err instanceof Error ? err.message : 'Account selection failed',
+      error: diagnostic ?? (err instanceof Error ? err.message : 'Account selection failed'),
     });
     return;
   }
@@ -1846,9 +1855,15 @@ async function _startChatInner(
     } else {
       const publicMessage =
         accountBinding?.provider === 'openai-codex' || accountBinding?.provider === 'openai'
-          ? publicCodexRuntimeError(err instanceof Error ? err : new Error(message))
+          ? publicCodexStartupError(err instanceof Error ? err : new Error(message))
           : message;
-      log.error('startChat failed after register, cleaning up', { clientId, error: publicMessage });
+      log.error('startChat failed after register, cleaning up', {
+        clientId,
+        ...(accountBinding?.provider === 'openai-codex' || accountBinding?.provider === 'openai'
+          ? codexRuntimeErrorTelemetry(err instanceof Error ? err : new Error(message))
+          : {}),
+        error: publicMessage,
+      });
       send(transport, { type: 'error', error: publicMessage });
     }
     if (newSdkSessionId) {

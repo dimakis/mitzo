@@ -42,6 +42,23 @@ function jiraAdapter() {
 }
 
 describe('ConnectionsService', () => {
+  it('holds a retained runtime with conflicting GitHub attachments without changing its grants', async () => {
+    const github = { templateId: 'github-readonly', gatewayProviderName: 'mitzo-conn-github' };
+    const gateway = {
+      sandbox: vi.fn().mockResolvedValue({ name: 'retained' }),
+      sandboxProviders: vi
+        .fn()
+        .mockResolvedValue(['account', 'github', github.gatewayProviderName]),
+    };
+    const service = new ConnectionsService({} as never, gateway as never);
+    await expect(
+      service.retainedAutomaticConnections(
+        ['retained'],
+        [github] as import('../connections-store.js').Connection[],
+        AbortSignal.timeout(500),
+      ),
+    ).rejects.toThrow('Retained sandbox has conflicting GitHub credential attachments');
+  });
   it('pins retained automatic connections to physical attachments while keeping new sandboxes current', async () => {
     const existing = { id: 'existing', gatewayProviderName: 'mitzo-conn-existing' };
     const added = { id: 'added', gatewayProviderName: 'mitzo-conn-added' };

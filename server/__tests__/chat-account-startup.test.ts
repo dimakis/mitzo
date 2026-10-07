@@ -19,6 +19,60 @@ afterEach(() => {
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
 });
+it('sanitizes typed host account preflight errors before session registration', async () => {
+  vi.resetModules();
+  const root = await mkdtemp(join(tmpdir(), 'mitzo-preflight-diagnostic-'));
+  vi.stubEnv('REPO_PATH', root);
+  vi.stubEnv('WORKTREE_ENABLED', 'false');
+  const chat = await import('../chat.js');
+  const { CodexAppServerClient, CodexRequestError } = await import('../codex-app-server-client.js');
+  const account = await import('../codex-account.js');
+  const close = vi.fn();
+  vi.spyOn(CodexAppServerClient, 'launch').mockReturnValue({
+    initialize: async () => {},
+    close,
+  } as never);
+  const verify = vi
+    .spyOn(account, 'verifyCodexAccount')
+    .mockRejectedValue(new CodexRequestError('account/read', 'routing_unauthorized', 401));
+  const profiles = new AccountProfiles(
+    [
+      {
+        id: 'personal',
+        label: 'Personal',
+        provider: 'openai-codex',
+        credentialRef: '/test/codex',
+        email: 'test@example.com',
+        planType: 'pro',
+        models: [{ id: 'luna', label: 'Luna' }],
+      },
+    ],
+    { codexEnabled: true },
+  );
+  const send = vi.fn();
+  try {
+    await chat.startChat({ send, isOpen: () => true }, 'preflight-error', 'hello', {
+      cwd: root,
+      isolation: false,
+      accountId: 'personal',
+      model: 'luna',
+      accountProfiles: profiles,
+    });
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'error',
+        error: expect.stringMatching(/workspace routing/),
+      }),
+    );
+    expect(close).toHaveBeenCalledOnce();
+    expect(chat.registry.get('preflight-error')).toBeUndefined();
+  } finally {
+    verify.mockRestore();
+    chat.registry.dispose();
+    chat.eventStore.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
 it.each([
   ['agent', 'ask', 'plan'],
   ['ask', 'agent', 'default'],

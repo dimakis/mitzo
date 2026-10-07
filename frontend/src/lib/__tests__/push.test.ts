@@ -49,6 +49,26 @@ beforeEach(() => {
 });
 
 describe('initPushNotifications', () => {
+  it('queues login enrollment behind native registration still in flight', async () => {
+    vi.mocked(Capacitor.isNativePlatform).mockReturnValue(true);
+    let finish!: () => void;
+    vi.mocked(PushNotifications.register).mockReturnValueOnce(
+      new Promise<void>((resolve) => {
+        finish = resolve;
+      }),
+    );
+    vi.mocked(apiFetch).mockResolvedValueOnce({ ok: false, status: 401 } as Response);
+    const setup = initPushNotifications();
+    await vi.waitFor(() => expect(PushNotifications.register).toHaveBeenCalledOnce());
+    pushListeners.registration({ value: 'device-token' });
+    await vi.waitFor(() => expect(apiFetch).toHaveBeenCalledOnce());
+    window.dispatchEvent(new Event('mitzo:auth-restored'));
+    finish();
+    await setup;
+    await vi.waitFor(() => expect(apiFetch).toHaveBeenCalledTimes(2));
+    expect(PushNotifications.addListener).toHaveBeenCalledTimes(4);
+    expect(PushNotifications.register).toHaveBeenCalledOnce();
+  });
   it.each(['registrationError', 'pushNotificationReceived', 'pushNotificationActionPerformed'])(
     'resumes listener setup after %s fails without duplicating installed callbacks',
     async (failedEvent) => {
