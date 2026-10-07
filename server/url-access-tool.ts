@@ -15,7 +15,7 @@ import {
   fetchApprovedUrl,
   type ApprovedUrlTarget,
 } from './approved-url-fetch.js';
-import { REQUEST_WEB_ACCESS, withWebAbort } from './request-web-access.js';
+import { REQUEST_WEB_ACCESS, withWebAbort, WebAccessError } from './request-web-access.js';
 const Input = z
   .object({
     operation: z.enum(['request_access', 'revoke_access']),
@@ -249,10 +249,13 @@ export function createUrlAccessTool(
           }
         }
         return { content: 'Approved read reached the redirect limit.', isError: true };
-      } catch {
+      } catch (error) {
         return {
-          content:
-            'Approved URL read failed. Check website reachability or authorization; request access again if its resolved destination changed.',
+          content: signal.aborted
+            ? 'Web access interrupted'
+            : error instanceof WebAccessError
+              ? error.message
+              : 'Approved read could not connect securely to the website. Retry the read.',
           isError: true,
         };
       }

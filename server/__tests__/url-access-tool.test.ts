@@ -5,6 +5,7 @@ vi.mock('@mitzo/harness', async (original) => ({
   ...(await original<typeof import('@mitzo/harness')>()),
   buildPermissionHandler: () => approve,
 }));
+import { WebAccessError } from '../request-web-access.js';
 import { ApprovedUrlRedirect } from '../approved-url-fetch.js';
 import { createUrlAccessTool, clearUrlAccessGrants } from '../url-access-tool.js';
 beforeEach(() => {
@@ -289,4 +290,21 @@ it('continues an A to B to A redirect after explicit reapproval of A', async () 
   });
   expect(approve).toHaveBeenCalledTimes(3);
   expect(f.fetch).toHaveBeenCalledTimes(3);
+});
+
+it('returns only fixed granted read errors to the UI and agent', async () => {
+  const f = fixture();
+  approve.mockImplementation(async (_name, input) => ({ behavior: 'allow', updatedInput: input }));
+  const input = { operation: 'request_access', url: 'https://example.com/', reason: 'why' };
+  await f.tool.request(input, new AbortController().signal);
+  f.fetch.mockRejectedValueOnce(
+    new WebAccessError('The website refused the approved read (HTTP 403).'),
+  );
+  expect(await f.tool.fetch(input.url, new AbortController().signal)).toEqual({
+    content: 'The website refused the approved read (HTTP 403).',
+    isError: true,
+  });
+  f.fetch.mockRejectedValueOnce(new Error('secret credential'));
+  const result = await f.tool.fetch(input.url, new AbortController().signal);
+  expect(result?.content).not.toContain('secret');
 });
