@@ -227,6 +227,12 @@ export function parseServerMessage(
       break;
 
     case 'session_switched': {
+      if (Array.isArray(msg.pendingPermissions)) {
+        result.messagesActions.push({
+          type: 'PERMISSION_SNAPSHOT',
+          permissions: msg.pendingPermissions as PermissionRequest[],
+        });
+      }
       const tokens = msg.tokens as Record<string, unknown> | undefined;
       if (tokens) {
         callbacks.onTokensHydrated?.(tokens);
@@ -485,6 +491,12 @@ export function parseServerMessage(
       break;
 
     case 'permission_response_rejected':
+      if (Array.isArray(msg.pendingPermissions)) {
+        result.messagesActions.push({
+          type: 'PERMISSION_SNAPSHOT',
+          permissions: msg.pendingPermissions as PermissionRequest[],
+        });
+      }
       result.messagesActions.push({
         type: 'PERMISSION_REJECTED',
         permId: msg.permId as string,

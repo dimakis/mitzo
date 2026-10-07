@@ -80,6 +80,7 @@ registerCapacitorLifecycle(
   () => {
     clientStore.getState().forceReconnect();
     ensureEventBusConnected();
+    void initPushNotifications();
   },
   () => clientStore.getState().sendSuspend(),
 );
