@@ -466,9 +466,7 @@ export class CodexConversation {
       }),
     );
     await this.observeStartupConfig(configResponse.config, startupGeneration);
-    const runtimeConfig =
-      this.opts.runtimeConfig ??
-      codexRuntimeOverrides(configResponse.config, this.opts.profile.workspaceId);
+    const runtimeConfig = this.runtimeConfiguration(configResponse.config);
     const modelProvider = this.opts.modelProvider ?? 'openai';
     const threadOptions = this.threadOptions(runtimeConfig, modelProvider, state);
     await this.repairThreadOwnership(this.client, threadOptions);
@@ -1040,9 +1038,7 @@ export class CodexConversation {
         }),
       );
       await this.observeStartupConfig(configResponse.config, startupGeneration);
-      const runtimeConfig =
-        this.opts.runtimeConfig ??
-        codexRuntimeOverrides(configResponse.config, this.opts.profile.workspaceId);
+      const runtimeConfig = this.runtimeConfiguration(configResponse.config);
       const modelProvider = this.opts.modelProvider ?? 'openai';
       const state = this.opts.store.read(this.opts.conversationId, this.binding);
       this.opts.store.assertNoPendingThreadDispatch(this.opts.conversationId, this.binding);
@@ -1101,6 +1097,20 @@ export class CodexConversation {
       client.close();
       throw error;
     }
+  }
+
+  private runtimeConfiguration(configuration: unknown): Record<string, unknown> {
+    if (!this.opts.runtimeConfig)
+      return codexRuntimeOverrides(configuration, this.opts.profile.workspaceId);
+    const inherited = z
+      .object({
+        model_reasoning_summary: z.enum(['none', 'auto', 'concise', 'detailed']).optional(),
+      })
+      .parse(configuration);
+    return {
+      model_reasoning_summary: inherited.model_reasoning_summary ?? 'auto',
+      ...this.opts.runtimeConfig,
+    };
   }
 
   private threadOptions(
@@ -1186,9 +1196,7 @@ export class CodexConversation {
         }),
       );
       await this.observeStartupConfig(configResponse.config, startupGeneration);
-      const runtimeConfig =
-        this.opts.runtimeConfig ??
-        codexRuntimeOverrides(configResponse.config, this.opts.profile.workspaceId);
+      const runtimeConfig = this.runtimeConfiguration(configResponse.config);
       const modelProvider = this.opts.modelProvider ?? 'openai';
       const state = this.opts.store.read(this.opts.conversationId, this.binding);
       this.mapper?.beginReconnectReplay();
