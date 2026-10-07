@@ -228,10 +228,19 @@ export function createUrlAccessTool(
               url.href,
             );
             signal.throwIfAborted();
+            const destinationGrant = grants.get(current.session)?.get(destination.origin);
+            if (!decision.isError && destinationGrant) {
+              // Explicit reapproval may replace a prior origin's grant. Keep
+              // its expiry fence and track the newly accepted grant identity.
+              for (const entry of chain.filter(({ origin }) => origin === destination.origin)) {
+                if (entry.grant.expires <= deps.now())
+                  return { content: 'Session permissions changed during URL read', isError: true };
+                entry.grant = destinationGrant;
+              }
+            }
             if (!chainCurrent())
               return { content: 'Session permissions changed during URL read', isError: true };
             if (decision.isError) return decision;
-            const destinationGrant = grants.get(current.session)?.get(destination.origin);
             if (!destinationGrant)
               return { content: 'URL access changed during approval; retry', isError: true };
             url = destination;

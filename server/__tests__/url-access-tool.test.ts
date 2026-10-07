@@ -273,3 +273,20 @@ it('retires a source grant when a changed account is observed after a pending re
   f.session.accountBinding!.accountId = 'a';
   expect(await f.tool.fetch(input.url, new AbortController().signal)).toBeUndefined();
 });
+
+it('continues an A to B to A redirect after explicit reapproval of A', async () => {
+  const f = fixture();
+  approve.mockImplementation(async (_name, input) => ({ behavior: 'allow', updatedInput: input }));
+  const input = { operation: 'request_access', url: 'https://example.com/start', reason: 'why' };
+  await f.tool.request(input, new AbortController().signal);
+  f.fetch
+    .mockRejectedValueOnce(new ApprovedUrlRedirect('https://other.example/'))
+    .mockRejectedValueOnce(new ApprovedUrlRedirect('https://example.com/final'))
+    .mockResolvedValue('final page');
+  expect(await f.tool.fetch(input.url, new AbortController().signal)).toEqual({
+    isError: false,
+    content: 'final page',
+  });
+  expect(approve).toHaveBeenCalledTimes(3);
+  expect(f.fetch).toHaveBeenCalledTimes(3);
+});
