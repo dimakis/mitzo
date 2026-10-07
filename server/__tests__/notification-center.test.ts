@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
+import { buildPermissionHandler, SessionRegistry, permissionDisplayInput } from '@mitzo/harness';
 import { registerPending, resolvePending, removePending } from '../permissions.js';
 import { NotificationStore } from '../notification-store.js';
 import { NotificationCenter, nextDeliveryAt } from '../notification-center.js';
@@ -195,7 +196,7 @@ describe('central notification delivery', () => {
     async (previews) => {
       const { store, center, push } = setup();
       store.setPreferences({ sensitivePreviews: previews });
-      const toolInput = JSON.stringify({ command: 'echo exact-command' });
+      const toolInput = permissionDisplayInput('Bash', { command: 'echo exact-command' })!;
       registerPending('visible-command', 'Bash', vi.fn(), {}, 'elevated', 's1', {
         permId: 'visible-command',
         toolName: 'Bash',
@@ -218,6 +219,48 @@ describe('central notification delivery', () => {
       store.close();
     },
   );
+  it('delivers the raw command produced by a real pending Bash permission', async () => {
+    const { store, center, push } = setup();
+    const registry = new SessionRegistry();
+    const abort = new AbortController();
+    store.setPreferences({ sensitivePreviews: true });
+    registry.register('owner', {
+      sessionId: 's1',
+      mode: 'agent',
+      sessionAllowList: new Set(),
+      abortController: abort,
+      transport: { isOpen: () => true, send: vi.fn() },
+    });
+    const command = 'printf "exact command\\n"';
+    const pending = buildPermissionHandler('owner', registry)(
+      'Bash',
+      { command },
+      {
+        signal: abort.signal,
+        toolUseID: 'real-bash',
+        forcePrompt: true,
+        approvalScope: 'request',
+      },
+    );
+    try {
+      await vi.waitFor(() => expect(store.feed('needs').needsYou).toBe(1));
+      await center.flush();
+      expect(push.mock.calls[0][0]).toMatchObject({
+        category: 'SESSION_APPROVAL',
+        data: { approvalInput: command, approvalToolName: 'Bash' },
+      });
+      expect(push.mock.calls[0][0].body).toContain(command);
+      const item = store.feed('needs').items[0];
+      resolvePending(item.permId!, 'once');
+      expect(await pending).toMatchObject({ behavior: 'allow', updatedInput: { command } });
+    } finally {
+      abort.abort();
+      await pending;
+      registry.dispose();
+      center.close();
+      store.close();
+    }
+  });
   it.each(['oversized', 'unknown'])(
     'keeps %s requests review-only even with previews enabled',
     async (kind) => {

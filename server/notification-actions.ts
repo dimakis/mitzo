@@ -28,15 +28,15 @@ export function permissionNotificationCategory(
   // Only inputs whose complete execution parameters are present in the card
   // can be displayed and approved in a bounded notification. Summary-only
   // document writes and arbitrary integration grants require the full review UI.
+  // Bash cards carry the exact raw command, not a JSON input object.
+  if (request.toolName === 'Bash')
+    return request.toolInput.trim() ? 'SESSION_APPROVAL' : 'SESSION_PERMISSION';
   try {
     const input = JSON.parse(request.toolInput);
-    if (
-      !(request.toolName === 'Bash' && typeof input.command === 'string') &&
-      !(
-        request.toolName === 'RequestWebAccess' &&
-        ['search', 'fetch', 'request_access'].includes(input.operation)
-      )
-    )
+    if (!(
+      request.toolName === 'RequestWebAccess' &&
+      ['search', 'fetch', 'request_access'].includes(input.operation)
+    ))
       return 'SESSION_PERMISSION';
   } catch {
     return 'SESSION_PERMISSION';

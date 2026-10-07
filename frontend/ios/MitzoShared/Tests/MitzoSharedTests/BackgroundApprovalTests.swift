@@ -41,3 +41,15 @@ private func reviewedResponse(actionID: String, item: MitzoNotification, expecte
     #expect(reviewedResponse(actionID: "ALLOW_SEARCH_SESSION_ACTION", item: try approval(scope: "conversation"), expectedSessionID: "s1", at: 999) == nil)
     #expect(reviewedResponse(actionID: "ALLOW_ONCE_ACTION", item: try approval(scope: "conversation"), expectedSessionID: "s1", at: 999) == nil)
 }
+
+@Test func backgroundBashApprovalUsesTheExactRawCommand() throws {
+    let command = "printf \"exact command\\n\""
+    let object: [String: Any] = ["id": "permission:p1", "kind": "approval", "title": "Bash", "body": "Session",
+        "sessionId": "s1", "createdAt": 1, "expiresAt": 1000,
+        "request": ["permId": "p1", "toolName": "Bash", "toolInput": command, "approvalScope": "request"]]
+    let item = try JSONDecoder().decode(MitzoNotification.self, from: JSONSerialization.data(withJSONObject: object))
+    #expect(reviewedResponse(actionID: "ALLOW_ONCE_ACTION", item: item, expectedSessionID: "s1", at: 999)?.decision == .once)
+    #expect(reviewedResponse(actionID: "DENY_PERMISSION_ACTION", item: item, expectedSessionID: "s1", at: 999)?.decision == .deny)
+    #expect(reviewedResponse(actionID: "ALLOW_SEARCH_SESSION_ACTION", item: item, expectedSessionID: "s1", at: 999) == nil)
+    #expect(backgroundApprovalResponse(actionID: "ALLOW_ONCE_ACTION", item: item, expectedSessionID: "s1", reviewedToolName: "Bash", reviewedInput: "different command", at: 999) == nil)
+}
