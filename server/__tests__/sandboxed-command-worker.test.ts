@@ -4,6 +4,8 @@ import { mkdirSync, renameSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { EventEmitter } from 'node:events';
+import type { SpawnOptions } from 'node:child_process';
+import type { SandboxManager } from '@anthropic-ai/sandbox-runtime';
 import { PassThrough } from 'node:stream';
 import { AuthoritySnapshot } from '../sandbox-authority.js';
 import { runSandboxedWorker, type SandboxWorkerPayload } from '../sandboxed-command-worker.js';
@@ -32,10 +34,14 @@ function fixture() {
   const manager = {
     checkDependencies: vi.fn(() => ({ errors: [], warnings: [] })),
     initialize: vi.fn(async () => {}),
-    wrapWithSandbox: vi.fn(async () => 'wrapped command'),
+    wrapWithSandbox: vi
+      .fn<typeof SandboxManager.wrapWithSandbox>()
+      .mockResolvedValue('wrapped command'),
     reset: vi.fn(async () => {}),
   };
-  const spawn = vi.fn(() => {
+  const spawn = vi.fn<
+    (command: string, args: readonly string[], options: SpawnOptions) => EventEmitter
+  >(() => {
     const child = new EventEmitter();
     queueMicrotask(() => child.emit('close', 0, null));
     return child;
