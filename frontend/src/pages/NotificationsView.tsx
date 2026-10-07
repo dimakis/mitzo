@@ -301,7 +301,10 @@ function Preferences({
         <label className="notification-setting">
           <span>
             <strong>Show sensitive details</strong>
-            <small>Session names and content in lock-screen previews</small>
+            <small>
+              Session names and content in lock-screen previews. Full eligible approval details
+              enable quick notification decisions.
+            </small>
           </span>
           <input
             type="checkbox"
