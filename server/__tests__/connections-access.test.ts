@@ -75,7 +75,7 @@ describe('nonsecret Connections & access inventory', () => {
     expect(account.verification.state).toBe('unverified');
     expect(account.verification.verifiedAt).toBeNull();
     const managed = result.resources.find((r) => r.kind === 'managed-connection')!;
-    expect(managed.verification.state).toBe('stale');
+    expect(managed.verification.state).toBe('verified');
     expect(managed.access.observedAttachments).toBeNull();
     expect(managed.access.desiredAccountIds).toEqual(['account']);
     expect(result.resources.find((r) => r.kind === 'personal-connection')!.verification.state).toBe(
@@ -133,6 +133,85 @@ describe('nonsecret Connections & access inventory', () => {
     );
     expect(result.sources.find((s) => s.id === 'google')!.state).toBe('unavailable');
   });
+});
+
+it('reports the recorded credential check without declaring an enabled connection stale after five minutes', async () => {
+  const inventory = await readConnectionsAccess(
+    { managed: () => [connection] },
+    { now: 86_400_000 },
+  );
+  expect(inventory.resources[0]).toMatchObject({
+    status: 'active',
+    verification: { state: 'verified', verifiedAt: 100 },
+  });
+});
+
+it('exposes service scope and configured identity without presenting the Jira account ID as a name', async () => {
+  const inventory = await readConnectionsAccess({
+    managed: () => [
+      {
+        ...connection,
+        identity: '712020:opaque-account-id',
+        submittedEmail: 'person@example.com',
+        publicConfig: { email: 'person@example.com' },
+      },
+    ],
+  });
+  expect(inventory.resources[0].details).toMatchObject({
+    serviceName: 'Jira',
+    configuredIdentity: 'person@example.com',
+    scope: { email: 'person@example.com' },
+    permissions: ['Jira reads'],
+  });
+  expect(inventory.resources[0].accountIdentity).toBe('712020:opaque-account-id');
+});
+
+it('distinguishes GitHub repository reads from current, enabled publication grants', async () => {
+  const github = {
+    ...connection,
+    templateId: 'github-readonly',
+    publicConfig: { repositories: ['dimakis/mgmt'] },
+  };
+  const grant = {
+    id: 'grant',
+    connectionId: connection.id,
+    connectionRevision: connection.revision,
+    capabilityId: 'github.publish-pr',
+    capabilityVersion: 1,
+    accountIds: ['account'],
+    status: 'active' as const,
+    createdAt: 1,
+    updatedAt: 1,
+  };
+  for (const [capabilityGrants, publishingEnabled, permissions] of [
+    [[grant], true, ['Repository reads', 'PR publishing after approval']],
+    [[{ ...grant, connectionRevision: 1 }], true, ['Repository reads']],
+    [[{ ...grant, accountIds: ['unassigned'] }], true, ['Repository reads']],
+    [[grant], false, ['Repository reads']],
+  ] as const) {
+    const inventory = await readConnectionsAccess({
+      managed: () => [{ ...github, capabilityGrants: [...capabilityGrants], publishingEnabled }],
+    });
+    expect(inventory.resources[0].details.permissions).toEqual(permissions);
+    expect(inventory.resources[0].details.scope).toEqual({ repositories: ['dimakis/mgmt'] });
+  }
+});
+
+it('keeps ambiguous provider records and omits an unused Google management integration', async () => {
+  const inventory = await readConnectionsAccess({
+    ...sources(),
+    managed: () => [connection, { ...connection, id: 'second' }],
+    google: async () => ({ health: 'not_configured', expiresAt: null, slidesEditing: false }),
+    legacy: async () => [
+      { name: 'managed-jira', type: 'jira' },
+      { name: 'google-workspace', type: 'mitzo-google-workspace-spike' },
+    ],
+  });
+  expect(inventory.resources.filter((row) => row.kind === 'legacy-provider')).toHaveLength(2);
+  expect(inventory.resources.some((row) => row.kind === 'google-workspace')).toBe(false);
+  expect(
+    inventory.resources.find((row) => row.nativeId === 'google-workspace')?.details.serviceName,
+  ).toBe('Google Workspace');
 });
 
 it('includes the current Symposium catalog with owner-scoped identity even when native account IDs match', async () => {

@@ -39,6 +39,10 @@ export interface AccessResource {
   };
   actions: Array<{ id: string; label: string; href: string }>;
   details: {
+    serviceName?: string;
+    configuredIdentity?: string;
+    scope?: Record<string, string | string[]>;
+    permissions?: string[];
     billing?: string;
     models?: Array<{ id: string; label: string }>;
     expiresAt?: number | null;

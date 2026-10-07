@@ -2472,7 +2472,12 @@ app.use(
       },
       ...(runtime
         ? {
-            managed: () => runtime.store.list('operator'),
+            managed: () =>
+              runtime.store.list('operator').map((connection) => ({
+                ...connection,
+                capabilityGrants: runtime.capabilityStore.grants(connection.id),
+                publishingEnabled: runtime.githubPublishEnabled,
+              })),
             legacy: runtime.legacyProviders,
             gateway: runtime.gateway,
             workspace: runtime.workspace,

@@ -2,6 +2,7 @@ import type { AccountProfiles } from './account-profiles.js';
 import type { Connection } from './connections-store.js';
 import type { PersonalConnection } from './symposium-personal-connections.js';
 import type { GoogleWorkspaceHealth } from './google-workspace-management.js';
+import type { CapabilityGrant } from './connections/capabilities/types.js';
 import type {
   AccessResource,
   AccessResourceKind,
@@ -15,12 +16,26 @@ export interface ConnectionsAccessSources {
   symposiumAccounts?: (
     signal: AbortSignal,
   ) => ReturnType<AccountProfiles['catalog']> | Promise<ReturnType<AccountProfiles['catalog']>>;
-  managed?: () => Connection[];
+  managed?: () => Array<
+    Connection & { capabilityGrants?: readonly CapabilityGrant[]; publishingEnabled?: boolean }
+  >;
   personal?: (signal: AbortSignal) => PersonalConnection[] | Promise<PersonalConnection[]>;
   google?: (signal: AbortSignal) => Promise<GoogleWorkspaceHealth>;
   legacy?: () => Promise<Array<{ name: string; type: string }>>;
   gateway?: string;
   workspace?: string;
+}
+
+function serviceName(provider: string): string | undefined {
+  return (
+    {
+      'github-readonly': 'GitHub',
+      github: 'GitHub',
+      'jira-readonly': 'Jira',
+      jira: 'Jira',
+      'google-workspace': 'Google Workspace',
+    } as Record<string, string>
+  )[provider];
 }
 export function inventoryIdentity(
   kind: AccessResourceKind,
@@ -195,13 +210,11 @@ export async function readConnectionsAccess(
         connection.status === 'active' &&
         connection.verifiedAt !== null &&
         connection.verifiedAt <= now
-          ? now - connection.verifiedAt <= (options.freshnessMs ?? 5 * 60_000)
-            ? 'verified'
-            : 'stale'
+          ? 'verified'
           : 'unverified',
       verifiedAt: connection.verifiedAt,
       reason:
-        'Verification describes the credential check; conversation attachments are not checked.',
+        'The last credential check passed at the recorded time. Current conversation access has not been checked.',
     };
     row.access = {
       summary: 'Managed service permissions',
@@ -209,7 +222,38 @@ export async function readConnectionsAccess(
       observedAttachments: null,
       appliesTo: 'New conversations only',
     };
-    row.details = { endpoint: connection.endpoint };
+    const permissions =
+      connection.templateId === 'github-readonly'
+        ? ['Repository reads']
+        : connection.templateId === 'jira-readonly'
+          ? ['Jira reads']
+          : connection.templateId === 'custom-rest-readonly'
+            ? ['API reads']
+            : [];
+    if (
+      connection.status === 'active' &&
+      connection.publishingEnabled &&
+      connection.capabilityGrants?.some(
+        (grant) =>
+          grant.connectionId === connection.id &&
+          grant.connectionRevision === connection.revision &&
+          grant.status === 'active' &&
+          grant.capabilityId === 'github.publish-pr' &&
+          grant.capabilityVersion === 1 &&
+          grant.accountIds.some((id) => connection.desiredAccountIds.includes(id)),
+      )
+    )
+      permissions.push('PR publishing after approval');
+    row.details = {
+      endpoint: connection.endpoint,
+      serviceName: serviceName(connection.templateId),
+      configuredIdentity:
+        typeof connection.publicConfig.email === 'string'
+          ? connection.publicConfig.email
+          : connection.submittedEmail || undefined,
+      scope: { ...connection.publicConfig },
+      permissions,
+    };
     row.actions = [
       { id: 'connection-controls', label: 'Open service controls', href: '/connections' },
     ];
@@ -238,7 +282,7 @@ export async function readConnectionsAccess(
   const gateway = input.gateway ?? null,
     workspace = input.workspace ?? null;
   const google = value<GoogleWorkspaceHealth>('google');
-  if (google) {
+  if (google && google.health !== 'not_configured') {
     const row = base(
       'google-workspace',
       'google-workspace-management',
@@ -264,7 +308,14 @@ export async function readConnectionsAccess(
       ? 'Reviewed Google reads and bounded Slides editing'
       : 'Google permissions could not be checked';
     row.access.appliesTo = 'New conversations only';
-    row.details = { expiresAt: google.expiresAt };
+    row.details = {
+      serviceName: 'Google Workspace',
+      expiresAt: google.expiresAt,
+      permissions:
+        google.health === 'ready'
+          ? ['Google reads', ...(google.slidesEditing ? ['Slides editing'] : [])]
+          : [],
+    };
     row.actions = [{ id: 'google-controls', label: 'Open Google controls', href: '/connections' }];
     result.resources.push(row);
     if (google.health === 'unavailable') {
@@ -278,12 +329,12 @@ export async function readConnectionsAccess(
     if (
       gateway !== null &&
       workspace !== null &&
-      (managed.some(
+      (managed.filter(
         (c) =>
           c.gateway === gateway &&
           c.workspace === workspace &&
           c.gatewayProviderName === provider.name,
-      ) ||
+      ).length === 1 ||
         (google &&
           google.health !== 'not_configured' &&
           google.health !== 'unavailable' &&
@@ -301,6 +352,7 @@ export async function readConnectionsAccess(
     );
     row.status = 'operator-managed';
     row.access.summary = 'Operator-managed policy; permissions not checked';
+    row.details.serviceName = serviceName(provider.name) ?? serviceName(provider.type);
     row.actions = [{ id: 'legacy-details', label: 'Open provider details', href: '/connections' }];
     result.resources.push(row);
   }
