@@ -106,7 +106,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 
 /// The storyboard creates this bridge during cold launches too. Keep Capacitor's
 /// router for taps/replies, but submit approval buttons natively in the background.
-@objc(MitzoBridgeViewController)
+@objc
 class MitzoBridgeViewController: CAPBridgeViewController {
     private var approvalDelegate: BackgroundApprovalDelegate?
     override func capacitorDidLoad() {
@@ -131,6 +131,12 @@ private class BackgroundApprovalDelegate: NSObject, UNUserNotificationCenterDele
                                 withCompletionHandler completionHandler: @escaping () -> Void) {
         let action = response.actionIdentifier
         guard ["ALLOW_ONCE_ACTION", "ALLOW_SEARCH_SESSION_ACTION", "DENY_PERMISSION_ACTION"].contains(action) else {
+            if response.notification.request.identifier.hasSuffix("-response-error") {
+                // Our local failure alert uses the same detail navigation as a push.
+                fallback.pushNotificationHandler?.didReceive(response: response)
+                completionHandler()
+                return
+            }
             fallback.userNotificationCenter(center, didReceive: response, withCompletionHandler: completionHandler)
             return
         }
@@ -145,7 +151,7 @@ private class BackgroundApprovalDelegate: NSObject, UNUserNotificationCenterDele
                 // A fresh manager reads the shared Keychain and respects logout.
                 let api = MitzoAPIClient(baseURL: server, authManager: AuthManager())
                 let item = try await api.getNotification(id: id)
-                guard let decision = backgroundApprovalResponse(actionID: action, item: item, expectedSessionID: sessionID) else {
+                guard item.id == id, let decision = backgroundApprovalResponse(actionID: action, item: item, expectedSessionID: sessionID) else {
                     throw MitzoAPIClient.APIError.invalidResponse
                 }
                 try await api.respondNotification(id: id, response: decision)
