@@ -113,6 +113,43 @@ async function* readEvents(body: ReadableStream<Uint8Array>) {
   }
 }
 
+/** Hold later output until preceding reasoning is complete, including final-only summaries. */
+async function* orderedEvents(body: ReadableStream<Uint8Array>) {
+  type Event = z.infer<typeof eventSchema>;
+  const pendingReasoning = new Set<number>();
+  const buffered: Event[] = [];
+  const blocked = (event: Event) =>
+    event.output_index !== undefined &&
+    [...pendingReasoning].some((index) => index < event.output_index!);
+  function* deliver(event: Event): Generator<Event> {
+    yield event;
+    if (event.type === 'response.output_item.done' && event.item?.type === 'reasoning')
+      pendingReasoning.delete(event.output_index!);
+  }
+  function* drain(): Generator<Event> {
+    while (buffered.length && !blocked(buffered[0])) yield* deliver(buffered.shift()!);
+  }
+  for await (const event of readEvents(body)) {
+    if (event.type === 'response.output_item.added' && event.item?.type === 'reasoning')
+      pendingReasoning.add(z.number().int().nonnegative().parse(event.output_index));
+    if (event.type === 'response.completed') {
+      for (const [outputIndex, item] of (event.response?.output ?? []).entries()) {
+        if (item.type === 'reasoning' && pendingReasoning.has(outputIndex)) {
+          yield* deliver({ type: 'response.output_item.done', output_index: outputIndex, item });
+          yield* drain();
+        }
+      }
+      if (pendingReasoning.size || buffered.length)
+        throw new Error('Incomplete OpenAI reasoning output order');
+    }
+    if (blocked(event)) buffered.push(event);
+    else {
+      yield* deliver(event);
+      yield* drain();
+    }
+  }
+}
+
 function inputMessages(messages: ConversationMessage[]): Record<string, unknown>[] {
   return messages.flatMap((message) => {
     if (message.role !== 'user')
@@ -387,7 +424,7 @@ export class ResponsesSession implements ModelSession {
       const content = new ResponseBlocks();
       const { blocks, closed } = content;
       let started = false;
-      for await (const event of readEvents(response.body)) {
+      for await (const event of orderedEvents(response.body)) {
         this.config.signal?.throwIfAborted();
         if (event.type === 'response.created') {
           if (started || !event.response?.id) throw new Error('Invalid OpenAI response start');
