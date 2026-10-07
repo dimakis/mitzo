@@ -333,6 +333,10 @@ it.each(['initialize-error', 'initialize-abort', 'send-error'] as const)(
           { id: f.options.messageId, status: 'failed' },
         ]);
       else expect(f.requests).not.toContain('turn/start');
+      if (mode === 'initialize-error') {
+        await expect(openCodexChat({ ...f.options, resume: true })).rejects.toThrow(/unverified/);
+        expect(native.launch).toHaveBeenCalledTimes(1);
+      }
     } finally {
       releases.get(f.id)?.();
       await opening.catch(() => {});

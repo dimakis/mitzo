@@ -750,6 +750,15 @@ export class CodexConversationStore {
       throw new Error('Codex startup reservation conflicts with provider history');
     return true;
   }
+  /** A transport-started startup needs an acknowledged thread before normal resume. */
+  assertStartupResumeSafe(id: string, b: AccountBinding) {
+    const conversation = this.read(id, b);
+    const row = this.db
+      .prepare('SELECT phase FROM codex_startup_reservations WHERE conversation_id=?')
+      .get(id) as { phase: string } | undefined;
+    if (row?.phase === 'provider_initializing' && !conversation.threadId)
+      throw new Error('Codex startup provider initialization outcome is unverified');
+  }
   /** Persist the handoff before any app-server process or provider RPC can start. */
   markStartupProviderInitializing(id: string, b: AccountBinding) {
     this.read(id, b);

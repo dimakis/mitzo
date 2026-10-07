@@ -48,6 +48,9 @@ it('durably reserves undispatched startup and stops treating it as fresh before 
   ).toThrow();
   s.markStartupProviderInitializing('new', binding);
   expect(s.startupNeedsProvisioning('new', binding)).toBe(false);
+  expect(() => s.assertStartupResumeSafe('new', binding)).toThrow(/unverified/);
+  s.bindThread('new', binding, 'acknowledged-thread');
+  expect(() => s.assertStartupResumeSafe('new', binding)).not.toThrow();
   s.reserveStartup('new', binding, '/workspace');
   expect(s.startupNeedsProvisioning('new', binding)).toBe(false);
   s.create('legacy', binding, '/workspace');

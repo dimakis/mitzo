@@ -17,6 +17,8 @@ Codex provider failures show sanitized, actionable messages for known capacity, 
 
 Codex startup failures distinguish known account, workspace-routing, transport and request errors. A resume with an unavailable or changed native conversation binding reports that binding problem and preserves saved messages; it does not automatically create replacement provider history. Unknown startup exceptions report that the chat could not start; they do not establish that a provider turn ran. Startup and runtime logs retain bounded failure categories and recognized RPC methods without upstream exception text. Inspect conversation recovery before retrying uncertain work.
 
+Ordinary OpenShell Codex chats reserve their account-bound native ledger before provisioning. If provisioning fails before provider initialization, a later send finishes that reserved startup under the same chat ID. Once provider initialization begins, an unacknowledged thread outcome blocks ordinary resume; existing legacy history is never marked undispatched automatically.
+
 ## Features
 
 Experimental [Symposium conversations](docs/features/symposium-integrated-acceptance.md) combine implementer and independently configured read-only reviewer seats with selected context, attributed results and explicit Stop controls. Provider sign-in, physical runtime admission and live workflow acceptance remain required. Use the [canonical singleton staging procedure](docs/operations/symposium-singleton-staging.md) for qualification; production activation is separate.

@@ -18,6 +18,8 @@ const requestMethods = new Set([
 
 /** Only fixed diagnostics from typed errors; never relay upstream exception text. */
 export function codexRuntimeDiagnostic(error: Error): string | undefined {
+  if (error.message === 'Codex startup provider initialization outcome is unverified')
+    return 'Native chat initialization has an unverified outcome. Saved work is preserved; inspect recovery before retrying.';
   if (error.message === 'Codex conversation binding unavailable or changed')
     return 'This chat has no matching native conversation binding. Its saved messages are preserved. Inspect startup recovery before continuing.';
   if (error instanceof CodexTransportError) {

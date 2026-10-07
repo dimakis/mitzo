@@ -31,6 +31,7 @@ vi.mock('../codex-conversation-store.js', () => ({
     }
     recoverAtStartup() {}
     reserveStartup() {}
+    assertStartupResumeSafe() {}
     startupNeedsProvisioning() {
       return false;
     }

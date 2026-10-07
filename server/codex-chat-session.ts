@@ -502,8 +502,11 @@ export async function openCodexChat(options: Options) {
   if (configuredRuntime) {
     if (!options.resume)
       store().reserveStartup(options.conversationId, options.binding, options.session.cwd!);
-    else if (store().startupNeedsProvisioning(options.conversationId, options.binding))
-      options = { ...options, resume: false };
+    else {
+      store().assertStartupResumeSafe(options.conversationId, options.binding);
+      if (store().startupNeedsProvisioning(options.conversationId, options.binding))
+        options = { ...options, resume: false };
+    }
   }
   if (service && configuredRuntime) {
     // Setup holds the connection reservation through sandbox verification and
