@@ -1,4 +1,15 @@
-import { afterEach, expect, it } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
+const operator = vi.hoisted(() => ({ home: undefined as string | undefined }));
+vi.mock('node:os', async (load) => {
+  const actual = await load<typeof import('node:os')>();
+  return {
+    ...actual,
+    userInfo: () => ({
+      ...actual.userInfo(),
+      ...(operator.home ? { homedir: operator.home } : {}),
+    }),
+  };
+});
 import {
   chmodSync,
   existsSync,
@@ -24,7 +35,10 @@ import {
 } from '../symposium-staging-service.js';
 
 const roots: string[] = [];
-afterEach(() => roots.splice(0).forEach((root) => rmSync(root, { recursive: true, force: true })));
+afterEach(() => {
+  operator.home = undefined;
+  roots.splice(0).forEach((root) => rmSync(root, { recursive: true, force: true }));
+});
 function fixture() {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'staging-service-')));
   chmodSync(root, 0o700);
@@ -142,7 +156,9 @@ it.each(['owner.stdout.log', 'owner.stderr.log'])(
 
 function canonicalFixture() {
   const f = fixture();
-  const root = f.root;
+  operator.home = f.root;
+  const root = join(f.root, '.local/share/mitzo-staging');
+  mkdirSync(root, { recursive: true, mode: 0o700 });
   const planDirectory = join(root, 'symposium/service');
   mkdirSync(planDirectory, { recursive: true, mode: 0o700 });
   mkdirSync(join(root, 'symposium/settings'), { mode: 0o700 });
@@ -242,4 +258,15 @@ it('refuses ordinary trial preparation for a canonical plan before creating file
     /canonical/i,
   );
   expect(existsSync(join(f.plan.planDirectory, 'staging-operator.json'))).toBe(false);
+});
+
+it('refuses a private alternate root before writing canonical service credentials', () => {
+  const f = canonicalFixture();
+  operator.home = join(f.root, 'different-operator-home');
+  expect(() => assertCanonicalStagingService(f.plan, f.registrationPath, f.root)).toThrow();
+  expect(() =>
+    prepareCanonicalStagingService(f.plan, f.registrationPath, process.execPath, f.root),
+  ).toThrow();
+  expect(existsSync(join(f.plan.planDirectory, 'staging-operator.json'))).toBe(false);
+  expect(existsSync(join(f.plan.planDirectory, 'staging-custodian.plist'))).toBe(false);
 });

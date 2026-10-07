@@ -3,12 +3,17 @@ import { lstatSync, readFileSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
 /** Offline integrity of an operator-selected canonical baseline; freshness is separate.
  * The owning release inspector supplies the real operator's canonical root. */
-export function assertCanonicalOwnedSource(release: string, root: string) {
+export function assertCanonicalOwnedSource(
+  release: string,
+  root: string,
+  acceptedMainBaseline: string,
+) {
   function fail(): never {
     throw Error('Canonical owned source identity/publication refused');
   }
   const stat = lstatSync(root);
   if (
+    !/^[a-f0-9]{40}$/.test(acceptedMainBaseline ?? '') ||
     realpathSync(root) !== root ||
     stat.uid !== process.getuid?.() ||
     (stat.mode & 0o777) !== 0o700 ||
@@ -58,6 +63,7 @@ export function assertCanonicalOwnedSource(release: string, root: string) {
     !sourceCommit ||
     !sourceTree ||
     !baseMain ||
+    baseMain !== acceptedMainBaseline ||
     release !== join(root, 'releases', sourceCommit.slice(0, 12))
   )
     fail();
@@ -81,6 +87,7 @@ export function assertCanonicalOwnedSource(release: string, root: string) {
       },
     ).trim();
   if (
+    realpathSync(git(['rev-parse', '--show-toplevel'])) !== release ||
     git(['rev-parse', 'HEAD']) !== sourceCommit ||
     git(['rev-parse', 'HEAD^{tree}']) !== sourceTree ||
     git(['status', '--porcelain', '--untracked-files=no']) ||
