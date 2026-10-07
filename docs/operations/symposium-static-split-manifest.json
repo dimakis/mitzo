@@ -1,0 +1,176 @@
+{
+  "version": 1,
+  "scope": "Static canonical staging foundation only; no activation or source acceptance",
+  "sourceCandidate": "3075cbd889804054d8379daf8f83a4e185472640",
+  "sourceCandidateTree": "35aac0d71d4395581ba33a4ae974df9015bb572a",
+  "sourceBackupRef": "refs/backup/symposium-pre-split-3075cbd8",
+  "baseMain": "13aab0399e92273536b787b60391bf4fbe783745",
+  "branch": "feat/canonical-staging-support",
+  "intentionalSuccessorChanges": [
+    "Extract five pure contract seams; imports no longer pull custodian, native host, gateway operations, criterion execution or protocol receipts.",
+    "Keep the accepted main native runtime catalog byte-for-byte unchanged; extended pins live in a staging-only module and are selected only for canonical release inspection.",
+    "Preserve existing public compatibility via pure environment/network re-exports and a type-only original-controller identity re-export.",
+    "Reject hidden tracked-source index flags for all canonical release files, including assume-unchanged and skip-worktree.",
+    "Reject unsupported canonical criterion serialization as a schema failure rather than leaking an exception from safeParse; admitted definitions are unchanged.",
+    "Add static contract/catalog/import-boundary tests and foundation documentation."
+  ],
+  "excludedCuts": [
+    "ordinary staging command",
+    "registry writer and registered native launcher",
+    "custodian/native-host lifecycle",
+    "initial transition CLI",
+    "owned check/drain CLI",
+    "app/routes/providers/protocol changes",
+    "provider enrollment/model tests/physical admission"
+  ],
+  "dependencyProvisioning": "Independent copy of task candidate dependencies; package-lock byte-identical to accepted-main checkout; workspace packages rebuilt in this isolated checkout. No production configuration or credentials copied.",
+  "files": [
+    {
+      "path": "docs/operations/symposium-staging-static-foundation.md",
+      "candidateBlob": null,
+      "successorSha256": "2e0a7b0ece25a66c268d965a6faaf8ce2a1a941d54380551068be09304d7a5cd"
+    },
+    {
+      "path": "docs/operations/symposium-static-split-manifest.json",
+      "candidateBlob": null
+    },
+    {
+      "path": "server/__tests__/symposium-canonical-control.test.ts",
+      "candidateBlob": "1dddffd9f0c5569b1b7c6443d8b4624b59abaa2a",
+      "successorSha256": "2ffeef183de40070353569a28c82add6336b6eb4221fa13c614f4dad9897bdbf"
+    },
+    {
+      "path": "server/__tests__/symposium-canonical-owner-record.test.ts",
+      "candidateBlob": "926f0b4fcb6f8a93674756003641dd39b60f1ea3",
+      "successorSha256": "48a6373d45bf2905cef003647b10afd2399c4dcf8281c8206fe0e4905995cbe1"
+    },
+    {
+      "path": "server/__tests__/symposium-canonical-source.test.ts",
+      "candidateBlob": "f93edfec20fb74e40e185091aaa023e1e87318a9",
+      "successorSha256": "8dc53227d9068683e5c4863fb49589741792f767f2f47456a14832c97305f582"
+    },
+    {
+      "path": "server/__tests__/symposium-owned-release.test.ts",
+      "candidateBlob": "ad76399881b9c821c8409ae6776604cd399c018c",
+      "successorSha256": "e02b4aa8402af0663bb5aa724ffbcacb46b93e8d2a5fd8be2bbd73edc4d94988"
+    },
+    {
+      "path": "server/__tests__/symposium-staging-import-boundary.test.ts",
+      "candidateBlob": null,
+      "successorSha256": "4a387350fde1a9c7fff690fe39a4d133c9e8486a1453419401665715175da075"
+    },
+    {
+      "path": "server/__tests__/symposium-staging-service.test.ts",
+      "candidateBlob": "d117eb2f9c2f8076f7030c9cdf0fa8065c57fe14",
+      "successorSha256": "f1f8528d49588f83c4b9c838aa240fc9feb828a474895729bbbf1bf63450d29a"
+    },
+    {
+      "path": "server/__tests__/symposium-staging-static-contracts.test.ts",
+      "candidateBlob": null,
+      "successorSha256": "81fcc66ab8d634f268b81853a2897d2ed54b8fda367c157f4811c5dc23d94646"
+    },
+    {
+      "path": "server/symposium-canonical-control.ts",
+      "candidateBlob": "46965f9fae94d98eb7894e8b15f347422f1fab40",
+      "successorSha256": "149c69fa19e66ce6321910caf2f931f070c792e9df887d6ed0600eaf06a1cb98"
+    },
+    {
+      "path": "server/symposium-canonical-owner-identity.ts",
+      "candidateBlob": null,
+      "extractedFrom": "server/symposium-custodian-main.ts",
+      "sourceBlob": "603ebf1520123dc2831f2e46bad2d548831e22ad",
+      "symbol": "OriginalSymposiumControllerIdentity",
+      "successorSha256": "73195c9ea680da35b1dca4d45250e4fbcfe6ad6d9f7ded2a4c90e34633a17fcf"
+    },
+    {
+      "path": "server/symposium-canonical-owner-record.ts",
+      "candidateBlob": "cb7337209a489e41e9c83cd8f10898d390220555",
+      "successorSha256": "2246aa3db29a0bb1b93ad96b9dcd8e2ae5d7937404be2c52d632c9469c951725"
+    },
+    {
+      "path": "server/symposium-canonical-source.ts",
+      "candidateBlob": "fc9b3bbe345d0e6aa6b85a6dd6f1eda20edbbcf9",
+      "successorSha256": "01648abfd11af576fd2f7c7124acfa17f2461f42525f8e42796de50c7b371c19"
+    },
+    {
+      "path": "server/symposium-criterion-definition.ts",
+      "candidateBlob": null,
+      "extractedFrom": "server/symposium-criterion-receipts.ts",
+      "sourceBlob": "1e40f03bad3a7cdf930144d50683c06f5caf54bf",
+      "symbol": "CriterionCheckDefinitionSchema / SemanticCriterionDefinitionSchema",
+      "successorSha256": "44edef8c96ed86f36454f572fb533c2de655b329eaa9d2be477484741c70ed8c"
+    },
+    {
+      "path": "server/symposium-custodian-launch.ts",
+      "candidateBlob": "4c48b9223c61636200bfe0c81876c3135de3857b",
+      "successorSha256": "a248da4ea78cbd6d38f1c42ecd1875e27e9c56c7be747cee5e5f612c30278922"
+    },
+    {
+      "path": "server/symposium-custodian-main.ts",
+      "candidateBlob": "603ebf1520123dc2831f2e46bad2d548831e22ad",
+      "successorSha256": "faf979470cb359bb933f8a4ea31f1590c807c7d4dbe5b84feaf230145bcfa551"
+    },
+    {
+      "path": "server/symposium-custodian-retirement.ts",
+      "candidateBlob": "3e9a70efd237409e1590e81d39853a58a8393906",
+      "successorSha256": "df93772ef37864cd1d575064dc0ebc112939b8c9ae5dd985e2cd2eddf45022ab"
+    },
+    {
+      "path": "server/symposium-owned-config-schema.ts",
+      "candidateBlob": "b346a84bb5cd6f1e371a9b49a20257361680476c",
+      "successorSha256": "2b6079cd7cad8beee1a9018600da4f48a4648d989f16f5f9ab6b84d53b03b858"
+    },
+    {
+      "path": "server/symposium-owned-gateway.ts",
+      "candidateBlob": "6cc750b6bfdb1f619d6616e59e216c7e8123a6ec",
+      "successorSha256": "7a30f989536c083ac1ba4f0ff8f5c4135023c15caede8cc8532c0eaf322a1606"
+    },
+    {
+      "path": "server/symposium-owned-network-config.ts",
+      "candidateBlob": null,
+      "extractedFrom": "server/symposium-owned-gateway.ts",
+      "sourceBlob": "6cc750b6bfdb1f619d6616e59e216c7e8123a6ec",
+      "symbol": "isOwnedSymposiumProxyUrl / isOwnedSymposiumSupervisorNetwork",
+      "successorSha256": "ab7dcf7f192e839a9ed1bc7dfb95c25648b104ca58e8f210abec98e4b9c5fcc7"
+    },
+    {
+      "path": "server/symposium-owned-release.ts",
+      "candidateBlob": "bf472df88c74966daabb35586cf797a903569f32",
+      "successorSha256": "96db4c9c10912ea89898d67d51df6f41098cb50426b056139d816b8e54536151"
+    },
+    {
+      "path": "server/symposium-staging-environment.ts",
+      "candidateBlob": null,
+      "extractedFrom": "server/symposium-custodian-launch.ts",
+      "sourceBlob": "4c48b9223c61636200bfe0c81876c3135de3857b",
+      "symbol": "ownedCustodianEnvironment",
+      "successorSha256": "baf2275a03bcc29167ff5150958a8e46023df2fd0492053c8e9d1244ae41198e"
+    },
+    {
+      "path": "server/symposium-staging-identity.ts",
+      "candidateBlob": "504ace93c9c991501edaf1ee4cfa75fb97c6425c",
+      "successorSha256": "42899700ec7432cda01aae8c7a64f8087ff3aa6f352374ef21dc629e2310df35"
+    },
+    {
+      "path": "server/symposium-staging-launch-schema.ts",
+      "candidateBlob": null,
+      "extractedFrom": "server/symposium-staging-launch.ts",
+      "sourceBlob": "43f307e9f339cbf51818f545b66aa3e0b8fa3a53",
+      "symbol": "StagingLaunchSchema",
+      "successorSha256": "a5de181d7f8cc3b75bdecc7cbd4cb479e698bd1a2a36828917376e3caafb0526"
+    },
+    {
+      "path": "server/symposium-staging-runtime-contract.ts",
+      "candidateBlob": null,
+      "extractedFrom": "server/symposium-owned-runtime-contract.ts",
+      "sourceBlob": "67490bacad7f15a8ba3a4003779807a90d5aeb9b",
+      "symbol": "static extended runtime pins / staging-only selector",
+      "successorSha256": "63fe755336193b1e98f134b1af66a2f5fe38b0167160853b695bf1299a512d3e"
+    },
+    {
+      "path": "server/symposium-staging-service.ts",
+      "candidateBlob": "291cfbb4bfc245e8af3ea0dbeb9bafb5c020429e",
+      "successorSha256": "6303490a779dee1b840422c0797dbb8981e58a5d5ccd804400c931221e72d24d"
+    }
+  ]
+}
