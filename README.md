@@ -19,6 +19,8 @@ Codex startup failures distinguish known account, workspace-routing, transport a
 
 Ordinary OpenShell Codex chats reserve their account-bound native ledger before provisioning. If provisioning fails before provider initialization, a later send finishes that reserved startup under the same chat ID. Once provider initialization begins, an unacknowledged thread outcome blocks ordinary resume; existing legacy history is never marked undispatched automatically.
 
+Accounts with multiple managed connections can provision new sandboxes without exceeding the gateway's 63-character label-value limit. Oversized provider-policy fingerprints use a stable bounded hash; valid historical labels and connection assignments are preserved.
+
 ## Features
 
 Experimental [Symposium conversations](docs/features/symposium-integrated-acceptance.md) combine implementer and independently configured read-only reviewer seats with selected context, attributed results and explicit Stop controls. Provider sign-in, physical runtime admission and live workflow acceptance remain required. Use the [canonical singleton staging procedure](docs/operations/symposium-singleton-staging.md) for qualification; production activation is separate.
