@@ -856,7 +856,7 @@ it('late typed nonzero callback cannot bypass the per-command monotonic deadline
   }
 });
 
-it('retires only the original witnessed CID after CLI local write but lost create stdout, without starting or replay', async () => {
+it('quarantines file-only CID after lost create stdout without adopting, starting or signaling', async () => {
   const { SemanticCidWitnessOwner } = await import('../symposium-semantic-cid-witness.js');
   const { mkdtempSync, writeFileSync } = await import('node:fs');
   const { join } = await import('node:path');
@@ -899,10 +899,10 @@ it('retires only the original witnessed CID after CLI local write but lost creat
     ).toBeNull();
     await expect(
       reconcileOwnedSemanticCriterion(deps, input, new AbortController().signal),
-    ).resolves.toMatchObject({ state: 'failed_cleaned', retryAllowed: false });
+    ).rejects.toThrow('unconfirmed');
     expect(f.command.mock.calls.filter((c) => c[0][0] === 'create')).toHaveLength(1);
     expect(f.command.mock.calls.some((c) => c[0][0] === 'start')).toBe(false);
-    expect(f.command.mock.calls.find((c) => c[0][0] === 'rm')?.[0]).toEqual(['rm', 'e'.repeat(64)]);
+    expect(f.command.mock.calls.some((c) => ['stop', 'rm'].includes(c[0][0]))).toBe(false);
     expect(
       f.db.prepare("SELECT 1 FROM symposium_seal_export_jobs WHERE state='complete'").get(),
     ).toBeUndefined();
@@ -1025,7 +1025,8 @@ it.each(['complete', 'in_progress'])(
 
 it('retains private preparation evidence and dispatches nothing after witness journal CAS failure', async () => {
   const { SemanticCidWitnessOwner } = await import('../symposium-semantic-cid-witness.js');
-  const { mkdtempSync, writeFileSync, readdirSync, readFileSync } = await import('node:fs');
+  const { mkdtempSync, writeFileSync, readdirSync, readFileSync, existsSync } =
+    await import('node:fs');
   const { join } = await import('node:path');
   const { tmpdir } = await import('node:os');
   const f = fixture(),
@@ -1042,12 +1043,12 @@ it('retains private preparation evidence and dispatches nothing after witness jo
       runOwnedSemanticCriterion(deps, input, new AbortController().signal),
     ).rejects.toThrow();
     expect(f.command).not.toHaveBeenCalled();
-    const privateRoot = join(root, '.semantic-cid-witness-v1'),
+    const privateRoot = join(root, '.semantic-cid-witness-v2'),
       jobs = readdirSync(privateRoot);
     expect(jobs).toHaveLength(1);
     const manifest = JSON.parse(readFileSync(join(privateRoot, jobs[0], 'manifest.json'), 'utf8'));
-    expect(manifest.version).toBe(1);
-    expect(readFileSync(manifest.path)).toHaveLength(0);
+    expect(manifest.version).toBe(2);
+    expect(existsSync(manifest.path)).toBe(false);
     await expect(
       runOwnedSemanticCriterion(deps, input, new AbortController().signal),
     ).rejects.toThrow();
@@ -1142,22 +1143,13 @@ it.each(['late-original', 'revoked', 'fresh-inspect-drift', 'failed-removal', 'l
     );
     await entered;
     try {
-      if (mode === 'late-original') {
-        expect(
-          (await reconcileOwnedSemanticCriterion(deps, input, new AbortController().signal)).state,
-        ).toBe('failed_cleaned');
-        expect(
-          JSON.parse(await original(['ps', '--all', '--no-trunc', '--format', 'json'])),
-        ).toEqual([]);
-        expect(f.command.mock.calls.filter((c) => c[0][0] === 'rm')).toHaveLength(1);
-      } else {
-        await expect(
-          reconcileOwnedSemanticCriterion(deps, input, new AbortController().signal),
-        ).rejects.toThrow();
-        expect(
-          f.db.prepare("SELECT state FROM symposium_seal_export_jobs WHERE kind='semantic'").get(),
-        ).toEqual({ state: 'in_progress' });
-      }
+      await expect(
+        reconcileOwnedSemanticCriterion(deps, input, new AbortController().signal),
+      ).rejects.toThrow('unconfirmed');
+      expect(
+        f.db.prepare("SELECT state FROM symposium_seal_export_jobs WHERE kind='semantic'").get(),
+      ).toEqual({ state: 'in_progress' });
+      expect(f.command.mock.calls.some((c) => ['stop', 'rm'].includes(c[0][0]))).toBe(false);
       expect(f.command.mock.calls.filter((c) => c[0][0] === 'create')).toHaveLength(1);
       expect(f.command.mock.calls.some((c) => c[0][0] === 'start')).toBe(false);
     } finally {
@@ -1278,5 +1270,207 @@ it('reports retained semantic helper builds without adopting incompatible image 
     expect(() => inspectOwnedSemanticCheckState(f.deps, input, () => {})).toThrow();
   } finally {
     f.db.close();
+  }
+});
+
+it('leaves the native CID argument absent, then persists its exact captured file before starting', async () => {
+  const { SemanticCidWitnessOwner } = await import('../symposium-semantic-cid-witness.js');
+  const { mkdtempSync, writeFileSync, existsSync, rmSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const { tmpdir } = await import('node:os');
+  const f = fixture(),
+    root = mkdtempSync(join(tmpdir(), 'semantic-absent-cid-')),
+    journal = join(root, 'journal.db');
+  writeFileSync(journal, '', { mode: 0o600 });
+  f.db.exec('ALTER TABLE symposium_seal_export_jobs ADD COLUMN cid_witness_json TEXT');
+  const deps = { ...f.deps, cidWitness: new SemanticCidWitnessOwner(journal) };
+  const original = f.command.getMockImplementation()!;
+  let path = '';
+  let enter!: () => void, finish!: () => void;
+  const entered = new Promise<void>((resolve) => {
+    enter = resolve;
+  });
+  const held = new Promise<void>((resolve) => {
+    finish = resolve;
+  });
+  f.command.mockImplementation(async (...args) => {
+    if (args[0][0] === 'create') {
+      const row = f.db
+        .prepare("SELECT * FROM symposium_seal_export_jobs WHERE kind='semantic_case'")
+        .get() as Record<string, string>;
+      const reservation = JSON.parse(row.cid_witness_json);
+      path = args[0][args[0].indexOf('--cidfile') + 1];
+      expect(path).toBe(reservation.path);
+      if (existsSync(path)) throw Error('native cidfile must not preexist');
+      enter();
+      await held;
+      const cid = await original(...args);
+      writeFileSync(path, cid, { flag: 'wx', mode: 0o644 });
+      return cid;
+    }
+    if (args[0][0] === 'start') {
+      const row = f.db
+        .prepare("SELECT * FROM symposium_seal_export_jobs WHERE kind='semantic_case'")
+        .get() as Record<string, string>;
+      const captured = JSON.parse(row.cid_witness_json);
+      expect(captured.path).toBe(path);
+      expect(captured.version).toBe(2);
+      expect(captured.file.cid).toBe(args[0][args[0].length - 1]);
+      expect(
+        deps.cidWitness.read(captured, {
+          jobId: row.job_id,
+          fenceId: row.fence_id,
+          operationId: row.operation_id,
+          inputJson: row.input_json,
+          custodyDigest: row.custody_digest,
+          codeDigest: row.export_code_digest,
+          image: row.helper_image,
+        }),
+      ).toBe(captured.file.cid);
+    }
+    return original(...args);
+  });
+  try {
+    const run = runOwnedSemanticCriterion(
+      deps,
+      {
+        fenceId: 'fence',
+        operationId: 'absent-cid-native',
+        definition: { ...definition, cases: definition.cases.slice(0, 1) },
+      },
+      new AbortController().signal,
+    );
+    await entered;
+    expect(existsSync(path)).toBe(false);
+    expect(f.command.mock.calls.some((c) => c[0][0] === 'start')).toBe(false);
+    finish();
+    await expect(run).resolves.toBeDefined();
+  } finally {
+    f.db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it('retains trusted original CID but quarantines a mismatching native witness without cleanup', async () => {
+  const { SemanticCidWitnessOwner } = await import('../symposium-semantic-cid-witness.js');
+  const { mkdtempSync, writeFileSync, rmSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const { tmpdir } = await import('node:os');
+  const { reconcileOwnedSemanticCriterion } =
+    await import('../symposium-semantic-criterion-runner.js');
+  const f = fixture();
+  const root = mkdtempSync(join(tmpdir(), 'semantic-cid-mismatch-'));
+  const journal = join(root, 'journal.db');
+  writeFileSync(journal, '', { mode: 0o600 });
+  f.db.exec('ALTER TABLE symposium_seal_export_jobs ADD COLUMN cid_witness_json TEXT');
+  const deps = { ...f.deps, cidWitness: new SemanticCidWitnessOwner(journal) };
+  const original = f.command.getMockImplementation()!;
+  f.command.mockImplementation(async (...args) => {
+    const result = await original(...args);
+    if (args[0][0] === 'create') {
+      const row = f.db
+        .prepare(
+          "SELECT cid_witness_json FROM symposium_seal_export_jobs WHERE kind='semantic_case'",
+        )
+        .get() as { cid_witness_json: string };
+      writeFileSync(JSON.parse(row.cid_witness_json).path, '1'.repeat(64), {
+        flag: 'wx',
+        mode: 0o600,
+      });
+    }
+    return result;
+  });
+  const input = { fenceId: 'fence', operationId: 'mismatching-cid', definition };
+  try {
+    await expect(
+      runOwnedSemanticCriterion(deps, input, new AbortController().signal),
+    ).rejects.toThrow();
+    expect(
+      f.db
+        .prepare("SELECT container_id FROM symposium_seal_export_jobs WHERE kind='semantic_case'")
+        .get(),
+    ).toEqual({ container_id: 'e'.repeat(64) });
+    await expect(
+      reconcileOwnedSemanticCriterion(deps, input, new AbortController().signal),
+    ).rejects.toThrow();
+    expect(f.command.mock.calls.some((c) => ['start', 'stop', 'rm'].includes(c[0][0]))).toBe(false);
+  } finally {
+    f.db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it('does not adopt a populated legacy witness for a missing original CID', async () => {
+  const { SemanticCidWitnessOwner } = await import('../symposium-semantic-cid-witness.js');
+  const { mkdtempSync, writeFileSync, rmSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const { tmpdir } = await import('node:os');
+  const { reconcileOwnedSemanticCriterion } =
+    await import('../symposium-semantic-criterion-runner.js');
+  const f = fixture('lost-create');
+  const root = mkdtempSync(join(tmpdir(), 'semantic-legacy-cid-'));
+  const journal = join(root, 'journal.db');
+  writeFileSync(journal, '', { mode: 0o600 });
+  f.db.exec('ALTER TABLE symposium_seal_export_jobs ADD COLUMN cid_witness_json TEXT');
+  const witness = new SemanticCidWitnessOwner(journal);
+  const deps = { ...f.deps, cidWitness: witness };
+  const input = { fenceId: 'fence', operationId: 'legacy-cid', definition };
+  try {
+    await expect(
+      runOwnedSemanticCriterion(deps, input, new AbortController().signal),
+    ).rejects.toThrow();
+    const row = f.db
+      .prepare("SELECT * FROM symposium_seal_export_jobs WHERE kind='semantic_case'")
+      .get() as Record<string, string>;
+    const reservation = JSON.parse(row.cid_witness_json);
+    writeFileSync(reservation.path, 'e'.repeat(64), { mode: 0o600 });
+    f.db
+      .prepare('UPDATE symposium_seal_export_jobs SET cid_witness_json=? WHERE job_id=?')
+      .run(JSON.stringify({ ...reservation, version: 1 }), row.job_id);
+    const read = vi.spyOn(witness, 'read');
+    await expect(
+      reconcileOwnedSemanticCriterion(deps, input, new AbortController().signal),
+    ).rejects.toThrow('Legacy unknown');
+    expect(read).not.toHaveBeenCalled();
+    expect(
+      f.db
+        .prepare('SELECT container_id FROM symposium_seal_export_jobs WHERE job_id=?')
+        .get(row.job_id),
+    ).toEqual({ container_id: null });
+    expect(f.command.mock.calls.some((c) => ['start', 'stop', 'rm'].includes(c[0][0]))).toBe(false);
+  } finally {
+    f.db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it('rejects replacement of an already confirmed CID file even with identical content', async () => {
+  const { SemanticCidWitnessOwner } = await import('../symposium-semantic-cid-witness.js');
+  const { mkdtempSync, writeFileSync, renameSync, rmSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const { tmpdir } = await import('node:os');
+  const root = mkdtempSync(join(tmpdir(), 'semantic-confirmed-cid-'));
+  const journal = join(root, 'journal.db');
+  writeFileSync(journal, '', { mode: 0o600 });
+  const owner = new SemanticCidWitnessOwner(journal);
+  const binding = {
+    jobId: '12345678-1234-1234-1234-123456789012',
+    fenceId: 'fence',
+    operationId: 'original',
+    inputJson: '{}',
+    custodyDigest: 'a'.repeat(64),
+    codeDigest: 'b'.repeat(64),
+    image: 'sha256:' + 'c'.repeat(64),
+  };
+  try {
+    const reservation = owner.prepare(binding);
+    writeFileSync(reservation.path, 'e'.repeat(64), { flag: 'wx', mode: 0o600 });
+    const captured = owner.confirm(reservation, binding, 'e'.repeat(64));
+    expect(owner.read(captured, binding)).toBe('e'.repeat(64));
+    renameSync(reservation.path, reservation.path + '.original');
+    writeFileSync(reservation.path, 'e'.repeat(64), { flag: 'wx', mode: 0o600 });
+    expect(() => owner.read(captured, binding)).toThrow('identity changed');
+  } finally {
+    rmSync(root, { recursive: true, force: true });
   }
 });

@@ -2,9 +2,7 @@ import { expect, it } from 'vitest';
 import {
   mkdtempSync,
   writeFileSync,
-  openSync,
-  closeSync,
-  writeSync,
+  existsSync,
   lstatSync,
   chmodSync,
   renameSync,
@@ -30,18 +28,18 @@ function fixture() {
   writeFileSync(db, '', { mode: 0o600 });
   return { root, owner: new SemanticCidWitnessOwner(db) };
 }
-it('qualifies only complete original same-inode CLI O_TRUNC writes in a private owner directory', () => {
+it('reserves an absent path and captures native-created mode0644 only with trusted original stdout', () => {
   const { owner } = fixture(),
     b = binding(),
     m = owner.prepare(b);
+  expect(existsSync(m.path)).toBe(false);
+  writeFileSync(m.path, 'e'.repeat(64), { flag: 'wx', mode: 0o644 });
+  expect(() => owner.read(m, b)).toThrow('unconfirmed');
+  const captured = owner.confirm(m, b, 'e'.repeat(64));
   expect(lstatSync(m.path).mode & 0o777).toBe(0o600);
-  const fd = openSync(m.path, 'w');
-  writeSync(fd, 'e'.repeat(64));
-  closeSync(fd);
-  expect(lstatSync(m.path).ino).toBe(m.ino);
-  expect(owner.read(m, b)).toBe('e'.repeat(64));
+  expect(owner.read(captured, b)).toBe('e'.repeat(64));
   expect(() => owner.prepare(b)).toThrow();
-  expect(() => owner.read(m, { ...b, operationId: 'changed' })).toThrow();
+  expect(() => owner.read(captured, { ...b, operationId: 'changed' })).toThrow();
 });
 it.each(['', 'e'.repeat(63), 'e'.repeat(65), 'g'.repeat(64), 'e'.repeat(64) + '\n'])(
   'refuses empty, partial or malformed witness %s',
@@ -50,7 +48,7 @@ it.each(['', 'e'.repeat(63), 'e'.repeat(65), 'g'.repeat(64), 'e'.repeat(64) + '\
       b = binding(),
       m = owner.prepare(b);
     writeFileSync(m.path, body);
-    expect(() => owner.read(m, b)).toThrow();
+    expect(() => owner.confirm(m, b, 'e'.repeat(64))).toThrow();
   },
 );
 it.each(['symlink', 'hardlink', 'inode', 'mode'])(
@@ -59,7 +57,8 @@ it.each(['symlink', 'hardlink', 'inode', 'mode'])(
     const { owner } = fixture(),
       b = binding(),
       m = owner.prepare(b);
-    writeFileSync(m.path, 'e'.repeat(64));
+    writeFileSync(m.path, 'e'.repeat(64), { mode: 0o600 });
+    const captured = owner.confirm(m, b, 'e'.repeat(64));
     if (kind === 'mode') chmodSync(m.path, 0o644);
     else {
       renameSync(m.path, m.path + '.old');
@@ -67,7 +66,7 @@ it.each(['symlink', 'hardlink', 'inode', 'mode'])(
       else if (kind === 'hardlink') linkSync(m.path + '.old', m.path);
       else writeFileSync(m.path, 'e'.repeat(64), { mode: 0o600 });
     }
-    expect(() => owner.read(m, b)).toThrow();
+    expect(() => owner.read(captured, b)).toThrow();
   },
 );
 
@@ -76,7 +75,7 @@ it('refuses high-bit bytes rather than masking them into ASCII hex', () => {
     b = binding(),
     m = owner.prepare(b);
   writeFileSync(m.path, Buffer.alloc(64, 0xe5));
-  expect(() => owner.read(m, b)).toThrow();
+  expect(() => owner.confirm(m, b, 'e'.repeat(64))).toThrow();
 });
 
 it.each(['uid', 'gid', 'path', 'bindingDigest', 'version'])(
@@ -85,18 +84,21 @@ it.each(['uid', 'gid', 'path', 'bindingDigest', 'version'])(
     const { owner } = fixture(),
       b = binding(),
       m = owner.prepare(b);
-    writeFileSync(m.path, 'e'.repeat(64));
-    const altered = {
-      ...m,
-      [field]:
-        field === 'path'
-          ? m.path + '.other'
-          : field === 'bindingDigest'
-            ? '1'.repeat(64)
-            : field === 'version'
-              ? 2
-              : m[field as 'uid' | 'gid'] + 1,
-    };
+    writeFileSync(m.path, 'e'.repeat(64), { mode: 0o600 });
+    const captured = owner.confirm(m, b, 'e'.repeat(64));
+    if (captured.version !== 2 || !captured.file) throw Error('test capture missing');
+    const altered =
+      field === 'uid' || field === 'gid'
+        ? { ...captured, file: { ...captured.file, [field]: captured.file[field] + 1 } }
+        : {
+            ...captured,
+            [field]:
+              field === 'path'
+                ? captured.path + '.other'
+                : field === 'bindingDigest'
+                  ? '1'.repeat(64)
+                  : 1,
+          };
     expect(() => owner.read(altered, b)).toThrow();
   },
 );
@@ -115,10 +117,11 @@ it('refuses a replaced private parent even when it contains the same original CI
   const { owner } = fixture(),
     b = binding(),
     m = owner.prepare(b);
-  writeFileSync(m.path, 'e'.repeat(64));
+  writeFileSync(m.path, 'e'.repeat(64), { mode: 0o600 });
+  const captured = owner.confirm(m, b, 'e'.repeat(64));
   const parent = dirname(m.path);
   renameSync(parent, parent + '.original');
   mkdirSync(parent, { mode: 0o700 });
   renameSync(join(parent + '.original', 'cid'), m.path);
-  expect(() => owner.read(m, b)).toThrow();
+  expect(() => owner.read(captured, b)).toThrow();
 });

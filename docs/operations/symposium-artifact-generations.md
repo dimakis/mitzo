@@ -50,6 +50,18 @@ possible after revocation. Unknown create/start/removal outcomes quarantine the
 operation; there is no blind retry, name-based deletion, volume adoption or
 quarantine promotion API. Failures retain exact names/IDs and any observed exit.
 
+Semantic case creation reserves an exclusive private directory and an absent
+`--cidfile` path before dispatch. The original create's trusted stdout CID must
+match the native-created file before its inode, owner and content are captured,
+permissions frozen to 0600, and the receipt durably recorded before start.
+A file appearing after lost stdout grants no identity or cleanup authority.
+Failed capture retains any trusted stdout CID and the original reservation in
+quarantine; it does not start, adopt, drain, replace or automatically remove the
+helper. Existing version 1 witnesses remain retained evidence, without automatic
+migration or recovery of a missing CID. Unverifiable legacy owners stay alive
+and retain their handles for explicit operator disposition. Read-only diagnostics
+may describe this uncertainty but cannot promote it to successful evidence.
+
 Successful copy reaches `verified` only after helper removal, child inspection,
 no unaccounted child mount and fresh completed-parent validation. Activation
 rechecks authority, retained lineage/copy evidence, physical absence and the parent,

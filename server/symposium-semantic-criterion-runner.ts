@@ -209,10 +209,21 @@ function witnessBinding(row: Row): SemanticCidWitnessBinding {
 }
 /** Original private witness, never a name-based replacement or execution permit. */
 async function recoverWitnessCid(deps: SemanticRunnerDependencies, row: Row, parent: Row) {
-  if (row.container_id) return;
+  if (row.container_id) {
+    if (
+      row.cid_witness_json &&
+      (!deps.cidWitness ||
+        deps.cidWitness.read(JSON.parse(row.cid_witness_json), witnessBinding(row)) !==
+          row.container_id)
+    )
+      throw Error('Original semantic witness is unconfirmed; retain quarantined operation');
+    return;
+  }
   if (!deps.cidWitness || !row.cid_witness_json || row.state !== 'create_uncertain')
     throw Error('Unknown semantic creation CID requires reconciliation');
   const manifest: unknown = JSON.parse(row.cid_witness_json);
+  if ((manifest as { version?: unknown }).version !== 2)
+    throw Error('Legacy unknown creation remains quarantined; automatic adoption is prohibited');
   const cid = deps.cidWitness.read(manifest, witnessBinding(row));
   await deps.custody();
   deps.withSnapshot(() => {});
@@ -249,6 +260,13 @@ async function recoverWitnessCid(deps: SemanticRunnerDependencies, row: Row, par
   row.container_id = cid;
 }
 async function removeOwned(deps: SemanticRunnerDependencies, row: Row) {
+  if (
+    row.cid_witness_json &&
+    (!deps.cidWitness ||
+      deps.cidWitness.read(JSON.parse(row.cid_witness_json), witnessBinding(row)) !==
+        row.container_id)
+  )
+    throw Error('Original semantic witness is unconfirmed; retain quarantined operation');
   const deadline = performance.now() + 30000,
     retained = deps.command;
   deps = {
@@ -609,12 +627,36 @@ export async function runOwnedSemanticCriterion(
       await boundedCommand(deps.command, createdArgs, undefined, remaining(), (text) => {
         const cid = text.trim();
         if (!CID.test(cid)) throw Error('Semantic creation outcome requires reconciliation');
+        // Preserve the trusted original stdout handle even if local witness capture
+        // fails. An unconfirmed witness still prohibits start and cleanup.
+        if (
+          deps.db
+            .prepare(
+              'UPDATE symposium_seal_export_jobs SET container_id=? WHERE job_id=? AND container_id IS NULL',
+            )
+            .run(cid, id).changes !== 1
+        )
+          throw Error('Original create CID journal CAS changed');
         row.container_id = cid;
+        if (deps.cidWitness && row.cid_witness_json) {
+          const prior = row.cid_witness_json;
+          const confirmed = deps.cidWitness.confirm(JSON.parse(prior), witnessBinding(row), cid);
+          const captured = canonicalReviewJson(confirmed);
+          if (
+            deps.db
+              .prepare(
+                'UPDATE symposium_seal_export_jobs SET cid_witness_json=? WHERE job_id=? AND cid_witness_json=? AND container_id=?',
+              )
+              .run(captured, id, prior, cid).changes !== 1
+          )
+            throw Error('Original create witness confirmation CAS changed');
+          row.cid_witness_json = captured;
+        }
         deps.db
           .prepare(
-            "UPDATE symposium_seal_export_jobs SET state=CASE WHEN state='create_uncertain' THEN 'created' ELSE state END,container_id=? WHERE job_id=? AND container_id IS NULL",
+            "UPDATE symposium_seal_export_jobs SET state=CASE WHEN state='create_uncertain' THEN 'created' ELSE state END WHERE job_id=? AND container_id=?",
           )
-          .run(cid, id);
+          .run(id, cid);
       });
       const cid = row.container_id!;
       await inspectOwned(executionDeps, row);
@@ -820,10 +862,9 @@ export async function reconcileOwnedSemanticCriterion(
     // Creation may finish while the original census is in flight. A recovered
     // witness must never turn that earlier snapshot into an absence proof.
     let current = await census();
-    if (!row.container_id) {
-      await recoverWitnessCid(deps, row, parent);
-      current = await census();
-    }
+    const hadCid = Boolean(row.container_id);
+    await recoverWitnessCid(deps, row, parent);
+    if (!hadCid) current = await census();
     if (current.some((c) => (c.Id ?? c.ID) === row.container_id)) await removeOwned(deps, row);
     if ((await census()).some((c) => (c.Id ?? c.ID) === row.container_id))
       throw Error('Original semantic helper absence requires reconciliation');
@@ -955,7 +996,7 @@ export async function inspectSemanticCleanupOwners(
       (row.container_id !== null && !CID.test(row.container_id))
     )
       throw Error('Known original semantic cleanup identity unavailable');
-    if (!row.container_id) await recoverWitnessCid(deps, row, parent);
+    await recoverWitnessCid(deps, row, parent);
     selected.add(row.job_id);
     if (census.some((c) => (c.Id ?? c.ID) === row.container_id)) {
       await deps.custody();

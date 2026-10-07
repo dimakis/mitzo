@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import Database from 'better-sqlite3';
 import { artifactVolumeLabels } from '../symposium-session-artifacts.js';
 import { afterEach, expect, it, vi } from 'vitest';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync, existsSync, unlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { AccountBindingSchema, type SeatConfig, type SymposiumConfig } from '@mitzo/protocol';
@@ -325,6 +325,11 @@ async function fixture(inspectionPaths = ['file'], streaming = true, independent
         helperId = verifierId;
         exportOptions = undefined;
         exportJob = undefined;
+      }
+      if (args.includes('--cidfile')) {
+        const path = args[args.indexOf('--cidfile') + 1];
+        expect(existsSync(path)).toBe(false);
+        writeFileSync(path, helperId, { flag: 'wx', mode: 0o644 });
       }
       return helperId;
     }
@@ -2509,7 +2514,7 @@ it('rechecks trusted cleanup authority after awaited stop before another inspect
   }
 });
 
-it('real retained sealer qualifies only a complete original local CID witness for cleanup after stdout loss', async () => {
+it('real retained sealer quarantines file-only CID after stdout loss without cleanup authority', async () => {
   const f = await fixture(),
     signal = new AbortController().signal;
   const seal = await f.sealer.seal(f.input, f.runtime, signal);
@@ -2551,10 +2556,15 @@ it('real retained sealer qualifies only a complete original local CID witness fo
   });
   await expect(f.sealer.checkCompletedArtifactSemantic(input, signal)).rejects.toThrow();
   await expect(f.sealer.requireCompleted(seal.fenceId, signal)).rejects.toThrow();
-  await expect(f.sealer.reconcileCompletedArtifactSemantic(input, signal)).resolves.toMatchObject({
-    state: 'failed_cleaned',
-    retryAllowed: false,
-  });
+  const beforeReconcile = f.command.mock.calls.length;
+  await expect(f.sealer.reconcileCompletedArtifactSemantic(input, signal)).rejects.toThrow(
+    'unconfirmed',
+  );
+  expect(
+    f.command.mock.calls
+      .slice(beforeReconcile)
+      .some(([args]) => ['create', 'start', 'stop', 'rm'].includes(args[0])),
+  ).toBe(false);
   expect(creates).toBe(1);
   expect(starts).toBe(0);
   const db = new Database(f.host.snapshotDatabasePath());
@@ -2565,13 +2575,11 @@ it('real retained sealer qualifies only a complete original local CID witness fo
           "SELECT state,container_id FROM symposium_seal_export_jobs WHERE kind='semantic_case'",
         )
         .get(),
-    ).toEqual({ state: 'failed_cleaned', container_id: 'e'.repeat(64) });
+    ).toEqual({ state: 'create_uncertain', container_id: null });
   } finally {
     db.close();
   }
-  await expect(f.sealer.requireCompleted(seal.fenceId, signal)).resolves.toMatchObject({
-    fenceId: seal.fenceId,
-  });
+  await expect(f.sealer.requireCompleted(seal.fenceId, signal)).rejects.toThrow();
 });
 
 it.each(['pre-write', 'partial', 'request-revoked'])(
@@ -2600,7 +2608,8 @@ it.each(['pre-write', 'partial', 'request-revoked'])(
       const result = await original(...args);
       if (args[0][0] === 'create' && args[0].includes('-B')) {
         const path = args[0][args[0].indexOf('--cidfile') + 1];
-        if (mode !== 'pre-write') writeFileSync(path, mode === 'partial' ? 'e'.repeat(63) : result);
+        if (mode === 'pre-write') unlinkSync(path);
+        else writeFileSync(path, mode === 'partial' ? 'e'.repeat(63) : result);
         throw Error('original local create response unavailable');
       }
       if (
