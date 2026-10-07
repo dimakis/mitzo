@@ -139,7 +139,11 @@ function validateRelease(r, freshMain) {
     realpathSync(run('git', ['rev-parse', '--show-toplevel'], r.release)) !== r.release ||
     run('git', ['rev-parse', 'HEAD'], r.release) !== r.sourceCommit ||
     run('git', ['rev-parse', 'HEAD^{tree}'], r.release) !== r.sourceTree ||
-    run('git', ['status', '--porcelain', '--untracked-files=no'], r.release)
+    run('git', ['status', '--porcelain', '--untracked-files=no'], r.release) ||
+    run('git', ['ls-files', '-v'], r.release)
+      .split('\n')
+      .filter(Boolean)
+      .some((line) => !line.startsWith('H '))
   )
     throw Error('Release source drift');
   if (freshMain && r.sourceCommit !== freshMain)

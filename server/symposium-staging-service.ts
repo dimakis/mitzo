@@ -74,6 +74,8 @@ export function readStagingOperatorEnvironment(
   privatePlan(plan);
   if (path !== join(plan.planDirectory, operatorName)) throw Error('Staging operator path refused');
   const settings = Settings.parse(JSON.parse(privateBytes(path)));
+  if (requiresCanonicalStaging(plan) && settings.PORT !== '3190')
+    throw Error('Canonical staging port refused');
   if (['3100', '3101'].includes(settings.PORT)) throw Error('Production staging port refused');
   return ownedCustodianEnvironment(plan, {
     NODE_OPTIONS: ambient.NODE_OPTIONS,

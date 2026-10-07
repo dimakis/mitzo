@@ -15,7 +15,8 @@
     "Rewrite lifecycle guidance to capacity one and the canonical service; explicitly separate missing native target qualification from operator source readiness.",
     "Share closure-v2 dependency proof with the ordinary controller; hash resolved workspace link targets and refuse historical weaker receipts.",
     "Require independent accepted-main baseline arguments and pin equality to target plan and transition intent; reject Git worktree redirects for controller/ordinary receipts.",
-    "Canonical owned preparation omits generic launch artifacts and the generic launcher refuses canonical plans before custody; ordinary preparation retains its original interface."
+    "Canonical owned preparation omits generic launch artifacts and the generic launcher refuses canonical plans before custody; ordinary preparation retains its original interface.",
+    "CEN-2A9CF63DABDF / CEN-19BF839A48C7 / CEN-627DF8350F97: reject changed canonical launchd registration, hidden ordinary tracked-source index flags, and non3190 canonical operator settings before control."
   ],
   "excluded": [
     "native registered launcher",
@@ -70,12 +71,12 @@
     {
       "path": "scripts/symposium-staging.mjs",
       "candidateBlob": "e852382d0825ed56b8f02c408d38f99f6704de7f",
-      "successorSha256": "03b5c2f5ef3839c3b8cbac56d95c1e589275706fd930f7f931885904f5e2746d"
+      "successorSha256": "87e70e56a1583ab70a87822fb0cb9f1f55aecef9711ecaac8837b6b292f6d366"
     },
     {
       "path": "server/__tests__/symposium-canonical-control-cli.test.ts",
       "candidateBlob": "c32db3980ebc9bec3612c0db5ca6710b37c60228",
-      "successorSha256": "158c0c57257e86a33d7caeb4873789d210b3d3304359bb88ee810d84e759cc34"
+      "successorSha256": "37938a311a9d6ddce37d7e87bd453d1c0ef635d2d87bda27ec45b7e7cee7b152"
     },
     {
       "path": "server/__tests__/symposium-staging-operator-imports.test.ts",
@@ -111,6 +112,36 @@
       "path": "server/__tests__/symposium-owned-prepare-cli.test.ts",
       "candidateBlob": null,
       "successorSha256": "b908ba9bf37f7b5befa1e2ea7bd88c38305cca10f59686c4a24a752b5e013b6e"
+    },
+    {
+      "path": "scripts/lib/staging-launcher-template.mjs",
+      "candidateBlob": "3a3df1a8e901bb5f3e7fa5e12e10beee573c8b7b",
+      "successorSha256": "1d51574d5b8e0e3b91d924bfb6a0f4a582c49aa73298de32a9522d8b0972151c"
+    },
+    {
+      "path": "scripts/staging.mjs",
+      "candidateBlob": "2b3272f1beab4b347ba25d228357400e135a1654",
+      "successorSha256": "d7add9a19cad98ffa6ad3b1361f07cb64fea08c27e734691fd15e8d51114422e"
+    },
+    {
+      "path": "server/__tests__/staging-control-cli.test.js",
+      "candidateBlob": null,
+      "successorSha256": "6f0a795a85f822984ba08751372e5372718ea28ae32b54d7c1a2eb86e4ed4d0c"
+    },
+    {
+      "path": "server/__tests__/staging-launcher.test.js",
+      "candidateBlob": null,
+      "successorSha256": "ee6c3aafd76f70d55fe9cf3df4566e8d69259c23a21d1ee85a223526ce7256ea"
+    },
+    {
+      "path": "server/__tests__/symposium-staging-service.test.ts",
+      "candidateBlob": "d117eb2f9c2f8076f7030c9cdf0fa8065c57fe14",
+      "successorSha256": "00e071a15d734b9e741c461f0ddbd4f613dc26dd4f7e3b0d871c64d8548d81d2"
+    },
+    {
+      "path": "server/symposium-staging-service.ts",
+      "candidateBlob": "291cfbb4bfc245e8af3ea0dbeb9bafb5c020429e",
+      "successorSha256": "456f7f21ba1fe2ddbfd311b7a74c5786662d52c8d21d3792cd7348a34875f2d1"
     }
   ],
   "dependencyMergeCommit": "32ae912e8432f035772d944c3ddfb2ae9951bdc2",
@@ -121,6 +152,12 @@
     "mergeTree": "0e471a6c563a11bbe2a00c414a6dcc0c768d285e",
     "sourceDelta": "55 files; 6665 insertions and 81 deletions before this provenance-only record",
     "reviewScope": "Complete main-facing ordinary controller, pure static foundation and operator transition; prior stacked-base approvals do not qualify this full diff",
+    "runtimeActions": []
+  },
+  "reviewFixes": {
+    "reviewedHead": "8144f16254fe6d180a0887914f7606df9d5a1cce",
+    "findings": ["CEN-2A9CF63DABDF", "CEN-19BF839A48C7", "CEN-627DF8350F97"],
+    "scope": "Registered canonical plist path before owned control; hidden tracked index flags refused at ordinary admission and startup; canonical operator PORT3190 required before transition. Historical provenance pins unchanged.",
     "runtimeActions": []
   }
 }

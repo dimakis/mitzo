@@ -15,7 +15,8 @@
     "Add static contract/catalog/import-boundary tests and foundation documentation.",
     "CEN-1A317618481F: require Git resolved worktree to equal the pinned release directory.",
     "CEN-94BCACBF0AE9: require independently selected acceptedMainBaseline, match editable base_main exactly, and preserve the pin in canonical owned plans; missing historical pins refuse verification.",
-    "CEN-7581F158C3EE: require the canonical service root to equal the real operator canonicalStagingRoot; tests isolate the operator home."
+    "CEN-7581F158C3EE: require the canonical service root to equal the real operator canonicalStagingRoot; tests isolate the operator home.",
+    "CEN-627DF8350F97: canonical operator settings require PORT3190; ordinary private-port preparation remains supported."
   ],
   "excludedCuts": [
     "ordinary staging command",
@@ -65,7 +66,7 @@
     {
       "path": "server/__tests__/symposium-staging-service.test.ts",
       "candidateBlob": "d117eb2f9c2f8076f7030c9cdf0fa8065c57fe14",
-      "successorSha256": "48bf9586b1086a9a2140be7b1ffa81efe52aebbc44970c406a8a266b4bb4173c"
+      "successorSha256": "00e071a15d734b9e741c461f0ddbd4f613dc26dd4f7e3b0d871c64d8548d81d2"
     },
     {
       "path": "server/__tests__/symposium-staging-static-contracts.test.ts",
@@ -173,7 +174,7 @@
     {
       "path": "server/symposium-staging-service.ts",
       "candidateBlob": "291cfbb4bfc245e8af3ea0dbeb9bafb5c020429e",
-      "successorSha256": "489451549b76f2fc6e9b325d1c82a89b6a5fbe25cb430aa07d77cfa10e4f5451"
+      "successorSha256": "456f7f21ba1fe2ddbfd311b7a74c5786662d52c8d21d3792cd7348a34875f2d1"
     }
   ],
   "reviewFixValidation": {

@@ -17,7 +17,7 @@ import { spawnSync } from 'node:child_process';
 import { artifacts, fingerprintDirectory } from '../../scripts/lib/staging-files.mjs';
 const homes = [];
 afterEach(() => homes.splice(0).forEach((home) => rmSync(home, { recursive: true, force: true })));
-function fixture() {
+function fixture(mode = 'valid') {
   const home = realpathSync(mkdtempSync(join(tmpdir(), 'staging-launcher-')));
   homes.push(home);
   const root = join(home, '.local/share/mitzo-staging');
@@ -68,7 +68,7 @@ function fixture() {
   );
   writeFileSync(
     prelude,
-    `import os from 'node:os';import cp from 'node:child_process';import {syncBuiltinESMExports} from 'node:module';os.homedir=()=>${JSON.stringify(home)};cp.spawnSync=(program,args)=>{if(program==='git'){if(args.includes('rev-parse'))return {status:0,stdout:args.includes('HEAD^{tree}')?${JSON.stringify(tree)}:${JSON.stringify(source)}};if(args.includes('remote'))return {status:0,stdout:'https://github.com/dimakis/mitzo.git'};return {status:0,stdout:''};}if(program===process.execPath)return {status:0,stdout:${JSON.stringify(JSON.stringify(paths))}};throw Error('Unmocked execution');};syncBuiltinESMExports();`,
+    `import os from 'node:os';import cp from 'node:child_process';import {syncBuiltinESMExports} from 'node:module';os.homedir=()=>${JSON.stringify(home)};cp.spawnSync=(program,args)=>{if(program==='git'){if(args.includes('ls-files'))return {status:0,stdout:${JSON.stringify(mode === 'assume-unchanged' ? 'h tracked.ts' : mode === 'skip-worktree' ? 'S tracked.ts' : 'H tracked.ts')}};if(args.includes('rev-parse'))return {status:0,stdout:args.includes('HEAD^{tree}')?${JSON.stringify(tree)}:${JSON.stringify(source)}};if(args.includes('remote'))return {status:0,stdout:'https://github.com/dimakis/mitzo.git'};return {status:0,stdout:''};}if(program===process.execPath)return {status:0,stdout:${JSON.stringify(JSON.stringify(paths))}};throw Error('Unmocked execution');};syncBuiltinESMExports();`,
   );
   const run = () =>
     spawnSync(process.execPath, ['--import', prelude, launcher, '--check'], {
@@ -139,3 +139,11 @@ it('actual startup refuses changed contained dependency payload despite unchange
   expect(changed.status, changed.stderr).not.toBe(0);
   expect(changed.stderr).toContain('dependency drift');
 });
+
+it.each(['assume-unchanged', 'skip-worktree'])(
+  'actual startup refuses hidden tracked source flags: %s',
+  (mode) => {
+    const f = fixture(mode);
+    expect(f.run().status).not.toBe(0);
+  },
+);

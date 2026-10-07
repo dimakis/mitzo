@@ -270,3 +270,25 @@ it('refuses a private alternate root before writing canonical service credential
   expect(existsSync(join(f.plan.planDirectory, 'staging-operator.json'))).toBe(false);
   expect(existsSync(join(f.plan.planDirectory, 'staging-custodian.plist'))).toBe(false);
 });
+
+it('canonical operator environment requires port3190 while ordinary preparation permits other private ports', () => {
+  const f = canonicalFixture();
+  const prepared = prepareCanonicalStagingService(
+    f.plan,
+    f.registrationPath,
+    process.execPath,
+    f.root,
+  );
+  const settings = JSON.parse(readFileSync(prepared.operatorPath, 'utf8'));
+  settings.PORT = '19994';
+  writeFileSync(prepared.operatorPath, JSON.stringify(settings));
+  expect(() => readStagingOperatorEnvironment(f.plan, prepared.operatorPath, {})).toThrow();
+  const ordinary = fixture();
+  const other = prepareStagingService(
+    ordinary.plan,
+    ordinary.registrationPath,
+    process.execPath,
+    19994,
+  );
+  expect(readStagingOperatorEnvironment(ordinary.plan, other.operatorPath, {}).PORT).toBe('19994');
+});

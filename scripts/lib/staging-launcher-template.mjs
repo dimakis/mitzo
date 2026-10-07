@@ -60,6 +60,13 @@ function git(args, allowFailure = false) {
   if (result.status !== 0) throw Error('Pinned staging Git identity unavailable');
   return result.stdout.trim();
 }
+if (
+  git(['ls-files', '-v'])
+    .split('\n')
+    .filter(Boolean)
+    .some((line) => !line.startsWith('H '))
+)
+  throw Error('Hidden tracked index flags refused');
 assertPinnedStageSource({
   expected: receipt.sourceCommit,
   expectedTree: receipt.sourceTree,

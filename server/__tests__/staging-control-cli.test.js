@@ -83,7 +83,7 @@ function fixture(mode = 'valid') {
     preload,
     `import os from 'node:os';import cp from 'node:child_process';import {readFileSync,writeFileSync} from 'node:fs';import {syncBuiltinESMExports} from 'node:module';os.homedir=()=>${JSON.stringify(home)};const root=${JSON.stringify(root)},oldRelease=${JSON.stringify(oldRelease)},next=${JSON.stringify(next)},mode=${JSON.stringify(mode)},calls=${JSON.stringify(calls)};let stopped=false,started=false,birthReads=0,clock=Date.now();if(mode==='lingering-original')Date.now=()=>{clock+=50000;return clock;};
  cp.spawnSync=(program,args,options)=>{
-  if(program==='git'){if(args[0]==='-c')args=args.slice(4);if(args[0]==='ls-remote')return {status:0,stdout:${JSON.stringify(target)}+' refs/heads/main'};if(args[0]==='rev-parse'&&args[1]==='--show-toplevel')return {status:0,stdout:mode==='worktree-redirect'&&options.cwd!==oldRelease?oldRelease:options.cwd};if(args[0]==='rev-parse')return {status:0,stdout:args[1]==='HEAD^{tree}'?'c'.repeat(40):options.cwd===oldRelease?${JSON.stringify(old)}:${JSON.stringify(target)}};if(args[0]==='remote')return {status:0,stdout:'https://github.com/dimakis/mitzo.git'};return {status:0,stdout:''};}
+  if(program==='git'){if(args[0]==='-c')args=args.slice(4);if(args[0]==='ls-remote')return {status:0,stdout:${JSON.stringify(target)}+' refs/heads/main'};if(args[0]==='rev-parse'&&args[1]==='--show-toplevel')return {status:0,stdout:mode==='worktree-redirect'&&options.cwd!==oldRelease?oldRelease:options.cwd};if(args[0]==='rev-parse')return {status:0,stdout:args[1]==='HEAD^{tree}'?'c'.repeat(40):options.cwd===oldRelease?${JSON.stringify(old)}:${JSON.stringify(target)}};if(args[0]==='ls-files')return {status:0,stdout:mode==='assume-unchanged'?'h tracked.ts':mode==='skip-worktree'?'S tracked.ts':'H tracked.ts'};if(args[0]==='remote')return {status:0,stdout:'https://github.com/dimakis/mitzo.git'};return {status:0,stdout:''};}
   if(program==='launchctl'){if(args[0]==='print')return {status:0,stdout:'path = '+(mode==='changed-registration'?'/outside.plist':root+'/service/com.mitzo.staging.plist')+'\\n'+(started?'pid = 43':stopped?'state = not running':'pid = 42')};const values=JSON.parse(readFileSync(calls));values.push([program,...args]);writeFileSync(calls,JSON.stringify(values));if(args[0]==='kill')stopped=true;if(args[0]==='kickstart')started=true;return {status:0,stdout:''};}
   if(program==='/bin/ps'){if(args.includes('lstart=')){birthReads++;return {status:0,stdout:mode==='reused-pid'&&birthReads>1?'successor birth':args[1]==='43'?'new birth':'original birth'};}return {status:stopped&&mode!=='lingering-original'?1:0,stdout:stopped&&mode!=='lingering-original'?'':'42'};}
   if(program==='/usr/sbin/lsof'){if(args.includes('cwd'))return {status:0,stdout:'p42\\nfcwd\\nn'+(started?next:oldRelease)};const port=args.find(x=>x.startsWith('-iTCP:')).split(':')[1],ids=port==='3190'?(started?[43]:stopped?[]:[42]):port==='3100'?[900]:[];return {status:ids.length?0:1,stdout:ids.join('\\n')};}
@@ -146,3 +146,12 @@ it('actual ordinary apply refuses a clean Git worktree redirected away from the 
   expect(result.status).not.toBe(0);
   expect(JSON.parse(readFileSync(f.calls, 'utf8'))).toEqual([]);
 });
+
+it.each(['assume-unchanged', 'skip-worktree'])(
+  'ordinary apply refuses hidden tracked source flags: %s',
+  (mode) => {
+    const f = fixture(mode);
+    expect(f.run().status).not.toBe(0);
+    expect(JSON.parse(readFileSync(f.calls, 'utf8'))).toEqual([]);
+  },
+);
