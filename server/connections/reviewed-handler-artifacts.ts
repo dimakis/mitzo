@@ -20,7 +20,7 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
   'policy-compiler.ts': '13a12a3182568a151247cb204792f15c374af9e5a7f401d51b954c6dd40fd538',
-  'registry.ts': '3482b7cc71334c4daec6e230ad104cecf1ff5ff6c5d924d5d2becf5162393a93',
+  'registry.ts': 'ef8e9b23dba7212f3a4c78582a717bc549c5f75af0e9ec38df48df4ffe702660',
   'iana-address-policy.ts': '899b0b5ad66f5cbe72224b34c29ff7a88e32c2a6f5b2987e4d18cfc64f862b4e',
   'iana-address-data.generated.ts':
     '58f91383fa17ab9612d24bc113d011ece63bfc06b4635ba99f108bb05aa34038',
