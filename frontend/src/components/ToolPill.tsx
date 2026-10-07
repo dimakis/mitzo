@@ -20,22 +20,6 @@ function RawInputDetail({
   raw: RawToolInput;
   onPopOut?: (path: string) => void;
 }) {
-  if (raw.type === 'web') {
-    return (
-      <div className="tool-pill-section">
-        <CodeBlock
-          code={JSON.stringify(
-            { operation: raw.operation, url: raw.url, query: raw.query, reason: raw.reason },
-            null,
-            2,
-          )}
-          language="json"
-          label="Request"
-          maxHeight={300}
-        />
-      </div>
-    );
-  }
   if (raw.type === 'read') {
     // Read tool: path shown in header, no input body to render
     return null;
@@ -156,7 +140,7 @@ export function ToolPill({ block, sessionId }: Props) {
   const { done, hasError } = getToolStatus(block);
   const input = block.toolInput || '';
   const webOutcome = webAccessOutcome(block);
-  const webSummary = webAccessSummary(input, block.rawInput);
+  const webSummary = webAccessSummary(input);
 
   const handlePopOut = useCallback(
     (filePath: string) => {

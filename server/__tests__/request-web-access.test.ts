@@ -177,7 +177,7 @@ describe('redirect continuation', () => {
     const result = await executeWebAccess(input, new AbortController().signal, {
       isCurrent: () => current,
       approve: async (request) => {
-        if (request.url !== input.url) current = false;
+        if (request.operation === 'fetch' && request.url !== input.url) current = false;
         return { behavior: 'allow', updatedInput: request };
       },
       fetchPage,

@@ -1,4 +1,3 @@
-import type { RawToolInput } from '../types/chat';
 import type { ToolBlock } from './tool-status';
 
 /** Uses server-authored outcomes; unknown failures never imply approval succeeded. */
@@ -9,7 +8,7 @@ export function webAccessOutcome(block: ToolBlock): string | undefined {
     return undefined;
   if (block.toolResult === undefined) return 'Request in progress…';
   if (!block.toolError) {
-    const operation = webRequest(block.toolInput ?? '', block.rawInput)?.operation;
+    const operation = webRequest(block.toolInput ?? '')?.operation;
     if (
       operation === 'request_access' ||
       block.toolResult.startsWith('URL read access approved for ')
@@ -44,8 +43,9 @@ export function webAccessOutcome(block: ToolBlock): string | undefined {
   return 'Access failed';
 }
 
-function webRequest(input: string, raw?: RawToolInput): RawToolInput | undefined {
-  if (raw?.type === 'web') return raw;
+function webRequest(
+  input: string,
+): { operation?: string; url?: string; query?: string } | undefined {
   try {
     return JSON.parse(input);
   } catch {
@@ -53,10 +53,10 @@ function webRequest(input: string, raw?: RawToolInput): RawToolInput | undefined
   }
 }
 
-export function webAccessSummary(input: string, raw?: RawToolInput) {
+export function webAccessSummary(input: string) {
   const fallback = { name: 'Website read', target: input };
   try {
-    const request = webRequest(input, raw);
+    const request = webRequest(input);
     if (request?.operation === 'search')
       return {
         name: 'Web search',

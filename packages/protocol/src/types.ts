@@ -105,12 +105,7 @@ export interface AgentDefinition {
 // --- Tool input ---
 
 export interface RawToolInput {
-  type: 'write' | 'diff' | 'command' | 'read' | 'agent' | 'web';
-  /** Web inputs survive the short display summary in streaming and restored messages. */
-  operation?: 'fetch' | 'search' | 'request_access' | 'revoke_access';
-  url?: string;
-  query?: string;
-  reason?: string;
+  type: 'write' | 'diff' | 'command' | 'read' | 'agent';
   path?: string;
   contents?: string;
   old_string?: string;
