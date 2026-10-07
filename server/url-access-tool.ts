@@ -178,15 +178,25 @@ export function createUrlAccessTool(
       if (!allowed(current.clientId, current.session))
         return { content: 'Session permissions changed; URL reads are unavailable', isError: true };
       const chain = [{ origin: url.origin, grant }];
-      const chainCurrent = () =>
-        allowed(current.clientId, current.session) &&
-        chain.every(
-          ({ origin, grant }) =>
-            grants.get(current.session)?.get(origin) === grant &&
-            grant.expires > deps.now() &&
-            isDeepStrictEqual(grant.account, current.session.accountBinding) &&
-            grant.model === current.session.model,
+      const chainCurrent = () => {
+        if (
+          chain.some(
+            ({ grant }) =>
+              !isDeepStrictEqual(grant.account, current.session.accountBinding) ||
+              grant.model !== current.session.model,
+          )
+        ) {
+          clearUrlAccessGrants(current.session);
+          return false;
+        }
+        return (
+          allowed(current.clientId, current.session) &&
+          chain.every(
+            ({ origin, grant }) =>
+              grants.get(current.session)?.get(origin) === grant && grant.expires > deps.now(),
+          )
         );
+      };
       let activeGrant = grant;
       try {
         for (let hop = 0; hop <= 3; hop++) {
@@ -218,9 +228,9 @@ export function createUrlAccessTool(
               url.href,
             );
             signal.throwIfAborted();
-            if (decision.isError) return decision;
             if (!chainCurrent())
               return { content: 'Session permissions changed during URL read', isError: true };
+            if (decision.isError) return decision;
             const destinationGrant = grants.get(current.session)?.get(destination.origin);
             if (!destinationGrant)
               return { content: 'URL access changed during approval; retry', isError: true };

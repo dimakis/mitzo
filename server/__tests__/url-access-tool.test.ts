@@ -257,3 +257,19 @@ it.each(['revoked', 'expired', 'account', 'cancelled'])(
     expect(f.fetch).toHaveBeenCalledOnce();
   },
 );
+
+it('retires a source grant when a changed account is observed after a pending read', async () => {
+  const f = fixture();
+  approve.mockImplementation(async (_name, input) => ({ behavior: 'allow', updatedInput: input }));
+  const input = { operation: 'request_access', url: 'https://example.com/', reason: 'why' };
+  await f.tool.request(input, new AbortController().signal);
+  f.fetch.mockImplementation(async () => {
+    f.session.accountBinding!.accountId = 'other';
+    return 'page';
+  });
+  expect(await f.tool.fetch(input.url, new AbortController().signal)).toMatchObject({
+    isError: true,
+  });
+  f.session.accountBinding!.accountId = 'a';
+  expect(await f.tool.fetch(input.url, new AbortController().signal)).toBeUndefined();
+});
