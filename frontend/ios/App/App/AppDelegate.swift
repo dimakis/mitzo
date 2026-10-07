@@ -49,10 +49,15 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         let permissionCategory = UNNotificationCategory(
             identifier: "SESSION_PERMISSION", actions: [reviewAction], intentIdentifiers: [], options: []
         )
+        let onceAction = UNNotificationAction(identifier: "ALLOW_ONCE_ACTION", title: "Allow once", options: [.authenticationRequired])
+        let searchAction = UNNotificationAction(identifier: "ALLOW_SEARCH_SESSION_ACTION", title: "Allow searches for session", options: [.authenticationRequired])
+        let denyAction = UNNotificationAction(identifier: "DENY_PERMISSION_ACTION", title: "Deny", options: [.destructive])
+        let approvalCategory = UNNotificationCategory(identifier: "SESSION_APPROVAL", actions: [onceAction, denyAction, reviewAction], intentIdentifiers: [], options: [])
+        let searchCategory = UNNotificationCategory(identifier: "SESSION_SEARCH_PERMISSION", actions: [onceAction, searchAction, denyAction, reviewAction], intentIdentifiers: [], options: [])
         let updateCategory = UNNotificationCategory(
             identifier: "NOTIFICATION_UPDATE", actions: [viewAction], intentIdentifiers: [], options: []
         )
-        UNUserNotificationCenter.current().setNotificationCategories([sessionCategory, permissionCategory, updateCategory])
+        UNUserNotificationCenter.current().setNotificationCategories([sessionCategory, permissionCategory, approvalCategory, searchCategory, updateCategory])
     }
 
     func application(_ application: UIApplication,
@@ -97,6 +102,66 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         NotificationCenter.default.post(name: .capacitorDidFailToRegisterForRemoteNotifications, object: error)
     }
 
+}
+
+/// The storyboard creates this bridge during cold launches too. Keep Capacitor's
+/// router for taps/replies, but submit approval buttons natively in the background.
+@objc(MitzoBridgeViewController)
+class MitzoBridgeViewController: CAPBridgeViewController {
+    private var approvalDelegate: BackgroundApprovalDelegate?
+    override func capacitorDidLoad() {
+        super.capacitorDidLoad()
+        guard let router = bridge?.notificationRouter else { return }
+        let delegate = BackgroundApprovalDelegate(fallback: router)
+        approvalDelegate = delegate
+        UNUserNotificationCenter.current().delegate = delegate
+    }
+}
+
+private class BackgroundApprovalDelegate: NSObject, UNUserNotificationCenterDelegate {
+    private let fallback: NotificationRouter
+    init(fallback: NotificationRouter) { self.fallback = fallback }
+
+    func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification,
+                                withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
+        fallback.userNotificationCenter(center, willPresent: notification, withCompletionHandler: completionHandler)
+    }
+
+    func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
+                                withCompletionHandler completionHandler: @escaping () -> Void) {
+        let action = response.actionIdentifier
+        guard ["ALLOW_ONCE_ACTION", "ALLOW_SEARCH_SESSION_ACTION", "DENY_PERMISSION_ACTION"].contains(action) else {
+            fallback.userNotificationCenter(center, didReceive: response, withCompletionHandler: completionHandler)
+            return
+        }
+        let info = response.notification.request.content.userInfo
+        let deliveredID = response.notification.request.identifier
+        Task {
+            do {
+                guard let id = info["notificationId"] as? String,
+                      let sessionID = info["sessionId"] as? String,
+                      let configured = UserDefaults.standard.string(forKey: "mitzo_notification_server_url"),
+                      let server = URL(string: configured) else { throw MitzoAPIClient.APIError.invalidResponse }
+                // A fresh manager reads the shared Keychain and respects logout.
+                let api = MitzoAPIClient(baseURL: server, authManager: AuthManager())
+                let item = try await api.getNotification(id: id)
+                guard let decision = backgroundApprovalResponse(actionID: action, item: item, expectedSessionID: sessionID) else {
+                    throw MitzoAPIClient.APIError.invalidResponse
+                }
+                try await api.respondNotification(id: id, response: decision)
+                center.removeDeliveredNotifications(withIdentifiers: [deliveredID])
+            } catch {
+                let content = UNMutableNotificationContent()
+                content.title = "Approval could not be confirmed"
+                content.body = "The request may have expired or Mitzo may be unreachable. Review its current status before trying again."
+                content.categoryIdentifier = "NOTIFICATION_UPDATE"
+                content.userInfo = info
+                content.sound = .default
+                try? await center.add(UNNotificationRequest(identifier: "\(deliveredID)-response-error", content: content, trigger: nil))
+            }
+            completionHandler()
+        }
+    }
 }
 
 // Kept in the App target's existing source file so archive and device builds
