@@ -1,0 +1,100 @@
+.backups-page {
+  max-width: 960px;
+  height: 100dvh;
+  min-height: 0;
+}
+.backup-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  margin: 1rem 0;
+}
+.backup-controls button {
+  padding: 0.7rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: 0.65rem;
+  background: var(--bg-secondary);
+  color: var(--text);
+  cursor: pointer;
+}
+.backup-controls .backup-primary {
+  background: var(--accent);
+  color: white;
+}
+.backup-controls button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.backup-notice {
+  padding: 1rem;
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+}
+.backup-notice h2 {
+  margin: 0 0 0.5rem;
+  font-size: 1rem;
+}
+.backup-notice p {
+  line-height: 1.5;
+}
+.backup-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem;
+  margin: 1.25rem 0;
+}
+.backup-summary div {
+  padding: 1rem;
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+}
+.backup-summary dt {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+.backup-summary dd {
+  margin: 0.5rem 0 0;
+  overflow-wrap: anywhere;
+}
+.backup-coverage,
+.backup-runs {
+  list-style: none;
+  padding: 0;
+}
+.backup-coverage li,
+.backup-runs li {
+  padding: 1rem 0;
+  border-bottom: 1px solid var(--border);
+}
+.backup-coverage li > div,
+.backup-runs li > div {
+  display: flex;
+  gap: 0.75rem;
+  justify-content: space-between;
+  flex-wrap: wrap;
+}
+.backup-badge {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+.backup-runs time {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+.backup-error {
+  color: var(--text);
+  font-weight: 600;
+}
+@media (max-width: 600px) {
+  .backup-summary {
+    grid-template-columns: 1fr;
+  }
+  .backup-controls button {
+    flex: 1 1 auto;
+  }
+}
+
+.backup-notice ul {
+  padding-left: 1.25rem;
+  margin: 0.75rem 0;
+}

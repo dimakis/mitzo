@@ -375,3 +375,74 @@ describe('Claude Vertex native seat', () => {
     expect(events).toEqual(['dispatch', 'message-1']);
   });
 });
+
+it('exposes only declared host tools and activates their bridge after the pinned model receipt', async () => {
+  const child = Object.assign(new EventEmitter(), {
+    stdin: new PassThrough(),
+    stdout: new PassThrough(),
+    stderr: new PassThrough(),
+    kill: vi.fn(() => true),
+  });
+  const bridge = {
+    activate: vi.fn(),
+    failed: new Promise<never>(() => {}),
+    argv: [
+      '--mcp-config',
+      '{"mcpServers":{"mitzo-host-access":{}}}',
+      '--allowedTools',
+      'mcp__mitzo-host-access__RequestWebAccess',
+    ],
+    close: vi.fn().mockResolvedValue(undefined),
+  };
+  const createHostToolBridge = vi.fn().mockResolvedValue(bridge);
+  let argv = '';
+  const native = await createClaudeVertexSeat({
+    sandbox: {
+      sandboxName: 'shared',
+      workdir: '/sandbox/workspaces/mgmt',
+      cli: 'openshell',
+      gateway: 'test-gateway',
+      workspace: 'test-workspace',
+      gatewayInsecure: false,
+    },
+    route,
+    execution,
+    verifiedLauncher: true,
+    requireModelReceipts: true,
+    hostTools: {
+      tools: [{ name: 'RequestWebAccess', description: 'Read', input_schema: { type: 'object' } }],
+      instructions: 'Ask for user approval',
+      executeTool: async () => ({ content: 'ok', isError: false }),
+    },
+    verifyHostTools: vi.fn(),
+    createHostToolBridge,
+    spawnProcess: (spec) => {
+      argv = spec.args.join(' ');
+      return child;
+    },
+  });
+  const threadArgs = claudeVertexArgv(route, execution);
+  const thread = threadArgs[threadArgs.indexOf('--session-id') + 1];
+  const pending = native.run(execution, { beforeDispatch: vi.fn(), accepted: vi.fn() });
+  expect(argv).toContain('mcp__mitzo-host-access__RequestWebAccess');
+  expect(argv).toContain('Ask for user approval');
+  expect(bridge.activate).not.toHaveBeenCalled();
+  const emit = (event: Record<string, unknown>) => child.stdout.write(JSON.stringify(event) + '\n');
+  emit({ type: 'system', subtype: 'init', session_id: thread, model: route.model });
+  expect(bridge.activate).not.toHaveBeenCalled();
+  emit({
+    type: 'stream_event',
+    session_id: thread,
+    event: { type: 'message_start', message: { id: 'message-1', model: route.model } },
+  });
+  expect(bridge.activate).toHaveBeenCalledOnce();
+  emit({
+    type: 'assistant',
+    session_id: thread,
+    message: { id: 'message-1', model: route.model, content: [{ type: 'text', text: 'Done' }] },
+  });
+  emit({ type: 'result', session_id: thread, is_error: false });
+  child.emit('close', 0);
+  await expect(pending).resolves.toMatchObject({ content: 'Done' });
+  expect(bridge.close).toHaveBeenCalledOnce();
+});

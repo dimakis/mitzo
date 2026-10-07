@@ -33,7 +33,9 @@ it('requires an operator-selected displayed slot revision before device login', 
     target: { value: 'default' },
   });
   fireEvent.click(screen.getByRole('button', { name: 'Connect ChatGPT' }));
-  fireEvent.click(await screen.findByRole('button', { name: 'Get sign-in code' }));
+  const start = await screen.findByRole('button', { name: 'Get sign-in code' });
+  await waitFor(() => expect((start as HTMLButtonElement).disabled).toBe(false));
+  fireEvent.click(start);
   await waitFor(() =>
     expect(apiFetch).toHaveBeenCalledWith(
       '/api/symposium/personal/login',
