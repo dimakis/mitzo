@@ -3,6 +3,14 @@ import { z } from 'zod';
 import { apiFetch } from '../lib/api-fetch';
 import './CodexQueueStatus.css';
 
+const CapacityRecovery = z.object({
+  id: z.string().min(1),
+  sourceCommandId: z.string().min(1),
+  status: z.enum(['waiting', 'queued', 'running', 'exhausted', 'stopped']),
+  nextRetryAt: z.number().int().positive().optional(),
+  attempts: z.number().int().min(0).max(5),
+  maxAttempts: z.literal(5),
+});
 const Queue = z.object({
   paused: z.boolean(),
   connected: z.boolean(),
@@ -14,6 +22,7 @@ const Queue = z.object({
   retryAvailableAt: z.number().int().positive().optional(),
   retryable: z.boolean().optional(),
   requiresRetryConfirmation: z.boolean().optional(),
+  capacityRecovery: CapacityRecovery.optional(),
 });
 const QueuedCommands = z.object({
   queued: z.array(z.object({ id: z.string(), preview: z.string() })),
@@ -55,6 +64,9 @@ export function CodexQueueStatus({ sessionId }: { sessionId: string | null }) {
   const [continuing, setContinuing] = useState(false);
   const [retrying, setRetrying] = useState(false);
   const [reattaching, setReattaching] = useState(false);
+  const [capacityAction, setCapacityAction] = useState<'retry' | 'stop' | null>(null);
+  const capacityRequest = useRef<symbol | null>(null);
+  const [now, setNow] = useState(Date.now);
   const reattachRequested = useRef<string | null>(null);
   const refresh = useRef<() => Promise<void>>(async () => {});
   const statusTab = useRef<HTMLButtonElement>(null);
@@ -81,6 +93,8 @@ export function CodexQueueStatus({ sessionId }: { sessionId: string | null }) {
     setContinuing(false);
     setRetrying(false);
     setReattaching(false);
+    setCapacityAction(null);
+    capacityRequest.current = null;
     reattachRequested.current = null;
     setDrawerOpen(false);
     consumeCancelClick.current = false;
@@ -101,7 +115,10 @@ export function CodexQueueStatus({ sessionId }: { sessionId: string | null }) {
         isCodex = parsed.success;
         pending =
           parsed.success &&
-          (!!parsed.data.recovering || parsed.data.queued > 0 || parsed.data.failed > 0);
+          (!!parsed.data.recovering ||
+            parsed.data.queued > 0 ||
+            parsed.data.failed > 0 ||
+            !!parsed.data.capacityRecovery);
         let queued: QueuedCommand[] = [];
         let moreQueued = false;
         if (parsed.success && parsed.data.queued > 0) {
@@ -162,6 +179,7 @@ export function CodexQueueStatus({ sessionId }: { sessionId: string | null }) {
     if (
       !sessionId ||
       !queue ||
+      queue.capacityRecovery ||
       queue.failed === 0 ||
       queue.retryable === false ||
       queue.connected ||
@@ -206,6 +224,14 @@ export function CodexQueueStatus({ sessionId }: { sessionId: string | null }) {
   }, [queue, sessionId]);
 
   useEffect(() => {
+    if (queue?.capacityRecovery?.status !== 'waiting') return;
+    setNow(Date.now());
+    // Display only. The server owns the deadline and dispatches every attempt.
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [queue?.capacityRecovery?.status, queue?.capacityRecovery?.nextRetryAt]);
+
+  useEffect(() => {
     const previous = previousCollapsed.current;
     previousCollapsed.current = collapsed;
     if (previous === null || previous === collapsed) return;
@@ -215,32 +241,56 @@ export function CodexQueueStatus({ sessionId }: { sessionId: string | null }) {
 
   if (!queue) return null;
   const actionable =
-    !!queue.recovering || queue.queued > 0 || queue.failed > 0 || !!error || !!notice;
+    !!queue.recovering ||
+    queue.queued > 0 ||
+    queue.failed > 0 ||
+    !!queue.capacityRecovery ||
+    !!error ||
+    !!notice;
   if (!actionable) return null;
 
   const retryWaitSeconds = queue.retryAvailableAt
     ? Math.max(0, Math.ceil((queue.retryAvailableAt - Date.now()) / 1_000))
     : 0;
 
-  const status = queue.recovering
-    ? queue.recoveryPhase === 'starting_workspace'
-      ? 'Starting workspace… Your message is saved.'
-      : 'Reconnecting… Your message is saved.'
-    : queue.failed > 0
-      ? queue.retryable === false
-        ? 'This failed turn needs attention and cannot be retried.'
-        : !queue.connected || reattaching
-          ? 'Restarting provider… The failed turn remains saved.'
-          : retryWaitSeconds > 0
-            ? `OpenAI asked us to wait ${retryWaitSeconds}s before retrying.`
-            : queue.requiresRetryConfirmation
-              ? 'Retrying may repeat tool actions that already ran.'
-              : 'Previous turn failed. Retry when available.'
-      : queue.paused
-        ? 'Reconnection needed. Your message is saved.'
-        : queue.queued > 0
-          ? `${queue.queued} ${queue.queued === 1 ? 'message is' : 'messages are'} waiting behind the current turn.`
-          : 'An earlier step may be incomplete.';
+  const capacity = queue.capacityRecovery;
+  const capacitySeconds = capacity?.nextRetryAt
+    ? Math.max(0, Math.ceil((capacity.nextRetryAt - now) / 1000))
+    : 0;
+  const capacityStatus = capacity
+    ? capacity.status === 'waiting'
+      ? capacitySeconds > 0
+        ? `Trying again in ${capacitySeconds}s (attempt ${capacity.attempts + 1} of ${capacity.maxAttempts}).`
+        : 'Waiting to continue saved work.'
+      : capacity.status === 'queued'
+        ? 'Continuation queued. Saved messages keep their order.'
+        : capacity.status === 'running'
+          ? `Continuing saved work (attempt ${capacity.attempts} of ${capacity.maxAttempts}).`
+          : capacity.status === 'exhausted'
+            ? `Automatic retries finished (${capacity.attempts} of ${capacity.maxAttempts}). Try again starts a new retry cycle.`
+            : 'Automatic attempts stopped. Saved work is preserved.'
+    : undefined;
+  const status =
+    capacityStatus ??
+    (queue.recovering
+      ? queue.recoveryPhase === 'starting_workspace'
+        ? 'Starting workspace… Your message is saved.'
+        : 'Reconnecting… Your message is saved.'
+      : queue.failed > 0
+        ? queue.retryable === false
+          ? 'This failed turn needs attention and cannot be retried.'
+          : !queue.connected || reattaching
+            ? 'Restarting provider… The failed turn remains saved.'
+            : retryWaitSeconds > 0
+              ? `OpenAI asked us to wait ${retryWaitSeconds}s before retrying.`
+              : queue.requiresRetryConfirmation
+                ? 'Retrying may repeat tool actions that already ran.'
+                : 'Previous turn failed. Retry when available.'
+        : queue.paused
+          ? 'Reconnection needed. Your message is saved.'
+          : queue.queued > 0
+            ? `${queue.queued} ${queue.queued === 1 ? 'message is' : 'messages are'} waiting behind the current turn.`
+            : 'An earlier step may be incomplete.');
 
   const hide = () => {
     if (sessionId) {
@@ -325,6 +375,48 @@ export function CodexQueueStatus({ sessionId }: { sessionId: string | null }) {
       if (epoch === sessionEpoch.current) setRetrying(false);
     }
   };
+  const actOnCapacity = async (action: 'retry' | 'stop') => {
+    if (!sessionId || !capacity || capacityRequest.current) return;
+    const request = Symbol();
+    capacityRequest.current = request;
+    const epoch = sessionEpoch.current;
+    setCapacityAction(action);
+    setError('');
+    setNotice('');
+    try {
+      const response = await apiFetch(
+        `/api/sessions/${encodeURIComponent(sessionId)}/codex-queue/capacity-${action}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            recoveryId: capacity.id,
+            sourceCommandId: capacity.sourceCommandId,
+          }),
+          signal: AbortSignal.timeout(15000),
+        },
+      );
+      if (epoch !== sessionEpoch.current) return;
+      if (response.status === 409) {
+        await refresh.current();
+        if (epoch === sessionEpoch.current)
+          setNotice('Recovery changed. Check its current status.');
+        return;
+      }
+      if (!response.ok) throw new Error();
+      await refresh.current();
+    } catch {
+      if (epoch === sessionEpoch.current)
+        setNotice(
+          'Could not confirm the recovery change. Check its current status before trying again.',
+        );
+    } finally {
+      if (capacityRequest.current === request) {
+        capacityRequest.current = null;
+        if (epoch === sessionEpoch.current) setCapacityAction(null);
+      }
+    }
+  };
   const cancel = async (commandId: string) => {
     if (!sessionId || cancelling) return;
     const epoch = sessionEpoch.current;
@@ -405,24 +497,58 @@ export function CodexQueueStatus({ sessionId }: { sessionId: string | null }) {
           if (horizontalDistance >= 56 && horizontalDistance > verticalDistance) hide();
         }}
       >
-        <div className="codex-queue-status-line">
+        <div
+          className={`codex-queue-status-line${capacity ? ' codex-queue-status-line--capacity' : ''}`}
+        >
           {(error || notice) && (
             <span className="codex-queue-status-attention" role="img" aria-label="Attention">
               !
             </span>
           )}
           <strong>{status}</strong>
-          {queue.paused && queue.connected && !queue.recovering && queue.queued > 0 && (
-            <button
-              type="button"
-              className="codex-queue-status-continue"
-              disabled={continuing}
-              onClick={() => void continueQueue()}
-            >
-              {continuing ? 'Reconnecting…' : 'Reconnect and continue'}
-            </button>
+          {capacity && (
+            <>
+              <span className="codex-queue-capacity-context">
+                Continues from saved progress; earlier tool results are kept.
+              </span>
+              <button
+                type="button"
+                className="codex-queue-status-continue"
+                disabled={
+                  !!capacityAction || capacity.status === 'queued' || capacity.status === 'running'
+                }
+                onClick={() => void actOnCapacity('retry')}
+              >
+                {capacityAction === 'retry' ? 'Requesting…' : 'Try again'}
+              </button>
+              {['waiting', 'queued', 'running'].includes(capacity.status) && (
+                <button
+                  type="button"
+                  className="codex-queue-status-continue"
+                  disabled={!!capacityAction}
+                  onClick={() => void actOnCapacity('stop')}
+                >
+                  {capacityAction === 'stop' ? 'Stopping…' : 'Stop'}
+                </button>
+              )}
+            </>
           )}
-          {queue.failed > 0 &&
+          {!capacity &&
+            queue.paused &&
+            queue.connected &&
+            !queue.recovering &&
+            queue.queued > 0 && (
+              <button
+                type="button"
+                className="codex-queue-status-continue"
+                disabled={continuing}
+                onClick={() => void continueQueue()}
+              >
+                {continuing ? 'Reconnecting…' : 'Reconnect and continue'}
+              </button>
+            )}
+          {!capacity &&
+            queue.failed > 0 &&
             queue.retryable !== false &&
             queue.connected &&
             !queue.recovering && (

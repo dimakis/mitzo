@@ -19,6 +19,194 @@ afterEach(() => {
   sessionStorage.clear();
 });
 
+const capacity = (overrides: Record<string, unknown> = {}) => ({
+  paused: true,
+  connected: true,
+  queued: 0,
+  interrupted: 0,
+  failed: 1,
+  retryable: false,
+  capacityRecovery: {
+    id: 'recovery-one',
+    sourceCommandId: 'failed-one',
+    status: 'waiting',
+    attempts: 0,
+    maxAttempts: 5,
+    nextRetryAt: Date.now() + 30_000,
+    ...overrides,
+  },
+});
+
+it('counts down server-owned capacity recovery without sending a retry from a UI timer', async () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date('2026-10-07T12:00:00Z'));
+  const state = capacity();
+  vi.mocked(apiFetch).mockResolvedValue(meta(state));
+  await act(async () => {
+    render(<CodexQueueStatus sessionId="capacity" />);
+  });
+  expect(screen.getByText(/Trying again in 30s.*1 of 5/)).toBeTruthy();
+  expect(screen.getByRole('button', { name: 'Try again' })).toBeTruthy();
+  expect(screen.getByRole('button', { name: 'Stop' })).toBeTruthy();
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(1_000);
+  });
+  expect(screen.getByText(/Trying again in 29s.*1 of 5/)).toBeTruthy();
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(30_000);
+  });
+  expect(vi.mocked(apiFetch).mock.calls.every(([, options]) => options?.method !== 'POST')).toBe(
+    true,
+  );
+});
+
+it('tries saved capacity work immediately using exact recovery identity, with a rapid-click latch', async () => {
+  let resolve!: (response: Response) => void;
+  const pending = new Promise<Response>((done) => {
+    resolve = done;
+  });
+  vi.mocked(apiFetch).mockImplementation(async (path) =>
+    String(path).endsWith('/capacity-retry') ? pending : meta(capacity()),
+  );
+  render(<CodexQueueStatus sessionId="capacity" />);
+  const button = await screen.findByRole('button', { name: 'Try again' });
+  fireEvent.click(button);
+  fireEvent.click(button);
+  expect(apiFetch).toHaveBeenCalledWith(
+    '/api/sessions/capacity/codex-queue/capacity-retry',
+    expect.objectContaining({
+      method: 'POST',
+      body: JSON.stringify({ recoveryId: 'recovery-one', sourceCommandId: 'failed-one' }),
+    }),
+  );
+  expect(
+    vi.mocked(apiFetch).mock.calls.filter(([path]) => String(path).endsWith('/capacity-retry')),
+  ).toHaveLength(1);
+  await act(async () => {
+    resolve({ ok: true, json: async () => ({ ok: true, status: 'queued' }) } as Response);
+  });
+});
+
+it('stops only the identified capacity recovery while preserving the unrelated queue affordance', async () => {
+  let stopped = false;
+  vi.mocked(apiFetch).mockImplementation(async (path) => {
+    if (String(path).endsWith('/capacity-stop')) {
+      stopped = true;
+      return { ok: true, json: async () => ({ ok: true, status: 'stopped' }) } as Response;
+    }
+    if (String(path).endsWith('/codex-queue'))
+      return commands([{ id: 'unrelated', preview: 'Saved follow-up' }]);
+    return meta({
+      ...capacity({ status: stopped ? 'stopped' : 'running', attempts: 1 }),
+      queued: 1,
+    });
+  });
+  render(<CodexQueueStatus sessionId="capacity" />);
+  await userEvent.click(await screen.findByRole('button', { name: 'Stop' }));
+  expect(apiFetch).toHaveBeenCalledWith(
+    '/api/sessions/capacity/codex-queue/capacity-stop',
+    expect.objectContaining({
+      method: 'POST',
+      body: JSON.stringify({ recoveryId: 'recovery-one', sourceCommandId: 'failed-one' }),
+    }),
+  );
+  await screen.findByText(/Automatic attempts stopped/);
+  expect(screen.queryByRole('button', { name: 'Reconnect and continue' })).toBeNull();
+  await userEvent.click(screen.getByRole('button', { name: 'Review queue' }));
+  expect(screen.getByText('Saved follow-up')).toBeTruthy();
+  expect(
+    vi.mocked(apiFetch).mock.calls.filter(([, options]) => options?.method === 'POST'),
+  ).toHaveLength(1);
+});
+
+it('shows exhausted capacity attempts with an explicit manual new cycle and no automatic reattach', async () => {
+  vi.mocked(apiFetch).mockResolvedValue(
+    meta({ ...capacity({ status: 'exhausted', attempts: 5 }), connected: false }),
+  );
+  render(<CodexQueueStatus sessionId="capacity" />);
+  await screen.findByText(/Automatic retries finished.*5 of 5/);
+  expect(screen.getByRole('button', { name: 'Try again' })).toBeTruthy();
+  expect(screen.queryByRole('button', { name: 'Stop' })).toBeNull();
+  expect(vi.mocked(apiFetch).mock.calls.every(([, options]) => options?.method !== 'POST')).toBe(
+    true,
+  );
+});
+
+it('refreshes a stale recovery card after conflict instead of retrying a newer episode', async () => {
+  let changed = false;
+  vi.mocked(apiFetch).mockImplementation(async (path) => {
+    if (String(path).endsWith('/capacity-retry')) {
+      changed = true;
+      return { ok: false, status: 409, json: async () => ({ error: 'stale' }) } as Response;
+    }
+    return meta(capacity(changed ? { id: 'recovery-two', sourceCommandId: 'failed-two' } : {}));
+  });
+  render(<CodexQueueStatus sessionId="capacity" />);
+  await userEvent.click(await screen.findByRole('button', { name: 'Try again' }));
+  await screen.findByText('Recovery changed. Check its current status.');
+  expect(
+    vi.mocked(apiFetch).mock.calls.filter(([path]) => String(path).endsWith('/capacity-retry')),
+  ).toHaveLength(1);
+  await userEvent.click(screen.getByRole('button', { name: 'Try again' }));
+  expect(apiFetch).toHaveBeenLastCalledWith('/api/sessions/capacity/meta', expect.anything());
+  expect(
+    vi
+      .mocked(apiFetch)
+      .mock.calls.filter(([path]) => String(path).endsWith('/capacity-retry'))[1][1]?.body,
+  ).toBe(JSON.stringify({ recoveryId: 'recovery-two', sourceCommandId: 'failed-two' }));
+});
+
+it('ignores an old recovery response after switching chats', async () => {
+  let resolve!: (response: Response) => void;
+  const pending = new Promise<Response>((done) => {
+    resolve = done;
+  });
+  vi.mocked(apiFetch).mockImplementation(async (path) => {
+    if (String(path).endsWith('/capacity-retry')) return pending;
+    if (String(path).includes('/new-chat/'))
+      return meta(
+        capacity({ id: 'new-recovery', sourceCommandId: 'new-command', status: 'stopped' }),
+      );
+    return meta(capacity());
+  });
+  const view = render(<CodexQueueStatus sessionId="old-chat" />);
+  await userEvent.click(await screen.findByRole('button', { name: 'Try again' }));
+  view.rerender(<CodexQueueStatus sessionId="new-chat" />);
+  await screen.findByText(/Automatic attempts stopped/);
+  await act(async () => {
+    resolve({ ok: false, status: 409, json: async () => ({}) } as Response);
+  });
+  expect(screen.queryByText('Recovery changed. Check its current status.')).toBeNull();
+  expect(screen.getByRole('button', { name: 'Try again' }).hasAttribute('disabled')).toBe(false);
+  expect(
+    vi
+      .mocked(apiFetch)
+      .mock.calls.filter(
+        ([path]) => String(path).includes('old-chat') && String(path).endsWith('/meta'),
+      ),
+  ).toHaveLength(1);
+});
+
+it.each(['queued', 'running'])(
+  'does not allow duplicate continuation or generic queue recovery while capacity is %s',
+  async (status) => {
+    vi.mocked(apiFetch).mockImplementation(async (path) =>
+      String(path).endsWith('/codex-queue')
+        ? commands([{ id: 'unrelated', preview: 'Saved follow-up' }])
+        : meta({ ...capacity({ status, attempts: 1 }), queued: 1 }),
+    );
+    render(<CodexQueueStatus sessionId="capacity" />);
+    const button = await screen.findByRole('button', { name: 'Try again' });
+    expect(button.hasAttribute('disabled')).toBe(true);
+    expect(screen.getByRole('button', { name: 'Stop' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Reconnect and continue' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Retry saved turn' })).toBeNull();
+    expect(vi.mocked(apiFetch).mock.calls.every(([, options]) => options?.method !== 'POST')).toBe(
+      true,
+    );
+  },
+);
+
 it('shows waiting work with a drawer that cancels only an identified queued message', async () => {
   vi.mocked(apiFetch)
     .mockResolvedValueOnce(
