@@ -3003,6 +3003,22 @@ export async function renameSessionById(
   throw new Error('Session not found');
 }
 
+/** SDK indexes can advertise an ai-title-only file as a session. */
+async function hasSdkConversation(
+  info: import('@anthropic-ai/claude-agent-sdk').SDKSessionInfo,
+  dir?: string,
+): Promise<boolean> {
+  if (info.firstPrompt) return true;
+  try {
+    // Image-only or assistant-only histories may have no firstPrompt.
+    return (
+      (await getSessionMessages(info.sessionId, { ...(dir ? { dir } : {}), limit: 1 })).length > 0
+    );
+  } catch {
+    return false;
+  }
+}
+
 export async function getSessions(offset = 0, limit = SESSION_PAGE_SIZE) {
   const seen = new Map<
     string,
@@ -3016,6 +3032,7 @@ export async function getSessions(offset = 0, limit = SESSION_PAGE_SIZE) {
       const sessions = await listSessions({ dir, limit: fetchLimit, includeWorktrees: true });
       for (const s of sessions) {
         if (eventStore.getSession(s.sessionId)?.isHidden) continue;
+        if (!(await hasSdkConversation(s, dir))) continue;
         const existing = seen.get(s.sessionId);
         if (!existing || s.lastModified > existing.lastModified) {
           seen.set(s.sessionId, {
@@ -3086,10 +3103,10 @@ export function getSessionsCached(offset = 0, limit = SESSION_PAGE_SIZE) {
     if (m.symposiumConfig) return true;
     // Hide sessions that were never used through Mitzo (e.g. automated
     // code review sessions discovered from filesystem).  Active sessions
-    // always show regardless of turn count.  Recently created sessions
-    // (< 1 hour) are kept even with no turns — they may still be starting.
+    // always show regardless of turn count. Only Mitzo-created sessions get
+    // the startup grace period; a recent filesystem title is not a chat.
     if (m.numTurns === 0 && m.promptCount === 0 && !m.isActive) {
-      return now - m.createdAt < ZERO_TURN_GRACE_MS;
+      return Boolean(m.initialPrompt || m.accountBinding) && now - m.createdAt < ZERO_TURN_GRACE_MS;
     }
     return true;
   });
@@ -3142,6 +3159,7 @@ export async function syncSessionTimestamps(): Promise<void> {
       const sessions = await listSessions({ dir, limit: fetchLimit, includeWorktrees: true });
       for (const s of sessions) {
         if (eventStore.getSession(s.sessionId)?.isHidden) continue;
+        if (!(await hasSdkConversation(s, dir))) continue;
         const existing = seen.get(s.sessionId);
         if (!existing || s.lastModified > existing.lastModified) {
           seen.set(s.sessionId, {
@@ -3205,7 +3223,7 @@ export async function discoverSession(
 ): Promise<import('./event-store.js').SessionMeta | null> {
   try {
     const info = await getSessionInfo(sessionId);
-    if (!info) return null;
+    if (!info || !(await hasSdkConversation(info, info.cwd))) return null;
     eventStore.upsertSession({
       sessionId,
       summary: info.summary || null,

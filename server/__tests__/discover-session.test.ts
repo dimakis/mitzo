@@ -9,7 +9,7 @@ vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
   query: vi.fn(),
   listSessions: vi.fn().mockResolvedValue([]),
   getSessionInfo: (...args: unknown[]) => mockGetSessionInfo(...args),
-  getSessionMessages: vi.fn().mockResolvedValue([]),
+  getSessionMessages: vi.fn().mockResolvedValue([{ type: 'user' }]),
   renameSession: vi.fn(),
 }));
 
@@ -88,6 +88,15 @@ describe('discoverSession', () => {
     );
     expect(result).toBeTruthy();
     expect(result!.sessionId).toBe('sess-orphan');
+  });
+
+  it('does not backfill a title-only record as a conversation', async () => {
+    mockGetSessionInfo.mockResolvedValue({ sessionId: 'ghost', summary: 'Pricing inquiry' });
+    const sdk = await import('@anthropic-ai/claude-agent-sdk');
+    vi.mocked(sdk.getSessionMessages).mockResolvedValueOnce([]);
+    const { discoverSession } = await import('../chat.js');
+    expect(await discoverSession('ghost')).toBeNull();
+    expect(mockUpsertSession).not.toHaveBeenCalled();
   });
 
   it('returns null when SDK does not find the session', async () => {

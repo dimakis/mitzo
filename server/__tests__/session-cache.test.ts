@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 const mockListSessions = vi.fn().mockResolvedValue([]);
+const mockGetSessionMessages = vi.fn().mockResolvedValue([{ type: 'user' }]);
 const mockUpsertSession = vi.fn();
 const mockGetSession = vi.fn();
 const mockListSessionsMeta = vi.fn().mockReturnValue([]);
@@ -10,7 +11,7 @@ vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
   query: vi.fn(),
   listSessions: (...args: unknown[]) => mockListSessions(...args),
   getSessionInfo: vi.fn().mockResolvedValue(undefined),
-  getSessionMessages: vi.fn().mockResolvedValue([]),
+  getSessionMessages: (...args: unknown[]) => mockGetSessionMessages(...args),
   renameSession: vi.fn(),
 }));
 
@@ -50,6 +51,7 @@ vi.mock('../mcp-config.js', () => ({
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mockGetSessionMessages.mockResolvedValue([{ type: 'user' }]);
 });
 
 describe('getSessionsCached', () => {
@@ -224,6 +226,7 @@ describe('getSessionsCached', () => {
       {
         sessionId: 'sess-recent-zero',
         summary: 'Just created',
+        initialPrompt: 'Verify the figures',
         numTurns: 0,
         promptCount: 0,
         isActive: false,
@@ -239,6 +242,24 @@ describe('getSessionsCached', () => {
 
     expect(sessions).toHaveLength(1);
     expect(sessions[0].id).toBe('sess-recent-zero');
+  });
+
+  it('hides recent metadata-only imports without hiding real starting chats', async () => {
+    const recent = {
+      numTurns: 0,
+      promptCount: 0,
+      isActive: false,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+    mockListSessionsMeta.mockReturnValue([
+      { ...recent, sessionId: 'title-only', summary: 'Pricing inquiry' },
+      { ...recent, sessionId: 'starting', initialPrompt: 'Check pricing' },
+      { ...recent, sessionId: 'bound', accountBinding: { accountId: 'test' } },
+      { ...recent, sessionId: 'active', isActive: true },
+    ]);
+    const { getSessionsCached } = await import('../chat.js');
+    expect(getSessionsCached().sessions.map((s) => s.id)).toEqual(['starting', 'bound', 'active']);
   });
 
   it('hides an old zero-turn inactive session past the grace period', async () => {
@@ -265,6 +286,30 @@ describe('getSessionsCached', () => {
 });
 
 describe('syncSessionTimestamps', () => {
+  it('does not import title-only SDK records in full or background listing', async () => {
+    mockListSessions.mockResolvedValue([
+      {
+        sessionId: 'title-only',
+        summary: 'Pricing inquiry',
+        customTitle: 'Pricing inquiry',
+        lastModified: Date.now(),
+      },
+      { sessionId: 'real-chat', summary: 'Image chat', lastModified: Date.now() },
+    ]);
+    mockGetSessionMessages.mockImplementation(async (id: string) =>
+      id === 'real-chat' ? [{ type: 'user', message: { content: [{ type: 'image' }] } }] : [],
+    );
+    mockGetSession.mockReturnValue(null);
+    mockListSessionsMeta.mockReturnValue([]);
+    const { getSessions, syncSessionTimestamps } = await import('../chat.js');
+    expect((await getSessions()).sessions.map((s) => s.id)).toEqual(['real-chat']);
+    await syncSessionTimestamps();
+    expect(mockUpsertSession.mock.calls.every(([meta]) => meta.sessionId === 'real-chat')).toBe(
+      true,
+    );
+    expect(mockUpsertSession).toHaveBeenCalled();
+  });
+
   it('inserts new sessions from filesystem into EventStore', async () => {
     mockListSessions.mockResolvedValue([
       {
