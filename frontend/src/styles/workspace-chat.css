@@ -873,14 +873,14 @@
   /* Keep a full-width, shallow text row above a single compact toolbar. */
   .workspace-chat .chat-input {
     gap: 4px;
-    padding: 4px 8px;
+    padding: 2px 8px;
   }
   .workspace-chat .chat-input-row {
     flex-direction: column;
     align-items: stretch;
     min-width: 0;
-    gap: 2px;
-    padding: 4px;
+    gap: 1px;
+    padding: 2px 4px;
     border-radius: 14px;
   }
   .workspace-chat .chat-input-field {
