@@ -7,6 +7,19 @@ export function getRawInput(
   input: Record<string, unknown>,
 ): RawToolInput | undefined {
   switch (toolName) {
+    case 'RequestWebAccess':
+    case 'mcp__mitzo-web-access__RequestWebAccess': {
+      const operation = input.operation;
+      if (!['fetch', 'search', 'request_access', 'revoke_access'].includes(String(operation)))
+        return undefined;
+      return {
+        type: 'web',
+        operation: operation as RawToolInput['operation'],
+        ...(typeof input.url === 'string' ? { url: input.url.slice(0, 4000) } : {}),
+        ...(typeof input.query === 'string' ? { query: input.query.slice(0, 2000) } : {}),
+        ...(typeof input.reason === 'string' ? { reason: input.reason.slice(0, 1000) } : {}),
+      };
+    }
     case 'Read': {
       const path = String(input.file_path || '');
       return {

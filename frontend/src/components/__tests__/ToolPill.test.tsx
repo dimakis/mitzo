@@ -2,6 +2,7 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { render, screen, fireEvent, cleanup } from '@testing-library/react';
 import { MemoryRouter, useLocation } from 'react-router-dom';
+import { getRawInput, summarizeToolInput } from '@mitzo/protocol';
 import { ToolPill } from '../ToolPill';
 import type { FinishedBlock } from '../../types/chat';
 
@@ -392,4 +393,71 @@ it('names searches and origin grants separately from reads', () => {
     ),
   );
   expect(screen.getByText('Website access')).toBeTruthy();
+});
+
+it.each([
+  [
+    'request_access',
+    'URL read access approved for https://claude.com for 15 minutes in this session.',
+    'Access granted · 15 minutes',
+  ],
+  ['revoke_access', 'URL read access revoked for https://claude.com', 'Access revoked'],
+  ['fetch', 'External source (untrusted): https://claude.com/pricing', 'Read complete'],
+  ['search', 'Search answer', 'Search complete'],
+])('distinguishes successful %s operations', (operation, toolResult, label) => {
+  render(
+    wrap(
+      <ToolPill
+        block={{
+          blockId: 'web',
+          blockType: 'tool_use',
+          content: '',
+          toolName: 'RequestWebAccess',
+          toolInput: JSON.stringify({ operation, url: 'https://claude.com/pricing' }),
+          toolResult,
+        }}
+      />,
+    ),
+  );
+  expect(screen.getByText(label)).toBeTruthy();
+});
+it('keeps long exact destinations and queries when the tool summary is truncated', () => {
+  const url = 'https://example.com/search?q=' + 'x'.repeat(300);
+  const input = { operation: 'fetch', url, reason: 'why'.repeat(200) };
+  render(
+    wrap(
+      <ToolPill
+        block={{
+          blockId: 'web',
+          blockType: 'tool_use',
+          content: '',
+          toolName: 'RequestWebAccess',
+          toolInput: summarizeToolInput('RequestWebAccess', input),
+          rawInput: getRawInput('RequestWebAccess', input),
+          toolResult: 'page',
+        }}
+      />,
+    ),
+  );
+  expect(screen.getByText('example.com/search?q=' + 'x'.repeat(300))).toBeTruthy();
+});
+it('distinguishes exact query destinations in legacy inputs', () => {
+  render(
+    wrap(
+      <ToolPill
+        block={{
+          blockId: 'web',
+          blockType: 'tool_use',
+          content: '',
+          toolName: 'RequestWebAccess',
+          toolInput: JSON.stringify({
+            operation: 'fetch',
+            url: 'https://example.com/search?q=one',
+          }),
+          toolResult: 'page',
+        }}
+      />,
+    ),
+  );
+  expect(screen.getByText('example.com/search?q=one')).toBeTruthy();
 });

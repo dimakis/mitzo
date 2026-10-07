@@ -1,3 +1,4 @@
+import type { RawToolInput } from '../types/chat';
 import type { ToolBlock } from './tool-status';
 
 /** Uses server-authored outcomes; unknown failures never imply approval succeeded. */
@@ -7,7 +8,23 @@ export function webAccessOutcome(block: ToolBlock): string | undefined {
   )
     return undefined;
   if (block.toolResult === undefined) return 'Request in progress…';
-  if (!block.toolError) return 'Completed';
+  if (!block.toolError) {
+    const operation = webRequest(block.toolInput ?? '', block.rawInput)?.operation;
+    if (
+      operation === 'request_access' ||
+      block.toolResult.startsWith('URL read access approved for ')
+    )
+      return 'Access granted · 15 minutes';
+    if (
+      operation === 'revoke_access' ||
+      block.toolResult.startsWith('URL read access revoked for ')
+    )
+      return 'Access revoked';
+    if (operation === 'search') return 'Search complete';
+    if (operation === 'fetch' || block.toolResult.startsWith('External source (untrusted):'))
+      return 'Read complete';
+    return 'Completed';
+  }
   const result = block.toolResult;
   if (result.startsWith('The website redirected to ')) return 'Approved · Redirect needs approval';
   if (result.startsWith('The website refused the approved read'))
@@ -27,10 +44,19 @@ export function webAccessOutcome(block: ToolBlock): string | undefined {
   return 'Access failed';
 }
 
-export function webAccessSummary(input: string) {
+function webRequest(input: string, raw?: RawToolInput): RawToolInput | undefined {
+  if (raw?.type === 'web') return raw;
+  try {
+    return JSON.parse(input);
+  } catch {
+    return undefined;
+  }
+}
+
+export function webAccessSummary(input: string, raw?: RawToolInput) {
   const fallback = { name: 'Website read', target: input };
   try {
-    const request = JSON.parse(input);
+    const request = webRequest(input, raw);
     if (request?.operation === 'search')
       return {
         name: 'Web search',
@@ -44,7 +70,7 @@ export function webAccessSummary(input: string) {
         : request.operation === 'revoke_access'
           ? 'Revoke website access'
           : 'Website read';
-    return { name, target: url.host + (url.pathname === '/' ? '' : url.pathname) };
+    return { name, target: url.host + (url.pathname === '/' ? '' : url.pathname) + url.search };
   } catch {
     return fallback;
   }
