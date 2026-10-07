@@ -34,6 +34,16 @@
   white-space: nowrap;
 }
 
+.codex-queue-status-line--capacity {
+  flex-wrap: wrap;
+}
+
+.codex-queue-status-line--capacity strong,
+.codex-queue-capacity-context {
+  flex-basis: 100%;
+  white-space: normal;
+}
+
 .codex-queue-status-attention {
   display: inline-flex;
   align-items: center;

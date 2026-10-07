@@ -1,3 +1,9 @@
+import {
+  CAPACITY_REATTACH_READY_TIMEOUT_MS,
+  retryCapacityAfterReattachment,
+  waitForReattachedCodexRuntime,
+} from './codex-capacity-reattachment.js';
+import type { AccountBinding } from '@mitzo/protocol';
 import { SymposiumReviewActionAuthority } from './symposium-review-action-authority.js';
 import { createSymposiumSuccessorFixAuthority } from './symposium-artifact-successor-authority.js';
 import { createSymposiumReaderAuthorityBridge } from './symposium-reader-authority-bridge.js';
@@ -95,6 +101,8 @@ import {
   waitForCodexRuntimeBySessionId,
   readCodexQueueOverview,
   cancelCodexQueuedCommand,
+  stopCodexCapacityRecovery,
+  readCodexCapacityRecovery,
 } from './codex-chat-session.js';
 import { createCodexQueueRouter } from './codex-queue-routes.js';
 import { createCodexPathProtection } from './codex-private-path.js';
@@ -2747,6 +2755,48 @@ app.get('/api/sessions/:id/meta', async (req, res) => {
   });
 });
 
+async function reattachCodexQueue(
+  id: string,
+  binding: AccountBinding,
+  waitForReady = false,
+  deadline = Date.now() + CAPACITY_REATTACH_READY_TIMEOUT_MS,
+): Promise<'ready' | 'reattaching' | 'unavailable'> {
+  const existing = registry.findBySessionId(id)?.session;
+  if (existing && getCodexRuntime(existing)) return 'ready';
+  const meta = eventStore.getSession(id);
+  if (!meta) return 'unavailable';
+  if (!existing && !codexReattachments.has(id)) {
+    const operation = startChat(new NullTransport(), `provider-recovery:${id}`, '', {
+      resume: id,
+      accountId: binding.accountId,
+      model: meta.selectedModel ?? binding.model,
+      reasoningEffort: meta.reasoningEffort,
+      agentName: meta.agentName ?? undefined,
+      reattachOnly: true,
+    })
+      .then(() => undefined)
+      .catch((error: unknown) => {
+        log.warn('provider reattachment failed', {
+          sessionId: id,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      })
+      .finally(() => codexReattachments.delete(id));
+    codexReattachments.set(id, operation);
+  }
+  const runtime = await waitForReattachedCodexRuntime(
+    waitForReady ? codexReattachments.get(id) : undefined,
+    async (signal) =>
+      !!(await waitForCodexRuntimeBySessionId(
+        registry,
+        id,
+        waitForReady ? Math.max(0, deadline - Date.now()) : 1000,
+        signal,
+      )),
+  );
+  return runtime ? 'ready' : codexReattachments.has(id) ? 'reattaching' : 'unavailable';
+}
+
 app.use(
   '/api/sessions',
   createCodexQueueRouter({
@@ -2767,33 +2817,32 @@ app.use(
       const runtime = session ? getCodexRuntime(session) : undefined;
       return runtime ? runtime.retryLatestFailed(confirmAmbiguous) : 'unavailable';
     },
-    reattach: async (id, binding) => {
-      const existing = registry.findBySessionId(id)?.session;
-      if (existing && getCodexRuntime(existing)) return 'ready';
-      const meta = eventStore.getSession(id);
-      if (!meta) return 'unavailable';
-      if (!existing && !codexReattachments.has(id)) {
-        const operation = startChat(new NullTransport(), `provider-recovery:${id}`, '', {
-          resume: id,
-          accountId: binding.accountId,
-          model: meta.selectedModel ?? binding.model,
-          reasoningEffort: meta.reasoningEffort,
-          agentName: meta.agentName ?? undefined,
-          reattachOnly: true,
-        })
-          .then(() => undefined)
-          .catch((error: unknown) => {
-            log.warn('provider reattachment failed', {
-              sessionId: id,
-              error: error instanceof Error ? error.message : String(error),
-            });
-          })
-          .finally(() => codexReattachments.delete(id));
-        codexReattachments.set(id, operation);
-      }
-      const runtime = await waitForCodexRuntimeBySessionId(registry, id, 1000);
-      return runtime ? 'ready' : codexReattachments.has(id) ? 'reattaching' : 'unavailable';
+    capacityRetry: (id, binding, recoveryId, sourceCommandId) => {
+      const deadline = Date.now() + CAPACITY_REATTACH_READY_TIMEOUT_MS;
+      return retryCapacityAfterReattachment(
+        { recoveryId, sourceCommandId },
+        {
+          read: () => readCodexCapacityRecovery(id, binding),
+          reattach: () => reattachCodexQueue(id, binding, true, deadline),
+          retry: async () => {
+            const session = registry.findBySessionId(id)?.session;
+            const runtime = session ? getCodexRuntime(session) : undefined;
+            return runtime
+              ? runtime.tryCapacityNow(recoveryId, sourceCommandId, deadline)
+              : 'unavailable';
+          },
+        },
+      );
     },
+    capacityStop: (id, binding, recoveryId, sourceCommandId) =>
+      stopCodexCapacityRecovery(
+        id,
+        binding,
+        recoveryId,
+        sourceCommandId,
+        registry.findBySessionId(id)?.session,
+      ),
+    reattach: (id, binding) => reattachCodexQueue(id, binding),
   }),
 );
 

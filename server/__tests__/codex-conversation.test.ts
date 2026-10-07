@@ -195,6 +195,7 @@ async function setup(
       context: { turnId: string; callId: string },
     ) => void;
   },
+  enableCapacityRecovery = false,
 ) {
   const dir = mkdtempSync(join(tmpdir(), 'mitzo-codex-'));
   const store = existingStore ?? new CodexConversationStore(join(dir, 'private.db'));
@@ -280,6 +281,7 @@ async function setup(
     beforeRuntimeAdmission,
     reconnectGuard,
     deferToolSurfaceReplacement,
+    enableCapacityRecovery,
     onThreadChanged,
     onProviderDispatch,
     onProviderComplete,
@@ -1740,7 +1742,9 @@ it('marks failed provider turns as errors without exposing provider diagnostics'
     expect.objectContaining({ type: 'result', session_id: 'app', is_error: true }),
   );
   expect(onError).toHaveBeenCalledWith(
-    expect.objectContaining({ message: 'The provider did not complete the turn.' }),
+    expect.objectContaining({
+      message: 'The provider rejected the configured account credentials or permissions.',
+    }),
   );
   expect(c.isPaused()).toBe(true);
 });
@@ -1776,7 +1780,7 @@ it('attaches a sanitized typed failure to a failed provider result', async () =>
         correlationId: 'turn-1',
         retryAfterMs: 9_000,
         message:
-          'OpenAI is temporarily overloaded. This turn is saved and can be retried when capacity is available.',
+          'The provider is temporarily unavailable or busy. Wait before trying a new turn. Inspect saved work before retrying.',
       },
     }),
   );
@@ -3176,4 +3180,648 @@ it('never retries an accepted turn after transport loss during ownership registr
   expect(await reopened.c.retryLatestFailed(true)).toBe('not_found');
   expect(store.commands('app', binding)).toEqual(before);
   expect(reopened.requests.filter((r) => r.method === 'turn/start')).toHaveLength(0);
+});
+
+it('delivers actionable native model capacity errors while retaining explicit retry confirmation', async () => {
+  const { c, callbacks, events, onError, requests } = await setup();
+  await c.send({ id: 'native-capacity', prompt: 'hello' });
+  callbacks.onNotification('turn/completed', {
+    threadId: 'provider-thread',
+    turn: {
+      id: 'turn-1',
+      status: 'failed',
+      error: {
+        message: 'Selected model is at capacity. Please try a different model.',
+        codex_error_info: 'server_overloaded',
+      },
+    },
+  });
+  const message =
+    'The selected model is at capacity. Wait for capacity or choose another available model. Your progress is saved.';
+  expect(events).toContainEqual(
+    expect.objectContaining({
+      type: 'result',
+      is_error: true,
+      provider_failure: expect.objectContaining({
+        category: 'overloaded',
+        code: 'server_overloaded',
+        message,
+        retryable: true,
+        ambiguous: true,
+      }),
+    }),
+  );
+  expect(onError).toHaveBeenCalledWith(
+    expect.objectContaining({ message, failure: expect.objectContaining({ message }) }),
+  );
+  expect(codexTurnFailureDiagnostic({ codex_error_info: 'server_overloaded' })).toBe(message);
+  expect(c.isPaused()).toBe(true);
+  expect(await c.retryLatestFailed()).toBe('confirmation_required');
+  expect(requests.filter(({ method }) => method === 'turn/start')).toHaveLength(1);
+  expect(c.queue()).toMatchObject([{ id: 'native-capacity', status: 'failed', attempt: 1 }]);
+});
+
+it('preserves accepted tools and adoption after capacity failure without advertising a forbidden retry', async () => {
+  const args: Parameters<typeof setup> = [];
+  args[4] = async () => binding;
+  args[13] = async () => 'verified context';
+  args[14] = vi.fn();
+  args[17] = true;
+  const f = await setup(...args);
+  await f.c.send({ id: 'accepted-capacity', prompt: 'hello' });
+  await f.callbacks.onRequest(
+    'item/tool/call',
+    {
+      threadId: 'provider-thread',
+      turnId: 'turn-1',
+      callId: 'tool-capacity',
+      tool: 'Read',
+      arguments: {},
+    },
+    new AbortController().signal,
+  );
+  expect(f.execute).toHaveBeenCalledOnce();
+  expect(args[14]).toHaveBeenCalledExactlyOnceWith(
+    'accepted-capacity',
+    'provider-thread',
+    'turn-1',
+    'verified context',
+  );
+  const acceptance = f.store.readThreadAcceptances('app', binding);
+  f.callbacks.onNotification('turn/completed', {
+    threadId: 'provider-thread',
+    turn: {
+      id: 'turn-1',
+      status: 'failed',
+      error: {
+        message: 'Bearer sk-private at https://private.invalid',
+        codex_error_info: 'server_overloaded',
+      },
+    },
+  });
+  expect(f.store.readThreadAcceptances('app', binding)).toEqual(acceptance);
+  expect(f.store.queueSummary('app', binding)).toMatchObject({
+    failed: 1,
+    retryable: false,
+    requiresRetryConfirmation: true,
+  });
+  expect(await f.c.retryLatestFailed(true)).toBe('not_retryable');
+  expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(1);
+  expect(f.c.queue()).toMatchObject([{ id: 'accepted-capacity', status: 'failed', attempt: 1 }]);
+  expect(JSON.stringify(f.events)).not.toMatch(/sk-private|private.invalid|Bearer/);
+  expect(f.execute).toHaveBeenCalledOnce();
+});
+
+it('does not fork or automatically continue queued work for capacity with a misleading stream message', async () => {
+  const args: Parameters<typeof setup> = [];
+  args[4] = async () => binding;
+  const f = await setup(...args);
+  await f.c.send({ id: 'capacity-stream', prompt: 'hello' });
+  f.c.enqueue({ id: 'later', prompt: 'later' });
+  f.callbacks.onNotification('turn/completed', {
+    threadId: 'provider-thread',
+    turn: {
+      id: 'turn-1',
+      status: 'failed',
+      error: {
+        codex_error_info: 'server_overloaded',
+        message: 'stream disconnected before completion: selected model is at capacity',
+      },
+    },
+  });
+  expect(f.store.read('app', binding).recoveryStrategy).toBe('resume');
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  expect(f.c.isPaused()).toBe(true);
+  expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(1);
+  expect(f.requests.filter(({ method }) => method === 'thread/fork')).toHaveLength(0);
+  expect(f.c.queue()).toMatchObject([
+    { id: 'capacity-stream', status: 'failed' },
+    { id: 'later', status: 'queued' },
+  ]);
+});
+
+it('continues accepted saved progress after thirty seconds without resending the original prompt', async () => {
+  vi.useFakeTimers();
+  try {
+    const args: Parameters<typeof setup> = [];
+    args[4] = async () => binding;
+    args[13] = async () => 'fresh shared context';
+    args[14] = vi.fn();
+    args[17] = true;
+    args[20] = true;
+    const f = await setup(...args);
+    await f.c.send({
+      id: 'capacity-original',
+      prompt: 'Original user prompt must not be replayed',
+    });
+    f.c.enqueue({ id: 'old-fifo', prompt: 'Queued before failure' });
+    f.callbacks.onNotification('turn/completed', {
+      threadId: 'provider-thread',
+      turn: { id: 'turn-1', status: 'failed', error: { codex_error_info: 'server_overloaded' } },
+    });
+    const original = f.c.queue()[0];
+    await vi.advanceTimersByTimeAsync(29_999);
+    expect(f.requests.filter((r) => r.method === 'turn/start')).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(1);
+    const starts = f.requests.filter((r) => r.method === 'turn/start');
+    expect(starts).toHaveLength(2);
+    expect(f.requests.find((r) => r.method === 'thread/turns/list')?.params).toMatchObject({
+      limit: 1,
+      itemsView: 'notLoaded',
+    });
+    expect(starts[1].params).toMatchObject({
+      threadId: 'provider-thread',
+      model: 'test-model',
+      input: [],
+    });
+    expect(f.c.queue()[0]).toEqual(original);
+    expect(f.c.queue().find((c) => c.id === 'old-fifo')?.status).toBe('queued');
+    expect(args[14]).toHaveBeenCalledTimes(2);
+    expect(f.store.capacityRecovery('app', binding)).toMatchObject({
+      status: 'running',
+      attempts: 1,
+    });
+    f.c.close();
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+async function capacityFixture(prepareSystemPrompt?: Parameters<typeof setup>[13]) {
+  const args: Parameters<typeof setup> = [];
+  args[4] = async () => binding;
+  args[13] = prepareSystemPrompt;
+  args[17] = true;
+  args[20] = true;
+  const f = await setup(...args);
+  await f.c.send({ id: 'root-capacity', prompt: 'Original work' });
+  const fail = (turnId: string) =>
+    f.callbacks.onNotification('turn/completed', {
+      threadId: 'provider-thread',
+      turn: { id: turnId, status: 'failed', error: { codex_error_info: 'server_overloaded' } },
+    });
+  fail('turn-1');
+  return { ...f, fail };
+}
+it('shares manual capacity attempts with automatic five-attempt backoff, then explicitly starts a new cycle', async () => {
+  vi.useFakeTimers();
+  try {
+    const f = await capacityFixture();
+    const initial = f.store.capacityRecovery('app', binding)!;
+    await f.c.tryCapacityNow(initial.id, initial.sourceCommandId);
+    f.fail('turn-2');
+    expect(f.store.capacityRecovery('app', binding)).toMatchObject({
+      id: initial.id,
+      status: 'waiting',
+      attempts: 1,
+      nextRetryAt: Date.now() + 30_000,
+    });
+    for (let i = 2; i <= 5; i++) {
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(f.requests.filter((r) => r.method === 'turn/start')).toHaveLength(i + 1);
+      f.fail(`turn-${i + 1}`);
+    }
+    expect(f.store.capacityRecovery('app', binding)).toMatchObject({
+      id: initial.id,
+      status: 'exhausted',
+      attempts: 5,
+    });
+    await vi.advanceTimersByTimeAsync(300_000);
+    expect(f.requests.filter((r) => r.method === 'turn/start')).toHaveLength(6);
+    await f.c.tryCapacityNow(initial.id, initial.sourceCommandId);
+    expect(f.store.capacityRecovery('app', binding)).toMatchObject({
+      status: 'running',
+      attempts: 1,
+    });
+    expect(f.store.capacityRecovery('app', binding)?.id).not.toBe(initial.id);
+    expect(
+      f.requests
+        .filter((r) => r.method === 'turn/start')
+        .slice(1)
+        .every((r) => (r.params.input as unknown[]).length === 0),
+    ).toBe(true);
+    f.c.close();
+  } finally {
+    vi.useRealTimers();
+  }
+});
+it.each([false, true])(
+  'serializes a held manual capacity probe with deadline and Stop (stop=%s)',
+  async (stop) => {
+    vi.useFakeTimers();
+    try {
+      const f = await capacityFixture();
+      const episode = f.store.capacityRecovery('app', binding)!;
+      const original = f.rpc.request.getMockImplementation()!;
+      let release!: () => void;
+      f.rpc.request.mockImplementation(async (method, params) => {
+        if (method === 'thread/turns/list')
+          await new Promise<void>((resolve) => {
+            release = resolve;
+          });
+        return original(method, params);
+      });
+      const manual = f.c.tryCapacityNow(episode.id, episode.sourceCommandId, Date.now() + 60_000);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(release).toBeTypeOf('function');
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(f.requests.filter((r) => r.method === 'turn/start')).toHaveLength(1);
+      if (stop) await f.c.stopCapacityRetry(episode.id, episode.sourceCommandId);
+      release();
+      if (stop) {
+        await expect(manual).rejects.toThrow('changed');
+        expect(f.store.capacityRecovery('app', binding)).toMatchObject({
+          status: 'stopped',
+          attempts: 0,
+        });
+        expect(f.requests.filter((r) => r.method === 'turn/start')).toHaveLength(1);
+      } else {
+        await manual;
+        expect(f.store.capacityRecovery('app', binding)).toMatchObject({
+          id: episode.id,
+          status: 'running',
+          attempts: 1,
+        });
+        expect(f.requests.filter((r) => r.method === 'turn/start')).toHaveLength(2);
+      }
+      f.c.close();
+    } finally {
+      vi.useRealTimers();
+    }
+  },
+);
+it('stops only the owned active continuation and keeps unrelated FIFO paused', async () => {
+  vi.useFakeTimers();
+  try {
+    const f = await capacityFixture();
+    f.store.enqueue('app', binding, { id: 'unrelated', prompt: 'Later authorized work' });
+    await vi.advanceTimersByTimeAsync(30_000);
+    const episode = f.store.capacityRecovery('app', binding)!;
+    await f.c.stopCapacityRetry(episode.id, episode.sourceCommandId);
+    expect(f.requests.filter((r) => r.method === 'turn/interrupt')).toMatchObject([
+      { params: { threadId: 'provider-thread', turnId: 'turn-2' } },
+    ]);
+    f.callbacks.onNotification('turn/completed', {
+      threadId: 'provider-thread',
+      turn: { id: 'turn-2', status: 'interrupted' },
+    });
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(f.c.isPaused()).toBe(true);
+    expect(f.store.read('app', binding).recovery).toBe(1);
+    expect(f.c.queue().find((c) => c.id === 'unrelated')?.status).toBe('queued');
+    expect(f.requests.filter((r) => r.method === 'turn/start')).toHaveLength(2);
+    await expect(f.c.tryCapacityNow(episode.id, episode.sourceCommandId)).rejects.toThrow();
+    f.c.close();
+  } finally {
+    vi.useRealTimers();
+  }
+});
+it('lets explicit new user input supersede capacity scheduling without replaying original work', async () => {
+  vi.useFakeTimers();
+  try {
+    const f = await capacityFixture();
+    await f.c.send({ id: 'new-intent', prompt: 'New user instruction' });
+    await vi.advanceTimersByTimeAsync(60_000);
+    const starts = f.requests.filter((r) => r.method === 'turn/start');
+    expect(starts).toHaveLength(2);
+    expect(starts[1].params.input).toMatchObject([{ type: 'text', text: 'New user instruction' }]);
+    expect(f.store.capacityRecovery('app', binding)).toBeUndefined();
+    expect(f.c.queue()[0]).toMatchObject({ id: 'root-capacity', status: 'failed', attempt: 1 });
+    f.c.close();
+  } finally {
+    vi.useRealTimers();
+  }
+});
+it('explicitly reconnects an idle lost transport before a same-thread capacity continuation', async () => {
+  vi.useFakeTimers();
+  try {
+    const f = await capacityFixture();
+    f.callbacks.onClose(new Error('idle transport loss'));
+    const stopped = f.store.capacityRecovery('app', binding)!;
+    await f.c.tryCapacityNow(stopped.id, stopped.sourceCommandId);
+    expect(f.requests.filter((r) => r.method === 'thread/resume')).toHaveLength(1);
+    expect(f.requests.filter((r) => r.method === 'thread/fork')).toHaveLength(0);
+    expect(f.requests.filter((r) => r.method === 'turn/start').at(-1)?.params).toMatchObject({
+      threadId: 'provider-thread',
+      input: [],
+    });
+    f.c.close();
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+it.each(['close', 'transport'] as const)(
+  'cleans up capacity scheduling on %s despite a recovery persistence failure',
+  async (kind) => {
+    vi.useFakeTimers();
+    try {
+      const f = await capacityFixture();
+      vi.spyOn(f.store, 'stopCapacityRecovery').mockImplementation(() => {
+        throw new Error('private database diagnostic');
+      });
+      expect(() => {
+        if (kind === 'close') f.c.close();
+        else f.callbacks.onClose(new Error('transport closed'));
+      }).not.toThrow();
+      expect(f.onError).toHaveBeenCalledWith(
+        expect.objectContaining({
+          message: 'Capacity recovery state could not be saved during cleanup.',
+        }),
+      );
+      expect(f.c.isPaused()).toBe(true);
+      if (kind === 'close') expect(f.rpc.close).toHaveBeenCalledOnce();
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(f.requests.filter((request) => request.method === 'turn/start')).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  },
+);
+it.each(['model', 'malformed', 'duplicate'] as const)(
+  'does not supersede capacity backoff for an invalid %s send',
+  async (kind) => {
+    vi.useFakeTimers();
+    try {
+      const f = await capacityFixture();
+      const before = f.store.capacityRecovery('app', binding);
+      const input =
+        kind === 'model'
+          ? { id: 'invalid', prompt: 'new intent', model: 'unsupported-model' }
+          : kind === 'malformed'
+            ? { id: 'invalid', prompt: '' }
+            : { id: 'root-capacity', prompt: 'different input' };
+      expect(() => f.c.enqueue(input)).toThrow();
+      expect(f.store.capacityRecovery('app', binding)).toEqual(before);
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(f.requests.filter((request) => request.method === 'turn/start')).toHaveLength(2);
+      f.c.close();
+    } finally {
+      vi.useRealTimers();
+    }
+  },
+);
+it('lets a validated new instruction supersede exhausted capacity retries', async () => {
+  vi.useFakeTimers();
+  try {
+    const f = await capacityFixture();
+    for (let i = 1; i <= 5; i++) {
+      await vi.advanceTimersByTimeAsync(30_000);
+      f.fail(`turn-${i + 1}`);
+    }
+    expect(f.store.capacityRecovery('app', binding)?.status).toBe('exhausted');
+    const original = f.c.queue()[0];
+    await f.c.send({ id: 'after-exhaustion', prompt: 'New authorized instruction' });
+    expect(f.store.capacityRecovery('app', binding)).toBeUndefined();
+    expect(
+      f.requests.filter((request) => request.method === 'turn/start').at(-1)?.params.input,
+    ).toMatchObject([{ type: 'text', text: 'New authorized instruction' }]);
+    expect(f.c.queue()[0]).toMatchObject({
+      id: original.id,
+      attempt: original.attempt,
+      status: 'failed',
+    });
+    f.c.close();
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+it.each(['probe', 'context'] as const)(
+  'never dispatches a manual continuation after its deadline during %s admission',
+  async (phase) => {
+    vi.useFakeTimers();
+    try {
+      let release!: () => void;
+      let prompts = 0;
+      const f = await capacityFixture(async () => {
+        if (phase === 'context' && ++prompts === 2)
+          await new Promise<void>((resolve) => {
+            release = resolve;
+          });
+        return 'Verified context';
+      });
+      if (phase === 'probe') {
+        const original = f.rpc.request.getMockImplementation()!;
+        f.rpc.request.mockImplementation(async (method, params) => {
+          if (method === 'thread/turns/list')
+            await new Promise<void>((resolve) => {
+              release = resolve;
+            });
+          return original(method, params);
+        });
+      }
+      const episode = f.store.capacityRecovery('app', binding)!;
+      const originalCommand = f.c.queue()[0];
+      const operation = f.c.tryCapacityNow(episode.id, episode.sourceCommandId);
+      const outcome = operation.catch((error: unknown) => error);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(release).toBeTypeOf('function');
+      await vi.advanceTimersByTimeAsync(15_000);
+      release();
+      await outcome;
+      expect(f.requests.filter((request) => request.method === 'turn/start')).toHaveLength(1);
+      expect(f.store.capacityRecovery('app', binding)).toMatchObject({
+        status: 'stopped',
+        attempts: 0,
+      });
+      expect(f.c.queue()[0]).toEqual(originalCommand);
+      if (phase === 'context') expect(f.c.queue().at(-1)?.status).toBe('cancelled');
+      f.c.close();
+    } finally {
+      vi.useRealTimers();
+    }
+  },
+);
+it('keeps a continuation whose native dispatch crossed the manual deadline', async () => {
+  vi.useFakeTimers();
+  try {
+    const f = await capacityFixture();
+    const original = f.rpc.request.getMockImplementation()!;
+    let release!: () => void;
+    f.rpc.request.mockImplementation(async (method, params) => {
+      const result = await original(method, params);
+      if (method === 'turn/start')
+        await new Promise<void>((resolve) => {
+          release = resolve;
+        });
+      return result;
+    });
+    const episode = f.store.capacityRecovery('app', binding)!;
+    const operation = f.c.tryCapacityNow(episode.id, episode.sourceCommandId);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(release).toBeTypeOf('function');
+    await vi.advanceTimersByTimeAsync(15_000);
+    release();
+    expect(await operation).toBe('queued');
+    expect(f.store.capacityRecovery('app', binding)).toMatchObject({
+      status: 'running',
+      attempts: 1,
+    });
+    expect(f.c.queue().at(-1)?.status).toBe('running');
+    expect(f.requests.filter((request) => request.method === 'turn/interrupt')).toHaveLength(0);
+    f.c.close();
+  } finally {
+    vi.useRealTimers();
+  }
+});
+it.each(['none', 'sync', 'async'] as const)(
+  'contains automatic retry cleanup failure even when the error observer throws (%s)',
+  async (observerFailure) => {
+    vi.useFakeTimers();
+    try {
+      const f = await capacityFixture();
+      const originalCommand = f.c.queue()[0];
+      const request = f.rpc.request.getMockImplementation()!;
+      f.rpc.request.mockImplementation(async (method, params) => {
+        if (method === 'thread/turns/list') throw new Error('private probe failure');
+        return request(method, params);
+      });
+      const stop = vi.spyOn(f.store, 'stopCapacityRecovery').mockImplementation(() => {
+        throw new Error('private cleanup write failure');
+      });
+      f.onError.mockClear();
+      if (observerFailure === 'sync')
+        f.onError.mockImplementation(() => {
+          throw new Error('private observer failure');
+        });
+      if (observerFailure === 'async')
+        f.onError.mockImplementation(async () => {
+          throw new Error('private observer failure');
+        });
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(f.onError).toHaveBeenCalledWith(
+        expect.objectContaining({
+          message: 'Capacity recovery is paused. Inspect saved work before continuing.',
+        }),
+      );
+      expect(f.c.isPaused()).toBe(true);
+      expect(f.c.queue()[0]).toEqual(originalCommand);
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(f.requests.filter((request) => request.method === 'turn/start')).toHaveLength(1);
+      stop.mockRestore();
+      f.onError.mockReset();
+      f.c.close();
+    } finally {
+      vi.useRealTimers();
+    }
+  },
+);
+it.each(['send', 'stop-then-send', 'send-then-stop'] as const)(
+  'settles a running continuation with explicit intent ordering %s',
+  async (order) => {
+    vi.useFakeTimers();
+    try {
+      const f = await capacityFixture();
+      await vi.advanceTimersByTimeAsync(30_000);
+      const native = f.rpc.request.getMockImplementation()!;
+      f.rpc.request.mockImplementation(async (method, params) => {
+        if (method === 'turn/interrupt') {
+          f.requests.push({ method, params });
+          return {};
+        }
+        return native(method, params);
+      });
+      const episode = f.store.capacityRecovery('app', binding)!;
+      const original = f.c.queue()[0];
+      const acknowledge = vi.spyOn(f.store, 'acknowledgeRecovery');
+      if (order === 'stop-then-send')
+        await f.c.stopCapacityRetry(episode.id, episode.sourceCommandId);
+      await f.c.send({ id: 'new-intent', prompt: 'New authorized instruction' });
+      if (order === 'send-then-stop')
+        await f.c.stopCapacityRetry(episode.id, episode.sourceCommandId);
+      expect(f.requests.filter((request) => request.method === 'turn/start')).toHaveLength(2);
+      f.callbacks.onNotification('turn/completed', {
+        threadId: 'provider-thread',
+        turn: { id: 'turn-2', status: 'completed' },
+      });
+      await vi.advanceTimersByTimeAsync(0);
+      const starts = f.requests.filter((request) => request.method === 'turn/start');
+      if (order === 'send-then-stop') {
+        expect(starts).toHaveLength(2);
+        expect(f.store.read('app', binding).recovery).toBe(1);
+        expect(f.c.queue().find((command) => command.id === 'new-intent')?.status).toBe('queued');
+      } else {
+        expect(starts).toHaveLength(3);
+        expect(starts[2].params.input).toMatchObject([
+          { type: 'text', text: 'New authorized instruction' },
+        ]);
+        expect(f.store.read('app', binding).recovery).toBe(0);
+      }
+      expect(acknowledge).not.toHaveBeenCalled();
+      expect(f.c.queue()[0]).toMatchObject({
+        id: original.id,
+        attempt: original.attempt,
+        status: 'failed',
+      });
+      f.c.close();
+    } finally {
+      vi.useRealTimers();
+    }
+  },
+);
+it.each(['capacity', 'interrupted', 'transport'] as const)(
+  'keeps superseding intent held after a continuation %s outcome',
+  async (outcome) => {
+    vi.useFakeTimers();
+    try {
+      const f = await capacityFixture();
+      await vi.advanceTimersByTimeAsync(30_000);
+      await f.c.send({ id: 'new-intent', prompt: 'New authorized instruction' });
+      if (outcome === 'capacity') f.fail('turn-2');
+      else if (outcome === 'transport') f.callbacks.onClose(new Error('Transport lost'));
+      else
+        f.callbacks.onNotification('turn/completed', {
+          threadId: 'provider-thread',
+          turn: { id: 'turn-2', status: 'interrupted' },
+        });
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(f.requests.filter((request) => request.method === 'turn/start')).toHaveLength(2);
+      expect(f.c.queue().find((command) => command.id === 'new-intent')?.status).toBe('queued');
+      expect(f.store.read('app', binding).recovery).toBe(1);
+      f.c.close();
+    } finally {
+      vi.useRealTimers();
+    }
+  },
+);
+it('persists the exact delayed child ACK after new intent stops its future retries', async () => {
+  vi.useFakeTimers();
+  try {
+    const f = await capacityFixture();
+    const native = f.rpc.request.getMockImplementation()!;
+    let acknowledge!: () => void;
+    f.rpc.request.mockImplementation(async (method, params) => {
+      const result = await native(method, params);
+      if (method === 'turn/start')
+        await new Promise<void>((resolve) => {
+          acknowledge = resolve;
+        });
+      return result;
+    });
+    const episode = f.store.capacityRecovery('app', binding)!;
+    const retry = f.c.tryCapacityNow(episode.id, episode.sourceCommandId);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(acknowledge).toBeTypeOf('function');
+    await f.c.send({ id: 'new-intent', prompt: 'New authorized instruction' });
+    expect(f.store.capacityRecovery('app', binding)?.status).toBe('stopped');
+    acknowledge();
+    await retry;
+    expect(f.store.capacityRecovery('app', binding)).toMatchObject({
+      status: 'stopped',
+      supersedingCommandId: 'new-intent',
+    });
+    f.rpc.request.mockImplementation(native);
+    f.callbacks.onNotification('turn/completed', {
+      threadId: 'provider-thread',
+      turn: { id: 'turn-2', status: 'completed' },
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(
+      f.requests.filter((request) => request.method === 'turn/start').at(-1)?.params.input,
+    ).toMatchObject([{ type: 'text', text: 'New authorized instruction' }]);
+    f.c.close();
+  } finally {
+    vi.useRealTimers();
+  }
 });

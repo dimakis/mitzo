@@ -353,11 +353,31 @@ export function cancelCodexQueuedCommand(
     ? live.cancelQueued(commandId)
     : store().cancelQueued(conversationId, binding, commandId);
 }
+type CodexQueueStatus = Pick<
+  ReturnType<CodexConversationStore['queueSummary']>,
+  'queued' | 'interrupted' | 'failed'
+> &
+  Partial<
+    Pick<
+      ReturnType<CodexConversationStore['queueSummary']>,
+      | 'model'
+      | 'reasoningEffort'
+      | 'retryAvailableAt'
+      | 'retryable'
+      | 'requiresRetryConfirmation'
+      | 'capacityRecovery'
+    >
+  > & {
+    paused: boolean;
+    connected: boolean;
+    recovering: boolean;
+    recoveryPhase?: ReturnType<CodexConversation['getRecoveryPhase']>;
+  };
 export function readCodexQueue(
   conversationId: string,
   binding: AccountBinding,
   session?: ManagedSession,
-) {
+): CodexQueueStatus | undefined {
   if (binding.provider !== 'openai-codex' && binding.provider !== 'openai') return undefined;
   try {
     const live = session ? getCodexRuntime(session) : undefined;
@@ -375,6 +395,7 @@ export function readCodexQueue(
       retryAvailableAt: summary.retryAvailableAt,
       retryable: summary.retryable,
       requiresRetryConfirmation: summary.requiresRetryConfirmation,
+      ...(summary.capacityRecovery ? { capacityRecovery: summary.capacityRecovery } : {}),
     };
   } catch {
     return {
@@ -386,6 +407,21 @@ export function readCodexQueue(
       failed: 0,
     };
   }
+}
+export function readCodexCapacityRecovery(conversationId: string, binding: AccountBinding) {
+  return store().capacityRecovery(conversationId, binding);
+}
+export async function stopCodexCapacityRecovery(
+  conversationId: string,
+  binding: AccountBinding,
+  recoveryId: string,
+  sourceCommandId: string,
+  session?: ManagedSession,
+) {
+  const runtime = session ? getCodexRuntime(session) : undefined;
+  if (runtime) return runtime.stopCapacityRetry(recoveryId, sourceCommandId);
+  store().stopCapacityRecovery(conversationId, binding, recoveryId, sourceCommandId);
+  return 'stopped' as const;
 }
 /** Authoritative lifecycle snapshot. Errors deliberately escape to the caller,
  * where they become a preservation blocker. */
@@ -935,6 +971,7 @@ async function openCodexChatBound(
     storedBinding: options.binding,
     store: privateStorage,
     deferToolSurfaceReplacement: !!runtimeManager,
+    enableCapacityRecovery: true,
     webSearchBackend: openShell ? 'openshell' : 'host',
     webSearchDeploymentRevision: openShell
       ? 'openshell-runtime-config-v1'
