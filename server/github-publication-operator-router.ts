@@ -38,12 +38,10 @@ export function createGithubPublicationOperatorRouter(deps: {
       try {
         return res.json(await deps.invoke(id, input.data, controller.signal));
       } catch {
-        return res
-          .status(409)
-          .json({
-            error:
-              'Live publishing runtime unavailable. Open the existing conversation before requesting publication.',
-          });
+        return res.status(409).json({
+          error:
+            'Live publishing runtime unavailable. Open the existing conversation before requesting publication.',
+        });
       } finally {
         clearTimeout(timer);
         req.off('aborted', abort);

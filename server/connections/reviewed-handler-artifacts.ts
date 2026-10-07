@@ -45,5 +45,5 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../github-seeded-publication.ts':
     '2988fc88db971503bb8f857d0c86cf6134b6ab185cc72529b742c0e1544dd883',
   '../github-publication-operator-router.ts':
-    '259940309a05e749d6968a8a39491e4f8345ea362eaafee50dd8d096f4309950',
+    '43a7f7edf9a9bb894be6843c6c3204a308227daeb495aef0f56ff707dace0a7b',
 });
