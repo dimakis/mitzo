@@ -499,6 +499,12 @@ export async function openCodexChat(options: Options) {
     throw new Error('Native personal ChatGPT accounts require the isolated Symposium runtime');
   const service = getConnectionsRuntime()?.service;
   const configuredRuntime = openShellRuntimeConfig(process.env);
+  if (configuredRuntime) {
+    if (!options.resume)
+      store().reserveStartup(options.conversationId, options.binding, options.session.cwd!);
+    else if (store().startupNeedsProvisioning(options.conversationId, options.binding))
+      options = { ...options, resume: false };
+  }
   if (service && configuredRuntime) {
     // Setup holds the connection reservation through sandbox verification and
     // thread registration. First-turn admission reacquires it; release setup
@@ -969,6 +975,8 @@ async function openCodexChatBound(
       ? '\nThis sandbox has verified read-only Jira access to https://redhat.atlassian.net. Use the scoped API base in JIRA_URL (not the browser site URL). Use the provider-approved /usr/bin/python3 or curl with JIRA_URL, JIRA_EMAIL, and the gateway-managed JIRA_API_TOKEN placeholder for Basic authorization. Never print credential values. Writes are denied by the gateway policy.\n'
       : '');
   let pendingKnowledge: Omit<KnowledgeAdoptionSelection, 'contextSha256'> | undefined;
+  if (configuredRuntime)
+    store().markStartupProviderInitializing(options.conversationId, options.binding);
   const runtime: CodexConversation = new CodexConversation({
     conversationId: options.conversationId,
     cwd: options.session.cwd!,

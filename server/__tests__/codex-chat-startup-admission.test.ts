@@ -25,7 +25,7 @@ vi.mock('../codex-app-server-client.js', async (importOriginal) => ({
   CodexAppServerClient: { launchOpenShell: (...args: unknown[]) => native.launch(...args) },
 }));
 import { getCodexConversationStore, openCodexChat } from '../codex-chat-session.js';
-import { openShellRuntimeConfig } from '../openshell-runtime.js';
+import { OpenShellRuntimeManager, openShellRuntimeConfig } from '../openshell-runtime.js';
 import { initializeOpenShellLifecycle } from '../openshell-lifecycle-controller.js';
 import { sharedOpenShellLifecycleCoordinator } from '../openshell-lifecycle.js';
 import { loadAccountProfiles } from '../account-profiles.js';
@@ -249,6 +249,23 @@ function fixture(
     },
   };
 }
+it('finishes a resumed chat after a provisioning failure before any provider initialization', async () => {
+  const f = fixture();
+  const ensure = vi.spyOn(OpenShellRuntimeManager.prototype, 'ensure');
+  ensure.mockRejectedValueOnce(new Error('transient provisioning failure'));
+  try {
+    await expect(openCodexChat(f.options)).rejects.toThrow('transient provisioning failure');
+    expect(native.launch).not.toHaveBeenCalled();
+    const query = await openCodexChat({ ...f.options, resume: true, messageId: 'retry-' + f.id });
+    expect(f.requests.filter((method) => method === 'thread/start')).toHaveLength(1);
+    expect(f.requests.filter((method) => method === 'turn/start')).toHaveLength(1);
+    expect(getCodexConversationStore().read(f.id, binding).threadId).toBe('thread-' + f.id);
+    query.close();
+  } finally {
+    ensure.mockRestore();
+  }
+});
+
 async function bounded<T>(promise: Promise<T>): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {

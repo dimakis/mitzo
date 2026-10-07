@@ -256,6 +256,9 @@ export class CodexConversationStore {
       conversation_id TEXT PRIMARY KEY REFERENCES codex_conversations(id),
       parent_thread_id TEXT, thread_id TEXT NOT NULL,
       command_id TEXT NOT NULL, attempt INTEGER NOT NULL);`);
+    this.db.exec(`CREATE TABLE IF NOT EXISTS codex_startup_reservations (
+      conversation_id TEXT PRIMARY KEY REFERENCES codex_conversations(id),
+      phase TEXT NOT NULL CHECK(phase IN ('provisioning','provider_initializing')));`);
     this.db.exec(`CREATE TABLE IF NOT EXISTS codex_knowledge_adoptions (
       conversation_id TEXT NOT NULL, command_id TEXT NOT NULL,
       attempt INTEGER NOT NULL, thread_id TEXT NOT NULL, turn_id TEXT NOT NULL,
@@ -719,6 +722,42 @@ export class CodexConversationStore {
           throw new Error('Codex conversation owner is unavailable or changed');
       })
       .immediate();
+  }
+  /** Reserve only newly created ledger rows, never infer undispatched legacy history. */
+  reserveStartup(id: string, b: AccountBinding, cwd: string) {
+    this.db
+      .transaction(() => {
+        const existing = this.db.prepare('SELECT id FROM codex_conversations WHERE id=?').get(id);
+        this.create(id, b, cwd);
+        if (!existing)
+          this.db
+            .prepare(
+              "INSERT INTO codex_startup_reservations(conversation_id,phase) VALUES (?,'provisioning')",
+            )
+            .run(id);
+      })
+      .immediate();
+  }
+  startupNeedsProvisioning(id: string, b: AccountBinding): boolean {
+    const conversation = this.read(id, b);
+    const row = this.db
+      .prepare('SELECT phase FROM codex_startup_reservations WHERE conversation_id=?')
+      .get(id) as { phase: string } | undefined;
+    if (row?.phase !== 'provisioning') return false;
+    this.assertNoPendingThreadDispatch(id, b);
+    this.assertNoPendingThreadOwnership(id, b);
+    if (conversation.threadId || this.commands(id, b).length || this.readArtifactRuntime(id, b))
+      throw new Error('Codex startup reservation conflicts with provider history');
+    return true;
+  }
+  /** Persist the handoff before any app-server process or provider RPC can start. */
+  markStartupProviderInitializing(id: string, b: AccountBinding) {
+    this.read(id, b);
+    this.db
+      .prepare(
+        "UPDATE codex_startup_reservations SET phase='provider_initializing' WHERE conversation_id=? AND phase='provisioning'",
+      )
+      .run(id);
   }
   /** A pre-RPC fence: a lost acknowledgment must never recreate/replay a child. */
   beginThreadReplacementDispatch(
