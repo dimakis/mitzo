@@ -81,6 +81,8 @@ export interface CodexStartupConfigObservation {
 
 export interface CodexConversationOptions {
   ownerKind?: 'ordinary' | 'symposium';
+  /** Ordinary capacity recovery creates new linked native turns, never prompt replay. */
+  enableCapacityRecovery?: boolean;
   conversationId: string;
   cwd: string;
   profile: CodexAccountProfile;
@@ -259,6 +261,8 @@ function requiresProviderThreadReplacement(error: unknown): boolean {
 export class CodexConversation {
   private client: Rpc;
   private transportGeneration = 0;
+  private capacityTimer?: ReturnType<typeof setTimeout>;
+  private capacityInFlight = false;
   private binding?: AccountBinding;
   private threadId?: string;
   private pendingToolSurface?: {
@@ -313,6 +317,7 @@ export class CodexConversation {
     this.transportGeneration += 1;
     this.startupObserverAbort?.abort(new Error('Startup transport is closed or replaced'));
     this.ready = false;
+    this.stopCapacityScheduleForCleanup();
     const active = this.active;
     const status = active?.accepted ? 'interrupted' : 'failed';
     this.finishTurnSpan(status, 'transport');
@@ -633,6 +638,178 @@ export class CodexConversation {
       workspaceId: this.opts.profile.workspaceId,
     });
   }
+  private clearCapacityTimer() {
+    if (this.capacityTimer) clearTimeout(this.capacityTimer);
+    this.capacityTimer = undefined;
+  }
+  private scheduleCapacityRetry() {
+    this.clearCapacityTimer();
+    if (!this.opts.enableCapacityRecovery || this.closed || !this.ready || !this.binding) return;
+    const recovery = this.opts.store.capacityRecovery(this.opts.conversationId, this.binding);
+    if (!recovery || recovery.status !== 'waiting' || !recovery.nextRetryAt) return;
+    const generation = this.transportGeneration;
+    this.capacityTimer = setTimeout(
+      () => {
+        this.capacityTimer = undefined;
+        if (this.closed || generation !== this.transportGeneration) return;
+        void this.runCapacityRetry(recovery.id, recovery.sourceCommandId, false).catch(() => {
+          this.stopCapacitySchedule();
+          this.opts.onError?.(
+            new Error('Capacity recovery is paused. Inspect saved work before continuing.'),
+          );
+        });
+      },
+      Math.max(1, recovery.nextRetryAt - Date.now()),
+    );
+    this.capacityTimer.unref?.();
+  }
+  private stopCapacitySchedule() {
+    this.clearCapacityTimer();
+    if (!this.binding) return;
+    const recovery = this.opts.store.capacityRecovery(this.opts.conversationId, this.binding);
+    if (recovery && ['waiting', 'queued', 'running'].includes(recovery.status))
+      this.opts.store.stopCapacityRecovery(
+        this.opts.conversationId,
+        this.binding,
+        recovery.id,
+        recovery.sourceCommandId,
+      );
+  }
+  private stopCapacityScheduleForCleanup() {
+    try {
+      this.stopCapacitySchedule();
+    } catch {
+      // The timer is cleared before persistence. Cleanup must still retire the
+      // transport; control/claim paths retain their fail-closed store errors.
+      this.opts.onError?.(new Error('Capacity recovery state could not be saved during cleanup.'));
+    }
+  }
+  private async runCapacityRetry(recoveryId: string, sourceCommandId: string, manual: boolean) {
+    if (
+      !this.opts.enableCapacityRecovery ||
+      !this.binding ||
+      this.closed ||
+      !this.ready ||
+      this.active ||
+      this.capacityInFlight
+    )
+      throw new Error('Capacity recovery is unavailable or already active');
+    this.capacityInFlight = true;
+    this.clearCapacityTimer();
+    const generation = this.transportGeneration;
+    let original: ReturnType<CodexConversationStore['capacityRecovery']>;
+    let reserved: { id: string; childId: string } | undefined;
+    try {
+      const recovery = this.opts.store.capacityRecovery(this.opts.conversationId, this.binding);
+      if (!recovery || recovery.id !== recoveryId || recovery.sourceCommandId !== sourceCommandId)
+        throw new Error('Capacity recovery episode changed');
+      original = recovery;
+      this.opts.store.assertCapacityIdentity(this.opts.conversationId, this.binding, recovery);
+      if (this.pendingToolSurface || this.threadId !== recovery.threadId)
+        throw new Error('Capacity recovery thread changed');
+      await this.verifyCurrentBinding(this.binding);
+      const page = z
+        .object({ data: z.array(z.object({ id: z.string(), status: z.string() })) })
+        .parse(
+          await this.client.request('thread/turns/list', {
+            threadId: recovery.threadId,
+            limit: 1,
+            sortDirection: 'desc',
+            itemsView: 'notLoaded',
+          }),
+        );
+      if (page.data[0]?.id !== recovery.latestTurnId || page.data[0]?.status !== 'failed')
+        throw new Error('Capacity recovery native source changed');
+      if (this.closed || generation !== this.transportGeneration)
+        throw new Error('Capacity recovery transport changed');
+      const current = this.opts.store.capacityRecovery(this.opts.conversationId, this.binding);
+      if (
+        current?.id !== recovery.id ||
+        current.revision !== recovery.revision ||
+        current.status !== recovery.status
+      )
+        throw new Error('Capacity recovery episode changed during admission');
+      if (this.opts.onActivity?.() === false)
+        throw new Error('OpenShell lifecycle mutation is in progress');
+      const child = this.opts.store.queueCapacityRetry(
+        this.opts.conversationId,
+        this.binding,
+        recoveryId,
+        sourceCommandId,
+        Date.now(),
+        manual,
+      );
+      reserved = {
+        id: this.opts.store.capacityRecovery(this.opts.conversationId, this.binding)!.id,
+        childId: child.id,
+      };
+      this.clearCapacityTimer();
+      this.paused = false;
+      this.opts.onQueueChange?.();
+      await this.pump();
+      return 'queued' as const;
+    } catch (error) {
+      const current = this.opts.store.capacityRecovery(this.opts.conversationId, this.binding);
+      const ownsReservation =
+        reserved && current?.id === reserved.id && current.childCommandId === reserved.childId;
+      const ownsProbe =
+        original && current?.id === original.id && current.revision === original.revision;
+      if (current && (ownsReservation || ownsProbe)) {
+        this.opts.store.stopCapacityRecovery(
+          this.opts.conversationId,
+          this.binding,
+          current.id,
+          current.sourceCommandId,
+        );
+        this.paused = true;
+        this.opts.onQueueChange?.();
+      }
+      throw error;
+    } finally {
+      this.capacityInFlight = false;
+    }
+  }
+  async tryCapacityNow(recoveryId: string, sourceCommandId: string) {
+    if (!this.binding || this.closed) throw new Error('Capacity recovery unavailable');
+    const before = this.opts.store.capacityRecovery(this.opts.conversationId, this.binding);
+    if (!before || before.id !== recoveryId || before.sourceCommandId !== sourceCommandId)
+      throw new Error('Capacity recovery changed');
+    this.opts.store.assertCapacityIdentity(this.opts.conversationId, this.binding, before);
+    if (!this.ready) {
+      if (this.active || this.capacityInFlight) throw new Error('Capacity recovery already active');
+      this.capacityInFlight = true;
+      this.clearCapacityTimer();
+      try {
+        await this.reconnect();
+        const after = this.opts.store.capacityRecovery(this.opts.conversationId, this.binding);
+        if (
+          after?.id !== before.id ||
+          after.revision !== before.revision ||
+          this.pendingToolSurface ||
+          this.threadId !== before.threadId
+        )
+          throw new Error('Capacity recovery changed during reconnect');
+        this.opts.store.assertCapacityIdentity(this.opts.conversationId, this.binding, after);
+      } finally {
+        this.capacityInFlight = false;
+      }
+    }
+    return this.runCapacityRetry(recoveryId, sourceCommandId, true);
+  }
+  async stopCapacityRetry(recoveryId: string, sourceCommandId: string) {
+    if (!this.binding || this.closed) throw new Error('Capacity recovery unavailable');
+    const recovery = this.opts.store.stopCapacityRecovery(
+      this.opts.conversationId,
+      this.binding,
+      recoveryId,
+      sourceCommandId,
+    );
+    this.clearCapacityTimer();
+    this.paused = true;
+    this.opts.onQueueChange?.();
+    if (this.active?.command.id === recovery.childCommandId) await this.interrupt();
+    return 'stopped' as const;
+  }
   queue() {
     if (!this.binding) return [];
     return this.opts.store.commands(this.opts.conversationId, this.binding);
@@ -652,6 +829,7 @@ export class CodexConversation {
     if (this.opts.onActivity?.() === false)
       throw new Error('OpenShell lifecycle mutation is in progress');
     const commands = this.queue();
+    if (!commands.some((command) => command.id === input.id)) this.stopCapacitySchedule();
     const previousModel =
       commands.find((c) => c.id === input.id)?.model ??
       commands.at(-1)?.model ??
@@ -1302,8 +1480,19 @@ export class CodexConversation {
       }
     }
     this.opts.store.assertNoPendingThreadOwnership(this.opts.conversationId, this.binding!);
+    const recovery = this.opts.store.capacityRecovery(this.opts.conversationId, this.binding!);
+    if (
+      recovery?.status === 'queued' &&
+      (this.pendingToolSurface || this.threadId !== recovery.threadId)
+    )
+      throw new Error('Capacity recovery thread changed');
     const command = this.opts.store.claimNext(this.opts.conversationId, this.binding!);
     if (!command) return;
+    const continuation = this.opts.store.capacityContinuation(
+      this.opts.conversationId,
+      this.binding!,
+      command.id,
+    );
     const active = {
       command,
       abort: new AbortController(),
@@ -1373,19 +1562,23 @@ export class CodexConversation {
           pending.thread,
           command,
         );
+      if (continuation)
+        this.opts.store.beginCapacityDispatch(this.opts.conversationId, this.binding!, command.id);
       const result = z.object({ turn: z.object({ id: z.string().min(1) }) }).parse(
         await this.client.request('turn/start', {
           threadId: this.threadId,
           clientUserMessageId: command.id,
           model,
-          input: [
-            ...(attemptContext ? [{ type: 'text', text: attemptContext }] : []),
-            { type: 'text', text: preparedPrompt },
-            ...(command.images ?? []).map((image) => ({
-              type: 'image',
-              url: `data:${image.mediaType};base64,${image.data}`,
-            })),
-          ],
+          input: continuation
+            ? []
+            : [
+                ...(attemptContext ? [{ type: 'text', text: attemptContext }] : []),
+                { type: 'text', text: preparedPrompt },
+                ...(command.images ?? []).map((image) => ({
+                  type: 'image',
+                  url: `data:${image.mediaType};base64,${image.data}`,
+                })),
+              ],
           approvalPolicy: 'never',
           sandboxPolicy: this.opts.turnSandboxPolicy ?? { type: 'readOnly' },
           ...(command.reasoningEffort ? { effort: command.reasoningEffort } : {}),
@@ -1411,6 +1604,24 @@ export class CodexConversation {
           this.pendingToolSurface = undefined;
           active.accepted = true;
           active.ownershipPending = true;
+        }
+        if (continuation)
+          this.opts.store.acceptCapacityTurn(
+            this.opts.conversationId,
+            this.binding!,
+            command.id,
+            this.threadId!,
+            active.turnId,
+          );
+        if (this.opts.enableCapacityRecovery) {
+          active.accepted = true;
+          this.opts.store.recordCapacityAck(
+            this.opts.conversationId,
+            this.binding!,
+            command,
+            this.threadId!,
+            active.turnId,
+          );
         }
         this.opts.onProviderAccepted?.(command.id, this.threadId!, active.turnId);
         if (systemPrompt !== undefined)
@@ -1519,6 +1730,14 @@ export class CodexConversation {
       if (this.active === active)
         this.finishTurnSpan('failed', active.accepted ? 'acknowledgment' : 'dispatch');
       const failedStatus = active.accepted ? 'interrupted' : 'failed';
+      if (continuation)
+        this.opts.store.completeCapacityTurn(
+          this.opts.conversationId,
+          this.binding!,
+          command.id,
+          active.turnId ?? '',
+          failedStatus,
+        );
       this.opts.onProviderComplete?.(command.id, failedStatus);
       this.paused = true;
       active.abort.abort();
@@ -1539,6 +1758,9 @@ export class CodexConversation {
     }
   }
   private persistAcceptedTerminalConflict(thread: string, turn: string) {
+    if (this.binding)
+      this.opts.store.conflictCapacityTurn(this.opts.conversationId, this.binding, thread, turn);
+    this.clearCapacityTimer();
     if (!this.opts.deferToolSurfaceReplacement || !this.binding) return;
     const receipt = this.opts.store
       .readThreadAcceptances(this.opts.conversationId, this.binding)
@@ -1714,8 +1936,34 @@ export class CodexConversation {
           providerFailure?.retryable ?? true,
           providerFailure?.ambiguous ?? false,
         );
+      const capacity =
+        this.opts.enableCapacityRecovery &&
+        status === 'failed' &&
+        providerFailure?.code === 'server_overloaded' &&
+        this.active.accepted;
+      if (capacity) {
+        try {
+          this.opts.store.recordCapacityFailure(
+            this.opts.conversationId,
+            this.binding!,
+            this.active.command,
+            this.threadId!,
+            turn.data.id,
+          );
+        } catch {
+          this.stopCapacitySchedule();
+        }
+      } else
+        this.opts.store.completeCapacityTurn(
+          this.opts.conversationId,
+          this.binding!,
+          this.active.command.id,
+          turn.data.id,
+          status,
+        );
       this.active = undefined;
       this.paused ||= status !== 'completed';
+      if (capacity) this.scheduleCapacityRetry();
       if (status === 'completed') this.automaticTransportRecoveryAttempted = false;
       if (recoverQueuedFollowUp) this.automaticTransportRecoveryAttempted = true;
       if (providerTransportFailed) this.retireTransportForRecovery();
@@ -1879,6 +2127,7 @@ export class CodexConversation {
   close() {
     if (this.closed) return;
     this.closed = true;
+    this.stopCapacityScheduleForCleanup();
     this.startupObserverAbort?.abort(new Error('Startup transport is closed or replaced'));
     this.paused = true;
     this.finishTurnSpan('failed', 'close');

@@ -207,7 +207,7 @@ it.each([
     attempt: 3,
   });
   expect(failure.message).toBe(
-    'The selected model is at capacity. Wait for capacity or choose another available model. Inspect saved work before retrying.',
+    'The selected model is at capacity. Wait for capacity or choose another available model. Your progress is saved.',
   );
   expect(providerFailureTelemetry(failure)).toMatchObject({
     providerFailureCode: 'server_overloaded',

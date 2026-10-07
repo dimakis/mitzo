@@ -195,6 +195,7 @@ async function setup(
       context: { turnId: string; callId: string },
     ) => void;
   },
+  enableCapacityRecovery = false,
 ) {
   const dir = mkdtempSync(join(tmpdir(), 'mitzo-codex-'));
   const store = existingStore ?? new CodexConversationStore(join(dir, 'private.db'));
@@ -280,6 +281,7 @@ async function setup(
     beforeRuntimeAdmission,
     reconnectGuard,
     deferToolSurfaceReplacement,
+    enableCapacityRecovery,
     onThreadChanged,
     onProviderDispatch,
     onProviderComplete,
@@ -3195,7 +3197,7 @@ it('delivers actionable native model capacity errors while retaining explicit re
     },
   });
   const message =
-    'The selected model is at capacity. Wait for capacity or choose another available model. Inspect saved work before retrying.';
+    'The selected model is at capacity. Wait for capacity or choose another available model. Your progress is saved.';
   expect(events).toContainEqual(
     expect.objectContaining({
       type: 'result',
@@ -3297,3 +3299,241 @@ it('does not fork or automatically continue queued work for capacity with a misl
     { id: 'later', status: 'queued' },
   ]);
 });
+
+it('continues accepted saved progress after thirty seconds without resending the original prompt', async () => {
+  vi.useFakeTimers();
+  try {
+    const args: Parameters<typeof setup> = [];
+    args[4] = async () => binding;
+    args[13] = async () => 'fresh shared context';
+    args[14] = vi.fn();
+    args[17] = true;
+    args[20] = true;
+    const f = await setup(...args);
+    await f.c.send({
+      id: 'capacity-original',
+      prompt: 'Original user prompt must not be replayed',
+    });
+    f.c.enqueue({ id: 'old-fifo', prompt: 'Queued before failure' });
+    f.callbacks.onNotification('turn/completed', {
+      threadId: 'provider-thread',
+      turn: { id: 'turn-1', status: 'failed', error: { codex_error_info: 'server_overloaded' } },
+    });
+    const original = f.c.queue()[0];
+    await vi.advanceTimersByTimeAsync(29_999);
+    expect(f.requests.filter((r) => r.method === 'turn/start')).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(1);
+    const starts = f.requests.filter((r) => r.method === 'turn/start');
+    expect(starts).toHaveLength(2);
+    expect(f.requests.find((r) => r.method === 'thread/turns/list')?.params).toMatchObject({
+      limit: 1,
+      itemsView: 'notLoaded',
+    });
+    expect(starts[1].params).toMatchObject({
+      threadId: 'provider-thread',
+      model: 'test-model',
+      input: [],
+    });
+    expect(f.c.queue()[0]).toEqual(original);
+    expect(f.c.queue().find((c) => c.id === 'old-fifo')?.status).toBe('queued');
+    expect(args[14]).toHaveBeenCalledTimes(2);
+    expect(f.store.capacityRecovery('app', binding)).toMatchObject({
+      status: 'running',
+      attempts: 1,
+    });
+    f.c.close();
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+async function capacityFixture() {
+  const args: Parameters<typeof setup> = [];
+  args[4] = async () => binding;
+  args[17] = true;
+  args[20] = true;
+  const f = await setup(...args);
+  await f.c.send({ id: 'root-capacity', prompt: 'Original work' });
+  const fail = (turnId: string) =>
+    f.callbacks.onNotification('turn/completed', {
+      threadId: 'provider-thread',
+      turn: { id: turnId, status: 'failed', error: { codex_error_info: 'server_overloaded' } },
+    });
+  fail('turn-1');
+  return { ...f, fail };
+}
+it('shares manual capacity attempts with automatic five-attempt backoff, then explicitly starts a new cycle', async () => {
+  vi.useFakeTimers();
+  try {
+    const f = await capacityFixture();
+    const initial = f.store.capacityRecovery('app', binding)!;
+    await f.c.tryCapacityNow(initial.id, initial.sourceCommandId);
+    f.fail('turn-2');
+    expect(f.store.capacityRecovery('app', binding)).toMatchObject({
+      id: initial.id,
+      status: 'waiting',
+      attempts: 1,
+      nextRetryAt: Date.now() + 30_000,
+    });
+    for (let i = 2; i <= 5; i++) {
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(f.requests.filter((r) => r.method === 'turn/start')).toHaveLength(i + 1);
+      f.fail(`turn-${i + 1}`);
+    }
+    expect(f.store.capacityRecovery('app', binding)).toMatchObject({
+      id: initial.id,
+      status: 'exhausted',
+      attempts: 5,
+    });
+    await vi.advanceTimersByTimeAsync(300_000);
+    expect(f.requests.filter((r) => r.method === 'turn/start')).toHaveLength(6);
+    await f.c.tryCapacityNow(initial.id, initial.sourceCommandId);
+    expect(f.store.capacityRecovery('app', binding)).toMatchObject({
+      status: 'running',
+      attempts: 1,
+    });
+    expect(f.store.capacityRecovery('app', binding)?.id).not.toBe(initial.id);
+    expect(
+      f.requests
+        .filter((r) => r.method === 'turn/start')
+        .slice(1)
+        .every((r) => (r.params.input as unknown[]).length === 0),
+    ).toBe(true);
+    f.c.close();
+  } finally {
+    vi.useRealTimers();
+  }
+});
+it.each([false, true])(
+  'serializes a held manual capacity probe with deadline and Stop (stop=%s)',
+  async (stop) => {
+    vi.useFakeTimers();
+    try {
+      const f = await capacityFixture();
+      const episode = f.store.capacityRecovery('app', binding)!;
+      const original = f.rpc.request.getMockImplementation()!;
+      let release!: () => void;
+      f.rpc.request.mockImplementation(async (method, params) => {
+        if (method === 'thread/turns/list')
+          await new Promise<void>((resolve) => {
+            release = resolve;
+          });
+        return original(method, params);
+      });
+      const manual = f.c.tryCapacityNow(episode.id, episode.sourceCommandId);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(release).toBeTypeOf('function');
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(f.requests.filter((r) => r.method === 'turn/start')).toHaveLength(1);
+      if (stop) await f.c.stopCapacityRetry(episode.id, episode.sourceCommandId);
+      release();
+      if (stop) {
+        await expect(manual).rejects.toThrow('changed');
+        expect(f.store.capacityRecovery('app', binding)).toMatchObject({
+          status: 'stopped',
+          attempts: 0,
+        });
+        expect(f.requests.filter((r) => r.method === 'turn/start')).toHaveLength(1);
+      } else {
+        await manual;
+        expect(f.store.capacityRecovery('app', binding)).toMatchObject({
+          id: episode.id,
+          status: 'running',
+          attempts: 1,
+        });
+        expect(f.requests.filter((r) => r.method === 'turn/start')).toHaveLength(2);
+      }
+      f.c.close();
+    } finally {
+      vi.useRealTimers();
+    }
+  },
+);
+it('stops only the owned active continuation and keeps unrelated FIFO paused', async () => {
+  vi.useFakeTimers();
+  try {
+    const f = await capacityFixture();
+    f.store.enqueue('app', binding, { id: 'unrelated', prompt: 'Later authorized work' });
+    await vi.advanceTimersByTimeAsync(30_000);
+    const episode = f.store.capacityRecovery('app', binding)!;
+    await f.c.stopCapacityRetry(episode.id, episode.sourceCommandId);
+    expect(f.requests.filter((r) => r.method === 'turn/interrupt')).toMatchObject([
+      { params: { threadId: 'provider-thread', turnId: 'turn-2' } },
+    ]);
+    f.callbacks.onNotification('turn/completed', {
+      threadId: 'provider-thread',
+      turn: { id: 'turn-2', status: 'interrupted' },
+    });
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(f.c.isPaused()).toBe(true);
+    expect(f.store.read('app', binding).recovery).toBe(1);
+    expect(f.c.queue().find((c) => c.id === 'unrelated')?.status).toBe('queued');
+    expect(f.requests.filter((r) => r.method === 'turn/start')).toHaveLength(2);
+    await expect(f.c.tryCapacityNow(episode.id, episode.sourceCommandId)).rejects.toThrow();
+    f.c.close();
+  } finally {
+    vi.useRealTimers();
+  }
+});
+it('lets explicit new user input supersede capacity scheduling without replaying original work', async () => {
+  vi.useFakeTimers();
+  try {
+    const f = await capacityFixture();
+    await f.c.send({ id: 'new-intent', prompt: 'New user instruction' });
+    await vi.advanceTimersByTimeAsync(60_000);
+    const starts = f.requests.filter((r) => r.method === 'turn/start');
+    expect(starts).toHaveLength(2);
+    expect(starts[1].params.input).toMatchObject([{ type: 'text', text: 'New user instruction' }]);
+    expect(f.store.capacityRecovery('app', binding)).toBeUndefined();
+    expect(f.c.queue()[0]).toMatchObject({ id: 'root-capacity', status: 'failed', attempt: 1 });
+    f.c.close();
+  } finally {
+    vi.useRealTimers();
+  }
+});
+it('explicitly reconnects an idle lost transport before a same-thread capacity continuation', async () => {
+  vi.useFakeTimers();
+  try {
+    const f = await capacityFixture();
+    f.callbacks.onClose(new Error('idle transport loss'));
+    const stopped = f.store.capacityRecovery('app', binding)!;
+    await f.c.tryCapacityNow(stopped.id, stopped.sourceCommandId);
+    expect(f.requests.filter((r) => r.method === 'thread/resume')).toHaveLength(1);
+    expect(f.requests.filter((r) => r.method === 'thread/fork')).toHaveLength(0);
+    expect(f.requests.filter((r) => r.method === 'turn/start').at(-1)?.params).toMatchObject({
+      threadId: 'provider-thread',
+      input: [],
+    });
+    f.c.close();
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+it.each(['close', 'transport'] as const)(
+  'cleans up capacity scheduling on %s despite a recovery persistence failure',
+  async (kind) => {
+    vi.useFakeTimers();
+    try {
+      const f = await capacityFixture();
+      vi.spyOn(f.store, 'stopCapacityRecovery').mockImplementation(() => {
+        throw new Error('private database diagnostic');
+      });
+      expect(() => {
+        if (kind === 'close') f.c.close();
+        else f.callbacks.onClose(new Error('transport closed'));
+      }).not.toThrow();
+      expect(f.onError).toHaveBeenCalledWith(
+        expect.objectContaining({
+          message: 'Capacity recovery state could not be saved during cleanup.',
+        }),
+      );
+      expect(f.c.isPaused()).toBe(true);
+      if (kind === 'close') expect(f.rpc.close).toHaveBeenCalledOnce();
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(f.requests.filter((request) => request.method === 'turn/start')).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  },
+);

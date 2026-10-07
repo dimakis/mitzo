@@ -13,7 +13,7 @@ Expand **Workspace** in chat to choose the account and model. **Make default for
 
 Telos **Open in Chat** and **Start Session** open a launch preview with Workspace expanded. Review the account and model, then select **Send launch prompt**. The chat follows the session created for that launch and keeps its Telos context and task identity. The preview stays available until delivery is confirmed through the HTTP receipt or a matching persisted WebSocket user-message echo; a failed send can be retried with the same task context.
 
-Codex provider failures show sanitized, actionable messages for known capacity, account, context and connection failures. Capacity errors suggest waiting or selecting another available model; saved work and acceptance receipts remain intact. A capacity failure never automatically retries a turn, and accepted or ambiguous work retains its recovery safeguards.
+Codex provider failures show sanitized, actionable messages for known capacity, account, context and connection failures. Known native capacity failures schedule up to five continuations from saved progress, 30 seconds apart, using the same account, model and provider thread. **Try again** runs one attempt immediately within that budget; after exhaustion it explicitly starts a new five-attempt cycle. **Stop retries** cancels waiting work and interrupts only its active continuation. A new user message supersedes pending retries. Each continuation is a new native turn with fresh standard admission and acknowledgment-bound context delivery; it does not replay the original prompt or replace completed tool results. Restart stops the retry schedule until a manual **Try again**; uncertain dispatched work remains held for inspection.
 
 ## Features
 

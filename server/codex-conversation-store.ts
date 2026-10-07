@@ -1,6 +1,6 @@
 import type { RuntimeMigration } from './openshell-runtime-migration.js';
 import Database from 'better-sqlite3';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import { chmodSync, closeSync, openSync } from 'node:fs';
 import type { AccountBinding } from '@mitzo/protocol';
@@ -161,6 +161,39 @@ function idempotencyInput(input: CodexCommandInput, includeIntent: boolean): str
   });
 }
 
+const CapacityRecoverySchema = z
+  .object({
+    revision: z.number().int().nonnegative(),
+    id: z.string().uuid(),
+    sourceCommandId: z.string().min(1),
+    status: z.enum(['waiting', 'queued', 'running', 'exhausted', 'stopped']),
+    attempts: z.number().int().min(0).max(5),
+    maxAttempts: z.literal(5),
+    nextRetryAt: z.number().int().optional(),
+    latestCommandId: z.string().min(1),
+    latestAttempt: z.number().int().positive(),
+    latestTurnId: z.string().min(1),
+    threadId: z.string().min(1),
+    generation: z.number().int().nonnegative(),
+    model: z.string().min(1),
+    reasoningEffort: z.string().nullable().optional(),
+    toolSurfaceRevision: z.string().nullable(),
+    webSearchRevision: z.number().int(),
+    artifactIdentity: z.string(),
+    childCommandId: z.string().optional(),
+  })
+  .strict();
+export type CapacityRecovery = z.infer<typeof CapacityRecoverySchema>;
+interface CapacityContinuation {
+  sourceCommandId: string;
+  recoveryId: string;
+  ordinal: number;
+  threadId: string;
+  turnId: string | null;
+  dispatched: number;
+  terminal: string | null;
+}
+
 interface Conversation {
   conversationId: string;
   cwd: string;
@@ -228,6 +261,17 @@ export class CodexConversationStore {
       selection TEXT NOT NULL, accepted_at INTEGER NOT NULL,
       PRIMARY KEY(conversation_id, command_id, attempt),
       FOREIGN KEY(conversation_id, command_id) REFERENCES codex_commands(conversation_id,id));`);
+    this.db.exec(`CREATE TABLE IF NOT EXISTS codex_capacity_native_acks (
+      conversation_id TEXT NOT NULL REFERENCES codex_conversations(id),command_id TEXT NOT NULL,attempt INTEGER NOT NULL,
+      thread_id TEXT NOT NULL,turn_id TEXT NOT NULL,generation INTEGER NOT NULL,accepted_at INTEGER NOT NULL,
+      PRIMARY KEY(conversation_id,command_id,attempt),FOREIGN KEY(conversation_id,command_id) REFERENCES codex_commands(conversation_id,id));`);
+    this.db.exec(`CREATE TABLE IF NOT EXISTS codex_capacity_recoveries (
+      conversation_id TEXT PRIMARY KEY REFERENCES codex_conversations(id),data TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS codex_capacity_continuations (
+      conversation_id TEXT NOT NULL REFERENCES codex_conversations(id),command_id TEXT NOT NULL,
+      source_command_id TEXT NOT NULL,recovery_id TEXT NOT NULL,ordinal INTEGER NOT NULL,
+      thread_id TEXT NOT NULL,turn_id TEXT,dispatched INTEGER NOT NULL,terminal TEXT,
+      PRIMARY KEY(conversation_id,command_id),FOREIGN KEY(conversation_id,command_id) REFERENCES codex_commands(conversation_id,id));`);
     this.db.transaction(() => {
       const toolColumns = this.db.prepare('PRAGMA table_info(codex_tools)').all() as Array<{
         name: string;
@@ -1042,7 +1086,7 @@ export class CodexConversationStore {
     this.read(id, b);
     const counts = this.db
       .prepare(
-        "SELECT SUM(status='queued') AS queued, SUM(status='interrupted' AND recovery_acknowledged=0) AS interrupted, SUM(status='failed' AND recovery_acknowledged=0) AS failed FROM codex_commands WHERE conversation_id=?",
+        "SELECT SUM(status='queued') AS queued, SUM(status='interrupted' AND recovery_acknowledged=0) AS interrupted, SUM(status='failed' AND recovery_acknowledged=0) AS failed FROM codex_commands WHERE conversation_id=? AND NOT EXISTS (SELECT 1 FROM codex_capacity_continuations lineage JOIN codex_capacity_continuations resolved ON resolved.conversation_id=lineage.conversation_id AND resolved.source_command_id=lineage.source_command_id WHERE lineage.conversation_id=codex_commands.conversation_id AND lineage.command_id=codex_commands.id AND resolved.terminal='completed')",
       )
       .get(id) as { queued: number | null; interrupted: number | null; failed: number | null };
     const latest = this.db
@@ -1060,7 +1104,7 @@ export class CodexConversationStore {
       .prepare(
         `SELECT id,attempt,retry_not_before,retryable,ambiguous
         FROM codex_commands
-        WHERE conversation_id=? AND status='failed' AND recovery_acknowledged=0
+        WHERE conversation_id=? AND status='failed' AND recovery_acknowledged=0 AND NOT EXISTS (SELECT 1 FROM codex_capacity_continuations lineage JOIN codex_capacity_continuations resolved ON resolved.conversation_id=lineage.conversation_id AND resolved.source_command_id=lineage.source_command_id WHERE lineage.conversation_id=codex_commands.conversation_id AND lineage.command_id=codex_commands.id AND resolved.terminal='completed')
         ORDER BY sequence DESC LIMIT 1`,
       )
       .get(id) as
@@ -1072,7 +1116,20 @@ export class CodexConversationStore {
           ambiguous: number | null;
         }
       | undefined;
+    const capacity = this.capacityRecovery(id, b);
     return {
+      ...(capacity
+        ? {
+            capacityRecovery: {
+              id: capacity.id,
+              sourceCommandId: capacity.sourceCommandId,
+              status: capacity.status,
+              attempts: capacity.attempts,
+              maxAttempts: capacity.maxAttempts,
+              ...(capacity.nextRetryAt ? { nextRetryAt: capacity.nextRetryAt } : {}),
+            },
+          }
+        : {}),
       queued: counts.queued ?? 0,
       interrupted: counts.interrupted ?? 0,
       failed: counts.failed ?? 0,
@@ -1141,6 +1198,17 @@ export class CodexConversationStore {
    * turn requires explicit confirmation rather than guessing that it was safe. */
   private retryFenced(id: string, command?: { id: string; attempt: number }): boolean {
     return !!(
+      (command &&
+        this.db
+          .prepare(
+            'SELECT 1 FROM codex_capacity_continuations WHERE conversation_id=? AND (command_id=? OR source_command_id=?)',
+          )
+          .get(id, command.id, command.id)) ||
+      this.db
+        .prepare(
+          "SELECT 1 FROM codex_capacity_recoveries WHERE conversation_id=? AND json_extract(data,'$.status') IN ('waiting','queued','running')",
+        )
+        .get(id) ||
       this.db
         .prepare('SELECT 1 FROM codex_pending_thread_dispatches WHERE conversation_id=?')
         .get(id) ||
@@ -1199,6 +1267,359 @@ export class CodexConversationStore {
       return 'queued';
     })();
   }
+  recordCapacityAck(
+    id: string,
+    b: AccountBinding,
+    command: CodexCommand,
+    thread: string,
+    turn: string,
+  ) {
+    this.db.transaction(() => {
+      const current = this.read(id, b);
+      const saved = this.commands(id, b).find((c) => c.id === command.id);
+      if (
+        !turn ||
+        current.threadId !== thread ||
+        saved?.status !== 'running' ||
+        saved.attempt !== command.attempt
+      )
+        throw new Error('Capacity native acknowledgment identity changed');
+      this.db
+        .prepare(
+          'INSERT INTO codex_capacity_native_acks(conversation_id,command_id,attempt,thread_id,turn_id,generation,accepted_at) VALUES (?,?,?,?,?,?,?)',
+        )
+        .run(id, command.id, command.attempt, thread, turn, current.threadGeneration, Date.now());
+    })();
+  }
+  capacityRecovery(id: string, b: AccountBinding): CapacityRecovery | undefined {
+    this.read(id, b);
+    const row = this.db
+      .prepare('SELECT data FROM codex_capacity_recoveries WHERE conversation_id=?')
+      .get(id) as { data: string } | undefined;
+    return row ? CapacityRecoverySchema.parse(JSON.parse(row.data)) : undefined;
+  }
+  private writeCapacityRecovery(id: string, value: CapacityRecovery) {
+    value.revision += 1;
+    this.db
+      .prepare(
+        'INSERT INTO codex_capacity_recoveries(conversation_id,data) VALUES (?,?) ON CONFLICT(conversation_id) DO UPDATE SET data=excluded.data',
+      )
+      .run(id, JSON.stringify(CapacityRecoverySchema.parse(value)));
+  }
+  private capacityArtifactIdentity(id: string, b: AccountBinding): string {
+    const artifact = this.readArtifactRuntime(id, b);
+    if (!artifact) return 'host';
+    const runtime = { ...artifact.runtime };
+    delete runtime.created;
+    delete runtime.resourceVersion;
+    return createHash('sha256')
+      .update(JSON.stringify({ runtime, route: artifact.route }))
+      .digest('hex');
+  }
+  assertCapacityIdentity(id: string, b: AccountBinding, recovery: CapacityRecovery) {
+    const current = this.read(id, b);
+    this.assertNoPendingThreadDispatch(id, b);
+    this.assertNoPendingThreadOwnership(id, b);
+    const owner = this.db
+      .prepare('SELECT owner_kind FROM codex_conversations WHERE id=?')
+      .get(id) as { owner_kind: string };
+    if (
+      owner.owner_kind !== 'ordinary' ||
+      current.recoveryStrategy !== 'resume' ||
+      current.threadId !== recovery.threadId ||
+      current.threadGeneration !== recovery.generation ||
+      current.toolSurfaceRevision !== recovery.toolSurfaceRevision ||
+      current.webSearchGrantRevision !== recovery.webSearchRevision ||
+      this.capacityArtifactIdentity(id, b) !== recovery.artifactIdentity
+    )
+      throw new Error('Capacity recovery identity changed');
+  }
+  /** Called only for an exact accepted native capacity terminal, never an RPC rejection. */
+  recordCapacityFailure(
+    id: string,
+    b: AccountBinding,
+    command: CodexCommand,
+    thread: string,
+    turn: string,
+    now = Date.now(),
+  ): CapacityRecovery {
+    return this.db.transaction(() => {
+      const current = this.read(id, b);
+      if (!thread || !turn || current.threadId !== thread)
+        throw new Error('Capacity recovery identity changed');
+      const saved = this.commands(id, b).find((c) => c.id === command.id);
+      if (saved?.status !== 'failed' || saved.attempt !== command.attempt)
+        throw new Error('Capacity terminal command changed');
+      const ack = this.db
+        .prepare(
+          'SELECT thread_id,turn_id,generation FROM codex_capacity_native_acks WHERE conversation_id=? AND command_id=? AND attempt=?',
+        )
+        .get(id, command.id, command.attempt) as
+        { thread_id: string; turn_id: string; generation: number } | undefined;
+      if (
+        !ack ||
+        ack.thread_id !== thread ||
+        ack.turn_id !== turn ||
+        ack.generation !== current.threadGeneration
+      )
+        throw new Error('Capacity source lacks an exact native acknowledgment');
+      const previous = this.capacityRecovery(id, b);
+      const continuation = this.capacityContinuation(id, b, command.id);
+      if (continuation) {
+        if (
+          !previous ||
+          previous.id !== continuation.recoveryId ||
+          previous.childCommandId !== command.id ||
+          !['running', 'stopped'].includes(previous.status)
+        )
+          throw new Error('Capacity recovery episode changed');
+        this.assertCapacityIdentity(id, b, previous);
+      }
+      const recovery: CapacityRecovery =
+        continuation && previous
+          ? { ...previous }
+          : {
+              revision: 0,
+              id: randomUUID(),
+              sourceCommandId: command.id,
+              status: 'waiting',
+              attempts: 0,
+              maxAttempts: 5,
+              latestCommandId: command.id,
+              latestAttempt: command.attempt,
+              latestTurnId: turn,
+              threadId: thread,
+              generation: current.threadGeneration,
+              model: command.model ?? b.model,
+              ...(command.reasoningEffort !== undefined
+                ? { reasoningEffort: command.reasoningEffort }
+                : {}),
+              toolSurfaceRevision: current.toolSurfaceRevision,
+              webSearchRevision: current.webSearchGrantRevision,
+              artifactIdentity: this.capacityArtifactIdentity(id, b),
+            };
+      this.assertCapacityIdentity(id, b, recovery);
+      recovery.latestCommandId = command.id;
+      recovery.latestAttempt = command.attempt;
+      recovery.latestTurnId = turn;
+      recovery.childCommandId = undefined;
+      recovery.status =
+        previous?.status === 'stopped' && continuation
+          ? 'stopped'
+          : recovery.attempts >= 5
+            ? 'exhausted'
+            : 'waiting';
+      recovery.nextRetryAt = recovery.status === 'waiting' ? now + 30_000 : undefined;
+      this.db
+        .prepare(
+          `INSERT INTO codex_capacity_continuations(conversation_id,command_id,source_command_id,recovery_id,ordinal,thread_id,turn_id,dispatched,terminal) VALUES (?,?,?,?,?,?,?,?,?) ON CONFLICT(conversation_id,command_id) DO UPDATE SET turn_id=excluded.turn_id,terminal=excluded.terminal`,
+        )
+        .run(
+          id,
+          command.id,
+          recovery.sourceCommandId,
+          recovery.id,
+          continuation?.ordinal ?? 0,
+          thread,
+          turn,
+          1,
+          'capacity',
+        );
+      this.writeCapacityRecovery(id, recovery);
+      return recovery;
+    })();
+  }
+  capacityContinuation(
+    id: string,
+    b: AccountBinding,
+    commandId: string,
+  ): CapacityContinuation | undefined {
+    this.read(id, b);
+    return this.db
+      .prepare(
+        `SELECT source_command_id AS sourceCommandId,recovery_id AS recoveryId,ordinal,thread_id AS threadId,turn_id AS turnId,dispatched,terminal FROM codex_capacity_continuations WHERE conversation_id=? AND command_id=? AND ordinal>0`,
+      )
+      .get(id, commandId) as CapacityContinuation | undefined;
+  }
+  queueCapacityRetry(
+    id: string,
+    b: AccountBinding,
+    recoveryId: string,
+    sourceCommandId: string,
+    now = Date.now(),
+    manual = false,
+  ): CodexCommandInput {
+    return this.db.transaction(() => {
+      const recovery = this.capacityRecovery(id, b);
+      if (!recovery || recovery.id !== recoveryId || recovery.sourceCommandId !== sourceCommandId)
+        throw new Error('Capacity recovery episode changed');
+      this.assertCapacityIdentity(id, b, recovery);
+      if (recovery.status === 'queued' || recovery.status === 'running')
+        throw new Error('Capacity recovery already active');
+      if (!manual && recovery.status === 'exhausted')
+        throw new Error('Capacity recovery exhausted');
+      if (!manual && (recovery.status !== 'waiting' || now < (recovery.nextRetryAt ?? Infinity)))
+        throw new Error('Capacity recovery must wait');
+      if (
+        this.db
+          .prepare(
+            "SELECT 1 FROM codex_capacity_continuations WHERE conversation_id=? AND source_command_id=? AND ordinal>0 AND dispatched=1 AND (terminal IS NULL OR terminal NOT IN ('capacity','completed'))",
+          )
+          .get(id, recovery.sourceCommandId)
+      )
+        throw new Error('Capacity recovery requires inspection of an uncertain continuation');
+      const source = this.commands(id, b).find((c) => c.id === recovery.latestCommandId);
+      const sourceProof = this.db
+        .prepare(
+          'SELECT terminal,turn_id FROM codex_capacity_continuations WHERE conversation_id=? AND command_id=?',
+        )
+        .get(id, recovery.latestCommandId) as { terminal: string; turn_id: string } | undefined;
+      if (
+        source?.status !== 'failed' ||
+        source.attempt !== recovery.latestAttempt ||
+        sourceProof?.terminal !== 'capacity' ||
+        sourceProof.turn_id !== recovery.latestTurnId ||
+        this.commands(id, b).some((c) => c.status === 'running')
+      )
+        throw new Error('Capacity recovery source is not a verified idle failure');
+      if (manual && (recovery.status === 'exhausted' || recovery.status === 'stopped')) {
+        recovery.id = randomUUID();
+        recovery.attempts = 0;
+      }
+      const child = {
+        id: randomUUID(),
+        prompt: 'Continue saved work after provider capacity failure.',
+        model: recovery.model,
+        ...(recovery.reasoningEffort !== undefined
+          ? { reasoningEffort: recovery.reasoningEffort }
+          : {}),
+      };
+      this.enqueue(id, b, child);
+      this.db
+        .prepare(
+          'INSERT INTO codex_capacity_continuations(conversation_id,command_id,source_command_id,recovery_id,ordinal,thread_id,dispatched) VALUES (?,?,?,?,?,?,0)',
+        )
+        .run(
+          id,
+          child.id,
+          recovery.sourceCommandId,
+          recovery.id,
+          recovery.attempts + 1,
+          recovery.threadId,
+        );
+      recovery.childCommandId = child.id;
+      recovery.status = 'queued';
+      recovery.nextRetryAt = undefined;
+      this.writeCapacityRecovery(id, recovery);
+      // This is a new linked command, not acknowledgment or replay of old work.
+      this.db
+        .prepare("UPDATE codex_conversations SET recovery=0,recovery_strategy='resume' WHERE id=?")
+        .run(id);
+      return child;
+    })();
+  }
+  beginCapacityDispatch(id: string, b: AccountBinding, commandId: string) {
+    this.db.transaction(() => {
+      const recovery = this.capacityRecovery(id, b);
+      if (!recovery || recovery.status !== 'running' || recovery.childCommandId !== commandId)
+        throw new Error('Capacity recovery dispatch changed');
+      this.assertCapacityIdentity(id, b, recovery);
+      const command = this.commands(id, b).find((c) => c.id === commandId);
+      if (command?.status !== 'running')
+        throw new Error('Capacity recovery command is not running');
+      const update = this.db
+        .prepare(
+          'UPDATE codex_capacity_continuations SET dispatched=1 WHERE conversation_id=? AND command_id=? AND dispatched=0 AND ordinal=?',
+        )
+        .run(id, commandId, recovery.attempts + 1);
+      if (update.changes !== 1 || recovery.attempts >= 5)
+        throw new Error('Capacity recovery dispatch already reserved');
+      recovery.attempts += 1;
+      this.writeCapacityRecovery(id, recovery);
+    })();
+  }
+  acceptCapacityTurn(
+    id: string,
+    b: AccountBinding,
+    commandId: string,
+    thread: string,
+    turn: string,
+  ) {
+    this.db.transaction(() => {
+      const recovery = this.capacityRecovery(id, b);
+      if (
+        !recovery ||
+        recovery.status !== 'running' ||
+        recovery.childCommandId !== commandId ||
+        thread !== recovery.threadId ||
+        !turn
+      )
+        throw new Error('Capacity acceptance changed');
+      this.assertCapacityIdentity(id, b, recovery);
+      const result = this.db
+        .prepare(
+          'UPDATE codex_capacity_continuations SET turn_id=? WHERE conversation_id=? AND command_id=? AND dispatched=1 AND turn_id IS NULL',
+        )
+        .run(turn, id, commandId);
+      if (result.changes !== 1) throw new Error('Capacity acceptance already recorded');
+    })();
+  }
+  conflictCapacityTurn(id: string, b: AccountBinding, thread: string, turn: string) {
+    this.read(id, b);
+    const result = this.db
+      .prepare(
+        "UPDATE codex_capacity_continuations SET terminal='conflict' WHERE conversation_id=? AND thread_id=? AND turn_id=?",
+      )
+      .run(id, thread, turn);
+    if (result.changes) {
+      const recovery = this.capacityRecovery(id, b);
+      if (recovery) this.stopCapacityRecovery(id, b, recovery.id, recovery.sourceCommandId);
+    }
+  }
+  completeCapacityTurn(
+    id: string,
+    b: AccountBinding,
+    commandId: string,
+    turn: string,
+    status: string,
+  ) {
+    this.db.transaction(() => {
+      const child = this.capacityContinuation(id, b, commandId);
+      if (!child) return;
+      this.db
+        .prepare(
+          'UPDATE codex_capacity_continuations SET terminal=?,turn_id=? WHERE conversation_id=? AND command_id=?',
+        )
+        .run(status, turn, id, commandId);
+      const recovery = this.capacityRecovery(id, b);
+      if (!recovery || recovery.childCommandId !== commandId) return;
+      if (status === 'completed')
+        this.db.prepare('DELETE FROM codex_capacity_recoveries WHERE conversation_id=?').run(id);
+      else {
+        recovery.status = 'stopped';
+        recovery.nextRetryAt = undefined;
+        this.writeCapacityRecovery(id, recovery);
+      }
+    })();
+  }
+  stopCapacityRecovery(id: string, b: AccountBinding, recoveryId: string, sourceCommandId: string) {
+    return this.db.transaction(() => {
+      const recovery = this.capacityRecovery(id, b);
+      if (!recovery || recovery.id !== recoveryId || recovery.sourceCommandId !== sourceCommandId)
+        throw new Error('Capacity recovery episode changed');
+      if (recovery.childCommandId)
+        this.db
+          .prepare(
+            "UPDATE codex_commands SET status='cancelled' WHERE conversation_id=? AND id=? AND status='queued'",
+          )
+          .run(id, recovery.childCommandId);
+      recovery.status = 'stopped';
+      recovery.nextRetryAt = undefined;
+      this.writeCapacityRecovery(id, recovery);
+      this.db.prepare('UPDATE codex_conversations SET recovery=1 WHERE id=?').run(id);
+      return recovery;
+    })();
+  }
   claimNext(id: string, b: AccountBinding): CodexCommand | undefined {
     return this.db.transaction(() => {
       if (this.read(id, b).recovery)
@@ -1206,11 +1627,27 @@ export class CodexConversationStore {
       const commands = this.commands(id, b);
       if (commands.some((c) => c.status === 'running'))
         throw new Error('Codex conversation already running');
-      const next = commands.find((c) => c.status === 'queued');
+      const recovery = this.capacityRecovery(id, b);
+      if (
+        recovery?.status === 'waiting' ||
+        recovery?.status === 'running' ||
+        recovery?.status === 'exhausted' ||
+        recovery?.status === 'stopped'
+      )
+        return;
+      if (recovery?.status === 'queued') this.assertCapacityIdentity(id, b, recovery);
+      const next =
+        recovery?.status === 'queued'
+          ? commands.find((c) => c.id === recovery.childCommandId && c.status === 'queued')
+          : commands.find((c) => c.status === 'queued');
       if (!next) return;
       this.db
         .prepare("UPDATE codex_commands SET status='running' WHERE conversation_id=? AND id=?")
         .run(id, next.id);
+      if (recovery?.status === 'queued') {
+        recovery.status = 'running';
+        this.writeCapacityRecovery(id, recovery);
+      }
       return { ...next, status: 'running' as const };
     })();
   }
@@ -1400,6 +1837,39 @@ export class CodexConversationStore {
   }
   recoverAtStartup(ownerKind?: 'ordinary' | 'symposium') {
     this.db.transaction(() => {
+      const rows = this.db
+        .prepare(
+          'SELECT conversation_id,data FROM codex_capacity_recoveries' +
+            (ownerKind === undefined
+              ? ''
+              : ' WHERE conversation_id IN (SELECT id FROM codex_conversations WHERE owner_kind=?)'),
+        )
+        .all(...(ownerKind === undefined ? [] : [ownerKind])) as Array<{
+        conversation_id: string;
+        data: string;
+      }>;
+      for (const row of rows) {
+        const recovery = CapacityRecoverySchema.parse(JSON.parse(row.data));
+        if (
+          recovery.status === 'waiting' ||
+          recovery.status === 'queued' ||
+          recovery.status === 'running'
+        ) {
+          if (recovery.childCommandId)
+            this.db
+              .prepare(
+                "UPDATE codex_commands SET status='cancelled' WHERE conversation_id=? AND id=? AND status='queued'",
+              )
+              .run(row.conversation_id, recovery.childCommandId);
+          recovery.status = 'stopped';
+          recovery.nextRetryAt = undefined;
+          this.writeCapacityRecovery(row.conversation_id, recovery);
+          this.db
+            .prepare('UPDATE codex_conversations SET recovery=1 WHERE id=?')
+            .run(row.conversation_id);
+        }
+      }
+
       const scope = ownerKind === undefined ? '' : ' AND owner_kind=?';
       this.db
         .prepare(
@@ -1421,6 +1891,11 @@ export class CodexConversationStore {
     this.db.transaction(() => {
       this.assertNoPendingThreadDispatch(id, b);
       this.assertNoPendingThreadOwnership(id, b);
+      const capacity = this.capacityRecovery(id, b);
+      if (capacity && capacity.status !== 'stopped')
+        throw new Error('Capacity recovery must be stopped before continuing queued work');
+      if (capacity)
+        this.db.prepare('DELETE FROM codex_capacity_recoveries WHERE conversation_id=?').run(id);
       this.db
         .prepare(
           "UPDATE codex_commands SET recovery_acknowledged=1 WHERE conversation_id=? AND status IN ('interrupted','failed')",

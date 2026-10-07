@@ -214,7 +214,7 @@ export function classifyProviderFailure(
     message:
       code === 'server_overloaded' ||
       (category === 'overloaded' && /model is at capacity/i.test(text))
-        ? 'The selected model is at capacity. Wait for capacity or choose another available model. Inspect saved work before retrying.'
+        ? 'The selected model is at capacity. Wait for capacity or choose another available model. Your progress is saved.'
         : permanentLimit && category === 'rate_limited'
           ? 'The selected account has reached a usage or budget limit. Check its limits or choose another available account. Inspect saved work before continuing.'
           : PUBLIC_MESSAGES[category],
