@@ -916,6 +916,8 @@ no live upload schedule. See the [backup contract](docs/operations/icloud-ecosys
 
 Backups is available under Settings on desktop and More → Settings on mobile. It shows setup,
 coverage, durable recent runs and separately verified local capture and iCloud upload.
+The iCloud destination card opens a host setup guide for storage, encryption/recovery
+and verification; disabled actions explain their prerequisites.
 An interactive operator can manually capture the Mitzo/Telos database group, encrypt
 and verify it with Restic, export it to iCloud and later check upload evidence.
 Host configuration and independent recovery confirmation are required before actions

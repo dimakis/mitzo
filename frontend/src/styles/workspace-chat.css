@@ -324,23 +324,8 @@
   font-size: 16px;
   line-height: 1.5;
 }
-.composer-info {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 6px;
-  min-width: 0;
-}
-.composer-info .token-bar {
-  margin-left: 0;
-  max-width: 100%;
-  white-space: normal;
-}
-.composer-info .token-bar-detail {
-  width: 100%;
-  box-sizing: border-box;
-}
 .composer-toolbar {
+  position: relative;
   display: flex;
   align-items: flex-end;
   justify-content: space-between;
@@ -885,24 +870,24 @@
     padding: 0.3rem 0.45rem;
   }
 
-  /* Text owns the full width; information and actions have separate rows. */
+  /* Keep a full-width, shallow text row above a single compact toolbar. */
   .workspace-chat .chat-input {
-    gap: 6px;
-    padding: 8px;
+    gap: 4px;
+    padding: 2px 8px;
   }
   .workspace-chat .chat-input-row {
     flex-direction: column;
     align-items: stretch;
     min-width: 0;
-    gap: 8px;
-    padding: 8px;
+    gap: 1px;
+    padding: 2px 4px;
     border-radius: 14px;
   }
   .workspace-chat .chat-input-field {
     width: 100%;
     flex: none;
-    min-height: 44px;
-    padding: 6px;
+    min-height: 32px;
+    padding: 4px 6px;
   }
   .workspace-chat .composer-toolbar {
     width: 100%;
@@ -1159,4 +1144,60 @@
   overflow: auto;
   overflow-wrap: anywhere;
   white-space: pre-wrap;
+}
+
+/* A fixed touch target with a clockwise occupancy arc; details float above it. */
+.token-wheel-control {
+  position: static;
+  flex: 0 0 44px;
+  margin-left: auto;
+}
+.chat-input .token-bar {
+  display: inline-flex;
+  justify-content: center;
+  align-items: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  margin: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  animation: none;
+}
+.token-wheel-track {
+  opacity: 0.18;
+}
+.token-bar--unknown {
+  color: var(--text-dim);
+}
+.token-wheel-fill {
+  transition:
+    stroke-dashoffset 0.2s,
+    opacity 0.2s;
+}
+.token-wheel-control .token-bar-detail {
+  right: 0;
+  width: min(260px, 100%);
+  min-width: 0;
+  box-sizing: border-box;
+}
+@container (max-width: 520px) {
+  .chat-input--compact .composer-session-trigger {
+    width: 44px;
+    padding: 0;
+  }
+  .composer-session-trigger .composer-toolbar-label {
+    display: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .token-wheel-fill {
+    transition: none;
+  }
+}
+@container (max-width: 360px) {
+  .chat-input--compact .composer-toolbar {
+    flex-wrap: wrap;
+  }
 }

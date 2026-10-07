@@ -88,3 +88,35 @@ test('backup dashboard preserves scope and upload distinction on desktop and mob
     expect(run!.y + run!.height).toBeLessThanOrEqual(tabs!.y);
   }
 });
+
+test('unconfigured backups expose a usable setup guide on desktop and mobile', async ({ page }) => {
+  await page.routeWebSocket('**/*', (socket) => socket.close());
+  await page.route('**/api/**', (route) => {
+    const path = new URL(route.request().url()).pathname;
+    return route.fulfill({
+      json:
+        path === '/api/backups'
+          ? {
+              ...overview,
+              ready: false,
+              setup: ['Configure backup storage.', 'Confirm independent recovery.'],
+              runs: [],
+              lastCapture: null,
+            }
+          : {},
+    });
+  });
+  await page.goto('/settings/backups');
+  await page.getByRole('button', { name: 'Set up backups' }).click();
+  await expect(page.getByRole('region', { name: 'Backup setup guide' })).toBeVisible();
+  await page.getByRole('button', { name: 'Encryption and recovery' }).click();
+  await expect(page.getByText('mitzo.backup', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Continue', exact: true }).click();
+  await page.getByRole('button', { name: 'Check setup again' }).click();
+  await expect(page.getByRole('button', { name: 'Back up now' })).toBeDisabled();
+  await page.getByRole('button', { name: 'Close guide' }).click();
+  await expect(page.getByRole('region', { name: 'Backup setup guide' })).toHaveCount(0);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
+    true,
+  );
+});
