@@ -666,6 +666,37 @@ describe('EventStore', () => {
   });
 
   describe('upsertSession', () => {
+    it('persists verified SDK history across reopen without changing usage or prompts', () => {
+      const root = mkdtempSync(join(tmpdir(), 'verified-sdk-history-'));
+      const path = join(root, 'events.db');
+      let persisted = new EventStore(path);
+      try {
+        persisted.upsertSession({ sessionId: 'imported', isActive: false, updatedAt: 123 });
+        expect(persisted.getSession('imported')?.sdkTranscriptVerified).toBe(false);
+        persisted.upsertSession({
+          sessionId: 'imported',
+          sdkTranscriptVerified: true,
+          updatedAt: 123,
+        });
+        persisted.upsertSession({ sessionId: 'verified-new', sdkTranscriptVerified: true });
+        persisted.close();
+        persisted = new EventStore(path);
+        expect(persisted.getSession('imported')).toMatchObject({
+          sdkTranscriptVerified: true,
+          initialPrompt: null,
+          numTurns: 0,
+          promptCount: 0,
+          updatedAt: 123,
+        });
+        expect(persisted.getSession('verified-new')?.sdkTranscriptVerified).toBe(true);
+        persisted.upsertSession({ sessionId: 'imported', summary: 'Renamed', updatedAt: 123 });
+        expect(persisted.getSession('imported')?.sdkTranscriptVerified).toBe(true);
+      } finally {
+        persisted.close();
+        rmSync(root, { recursive: true, force: true });
+      }
+    });
+
     it('creates a new session row', () => {
       store.upsertSession({ sessionId: 'sess-1', summary: 'Test session' });
       const session = store.getSession('sess-1');

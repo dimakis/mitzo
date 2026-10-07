@@ -142,6 +142,7 @@ describe('getSessions reconciliation', () => {
       },
     ]);
     mockGetKnownSessionIds.mockReturnValue(new Set(['sess-known']));
+    mockGetSession.mockReturnValue({ sessionId: 'sess-known', sdkTranscriptVerified: true });
 
     const { getSessions } = await import('../chat.js');
     const result = await getSessions();

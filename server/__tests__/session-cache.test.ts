@@ -257,9 +257,15 @@ describe('getSessionsCached', () => {
       { ...recent, sessionId: 'starting', initialPrompt: 'Check pricing' },
       { ...recent, sessionId: 'bound', accountBinding: { accountId: 'test' } },
       { ...recent, sessionId: 'active', isActive: true },
+      { ...recent, sessionId: 'verified-import', sdkTranscriptVerified: true },
     ]);
     const { getSessionsCached } = await import('../chat.js');
-    expect(getSessionsCached().sessions.map((s) => s.id)).toEqual(['starting', 'bound', 'active']);
+    expect(getSessionsCached().sessions.map((s) => s.id)).toEqual([
+      'starting',
+      'bound',
+      'active',
+      'verified-import',
+    ]);
   });
 
   it('hides an old zero-turn inactive session past the grace period', async () => {
@@ -307,7 +313,9 @@ describe('syncSessionTimestamps', () => {
     expect(mockUpsertSession.mock.calls.every(([meta]) => meta.sessionId === 'real-chat')).toBe(
       true,
     );
-    expect(mockUpsertSession).toHaveBeenCalled();
+    expect(mockUpsertSession).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionId: 'real-chat', sdkTranscriptVerified: true }),
+    );
   });
 
   it('inserts new sessions from filesystem into EventStore', async () => {
@@ -332,6 +340,21 @@ describe('syncSessionTimestamps', () => {
         isActive: false,
       }),
     );
+  });
+
+  it('verifies an existing imported conversation without timestamp drift', async () => {
+    const now = Date.now();
+    mockListSessions.mockResolvedValue([
+      { sessionId: 'imported', summary: 'Image chat', lastModified: now },
+    ]);
+    mockGetSession.mockReturnValue({ sessionId: 'imported', updatedAt: now });
+    const { syncSessionTimestamps } = await import('../chat.js');
+    await syncSessionTimestamps();
+    expect(mockUpsertSession).toHaveBeenCalledWith({
+      sessionId: 'imported',
+      sdkTranscriptVerified: true,
+      updatedAt: now,
+    });
   });
 
   it('syncs timestamp when drift exceeds 60s', async () => {
@@ -409,6 +432,7 @@ describe('syncSessionTimestamps', () => {
       sessionId: 'sess-ok',
       summary: 'Fine',
       updatedAt: now - 30_000, // Only 30s drift
+      sdkTranscriptVerified: true,
       manuallyRenamed: false,
     });
 

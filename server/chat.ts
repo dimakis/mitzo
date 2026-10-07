@@ -3062,10 +3062,19 @@ export async function getSessions(offset = 0, limit = SESSION_PAGE_SIZE) {
         cwd: entry.cwd ?? (BASE_REPO || null),
         branch: entry.branch ?? null,
         isActive: false,
+        sdkTranscriptVerified: true,
         updatedAt: entry.lastModified,
         createdAt: entry.lastModified,
       });
       reconciledCount++;
+    } else {
+      const existing = eventStore.getSession(sessionId);
+      if (existing && !existing.sdkTranscriptVerified)
+        eventStore.upsertSession({
+          sessionId,
+          sdkTranscriptVerified: true,
+          updatedAt: existing.updatedAt,
+        });
     }
   }
   if (reconciledCount > 0) {
@@ -3103,10 +3112,13 @@ export function getSessionsCached(offset = 0, limit = SESSION_PAGE_SIZE) {
     if (m.symposiumConfig) return true;
     // Hide sessions that were never used through Mitzo (e.g. automated
     // code review sessions discovered from filesystem).  Active sessions
-    // always show regardless of turn count. Only Mitzo-created sessions get
-    // the startup grace period; a recent filesystem title is not a chat.
+    // always show regardless of turn count. Mitzo-created or verified SDK
+    // conversations get the startup grace period; a title alone does not.
     if (m.numTurns === 0 && m.promptCount === 0 && !m.isActive) {
-      return Boolean(m.initialPrompt || m.accountBinding) && now - m.createdAt < ZERO_TURN_GRACE_MS;
+      return (
+        Boolean(m.initialPrompt || m.accountBinding || m.sdkTranscriptVerified) &&
+        now - m.createdAt < ZERO_TURN_GRACE_MS
+      );
     }
     return true;
   });
@@ -3191,6 +3203,7 @@ export async function syncSessionTimestamps(): Promise<void> {
         cwd: entry.cwd ?? (BASE_REPO || null),
         branch: entry.branch ?? null,
         isActive: false,
+        sdkTranscriptVerified: true,
         updatedAt: entry.lastModified,
         createdAt: entry.lastModified,
       });
@@ -3200,11 +3213,18 @@ export async function syncSessionTimestamps(): Promise<void> {
       // Preserves summary from EventStore if it was manually renamed.
       eventStore.upsertSession({
         sessionId,
+        sdkTranscriptVerified: true,
         updatedAt: entry.lastModified,
         summary: existing.manuallyRenamed ? undefined : entry.summary || undefined,
         branch: entry.branch ?? undefined,
       });
       synced++;
+    } else if (!existing.sdkTranscriptVerified) {
+      eventStore.upsertSession({
+        sessionId,
+        sdkTranscriptVerified: true,
+        updatedAt: existing.updatedAt,
+      });
     }
   }
   if (synced > 0) {
@@ -3227,6 +3247,7 @@ export async function discoverSession(
     eventStore.upsertSession({
       sessionId,
       summary: info.summary || null,
+      sdkTranscriptVerified: true,
       cwd: info.cwd ?? null,
       branch: info.gitBranch ?? null,
       isActive: false,

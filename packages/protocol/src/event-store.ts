@@ -221,6 +221,7 @@ interface SessionRow {
   prompt_count: number;
   manually_renamed: number;
   initial_prompt: string | null;
+  sdk_transcript_verified: number;
   wt_id: string | null;
   input_tokens: number;
   output_tokens: number;
@@ -632,6 +633,7 @@ export class EventStore {
     this.migrateExecutionState(db);
     this.migrateBootContext(db);
     this.migrateModelSelection(db);
+    this.migrateSdkTranscriptVerification(db);
     this.migrateSymposium(db);
     this.migrateUserMessageIndex(db);
 
@@ -874,6 +876,13 @@ export class EventStore {
     if (!columnNames.has('reasoning_effort')) {
       db.exec('ALTER TABLE sessions ADD COLUMN reasoning_effort TEXT');
       this.log.info('migrated sessions table: added reasoning_effort');
+    }
+  }
+
+  private migrateSdkTranscriptVerification(db: Database.Database): void {
+    const columns = db.prepare("PRAGMA table_info('sessions')").all() as Array<{ name: string }>;
+    if (!columns.some((column) => column.name === 'sdk_transcript_verified')) {
+      db.exec('ALTER TABLE sessions ADD COLUMN sdk_transcript_verified INTEGER NOT NULL DEFAULT 0');
     }
   }
 
@@ -5951,6 +5960,10 @@ export class EventStore {
         fields.push('initial_prompt = ?');
         values.push(meta.initialPrompt);
       }
+      if (meta.sdkTranscriptVerified !== undefined) {
+        fields.push('sdk_transcript_verified = ?');
+        values.push(meta.sdkTranscriptVerified ? 1 : 0);
+      }
       if (meta.goalId !== undefined) {
         fields.push('goal_id = ?');
         values.push(meta.goalId);
@@ -6006,6 +6019,7 @@ export class EventStore {
         'mode',
         'is_active',
         'initial_prompt',
+        'sdk_transcript_verified',
         'wt_id',
         'goal_id',
         'telos_task_id',
@@ -6024,6 +6038,7 @@ export class EventStore {
         meta.mode ?? 'agent',
         meta.isActive === false ? 0 : 1,
         meta.initialPrompt ?? null,
+        meta.sdkTranscriptVerified ? 1 : 0,
         meta.wtId ?? null,
         meta.goalId ?? null,
         meta.telosTaskId ?? null,
@@ -6528,6 +6543,7 @@ function rowToSession(row: SessionRow): SessionMeta {
     promptCount: row.prompt_count ?? 0,
     manuallyRenamed: (row.manually_renamed ?? 0) === 1,
     initialPrompt: row.initial_prompt ?? null,
+    sdkTranscriptVerified: row.sdk_transcript_verified === 1,
     wtId: row.wt_id ?? null,
     inputTokens: row.input_tokens ?? 0,
     outputTokens: row.output_tokens ?? 0,

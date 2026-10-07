@@ -418,6 +418,8 @@ export interface SessionMeta {
   promptCount: number;
   manuallyRenamed: boolean;
   initialPrompt: string | null;
+  /** SDK history was checked and contains conversation messages. */
+  sdkTranscriptVerified?: boolean;
   wtId: string | null;
   inputTokens: number;
   outputTokens: number;
