@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { WorkspacePageHeading } from '../components/WorkspacePageHeading';
 import {
   createConnection,
+  ConnectionCreationFailure,
   getConnectionAudit,
   getConnectionTemplates,
   getConnections,
@@ -63,6 +64,7 @@ export function ConnectionsView({ mode = 'add', connectionId }: ConnectionsViewP
   const [step, setStep] = useState<WizardStep>('service');
   const [busy, setBusy] = useState<string | null>(null);
   const [created, setCreated] = useState<ManagedConnection | null>(null);
+  const [recovery, setRecovery] = useState<ConnectionCreationFailure | null>(null);
   const [audit, setAudit] = useState<Record<string, ConnectionAuditEntry[]>>({});
   const [rotateId, setRotateId] = useState<string | null>(null);
   const [rotationCredentials, setRotationCredentials] = useState<Record<string, string>>({});
@@ -126,7 +128,7 @@ export function ConnectionsView({ mode = 'add', connectionId }: ConnectionsViewP
   }, [refresh, mode]);
   useEffect(() => {
     stepHeading.current?.focus();
-  }, [step, personalChosen, created]);
+  }, [step, personalChosen, created, recovery]);
   useEffect(() => {
     if (authorizationOpen) authorizationField.current?.focus();
   }, [authorizationOpen]);
@@ -283,9 +285,14 @@ export function ConnectionsView({ mode = 'add', connectionId }: ConnectionsViewP
       );
       setFailed(true);
       setPassphrase('');
+      if (error instanceof ConnectionCreationFailure && error.authorizationRequired) {
+        setCsrf('');
+        setCsrfExpiresAt(0);
+      }
       if (submitted) {
         setCredentials({});
-        setStep('authenticate');
+        if (error instanceof ConnectionCreationFailure && !error.retrySetup) setRecovery(error);
+        else setStep('authenticate');
       }
     } finally {
       if (mounted.current) await refresh();
@@ -333,7 +340,31 @@ export function ConnectionsView({ mode = 'add', connectionId }: ConnectionsViewP
         </p>
       )}
       {mode === 'add' ? (
-        created ? (
+        recovery ? (
+          <section className="connections-complete" aria-label="Connection recovery">
+            <h2 ref={stepHeading} tabIndex={-1}>
+              Review connection status
+            </h2>
+            <p>
+              {recovery.connectionId
+                ? 'A saved connection needs review. Open it to check its status and finish setup.'
+                : 'Check Connections before adding this service again. It may have been saved even though the result could not be confirmed.'}
+            </p>
+            <div className="connections-wizard-actions">
+              {recovery.connectionId && (
+                <Link
+                  className="workspace-primary"
+                  to={`/connections?manage=service&connection=${encodeURIComponent(recovery.connectionId)}`}
+                >
+                  Review saved connection
+                </Link>
+              )}
+              <Link className="workspace-text-link" to="/connections-access">
+                Back to Connections
+              </Link>
+            </div>
+          </section>
+        ) : created ? (
           <section className="connections-complete" aria-label="Connection result">
             <h2 ref={stepHeading} tabIndex={-1}>
               {created.status === 'active'
@@ -600,7 +631,7 @@ export function ConnectionsView({ mode = 'add', connectionId }: ConnectionsViewP
                   capabilityCatalog={templates?.capabilities ?? []}
                   refreshEpoch={connectionRefreshEpoch}
                   csrf={csrf}
-                  busy={busy}
+                  busy={busy ?? (loadError ? 'refresh-required' : null)}
                   audit={audit[connection.id]}
                   rotateOpen={rotateId === connection.id}
                   rotationCredentials={rotationCredentials}

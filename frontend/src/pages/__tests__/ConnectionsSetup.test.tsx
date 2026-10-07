@@ -9,7 +9,8 @@ import * as api from '../../lib/connections-api';
 import type { ConnectionsCatalog, ConnectionTemplateCatalog } from '../../types/connections';
 
 vi.mock('../../lib/api-fetch', () => ({ apiFetch: vi.fn() }));
-vi.mock('../../lib/connections-api', () => ({
+vi.mock('../../lib/connections-api', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../lib/connections-api')>()),
   getConnections: vi.fn(),
   getConnectionTemplates: vi.fn(),
   reauthorize: vi.fn(),
@@ -283,4 +284,60 @@ it('does not start a connection request after leaving during authorization', asy
   cleanup();
   await act(async () => finish({ csrf: 'late-proof', expiresAt: Date.now() + 300_000 }));
   expect(api.createConnection).not.toHaveBeenCalled();
+});
+
+it.each(['saved-1', null])(
+  'keeps failed or uncertain creation in recovery instead of repeating setup: %s',
+  async (id) => {
+    vi.mocked(api.createConnection).mockRejectedValue(
+      new api.ConnectionCreationFailure('Verification could not be confirmed', id, false),
+    );
+    await reviewJira();
+    await click('Verify and connect Jira');
+    fill('Passphrase', 'pass');
+    await click('Authorize and connect Jira');
+    expect(screen.queryByRole('button', { name: 'Continue' })).toBeNull();
+    expect(screen.queryByLabelText('API token')).toBeNull();
+    expect(screen.getByRole('link', { name: 'Back to Connections' })).toBeTruthy();
+    if (id)
+      expect(
+        screen.getByRole('link', { name: 'Review saved connection' }).getAttribute('href'),
+      ).toContain('connection=saved-1');
+    else
+      expect(screen.getByText(/Check Connections before adding this service again/)).toBeTruthy();
+    expect(api.createConnection).toHaveBeenCalledTimes(1);
+  },
+);
+
+it('disables cached management mutations until a failed refresh is recovered', async () => {
+  await start({ mode: 'manage', connectionId: 'jira-1' });
+  vi.mocked(api.getConnections).mockRejectedValue(new Error('Access unavailable'));
+  await click('Refresh connection');
+  expect(
+    (screen.getByRole('button', { name: 'Test identity' }) as HTMLButtonElement).disabled,
+  ).toBe(true);
+  expect(
+    (screen.getByRole('button', { name: 'Rotate credentials' }) as HTMLButtonElement).disabled,
+  ).toBe(true);
+  vi.mocked(api.getConnections).mockResolvedValue(catalog);
+  await click('Refresh connection');
+  expect(
+    (screen.getByRole('button', { name: 'Test identity' }) as HTMLButtonElement).disabled,
+  ).toBe(false);
+});
+
+it('requests fresh authorization after the server rejects a previously valid proof', async () => {
+  vi.mocked(api.createConnection).mockRejectedValueOnce(
+    new api.ConnectionCreationFailure('Reauthorization required', null, true, true),
+  );
+  await reviewJira();
+  await click('Verify and connect Jira');
+  fill('Passphrase', 'pass');
+  await click('Authorize and connect Jira');
+  fill('API token', 'replacement');
+  await click('Continue');
+  await click('Continue');
+  await click('Verify and connect Jira');
+  expect(screen.getByLabelText('Passphrase')).toBeTruthy();
+  expect(api.createConnection).toHaveBeenCalledTimes(1);
 });

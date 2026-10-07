@@ -223,3 +223,22 @@
     align-items: stretch;
   }
 }
+.connections-focused-page .connections-wizard-actions {
+  justify-content: space-between;
+}
+.connections-focused-page .connections-wizard-actions > button {
+  flex: 0 1 auto;
+}
+.connections-authorization .connections-wizard-actions .workspace-text-link {
+  background: transparent;
+  border-color: transparent;
+  color: var(--workspace-muted);
+}
+.connections-focused-page .connections-capabilities h3 {
+  font-size: 16px;
+  font-weight: 500;
+  margin: 0 0 10px;
+}
+.connections-focused-page .connections-capabilities .workspace-muted {
+  font-size: 13px;
+}

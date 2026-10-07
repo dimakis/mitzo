@@ -14,7 +14,8 @@ import type { ConnectionTemplateCatalog, ConnectionsCatalog } from '../../types/
 
 vi.mock('../../lib/api-fetch', () => ({ apiFetch: vi.fn() }));
 
-vi.mock('../../lib/connections-api', () => ({
+vi.mock('../../lib/connections-api', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../lib/connections-api')>()),
   getConnections: vi.fn(),
   getConnectionTemplates: vi.fn(),
   reauthorize: vi.fn(),
