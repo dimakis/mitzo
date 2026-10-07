@@ -1,4 +1,6 @@
 import { createHash } from 'node:crypto';
+import { existsSync } from 'node:fs';
+import { z } from 'zod';
 import { execFile } from 'node:child_process';
 import { readFile, realpath } from 'node:fs/promises';
 import { dirname, isAbsolute, join } from 'node:path';
@@ -6,6 +8,28 @@ import { promisify } from 'node:util';
 import { githubRepositoryFromOrigin } from './connections/capabilities/github-publish-pr.js';
 import { GithubSeedPublicationError } from './github-seeded-source.js';
 const exec = promisify(execFile);
+export const MAX_GITHUB_SEED_BASELINES = 33;
+export function configuredGithubSeedBaselinePaths(
+  seed?: string,
+  retainedJson = process.env.MITZO_GITHUB_SEED_BASELINES,
+): string[] {
+  let retained: string[];
+  try {
+    retained = retainedJson
+      ? z
+          .array(z.string().min(1).refine(isAbsolute))
+          .max(MAX_GITHUB_SEED_BASELINES - 1)
+          .parse(JSON.parse(retainedJson))
+      : [];
+  } catch {
+    throw new GithubSeedPublicationError(
+      'SEEDED_BASELINE_INVALID',
+      'Seed baseline configuration must be a bounded JSON array of absolute host paths',
+    );
+  }
+  const automatic = seed ? join(seed, '..', 'baseline.json') : undefined;
+  return [...new Set([...retained, ...(automatic && existsSync(automatic) ? [automatic] : [])])];
+}
 export interface GithubSeedBaseline {
   seedTreeOid: string;
   repository: string;
@@ -19,7 +43,7 @@ export async function loadGithubSeedBaselines(
   signal: AbortSignal,
   selectedTree?: string,
 ): Promise<GithubSeedBaseline[]> {
-  if (paths.length > 32)
+  if (paths.length > MAX_GITHUB_SEED_BASELINES)
     throw new GithubSeedPublicationError(
       'SEEDED_BASELINE_INVALID',
       'Too many configured seed baselines',

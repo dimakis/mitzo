@@ -83,3 +83,28 @@ it('ignores an unused seed source when resolving a different verified tree', asy
     await loadGithubSeedBaselines([path], new AbortController().signal, '0'.repeat(40)),
   ).toEqual([]);
 });
+it('keeps explicitly configured baselines when a supported static seed has no sibling baseline', async () => {
+  const { configuredGithubSeedBaselinePaths } = await import('../github-seed-baselines.js');
+  root = await mkdtemp(join(tmpdir(), 'mitzo-seed-static-'));
+  await mkdir(join(root, 'mgmt'));
+  expect(
+    configuredGithubSeedBaselinePaths(
+      join(root, 'mgmt'),
+      JSON.stringify(['/srv/retained/baseline.json']),
+    ),
+  ).toEqual(['/srv/retained/baseline.json']);
+});
+it('uses the combined loader limit for 32 retained baselines plus the automatic seed', async () => {
+  const { configuredGithubSeedBaselinePaths, MAX_GITHUB_SEED_BASELINES } =
+    await import('../github-seed-baselines.js');
+  root = await mkdtemp(join(tmpdir(), 'mitzo-seed-configured-'));
+  await mkdir(join(root, 'mgmt'));
+  await writeFile(join(root, 'baseline.json'), '{}');
+  const retained = Array.from({ length: 32 }, (_, i) => `/srv/seed-${i}/baseline.json`);
+  const paths = configuredGithubSeedBaselinePaths(join(root, 'mgmt'), JSON.stringify(retained));
+  expect(paths).toHaveLength(33);
+  expect(paths.length).toBeLessThanOrEqual(MAX_GITHUB_SEED_BASELINES);
+  expect(() =>
+    configuredGithubSeedBaselinePaths(undefined, JSON.stringify(['relative.json'])),
+  ).toThrow();
+});

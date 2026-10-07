@@ -147,9 +147,11 @@ export function safeGithubSeedFailure(
   error: unknown,
 ): { code: string; message: string } | undefined {
   if (!(error instanceof GithubSeedPublicationError)) return undefined;
-  const message = seedFailureMessages[error.code];
+  const message = Object.hasOwn(seedFailureMessages, error.code)
+    ? seedFailureMessages[error.code]
+    : undefined;
   return message ? { code: error.code, message } : undefined;
 }
 export function githubSeedFailureMessage(code: string | null | undefined): string | undefined {
-  return code ? seedFailureMessages[code] : undefined;
+  return code && Object.hasOwn(seedFailureMessages, code) ? seedFailureMessages[code] : undefined;
 }
