@@ -148,7 +148,11 @@ References: [Restic backup](https://restic.readthedocs.io/en/stable/040_backup.h
 ## Manual service and dashboard
 
 `/settings/backups` is available from Settings on desktop and More → Settings on
-mobile. Existing `/backups` links redirect to the new location. Its operator-only
+mobile. The iCloud destination card opens a three-step host setup guide with storage,
+encryption/recovery and verification instructions. The guide does not write host
+configuration or credentials; its check action rereads service readiness. Disabled
+backup/upload actions explain their prerequisites, and refresh remains available
+when status loading fails. Existing `/backups` links redirect to the new location. Its operator-only
 API is `GET /api/backups`, `POST /api/backups/run` and `POST /api/backups/refresh`.
 POST bodies must be empty JSON objects; paths, credentials, capture selection and
 host configuration cannot be supplied by an agent or browser. Actions return 202
