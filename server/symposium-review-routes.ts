@@ -14,6 +14,7 @@ import {
 import {
   ReviewLimitsSchema,
   ApplicationPolicySchema,
+  isApplicationPolicy,
   type SymposiumReviewStore,
 } from './symposium-review-workflows.js';
 
@@ -166,13 +167,15 @@ export function createSymposiumReviewRouter(deps: {
         reason: 'Host artifact verification unavailable',
       };
     }
+    const workflows = deps.store.list(ctx.owner, ctx.sessionId);
     res.set('Cache-Control', 'no-store');
     res.json({
       available,
-      stopAvailable: Boolean(host),
+      stopAvailable:
+        Boolean(host) || workflows.some((workflow) => isApplicationPolicy(workflow.limits)),
       cleanupAvailable: Boolean(host?.cleanupCriterionCheck),
       applicationRun,
-      workflows: deps.store.list(ctx.owner, ctx.sessionId),
+      workflows,
       criterionChecks: host?.criterionChecks?.() ?? [],
     });
   });
@@ -290,6 +293,14 @@ export function createSymposiumReviewRouter(deps: {
     const workflowId = req.params.workflowId;
     try {
       const inspected = coordinator.status(ctx, workflowId);
+      const action = input.data;
+      // Cancellation fences the scoped existing run, even if the user's artifact
+      // view is stale or physical review authority is unavailable. Original-owner
+      // reconciliation may remain uncertain; this does not prove native cleanup.
+      if (action.action === 'stop') {
+        res.json(await coordinator.stop(ctx, workflowId));
+        return;
+      }
       if (
         inspected.artifactRevision !== input.data.expectedArtifactRevision ||
         inspected.artifactHash !== input.data.expectedArtifactHash
@@ -303,17 +314,10 @@ export function createSymposiumReviewRouter(deps: {
           .json({ kind: 'decision_required', code: 'trusted_review_host_unavailable' });
         return;
       }
-      const action = input.data;
-      // Stop fences known work even when physical verification is unavailable.
-      if (
-        action.action !== 'stop' &&
-        action.action !== 'cleanup-check' &&
-        action.action !== 'check-state'
-      )
+      if (action.action !== 'cleanup-check' && action.action !== 'check-state')
         await host.refreshArtifact?.(ctx);
       let result: unknown;
-      if (action.action === 'stop') result = await coordinator.stop(ctx, workflowId);
-      else if (action.action === 'check-state') {
+      if (action.action === 'check-state') {
         if (!host.getCriterionCheckState) throw new Error('Original check state unavailable');
         result = {
           ...SemanticCheckStateReportSchema.parse(

@@ -92,6 +92,115 @@ it('rejects actions without the artifact the user actually inspected', async () 
   ).toBe(400);
 });
 
+function existingApplicationRun(
+  store: SymposiumReviewStore,
+  owner = 'user',
+  sessionId = 'session',
+) {
+  const hash = 'a'.repeat(64);
+  const selection = (seatId: string, role: string) => ({
+    seatId,
+    role,
+    selectionId: seatId,
+    policyRevision: 'config-1',
+    profileId: seatId,
+    profileRevision: 1,
+    accountId: seatId,
+    model: 'offline',
+  });
+  return store.create({
+    workflowId: 'stop-workflow',
+    owner,
+    sessionId,
+    implementation: {
+      version: 1,
+      resultId: 'result',
+      attemptId: 'initial',
+      inputRevision: 'source',
+      inputHash: hash,
+      artifactRevision: 'current',
+      artifactHash: hash,
+      summary: 'ready',
+      evidenceRefs: ['current'],
+      completedAt: 1,
+    },
+    implementer: selection('coder', 'coder'),
+    reviewer: selection('reviewer', 'reviewer'),
+    acceptanceCriteria: ['works'],
+    limits: {
+      version: 1,
+      mode: 'application',
+      maxHostTurns: 3,
+      maxReviewCycles: 1,
+      deadlineAt: Date.now() + 60000,
+      noProgressLimit: 1,
+    },
+  });
+}
+const stopInput = {
+  action: 'stop',
+  expectedArtifactRevision: 'current',
+  expectedArtifactHash: 'a'.repeat(64),
+};
+const stopUrl = '/api/sessions/session/symposium/reviews/stop-workflow/actions';
+
+it('allows authenticated Stop without an available host and exposes its durable control', async () => {
+  const { app, store } = fixture('owner');
+  existingApplicationRun(store);
+  const status = await request(app).get('/api/sessions/session/symposium/reviews');
+  expect(status.body).toMatchObject({ available: false, stopAvailable: true });
+  const stopped = await request(app).post(stopUrl).send(stopInput);
+  expect(stopped.status).toBe(200);
+  expect(store.get('stop-workflow')).toMatchObject({
+    status: 'decision_required',
+    decisionCode: 'user_stop',
+  });
+  expect(stopped.body).toMatchObject({ status: 'decision_required', decisionCode: 'user_stop' });
+  expect(stopped.body.applicationAttempts).toEqual([]);
+});
+
+it('persists Stop for a stale inspected artifact while execution remains revision-fenced', async () => {
+  const refreshArtifact = vi.fn(async () => {});
+  const host = {
+    criterionChecks: () => [],
+    refreshArtifact,
+    currentArtifact: () => ({ revision: 'current', hash: 'a'.repeat(64) }),
+  };
+  const { app, store } = fixture('owner', host);
+  existingApplicationRun(store);
+  const stale = {
+    ...stopInput,
+    expectedArtifactRevision: 'old',
+    expectedArtifactHash: 'b'.repeat(64),
+  };
+  const execution = await request(app)
+    .post(stopUrl)
+    .send({ ...stale, action: 'review' });
+  expect(execution.status).toBe(409);
+  expect(execution.body.code).toBe('artifact_changed');
+  const stopped = await request(app).post(stopUrl).send(stale);
+  expect(stopped.status).toBe(200);
+  expect(store.get('stop-workflow')).toMatchObject({
+    status: 'decision_required',
+    decisionCode: 'user_stop',
+  });
+  expect(refreshArtifact).not.toHaveBeenCalled();
+});
+
+it.each([
+  [undefined, 'user', 'session', 403],
+  ['authenticated', 'other-owner', 'session', 409],
+  ['authenticated', 'user', 'other-session', 409],
+] as const)(
+  'does not let Stop bypass interactive or workflow scope: %s / %s / %s',
+  async (login, owner, sessionId, code) => {
+    const { app, store } = fixture(login);
+    existingApplicationRun(store, owner, sessionId);
+    expect((await request(app).post(stopUrl).send(stopInput)).status).toBe(code);
+    expect(store.get('stop-workflow')?.decisionCode).toBeUndefined();
+  },
+);
+
 it('recovers one retained charged preparation by its exact attempt ID', async () => {
   const store = new SymposiumReviewStore(':memory:');
   stores.push(store);
