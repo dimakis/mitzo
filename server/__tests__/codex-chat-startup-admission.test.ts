@@ -279,7 +279,7 @@ it('rechecks startup phase after waiting behind an initialization with no acknow
   const original = OpenShellRuntimeManager.prototype.ensure;
   const ensure = vi
     .spyOn(OpenShellRuntimeManager.prototype, 'ensure')
-    .mockImplementationOnce(async function (...args) {
+    .mockImplementationOnce(async function (this: OpenShellRuntimeManager, ...args) {
       entered();
       await gate;
       return original.apply(this, args);
