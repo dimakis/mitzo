@@ -769,7 +769,7 @@ describe('connection template registry', () => {
     expect(
       reviewedHandlerSourceFingerprint(
         sources['capabilities/github-publish-pr-transport.ts'].replace(
-          'exec /usr/bin/git "$@"',
+          'exec /usr/bin/git -c core.hooksPath=/dev/null -c core.fsmonitor=false "$@"',
           'exec /bin/sh "$@"',
         ),
       ),

@@ -24,6 +24,15 @@ export interface GithubPublishConversation {
 }
 
 export interface GithubSandboxInspection {
+  seededPublication?: {
+    originalSourceOid: string;
+    seedTreeOid: string;
+    projectedBaseOid: string;
+    patchSha256: string;
+    seedSourceIdentity: string;
+    originalCommitCount: string;
+    originalSourceBranch: string;
+  };
   canonicalRepositoryPath: string;
   /** Empty means clean. This is deliberately not a user-provided porcelain string. */
   status: string;
@@ -258,10 +267,12 @@ function output(pr: GithubPullRequest, inspection: GithubSandboxInspection): Jso
   return {
     repository: pr.repository,
     sourceBranch: pr.sourceBranch,
+    sourceOid: inspection.sourceOid,
     baseBranch: pr.baseBranch,
     pullRequestUrl: pr.url,
     pullRequestId: pr.id,
     commitsAhead: inspection.commitsAhead,
+    ...(inspection.seededPublication ?? {}),
     changedFiles: inspection.changedFiles.slice(0, GITHUB_PUBLISH_MAX_CHANGED_FILES),
   };
 }
@@ -405,6 +416,7 @@ export function createGithubArtifactPublishPrExecutor(
     // merely to the fact that an open PR happened to exist at preflight.
     existingPullRequestId: existing?.id ?? '',
     existingPullRequestUrl: existing?.url ?? '',
+    ...(state.inspection.seededPublication ?? {}),
   });
   const assertApproved = (
     context: CapabilityExecutionContext,
@@ -580,6 +592,14 @@ export function createGithubArtifactPublishPrExecutor(
       assertRequestedMetadata(pr, state.input);
       if (!samePullRequestUrl(pr.url, externalResultId))
         reject('GitHub pull request verification failed');
+      const verifiedHead = await deps.host.readBranch({
+        repository: state.repository,
+        sourceBranch: state.inspection.sourceBranch!,
+        operationId: context.operation.id,
+        signal: context.signal,
+      });
+      if (verifiedHead !== state.inspection.sourceOid)
+        reject('GitHub remote branch does not match the approved commit');
     },
     async recover(operation, signal) {
       const result = operation.recoveryIntent;

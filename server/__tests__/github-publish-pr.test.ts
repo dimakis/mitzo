@@ -1181,3 +1181,10 @@ describe('github.publish-pr capability', () => {
     expect(f.host.update).not.toHaveBeenCalled();
   });
 });
+it('does not report success if the remote feature branch no longer has the approved commit', async () => {
+  const f = fixture();
+  vi.mocked(f.host.readBranch).mockResolvedValue('b'.repeat(40));
+  await expect(
+    f.executor.verify(context(), { output: {}, externalResultId: f.pull.url }),
+  ).rejects.toThrow(/commit/);
+});
