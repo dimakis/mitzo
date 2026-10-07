@@ -14,6 +14,8 @@ const eventSchema = z.object({
   type: z.string(),
   output_index: z.number().int().nonnegative().optional(),
   content_index: z.number().int().nonnegative().optional(),
+  summary_index: z.number().int().nonnegative().optional(),
+  text: z.string().optional(),
   delta: z.string().optional(),
   item: record.optional(),
   part: record.optional(),
@@ -138,6 +140,61 @@ class ResponseBlocks {
   readonly closed = new Set<number>();
   private indexes = new Map<string, number>();
   private argumentBuffers = new Map<number, string>();
+  *summary(
+    outputIndex: number,
+    summaryIndex: number,
+    text: string,
+    done = false,
+  ): Generator<StreamEvent> {
+    const key = `summary:${outputIndex}:${summaryIndex}`;
+    let index = this.indexes.get(key);
+    if (index === undefined) {
+      index = this.blocks.length;
+      this.indexes.set(key, index);
+      this.blocks.push({ type: 'thinking', thinking: '' });
+      yield {
+        type: 'content_block_start',
+        index,
+        content_block: { type: 'thinking', thinking: '' },
+      };
+    }
+    const block = this.blocks[index];
+    if (block.type !== 'thinking') throw new Error('Invalid OpenAI summary block');
+    if (!text.startsWith(block.thinking)) throw new Error('Inconsistent OpenAI summary completion');
+    const suffix = text.slice(block.thinking.length);
+    if (suffix) {
+      if (this.closed.has(index)) throw new Error('OpenAI summary changed after completion');
+      block.thinking = text;
+      yield {
+        type: 'content_block_delta',
+        index,
+        delta: { type: 'thinking_delta', thinking: suffix },
+      };
+    }
+    if (done && !this.closed.has(index)) {
+      this.closed.add(index);
+      yield { type: 'content_block_stop', index };
+    }
+  }
+
+  *summaryDelta(event: z.infer<typeof eventSchema>): Generator<StreamEvent> {
+    const outputIndex = z.number().int().nonnegative().parse(event.output_index);
+    const summaryIndex = z.number().int().nonnegative().parse(event.summary_index);
+    const index = this.indexes.get(`summary:${outputIndex}:${summaryIndex}`);
+    const block = index === undefined ? undefined : this.blocks[index];
+    const prior = block?.type === 'thinking' ? block.thinking : '';
+    yield* this.summary(outputIndex, summaryIndex, prior + z.string().parse(event.delta));
+  }
+
+  *finishSummaries(outputIndex: number, item: Record<string, unknown>): Generator<StreamEvent> {
+    if (item.type !== 'reasoning') return;
+    const summaries = z
+      .array(z.object({ type: z.literal('summary_text'), text: z.string() }))
+      .parse(item.summary ?? []);
+    for (const [summaryIndex, summary] of summaries.entries())
+      yield* this.summary(outputIndex, summaryIndex, summary.text, true);
+  }
+
   startTool(event: z.infer<typeof eventSchema>): StreamEvent | undefined {
     const id = z.string().parse(event.item?.call_id);
     const name = z.string().parse(event.item?.name);
@@ -289,8 +346,15 @@ export class ResponsesSession implements ModelSession {
           stream: true,
           store: false,
           include: ['reasoning.encrypted_content'],
-          ...(this.config.reasoningEffort
-            ? { reasoning: { effort: this.config.reasoningEffort } }
+          ...(this.config.reasoningEffort ||
+          (/^(?:gpt-[56](?:[.-]|$)|o[34](?:-|$))/.test(this.config.model) &&
+            !/(?:^|-)chat(?:-|$)/.test(this.config.model))
+            ? {
+                reasoning: {
+                  summary: 'auto',
+                  ...(this.config.reasoningEffort ? { effort: this.config.reasoningEffort } : {}),
+                },
+              }
             : {}),
           input,
           tools: this.config.tools?.length
@@ -337,6 +401,29 @@ export class ResponsesSession implements ModelSession {
               usage: { input_tokens: 0, output_tokens: 0 },
             },
           };
+        } else if (event.type === 'response.reasoning_summary_part.added') {
+          yield* content.summary(
+            z.number().int().nonnegative().parse(event.output_index),
+            z.number().int().nonnegative().parse(event.summary_index),
+            z.string().parse(event.part?.text),
+          );
+        } else if (event.type === 'response.reasoning_summary_text.delta') {
+          yield* content.summaryDelta(event);
+        } else if (
+          event.type === 'response.reasoning_summary_text.done' ||
+          event.type === 'response.reasoning_summary_part.done'
+        ) {
+          yield* content.summary(
+            z.number().int().nonnegative().parse(event.output_index),
+            z.number().int().nonnegative().parse(event.summary_index),
+            z.string().parse(event.text ?? event.part?.text),
+            true,
+          );
+        } else if (event.type === 'response.output_item.done' && event.item?.type === 'reasoning') {
+          yield* content.finishSummaries(
+            z.number().int().nonnegative().parse(event.output_index),
+            event.item,
+          );
         } else if (
           event.type === 'response.output_item.added' &&
           event.item?.type === 'function_call'
@@ -368,6 +455,8 @@ export class ResponsesSession implements ModelSession {
           const translated = content.finishText(event);
           if (translated) yield translated;
         } else if (event.type === 'response.completed') {
+          for (const [outputIndex, item] of (event.response?.output ?? []).entries())
+            yield* content.finishSummaries(outputIndex, item);
           if (
             !started ||
             !event.response?.output ||

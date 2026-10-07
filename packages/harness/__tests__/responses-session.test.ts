@@ -443,3 +443,118 @@ describe('ResponsesSession', () => {
     );
   });
 });
+
+it.each(['gpt-5.6-luna', 'gpt-6-sol', 'gpt-6.1-sol', 'gpt-5.3-codex', 'o3', 'o4-mini'])(
+  'requests visible summaries for %s without overriding default effort',
+  async (model) => {
+    const fetcher = vi.fn().mockResolvedValue(response(textEvents()));
+    vi.stubGlobal('fetch', fetcher);
+    await collect(
+      new ResponsesSession({ ...config, model }, { accountId: 'work', apiKey: 'test' }),
+    );
+    expect(JSON.parse(fetcher.mock.calls[0][1].body).reasoning).toEqual({ summary: 'auto' });
+  },
+);
+it('streams only visible reasoning summaries and preserves encrypted continuation privately', async () => {
+  const item = {
+    type: 'reasoning',
+    id: 'rs-1',
+    summary: [{ type: 'summary_text', text: 'Checking constraints' }],
+    encrypted_content: 'private-secret',
+  };
+  const events = [
+    { type: 'response.created', response: { id: 'r', model: 'gpt-6-sol' } },
+    { type: 'response.output_item.added', output_index: 0, item },
+    {
+      type: 'response.reasoning_summary_part.added',
+      output_index: 0,
+      summary_index: 0,
+      part: { type: 'summary_text', text: '' },
+    },
+    {
+      type: 'response.reasoning_summary_text.delta',
+      output_index: 0,
+      summary_index: 0,
+      delta: 'Checking ',
+    },
+    { type: 'response.reasoning_text.delta', output_index: 0, delta: 'private raw reasoning' },
+    {
+      type: 'response.reasoning_summary_text.done',
+      output_index: 0,
+      summary_index: 0,
+      text: 'Checking constraints',
+    },
+    { type: 'response.output_item.done', output_index: 0, item },
+    {
+      type: 'response.completed',
+      response: { id: 'r', output: [item], usage: { input_tokens: 2, output_tokens: 4 } },
+    },
+  ];
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response(events, true)));
+  const session = new ResponsesSession(
+    { ...config, model: 'gpt-6-sol' },
+    { accountId: 'work', apiKey: 'test' },
+  );
+  const translated = await collect(session);
+  expect(translated).toContainEqual({
+    type: 'content_block_start',
+    index: 0,
+    content_block: { type: 'thinking', thinking: '' },
+  });
+  expect(translated.filter((e) => e.type === 'content_block_delta')).toEqual([
+    {
+      type: 'content_block_delta',
+      index: 0,
+      delta: { type: 'thinking_delta', thinking: 'Checking ' },
+    },
+    {
+      type: 'content_block_delta',
+      index: 0,
+      delta: { type: 'thinking_delta', thinking: 'constraints' },
+    },
+  ]);
+  expect(translated.filter((e) => e.type === 'content_block_stop')).toHaveLength(1);
+  expect(JSON.stringify(translated)).not.toMatch(/private-secret|private raw reasoning/);
+  expect(session.checkpoint().input).toContainEqual(item);
+  expect(session.checkpoint().history.at(-1)?.content).toEqual([
+    { type: 'thinking', thinking: 'Checking constraints' },
+  ]);
+});
+it('restores completed summaries when the provider sends no summary deltas', async () => {
+  const item = {
+    type: 'reasoning',
+    summary: [
+      { type: 'summary_text', text: 'First summary' },
+      { type: 'summary_text', text: 'Second summary' },
+    ],
+  };
+  vi.stubGlobal(
+    'fetch',
+    vi.fn().mockResolvedValue(
+      response([
+        { type: 'response.created', response: { id: 'r' } },
+        {
+          type: 'response.completed',
+          response: { id: 'r', output: [item], usage: { input_tokens: 1, output_tokens: 2 } },
+        },
+      ]),
+    ),
+  );
+  const translated = await collect(
+    new ResponsesSession(config, { accountId: 'work', apiKey: 'test' }),
+  );
+  expect(translated.filter((e) => e.type === 'content_block_delta')).toHaveLength(2);
+  expect(translated.filter((e) => e.type === 'content_block_stop')).toHaveLength(2);
+});
+
+it.each(['gpt-4.1', 'gpt-4o', 'gpt-5.3-chat-latest'])(
+  'does not send unsupported reasoning options to %s',
+  async (model) => {
+    const fetcher = vi.fn().mockResolvedValue(response(textEvents()));
+    vi.stubGlobal('fetch', fetcher);
+    await collect(
+      new ResponsesSession({ ...config, model }, { accountId: 'work', apiKey: 'test' }),
+    );
+    expect(JSON.parse(fetcher.mock.calls[0][1].body).reasoning).toBeUndefined();
+  },
+);
