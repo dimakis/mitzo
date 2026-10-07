@@ -3,28 +3,68 @@ import { notificationTarget, NOTIFICATIONS_REFRESH_EVENT } from './notification-
 
 import { Capacitor } from '@capacitor/core';
 import { PushNotifications, type ActionPerformed } from '@capacitor/push-notifications';
-import { apiFetch } from './api-fetch';
+import { apiFetch, AUTH_RESTORED_EVENT } from './api-fetch';
 
 let initialized = false;
+let initialization: Promise<void> | undefined;
+let deviceToken: string | undefined;
+let authListener: (() => void) | undefined;
+
+async function enrollDevice(): Promise<void> {
+  if (!deviceToken) return;
+  try {
+    const response = await apiFetch('/api/push/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token: deviceToken }),
+    });
+    if (!response.ok) console.warn('Push device enrollment failed:', response.status);
+  } catch (error) {
+    console.warn('Push device enrollment failed:', error);
+  }
+}
 
 /** @internal test-only — reset the init guard */
 export function _resetForTest(): void {
   initialized = false;
+  initialization = undefined;
+  deviceToken = undefined;
+  if (authListener) window.removeEventListener(AUTH_RESTORED_EVENT, authListener);
+  authListener = undefined;
 }
 
 export async function initPushNotifications(): Promise<void> {
-  if (!Capacitor.isNativePlatform() || initialized) return;
-  initialized = true;
+  if (!Capacitor.isNativePlatform()) return;
+  if (!authListener) {
+    authListener = () => {
+      void initPushNotifications();
+    };
+    window.addEventListener(AUTH_RESTORED_EVENT, authListener);
+  }
+  if (initialization) return initialization;
+  initialization = initializePush()
+    .catch((error) => {
+      console.warn('Push setup failed:', error);
+    })
+    .finally(() => {
+      initialization = undefined;
+    });
+  return initialization;
+}
+
+async function initializePush(): Promise<void> {
+  if (initialized) {
+    if (deviceToken) await enrollDevice();
+    else await PushNotifications.register();
+    return;
+  }
 
   const permission = await PushNotifications.requestPermissions();
   if (permission.receive !== 'granted') return;
 
   await PushNotifications.addListener('registration', (token) => {
-    apiFetch('/api/push/register', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ token: (token as { value: string }).value }),
-    });
+    deviceToken = (token as { value: string }).value;
+    void enrollDevice();
   });
 
   await PushNotifications.addListener('registrationError', (error) => {
@@ -75,5 +115,6 @@ export async function initPushNotifications(): Promise<void> {
     },
   );
 
+  initialized = true;
   await PushNotifications.register();
 }

@@ -24,6 +24,7 @@ vi.mock('@capacitor/push-notifications', () => ({
 // Mock api-fetch
 vi.mock('../api-fetch', () => ({
   apiFetch: vi.fn().mockResolvedValue({ ok: true }),
+  AUTH_RESTORED_EVENT: 'mitzo:auth-restored',
 }));
 
 import { Capacitor } from '@capacitor/core';
@@ -48,6 +49,33 @@ beforeEach(() => {
 });
 
 describe('initPushNotifications', () => {
+  it('retries device enrollment after login without duplicating native listeners', async () => {
+    vi.mocked(Capacitor.isNativePlatform).mockReturnValue(true);
+    vi.mocked(apiFetch).mockResolvedValueOnce({ ok: false, status: 401 } as Response);
+    await initPushNotifications();
+    pushListeners.registration({ value: 'watch-alert-token' });
+    await Promise.resolve();
+    vi.mocked(apiFetch).mockClear();
+    window.dispatchEvent(new Event('mitzo:auth-restored'));
+    await Promise.resolve();
+    expect(apiFetch).toHaveBeenCalledWith(
+      '/api/push/register',
+      expect.objectContaining({
+        body: JSON.stringify({ token: 'watch-alert-token' }),
+      }),
+    );
+    await initPushNotifications();
+    expect(PushNotifications.addListener).toHaveBeenCalledTimes(4);
+  });
+
+  it('retries notification permission after it was previously denied', async () => {
+    vi.mocked(Capacitor.isNativePlatform).mockReturnValue(true);
+    vi.mocked(PushNotifications.requestPermissions).mockResolvedValueOnce({ receive: 'denied' });
+    await initPushNotifications();
+    await initPushNotifications();
+    expect(PushNotifications.register).toHaveBeenCalledOnce();
+  });
+
   it('no-ops in browser environment', async () => {
     vi.mocked(Capacitor.isNativePlatform).mockReturnValue(false);
     await initPushNotifications();
