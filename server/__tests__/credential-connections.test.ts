@@ -334,6 +334,42 @@ it.each([
   },
 );
 
+it.each(['true', 'false', 'null'])(
+  'redacts JSON keyword echoes of credential %j',
+  async (secret) => {
+    const { service, vault, send } = setup();
+    const c = await service.create(input, { secret });
+    vault.read.mockResolvedValue(secret);
+    service.grant('a', c.id, c.revision);
+    const unmatched = ['true', 'false', 'null'].filter((value) => value !== secret).join(',');
+    send.mockResolvedValueOnce({
+      status: 200,
+      body: `{"token":${secret},"nested":[${secret},${unmatched},123],"text":"safe"}`,
+    });
+    const result = await service.request(
+      'a',
+      c.id,
+      { path: '/api/', method: 'GET' },
+      new AbortController().signal,
+    );
+    expect(result.body).toBe(
+      `{"token":"[redacted]","nested":["[redacted]",${unmatched},123],"text":"safe"}`,
+    );
+    expect(JSON.parse(result.body).token).toBe('[redacted]');
+    send.mockResolvedValueOnce({ status: 200, body: secret });
+    expect(
+      (
+        await service.request(
+          'a',
+          c.id,
+          { path: '/api/', method: 'GET' },
+          new AbortController().signal,
+        )
+      ).body,
+    ).toBe('"[redacted]"');
+  },
+);
+
 it('keeps a connection disabled when a newer pending replacement fails and an older save completes', async () => {
   const { service, store, vault } = setup();
   const c = await service.create(input, { secret: 'old' });

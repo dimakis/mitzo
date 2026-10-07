@@ -432,12 +432,15 @@ export class CredentialConnections {
           values.map(normalizedJsonNumber).filter((value) => value !== undefined),
         );
         body = decoded.replace(
-          // Match whole strings too, so their numeric contents cannot be changed here.
+          // Match whole strings too, so their contents cannot be changed here.
           // eslint-disable-next-line no-control-regex -- JSON strings exclude unescaped control characters.
-          /"(?:[^"\\\x00-\x1f]|\\(?:["\\/bfnrt]|u[0-9a-fA-F]{4}))*"|-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?/g,
+          /"(?:[^"\\\x00-\x1f]|\\(?:["\\/bfnrt]|u[0-9a-fA-F]{4}))*"|-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?|true|false|null/g,
           (token) => {
             const number = normalizedJsonNumber(token);
-            return number !== undefined && numbers.has(number) ? '"[redacted]"' : token;
+            return (number !== undefined && numbers.has(number)) ||
+              (['true', 'false', 'null'].includes(token) && values.includes(token))
+              ? '"[redacted]"'
+              : token;
           },
         );
       } catch {

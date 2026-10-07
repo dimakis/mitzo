@@ -2,6 +2,7 @@ import { keychainController, type KeychainControllerAccess } from './keychain-co
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { z } from 'zod';
+import { prepareKeychainHelper, type PreparedKeychainHelper } from './keychain-helper-authority.js';
 
 export const VaultReferenceSchema = z
   .object({
@@ -63,7 +64,7 @@ const runHelper: RunHelper = (file, request) =>
 const exec = promisify(execFile);
 async function verifyHelper(file: string, requirement: string) {
   if (process.platform !== 'darwin') throw new Error('Apple Keychain requires macOS');
-  await exec('/usr/bin/codesign', ['--verify', '--strict', '-R', requirement, file], {
+  await exec('/usr/bin/codesign', ['--verify', '--strict', '-R', `=${requirement}`, file], {
     timeout: 10_000,
     env: { PATH: '/usr/bin:/bin' },
   });
@@ -75,11 +76,15 @@ export class MacKeychainVault implements CredentialVault {
     private run: RunHelper = runHelper,
     private verify = verifyHelper,
     private controller: KeychainControllerAccess = keychainController,
+    private prepare: (file: string) => PreparedKeychainHelper = prepareKeychainHelper,
   ) {}
   private async call(request: HelperRequest) {
+    let helper: PreparedKeychainHelper | undefined;
     try {
-      await this.verify(this.file, this.requirement);
+      helper = this.prepare(this.file);
+      await this.verify(helper.file, this.requirement);
     } catch {
+      helper?.dispose();
       throw new Error('Apple Keychain helper is unavailable');
     }
     let result: {
@@ -93,7 +98,7 @@ export class MacKeychainVault implements CredentialVault {
     try {
       const authorization = await this.controller.authorization();
       result = JSON.parse(
-        await this.run(this.file, {
+        await this.run(helper.file, {
           ...request,
           authorization,
           ...(this.controller.namespace ? { namespace: this.controller.namespace } : {}),
@@ -101,6 +106,8 @@ export class MacKeychainVault implements CredentialVault {
       );
     } catch {
       throw new KeychainUnavailableError('unavailable');
+    } finally {
+      helper.dispose();
     }
     if (result?.ok !== true)
       throw new KeychainUnavailableError(
