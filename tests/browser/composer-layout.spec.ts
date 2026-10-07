@@ -45,7 +45,9 @@ for (const width of [320, 390]) {
     const assets = await composerAssets();
     await page.setViewportSize({ width, height: 640 });
     await page.route('**/*', (route) => route.abort());
-    await page.setContent(`<style>${assets.css}</style><div id="root"></div>`);
+    await page.setContent(
+      `<meta name="viewport" content="width=device-width, initial-scale=1.0"><style>${assets.css}</style><div id="root"></div>`,
+    );
     await page.addScriptTag({ content: assets.js });
     const field = page.getByRole('textbox', { name: 'Message Mitzo' });
     await expect(field).toBeVisible();
