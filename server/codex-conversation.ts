@@ -1130,7 +1130,13 @@ export class CodexConversation {
       model: this.binding!.model,
       modelProvider,
       cwd: this.opts.runtimeCwd ?? this.opts.cwd,
-      config: { ...runtimeConfig, web_search: policy.effective },
+      config: {
+        // Explicit OpenShell/native runtime configs bypass codexRuntimeOverrides.
+        // Opt in on every route, while retaining an explicit summary preference.
+        model_reasoning_summary: 'auto',
+        ...runtimeConfig,
+        web_search: policy.effective,
+      },
       approvalPolicy: 'never',
       sandbox: 'read-only',
       developerInstructions: this.opts.systemPrompt,
