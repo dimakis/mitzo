@@ -27,7 +27,7 @@ public struct NotificationFeed: Codable, Sendable {
 }
 
 public struct NotificationResponse: Encodable, Sendable {
-    public enum Decision: String, Sendable, Codable { case once, deny }
+    public enum Decision: String, Sendable, Codable { case once, deny; case session = "always" }
     public let sessionId: String
     public let decision: Decision
     public init(sessionId: String, decision: Decision) {

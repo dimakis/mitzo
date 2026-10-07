@@ -29,7 +29,7 @@ describe('shared web access tool wiring', () => {
       execute: createWebAccessTool('conversation', registry, search),
     };
   }
-  it('forces a non-cacheable explicit approval in Auto mode too', async () => {
+  it('offers session search consent without broadly caching the web access tool in Auto mode', async () => {
     const f = fixture('auto');
     const input = { operation: 'search', query: 'Revenue', reason: 'Check guidance' };
     approve.mockResolvedValue({ behavior: 'allow', updatedInput: input });
@@ -37,8 +37,45 @@ describe('shared web access tool wiring', () => {
     expect(approve.mock.calls[0][2]).toMatchObject({
       forcePrompt: true,
       allowSessionGrant: false,
-      approvalScope: 'request',
+      approvalScope: 'session',
+      rememberSessionGrant: false,
     });
+  });
+  it('remembers only searches across tool recreation until the account or model changes', async () => {
+    const f = fixture();
+    const signal = new AbortController().signal;
+    approve.mockImplementation(async (_name, input) => ({
+      behavior: 'allow',
+      updatedInput: input,
+      decisionClassification: 'user_permanent',
+    }));
+    await f.execute({ operation: 'search', query: 'First', reason: 'Research' }, signal);
+    const recreated = createWebAccessTool('conversation', f.registry, f.search);
+    await recreated({ operation: 'search', query: 'Second', reason: 'Research' }, signal);
+    expect(approve).toHaveBeenCalledTimes(1);
+    await recreated({ operation: 'fetch', url: 'https://example.com', reason: 'Read' }, signal);
+    expect(approve).toHaveBeenCalledTimes(2);
+    expect(approve.mock.calls.at(-1)?.[2]).toMatchObject({ approvalScope: 'request' });
+    f.session.model = 'other-model';
+    await recreated({ operation: 'search', query: 'Third', reason: 'Research' }, signal);
+    expect(approve).toHaveBeenCalledTimes(3);
+    f.session.accountBinding!.accountId = 'other-account';
+    await recreated({ operation: 'search', query: 'Fourth', reason: 'Research' }, signal);
+    expect(approve).toHaveBeenCalledTimes(4);
+  });
+  it('allow once asks again for the next search', async () => {
+    const f = fixture();
+    approve.mockImplementation(async (_name, input) => ({
+      behavior: 'allow',
+      updatedInput: input,
+      decisionClassification: 'user_temporary',
+    }));
+    for (const query of ['First', 'Second'])
+      await f.execute(
+        { operation: 'search', query, reason: 'Research' },
+        new AbortController().signal,
+      );
+    expect(approve).toHaveBeenCalledTimes(2);
   });
   it('does not expose search in Ask mode', async () => {
     const f = fixture('ask');

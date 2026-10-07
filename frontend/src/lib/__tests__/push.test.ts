@@ -1,5 +1,10 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+vi.mock('../notification-target', () => ({
+  notificationTarget: vi.fn(() => '/notifications'),
+  NOTIFICATIONS_REFRESH_EVENT: 'mitzo:notifications-refresh',
+}));
+import { notificationTarget } from '../notification-target';
 
 // Mock @capacitor/core
 vi.mock('@capacitor/core', () => ({
@@ -49,6 +54,19 @@ beforeEach(() => {
 });
 
 describe('initPushNotifications', () => {
+  it.each(['ALLOW_ONCE_ACTION', 'ALLOW_SEARCH_SESSION_ACTION', 'DENY_PERMISSION_ACTION'])(
+    'leaves %s to the native background handler without navigating or submitting twice',
+    async (actionId) => {
+      vi.mocked(Capacitor.isNativePlatform).mockReturnValue(true);
+      await initPushNotifications();
+      pushListeners.pushNotificationActionPerformed({
+        actionId,
+        notification: { data: { sessionId: 's1', notificationId: 'permission:p1' } },
+      });
+      expect(apiFetch).not.toHaveBeenCalled();
+      expect(notificationTarget).not.toHaveBeenCalled();
+    },
+  );
   it('queues login enrollment behind native registration still in flight', async () => {
     vi.mocked(Capacitor.isNativePlatform).mockReturnValue(true);
     let finish!: () => void;

@@ -46,12 +46,24 @@ function RequestDetail({
   busy,
 }: {
   item: MitzoNotification;
-  onRespond: (decision: 'once' | 'deny', answers?: QuestionAnswers) => void;
+  onRespond: (decision: 'once' | 'always' | 'deny', answers?: QuestionAnswers) => void;
   busy: boolean;
 }) {
   const [selections, setSelections] = useState<QuestionAnswers>({});
   const [written, setWritten] = useState<Record<string, string>>({});
   const request = item.request;
+  let sessionSearch = false;
+  if (
+    request?.toolName === 'RequestWebAccess' &&
+    request.approvalScope === 'session' &&
+    !request.questions
+  ) {
+    try {
+      sessionSearch = JSON.parse(request.toolInput).operation === 'search';
+    } catch {
+      /* Unrecognized requests require ordinary one-shot review. */
+    }
+  }
   const answers = Object.fromEntries(
     (request?.questions ?? []).map((q) => [
       q.id,
@@ -127,7 +139,9 @@ function RequestDetail({
           <p className="workspace-muted">
             {request.approvalScope === 'conversation'
               ? 'This request concerns conversation access. Review its scope in the session.'
-              : 'Allow once covers only this request. The existing session policy still applies.'}
+              : sessionSearch
+                ? 'Allow once, or allow searches on this account and model until the session ends. Website access stays separate.'
+                : 'Allow once covers only this request. The existing session policy still applies.'}
           </p>
         </>
       )}
@@ -145,6 +159,15 @@ function RequestDetail({
                   onClick={() => onRespond('once', request?.questions ? answers : undefined)}
                 >
                   {request?.questions ? 'Send answer' : 'Allow once'}
+                </button>
+              )}
+              {sessionSearch && (
+                <button
+                  className="notification-button"
+                  disabled={busy}
+                  onClick={() => onRespond('always')}
+                >
+                  Allow searches for this session
                 </button>
               )}
               <button
@@ -279,7 +302,10 @@ function Preferences({
         <label className="notification-setting">
           <span>
             <strong>Show sensitive details</strong>
-            <small>Session names and content in lock-screen previews</small>
+            <small>
+              Session names and content in lock-screen previews. Full eligible approval details
+              enable quick notification decisions.
+            </small>
           </span>
           <input
             type="checkbox"

@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { isSessionSearchApproval } from './notification-actions.js';
 import { z } from 'zod';
 import { NotificationFilter, NotificationPreferences } from '@mitzo/protocol';
 import type { NotificationCenter } from './notification-center.js';
@@ -7,7 +8,7 @@ import { getPendingSessionId, hasPending, resolvePending } from './permissions.j
 const responseBody = z
   .object({
     sessionId: z.string().min(1),
-    decision: z.enum(['once', 'deny']),
+    decision: z.enum(['once', 'always', 'deny']),
     answers: z.record(z.string(), z.array(z.string().max(4000)).max(9)).optional(),
   })
   .strict();
@@ -71,6 +72,8 @@ export function notificationRouter(center: NotificationCenter): Router {
         .json({ error: 'This request expired or was already resolved. Refresh notifications.' });
     if (parsed.data.decision === 'once' && item.request?.approvalScope === 'conversation')
       return res.status(400).json({ error: 'Review conversation-scoped access in the session.' });
+    if (parsed.data.decision === 'always' && !isSessionSearchApproval(item.request))
+      return res.status(400).json({ error: 'Session consent is available only for web search.' });
     if (!resolvePending(item.permId, parsed.data.decision, parsed.data.answers, item.sessionId))
       return res.status(400).json({ error: 'Complete all questions before responding.' });
     res.json({ ok: true });

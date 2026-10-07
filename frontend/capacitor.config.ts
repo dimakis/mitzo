@@ -8,6 +8,7 @@ const config: CapacitorConfig = {
     contentInset: 'never',
   },
   plugins: {
+    PushNotifications: { presentationOptions: ['banner', 'list', 'sound', 'badge'] },
     SplashScreen: {
       launchAutoHide: false,
       backgroundColor: '#111113',
