@@ -141,7 +141,11 @@ function SwipeableSession({
     longPress.cancel();
     if (!swiping.current || !ref.current) return;
     swiping.current = false;
-    if (longPress.didFire() || directionLocked.current === 'vertical') return;
+    if (longPress.didFire()) return;
+    if (directionLocked.current === 'vertical') {
+      snapTo(revealed ? -REVEAL_WIDTH : 0);
+      return;
+    }
     const dx = currentX.current - startX.current;
 
     const phase = computeSwipeState(dx, revealed);

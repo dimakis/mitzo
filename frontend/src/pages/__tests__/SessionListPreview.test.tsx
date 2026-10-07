@@ -188,3 +188,13 @@ it('preserves the native context menu in the rename input', async () => {
   expect(event.defaultPrevented).toBe(false);
   expect(screen.queryByRole('dialog')).toBeNull();
 });
+
+it('snaps a small horizontal drift back after the gesture becomes a vertical scroll', () => {
+  const row = mount();
+  touch(row, 'start');
+  touch(row, 'move', 45, 50);
+  touch(row, 'move', 45, 80);
+  touch(row, 'end');
+  expect(row.closest<HTMLElement>('.session-item')?.style.transform).toBe('translateX(0px)');
+  expect(screen.queryByRole('dialog')).toBeNull();
+});
