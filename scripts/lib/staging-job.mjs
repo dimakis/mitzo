@@ -1,8 +1,15 @@
-export function assertStageJob({ pid, cwd, portPids, protectedPids }, receipt, expectedPid = pid) {
+export function assertStageJob(
+  { pid, birth, cwd, portPids, protectedPids },
+  receipt,
+  expected = { pid, birth },
+) {
   if (
     !Number.isSafeInteger(pid) ||
     pid <= 1 ||
-    pid !== expectedPid ||
+    !birth ||
+    typeof expected !== 'object' ||
+    pid !== expected.pid ||
+    birth !== expected.birth ||
     protectedPids.includes(pid) ||
     cwd !== receipt.release ||
     portPids.length !== 1 ||

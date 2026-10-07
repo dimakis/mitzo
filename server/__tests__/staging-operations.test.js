@@ -137,10 +137,21 @@ it('does not release another deployment lock when lock acquisition fails', async
   expect(effects.unlock).not.toHaveBeenCalled();
 });
 
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  symlinkSync,
+  unlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { fingerprintDirectory } from '../../scripts/lib/staging-files.mjs';
+import {
+  fingerprintDirectory,
+  fingerprintDependencyCopy,
+} from '../../scripts/lib/staging-files.mjs';
 it('fingerprints dependency content and symlink text without following outside the release', () => {
   const root = mkdtempSync(join(tmpdir(), 'stage-fingerprint-'));
   try {
@@ -158,16 +169,28 @@ it('fingerprints dependency content and symlink text without following outside t
 
 import { assertStageJob } from '../../scripts/lib/staging-job.mjs';
 it.each([
-  { pid: 42, cwd: '/private/production', portPids: [42], protectedPids: [] },
-  { pid: 42, cwd: fixture().release, portPids: [42], protectedPids: [42] },
-  { pid: 42, cwd: fixture().release, portPids: [43], protectedPids: [] },
+  {
+    pid: 42,
+    birth: 'original birth',
+    cwd: '/private/production',
+    portPids: [42],
+    protectedPids: [],
+  },
+  { pid: 42, birth: 'original birth', cwd: fixture().release, portPids: [42], protectedPids: [42] },
+  { pid: 42, birth: 'original birth', cwd: fixture().release, portPids: [43], protectedPids: [] },
 ])('refuses a changed staging job or protected process %j', (job) =>
   expect(() => assertStageJob(job, fixture())).toThrow(),
 );
 it('accepts the original stage job only when its directory and listener match', () =>
   expect(() =>
     assertStageJob(
-      { pid: 42, cwd: fixture().release, portPids: [42], protectedPids: [99] },
+      {
+        pid: 42,
+        birth: 'original birth',
+        cwd: fixture().release,
+        portPids: [42],
+        protectedPids: [99],
+      },
       fixture(),
     ),
   ).not.toThrow());
@@ -216,9 +239,15 @@ it.each([
 it('refuses a replacement staging PID from the same release', () =>
   expect(() =>
     assertStageJob(
-      { pid: 43, cwd: fixture().release, portPids: [43], protectedPids: [] },
+      {
+        pid: 43,
+        birth: 'original birth',
+        cwd: fixture().release,
+        portPids: [43],
+        protectedPids: [],
+      },
       fixture(),
-      42,
+      { pid: 42, birth: 'original birth' },
     ),
   ).toThrow());
 import { assertStageCandidate } from '../../scripts/lib/staging-operations.mjs';
@@ -243,3 +272,70 @@ it('reports an intact running stage with a retained deployment lock as unsafe', 
       locked: true,
     }),
   ).toEqual({ safe: false, stale: false, issues: ['deployment-lock'] }));
+
+it('binds contained workspace dependency targets and repeated .bin links to actual payload bytes', () => {
+  const root = mkdtempSync(join(tmpdir(), 'stage-dependency-closure-'));
+  try {
+    mkdirSync(join(root, 'node_modules/@mitzo'), { recursive: true });
+    mkdirSync(join(root, 'node_modules/.bin'));
+    mkdirSync(join(root, 'packages/protocol'), { recursive: true });
+    writeFileSync(join(root, 'packages/protocol/package.json'), '{"name":"@mitzo/protocol"}');
+    writeFileSync(join(root, 'packages/protocol/tool.js'), 'one');
+    symlinkSync('../../packages/protocol', join(root, 'node_modules/@mitzo/protocol'));
+    symlinkSync('../../packages/protocol/tool.js', join(root, 'node_modules/.bin/tool'));
+    symlinkSync('../../packages/protocol/tool.js', join(root, 'node_modules/.bin/also-tool'));
+    const before = fingerprintDirectory(root, 'node_modules');
+    expect(fingerprintDirectory(root, 'node_modules')).toBe(before);
+    writeFileSync(join(root, 'packages/protocol/tool.js'), 'two');
+    expect(fingerprintDirectory(root, 'node_modules')).not.toBe(before);
+    const changed = fingerprintDirectory(root, 'node_modules');
+    chmodSync(join(root, 'packages/protocol/tool.js'), 0o700);
+    expect(fingerprintDirectory(root, 'node_modules')).not.toBe(changed);
+    mkdirSync(join(root, 'packages/alternate'));
+    writeFileSync(join(root, 'packages/alternate/tool.js'), 'two');
+    unlinkSync(join(root, 'node_modules/@mitzo/protocol'));
+    symlinkSync('../../packages/alternate', join(root, 'node_modules/@mitzo/protocol'));
+    expect(fingerprintDirectory(root, 'node_modules')).not.toBe(changed);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+it('rejects dependency root aliases and cyclic contained links', () => {
+  const root = mkdtempSync(join(tmpdir(), 'stage-dependency-cycle-'));
+  try {
+    mkdirSync(join(root, 'dependencies'));
+    symlinkSync('dependencies', join(root, 'node_modules'));
+    expect(() => fingerprintDirectory(root, 'node_modules')).toThrow();
+    unlinkSync(join(root, 'node_modules'));
+    mkdirSync(join(root, 'node_modules'));
+    mkdirSync(join(root, 'workspace'));
+    symlinkSync('../workspace', join(root, 'node_modules/workspace'));
+    symlinkSync('../node_modules', join(root, 'workspace/back'));
+    expect(() => fingerprintDirectory(root, 'node_modules')).toThrow();
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it('checks literal dependency transfer separately from deliberately changed workspace target source', () => {
+  const root = mkdtempSync(join(tmpdir(), 'stage-transfer-'));
+  try {
+    for (const release of ['active', 'candidate']) {
+      mkdirSync(join(root, release, 'node_modules'), { recursive: true });
+      mkdirSync(join(root, release, 'packages/workspace'), { recursive: true });
+      writeFileSync(join(root, release, 'node_modules/installed.js'), 'audited dependency');
+      writeFileSync(join(root, release, 'packages/workspace/source.ts'), release + ' source');
+      symlinkSync('../packages/workspace', join(root, release, 'node_modules/workspace'));
+    }
+    const active = join(root, 'active'),
+      candidate = join(root, 'candidate');
+    expect(fingerprintDependencyCopy(active)).toBe(fingerprintDependencyCopy(candidate));
+    expect(fingerprintDirectory(active, 'node_modules')).not.toBe(
+      fingerprintDirectory(candidate, 'node_modules'),
+    );
+    writeFileSync(join(candidate, 'node_modules/installed.js'), 'changed dependency');
+    expect(fingerprintDependencyCopy(active)).not.toBe(fingerprintDependencyCopy(candidate));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
