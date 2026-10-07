@@ -147,6 +147,9 @@ function verifyCompiledResolution(root: string) {
   }
 }
 export interface OwnedReleaseInput {
+  /** Independently selected accepted baseline; required for canonical releases.
+   * Never populate this from editable release.txt. Retained plans preserve the pin. */
+  acceptedMainBaseline?: string;
   releaseRoot: string;
   configPath: string;
   repositoryPath: string;
@@ -223,7 +226,12 @@ function inspect(input: OwnedReleaseInput, digest: (path: string) => string, fre
     input.releaseRoot.startsWith(join(canonicalRoot, 'releases') + '/') &&
     /^[a-f0-9]{12}$/.test(relative(join(canonicalRoot, 'releases'), input.releaseRoot));
   if (canonicalRelease) {
-    ({ sourceCommit, sourceTree } = assertCanonicalOwnedSource(input.releaseRoot, canonicalRoot));
+    if (!input.acceptedMainBaseline) fail();
+    ({ sourceCommit, sourceTree } = assertCanonicalOwnedSource(
+      input.releaseRoot,
+      canonicalRoot,
+      input.acceptedMainBaseline,
+    ));
   } else {
     const sourceGuard = execFileSync(
       '/bin/bash',

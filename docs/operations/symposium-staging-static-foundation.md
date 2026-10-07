@@ -7,8 +7,13 @@ stops a service. The canonical URL remains `http://mitzo-staging.localhost:3190`
 service identity `com.mitzo.staging` and private root
 `~/.local/share/mitzo-staging`. Production is excluded.
 
-Canonical source validation pins detached HEAD/tree, unchanged tracked source,
-public origin, a published source ref and the recorded accepted-main baseline.
+Canonical source validation pins detached HEAD/tree, Git's resolved worktree,
+unchanged tracked source, public origin, a published source ref and an independently
+selected accepted-main baseline. Canonical preparation requires the caller's
+`acceptedMainBaseline` full commit ID; never derive it from editable `release.txt`.
+The manifest's `base_main` must match that pin. The owned plan preserves the pin
+for subsequent fresh and retained verification; older canonical plans without it
+are refused rather than silently requalified.
 All tracked files must have ordinary Git index flags: assume-unchanged and
 skip-worktree cannot hide unreviewed bytes. Offline integrity does not establish
 fresh main, exact-head CI or final independent review.
@@ -32,7 +37,9 @@ No protocol receipt or criterion executor is required to validate definitions.
 
 Service preparation is a library that emits private fresh authentication and a
 manually started plist. It requires canonical paths, capacity one and loopback
-port3190. The registration/launcher/custodian implementation belongs to the
+port3190. Its root must equal the real operator's `canonicalStagingRoot()`;
+another private directory cannot claim the canonical service identity.
+The registration/launcher/custodian implementation belongs to the
 separate lifecycle cut; this foundation cannot bootstrap it. Original parent/app
 observation and retirement validators are evidence checks, not native capabilities.
 

@@ -32,6 +32,10 @@ function fixture() {
   git(['config', 'user.email', 'test@example.invalid']);
   git(['remote', 'add', 'origin', 'https://github.com/dimakis/mitzo.git']);
   writeFileSync(join(release, '.gitignore'), 'release.txt\n');
+  writeFileSync(join(release, 'source'), 'ancestor');
+  git(['add', '.']);
+  git(['commit', '-qm', 'ancestor']);
+  const ancestor = git(['rev-parse', 'HEAD']);
   writeFileSync(join(release, 'source'), 'base');
   git(['add', '.']);
   git(['commit', '-qm', 'base']);
@@ -52,11 +56,11 @@ function fixture() {
   release = final;
   const manifest = `source_commit=${source}\nbase_main=${base}\nsource_tree=${tree}\n`;
   writeFileSync(join(release, 'release.txt'), manifest);
-  return { stage, release, git, source, tree, base, manifest };
+  return { stage, release, git, source, tree, base, ancestor, manifest };
 }
 it('keeps an intact published canonical release valid after cached main advances', () => {
   const f = fixture();
-  expect(assertCanonicalOwnedSource(f.release, f.stage)).toEqual({
+  expect(assertCanonicalOwnedSource(f.release, f.stage, f.base)).toEqual({
     sourceCommit: f.source,
     sourceTree: f.tree,
     baseMain: f.base,
@@ -76,6 +80,7 @@ it.each(['dirty', 'unpublished', 'unaccepted-base', 'wrong-tree', 'wrong-root'])
       assertCanonicalOwnedSource(
         f.release,
         kind === 'wrong-root' ? join(f.stage, 'other') : f.stage,
+        f.base,
       ),
     ).toThrow();
     expect(readFileSync(join(f.release, 'source'), 'utf8')).toBe(
@@ -90,7 +95,7 @@ it('accepts the standard release manifest metadata without trusting it as source
     join(f.release, 'release.txt'),
     f.manifest + 'source_ref=origin/feature\ncreated_at=2026-10-06T18:00:00Z\n',
   );
-  expect(assertCanonicalOwnedSource(f.release, f.stage)).toEqual({
+  expect(assertCanonicalOwnedSource(f.release, f.stage, f.base)).toEqual({
     sourceCommit: f.source,
     sourceTree: f.tree,
     baseMain: f.base,
@@ -104,15 +109,15 @@ it.each([
 ])('rejects ambiguous or malformed release metadata %s', (extra) => {
   const f = fixture();
   writeFileSync(join(f.release, 'release.txt'), f.manifest + extra + '\n');
-  expect(() => assertCanonicalOwnedSource(f.release, f.stage)).toThrow();
+  expect(() => assertCanonicalOwnedSource(f.release, f.stage, f.base)).toThrow();
 });
 
 it('accepts the pinned SSH origin without accepting other repositories', () => {
   const f = fixture();
   f.git(['remote', 'set-url', 'origin', 'git@github.com:dimakis/mitzo.git']);
-  expect(() => assertCanonicalOwnedSource(f.release, f.stage)).not.toThrow();
+  expect(() => assertCanonicalOwnedSource(f.release, f.stage, f.base)).not.toThrow();
   f.git(['remote', 'set-url', 'origin', 'git@github.com:other/mitzo.git']);
-  expect(() => assertCanonicalOwnedSource(f.release, f.stage)).toThrow();
+  expect(() => assertCanonicalOwnedSource(f.release, f.stage, f.base)).toThrow();
 });
 
 it.each(['--assume-unchanged', '--skip-worktree'])(
@@ -122,7 +127,30 @@ it.each(['--assume-unchanged', '--skip-worktree'])(
     f.git(['update-index', flag, 'source']);
     writeFileSync(join(f.release, 'source'), 'hidden unreviewed source');
     expect(f.git(['status', '--porcelain', '--untracked-files=no'])).toBe('');
-    expect(() => assertCanonicalOwnedSource(f.release, f.stage)).toThrow();
+    expect(() => assertCanonicalOwnedSource(f.release, f.stage, f.base)).toThrow();
     expect(readFileSync(join(f.release, 'source'), 'utf8')).toBe('hidden unreviewed source');
   },
 );
+
+it('refuses a clean redirected Git worktree while release files differ', () => {
+  const f = fixture();
+  const clean = join(f.stage, 'clean-worktree');
+  mkdirSync(clean, { mode: 0o700 });
+  writeFileSync(join(clean, '.gitignore'), 'release.txt\n');
+  writeFileSync(join(clean, 'source'), 'feature');
+  f.git(['config', 'core.worktree', clean]);
+  writeFileSync(join(f.release, 'source'), 'unreviewed release bytes');
+  expect(f.git(['status', '--porcelain', '--untracked-files=no'])).toBe('');
+  expect(() => assertCanonicalOwnedSource(f.release, f.stage, f.base)).toThrow();
+  expect(readFileSync(join(f.release, 'source'), 'utf8')).toBe('unreviewed release bytes');
+});
+it('refuses a different accepted ancestor substituted into editable release metadata', () => {
+  const f = fixture();
+  writeFileSync(join(f.release, 'release.txt'), f.manifest.replace(f.base, f.ancestor));
+  expect(() => assertCanonicalOwnedSource(f.release, f.stage, f.base)).toThrow();
+});
+it('requires an independently supplied full accepted baseline', () => {
+  const f = fixture();
+  for (const baseline of [undefined, '', 'a'.repeat(39)])
+    expect(() => assertCanonicalOwnedSource(f.release, f.stage, baseline as string)).toThrow();
+});

@@ -13,7 +13,7 @@ import {
 import { isAbsolute, join, resolve } from 'node:path';
 import { z } from 'zod';
 import { ownedCustodianEnvironment } from './symposium-staging-environment.js';
-import { requiresCanonicalStaging } from './symposium-staging-identity.js';
+import { canonicalStagingRoot, requiresCanonicalStaging } from './symposium-staging-identity.js';
 export { canonicalStagingRoot, requiresCanonicalStaging } from './symposium-staging-identity.js';
 import { StagingLaunchSchema } from './symposium-staging-launch-schema.js';
 import type { OwnedReleasePlan } from './symposium-owned-release.js';
@@ -184,6 +184,7 @@ export function assertCanonicalStagingService(
 ) {
   const stat = lstatSync(root);
   if (
+    root !== canonicalStagingRoot() ||
     !isAbsolute(root) ||
     realpathSync(root) !== root ||
     !stat.isDirectory() ||
