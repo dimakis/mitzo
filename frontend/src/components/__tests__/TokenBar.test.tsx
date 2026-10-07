@@ -167,7 +167,8 @@ describe('context wheel', () => {
     fireEvent.click(button);
     expect(screen.getByText('12,000 / 200,000')).toBeTruthy();
     expect(screen.getByText('24,000')).toBeTruthy();
-    fireEvent.keyDown(button, { key: 'Escape' });
+    // Touch browsers may leave focus elsewhere; Escape must still dismiss.
+    fireEvent.keyDown(document, { key: 'Escape' });
     expect(button.getAttribute('aria-expanded')).toBe('false');
     expect(screen.queryByText('Agent context')).toBeNull();
   });

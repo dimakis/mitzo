@@ -1,4 +1,4 @@
-import { useId, useState } from 'react';
+import { useEffect, useId, useState } from 'react';
 import type { TokensState as TokenState } from '@mitzo/client';
 import { formatTokens } from '../lib/formatTokens';
 
@@ -16,6 +16,15 @@ interface Props {
 export function TokenBar({ tokenState }: Props) {
   const [expanded, setExpanded] = useState(false);
   const summaryId = useId();
+
+  useEffect(() => {
+    if (!expanded) return;
+    const dismiss = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setExpanded(false);
+    };
+    document.addEventListener('keydown', dismiss);
+    return () => document.removeEventListener('keydown', dismiss);
+  }, [expanded]);
 
   // Don't render until we have data
   if (tokenState.turnIndex === 0) return null;
@@ -41,9 +50,6 @@ export function TokenBar({ tokenState }: Props) {
         aria-label="Token usage"
         aria-expanded={expanded}
         aria-describedby={summaryId}
-        onKeyDown={(event) => {
-          if (event.key === 'Escape') setExpanded(false);
-        }}
         title={`${summary} — tap for details`}
       >
         <svg className="token-wheel" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true">
