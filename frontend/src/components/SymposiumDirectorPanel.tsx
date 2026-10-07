@@ -1,5 +1,9 @@
 import './SymposiumDirectorPanel.css';
 import { canRequestAgent, canRequestRuntime } from '../lib/symposium-status';
+import {
+  controlSymposiumDelivery,
+  getSymposiumDeliveryActions,
+} from '../lib/symposium-delivery-actions';
 import { SeatLabel } from './SeatLabel';
 import { SymposiumSourceImportPanel } from './SymposiumSourceImportPanel';
 import {
@@ -540,6 +544,8 @@ function SessionDirectorPanel({
     enableActionStore.snapshot,
   );
   const enableAction = actionSnapshot[base];
+  const deliveryStore = getSymposiumDeliveryActions();
+  const deliveryActions = useSyncExternalStore(deliveryStore.subscribe, deliveryStore.snapshot);
   const busy =
     localBusy || enableAction?.pending === true || Boolean(enableAction?.uncertainAdmission);
   const lifecycle = useRef(0);
@@ -704,6 +710,30 @@ function SessionDirectorPanel({
       if (path === '/primary/transfer' || path === '/creation/recover') await refresh(message);
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function controlDelivery(delivery: SymposiumDeliveryRecord, action: 'send' | 'stop') {
+    if (
+      action === 'send' &&
+      (busy ||
+        !status ||
+        !canRequestRuntime(status) ||
+        delivery.status !== 'ready' ||
+        !delivery.recipients.length ||
+        !delivery.recipients.every((recipient) => recipient.status === 'pending'))
+    )
+      return;
+    const epoch = lifecycle.current;
+    const requested = await controlSymposiumDelivery(
+      deliveryStore,
+      base,
+      delivery.deliveryId,
+      action,
+    );
+    if (requested && lifecycle.current === epoch) {
+      window.dispatchEvent(new Event('symposium-deliveries-changed'));
+      void refresh();
     }
   }
 
@@ -1997,6 +2027,11 @@ function SessionDirectorPanel({
                     <li key={delivery.deliveryId}>
                       <strong>{delivery.recipientSeatIds.join(', ')}</strong> · {delivery.status}
                       <p>{delivery.deliveredContent ?? delivery.originalContent}</p>
+                      {deliveryActions[`${base}:${delivery.deliveryId}`]?.notice && (
+                        <p role="status">
+                          {deliveryActions[`${base}:${delivery.deliveryId}`].notice}
+                        </p>
+                      )}
                       {delivery.status === 'awaiting_intervention' && (
                         <>
                           <button
@@ -2047,13 +2082,21 @@ function SessionDirectorPanel({
                       {delivery.status === 'ready' && (
                         <button
                           type="button"
-                          disabled={busy || !canRequestRuntime(status)}
-                          onClick={() =>
-                            void mutate(
-                              `/deliveries/${encodeURIComponent(delivery.deliveryId)}/dispatch`,
-                              {},
+                          disabled={
+                            busy ||
+                            !canRequestRuntime(status) ||
+                            !delivery.recipients.length ||
+                            !delivery.recipients.every(
+                              (recipient) => recipient.status === 'pending',
+                            ) ||
+                            Boolean(
+                              deliveryActions[`${base}:${delivery.deliveryId}`]?.sendRequested ||
+                              deliveryActions[`${base}:${delivery.deliveryId}`]?.stopRequested ||
+                              deliveryActions[`${base}:${delivery.deliveryId}`]?.approve ||
+                              deliveryActions[`${base}:${delivery.deliveryId}`]?.stop,
                             )
                           }
+                          onClick={() => void controlDelivery(delivery, 'send')}
                         >
                           Send approved message
                         </button>
@@ -2061,13 +2104,8 @@ function SessionDirectorPanel({
                       {!['delivered', 'dropped', 'cancelled'].includes(delivery.status) && (
                         <button
                           type="button"
-                          disabled={busy}
-                          onClick={() =>
-                            void mutate(
-                              `/deliveries/${encodeURIComponent(delivery.deliveryId)}/cancel`,
-                              { reason: 'Stopped by director' },
-                            )
-                          }
+                          disabled={deliveryActions[`${base}:${delivery.deliveryId}`]?.stop}
+                          onClick={() => void controlDelivery(delivery, 'stop')}
                         >
                           Stop and dismiss
                         </button>

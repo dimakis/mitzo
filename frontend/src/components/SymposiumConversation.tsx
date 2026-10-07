@@ -4,7 +4,10 @@ import {
   matchesQueuedMessage,
   type QueueOperation,
 } from '../lib/symposium-queue-operations';
-import { getSymposiumDeliveryActions } from '../lib/symposium-delivery-actions';
+import {
+  controlSymposiumDelivery,
+  getSymposiumDeliveryActions,
+} from '../lib/symposium-delivery-actions';
 import { canRequestAgent, canRequestRuntime } from '../lib/symposium-status';
 import { SeatLabel } from './SeatLabel';
 import {
@@ -162,7 +165,6 @@ export function SymposiumConversation({
   const excerptOperation = sessionId ? excerptOperations[sessionId] : undefined;
   const deliveryStore = getSymposiumDeliveryActions();
   const deliveryActions = useSyncExternalStore(deliveryStore.subscribe, deliveryStore.snapshot);
-  const setDeliveryActions = deliveryStore.update;
   const [seatSeed, setSeatSeed] = useState<SeatProfileSeed | null>(null);
   const sessionEpoch = useRef(0);
   const base = sessionId ? `/api/sessions/${encodeURIComponent(sessionId)}/symposium` : '';
@@ -509,114 +511,10 @@ export function SymposiumConversation({
       )
     )
       return;
-    const identity = `${base}:${deliveryId}`;
-    const actionIdentity = `${identity}:${action}`;
-    if (deliveryStore.activeActions.has(actionIdentity)) return;
-    if (action === 'send' && deliveryStore.dispatchRequests.has(identity)) return;
-    if (action === 'send') deliveryStore.dispatchRequests.add(identity);
-    deliveryStore.activeActions.add(actionIdentity);
     const epoch = sessionEpoch.current;
-    setDeliveryActions((old) => ({
-      ...old,
-      [identity]: {
-        ...old[identity],
-        [action]: true,
-        ...(action === 'send' ? { sendRequested: true } : {}),
-        ...(action === 'stop' ? { stopRequested: true } : {}),
-        notice:
-          action === 'stop'
-            ? 'Stopping… awaiting cancellation confirmation.'
-            : action === 'send'
-              ? 'Sending… awaiting delivery confirmation.'
-              : 'Approving…',
-      },
-    }));
-    const fingerprint = `${identity}:${action}`;
-    const key = deliveryStore.retryKeys.get(fingerprint) ?? crypto.randomUUID();
-    if (action !== 'send') deliveryStore.retryKeys.set(fingerprint, key);
-    const controller = new AbortController();
-    let deadline: ReturnType<typeof setTimeout> | undefined;
-    try {
-      // Send and cancellation can await native work. Bound the complete response
-      // read while retaining the action's original identity after an uncertain wait.
-      await Promise.race([
-        readJson(
-          `${base}/deliveries/${encodeURIComponent(deliveryId)}/${action === 'approve' ? 'interventions' : action === 'send' ? 'dispatch' : 'cancel'}`,
-          {
-            method: 'POST',
-            signal: controller.signal,
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(
-              action === 'approve'
-                ? { action: 'approve', idempotencyKey: key }
-                : action === 'stop'
-                  ? { reason: 'Stopped from conversation', idempotencyKey: key }
-                  : {},
-            ),
-          },
-        ),
-        new Promise<never>((_, reject) => {
-          deadline = setTimeout(
-            () => {
-              reject(
-                new Error('The action request timed out; its saved outcome remains unconfirmed.'),
-              );
-              controller.abort();
-            },
-            action === 'approve' ? 30_000 : 5 * 60 * 1000,
-          );
-        }),
-      ]);
-      deliveryStore.retryKeys.delete(fingerprint);
-      setDeliveryActions((old) => ({
-        ...old,
-        [identity]: {
-          ...old[identity],
-          [action]: false,
-          notice:
-            action === 'send' && old[identity]?.stopRequested
-              ? old[identity].notice
-              : action === 'stop'
-                ? 'Cancellation recorded. Provider work may still be finishing; history is preserved.'
-                : action === 'send'
-                  ? 'Send request completed. See delivery status below.'
-                  : 'Approved. Choose Send to execute.',
-        },
-      }));
-      if (sessionEpoch.current === epoch)
-        window.dispatchEvent(new Event('symposium-deliveries-changed'));
-    } catch (cause) {
-      const detail = cause instanceof Error ? cause.message : 'Request failed';
-      const dispatchNotStarted =
-        action === 'send' && cause instanceof SymposiumRequestError && cause.dispatchNotStarted;
-      if (dispatchNotStarted) deliveryStore.dispatchRequests.delete(identity);
-      setDeliveryActions((old) => ({
-        ...old,
-        [identity]: {
-          ...old[identity],
-          [action]: false,
-          ...(dispatchNotStarted ? { sendRequested: false, dispatchUncertain: false } : {}),
-          ...(!dispatchNotStarted
-            ? { dispatchUncertain: action === 'send' || old[identity]?.dispatchUncertain }
-            : {}),
-          notice:
-            action === 'send' && old[identity]?.stopRequested
-              ? old[identity].notice
-              : action === 'send'
-                ? dispatchNotStarted
-                  ? `Send did not start. Check the connection, then choose Send again. ${detail}`
-                  : `Send outcome is uncertain. Do not resend; check delivery status or Stop. ${detail}`
-                : action === 'stop'
-                  ? `Stop is unconfirmed. Check status or retry Stop. ${detail}`
-                  : `Approval is unconfirmed. Check status or retry approval. ${detail}`,
-        },
-      }));
-      if (sessionEpoch.current === epoch)
-        window.dispatchEvent(new Event('symposium-deliveries-changed'));
-    } finally {
-      if (deadline !== undefined) clearTimeout(deadline);
-      deliveryStore.activeActions.delete(actionIdentity);
-    }
+    const requested = await controlSymposiumDelivery(deliveryStore, base, deliveryId, action);
+    if (requested && sessionEpoch.current === epoch)
+      window.dispatchEvent(new Event('symposium-deliveries-changed'));
   };
 
   const startShare = useCallback(

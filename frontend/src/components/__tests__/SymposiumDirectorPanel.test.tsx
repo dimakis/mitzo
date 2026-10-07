@@ -4,6 +4,10 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import userEvent from '@testing-library/user-event';
 import { apiFetch } from '../../lib/api-fetch';
 import { SymposiumDirectorPanel, getSymposiumEnableActions } from '../SymposiumDirectorPanel';
+import {
+  controlSymposiumDelivery,
+  getSymposiumDeliveryActions,
+} from '../../lib/symposium-delivery-actions';
 
 vi.mock('../../lib/api-fetch', () => ({ apiFetch: vi.fn() }));
 vi.mock('../AccountModelPicker', () => ({
@@ -119,6 +123,11 @@ async function openAdvancedSettings() {
 afterEach(() => {
   cleanup();
   getSymposiumEnableActions().update(() => ({}));
+  const actions = getSymposiumDeliveryActions();
+  actions.update(() => ({}));
+  actions.activeActions.clear();
+  actions.dispatchRequests.clear();
+  actions.retryKeys.clear();
   vi.useRealTimers();
   vi.restoreAllMocks();
   vi.resetAllMocks();
@@ -161,6 +170,135 @@ it('injects only explicitly selected admitted recipients', async () => {
     recipientSeatIds: ['reviewer'],
     originalContent: 'Review this patch',
   });
+});
+
+const deliveryForDirector = () => ({
+  deliveryId: 'director-review',
+  status: 'ready',
+  recipientSeatIds: ['reviewer'],
+  originalContent: 'Review selected revision',
+  deliveredContent: 'Review selected revision',
+  recipients: [{ seatId: 'reviewer', status: 'pending' }],
+});
+
+it('keeps director Stop available during a pending Send and preserves cancellation after late send completion', async () => {
+  let delivery = deliveryForDirector();
+  let finishSend!: (value: Response) => void;
+  vi.mocked(apiFetch).mockImplementation(async (path, init) => {
+    if (init?.method === 'POST' && String(path).endsWith('/dispatch'))
+      return new Promise<Response>((resolve) => {
+        finishSend = resolve;
+      });
+    if (init?.method === 'POST' && String(path).endsWith('/cancel')) {
+      delivery = { ...delivery, status: 'cancelled' };
+      return response(delivery);
+    }
+    return response({ ...status(true), deliveries: [delivery] });
+  });
+  render(<SymposiumDirectorPanel sessionId="director-stop" />);
+  await openAdvancedSettings();
+  fireEvent.click(screen.getByRole('button', { name: 'Send approved message' }));
+  const stop = screen.getByRole('button', { name: 'Stop and dismiss' });
+  expect((stop as HTMLButtonElement).disabled).toBe(false);
+  fireEvent.click(stop);
+  await screen.findByText(/Cancellation recorded.*history is preserved/);
+  await act(async () => {
+    finishSend(response(delivery));
+  });
+  expect(screen.getByText(/Cancellation recorded.*history is preserved/)).toBeTruthy();
+  const writes = vi.mocked(apiFetch).mock.calls.filter(([, init]) => init?.method === 'POST');
+  expect(writes.map(([path]) => path)).toEqual([
+    '/api/sessions/director-stop/symposium/deliveries/director-review/dispatch',
+    '/api/sessions/director-stop/symposium/deliveries/director-review/cancel',
+  ]);
+});
+
+it('retains an uncertain director Send fence across remount while keeping Stop available', async () => {
+  vi.mocked(apiFetch).mockImplementation(async (path, init) => {
+    if (init?.method === 'POST' && String(path).endsWith('/dispatch'))
+      throw new Error('Connection lost');
+    return response({ ...status(true), deliveries: [deliveryForDirector()] });
+  });
+  const view = render(<SymposiumDirectorPanel sessionId="director-uncertain" />);
+  await openAdvancedSettings();
+  fireEvent.click(screen.getByRole('button', { name: 'Send approved message' }));
+  await screen.findByText(/Send outcome is uncertain.*Do not resend/);
+  view.unmount();
+  render(<SymposiumDirectorPanel sessionId="director-uncertain" />);
+  await openAdvancedSettings();
+  expect(
+    (screen.getByRole('button', { name: 'Send approved message' }) as HTMLButtonElement).disabled,
+  ).toBe(true);
+  expect(
+    (screen.getByRole('button', { name: 'Stop and dismiss' }) as HTMLButtonElement).disabled,
+  ).toBe(false);
+  fireEvent.click(screen.getByRole('button', { name: 'Send approved message' }));
+  expect(vi.mocked(apiFetch).mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(
+    1,
+  );
+});
+
+it('retries an uncertain conversation Stop from the director with the exact original body', async () => {
+  vi.mocked(apiFetch).mockImplementation(async (path, init) => {
+    if (init?.method === 'POST' && String(path).endsWith('/cancel'))
+      throw new Error('Connection lost');
+    return response({ ...status(true), deliveries: [deliveryForDirector()] });
+  });
+  await controlSymposiumDelivery(
+    getSymposiumDeliveryActions(),
+    '/api/sessions/shared-stop/symposium',
+    'director-review',
+    'stop',
+  );
+  render(<SymposiumDirectorPanel sessionId="shared-stop" />);
+  await openAdvancedSettings();
+  fireEvent.click(screen.getByRole('button', { name: 'Stop and dismiss' }));
+  await waitFor(() =>
+    expect(
+      vi.mocked(apiFetch).mock.calls.filter(([, init]) => init?.method === 'POST'),
+    ).toHaveLength(2),
+  );
+  const writes = vi.mocked(apiFetch).mock.calls.filter(([, init]) => init?.method === 'POST');
+  expect(writes[1][1]?.body).toBe(writes[0][1]?.body);
+});
+
+it('keeps another selected review request usable without releasing an uncertain request fence', async () => {
+  const first = deliveryForDirector();
+  const second = {
+    ...first,
+    deliveryId: 'second-review',
+    originalContent: 'Second selected revision',
+    deliveredContent: 'Second selected revision',
+  };
+  vi.mocked(apiFetch).mockImplementation(async (_path, init) => {
+    if (init?.method === 'POST') throw new Error('Connection lost');
+    return response({ ...status(true), deliveries: [first, second] });
+  });
+  render(<SymposiumDirectorPanel sessionId="distinct-reviews" />);
+  await openAdvancedSettings();
+  const firstCard = screen.getByText(first.deliveredContent).closest('li')!;
+  const secondCard = screen.getByText(second.deliveredContent).closest('li')!;
+  fireEvent.click(within(firstCard).getByRole('button', { name: 'Send approved message' }));
+  await within(firstCard).findByText(/Send outcome is uncertain/);
+  expect(
+    (within(firstCard).getByRole('button', { name: 'Send approved message' }) as HTMLButtonElement)
+      .disabled,
+  ).toBe(true);
+  expect(
+    (within(secondCard).getByRole('button', { name: 'Send approved message' }) as HTMLButtonElement)
+      .disabled,
+  ).toBe(false);
+  fireEvent.click(within(secondCard).getByRole('button', { name: 'Send approved message' }));
+  await within(secondCard).findByText(/Send outcome is uncertain/);
+  expect(
+    vi
+      .mocked(apiFetch)
+      .mock.calls.filter(([, init]) => init?.method === 'POST')
+      .map(([path]) => path),
+  ).toEqual([
+    '/api/sessions/distinct-reviews/symposium/deliveries/director-review/dispatch',
+    '/api/sessions/distinct-reviews/symposium/deliveries/second-review/dispatch',
+  ]);
 });
 
 it('adds a configured seat to a draft using a server-resolved account binding', async () => {
