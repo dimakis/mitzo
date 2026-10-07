@@ -18,7 +18,16 @@ Ordinary Mitzo chats expose `RequestWebAccess` on ChatGPT/Codex (host or OpenShe
 }
 ```
 
-Search and ungranted public reads present the exact request in the existing approval card. Approval executes that request and returns external source material in the current turn. Denial, cancellation, changed input, a changed session/account/model, or a later restrictive mode/skill decision prevents dispatch. Auto mode and cached tool grants cannot skip the card. `approvalScope: request` offers **Allow Once**; older clients' **Allow for session** responses are treated as one-time approvals. A subsequent search or ungranted public read needs another approval. Session origin grants use the separate flow below.
+Search and ungranted public reads present the exact request in the existing approval card. Approval executes that request and returns external source material in the current turn. Denial, cancellation, changed input, a changed session/account/model, or a later restrictive mode/skill decision prevents dispatch. Auto mode and cached tool-wide grants cannot replace explicit web-search consent.
+
+Search cards offer **Allow Once** or **Allow for session**. Session consent covers provider-hosted searches using the current account and model until the live session ends. It survives switching chats and transport reconnects; a changed account or model retires it. Ending or recreating the runtime, including a server restart, requires new consent. Search consent does not grant website reads, URL access, credentials, shell networking, or other tools. Ungranted public reads keep `approvalScope: request` and need one-shot approval; session origin grants use the separate flow below.
+
+## iOS notification approvals
+
+With native push delivery configured and iOS notifications enabled, expand the approval banner to choose **Allow once** or **Deny** while another app is foreground. Web-search banners also offer **Allow searches for session**. The native app handles these actions in the background using the configured Mitzo server and its shared Keychain login, fetches the live request, and checks session identity and expiry before responding. Confirmation removes the delivered alert. A failed or uncertain response produces an error notification instead of claiming success or automatically retrying approval. Requests with questions or conversation-wide access still offer **Review request** in Mitzo.
+
+The same search choices appear in the notification details screen. iOS controls banner presentation, lock-screen authentication, Focus, and notification settings. These changes require distributing the updated native iOS bundle as well as deploying the backend. Existing app versions offer their registered categories and cannot gain native background actions from a server update alone. See [Apple’s actionable notification documentation](https://developer.apple.com/documentation/usernotifications/declaring-your-actionable-notification-types).
+
 
 Search uses the conversation's selected account and model. Provider search and model charges may apply. Mitzo never selects another account or substitutes a model after a rejection. Provider/model combinations without hosted search return an explicit failure; website reads remain independent of hosted-search support.
 
