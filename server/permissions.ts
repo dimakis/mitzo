@@ -4,6 +4,7 @@ export {
   resolvePending,
   removePending,
   hasPending,
+  isCompletePendingBashCommand,
   getPendingSessionId,
   denyPendingBySession,
   getPendingRequestsBySession,

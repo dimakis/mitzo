@@ -13,6 +13,7 @@ import type { QuickAction } from '../hooks/useSessionList';
 import { formatTokens } from '../lib/formatTokens';
 import { useSessionSearch } from '../hooks/useSessionSearch';
 import { useSessionOverview, type SessionActivity } from '../hooks/useSessionOverview';
+import { SessionPreview } from '../components/SessionPreview';
 import { UiIcon } from '../components/UiIcon';
 
 function SwipeableSession({
@@ -34,6 +35,8 @@ function SwipeableSession({
   const currentX = useRef(0);
   const swiping = useRef(false);
   const directionLocked = useRef<'horizontal' | 'vertical' | null>(null);
+  const [previewing, setPreviewing] = useState(false);
+  const moved = useRef(false);
   const [editing, setEditing] = useState(false);
   const [editValue, setEditValue] = useState('');
   const [revealed, setRevealed] = useState(false);
@@ -44,7 +47,14 @@ function SwipeableSession({
     setEditing(true);
   }, [session.summary]);
 
-  const longPress = useLongPress(enterEditMode);
+  const showPreview = useCallback(() => {
+    if (editing) return;
+    ref.current?.querySelector<HTMLElement>('.session-item-navigation')?.focus();
+    selectionChanged();
+    setPreviewing(true);
+  }, [editing]);
+  const closePreview = useCallback(() => setPreviewing(false), []);
+  const longPress = useLongPress(showPreview);
 
   useEffect(() => {
     if (editing && inputRef.current) {
@@ -91,6 +101,11 @@ function SwipeableSession({
   }
 
   function handleTouchStart(e: React.TouchEvent) {
+    if (e.touches.length !== 1) {
+      longPress.cancel();
+      return;
+    }
+    moved.current = false;
     startX.current = e.touches[0].clientX;
     startY.current = e.touches[0].clientY;
     currentX.current = startX.current;
@@ -100,6 +115,7 @@ function SwipeableSession({
   }
 
   function handleTouchMove(e: React.TouchEvent) {
+    if (longPress.didFire()) return;
     if (!swiping.current || !ref.current) return;
     currentX.current = e.touches[0].clientX;
     const dx = currentX.current - startX.current;
@@ -107,6 +123,7 @@ function SwipeableSession({
 
     if (!directionLocked.current && (Math.abs(dx) > 10 || Math.abs(dy) > 10)) {
       directionLocked.current = Math.abs(dy) > Math.abs(dx) ? 'vertical' : 'horizontal';
+      moved.current = true;
       longPress.cancel();
     }
 
@@ -125,6 +142,11 @@ function SwipeableSession({
     longPress.cancel();
     if (!swiping.current || !ref.current) return;
     swiping.current = false;
+    if (longPress.didFire()) return;
+    if (directionLocked.current === 'vertical') {
+      snapTo(revealed ? -REVEAL_WIDTH : 0);
+      return;
+    }
     const dx = currentX.current - startX.current;
 
     const phase = computeSwipeState(dx, revealed);
@@ -140,8 +162,11 @@ function SwipeableSession({
     }
   }
 
-  function handleClick() {
-    if (longPress.didFire() || editing) return;
+  function handleClick(keyboard = false) {
+    const held = longPress.consumeClick();
+    const dragged = moved.current;
+    moved.current = false;
+    if (editing || previewing || (!keyboard && (held || dragged))) return;
     if (revealed) {
       closeReveal();
       return;
@@ -161,10 +186,20 @@ function SwipeableSession({
       <div
         ref={ref}
         className="session-item"
-        onClick={handleClick}
+        onClick={() => handleClick()}
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
+        onTouchCancel={() => {
+          longPress.cancel();
+          swiping.current = false;
+          closeReveal();
+        }}
+        onContextMenu={(event) => {
+          if (editing) return;
+          event.preventDefault();
+          showPreview();
+        }}
       >
         {session.isActive && session.isAttached != null && (
           <span
@@ -192,9 +227,12 @@ function SwipeableSession({
               tabIndex={0}
               aria-label={`Open ${session.summary || 'Untitled conversation'}`}
               onKeyDown={(e) => {
-                if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) {
+                if (e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10')) {
                   e.preventDefault();
-                  handleClick();
+                  showPreview();
+                } else if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) {
+                  e.preventDefault();
+                  handleClick(true);
                 }
               }}
             >
@@ -232,6 +270,7 @@ function SwipeableSession({
               <UiIcon name="more" />
             </summary>
             <div className="conversation-details-body">
+              <button onClick={showPreview}>Preview conversation</button>
               <div>
                 Session <span className="session-item-hash">{session.id}</span>
               </div>
@@ -248,6 +287,25 @@ function SwipeableSession({
         </div>
         {!editing && <span className="session-item-chevron">&rsaquo;</span>}
       </div>
+      {previewing && (
+        <SessionPreview
+          session={session}
+          onClose={closePreview}
+          onOpen={() => {
+            closePreview();
+            onClick(session.id);
+          }}
+          onRename={() => {
+            closePreview();
+            enterEditMode();
+          }}
+          onDelete={() => {
+            closePreview();
+            closeReveal();
+            onDismiss(session.id);
+          }}
+        />
+      )}
     </div>
   );
 }

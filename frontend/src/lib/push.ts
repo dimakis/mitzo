@@ -104,6 +104,14 @@ async function initializePush(): Promise<void> {
   await installListenerOnce('pushNotificationActionPerformed', () =>
     PushNotifications.addListener('pushNotificationActionPerformed', (action: ActionPerformed) => {
       const { actionId, inputValue } = action;
+      if (
+        ['ALLOW_ONCE_ACTION', 'ALLOW_SEARCH_SESSION_ACTION', 'DENY_PERMISSION_ACTION'].includes(
+          actionId,
+        )
+      ) {
+        window.dispatchEvent(new Event(NOTIFICATIONS_REFRESH_EVENT));
+        return; // Native code already submitted this action without foregrounding the app.
+      }
       const data = action.notification.data as Record<string, string> | undefined;
       const sessionId = data?.sessionId;
       if (data?.notificationId && actionId !== 'REPLY_ACTION' && actionId !== 'LATER_ACTION') {
