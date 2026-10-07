@@ -1,9 +1,14 @@
 import {
   inspectHostGithubRepository,
   exportHostGithubBundle,
-  resolveHostGithubRepository,
+  readHostGithubOrigin,
+  inspectHostGithubSeed,
+  exportHostGithubSeedPatch,
 } from './github-host-source.js';
 import { execFile } from 'node:child_process';
+import { GithubSeededPublication } from './github-seeded-publication.js';
+import { loadGithubSeedBaselines, selectGithubSeedBaseline } from './github-seed-baselines.js';
+import { GithubSeedPublicationError } from './github-seeded-source.js';
 import { promisify } from 'node:util';
 import { join } from 'node:path';
 import { mkdirSync } from 'node:fs';
@@ -78,6 +83,7 @@ export function createConnectionsRuntime(options: {
   githubProfileFingerprint?: string;
   /** Test-only explicit override; production derives this from controller env. */
   githubPublishEnabled?: boolean;
+  githubSeedBaselinePaths?: readonly string[];
   /** Explicit operator deployment switch; defaults closed. */
   customRestEnabled?: boolean;
   publicDnsResolver?: import('./connections-gateway.js').PublicDnsResolver;
@@ -220,17 +226,63 @@ export function createConnectionsRuntime(options: {
       identity.toLowerCase() === current.identity?.toLowerCase()
     );
   };
+  const transportFor = (source: import('./github-publishing-tool.js').GithubPublishingSource) =>
+    new OpenShellGithubSandboxTransport(runControl, options.workspace, source.workspace);
+  const seedPublication = new GithubSeededPublication({
+    read: async (input) =>
+      input.source.runtime === 'host'
+        ? inspectHostGithubSeed({ ...input.source, ...input })
+        : transportFor(input.source).inspectSeed({
+            sandboxName: input.source.sandboxName,
+            repositoryPath: input.repositoryPath,
+            signal: input.signal,
+          }),
+    export: async (input, state) =>
+      input.source.runtime === 'host'
+        ? exportHostGithubSeedPatch({ ...input.source, ...input, ...state })
+        : transportFor(input.source).exportSeedPatch({
+            sandboxName: input.source.sandboxName,
+            repositoryPath: input.repositoryPath,
+            signal: input.signal,
+            ...state,
+          }),
+    baseline: async (tree, signal) => {
+      try {
+        return selectGithubSeedBaseline(
+          await loadGithubSeedBaselines(options.githubSeedBaselinePaths ?? [], signal, tree),
+          tree,
+        );
+      } catch (error) {
+        if (error instanceof GithubSeedPublicationError) throw error;
+        throw new GithubSeedPublicationError(
+          'SEEDED_BASELINE_UNAVAILABLE',
+          'The configured host seed baseline is unavailable or invalid; preserve the local commit and inspect publishing configuration',
+        );
+      }
+    },
+    project: (input) => githubHost.projectSeedPatch(input),
+  });
+  const sourceOrigin = async (
+    source: import('./github-publishing-tool.js').GithubPublishingSource,
+    repositoryPath: string,
+    baseBranch: string,
+    signal: AbortSignal,
+  ) =>
+    source.runtime === 'host'
+      ? readHostGithubOrigin({ ...source, repositoryPath, baseBranch, signal })
+      : transportFor(source).origin({
+          sandboxName: source.sandboxName,
+          repositoryPath,
+          signal,
+          allowMissing: true,
+        });
   const resolveGithubPublishingRepository: NonNullable<
     ConnectionsRuntime['resolveGithubPublishingRepository']
   > = async (source, repositoryPath, baseBranch, signal) => {
-    if (source.runtime === 'host')
-      return resolveHostGithubRepository({ ...source, repositoryPath, baseBranch, signal });
-    const origin = await new OpenShellGithubSandboxTransport(
-      runControl,
-      options.workspace,
-      source.workspace,
-    ).origin({ sandboxName: source.sandboxName, repositoryPath, signal });
-    return githubRepositoryFromOrigin(origin);
+    const origin = await sourceOrigin(source, repositoryPath, baseBranch, signal);
+    return origin
+      ? githubRepositoryFromOrigin(origin)
+      : seedPublication.resolveRepository({ source, repositoryPath, baseBranch, signal });
   };
   const requireRepositoryAccess = (
     operation: import('./connections/capabilities/types.js').CapabilityOperation,
@@ -275,6 +327,24 @@ export function createConnectionsRuntime(options: {
         throw new Error('Controller GitHub identity differs from the selected connection');
       const live = publishingSource(input.operation);
       if (!live?.workspace) throw new Error('Live publishing workspace unavailable');
+      const source: import('./github-publishing-tool.js').GithubPublishingSource =
+        live.runtime === 'host'
+          ? {
+              runtime: 'host',
+              workspace: live.workspace,
+              gitStorageRoots: live.gitStorageRoots ?? [],
+            }
+          : { runtime: 'openshell', workspace: live.workspace, sandboxName: live.sandboxName! };
+      if (!(await sourceOrigin(source, input.repositoryPath, input.baseBranch, input.signal)))
+        return seedPublication.inspect({
+          source,
+          repositoryPath: input.repositoryPath,
+          baseBranch: input.baseBranch,
+          signal: input.signal,
+          operationId: input.operation.id,
+          approvalInput: input.operation.approvalInput,
+          authorize: (repository) => requireRepositoryAccess(input.operation, repository),
+        });
       const inspection =
         live.runtime === 'host'
           ? await inspectHostGithubRepository({
@@ -314,6 +384,26 @@ export function createConnectionsRuntime(options: {
         input.signal,
       );
       requireRepositoryAccess(input.operation, repository);
+      const source: import('./github-publishing-tool.js').GithubPublishingSource =
+        live.runtime === 'host'
+          ? {
+              runtime: 'host',
+              workspace: live.workspace,
+              gitStorageRoots: live.gitStorageRoots ?? [],
+            }
+          : { runtime: 'openshell', workspace: live.workspace, sandboxName: live.sandboxName! };
+      if (!(await sourceOrigin(source, input.repositoryPath, input.baseBranch, input.signal))) {
+        await seedPublication.inspect({
+          source,
+          repositoryPath: input.repositoryPath,
+          baseBranch: input.baseBranch,
+          signal: input.signal,
+          operationId: input.operation.id,
+          approvalInput: input.operation.approvalInput,
+          authorize: (repository) => requireRepositoryAccess(input.operation, repository),
+        });
+        return seedPublication.bundle(input.operation.id, input.sourceOid, input.maxBytes);
+      }
       if (live.runtime === 'host')
         return exportHostGithubBundle({
           ...input,

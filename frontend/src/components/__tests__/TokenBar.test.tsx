@@ -23,10 +23,11 @@ describe('TokenBar', () => {
     expect(container.querySelector('.token-bar')).toBeNull();
   });
 
-  it('renders agent context with brain icon', () => {
+  it('describes context occupancy without a visible text badge', () => {
     render(<TokenBar tokenState={makeState({ agentContext: 87204, turnIndex: 1 })} />);
     // Should show formatted token count
-    expect(screen.getByText(/87k/)).toBeTruthy();
+    expect(screen.getByText(/87k/).className).toBe('sr-only');
+    expect(document.querySelector('.token-wheel')).toBeTruthy();
   });
 
   it('renders session total with sigma icon when available', () => {
@@ -39,7 +40,7 @@ describe('TokenBar', () => {
         })}
       />,
     );
-    expect(screen.getByText(/143k/)).toBeTruthy();
+    expect(screen.getByText(/143k/).className).toBe('sr-only');
   });
 
   it('applies green color class for low context usage', () => {
@@ -84,7 +85,7 @@ describe('TokenBar', () => {
     // Should render (not return null)
     expect(container.querySelector('.token-bar')).toBeTruthy();
     // Should show session total
-    expect(screen.getByText(/50k/)).toBeTruthy();
+    expect(screen.getByText(/50k/).className).toBe('sr-only');
     // Should NOT show agent context bar (0/200k is meaningless for completed sessions)
     expect(screen.queryByText(/0\/200k/)).toBeNull();
   });
@@ -124,13 +125,51 @@ describe('TokenBar', () => {
   });
 });
 
-it('labels context occupancy separately from session spend before expanding', () => {
-  render(
-    <TokenBar tokenState={makeState({ agentContext: 12000, sessionTotal: 24000, turnIndex: 1 })} />,
+describe('context wheel', () => {
+  afterEach(cleanup);
+
+  it.each([
+    [50000, 75],
+    [100000, 50],
+    [200000, 0],
+    [250000, 0],
+  ])('fills clockwise for %s tokens and clamps at capacity', (agentContext, offset) => {
+    const { container } = render(
+      <TokenBar tokenState={makeState({ agentContext, turnIndex: 1 })} />,
+    );
+    const fill = container.querySelector('.token-wheel-fill');
+    expect(fill?.getAttribute('stroke-dashoffset')).toBe(String(offset));
+    expect(fill?.getAttribute('transform')).toBe('rotate(-90 12 12)');
+  });
+
+  it.each([{ agentContext: 0 }, { agentContext: 12000, contextCeiling: 0 }])(
+    'shows unavailable occupancy as unknown rather than an empty green budget: %j',
+    (overrides) => {
+      const { container } = render(
+        <TokenBar tokenState={makeState({ ...overrides, turnIndex: 1 })} />,
+      );
+      expect(container.querySelector('.token-bar--unknown')).toBeTruthy();
+      expect(container.querySelector('.token-wheel-fill')).toBeNull();
+      fireEvent.click(screen.getByRole('button', { name: 'Token usage' }));
+      expect(screen.getByText('Not reported')).toBeTruthy();
+      expect(screen.queryByText('0 / 200,000')).toBeNull();
+    },
   );
-  expect(screen.getByText('Context')).toBeTruthy();
-  expect(screen.getByText('Session')).toBeTruthy();
-  expect(screen.getByRole('button', { name: 'Token usage' }).getAttribute('aria-expanded')).toBe(
-    'false',
-  );
+
+  it('keeps spend separate from occupancy and toggles the detail popover', () => {
+    render(
+      <TokenBar
+        tokenState={makeState({ agentContext: 12000, sessionTotal: 24000, turnIndex: 1 })}
+      />,
+    );
+    const button = screen.getByRole('button', { name: 'Token usage' });
+    expect(button.getAttribute('aria-expanded')).toBe('false');
+    fireEvent.click(button);
+    expect(screen.getByText('12,000 / 200,000')).toBeTruthy();
+    expect(screen.getByText('24,000')).toBeTruthy();
+    // Touch browsers may leave focus elsewhere; Escape must still dismiss.
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(button.getAttribute('aria-expanded')).toBe('false');
+    expect(screen.queryByText('Agent context')).toBeNull();
+  });
 });

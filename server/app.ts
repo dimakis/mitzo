@@ -18,6 +18,8 @@ import {
   createSymposiumApplicationDispatchPolicy,
   selectSymposiumApplicationClaim,
 } from './symposium-application-dispatch.js';
+import { createGithubPublicationOperatorRouter } from './github-publication-operator-router.js';
+import { requestOperatorGithubPublication } from './github-publishing-tool.js';
 import { createHostBackupService } from './backup/host.js';
 import { createBackupRouter } from './backup/router.js';
 import { bindMitzoTelosCoreCapture } from './backup/mitzo-telos-binding.js';
@@ -1426,6 +1428,17 @@ app.use(
     symposiumAccessRequests,
     (id) => eventStore.getSession(id)?.sessionType === 'symposium',
   ),
+);
+app.use(
+  '/api/sessions/:id/github-publication',
+  operatorAuthMiddleware,
+  createGithubPublicationOperatorRouter({
+    hasOrdinarySession: (id) => {
+      const session = eventStore.getSession(id);
+      return !!session && session.sessionType !== 'symposium';
+    },
+    invoke: (id, input, signal) => requestOperatorGithubPublication(id, registry, input, signal),
+  }),
 );
 app.use(
   '/api/sessions/:id/symposium/publication',

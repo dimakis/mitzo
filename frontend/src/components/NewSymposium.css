@@ -1,0 +1,105 @@
+/* Match Connections' cards, 42px fields, restrained headings and wrapped actions. */
+.symposium-new {
+  font-family: var(--ui-font);
+  font-size: 14px;
+  line-height: 1.5;
+}
+.symposium-new .symposium-new-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  min-height: 44px;
+  padding: 8px 0;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  font-weight: 600;
+}
+.symposium-new .symposium-new-panel {
+  gap: 14px;
+  padding: 12px 0 18px;
+  min-width: 0;
+  color: var(--workspace-text, var(--text));
+}
+.symposium-new-heading {
+  display: grid;
+  gap: 6px;
+}
+.symposium-new .symposium-new-panel h3 {
+  margin: 0;
+  font-size: 16px;
+  line-height: 1.4;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+}
+.symposium-new-heading p,
+.symposium-new .symposium-new-hint {
+  color: var(--workspace-muted, var(--text-dim));
+  font-size: 13px;
+  line-height: 1.5;
+}
+.symposium-new-card {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  border: 1px solid var(--workspace-line, var(--border));
+  border-radius: var(--workspace-radius, 16px);
+  padding: 16px;
+  background: var(--workspace-bg, var(--bg));
+}
+.symposium-new-fields {
+  display: grid;
+  gap: 14px;
+}
+.symposium-new .symposium-new-panel label {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  font-size: 14px;
+}
+.symposium-new .symposium-new-panel input:not([type='checkbox']),
+.symposium-new .symposium-new-panel select,
+.symposium-new .symposium-new-panel textarea {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  min-height: 42px;
+  padding: 9px 10px;
+  border: 1px solid var(--workspace-line, var(--border));
+  border-radius: 8px;
+  background: var(--workspace-bg, var(--bg));
+  color: inherit;
+  font: inherit;
+}
+.symposium-new .symposium-new-panel button {
+  max-width: 100%;
+  min-height: 42px;
+  margin-left: 0;
+  padding: 9px 12px;
+  font: inherit;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.symposium-new-actions {
+  display: grid;
+  gap: 8px;
+}
+.symposium-new .symposium-new-panel [role='alert'] {
+  display: block;
+  padding: 12px;
+  border: 1px solid var(--workspace-line, var(--border));
+  border-radius: 8px;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.symposium-new :focus-visible {
+  outline: 2px solid var(--workspace-accent, var(--accent));
+  outline-offset: 3px;
+}
+@media (min-width: 600px) {
+  .symposium-new-fields {
+    grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+  }
+}

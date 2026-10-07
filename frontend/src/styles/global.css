@@ -7249,6 +7249,9 @@ option {
   border-bottom: 1px solid var(--border);
   padding: 0.4rem 0.75rem;
   color: var(--text);
+  font-family: var(--ui-font);
+  font-size: 14px;
+  line-height: 1.5;
 }
 
 .symposium-director-panel {
@@ -7257,6 +7260,61 @@ option {
   max-height: min(65dvh, 40rem);
   overflow-y: auto;
   padding: 0.75rem 0;
+}
+
+/* Connections-inspired Symposium cards and touch targets; keep existing controls. */
+.symposium-director .symposium-director-panel {
+  gap: 1rem;
+  min-width: 0;
+}
+.symposium-director .symposium-director-panel h3,
+.symposium-director .symposium-director-panel h4 {
+  font-size: 16px;
+  line-height: 1.4;
+}
+.symposium-director .symposium-director-panel fieldset {
+  min-width: 0;
+  margin: 0;
+  padding: 14px;
+  border: 1px solid var(--workspace-line, var(--border));
+  border-radius: 8px;
+}
+.symposium-director .symposium-director-panel legend {
+  max-width: 100%;
+  padding: 0 5px;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.4;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.symposium-director .symposium-director-panel button,
+.symposium-director .symposium-director-panel input:not([type='checkbox']),
+.symposium-director .symposium-director-panel select {
+  min-height: 42px;
+}
+.symposium-director .symposium-director-panel button {
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.symposium-director .symposium-director-panel .symposium-roster {
+  gap: 0.75rem;
+  padding: 0;
+  list-style: none;
+}
+.symposium-director .symposium-director-panel .symposium-roster > li {
+  padding: 1rem;
+  border: 1px solid var(--workspace-line, var(--border));
+  border-radius: var(--workspace-radius, 1rem);
+  background: var(--workspace-bg, var(--bg));
+}
+.symposium-director .symposium-director-panel > [role='status'],
+.symposium-director .symposium-director-panel > [role='alert'] {
+  padding: 0.75rem;
+  border: 1px solid var(--workspace-line, var(--border));
+  border-radius: 0.5rem;
+  overflow-wrap: anywhere;
 }
 
 .symposium-director-panel p {
