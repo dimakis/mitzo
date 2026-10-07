@@ -8,11 +8,21 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 
     var window: UIWindow?
     private let watchRelay = WatchRelayCoordinator()
+    private let approvalDelegate = BackgroundApprovalDelegate()
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
+        // Background action launches may never create a scene or webview.
+        UNUserNotificationCenter.current().delegate = approvalDelegate
         watchRelay.start()
         registerNotificationCategories()
         return true
+    }
+
+    func attachNotificationRouter(_ router: NotificationRouter) {
+        approvalDelegate.attach(router)
+        // Capacitor installs its router during bridge creation. Restore the
+        // same app-owned delegate, preserving any cold-launch responses.
+        UNUserNotificationCenter.current().delegate = approvalDelegate
     }
 
     private func registerNotificationCategories() {
@@ -51,7 +61,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         )
         let onceAction = UNNotificationAction(identifier: "ALLOW_ONCE_ACTION", title: "Allow once", options: [.authenticationRequired])
         let searchAction = UNNotificationAction(identifier: "ALLOW_SEARCH_SESSION_ACTION", title: "Allow searches for session", options: [.authenticationRequired])
-        let denyAction = UNNotificationAction(identifier: "DENY_PERMISSION_ACTION", title: "Deny", options: [.destructive])
+        let denyAction = UNNotificationAction(identifier: "DENY_PERMISSION_ACTION", title: "Deny", options: [.destructive, .authenticationRequired])
         let approvalCategory = UNNotificationCategory(identifier: "SESSION_APPROVAL", actions: [onceAction, denyAction, reviewAction], intentIdentifiers: [], options: [])
         let searchCategory = UNNotificationCategory(identifier: "SESSION_SEARCH_PERMISSION", actions: [onceAction, searchAction, denyAction, reviewAction], intentIdentifiers: [], options: [])
         let updateCategory = UNNotificationCategory(
@@ -104,40 +114,58 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 
 }
 
-/// The storyboard creates this bridge during cold launches too. Keep Capacitor's
-/// router for taps/replies, but submit approval buttons natively in the background.
+/// Attach UI navigation when a scene exists; background approvals already have
+/// their app-owned delegate and do not depend on this controller loading.
 @objc
 class MitzoBridgeViewController: CAPBridgeViewController {
-    private var approvalDelegate: BackgroundApprovalDelegate?
     override func capacitorDidLoad() {
         super.capacitorDidLoad()
         guard let router = bridge?.notificationRouter else { return }
-        let delegate = BackgroundApprovalDelegate(fallback: router)
-        approvalDelegate = delegate
-        UNUserNotificationCenter.current().delegate = delegate
+        (UIApplication.shared.delegate as? AppDelegate)?.attachNotificationRouter(router)
     }
 }
 
 private class BackgroundApprovalDelegate: NSObject, UNUserNotificationCenterDelegate {
-    private let fallback: NotificationRouter
-    init(fallback: NotificationRouter) { self.fallback = fallback }
+    private let lock = NSLock()
+    private var fallback: NotificationRouter?
+    private var deferredResponses: [UNNotificationResponse] = []
+
+    func attach(_ router: NotificationRouter) {
+        let responses = lock.withLock {
+            fallback = router
+            let pending = deferredResponses
+            deferredResponses.removeAll()
+            return pending
+        }
+        for response in responses { forward(response, completionHandler: {}) }
+    }
+
+    private func forward(_ response: UNNotificationResponse, completionHandler: @escaping () -> Void) {
+        let router = lock.withLock { () -> NotificationRouter? in
+            guard let fallback else { deferredResponses.append(response); return nil }
+            return fallback
+        }
+        guard let router else { completionHandler(); return }
+        if response.notification.request.identifier.hasSuffix("-response-error") {
+            router.pushNotificationHandler?.didReceive(response: response)
+            completionHandler()
+        } else {
+            router.userNotificationCenter(UNUserNotificationCenter.current(), didReceive: response, withCompletionHandler: completionHandler)
+        }
+    }
 
     func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification,
                                 withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
-        fallback.userNotificationCenter(center, willPresent: notification, withCompletionHandler: completionHandler)
+        if let router = lock.withLock({ fallback }) {
+            router.userNotificationCenter(center, willPresent: notification, withCompletionHandler: completionHandler)
+        } else { completionHandler([.banner, .list, .sound, .badge]) }
     }
 
     func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
                                 withCompletionHandler completionHandler: @escaping () -> Void) {
         let action = response.actionIdentifier
         guard ["ALLOW_ONCE_ACTION", "ALLOW_SEARCH_SESSION_ACTION", "DENY_PERMISSION_ACTION"].contains(action) else {
-            if response.notification.request.identifier.hasSuffix("-response-error") {
-                // Our local failure alert uses the same detail navigation as a push.
-                fallback.pushNotificationHandler?.didReceive(response: response)
-                completionHandler()
-                return
-            }
-            fallback.userNotificationCenter(center, didReceive: response, withCompletionHandler: completionHandler)
+            forward(response, completionHandler: completionHandler)
             return
         }
         let info = response.notification.request.content.userInfo
@@ -151,7 +179,8 @@ private class BackgroundApprovalDelegate: NSObject, UNUserNotificationCenterDele
                 // A fresh manager reads the shared Keychain and respects logout.
                 let api = MitzoAPIClient(baseURL: server, authManager: AuthManager())
                 let item = try await api.getNotification(id: id)
-                guard item.id == id, let decision = backgroundApprovalResponse(actionID: action, item: item, expectedSessionID: sessionID) else {
+                guard item.id == id, let decision = backgroundApprovalResponse(actionID: action, item: item, expectedSessionID: sessionID,
+                    reviewedToolName: info["approvalToolName"] as? String, reviewedInput: info["approvalInput"] as? String) else {
                     throw MitzoAPIClient.APIError.invalidResponse
                 }
                 try await api.respondNotification(id: id, response: decision)

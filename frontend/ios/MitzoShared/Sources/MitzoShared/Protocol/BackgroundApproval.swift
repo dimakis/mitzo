@@ -3,10 +3,18 @@ import Foundation
 /// Revalidate the live server request before acting on a possibly stale banner.
 public func backgroundApprovalResponse(
     actionID: String, item: MitzoNotification, expectedSessionID: String,
+    reviewedToolName: String? = nil, reviewedInput: String? = nil,
     at milliseconds: Double = Date().timeIntervalSince1970 * 1000
 ) -> NotificationResponse? {
     guard item.sessionId == expectedSessionID, item.isActionable(at: milliseconds),
-          let request = item.request, item.id == "permission:\(request.permId)" else { return nil }
+          let request = item.request, item.id == "permission:\(request.permId)",
+          reviewedToolName == request.toolName, reviewedInput == request.toolInput,
+          request.questions == nil, request.approvalScope != .conversation,
+          request.toolInput.utf8.count <= 768,
+          let data = request.toolInput.data(using: .utf8),
+          let input = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+          (request.toolName == "Bash" && input["command"] is String) ||
+          (request.toolName == "RequestWebAccess" && ["search", "fetch", "request_access"].contains(input["operation"] as? String ?? "")) else { return nil }
     let decision: NotificationResponse.Decision
     switch actionID {
     case "DENY_PERMISSION_ACTION": decision = .deny
