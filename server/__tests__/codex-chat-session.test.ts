@@ -149,6 +149,7 @@ it('builds managed Jira runtime context from versioned public configuration, not
 function options(abortController: AbortController) {
   return {
     session: { cwd: '/tmp', abortController },
+    registry: { findBySessionId: () => undefined, get: () => undefined },
     mcpServers: {},
     profile: { planType: 'api', credentialRef: '/test/login' },
     eventStore: {
