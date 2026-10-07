@@ -54,3 +54,32 @@ it('resolves only a controller-configured seed tree to its verified source repos
     ),
   ).toThrow();
 });
+it('ignores an unused seed source when resolving a different verified tree', async () => {
+  root = await mkdtemp(join(tmpdir(), 'mitzo-seed-unused-'));
+  const prepared = join(root, 'mgmt');
+  await mkdir(prepared);
+  execFileSync('git', ['-C', prepared, 'init', '-q']);
+  await writeFile(join(prepared, 'note.txt'), 'unrelated\n');
+  execFileSync('git', ['-C', prepared, 'add', '.']);
+  execFileSync('git', [
+    '-C',
+    prepared,
+    '-c',
+    'user.name=Fixture',
+    '-c',
+    'user.email=fixture@example.invalid',
+    '-c',
+    'commit.gpgsign=false',
+    'commit',
+    '-qm',
+    'seed',
+  ]);
+  const path = join(root, 'baseline.json');
+  await writeFile(
+    path,
+    JSON.stringify({ source: '/missing-unused-source', startingCommit: 'a'.repeat(40) }),
+  );
+  expect(
+    await loadGithubSeedBaselines([path], new AbortController().signal, '0'.repeat(40)),
+  ).toEqual([]);
+});

@@ -17,6 +17,7 @@ export interface GithubSeedBaseline {
 export async function loadGithubSeedBaselines(
   paths: readonly string[],
   signal: AbortSignal,
+  selectedTree?: string,
 ): Promise<GithubSeedBaseline[]> {
   if (paths.length > 32)
     throw new GithubSeedPublicationError(
@@ -34,6 +35,8 @@ export async function loadGithubSeedBaselines(
           GIT_CONFIG_GLOBAL: '/dev/null',
           GIT_CONFIG_NOSYSTEM: '1',
           GIT_TERMINAL_PROMPT: '0',
+          GIT_NO_REPLACE_OBJECTS: '1',
+          GIT_NO_LAZY_FETCH: '1',
         },
       })
     ).stdout.trim();
@@ -52,7 +55,22 @@ export async function loadGithubSeedBaselines(
         'Configured seed baseline exceeds its limit',
       );
     const value = JSON.parse(bytes.toString()) as Record<string, unknown>;
+    const seed = await realpath(join(dirname(canonical), 'mgmt'));
+    const seedRoots = (await readGit(seed, 'rev-list', '--max-parents=0', 'HEAD')).split('\n');
+    if (seedRoots.length !== 1 || !/^[a-f0-9]{40}$/.test(seedRoots[0]!))
+      throw new GithubSeedPublicationError(
+        'SEEDED_BASELINE_INVALID',
+        'Configured seed history is ambiguous',
+      );
+    const seedTreeOid = await readGit(seed, 'rev-parse', seedRoots[0] + '^{tree}');
+    if (!/^[a-f0-9]{40}$/.test(seedTreeOid))
+      throw new GithubSeedPublicationError(
+        'SEEDED_BASELINE_INVALID',
+        'Configured seed tree is invalid',
+      );
+    if (selectedTree && seedTreeOid !== selectedTree) continue;
     if (
+      !value ||
       typeof value.source !== 'string' ||
       !isAbsolute(value.source) ||
       typeof value.startingCommit !== 'string' ||
@@ -62,18 +80,11 @@ export async function loadGithubSeedBaselines(
         'SEEDED_BASELINE_INVALID',
         'Configured seed source identity is invalid',
       );
-    const source = await realpath(value.source),
-      seed = await realpath(join(dirname(canonical), 'mgmt'));
+    const source = await realpath(value.source);
     const repository = githubRepositoryFromOrigin(
       await readGit(source, 'config', '--local', '--get', 'remote.origin.url'),
     );
     await readGit(source, 'cat-file', '-e', value.startingCommit + '^{commit}');
-    const seedTreeOid = await readGit(seed, 'rev-parse', 'HEAD^{tree}');
-    if (!/^[a-f0-9]{40}$/.test(seedTreeOid))
-      throw new GithubSeedPublicationError(
-        'SEEDED_BASELINE_INVALID',
-        'Configured seed tree is invalid',
-      );
     result.push({
       seedTreeOid,
       repository,
@@ -95,7 +106,7 @@ export function selectGithubSeedBaseline(
   if (!matches.length)
     throw new GithubSeedPublicationError(
       'SEEDED_BASELINE_REQUIRED',
-      'This isolated workspace needs its original host seed baseline registered for reviewed publication. No GitHub operation was recorded; preserve the local commit.',
+      'This isolated workspace needs its original host seed baseline registered for reviewed publication. Preserve the local commit.',
     );
   const first = matches[0]!;
   if (

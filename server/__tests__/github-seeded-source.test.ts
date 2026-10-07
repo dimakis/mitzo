@@ -52,6 +52,7 @@ async function fixture() {
     sourceOid,
   ]);
   const runHost = async (command: string, args: readonly string[], signal: AbortSignal) => {
+    signal.throwIfAborted();
     const actual = [...args];
     const url = actual.indexOf('https://github.com/example/repo.git');
     if (url >= 0) actual[url] = upstream;
@@ -59,7 +60,6 @@ async function fixture() {
       stdout: execFileSync(command, actual, {
         encoding: 'utf8',
         env: { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1' },
-        signal,
       }),
       stderr: '',
     };
@@ -76,6 +76,7 @@ it('projects only the task delta, preserving upstream-only files and original se
     originalSourceOid: f.sourceOid,
     seedTreeOid: f.seedTreeOid,
     patch: f.patch,
+    privateDirectory: join(f.root, 'private'),
     signal: new AbortController().signal,
   };
   const first = await projectSeededChange(f.runHost, input);
@@ -86,7 +87,7 @@ it('projects only the task delta, preserving upstream-only files and original se
   f.git('clone', '-q', f.upstream, output);
   const bundle = join(f.root, 'change.bundle');
   await writeFile(bundle, first.bundle);
-  f.git('-C', output, 'fetch', bundle, 'task:task');
+  f.git('-C', output, 'fetch', bundle, first.sourceBranch + ':task');
   expect(f.git('-C', output, 'show', 'task:note.txt')).toBe('new');
   expect(f.git('-C', output, 'show', 'task:upstream-only.txt')).toBe('preserve');
   expect(f.git('-C', output, 'rev-list', '--count', 'main..task')).toBe('1');
@@ -104,7 +105,31 @@ it('rejects a conflicting patch instead of replacing upstream content', async ()
       originalSourceOid: f.sourceOid,
       seedTreeOid: f.seedTreeOid,
       patch: f.patch,
+      privateDirectory: join(f.root, 'private'),
       signal: new AbortController().signal,
     }),
   ).rejects.toThrow();
+});
+it('uses an immutable publication branch per source and base so updates never require force-push', async () => {
+  const f = await fixture();
+  const input = {
+    repository: 'example/repo',
+    baseBranch: 'main',
+    sourceBranch: 'task',
+    originalSourceOid: f.sourceOid,
+    seedTreeOid: f.seedTreeOid,
+    patch: f.patch,
+    privateDirectory: join(f.root, 'private'),
+    signal: new AbortController().signal,
+  };
+  const first = await projectSeededChange(f.runHost, input);
+  expect(first.sourceBranch).toMatch(/^mitzo\/seeded\/[a-f0-9]{40}-[a-f0-9]{40}$/);
+  await writeFile(join(f.upstream, 'unrelated.txt'), 'upstream advancement\n');
+  f.git('-C', f.upstream, 'add', '.');
+  f.git('-C', f.upstream, 'commit', '-qm', 'advance');
+  const next = await projectSeededChange(f.runHost, input);
+  expect(next.sourceBranch).not.toBe(first.sourceBranch);
+  const pinned = await projectSeededChange(f.runHost, { ...input, baseOid: first.baseOid });
+  expect(pinned.sourceBranch).toBe(first.sourceBranch);
+  expect(pinned.sourceOid).toBe(first.sourceOid);
 });

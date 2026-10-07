@@ -5,7 +5,9 @@ Claude Code on your phone. A self-hosted web UI built on the [Agent SDK](https:/
 <!-- ![Home Screen](docs/screenshots/home.png) -->
 <!-- ![Chat with Tools](docs/screenshots/chat-tools.png) -->
 
-### New chat account and model
+#Isolated seeded workspaces can publish committed task deltas through the shared GitHub approval broker once their original host baseline is registered. The task history stays intact; only reviewed changes are projected onto upstream. See [seeded GitHub publication](docs/operations/seeded-github-publication.md) for configuration and failure diagnostics.
+
+## New chat account and model
 
 Expand **Workspace** in chat to choose the account and model. **Make default for new chats** saves that pair (and thinking setting) on this browser; **Clear new-chat default** removes it. Existing conversations keep their bound account. When no default is saved, select an account or confirm the suggested account with **Use** before sending. If a saved account or model is unavailable, choose a replacement explicitly.
 

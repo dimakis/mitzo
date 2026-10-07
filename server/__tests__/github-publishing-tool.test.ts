@@ -320,3 +320,65 @@ it('rejects a changed repository after access approval without recording consent
   expect(f.invoke).not.toHaveBeenCalled();
   expect(runtime.capabilityStore.approveGithubRepository).not.toHaveBeenCalled();
 });
+it('reports a safe source-resolution failure without inventing a recorded operation', async () => {
+  const { GithubSeedPublicationError } = await import('../github-seeded-source.js');
+  const f = fixture('openai-codex');
+  const runtime = mocks.runtime as { resolveGithubPublishingRepository: ReturnType<typeof vi.fn> };
+  runtime.resolveGithubPublishingRepository.mockRejectedValue(
+    new GithubSeedPublicationError('SEEDED_BASELINE_REQUIRED', 'Bearer SECRET_TOKEN'),
+  );
+  const result = await f.execute(input, new AbortController().signal, {
+    turnId: 'turn',
+    callId: 'call',
+  });
+  const detail = JSON.parse(result.content);
+  expect(detail).toMatchObject({
+    stage: 'repository_resolution',
+    code: 'SEEDED_BASELINE_REQUIRED',
+    operationRecorded: false,
+  });
+  expect(result.content).not.toContain('SECRET_TOKEN');
+  expect(f.invoke).not.toHaveBeenCalled();
+});
+it('operator publication uses the existing live tool and forced approval, and closes with its runtime', async () => {
+  const { requestOperatorGithubPublication } = await import('../github-publishing-tool.js');
+  const f = fixture('openai-codex');
+  expect(
+    await requestOperatorGithubPublication(
+      'conversation',
+      f.registry,
+      input,
+      new AbortController().signal,
+    ),
+  ).toMatchObject({ isError: false });
+  expect(f.invoke).toHaveBeenCalled();
+  f.execute.close();
+  await expect(
+    requestOperatorGithubPublication(
+      'conversation',
+      f.registry,
+      input,
+      new AbortController().signal,
+    ),
+  ).rejects.toThrow(/live/);
+});
+it('does not let an operator use a superseded account or a closed runtime', async () => {
+  const { requestOperatorGithubPublication } = await import('../github-publishing-tool.js');
+  const f = fixture('openai-codex');
+  const binding = f.session.accountBinding!;
+  f.session.accountBinding = { ...binding, accountId: 'replacement' };
+  await expect(
+    requestOperatorGithubPublication(
+      'conversation',
+      f.registry,
+      input,
+      new AbortController().signal,
+    ),
+  ).rejects.toThrow(/changed/);
+  f.session.accountBinding = binding;
+  f.execute.close();
+  expect(
+    await f.execute(input, new AbortController().signal, { turnId: 'turn', callId: 'call' }),
+  ).toMatchObject({ isError: true });
+  expect(f.invoke).not.toHaveBeenCalled();
+});

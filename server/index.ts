@@ -1,3 +1,4 @@
+import { z } from 'zod';
 import { custodianControllerMode, custodianOwnerMode } from './symposium-custodian-mode.js';
 import { closeCapabilityOperationStores } from './capability-operation-owner.js';
 import { createSymposiumShutdown, settleSymposiumCleanup } from './symposium-shutdown.js';
@@ -172,6 +173,17 @@ function configureConnectionsRuntime(): void {
     }
     const runtime = createConnectionsRuntime({
       directory: join(BASE_REPO, '.mitzo'),
+      githubSeedBaselinePaths: [
+        ...new Set([
+          ...(process.env.MITZO_GITHUB_SEED_BASELINES
+            ? z
+                .array(z.string().min(1))
+                .max(32)
+                .parse(JSON.parse(process.env.MITZO_GITHUB_SEED_BASELINES))
+            : []),
+          ...(openShell.seed ? [join(openShell.seed, '..', 'baseline.json')] : []),
+        ]),
+      ],
       eligibleAccountIds: (templateId) => loadAccountProfiles().connectionEligibleIds(templateId),
       cli: openShell.cli,
       workspace: openShell.workspace,

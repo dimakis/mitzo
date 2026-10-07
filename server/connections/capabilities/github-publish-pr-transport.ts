@@ -51,7 +51,7 @@ function commandFailure(): never {
  * workspace; a symlinked `.git` is never trusted.
  */
 export const githubGitBoundaryScript =
-  'set -eu; root="$1"; repo="$2"; shift 2; ' +
+  'set -eu; unset GIT_DIR GIT_WORK_TREE GIT_OBJECT_DIRECTORY GIT_INDEX_FILE GIT_CONFIG_COUNT; export GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null GIT_NO_REPLACE_OBJECTS=1 GIT_NO_LAZY_FETCH=1 GIT_TERMINAL_PROMPT=0 GIT_ALTERNATE_OBJECT_DIRECTORIES=; root="$1"; repo="$2"; shift 2; ' +
   '[ -e "$root" ]; [ -e "$repo" ]; [ "$(realpath "$root")" = "$root" ]; [ "$(realpath "$repo")" = "$repo" ]; ' +
   'case "$repo" in "$root"|"$root"/*) ;; *) exit 1 ;; esac; ' +
   '[ ! -L "$repo/.git" ]; cd -P "$repo"; [ "$PWD" = "$repo" ]; ' +
@@ -60,7 +60,8 @@ export const githubGitBoundaryScript =
   '[ -e "$gitdir" ]; [ -e "$common" ]; gitdir=$(realpath "$gitdir"); common=$(realpath "$common"); ' +
   'case "$gitdir" in "$root"|"$root"/*) ;; *) exit 1 ;; esac; ' +
   'case "$common" in "$root"|"$root"/*) ;; *) exit 1 ;; esac; ' +
-  'exec /usr/bin/git "$@"';
+  'for storage in "$gitdir" "$common"; do for part in objects refs; do if [ -e "$storage/$part" ]; then [ -z "$(find "$storage/$part" -type l -print -quit)" ]; fi; done; if [ -e "$storage/objects/info/alternates" ]; then [ ! -s "$storage/objects/info/alternates" ]; fi; done; ' +
+  'exec /usr/bin/git -c core.hooksPath=/dev/null -c core.fsmonitor=false "$@"';
 
 /**
  * Controller transport for a retained OpenShell sandbox. Every executable and
@@ -123,7 +124,7 @@ export class OpenShellGithubSandboxTransport implements GithubSandboxTransport {
     allowMissing?: boolean;
   }): Promise<string> {
     const script = githubGitBoundaryScript.replace(
-      'exec /usr/bin/git "$@"',
+      'exec /usr/bin/git -c core.hooksPath=/dev/null -c core.fsmonitor=false "$@"',
       'value=$(/usr/bin/git config --local --get remote.origin.url) || { [ "$?" = 1 ] || exit 1; }; printf "%s" "$value"',
     );
     const value = (
@@ -217,7 +218,7 @@ finally:
  if p.poll() is None: os.killpg(p.pid,signal.SIGKILL);p.wait(timeout=5)
 `;
     const script = githubGitBoundaryScript.replace(
-      'exec /usr/bin/git "$@"',
+      'exec /usr/bin/git -c core.hooksPath=/dev/null -c core.fsmonitor=false "$@"',
       'exec /usr/bin/python3 -c "$1" "$2" "$3" "$4"',
     );
     const encoded = await this.git(

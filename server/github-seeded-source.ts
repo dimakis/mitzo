@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
-import { chmod, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { codexPrivateDirectory } from './codex-private-path.js';
 import { join } from 'node:path';
 import type { GithubHostCommandRunner } from './connections/capabilities/github-publish-pr-transport.js';
 export class GithubSeedPublicationError extends Error {
@@ -21,6 +21,8 @@ export interface SeededChangeInput {
   baseOid?: string;
   seedUpstreamOid?: string;
   signal: AbortSignal;
+  /** Controller/test-owned private directory; never a tool input. */
+  privateDirectory?: string;
 }
 const oid = /^[a-f0-9]{40}$/;
 const branch = /^[A-Za-z0-9][A-Za-z0-9._/-]{0,254}$/;
@@ -32,7 +34,6 @@ export async function projectSeededChange(run: GithubHostCommandRunner, input: S
     ![input.baseBranch, input.sourceBranch].every(
       (v) => branch.test(v) && !v.includes('..') && !v.endsWith('.lock'),
     ) ||
-    input.sourceBranch === input.baseBranch ||
     !oid.test(input.originalSourceOid) ||
     !oid.test(input.seedTreeOid) ||
     (input.baseOid !== undefined && !oid.test(input.baseOid)) ||
@@ -44,7 +45,10 @@ export async function projectSeededChange(run: GithubHostCommandRunner, input: S
       'SEEDED_SOURCE_INVALID',
       'Seeded publication input is invalid',
     );
-  const parent = await mkdtemp(join(tmpdir(), 'mitzo-seeded-publication-'));
+  const privateDirectory =
+    input.privateDirectory ?? join(codexPrivateDirectory(), 'github-seeded-projections');
+  await mkdir(privateDirectory, { recursive: true, mode: 0o700 });
+  const parent = await mkdtemp(join(privateDirectory, 'projection-'));
   await chmod(parent, 0o700);
   const repository = join(parent, 'repository.git');
   const git = async (...args: string[]) =>
@@ -70,6 +74,7 @@ export async function projectSeededChange(run: GithubHostCommandRunner, input: S
     );
     const currentBase = await git('rev-parse', `refs/heads/${input.baseBranch}^{commit}`);
     const baseOid = input.baseOid ?? currentBase;
+    const sourceBranch = `mitzo/seeded/${input.originalSourceOid}-${baseOid}`;
     if (!oid.test(baseOid))
       throw new GithubSeedPublicationError('SEEDED_BASE_INVALID', 'Publication base is invalid');
     await git('merge-base', '--is-ancestor', baseOid, currentBase);
@@ -98,17 +103,53 @@ export async function projectSeededChange(run: GithubHostCommandRunner, input: S
     const commit = join(parent, 'commit');
     await writeFile(commit, raw, { mode: 0o600 });
     const sourceOid = await git('hash-object', '-t', 'commit', '-w', commit);
-    await git('update-ref', `refs/heads/${input.sourceBranch}`, sourceOid);
+    await git('update-ref', `refs/heads/${sourceBranch}`, sourceOid);
     const bundlePath = join(parent, 'change.bundle');
-    await git('bundle', 'create', bundlePath, `refs/heads/${input.sourceBranch}`, `^${baseOid}`);
+    await git('bundle', 'create', bundlePath, `refs/heads/${sourceBranch}`, `^${baseOid}`);
     const bundle = await readFile(bundlePath);
     if (!bundle.length || bundle.length > 16 * 1024 * 1024)
       throw new GithubSeedPublicationError(
         'SEEDED_EXPORT_TOO_LARGE',
         'Seeded publication export exceeds its limit',
       );
-    return { sourceOid, baseOid, patchSha256, bundle };
+    return { sourceOid, sourceBranch, baseOid, patchSha256, bundle };
   } finally {
     await rm(parent, { recursive: true, force: true });
   }
+}
+const seedFailureMessages: Record<string, string> = {
+  SEEDED_BASELINE_REQUIRED:
+    'Register the original host seed baseline for this isolated workspace before requesting publication. The task commit is preserved.',
+  SEEDED_BASELINE_INVALID:
+    'The configured seed baseline is invalid. Inspect controller publishing configuration.',
+  SEEDED_BASELINE_UNAVAILABLE:
+    'The configured host seed baseline is unavailable. Inspect controller publishing configuration.',
+  SEEDED_BASELINE_AMBIGUOUS:
+    'More than one repository mapping matches the seed. Resolve the controller configuration before publishing.',
+  SEEDED_HISTORY_INVALID:
+    'The isolated workspace does not have an unambiguous committed task history.',
+  SEEDED_WORKSPACE_DIRTY: 'Commit or preserve outstanding workspace changes before publishing.',
+  SEEDED_SCOPE_TOO_LARGE: 'The committed change exceeds the complete approval scope limit.',
+  SEEDED_PATCH_CONFLICT:
+    'The committed task delta conflicts with upstream. Preserve the task commit and review the conflict before publishing.',
+  SEEDED_APPROVAL_CHANGED:
+    'The source or projected publication changed after approval. Request a new review.',
+  SEEDED_SOURCE_INVALID: 'The selected seeded publication source is invalid.',
+  SEEDED_BASE_INVALID: 'The selected upstream publication base is invalid.',
+  SEEDED_PATH_UNSUPPORTED: 'Seeded publication cannot introduce symlinks or submodules.',
+  SEEDED_EXPORT_TOO_LARGE: 'The committed export exceeds the publication size limit.',
+  SEEDED_EXPORT_INVALID: 'The committed export is invalid or empty.',
+  SEEDED_EXPORT_CHANGED: 'The export no longer matches the approved commit.',
+  REPOSITORY_ORIGIN_MISSING:
+    'This repository has no origin remote or registered seed publication mapping.',
+};
+export function safeGithubSeedFailure(
+  error: unknown,
+): { code: string; message: string } | undefined {
+  if (!(error instanceof GithubSeedPublicationError)) return undefined;
+  const message = seedFailureMessages[error.code];
+  return message ? { code: error.code, message } : undefined;
+}
+export function githubSeedFailureMessage(code: string | null | undefined): string | undefined {
+  return code ? seedFailureMessages[code] : undefined;
 }

@@ -2,6 +2,9 @@ import { realpathSync } from 'node:fs';
 import { createHash, randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import { z } from 'zod';
+import { createLogger } from '@mitzo/harness';
+import { safeGithubSeedFailure, githubSeedFailureMessage } from './github-seeded-source.js';
+const publicationLog = createLogger('github-publication');
 import {
   buildPermissionHandler,
   checkSkillPolicy,
@@ -20,6 +23,41 @@ import { canonicalJson } from './connections/capabilities/input-validation.js';
 export const REQUEST_GITHUB_PUBLISH = 'RequestGithubPublish';
 // Shared across runtime replacements; closing one runtime cannot release its active operation.
 const publishingAdmissions = new Set<string>();
+const operatorPublishing = new Map<
+  string,
+  {
+    registry: SessionRegistry;
+    ownerId: string;
+    session?: unknown;
+    account?: unknown;
+    execute: (
+      input: unknown,
+      signal: AbortSignal,
+      call: { turnId: string; callId: string },
+    ) => Promise<{ content: string; isError: boolean }>;
+  }
+>();
+export async function requestOperatorGithubPublication(
+  conversationId: string,
+  registry: SessionRegistry,
+  input: unknown,
+  signal: AbortSignal,
+) {
+  const active = operatorPublishing.get(conversationId);
+  if (!active || active.registry !== registry)
+    throw new Error('No live publishing runtime is registered for this conversation');
+  const current = registry.findBySessionId(conversationId);
+  if (
+    !current ||
+    current.session !== active.session ||
+    !isDeepStrictEqual(current.session.accountBinding, active.account)
+  )
+    throw new Error('The live publishing account or runtime changed');
+  return active.execute(input, signal, {
+    turnId: 'operator-' + randomUUID(),
+    callId: randomUUID(),
+  });
+}
 export const GithubPublishingFields = {
   repositoryPath: z.string().min(1).max(256),
   baseBranch: z.string().min(1).max(128),
@@ -45,6 +83,7 @@ export function createGithubPublishingTool(
   source: () => GithubPublishingSource | undefined,
 ) {
   const runtimeOwnerId = randomUUID();
+  let closed = false;
   let bound:
     { conversationId: string; connectionId: string; connectionRevision: number } | undefined;
   const run = async (
@@ -52,6 +91,8 @@ export function createGithubPublishingTool(
     signal: AbortSignal,
     call: { turnId: string; callId: string },
   ) => {
+    let stage = 'admission';
+    const requestId = randomUUID();
     try {
       signal.throwIfAborted();
       const parsed = Input.safeParse(input);
@@ -75,6 +116,7 @@ export function createGithubPublishingTool(
       const identity = structuredClone(account);
       const sourceIdentity = structuredClone(source());
       const isCurrent = () =>
+        !closed &&
         registry.get(owner.clientId) === owner.session &&
         registry.findBySessionId(conversationId)?.session === owner.session &&
         registry.findBySessionId(conversationId)?.clientId === owner.clientId &&
@@ -92,6 +134,7 @@ export function createGithubPublishingTool(
           content: 'The live repository cannot be resolved; reconnect before publishing',
           isError: true,
         };
+      stage = 'repository_resolution';
       const repository = await runtime.resolveGithubPublishingRepository(
         sourceIdentity,
         parsed.data.repositoryPath,
@@ -119,6 +162,7 @@ export function createGithubPublishingTool(
           isError: true,
         };
       const connection = connections[0]!;
+      stage = 'publisher_identity';
       if (
         !runtime.verifyGithubPublishingIdentity ||
         !(await runtime.verifyGithubPublishingIdentity(connection.id, signal, connection.revision))
@@ -242,6 +286,7 @@ export function createGithubPublishingTool(
         connectionRevision: connection.revision,
         gatewayProviderId: connection.gatewayProviderId,
       });
+      stage = 'operation_recovery';
       const recovered = await runtime.capabilities.recoverPendingForConversation(
         identity.accountId,
         conversationId,
@@ -269,6 +314,7 @@ export function createGithubPublishingTool(
         recoveredRepository !== repository
       )
         return { content: 'Publishing access changed during recovery; retry', isError: true };
+      stage = 'operation_dispatch';
       const operation = await runtime.capabilities.invoke(
         {
           connectionId: connection.id,
@@ -300,13 +346,30 @@ export function createGithubPublishingTool(
           operationId: operation.id,
           status: operation.status,
           result: operation.result,
+          failureCode: operation.failureCode,
+          ...(githubSeedFailureMessage(operation.failureCode)
+            ? { message: githubSeedFailureMessage(operation.failureCode) }
+            : {}),
         }),
         isError: operation.status !== 'succeeded',
       };
-    } catch {
+    } catch (error) {
+      const failure = safeGithubSeedFailure(error) ?? {
+        code: 'GITHUB_PUBLICATION_FAILED',
+        message:
+          'Publication failed during ' +
+          stage +
+          '. Use the diagnostic request ID to inspect controller logs before retrying.',
+      };
+      publicationLog.warn('GitHub publication failed', { requestId, stage, code: failure.code });
       return {
-        content:
-          'GitHub publishing did not complete. Inspect the recorded operation before retrying; no fallback account was used.',
+        content: JSON.stringify({
+          requestId,
+          stage,
+          ...failure,
+          operationRecorded:
+            stage === 'operation_dispatch' || stage === 'operation_recovery' ? 'unknown' : false,
+        }),
         isError: true,
       };
     }
@@ -326,9 +389,21 @@ export function createGithubPublishingTool(
       publishingAdmissions.delete(conversationId);
     }
   };
+  const operatorConversationId = typeof conversation === 'function' ? conversation() : conversation;
+  const operatorOwner = registry.findBySessionId(operatorConversationId);
+  operatorPublishing.set(operatorConversationId, {
+    registry,
+    ownerId: runtimeOwnerId,
+    execute,
+    session: operatorOwner?.session,
+    account: structuredClone(operatorOwner?.session.accountBinding),
+  });
   return Object.assign(execute, {
     runtimeOwnerId,
     close: () => {
+      closed = true;
+      if (operatorPublishing.get(operatorConversationId)?.ownerId === runtimeOwnerId)
+        operatorPublishing.delete(operatorConversationId);
       if (
         bound &&
         getLiveCapabilityConversationBinding(bound.conversationId)?.runtimeOwnerId ===
