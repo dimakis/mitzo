@@ -2,9 +2,9 @@
   "version": 1,
   "scope": "Local operator transition cut; no activation or native qualification",
   "branch": "feat/canonical-staging-transition",
-  "baseCommit": "54f3a88775a5737d139fb2be4fb39be496a7166c",
-  "ordinaryDependency": "6e50e9af60db956b0faec9ec28c6b226ef0047b9",
-  "dependencyTree": "b4194f1a6458bbe500500b19ccf8bcaf5015c53e",
+  "baseCommit": "37e53aad8e2fef77c87d22ea252727987eaf5ede",
+  "ordinaryDependency": "8006c339d1395ef619f735868fda1ded3abfa30f",
+  "dependencyTree": "528c0ebab0211e7fadf99176190a9bca05b4c7c1",
   "dependencyMergeUncommitted": false,
   "sourceCandidate": "3075cbd889804054d8379daf8f83a4e185472640",
   "sourceCandidateTree": "35aac0d71d4395581ba33a4ae974df9015bb572a",
@@ -12,7 +12,10 @@
   "intentionalSuccessorChanges": [
     "CLI fixtures consume extracted pure static schema/environment modules instead of the unaccepted native launcher/custodian imports.",
     "Add actual prepare CLI coverage forbidding OS control and operator entrypoint import-boundary coverage.",
-    "Rewrite lifecycle guidance to capacity one and the canonical service; explicitly separate missing native target qualification from operator source readiness."
+    "Rewrite lifecycle guidance to capacity one and the canonical service; explicitly separate missing native target qualification from operator source readiness.",
+    "Share closure-v2 dependency proof with the ordinary controller; hash resolved workspace link targets and refuse historical weaker receipts.",
+    "Require independent accepted-main baseline arguments and pin equality to target plan and transition intent; reject Git worktree redirects for controller/ordinary receipts.",
+    "Canonical owned preparation omits generic launch artifacts and the generic launcher refuses canonical plans before custody; ordinary preparation retains its original interface."
   ],
   "excluded": [
     "native registered launcher",
@@ -24,7 +27,7 @@
     "production actions"
   ],
   "qualification": {
-    "syntheticTests": "75 passed across7files including actualCLI/privatefile/SQL effects and ordinary controller guards",
+    "syntheticTests": "43 unique focused synthetic tests including actual transition/service/owned/ordinary CLI guards and import closure",
     "serverBuild": "passed reviewedhandler/IANA/security checks",
     "serverTypes": "passed including tests",
     "lint": "passed"
@@ -33,7 +36,7 @@
     {
       "path": "docs/operations/symposium-singleton-staging.md",
       "candidateBlob": "f857d76b64d5fbe82b9e8a4e0b6f0eafde757004",
-      "successorSha256": "352efee578ef5c057ea3939f39ca270144e5aeaaac8858833d911ee008d97f86"
+      "successorSha256": "817de80e3fcb7666a084fff22c50ad7da01b43e72db77e512c2b3bf99089de80"
     },
     {
       "path": "docs/operations/symposium-staging-lifecycle.md",
@@ -57,12 +60,12 @@
     {
       "path": "scripts/prepare-staging-service.mjs",
       "candidateBlob": "446511b5bc887d6577dc4c40acffad402ed5674f",
-      "successorSha256": "6757bb407866c57a53c5cc00bd9726cf7ec8a62bd5090e6e2a03511e79ebaa56"
+      "successorSha256": "21d7e1d9cddf6eaf42bbc1957b9043e54e0b6a047b1d88c22fd726aa58d0b905"
     },
     {
       "path": "scripts/symposium-staging-transition.mjs",
       "candidateBlob": "1ce05ce330f7f9052b49e8c8bcb9d2219d141d1a",
-      "successorSha256": "9c64345ed39c33051d0603c9e5bad06713a7716703a10b5725a97ff11c4f846e"
+      "successorSha256": "210ae42a5115ce45f5db8005645d22bcf630272b1420dfb2bc0baa8c4aadb41f"
     },
     {
       "path": "scripts/symposium-staging.mjs",
@@ -82,18 +85,33 @@
     {
       "path": "server/__tests__/symposium-staging-prepare-cli.test.ts",
       "candidateBlob": null,
-      "successorSha256": "02c086499fa5c5ab662e6ed975bfdee194d739823c2d042c7591125b2b6356e5"
+      "successorSha256": "41342eea26593ad2c90ce0b6d34f75fce760345700f8899e3b6f66448831a711"
     },
     {
       "path": "server/__tests__/symposium-staging-transition-cli.test.ts",
       "candidateBlob": "f6aefe87633788ea1f04181b95b21457f44eb727",
-      "successorSha256": "c03c68ddb9a2d2b0f7d0351341296fa9afd1d46049241d53afa0f43074d0f8ed"
+      "successorSha256": "64f1e789a9aebd62f87bc6be33ed7880c6bac2cb282b877a82df82661aa74687"
     },
     {
       "path": "server/__tests__/symposium-staging-transition.test.js",
       "candidateBlob": "5265818c266806468bcab22de0b1fe8c741be619",
       "successorSha256": "345590e8f1d61d279e02beb7e3d1d5ef08c2b4583896e9af403e76a98c1a5908"
+    },
+    {
+      "path": "scripts/prepare-owned-custodian-release.mjs",
+      "candidateBlob": "c39dc9b4276e3606866503550130ea974898149d",
+      "successorSha256": "2921f75b28cd7f2694d152230f1e5629747d350fac38f9007405eb19b3f16479"
+    },
+    {
+      "path": "scripts/start-owned-custodian.mjs",
+      "candidateBlob": "833e74a40720f43787218eb1fc3034ba941d780d",
+      "successorSha256": "a30676d6dc9489127180f48468d3440391ac965cf9db3cac876e6b7480ef3c6d"
+    },
+    {
+      "path": "server/__tests__/symposium-owned-prepare-cli.test.ts",
+      "candidateBlob": null,
+      "successorSha256": "b908ba9bf37f7b5befa1e2ea7bd88c38305cca10f59686c4a24a752b5e013b6e"
     }
   ],
-  "dependencyMergeCommit": "71c5e630dad7ecca28d1d27bc7ee56ef84ad25ec"
+  "dependencyMergeCommit": "32ae912e8432f035772d944c3ddfb2ae9951bdc2"
 }

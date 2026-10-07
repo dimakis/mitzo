@@ -61,6 +61,7 @@ function fixture() {
   );
   const plan = {
     sourceCommit: source,
+    acceptedMainBaseline: 'e'.repeat(40),
     releaseRoot: release,
     planDirectory: service,
     repositoryPath: join(root, 'symposium/workspace'),
@@ -82,7 +83,7 @@ function fixture() {
     fixtureImport,
     `import os from 'node:os';import cp from 'node:child_process';import {syncBuiltinESMExports} from 'node:module';const old=os.userInfo;os.userInfo=()=>({...old(),homedir:${JSON.stringify(home)}});cp.spawnSync=()=>{throw Error('OS control forbidden during preparation');};cp.execFileSync=()=>{throw Error('OS control forbidden during preparation');};syncBuiltinESMExports();`,
   );
-  const run = (port = '3190', canonical = true) =>
+  const run = (port = '3190', canonical = true, baseline: string | null = 'e'.repeat(40)) =>
     spawnSync(
       process.execPath,
       [
@@ -92,7 +93,9 @@ function fixture() {
         join(service, 'owned-release.json'),
         registration,
         port,
-        ...(canonical ? ['--canonical'] : []),
+        ...(canonical
+          ? ['--canonical', ...(baseline === null ? [] : ['--accepted-main-baseline', baseline])]
+          : []),
       ],
       { encoding: 'utf8', env: { PATH: process.env.PATH }, timeout: 10000 },
     );
@@ -124,6 +127,14 @@ it('canonical preparation refuses absent canonical mode, production port and non
     }
     const result = f.run(kind === 'production' ? '3100' : '3190', kind !== 'mode');
     expect(result.status).not.toBe(0);
+    expect(existsSync(join(f.service, 'staging-custodian.plist'))).toBe(false);
+  }
+});
+
+it('canonical preparation requires an independently supplied matching accepted-main baseline', () => {
+  for (const baseline of [null, 'f'.repeat(40)]) {
+    const f = fixture();
+    expect(f.run('3190', true, baseline).status).not.toBe(0);
     expect(existsSync(join(f.service, 'staging-custodian.plist'))).toBe(false);
   }
 });

@@ -1,5 +1,7 @@
 #!/usr/bin/env node
+import process from 'node:process';
 // Explicit fresh launch only. This wrapper never bootstraps a provider itself.
+import { requiresCanonicalStaging } from '../dist/symposium-staging-identity.js';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
@@ -35,6 +37,7 @@ try {
     plan.entry !== 'dist/symposium-custodian-main.js'
   )
     throw Error();
+  if (requiresCanonicalStaging(plan)) throw Error('Registered canonical launcher required');
   verifyOwnedRelease(plan);
   claimOwnedLaunch(plan); // Durable intent is retained on every later error.
   verifyOwnedRelease(plan); // Fresh checks immediately before the irreversible exec boundary.
