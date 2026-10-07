@@ -80,6 +80,30 @@ function show(path = '/notifications') {
   );
 }
 describe('Notifications experience', () => {
+  it('offers an explicit session search grant in notification details', async () => {
+    const original = vi.mocked(apiFetch).getMockImplementation()!;
+    vi.mocked(apiFetch).mockImplementation(async (url, options) => {
+      const response = await original(url, options);
+      if (options?.method) return response;
+      const data = await response.json();
+      data.items[0].request = {
+        ...pending.request,
+        toolName: 'RequestWebAccess',
+        approvalScope: 'session',
+        toolInput: JSON.stringify({ operation: 'search', query: 'Pricing' }),
+      };
+      return new Response(JSON.stringify(data));
+    });
+    show();
+    fireEvent.click(await screen.findByRole('button', { name: 'Review request' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Allow searches for this session' }));
+    await waitFor(() =>
+      expect(apiFetch).toHaveBeenCalledWith(
+        '/api/notifications/permission%3Ap1/respond',
+        expect.objectContaining({ body: JSON.stringify({ sessionId: 's1', decision: 'always' }) }),
+      ),
+    );
+  });
   it.each([true, false])(
     'marks a directly linked update read after loading (in current page: %s)',
     async (inPage) => {
