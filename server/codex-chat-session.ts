@@ -36,11 +36,7 @@ import {
 import { createWebAccessTool } from './web-access-tool.js';
 import { connectCodexMcpTools } from './codex-mcp-tools.js';
 import { AsyncQueue } from './async-queue.js';
-import {
-  CodexAppServerClient,
-  CodexRequestError,
-  SUPPORTED_CODEX_CLI_VERSION,
-} from './codex-app-server-client.js';
+import { CodexAppServerClient, SUPPORTED_CODEX_CLI_VERSION } from './codex-app-server-client.js';
 import { CodexConversation } from './codex-conversation.js';
 import {
   CodexConversationStore,
@@ -83,7 +79,8 @@ import {
 import { requestedIntegrationProviders } from './integration-intent.js';
 import { createLogger } from './logger.js';
 import { canonicalJson } from './connections/capabilities/input-validation.js';
-import { providerFailureTelemetry, ProviderFailureError } from './provider-failure.js';
+import { ProviderFailureError } from './provider-failure.js';
+import { codexRuntimeDiagnostic, codexRuntimeErrorTelemetry } from './codex-runtime-diagnostics.js';
 import type { EventStore } from './event-store.js';
 import { codexRolloverHistory } from './codex-rollover-context.js';
 import type { ProviderDispatchAdmission } from './provider-execution.js';
@@ -198,6 +195,8 @@ function capabilityToolsForConversation(
 }
 /** Only transport safe, stable runtime diagnostics to the client. */
 export function publicCodexRuntimeError(error: Error): string {
+  const diagnostic = codexRuntimeDiagnostic(error);
+  if (diagnostic) return diagnostic;
   if (error instanceof KnowledgePublicationUnavailableError)
     return 'Knowledge publication is unavailable. Check the knowledge publisher before retrying. No provider turn was started.';
   if (
@@ -236,6 +235,12 @@ export function publicCodexRuntimeError(error: Error): string {
   )
     return message;
   return 'Codex turn failed. Inspect queued work before retrying.';
+}
+export function publicCodexStartupError(error: Error): string {
+  const diagnostic = publicCodexRuntimeError(error);
+  return diagnostic === 'Codex turn failed. Inspect queued work before retrying.'
+    ? 'Codex could not start this chat. Inspect conversation recovery before retrying.'
+    : diagnostic;
 }
 let privateStore: CodexConversationStore | undefined;
 function store() {
@@ -1401,14 +1406,7 @@ async function openCodexChatBound(
     onError: (error) => {
       log.warn('Codex runtime reported an error', {
         conversationId: options.conversationId,
-        ...(error instanceof CodexRequestError
-          ? {
-              requestMethod: error.method,
-              requestErrorCategory: error.category,
-              ...(error.code === undefined ? {} : { requestErrorCode: error.code }),
-            }
-          : {}),
-        ...(error instanceof ProviderFailureError ? providerFailureTelemetry(error.failure) : {}),
+        ...codexRuntimeErrorTelemetry(error),
         error: publicCodexRuntimeError(error),
       });
       // Failed provider turns are emitted by the query loop as durable v2 error
