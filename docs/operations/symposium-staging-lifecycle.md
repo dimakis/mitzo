@@ -139,3 +139,22 @@ registry recording, and verify resource settlement before unloading the job.
 If drain is uncertain, retain the original owner for diagnosis. Do not treat
 launchd exit or unload as a cleanup receipt. This path does not retrofit control
 or recover custody for any historical staging process.
+
+## Operator controller and target qualification
+
+The static operator controller validates private source, build, configuration and
+original process evidence. It uses the ordinary controller's shared visibility
+and dependency-closure verifiers and an independently selected accepted-main
+baseline. Generic owned preparation emits no canonical plist, and its generic
+launcher refuses canonical plans. Only the registered canonical target lifecycle
+may reserve the fixed capacity-one registry and retain the original native owner.
+
+This feature source includes that target lifecycle. Its presence does not grant
+source acceptance or physical qualification: the executing operator controller
+must match fresh accepted main, and the selected target must independently pass
+complete source review, configuration review and native readiness checks before
+activation. Compilation, synthetic tests and operator receipts cannot replace
+native custody or provider evidence. Keep the ordinary stage selected until those
+prerequisites are met. Unknown drain or retirement retains the deployment lock,
+registry slot, launch intent and evidence; no forced escalation or automatic
+replacement is permitted.

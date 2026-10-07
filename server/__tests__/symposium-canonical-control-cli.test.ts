@@ -53,7 +53,8 @@ function fixture(mode = 'confirmed') {
   for (const name of [
     'symposium-staging-service',
     'symposium-staging-identity',
-    'symposium-custodian-launch',
+    'symposium-staging-environment',
+    'symposium-staging-launch-schema',
     'symposium-canonical-control',
     'symposium-canonical-owner-record',
     'symposium-custodian-retirement',
@@ -73,13 +74,6 @@ function fixture(mode = 'confirmed') {
   writeFileSync(
     join(release, 'dist/symposium-owned-config-schema.js'),
     `import {readFileSync} from 'node:fs';export const readOwnedSymposiumHostConfig=p=>JSON.parse(readFileSync(p));`,
-  );
-  const schemaSource = readFileSync('server/symposium-staging-launch.ts', 'utf8').match(
-    /export const StagingLaunchSchema = ([\s\S]*?);\n\/\//,
-  )![1];
-  writeFileSync(
-    join(release, 'dist/symposium-staging-launch.js'),
-    `import {z} from 'zod'; import {isAbsolute} from 'node:path'; export const StagingLaunchSchema=${schemaSource};`,
   );
   const plan = {
     schemaVersion: 1,
@@ -146,7 +140,7 @@ function fixture(mode = 'confirmed') {
     `import os from 'node:os';import cp from 'node:child_process';import {syncBuiltinESMExports} from 'node:module';import {readFileSync,writeFileSync} from 'node:fs';import Database from 'better-sqlite3';
 const original=os.userInfo;os.userInfo=()=>({...original(),homedir:${JSON.stringify(home)}});let stopped=false;const mode=${JSON.stringify(mode)},release=${JSON.stringify(release)},state=${JSON.stringify(state)};
 cp.execFileSync=(program,args)=>{
- if(program==='/bin/launchctl'&&args[0]==='print')return stopped?'state = not running':'pid = 111';
+ if(program==='/bin/launchctl'&&args[0]==='print')return 'path = '+(mode==='changed-registration'?'/unreviewed.plist':${JSON.stringify(join(root, 'service/com.mitzo.staging.plist'))})+'\\n'+(stopped?'state = not running':'pid = 111');
  if(program==='/bin/launchctl'&&args[0]==='kill'){
   const p=${JSON.stringify(calls)};const calls=JSON.parse(readFileSync(p));calls.push([program,...args]);writeFileSync(p,JSON.stringify(calls));stopped=true;
   if(mode!=='uncertain'){const completedAt=Date.now()+1;const db=new Database(${JSON.stringify(dbPath)});db.prepare("UPDATE launches SET state='retired',completedAt=?,retirementStateParent=?").run(completedAt,state);db.close();writeFileSync(state+'/custodian-retirement.json',JSON.stringify({version:1,gatewayStateDirectory:state+'/gateway-one',instanceId:'original',controllerGeneration:2,completedAt}),{mode:0o600});}return '';
@@ -201,4 +195,13 @@ it('refuses a production listener before creating a lock or signalling anything'
   expect(result.status).not.toBe(0);
   expect(JSON.parse(readFileSync(f.calls, 'utf8'))).toEqual([]);
   expect(existsSync(join(f.root, 'service/deployment.lock'))).toBe(false);
+});
+
+it('owned check and drain refuse changed canonical launchd registration without signalling', () => {
+  for (const command of ['check', 'drain']) {
+    const f = fixture('changed-registration');
+    const result = f.run(command === 'check' ? ['check', '--offline'] : f.drain);
+    expect(result.status).not.toBe(0);
+    expect(JSON.parse(readFileSync(f.calls, 'utf8'))).toEqual([]);
+  }
 });

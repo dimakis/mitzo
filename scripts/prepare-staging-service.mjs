@@ -12,11 +12,16 @@ import {
   requiresCanonicalStaging,
 } from '../dist/symposium-staging-service.js';
 try {
-  const canonical = process.argv.length === 6 && process.argv[5] === '--canonical';
+  const canonical = process.argv[5] === '--canonical';
+  const baseline = process.argv[7];
   if (
     (!canonical && process.argv.length !== 5) ||
     process.send ||
-    (canonical && process.argv[4] !== '3190')
+    (canonical &&
+      (process.argv.length !== 8 ||
+        process.argv[4] !== '3190' ||
+        process.argv[6] !== '--accepted-main-baseline' ||
+        !/^[a-f0-9]{40}$/.test(baseline ?? '')))
   )
     throw Error();
   const root = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -24,6 +29,8 @@ try {
   const plan = readOwnedReleasePlan(planPath);
   if (plan.releaseRoot !== root || planPath !== join(plan.planDirectory, 'owned-release.json'))
     throw Error();
+  if (canonical && plan.acceptedMainBaseline !== baseline)
+    throw Error('Accepted-main baseline differs from prepared proof');
   verifyOwnedRelease(plan);
   if (requiresCanonicalStaging(plan) && !canonical)
     throw Error('Canonical plan requires canonical preparation');

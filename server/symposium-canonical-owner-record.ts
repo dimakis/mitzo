@@ -14,7 +14,7 @@ import { join, dirname } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import type { OwnedReleasePlan } from './symposium-owned-release.js';
-import type { OriginalSymposiumControllerIdentity } from './symposium-custodian-main.js';
+import type { OriginalSymposiumControllerIdentity } from './symposium-canonical-owner-identity.js';
 import { CanonicalOwnerSchema, type CanonicalOwner } from './symposium-canonical-control.js';
 export function readCanonicalPrivateJson(path: string): unknown {
   const fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW);

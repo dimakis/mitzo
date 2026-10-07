@@ -15,14 +15,8 @@ import {
   writeCustodianRetirementReceipt,
 } from './symposium-custodian-retirement.js';
 
-export interface OriginalSymposiumControllerIdentity {
-  readonly instanceId: string;
-  readonly epoch: number;
-  readonly custodianPid: number;
-  readonly controllerPid: number;
-  readonly state: 'active';
-  readonly scope: 'fresh-retained-sessions';
-}
+export type { OriginalSymposiumControllerIdentity } from './symposium-canonical-owner-identity.js';
+import type { OriginalSymposiumControllerIdentity } from './symposium-canonical-owner-identity.js';
 /** Explicit fresh-owner entry point. No attach/reconstruct command exists. */
 export interface SymposiumCustodianConstructorHooks {
   observeRetirement?: (

@@ -7,7 +7,7 @@ import {
   readCanonicalPrivateJson,
 } from '../symposium-canonical-owner-record.js';
 import type { OwnedReleasePlan } from '../symposium-owned-release.js';
-import type { OriginalSymposiumControllerIdentity } from '../symposium-custodian-main.js';
+import type { OriginalSymposiumControllerIdentity } from '../symposium-canonical-owner-identity.js';
 const roots: string[] = [];
 afterEach(() => roots.splice(0).forEach((p) => rmSync(p, { recursive: true, force: true })));
 function fixture() {

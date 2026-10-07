@@ -18,6 +18,7 @@ import {
 } from 'node:fs';
 import { dirname, isAbsolute, join, relative } from 'node:path';
 import { OwnedSymposiumConfigSchema } from './symposium-owned-config-schema.js';
+import { reviewedStagingOwnedRuntime } from './symposium-staging-runtime-contract.js';
 import { reviewedSymposiumOwnedRuntime } from './symposium-owned-runtime-contract.js';
 const sha = (value: Buffer | string) => createHash('sha256').update(value).digest('hex');
 function fail(): never {
@@ -146,6 +147,9 @@ function verifyCompiledResolution(root: string) {
   }
 }
 export interface OwnedReleaseInput {
+  /** Independently selected accepted baseline; required for canonical releases.
+   * Never populate this from editable release.txt. Retained plans preserve the pin. */
+  acceptedMainBaseline?: string;
   releaseRoot: string;
   configPath: string;
   repositoryPath: string;
@@ -161,7 +165,7 @@ export interface OwnedReleasePlan extends OwnedReleaseInput {
   sourceTree: string;
   buildSha256: string;
   inputsSha256: string;
-  runtime: ReturnType<typeof reviewedSymposiumOwnedRuntime>['build'];
+  runtime: ReturnType<typeof reviewedStagingOwnedRuntime>['build'];
   admissionVerified: false;
 }
 function inspect(input: OwnedReleaseInput, digest: (path: string) => string, fresh = true) {
@@ -218,11 +222,16 @@ function inspect(input: OwnedReleaseInput, digest: (path: string) => string, fre
   if (fresh && readdirSync(input.repositoryPath).length) fail();
   const canonicalRoot = join(userInfo().homedir, '.local/share/mitzo-staging');
   let sourceCommit: string | undefined, sourceTree: string | undefined;
-  if (
+  const canonicalRelease =
     input.releaseRoot.startsWith(join(canonicalRoot, 'releases') + '/') &&
-    /^[a-f0-9]{12}$/.test(relative(join(canonicalRoot, 'releases'), input.releaseRoot))
-  ) {
-    ({ sourceCommit, sourceTree } = assertCanonicalOwnedSource(input.releaseRoot, canonicalRoot));
+    /^[a-f0-9]{12}$/.test(relative(join(canonicalRoot, 'releases'), input.releaseRoot));
+  if (canonicalRelease) {
+    if (!input.acceptedMainBaseline) fail();
+    ({ sourceCommit, sourceTree } = assertCanonicalOwnedSource(
+      input.releaseRoot,
+      canonicalRoot,
+      input.acceptedMainBaseline,
+    ));
   } else {
     const sourceGuard = execFileSync(
       '/bin/bash',
@@ -297,7 +306,9 @@ function inspect(input: OwnedReleaseInput, digest: (path: string) => string, fre
     mutableDirectories.some((path) => overlaps(config.runtime.seed, path))
   )
     fail();
-  const reviewed = reviewedSymposiumOwnedRuntime(config.gateway.workloadImage).build;
+  const reviewed = (canonicalRelease ? reviewedStagingOwnedRuntime : reviewedSymposiumOwnedRuntime)(
+    config.gateway.workloadImage,
+  ).build;
   if (
     config.gateway.cliSha256 !== reviewed.cliSha256 ||
     config.gateway.executableSha256 !== reviewed.gatewaySha256 ||

@@ -15,12 +15,12 @@ import {
   fsyncSync,
   realpathSync,
   readdirSync,
-  readlinkSync,
   cpSync,
   mkdirSync,
   renameSync,
   unlinkSync,
 } from 'node:fs';
+import { fingerprintDirectory, assertVisibleTrackedIndex } from './lib/staging-files.mjs';
 import { createHash, randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { setTimeout } from 'node:timers/promises';
@@ -134,7 +134,8 @@ function portPids(port) {
 }
 function jobPid() {
   const text = run('/bin/launchctl', ['print', job]);
-  if (!text.includes('path = ' + join(service, 'com.mitzo.staging.plist')))
+  const registration = text.match(/^\s*path = (.+)$/m)?.[1]?.trim();
+  if (registration !== join(service, 'com.mitzo.staging.plist'))
     throw Error('Original launchd control path changed');
   const m = text.match(/^\s*pid = (\d+)$/m);
   return m ? Number(m[1]) : null;
@@ -148,22 +149,6 @@ function observe() {
     protectedPids: [...portPids(3100), ...portPids(3101)],
   };
 }
-function fingerprint(path, base = path) {
-  const h = createHash('sha256');
-  function walk(p) {
-    const s = lstatSync(p),
-      name = relative(base, p);
-    h.update(JSON.stringify([name, s.mode & 0o777]) + '\n');
-    if (s.isSymbolicLink()) {
-      if (!realpathSync(p).startsWith(base + '/')) throw Error('Dependency link escaped release');
-      h.update('link:' + readlinkSync(p) + '\n');
-    } else if (s.isDirectory()) for (const n of readdirSync(p).sort()) walk(join(p, n));
-    else if (s.isFile()) h.update(hash(readFileSync(p)) + '\n');
-    else throw Error('Unsupported release input');
-  }
-  walk(path);
-  return h.digest('hex');
-}
 function verifyStageReceipt(r) {
   if (
     !/^[a-f0-9]{40}$/.test(r.sourceCommit) ||
@@ -175,7 +160,9 @@ function verifyStageReceipt(r) {
   )
     throw Error('Ordinary canonical receipt required');
   directory(r.release);
+  assertVisibleTrackedIndex(run('git', ['ls-files', '-v'], r.release));
   if (
+    realpathSync(run('git', ['rev-parse', '--show-toplevel'], r.release)) !== r.release ||
     run('git', ['rev-parse', 'HEAD'], r.release) !== r.sourceCommit ||
     run('git', ['rev-parse', 'HEAD^{tree}'], r.release) !== r.sourceTree ||
     run('git', ['status', '--porcelain', '--untracked-files=no'], r.release) ||
@@ -226,7 +213,7 @@ function verifyStageReceipt(r) {
   directory(join(r.release, 'node_modules'));
   if (
     !r.dependencyFingerprint ||
-    fingerprint(join(r.release, 'node_modules'), r.release) !== r.dependencyFingerprint
+    fingerprintDirectory(r.release, 'node_modules') !== r.dependencyFingerprint
   )
     throw Error('Ordinary dependencies changed');
   return r;
@@ -284,14 +271,30 @@ function freshMain() {
   if (!/^[a-f0-9]{40}$/.test(sha)) throw Error('Main unavailable');
   return sha;
 }
-function prepared(target) {
+function prepared(target, baseline) {
   const plan = readOwnedReleasePlan(join(owned, 'owned-release.json'));
   if (
+    plan.acceptedMainBaseline !== baseline ||
     plan.sourceCommit !== target ||
     plan.releaseRoot !== join(root, 'releases', target.slice(0, 12))
   )
     throw Error('Exact prepared commit required');
-  verifyOwnedRelease(plan);
+  verifyOwnedRelease(plan); // Includes source HEAD/tree/publication and compiled/scripts plan proof.
+  const launcherRelative = 'scripts/start-staging-custodian.mjs';
+  const launcher = join(plan.releaseRoot, launcherRelative);
+  directory(join(plan.releaseRoot, 'scripts'));
+  if (realpathSync(launcher) !== launcher) throw Error('Target launcher alias refused');
+  const launcherBytes = bytes(launcher, false);
+  run('git', ['ls-files', '--error-unmatch', launcherRelative], plan.releaseRoot);
+  const object = createHash('sha1')
+    .update('blob ' + launcherBytes.length + '\0')
+    .update(launcherBytes)
+    .digest('hex');
+  if (
+    run('git', ['rev-parse', plan.sourceCommit + ':' + launcherRelative], plan.releaseRoot) !==
+    object
+  )
+    throw Error('Target launcher is not pinned source');
   assertCanonicalStagingService(
     plan,
     join(root, 'symposium/settings/staging-registration.json'),
@@ -344,7 +347,13 @@ function prepared(target) {
     plan.configPath,
     join(root, 'symposium/settings/staging-registration.json'),
   ];
-  return { plan, inputs: Object.fromEntries(files.map((path) => [path, hash(bytes(path))])) };
+  return {
+    plan,
+    inputs: {
+      ...Object.fromEntries(files.map((path) => [path, hash(bytes(path))])),
+      [launcher]: hash(launcherBytes),
+    },
+  };
 }
 // Reuse the ordinary prepare receipt; the controller and app are distinct releases.
 function controllerIdentity(commit) {
@@ -360,11 +369,10 @@ function controllerIdentity(commit) {
     'scripts/symposium-staging-transition.mjs',
     'scripts/lib/symposium-staging-transition.mjs',
     'scripts/lib/symposium-staging-router.mjs',
+    'scripts/lib/staging-files.mjs',
   ];
   run('git', ['ls-files', '--error-unmatch', ...files], controllerRoot);
-  const index = run('git', ['ls-files', '-v'], controllerRoot).split('\n').filter(Boolean);
-  if (!index.length || index.some((line) => !line.startsWith('H ')))
-    throw Error('Controller hidden tracked-file flags refused');
+  assertVisibleTrackedIndex(run('git', ['ls-files', '-v'], controllerRoot));
   return {
     sourceCommit: commit,
     sourceTree: receipt.sourceTree,
@@ -400,7 +408,12 @@ try {
   for (let i = 0; i < args.length; i++) {
     const key = args[i];
     if (
-      !['--commit', '--expected-current', '--controller-commit'].includes(key) ||
+      ![
+        '--commit',
+        '--expected-current',
+        '--controller-commit',
+        '--accepted-main-baseline',
+      ].includes(key) ||
       flags[key] ||
       !args[i + 1]
     )
@@ -409,11 +422,13 @@ try {
   }
   const target = flags['--commit'],
     expected = flags['--expected-current'],
-    controllerCommit = flags['--controller-commit'];
+    controllerCommit = flags['--controller-commit'],
+    baseline = flags['--accepted-main-baseline'];
   if (
     !/^[a-f0-9]{40}$/.test(target ?? '') ||
     !/^[a-f0-9]{40}$/.test(expected ?? '') ||
-    !/^[a-f0-9]{40}$/.test(controllerCommit ?? '')
+    !/^[a-f0-9]{40}$/.test(controllerCommit ?? '') ||
+    !/^[a-f0-9]{40}$/.test(baseline ?? '')
   )
     throw Error('Full commit identities required');
   for (const p of [
@@ -428,7 +443,7 @@ try {
     directory(p, true);
   absent(lockPath);
   absent(topologyPath);
-  const { plan, inputs } = prepared(target),
+  const { plan, inputs } = prepared(target, baseline),
     old = ordinaryReceipt(),
     controller = controllerIdentity(controllerCommit);
   if (old.sourceCommit !== expected) throw Error('Expected ordinary source changed');
@@ -446,6 +461,7 @@ try {
       intentPath,
       JSON.stringify({
         version: 2,
+        acceptedMainBaseline: baseline,
         controller,
         id: randomUUID(),
         target,
@@ -475,8 +491,9 @@ try {
     )
       throw Error('Prepared transition identity invalid');
     function validate() {
-      const candidate = prepared(target);
+      const candidate = prepared(target, baseline);
       if (
+        intent.acceptedMainBaseline !== baseline ||
         intent.target !== target ||
         JSON.stringify(intent.controller) !== JSON.stringify(controller) ||
         intent.expected !== expected ||
@@ -581,7 +598,7 @@ try {
           )
             throw Error('Stopped service changed or protected PID reused');
           accepted(plan, controller);
-          if (JSON.stringify(prepared(target).inputs) !== JSON.stringify(intent.inputs))
+          if (JSON.stringify(prepared(target, baseline).inputs) !== JSON.stringify(intent.inputs))
             throw Error('Prepared service drift');
           exclusive(
             topologyPath,
@@ -612,7 +629,7 @@ try {
         async start() {
           accepted(plan, controller);
           if (
-            JSON.stringify(prepared(target).inputs) !== JSON.stringify(intent.inputs) ||
+            JSON.stringify(prepared(target, baseline).inputs) !== JSON.stringify(intent.inputs) ||
             jobPid() ||
             portPids(3190).length ||
             [...portPids(3100), ...portPids(3101)].includes(intent.original.pid)

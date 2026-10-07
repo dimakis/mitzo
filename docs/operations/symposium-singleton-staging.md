@@ -7,6 +7,18 @@ not another staging backend or custodian. The private root is
 `~/.local/share/mitzo-staging`. Production ports 3100/3101, configuration and state
 are excluded. Retained October diagnostic owners are evidence, not this stage.
 
+## Reviewable operator cut
+
+The local transition cut layers the static support commit `54f3a887` and ordinary
+controller commit `6e50e9af`. Neither local dependency nor this cut is claimed as
+accepted main. No activation is performed by this document. The native registered
+launcher, capacity-one registry writer, original-owner callbacks and no-force
+custodian exit are provided by the feature target lifecycle, whose source and
+physical qualification remain separate from operator-controller acceptance. A built controller is distinct
+from a physically qualified target; compilation and synthetic tests grant neither
+custody nor provider readiness. See the
+[transition split manifest](symposium-transition-split-manifest.json).
+
 ## Current qualification
 
 The current service runs accepted ordinary main with providers disabled. It is not
@@ -76,7 +88,7 @@ Run this from that verified release:
 node scripts/prepare-staging-service.mjs \
   ~/.local/share/mitzo-staging/symposium/service/owned-release.json \
   ~/.local/share/mitzo-staging/symposium/settings/staging-registration.json \
-  3190 --canonical
+  3190 --canonical --accepted-main-baseline ACCEPTED_BASELINE_SHA
 ```
 
 Canonical preparation emits only `com.mitzo.staging`, private fresh app
@@ -88,7 +100,8 @@ The ordinary stage stays running until the reviewed original-control transition
 is ready; do not bootstrap a second label alongside it.
 
 Canonical owned-release integrity checks pin the exact detached commit, tree and
-recorded accepted-main baseline in release.txt, clean tracked files and the
+independently reviewed accepted-main baseline explicitly supplied with
+`--accepted-main-baseline` and pinned in the plan, matching release.txt, clean tracked files and the
 published source ref. The baseline must be in both the selected source and
 accepted-main history. A later cached main ref does not invalidate unchanged
 source; operators still check freshness separately. Other owned trials and
@@ -161,9 +174,11 @@ Use full source identities for controller, target and existing ordinary app:
 
 ```sh
 node scripts/symposium-staging-transition.mjs prepare \
-  --commit TARGET_SHA --expected-current ORDINARY_SHA --controller-commit CONTROLLER_SHA
+  --commit TARGET_SHA --expected-current ORDINARY_SHA --controller-commit CONTROLLER_SHA \
+  --accepted-main-baseline ACCEPTED_BASELINE_SHA
 node scripts/symposium-staging-transition.mjs plan \
-  --commit TARGET_SHA --expected-current ORDINARY_SHA --controller-commit CONTROLLER_SHA
+  --commit TARGET_SHA --expected-current ORDINARY_SHA --controller-commit CONTROLLER_SHA \
+  --accepted-main-baseline ACCEPTED_BASELINE_SHA
 ```
 
 Preparation creates one exclusive `symposium/service/transition.json` receipt. It
@@ -178,7 +193,8 @@ The explicit control command is:
 
 ```sh
 node scripts/symposium-staging-transition.mjs apply \
-  --commit TARGET_SHA --expected-current ORDINARY_SHA --controller-commit CONTROLLER_SHA
+  --commit TARGET_SHA --expected-current ORDINARY_SHA --controller-commit CONTROLLER_SHA \
+  --accepted-main-baseline ACCEPTED_BASELINE_SHA
 ```
 
 Apply requires the executing controller release to match the explicit
@@ -233,3 +249,9 @@ private capacity-one registry, parent/app birth and relationship, exact source a
 An attempted stop followed by any uncertainty retains the lock and audit evidence;
 no replacement, retry or rollback is started. Inspect any partial preparation or
 transition instead of deleting its intent or lock.
+
+Canonical owned-bundle preparation also requires explicit `--canonical --accepted-main-baseline ACCEPTED_BASELINE_SHA` after the config, repository and plan-directory arguments. The baseline is selected independently of release.txt; canonical plans without that pin are refused. Canonical preparation emits no generic owned-custodian plist, and the generic launcher refuses canonical plans. The registered native target lifecycle remains a separately reviewed and physically qualified prerequisite.
+
+Transition receipt checks reuse the ordinary controller dependency closure-v2 algorithm, including resolved workspace symlink payloads. Historical link-text-only receipts are refused; this source change neither migrates nor overwrites private evidence.
+
+Before any ordinary service control, transition preparation requires the target’s `scripts/start-staging-custodian.mjs` to be a regular unaliased tracked file whose Git blob matches the plan source commit. The owned plan independently proves the published source HEAD/tree and the complete compiled/scripts build. The launcher digest is retained in the transition intent and rechecked before control. The feature target contains the registered native launcher; its presence does not establish native readiness. A synthetic successful CLI fixture supplies an explicit target launcher and cannot establish physical qualification.

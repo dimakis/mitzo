@@ -28,6 +28,12 @@ function fixture() {
     mkdirSync(join(root, name), { mode: 0o700 });
   writeFileSync(join(root, 'package.json'), '{"type":"module"}');
   cpSync('scripts/start-owned-custodian.mjs', join(root, 'scripts/start-owned-custodian.mjs'));
+  writeFileSync(
+    join(root, 'dist/symposium-staging-environment.js'),
+    ts.transpileModule(readFileSync('server/symposium-staging-environment.ts', 'utf8'), {
+      compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
+    }).outputText,
+  );
   // Exercise the actual shared environment helper in this disposable release,
   // rather than bypassing its isolation checks with another stub.
   writeFileSync(
@@ -80,6 +86,7 @@ it('executes the fixed custodian entry only after claim; repeat startup cannot e
     },
   });
   expect(first.status, first.stderr).toBe(0);
+  expect(readFileSync(join(f.plan.planDirectory, 'launch.intent'), 'utf8')).toBe('claimed');
   expect(JSON.parse(first.stdout)).toEqual({
     entry: 'custodian',
     repo: f.plan.repositoryPath,
@@ -140,4 +147,5 @@ it('rejects an unregistered canonical plan before claiming or executing', () => 
   expect(result.status).not.toBe(0);
   expect(() => readFileSync(join(dir, 'launch.intent'))).toThrow();
   expect(result.stdout).toBe('');
+  expect(result.stderr).not.toContain('ERR_MODULE_NOT_FOUND');
 });

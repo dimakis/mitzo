@@ -31,6 +31,8 @@ import {
   privateJson,
   replacePrivateJson,
   fingerprintDirectory,
+  assertVisibleTrackedIndex,
+  fingerprintDependencyCopy,
   artifacts,
   stageDirectory,
   appendAudit,
@@ -105,6 +107,9 @@ function portPids(port) {
 }
 function job() {
   const text = run('launchctl', ['print', 'gui/' + process.getuid() + '/' + label]);
+  const path = text.match(/^\s*path = (.+)$/m)?.[1];
+  if (path !== join(root, 'service/com.mitzo.staging.plist'))
+    throw Error('Original staging service control path changed');
   const match = text.match(/^\s*pid = (\d+)$/m);
   if (!match) return { pid: null };
   const pid = Number(match[1]);
@@ -114,6 +119,7 @@ function job() {
   if (names.length !== 1) throw Error('Stage process directory unavailable');
   return {
     pid,
+    birth: run('/bin/ps', ['-p', String(pid), '-o', 'lstart=']),
     cwd: names[0].slice(1),
     portPids: portPids(3190),
     protectedPids: [...portPids(3100), ...portPids(3101)],
@@ -130,7 +136,9 @@ function validateRelease(r, freshMain) {
   stageDirectory(r.release, '.git');
   stagingBoundary({ ...r, root });
   if (realpathSync(r.release) !== r.release) throw Error('Release path alias refused');
+  assertVisibleTrackedIndex(run('git', ['ls-files', '-v'], r.release));
   if (
+    realpathSync(run('git', ['rev-parse', '--show-toplevel'], r.release)) !== r.release ||
     run('git', ['rev-parse', 'HEAD'], r.release) !== r.sourceCommit ||
     run('git', ['rev-parse', 'HEAD^{tree}'], r.release) !== r.sourceTree ||
     run('git', ['status', '--porcelain', '--untracked-files=no'], r.release)
@@ -141,10 +149,11 @@ function validateRelease(r, freshMain) {
   if (hash(canonicalMap(artifacts(r.release))) !== hash(canonicalMap(r.compiledArtifacts)))
     throw Error('Release artifact drift');
   if (
-    r.dependencyFingerprint &&
+    !/^[a-f0-9]{64}$/.test(r.dependencyFingerprint ?? '') ||
     fingerprintDirectory(r.release, 'node_modules') !== r.dependencyFingerprint
   )
     throw Error('Release dependency drift');
+  assertVisibleTrackedIndex(run('git', ['ls-files', '-v'], r.release));
   assertPinnedStageSource({
     expected: r.sourceCommit,
     expectedTree: r.sourceTree,
@@ -182,6 +191,7 @@ async function check() {
   try {
     validateRelease(r);
     source = run('git', ['rev-parse', 'HEAD'], r.release);
+    assertVisibleTrackedIndex(run('git', ['ls-files', '-v'], r.release));
     if (
       run('git', ['status', '--porcelain', '--untracked-files=no'], r.release) ||
       run('git', ['rev-parse', 'HEAD^{tree}'], r.release) !== r.sourceTree
@@ -243,12 +253,12 @@ async function prepare() {
       'Dependency lock changed; independently provision audited dependencies before preparation',
     );
   const before = fingerprintDirectory(active.release, 'node_modules');
+  const copied = fingerprintDependencyCopy(active.release);
   cpSync(join(active.release, 'node_modules'), join(attempt, 'node_modules'), {
     recursive: true,
     verbatimSymlinks: true,
   });
-  if (fingerprintDirectory(attempt, 'node_modules') !== before)
-    throw Error('Dependency copy changed');
+  if (fingerprintDependencyCopy(attempt) !== copied) throw Error('Dependency copy changed');
   run('npm', ['run', 'build:server'], attempt);
   run('npm', ['run', 'build'], attempt);
   if (fingerprintDirectory(active.release, 'node_modules') !== before)
@@ -335,16 +345,22 @@ async function deploy() {
         assertStageCandidate(next, target, path);
         validateRelease(next, main());
         validateRelease(active);
-        assertStageJob(job(), active, originalJob.pid);
+        assertStageJob(job(), active, originalJob);
       },
       current: async () => current().sourceCommit,
       stop: async () => {
-        assertStageJob(job(), active, originalJob.pid);
+        assertStageJob(job(), active, originalJob);
         run('launchctl', ['kill', 'SIGTERM', 'gui/' + process.getuid() + '/' + label]);
         const deadline = Date.now() + 180000;
         while (Date.now() < deadline) {
           const status = job();
-          if (!status.pid && portPids(3190).length === 0) return;
+          const original = spawnSync('/bin/ps', ['-p', String(originalJob.pid), '-o', 'pid='], {
+            encoding: 'utf8',
+            timeout: 3000,
+          });
+          if (original.status !== 0 && original.status !== 1)
+            throw Error('Original stage process inventory unavailable');
+          if (!status.pid && original.status === 1 && portPids(3190).length === 0) return;
           await new Promise((resolve) => setTimeout(resolve, 250));
         }
         throw Error('Original stage shutdown uncertain');

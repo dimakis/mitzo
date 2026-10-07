@@ -12,10 +12,10 @@ import {
 } from 'node:fs';
 import { isAbsolute, join, resolve } from 'node:path';
 import { z } from 'zod';
-import { ownedCustodianEnvironment } from './symposium-custodian-launch.js';
-import { requiresCanonicalStaging } from './symposium-staging-identity.js';
+import { ownedCustodianEnvironment } from './symposium-staging-environment.js';
+import { canonicalStagingRoot, requiresCanonicalStaging } from './symposium-staging-identity.js';
 export { canonicalStagingRoot, requiresCanonicalStaging } from './symposium-staging-identity.js';
-import { StagingLaunchSchema } from './symposium-staging-launch.js';
+import { StagingLaunchSchema } from './symposium-staging-launch-schema.js';
 import type { OwnedReleasePlan } from './symposium-owned-release.js';
 
 const operatorName = 'staging-operator.json';
@@ -74,6 +74,8 @@ export function readStagingOperatorEnvironment(
   privatePlan(plan);
   if (path !== join(plan.planDirectory, operatorName)) throw Error('Staging operator path refused');
   const settings = Settings.parse(JSON.parse(privateBytes(path)));
+  if (requiresCanonicalStaging(plan) && settings.PORT !== '3190')
+    throw Error('Canonical staging port refused');
   if (['3100', '3101'].includes(settings.PORT)) throw Error('Production staging port refused');
   return ownedCustodianEnvironment(plan, {
     NODE_OPTIONS: ambient.NODE_OPTIONS,
@@ -184,6 +186,7 @@ export function assertCanonicalStagingService(
 ) {
   const stat = lstatSync(root);
   if (
+    root !== canonicalStagingRoot() ||
     !isAbsolute(root) ||
     realpathSync(root) !== root ||
     !stat.isDirectory() ||

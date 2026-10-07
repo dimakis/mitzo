@@ -1,7 +1,7 @@
 import {
   isOwnedSymposiumProxyUrl,
   isOwnedSymposiumSupervisorNetwork,
-} from './symposium-owned-gateway.js';
+} from './symposium-owned-network-config.js';
 import { isAbsolute } from 'node:path';
 import { lstatSync, readFileSync } from 'node:fs';
 import { z } from 'zod';
@@ -10,7 +10,7 @@ import { CatalogModel } from './model-catalog.js';
 import { SymposiumWorkVertexProfile } from './symposium-work-vertex-profile.js';
 import { PublicationCredentialRegistrationSchema } from './symposium-publication-registration-schema.js';
 import { isPodmanSandboxNamespace } from './symposium-podman-namespace.js';
-import { CriterionCheckDefinitionSchema } from './symposium-criterion-receipts.js';
+import { CriterionCheckDefinitionSchema } from './symposium-criterion-definition.js';
 const path = z.string().refine(isAbsolute, 'Absolute path required');
 const digest = z.string().regex(/^[a-f0-9]{64}$/);
 const id = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/);

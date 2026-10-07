@@ -95,6 +95,9 @@ try {
   }
   function jobPid() {
     const text = run('/bin/launchctl', ['print', job]);
+    const registration = text.match(/^\s*path = (.+)$/m)?.[1]?.trim();
+    if (registration !== join(root, 'service/com.mitzo.staging.plist'))
+      throw Error('Canonical registration changed');
     const m = text.match(/^\s*pid = (\d+)$/m);
     return m ? Number(m[1]) : null;
   }

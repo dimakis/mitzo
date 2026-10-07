@@ -6,18 +6,27 @@ import { closeSync, constants, fsyncSync, openSync, writeFileSync } from 'node:f
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  assertCanonicalStagingService,
-  canonicalStagingRoot,
   requiresCanonicalStaging,
+  canonicalStagingRoot,
+  assertCanonicalStagingService,
 } from '../dist/symposium-staging-service.js';
 import { prepareOwnedRelease, renderOwnedPlist } from '../dist/symposium-owned-release.js';
 try {
-  const canonical = process.argv.length === 7 && process.argv[6] === '--canonical';
-  if ((!canonical && process.argv.length !== 6) || process.argv[2] !== '--owned-custodian')
+  const canonical = process.argv[6] === '--canonical';
+  const baseline = process.argv[8];
+  if (
+    process.argv[2] !== '--owned-custodian' ||
+    (!canonical && process.argv.length !== 6) ||
+    (canonical &&
+      (process.argv.length !== 9 ||
+        process.argv[7] !== '--accepted-main-baseline' ||
+        !/^[a-f0-9]{40}$/.test(baseline ?? '')))
+  )
     throw Error();
   const releaseRoot = dirname(dirname(fileURLToPath(import.meta.url)));
   const plan = prepareOwnedRelease({
     releaseRoot,
+    acceptedMainBaseline: baseline,
     configPath: resolve(process.argv[3]),
     repositoryPath: resolve(process.argv[4]),
     planDirectory: resolve(process.argv[5]),

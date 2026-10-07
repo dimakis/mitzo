@@ -171,11 +171,13 @@ export function TodoCard({
               onTouchEnd={(e) => e.preventDefault()}
               onClick={() => onTap(item)}
             >
-              {item.summary}
+              <span className="todo-card-title">{item.summary}</span>
             </button>
             {hasChildren && (
               <button
                 className="todo-card-expand"
+                aria-label={expanded ? 'Collapse sub-tasks' : 'Expand sub-tasks'}
+                aria-expanded={expanded}
                 onClick={(e) => {
                   e.stopPropagation();
                   setExpanded(!expanded);
@@ -186,6 +188,8 @@ export function TodoCard({
             )}
             <button
               className="todo-card-star"
+              aria-label={item.starred ? 'Unstar item' : 'Star item'}
+              aria-pressed={item.starred}
               onClick={(e) => {
                 e.stopPropagation();
                 onStar(item.id);
