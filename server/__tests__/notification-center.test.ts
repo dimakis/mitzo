@@ -197,13 +197,21 @@ describe('central notification delivery', () => {
       const { store, center, push } = setup();
       store.setPreferences({ sensitivePreviews: previews });
       const toolInput = permissionDisplayInput('Bash', { command: 'echo exact-command' })!;
-      registerPending('visible-command', 'Bash', vi.fn(), {}, 'elevated', 's1', {
-        permId: 'visible-command',
-        toolName: 'Bash',
-        toolInput,
-        sessionId: 's1',
-        approvalScope: 'request',
-      });
+      registerPending(
+        'visible-command',
+        'Bash',
+        vi.fn(),
+        { command: toolInput },
+        'elevated',
+        's1',
+        {
+          permId: 'visible-command',
+          toolName: 'Bash',
+          toolInput,
+          sessionId: 's1',
+          approvalScope: 'request',
+        },
+      );
       await center.flush();
       const message = push.mock.calls[0][0];
       expect(message.category).toBe(previews ? 'SESSION_APPROVAL' : 'SESSION_PERMISSION');
@@ -219,7 +227,12 @@ describe('central notification delivery', () => {
       store.close();
     },
   );
-  it('delivers the raw command produced by a real pending Bash permission', async () => {
+  it.each([
+    {},
+    { timeout: 600000 },
+    { dangerouslyDisableSandbox: true },
+    { description: 'omitted details' },
+  ])('checks all original Bash fields before quick approval (%j)', async (extra) => {
     const { store, center, push } = setup();
     const registry = new SessionRegistry();
     const abort = new AbortController();
@@ -234,7 +247,7 @@ describe('central notification delivery', () => {
     const command = 'printf "exact command\\n"';
     const pending = buildPermissionHandler('owner', registry)(
       'Bash',
-      { command },
+      { command, ...extra },
       {
         signal: abort.signal,
         toolUseID: 'real-bash',
@@ -245,14 +258,23 @@ describe('central notification delivery', () => {
     try {
       await vi.waitFor(() => expect(store.feed('needs').needsYou).toBe(1));
       await center.flush();
-      expect(push.mock.calls[0][0]).toMatchObject({
-        category: 'SESSION_APPROVAL',
-        data: { approvalInput: command, approvalToolName: 'Bash' },
-      });
-      expect(push.mock.calls[0][0].body).toContain(command);
+      const quick = Object.keys(extra).length === 0;
+      expect(push.mock.calls[0][0].category).toBe(
+        quick ? 'SESSION_APPROVAL' : 'SESSION_PERMISSION',
+      );
+      if (quick)
+        expect(push.mock.calls[0][0].data).toMatchObject({
+          approvalInput: command,
+          approvalToolName: 'Bash',
+        });
+      else expect(push.mock.calls[0][0].data.approvalInput).toBeUndefined();
+      if (quick) expect(push.mock.calls[0][0].body).toContain(command);
       const item = store.feed('needs').items[0];
       resolvePending(item.permId!, 'once');
-      expect(await pending).toMatchObject({ behavior: 'allow', updatedInput: { command } });
+      expect(await pending).toMatchObject({
+        behavior: 'allow',
+        updatedInput: { command, ...extra },
+      });
     } finally {
       abort.abort();
       await pending;

@@ -1,4 +1,5 @@
 import type { PermissionRequest } from '@mitzo/protocol';
+import { isCompletePendingBashCommand } from './permissions.js';
 
 export function isSessionSearchApproval(request?: PermissionRequest): boolean {
   if (
@@ -30,7 +31,9 @@ export function permissionNotificationCategory(
   // document writes and arbitrary integration grants require the full review UI.
   // Bash cards carry the exact raw command, not a JSON input object.
   if (request.toolName === 'Bash')
-    return request.toolInput.trim() ? 'SESSION_APPROVAL' : 'SESSION_PERMISSION';
+    return request.toolInput.trim() && isCompletePendingBashCommand(request)
+      ? 'SESSION_APPROVAL'
+      : 'SESSION_PERMISSION';
   try {
     const input = JSON.parse(request.toolInput);
     if (!(
