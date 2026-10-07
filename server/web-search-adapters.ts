@@ -1,3 +1,4 @@
+import { credentialSdkBoundary } from './credential-sdk-boundary.js';
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
 import type { GeminiOptions } from './gemini-session.js';
@@ -159,6 +160,7 @@ export async function searchSdk(
   const abort = new AbortController();
   const cancel = () => abort.abort();
   signal.addEventListener('abort', cancel, { once: true });
+  const sdkBoundary = credentialSdkBoundary();
   const searchCalls = new Set<string>();
   const successfulSearches = new Set<string>();
   try {
@@ -167,6 +169,7 @@ export async function searchSdk(
       prompt: queryText,
       options: {
         ...route,
+        ...(sdkBoundary ? { spawnClaudeCodeProcess: sdkBoundary.spawnClaudeCodeProcess } : {}),
         systemPrompt: SEARCH_INSTRUCTIONS,
         abortController: abort,
         settingSources: [],

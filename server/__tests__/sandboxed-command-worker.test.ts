@@ -4,6 +4,7 @@ import { mkdirSync, renameSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { EventEmitter } from 'node:events';
+import { PassThrough } from 'node:stream';
 import { AuthoritySnapshot } from '../sandbox-authority.js';
 import { runSandboxedWorker, type SandboxWorkerPayload } from '../sandboxed-command-worker.js';
 
@@ -94,4 +95,27 @@ it('spawns the wrapped command in the worker process group only after validation
     expect.objectContaining({ cwd: root, detached: false, stdio: 'inherit' }),
   );
   expect(manager.reset).toHaveBeenCalledOnce();
+});
+
+it('transfers target environment over a pipe only after the OS sandbox, never through arguments or bootstrap', async () => {
+  const { payload, manager, spawn } = fixture();
+  const transfer = new PassThrough();
+  const chunks: Buffer[] = [];
+  transfer.on('data', (data) => chunks.push(data));
+  spawn.mockImplementation(() => {
+    const child = Object.assign(new EventEmitter(), { stdio: [null, null, null, transfer] });
+    queueMicrotask(() => child.emit('close', 0, null));
+    return child;
+  });
+  payload.env = { LD_PRELOAD: '/untrusted/preload.so', PATH: '/untrusted/bin', VALUE: "a'b" };
+  expect(await runSandboxedWorker(payload, { manager, spawn: spawn as never })).toBe(0);
+  const wrappedCommand = manager.wrapWithSandbox.mock.calls[0][0];
+  expect(wrappedCommand).toContain('fd: 3');
+  expect(wrappedCommand).not.toContain('/untrusted');
+  expect(manager.wrapWithSandbox.mock.calls[0][4]).toMatchObject({ commandId: expect.any(String) });
+  expect(JSON.parse(Buffer.concat(chunks).toString())).toEqual({
+    command: payload.command,
+    env: payload.env,
+  });
+  expect(spawn.mock.calls[0][2].env).toBe(process.env);
 });

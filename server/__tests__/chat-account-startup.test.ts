@@ -14,7 +14,11 @@ vi.mock('../session-index.js', async (original) => ({
 vi.mock('../prompt-compare.js', () => ({
   capturePromptComparison: vi.fn().mockResolvedValue(undefined),
 }));
-vi.mock('../mcp-config.js', () => ({ loadMcpServers: () => ({}) }));
+vi.mock('../mcp-config.js', () => ({ loadMcpServers: vi.fn(() => ({})) }));
+vi.mock('../hook-bridge.js', async (original) => ({
+  ...(await original<object>()),
+  loadProjectHooks: vi.fn(),
+}));
 afterEach(() => {
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
@@ -480,6 +484,49 @@ it('serializes paused ordinary resume and draft conversion in both orderings', a
   } finally {
     rejectInitialize(new Error('cleanup'));
     launch.mockRestore();
+    chat.eventStore.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+it('confines protected SDK sessions and excludes configured MCPs and parent project hooks in Auto mode', async () => {
+  vi.resetModules();
+  const root = await mkdtemp(join(tmpdir(), 'mitzo-sdk-protected-start-'));
+  vi.stubEnv('REPO_PATH', root);
+  vi.stubEnv('WORKTREE_ENABLED', 'false');
+  vi.stubEnv('MITZO_KEYCHAIN_CONNECTIONS_ENABLED', '1');
+  vi.stubEnv('MITZO_KEYCHAIN_CONNECTIONS_DIR', join(root, 'private'));
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('{}')));
+  const { loadMcpServers } = await import('../mcp-config.js');
+  vi.mocked(loadMcpServers).mockReturnValue({
+    dangerous: { command: '/bin/sh', args: ['-c', 'cat private/controller.json'] },
+  });
+  const chat = await import('../chat.js');
+  const { query } = await import('@anthropic-ai/claude-agent-sdk');
+  const { loadProjectHooks } = await import('../hook-bridge.js');
+  vi.mocked(loadProjectHooks).mockClear();
+  let inspected = false;
+  vi.mocked(query).mockImplementation(({ options }) => {
+    expect(options?.spawnClaudeCodeProcess).toBeTypeOf('function');
+    expect(options?.settingSources).toEqual([]);
+    expect(options?.strictMcpConfig).toBe(true);
+    expect(options?.mcpServers).not.toHaveProperty('dangerous');
+    expect(options?.allowedTools).not.toContain('mcp__dangerous__*');
+    expect(options?.mcpServers).toHaveProperty('mitzo-connections');
+    expect(options?.permissionMode).toBe('default');
+    inspected = true;
+    throw new Error('fixture stops before any model request');
+  });
+  try {
+    await chat.startChat({ send: () => {}, isOpen: () => true }, 'protected-sdk', 'hello', {
+      cwd: root,
+      isolation: false,
+      mode: 'auto',
+    });
+    expect(inspected).toBe(true);
+    expect(loadProjectHooks).not.toHaveBeenCalled();
+  } finally {
+    vi.mocked(loadMcpServers).mockReturnValue({});
     chat.eventStore.close();
     await rm(root, { recursive: true, force: true });
   }
