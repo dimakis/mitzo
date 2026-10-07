@@ -3665,3 +3665,45 @@ it('keeps a continuation whose native dispatch crossed the manual deadline', asy
     vi.useRealTimers();
   }
 });
+it.each(['none', 'sync', 'async'] as const)(
+  'contains automatic retry cleanup failure even when the error observer throws (%s)',
+  async (observerFailure) => {
+    vi.useFakeTimers();
+    try {
+      const f = await capacityFixture();
+      const originalCommand = f.c.queue()[0];
+      const request = f.rpc.request.getMockImplementation()!;
+      f.rpc.request.mockImplementation(async (method, params) => {
+        if (method === 'thread/turns/list') throw new Error('private probe failure');
+        return request(method, params);
+      });
+      const stop = vi.spyOn(f.store, 'stopCapacityRecovery').mockImplementation(() => {
+        throw new Error('private cleanup write failure');
+      });
+      f.onError.mockClear();
+      if (observerFailure === 'sync')
+        f.onError.mockImplementation(() => {
+          throw new Error('private observer failure');
+        });
+      if (observerFailure === 'async')
+        f.onError.mockImplementation(async () => {
+          throw new Error('private observer failure');
+        });
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(f.onError).toHaveBeenCalledWith(
+        expect.objectContaining({
+          message: 'Capacity recovery is paused. Inspect saved work before continuing.',
+        }),
+      );
+      expect(f.c.isPaused()).toBe(true);
+      expect(f.c.queue()[0]).toEqual(originalCommand);
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(f.requests.filter((request) => request.method === 'turn/start')).toHaveLength(1);
+      stop.mockRestore();
+      f.onError.mockReset();
+      f.c.close();
+    } finally {
+      vi.useRealTimers();
+    }
+  },
+);

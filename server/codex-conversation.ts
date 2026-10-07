@@ -26,6 +26,8 @@ import { codexRuntimeOverrides } from './codex-runtime-policy.js';
 import { CodexSessionEvents } from './codex-session-events.js';
 import { classifyProviderFailure, ProviderFailureError } from './provider-failure.js';
 import { tracer } from './tracing.js';
+import { createLogger } from './logger.js';
+const log = createLogger('codex-conversation');
 import {
   resolveWebSearchPolicy,
   type PersistedWebSearchGrant,
@@ -659,15 +661,37 @@ export class CodexConversation {
         this.capacityTimer = undefined;
         if (this.closed || generation !== this.transportGeneration) return;
         void this.runCapacityRetry(recovery.id, recovery.sourceCommandId, false).catch(() => {
-          this.stopCapacitySchedule();
-          this.opts.onError?.(
-            new Error('Capacity recovery is paused. Inspect saved work before continuing.'),
-          );
+          // A failed background cleanup must hold admissions without throwing
+          // another rejection out of this fire-and-forget timer boundary.
+          this.paused = true;
+          try {
+            this.stopCapacitySchedule();
+          } catch {
+            this.logCapacityRecoveryFailure('Capacity recovery cleanup could not be saved.');
+          }
+          try {
+            return Promise.resolve(
+              this.opts.onError?.(
+                new Error('Capacity recovery is paused. Inspect saved work before continuing.'),
+              ),
+            ).catch(() =>
+              this.logCapacityRecoveryFailure('Capacity recovery error observer failed.'),
+            );
+          } catch {
+            this.logCapacityRecoveryFailure('Capacity recovery error observer failed.');
+          }
         });
       },
       Math.max(1, recovery.nextRetryAt - Date.now()),
     );
     this.capacityTimer.unref?.();
+  }
+  private logCapacityRecoveryFailure(message: string) {
+    try {
+      log.warn(message);
+    } catch {
+      /* Logging cannot escape background cleanup either. */
+    }
   }
   private stopCapacitySchedule() {
     this.clearCapacityTimer();
