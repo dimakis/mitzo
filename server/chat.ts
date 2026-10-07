@@ -650,6 +650,7 @@ export function resolveClaudeEffort(
   spec?: string,
   reasoningEffort?: string | null,
 ): 'low' | 'medium' | 'high' | 'xhigh' | 'max' | undefined {
+  if (reasoningEffort === null) return undefined;
   const effort = reasoningEffort ?? parseModelSpec(spec).effort;
   if (
     effort === 'low' ||

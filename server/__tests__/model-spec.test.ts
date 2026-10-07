@@ -93,3 +93,8 @@ it('passes max as SDK effort rather than a thinking budget', () => {
   expect(resolveClaudeEffort('claude-opus-4-8')).toBeUndefined();
   expect(resolveClaudeEffort('claude-opus-4-8:invalid')).toBeUndefined();
 });
+
+it('treats an explicit model-default effort as a reset of a suffixed selection', () => {
+  expect(resolveClaudeEffort('claude-opus-4-8:max', null)).toBeUndefined();
+  expect(resolveClaudeEffort('claude-opus-4-8:max', undefined)).toBe('max');
+});
