@@ -849,6 +849,68 @@ describe('handleUnwatch', () => {
 // ─── handleSwitchSession ─────────────────────────────────────────────────────
 
 describe('handleSwitchSession', () => {
+  it.each(['removed', 'closed'])(
+    'restores approval ownership after switching away and reconnecting with a %s owner',
+    async (oldOwner) => {
+      vi.mocked(reattachChat).mockClear();
+      vi.mocked(denyPendingBySession).mockClear();
+      const eventStore = mockEventStore();
+      eventStore.getSession.mockReturnValue({ sessionId: 'sess-1', mode: 'agent' });
+      const sessionReg = mockSessionRegistry();
+      const session = { ownerConnectionId: 'old-conn', mode: 'agent' };
+      sessionReg.findBySessionId.mockReturnValue({ clientId: 'old-conn:sess-1', session });
+      sessionReg.isActive.mockReturnValue(true);
+      const ctx = createContext({
+        eventStore: eventStore as unknown as V2HandlerContext['eventStore'],
+        sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
+      });
+      if (oldOwner === 'closed')
+        ctx.connRegistry.register('old-conn', { ...mockTransport(), isOpen: () => false });
+      const transport = mockTransport();
+      ctx.connRegistry.register('new-conn', transport);
+      ctx.connRegistry.setActive('new-conn', 'sess-2');
+      vi.mocked(getPendingSessionId).mockReturnValueOnce('sess-1');
+      vi.mocked(resolvePending).mockReturnValueOnce(true);
+
+      await handleSwitchSession('new-conn', { type: 'switch_session', sessionId: 'sess-1' }, ctx);
+      expect(session.ownerConnectionId).toBe('new-conn');
+      expect(reattachChat).toHaveBeenCalledWith('old-conn:sess-1', transport);
+      expect(denyPendingBySession).not.toHaveBeenCalled();
+      expect(
+        handlePermissionResponseV2(
+          'new-conn',
+          {
+            type: 'permission_response',
+            sessionId: 'sess-1',
+            permId: 'p1',
+            decision: 'once',
+          },
+          ctx,
+        ),
+      ).toBe(true);
+      vi.mocked(resolvePending).mockClear();
+    },
+  );
+
+  it('keeps another connected owner when an observer opens the session', async () => {
+    vi.mocked(reattachChat).mockClear();
+    const eventStore = mockEventStore();
+    eventStore.getSession.mockReturnValue({ sessionId: 'sess-1' });
+    const sessionReg = mockSessionRegistry();
+    const session = { ownerConnectionId: 'owner' };
+    sessionReg.findBySessionId.mockReturnValue({ clientId: 'owner:sess-1', session });
+    sessionReg.isActive.mockReturnValue(true);
+    const ctx = createContext({
+      eventStore: eventStore as unknown as V2HandlerContext['eventStore'],
+      sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
+    });
+    ctx.connRegistry.register('owner', mockTransport());
+    ctx.connRegistry.register('observer', mockTransport());
+    await handleSwitchSession('observer', { type: 'switch_session', sessionId: 'sess-1' }, ctx);
+    expect(session.ownerConnectionId).toBe('owner');
+    expect(reattachChat).not.toHaveBeenCalled();
+  });
+
   it('starts a newly watched session at the REST history boundary instead of syncing from zero', async () => {
     const eventStore = mockEventStore();
     eventStore.getSession.mockReturnValue({ sessionId: 'long-session', mode: 'agent' });
