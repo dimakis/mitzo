@@ -1,3 +1,4 @@
+import { SdkConversationImport } from '../components/SdkConversationImport';
 import { sessionAttentionReason } from '../lib/session-attention';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -278,6 +279,8 @@ export function SessionList() {
     retry,
   } = useSessionList();
   const search = useSessionSearch();
+  const [importOpen, setImportOpen] = useState(false);
+  const conversationOptions = useRef<HTMLElement>(null);
 
   const { activities } = useSessionOverview();
   const [filter, setFilter] = useState<'all' | 'active' | 'attention'>('all');
@@ -341,10 +344,18 @@ export function SessionList() {
             + New chat
           </button>
           <details className="conversation-options">
-            <summary aria-label="Conversation options">
+            <summary ref={conversationOptions} aria-label="Conversation options">
               <UiIcon name="more" />
             </summary>
             <div className="conversation-options-menu">
+              <button
+                onClick={(event) => {
+                  event.currentTarget.closest('details')?.removeAttribute('open');
+                  setImportOpen(true);
+                }}
+              >
+                Import CLI conversation
+              </button>
               <button onClick={checkForUpdates} disabled={checking}>
                 {checking ? 'Checking…' : 'Check for updates'}
               </button>
@@ -392,6 +403,18 @@ export function SessionList() {
         </div>
       )}
       <div className="session-list-scroll">
+        {importOpen && (
+          <SdkConversationImport
+            onClose={() => {
+              setImportOpen(false);
+              conversationOptions.current?.focus();
+            }}
+            onImported={(id) => {
+              setImportOpen(false);
+              openSession(id);
+            }}
+          />
+        )}
         {updateAvailable && (
           <button className="update-banner" onClick={handleDeployAction}>
             Update available — Deploy Mitzo

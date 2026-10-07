@@ -17,6 +17,8 @@ vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
 
 const mockEventStore = {
   upsertSession: mockUpsertSession,
+  getInternalSdkExecution: vi.fn().mockReturnValue(null),
+  isSessionHidden: vi.fn().mockReturnValue(false),
   getSession: mockGetSession,
   getKnownSessionIds: mockGetKnownSessionIds,
   listSessions: mockListSessionsMeta,
@@ -42,7 +44,9 @@ vi.mock('@mitzo/protocol/event-store', () => ({
 }));
 
 vi.mock('../repo-config.js', () => ({
-  loadRepoConfig: vi.fn().mockReturnValue({ repos: {}, roots: [] }),
+  loadRepoConfig: vi
+    .fn()
+    .mockReturnValue({ repos: { configured: '/configured-sdk-history' }, roots: [] }),
 }));
 
 vi.mock('../mcp-config.js', () => ({
@@ -52,6 +56,44 @@ vi.mock('../mcp-config.js', () => ({
 beforeEach(() => {
   vi.clearAllMocks();
   mockGetSessionMessages.mockResolvedValue([{ type: 'user' }]);
+});
+
+describe('SDK discovery admission', () => {
+  it('does not turn unknown full transcripts into chats through either list path', async () => {
+    mockListSessions.mockResolvedValue([
+      {
+        sessionId: 'external',
+        summary: 'Real CLI history',
+        firstPrompt: 'Real prompt',
+        lastModified: Date.now(),
+      },
+    ]);
+    mockGetSession.mockReturnValue(null);
+    mockListSessionsMeta.mockReturnValue([]);
+    const { getSessions, syncSessionTimestamps, listImportableSdkConversations } =
+      await import('../chat.js');
+    expect((await getSessions()).sessions).toEqual([]);
+    await syncSessionTimestamps();
+    expect(mockUpsertSession).not.toHaveBeenCalled();
+    expect((await listImportableSdkConversations()).map((s) => s.id)).toEqual(['external']);
+    expect(mockUpsertSession).not.toHaveBeenCalled();
+  });
+  it('excludes an internal execution with a full first prompt from import candidates', async () => {
+    mockListSessions.mockResolvedValue([
+      {
+        sessionId: 'helper',
+        summary: 'Search',
+        firstPrompt: 'Real saved search prompt',
+        lastModified: Date.now(),
+      },
+    ]);
+    mockGetSession.mockReturnValue(null);
+    mockEventStore.getInternalSdkExecution.mockReturnValue({ parentSessionId: 'parent' });
+    const { listImportableSdkConversations } = await import('../chat.js');
+    expect(await listImportableSdkConversations()).toEqual([]);
+    expect(mockUpsertSession).not.toHaveBeenCalled();
+    mockEventStore.getInternalSdkExecution.mockReturnValue(null);
+  });
 });
 
 describe('getSessionsCached', () => {
@@ -257,7 +299,12 @@ describe('getSessionsCached', () => {
       { ...recent, sessionId: 'starting', initialPrompt: 'Check pricing' },
       { ...recent, sessionId: 'bound', accountBinding: { accountId: 'test' } },
       { ...recent, sessionId: 'active', isActive: true },
-      { ...recent, sessionId: 'verified-import', sdkTranscriptVerified: true },
+      {
+        ...recent,
+        sessionId: 'verified-import',
+        conversationSource: 'external_import',
+        sdkTranscriptVerified: true,
+      },
     ]);
     const { getSessionsCached } = await import('../chat.js');
     expect(getSessionsCached().sessions.map((s) => s.id)).toEqual([
@@ -307,18 +354,15 @@ describe('syncSessionTimestamps', () => {
     );
     mockGetSession.mockReturnValue(null);
     mockListSessionsMeta.mockReturnValue([]);
-    const { getSessions, syncSessionTimestamps } = await import('../chat.js');
-    expect((await getSessions()).sessions.map((s) => s.id)).toEqual(['real-chat']);
+    const { getSessions, syncSessionTimestamps, listImportableSdkConversations } =
+      await import('../chat.js');
+    expect((await getSessions()).sessions).toEqual([]);
+    expect((await listImportableSdkConversations()).map((s) => s.id)).toEqual(['real-chat']);
     await syncSessionTimestamps();
-    expect(mockUpsertSession.mock.calls.every(([meta]) => meta.sessionId === 'real-chat')).toBe(
-      true,
-    );
-    expect(mockUpsertSession).toHaveBeenCalledWith(
-      expect.objectContaining({ sessionId: 'real-chat', sdkTranscriptVerified: true }),
-    );
+    expect(mockUpsertSession).not.toHaveBeenCalled();
   });
 
-  it('inserts new sessions from filesystem into EventStore', async () => {
+  it('does not admit unknown files during timestamp recovery', async () => {
     mockListSessions.mockResolvedValue([
       {
         sessionId: 'sess-new',
@@ -333,13 +377,7 @@ describe('syncSessionTimestamps', () => {
     const { syncSessionTimestamps } = await import('../chat.js');
     await syncSessionTimestamps();
 
-    expect(mockUpsertSession).toHaveBeenCalledWith(
-      expect.objectContaining({
-        sessionId: 'sess-new',
-        summary: 'New from FS',
-        isActive: false,
-      }),
-    );
+    expect(mockUpsertSession).not.toHaveBeenCalled();
   });
 
   it('verifies an existing imported conversation without timestamp drift', async () => {
@@ -347,7 +385,11 @@ describe('syncSessionTimestamps', () => {
     mockListSessions.mockResolvedValue([
       { sessionId: 'imported', summary: 'Image chat', lastModified: now },
     ]);
-    mockGetSession.mockReturnValue({ sessionId: 'imported', updatedAt: now });
+    mockGetSession.mockReturnValue({
+      sessionId: 'imported',
+      updatedAt: now,
+      conversationSource: 'external_import',
+    });
     const { syncSessionTimestamps } = await import('../chat.js');
     await syncSessionTimestamps();
     expect(mockUpsertSession).toHaveBeenCalledWith({
@@ -370,6 +412,7 @@ describe('syncSessionTimestamps', () => {
     ]);
     mockGetSession.mockReturnValue({
       sessionId: 'sess-drifted',
+      conversationSource: 'mitzo',
       summary: 'Old summary',
       updatedAt: now - 120_000, // 2 minutes drift
       manuallyRenamed: false,
@@ -400,6 +443,7 @@ describe('syncSessionTimestamps', () => {
     ]);
     mockGetSession.mockReturnValue({
       sessionId: 'sess-renamed',
+      conversationSource: 'mitzo',
       summary: 'User-chosen name',
       updatedAt: now - 120_000,
       manuallyRenamed: true,
@@ -430,6 +474,7 @@ describe('syncSessionTimestamps', () => {
     ]);
     mockGetSession.mockReturnValue({
       sessionId: 'sess-ok',
+      conversationSource: 'mitzo',
       summary: 'Fine',
       updatedAt: now - 30_000, // Only 30s drift
       sdkTranscriptVerified: true,
@@ -563,8 +608,8 @@ describe('configured Symposium listing without SDK transcripts', () => {
     const { getSessionsCached, getSessions } = await import('../chat.js');
     vi.setSystemTime(new Date('2026-09-28T12:00:00Z'));
     expect(getSessionsCached().sessions.map((session) => session.id)).toEqual([
-      'symposium-draft',
       'symposium-active',
+      'symposium-draft',
     ]);
     const full = await getSessions();
     expect(full.sessions.map((session) => session.id)).toEqual([

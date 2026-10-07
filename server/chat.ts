@@ -1,3 +1,4 @@
+import { isRegisteredConversation } from '@mitzo/protocol';
 import { clearUrlAccessGrants } from './url-access-tool.js';
 import { codexRuntimeDiagnostic, codexRuntimeErrorTelemetry } from './codex-runtime-diagnostics.js';
 import {
@@ -1015,6 +1016,8 @@ export async function startChat(
       'chat.mode': options.mode ?? 'agent',
     },
     async () => {
+      if (options.resume && !eventStore.getSession(options.resume))
+        throw new Error('Conversation is not registered. Import external history before resuming.');
       releaseOrdinaryStartup = eventStore.reserveOrdinaryStartup(
         [options.resume, options.initialSessionId].filter((id): id is string => Boolean(id)),
       );
@@ -1587,9 +1590,7 @@ async function _startChatInner(
 
   // Bound sessions have durable routing before the SDK can create history or side effects.
   const newSdkSessionId =
-    !resolvedResume && !options.resume
-      ? (options.initialSessionId ?? (accountBinding ? randomUUID() : undefined))
-      : undefined;
+    !resolvedResume && !options.resume ? (options.initialSessionId ?? randomUUID()) : undefined;
   try {
     if (newSdkSessionId) {
       eventStore.upsertSession({
@@ -3024,7 +3025,6 @@ async function hasSdkConversation(
   info: import('@anthropic-ai/claude-agent-sdk').SDKSessionInfo,
   dir?: string,
 ): Promise<boolean> {
-  if (info.firstPrompt) return true;
   try {
     // Image-only or assistant-only histories may have no firstPrompt.
     return (
@@ -3035,86 +3035,42 @@ async function hasSdkConversation(
   }
 }
 
+/** Refresh registered conversations; filesystem discovery cannot create chats. */
 export async function getSessions(offset = 0, limit = SESSION_PAGE_SIZE) {
+  await syncSessionTimestamps();
+  return getSessionsCached(offset, limit);
+}
+
+/** Unregistered SDK histories are candidates for deliberate import, never chats. */
+export async function listImportableSdkConversations() {
   const seen = new Map<
     string,
-    { id: string; summary: string; lastModified: number; branch?: string; cwd?: string }
+    { id: string; summary: string; lastModified: number; cwd?: string }
   >();
-  // Fetch enough from each dir to cover the requested window after dedup.
-  // The SDK handles worktree discovery via includeWorktrees (default true).
-  const fetchLimit = offset + limit + 50; // buffer for dedup losses
-  for (const dir of getSessionDirs()) {
+  for (const dir of getSessionDirs().filter(Boolean)) {
     try {
-      const sessions = await listSessions({ dir, limit: fetchLimit, includeWorktrees: true });
-      for (const s of sessions) {
-        if (eventStore.getSession(s.sessionId)?.isHidden) continue;
-        if (!(await hasSdkConversation(s, dir))) continue;
-        const existing = seen.get(s.sessionId);
-        if (!existing || s.lastModified > existing.lastModified) {
-          seen.set(s.sessionId, {
-            id: s.sessionId,
-            summary: s.summary,
-            lastModified: s.lastModified,
-            branch: s.gitBranch,
-            cwd: s.cwd || undefined,
+      for (const info of await listSessions({ dir, limit: 100, includeWorktrees: true })) {
+        if (
+          eventStore.getInternalSdkExecution(info.sessionId) ||
+          eventStore.isSessionHidden(info.sessionId) ||
+          isRegisteredConversation(eventStore.getSession(info.sessionId)) ||
+          !(await hasSdkConversation(info, dir))
+        )
+          continue;
+        const previous = seen.get(info.sessionId);
+        if (!previous || info.lastModified > previous.lastModified)
+          seen.set(info.sessionId, {
+            id: info.sessionId,
+            summary: info.summary,
+            lastModified: info.lastModified,
+            cwd: info.cwd,
           });
-        }
       }
     } catch {
-      // Expected when session dir doesn't exist
+      /* A configured project may have no SDK history. */
     }
   }
-
-  // Reconcile: backfill EventStore for SDK-discovered sessions that Mitzo
-  // doesn't track (e.g. sessions orphaned by a server restart mid-query,
-  // or created by external agents in a worktree).
-  const knownIds = eventStore.getKnownSessionIds(Array.from(seen.keys()));
-  let reconciledCount = 0;
-  for (const [sessionId, entry] of seen) {
-    if (!knownIds.has(sessionId)) {
-      eventStore.upsertSession({
-        sessionId,
-        summary: entry.summary || null,
-        cwd: entry.cwd ?? (BASE_REPO || null),
-        branch: entry.branch ?? null,
-        isActive: false,
-        sdkTranscriptVerified: true,
-        updatedAt: entry.lastModified,
-        createdAt: entry.lastModified,
-      });
-      reconciledCount++;
-    } else {
-      const existing = eventStore.getSession(sessionId);
-      if (existing && !existing.sdkTranscriptVerified)
-        eventStore.upsertSession({
-          sessionId,
-          sdkTranscriptVerified: true,
-          updatedAt: existing.updatedAt,
-        });
-    }
-  }
-  if (reconciledCount > 0) {
-    log.info('reconciled orphaned sessions', { count: reconciledCount });
-  }
-
-  // Symposium is persisted by Mitzo and may never create an SDK transcript.
-  // Include configured drafts and native sessions while honoring explicit hiding.
-  for (const meta of eventStore.listSessions()) {
-    if (!meta.symposiumConfig || meta.isHidden) continue;
-    seen.set(meta.sessionId, {
-      id: meta.sessionId,
-      summary: meta.summary ?? '',
-      lastModified: meta.updatedAt,
-      branch: meta.branch ?? undefined,
-      cwd: meta.cwd ?? undefined,
-    });
-  }
-
-  const deduped = Array.from(seen.values());
-  deduped.sort((a, b) => b.lastModified - a.lastModified);
-  const page = deduped.slice(offset, offset + limit);
-  const hasMore = deduped.length > offset + limit;
-  return { sessions: page, hasMore };
+  return [...seen.values()].sort((a, b) => b.lastModified - a.lastModified).slice(0, 100);
 }
 
 /**
@@ -3124,20 +3080,22 @@ export async function getSessions(offset = 0, limit = SESSION_PAGE_SIZE) {
 export function getSessionsCached(offset = 0, limit = SESSION_PAGE_SIZE) {
   const now = Date.now();
   const all = eventStore.listSessions().filter((m) => {
-    if (m.isHidden) return false;
+    if (m.isHidden || !isRegisteredConversation(m)) return false;
+    if (m.conversationSource === 'external_import') return true;
     if (m.symposiumConfig) return true;
     // Hide sessions that were never used through Mitzo (e.g. automated
     // code review sessions discovered from filesystem).  Active sessions
-    // always show regardless of turn count. Mitzo-created or verified SDK
-    // conversations get the startup grace period; a title alone does not.
+    // always show regardless of turn count. Controller-created conversations
+    // get the startup grace period; provider files cannot grant ownership.
     if (m.numTurns === 0 && m.promptCount === 0 && !m.isActive) {
       return (
-        Boolean(m.initialPrompt || m.accountBinding || m.sdkTranscriptVerified) &&
+        Boolean(m.initialPrompt || m.accountBinding || m.conversationSource === 'mitzo') &&
         now - m.createdAt < ZERO_TURN_GRACE_MS
       );
     }
     return true;
   });
+  all.sort((a, b) => b.updatedAt - a.updatedAt);
   const page = all.slice(offset, offset + limit);
   const hasMore = all.length > offset + limit;
   return {
@@ -3153,8 +3111,8 @@ export function getSessionsCached(offset = 0, limit = SESSION_PAGE_SIZE) {
 }
 
 /**
- * Background reconciliation: scan filesystem for sessions the EventStore
- * doesn't know about and sync timestamps from the filesystem.
+ * Background recovery updates only conversations already admitted by the controller.
+ * Unknown provider files remain separate import candidates.
  * Call fire-and-forget after serving cached results.
  */
 // Guard against concurrent reconciliation runs. While `_reconciling` is true,
@@ -3186,8 +3144,9 @@ export async function syncSessionTimestamps(): Promise<void> {
     try {
       const sessions = await listSessions({ dir, limit: fetchLimit, includeWorktrees: true });
       for (const s of sessions) {
-        if (eventStore.getSession(s.sessionId)?.isHidden) continue;
-        if (!(await hasSdkConversation(s, dir))) continue;
+        const registered = eventStore.getSession(s.sessionId);
+        if (!isRegisteredConversation(registered) || registered.isHidden) continue;
+        if (!registered.sdkTranscriptVerified && !(await hasSdkConversation(s, dir))) continue;
         const existing = seen.get(s.sessionId);
         if (!existing || s.lastModified > existing.lastModified) {
           seen.set(s.sessionId, {
@@ -3211,20 +3170,8 @@ export async function syncSessionTimestamps(): Promise<void> {
       (existing?.sessionType === 'symposium' || existing?.symposiumConfig != null)
     )
       continue;
-    if (!existing) {
-      // New session — insert with correct timestamp
-      eventStore.upsertSession({
-        sessionId,
-        summary: entry.summary || null,
-        cwd: entry.cwd ?? (BASE_REPO || null),
-        branch: entry.branch ?? null,
-        isActive: false,
-        sdkTranscriptVerified: true,
-        updatedAt: entry.lastModified,
-        createdAt: entry.lastModified,
-      });
-      synced++;
-    } else if (Math.abs(existing.updatedAt - entry.lastModified) > 60_000) {
+    if (!isRegisteredConversation(existing)) continue;
+    if (Math.abs(existing.updatedAt - entry.lastModified) > 60_000) {
       // Timestamp drifted from filesystem — sync it back.
       // Preserves summary from EventStore if it was manually renamed.
       eventStore.upsertSession({
@@ -3248,35 +3195,34 @@ export async function syncSessionTimestamps(): Promise<void> {
   }
 }
 
-/**
- * Look up a single session by ID via the Claude SDK.
- * Used as a fallback when the EventStore doesn't have the session yet
- * (e.g. orphaned by a restart or created externally). If found, backfills
- * the EventStore so subsequent lookups are fast.
- */
-export async function discoverSession(
+/** Explicit import invoked by the user, scoped to configured project histories. */
+export async function importSdkConversation(
   sessionId: string,
 ): Promise<import('./event-store.js').SessionMeta | null> {
-  try {
-    const info = await getSessionInfo(sessionId);
-    if (!info || !(await hasSdkConversation(info, info.cwd))) return null;
-    eventStore.upsertSession({
-      sessionId,
-      summary: info.summary || null,
-      sdkTranscriptVerified: true,
-      cwd: info.cwd ?? null,
-      branch: info.gitBranch ?? null,
-      isActive: false,
-    });
-    log.info('discovered and backfilled session', { sessionId, cwd: info.cwd });
-    return eventStore.getSession(sessionId);
-  } catch (err: unknown) {
-    log.warn('discoverSession failed', {
-      sessionId,
-      error: err instanceof Error ? err.message : 'unknown',
-    });
+  if (eventStore.getInternalSdkExecution(sessionId) || eventStore.isSessionHidden(sessionId))
     return null;
+  for (const dir of getSessionDirs().filter(Boolean)) {
+    try {
+      const info = await getSessionInfo(sessionId, { dir });
+      if (!info || info.sessionId !== sessionId || !(await hasSdkConversation(info, dir))) continue;
+      const existing = eventStore.getSession(sessionId);
+      eventStore.upsertSession({
+        sessionId,
+        conversationSource: 'external_import',
+        summary: existing?.manuallyRenamed ? existing.summary : info.summary || null,
+        sdkTranscriptVerified: true,
+        cwd: info.cwd ?? dir,
+        branch: info.gitBranch ?? null,
+        isActive: false,
+        createdAt: existing?.createdAt ?? info.createdAt ?? info.lastModified,
+        updatedAt: info.lastModified,
+      });
+      return eventStore.getSession(sessionId);
+    } catch {
+      /* A session may be in another configured project. */
+    }
   }
+  return null;
 }
 
 export interface RestoredMessage {
@@ -4013,6 +3959,7 @@ async function recoverSessionWorkspace(sessionId: string, dirs = getSessionDirs(
 }
 
 export async function getMessages(sessionId: string, throughSeq?: number) {
+  if (!eventStore.getSession(sessionId)) return [];
   // Primary: replay from durable event store
   const events =
     throughSeq === undefined
@@ -4029,7 +3976,13 @@ export async function getMessages(sessionId: string, throughSeq?: number) {
 
   // Fallback: SDK JSONL for pre-migration sessions
   let rawMessages: RawSdkMessage[] = [];
-  for (const dir of getSessionDirs()) {
+  for (const dir of [
+    ...new Set(
+      [eventStore.getSession(sessionId)?.cwd, ...getSessionDirs()].filter((dir): dir is string =>
+        Boolean(dir),
+      ),
+    ),
+  ]) {
     try {
       rawMessages = (await getSessionMessages(sessionId, {
         dir,
@@ -4056,6 +4009,7 @@ export async function getMessages(sessionId: string, throughSeq?: number) {
 
 /** REST restore at the immutable reconnect boundary; never falls back to SDK history. */
 export function getReconnectTranscript(sessionId: string, throughSeq: number) {
+  if (!eventStore.getSession(sessionId)) return { messages: [], current: null, currents: [] };
   const events = eventStore.getSessionEventsThroughCursor(sessionId, throughSeq);
   const session = eventStore.getSession(sessionId);
   return replayEventsToTranscript(events, session?.initialPrompt ?? undefined);
@@ -4063,6 +4017,8 @@ export function getReconnectTranscript(sessionId: string, throughSeq: number) {
 
 /** Full durable transcript and its high-water mark for opening an active session. */
 export async function getSessionTranscript(sessionId: string) {
+  if (!eventStore.getSession(sessionId))
+    return { messages: [], current: null, currents: [], cursor: 0 };
   const events = eventStore.getSessionEvents(sessionId);
   if (events.length === 0)
     return { messages: await getMessages(sessionId), current: null, currents: [], cursor: 0 };

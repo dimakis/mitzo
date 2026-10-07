@@ -1,3 +1,4 @@
+import { isRegisteredConversation } from './conversation-identity.js';
 import {
   SymposiumConfigurationOperationSchema,
   SymposiumConfigurationOperationReceiptSchema,
@@ -197,6 +198,20 @@ export function toClientState(state: SessionState): ClientSessionState {
 
 const noopLogger: EventStoreLogger = { info() {} };
 
+// Match conversation-identity.ts. SDK artifacts (including verified transcripts)
+// are not admission evidence. Apply this predicate before pagination limits.
+const LEGACY_CONVERSATION_EVIDENCE_SQL = `(
+  s.is_active = 1 OR s.prompt_count > 0 OR s.num_turns > 0
+  OR COALESCE(s.initial_prompt, '') != '' OR s.account_binding IS NOT NULL
+  OR COALESCE(s.symposium_config, '') != ''
+)`;
+const REGISTERED_CONVERSATION_SQL = `(
+  s.conversation_source IN ('mitzo', 'external_import')
+  OR (s.conversation_source = 'legacy' AND ${LEGACY_CONVERSATION_EVIDENCE_SQL})
+) AND NOT EXISTS (
+  SELECT 1 FROM internal_sdk_executions i WHERE i.sdk_session_id = s.session_id
+)`;
+
 interface EventRow {
   seat_id: string | null;
   symposium_provenance: string | null;
@@ -208,6 +223,7 @@ interface EventRow {
 }
 
 interface SessionRow {
+  conversation_source: 'mitzo' | 'external_import' | 'legacy';
   session_type: string;
   symposium_config: string | null;
   symposium_revision: number;
@@ -536,6 +552,7 @@ export class EventStore {
     sessionId: string,
     payload: Record<string, unknown>,
   ): void {
+    this.assertConversationIdentity(sessionId);
     this.db!.prepare(
       'INSERT INTO send_commands (client_msg_id, session_id, payload) VALUES (?, ?, ?)',
     ).run(clientMsgId, sessionId, JSON.stringify(payload));
@@ -616,9 +633,11 @@ export class EventStore {
   /** Synchronous with initial Symposium conversion; held across ordinary startup awaits. */
   reserveOrdinaryStartup(sessionIds: string[]): () => void {
     const ids = [...new Set(sessionIds)];
-    for (const id of ids)
+    for (const id of ids) {
+      this.assertConversationIdentity(id);
       if (this.getSession(id)?.symposiumConfig)
         throw new Error('Use Symposium directed prompts for this session');
+    }
     for (const id of ids) this.ordinaryStartups.set(id, (this.ordinaryStartups.get(id) ?? 0) + 1);
     let released = false;
     return () => {
@@ -652,6 +671,7 @@ export class EventStore {
     this.migrateModelSelection(db);
     this.migrateSdkTranscriptVerification(db);
     this.migrateSymposium(db);
+    this.migrateConversationSource(db);
     this.migrateUserMessageIndex(db);
 
     this.log.info('EventStore initialized', { dbPath });
@@ -698,10 +718,12 @@ export class EventStore {
       ),
       getSession: db.prepare('SELECT * FROM sessions WHERE session_id = ?'),
       listSessions: db.prepare(
-        'SELECT * FROM sessions WHERE is_hidden = 0 ORDER BY updated_at DESC',
+        `SELECT s.* FROM sessions s WHERE s.is_hidden = 0
+         AND ${REGISTERED_CONVERSATION_SQL} ORDER BY s.updated_at DESC`,
       ),
       listSessionsLimited: db.prepare(
-        'SELECT * FROM sessions WHERE is_hidden = 0 ORDER BY updated_at DESC LIMIT ?',
+        `SELECT s.* FROM sessions s WHERE s.is_hidden = 0
+         AND ${REGISTERED_CONVERSATION_SQL} ORDER BY s.updated_at DESC LIMIT ?`,
       ),
       markInactive: db.prepare(
         "UPDATE sessions SET is_active = 0, updated_at = unixepoch('now', 'subsec') * 1000 WHERE session_id = ?",
@@ -730,10 +752,10 @@ export class EventStore {
         WHERE session_id = ?`,
       ),
       getAttentionSessions: db.prepare(
-        `SELECT * FROM sessions
-         WHERE is_hidden = 0
-           AND last_speaker = 'assistant'
-         ORDER BY last_speaker_at DESC
+        `SELECT s.* FROM sessions s
+         WHERE s.is_hidden = 0 AND ${REGISTERED_CONVERSATION_SQL}
+           AND s.last_speaker = 'assistant'
+         ORDER BY s.last_speaker_at DESC
          LIMIT 10`,
       ),
       setSessionState: db.prepare(
@@ -894,6 +916,22 @@ export class EventStore {
       db.exec('ALTER TABLE sessions ADD COLUMN reasoning_effort TEXT');
       this.log.info('migrated sessions table: added reasoning_effort');
     }
+  }
+
+  private migrateConversationSource(db: Database.Database): void {
+    const columns = db.prepare("PRAGMA table_info('sessions')").all() as Array<{ name: string }>;
+    if (!columns.some((column) => column.name === 'conversation_source'))
+      db.exec(
+        "ALTER TABLE sessions ADD COLUMN conversation_source TEXT NOT NULL DEFAULT 'legacy' CHECK (conversation_source IN ('mitzo', 'external_import', 'legacy'))",
+      );
+    // Freeze controller-authored admission before recovery clears is_active.
+    // Run for remaining legacy rows on every upgrade/restart; the promotion is
+    // idempotent and never depends on provider files or transcript verification.
+    db.exec(`UPDATE sessions AS s SET conversation_source = 'mitzo'
+      WHERE s.conversation_source = 'legacy'
+        AND ${LEGACY_CONVERSATION_EVIDENCE_SQL}
+        AND NOT EXISTS (SELECT 1 FROM internal_sdk_executions i
+          WHERE i.sdk_session_id = s.session_id)`);
   }
 
   private migrateSdkTranscriptVerification(db: Database.Database): void {
@@ -1363,13 +1401,15 @@ export class EventStore {
     clientMsgId?: string,
     requestFingerprint?: string,
   ): BeginExecutionResult {
+    this.assertConversationIdentity(sessionId);
     if (executionId !== undefined && !executionId.trim()) {
       throw new Error('executionId must not be empty');
     }
     const fingerprint = this.validateExecutionAdmission(clientMsgId, requestFingerprint);
     return this.db!.transaction((): BeginExecutionResult => {
       const current = this.stmts.getSession.get(sessionId) as SessionRow | undefined;
-      if (!current) throw new Error(`Cannot begin execution for unknown session: ${sessionId}`);
+      if (!current || !isRegisteredConversation(rowToSession(current)))
+        throw new Error(`Cannot begin execution for unknown or unregistered session: ${sessionId}`);
 
       if (clientMsgId) {
         const existing = this.getExecutionAdmission(sessionId, clientMsgId);
@@ -2193,6 +2233,16 @@ export class EventStore {
       throw new Error('Reconnect cursor must be a non-negative safe integer');
     }
     return this.db!.transaction((): ReconnectState => {
+      const session = this.getSession(sessionId);
+      if (!session)
+        return {
+          session: null,
+          clientState: null,
+          events: [],
+          cursor: 0,
+          cursorValid: afterSeq === 0,
+          providerAttempts: [],
+        };
       const highWater = this.db!.prepare(
         'SELECT COALESCE(MAX(seq), 0) AS cursor FROM events WHERE session_id = ?',
       ).get(sessionId) as { cursor: number };
@@ -2207,8 +2257,6 @@ export class EventStore {
               ).all(sessionId, afterSeq, cursor) as EventRow[]
             ).map(rowToEvent)
           : [];
-      const sessionRow = this.stmts.getSession.get(sessionId) as SessionRow | undefined;
-      const session = sessionRow ? rowToSession(sessionRow) : null;
       const providerAttempts =
         session?.executionId && session.executionGeneration > 0
           ? this.getProviderAttempts({
@@ -5954,13 +6002,23 @@ export class EventStore {
     this.db!.transaction(() => {
       const existing = this.getInternalSdkExecution(identity.sdkSessionId);
       if (existing) {
-        if (JSON.stringify(existing) !== JSON.stringify(identity))
+        if (
+          Object.entries(existing).some(
+            ([key, value]) => identity[key as keyof InternalSdkExecutionIdentity] !== value,
+          )
+        )
           throw new Error('Internal SDK execution ownership conflict');
         return;
       }
       if (!identity.operationId || !identity.cwd || !this.getSession(identity.parentSessionId))
         throw new Error('Internal SDK execution requires a registered conversation parent');
-      if (this.getSession(identity.sdkSessionId))
+      if (
+        this.stmts.getSession.get(identity.sdkSessionId) ||
+        this.ordinaryStartups.has(identity.sdkSessionId) ||
+        this.db!.prepare('SELECT 1 FROM events WHERE session_id = ? LIMIT 1').get(
+          identity.sdkSessionId,
+        )
+      )
         throw new Error('Internal SDK execution collides with a conversation');
       this.db!.prepare(
         `INSERT INTO internal_sdk_executions
@@ -5991,10 +6049,14 @@ export class EventStore {
 
   upsertSession(meta: SessionUpsert): void {
     this.assertConversationIdentity(meta.sessionId);
-    const existing = this.getSession(meta.sessionId);
+    const existing = this.stmts.getSession.get(meta.sessionId) as SessionRow | undefined;
     if (existing) {
       const fields: string[] = [];
       const values: unknown[] = [];
+      if (meta.conversationSource !== undefined) {
+        fields.push('conversation_source = ?');
+        values.push(meta.conversationSource);
+      }
       if (meta.summary !== undefined) {
         fields.push('summary = ?');
         values.push(meta.summary);
@@ -6072,6 +6134,7 @@ export class EventStore {
     } else {
       const cols = [
         'session_id',
+        'conversation_source',
         'summary',
         'branch',
         'cwd',
@@ -6091,6 +6154,7 @@ export class EventStore {
       ];
       const vals: unknown[] = [
         meta.sessionId,
+        meta.conversationSource ?? 'mitzo',
         meta.summary ?? null,
         meta.branch ?? null,
         meta.cwd ?? null,
@@ -6126,7 +6190,13 @@ export class EventStore {
   getSession(sessionId: string): SessionMeta | null {
     if (this.getInternalSdkExecution(sessionId)) return null;
     const row = this.stmts.getSession.get(sessionId) as SessionRow | undefined;
-    return row ? rowToSession(row) : null;
+    const meta = row ? rowToSession(row) : null;
+    return isRegisteredConversation(meta) ? meta : null;
+  }
+
+  isSessionHidden(sessionId: string): boolean {
+    const row = this.stmts.getSession.get(sessionId) as SessionRow | undefined;
+    return row?.is_hidden === 1;
   }
 
   /**
@@ -6141,7 +6211,8 @@ export class EventStore {
       const chunk = sessionIds.slice(i, i + CHUNK);
       const placeholders = chunk.map(() => '?').join(',');
       const rows = this.db!.prepare(
-        `SELECT session_id FROM sessions WHERE session_id IN (${placeholders})`,
+        `SELECT s.session_id FROM sessions s WHERE s.session_id IN (${placeholders})
+         AND ${REGISTERED_CONVERSATION_SQL}`,
       ).all(...chunk) as Array<{ session_id: string }>;
       for (const r of rows) result.add(r.session_id);
     }
@@ -6149,9 +6220,10 @@ export class EventStore {
   }
 
   listSessions(limit?: number): SessionMeta[] {
-    const rows =
-      limit != null ? this.stmts.listSessionsLimited.all(limit) : this.stmts.listSessions.all();
-    return (rows as SessionRow[]).map(rowToSession);
+    const rows = (
+      limit == null ? this.stmts.listSessions.all() : this.stmts.listSessionsLimited.all(limit)
+    ) as SessionRow[];
+    return rows.map(rowToSession);
   }
 
   /**
@@ -6164,23 +6236,26 @@ export class EventStore {
     const escaped = query.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_');
     const pattern = `%${escaped}%`;
     const rows = this.db!.prepare(
-      `SELECT
+      `WITH matches AS (SELECT
         e.session_id,
         s.summary,
         e.payload,
         e.created_at AS matched_at,
-        s.updated_at
+        e.seq AS matched_seq,
+        s.updated_at,
+        ROW_NUMBER() OVER (PARTITION BY e.session_id ORDER BY e.created_at DESC, e.seq DESC) AS match_rank
       FROM events e
       JOIN sessions s ON s.session_id = e.session_id
       WHERE s.is_hidden = 0
+        AND ${REGISTERED_CONVERSATION_SQL}
         AND e.type IN ('user_message', 'block_delta')
         AND (
           json_extract(e.payload, '$.text') LIKE ? ESCAPE '\\'
           OR json_extract(e.payload, '$.delta') LIKE ? ESCAPE '\\'
         )
-      ORDER BY e.created_at DESC
-      LIMIT ?`,
-    ).all(pattern, pattern, limit * 3) as Array<{
+      ) SELECT * FROM matches WHERE match_rank = 1
+      ORDER BY matched_at DESC, matched_seq DESC LIMIT ?`,
+    ).all(pattern, pattern, limit) as Array<{
       session_id: string;
       summary: string | null;
       payload: string;
@@ -6188,25 +6263,13 @@ export class EventStore {
       updated_at: number;
     }>;
 
-    // Deduplicate by session, keep first (most recent) match per session
-    const seen = new Set<string>();
-    const results: SessionSearchResult[] = [];
-    for (const row of rows) {
-      if (seen.has(row.session_id)) continue;
-      seen.add(row.session_id);
-
-      // Extract snippet from payload
-      const snippet = extractSnippet(row.payload, query);
-      results.push({
-        sessionId: row.session_id,
-        summary: row.summary,
-        snippet,
-        matchedAt: row.matched_at,
-        updatedAt: row.updated_at,
-      });
-      if (results.length >= limit) break;
-    }
-    return results;
+    return rows.map((row) => ({
+      sessionId: row.session_id,
+      summary: row.summary,
+      snippet: extractSnippet(row.payload, query),
+      matchedAt: row.matched_at,
+      updatedAt: row.updated_at,
+    }));
   }
 
   markSessionInactive(sessionId: string): void {
@@ -6218,15 +6281,17 @@ export class EventStore {
   }
 
   incrementPromptCount(sessionId: string): number {
-    const existing = this.getSession(sessionId);
+    this.assertConversationIdentity(sessionId);
+    const row = this.stmts.getSession.get(sessionId) as SessionRow | undefined;
+    const existing = row ? rowToSession(row) : null;
     if (!existing) {
-      this.db!.prepare('INSERT INTO sessions (session_id, prompt_count) VALUES (?, 1)').run(
-        sessionId,
-      );
+      this.db!.prepare(
+        "INSERT INTO sessions (session_id, conversation_source, prompt_count) VALUES (?, 'mitzo', 1)",
+      ).run(sessionId);
       return 1;
     }
     this.db!.prepare(
-      "UPDATE sessions SET prompt_count = prompt_count + 1, updated_at = unixepoch('now', 'subsec') * 1000 WHERE session_id = ?",
+      "UPDATE sessions SET prompt_count = prompt_count + 1, conversation_source = CASE WHEN conversation_source = 'legacy' THEN 'mitzo' ELSE conversation_source END, updated_at = unixepoch('now', 'subsec') * 1000 WHERE session_id = ?",
     ).run(sessionId);
     return existing.promptCount + 1;
   }
@@ -6594,6 +6659,7 @@ function extractSnippet(payloadStr: string, query: string, contextChars = 80): s
 function rowToSession(row: SessionRow): SessionMeta {
   return {
     sessionId: row.session_id,
+    conversationSource: row.conversation_source,
     summary: row.summary,
     branch: row.branch,
     cwd: row.cwd,
