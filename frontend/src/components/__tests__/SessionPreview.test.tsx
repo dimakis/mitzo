@@ -105,3 +105,31 @@ it('dismisses from the backdrop and restores page scrolling on unmount', () => {
   view.unmount();
   expect(document.body.style.overflow).toBe('auto');
 });
+
+it('wraps keyboard focus between the first and last preview actions', () => {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(() => new Promise(() => {})),
+  );
+  render(<SessionPreview {...props} />);
+  const close = screen.getByRole('button', { name: 'Close preview' });
+  const last = screen.getByRole('button', { name: 'Delete conversation' });
+  last.focus();
+  fireEvent.keyDown(last, { key: 'Tab' });
+  expect(document.activeElement).toBe(close);
+  fireEvent.keyDown(close, { key: 'Tab', shiftKey: true });
+  expect(document.activeElement).toBe(last);
+});
+
+it('moves through actions even when the platform omits buttons from native Tab order', () => {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(() => new Promise(() => {})),
+  );
+  render(<SessionPreview {...props} />);
+  const open = screen.getByRole('button', { name: 'Open conversation' });
+  const rename = screen.getByRole('button', { name: 'Rename' });
+  open.focus();
+  fireEvent.keyDown(open, { key: 'Tab' });
+  expect(document.activeElement).toBe(rename);
+});

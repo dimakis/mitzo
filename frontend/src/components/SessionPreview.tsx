@@ -85,6 +85,18 @@ export function SessionPreview({ session, onClose, onOpen, onRename, onDelete }:
       className="session-preview"
       aria-label={`Preview ${title}`}
       aria-modal="true"
+      onKeyDown={(event) => {
+        if (event.key !== 'Tab') return;
+        const buttons = Array.from(
+          event.currentTarget.querySelectorAll<HTMLButtonElement>('button'),
+        );
+        const current = buttons.findIndex((button) => button === document.activeElement);
+        const next = event.shiftKey
+          ? (current - 1 + buttons.length) % buttons.length
+          : (current + 1) % buttons.length;
+        event.preventDefault();
+        buttons[next].focus();
+      }}
       onCancel={(event) => {
         event.preventDefault();
         onClose();
