@@ -1721,10 +1721,11 @@ async function _startChatInner(
         createWebAccessTool(
           () => session.sessionId ?? options.resume ?? newSdkSessionId ?? '',
           registry,
-          (query, signal) =>
+          (query, signal, owner) =>
             searchSdk(query, signal, {
+              ...owner,
+              executionStore: eventStore,
               env: sessionEnv,
-              cwd,
               model: parseModelSpec(session.model ?? accountBinding?.model ?? '').model,
             }),
         ),

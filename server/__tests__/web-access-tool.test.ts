@@ -40,6 +40,16 @@ describe('shared web access tool wiring', () => {
       approvalScope: 'request',
     });
   });
+  it('passes the owning conversation and controller tool-operation ID to search', async () => {
+    const f = fixture();
+    const input = { operation: 'search', query: 'Revenue', reason: 'Check guidance' };
+    approve.mockResolvedValue({ behavior: 'allow', updatedInput: input });
+    await f.execute(input, new AbortController().signal);
+    expect(f.search).toHaveBeenCalledWith('Revenue', expect.any(AbortSignal), {
+      parentSessionId: 'conversation',
+      operationId: approve.mock.calls[0][2].toolUseID,
+    });
+  });
   it('does not expose search in Ask mode', async () => {
     const f = fixture('ask');
     expect(

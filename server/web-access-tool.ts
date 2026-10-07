@@ -10,11 +10,16 @@ import {
 import { executeWebAccess, REQUEST_WEB_ACCESS, WebAccessInput } from './request-web-access.js';
 import { fetchPublicPage } from './public-web-fetch.js';
 
+export interface WebSearchExecutionOwner {
+  parentSessionId: string;
+  operationId: string;
+}
+
 /** Every runtime uses the same permission and session identity boundary. */
 export function createWebAccessTool(
   conversation: string | (() => string),
   registry: SessionRegistry,
-  search: (query: string, signal: AbortSignal) => Promise<string>,
+  search: (query: string, signal: AbortSignal, owner: WebSearchExecutionOwner) => Promise<string>,
 ) {
   const urlAccess = createUrlAccessTool(conversation, registry);
   return async (input: unknown, signal: AbortSignal) => {
@@ -27,6 +32,7 @@ export function createWebAccessTool(
       const granted = await urlAccess.fetch(parsed.data.url, signal);
       if (granted) return granted;
     }
+    const operationId = randomUUID();
     const conversationId = typeof conversation === 'function' ? conversation() : conversation;
     const owner = registry.findBySessionId(conversationId);
     if (!owner) return { content: 'Session unavailable', isError: true };
@@ -46,7 +52,7 @@ export function createWebAccessTool(
       approve: (request, signal) =>
         buildPermissionHandler(clientId, registry)(REQUEST_WEB_ACCESS, request, {
           signal,
-          toolUseID: randomUUID(),
+          toolUseID: operationId,
           forcePrompt: true,
           allowSessionGrant: false,
           approvalScope: 'request',
@@ -57,7 +63,8 @@ export function createWebAccessTool(
               ? 'Runs this query using the selected account and model. Provider search and model charges may apply. Approval covers this request only.'
               : 'Reads this public HTTPS URL without credentials. Approval covers this origin and read only; shell networking and authenticated browsing remain restricted.',
         }),
-      search,
+      search: (query, signal) =>
+        search(query, signal, { parentSessionId: conversationId, operationId }),
       fetchPage: fetchPublicPage,
     });
   };

@@ -665,6 +665,62 @@ describe('EventStore', () => {
     });
   });
 
+  describe('internal SDK execution ownership', () => {
+    it('keeps immutable parent ownership outside the chat registry after reopening', () => {
+      const root = mkdtempSync(join(tmpdir(), 'internal-sdk-owner-'));
+      const path = join(root, 'events.db');
+      let owned = new EventStore(path);
+      const identity = {
+        sdkSessionId: 'helper',
+        parentSessionId: 'parent',
+        operationId: 'tool-call',
+        purpose: 'web_search' as const,
+        cwd: '/private/tool-workspace',
+      };
+      try {
+        owned.upsertSession({ sessionId: 'parent', initialPrompt: 'Research' });
+        owned.registerInternalSdkExecution(identity);
+        owned.close();
+        owned = new EventStore(path);
+        expect(owned.getInternalSdkExecution('helper')).toMatchObject(identity);
+        expect(owned.getSession('helper')).toBeNull();
+        expect(owned.listSessions().map((s) => s.sessionId)).toEqual(['parent']);
+        expect(() =>
+          owned.upsertSession({ sessionId: 'helper', initialPrompt: 'A full saved transcript' }),
+        ).toThrow(/internal/i);
+        expect(() => owned.append('helper', 'user_message', { text: 'Search' })).toThrow(
+          /internal/i,
+        );
+        expect(() =>
+          owned.registerInternalSdkExecution({ ...identity, parentSessionId: 'other' }),
+        ).toThrow();
+      } finally {
+        owned.close();
+        rmSync(root, { recursive: true, force: true });
+      }
+    });
+    it('requires an existing conversation parent and refuses conversation-ID collisions', () => {
+      store.upsertSession({ sessionId: 'conversation' });
+      const identity = {
+        sdkSessionId: 'helper',
+        parentSessionId: 'missing',
+        operationId: 'tool-call',
+        purpose: 'web_search' as const,
+        cwd: '/private/tool-workspace',
+      };
+      expect(() => store.registerInternalSdkExecution(identity)).toThrow();
+      expect(() =>
+        store.registerInternalSdkExecution({
+          ...identity,
+          sdkSessionId: 'conversation',
+          parentSessionId: 'conversation',
+        }),
+      ).toThrow();
+      expect(store.getInternalSdkExecution('helper')).toBeNull();
+      expect(store.getSession('conversation')).not.toBeNull();
+    });
+  });
+
   describe('upsertSession', () => {
     it('persists verified SDK history across reopen without changing usage or prompts', () => {
       const root = mkdtempSync(join(tmpdir(), 'verified-sdk-history-'));

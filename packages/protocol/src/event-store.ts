@@ -355,7 +355,24 @@ type SessionUpsert = Partial<
   Omit<SessionMeta, 'sessionType' | 'symposiumConfig' | 'symposiumRevision'>
 > & { sessionId: string };
 
+export interface InternalSdkExecutionIdentity {
+  sdkSessionId: string;
+  parentSessionId: string;
+  operationId: string;
+  purpose: 'web_search';
+  cwd: string;
+}
+
 const SCHEMA = `
+  CREATE TABLE IF NOT EXISTS internal_sdk_executions (
+    sdk_session_id TEXT PRIMARY KEY,
+    parent_session_id TEXT NOT NULL,
+    operation_id TEXT NOT NULL,
+    purpose TEXT NOT NULL CHECK (purpose = 'web_search'),
+    cwd TEXT NOT NULL,
+    created_at INTEGER NOT NULL DEFAULT (unixepoch('now', 'subsec') * 1000)
+  );
+
   CREATE TABLE IF NOT EXISTS send_commands (
     client_msg_id TEXT PRIMARY KEY,
     session_id TEXT NOT NULL,
@@ -1330,6 +1347,7 @@ export class EventStore {
   }
 
   append(sessionId: string, type: string, payload: Record<string, unknown>): number {
+    this.assertConversationIdentity(sessionId);
     const result = this.stmts.append.run(sessionId, type, JSON.stringify(payload), null, null);
     return Number(result.lastInsertRowid);
   }
@@ -5931,7 +5949,48 @@ export class EventStore {
     return row.count;
   }
 
+  /** Reserved before provider dispatch. This identity can never become a chat. */
+  registerInternalSdkExecution(identity: InternalSdkExecutionIdentity): void {
+    this.db!.transaction(() => {
+      const existing = this.getInternalSdkExecution(identity.sdkSessionId);
+      if (existing) {
+        if (JSON.stringify(existing) !== JSON.stringify(identity))
+          throw new Error('Internal SDK execution ownership conflict');
+        return;
+      }
+      if (!identity.operationId || !identity.cwd || !this.getSession(identity.parentSessionId))
+        throw new Error('Internal SDK execution requires a registered conversation parent');
+      if (this.getSession(identity.sdkSessionId))
+        throw new Error('Internal SDK execution collides with a conversation');
+      this.db!.prepare(
+        `INSERT INTO internal_sdk_executions
+        (sdk_session_id, parent_session_id, operation_id, purpose, cwd) VALUES (?, ?, ?, ?, ?)`,
+      ).run(
+        identity.sdkSessionId,
+        identity.parentSessionId,
+        identity.operationId,
+        identity.purpose,
+        identity.cwd,
+      );
+    })();
+  }
+
+  getInternalSdkExecution(sdkSessionId: string): InternalSdkExecutionIdentity | null {
+    return (
+      (this.db!.prepare(
+        `SELECT sdk_session_id AS sdkSessionId, parent_session_id AS parentSessionId,
+      operation_id AS operationId, purpose, cwd FROM internal_sdk_executions WHERE sdk_session_id = ?`,
+      ).get(sdkSessionId) as InternalSdkExecutionIdentity | undefined) ?? null
+    );
+  }
+
+  private assertConversationIdentity(sessionId: string): void {
+    if (this.getInternalSdkExecution(sessionId))
+      throw new Error('Internal SDK executions cannot be admitted as conversations');
+  }
+
   upsertSession(meta: SessionUpsert): void {
+    this.assertConversationIdentity(meta.sessionId);
     const existing = this.getSession(meta.sessionId);
     if (existing) {
       const fields: string[] = [];
@@ -6065,6 +6124,7 @@ export class EventStore {
   }
 
   getSession(sessionId: string): SessionMeta | null {
+    if (this.getInternalSdkExecution(sessionId)) return null;
     const row = this.stmts.getSession.get(sessionId) as SessionRow | undefined;
     return row ? rowToSession(row) : null;
   }
