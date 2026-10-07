@@ -600,6 +600,7 @@ export async function handleSwitchSession(
       ctx.connRegistry.get(connectionId)?.transport.send({
         type: 'session_switched',
         sessionId: msg.sessionId,
+        pendingPermissions: getPendingRequestsBySession(msg.sessionId),
         mode: ctx.sessionRegistry.findBySessionId(msg.sessionId)?.session.mode ?? sessionMeta.mode,
         cwd: sessionMeta.cwd,
         branch: sessionMeta.branch,
@@ -1397,6 +1398,7 @@ function sendPermissionResponseRejected(
       sessionId,
       permId,
       error: PERMISSION_RESPONSE_REJECTED_MESSAGE,
+      ...(sessionId ? { pendingPermissions: getPendingRequestsBySession(sessionId) } : {}),
     });
   } catch (error) {
     log.warn('permission response error delivery failed', {

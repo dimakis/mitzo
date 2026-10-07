@@ -2057,6 +2057,7 @@ describe('handlePermissionResponseV2', () => {
       sessionId: 'sess-1',
       permId: 'p1',
       error: 'Permission response was invalid or expired. Review the prompt and try again.',
+      pendingPermissions: [],
     });
     expect(resolved).toBe(false);
   });
@@ -2586,6 +2587,7 @@ describe('dispatchV2Message', () => {
       sessionId: 'sess-1',
       permId: 'p1',
       error: 'Permission response was invalid or expired. Review the prompt and try again.',
+      pendingPermissions: [],
     });
   });
 
