@@ -77,13 +77,15 @@ export function BackupsView() {
   const pending = view?.runs.some((run) => run.status === 'pending');
   const actionHelp = error
     ? 'Refresh status to reconnect before taking an action.'
-    : !view?.ready
-      ? 'Complete setup on this Mac before running a backup.'
-      : view.busy || submitting
-        ? 'Backup storage is busy. Wait for the current action to finish.'
-        : !pending
-          ? 'Run a backup first to check its iCloud upload.'
-          : 'An encrypted backup is waiting for iCloud upload confirmation.';
+    : view?.busy
+      ? 'Backup storage is locked. Check the current run and host requirements before retrying.'
+      : submitting
+        ? 'A backup action is being submitted.'
+        : !view?.ready
+          ? 'Complete setup on this Mac before running a backup.'
+          : !pending
+            ? 'Run a backup first to check its iCloud upload.'
+            : 'An encrypted backup is waiting for iCloud upload confirmation.';
   const latestExport = view?.runs.find((run) => run.bytes !== undefined);
   const controls = (
     <section className="backup-operation" aria-label="Backup actions">
@@ -157,16 +159,26 @@ export function BackupsView() {
                 Refresh status
               </button>
             </div>
-            {view.setup.length > 0 && (
-              <details className="backup-details">
-                <summary>Outstanding setup requirements</summary>
-                <ul>
-                  {view.setup.map((step) => (
-                    <li key={step}>{step}</li>
-                  ))}
-                </ul>
-              </details>
-            )}
+            {view.setup.length > 0 &&
+              (view.busy ? (
+                <div className="backup-details" role="status">
+                  <h3>Host check required</h3>
+                  <ul>
+                    {view.setup.map((step) => (
+                      <li key={step}>{step}</li>
+                    ))}
+                  </ul>
+                </div>
+              ) : (
+                <details className="backup-details">
+                  <summary>Outstanding setup requirements</summary>
+                  <ul>
+                    {view.setup.map((step) => (
+                      <li key={step}>{step}</li>
+                    ))}
+                  </ul>
+                </details>
+              ))}
             {setupOpen && (
               <section id="backup-setup" className="backup-setup" aria-label="Backup setup guide">
                 <h3>Set up on this Mac</h3>

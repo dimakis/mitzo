@@ -114,3 +114,24 @@ it('explains why upload verification is unavailable before an export', async () 
     screen.getByRole('button', { name: 'Check iCloud upload' }).getAttribute('aria-describedby'),
   ).toBe('backup-action-help');
 });
+it('shows retained-lock instructions directly rather than telling the operator to wait', async () => {
+  vi.mocked(getBackups).mockResolvedValue({
+    ...view,
+    busy: true,
+    setup: ['Inspect the retained writer lock on the host.'],
+  });
+  render(
+    <MemoryRouter>
+      <BackupsView />
+    </MemoryRouter>,
+  );
+  await screen.findByText('Inspect the retained writer lock on the host.');
+  expect(
+    screen.getByText('Inspect the retained writer lock on the host.').closest('details'),
+  ).toBeNull();
+  expect(
+    screen.getByText(
+      'Backup storage is locked. Check the current run and host requirements before retrying.',
+    ),
+  ).toBeTruthy();
+});
