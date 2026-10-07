@@ -571,10 +571,36 @@ export async function handleSwitchSession(
       }
       ctx.connRegistry.setActive(connectionId, msg.sessionId);
 
+      // A session switched away from is absent from the reconnect handshake.
+      // Reclaim its disconnected driver before replaying actionable approvals.
+      const found = ctx.sessionRegistry.findBySessionId(msg.sessionId);
+      const storedState = ctx.eventStore.getSessionState(msg.sessionId);
+      if (
+        found &&
+        ctx.sessionRegistry.isActive(found.clientId) &&
+        storedState !== 'ENDED' &&
+        storedState !== 'CLOSING' &&
+        storedState !== null
+      ) {
+        const owner = found.session.ownerConnectionId ?? getOwnerConnection(found.clientId);
+        const ownerOpen = ctx.connRegistry.get(owner)?.transport.isOpen() === true;
+        if (
+          !ownerOpen ||
+          (owner === connectionId && !ctx.sessionRegistry.isAttached(found.clientId))
+        ) {
+          const transport = ctx.connRegistry.get(connectionId)?.transport;
+          if (transport && reattachChat(found.clientId, transport)) {
+            found.session.ownerConnectionId = connectionId;
+            if (owner !== connectionId) ctx.connRegistry.unwatch(owner, msg.sessionId);
+          }
+        }
+      }
+
       // Cross-reference registry with durable state to avoid reporting
       ctx.connRegistry.get(connectionId)?.transport.send({
         type: 'session_switched',
         sessionId: msg.sessionId,
+        pendingPermissions: getPendingRequestsBySession(msg.sessionId),
         mode: ctx.sessionRegistry.findBySessionId(msg.sessionId)?.session.mode ?? sessionMeta.mode,
         cwd: sessionMeta.cwd,
         branch: sessionMeta.branch,
@@ -1372,6 +1398,7 @@ function sendPermissionResponseRejected(
       sessionId,
       permId,
       error: PERMISSION_RESPONSE_REJECTED_MESSAGE,
+      ...(sessionId ? { pendingPermissions: getPendingRequestsBySession(sessionId) } : {}),
     });
   } catch (error) {
     log.warn('permission response error delivery failed', {
