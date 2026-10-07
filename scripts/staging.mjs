@@ -31,6 +31,7 @@ import {
   privateJson,
   replacePrivateJson,
   fingerprintDirectory,
+  assertVisibleTrackedIndex,
   fingerprintDependencyCopy,
   artifacts,
   stageDirectory,
@@ -135,15 +136,12 @@ function validateRelease(r, freshMain) {
   stageDirectory(r.release, '.git');
   stagingBoundary({ ...r, root });
   if (realpathSync(r.release) !== r.release) throw Error('Release path alias refused');
+  assertVisibleTrackedIndex(run('git', ['ls-files', '-v'], r.release));
   if (
     realpathSync(run('git', ['rev-parse', '--show-toplevel'], r.release)) !== r.release ||
     run('git', ['rev-parse', 'HEAD'], r.release) !== r.sourceCommit ||
     run('git', ['rev-parse', 'HEAD^{tree}'], r.release) !== r.sourceTree ||
-    run('git', ['status', '--porcelain', '--untracked-files=no'], r.release) ||
-    run('git', ['ls-files', '-v'], r.release)
-      .split('\n')
-      .filter(Boolean)
-      .some((line) => !line.startsWith('H '))
+    run('git', ['status', '--porcelain', '--untracked-files=no'], r.release)
   )
     throw Error('Release source drift');
   if (freshMain && r.sourceCommit !== freshMain)
@@ -155,6 +153,7 @@ function validateRelease(r, freshMain) {
     fingerprintDirectory(r.release, 'node_modules') !== r.dependencyFingerprint
   )
     throw Error('Release dependency drift');
+  assertVisibleTrackedIndex(run('git', ['ls-files', '-v'], r.release));
   assertPinnedStageSource({
     expected: r.sourceCommit,
     expectedTree: r.sourceTree,
@@ -192,6 +191,7 @@ async function check() {
   try {
     validateRelease(r);
     source = run('git', ['rev-parse', 'HEAD'], r.release);
+    assertVisibleTrackedIndex(run('git', ['ls-files', '-v'], r.release));
     if (
       run('git', ['status', '--porcelain', '--untracked-files=no'], r.release) ||
       run('git', ['rev-parse', 'HEAD^{tree}'], r.release) !== r.sourceTree

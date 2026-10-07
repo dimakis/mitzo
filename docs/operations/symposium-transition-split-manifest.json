@@ -16,7 +16,8 @@
     "Share closure-v2 dependency proof with the ordinary controller; hash resolved workspace link targets and refuse historical weaker receipts.",
     "Require independent accepted-main baseline arguments and pin equality to target plan and transition intent; reject Git worktree redirects for controller/ordinary receipts.",
     "Canonical owned preparation omits generic launch artifacts and the generic launcher refuses canonical plans before custody; ordinary preparation retains its original interface.",
-    "CEN-2A9CF63DABDF / CEN-19BF839A48C7 / CEN-627DF8350F97: reject changed canonical launchd registration, hidden ordinary tracked-source index flags, and non3190 canonical operator settings before control."
+    "CEN-2A9CF63DABDF / CEN-19BF839A48C7 / CEN-627DF8350F97: reject changed canonical launchd registration, hidden ordinary tracked-source index flags, and non3190 canonical operator settings before control.",
+    "Refuse ordinary hidden tracked flags at transition, exact-parse registered plist path, and require a source-qualified target registered launcher before original control; shared index policy and startup worktree equality prevent parallel source gaps."
   ],
   "excluded": [
     "native registered launcher",
@@ -37,7 +38,7 @@
     {
       "path": "docs/operations/symposium-singleton-staging.md",
       "candidateBlob": "f857d76b64d5fbe82b9e8a4e0b6f0eafde757004",
-      "successorSha256": "817de80e3fcb7666a084fff22c50ad7da01b43e72db77e512c2b3bf99089de80"
+      "successorSha256": "e11ece114d05368b0c9dfb1551743521e37da22a61b111fcf29c14183ce831f3"
     },
     {
       "path": "docs/operations/symposium-staging-lifecycle.md",
@@ -66,7 +67,7 @@
     {
       "path": "scripts/symposium-staging-transition.mjs",
       "candidateBlob": "1ce05ce330f7f9052b49e8c8bcb9d2219d141d1a",
-      "successorSha256": "210ae42a5115ce45f5db8005645d22bcf630272b1420dfb2bc0baa8c4aadb41f"
+      "successorSha256": "fa7a35ccc195c6121083fa4f2e43567a1658641bfbfceb91e495128e65da2857"
     },
     {
       "path": "scripts/symposium-staging.mjs",
@@ -91,7 +92,7 @@
     {
       "path": "server/__tests__/symposium-staging-transition-cli.test.ts",
       "candidateBlob": "f6aefe87633788ea1f04181b95b21457f44eb727",
-      "successorSha256": "64f1e789a9aebd62f87bc6be33ed7880c6bac2cb282b877a82df82661aa74687"
+      "successorSha256": "e9f9f5968696fe162da593707d7b98106fc6dea12d9ba9ab8102cf26f826580d"
     },
     {
       "path": "server/__tests__/symposium-staging-transition.test.js",
@@ -116,22 +117,22 @@
     {
       "path": "scripts/lib/staging-launcher-template.mjs",
       "candidateBlob": "3a3df1a8e901bb5f3e7fa5e12e10beee573c8b7b",
-      "successorSha256": "1d51574d5b8e0e3b91d924bfb6a0f4a582c49aa73298de32a9522d8b0972151c"
+      "successorSha256": "c496b2107be660cb8efb433aa7fb236fd9773ca7965bfa2b49de9edd612af640"
     },
     {
       "path": "scripts/staging.mjs",
       "candidateBlob": "2b3272f1beab4b347ba25d228357400e135a1654",
-      "successorSha256": "d7add9a19cad98ffa6ad3b1361f07cb64fea08c27e734691fd15e8d51114422e"
+      "successorSha256": "570a1a31f8b0691e0d99286d338501ecbd2e10a0869bc9673db1a421f8ee47c2"
     },
     {
       "path": "server/__tests__/staging-control-cli.test.js",
       "candidateBlob": null,
-      "successorSha256": "6f0a795a85f822984ba08751372e5372718ea28ae32b54d7c1a2eb86e4ed4d0c"
+      "successorSha256": "a4a7ce5eced9db8dc47a56fe0e52e87020b743256178457763273b42f6d77b6c"
     },
     {
       "path": "server/__tests__/staging-launcher.test.js",
       "candidateBlob": null,
-      "successorSha256": "ee6c3aafd76f70d55fe9cf3df4566e8d69259c23a21d1ee85a223526ce7256ea"
+      "successorSha256": "41a7e2c2cd6fb4029bad99d567091ae361cc74226a3e0f3294201a5d4bba0293"
     },
     {
       "path": "server/__tests__/symposium-staging-service.test.ts",
@@ -142,6 +143,21 @@
       "path": "server/symposium-staging-service.ts",
       "candidateBlob": "291cfbb4bfc245e8af3ea0dbeb9bafb5c020429e",
       "successorSha256": "456f7f21ba1fe2ddbfd311b7a74c5786662d52c8d21d3792cd7348a34875f2d1"
+    },
+    {
+      "path": "scripts/lib/staging-files.mjs",
+      "candidateBlob": "6da2fee513a033d3b856f29bf667d02288667d2d",
+      "successorSha256": "ef1ae15d95496665e88a38ad8069652b60f8c814fd7b653cf981491732d4a790"
+    },
+    {
+      "path": "server/__tests__/symposium-canonical-source.test.ts",
+      "candidateBlob": "f93edfec20fb74e40e185091aaa023e1e87318a9",
+      "successorSha256": "83d496080c2dea09d9dd29601e1e2fb90cd13d6d2c9c7a14fcbdfabc0249e594"
+    },
+    {
+      "path": "server/symposium-canonical-source.ts",
+      "candidateBlob": "fc9b3bbe345d0e6aa6b85a6dd6f1eda20edbbcf9",
+      "successorSha256": "1c0daacb6205a33c76c97a3d289d5eaf5c0041249b80e14cfbf5e9274728fe3d"
     }
   ],
   "dependencyMergeCommit": "32ae912e8432f035772d944c3ddfb2ae9951bdc2",
@@ -159,5 +175,19 @@
     "findings": ["CEN-2A9CF63DABDF", "CEN-19BF839A48C7", "CEN-627DF8350F97"],
     "scope": "Registered canonical plist path before owned control; hidden tracked index flags refused at ordinary admission and startup; canonical operator PORT3190 required before transition. Historical provenance pins unchanged.",
     "runtimeActions": []
-  }
+  },
+  "reviewFixSuccessors": [
+    {
+      "reviewedHead": "b737e943987e2da3d2668bdc7ec5a27cb26d4154",
+      "findings": ["CEN-21779AFD18DC", "CEN-16F961E53492", "CEN-86B198B82109"],
+      "scope": "Uniform nonempty tracked index visibility across ordinary and transition qualification; exact registered plist path; qualified tracked target launcher Git blob and intent digest. Broader audit adds startup worktree equality and canonical index inventory capacity. Historical source/dependency/review pins retained.",
+      "runtimeActions": [],
+      "qualification": {
+        "syntheticTests": "205 passed across all16 changed server test files",
+        "serverBuild": "passed compiled/reviewed-handler/IANA/security checks",
+        "serverTypes": "passed including tests",
+        "lintAndFormat": "passed"
+      }
+    }
+  ]
 }

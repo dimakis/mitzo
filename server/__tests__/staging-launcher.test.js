@@ -68,7 +68,7 @@ function fixture(mode = 'valid') {
   );
   writeFileSync(
     prelude,
-    `import os from 'node:os';import cp from 'node:child_process';import {syncBuiltinESMExports} from 'node:module';os.homedir=()=>${JSON.stringify(home)};cp.spawnSync=(program,args)=>{if(program==='git'){if(args.includes('ls-files'))return {status:0,stdout:${JSON.stringify(mode === 'assume-unchanged' ? 'h tracked.ts' : mode === 'skip-worktree' ? 'S tracked.ts' : 'H tracked.ts')}};if(args.includes('rev-parse'))return {status:0,stdout:args.includes('HEAD^{tree}')?${JSON.stringify(tree)}:${JSON.stringify(source)}};if(args.includes('remote'))return {status:0,stdout:'https://github.com/dimakis/mitzo.git'};return {status:0,stdout:''};}if(program===process.execPath)return {status:0,stdout:${JSON.stringify(JSON.stringify(paths))}};throw Error('Unmocked execution');};syncBuiltinESMExports();`,
+    `import os from 'node:os';import cp from 'node:child_process';import {syncBuiltinESMExports} from 'node:module';os.homedir=()=>${JSON.stringify(home)};cp.spawnSync=(program,args)=>{if(program==='git'){if(args.includes('ls-files'))return {status:0,stdout:${JSON.stringify(mode === 'assume-unchanged' ? 'h tracked.ts' : mode === 'skip-worktree' ? 'S tracked.ts' : 'H tracked.ts')}};if(args.includes('--show-toplevel'))return {status:0,stdout:${JSON.stringify(mode === 'worktree-redirect' ? home : release)}};if(args.includes('rev-parse'))return {status:0,stdout:args.includes('HEAD^{tree}')?${JSON.stringify(tree)}:${JSON.stringify(source)}};if(args.includes('remote'))return {status:0,stdout:'https://github.com/dimakis/mitzo.git'};return {status:0,stdout:''};}if(program===process.execPath)return {status:0,stdout:${JSON.stringify(JSON.stringify(paths))}};throw Error('Unmocked execution');};syncBuiltinESMExports();`,
   );
   const run = () =>
     spawnSync(process.execPath, ['--import', prelude, launcher, '--check'], {
@@ -147,3 +147,8 @@ it.each(['assume-unchanged', 'skip-worktree'])(
     expect(f.run().status).not.toBe(0);
   },
 );
+
+it('actual startup refuses a redirected Git source worktree', () => {
+  const f = fixture('worktree-redirect');
+  expect(f.run().status).not.toBe(0);
+});

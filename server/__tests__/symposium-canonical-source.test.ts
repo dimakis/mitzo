@@ -15,7 +15,7 @@ import { execFileSync } from 'node:child_process';
 import { assertCanonicalOwnedSource } from '../symposium-canonical-source.js';
 const roots: string[] = [];
 afterEach(() => roots.splice(0).forEach((root) => rmSync(root, { recursive: true, force: true })));
-function fixture() {
+function fixture(largeIndex = false) {
   const stage = realpathSync(mkdtempSync(join(tmpdir(), 'symposium-source-')));
   chmodSync(stage, 0o700);
   roots.push(stage);
@@ -33,6 +33,9 @@ function fixture() {
   git(['remote', 'add', 'origin', 'https://github.com/dimakis/mitzo.git']);
   writeFileSync(join(release, '.gitignore'), 'release.txt\n');
   writeFileSync(join(release, 'source'), 'ancestor');
+  if (largeIndex)
+    for (let i = 0; i < 700; i++)
+      writeFileSync(join(release, 'tracked-' + i + '-'.repeat(100)), 'public source');
   git(['add', '.']);
   git(['commit', '-qm', 'ancestor']);
   const ancestor = git(['rev-parse', 'HEAD']);
@@ -153,4 +156,14 @@ it('requires an independently supplied full accepted baseline', () => {
   const f = fixture();
   for (const baseline of [undefined, '', 'a'.repeat(39)])
     expect(() => assertCanonicalOwnedSource(f.release, f.stage, baseline as string)).toThrow();
+});
+
+it('qualifies a legitimate published source whose tracked index exceeds64KiB', () => {
+  const f = fixture(true);
+  expect(Buffer.byteLength(f.git(['ls-files', '-v']))).toBeGreaterThan(65536);
+  expect(assertCanonicalOwnedSource(f.release, f.stage, f.base)).toEqual({
+    sourceCommit: f.source,
+    sourceTree: f.tree,
+    baseMain: f.base,
+  });
 });

@@ -198,3 +198,10 @@ export function appendAudit(path, event) {
     closeSync(fd);
   }
 }
+
+/** Every tracked file must remain visible to Git source qualification. */
+export function assertVisibleTrackedIndex(output) {
+  const entries = output.split('\n').filter(Boolean);
+  if (!entries.length || entries.some((line) => !line.startsWith('H ')))
+    throw Error('Hidden tracked index flags refused');
+}

@@ -75,7 +75,7 @@ export function assertCanonicalOwnedSource(
         cwd: release,
         encoding: 'utf8',
         timeout: 15000,
-        maxBuffer: 65536,
+        maxBuffer: args[0] === 'ls-files' && args[1] === '-v' ? 1024 * 1024 : 65536,
         env: {
           PATH: '/usr/bin:/bin',
           HOME: root,

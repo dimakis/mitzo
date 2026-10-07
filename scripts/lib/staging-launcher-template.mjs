@@ -7,7 +7,11 @@ import { spawnSync } from 'node:child_process';
 import { homedir } from 'node:os';
 import { existsSync, unlinkSync } from 'node:fs';
 import { assertPinnedStageSource } from './control-lib/staging-operations.mjs';
-import { artifacts, fingerprintDirectory } from './control-lib/staging-files.mjs';
+import {
+  artifacts,
+  fingerprintDirectory,
+  assertVisibleTrackedIndex,
+} from './control-lib/staging-files.mjs';
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 if (root !== join(homedir(), '.local/share/mitzo-staging') || realpathSync(root) !== root)
   throw Error('Staging root refused');
@@ -60,13 +64,9 @@ function git(args, allowFailure = false) {
   if (result.status !== 0) throw Error('Pinned staging Git identity unavailable');
   return result.stdout.trim();
 }
-if (
-  git(['ls-files', '-v'])
-    .split('\n')
-    .filter(Boolean)
-    .some((line) => !line.startsWith('H '))
-)
-  throw Error('Hidden tracked index flags refused');
+if (realpathSync(git(['rev-parse', '--show-toplevel'])) !== release)
+  throw Error('Pinned Git worktree differs from release');
+assertVisibleTrackedIndex(git(['ls-files', '-v']));
 assertPinnedStageSource({
   expected: receipt.sourceCommit,
   expectedTree: receipt.sourceTree,

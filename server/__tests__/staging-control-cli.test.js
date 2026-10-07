@@ -90,19 +90,16 @@ function fixture(mode = 'valid') {
   throw Error('Unmocked execution: '+program);
  };globalThis.fetch=async()=>({ok:true});syncBuiltinESMExports();`,
   );
-  const run = () =>
+  const run = (command = null) =>
     spawnSync(
       process.execPath,
       [
         '--import',
         preload,
         cli,
-        'deploy',
-        '--commit',
-        target,
-        '--expected-current',
-        old,
-        '--apply',
+        ...(command
+          ? [command]
+          : ['deploy', '--commit', target, '--expected-current', old, '--apply']),
       ],
       { encoding: 'utf8', timeout: 10000, env: { PATH: process.env.PATH } },
     );
@@ -152,6 +149,16 @@ it.each(['assume-unchanged', 'skip-worktree'])(
   (mode) => {
     const f = fixture(mode);
     expect(f.run().status).not.toBe(0);
+    expect(JSON.parse(readFileSync(f.calls, 'utf8'))).toEqual([]);
+  },
+);
+
+it.each(['assume-unchanged', 'skip-worktree'])(
+  'ordinary read-only check is unsafe for %s',
+  (mode) => {
+    const f = fixture(mode);
+    const result = f.run('check');
+    expect(JSON.parse(result.stdout).safe).toBe(false);
     expect(JSON.parse(readFileSync(f.calls, 'utf8'))).toEqual([]);
   },
 );

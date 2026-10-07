@@ -16,7 +16,8 @@
     "CEN-1A317618481F: require Git resolved worktree to equal the pinned release directory.",
     "CEN-94BCACBF0AE9: require independently selected acceptedMainBaseline, match editable base_main exactly, and preserve the pin in canonical owned plans; missing historical pins refuse verification.",
     "CEN-7581F158C3EE: require the canonical service root to equal the real operator canonicalStagingRoot; tests isolate the operator home.",
-    "CEN-627DF8350F97: canonical operator settings require PORT3190; ordinary private-port preparation remains supported."
+    "CEN-627DF8350F97: canonical operator settings require PORT3190; ordinary private-port preparation remains supported.",
+    "Allow the bounded canonical tracked-index inventory to reach1MiB; all other Git output limits remain64KiB. A real700file repository validates the legitimate larger inventory."
   ],
   "excludedCuts": [
     "ordinary staging command",
@@ -51,7 +52,7 @@
     {
       "path": "server/__tests__/symposium-canonical-source.test.ts",
       "candidateBlob": "f93edfec20fb74e40e185091aaa023e1e87318a9",
-      "successorSha256": "aef60601b1943ba68ad4e3b7c40c763fe8cc6e85ffaaedab0548c758e39c3028"
+      "successorSha256": "83d496080c2dea09d9dd29601e1e2fb90cd13d6d2c9c7a14fcbdfabc0249e594"
     },
     {
       "path": "server/__tests__/symposium-owned-release.test.ts",
@@ -94,7 +95,7 @@
     {
       "path": "server/symposium-canonical-source.ts",
       "candidateBlob": "fc9b3bbe345d0e6aa6b85a6dd6f1eda20edbbcf9",
-      "successorSha256": "3daffc015ba307e595338c1d4e4da6d277749a7c89eb0122cbd24c8cbc31c76a"
+      "successorSha256": "1c0daacb6205a33c76c97a3d289d5eaf5c0041249b80e14cfbf5e9274728fe3d"
     },
     {
       "path": "server/symposium-criterion-definition.ts",
