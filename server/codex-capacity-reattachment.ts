@@ -1,3 +1,6 @@
+// Leave room inside the capacity UI's 15-second request deadline for admission.
+export const CAPACITY_REATTACH_READY_TIMEOUT_MS = 10_000;
+
 /** Manual-only readiness fence. No timer may start a provider transport here. */
 export async function retryCapacityAfterReattachment(
   target: { recoveryId: string; sourceCommandId: string },
@@ -24,4 +27,37 @@ export async function retryCapacityAfterReattachment(
   )
     throw new Error('Capacity recovery changed during reattachment');
   return deps.retry();
+}
+
+/** A chat operation resolves at session closure, not runtime registration. */
+export async function waitForReattachedCodexRuntime(
+  lifetime: Promise<void> | undefined,
+  waitForRuntime: (signal: AbortSignal) => Promise<boolean>,
+): Promise<boolean> {
+  const abort = new AbortController();
+  try {
+    const readiness = waitForRuntime(abort.signal);
+    // Runtime registration follows verified setup and ownership registration.
+    // The session lifetime remains pending while its event iterator is open.
+    return await (lifetime
+      ? Promise.race([
+          readiness,
+          lifetime.then(
+            () => false,
+            () => false,
+          ),
+        ])
+      : readiness);
+  } finally {
+    abort.abort();
+  }
+}
+
+export class CapacityAdmissionTimeoutError extends Error {
+  constructor() {
+    super('Capacity recovery admission timed out; try again explicitly.');
+  }
+}
+export function assertCapacityAdmissionDeadline(deadline?: number) {
+  if (deadline !== undefined && Date.now() >= deadline) throw new CapacityAdmissionTimeoutError();
 }

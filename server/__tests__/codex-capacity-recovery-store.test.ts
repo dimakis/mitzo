@@ -227,3 +227,16 @@ it('exposes the same uncertain-child inspection fence enforced by manual retry',
     f.store.queueCapacityRetry('chat', binding, f.episode.id, 'source', 99_000, true),
   ).toThrow('uncertain');
 });
+it('never cancels a dispatched continuation through admission-expiry cleanup', () => {
+  const f = setup();
+  const child = f.store.queueCapacityRetry('chat', binding, f.episode.id, 'source', 31_000, false);
+  f.store.claimNext('chat', binding);
+  f.store.beginCapacityDispatch('chat', binding, child.id);
+  const before = f.store.commands('chat', binding);
+  const episode = f.store.capacityRecovery('chat', binding);
+  expect(() => f.store.cancelUndispatchedCapacityContinuation('chat', binding, child.id)).toThrow(
+    'not safely',
+  );
+  expect(f.store.commands('chat', binding)).toEqual(before);
+  expect(f.store.capacityRecovery('chat', binding)).toEqual(episode);
+});

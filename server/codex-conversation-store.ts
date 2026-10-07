@@ -1540,6 +1540,22 @@ export class CodexConversationStore {
       return child;
     })();
   }
+  cancelUndispatchedCapacityContinuation(id: string, b: AccountBinding, commandId: string) {
+    this.db.transaction(() => {
+      this.read(id, b);
+      const recovery = this.capacityRecovery(id, b);
+      const child = this.capacityContinuation(id, b, commandId);
+      if (!recovery || recovery.childCommandId !== commandId || !child || child.dispatched)
+        throw new Error('Capacity continuation is not safely cancellable');
+      const update = this.db
+        .prepare(
+          "UPDATE codex_commands SET status='cancelled' WHERE conversation_id=? AND id=? AND status IN ('queued','running')",
+        )
+        .run(id, commandId);
+      if (!update.changes) throw new Error('Capacity continuation changed before cancellation');
+      this.stopCapacityRecovery(id, b, recovery.id, recovery.sourceCommandId);
+    })();
+  }
   beginCapacityDispatch(id: string, b: AccountBinding, commandId: string) {
     this.db.transaction(() => {
       const recovery = this.capacityRecovery(id, b);

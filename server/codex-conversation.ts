@@ -1,3 +1,8 @@
+import {
+  CAPACITY_REATTACH_READY_TIMEOUT_MS,
+  CapacityAdmissionTimeoutError,
+  assertCapacityAdmissionDeadline,
+} from './codex-capacity-reattachment.js';
 import { z } from 'zod';
 import { searchCodex } from './codex-approved-search.js';
 import { context, SpanStatusCode, type Span } from '@opentelemetry/api';
@@ -263,6 +268,7 @@ export class CodexConversation {
   private transportGeneration = 0;
   private capacityTimer?: ReturnType<typeof setTimeout>;
   private capacityInFlight = false;
+  private capacityAdmissionDeadlines = new Map<string, number>();
   private binding?: AccountBinding;
   private threadId?: string;
   private pendingToolSurface?: {
@@ -684,7 +690,12 @@ export class CodexConversation {
       this.opts.onError?.(new Error('Capacity recovery state could not be saved during cleanup.'));
     }
   }
-  private async runCapacityRetry(recoveryId: string, sourceCommandId: string, manual: boolean) {
+  private async runCapacityRetry(
+    recoveryId: string,
+    sourceCommandId: string,
+    manual: boolean,
+    deadline?: number,
+  ) {
     if (
       !this.opts.enableCapacityRecovery ||
       !this.binding ||
@@ -707,7 +718,9 @@ export class CodexConversation {
       this.opts.store.assertCapacityIdentity(this.opts.conversationId, this.binding, recovery);
       if (this.pendingToolSurface || this.threadId !== recovery.threadId)
         throw new Error('Capacity recovery thread changed');
+      assertCapacityAdmissionDeadline(deadline);
       await this.verifyCurrentBinding(this.binding);
+      assertCapacityAdmissionDeadline(deadline);
       const page = z
         .object({ data: z.array(z.object({ id: z.string(), status: z.string() })) })
         .parse(
@@ -731,6 +744,7 @@ export class CodexConversation {
         throw new Error('Capacity recovery episode changed during admission');
       if (this.opts.onActivity?.() === false)
         throw new Error('OpenShell lifecycle mutation is in progress');
+      assertCapacityAdmissionDeadline(deadline);
       const child = this.opts.store.queueCapacityRetry(
         this.opts.conversationId,
         this.binding,
@@ -743,6 +757,7 @@ export class CodexConversation {
         id: this.opts.store.capacityRecovery(this.opts.conversationId, this.binding)!.id,
         childId: child.id,
       };
+      if (deadline !== undefined) this.capacityAdmissionDeadlines.set(child.id, deadline);
       this.clearCapacityTimer();
       this.paused = false;
       this.opts.onQueueChange?.();
@@ -754,6 +769,7 @@ export class CodexConversation {
         reserved && current?.id === reserved.id && current.childCommandId === reserved.childId;
       const ownsProbe =
         original && current?.id === original.id && current.revision === original.revision;
+      if (ownsReservation) this.capacityAdmissionDeadlines.delete(reserved!.childId);
       if (current && (ownsReservation || ownsProbe)) {
         this.opts.store.stopCapacityRecovery(
           this.opts.conversationId,
@@ -769,7 +785,12 @@ export class CodexConversation {
       this.capacityInFlight = false;
     }
   }
-  async tryCapacityNow(recoveryId: string, sourceCommandId: string) {
+  async tryCapacityNow(
+    recoveryId: string,
+    sourceCommandId: string,
+    deadline = Date.now() + CAPACITY_REATTACH_READY_TIMEOUT_MS,
+  ) {
+    assertCapacityAdmissionDeadline(deadline);
     if (!this.binding || this.closed) throw new Error('Capacity recovery unavailable');
     const before = this.opts.store.capacityRecovery(this.opts.conversationId, this.binding);
     if (!before || before.id !== recoveryId || before.sourceCommandId !== sourceCommandId)
@@ -794,7 +815,7 @@ export class CodexConversation {
         this.capacityInFlight = false;
       }
     }
-    return this.runCapacityRetry(recoveryId, sourceCommandId, true);
+    return this.runCapacityRetry(recoveryId, sourceCommandId, true, deadline);
   }
   async stopCapacityRetry(recoveryId: string, sourceCommandId: string) {
     if (!this.binding || this.closed) throw new Error('Capacity recovery unavailable');
@@ -1549,6 +1570,8 @@ export class CodexConversation {
         this.opts.providerThreadLifecycle === 'attempt' && rolloverContext
           ? attemptReplayContext(rolloverContext)
           : null;
+      if (continuation)
+        assertCapacityAdmissionDeadline(this.capacityAdmissionDeadlines.get(command.id));
       this.opts.onProviderDispatch?.(command.id);
       active.span = tracer.startSpan('codex.turn', {}, context.active());
       active.span.setAttribute('mitzo.route', 'chatgpt-subscription');
@@ -1567,8 +1590,11 @@ export class CodexConversation {
           pending.thread,
           command,
         );
-      if (continuation)
+      if (continuation) {
+        assertCapacityAdmissionDeadline(this.capacityAdmissionDeadlines.get(command.id));
         this.opts.store.beginCapacityDispatch(this.opts.conversationId, this.binding!, command.id);
+        this.capacityAdmissionDeadlines.delete(command.id);
+      }
       const result = z.object({ turn: z.object({ id: z.string().min(1) }) }).parse(
         await this.client.request('turn/start', {
           threadId: this.threadId,
@@ -1730,6 +1756,19 @@ export class CodexConversation {
           this.pendingToolSurface.thread,
           command,
         );
+      }
+      if (continuation && error instanceof CapacityAdmissionTimeoutError && !active.turnId) {
+        this.opts.store.cancelUndispatchedCapacityContinuation(
+          this.opts.conversationId,
+          this.binding!,
+          command.id,
+        );
+        this.capacityAdmissionDeadlines.delete(command.id);
+        this.paused = true;
+        active.abort.abort();
+        if (this.active === active) this.active = undefined;
+        this.opts.onQueueChange?.();
+        throw error;
       }
       const replaceProviderThread = requiresProviderThreadReplacement(error);
       if (this.active === active)

@@ -3347,9 +3347,10 @@ it('continues accepted saved progress after thirty seconds without resending the
   }
 });
 
-async function capacityFixture() {
+async function capacityFixture(prepareSystemPrompt?: Parameters<typeof setup>[13]) {
   const args: Parameters<typeof setup> = [];
   args[4] = async () => binding;
+  args[13] = prepareSystemPrompt;
   args[17] = true;
   args[20] = true;
   const f = await setup(...args);
@@ -3420,7 +3421,7 @@ it.each([false, true])(
           });
         return original(method, params);
       });
-      const manual = f.c.tryCapacityNow(episode.id, episode.sourceCommandId);
+      const manual = f.c.tryCapacityNow(episode.id, episode.sourceCommandId, Date.now() + 60_000);
       await vi.advanceTimersByTimeAsync(0);
       expect(release).toBeTypeOf('function');
       await vi.advanceTimersByTimeAsync(30_000);
@@ -3580,6 +3581,85 @@ it('lets a validated new instruction supersede exhausted capacity retries', asyn
       attempt: original.attempt,
       status: 'failed',
     });
+    f.c.close();
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+it.each(['probe', 'context'] as const)(
+  'never dispatches a manual continuation after its deadline during %s admission',
+  async (phase) => {
+    vi.useFakeTimers();
+    try {
+      let release!: () => void;
+      let prompts = 0;
+      const f = await capacityFixture(async () => {
+        if (phase === 'context' && ++prompts === 2)
+          await new Promise<void>((resolve) => {
+            release = resolve;
+          });
+        return 'Verified context';
+      });
+      if (phase === 'probe') {
+        const original = f.rpc.request.getMockImplementation()!;
+        f.rpc.request.mockImplementation(async (method, params) => {
+          if (method === 'thread/turns/list')
+            await new Promise<void>((resolve) => {
+              release = resolve;
+            });
+          return original(method, params);
+        });
+      }
+      const episode = f.store.capacityRecovery('app', binding)!;
+      const originalCommand = f.c.queue()[0];
+      const operation = f.c.tryCapacityNow(episode.id, episode.sourceCommandId);
+      const outcome = operation.catch((error: unknown) => error);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(release).toBeTypeOf('function');
+      await vi.advanceTimersByTimeAsync(15_000);
+      release();
+      await outcome;
+      expect(f.requests.filter((request) => request.method === 'turn/start')).toHaveLength(1);
+      expect(f.store.capacityRecovery('app', binding)).toMatchObject({
+        status: 'stopped',
+        attempts: 0,
+      });
+      expect(f.c.queue()[0]).toEqual(originalCommand);
+      if (phase === 'context') expect(f.c.queue().at(-1)?.status).toBe('cancelled');
+      f.c.close();
+    } finally {
+      vi.useRealTimers();
+    }
+  },
+);
+it('keeps a continuation whose native dispatch crossed the manual deadline', async () => {
+  vi.useFakeTimers();
+  try {
+    const f = await capacityFixture();
+    const original = f.rpc.request.getMockImplementation()!;
+    let release!: () => void;
+    f.rpc.request.mockImplementation(async (method, params) => {
+      const result = await original(method, params);
+      if (method === 'turn/start')
+        await new Promise<void>((resolve) => {
+          release = resolve;
+        });
+      return result;
+    });
+    const episode = f.store.capacityRecovery('app', binding)!;
+    const operation = f.c.tryCapacityNow(episode.id, episode.sourceCommandId);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(release).toBeTypeOf('function');
+    await vi.advanceTimersByTimeAsync(15_000);
+    release();
+    expect(await operation).toBe('queued');
+    expect(f.store.capacityRecovery('app', binding)).toMatchObject({
+      status: 'running',
+      attempts: 1,
+    });
+    expect(f.c.queue().at(-1)?.status).toBe('running');
+    expect(f.requests.filter((request) => request.method === 'turn/interrupt')).toHaveLength(0);
     f.c.close();
   } finally {
     vi.useRealTimers();
