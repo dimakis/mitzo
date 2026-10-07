@@ -161,14 +161,15 @@ function RequestDetail({
                   {request?.questions ? 'Send answer' : 'Allow once'}
                 </button>
               )}
-              <button
-                className="notification-button"
-                hidden={!sessionSearch}
-                disabled={busy}
-                onClick={() => onRespond('always')}
-              >
-                Allow searches for this session
-              </button>
+              {sessionSearch && (
+                <button
+                  className="notification-button"
+                  disabled={busy}
+                  onClick={() => onRespond('always')}
+                >
+                  Allow searches for this session
+                </button>
+              )}
               <button
                 className="notification-button"
                 disabled={busy}

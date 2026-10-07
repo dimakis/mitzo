@@ -80,6 +80,31 @@ function show(path = '/notifications') {
   );
 }
 describe('Notifications experience', () => {
+  it.each([
+    { toolName: 'Bash', toolInput: 'npm test' },
+    {
+      toolName: 'RequestWebAccess',
+      approvalScope: 'session',
+      toolInput: JSON.stringify({ operation: 'fetch', url: 'https://example.com' }),
+    },
+    {
+      toolName: 'AskUserQuestion',
+      questions: [{ id: 'q1', question: 'Choose?', options: [{ label: 'Yes' }] }],
+    },
+  ])('omits the session search action for ineligible $toolName requests', async (request) => {
+    const original = vi.mocked(apiFetch).getMockImplementation()!;
+    vi.mocked(apiFetch).mockImplementation(async (url, options) => {
+      const response = await original(url, options);
+      if (options?.method) return response;
+      const data = await response.json();
+      data.items[0].request = { ...pending.request, ...request };
+      return new Response(JSON.stringify(data));
+    });
+    show();
+    fireEvent.click(await screen.findByRole('button', { name: 'Review request' }));
+    await screen.findByRole('button', { name: 'Deny' });
+    expect(screen.queryByText('Allow searches for this session')).not.toBeInTheDocument();
+  });
   it('offers an explicit session search grant in notification details', async () => {
     const original = vi.mocked(apiFetch).getMockImplementation()!;
     vi.mocked(apiFetch).mockImplementation(async (url, options) => {
