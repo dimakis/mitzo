@@ -13,7 +13,8 @@ The local transition cut layers the static support commit `54f3a887` and ordinar
 controller commit `6e50e9af`. Neither local dependency nor this cut is claimed as
 accepted main. No activation is performed by this document. The native registered
 launcher, capacity-one registry writer, original-owner callbacks and no-force
-custodian exit remain in a separate lifecycle cut. A built controller is distinct
+custodian exit are provided by the feature target lifecycle, whose source and
+physical qualification remain separate from operator-controller acceptance. A built controller is distinct
 from a physically qualified target; compilation and synthetic tests grant neither
 custody nor provider readiness. See the
 [transition split manifest](symposium-transition-split-manifest.json).
@@ -249,8 +250,8 @@ An attempted stop followed by any uncertainty retains the lock and audit evidenc
 no replacement, retry or rollback is started. Inspect any partial preparation or
 transition instead of deleting its intent or lock.
 
-Canonical owned-bundle preparation also requires explicit `--canonical --accepted-main-baseline ACCEPTED_BASELINE_SHA` after the config, repository and plan-directory arguments. The baseline is selected independently of release.txt; canonical plans without that pin are refused. Canonical preparation emits no generic owned-custodian plist, and the generic launcher refuses canonical plans. The registered native target lifecycle remains a separate, missing qualification prerequisite.
+Canonical owned-bundle preparation also requires explicit `--canonical --accepted-main-baseline ACCEPTED_BASELINE_SHA` after the config, repository and plan-directory arguments. The baseline is selected independently of release.txt; canonical plans without that pin are refused. Canonical preparation emits no generic owned-custodian plist, and the generic launcher refuses canonical plans. The registered native target lifecycle remains a separately reviewed and physically qualified prerequisite.
 
 Transition receipt checks reuse the ordinary controller dependency closure-v2 algorithm, including resolved workspace symlink payloads. Historical link-text-only receipts are refused; this source change neither migrates nor overwrites private evidence.
 
-Before any ordinary service control, transition preparation requires the target’s `scripts/start-staging-custodian.mjs` to be a regular unaliased tracked file whose Git blob matches the plan source commit. The owned plan independently proves the published source HEAD/tree and the complete compiled/scripts build. The launcher digest is retained in the transition intent and rechecked before control. This operator checkout intentionally lacks the registered native launcher and refuses activation; a synthetic successful CLI fixture supplies an explicit target launcher and does not establish native readiness.
+Before any ordinary service control, transition preparation requires the target’s `scripts/start-staging-custodian.mjs` to be a regular unaliased tracked file whose Git blob matches the plan source commit. The owned plan independently proves the published source HEAD/tree and the complete compiled/scripts build. The launcher digest is retained in the transition intent and rechecked before control. The feature target contains the registered native launcher; its presence does not establish native readiness. A synthetic successful CLI fixture supplies an explicit target launcher and cannot establish physical qualification.

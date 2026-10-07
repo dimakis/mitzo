@@ -1,3 +1,8 @@
+import {
+  subscriptionIdentityRequired,
+  assertSubscriptionRoutingIdentity,
+  type SubscriptionLaunchIdentity,
+} from './symposium-subscription-identity.js';
 import type { AccountBinding } from '@mitzo/protocol';
 import { readCodexModels } from './model-catalog.js';
 import type { AccountProfiles } from './account-profiles.js';
@@ -53,6 +58,10 @@ export function resolveSymposiumSubscriptionRoute(
 export async function createChatGptSubscriptionSeat(
   input: OpenAiCodexSeatInput & {
     verifyPrivateAuth: VerifySymposiumSubscriptionAuth;
+    workloadImage?: string;
+    captureLaunchIdentity?: (
+      input: Parameters<VerifySymposiumSubscriptionAuth>[0],
+    ) => SubscriptionLaunchIdentity;
     assertSubscriptionDispatch?: (input: Parameters<VerifySymposiumSubscriptionAuth>[0]) => void;
   },
 ) {
@@ -88,14 +97,25 @@ export async function createChatGptSubscriptionSeat(
     throw new Error('Private ChatGPT dispatch authorization is unavailable');
   await input.verifyPrivateAuth(input);
   input.execution.signal.throwIfAborted();
+  const identityRequired =
+    input.workloadImage !== undefined && subscriptionIdentityRequired(input.workloadImage);
+  if (identityRequired && !input.captureLaunchIdentity)
+    throw new Error('Verified subscription launch identity is unavailable');
+  const launchIdentity = identityRequired ? input.captureLaunchIdentity!(input) : undefined;
+  launchIdentity?.assertCurrent();
   return createCodexNativeSeat(input, {
+    launchIdentity,
     profile,
     modelProvider: 'openai',
     runtimeConfig: { forced_login_method: 'chatgpt' },
     assertCommand: assertSubscriptionControllerCommand,
-    beforeDispatch: () => input.assertSubscriptionDispatch?.(input),
+    beforeDispatch: () => {
+      launchIdentity?.assertCurrent();
+      input.assertSubscriptionDispatch?.(input);
+    },
     verifyBinding: async (client, stored) => {
       await input.verifyPrivateAuth(input);
+      launchIdentity?.assertCurrent();
       if (
         stored &&
         (stored.accountId !== binding.accountId ||
@@ -115,6 +135,7 @@ export async function createChatGptSubscriptionSeat(
         (result as { account: { type?: string } }).account.type !== 'chatgpt'
       )
         throw new Error('Native subscription runtime is not authenticated with ChatGPT');
+      if (launchIdentity) assertSubscriptionRoutingIdentity(result, launchIdentity);
       const models = await readCodexModels(client);
       const selected = models.find((model) => model.id === input.route.model);
       if (
@@ -123,6 +144,7 @@ export async function createChatGptSubscriptionSeat(
       )
         throw new Error('Selected ChatGPT model or reasoning effort is unavailable');
       await input.verifyPrivateAuth(input);
+      launchIdentity?.assertCurrent();
       input.execution.signal.throwIfAborted();
       return binding;
     },

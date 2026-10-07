@@ -1,5 +1,8 @@
 import { expect, it } from 'vitest';
-import { custodianAppEnvironment } from '../symposium-custodian-launch.js';
+import {
+  custodianAppEnvironment,
+  canonicalCustodianEnvironment,
+} from '../symposium-custodian-launch.js';
 it('passes explicit app configuration without provider secrets or a second owned-host bootstrap', () => {
   const env = custodianAppEnvironment({
     PATH: '/usr/bin',
@@ -45,6 +48,39 @@ it('passes explicit app configuration without provider secrets or a second owned
     'NODE_OPTIONS',
   ])
     expect(env[key]).toBeUndefined();
+});
+
+it('forwards the explicit Jaeger OTLP endpoint into a tracing-capable child without provider credentials', async () => {
+  const { spawnSync } = await import('node:child_process');
+  const env = custodianAppEnvironment({
+    PATH: process.env.PATH,
+    OTEL_EXPORTER_OTLP_ENDPOINT: 'http://127.0.0.1:4318',
+    GOOGLE_APPLICATION_CREDENTIALS: '/private/work-adc.json',
+    OPENAI_API_KEY: 'private-api-key',
+    MITZO_SYMPOSIUM_OWNED_HOST_CONFIG: '/private/owned-host.json',
+  });
+  expect(env.OTEL_EXPORTER_OTLP_ENDPOINT).toBe('http://127.0.0.1:4318');
+  expect(env.GOOGLE_APPLICATION_CREDENTIALS).toBeUndefined();
+  expect(env.OPENAI_API_KEY).toBeUndefined();
+  expect(env.MITZO_SYMPOSIUM_OWNED_HOST_CONFIG).toBeUndefined();
+
+  const child = spawnSync(
+    process.execPath,
+    [
+      '--import',
+      'tsx',
+      '--input-type=module',
+      '-e',
+      `const {tracer}=await import('./server/tracing.ts');
+       const span=tracer.startSpan('test.custodian.jaeger-startup');
+       const traceId=span.spanContext().traceId; span.end();
+       if (!/^[a-f0-9]{32}$/.test(traceId) || /^0+$/.test(traceId)) process.exit(2);
+       process.stdout.write('tracing-ready'); process.exit(0);`,
+    ],
+    { cwd: process.cwd(), env: { ...env, NODE_ENV: 'test' }, encoding: 'utf8', timeout: 15000 },
+  );
+  expect(child.status).toBe(0);
+  expect(child.stdout).toContain('tracing-ready');
 });
 
 it('rotates app authentication for every child while retaining the configured login passphrase', () => {
@@ -129,4 +165,34 @@ it('preserves explicit ordinary sandbox routing without forwarding provider mana
   expect(env).toMatchObject(ordinary);
   expect(env.OPENSHELL_TOKEN).toBeUndefined();
   expect(env.MITZO_SYMPOSIUM_OWNED_HOST_CONFIG).toBeUndefined();
+});
+
+it('keeps canonical staging app sidecar routes away from production defaults', () => {
+  const env = custodianAppEnvironment({
+    MITZO_SYMPOSIUM_CANONICAL_STAGE: '1',
+    PORT: '3190',
+    CENTAUR_URL: 'http://127.0.0.1:8642',
+  });
+  expect(env.CENTAUR_URL).toBe('http://127.0.0.1:5193');
+  expect(env.CONTEXGIN_URL).toBe('http://127.0.0.1:5192');
+  expect(env.YAPPER_PROXY_TARGET).toBe('http://127.0.0.1:5191');
+  expect(env.MITZO_URL).toBe('http://127.0.0.1:3190');
+  expect(env.MITZO_SYMPOSIUM_CANONICAL_STAGE).toBeUndefined();
+});
+
+it('isolates canonical parent imports as well as the app child', () => {
+  const parent = canonicalCustodianEnvironment({
+    PORT: '3190',
+    MITZO_BIND_HOST: '127.0.0.1',
+    CENTAUR_URL: 'http://127.0.0.1:8642',
+  });
+  for (const env of [parent, custodianAppEnvironment(parent)]) {
+    expect(env.CENTAUR_URL).toBe('http://127.0.0.1:5193');
+    expect(env.CONTEXGIN_URL).toBe('http://127.0.0.1:5192');
+    expect(env.YAPPER_PROXY_TARGET).toBe('http://127.0.0.1:5191');
+    expect(env.MITZO_URL).toBe('http://127.0.0.1:3190');
+  }
+  expect(() =>
+    canonicalCustodianEnvironment({ PORT: '3100', MITZO_BIND_HOST: '127.0.0.1' }),
+  ).toThrow();
 });

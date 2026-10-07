@@ -537,3 +537,16 @@ it('forwards bounded successor stdin and preserves volume create terminal observ
   ).rejects.toThrow(/bound/);
   await expect(command(['inspect', 'a'.repeat(64)], 4096, input)).rejects.toThrow();
 });
+
+it('retains the fixed semantic execution deadline at the actual command boundary only', async () => {
+  const { ArtifactPodmanContext } = await import('../symposium-artifact-host.js');
+  const terminal = vi.fn(async () => 'terminal');
+  const command = new ArtifactPodmanContext(terminal).verifierCommand();
+  const args = ['start', '--attach', '--interactive', 'a'.repeat(64)];
+  const input = Buffer.from('[]\n');
+  await command(args, 16384, input, 5000);
+  expect(terminal).toHaveBeenCalledWith(args, 16384, input, 5000);
+  await command(['inspect', 'a'.repeat(64)], 16384, undefined, 1000);
+  expect(terminal).toHaveBeenCalledWith(['inspect', 'a'.repeat(64)], 16384, undefined, 1000);
+  await expect(command(args, 16384, input, 60001)).rejects.toThrow();
+});

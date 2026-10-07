@@ -200,6 +200,46 @@ it('retires only successfully drained runtime owners and requires explicit later
     store.close();
   }
 });
+it('makes completed custodian retirement durable and idempotent before a replacement can inspect it', async () => {
+  const { drainRetainedSymposiumControllers } = await import('../symposium-controller-drain.js');
+  const store = fixture();
+  const runtime = {
+    beginShutdown() {},
+    async drain() {
+      for (const seatId of ['anchor', 'second'])
+        expect(store.getLatestSymposiumMembership('s', seatId)).toMatchObject({
+          state: 'suspended',
+          reconciliation: 'pending',
+          generation: 2,
+        });
+    },
+  };
+  const runtimes = new Map([['s', { runtime }]]);
+  try {
+    await drainRetainedSymposiumControllers(
+      store,
+      runtimes,
+      'retained-owner-retirement',
+      new AbortController().signal,
+    );
+    expect(runtimes.size).toBe(0);
+    for (const seatId of ['anchor', 'second'])
+      expect(store.getLatestSymposiumMembership('s', seatId)).toMatchObject({
+        state: 'suspended',
+        reconciliation: 'confirmed',
+        generation: 2,
+      });
+    await drainRetainedSymposiumControllers(
+      store,
+      runtimes,
+      'retained-owner-retirement',
+      new AbortController().signal,
+    );
+    expect(store.getLatestSymposiumMembership('s', 'anchor')?.generation).toBe(2);
+  } finally {
+    store.close();
+  }
+});
 it('survives real app child SIGKILL and serves the same retained store only after exact drain', async () => {
   const { fork } = await import('node:child_process');
   const { SymposiumCustodianController } = await import('../symposium-custodian-controller.js');

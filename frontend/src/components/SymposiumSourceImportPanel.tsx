@@ -1,7 +1,30 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { apiFetch } from '../lib/api-fetch';
 import type { SourcePreview, SourceStatus } from '../types/symposium-source';
+import './SymposiumSourceImportPanel.css';
 const confirmation = 'IMPORT COMMITTED REPOSITORY HISTORY';
+function retainedSeal(status: SourceStatus | null) {
+  const artifact = status?.artifact;
+  const operationId = artifact?.receipt?.operationId;
+  if (
+    artifact?.state !== 'imported' ||
+    artifact.admissionIssued ||
+    !(
+      artifact.sourceSeal === null ||
+      (artifact.sourceSeal?.state === 'pending' && artifact.sourceSeal.operationId === operationId)
+    ) ||
+    !Number.isSafeInteger(status?.expectedRevision) ||
+    (status?.expectedRevision ?? 0) < 1 ||
+    !artifact.volumeGeneration ||
+    !operationId
+  )
+    return null;
+  return {
+    expectedRevision: status!.expectedRevision,
+    expectedGeneration: artifact.volumeGeneration,
+    operationId,
+  };
+}
 async function read<T>(url: string, body?: unknown, csrf?: string): Promise<T> {
   const response = await apiFetch(
     url,
@@ -21,6 +44,7 @@ async function read<T>(url: string, body?: unknown, csrf?: string): Promise<T> {
   return value as T;
 }
 export function SymposiumSourceImportPanel({ sessionId }: { sessionId: string }) {
+  const panelId = useId();
   const [open, setOpen] = useState(false),
     [status, setStatus] = useState<SourceStatus | null>(null),
     [busy, setBusy] = useState(false),
@@ -120,42 +144,134 @@ export function SymposiumSourceImportPanel({ sessionId }: { sessionId: string })
       if (active.current) setBusy(false);
     }
   }
+  async function recoverSeal() {
+    if (busy || !passphrase || !retainedSeal(status)) return;
+    const secret = passphrase;
+    setPassphrase('');
+    setBusy(true);
+    setError('');
+    setMessage('');
+    try {
+      const latest = await read<SourceStatus>(base);
+      if (!active.current) return;
+      setStatus(latest);
+      const retained = retainedSeal(latest);
+      if (!retained) throw Error('Retained source seal changed. Refresh source status.');
+      const auth = await read<{ csrf: string; expiresAt: number }>(base + '/reauthorize', {
+        passphrase: secret,
+      });
+      if (!active.current) return;
+      if (!auth.csrf || !Number.isFinite(auth.expiresAt) || auth.expiresAt <= Date.now())
+        throw Error('Recent app authorization expired. Enter the passphrase again.');
+      const result = await read<{ seal: { state: string; operationId: string } }>(
+        base + '/seal/recover',
+        retained,
+        auth.csrf,
+      );
+      if (!active.current) return;
+      if (result.seal?.state !== 'complete' || result.seal.operationId !== retained.operationId)
+        throw Error('Source seal result is uncertain. Refresh source status.');
+      setStatus((current) =>
+        current
+          ? { ...current, artifact: { ...current.artifact, sourceSeal: result.seal } }
+          : current,
+      );
+      await refresh();
+      if (active.current) setMessage('Source seal completed for the retained import.');
+    } catch (cause) {
+      if (active.current) {
+        setError(cause instanceof Error ? cause.message : 'Source seal outcome is uncertain');
+        await refresh();
+      }
+    } finally {
+      if (active.current) setBusy(false);
+    }
+  }
+  const recoverableSeal = retainedSeal(status);
   return (
-    <section aria-label="Local repository source">
+    <section className="symposium-source-import" aria-label="Local repository source">
       <button
         type="button"
+        aria-expanded={open}
+        aria-controls={panelId}
+        aria-describedby={`${panelId}-help`}
         onClick={() => {
           setOpen(!open);
           if (!open) void refresh();
         }}
       >
-        Import local repository
+        Add repository to shared workspace
       </button>
+      <p id={`${panelId}-help`} className="symposium-source-help">
+        Optional for code tasks. You can chat without adding a repository.
+      </p>
       {open && (
-        <>
+        <div id={panelId} className="symposium-source-content">
           {error && <p role="alert">{error}</p>}
           {message && <p role="status">{message}</p>}
           {!status ? (
             <p>Loading source readiness…</p>
           ) : !status.artifact?.available ? (
-            <p>
-              {status.artifact?.state === 'imported'
-                ? 'Committed source has already been imported.'
-                : status.artifact?.admissionIssued
-                  ? 'Source import is unavailable because admission permission was already issued.'
-                  : ['failed', 'uncertain', 'recovery_required'].includes(
-                        status.artifact?.state ?? '',
-                      )
-                    ? `${status.artifact?.state === 'failed' ? 'The source helper exited with a failure.' : status.artifact?.state === 'uncertain' ? 'The source helper outcome is unknown.' : 'The source import is incomplete.'} The volume and receipts are retained for inspection; automatic retry and restart recovery are unavailable.`
-                    : 'Source import is unavailable. An unused initialized volume with current host custody is required.'}
-            </p>
+            <>
+              <p>
+                {status.artifact?.state === 'imported'
+                  ? recoverableSeal
+                    ? 'Committed source was imported, but its source seal is pending or has not started. Recover the retained seal before admission.'
+                    : status.artifact.sourceSeal?.state === 'complete'
+                      ? 'Committed source has already been imported and sealed.'
+                      : 'Committed source has already been imported, but retained seal recovery is unavailable from this status. Refresh source status.'
+                  : status.artifact?.admissionIssued
+                    ? 'Source import is unavailable because admission permission was already issued.'
+                    : ['failed', 'uncertain', 'recovery_required'].includes(
+                          status.artifact?.state ?? '',
+                        )
+                      ? `${status.artifact?.state === 'failed' ? 'The source helper exited with a failure.' : status.artifact?.state === 'uncertain' ? 'The source helper outcome is unknown.' : 'The source import is incomplete.'} The volume and receipts are retained for inspection; automatic retry and restart recovery are unavailable.`
+                      : 'Source import is unavailable. An unused initialized volume with current host custody is required.'}
+              </p>
+              {status.artifact?.state === 'imported' && (
+                <button type="button" disabled={busy} onClick={() => void refresh()}>
+                  Refresh source status
+                </button>
+              )}
+              {recoverableSeal && (
+                <fieldset disabled={busy}>
+                  <p>
+                    Recovery resumes the original imported source seal. It does not import history
+                    again.
+                  </p>
+                  <label>
+                    App passphrase for source seal recovery
+                    <input
+                      type="password"
+                      autoComplete="current-password"
+                      value={passphrase}
+                      onChange={(event) => setPassphrase(event.target.value)}
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    disabled={busy || !passphrase}
+                    onClick={() => void recoverSeal()}
+                  >
+                    Recover retained source seal
+                  </button>
+                </fieldset>
+              )}
+            </>
           ) : (
             <fieldset disabled={busy}>
               <p>
-                Import committed history from one configured local repository before seat admission.
-                The local base may differ from GitHub: this action does not fetch. Limit: 8 MiB
-                bundle and 64 MiB expanded history. Unsupported paths or known credentials are
-                rejected.
+                Copies committed files and their Git history into the agents’ shared workspace.
+                Uncommitted local changes are excluded. Add the repository before admitting agents
+                if they need to work on its code.
+              </p>
+              <p className="symposium-source-help">
+                Uses the locally recorded default branch and creates a new feature branch in the
+                shared workspace. This does not fetch from or publish to GitHub.
+              </p>
+              <p className="symposium-source-help">
+                Limit: 8 MiB bundle and 64 MiB expanded history. Unsupported paths or known
+                credentials are rejected.
               </p>
               <label>
                 Configured local repository
@@ -245,7 +361,7 @@ export function SymposiumSourceImportPanel({ sessionId }: { sessionId: string })
               )}
             </fieldset>
           )}
-        </>
+        </div>
       )}
     </section>
   );

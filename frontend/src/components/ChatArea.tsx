@@ -1,4 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { SeatLabel } from './SeatLabel';
+import { seatAccentColor } from '../lib/seat-color';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { UserBubble, TextBubble } from './MessageBubble';
 import { ThinkingBlock } from './ThinkingBlock';
 import { ToolPill } from './ToolPill';
@@ -40,6 +42,8 @@ export interface ChatAreaProps {
   current: StreamingMessage | null;
   currentByMessage?: Record<string, StreamingMessage>;
   contextItems?: SymposiumContextItem[];
+  /** Additional transcript cards inside the same scroll area. */
+  afterMessages?: ReactNode;
   onShareMessage?: (messageId: string, provenance?: SymposiumProvenance) => void;
   running: boolean;
   permission: PermissionRequest | null;
@@ -60,21 +64,26 @@ export interface ChatAreaProps {
 
 function SeatAttribution({ provenance }: { provenance?: SymposiumProvenance }) {
   if (!provenance) return null;
-  if (!('version' in provenance) || provenance.version !== 2) {
+  if (!('version' in provenance) || (provenance.version !== 2 && provenance.version !== 3)) {
     return (
       <div className="chat-seat-attribution">
-        {provenance.seatId.charAt(0).toUpperCase() + provenance.seatId.slice(1)} seat · account and
-        model unknown
+        <SeatLabel
+          seatId={provenance.seatId}
+          name={`${provenance.seatId.charAt(0).toUpperCase() + provenance.seatId.slice(1)} seat · account and model unknown`}
+        />
       </div>
     );
   }
   return (
     <div className="chat-seat-attribution" aria-label={`Seat ${provenance.seatLabel}`}>
-      <strong>{provenance.seatLabel}</strong>
+      <strong>
+        <SeatLabel seatId={provenance.seatId} name={provenance.seatLabel} />
+      </strong>
       <span>{provenance.seatRole}</span>
       <span>{provenance.accountBinding.accountLabel}</span>
       <span>{provenance.accountBinding.model}</span>
       <span>{provenance.reasoningEffort ?? 'effort unspecified'}</span>
+      {provenance.version === 3 && <span>Artifact {provenance.artifact.artifactGenerationId}</span>}
     </div>
   );
 }
@@ -91,6 +100,7 @@ export function ChatArea({
   current,
   currentByMessage = {},
   contextItems = [],
+  afterMessages,
   onShareMessage,
   running,
   permission,
@@ -276,6 +286,7 @@ export function ChatArea({
               <article
                 key={`context:${item.deliveryId}:${item.attemptId}`}
                 className="msg-turn symposium-context-card"
+                style={{ borderLeft: `3px solid ${seatAccentColor(item.recipientSeatId)}` }}
               >
                 <strong>
                   {item.receipt === 'received'
@@ -417,6 +428,7 @@ export function ChatArea({
             </div>
           );
         })}
+        {afterMessages}
       </div>
 
       {permission && (

@@ -3,9 +3,53 @@ import { SymposiumReviewStore } from '../symposium-review-workflows.js';
 import {
   completedPublicationArtifact,
   completedSealHash,
+  publicationSealFenceForRecord,
 } from '../symposium-publication-artifact.js';
 import type { CompletedArtifactSeal } from '../symposium-physical-artifact-seal.js';
+import type { ImmutableReviewRecord } from '../symposium-review-workflows.js';
 const store = new SymposiumReviewStore(':memory:');
+
+it('selects the final fix seal from immutable verified history instead of an ambiguous session seal', () => {
+  const result = (resultId: string, revision: string, fenceId: string) => ({
+    version: 1 as const,
+    resultId,
+    attemptId: `${resultId}-attempt`,
+    inputRevision: 'parent',
+    inputHash: 'a'.repeat(64),
+    artifactRevision: revision,
+    artifactHash: 'b'.repeat(64),
+    summary: 'Physically sealed result',
+    evidenceRefs: [`artifact-seal:${fenceId}`],
+    completedAt: 1,
+  });
+  const record = {
+    snapshot: {
+      artifactRevision: 'final-commit',
+      artifactHash: 'b'.repeat(64),
+      workflow: { currentResultId: 'fix-result' },
+      history: [
+        {
+          action: 'initial_result_recorded',
+          detail: { result: result('initial-result', 'initial-commit', 'initial-fence') },
+        },
+        {
+          action: 'fix_recorded',
+          detail: { result: result('fix-result', 'final-commit', 'final-fence') },
+        },
+      ],
+    },
+  } as ImmutableReviewRecord;
+  expect(publicationSealFenceForRecord(record)).toBe('final-fence');
+  expect(() =>
+    publicationSealFenceForRecord({
+      ...record,
+      snapshot: {
+        ...record.snapshot,
+        history: [...record.snapshot.history, record.snapshot.history[1]],
+      },
+    }),
+  ).toThrow('Exact verified result seal unavailable');
+});
 
 const scope = {
   owner: 'user',
@@ -158,4 +202,40 @@ it('binds a real SQLite review record to a completed seal without a writer lease
   );
   await expect(adapter.require(selected, new AbortController().signal)).rejects.toThrow('current');
   store.close();
+});
+it('projects only the physical completed inspection clean marker into Git porcelain semantics', async () => {
+  const inspection = {
+    canonicalRepositoryPath: '/sandbox/workspaces/mgmt',
+    status: 'clean',
+    sourceBranch: 'feature',
+    sourceOid: 'a'.repeat(40),
+    defaultBranch: 'main',
+    originUrl: 'https://github.com/example/project.git',
+    commitsAhead: 1,
+    changedFiles: ['criterion.txt'],
+    sourceBranchProtected: false,
+    symlinkFree: true,
+  };
+  const inspectCompletedArtifact = vi.fn(async () => inspection);
+  const adapter = completedPublicationArtifact({
+    store,
+    host: {
+      requireCompletedArtifactSeal: async () => {
+        throw Error('Unused binding helper');
+      },
+      inspectCompletedArtifact,
+      exportCompletedArtifactBundle: async () => {
+        throw Error('Publication mutation forbidden');
+      },
+    },
+  });
+  const input = { fenceId: 'exact-seal', operationId: 'exact-preparation', baseBranch: 'main' };
+  const signal = new AbortController().signal;
+  expect(await adapter.inspectCompletedArtifact(input, signal)).toEqual({
+    ...inspection,
+    status: '',
+  });
+  expect(inspectCompletedArtifact).toHaveBeenCalledWith(input, signal);
+  inspection.status = ' M criterion.txt';
+  expect((await adapter.inspectCompletedArtifact(input, signal)).status).toBe(' M criterion.txt');
 });

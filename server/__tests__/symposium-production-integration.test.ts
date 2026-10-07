@@ -107,6 +107,97 @@ describe('production Symposium route to native runtime', () => {
     for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
   });
 
+  it('confirms sealed-source members without mounting the parent or staging work before a child', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'mitzo-preinitial-source-'));
+    roots.push(root);
+    const store = new EventStore(join(root, 'events.db'));
+    store.upsertSession({ sessionId: 'symposium', accountBinding: seat.accountBinding });
+    store.setSymposiumConfig('symposium', config);
+    const managerFactory = vi.fn(() => ({ ensure: vi.fn() }));
+    const artifactRequest = vi.fn(() => {
+      throw new Error('sealed source cannot be mounted');
+    });
+    const preinitialSource = vi.fn(() => true);
+    const artifactReady = vi.fn(
+      (_sessionId: string, _seatId: string, _generation: number) => false,
+    );
+    const runtime = createSymposiumSessionRuntime({
+      sessionId: 'symposium',
+      store,
+      profiles,
+      hostGrants: { verifySeat: vi.fn() },
+      codexStore: {} as never,
+      resolveProviderIdentity: (name, id) => ({ name, id, type: 'openai', workspace: 'default' }),
+      runtimeConfig,
+      perSeatSandboxVerified: true,
+      allowedSeatRoles: new Set(['implementer']),
+      allowedAccountProviders: new Set(['openai']),
+      readOnlyEnforced: { openaiApi: false, claudeVertex: false },
+      recordAccepted: vi.fn(() => true),
+      managerFactory,
+      artifactRequest,
+      artifactLeaseHost: {} as never,
+      preinitialSource,
+      artifactReady,
+    });
+    const membership = await runtime.orchestrator.transitionMembership({
+      sessionId: 'symposium',
+      seatId: 'builder',
+      action: 'admit',
+      expectedGeneration: 0,
+      configRevision: 1,
+      actor: 'owner',
+      reason: 'Approved',
+      idempotencyKey: 'preinitial',
+    });
+    expect(membership.reconciliation).toBe('confirmed');
+    expect(preinitialSource).toHaveBeenCalledWith('symposium');
+    expect(artifactRequest).not.toHaveBeenCalled();
+    expect(managerFactory).not.toHaveBeenCalled();
+    expect(store.listSymposiumSessionSandboxes('symposium')).toEqual([]);
+    expect(() =>
+      runtime.orchestrator.stageDelivery({
+        sessionId: 'symposium',
+        sourceSeatId: null,
+        recipientSeatIds: ['builder'],
+        originalContent: 'Do work',
+        idempotencyKey: 'premature',
+      }),
+    ).toThrow('not active');
+    expect(store.getSymposiumDeliveries('symposium')).toEqual([]);
+    expect(artifactReady).toHaveBeenCalledWith('symposium', 'builder', 1);
+    preinitialSource.mockReturnValue(false);
+    artifactReady.mockImplementation((_sessionId, seatId) => seatId === 'builder');
+    const ensure = vi.spyOn(runtime.owner, 'ensure').mockResolvedValue({} as never);
+    const later = await runtime.orchestrator.transitionMembership({
+      sessionId: 'symposium',
+      seatId: 'anchor',
+      action: 'admit',
+      expectedGeneration: 0,
+      configRevision: 1,
+      actor: 'owner',
+      reason: 'Source child exists only for builder',
+      idempotencyKey: 'after-child',
+    });
+    expect(later.reconciliation).toBe('confirmed');
+    expect(artifactReady).toHaveBeenCalledWith('symposium', 'anchor', 1);
+    expect(ensure).toHaveBeenCalledTimes(1);
+    expect(ensure).toHaveBeenCalledWith('symposium', 'builder', expect.any(AbortSignal));
+    expect(artifactRequest).not.toHaveBeenCalled();
+    expect(managerFactory).not.toHaveBeenCalled();
+    expect(store.listSymposiumSessionSandboxes('symposium')).toEqual([]);
+    expect(() =>
+      runtime.orchestrator.stageDelivery({
+        sessionId: 'symposium',
+        sourceSeatId: null,
+        recipientSeatIds: ['anchor'],
+        originalContent: 'Still premature',
+        idempotencyKey: 'premature-reviewer',
+      }),
+    ).toThrow('not active');
+    store.close();
+  });
+
   it('does not admit a seat whose physical provider is absent from the host attestation', async () => {
     const root = mkdtempSync(join(tmpdir(), 'mitzo-symposium-unattested-provider-'));
     roots.push(root);
@@ -863,6 +954,7 @@ describe('production Symposium route to native runtime', () => {
             if (nativeSubscription)
               return createChatGptSubscriptionSeat({
                 ...input,
+                attemptRegistry: registry,
                 store: {} as never,
                 verifyPrivateAuth: async () => undefined,
                 createConversation: (opts) => ({
@@ -929,6 +1021,18 @@ describe('production Symposium route to native runtime', () => {
                     workspace: runtimeConfig.workspace,
                     gatewayInsecure: runtimeConfig.gatewayInsecure,
                   },
+                });
+                // Fake API transport must persist the same verified acceptance journal
+                // as the actual native owner before invoking its parent receipt callback.
+                registry.observations.accept({
+                  claimToken: execution.claimToken,
+                  sessionId: execution.sessionId,
+                  seatId: execution.seat.id,
+                  membershipGeneration: execution.provenance.membershipGeneration!,
+                  accountBinding: execution.seat.accountBinding!,
+                  provenance: execution.provenance,
+                  providerThreadId: 'thread-1',
+                  providerTurnId: 'turn-restart',
                 });
                 callbacks.accepted('thread-1', 'turn-restart');
                 onEvent?.({
@@ -999,6 +1103,18 @@ describe('production Symposium route to native runtime', () => {
       void runtime.orchestrator.deliver(delivery.deliveryId);
       await vi.waitFor(() => expect(dispatched).toBeDefined());
       const execution = dispatched!;
+      const acceptedObservation = registry.observations.get(execution.claimToken);
+      expect(acceptedObservation?.identity).toEqual({
+        claimToken: execution.claimToken,
+        sessionId: execution.sessionId,
+        seatId: execution.seat.id,
+        membershipGeneration: execution.provenance.membershipGeneration,
+        accountBinding: execution.seat.accountBinding,
+        provenance: execution.provenance,
+        providerThreadId: 'thread-1',
+        providerTurnId: 'turn-restart',
+      });
+
       expect(execution.seat.accountBinding?.provider).toBe(
         nativeSubscription ? 'openai-codex' : 'openai',
       );
@@ -1016,6 +1132,7 @@ describe('production Symposium route to native runtime', () => {
       store = new EventStore(path);
       expect(store.getSessionEvents('symposium')).toEqual(durableBeforeRestart);
       registry = new SymposiumAttemptRegistry(claimsPath, transport);
+      expect(registry.observations.get(execution.claimToken)).toEqual(acceptedObservation);
       const restarted = makeRuntime();
       const cancel = () =>
         restarted.orchestrator.cancel({

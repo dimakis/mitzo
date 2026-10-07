@@ -3,6 +3,8 @@ import type { CodexAccountProfile } from './codex-account.js';
 import { resolveSymposiumSubscriptionRoute } from './symposium-subscription-native.js';
 import type {
   AccountBinding,
+  ArtifactAdmissionReferenceV1,
+  ArtifactReaderReferenceV1,
   SeatConfig,
   SymposiumConfig,
   SymposiumMembershipRecord,
@@ -11,9 +13,34 @@ import type {
 import type { AccountProfiles } from './account-profiles.js';
 import type { SymposiumSeatExecution } from './symposium-orchestrator.js';
 
+/** Capability roles describe enforcement, not the custom agent's guidance or label. */
+export function supportsSymposiumSeatCapability(
+  seat: SeatConfig,
+  allowed: ReadonlySet<'implementer' | 'coder' | 'reviewer'>,
+): boolean {
+  if (!seat.authorityRequest) return allowed.has(seat.role as 'implementer' | 'coder' | 'reviewer');
+  if (
+    !seat.authorityGrant ||
+    seat.authorityGrant.filesystem === 'none' ||
+    seat.authorityGrant.tools === 'none'
+  )
+    return false;
+  return seat.authorityGrant.filesystem === 'write' && seat.authorityGrant.tools === 'write'
+    ? allowed.has('implementer') || allowed.has('coder')
+    : allowed.has('reviewer');
+}
+
 /** Read-only projection of the durable admission facts needed at the last dispatch boundary. */
 export interface SymposiumDispatchFacts {
-  assertSymposiumArtifactWorkAllowed(sessionId: string): void;
+  assertSymposiumArtifactWorkAllowed(
+    sessionId: string,
+    artifact?: ArtifactAdmissionReferenceV1 | ArtifactReaderReferenceV1 | null,
+  ): void;
+  getSymposiumArtifactReference?(
+    sessionId: string,
+    seatId: string,
+    generation: number,
+  ): ArtifactAdmissionReferenceV1 | ArtifactReaderReferenceV1 | null;
   getActiveSymposiumConfig(sessionId: string): SymposiumConfig;
   getLatestSymposiumMembership(
     sessionId: string,
@@ -103,6 +130,9 @@ export function symposiumSeatRuntimeId(input: SymposiumSeatExecution): string {
     input.seat.contextGrant,
     input.seat.authorityGrant,
     input.seat.isolationRequest,
+    ...('version' in input.provenance && input.provenance.version === 3
+      ? [input.provenance.artifact]
+      : []),
   ]);
   return `symposium:${createHash('sha256').update(key).digest('hex')}`;
 }
@@ -115,7 +145,21 @@ export function admitSymposiumSeatDispatch(
   hostGrants: SymposiumHostGrantVerifier,
 ): SymposiumSeatRoute {
   input.signal.throwIfAborted();
-  facts.assertSymposiumArtifactWorkAllowed(input.sessionId);
+  if ('version' in input.provenance && input.provenance.version === 3) {
+    const retained = facts.getSymposiumArtifactReference?.(
+      input.sessionId,
+      input.seat.id,
+      input.provenance.membershipGeneration,
+    );
+    if (!retained || JSON.stringify(retained) !== JSON.stringify(input.provenance.artifact))
+      throw new Error('Exact current seat artifact reference required');
+  }
+  facts.assertSymposiumArtifactWorkAllowed(
+    input.sessionId,
+    'version' in input.provenance && input.provenance.version === 3
+      ? input.provenance.artifact
+      : undefined,
+  );
   const config = facts.getActiveSymposiumConfig(input.sessionId);
   if (
     config.version !== 2 ||
@@ -130,7 +174,7 @@ export function admitSymposiumSeatDispatch(
     throw new Error('Symposium seat binding changed before native dispatch');
   if (
     !('version' in input.provenance) ||
-    input.provenance.version !== 2 ||
+    (input.provenance.version !== 2 && input.provenance.version !== 3) ||
     !sameBinding(input.provenance.accountBinding, seat.accountBinding)
   )
     throw new Error('Symposium execution provenance does not match the seat');
@@ -193,7 +237,7 @@ export function admitSymposiumSeatDispatch(
   if (seat.authorityGrant.filesystem === 'none' || seat.authorityGrant.tools === 'none')
     throw new Error('Native seat route cannot enforce a no-tool authority grant');
   const readOnly =
-    seat.role === 'reviewer' ||
+    (!seat.authorityRequest && seat.role === 'reviewer') ||
     seat.authorityGrant.filesystem !== 'write' ||
     seat.authorityGrant.tools !== 'write';
   const common = {

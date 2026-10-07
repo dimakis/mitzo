@@ -24,7 +24,11 @@ prove physical writer revocation under retained custody, reserve the artifact in
 of released writer leases, and inspect an immutable committed Git revision/tree. It must
 bind that proof to this intent and membership/lease generations, handle restart uncertainty,
 and provide a reviewed immutable reader lifecycle. The existing unfenced observation
-scanner is insufficient. These physical and native hard-budget acceptance gaps remain open.
+scanner is insufficient. These physical acceptance gaps belonged to the original
+intent-only slice. Current workflow prerequisites follow the
+[integrated acceptance contract](../features/symposium-integrated-acceptance.md#application-policy-contract):
+persisted application limits remain required; guaranteed native token/spend caps
+and mandatory final usage totals are deferred.
 
 ## Pending lease retention
 
@@ -87,8 +91,10 @@ retention, absence and custody checks. A new gateway lifetime cannot adopt the r
 Failure or cancellation preserves the pending journal and fences. There is no automatic
 unfence, uncertain-create cleanup, or cross-custody recovery. Successful sealing also keeps
 the session drained: accepted fixes will require a separately reviewed new-writer authority
-and reseal lifecycle. Native hard budgets, trusted review receipts, and full application
-live acceptance remain separate requirements. The earlier unfenced observation receipt
+and reseal lifecycle. Trusted review receipts, persisted application limits and
+full application live acceptance remain separate requirements. Guaranteed native
+token/spend caps and mandatory final usage totals are deferred under the
+[current acceptance contract](../features/symposium-integrated-acceptance.md#application-policy-contract). The earlier unfenced observation receipt
 is never promoted into this completed-seal type.
 
 ## Remaining workflow joins

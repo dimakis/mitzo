@@ -1,5 +1,18 @@
 export { ownedCustodianEnvironment } from './symposium-staging-environment.js';
 import { randomBytes } from 'node:crypto';
+
+const canonicalSidecars = {
+  YAPPER_PROXY_TARGET: 'http://127.0.0.1:5191',
+  CONTEXGIN_URL: 'http://127.0.0.1:5192',
+  CENTAUR_URL: 'http://127.0.0.1:5193',
+  MITZO_URL: 'http://127.0.0.1:3190',
+};
+/** Apply before importing the parent's app engine, not only when forking its child. */
+export function canonicalCustodianEnvironment(source: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  if (source.PORT !== '3190' || source.MITZO_BIND_HOST !== '127.0.0.1')
+    throw Error('Canonical staging port/bind required');
+  return { ...source, ...canonicalSidecars, MITZO_SYMPOSIUM_CANONICAL_STAGE: '1' };
+}
 /** App authentication/configuration is distinct from the retained provider host.
  * Do not spread process.env: dotenv is disabled in the supervised child too. */
 export function custodianAppEnvironment(source: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
@@ -58,7 +71,11 @@ export function custodianAppEnvironment(source: NodeJS.ProcessEnv): NodeJS.Proce
     'CORS_ALLOWED_ORIGINS',
     'MITZO_CODEX_PRIVATE_DIR',
     'LOG_LEVEL',
+    'OTEL_EXPORTER_OTLP_ENDPOINT',
   ])
     if (source[name] !== undefined) result[name] = source[name];
+  if (source.MITZO_SYMPOSIUM_CANONICAL_STAGE === '1') {
+    Object.assign(result, canonicalSidecars);
+  }
   return result;
 }

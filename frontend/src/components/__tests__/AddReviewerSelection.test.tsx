@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { reviewerOperations } from '../../lib/symposium-reviewer-operations';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import '@testing-library/jest-dom/vitest';
 import { afterEach, expect, it, vi } from 'vitest';
@@ -11,6 +12,7 @@ vi.mock('../SymposiumProfilePicker', () => ({
   ),
 }));
 afterEach(() => {
+  reviewerOperations.reset();
   cleanup();
   vi.resetAllMocks();
 });

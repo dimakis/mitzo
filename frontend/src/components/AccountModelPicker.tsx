@@ -109,12 +109,13 @@ function SessionAccountModelPicker({
   callbacks.current = { onChange, onUnavailable, onSummaryChange };
   const summaryAccount = accounts.find((a) => a.id === (selection?.accountId ?? ''));
   const selectedModel = summaryAccount?.models.find((m) => m.id === selection?.model);
-  const summary = error
+  const summary: WorkspaceSummary | null = error
     ? { profile: 'Profile unavailable' }
     : empty
       ? { profile: 'No profiles configured' }
       : summaryAccount && selection
         ? {
+            sessionType: scope === 'chat' ? 'chat' : 'symposium',
             profile: summaryAccount.label,
             model: selectedModel?.label ?? selection.model,
             thinking:
@@ -130,9 +131,10 @@ function SessionAccountModelPicker({
   const profile = summary?.profile;
   const model = summary?.model;
   const thinking = summary?.thinking;
+  const sessionType = summary?.sessionType;
   useEffect(() => {
-    callbacks.current.onSummaryChange?.(profile ? { profile, model, thinking } : null);
-  }, [profile, model, thinking]);
+    callbacks.current.onSummaryChange?.(profile ? { profile, model, thinking, sessionType } : null);
+  }, [profile, model, thinking, sessionType]);
   useEffect(() => {
     if (error || empty) onUnavailable?.();
   }, [error, empty, onUnavailable]);
@@ -184,6 +186,7 @@ function SessionAccountModelPicker({
           if (!disposed) {
             setBindingLabel('Existing task · legacy account');
             setFixedSummary({
+              sessionType: 'chat',
               profile: 'Legacy account',
               model: 'Model unknown',
               thinking: 'Thinking: unknown',
@@ -202,8 +205,12 @@ function SessionAccountModelPicker({
         const data = await response.json();
         if (disposed) return;
         if (sessionId && data.sessionType === 'symposium') {
-          setBindingLabel('Accounts and models are selected per seat in Review team & approvals.');
-          setFixedSummary({ profile: 'Symposium', model: 'Accounts and models per seat' });
+          setBindingLabel('Choose an agent stream to write to that agent.');
+          setFixedSummary({
+            sessionType: 'symposium',
+            profile: 'Symposium',
+            model: 'Accounts and models per agent',
+          });
           setFixedSession(true);
           return;
         }
@@ -241,6 +248,7 @@ function SessionAccountModelPicker({
               : { model: preferredModel };
             setFixedSession(true);
             setFixedSummary({
+              sessionType: 'chat',
               profile: data.accountBinding?.accountLabel ?? 'Legacy account',
               model: 'Model unknown',
               thinking: 'Thinking: unknown',

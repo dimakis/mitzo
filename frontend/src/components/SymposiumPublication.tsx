@@ -121,10 +121,7 @@ function Publication({
     <section aria-label="Publish reviewed artifact">
       <h3>Publish reviewed artifact</h3>
       {!record ? (
-        <p>
-          A trusted review record and completed artifact seal are required. Native review remains
-          unavailable until supported hard budgets and final usage receipts are available.
-        </p>
+        <p>A trusted review record and completed artifact seal are required before publication.</p>
       ) : !available ? (
         <p>An operator publication credential must be registered for this workspace.</p>
       ) : (

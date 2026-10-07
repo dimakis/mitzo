@@ -1,3 +1,23 @@
+import { SymposiumReviewActionAuthority } from './symposium-review-action-authority.js';
+import { createSymposiumSuccessorFixAuthority } from './symposium-artifact-successor-authority.js';
+import { createSymposiumReaderAuthorityBridge } from './symposium-reader-authority-bridge.js';
+import { createSymposiumProductionReviewComposition } from './symposium-production-review-composition.js';
+import type { InitialSourceExportReceipt } from './symposium-source-artifact-seal.js';
+import type {
+  ArtifactGenerationRequest,
+  ArtifactGenerationCopyReceipt,
+} from './symposium-artifact-generations.js';
+import type { ArtifactAdmissionBindingV1, ArtifactAdmissionReferenceV1 } from '@mitzo/protocol';
+import type {
+  PhysicalArtifactSealInput,
+  CompletedArtifactSeal,
+  SuccessorArtifactExportReceipt,
+} from './symposium-physical-artifact-seal.js';
+import { custodianRequestAuthority } from './symposium-custodian-authority.js';
+import {
+  createSymposiumApplicationDispatchPolicy,
+  selectSymposiumApplicationClaim,
+} from './symposium-application-dispatch.js';
 import { createGithubPublicationOperatorRouter } from './github-publication-operator-router.js';
 import { requestOperatorGithubPublication } from './github-publishing-tool.js';
 import { createHostBackupService } from './backup/host.js';
@@ -36,11 +56,16 @@ import {
 import {
   completedPublicationArtifact,
   completedSealHash,
+  publicationSealFenceForRecord,
   type CompletedPublicationHost,
 } from './symposium-publication-artifact.js';
 import { createPublicationRouter } from './symposium-publication-routes.js';
 import { capabilityOperationStore } from './capability-operation-owner.js';
-import { ownedEvidenceHandler } from './symposium-owned-evidence.js';
+import {
+  ownedEvidenceHandler,
+  sessionOwnedEvidenceHandler,
+  sessionEvidenceRequestAuthority,
+} from './symposium-owned-evidence.js';
 
 import type { SandboxCreationFence } from './symposium-workspace-lifecycle.js';
 import type { ConnectionSelection, PersonalConnection } from './symposium-personal-connections.js';
@@ -944,23 +969,108 @@ export async function drainSymposiumRuntimes(signal: AbortSignal) {
   if (results.some((result) => result.status === 'rejected'))
     throw new Error('Symposium runtime cleanup incomplete');
 }
+/** Retire a live custodian's retained authority before its gateway exits.
+ * Physical cleanup alone cannot leave active membership generations behind:
+ * the next owner must see durable suspension and require explicit restore. */
+export async function retireRetainedSymposiumRuntimes(identity: string, signal: AbortSignal) {
+  if (!custodianOwnerMode) throw Error('Retained custodian mode required');
+  beginSymposiumShutdown();
+  await drainRetainedSymposiumControllers(eventStore, symposiumSessionRuntimes, identity, signal);
+}
 export interface SymposiumProductionHost {
-  sourceImport?: import('./symposium-source-service.js').SymposiumSourceHost;
+  sourceImport?: import('./symposium-source-service.js').SymposiumSourceHost & {
+    requireSeal?(
+      sessionId: string,
+    ): ReturnType<
+      typeof import('./symposium-source-artifact-seal.js').requireCompletedImportedSourceSeal
+    >;
+    initialExport?(
+      sessionId: string,
+      operationId: string,
+    ): { receipt: InitialSourceExportReceipt; bundle: Buffer };
+  };
+  gateway?: { workspace: string };
+  sealSessionArtifacts?(
+    input: PhysicalArtifactSealInput,
+    runtime: object,
+    signal: AbortSignal,
+  ): Promise<CompletedArtifactSeal>;
+  recoverPendingArtifactSeal?(
+    input: PhysicalArtifactSealInput,
+    claimToken: string,
+    signal: AbortSignal,
+  ): Promise<CompletedArtifactSeal>;
+  exportSuccessorArtifactBundle?(
+    input: {
+      fenceId: string;
+      operationId: string;
+      sourceBranch: string;
+      baseBranch: string;
+      sourceOid: string;
+      maxBytes: number;
+    },
+    signal: AbortSignal,
+  ): Promise<{ receipt: SuccessorArtifactExportReceipt; bundle: Buffer }>;
+  copySuccessorArtifact?(
+    request: ArtifactGenerationRequest,
+    exported: InitialSourceExportReceipt | SuccessorArtifactExportReceipt,
+    bundle: Buffer,
+    signal: AbortSignal,
+  ): Promise<ArtifactGenerationCopyReceipt>;
+  activateSuccessorArtifact?(
+    request: ArtifactGenerationRequest,
+    generationId: string,
+    exported: InitialSourceExportReceipt | SuccessorArtifactExportReceipt,
+    bundle: Buffer,
+    signal: AbortSignal,
+  ): Promise<{ generationId: string; revision: number }>;
+  admitSuccessorArtifact?(
+    request: ArtifactGenerationRequest,
+    binding: ArtifactAdmissionBindingV1,
+    exported: InitialSourceExportReceipt | SuccessorArtifactExportReceipt,
+    bundle: Buffer,
+    signal: AbortSignal,
+  ): Promise<{ reference: ArtifactAdmissionReferenceV1; receipt: unknown }>;
+  inspectStoppedSuccessorOperation?(selected: {
+    sessionId: string;
+    transitionId: string;
+    workflowId: string;
+    attemptId: string;
+    kind: 'initial' | 'fix';
+  }): 'absent' | 'reserved' | 'copy_uncertain' | 'quarantined' | 'verified' | 'active' | null;
   publicationCredentials?: readonly PublicationCredentialRegistration[];
   requireCompletedArtifactSeal?: CompletedPublicationHost['requireCompletedArtifactSeal'];
   inspectCompletedArtifact?: CompletedPublicationHost['inspectCompletedArtifact'];
+  exportCompletedReviewContext?: import('./symposium-physical-artifact-seal.js').PhysicalArtifactSealer['exportCompletedReviewContext'];
+  releaseCompletedReviewStream?: import('./symposium-physical-artifact-seal.js').PhysicalArtifactSealer['releaseCompletedReviewStream'];
+  releaseReadyReviewStream?: import('./symposium-physical-artifact-seal.js').PhysicalArtifactSealer['releaseReadyReviewStream'];
+  releaseStoppedReadyReviewStream?: import('./symposium-physical-artifact-seal.js').PhysicalArtifactSealer['releaseStoppedReadyReviewStream'];
+  trackApplicationTransition?<T>(operation: () => Promise<T>): Promise<T>;
   exportCompletedArtifactBundle?: CompletedPublicationHost['exportCompletedArtifactBundle'];
+  checkCompletedArtifactFile?: import('./symposium-physical-artifact-seal.js').PhysicalArtifactSealer['checkCompletedArtifactFile'];
+  reconcileCompletedArtifactSemantic?: import('./symposium-physical-artifact-seal.js').PhysicalArtifactSealer['reconcileCompletedArtifactSemantic'];
+  getCompletedArtifactSemanticCheckState?: import('./symposium-physical-artifact-seal.js').PhysicalArtifactSealer['getCompletedArtifactSemanticCheckState'];
+  checkCompletedArtifactSemantic?: import('./symposium-physical-artifact-seal.js').PhysicalArtifactSealer['checkCompletedArtifactSemantic'];
+  criterionChecks?: readonly import('./symposium-criterion-receipts.js').CheckDefinition[];
   runSandboxCreation?: SandboxCreationFence;
   ensureSessionArtifacts?: (
     sessionId: string,
   ) => Promise<import('./symposium-session-artifacts.js').SessionArtifactPreparation>;
-  /** Optional until native hard budgets and durable review receipts are available. */
+  /** Optional until trusted execution/artifact review receipts are installed. */
   reviewHost?: SymposiumInteractiveReviewHost;
   /** Optional trusted read-only publication binding. No caller may supply these dependencies. */
   reviewPublication?: Omit<ReviewPublicationDependencies, 'store'>;
   /** Dedicated upstream routing; never inherit the legacy chat gateway. */
   runtimeConfig: OpenShellRuntimeConfig;
   attestationPath: string;
+  admissionBuildSelection?: import('./symposium-owned-runtime-contract.js').SymposiumOwnedBuildSelection;
+  collectSessionAdmissionCandidate?: (
+    binding: { sessionId: string; configRevision: number },
+    assertCurrent: () => void,
+  ) => Promise<import('./symposium-owned-evidence.js').SessionOwnedEvidenceCapability>;
+  collectSessionAdmissionEvidence?: (
+    selection: unknown,
+  ) => Promise<import('./symposium-owned-evidence.js').SessionOwnedEvidenceCapability>;
   collectAdmissionEvidence?: (
     selection: unknown,
   ) => Promise<import('./symposium-production-gate.js').SymposiumProductionAttestation>;
@@ -980,12 +1090,28 @@ export interface SymposiumProductionHost {
     discoverModels?(id: string, revision: number, assertOperator: () => void): Promise<unknown>;
   };
   resolveSeatPolicy?: import('./symposium-owned-seat-policy.js').SymposiumSeatPolicySelector;
+  observeDurableReviewToolResult?: import('./symposium-codex-native.js').OpenAiCodexSeatInput['observeDurableReviewToolResult'];
+  /** Private host-only final RPC input metadata; omitted in ordinary production. */
+  readonly observeNativeTurnInput?: boolean;
+  observeStartupConfig?: import('./symposium-codex-native.js').OpenAiCodexSeatInput['observeStartupConfig'];
+  observePrelaunch?: import('./symposium-codex-native.js').OpenAiCodexSeatInput['observePrelaunch'];
+  readNativeObservation?: (
+    claimToken: string,
+  ) => import('./symposium-native-observations.js').NativeTurnObservation;
   currentProfiles: () => AccountProfiles;
   verifySubscriptionPrivateAuth?: VerifySymposiumSubscriptionAuth;
   assertSubscriptionDispatch?: (input: Parameters<VerifySymposiumSubscriptionAuth>[0]) => void;
   physical: SymposiumProductionPhysicalProof;
   attemptRegistry: SymposiumAttemptRegistry;
+  assertArtifactAdmissionCurrent?: (
+    sessionId: string,
+    reference:
+      | import('@mitzo/protocol').ArtifactAdmissionReferenceV1
+      | import('@mitzo/protocol').ArtifactReaderReferenceV1,
+  ) => void;
   artifactLeaseHost: SqliteArtifactLeaseHost;
+  preinitialSource?: (sessionId: string) => boolean;
+  artifactReady?: (sessionId: string, seatId: string, generation: number) => boolean;
   artifactRequest(
     sessionId: string,
     seatId: string,
@@ -999,6 +1125,34 @@ let symposiumPublication: PublicationRegistration | undefined;
 export function installSymposiumProductionHost(host: SymposiumProductionHost): void {
   if (symposiumProductionHost || symposiumSessionRuntimes.size)
     throw new Error('Symposium production host must be installed once before runtime creation');
+  if (custodianOwnerMode && host.sourceImport?.requireSeal && !host.reviewHost) {
+    const composed = createSymposiumProductionReviewComposition({
+      host,
+      events: eventStore,
+      reviews: symposiumReviewStore,
+      grants: symposiumHostGrants,
+      actionAuthority: symposiumReviewActionAuthority,
+      artifactResultsPath: join(BASE_REPO || '.', '.mitzo', 'events.db'),
+      runtime: (sessionId) => symposiumRuntimeForSession(sessionId),
+      retainedRuntime: (sessionId) => symposiumSessionRuntimes.get(sessionId) ?? null,
+      retireSealedRuntime: (sessionId, runtime) => {
+        const retained = symposiumSessionRuntimes.get(sessionId);
+        if (!retained || retained.runtime !== runtime)
+          throw new Error('Sealed runtime identity changed before retirement');
+        symposiumSessionRuntimes.delete(sessionId);
+      },
+    });
+    try {
+      installSymposiumReaderAuthority({
+        current: composed.assertReaderAdmissionCurrent,
+        staged: composed.assertReaderAdmissionStaged,
+      });
+      host.reviewHost = composed.reviewHost;
+    } catch (error) {
+      composed.close();
+      throw error;
+    }
+  }
   if (host.publicationCredentials?.length) {
     if (
       !host.requireCompletedArtifactSeal ||
@@ -1017,10 +1171,19 @@ export function installSymposiumProductionHost(host: SymposiumProductionHost): v
     symposiumPublication = new PublicationRegistration({
       describeArtifact: async (sessionId, recordId, signal) => {
         const record = symposiumReviewStore.getReviewRecord('user', sessionId, recordId);
-        const intent = eventStore.getSymposiumArtifactSealIntent(sessionId);
+        const fenceId = record && publicationSealFenceForRecord(record);
+        const intent = fenceId && eventStore.getSymposiumArtifactSealByFence(fenceId);
         if (!record || !intent)
           throw new Error('Trusted review record and completed seal required');
         const seal = await host.requireCompletedArtifactSeal!(intent.fenceId, signal);
+        if (
+          seal.sessionId !== sessionId ||
+          seal.fenceId !== intent.fenceId ||
+          seal.git.commit !== record.snapshot.artifactRevision ||
+          seal.git.committedTreeDigest !== record.snapshot.artifactHash ||
+          intent.selection.sessionId !== sessionId
+        )
+          throw new Error('Trusted review record seal changed');
         return {
           recordId: record.recordId,
           recordHash: record.contentHash,
@@ -1062,6 +1225,8 @@ let symposiumRuntimeForSession: (sessionId: string) => SymposiumOrchestrator | n
       baseConfig,
       attestation,
       symposiumProductionHost.physical,
+      undefined,
+      symposiumProductionHost.admissionBuildSelection,
     );
     attestationIdentity = identity;
     return result;
@@ -1092,11 +1257,16 @@ let symposiumRuntimeForSession: (sessionId: string) => SymposiumOrchestrator | n
       store: eventStore,
       profiles: host.currentProfiles(),
       currentProfiles: host.currentProfiles,
+      observeDurableReviewToolResult: host.observeDurableReviewToolResult,
+      observeNativeTurnInput: host.observeNativeTurnInput,
+      observeStartupConfig: host.observeStartupConfig,
+      observePrelaunch: host.observePrelaunch,
       hostGrants: symposiumHostGrants,
       codexStore: getCodexConversationStore(),
       profileProposalStore: symposiumProfileProposalStore,
       accessRequests: symposiumAccessRequests,
       profileCatalogStore: symposiumProfileStore,
+      reviewStore: symposiumReviewStore,
       resolveProviderIdentity: createOpenShellProviderIdentityResolver(runtimeConfig),
       runtimeConfig,
       perSeatSandboxVerified: true,
@@ -1104,8 +1274,26 @@ let symposiumRuntimeForSession: (sessionId: string) => SymposiumOrchestrator | n
       allowedAccountProviders: verified.allowedAccountProviders,
       verifyHostCapability,
       attemptRegistry: host.attemptRegistry,
+      claimIdFactory: (input) =>
+        selectSymposiumApplicationClaim(symposiumReviewStore, input) ?? randomUUID(),
+      assertArtifactAdmissionCurrent: host.assertArtifactAdmissionCurrent,
+      applicationPolicy: createSymposiumApplicationDispatchPolicy({
+        store: symposiumReviewStore,
+        observations: host.attemptRegistry.observations,
+        assertArtifactCurrent(attempt) {
+          const current = host.reviewHost?.currentArtifact({ owner: 'user', sessionId });
+          if (
+            !current ||
+            current.revision !== attempt.artifactRevision ||
+            current.hash !== attempt.artifactHash
+          )
+            throw new Error('Trusted current application artifact unavailable');
+        },
+      }),
       artifactLeaseHost: host.artifactLeaseHost,
       artifactRequest: host.artifactRequest,
+      preinitialSource: host.preinitialSource,
+      artifactReady: host.artifactReady,
       resolveSeatPolicy: host.resolveSeatPolicy,
       runSandboxCreation: host.runSandboxCreation,
       verifiedCodexControllerCommand: SYMPOSIUM_CODEX_CONTROLLER_COMMAND,
@@ -1143,8 +1331,10 @@ const symposiumHostGrants = new SymposiumHostGrants(join(BASE_REPO || '.', '.mit
     const raw = eventStore.getSession(sessionId)?.symposiumConfig;
     return raw ? SymposiumConfigSchema.parse(JSON.parse(raw)) : null;
   },
-  commitConfig: (sessionId, config, expectedRevision) =>
-    eventStore.setSymposiumConfig(sessionId, config, expectedRevision),
+  commitConfig: (sessionId, config, expectedRevision, operation) =>
+    operation
+      ? eventStore.setSymposiumConfig(sessionId, config, expectedRevision, operation)
+      : eventStore.setSymposiumConfig(sessionId, config, expectedRevision),
   getMembership: (sessionId, seatId) =>
     eventStore.getLatestSymposiumMembership(sessionId, seatId) ?? null,
   validateSelection: (seat) => {
@@ -1165,15 +1355,45 @@ const symposiumHostGrants = new SymposiumHostGrants(join(BASE_REPO || '.', '.mit
       classification: 'mixed' as const,
       sourceRefs: contextSourceRefs,
       authority: {
-        filesystem: writable ? ('write' as const) : ('read' as const),
-        tools: writable ? ('write' as const) : ('read' as const),
-        network: 'restricted' as const,
+        filesystem:
+          seat.authorityRequest?.filesystem ?? (writable ? ('write' as const) : ('read' as const)),
+        tools: seat.authorityRequest?.tools ?? (writable ? ('write' as const) : ('read' as const)),
+        network: seat.authorityRequest?.network ?? ('restricted' as const),
       },
     };
   },
 });
+const symposiumReaderAuthorityBridge = createSymposiumReaderAuthorityBridge();
+
+/** Trusted app composition installs the concrete owner once; requests never supply this callback. */
+export function installSymposiumReaderAuthority(
+  assertAdmissionCurrent: Parameters<typeof symposiumReaderAuthorityBridge.install>[0],
+): void {
+  symposiumReaderAuthorityBridge.install(assertAdmissionCurrent);
+}
+
 export function getSymposiumBootstrapDependencies() {
-  return { facts: eventStore, hostGrants: symposiumHostGrants };
+  return {
+    collectSessionAdmissionEvidence: (selection: unknown) => {
+      const collect = symposiumProductionHost?.collectSessionAdmissionEvidence;
+      if (!collect) throw new Error('Original admission evidence owner unavailable');
+      return collect(selection);
+    },
+    reviews: symposiumReviewStore,
+    readNativeObservation: (claimToken: string) => {
+      const read = symposiumProductionHost?.readNativeObservation;
+      if (!read) throw new Error('Original native observation owner unavailable');
+      return read(claimToken);
+    },
+    facts: eventStore,
+    hostGrants: symposiumHostGrants,
+    successorAuthority: createSymposiumSuccessorFixAuthority({
+      workflows: symposiumReviewStore,
+      events: eventStore,
+      grants: symposiumHostGrants,
+    }),
+    readerAuthority: symposiumReaderAuthorityBridge.authority,
+  };
 }
 
 /** Runtime integration installs a verified session-scoped orchestrator, never config-only admission. */
@@ -1197,6 +1417,7 @@ app.use(
     },
   }),
 );
+const symposiumReviewActionAuthority = new SymposiumReviewActionAuthority();
 const symposiumReviewStore = new SymposiumReviewStore(
   join(BASE_REPO || '.', '.mitzo', 'events.db'),
 );
@@ -1244,6 +1465,40 @@ app.use(
   operatorAuthMiddleware,
   createSymposiumReviewRouter({
     store: symposiumReviewStore,
+    authorizeContext(req, res, context) {
+      const session = res.locals.authSession as AuthSession | undefined;
+      if (!session) throw new Error('Interactive authorization required');
+      const retained = custodianRequestAuthority(req);
+      let current = true;
+      const unregister = registerAuthSession(session, () => {
+        current = false;
+      });
+      const assertCurrent = () => {
+        if (!current || res.writableEnded || session.expiresAt <= Date.now())
+          throw new Error('Review request authorization expired');
+        if (retained && custodianRequestAuthority(req)?.id !== retained.id)
+          throw new Error('Custodian review request authority changed');
+      };
+      let release: (() => void) | undefined;
+      try {
+        release = symposiumReviewActionAuthority.bind(
+          context,
+          String(req.body?.action ?? ''),
+          assertCurrent,
+        );
+      } catch (error) {
+        unregister();
+        throw error;
+      }
+      const close = () => {
+        current = false;
+        release?.();
+        unregister();
+      };
+      res.once('close', close);
+      res.once('finish', close);
+      return context;
+    },
     getPublicationPreflight: (sessionId) =>
       symposiumProductionHost?.reviewHost &&
       symposiumProductionHost.reviewPublication &&
@@ -1274,6 +1529,8 @@ app.use(
   operatorAuthMiddleware,
   createSymposiumDirectorRouter({
     store: eventStore,
+    artifactReady: (sessionId, seatId, generation) =>
+      symposiumProductionHost?.artifactReady?.(sessionId, seatId, generation) ?? true,
     getRuntime: (sessionId) => symposiumRuntimeForSession(sessionId),
     getSafetyOrchestrator: () => symposiumSafetyOrchestrator,
     profileBindingEnforced: true,
@@ -2064,6 +2321,21 @@ app.post(
   operatorAuthMiddleware,
   ownedEvidenceHandler(() => symposiumProductionHost?.collectAdmissionEvidence),
 );
+app.post(
+  '/api/symposium/sessions/:sessionId/admission-evidence',
+  operatorAuthMiddleware,
+  sessionOwnedEvidenceHandler(
+    () => symposiumProductionHost?.collectSessionAdmissionCandidate,
+    (req, res) =>
+      sessionEvidenceRequestAuthority(req, res, {
+        session: res.locals.authSession as AuthSession | undefined,
+        hasSession: (id) =>
+          (!custodianOwnerMode || retainedCustodianSessions.has(id)) &&
+          eventStore.getSession(id)?.sessionType === 'symposium',
+        register: registerAuthSession,
+      }),
+  ),
+);
 app.get('/api/symposium/personal/connections', operatorAuthMiddleware, (_req, res) => {
   res.setHeader('Cache-Control', 'no-store');
   const service = symposiumProductionHost?.personalConnections;
@@ -2148,7 +2420,10 @@ app.post(
         assertOperator,
       );
       assertOperator();
-      res.json(result);
+      const status = (result as { status?: unknown })?.status;
+      res
+        .status(status === 'failed' ? 422 : status === 'reconciliation_required' ? 409 : 200)
+        .json(result);
     } catch {
       res.status(409).json({
         error:

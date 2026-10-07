@@ -1,5 +1,17 @@
+import { EventEmitter } from 'node:events';
+import { PassThrough } from 'node:stream';
+import {
+  createSymposiumApplicationDispatchPolicy,
+  selectSymposiumApplicationClaim,
+} from '../symposium-application-dispatch.js';
+import { SymposiumReviewStore, type ApplicationAttempt } from '../symposium-review-workflows.js';
+import { SymposiumNativeObservations } from '../symposium-native-observations.js';
 import Database from 'better-sqlite3';
-import { SymposiumWorkspaceLifecycle } from '../symposium-workspace-lifecycle.js';
+import { createHash } from 'node:crypto';
+import {
+  SandboxCreationPreflightError,
+  SymposiumWorkspaceLifecycle,
+} from '../symposium-workspace-lifecycle.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { mkdtempSync, mkdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -25,10 +37,13 @@ import {
 } from '../openshell-runtime.js';
 import {
   admitSymposiumSeatDispatch,
+  supportsSymposiumSeatCapability,
   symposiumSeatRuntimeId,
   type SymposiumDispatchFacts,
 } from '../symposium-seat-runtime.js';
-import type { SymposiumSeatExecution } from '../symposium-orchestrator.js';
+import { SymposiumOrchestrator, type SymposiumSeatExecution } from '../symposium-orchestrator.js';
+import { EventStore } from '../event-store.js';
+import { symposiumReconciliationFailureCode } from '../symposium-reconciliation-error.js';
 import { SymposiumAttemptRegistry } from '../symposium-attempt-registry.js';
 import { initializeSymposiumNativeHost } from '../symposium-native-host.js';
 import { SymposiumOpenShellSeatExecutor } from '../symposium-openshell-seat-executor.js';
@@ -45,6 +60,11 @@ import {
   createOpenShellProviderIdentityResolver,
   createSymposiumSessionRuntime,
 } from '../symposium-session-runtime.js';
+
+const reconciliationWarn = vi.hoisted(() => vi.fn());
+vi.mock('../logger.js', () => ({
+  createLogger: () => ({ debug: vi.fn(), info: vi.fn(), warn: reconciliationWarn, error: vi.fn() }),
+}));
 
 const profiles = new AccountProfiles([
   {
@@ -207,6 +227,343 @@ function fixture() {
     },
   };
 }
+
+function applicationFixture(work: ReturnType<typeof fixture>) {
+  const store = new SymposiumReviewStore(':memory:');
+  const hash = 'a'.repeat(64);
+  const selected = {
+    seatId: seat.id,
+    role: 'reviewer',
+    selectionId: 'selection',
+    policyRevision: '1',
+    profileId: 'reviewer',
+    profileRevision: 1,
+    accountId: seat.accountBinding.accountId,
+    model: seat.accountBinding.model,
+  };
+  store.create({
+    workflowId: 'policy',
+    owner: 'user',
+    sessionId: work.input.sessionId,
+    implementation: {
+      version: 1,
+      resultId: 'result',
+      attemptId: 'writer',
+      inputRevision: 'base',
+      inputHash: hash,
+      artifactRevision: 'commit',
+      artifactHash: hash,
+      summary: 'fixture completion',
+      evidenceRefs: ['fixture'],
+      completedAt: 1,
+    },
+    implementer: { ...selected, seatId: 'writer', role: 'coder', selectionId: 'writer-selection' },
+    reviewer: selected,
+    acceptanceCriteria: ['criterion'],
+    limits: {
+      version: 1,
+      mode: 'application',
+      maxHostTurns: 2,
+      maxReviewCycles: 1,
+      deadlineAt: Date.now() + 60000,
+      noProgressLimit: 1,
+    },
+  });
+  const request: ApplicationAttempt = {
+    workflowId: 'policy',
+    attemptId: 'review',
+    policyReservationId: 'reservation',
+    kind: 'review',
+    actorSeatId: seat.id,
+    artifactRevision: 'commit',
+    artifactHash: hash,
+    binding: {
+      claimToken: work.input.claimToken,
+      deliveryId: work.input.deliveryId,
+      contentHash: createHash('sha256').update(work.input.content).digest('hex'),
+      membershipGeneration: 2,
+      configRevision: 4,
+      accountId: seat.accountBinding.accountId,
+      model: seat.accountBinding.model,
+      profileId: 'reviewer',
+      profileRevision: 'p1',
+      accountProfileRevision: seat.accountBinding.profileRevision,
+      authorityGrant: { grantId: 'authority', revision: 1 },
+      contextGrant: { grantId: 'context', revision: 1 },
+    },
+  };
+  const db = new Database(':memory:');
+  const observations = new SymposiumNativeObservations(db, () => undefined);
+  const assertArtifactCurrent = vi.fn();
+  const policy = createSymposiumApplicationDispatchPolicy({
+    store,
+    observations,
+    assertArtifactCurrent,
+  });
+  return {
+    store,
+    request,
+    observations,
+    policy,
+    assertArtifactCurrent,
+    close: () => {
+      store.close();
+      db.close();
+    },
+  };
+}
+it('binds successor provenance into runtime identity and the final artifact fence', () => {
+  const work = fixture();
+  const artifact = {
+    version: 1 as const,
+    transitionId: 'transition',
+    artifactGenerationId: 'child',
+    pointerRevision: 1,
+    bindingDigest: 'a'.repeat(64),
+  };
+  const child = {
+    ...work.input,
+    provenance: { ...work.input.provenance, version: 3 as const, artifact },
+  } as SymposiumSeatExecution;
+  const fence = vi.fn();
+  const facts = {
+    ...work.facts,
+    assertSymposiumArtifactWorkAllowed: fence,
+    getSymposiumArtifactReference: () => artifact,
+  };
+  expect(admitSymposiumSeatDispatch(facts, profiles, child, hostGrants).kind).toBe('openai-api');
+  expect(fence).toHaveBeenCalledWith(child.sessionId, artifact);
+  expect(() =>
+    admitSymposiumSeatDispatch(
+      { ...facts, getSymposiumArtifactReference: () => null },
+      profiles,
+      child,
+      hostGrants,
+    ),
+  ).toThrow(/artifact reference/i);
+  expect(symposiumSeatRuntimeId(child)).not.toBe(symposiumSeatRuntimeId(work.input));
+  const other = {
+    ...child,
+    provenance: {
+      ...child.provenance,
+      artifact: { ...artifact, artifactGenerationId: 'different' },
+    },
+  } as SymposiumSeatExecution;
+  expect(symposiumSeatRuntimeId(other)).not.toBe(symposiumSeatRuntimeId(child));
+});
+it('requires the physical generation owner before setting up successor native work', async () => {
+  const work = fixture();
+  const artifact = {
+    version: 1 as const,
+    transitionId: 'transition',
+    artifactGenerationId: 'child',
+    pointerRevision: 1,
+    bindingDigest: 'a'.repeat(64),
+  };
+  const input = {
+    ...work.input,
+    provenance: { ...work.input.provenance, version: 3 as const, artifact },
+  } as SymposiumSeatExecution;
+  const ensure = vi.fn();
+  const executor = new SymposiumOpenShellSeatExecutor({
+    facts: work.facts,
+    profiles,
+    hostGrants,
+    owner: { ensure, readOnlyEnforced: { openaiApi: true, claudeVertex: false } },
+    recordAccepted: () => true,
+    openNative: vi.fn(),
+  });
+  await expect(executor.execute(input)).rejects.toThrow(/artifact admission owner/i);
+  expect(ensure).not.toHaveBeenCalled();
+});
+it('retains the same artifact reference in native preparation before and during execution', async () => {
+  const work = fixture();
+  const artifact = {
+    version: 1 as const,
+    transitionId: 'transition',
+    artifactGenerationId: 'child',
+    pointerRevision: 1,
+    bindingDigest: 'a'.repeat(64),
+  };
+  const input = {
+    ...work.input,
+    provenance: { ...work.input.provenance, version: 3 as const, artifact },
+  } as SymposiumSeatExecution;
+  const prepare = vi.fn();
+  const executor = new SymposiumOpenShellSeatExecutor({
+    facts: { ...work.facts, getSymposiumArtifactReference: () => artifact },
+    profiles,
+    hostGrants,
+    attemptRegistry: { prepare } as never,
+    assertArtifactAdmissionCurrent: () => undefined,
+    owner: {
+      ensure: vi.fn().mockRejectedValue(Error('stop after prepare')),
+      readOnlyEnforced: { openaiApi: true, claudeVertex: false },
+    },
+    recordAccepted: () => true,
+    openNative: vi.fn(),
+  });
+  executor.prepare({ sessionId: input.sessionId, claimToken: input.claimToken, artifact });
+  await expect(executor.execute(input)).rejects.toThrow(/stop after prepare/);
+  expect(prepare).toHaveBeenCalledTimes(2);
+  for (const call of prepare.mock.calls)
+    expect(call[0]).toEqual({ sessionId: input.sessionId, claimToken: input.claimToken, artifact });
+});
+it('selects only the reserved recipient claim and fences ordinary work in an application session', () => {
+  const work = fixture();
+  const f = applicationFixture(work);
+  const input = {
+    sessionId: work.input.sessionId,
+    deliveryId: work.input.deliveryId,
+    seatId: seat.id,
+  };
+  try {
+    expect(() => selectSymposiumApplicationClaim(f.store, input)).toThrow(/reservation/);
+    expect(
+      selectSymposiumApplicationClaim(f.store, { ...input, sessionId: 'ordinary' }),
+    ).toBeNull();
+    f.store.reserveApplicationAttempt(f.request);
+    expect(selectSymposiumApplicationClaim(f.store, input)).toBe(work.input.claimToken);
+    expect(() => selectSymposiumApplicationClaim(f.store, { ...input, seatId: 'other' })).toThrow(
+      /reservation/,
+    );
+    f.policy.consume(work.input);
+    expect(() => selectSymposiumApplicationClaim(f.store, input)).toThrow(/dispatched/);
+  } finally {
+    f.close();
+  }
+});
+it('binds the persisted application reservation to every actual native identity field', () => {
+  const work = fixture();
+  const f = applicationFixture(work);
+  try {
+    expect(() => f.policy.assertCurrent(work.input)).toThrow(/reservation/i);
+    f.store.reserveApplicationAttempt(f.request);
+    expect(() => f.policy.assertCurrent(work.input)).not.toThrow();
+    for (const changed of [
+      { ...work.input, deliveryId: 'other' },
+      { ...work.input, content: 'Edited after reservation' },
+      { ...work.input, sessionId: 'other' },
+      { ...work.input, claimToken: 'other' },
+      { ...work.input, provenance: { ...work.input.provenance, membershipGeneration: 3 } },
+      { ...work.input, seat: { ...seat, authorityGrant: { ...seat.authorityGrant, revision: 2 } } },
+    ])
+      expect(() => f.policy.assertCurrent(changed)).toThrow();
+    f.policy.consume(work.input);
+    expect(() => f.policy.consume(work.input)).toThrow(/already_dispatched/);
+    expect(f.store.get('policy')?.hostTurns).toBe(1);
+  } finally {
+    f.close();
+  }
+});
+it('requires exact native completion independently of unknown usage and stop state', () => {
+  const work = fixture();
+  const f = applicationFixture(work);
+  try {
+    f.store.reserveApplicationAttempt(f.request);
+    f.policy.consume(work.input);
+    f.observations.accept({
+      claimToken: work.input.claimToken,
+      sessionId: work.input.sessionId,
+      seatId: seat.id,
+      membershipGeneration: 2,
+      accountBinding: seat.accountBinding,
+      provenance: work.input.provenance,
+      providerThreadId: 'thread',
+      providerTurnId: 'turn',
+    });
+    f.policy.accepted(work.input, 'thread', 'turn');
+    expect(() => f.policy.completed(work.input)).toThrow(/terminal/i);
+    f.store.stopApplication('policy', 'user', 'user_stop');
+    f.observations.terminal({
+      claimToken: work.input.claimToken,
+      providerThreadId: 'thread',
+      providerTurnId: 'turn',
+      status: 'completed',
+    });
+    expect(() => f.policy.completed(work.input)).not.toThrow();
+    expect(f.store.get('policy')?.applicationAttempts[0].terminalOutcome).toBe('completed');
+    expect(f.observations.get(work.input.claimToken)?.usageStatus).toBe('unknown');
+  } finally {
+    f.close();
+  }
+});
+it('requests exact cancellation when persisted policy stops or its deadline expires', async () => {
+  vi.useFakeTimers();
+  try {
+    for (const reason of ['user_stop', 'deadline_exceeded'] as const) {
+      const work = fixture();
+      const f = applicationFixture(work);
+      try {
+        f.store.reserveApplicationAttempt(f.request);
+        f.policy.consume(work.input);
+        const cancel = vi.fn();
+        const dispose = f.policy.watch!(work.input, cancel);
+        if (reason === 'user_stop') f.store.stopApplication('policy', 'user', reason);
+        else vi.advanceTimersByTime(60000);
+        await vi.advanceTimersByTimeAsync(250);
+        expect(cancel).toHaveBeenCalledTimes(1);
+        expect(f.store.get('policy')?.decisionCode).toBe(reason);
+        expect(f.store.get('policy')?.applicationAttempts[0].settled).toBe(false);
+        dispose();
+        await vi.advanceTimersByTimeAsync(1000);
+        expect(cancel).toHaveBeenCalledTimes(1);
+      } finally {
+        f.close();
+      }
+    }
+  } finally {
+    vi.useRealTimers();
+  }
+});
+it('reconciles a known interrupted operation without settling unknown native execution', () => {
+  const work = fixture();
+  const f = applicationFixture(work);
+  try {
+    f.store.reserveApplicationAttempt(f.request);
+    f.policy.consume(work.input);
+    f.policy.reconcile?.(work.input);
+    expect(f.store.get('policy')?.applicationAttempts[0].settled).toBe(false);
+    f.observations.accept({
+      claimToken: work.input.claimToken,
+      sessionId: work.input.sessionId,
+      seatId: seat.id,
+      membershipGeneration: 2,
+      accountBinding: seat.accountBinding,
+      provenance: work.input.provenance,
+      providerThreadId: 'thread',
+      providerTurnId: 'turn',
+    });
+    f.observations.terminal({
+      claimToken: work.input.claimToken,
+      providerThreadId: 'thread',
+      providerTurnId: 'turn',
+      status: 'interrupted',
+    });
+    f.policy.reconcile?.(work.input);
+    expect(f.store.get('policy')?.applicationAttempts[0]).toMatchObject({
+      settled: true,
+      terminalOutcome: 'cancelled',
+    });
+    expect(f.store.get('policy')?.hostTurns).toBe(1);
+  } finally {
+    f.close();
+  }
+});
+it('does not let artifact-check failures reach policy consumption', () => {
+  const work = fixture();
+  const f = applicationFixture(work);
+  try {
+    f.store.reserveApplicationAttempt(f.request);
+    f.assertArtifactCurrent.mockImplementation(() => {
+      throw new Error('Artifact changed');
+    });
+    expect(() => f.policy.consume(work.input)).toThrow('Artifact changed');
+    expect(f.store.get('policy')?.applicationAttempts[0].dispatched).toBe(false);
+  } finally {
+    f.close();
+  }
+});
 
 it('checks the durable seal at final dispatch even for an already claimed recipient', () => {
   const { facts, input } = fixture();
@@ -670,6 +1027,138 @@ describe('last native Symposium dispatch fence', () => {
     );
     expect(send).not.toHaveBeenCalled();
   });
+  it('checks application policy before setup and consumes it only at final native dispatch', async () => {
+    const work = fixture();
+    const order: string[] = [];
+    const applicationPolicy = {
+      assertCurrent: () => {
+        order.push('policy-check');
+      },
+      consume: () => {
+        order.push('policy-consumed');
+      },
+      accepted: (_input: SymposiumSeatExecution, thread: string, turn: string) => {
+        order.push(`accepted:${thread}:${turn}`);
+      },
+      completed: () => {
+        order.push('completed');
+      },
+    };
+    const executor = new SymposiumOpenShellSeatExecutor({
+      facts: work.facts,
+      profiles,
+      hostGrants,
+      applicationPolicy,
+      owner: {
+        ensure: async () => {
+          order.push('setup');
+          return {
+            sandboxName: 'shared',
+            workdir: '/sandbox/workspaces/mgmt',
+            cli: 'openshell',
+            gateway: 'test-gateway',
+            workspace: 'test-workspace',
+            gatewayInsecure: false,
+          };
+        },
+        readOnlyEnforced: { openaiApi: true, claudeVertex: false },
+      },
+      recordAccepted: () => {
+        order.push('event-receipt');
+        return true;
+      },
+      openNative: async () => ({
+        run: async (_input, callbacks) => {
+          callbacks.beforeDispatch('thread-1');
+          order.push('send');
+          callbacks.accepted('thread-1', 'turn-1');
+          return { providerThreadId: 'thread-1', content: 'reviewed' };
+        },
+        cancel: async () => undefined,
+      }),
+    });
+    await executor.execute(work.input);
+    expect(order[0]).toBe('policy-check');
+    expect(order.filter((value) => value === 'policy-consumed')).toHaveLength(1);
+    expect(order.indexOf('policy-consumed')).toBeLessThan(order.indexOf('send'));
+    expect(order.indexOf('event-receipt')).toBeLessThan(order.indexOf('accepted:thread-1:turn-1'));
+    expect(order.at(-1)).toBe('completed');
+  });
+  it('blocks stopped application work before sandbox setup and after native initialization', async () => {
+    for (const stopDuringInitialization of [false, true]) {
+      const work = fixture();
+      let stopped = !stopDuringInitialization;
+      const send = vi.fn();
+      const ensure = vi.fn(async () => ({
+        sandboxName: 'shared',
+        workdir: '/sandbox/workspaces/mgmt',
+        cli: 'openshell',
+        gateway: 'test-gateway',
+        workspace: 'test-workspace',
+        gatewayInsecure: false,
+      }));
+      const consume = vi.fn();
+      const executor = new SymposiumOpenShellSeatExecutor({
+        facts: work.facts,
+        profiles,
+        hostGrants,
+        applicationPolicy: {
+          assertCurrent: () => {
+            if (stopped) throw new Error('Application run stopped');
+          },
+          consume,
+          accepted: () => undefined,
+          completed: () => undefined,
+        },
+        owner: { ensure, readOnlyEnforced: { openaiApi: true, claudeVertex: false } },
+        recordAccepted: () => true,
+        openNative: async () => {
+          stopped = true;
+          return {
+            run: async (_input, callbacks) => {
+              callbacks.beforeDispatch('thread-1');
+              send();
+              return { providerThreadId: 'thread-1', content: 'unexpected' };
+            },
+            cancel: async () => undefined,
+          };
+        },
+      });
+      await expect(executor.execute(work.input)).rejects.toThrow('Application run stopped');
+      expect(send).not.toHaveBeenCalled();
+      expect(consume).not.toHaveBeenCalled();
+      expect(ensure).toHaveBeenCalledTimes(stopDuringInitialization ? 1 : 0);
+    }
+  });
+  it('rejects a first-turn result whose thread differs from the accepted receipt', async () => {
+    const work = fixture();
+    const executor = new SymposiumOpenShellSeatExecutor({
+      facts: work.facts,
+      profiles,
+      hostGrants,
+      owner: {
+        ensure: async () => ({
+          sandboxName: 'shared',
+          workdir: '/sandbox/workspaces/mgmt',
+          cli: 'openshell',
+          gateway: 'test-gateway',
+          workspace: 'test-workspace',
+          gatewayInsecure: false,
+        }),
+        readOnlyEnforced: { openaiApi: true, claudeVertex: false },
+      },
+      recordAccepted: () => true,
+      openNative: async () => ({
+        run: async (_input, callbacks) => {
+          callbacks.beforeDispatch('accepted-thread');
+          callbacks.accepted('accepted-thread', 'turn');
+          return { providerThreadId: 'unrelated-thread', content: 'wrong' };
+        },
+        cancel: async () => undefined,
+      }),
+    });
+    await expect(executor.execute(work.input)).rejects.toThrow(/thread identity/);
+  });
   it('rechecks the host grant after sandbox setup and records only exact accepted turns', async () => {
     const work = fixture();
     let permitted = true;
@@ -798,6 +1287,10 @@ describe('last native Symposium dispatch fence', () => {
     expect(options?.runtimeConfig).toEqual({
       web_search: 'disabled',
       'features.use_legacy_landlock': true,
+      'features.shell_tool': false,
+      'features.unified_exec': false,
+      'features.code_mode': false,
+      'features.code_mode_host': false,
     });
     expect(controllerProof).toHaveBeenCalledOnce();
   });
@@ -1324,7 +1817,10 @@ describe('last native Symposium dispatch fence', () => {
     });
     await expect(
       owner.ensure('symposium', 'reviewer', new AbortController().signal),
-    ).rejects.toThrow('outside the host attestation');
+    ).rejects.toMatchObject({
+      code: 'SEAT_CAPABILITY_RECHECK_FAILED',
+      cause: { message: 'Seat provider profile is outside the host attestation' },
+    });
     expect(registry.getSymposiumSeatSandbox('symposium', 'reviewer', 2)).toBeUndefined();
     expect(managerFactory).not.toHaveBeenCalled();
     expect(verifyHostCapability).toHaveBeenCalledTimes(1);
@@ -1506,6 +2002,82 @@ describe('last native Symposium dispatch fence', () => {
     currentMembership = { ...membership, reconciliation: 'pending' };
     expect(() => snapshot('retained')).toThrow(/membership/i);
     expect(() => retained.verify()).toThrow(/membership/i);
+  });
+  it('ignores a prior generation admission only while inspecting a restored candidate', () => {
+    const personalProfiles = new AccountProfiles(
+      [
+        {
+          id: 'personal',
+          label: 'Personal',
+          provider: 'openai-codex',
+          nativeAuth: 'sandbox-chatgpt',
+          email: 'personal@example.test',
+          planType: 'plus',
+          sandboxProvider: 'codex-personal',
+          sandboxProviderId: 'codex-object',
+          sandboxProviderType: 'codex',
+          models: [{ id: 'luna', label: 'Luna' }],
+        },
+      ],
+      { codexEnabled: true },
+    );
+    const cases = [
+      { selectedSeat: seat, selectedProfiles: profiles, physicalType: 'openai' },
+      {
+        selectedSeat: {
+          ...seat,
+          model: 'luna',
+          accountBinding: AccountBindingSchema.parse(personalProfiles.resolve('personal', 'luna')),
+        },
+        selectedProfiles: personalProfiles,
+        physicalType: 'codex',
+      },
+    ];
+    for (const { selectedSeat, selectedProfiles, physicalType } of cases) {
+      let restored: SymposiumMembershipRecord = {
+        ...membership,
+        generation: 3,
+        reconciliation: 'pending',
+      };
+      let currentAdmission = {
+        ...admission,
+        membershipGeneration: 1,
+        provider: selectedSeat.accountBinding.provider,
+        accountId: selectedSeat.accountBinding.accountId,
+        model: selectedSeat.accountBinding.model,
+        accountProfileRevision: selectedSeat.accountBinding.profileRevision,
+      };
+      const facts: SymposiumDispatchFacts = {
+        assertSymposiumArtifactWorkAllowed: () => {},
+        getActiveSymposiumConfig: () => ({ ...config, seats: [selectedSeat] }),
+        getLatestSymposiumMembership: () => restored,
+        getLatestSymposiumAdmission: () => currentAdmission,
+        getSymposiumDelivery: () => undefined,
+      };
+      const snapshot = (phase: 'candidate' | 'reconciling' | 'retained' | 'confirmed') =>
+        snapshotSymposiumSeatProvider(
+          'symposium',
+          'reviewer',
+          facts,
+          selectedProfiles,
+          hostGrants,
+          (name, id) => ({ name, id, type: physicalType, workspace: 'default' }),
+          'default',
+          phase,
+        );
+      expect(snapshot('candidate').generation).toBe(3);
+      expect(() => snapshot('reconciling')).toThrow(/admission/i);
+      restored = { ...restored, reconciliation: 'confirmed' };
+      expect(() => snapshot('retained')).toThrow(/admission/i);
+      expect(() => snapshot('confirmed')).toThrow(/admission/i);
+      restored = { ...restored, reconciliation: 'pending' };
+      currentAdmission = { ...currentAdmission, membershipGeneration: 3, decision: 'refused' };
+      expect(() => snapshot('candidate')).toThrow(/admission/i);
+      currentAdmission = { ...currentAdmission, decision: 'admitted', accountId: 'other-account' };
+      expect(() => snapshot('candidate')).toThrow(/admission/i);
+      currentAdmission = { ...currentAdmission, accountId: selectedSeat.accountBinding.accountId };
+      expect(snapshot('reconciling').generation).toBe(3);
+    }
   });
   it('does not create a pending seat sandbox until its provider admission is recorded', async () => {
     // The admission changes between the two ensure attempts in this test.
@@ -1929,7 +2501,14 @@ describe('last native Symposium dispatch fence', () => {
     const work = fixture();
     const accepted: string[] = [];
     const recordEvent = vi.fn();
+    const consume = vi.fn();
     const runtime = createSymposiumSessionRuntime({
+      applicationPolicy: {
+        assertCurrent: () => undefined,
+        consume,
+        accepted: () => undefined,
+        completed: () => undefined,
+      },
       sessionId: 'symposium',
       store: { ...work.facts, ...seatSandboxRegistry() } as never,
       recordEvent,
@@ -1980,6 +2559,7 @@ describe('last native Symposium dispatch fence', () => {
       content: 'done',
     });
     expect(accepted).toEqual(['turn']);
+    expect(consume).toHaveBeenCalledWith(work.input);
     expect(recordEvent).toHaveBeenCalledWith(work.input, { type: 'symposium_attempt_accepted' });
     expect(recordEvent).toHaveBeenCalledWith(work.input, { type: 'symposium_attempt_released' });
     expect(runtime.owner).toBeDefined();
@@ -2083,6 +2663,59 @@ describe('last native Symposium dispatch fence', () => {
       effort: null,
       readOnly: true,
     });
+  });
+  it.each(['agent', 'domain-specialist', 'reviewer'])(
+    'uses granted permissions for explicit %s seats while preserving role attribution',
+    (role) => {
+      for (const mode of ['read', 'write'] as const) {
+        const work = fixture();
+        const custom: SeatConfig = {
+          ...seat,
+          role,
+          authorityRequest: { filesystem: mode, tools: mode, network: 'restricted' },
+          authorityGrant: { ...seat.authorityGrant, filesystem: mode, tools: mode },
+        };
+        work.setConfig({ ...config, seats: [custom] });
+        const provenance = { ...work.input.provenance, seatRole: role };
+        expect(
+          admitSymposiumSeatDispatch(
+            work.facts,
+            profiles,
+            { ...work.input, seat: custom, provenance },
+            hostGrants,
+          ),
+        ).toMatchObject({ readOnly: mode === 'read', provider: 'openai-work' });
+        expect(supportsSymposiumSeatCapability(custom, new Set(['reviewer']))).toBe(
+          mode === 'read',
+        );
+        expect(supportsSymposiumSeatCapability(custom, new Set(['implementer']))).toBe(
+          mode === 'write',
+        );
+      }
+    },
+  );
+  it('dispatches with the approved read ceiling even when the custom agent requested write', () => {
+    const work = fixture();
+    const custom: SeatConfig = {
+      ...seat,
+      role: 'agent',
+      authorityRequest: { filesystem: 'write', tools: 'write', network: 'restricted' },
+    };
+    work.setConfig({ ...config, seats: [custom] });
+    expect(
+      admitSymposiumSeatDispatch(
+        work.facts,
+        profiles,
+        {
+          ...work.input,
+          seat: custom,
+          provenance: { ...work.input.provenance, seatRole: 'agent' },
+        },
+        hostGrants,
+      ),
+    ).toMatchObject({ readOnly: true });
+    expect(supportsSymposiumSeatCapability(custom, new Set(['implementer']))).toBe(false);
+    expect(supportsSymposiumSeatCapability(custom, new Set(['reviewer']))).toBe(true);
   });
   it('rejects revocation or provider refusal that happens after the earlier claim', () => {
     const work = fixture();
@@ -2198,6 +2831,7 @@ describe('per-seat artifact admission', () => {
       creationFence?: boolean;
       revokeBeforeDispatch?: boolean;
     } = {},
+    store?: EventStore,
   ) {
     const root = mkdtempSync(join(tmpdir(), 'symposium-owner-artifact-'));
     const lifecycle = new SymposiumWorkspaceLifecycle(join(root, 'fence.json'), () => {});
@@ -2242,7 +2876,7 @@ describe('per-seat artifact admission', () => {
       };
     });
     const configurations: BoundOpenShellRuntimeConfig[] = [];
-    const registry = seatSandboxRegistry();
+    const registry = store ?? seatSandboxRegistry();
     let phase: 'Ready' | 'Stopped' | 'Absent' = 'Ready';
     const stop = vi.fn(async () => {
       phase = 'Stopped';
@@ -2256,7 +2890,7 @@ describe('per-seat artifact admission', () => {
     const owner = () =>
       new SymposiumPerSeatSandboxOwner({
         sessionId: 'symposium',
-        facts: fixture().facts,
+        facts: store ?? fixture().facts,
         profiles,
         hostGrants,
         seatSandboxRegistry: registry,
@@ -2449,7 +3083,12 @@ describe('per-seat artifact admission', () => {
     try {
       await expect(
         state.owner().ensure('symposium', 'reviewer', new AbortController().signal),
-      ).rejects.toThrow('seat revoked at dispatch');
+      ).rejects.toMatchObject({
+        cause: {
+          code: 'SEAT_CAPABILITY_RECHECK_FAILED',
+          cause: { message: 'seat revoked at dispatch' },
+        },
+      });
       expect(state.ensure).not.toHaveBeenCalled();
       await expect(state.lifecycle.cleanup(async () => 'available')).resolves.toBe('available');
       options.revokeBeforeDispatch = false;
@@ -2512,7 +3151,14 @@ describe('per-seat artifact admission', () => {
       try {
         await expect(
           state.owner().ensure('symposium', 'reviewer', new AbortController().signal),
-        ).rejects.toThrow(options.failCreate ? 'create response lost' : 'physical mount mismatch');
+        ).rejects.toMatchObject(
+          options.failCreate
+            ? { message: 'create response lost' }
+            : {
+                code: 'SEAT_MOUNT_VERIFICATION_FAILED',
+                cause: { message: 'physical mount mismatch' },
+              },
+        );
         await expect(
           state.owner().ensure('symposium', 'reviewer', new AbortController().signal),
         ).rejects.toThrow('reservation changed');
@@ -2524,10 +3170,111 @@ describe('per-seat artifact admission', () => {
     }
   });
 
+  it.each(['direct', 'preflight-wrapper'] as const)(
+    'logs only the safe artifact failure code (%s) and retains undispatched admission ownership',
+    async (wrapper) => {
+      const root = mkdtempSync(join(tmpdir(), 'symposium-predispatch-diagnostic-'));
+      const store = new EventStore(join(root, 'events.sqlite'));
+      const state = setup('writer', {}, store);
+      const secretFailure = new Error('private credential and host path must stay internal');
+      vi.spyOn(state.host, 'verifyDriverConfig').mockRejectedValueOnce(secretFailure);
+      const release = vi.spyOn(state.host, 'release');
+      let propagated: unknown;
+      reconciliationWarn.mockClear();
+      try {
+        store.upsertSession({ sessionId: 'symposium', accountBinding: seat.accountBinding });
+        store.setSymposiumConfig('symposium', config);
+        const orchestrator = new SymposiumOrchestrator({
+          store,
+          executors: {},
+          reconcileProviders: async () => {
+            try {
+              await state.owner().ensure('symposium', 'reviewer', new AbortController().signal);
+            } catch (error) {
+              propagated = error;
+              throw wrapper === 'preflight-wrapper'
+                ? new SandboxCreationPreflightError(error)
+                : error;
+            }
+          },
+        });
+        await orchestrator.transitionMembership({
+          sessionId: 'symposium',
+          seatId: 'reviewer',
+          action: 'admit',
+          expectedGeneration: 0,
+          configRevision: 4,
+          actor: 'director',
+          reason: 'initial',
+          idempotencyKey: 'initial',
+        });
+        orchestrator.recordProviderAdmission({
+          sessionId: 'symposium',
+          seatId: 'reviewer',
+          decision: 'admitted',
+          idempotencyKey: 'provider-initial',
+        });
+        expect(
+          (await orchestrator.reconcileMembership('symposium', 'reviewer', 1)).reconciliation,
+        ).toBe('recovery_required');
+        expect(propagated).toMatchObject({
+          code: 'SEAT_ARTIFACT_VERIFICATION_FAILED',
+          message: 'SEAT_ARTIFACT_VERIFICATION_FAILED',
+          cause: secretFailure,
+        });
+        expect(reconciliationWarn).toHaveBeenCalledWith(
+          'Symposium membership cleanup requires recovery',
+          {
+            sessionId: 'symposium',
+            seatId: 'reviewer',
+            reason: 'admission_reconcile_failed',
+            failureCode: 'SEAT_ARTIFACT_VERIFICATION_FAILED',
+          },
+        );
+        expect(JSON.stringify(reconciliationWarn.mock.calls)).not.toContain(secretFailure.message);
+        expect(JSON.stringify(propagated)).not.toContain(secretFailure.message);
+        expect(store.getSymposiumSeatSandbox('symposium', 'reviewer', 1)).toMatchObject({
+          state: 'reserved',
+          creationStarted: false,
+          creationCompleted: false,
+          physicalId: null,
+        });
+        expect(state.configurations).toHaveLength(0);
+        expect(state.ensure).not.toHaveBeenCalled();
+        expect(release).not.toHaveBeenCalled();
+        const leases = new Database(join(state.root, 'leases.sqlite'), { readonly: true });
+        try {
+          expect(
+            leases
+              .prepare('SELECT creation_started, sandbox_id FROM symposium_artifact_leases')
+              .all(),
+          ).toEqual([{ creation_started: 0, sandbox_id: null }]);
+        } finally {
+          leases.close();
+        }
+      } finally {
+        state.host.close();
+        store.close();
+        rmSync(state.root, { recursive: true, force: true });
+        rmSync(root, { recursive: true, force: true });
+      }
+    },
+  );
+
+  it('does not trust failure codes attached to external errors', () => {
+    const external = Object.assign(new Error('private external failure'), {
+      code: 'SEAT_ARTIFACT_VERIFICATION_FAILED',
+    });
+    expect(symposiumReconciliationFailureCode(external)).toBe('RECONCILIATION_FAILED');
+    expect(symposiumReconciliationFailureCode({ code: external.code })).toBe(
+      'RECONCILIATION_FAILED',
+    );
+  });
+
   it.each([
-    ['failDriverConfig', 'driver config unavailable'],
-    ['failManager', 'manager construction failed'],
-    ['failFinalCapability', 'host capability changed'],
+    ['failDriverConfig', 'SEAT_ARTIFACT_VERIFICATION_FAILED'],
+    ['failManager', 'SEAT_MANAGER_SETUP_FAILED'],
+    ['failFinalCapability', 'SEAT_CAPABILITY_RECHECK_FAILED'],
   ] as const)('releases the never-started writer after %s', async (failure, message) => {
     const options = { [failure]: true };
     const state = setup('writer', options);
@@ -2560,7 +3307,7 @@ describe('per-seat artifact admission', () => {
     try {
       await expect(
         state.owner().ensure('symposium', 'reviewer', new AbortController().signal),
-      ).rejects.toThrow('driver config unavailable');
+      ).rejects.toThrow('SEAT_ARTIFACT_VERIFICATION_FAILED');
       const record = state.registry.getSymposiumSeatSandbox('symposium', 'reviewer', 2)!;
       const lease = await state.host.reserve(state.request);
       state.host.markCreationStarted(
@@ -2640,7 +3387,10 @@ describe('per-seat artifact admission', () => {
       const reserve = vi.spyOn(state.host, 'reserve');
       await expect(
         state.owner().ensure('symposium', 'reviewer', new AbortController().signal),
-      ).rejects.toThrow(/unavailable/);
+      ).rejects.toMatchObject({
+        code: 'SEAT_ARTIFACT_LEASE_FAILED',
+        cause: { message: expect.stringMatching(/unavailable/) },
+      });
       expect(reserve).not.toHaveBeenCalled();
       expect(state.ensure).toHaveBeenCalledTimes(1);
       expect(state.registry.getSymposiumSeatSandbox('symposium', 'reviewer', 2)?.state).toBe(
@@ -2670,7 +3420,10 @@ describe('per-seat artifact admission', () => {
       const reserve = vi.spyOn(state.host, 'reserve');
       await expect(
         state.owner().ensure('symposium', 'reviewer', new AbortController().signal),
-      ).rejects.toThrow(/cleanup|unavailable/);
+      ).rejects.toMatchObject({
+        code: 'SEAT_ARTIFACT_LEASE_FAILED',
+        cause: { message: expect.stringMatching(/cleanup|unavailable/) },
+      });
       expect(reserve).not.toHaveBeenCalled();
       expect(state.ensure).toHaveBeenCalledTimes(1);
       await state.owner().stop('symposium', 'reviewer', 2, new AbortController().signal);
@@ -2902,6 +3655,7 @@ describe('mixed personal subscription and work seat isolation', () => {
     ]);
     expect(configurations[1].account.kind).toBe('chatgpt-subscription-native');
     const incompleteRegistry = seatSandboxRegistry();
+    const terminalRecord = vi.spyOn(incompleteRegistry, 'recordSymposiumSeatSandboxTerminalCreate');
     let stopped = false;
     const postCreate = vi.fn(
       async (configuration: BoundOpenShellRuntimeConfig, runtimeId: string) => {
@@ -2951,6 +3705,11 @@ describe('mixed personal subscription and work seat isolation', () => {
     await expect(
       phased.ensure('symposium', 'personal', new AbortController().signal),
     ).rejects.toThrow('upload failed');
+    expect(terminalRecord).toHaveBeenCalledWith(
+      expect.objectContaining({
+        settlementReceiptV1: { physicalProof: 'unavailable' },
+      }),
+    );
     const incomplete = incompleteRegistry.getSymposiumSeatSandbox(
       'symposium',
       'personal',
@@ -2984,6 +3743,58 @@ describe('mixed personal subscription and work seat isolation', () => {
         new AbortController().signal,
       ),
     ).rejects.toThrow('retained terminal');
+    const rejectedRegistry = seatSandboxRegistry();
+    const writeError = Error('terminal journal write rejected');
+    vi.spyOn(rejectedRegistry, 'recordSymposiumSeatSandboxTerminalCreate').mockImplementationOnce(
+      () => {
+        throw writeError;
+      },
+    );
+    const noDispatchStop = vi.fn();
+    const rejectedTerminalSettled = vi.fn();
+    const writeRejectedOwner = new SymposiumPerSeatSandboxOwner({
+      ...phasedDeps,
+      seatSandboxRegistry: rejectedRegistry,
+      runSandboxCreation: async <T>(
+        _verify: () => void,
+        operation: (dispatch: () => void, settled?: () => void) => Promise<T>,
+      ) => operation(() => {}, rejectedTerminalSettled),
+      managerFactory: (configuration: BoundOpenShellRuntimeConfig) => ({
+        ensure: async (runtimeId: string) => {
+          configuration.beforeSandboxCreate!();
+          configuration.onSandboxCreateSettled!({
+            sandboxName: sandboxNameForConversation(runtimeId, 13),
+            sandboxId: 'terminal-write-rejected-id',
+            workspace: 'default',
+            owner: 'mock-owner',
+            accountProvider: 'codex-personal',
+          });
+          throw Error('Unexpected settlement continuation');
+        },
+        stop: noDispatchStop,
+      }),
+    });
+    await expect(
+      writeRejectedOwner.ensure('symposium', 'personal', new AbortController().signal),
+    ).rejects.toBe(writeError);
+    const rejectedRecord = rejectedRegistry.getSymposiumSeatSandbox(
+      'symposium',
+      'personal',
+      membership.generation,
+    )!;
+    const retainedLocal = (
+      writeRejectedOwner as unknown as {
+        terminalCreates: Map<string, { sandboxName: string; sandboxId: string }>;
+      }
+    ).terminalCreates.get(rejectedRecord.runtimeId);
+    expect(retainedLocal).toEqual({
+      sandboxName: sandboxNameForConversation(rejectedRecord.runtimeId, 13),
+      sandboxId: 'terminal-write-rejected-id',
+    });
+    expect(rejectedRecord.physicalId).toBeNull();
+    expect(writeRejectedOwner.creationDiagnostic('personal')?.canCleanup).toBe(false);
+    expect(noDispatchStop).not.toHaveBeenCalled();
+    expect(rejectedTerminalSettled).not.toHaveBeenCalled();
     await phased.stop('symposium', 'personal', membership.generation, new AbortController().signal);
     expect(
       incompleteRegistry.getSymposiumSeatSandbox('symposium', 'personal', membership.generation)
@@ -3029,8 +3840,52 @@ describe('mixed personal subscription and work seat isolation', () => {
         },
       ],
     );
+    const rejectedLeaseHost = new SqliteArtifactLeaseHost(
+      join(artifactRoot, 'rejected-leases.sqlite'),
+      { verifyGateway: async () => {}, verifyMount: async () => {}, verifyDeleted: async () => {} },
+      async () => [
+        {
+          Name: artifactRequest.volumeName,
+          Driver: 'local',
+          Options: {},
+          Labels: {
+            'openshell.ai/sandbox-attachable': 'true',
+            'openshell.ai/sandbox-attachable-workspace': 'default',
+            'mitzo.symposium.purpose': 'artifacts',
+            'mitzo.symposium.session': 'symposium',
+            'mitzo.symposium.workspace': 'default',
+            'mitzo.symposium.generation': 'gen-1',
+          },
+        },
+      ],
+    );
+    const rejectedLeaseBind = vi.spyOn(rejectedLeaseHost, 'bindSandbox');
+    const leasedWriteRegistry = seatSandboxRegistry();
+    const leasedWriteError = Error('leased terminal journal write rejected');
+    vi.spyOn(
+      leasedWriteRegistry,
+      'recordSymposiumSeatSandboxTerminalCreate',
+    ).mockImplementationOnce(() => {
+      throw leasedWriteError;
+    });
+    const leasedSettled = vi.fn();
+    const leasedWriteOwner = new SymposiumPerSeatSandboxOwner({
+      ...phasedDeps,
+      seatSandboxRegistry: leasedWriteRegistry,
+      artifactLeaseHost: rejectedLeaseHost,
+      artifactRequest: () => artifactRequest,
+      runSandboxCreation: async <T>(
+        _verify: () => void,
+        operation: (dispatch: () => void, settled?: () => void) => Promise<T>,
+      ) => operation(() => {}, leasedSettled),
+    });
     const workspace = new SymposiumWorkspaceLifecycle(join(artifactRoot, 'fence.json'), () => {});
     const failedRegistry = seatSandboxRegistry();
+    const leasedTerminalRecord = vi.spyOn(
+      failedRegistry,
+      'recordSymposiumSeatSandboxTerminalCreate',
+    );
+    const reserveLease = vi.spyOn(artifactHost, 'reserve');
     const bind = vi.spyOn(artifactHost, 'bindSandbox');
     bind.mockImplementationOnce(() => {
       throw Error('binding rejected before persistence');
@@ -3054,8 +3909,67 @@ describe('mixed personal subscription and work seat isolation', () => {
     });
     try {
       await expect(
+        leasedWriteOwner.ensure('symposium', 'personal', new AbortController().signal),
+      ).rejects.toBe(leasedWriteError);
+      expect(leasedSettled).not.toHaveBeenCalled();
+      expect(rejectedLeaseBind).not.toHaveBeenCalled();
+      const leasedWriteRecord = leasedWriteRegistry.getSymposiumSeatSandbox(
+        'symposium',
+        'personal',
+        membership.generation,
+      )!;
+      const localLeaseReceipt = (
+        leasedWriteOwner as unknown as {
+          terminalCreates: Map<
+            string,
+            {
+              sandboxId: string;
+              lease: { token: string; revision: string; request: ArtifactLeaseRequest };
+            }
+          >;
+        }
+      ).terminalCreates.get(leasedWriteRecord.runtimeId)!;
+      expect(localLeaseReceipt.sandboxId).toBe('terminal-id');
+      expect(await rejectedLeaseHost.inspectLease(localLeaseReceipt.lease.token)).toMatchObject({
+        revision: localLeaseReceipt.lease.revision,
+        request: artifactRequest,
+      });
+      expect(leasedWriteOwner.creationDiagnostic('personal')?.canCleanup).toBe(false);
+      const unreferencedReader = new SymposiumPerSeatSandboxOwner({
+        ...phasedDeps,
+        seatSandboxRegistry: seatSandboxRegistry(),
+        artifactLeaseHost: artifactHost,
+        artifactRequest: () => ({ ...artifactRequest, readerAdmissionId: 'reader-1' }),
+      });
+      await expect(
+        unreferencedReader.ensure('symposium', 'personal', new AbortController().signal),
+      ).rejects.toMatchObject({
+        code: 'SEAT_ARTIFACT_LEASE_FAILED',
+        cause: { message: 'Current confirmed sealed reader reference required' },
+      });
+      await expect(
         artifactOwner.ensure('symposium', 'personal', new AbortController().signal),
-      ).rejects.toThrow('binding rejected before persistence');
+      ).rejects.toMatchObject({
+        code: 'SEAT_ARTIFACT_BINDING_FAILED',
+        cause: { message: 'binding rejected before persistence' },
+      });
+      const originalLease = await reserveLease.mock.results.at(-1)!.value;
+      expect(leasedTerminalRecord).toHaveBeenCalledWith(
+        expect.objectContaining({
+          settlementReceiptV1: {
+            physicalProof: 'unavailable',
+            leaseTokenSha256: createHash('sha256').update(originalLease.token).digest('hex'),
+            leaseRequestSha256: createHash('sha256')
+              .update(JSON.stringify(originalLease.request))
+              .digest('hex'),
+            leaseRevision: originalLease.revision,
+          },
+        }),
+      );
+      expect(JSON.stringify(leasedTerminalRecord.mock.calls)).not.toContain(originalLease.token);
+      expect(leasedTerminalRecord.mock.invocationCallOrder[0]).toBeLessThan(
+        bind.mock.invocationCallOrder[0],
+      );
       const saved = failedRegistry.getSymposiumSeatSandbox(
         'symposium',
         'personal',
@@ -3094,6 +4008,7 @@ describe('mixed personal subscription and work seat isolation', () => {
         leaseDb.close();
       }
     } finally {
+      rejectedLeaseHost.close();
       artifactHost.close();
       rmSync(artifactRoot, { recursive: true, force: true });
     }
@@ -3247,4 +4162,653 @@ it('retains the recovery claim when the production stop path times out before a 
     store.close();
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+describe('trusted durable native review transport observer', () => {
+  async function setupObserver(
+    observer: NonNullable<
+      import('../symposium-codex-native.js').OpenAiCodexSeatInput['observeDurableReviewToolResult']
+    >,
+  ) {
+    const { EventStore } = await import('../event-store.js');
+    const { CodexConversationStore } = await import('../codex-conversation-store.js');
+    const work = fixture();
+    const abortController = new AbortController();
+    work.input.signal = abortController.signal;
+    const route = admitSymposiumSeatDispatch(work.facts, profiles, work.input, hostGrants);
+    work.input.provenance = {
+      ...work.input.provenance,
+      version: 3,
+      artifact: {
+        version: 1,
+        kind: 'sealed_reader',
+        readerAdmissionId: 'reader-admission',
+        artifactGenerationId: 'generation',
+        sealFenceId: 'fence',
+        bindingDigest: 'a'.repeat(64),
+      },
+    };
+    const root = registryDirectory();
+    const eventPath = join(root, 'events.db');
+    const events = new EventStore(eventPath);
+    const db = new Database(eventPath);
+    db.pragma('foreign_keys = OFF'); // isolated synthetic row setup only
+    // Offline synthetic execution setup; real durable readers/registry/replay are tested,
+    // not physical admission or real controller acceptance.
+    db.prepare(
+      `INSERT INTO symposium_recipient_attempts
+      (delivery_id,seat_id,attempt_number,idempotency_key,claim_token,symposium_provenance,status,
+       provider_thread_id,provider_turn_id,started_at,updated_at)
+      VALUES (?,?,?,?,?,?,'executing','thread-1','turn-1',1,1)`,
+    ).run(
+      work.input.deliveryId,
+      work.input.seat.id,
+      1,
+      work.input.idempotencyKey,
+      work.input.claimToken,
+      JSON.stringify(work.input.provenance),
+    );
+    const registry = new SymposiumAttemptRegistry(join(root, 'registry.db'));
+    const sandbox = { sandboxName: 'offline-review', workdir: '/sandbox/workspaces/mgmt' };
+    registry.reserve({
+      sessionId: work.input.sessionId,
+      claimToken: work.input.claimToken,
+      sandbox,
+      artifact:
+        'version' in work.input.provenance && work.input.provenance.version === 3
+          ? work.input.provenance.artifact
+          : undefined,
+    });
+    const store = new CodexConversationStore(join(root, 'codex.db'));
+    const conversationId = symposiumSeatRuntimeId(work.input);
+    const binding = work.input.seat.accountBinding!;
+    store.create(conversationId, binding, sandbox.workdir, null, 'symposium');
+    const args = { pageIndex: 1, previousChallenge: 'a'.repeat(64) };
+    const identity = {
+      turnId: 'turn-1',
+      toolName: 'SymposiumReadSealedReviewPage',
+      requestHash: createHash('sha256').update(JSON.stringify(args)).digest('hex'),
+    };
+    db.prepare('UPDATE symposium_recipient_attempts SET dispatched_content=?,dispatch_seq=0').run(
+      work.input.content,
+    );
+    const result = { content: 'exact synthetic tool result', isError: false };
+    store.enqueue(conversationId, binding, {
+      id: work.input.claimToken,
+      prompt: work.input.content,
+    });
+    store.claimNext(conversationId, binding);
+    store.claimTool(conversationId, binding, work.input.claimToken, 'call-1', identity);
+    store.recordToolResult(
+      conversationId,
+      binding,
+      work.input.claimToken,
+      'call-1',
+      identity,
+      result,
+    );
+    let options!: import('../codex-conversation.js').CodexConversationOptions;
+    const original = vi.fn(async () => undefined);
+    let current = true;
+    const confirmStopped = vi.fn(async () => {
+      registry.markConfirmed(work.input.claimToken);
+    });
+    const native = await createOpenAiCodexSeat({
+      sandbox,
+      route,
+      execution: work.input,
+      store,
+      attemptRegistry: registry,
+      resolveAttempt: (token) => events.getSymposiumRecipientAttemptByClaimToken(token),
+      profileTools: {
+        tools: [],
+        instructions: '',
+        executeTool: async () => result,
+        onToolResultDurable: original,
+      },
+      testConfirmStopped: confirmStopped,
+      observeDurableReviewToolResult: observer,
+      assertDurableReviewToolCurrent: () => {
+        if (!current) throw new Error('Reader provider/profile/grant no longer current');
+      },
+      createConversation: (opts) => {
+        options = opts;
+        return {
+          initialize: async () => undefined,
+          getThreadId: () => 'thread-1',
+          send: async () => undefined,
+          interrupt: async () => undefined,
+          close() {},
+        };
+      },
+    });
+    options.onProviderAccepted!(work.input.claimToken, 'thread-1', 'turn-1');
+    return {
+      native,
+      abortController,
+      confirmStopped,
+      setOwnerCurrent: (value: boolean) => {
+        current = value;
+      },
+      work,
+      events,
+      registry,
+      store,
+      db,
+      options,
+      args,
+      result,
+      original,
+      invoke: () =>
+        options.onToolResultDurable!('SymposiumReadSealedReviewPage', args, result, {
+          turnId: 'turn-1',
+          callId: 'call-1',
+        }),
+      close: () => {
+        events.close();
+        registry.close();
+        store.close();
+        db.close();
+      },
+    };
+  }
+  it('notifies only after the original callback and real retained replay/accepted identity agree', async () => {
+    const observer = vi.fn();
+    const f = await setupObserver(observer);
+    try {
+      await f.invoke();
+      expect(f.original).toHaveBeenCalledOnce();
+      expect(observer).toHaveBeenCalledOnce();
+      expect(f.original.mock.invocationCallOrder[0]).toBeLessThan(
+        observer.mock.invocationCallOrder[0],
+      );
+    } finally {
+      f.close();
+    }
+  });
+  it('never notifies when the actual original owner callback rejects', async () => {
+    const observer = vi.fn();
+    const f = await setupObserver(observer);
+    try {
+      f.original.mockRejectedValueOnce(new Error('owner rejection'));
+      await expect(f.invoke()).rejects.toThrow('owner rejection');
+      expect(observer).not.toHaveBeenCalled();
+    } finally {
+      f.close();
+    }
+  });
+  it.each(['claim', 'turn', 'replay', 'terminal', 'controller', 'uncertain'])(
+    'refuses %s drift before notifying and permanently vetoes retry',
+    async (drift) => {
+      const observer = vi.fn();
+      const f = await setupObserver(observer);
+      try {
+        if (drift === 'uncertain') f.registry.markUncertain(f.work.input.claimToken);
+        if (drift === 'controller') f.registry.markConfirmed(f.work.input.claimToken);
+        if (drift === 'claim')
+          f.db.prepare("UPDATE symposium_recipient_attempts SET status='failed'").run();
+        if (drift === 'turn')
+          f.db
+            .prepare("UPDATE symposium_recipient_attempts SET provider_turn_id='different'")
+            .run();
+        if (drift === 'replay') f.result.content = 'changed';
+        if (drift === 'terminal')
+          f.registry.observations.terminal({
+            claimToken: f.work.input.claimToken,
+            providerThreadId: 'thread-1',
+            providerTurnId: 'turn-1',
+            status: 'completed',
+          });
+        await expect(f.invoke()).rejects.toThrow();
+        expect(observer).not.toHaveBeenCalled();
+        f.db
+          .prepare(
+            "UPDATE symposium_recipient_attempts SET status='executing',provider_turn_id='turn-1'",
+          )
+          .run();
+        await expect(f.invoke()).rejects.toThrow('permanently vetoed');
+      } finally {
+        f.close();
+      }
+    },
+  );
+  it('freezes observer payload and rechecks actual claim after an awaited observer', async () => {
+    const observer = vi.fn(async (event) => {
+      expect(Object.isFrozen(event)).toBe(true);
+      expect(Object.isFrozen(event.arguments)).toBe(true);
+      expect(Object.isFrozen(event.result)).toBe(true);
+      await Promise.resolve();
+      f.db.prepare("UPDATE symposium_recipient_attempts SET status='cancelled'").run();
+    });
+    const f: Awaited<ReturnType<typeof setupObserver>> = await setupObserver(observer);
+    try {
+      await expect(f.invoke()).rejects.toThrow('identity');
+      expect(observer).toHaveBeenCalledOnce();
+      await expect(f.invoke()).rejects.toThrow('permanently vetoed');
+    } finally {
+      f.close();
+    }
+  });
+  it('observer failure cannot be retried as a new observation', async () => {
+    const observer = vi.fn().mockRejectedValueOnce(new Error('transport lost'));
+    const f = await setupObserver(observer);
+    try {
+      await expect(f.invoke()).rejects.toThrow('transport lost');
+      await expect(f.invoke()).rejects.toThrow('permanently vetoed');
+      expect(observer).toHaveBeenCalledOnce();
+    } finally {
+      f.close();
+    }
+  });
+  it('paired provider/profile/grant revocation during observer await permanently vetoes subsequent work', async () => {
+    const observer = vi.fn(async () => {
+      await Promise.resolve();
+      f.setOwnerCurrent(false);
+    });
+    const f: Awaited<ReturnType<typeof setupObserver>> = await setupObserver(observer);
+    try {
+      await expect(f.invoke()).rejects.toThrow('no longer current');
+      f.setOwnerCurrent(true);
+      await expect(f.invoke()).rejects.toThrow('permanently vetoed');
+      expect(observer).toHaveBeenCalledOnce();
+    } finally {
+      f.close();
+    }
+  });
+  it('live owner loss during the original callback prevents observer notification', async () => {
+    const observer = vi.fn();
+    const f = await setupObserver(observer);
+    try {
+      f.original.mockImplementationOnce(async () => {
+        await Promise.resolve();
+        f.setOwnerCurrent(false);
+      });
+      await expect(f.invoke()).rejects.toThrow('no longer current');
+      expect(observer).not.toHaveBeenCalled();
+    } finally {
+      f.close();
+    }
+  });
+  it('rejects observer construction without a paired live owner capability before conversation creation', async () => {
+    const work = fixture();
+    const createConversation = vi.fn();
+    await expect(
+      createOpenAiCodexSeat({
+        sandbox: { sandboxName: 'offline-unlaunched', workdir: '/sandbox/workspaces/mgmt' },
+        route: admitSymposiumSeatDispatch(work.facts, profiles, work.input, hostGrants),
+        execution: work.input,
+        store: {} as never,
+        profileTools: {
+          tools: [],
+          instructions: '',
+          executeTool: async () => ({ content: '', isError: true }),
+          onToolResultDurable: () => undefined,
+        },
+        observeDurableReviewToolResult: () => undefined,
+        createConversation,
+      }),
+    ).rejects.toThrow('paired current owner capability');
+    expect(createConversation).not.toHaveBeenCalled();
+  });
+  it('does not publish favorable completion while an actual durable observer remains in flight', async () => {
+    let release!: () => void;
+    let started!: () => void;
+    const entered = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const f = await setupObserver(async () => {
+      started();
+      await held;
+      throw new Error('late observer failure');
+    });
+    let outcome = 'pending';
+    try {
+      const running = f.native.run(f.work.input, { beforeDispatch() {}, accepted() {} });
+      void running.then(
+        () => {
+          outcome = 'favorable';
+        },
+        () => {
+          outcome = 'refused';
+        },
+      );
+      const observation = Promise.resolve(f.invoke());
+      void observation.catch(() => undefined);
+      await entered;
+      f.options.onProviderTerminal!(f.work.input.claimToken, 'turn-1', 'completed');
+      f.options.onProviderComplete!(f.work.input.claimToken, 'completed');
+      f.options.emit({
+        type: 'assistant',
+        message: { content: [{ type: 'text', text: 'synthetic favorable output' }] },
+      });
+      await new Promise((resolve) => setImmediate(resolve));
+      expect(outcome).toBe('pending');
+      expect(f.registry.checkpoints.get(f.work.input.claimToken)).toBeUndefined();
+      release();
+      await expect(observation).rejects.toThrow('late observer failure');
+      await expect(running).rejects.toThrow();
+    } finally {
+      release();
+      f.close();
+    }
+  });
+
+  it('aborts an unresolved observer barrier after confirmed stop without a favorable checkpoint', async () => {
+    let started!: () => void;
+    let release!: () => void;
+    const entered = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const f = await setupObserver(async () => {
+      started();
+      await held;
+    });
+    try {
+      const running = f.native.run(f.work.input, { beforeDispatch() {}, accepted() {} });
+      void running.catch(() => undefined);
+      const observation = Promise.resolve(f.invoke());
+      void observation.catch(() => undefined);
+      await entered;
+      f.options.onProviderTerminal!(f.work.input.claimToken, 'turn-1', 'completed');
+      f.options.onProviderComplete!(f.work.input.claimToken, 'completed');
+      await new Promise((resolve) => setImmediate(resolve));
+      f.abortController.abort(new Error('existing execution deadline'));
+      await expect(running).rejects.toThrow('existing execution deadline');
+      expect(f.registry.get(f.work.input.claimToken)?.state).toBe('confirmed');
+      expect(f.registry.checkpoints.get(f.work.input.claimToken)).toBeUndefined();
+      release();
+      await expect(observation).rejects.toThrow();
+    } finally {
+      release();
+      f.close();
+    }
+  });
+  it('rejects a new durable callback after closure begins and joins the original tracked callback', async () => {
+    let entered!: () => void;
+    let release!: () => void;
+    let stopping!: () => void;
+    let stopped!: () => void;
+    const enteredPromise = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const stoppingPromise = new Promise<void>((resolve) => {
+      stopping = resolve;
+    });
+    const stopHold = new Promise<void>((resolve) => {
+      stopped = resolve;
+    });
+    const observer = vi.fn(async () => {
+      entered();
+      await held;
+    });
+    const f = await setupObserver(observer);
+    f.confirmStopped.mockImplementation(async () => {
+      stopping();
+      await stopHold;
+      f.registry.markConfirmed(f.work.input.claimToken);
+    });
+    try {
+      const running = f.native.run(f.work.input, { beforeDispatch() {}, accepted() {} });
+      void running.catch(() => undefined);
+      const original = Promise.resolve(f.invoke());
+      void original.catch(() => undefined);
+      await enteredPromise;
+      f.options.onProviderTerminal!(f.work.input.claimToken, 'turn-1', 'completed');
+      f.options.onProviderComplete!(f.work.input.claimToken, 'completed');
+      await stoppingPromise;
+      await expect(f.invoke()).rejects.toThrow('completion fence');
+      expect(observer).toHaveBeenCalledOnce();
+      release();
+      await expect(original).rejects.toThrow('permanently vetoed');
+      stopped();
+      await expect(running).rejects.toThrow();
+      expect(f.registry.checkpoints.get(f.work.input.claimToken)).toBeUndefined();
+    } finally {
+      release();
+      stopped();
+      f.close();
+    }
+  });
+  it('revalidates paired owner currentness after stop confirmation even when observer already settled', async () => {
+    const f = await setupObserver(() => undefined);
+    try {
+      await f.invoke();
+      f.confirmStopped.mockImplementation(async () => {
+        await Promise.resolve();
+        f.setOwnerCurrent(false);
+        f.registry.markConfirmed(f.work.input.claimToken);
+      });
+      const running = f.native.run(f.work.input, { beforeDispatch() {}, accepted() {} });
+      void running.catch(() => undefined);
+      f.options.onProviderTerminal!(f.work.input.claimToken, 'turn-1', 'completed');
+      f.options.onProviderComplete!(f.work.input.claimToken, 'completed');
+      f.options.emit({
+        type: 'assistant',
+        message: { content: [{ type: 'text', text: 'synthetic output' }] },
+      });
+      await expect(running).rejects.toThrow('no longer current');
+      expect(f.registry.checkpoints.get(f.work.input.claimToken)).toBeUndefined();
+    } finally {
+      f.close();
+    }
+  });
+});
+
+describe('trusted native startup observation before provider thread', () => {
+  async function startupSeat(change: 'none' | 'claim' | 'owner' | 'abort') {
+    const work = fixture();
+    const controller = new AbortController();
+    work.input.signal = controller.signal;
+    const route = admitSymposiumSeatDispatch(work.facts, profiles, work.input, hostGrants);
+    const sandbox = {
+      sandboxName: 'startup-seat',
+      workdir: '/sandbox/workspaces/mgmt',
+      cli: 'openshell',
+      gateway: 'synthetic-gateway',
+      workspace: 'synthetic-workspace',
+      gatewayInsecure: false,
+    };
+    const child = Object.assign(new EventEmitter(), {
+      stdout: new PassThrough(),
+      stderr: new PassThrough(),
+      stdin: new PassThrough(),
+      kill: () => true,
+    });
+    const launch = vi.fn(() => ({ child, confirmStopped: async () => {} }));
+    const registry = new SymposiumAttemptRegistry(join(registryDirectory(), 'startup.db'), {
+      launch: launch as never,
+      confirm: async () => {},
+    });
+    let current = true;
+    let attempt = {
+      ...work.input,
+      status: 'executing',
+      provenance: work.input.provenance,
+      seatId: work.input.seat.id,
+      claimToken: work.input.claimToken,
+      deliveryId: work.input.deliveryId,
+    };
+    const observed = vi.fn(async (event: unknown) => {
+      expect(Object.isFrozen(event)).toBe(true);
+      if (change === 'claim') attempt = { ...attempt, deliveryId: 'changed-delivery' };
+      if (change === 'owner') current = false;
+      if (change === 'abort') controller.abort();
+    });
+    let options!: import('../codex-conversation.js').CodexConversationOptions;
+    let threadStarted = false;
+    try {
+      const result = createOpenAiCodexSeat({
+        sandbox,
+        route,
+        execution: work.input,
+        store: {} as never,
+        attemptRegistry: registry,
+        verifiedControllerCommand: SYMPOSIUM_CODEX_CONTROLLER_COMMAND,
+        resolveAttempt: () => attempt as never,
+        observeStartupConfig: observed,
+        assertStartupCurrent: () => {
+          if (!current) throw new Error('Startup owner revoked');
+        },
+        createConversation: (opts) => {
+          options = opts;
+          opts.createClient({
+            onNotification: () => {},
+            onRequest: async () => ({}),
+            onClose: () => {},
+          });
+          return {
+            initialize: async () => {
+              await opts.observeStartupConfig!({
+                cwd: sandbox.workdir,
+                config: Object.freeze({ marker: 'private' }),
+              });
+              threadStarted = true;
+            },
+            getThreadId: () => 'new-thread',
+            send: async () => {},
+            interrupt: async () => {},
+            close: () => {},
+          };
+        },
+      });
+      if (change === 'none') {
+        await result;
+        expect(threadStarted).toBe(true);
+      } else {
+        await expect(result).rejects.toThrow();
+        expect(threadStarted).toBe(false);
+      }
+      expect(launch).toHaveBeenCalledOnce();
+      expect(observed).toHaveBeenCalledOnce();
+      expect(registry.observations.get(work.input.claimToken)?.status).not.toBe('accepted');
+      if (change !== 'none')
+        await expect(
+          options.observeStartupConfig!({ cwd: sandbox.workdir, config: {} }),
+        ).rejects.toThrow('permanently vetoed');
+    } finally {
+      registry.close();
+    }
+  }
+  it.each(['none', 'claim', 'owner', 'abort'] as const)(
+    'checks original reserved startup before/after await: %s',
+    async (change) => {
+      await startupSeat(change);
+    },
+  );
+});
+
+describe('trusted prelaunch gate before the original controller', () => {
+  it.each([
+    'none',
+    'owner',
+    'claim',
+    'abort',
+    'missing-preparation',
+    'timeout',
+    'controller',
+    'failure',
+  ] as const)('fences launch around awaited inspection: %s', async (change) => {
+    const f = fixture();
+    const abort = new AbortController();
+    f.input.signal = abort.signal;
+    const route = admitSymposiumSeatDispatch(f.facts, profiles, f.input, hostGrants);
+    const sandbox = {
+      sandboxName: 'prelaunch-seat',
+      workdir: '/sandbox/workspaces/mgmt',
+      cli: 'openshell',
+      gateway: 'synthetic-gateway',
+      workspace: 'synthetic-workspace',
+      gatewayInsecure: false,
+    };
+    const registry = new SymposiumAttemptRegistry(join(registryDirectory(), 'prelaunch.db'), {
+      launch: () => {
+        throw Error('unexpected physical transport');
+      },
+      confirm: async () => {},
+    });
+    if (change !== 'missing-preparation')
+      registry.prepare({ claimToken: f.input.claimToken, sessionId: f.input.sessionId });
+    let current = true;
+    let attempt = { ...f.input, seatId: f.input.seat.id, status: 'executing' as const };
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const observe = vi.fn(async (event, signal) => {
+      expect(Object.isFrozen(event)).toBe(true);
+      expect(event.claimToken).toBe(f.input.claimToken);
+      expect(signal).toBeInstanceOf(AbortSignal);
+      await gate;
+      if (change === 'failure') throw Error('inspection refused');
+    });
+    const constructor = vi.fn(
+      (_opts: import('../codex-conversation.js').CodexConversationOptions) => ({
+        initialize: async () => {},
+        getThreadId: () => 'original-thread',
+        send: async () => {},
+        interrupt: async () => {},
+        close: () => {},
+      }),
+    );
+    if (change === 'timeout') vi.useFakeTimers();
+    try {
+      const pending = createOpenAiCodexSeat({
+        sandbox,
+        route,
+        execution: f.input,
+        store: {} as never,
+        attemptRegistry: registry,
+        resolveAttempt: () => attempt as never,
+        observePrelaunch: observe,
+        assertPrelaunchCurrent: () => {
+          if (!current) throw Error('prelaunch owner lost');
+        },
+        createConversation: constructor,
+      });
+      const outcome = pending.then(
+        (value) => ({ value }),
+        (error) => ({ error }),
+      );
+      await Promise.resolve();
+      expect(constructor).not.toHaveBeenCalled();
+      if (change === 'owner') current = false;
+      if (change === 'claim') attempt = { ...attempt, deliveryId: 'changed' };
+      if (change === 'controller')
+        registry.reserve({ claimToken: f.input.claimToken, sessionId: f.input.sessionId, sandbox });
+      if (change === 'abort') abort.abort(Error('cancelled original'));
+      if (change === 'timeout') await vi.advanceTimersByTimeAsync(30001);
+      release();
+      const result = await outcome;
+      if (change === 'none') {
+        expect(result).toHaveProperty('value');
+        expect(constructor).toHaveBeenCalledOnce();
+        const opts = constructor.mock
+          .calls[0]![0] as import('../codex-conversation.js').CodexConversationOptions;
+        const lifecycle = {
+          onNotification: () => {},
+          onRequest: async () => ({}),
+          onClose: () => {},
+        };
+        expect(() => opts.createClient(lifecycle)).toThrow('Verified Codex native controller');
+        expect(() => opts.createClient(lifecycle)).toThrow('consumed');
+        await expect(opts.beforeReconnect!()).rejects.toThrow('prelaunch');
+      } else {
+        expect(result).toHaveProperty('error');
+        expect(constructor).not.toHaveBeenCalled();
+      }
+      if (change !== 'controller') expect(registry.get(f.input.claimToken)).toBeUndefined();
+    } finally {
+      vi.useRealTimers();
+      registry.close();
+    }
+  });
 });

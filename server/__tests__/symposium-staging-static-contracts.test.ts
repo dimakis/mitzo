@@ -107,7 +107,7 @@ describe('pure staging static contracts', () => {
   });
 });
 
-it('keeps extended staging image pins outside the main native runtime selector', async () => {
+it('preserves exact staging pins when the feature native selector implements those reviewed variants', async () => {
   const staging = await import('../symposium-staging-runtime-contract.js');
   const native = await import('../symposium-owned-runtime-contract.js');
   expect(
@@ -120,9 +120,7 @@ it('keeps extended staging image pins outside the main native runtime selector',
     staging.REVIEWED_SYMPOSIUM_CODEX_01591_IDENTITY_RUNTIME,
   ]) {
     expect(staging.reviewedStagingOwnedRuntime(selected.build.image)).toBe(selected);
-    expect(() => native.reviewedSymposiumOwnedRuntime(selected.build.image)).toThrow(
-      'not reviewed',
-    );
+    expect(native.reviewedSymposiumOwnedRuntime(selected.build.image)).toEqual(selected);
   }
   expect(() => staging.reviewedStagingOwnedRuntime('sha256:' + '0'.repeat(64))).toThrow(
     'not reviewed',

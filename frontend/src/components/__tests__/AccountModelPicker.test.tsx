@@ -383,9 +383,22 @@ it('shows per-seat account ownership for Symposium without returning an ordinary
     }),
   } as Response);
   const onChange = vi.fn();
-  render(<AccountModelPicker sessionId="symposium" preferredModel="" onChange={onChange} />);
-  await screen.findByText('Accounts and models are selected per seat in Review team & approvals.');
+  const onSummaryChange = vi.fn();
+  render(
+    <AccountModelPicker
+      sessionId="symposium"
+      preferredModel=""
+      onChange={onChange}
+      onSummaryChange={onSummaryChange}
+    />,
+  );
+  await screen.findByText('Choose an agent stream to write to that agent.');
   expect(onChange.mock.calls.every(([value]) => value === null)).toBe(true);
+  await waitFor(() =>
+    expect(onSummaryChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({ sessionType: 'symposium' }),
+    ),
+  );
   expect(apiFetch).toHaveBeenCalledTimes(1);
   expect(screen.queryByRole('combobox')).toBeNull();
 });

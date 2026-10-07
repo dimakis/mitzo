@@ -188,6 +188,7 @@ export {
   SymposiumProfileRecipeSchema,
   ContextGrantSchema,
   AuthorityGrantSchema,
+  SeatAuthorityRequestSchema,
   IsolationRequestSchema,
   SymposiumProvenanceSchema,
   SymposiumProvenanceV2Schema,
@@ -226,6 +227,12 @@ export type {
   SymposiumMembershipState,
   SymposiumReconciliationStatus,
 } from './symposium.js';
+export * from './symposium-artifact-admission.js';
+export { SymposiumProvenanceV3Schema } from './symposium.js';
+
+export * from './symposium-artifact-reader.js';
+
+export * from './symposium-configuration-operations.js';
 
 export { NotificationKind, NotificationFilter, NotificationPreferences } from './notifications.js';
 export type {

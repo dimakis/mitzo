@@ -75,6 +75,24 @@ window.dispatchEvent(new Event(AUTH_RESTORED_EVENT));
 
 createRoot(document.getElementById('root')!).render(
   <MitzoStoreProvider value={store}>
+    <div
+      role="note"
+      style={{
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        right: 0,
+        zIndex: 1200,
+        padding: '0.35rem 0.75rem',
+        background: '#413818',
+        color: '#fff',
+        fontSize: '0.8rem',
+        textAlign: 'center',
+        pointerEvents: 'none',
+      }}
+    >
+      UI preview · Simulated backend · No model calls · Changes reset on reload
+    </div>
     <MemoryRouter
       initialEntries={[
         new URLSearchParams(location.search).get('view') === 'connections'

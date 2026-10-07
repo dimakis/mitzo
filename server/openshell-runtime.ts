@@ -1,3 +1,4 @@
+import { atSymposiumReconciliationStageAsync } from './symposium-reconciliation-error.js';
 import { attestEffectiveRuntimePolicy, runtimePolicyHash } from './openshell-runtime-policy.js';
 import { load } from 'js-yaml';
 import { knowledgeStoreFromEnvironment, type KnowledgeStore } from './knowledge-store-config.js';
@@ -134,7 +135,180 @@ export interface OpenShellSandboxCreationReceipt {
   accountProvider: string;
 }
 
+export type OpenShellEnsurePhase =
+  | 'provider-union'
+  | 'account-provider-check'
+  | 'sandbox-current'
+  | 'sandbox-legacy'
+  | 'connections';
+export type OpenShellMountJsonOperation =
+  'podman-ps' | 'podman-inspect' | 'native-identity' | 'native-ssh-probe';
+export type OpenShellRuntimeObservation = Readonly<
+  | {
+      kind: 'mount-json';
+      operation: OpenShellMountJsonOperation;
+      stage: 'start' | 'terminal' | 'parsed' | 'parse-rejected';
+      elapsedMs: number;
+      error: 'none' | 'unknown' | 'parse';
+      outputAvailable: boolean;
+      outputBytes: number | null;
+    }
+  | {
+      kind: 'native-command';
+      operation: 'native-identity' | 'native-ssh-probe';
+      stage: 'terminal';
+      elapsedMs: number;
+      exitCode: number | null;
+      signal: 'SIGTERM' | 'SIGKILL' | 'SIGINT' | 'other' | null;
+      error: 'none' | 'max-buffer' | 'nonzero' | 'spawn' | 'terminated' | 'unknown';
+      stdoutAvailable: boolean;
+      stdoutBytes: number | null;
+      stderrAvailable: boolean;
+      stderrBytes: number | null;
+    }
+  | {
+      kind: 'ensure-phase';
+      phase: OpenShellEnsurePhase;
+      stage: 'start' | 'fulfilled' | 'rejected';
+      elapsedMs: number;
+      error: 'none' | 'aborted' | 'unknown';
+    }
+  | {
+      kind: 'cli-command';
+      operation: 'provider-inventory' | 'sandbox-get' | 'sandbox-create' | 'other';
+      stage: 'start' | 'terminal';
+      elapsedMs: number;
+      exitCode: number | null;
+      signal: 'SIGTERM' | 'SIGKILL' | 'SIGINT' | 'other' | null;
+      error: 'none' | 'aborted' | 'max-buffer' | 'nonzero' | 'spawn' | 'terminated' | 'unknown';
+      stdoutAvailable: boolean;
+      stdoutBytes: number | null;
+      stderrAvailable: boolean;
+      stderrBytes: number | null;
+    }
+>;
+function observeRuntime(
+  observer: OpenShellRuntimeConfig['observeRuntime'],
+  event: OpenShellRuntimeObservation,
+): void {
+  if (!observer) return;
+  try {
+    const result = observer(Object.freeze(event));
+    // Diagnostics never await, replace transport results, or become runtime authority.
+    if (result && typeof (result as PromiseLike<unknown>).then === 'function')
+      void Promise.resolve(result).catch(() => undefined);
+  } catch {
+    /* Observation failure cannot alter the original operation. */
+  }
+}
+function elapsedObservation(started: number): number {
+  return Math.min(2_147_483_647, Math.max(0, Math.floor(performance.now() - started)));
+}
+
+/** Observe the original native execFile callback before parsing; no output text is retained. */
+export function observeNativeMountCommand(
+  observer: OpenShellRuntimeConfig['observeRuntime'],
+  operation: 'native-identity' | 'native-ssh-probe',
+  started: number,
+  error: unknown,
+  stdout: unknown,
+  stderr: unknown,
+): void {
+  if (!observer) return;
+  try {
+    const e = error as { code?: unknown; signal?: unknown } | null;
+    const code = e?.code;
+    const signal = e?.signal;
+    const exitCode = !error
+      ? 0
+      : typeof code === 'number' && Number.isInteger(code) && code >= 1 && code <= 255
+        ? code
+        : null;
+    const bytes = (value: unknown) =>
+      typeof value === 'string'
+        ? Buffer.byteLength(value)
+        : Buffer.isBuffer(value)
+          ? value.length
+          : null;
+    const stdoutBytes = bytes(stdout),
+      stderrBytes = bytes(stderr);
+    observeRuntime(observer, {
+      kind: 'native-command',
+      operation,
+      stage: 'terminal',
+      elapsedMs: elapsedObservation(started),
+      exitCode,
+      signal:
+        signal == null
+          ? null
+          : signal === 'SIGTERM' || signal === 'SIGKILL' || signal === 'SIGINT'
+            ? signal
+            : 'other',
+      error: !error
+        ? 'none'
+        : code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER'
+          ? 'max-buffer'
+          : exitCode !== null
+            ? 'nonzero'
+            : signal != null
+              ? 'terminated'
+              : code === 'ENOENT' || code === 'EACCES'
+                ? 'spawn'
+                : 'unknown',
+      stdoutAvailable: stdoutBytes !== null,
+      stdoutBytes,
+      stderrAvailable: stderrBytes !== null,
+      stderrBytes,
+    });
+  } catch {
+    /* Diagnostic projection failure preserves the original callback result/error. */
+  }
+}
+
+/** Finite observation only; preserves the original transport and JSON parse errors. */
+export async function observeMountJson(
+  observer: OpenShellRuntimeConfig['observeRuntime'],
+  operation: OpenShellMountJsonOperation,
+  read: () => Promise<string>,
+): Promise<unknown> {
+  if (!observer) return JSON.parse(await read());
+  const started = performance.now();
+  const emit = (
+    stage: 'start' | 'terminal' | 'parsed' | 'parse-rejected',
+    error: 'none' | 'unknown' | 'parse',
+    output?: string,
+  ) =>
+    observeRuntime(observer, {
+      kind: 'mount-json',
+      operation,
+      stage,
+      elapsedMs: elapsedObservation(started),
+      error,
+      outputAvailable: output !== undefined,
+      outputBytes: output === undefined ? null : Buffer.byteLength(output),
+    });
+  emit('start', 'none');
+  let output: string;
+  try {
+    output = await read();
+  } catch (error) {
+    emit('terminal', 'unknown');
+    throw error;
+  }
+  emit('terminal', 'none', output);
+  try {
+    const value: unknown = JSON.parse(output);
+    emit('parsed', 'none', output);
+    return value;
+  } catch (error) {
+    emit('parse-rejected', 'parse', output);
+    throw error;
+  }
+}
+
 export interface OpenShellRuntimeConfig {
+  /** Trusted constructor-only finite diagnostics; no readiness or execution authority. */
+  observeRuntime?: (event: OpenShellRuntimeObservation) => unknown;
   /** Server-owned durable migration routing; never sourced from task input. */
   sandboxNameOverride?: string;
   /** Trusted host marker immediately before the external sandbox create command. */
@@ -315,26 +489,122 @@ function command(
   args: readonly string[],
   signal: AbortSignal,
   cliEnvironment?: OpenShellCliEnvironment,
+  observer?: OpenShellRuntimeConfig['observeRuntime'],
 ): Promise<string> {
   return new Promise((resolve, reject) => {
-    execFile(
-      binary,
-      [...args],
-      {
-        env: cliEnvironment
-          ? validateOpenShellCliEnvironment(cliEnvironment)
-          : Object.fromEntries(
-              ['PATH', 'HOME', 'TMPDIR', 'LANG', 'LC_ALL'].flatMap((key) =>
-                process.env[key] ? [[key, process.env[key]!]] : [],
+    const started = observer ? performance.now() : 0;
+    let commandIndex = 1;
+    if (observer)
+      while (
+        ['--gateway', '--gateway-endpoint', '--workspace', '--gateway-insecure'].includes(
+          args[commandIndex] ?? '',
+        )
+      )
+        commandIndex += args[commandIndex] === '--gateway-insecure' ? 1 : 2;
+    const operation =
+      args[0] === 'provider' && args[commandIndex] === 'list'
+        ? 'provider-inventory'
+        : args[0] === 'sandbox' && args[commandIndex] === 'get'
+          ? 'sandbox-get'
+          : args[0] === 'sandbox' && args[commandIndex] === 'create'
+            ? 'sandbox-create'
+            : 'other';
+    if (observer)
+      observeRuntime(observer, {
+        kind: 'cli-command',
+        operation,
+        stage: 'start',
+        elapsedMs: 0,
+        exitCode: null,
+        signal: null,
+        error: 'none',
+        stdoutAvailable: false,
+        stdoutBytes: null,
+        stderrAvailable: false,
+        stderrBytes: null,
+      });
+    let terminalObserved = false;
+    const terminal = (error: unknown, stdout: unknown, stderr: unknown) => {
+      if (observer && !terminalObserved) {
+        terminalObserved = true;
+        try {
+          const e = error as { code?: unknown; signal?: unknown; name?: unknown } | null;
+          const code = e?.code,
+            terminalSignal = e?.signal;
+          const exitCode = !error
+            ? 0
+            : typeof code === 'number' && Number.isInteger(code) && code >= 1 && code <= 255
+              ? code
+              : null;
+          const bytes = (value: unknown) =>
+            typeof value === 'string'
+              ? Buffer.byteLength(value)
+              : Buffer.isBuffer(value)
+                ? value.length
+                : null;
+          const stdoutBytes = bytes(stdout),
+            stderrBytes = bytes(stderr);
+          observeRuntime(observer, {
+            kind: 'cli-command',
+            operation,
+            stage: 'terminal',
+            elapsedMs: elapsedObservation(started),
+            exitCode,
+            signal:
+              terminalSignal == null
+                ? null
+                : terminalSignal === 'SIGTERM' ||
+                    terminalSignal === 'SIGKILL' ||
+                    terminalSignal === 'SIGINT'
+                  ? terminalSignal
+                  : 'other',
+            error: !error
+              ? 'none'
+              : signal.aborted || e?.name === 'AbortError'
+                ? 'aborted'
+                : code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER'
+                  ? 'max-buffer'
+                  : exitCode !== null
+                    ? 'nonzero'
+                    : code === 'ENOENT' || code === 'EACCES' || code === 'EPERM'
+                      ? 'spawn'
+                      : terminalSignal
+                        ? 'terminated'
+                        : 'unknown',
+            stdoutAvailable: stdoutBytes !== null,
+            stdoutBytes,
+            stderrAvailable: stderrBytes !== null,
+            stderrBytes,
+          });
+        } catch {
+          /* Malformed diagnostic metadata cannot alter the actual original outcome. */
+        }
+      }
+      if (error) reject(error);
+      else resolve(stdout as string);
+    };
+    try {
+      execFile(
+        binary,
+        [...args],
+        {
+          env: cliEnvironment
+            ? validateOpenShellCliEnvironment(cliEnvironment)
+            : Object.fromEntries(
+                ['PATH', 'HOME', 'TMPDIR', 'LANG', 'LC_ALL'].flatMap((key) =>
+                  process.env[key] ? [[key, process.env[key]!]] : [],
+                ),
               ),
-            ),
-        signal,
-        timeout: 120_000,
-        maxBuffer: 1024 * 1024,
-        encoding: 'utf8',
-      },
-      (error, stdout) => (error ? reject(error) : resolve(stdout)),
-    );
+          signal,
+          timeout: 120_000,
+          maxBuffer: 1024 * 1024,
+          encoding: 'utf8',
+        },
+        terminal,
+      );
+    } catch (error) {
+      terminal(error, undefined, undefined);
+    }
   });
 }
 
@@ -680,7 +950,10 @@ export class OpenShellRuntimeManager {
         if (!binding.id.trim()) throw new Error('Account provider ID is required');
       }
     }
-    this.run = run ?? ((args, signal) => command(config.cli, args, signal, config.cliEnvironment));
+    this.run =
+      run ??
+      ((args, signal) =>
+        command(config.cli, args, signal, config.cliEnvironment, config.observeRuntime));
     this.runSsh = runSsh ?? ((args, signal) => command('ssh', args, signal));
   }
 
@@ -1477,6 +1750,94 @@ export class OpenShellRuntimeManager {
     if (changed) await this.waitForReady(name, owner, signal);
   }
 
+  private observeEnsureSync<T>(
+    phase: OpenShellEnsurePhase,
+    operation: () => T,
+    signal: AbortSignal,
+  ): T {
+    const observer = this.config.observeRuntime;
+    if (!observer) return operation();
+    const started = performance.now();
+    observeRuntime(observer, {
+      kind: 'ensure-phase',
+      phase,
+      stage: 'start',
+      elapsedMs: 0,
+      error: 'none',
+    });
+    try {
+      const value = operation();
+      observeRuntime(observer, {
+        kind: 'ensure-phase',
+        phase,
+        stage: 'fulfilled',
+        elapsedMs: elapsedObservation(started),
+        error: 'none',
+      });
+      return value;
+    } catch (error) {
+      observeRuntime(observer, {
+        kind: 'ensure-phase',
+        phase,
+        stage: 'rejected',
+        elapsedMs: elapsedObservation(started),
+        error: signal.aborted ? 'aborted' : 'unknown',
+      });
+      throw error;
+    }
+  }
+  private observeEnsure<T>(
+    phase: OpenShellEnsurePhase,
+    operation: () => Promise<T>,
+    signal: AbortSignal,
+  ): Promise<T> {
+    const observer = this.config.observeRuntime;
+    if (!observer) return operation();
+    const started = performance.now();
+    observeRuntime(observer, {
+      kind: 'ensure-phase',
+      phase,
+      stage: 'start',
+      elapsedMs: 0,
+      error: 'none',
+    });
+    let pending: Promise<T>;
+    try {
+      pending = operation();
+    } catch (error) {
+      observeRuntime(observer, {
+        kind: 'ensure-phase',
+        phase,
+        stage: 'rejected',
+        elapsedMs: elapsedObservation(started),
+        error: signal.aborted ? 'aborted' : 'unknown',
+      });
+      throw error;
+    }
+    return pending.then(
+      (value) => {
+        observeRuntime(observer, {
+          kind: 'ensure-phase',
+          phase,
+          stage: 'fulfilled',
+          elapsedMs: elapsedObservation(started),
+          error: 'none',
+        });
+        return value;
+      },
+      (error) => {
+        observeRuntime(observer, {
+          kind: 'ensure-phase',
+          phase,
+          stage: 'rejected',
+          elapsedMs: elapsedObservation(started),
+          error: signal.aborted ? 'aborted' : 'unknown',
+        });
+        throw error;
+      },
+    );
+  }
+
   async ensure(
     ...args: Parameters<OpenShellRuntimeManager['ensureUnserialized']>
   ): Promise<OpenShellRuntime> {
@@ -1516,9 +1877,21 @@ export class OpenShellRuntimeManager {
     if (artifactConfig) assertArtifactDriverConfig(artifactConfig);
     if (artifactConfig && this.config.workdir !== SYMPOSIUM_ARTIFACT_TARGET)
       throw new Error('Artifact mount must match the reviewed native workdir');
-    this.config.verifyAccountProviderUnion?.();
-    await this.verifyAccountProvider(signal);
-    this.config.verifyAccountProviderUnion?.();
+    this.observeEnsureSync(
+      'provider-union',
+      () => this.config.verifyAccountProviderUnion?.(),
+      signal,
+    );
+    await this.observeEnsure(
+      'account-provider-check',
+      () => this.verifyAccountProvider(signal),
+      signal,
+    );
+    this.observeEnsureSync(
+      'provider-union',
+      () => this.config.verifyAccountProviderUnion?.(),
+      signal,
+    );
     const accountProvider = this.config.account.provider;
     // The account provider is a separately-bound inference/account role. It
     // can happen to have a service-provider name (for example `github`), but
@@ -1537,7 +1910,7 @@ export class OpenShellRuntimeManager {
     const currentOwner = this.sandboxOwner(conversationId, currentName)!;
     let name = currentName;
     let owner = currentOwner;
-    let sandbox = await this.get(name, signal);
+    let sandbox = await this.observeEnsure('sandbox-current', () => this.get(name, signal), signal);
     if (
       expected &&
       (!sandbox ||
@@ -1551,7 +1924,11 @@ export class OpenShellRuntimeManager {
     let terminalSandboxId: string | undefined;
     if (!sandbox && !this.config.sandboxNameOverride) {
       const legacyName = legacySandboxNameForConversation(conversationHash);
-      const legacy = await this.get(legacyName, signal);
+      const legacy = await this.observeEnsure(
+        'sandbox-legacy',
+        () => this.get(legacyName, signal),
+        signal,
+      );
       if (legacy) {
         name = legacyName;
         owner = conversationHash;
@@ -1568,7 +1945,18 @@ export class OpenShellRuntimeManager {
           (provider) => this.config.grantableServiceProviders.includes(provider),
         )
       : [...(inheritedMigrationGrants ?? [])];
-    if (sandbox) await this.verifyManagedConnections(name, signal, approvedGrantableProviders);
+    if (this.config.observeRuntime) {
+      await this.observeEnsure(
+        'connections',
+        async () => {
+          if (sandbox)
+            await this.verifyManagedConnections(name, signal, approvedGrantableProviders);
+          else await this.config.verifyConnections?.(name, signal, approvedGrantableProviders);
+        },
+        signal,
+      );
+    } else if (sandbox)
+      await this.verifyManagedConnections(name, signal, approvedGrantableProviders);
     else await this.config.verifyConnections?.(name, signal, approvedGrantableProviders);
     if (!sandbox) {
       const preparedSeed = artifactConfig
@@ -1796,9 +2184,11 @@ export class OpenShellRuntimeManager {
       if (terminalSandboxId) this.config.onSandboxCreationPhase?.('mount');
       if (!sandbox.id) throw new Error('Artifact sandbox has no immutable physical identity');
       await this.config.verifyArtifactMount!(name, sandbox.id, artifactConfig);
-      const afterMount = await this.get(name, signal);
-      if (!afterMount || afterMount.id !== sandbox.id || afterMount.phase !== 'Ready')
-        throw new Error('Artifact sandbox changed during mount attestation');
+      await atSymposiumReconciliationStageAsync('SEAT_MOUNT_POSTCHECK_FAILED', async () => {
+        const afterMount = await this.get(name, signal);
+        if (!afterMount || afterMount.id !== sandbox.id || afterMount.phase !== 'Ready')
+          throw new Error('Artifact sandbox changed during mount attestation');
+      });
     }
     if (sandbox.labels?.['mitzo.conversation'] !== owner)
       throw new Error(`OpenShell sandbox ${name} is not owned by this conversation`);

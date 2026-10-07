@@ -16,15 +16,20 @@ reads and hashes the live `/proc/<pid>/exe` object.
 inside the image build. The script accepts only the reviewed Linux arm64 package,
 package JSON hash and native ELF hash below. It replaces only the expected npm
 entrypoint symlink with a root-owned regular copy of that ELF, retaining all npm
-package assets. An already normalized image is checked without replacement.
+package assets. The app-server resolves `codex-code-mode-host` beside its own
+executable; the normalizer also installs an exact root-owned copy of that
+packaged helper at `/usr/bin/codex-code-mode-host`. An already normalized image
+is checked without replacement.
 Unknown architectures, versions, hashes, symlink targets and writable/nonregular
 artifacts fail; no package is downloaded or upgraded. `--check` is read-only.
 
 - Version: `0.153.4`
 - Package JSON SHA256: `302ed64d0846795501768be9f60f78133688c0c09162c76e80a8a04b045664cb`
 - Native ELF SHA256: `4d76e542c222ea8c75861d8c4ade60a1a332a63255ce1c60bdaebf7c2a2869e6`
+- Packaged code-mode host SHA256: `d677dedf8179ca28ceb869a2e0b60d3ffad3d26f6e7738f7617d34500128a369`
 - Source ELF: `/usr/lib/node_modules/@openai/codex/node_modules/@openai/codex-linux-arm64/vendor/aarch64-unknown-linux-musl/bin/codex`
 - Canonical ELF: `/usr/bin/codex`
+- Canonical code-mode host: `/usr/bin/codex-code-mode-host`
 
 The seat launcher checks for a root-owned, nonwritable regular arm64 ELF before
 starting direct Codex or the subscription bootstrap. This structural startup check
@@ -47,7 +52,8 @@ The script uses the existing immutable image
 old image fails the canonical check and, before the launcher fix, incorrectly
 passes bootstrap. After normalization, read/write seat version checks succeed;
 a local app-server process exposes `/usr/bin/codex` through `/proc/<pid>/exe`.
-No inference request is sent. Hash mutation and changed package metadata fail.
+No inference request is sent. Main ELF and code-mode host hash mutation and
+changed package metadata fail.
 The npm wrapper inspected in this pinned image adds only package-manager update
 metadata and signal forwarding; it does not inject an asset path needed for this
 offline startup. Package assets remain present in the normalized image.

@@ -16,10 +16,13 @@ export type SourcePreview = {
 };
 export type SourceStatus = {
   repositories: string[];
+  expectedRevision: number;
   artifact: {
     available: boolean;
     state: string;
     admissionIssued?: boolean;
-    receipt?: { commit?: string };
+    volumeGeneration?: string;
+    receipt?: { commit?: string; operationId?: string } | null;
+    sourceSeal?: { state: string; operationId: string } | null;
   };
 };

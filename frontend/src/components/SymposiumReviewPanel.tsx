@@ -6,29 +6,15 @@ import { SymposiumPublication } from './SymposiumPublication';
 import { SymposiumSavedReviewRecord } from './SymposiumSavedReviewRecord';
 import { SymposiumReviewHistory } from './SymposiumReviewHistory';
 import './SymposiumReviewPanel.css';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { apiFetch } from '../lib/api-fetch';
 
-type Workflow = {
-  workflowId: string;
-  status: string;
-  artifactRevision: string;
-  artifactHash: string;
-  reviewRounds: number;
-  tokensUsed: number;
-  costUsd: number;
-  findings: Array<{
-    fingerprint: string;
-    severity?: 'critical' | 'high' | 'medium' | 'low';
-    summary: string;
-    location: string;
-    criterion: string;
-    evidenceRefs: string[];
-    status: string;
-  }>;
-  reviews: Array<{ reviewId: string; kind: string; artifactRevision: string }>;
-  reservations: Array<{ attemptId: string; kind: 'review' | 'fix'; settled: boolean }>;
-};
+import type {
+  InitialApplicationRun,
+  ApplicationPolicy,
+  CriterionCheck,
+  ReviewWorkflow as Workflow,
+} from '../types/symposium-review';
 export function SymposiumReviewEntry({ sessionId }: { sessionId: string }) {
   const [open, setOpen] = useState(false);
   return (
@@ -65,21 +51,38 @@ function ReviewPanel({
 }) {
   const base = `/api/sessions/${encodeURIComponent(sessionId)}/symposium/reviews`;
   const [workflows, setWorkflows] = useState<Workflow[]>([]);
+  const [criterionChecks, setCriterionChecks] = useState<CriterionCheck[]>([]);
+  const [selectedCheck, setSelectedCheck] = useState('');
+  const [confirmedArtifact, setConfirmedArtifact] = useState(false);
   const [workflowId, setWorkflowId] = useState<string | null>(null);
   const [newReview, setNewReview] = useState(false);
   const [historyVersion, setHistoryVersion] = useState(0);
   const [available, setAvailable] = useState(false);
+  const [stopAvailable, setStopAvailable] = useState(false);
+  const [cleanupAvailable, setCleanupAvailable] = useState(false);
+  const [cleanupResult, setCleanupResult] = useState('');
+  const [applicationRun, setApplicationRun] = useState<InitialApplicationRun>({
+    available: false,
+    initialArtifact: null,
+  });
   const [loaded, setLoaded] = useState(false);
   const [busy, setBusy] = useState(false);
+  const stopInFlight = useRef(false);
+  const mounted = useRef(true);
+  const stopController = useRef<AbortController | null>(null);
+  const [stopBusy, setStopBusy] = useState(false);
+  const [stopNotice, setStopNotice] = useState('');
+  const refreshInFlight = useRef(false);
+  const [refreshBusy, setRefreshBusy] = useState(false);
   const [error, setError] = useState('');
   const [selected, setSelected] = useState<string[]>([]);
   const [reason, setReason] = useState('');
   const [dismissalEvidence, setDismissalEvidence] = useState('');
   const [criteria, setCriteria] = useState('');
-  const [tokens, setTokens] = useState('');
-  const [rounds, setRounds] = useState('');
-  const [costMode, setCostMode] = useState('');
-  const [cost, setCost] = useState('');
+  const [hostTurns, setHostTurns] = useState('');
+  const [cycles, setCycles] = useState('');
+  const [deadline, setDeadline] = useState('');
+  const [noProgress, setNoProgress] = useState('');
   const [record, setRecord] = useState('');
   const [savedRecordOpen, setSavedRecordOpen] = useState(false);
   const [recordReference, setRecordReference] = useState<{ id: string; hash: string } | null>(null);
@@ -96,22 +99,35 @@ function ReviewPanel({
         );
       if (signal?.aborted) return;
       setAvailable(data.available);
+      setStopAvailable(data.stopAvailable ?? data.available);
+      setCleanupAvailable(data.cleanupAvailable === true);
+      setApplicationRun(data.applicationRun ?? { available: false, initialArtifact: null });
       setWorkflows(data.workflows);
+      if (data.workflows.some((item: Workflow) => item.limits?.mode === 'application'))
+        setNewReview(false);
+      setCriterionChecks(data.criterionChecks ?? []);
+      setConfirmedArtifact(false);
       setHistoryVersion((version) => version + 1);
       setLoaded(true);
     },
     [base],
   );
   useEffect(() => {
+    mounted.current = true;
     const controller = new AbortController();
     void reload(controller.signal).catch((error) => {
       if (!controller.signal.aborted) setError(String(error));
     });
-    return () => controller.abort();
+    return () => {
+      mounted.current = false;
+      controller.abort();
+      stopController.current?.abort();
+    };
   }, [reload]);
   async function action(path: string, body: unknown) {
     setBusy(true);
     setError('');
+    setCleanupResult('');
     setSavedRecordOpen(false);
     setRecord('');
     setRecordReference(null);
@@ -131,10 +147,14 @@ function ReviewPanel({
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || result.code || 'Review action failed');
-      if (path === base && typeof result.workflowId === 'string') {
+      if (path === `${base}/application-runs` && typeof result.workflowId === 'string') {
         setWorkflowId(result.workflowId);
         setNewReview(false);
       }
+      if (result.semanticEvidenceAllowed === false && result.retryAllowed === false)
+        setCleanupResult(
+          `Original check cleanup: ${result.state}. No criterion evidence was recorded; retry is unavailable.`,
+        );
       if (result.publication === 'not_created') {
         setRecord(JSON.stringify(result.record, null, 2));
         if (
@@ -152,23 +172,169 @@ function ReviewPanel({
       setBusy(false);
     }
   }
-  const workflow = newReview
-    ? undefined
-    : (workflows.find((item) => item.workflowId === workflowId) ?? workflows.at(-1));
+  const hasApplicationRun = workflows.some((item) => item.limits?.mode === 'application');
+  const workflow =
+    newReview && !hasApplicationRun
+      ? undefined
+      : (workflows.find((item) => item.workflowId === workflowId) ?? workflows.at(-1));
+  function resetLimits() {
+    setHostTurns('');
+    setCycles('');
+    setDeadline('');
+    setNoProgress('');
+  }
+  const positiveInteger = (value: string) =>
+    value.trim() !== '' && Number.isSafeInteger(Number(value)) && Number(value) > 0;
   const validLimits =
-    tokens.trim() !== '' &&
-    Number.isSafeInteger(Number(tokens)) &&
-    Number(tokens) > 0 &&
-    rounds.trim() !== '' &&
-    Number.isSafeInteger(Number(rounds)) &&
-    Number(rounds) > 0 &&
-    (costMode === 'none' ||
-      (costMode === 'cap' &&
-        cost.trim() !== '' &&
-        Number.isFinite(Number(cost)) &&
-        Number(cost) >= 0));
-  const pending = workflow?.reservations.find((attempt) => !attempt.settled);
+    positiveInteger(hostTurns) &&
+    positiveInteger(cycles) &&
+    positiveInteger(noProgress) &&
+    new Date(deadline).getTime() > Date.now();
+  const limits: ApplicationPolicy = {
+    version: 1,
+    mode: 'application',
+    maxHostTurns: Number(hostTurns),
+    maxReviewCycles: Number(cycles),
+    deadlineAt: new Date(deadline).getTime(),
+    noProgressLimit: Number(noProgress),
+  };
+  const application = workflow?.limits?.mode === 'application' ? workflow.limits : undefined;
+  const pendingAttempt = (
+    application ? workflow?.applicationAttempts : workflow?.reservations
+  )?.find((attempt) => !attempt.settled);
+  const pendingPreparation = application
+    ? workflow?.applicationPreparations?.find((preparation) => preparation.status === 'preparing')
+    : undefined;
+  const settledPreparation = application
+    ? workflow?.applicationPreparations
+        ?.filter((preparation) => preparation.status === 'settled')
+        .at(-1)
+    : undefined;
+  const pending = pendingPreparation ?? pendingAttempt;
+  const pendingKind =
+    pending && 'effectiveKind' in pending ? (pending.effectiveKind ?? pending.kind) : pending?.kind;
+  const recoveryKind =
+    pendingKind === 'delta' ? 'review' : pendingKind === 'retry' ? undefined : pendingKind;
+  const limitFields = (
+    <fieldset disabled={busy}>
+      <legend>{workflow ? 'Amend application limits' : 'Application limits'}</legend>
+      <label>
+        Maximum host turns
+        <input
+          type="number"
+          min="1"
+          value={hostTurns}
+          onChange={(event) => setHostTurns(event.target.value)}
+        />
+      </label>
+      <label>
+        Maximum review/fix cycles
+        <input
+          type="number"
+          min="1"
+          value={cycles}
+          onChange={(event) => setCycles(event.target.value)}
+        />
+      </label>
+      <label>
+        Deadline
+        <input
+          type="datetime-local"
+          value={deadline}
+          onChange={(event) => setDeadline(event.target.value)}
+        />
+      </label>
+      <label>
+        Maximum unchanged cycles
+        <input
+          type="number"
+          min="1"
+          value={noProgress}
+          onChange={(event) => setNoProgress(event.target.value)}
+        />
+      </label>
+      <p>
+        Limits fence new work and request cancellation. Accepted calls may still finish. Token and
+        spend caps are not guaranteed.
+      </p>
+    </fieldset>
+  );
   const endpoint = workflow ? `${base}/${encodeURIComponent(workflow.workflowId)}/actions` : base;
+  async function refreshReview() {
+    if (refreshInFlight.current) return;
+    refreshInFlight.current = true;
+    setRefreshBusy(true);
+    const controller = new AbortController();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([
+        reload(controller.signal),
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(() => {
+            reject(new Error('Review status request timed out. The saved outcome is unconfirmed.'));
+            controller.abort();
+          }, 30_000);
+        }),
+      ]);
+    } catch (error) {
+      if (mounted.current) setError(String(error));
+    } finally {
+      if (timer) clearTimeout(timer);
+      refreshInFlight.current = false;
+      if (mounted.current) setRefreshBusy(false);
+    }
+  }
+  async function stopReview() {
+    if (!workflow || stopInFlight.current) return;
+    stopInFlight.current = true;
+    setStopBusy(true);
+    setStopNotice('Requesting Stop…');
+    const controller = new AbortController();
+    stopController.current = controller;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([
+        (async () => {
+          const response = await apiFetch(endpoint, {
+            method: 'POST',
+            signal: controller.signal,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              action: 'stop',
+              expectedArtifactRevision: workflow.artifactRevision,
+              expectedArtifactHash: workflow.artifactHash,
+            }),
+          });
+          const result = await response.json();
+          if (!response.ok) throw new Error(result.error || result.code || 'Stop failed');
+        })(),
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(() => {
+            reject(new Error('Stop request timed out.'));
+            controller.abort();
+          }, 30_000);
+        }),
+      ]);
+      if (!mounted.current) return;
+      setStopNotice('Stop recorded. Provider cleanup is not confirmed; history is preserved.');
+      void reload().catch(() => {
+        if (!mounted.current) return;
+        setStopNotice(
+          'Stop recorded. Status refresh failed; provider cleanup is not confirmed. Refresh review to check the saved outcome.',
+        );
+      });
+    } catch (error) {
+      if (!mounted.current) return;
+      setStopNotice(
+        `Stop is unconfirmed. Refresh review or retry Stop. ${error instanceof Error ? error.message : 'Stop failed'}`,
+      );
+    } finally {
+      if (timer) clearTimeout(timer);
+      stopInFlight.current = false;
+      stopController.current = null;
+      if (mounted.current) setStopBusy(false);
+    }
+  }
   return (
     <section aria-label="Review findings" className="symposium-review-panel">
       <SymposiumPublicationSuggestions
@@ -177,6 +343,7 @@ function ReviewPanel({
       />
       <h3>Review findings</h3>
       {error && <p role="alert">{error}</p>}
+      {stopNotice && <p role="status">{stopNotice}</p>}
       {!loaded && !error && <p>Loading review history…</p>}
       {loaded && !available && (
         <p>
@@ -193,13 +360,15 @@ function ReviewPanel({
             disabled={busy}
             onChange={(event) => {
               setWorkflowId(event.target.value);
+              resetLimits();
               setNewReview(false);
               setSelected([]);
               setReason('');
               setRecord('');
+              setConfirmedArtifact(false);
             }}
           >
-            {newReview && <option value="">New review</option>}
+            {newReview && !hasApplicationRun && <option value="">New run</option>}
             {workflows.map((item) => (
               <option key={item.workflowId} value={item.workflowId}>
                 {item.artifactRevision} · {item.status.replaceAll('_', ' ')} · {item.workflowId}
@@ -208,21 +377,19 @@ function ReviewPanel({
           </select>
         </label>
       )}
-      {loaded && available && workflows.length > 0 && !newReview && (
+      {loaded && available && workflows.length > 0 && !newReview && !hasApplicationRun && (
         <button
           disabled={busy}
           onClick={() => {
             setNewReview(true);
-            setTokens('');
-            setRounds('');
-            setCostMode('');
-            setCost('');
+            resetLimits();
             setSelected([]);
             setReason('');
             setRecord('');
+            setConfirmedArtifact(false);
           }}
         >
-          New review for current artifact
+          New implementation and review run
         </button>
       )}
       {workflow && (
@@ -230,10 +397,78 @@ function ReviewPanel({
           <p>
             {workflow.status.replaceAll('_', ' ')} · {workflow.artifactRevision}
           </p>
+          {application ? (
+            <>
+              <p>
+                {workflow.hostTurns ?? 'Unknown'} of {application.maxHostTurns} host turns ·{' '}
+                {workflow.reviewCycles ?? 'Unknown'} of {application.maxReviewCycles} review/fix
+                cycles
+              </p>
+              <p>
+                Deadline: {new Date(application.deadlineAt).toLocaleString()} · Maximum unchanged
+                cycles: {application.noProgressLimit}
+              </p>
+              <p>Application limits; no guaranteed token or spend cap.</p>
+              {!workflow.decisionCode && (
+                <button disabled={stopBusy || !stopAvailable} onClick={() => void stopReview()}>
+                  Stop review
+                </button>
+              )}
+            </>
+          ) : (
+            <p>
+              {workflow.reviewRounds} review rounds · Historical review record; no current cap
+              enforcement claimed.
+            </p>
+          )}
           <p>
-            {workflow.reviewRounds} review rounds · {workflow.tokensUsed} tokens · $
-            {workflow.costUsd.toFixed(2)} recorded
+            {workflow.usageCompleteness?.tokens === 'complete' && workflow.tokensUsed != null
+              ? `${workflow.tokensUsed} tokens recorded`
+              : 'Token total unknown'}{' '}
+            ·{' '}
+            {workflow.usageCompleteness?.cost === 'complete' && workflow.costUsd != null
+              ? `$${workflow.costUsd.toFixed(2)} recorded`
+              : 'Cost total unknown'}
           </p>
+          {workflow.decisionCode && <p>Stopped: {workflow.decisionCode}</p>}
+          {workflow.decisionCode && settledPreparation?.disposition && (
+            <p>
+              Preparation {settledPreparation.attemptId} reconciled:{' '}
+              {settledPreparation.disposition === 'applied_no_dispatch'
+                ? 'transition applied; no native dispatch'
+                : 'transition not applied; no native dispatch'}
+            </p>
+          )}
+          {application && workflow.decisionCode && (
+            <>
+              {limitFields}
+              <label>
+                Reason for continuation
+                <input value={reason} onChange={(event) => setReason(event.target.value)} />
+              </label>
+              <p>
+                Authorize amended cumulative limits for this workflow. Earlier attempts remain
+                counted.
+              </p>
+              <button
+                disabled={
+                  busy ||
+                  !available ||
+                  Boolean(pending) ||
+                  !validLimits ||
+                  !reason.trim() ||
+                  limits.maxHostTurns <= (workflow.hostTurns ?? 0) ||
+                  limits.maxReviewCycles < (workflow.reviewCycles ?? 0)
+                }
+                onClick={() =>
+                  void action(endpoint, { action: 'continue', limits, reason: reason.trim() })
+                }
+              >
+                Authorize continuation
+              </button>
+              {pending && <p>Reconcile the unresolved attempt before continuing.</p>}
+            </>
+          )}
           <ul>
             {workflow.findings.map((finding) => (
               <li key={finding.fingerprint}>
@@ -289,6 +524,83 @@ function ReviewPanel({
               </li>
             ))}
           </ul>
+          {workflow.acceptanceCriteria && workflow.acceptanceCriteria.length > 0 && (
+            <section aria-label="Criterion verification">
+              <h4>Criterion verification</h4>
+              {cleanupResult && <p role="status">{cleanupResult}</p>}
+              <p>
+                Current result: {workflow.currentResultId ?? 'none'} · Artifact:{' '}
+                {workflow.artifactRevision} · SHA-256: {workflow.artifactHash}
+              </p>
+              {(workflow.status === 'awaiting_evidence' || cleanupAvailable) &&
+                criterionChecks.length > 0 && (
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={confirmedArtifact}
+                      disabled={busy || (!available && !cleanupAvailable) || Boolean(pending)}
+                      onChange={(event) => setConfirmedArtifact(event.target.checked)}
+                    />
+                    Confirm exact artifact for criterion checks: {workflow.artifactRevision} ·
+                    SHA-256: {workflow.artifactHash}
+                  </label>
+                )}
+              <ul>
+                {workflow.acceptanceCriteria.map((criterion) => {
+                  const current = workflow.evidence
+                    ?.filter(
+                      (entry) =>
+                        entry.source === 'host' &&
+                        entry.item.criterion === criterion &&
+                        entry.item.resultId === workflow.currentResultId &&
+                        entry.item.artifactRevision === workflow.artifactRevision &&
+                        entry.artifactHash === workflow.artifactHash,
+                    )
+                    .at(-1);
+                  const verdict = current?.item.verdict ?? 'missing evidence';
+                  const registered = criterionChecks.find((item) => item.criterion === criterion);
+                  return (
+                    <li key={criterion}>
+                      <span>
+                        {criterion}: {verdict}
+                      </span>
+                      {registered?.kind === 'python-json-cases' && cleanupAvailable && (
+                        <button
+                          disabled={busy || Boolean(pending) || !confirmedArtifact}
+                          onClick={() =>
+                            void action(endpoint, {
+                              action: 'cleanup-check',
+                              definitionId: registered.id,
+                            })
+                          }
+                        >
+                          Reconcile original check cleanup: {criterion}
+                        </button>
+                      )}
+                      {workflow.status === 'awaiting_evidence' && registered && (
+                        <button
+                          disabled={busy || !available || Boolean(pending) || !confirmedArtifact}
+                          onClick={() =>
+                            void action(endpoint, { action: 'check', definitionId: registered.id })
+                          }
+                        >
+                          Run registered check: {criterion}
+                        </button>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+              {workflow.acceptanceCriteria.some(
+                (criterion) => !criterionChecks.some((check) => check.criterion === criterion),
+              ) && (
+                <p>
+                  Unregistered criteria need separate trusted host evidence. A reviewer's assertion
+                  does not verify them.
+                </p>
+              )}
+            </section>
+          )}
           {workflow.status === 'awaiting_fix' && (
             <>
               <label>
@@ -322,6 +634,17 @@ function ReviewPanel({
               </p>
             </>
           )}
+          {workflow.status === 'awaiting_initial' && (
+            <>
+              <p>The selected limits are saved. Initial implementation has not been recorded.</p>
+              <button
+                disabled={busy || !available || Boolean(pending)}
+                onClick={() => void action(endpoint, { action: 'initial' })}
+              >
+                Run initial implementation
+              </button>
+            </>
+          )}
           {['awaiting_review', 'awaiting_delta_review'].includes(workflow.status) && (
             <button
               disabled={busy || !available || Boolean(pending)}
@@ -333,18 +656,25 @@ function ReviewPanel({
             </button>
           )}
           {pending && (
-            <button
-              disabled={busy || !available}
-              onClick={() =>
-                void action(endpoint, {
-                  action: 'recover',
-                  attemptId: pending.attemptId,
-                  kind: pending.kind,
-                })
-              }
-            >
-              Recover completed attempt
-            </button>
+            <>
+              {pendingPreparation && (
+                <p>
+                  Saved preparation: {pendingPreparation.kind} · {pendingPreparation.attemptId}
+                </p>
+              )}
+              <button
+                disabled={busy || !available || !recoveryKind}
+                onClick={() =>
+                  void action(endpoint, {
+                    action: 'recover',
+                    attemptId: pending.attemptId,
+                    kind: recoveryKind,
+                  })
+                }
+              >
+                {pendingPreparation ? 'Recover saved preparation' : 'Recover completed attempt'}
+              </button>
+            </>
           )}
           {workflow.status === 'awaiting_evidence' && (
             <>
@@ -378,70 +708,94 @@ function ReviewPanel({
           />
         </>
       )}
-      {loaded && available && !workflow && (
+      {loaded && available && !workflow && !hasApplicationRun && (
         <>
+          {criterionChecks.length > 0 && (
+            <div>
+              <label>
+                Registered criterion check
+                <select
+                  value={selectedCheck}
+                  onChange={(event) => setSelectedCheck(event.target.value)}
+                >
+                  <option value="">Select a check</option>
+                  {criterionChecks.map((check) => (
+                    <option key={check.id} value={check.id}>
+                      {check.criterion} · {check.path}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <button
+                disabled={!selectedCheck || busy}
+                onClick={() => {
+                  const check = criterionChecks.find((item) => item.id === selectedCheck);
+                  if (!check) return;
+                  setCriteria((current) => {
+                    const lines = current
+                      .split('\n')
+                      .map((line) => line.trim())
+                      .filter(Boolean);
+                    return lines.includes(check.criterion)
+                      ? current
+                      : [...lines, check.criterion].join('\n');
+                  });
+                  setSelectedCheck('');
+                }}
+              >
+                Add registered criterion
+              </button>
+            </div>
+          )}
           <label>
             Acceptance criteria (one per line)
             <textarea value={criteria} onChange={(event) => setCriteria(event.target.value)} />
           </label>
-          <label>
-            Token budget
-            <input
-              type="number"
-              min="1"
-              value={tokens}
-              onChange={(event) => setTokens(event.target.value)}
-            />
-          </label>
-          <label>
-            Maximum review rounds
-            <input
-              type="number"
-              min="1"
-              value={rounds}
-              onChange={(event) => setRounds(event.target.value)}
-            />
-          </label>
-          <label>
-            Cost limit
-            <select value={costMode} onChange={(event) => setCostMode(event.target.value)}>
-              <option value="">Choose a cost limit</option>
-              <option value="cap">Set a maximum cost</option>
-              <option value="none">No dollar limit; keep token and round limits</option>
-            </select>
-          </label>
-          {costMode === 'cap' && (
-            <label>
-              Maximum cost (USD)
-              <input
-                type="number"
-                min="0"
-                step="any"
-                value={cost}
-                onChange={(event) => setCost(event.target.value)}
-              />
-            </label>
+          <p>
+            Free-form criteria require separate trusted host evidence. Registered checks are
+            available above.
+          </p>
+          {limitFields}
+          {applicationRun.available && applicationRun.initialArtifact ? (
+            <p>
+              Initial artifact: {applicationRun.initialArtifact.revision} · SHA-256:{' '}
+              {applicationRun.initialArtifact.hash}
+            </p>
+          ) : (
+            <p>
+              A verified initial artifact is required before creating an implementation and review
+              run.
+            </p>
           )}
-          <p>Choose limits for this review. It can run only when the workspace can enforce them.</p>
           <button
-            disabled={busy || !criteria.trim() || !validLimits}
-            onClick={() =>
-              void action(base, {
+            disabled={
+              busy ||
+              !criteria.trim() ||
+              !validLimits ||
+              !applicationRun.available ||
+              !applicationRun.initialArtifact
+            }
+            onClick={() => {
+              const artifact = applicationRun.initialArtifact;
+              if (!artifact) return;
+              void action(`${base}/application-runs`, {
                 workflowId: crypto.randomUUID(),
                 acceptanceCriteria: criteria
                   .split('\n')
                   .map((line) => line.trim())
                   .filter(Boolean),
-                limits: {
-                  maxTokens: Number(tokens),
-                  maxReviewRounds: Number(rounds),
-                  maxCostUsd: costMode === 'cap' ? Number(cost) : null,
-                },
-              })
-            }
+                limits,
+                expectedArtifactRevision: artifact.revision,
+                expectedArtifactHash: artifact.hash,
+              });
+            }}
           >
-            Start review
+            Create implementation and review run
           </button>
+          <p>
+            Creates a run before implementation. Its initial turn starts only when you choose Run
+            initial implementation.
+          </p>
         </>
       )}
       {record && (
@@ -476,10 +830,7 @@ function ReviewPanel({
         />
       )}
       <SymposiumPublication sessionId={sessionId} record={recordReference} />
-      <button
-        disabled={busy}
-        onClick={() => void reload().catch((error) => setError(String(error)))}
-      >
+      <button disabled={refreshBusy} onClick={() => void refreshReview()}>
         Refresh review
       </button>
     </section>

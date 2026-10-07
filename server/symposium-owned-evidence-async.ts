@@ -1,3 +1,4 @@
+import type { SymposiumOwnedBuildSelection } from './symposium-owned-runtime-contract.js';
 import {
   WorkerVertexRequest,
   parseWorkerVertexReceipt,
@@ -12,14 +13,20 @@ import type {
   SymposiumOwnedNativeHostBinding,
 } from './symposium-production-gate.js';
 import { OwnedEvidenceSelection } from './symposium-owned-evidence.js';
+import {
+  ownedEvidencePhase,
+  OwnedEvidenceVerificationError,
+  type OwnedEvidencePhase,
+} from './symposium-owned-evidence-diagnostic.js';
 
 type Physical = Omit<LocalSymposiumPhysicalOptions, 'ownedGateway' | 'captureClaudeProvider'>;
 export interface OwnedEvidenceWorkerData {
-  config: OpenShellRuntimeConfig;
+  config: Omit<OpenShellRuntimeConfig, 'observeRuntime'>;
   endpoint: string;
   physical: Physical;
   selection: unknown;
   custodyPort: MessagePort;
+  buildSelection?: SymposiumOwnedBuildSelection;
   signal: SharedArrayBuffer;
 }
 interface RetainedCustody {
@@ -41,10 +48,25 @@ export function createOwnedEvidenceCollector(
   custody: RetainedCustody,
   spawnWorker: (source: string, options: WorkerOptions) => Worker = (source, options) =>
     new Worker(source, options),
+  buildSelection?: SymposiumOwnedBuildSelection,
 ) {
   let active = false;
   let uncertain = false;
-  return async (selection: unknown): Promise<SymposiumProductionAttestation> => {
+  return async (
+    selection: unknown,
+    assertRequestCurrent?: () => void,
+  ): Promise<SymposiumProductionAttestation> => {
+    let requestVetoed = false;
+    const assertRequest = () => {
+      if (requestVetoed) throw Error('Original evidence request authority lost');
+      try {
+        assertRequestCurrent?.();
+      } catch (error) {
+        requestVetoed = true;
+        throw error;
+      }
+    };
+    assertRequest();
     const parsed = OwnedEvidenceSelection.parse(selection);
     if (uncertain) throw new Error('Evidence worker cleanup requires operator recovery');
     if (active) throw new Error('Admission evidence collection already in progress');
@@ -86,12 +108,17 @@ export function createOwnedEvidenceCollector(
       }
     };
     try {
+      assertRequest();
       await custody.verifyCustodyAsync();
+      assertRequest();
       const source = import.meta.url.endsWith('.ts');
       const module = new URL(
         source ? './symposium-owned-evidence-worker.ts' : './symposium-owned-evidence-worker.js',
         import.meta.url,
       ).href;
+      // Trusted observation belongs to the original host runtime, never the worker wire.
+      const workerConfig = { ...config };
+      delete workerConfig.observeRuntime;
       const worker = spawnWorker(
         source
           ? `const { workerData } = require('node:worker_threads'); require(workerData.loader).register(); require(require('node:url').fileURLToPath(workerData.module));`
@@ -99,7 +126,8 @@ export function createOwnedEvidenceCollector(
         {
           eval: true,
           workerData: {
-            config,
+            config: workerConfig,
+            ...(buildSelection === undefined ? {} : { buildSelection }),
             endpoint,
             physical,
             selection: parsed,
@@ -115,6 +143,7 @@ export function createOwnedEvidenceCollector(
         let ok = false;
         let receipt: SymposiumWorkVertexReceipt | undefined;
         try {
+          assertRequest();
           if (message.method === 'claude') {
             const request = WorkerVertexRequest.parse(message);
             receipt = await capture(request.args[0]);
@@ -132,6 +161,7 @@ export function createOwnedEvidenceCollector(
               ...(message.args as [string, string, 'podman' | 'docker']),
             );
           else throw new Error('Unknown custody operation');
+          assertRequest();
           ok = true;
         } catch {
           /* Worker receives no private diagnostic output. */
@@ -142,10 +172,16 @@ export function createOwnedEvidenceCollector(
       });
       return await new Promise<SymposiumProductionAttestation>((resolve, reject) => {
         let result: SymposiumProductionAttestation | undefined;
+        let failurePhase: OwnedEvidencePhase | undefined;
         worker.on(
           'message',
-          (message: { candidate?: SymposiumProductionAttestation; cleanupUncertain?: boolean }) => {
+          (message: {
+            candidate?: SymposiumProductionAttestation;
+            cleanupUncertain?: boolean;
+            phase?: unknown;
+          }) => {
             if (message.cleanupUncertain) uncertain = true;
+            if (!message.candidate) failurePhase = ownedEvidencePhase(message.phase);
             result = message.candidate;
           },
         );
@@ -157,16 +193,20 @@ export function createOwnedEvidenceCollector(
           if (code !== 0 || workerError || uncertain) {
             uncertain = true;
             reject(new Error('Evidence worker cleanup requires operator recovery'));
-          } else if (!result) reject(new Error('Evidence could not be verified'));
+          } else if (!result) reject(new OwnedEvidenceVerificationError(failurePhase));
           else
             void (async () => {
+              assertRequest();
               await custody.verifyCustodyAsync();
+              assertRequest();
               for (const id of selected.keys()) {
                 const before = receipts.get(id);
                 if (!before || JSON.stringify(await capture(id)) !== JSON.stringify(before))
                   throw Error('Evidence provider changed after physical probe');
               }
+              assertRequest();
               await custody.verifyCustodyAsync();
+              assertRequest();
               resolve(result!);
             })().catch(() => reject(Error('Evidence retained custody could not be verified')));
         });

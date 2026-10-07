@@ -207,6 +207,61 @@ it('physically verifies then activates only after exact helper removal and paren
   await f.copier.activate(f.request, result.generationId, exportReceipt, bundle, signal);
   expect(f.ledger.active(context)).toEqual({ generationId: result.generationId, revision: 1 });
 });
+it('copies an imported source only through an exact retained initial export proof', async () => {
+  const f = fixture();
+  const initialExport = {
+    ...exportReceipt,
+    mode: 'initial' as const,
+    sourceSealId: 'source-seal',
+    seal: {
+      sessionId: 'session',
+      custodyDigest: hash,
+      repositoryPath: '.' as const,
+      git: exportReceipt.seal.git,
+    },
+  };
+  const { fixAttemptId: _fix, findingFingerprints: _findings, ...common } = f.request;
+  void _fix;
+  void _findings;
+  const initialRequest: ArtifactGenerationRequest = {
+    ...common,
+    kind: 'initial',
+    sourceSealId: 'source-seal',
+    initialAttemptId: 'attempt',
+    policyReservationId: 'reservation',
+    expectedConfigRevision: 1,
+    predecessorMembershipGeneration: 1,
+    accountBinding: {
+      accountId: 'account',
+      accountLabel: 'Account',
+      provider: 'openai-codex',
+      model: 'luna-fixture',
+      profileRevision: '1',
+    },
+    contextGrant: { grantId: 'context', revision: 1 },
+    exportReceiptDigest: digest(initialExport),
+  };
+  const initialSource = {
+    assertRetainedInitialSourceExport: vi.fn(() => true as const),
+    requireInitialSourceExport: vi.fn(async () => initialExport.seal),
+  };
+  const copier = new PhysicalArtifactSuccessorCopier({
+    ledger: f.ledger,
+    sealer: f.sealer,
+    initialSource,
+    command: f.command,
+    custody: async () => {},
+  });
+  const result = await copier.copy(
+    initialRequest,
+    initialExport as never,
+    bundle,
+    new AbortController().signal,
+  );
+  expect(result.commit).toBe(oid);
+  expect(initialSource.requireInitialSourceExport).toHaveBeenCalled();
+  expect(f.sealer.requireSuccessorExport).not.toHaveBeenCalled();
+});
 it.each(['volume', 'helper', 'start', 'remove', 'revoked'] as const)(
   'retains %s uncertainty without redispatch or child activation',
   async (failure) => {

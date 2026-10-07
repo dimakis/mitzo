@@ -15,13 +15,17 @@ Telos **Open in Chat** and **Start Session** open a launch preview with Workspac
 
 ## Features
 
+Experimental [Symposium conversations](docs/features/symposium-integrated-acceptance.md) combine implementer and independently configured read-only reviewer seats with selected context, attributed results and explicit Stop controls. Provider sign-in, physical runtime admission and live workflow acceptance remain required. Use the [canonical singleton staging procedure](docs/operations/symposium-singleton-staging.md) for qualification; production activation is separate.
+
 The dormant [Symposium artifact snapshot observer](docs/features/symposium-artifact-snapshots.md) records bounded host observations; it does not yet enable automated review or publication.
 
 [Symposium admission candidates](docs/features/symposium-owned-evidence.md) can resolve an explicitly selected Personal connection and ready session volume inside the retained host, without installing or activating admission.
 
 [Fresh Symposium artifacts](docs/operations/symposium-artifact-initialization.md) initialize an empty owned Git workspace before admission, retaining initializer identity and cleanup receipts. An opt-in credential-free physical contract checks native writer and read-only reviewer access; full application acceptance and restart recovery remain separate gates.
 
-[Native subscription continuity](docs/operations/symposium-attempt-continuity.md) carries all eligible completed seat text into explicitly recorded replacement threads across isolated attempt homes, within a strict 64 KiB bound.
+[Native subscription continuity](docs/operations/symposium-attempt-continuity.md) carries eligible completed seat text into replacement threads as quoted history in supported text input, within a strict 64 KiB bound including framing and escaping. The current request remains separate.
+
+[Symposium mount verification](docs/operations/symposium-mount-diagnostics.md) reports bounded failure stages for configuration, physical listing, selection, inspection, identity, mount proof and image checks, while retaining the existing admission requirements.
 
 Vertex readiness validates the pinned CLI’s blank failure-code column and empty-error `-` marker without accepting diagnostic text.
 
@@ -151,25 +155,28 @@ not activate a seat or satisfy the separate runtime admission gate. See the
 Ordinary chat send/interrupt routes cannot execute a configured Symposium, and
 converting an existing ordinary conversation requires stopping it first.
 
-Use **Add reviewer** in an existing conversation to choose a saved profile,
-account/model, and an explicit review package (objective, acceptance criteria,
-repository instructions, relevant diff/source, tests, and selected decisions).
-Independent review is the default and includes no earlier conversation. Optional
+Use **Add agent** in an existing conversation to define custom guidance, a role
+label, expected output and acceptance criteria without first saving a profile.
+Optionally load a saved profile revision as an editable copy of its guidance.
+Choose the account/model/thinking level and read-only or read/write permissions
+separately; profile guidance does not grant authority. Independent context is the
+default and includes no earlier conversation. Optional
 context choices are an operator-written summary, selected shared excerpts, or
 all proven shared excerpts. Only delivered broadcasts to every active member at
 creation are eligible; private asides, queued inputs, and legacy turns without
 audience proof are excluded. Edited deliveries contribute their delivered text.
-The three setup sections explain the reviewer profile/account, the request and
-conversation context, and sharing consent. After adding a reviewer, use **Go to
-review approvals** to open and refresh this conversation's team panel, including
-when it is already open. Requests appear before
-team configuration, with agent names and **Needs approval** or **Approved — ready
-to send** status. Choose **Approve** (or **Edit and approve**), then **Send approved
-request** to start the review. Use **Open review findings** for the results.
-The package is queued for approval, never automatically dispatched. **Queue
-message for approval** creates a follow-up for explicitly selected agents. Advanced
-context import is in a collapsed disclosure. Context source grants default to empty; a reference does not itself load conversation
-history. Shared workspace access remains governed by the read-only host grant.
+The package is queued for approval, never automatically dispatched. Approve,
+Send and Stop are available in the conversation. Stop applies to all recipients
+of the named delivery and stays available during sending or a failed status
+refresh. Uncertain sends are not automatically repeated; cancellation records
+do not establish physical provider cleanup. Context
+source grants default to empty; a reference does not itself load conversation
+history. Shared workspace access remains governed by the host-issued grant.
+
+Each agent has a stable color accent alongside its name. **All** is a read-only
+combined timeline; write in a named agent's stream. Type `@` or choose **Switch
+agent** to select a recipient and switch streams. Drafts stay with their agent,
+and recipient selection never dispatches a message automatically.
 
 Adding a reviewer can prepare a stopped ordinary conversation's isolated roster,
 but admission still requires the verified runtime. Roster changes revalidate
@@ -178,7 +185,8 @@ their membership generations or sandbox identity. A partially completed setup
 remains visible in Review team & approvals. Removing the last reviewer simplifies the
 composer while preserving durable membership history and isolated routing; it
 never switches the session back to ordinary execution. The development-only
-`ui-preview.html` includes read-only reviewer choices for visual checks.
+`ui-preview.html` includes isolated simulated Add agent and delivery controls for
+visual checks, with no model calls.
 
 Portable profiles save immutable revisions of guidance, expected output, and
 acceptance criteria. Select an exact revision for a seat, or export/import its
@@ -263,8 +271,11 @@ Interactive callers cannot submit fabricated findings, usage, or verification:
 the coordinator reads those facts from completed trusted host receipts.
 
 This interface is wired into the application, but native review/fix execution
-remains unavailable until a trusted adapter supplies enforced token budgets,
-terminal usage, structured results, and artifact-bound verification. The panel
+remains gated on trusted structured results, artifact-bound verification and
+persisted application limits for host turns, review cycles, deadlines, user stop,
+no progress and explicit continuation. Guaranteed native token/spend caps and
+mandatory final usage totals are deferred; missing usage stays explicitly partial
+or unknown. The panel
 reports the missing capability rather than falling back to ordinary chat. Mocked
 integration coverage establishes the workflow boundaries, not live production
 readiness. Reviewer and Claude admission require independent host attestation
@@ -277,7 +288,9 @@ writer/session/grant authority, and a mandatory completed host publication seal.
 It revalidates those bindings after approval and uses read-only recovery for an
 ambiguous external outcome. It is **not installed in the live host**: a pending
 seal intent or unfenced Git observation cannot satisfy its seal contract. Trusted
-hard-budget review execution and physical seal completion remain prerequisites.
+review execution under persisted application limits and physical seal completion
+remain prerequisites. Guaranteed native token/spend caps and mandatory final
+usage totals are deferred under the [current acceptance contract](docs/features/symposium-integrated-acceptance.md#application-policy-contract).
 
 ### Symposium OpenShell 0.1 per-seat runtime
 
@@ -299,6 +312,19 @@ Exact release receipts allow cleanup to finish after a crash without releasing a
 replacement lease. Cleanup uses the retained sandbox and original lease identity even
 after seat removal, suspension, or role changes; current authority is still required
 for new admission.
+
+Retained seal cleanup can reclaim a newly witnessed lifecycle fence only after
+its original process is absent in the same kernel boot and PID namespace. The
+transfer preserves the original token in a durable recovery record and keeps the
+seal's admission fence intact. Live or reused PIDs, unknown ownership, old fences
+without a process witness, and changed boot domains remain quarantined. This
+cleanup path does not restore a lost custodian or adopt its gateway.
+
+An authenticated `check-state` review action reports a quarantined semantic
+check's original operation, artifact binding and retained journal states. It
+preserves unknown container identities and witness availability for operator
+disposition. Reading this report leaves cleanup, execution and semantic evidence
+permissions closed.
 
 Production remains disabled by default. A trusted server bootstrap must install
 matching host attestation for the selected CLI, gateway, images, policy, provider
@@ -832,8 +858,9 @@ required and remains unavailable in the current application.
 The [sealed publication service](docs/operations/symposium-sealed-publication-authority.md)
 binds an explicitly selected operator GitHub identity to a completed seal and forced
 Create PR approval. Explicit private credential references now enable operator selection
-and the completed-seal bridge in the review panel. Native hard-budget/final-usage review
-receipts and an authorized initial repository/base import remain prerequisites; this
+and the completed-seal bridge in the review panel. Trusted review receipts under
+persisted application limits and an authorized initial repository/base import
+remain prerequisites; this
 registration increment does not make fresh empty artifacts publishable.
 
 Dormant [pending native review evidence](docs/operations/symposium-review-attempt-staging.md)
@@ -842,6 +869,7 @@ stores immutable linkage and bounded untrusted findings without enabling dispatc
 Pending failed-seat cleanup supports [scoped fresh app reauthorization](docs/operations/symposium-native-create-receipts.md#fresh-app-authentication-for-a-pending-cleanup) in the Director UI and operator API while the original host retains custody. Authorization and cleanup require separate explicit actions; this does not provide restart recovery.
 
 - [Local Symposium custodian](docs/operations/symposium-local-custodian.md): optional fresh-fixture owner process survives app loss, fences epochs and drains exact workloads before explicit restoration; custodian death remains quarantined.
+- [Staging lifecycle](docs/operations/symposium-staging-lifecycle.md): use `scripts/start-staging-custodian.mjs` for registered fresh trials. Capacity and retention deadlines fence new launches; only the original owner's verified terminal retirement releases a slot. Legacy environments require separate ownership qualification and approval.
 
 [Selected Work Vertex provisioning](docs/operations/symposium-work-vertex.md) binds an explicit ADC snapshot and verified principal to a fresh gateway-owned provider. The reviewed native variant and retained owner require fresh provider readiness and a separately verified policy for each Vertex seat.
 
@@ -890,7 +918,9 @@ The optional Symposium custodian rejects ordinary OpenAI/Codex host fallback: co
 Supervised Symposium publication now retains configured publication credential references and
 uses the current browser permission queue through the custodian channel. It still requires a
 trusted review record, completed seal and explicit per-operation approval; this does not enable
-native trusted review dispatch without its separate budget and final-usage guarantees.
+native trusted review dispatch without its separate application-policy, artifact
+and account/model acceptance gates. Native token/spend caps and mandatory final
+usage totals are deferred; see the [current acceptance contract](docs/features/symposium-integrated-acceptance.md#application-policy-contract).
 
 An uncertain sealed publication can be verified after fresh app authentication while its original
 custodian and credential handle remain retained. The explicit exact-operation action performs
@@ -906,6 +936,18 @@ and immutable incremental export to iCloud Drive. It is not enabled in productio
 Live store fences, independent recovery keys, upload verification, scheduling and
 replacement-machine acceptance must be configured before claiming protection. See
 [the implementation and rollout contract](docs/operations/icloud-ecosystem-backup.md).
+
+### Canonical Symposium staging on macOS
+
+Symposium development targets the one persistent staging app at
+`http://mitzo-staging.localhost:3190`. Reuse that environment for conversations and
+seats rather than creating a backend/custodian per session. It currently runs
+ordinary main with providers disabled; Symposium activation requires the reviewed
+integration candidate and retained-owner configuration. Follow the
+[singleton staging contract](docs/operations/symposium-singleton-staging.md).
+For an accepted owned release, `scripts/prepare-staging-service.mjs ... 3190 --canonical` prepares the fixed `com.mitzo.staging` identity and rechecks the capacity-one registration at launch. Preparation does not activate it.
+The ordinary staging deployment controller cannot replace an active Symposium
+custodian; owned custody and original-owner drain must be qualified first.
 
 The Mitzo/Telos core capture binds the running event/task owners and canonical Telos
 owner, including DB-only relationships and saved artifact bytes. It validates all

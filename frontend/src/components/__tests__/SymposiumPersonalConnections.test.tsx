@@ -8,7 +8,8 @@ afterEach(() => {
   cleanup();
   vi.resetAllMocks();
 });
-const response = (body: unknown, ok = true) => ({ ok, json: async () => body }) as Response;
+const response = (body: unknown, ok = true, status = ok ? 200 : 500) =>
+  ({ ok, status, json: async () => body }) as Response;
 const rows = [
   {
     id: 'personal-a',
@@ -274,6 +275,41 @@ it.each(['pending', 'reconciliation_required'])(
     expect(vi.mocked(apiFetch).mock.calls.some(([, init]) => init?.method === 'POST')).toBe(false);
   },
 );
+it.each([
+  ['failed', 422, /Model discovery failed; cleanup is confirmed/],
+  ['reconciliation_required', 409, /cleanup could not be confirmed/],
+] as const)(
+  'handles a validated %s HTTP failure without inventing cleanup uncertainty',
+  async (status, code, message) => {
+    vi.mocked(apiFetch).mockImplementation(async (url) =>
+      url.endsWith('/models/refresh')
+        ? response({ status, inference: false }, false, code)
+        : response({ connections: rows }),
+    );
+    render(<SymposiumPersonalConnections />);
+    const personal = within(await screen.findByRole('region', { name: 'Personal' }));
+    fireEvent.click(personal.getByRole('button', { name: 'Refresh supported models' }));
+    await screen.findByText(message);
+    expect(screen.queryByText(/supported models are ready/)).toBeNull();
+    expect(screen.queryByText(/cleanup may still be pending/)).toBeNull();
+  },
+);
+
+it.each([
+  [422, { status: 'complete', inference: false, modelCount: 1 }],
+  [409, { status: 'failed', inference: false }],
+  [422, { status: 'failed', inference: true }],
+] as const)('keeps an invalid HTTP %i discovery response uncertain', async (code, body) => {
+  vi.mocked(apiFetch).mockImplementation(async (url) =>
+    url.endsWith('/models/refresh') ? response(body, false, code) : response({ connections: rows }),
+  );
+  render(<SymposiumPersonalConnections />);
+  const personal = within(await screen.findByRole('region', { name: 'Personal' }));
+  fireEvent.click(personal.getByRole('button', { name: 'Refresh supported models' }));
+  await screen.findByText(/cleanup may still be pending/);
+  expect(screen.queryByText(/cleanup is confirmed/)).toBeNull();
+});
+
 it('does not report success on failed or unconfirmed model discovery', async () => {
   vi.mocked(apiFetch).mockImplementation(async (url) =>
     response(

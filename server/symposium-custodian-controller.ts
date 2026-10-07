@@ -95,6 +95,7 @@ export class SymposiumCustodianController {
     };
     return {
       epoch,
+      assertCurrent,
       request,
       invalidate: (jti: string) => {
         assertCurrent();

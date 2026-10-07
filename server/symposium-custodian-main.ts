@@ -1,14 +1,77 @@
-export type { OriginalSymposiumControllerIdentity } from './symposium-canonical-owner-identity.js';
-import 'dotenv/config';
+import { waitOriginalControllerExit } from './symposium-custodian-exit.js';
+import type { OriginalProcessObserver } from './symposium-original-process-retention.js';
 import { fork, type ChildProcess } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import type { BootstrapTools } from './symposium-owned-config.js';
+import type { OwnedSymposiumHostOptions } from './symposium-owned-host.js';
 import { custodianAppEnvironment } from './symposium-custodian-launch.js';
 import { SymposiumCustodianController } from './symposium-custodian-controller.js';
 import { serveCustodianController, type CustodianChannel } from './symposium-custodian-ipc.js';
 import { dispatchCustodianHttp } from './symposium-custodian-http.js';
+import {
+  finishCustodianRetirement,
+  writeCustodianRetirementReceipt,
+} from './symposium-custodian-retirement.js';
 
+export type { OriginalSymposiumControllerIdentity } from './symposium-canonical-owner-identity.js';
+import type { OriginalSymposiumControllerIdentity } from './symposium-canonical-owner-identity.js';
 /** Explicit fresh-owner entry point. No attach/reconstruct command exists. */
-async function main() {
+export interface SymposiumCustodianConstructorHooks {
+  observeRetirement?: (
+    state: 'retiring' | 'retired' | 'uncertain',
+    stateParent: string,
+    identity?: Readonly<{ instanceId: string; controllerGeneration: number }>,
+  ) => void;
+  observeOriginalProcess?: OriginalProcessObserver;
+  admissionBuildSelection?: OwnedSymposiumHostOptions['admissionBuildSelection'];
+  bootstrapTools?: BootstrapTools;
+  observeDurableReviewToolResult?: OwnedSymposiumHostOptions['observeDurableReviewToolResult'];
+  observeStartupConfig?: OwnedSymposiumHostOptions['observeStartupConfig'];
+  observePrelaunch?: OwnedSymposiumHostOptions['observePrelaunch'];
+  observeRuntime?: OwnedSymposiumHostOptions['observeRuntime'];
+  /** Fresh-owner constructor only; never read from environment or persisted config. */
+  readonly observeNativeTurnInput?: OwnedSymposiumHostOptions['observeNativeTurnInput'];
+  observeController?: (
+    identity: Readonly<OriginalSymposiumControllerIdentity>,
+    assertCurrent: () => void,
+  ) => void;
+}
+export async function runSymposiumCustodian(hooks: SymposiumCustodianConstructorHooks = {}) {
+  const {
+    observeRetirement,
+    bootstrapTools,
+    observeOriginalProcess,
+    observeDurableReviewToolResult,
+    observeStartupConfig,
+    observePrelaunch,
+    observeRuntime,
+    observeNativeTurnInput,
+    observeController,
+    admissionBuildSelection,
+  } = hooks;
+  if (observeNativeTurnInput !== undefined && typeof observeNativeTurnInput !== 'boolean')
+    throw Error('Native input diagnostic must be a trusted constructor boolean');
+  if (observeRetirement !== undefined && typeof observeRetirement !== 'function')
+    throw Error('Retirement observer must be a trusted constructor callback');
+  if (observeOriginalProcess !== undefined && typeof observeOriginalProcess !== 'function')
+    throw Error('Process observer must be a trusted constructor callback');
+  if (
+    observeDurableReviewToolResult !== undefined &&
+    typeof observeDurableReviewToolResult !== 'function'
+  )
+    throw Error('Custodian observer must be a trusted constructor callback');
+  if (observeStartupConfig !== undefined && typeof observeStartupConfig !== 'function')
+    throw Error('Startup observer must be a trusted constructor callback');
+  if (observePrelaunch !== undefined && typeof observePrelaunch !== 'function')
+    throw Error('Prelaunch observer must be a trusted constructor callback');
+  if (observeRuntime !== undefined && typeof observeRuntime !== 'function')
+    throw Error('Runtime observer must be a trusted constructor callback');
+  if (observeController !== undefined && typeof observeController !== 'function')
+    throw Error('Controller observer must be a trusted constructor callback');
+  if (admissionBuildSelection !== undefined && admissionBuildSelection !== 'local-854b-b20-v1')
+    throw Error('Owned full-build selection is not reviewed');
   if (process.env.MITZO_SYMPOSIUM_CUSTODIAN_CONTROLLER || process.send)
     throw Error('Custodian must be launched as the independent owner');
   const filename = process.env.MITZO_SYMPOSIUM_OWNED_HOST_CONFIG;
@@ -20,7 +83,17 @@ async function main() {
   const { revokeAuthSession, registerAuthSession } = await import('./auth.js');
   const host = await bootstrapConfiguredSymposiumHost(
     filename,
-    engine.getSymposiumBootstrapDependencies(),
+    {
+      ...engine.getSymposiumBootstrapDependencies(),
+      observeDurableReviewToolResult,
+      observeStartupConfig,
+      observePrelaunch,
+      ...(observeRuntime === undefined ? {} : { observeRuntime }),
+      ...(observeNativeTurnInput === undefined ? {} : { observeNativeTurnInput }),
+      ...(admissionBuildSelection === undefined ? {} : { admissionBuildSelection }),
+    },
+    bootstrapTools,
+    ...(observeOriginalProcess === undefined ? [] : ([observeOriginalProcess] as const)),
   );
   engine.installSymposiumProductionHost(host);
   const identity = randomUUID();
@@ -119,34 +192,122 @@ async function main() {
       const exactChild = child;
       const exited = new Promise<void>((resolve) => exactChild.once('exit', () => resolve()));
       try {
-        await serveCustodianController(exactChild as unknown as CustodianChannel, controller);
+        const observed: unknown = observeOriginalProcess?.('controller', exactChild, () => {
+          if (
+            stopping ||
+            child !== exactChild ||
+            exactChild.exitCode !== null ||
+            exactChild.signalCode !== null
+          )
+            throw Error('Original controller creation lost');
+          host.currentProfiles();
+        });
+        if (observed !== undefined) {
+          void Promise.resolve(observed).catch(() => {});
+          throw Error('Process observer must be synchronous');
+        }
+        await serveCustodianController(exactChild as unknown as CustodianChannel, controller, {
+          observeReady:
+            observeController &&
+            ((epoch, connectionCurrent) => {
+              const current = () => {
+                connectionCurrent();
+                if (
+                  stopping ||
+                  child !== exactChild ||
+                  !exactChild.connected ||
+                  exactChild.exitCode !== null ||
+                  exactChild.signalCode !== null ||
+                  !Number.isSafeInteger(exactChild.pid) ||
+                  exactChild.pid! <= 0
+                )
+                  throw Error('Original controller child unavailable');
+                host.currentProfiles();
+                connectionCurrent();
+              };
+              current();
+              const result: unknown = observeController(
+                Object.freeze({
+                  instanceId: identity,
+                  epoch,
+                  custodianPid: process.pid,
+                  controllerPid: exactChild.pid!,
+                  state: 'active',
+                  scope: 'fresh-retained-sessions',
+                }),
+                current,
+              );
+              if (result !== undefined) {
+                // Refuse asynchronous observation without leaving its rejection unhandled.
+                void Promise.resolve(result).catch(() => {});
+                throw Error('Controller observer must be synchronous');
+              }
+              current();
+            }),
+        });
       } catch {
         stopping = true;
         throw Error('Controller lost; retained resources remain quarantined');
       } finally {
-        if (exactChild.exitCode === null && exactChild.signalCode === null) {
-          exactChild.kill('SIGTERM');
-          const timer = setTimeout(() => exactChild.kill('SIGKILL'), 5000);
-          await exited;
-          clearTimeout(timer);
-        }
+        await waitOriginalControllerExit(
+          exactChild,
+          exited,
+          process.env.MITZO_SYMPOSIUM_CANONICAL_STAGE === '1',
+        );
+        // A canonical timeout throws before this assignment and native cleanup:
+        // retain the original child/host and record retirement uncertainty.
         child = undefined;
       }
       // Never auto-retry an app startup failure in a tight loop.
       if (!stopping) await new Promise<void>((resolve) => setTimeout(resolve, 1000));
     }
     const signal = AbortSignal.timeout(120_000);
-    engine.beginSymposiumShutdown();
-    host.beginShutdown();
-    const results = await Promise.allSettled([
-      engine.drainSymposiumRuntimes(signal),
-      host.drain(signal),
-    ]);
-    if (results.some((result) => result.status === 'rejected'))
-      throw Error('Custodian shutdown remains uncertain');
-    await host.closeAfterDrain(signal);
+    await finishCustodianRetirement(
+      {
+        begin() {
+          engine.beginSymposiumShutdown();
+          host.beginShutdown();
+        },
+        retireRuntimes: (signal) =>
+          engine.retireRetainedSymposiumRuntimes(
+            `${identity}-${controllerGeneration}-retirement`,
+            signal,
+          ),
+        drainHost: (signal) => host.drain(signal),
+        closeHost: (signal) => host.closeAfterDrain(signal),
+        record: () =>
+          writeCustodianRetirementReceipt({
+            stateParent: dirname(host.gateway.stateDirectory),
+            gatewayStateDirectory: host.gateway.stateDirectory,
+            instanceId: identity,
+            controllerGeneration,
+          }),
+      },
+      signal,
+      observeRetirement &&
+        ((state) =>
+          observeRetirement(
+            state,
+            dirname(host.gateway.stateDirectory),
+            Object.freeze({ instanceId: identity, controllerGeneration }),
+          )),
+    );
   } catch {
-    host.markShutdownUncertain();
+    try {
+      observeRetirement?.(
+        'uncertain',
+        dirname(host.gateway.stateDirectory),
+        Object.freeze({ instanceId: identity, controllerGeneration }),
+      );
+    } catch {
+      /* Keep original resources quarantined. */
+    }
+    try {
+      host.markShutdownUncertain();
+    } catch {
+      // A terminal-receipt write can fail after custody stores have closed.
+      // Failure remains visible without resurrecting any original capability.
+    }
     // Keep original owners/ledgers alive for diagnosis. Never reconstruct their
     // capabilities in a replacement process or claim successful cleanup.
     process.stderr.write(
@@ -155,7 +316,16 @@ async function main() {
     process.exitCode = 1;
   }
 }
-void main().catch(() => {
-  process.stderr.write('Symposium custodian startup failed; no existing resources were adopted.\n');
-  process.exitCode = 1;
-});
+/** Importing this module cannot bootstrap a host or load app authentication. */
+export function isDirectSymposiumCustodianEntry(argvPath: string | undefined): boolean {
+  return !!argvPath && resolve(argvPath) === fileURLToPath(import.meta.url);
+}
+if (isDirectSymposiumCustodianEntry(process.argv[1]))
+  void import('dotenv/config')
+    .then(() => runSymposiumCustodian())
+    .catch(() => {
+      process.stderr.write(
+        'Symposium custodian startup failed; no existing resources were adopted.\n',
+      );
+      process.exitCode = 1;
+    });
