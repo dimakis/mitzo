@@ -3707,3 +3707,121 @@ it.each(['none', 'sync', 'async'] as const)(
     }
   },
 );
+it.each(['send', 'stop-then-send', 'send-then-stop'] as const)(
+  'settles a running continuation with explicit intent ordering %s',
+  async (order) => {
+    vi.useFakeTimers();
+    try {
+      const f = await capacityFixture();
+      await vi.advanceTimersByTimeAsync(30_000);
+      const native = f.rpc.request.getMockImplementation()!;
+      f.rpc.request.mockImplementation(async (method, params) => {
+        if (method === 'turn/interrupt') {
+          f.requests.push({ method, params });
+          return {};
+        }
+        return native(method, params);
+      });
+      const episode = f.store.capacityRecovery('app', binding)!;
+      const original = f.c.queue()[0];
+      const acknowledge = vi.spyOn(f.store, 'acknowledgeRecovery');
+      if (order === 'stop-then-send')
+        await f.c.stopCapacityRetry(episode.id, episode.sourceCommandId);
+      await f.c.send({ id: 'new-intent', prompt: 'New authorized instruction' });
+      if (order === 'send-then-stop')
+        await f.c.stopCapacityRetry(episode.id, episode.sourceCommandId);
+      expect(f.requests.filter((request) => request.method === 'turn/start')).toHaveLength(2);
+      f.callbacks.onNotification('turn/completed', {
+        threadId: 'provider-thread',
+        turn: { id: 'turn-2', status: 'completed' },
+      });
+      await vi.advanceTimersByTimeAsync(0);
+      const starts = f.requests.filter((request) => request.method === 'turn/start');
+      if (order === 'send-then-stop') {
+        expect(starts).toHaveLength(2);
+        expect(f.store.read('app', binding).recovery).toBe(1);
+        expect(f.c.queue().find((command) => command.id === 'new-intent')?.status).toBe('queued');
+      } else {
+        expect(starts).toHaveLength(3);
+        expect(starts[2].params.input).toMatchObject([
+          { type: 'text', text: 'New authorized instruction' },
+        ]);
+        expect(f.store.read('app', binding).recovery).toBe(0);
+      }
+      expect(acknowledge).not.toHaveBeenCalled();
+      expect(f.c.queue()[0]).toMatchObject({
+        id: original.id,
+        attempt: original.attempt,
+        status: 'failed',
+      });
+      f.c.close();
+    } finally {
+      vi.useRealTimers();
+    }
+  },
+);
+it.each(['capacity', 'interrupted', 'transport'] as const)(
+  'keeps superseding intent held after a continuation %s outcome',
+  async (outcome) => {
+    vi.useFakeTimers();
+    try {
+      const f = await capacityFixture();
+      await vi.advanceTimersByTimeAsync(30_000);
+      await f.c.send({ id: 'new-intent', prompt: 'New authorized instruction' });
+      if (outcome === 'capacity') f.fail('turn-2');
+      else if (outcome === 'transport') f.callbacks.onClose(new Error('Transport lost'));
+      else
+        f.callbacks.onNotification('turn/completed', {
+          threadId: 'provider-thread',
+          turn: { id: 'turn-2', status: 'interrupted' },
+        });
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(f.requests.filter((request) => request.method === 'turn/start')).toHaveLength(2);
+      expect(f.c.queue().find((command) => command.id === 'new-intent')?.status).toBe('queued');
+      expect(f.store.read('app', binding).recovery).toBe(1);
+      f.c.close();
+    } finally {
+      vi.useRealTimers();
+    }
+  },
+);
+it('persists the exact delayed child ACK after new intent stops its future retries', async () => {
+  vi.useFakeTimers();
+  try {
+    const f = await capacityFixture();
+    const native = f.rpc.request.getMockImplementation()!;
+    let acknowledge!: () => void;
+    f.rpc.request.mockImplementation(async (method, params) => {
+      const result = await native(method, params);
+      if (method === 'turn/start')
+        await new Promise<void>((resolve) => {
+          acknowledge = resolve;
+        });
+      return result;
+    });
+    const episode = f.store.capacityRecovery('app', binding)!;
+    const retry = f.c.tryCapacityNow(episode.id, episode.sourceCommandId);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(acknowledge).toBeTypeOf('function');
+    await f.c.send({ id: 'new-intent', prompt: 'New authorized instruction' });
+    expect(f.store.capacityRecovery('app', binding)?.status).toBe('stopped');
+    acknowledge();
+    await retry;
+    expect(f.store.capacityRecovery('app', binding)).toMatchObject({
+      status: 'stopped',
+      supersedingCommandId: 'new-intent',
+    });
+    f.rpc.request.mockImplementation(native);
+    f.callbacks.onNotification('turn/completed', {
+      threadId: 'provider-thread',
+      turn: { id: 'turn-2', status: 'completed' },
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(
+      f.requests.filter((request) => request.method === 'turn/start').at(-1)?.params.input,
+    ).toMatchObject([{ type: 'text', text: 'New authorized instruction' }]);
+    f.c.close();
+  } finally {
+    vi.useRealTimers();
+  }
+});

@@ -2,6 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it } from 'vitest';
+import Database from 'better-sqlite3';
 import { CodexConversationStore } from '../codex-conversation-store.js';
 const binding = {
   accountId: 'account',
@@ -41,6 +42,7 @@ function setup() {
     1000,
   );
   return {
+    path,
     source,
     episode,
     get store() {
@@ -240,3 +242,67 @@ it('never cancels a dispatched continuation through admission-expiry cleanup', (
   expect(f.store.commands('chat', binding)).toEqual(before);
   expect(f.store.capacityRecovery('chat', binding)).toEqual(episode);
 });
+
+it.each(['intent', 'stop', 'custody', 'unsettled', 'restart'] as const)(
+  'releases only settled explicit supersession with unchanged authority (%s)',
+  (scenario) => {
+    const f = setup();
+    const child = f.store.queueCapacityRetry('chat', binding, f.episode.id, 'source', 31_000);
+    const command = f.store.claimNext('chat', binding)!;
+    f.store.beginCapacityDispatch('chat', binding, child.id);
+    f.store.acceptCapacityTurn('chat', binding, child.id, 'thread', 'completed-child');
+    f.store.recordCapacityAck('chat', binding, command, 'thread', 'completed-child');
+    const db = new Database(f.path);
+    try {
+      const sourceBefore = db
+        .prepare("SELECT * FROM codex_commands WHERE conversation_id='chat' AND id='source'")
+        .get();
+      const ackBefore = db
+        .prepare(
+          "SELECT * FROM codex_capacity_native_acks WHERE conversation_id='chat' ORDER BY command_id",
+        )
+        .all();
+      f.store.enqueue(
+        'chat',
+        binding,
+        { id: 'new-intent', prompt: 'New authorized instruction' },
+        true,
+      );
+      expect(f.store.capacityRecovery('chat', binding)?.supersedingCommandId).toBe('new-intent');
+      if (scenario === 'stop')
+        f.store.stopCapacityRecovery('chat', binding, f.episode.id, 'source');
+      if (scenario === 'custody') f.store.bindThread('chat', binding, 'thread', 'changed-tools');
+      if (scenario === 'unsettled')
+        db.prepare(
+          "UPDATE codex_commands SET status='failed',ambiguous=1 WHERE conversation_id='chat' AND id='later'",
+        ).run();
+      if (scenario === 'restart') f.store.recoverAtStartup('ordinary');
+      f.store.finish('chat', binding, child.id, 'completed', 'completed-child');
+      const resumed = f.store.completeCapacityTurn(
+        'chat',
+        binding,
+        child.id,
+        'completed-child',
+        'completed',
+      );
+      expect(resumed).toBe(scenario === 'intent');
+      expect(f.store.read('chat', binding).recovery).toBe(scenario === 'intent' ? 0 : 1);
+      expect(
+        db
+          .prepare("SELECT * FROM codex_commands WHERE conversation_id='chat' AND id='source'")
+          .get(),
+      ).toEqual(sourceBefore);
+      expect(
+        db
+          .prepare(
+            "SELECT * FROM codex_capacity_native_acks WHERE conversation_id='chat' ORDER BY command_id",
+          )
+          .all(),
+      ).toEqual(ackBefore);
+      if (scenario === 'intent') expect(f.store.claimNext('chat', binding)?.id).toBe('later');
+      else expect(() => f.store.claimNext('chat', binding)).toThrow('acknowledgement');
+    } finally {
+      db.close();
+    }
+  },
+);

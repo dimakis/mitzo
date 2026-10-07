@@ -945,6 +945,17 @@ export class CodexConversation {
   /** A new user message explicitly resumes saved FIFO work. Interrupted work
    * stays interrupted and is never replayed by this path. */
   async resumeAfterExplicitSend() {
+    // An explicit message supersedes future retries, not the still-running
+    // child. Its exact settlement owns the deferred FIFO release.
+    if (
+      this.active &&
+      this.opts.store.capacityContinuation(
+        this.opts.conversationId,
+        this.binding!,
+        this.active.command.id,
+      )
+    )
+      return;
     if (this.paused) await this.acknowledgeRecovery();
     else await this.startQueued();
   }
@@ -2021,14 +2032,25 @@ export class CodexConversation {
         } catch {
           this.stopCapacitySchedule();
         }
-      } else
-        this.opts.store.completeCapacityTurn(
+      } else {
+        const resumedIntent = this.opts.store.completeCapacityTurn(
           this.opts.conversationId,
           this.binding!,
           this.active.command.id,
           turn.data.id,
           status,
         );
+        if (resumedIntent) this.paused = false;
+        else if (
+          this.opts.store.capacityContinuation(
+            this.opts.conversationId,
+            this.binding!,
+            this.active.command.id,
+          ) &&
+          this.opts.store.read(this.opts.conversationId, this.binding!).recovery
+        )
+          this.paused = true;
+      }
       this.active = undefined;
       this.paused ||= status !== 'completed';
       if (capacity) this.scheduleCapacityRetry();

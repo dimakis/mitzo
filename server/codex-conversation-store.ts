@@ -181,6 +181,7 @@ const CapacityRecoverySchema = z
     webSearchRevision: z.number().int(),
     artifactIdentity: z.string(),
     childCommandId: z.string().optional(),
+    supersedingCommandId: z.string().optional(),
   })
   .strict();
 export type CapacityRecovery = z.infer<typeof CapacityRecoverySchema>;
@@ -1051,8 +1052,23 @@ export class CodexConversationStore {
         .run(id, data.id, json);
       if (supersedeCapacity) {
         const recovery = this.capacityRecovery(id, b);
-        if (recovery && ['waiting', 'queued', 'running', 'exhausted'].includes(recovery.status))
-          this.stopCapacityRecovery(id, b, recovery.id, recovery.sourceCommandId);
+        if (
+          recovery &&
+          ['waiting', 'queued', 'running', 'exhausted', 'stopped'].includes(recovery.status)
+        ) {
+          const runningChild =
+            recovery.childCommandId &&
+            this.db
+              .prepare(
+                "SELECT 1 FROM codex_commands WHERE conversation_id=? AND id=? AND status='running'",
+              )
+              .get(id, recovery.childCommandId);
+          const stopped = this.stopCapacityRecovery(id, b, recovery.id, recovery.sourceCommandId);
+          if (runningChild) {
+            stopped.supersedingCommandId = data.id;
+            this.writeCapacityRecovery(id, stopped);
+          }
+        }
       }
       return true;
     })();
@@ -1420,6 +1436,7 @@ export class CodexConversationStore {
               artifactIdentity: this.capacityArtifactIdentity(id, b),
             };
       this.assertCapacityIdentity(id, b, recovery);
+      delete recovery.supersedingCommandId;
       recovery.latestCommandId = command.id;
       recovery.latestAttempt = command.attempt;
       recovery.latestTurnId = turn;
@@ -1587,7 +1604,7 @@ export class CodexConversationStore {
       const recovery = this.capacityRecovery(id, b);
       if (
         !recovery ||
-        recovery.status !== 'running' ||
+        !['running', 'stopped'].includes(recovery.status) ||
         recovery.childCommandId !== commandId ||
         thread !== recovery.threadId ||
         !turn
@@ -1620,24 +1637,55 @@ export class CodexConversationStore {
     commandId: string,
     turn: string,
     status: string,
-  ) {
-    this.db.transaction(() => {
+  ): boolean {
+    return this.db.transaction(() => {
       const child = this.capacityContinuation(id, b, commandId);
-      if (!child) return;
+      if (!child) return false;
       this.db
         .prepare(
           'UPDATE codex_capacity_continuations SET terminal=?,turn_id=? WHERE conversation_id=? AND command_id=?',
         )
         .run(status, turn, id, commandId);
       const recovery = this.capacityRecovery(id, b);
-      if (!recovery || recovery.childCommandId !== commandId) return;
-      if (status === 'completed')
+      if (!recovery || recovery.childCommandId !== commandId) return false;
+      let resumeSupersedingIntent = false;
+      if (status === 'completed') {
+        const intent =
+          recovery.supersedingCommandId &&
+          this.db
+            .prepare(
+              "SELECT 1 FROM codex_commands WHERE conversation_id=? AND id=? AND status='queued'",
+            )
+            .get(id, recovery.supersedingCommandId);
+        const unsettled = this.db
+          .prepare(
+            "SELECT 1 FROM codex_commands WHERE conversation_id=? AND status IN ('failed','interrupted') AND recovery_acknowledged=0 AND NOT EXISTS (SELECT 1 FROM codex_capacity_continuations lineage JOIN codex_capacity_continuations resolved ON resolved.conversation_id=lineage.conversation_id AND resolved.source_command_id=lineage.source_command_id WHERE lineage.conversation_id=codex_commands.conversation_id AND lineage.command_id=codex_commands.id AND resolved.terminal='completed')",
+          )
+          .get(id);
+        if (
+          intent &&
+          !unsettled &&
+          child.dispatched &&
+          child.turnId === turn &&
+          this.commands(id, b).find((command) => command.id === commandId)?.status === 'completed'
+        ) {
+          try {
+            this.assertCapacityIdentity(id, b, recovery);
+            resumeSupersedingIntent = true;
+          } catch {
+            /* Uncertain ownership remains fenced for explicit recovery. */
+          }
+        }
         this.db.prepare('DELETE FROM codex_capacity_recoveries WHERE conversation_id=?').run(id);
-      else {
+        if (resumeSupersedingIntent)
+          this.db.prepare('UPDATE codex_conversations SET recovery=0 WHERE id=?').run(id);
+      } else {
+        delete recovery.supersedingCommandId;
         recovery.status = 'stopped';
         recovery.nextRetryAt = undefined;
         this.writeCapacityRecovery(id, recovery);
       }
+      return resumeSupersedingIntent;
     })();
   }
   stopCapacityRecovery(id: string, b: AccountBinding, recoveryId: string, sourceCommandId: string) {
@@ -1651,6 +1699,7 @@ export class CodexConversationStore {
             "UPDATE codex_commands SET status='cancelled' WHERE conversation_id=? AND id=? AND status='queued'",
           )
           .run(id, recovery.childCommandId);
+      delete recovery.supersedingCommandId;
       recovery.status = 'stopped';
       recovery.nextRetryAt = undefined;
       this.writeCapacityRecovery(id, recovery);
@@ -1891,7 +1940,8 @@ export class CodexConversationStore {
         if (
           recovery.status === 'waiting' ||
           recovery.status === 'queued' ||
-          recovery.status === 'running'
+          recovery.status === 'running' ||
+          recovery.supersedingCommandId !== undefined
         ) {
           if (recovery.childCommandId)
             this.db
@@ -1899,6 +1949,7 @@ export class CodexConversationStore {
                 "UPDATE codex_commands SET status='cancelled' WHERE conversation_id=? AND id=? AND status='queued'",
               )
               .run(row.conversation_id, recovery.childCommandId);
+          delete recovery.supersedingCommandId;
           recovery.status = 'stopped';
           recovery.nextRetryAt = undefined;
           this.writeCapacityRecovery(row.conversation_id, recovery);
