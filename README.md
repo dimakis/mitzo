@@ -930,3 +930,11 @@ Dependency security checks remain enabled. The Node-only `node-forge` RSA verifi
 Voice HTTP and WebSocket forwarding uses a fixed-route proxy without the recursive glob/brace parser. Raw audio bodies, path/query forwarding, TLS certificate verification and unavailable-service errors are covered by regression tests.
 
 Installs require Node 24 and npm 11.18.0 or newer so workspace security overrides are applied. CI and release creation select npm 11.18.0 explicitly; the Mac’s global npm is unchanged. MCP SDK, proxy address handling, source maps and KaTeX are updated to patched releases, and both root and standalone MCP-server audits pass without exceptions.
+
+### Canonical staging on the configured macOS host
+
+Reuse the singleton `com.mitzo.staging` service at `http://mitzo-staging.localhost:3190`.
+The [operating procedure](docs/operations/canonical-staging.md) describes integrity/freshness
+checks, exact-commit preparation, plan/apply updates, private audit/snapshots and uncertain
+shutdown handling. Staging operations keep production and retained diagnostic resources
+outside their scope; provider setup is separate.

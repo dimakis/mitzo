@@ -1,3 +1,4 @@
+export { ownedCustodianEnvironment } from './symposium-staging-environment.js';
 import { randomBytes } from 'node:crypto';
 /** App authentication/configuration is distinct from the retained provider host.
  * Do not spread process.env: dotenv is disabled in the supervised child too. */

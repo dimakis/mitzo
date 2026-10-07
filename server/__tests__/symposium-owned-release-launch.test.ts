@@ -11,6 +11,7 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
+import ts from 'typescript';
 const authEnv = {
   PATH: process.env.PATH,
   AUTH_PASSPHRASE: 'synthetic-offline-passphrase-000000000000',
@@ -27,6 +28,12 @@ function fixture() {
     mkdirSync(join(root, name), { mode: 0o700 });
   writeFileSync(join(root, 'package.json'), '{"type":"module"}');
   cpSync('scripts/start-owned-custodian.mjs', join(root, 'scripts/start-owned-custodian.mjs'));
+  writeFileSync(
+    join(root, 'dist/symposium-staging-identity.js'),
+    ts.transpileModule(readFileSync('server/symposium-staging-identity.ts', 'utf8'), {
+      compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
+    }).outputText,
+  );
   const plan = {
     appHome: root,
     releaseRoot: root,
@@ -65,6 +72,7 @@ it('executes the fixed custodian entry only after claim; repeat startup cannot e
     },
   });
   expect(first.status, first.stderr).toBe(0);
+  expect(readFileSync(join(f.plan.planDirectory, 'launch.intent'), 'utf8')).toBe('claimed');
   expect(JSON.parse(first.stdout)).toEqual({
     entry: 'custodian',
     repo: f.plan.repositoryPath,
@@ -109,4 +117,23 @@ it.each([
   );
   expect(result.status).not.toBe(0);
   expect(() => readFileSync(join(f.root, 'plan/launch.intent'))).toThrow();
+});
+
+it('generic launcher rejects a canonical target through the real identity guard before claim or exec', () => {
+  const f = fixture();
+  const planDirectory = join(f.root, 'symposium/service');
+  mkdirSync(planDirectory, { recursive: true, mode: 0o700 });
+  writeFileSync(
+    join(planDirectory, 'owned-release.json'),
+    JSON.stringify({ ...f.plan, planDirectory }),
+  );
+  const result = spawnSync(
+    process.execPath,
+    [join(f.root, 'scripts/start-owned-custodian.mjs'), join(planDirectory, 'owned-release.json')],
+    { encoding: 'utf8', env: authEnv },
+  );
+  expect(result.status).not.toBe(0);
+  expect(result.stdout).toBe('');
+  expect(result.stderr).not.toContain('ERR_MODULE_NOT_FOUND');
+  expect(() => readFileSync(join(planDirectory, 'launch.intent'))).toThrow();
 });

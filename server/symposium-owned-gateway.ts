@@ -1,3 +1,7 @@
+export {
+  isOwnedSymposiumProxyUrl,
+  isOwnedSymposiumSupervisorNetwork,
+} from './symposium-owned-network-config.js';
 import { SYMPOSIUM_ARTIFACT_TARGET } from './symposium-artifact-lease.js';
 import { open, lstat } from 'node:fs/promises';
 import { constants } from 'node:fs';

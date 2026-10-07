@@ -1,0 +1,15 @@
+---
+description: Reuse the canonical Mitzo staging service and keep production outside staging operations
+alwaysApply: true
+---
+
+For Mitzo work on the configured macOS host, use the existing singleton staging service.
+Read `docs/operations/canonical-staging.md` and run `~/.local/share/mitzo-staging/bin/mitzo-staging check` before live testing or planning an update.
+Use `http://mitzo-staging.localhost:3190`; do not create another backend, custodian or background preview.
+A stale stage is a planning signal, not permission to upgrade or use production.
+Prepare an exact accepted-main commit, then review the plan with an explicit expected-current commit before applying.
+Keep all staging data and provider setup independent of production; never copy production `.env`, credentials or databases.
+A deployment lock or failed drain blocks further starts. Do not remove the lock, force-kill, use `kickstart -k`, or automatically roll back against migrated state.
+Staging commands never target production. Production changes require a separate, explicit user request.
+Retained October diagnostic checkpoints and old gateway/container resources remain outside this controller.
+All real model tests must explicitly use supported Luna and announce the model and charged account.

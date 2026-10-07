@@ -1,3 +1,4 @@
+export type { OriginalSymposiumControllerIdentity } from './symposium-canonical-owner-identity.js';
 import 'dotenv/config';
 import { fork, type ChildProcess } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
