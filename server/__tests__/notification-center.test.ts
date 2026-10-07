@@ -166,6 +166,29 @@ describe('central notification delivery', () => {
     center.close();
     store.close();
   });
+  it.each([
+    ['search', 'session', 'SESSION_SEARCH_PERMISSION'],
+    ['fetch', 'request', 'SESSION_APPROVAL'],
+    ['grant', 'conversation', 'SESSION_PERMISSION'],
+  ] as const)(
+    'selects actions appropriate to %s approval scope',
+    async (operation, approvalScope, category) => {
+      const { store, center, push } = setup();
+      const permId = `category-${operation}`;
+      registerPending(permId, 'RequestWebAccess', vi.fn(), {}, 'unknown', 's1', {
+        permId,
+        toolName: 'RequestWebAccess',
+        toolInput: JSON.stringify({ operation }),
+        sessionId: 's1',
+        approvalScope,
+      });
+      await center.flush();
+      expect(push.mock.calls[0][0].category).toBe(category);
+      removePending(permId);
+      center.close();
+      store.close();
+    },
+  );
   it('captures and resolves permissions from any client without duplicate pushes', async () => {
     const { store, center, push } = setup();
     const resolve = vi.fn();

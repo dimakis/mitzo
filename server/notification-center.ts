@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { permissionNotificationCategory } from './notification-actions.js';
 import type {
   MitzoNotification,
   NotificationPreferences,
@@ -254,7 +255,7 @@ export class NotificationCenter {
           badge: this.store.feed('needs').needsYou,
           data: { notificationId: item.id, type: item.kind, sessionId: item.sessionId },
           category: item.permId
-            ? 'SESSION_PERMISSION'
+            ? permissionNotificationCategory(item.request)
             : item.kind === 'session'
               ? 'SESSION_UPDATE'
               : 'NOTIFICATION_UPDATE',
