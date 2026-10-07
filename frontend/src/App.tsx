@@ -17,7 +17,7 @@ import { saveTokenToWatch } from './lib/watch-auth';
 import { Login } from './pages/Login';
 import { Today } from './pages/Today';
 import { MoreView } from './pages/MoreView';
-import { ConnectionsView } from './pages/ConnectionsView';
+import { ConnectionsRoute } from './pages/ConnectionsRoute';
 import { ConnectionsAccessView } from './pages/ConnectionsAccessView';
 import { AttentionFeed } from './components/AttentionFeed';
 import { WorkspacePageHeading } from './components/WorkspacePageHeading';
@@ -248,7 +248,7 @@ export function App() {
                   element={
                     <ProtectedRoute>
                       <PageRoute>
-                        <ConnectionsView />
+                        <ConnectionsRoute />
                       </PageRoute>
                     </ProtectedRoute>
                   }
