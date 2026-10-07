@@ -1,6 +1,6 @@
 # Mitzo
 
-Claude Code on your phone. A self-hosted web UI built on the [Agent SDK](https://docs.anthropic.com/en/docs/claude-code/sdk), designed for mobile over [Tailscale](https://tailscale.com).
+Agents on your phone. A self-hosted web UI built on the [Agent SDK](https://docs.anthropic.com/en/docs/claude-code/sdk) and Codex, designed for mobile over [Tailscale](https://tailscale.com).
 
 <!-- ![Home Screen](docs/screenshots/home.png) -->
 <!-- ![Chat with Tools](docs/screenshots/chat-tools.png) -->
