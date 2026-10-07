@@ -3537,3 +3537,51 @@ it.each(['close', 'transport'] as const)(
     }
   },
 );
+it.each(['model', 'malformed', 'duplicate'] as const)(
+  'does not supersede capacity backoff for an invalid %s send',
+  async (kind) => {
+    vi.useFakeTimers();
+    try {
+      const f = await capacityFixture();
+      const before = f.store.capacityRecovery('app', binding);
+      const input =
+        kind === 'model'
+          ? { id: 'invalid', prompt: 'new intent', model: 'unsupported-model' }
+          : kind === 'malformed'
+            ? { id: 'invalid', prompt: '' }
+            : { id: 'root-capacity', prompt: 'different input' };
+      expect(() => f.c.enqueue(input)).toThrow();
+      expect(f.store.capacityRecovery('app', binding)).toEqual(before);
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(f.requests.filter((request) => request.method === 'turn/start')).toHaveLength(2);
+      f.c.close();
+    } finally {
+      vi.useRealTimers();
+    }
+  },
+);
+it('lets a validated new instruction supersede exhausted capacity retries', async () => {
+  vi.useFakeTimers();
+  try {
+    const f = await capacityFixture();
+    for (let i = 1; i <= 5; i++) {
+      await vi.advanceTimersByTimeAsync(30_000);
+      f.fail(`turn-${i + 1}`);
+    }
+    expect(f.store.capacityRecovery('app', binding)?.status).toBe('exhausted');
+    const original = f.c.queue()[0];
+    await f.c.send({ id: 'after-exhaustion', prompt: 'New authorized instruction' });
+    expect(f.store.capacityRecovery('app', binding)).toBeUndefined();
+    expect(
+      f.requests.filter((request) => request.method === 'turn/start').at(-1)?.params.input,
+    ).toMatchObject([{ type: 'text', text: 'New authorized instruction' }]);
+    expect(f.c.queue()[0]).toMatchObject({
+      id: original.id,
+      attempt: original.attempt,
+      status: 'failed',
+    });
+    f.c.close();
+  } finally {
+    vi.useRealTimers();
+  }
+});

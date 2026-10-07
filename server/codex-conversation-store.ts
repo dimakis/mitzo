@@ -1023,27 +1023,39 @@ export class CodexConversationStore {
       .prepare('UPDATE codex_conversations SET rollover_context=NULL WHERE id=? AND thread_id=?')
       .run(id, expectedThreadId);
   }
-  enqueue(id: string, b: AccountBinding, input: CodexCommandInput): boolean {
-    this.read(id, b);
-    const data = CommandInput.parse(input);
-    const json = JSON.stringify(data);
-    const old = this.db
-      .prepare('SELECT input FROM codex_commands WHERE conversation_id=? AND id=?')
-      .get(id, data.id) as { input: string } | undefined;
-    if (old) {
-      const stored = JSON.parse(old.input) as Record<string, unknown>;
-      const oldInput = CommandInput.parse(stored);
-      const includesIntent = Object.hasOwn(stored, 'intent');
-      if (idempotencyInput(oldInput, includesIntent) !== idempotencyInput(data, includesIntent))
-        throw new Error('Codex message ID reused with different input');
-      return false;
-    }
-    this.db
-      .prepare(
-        "INSERT INTO codex_commands(conversation_id,id,input,status) VALUES (?,?,?,'queued')",
-      )
-      .run(id, data.id, json);
-    return true;
+  enqueue(
+    id: string,
+    b: AccountBinding,
+    input: CodexCommandInput,
+    supersedeCapacity = false,
+  ): boolean {
+    return this.db.transaction(() => {
+      this.read(id, b);
+      const data = CommandInput.parse(input);
+      const json = JSON.stringify(data);
+      const old = this.db
+        .prepare('SELECT input FROM codex_commands WHERE conversation_id=? AND id=?')
+        .get(id, data.id) as { input: string } | undefined;
+      if (old) {
+        const stored = JSON.parse(old.input) as Record<string, unknown>;
+        const oldInput = CommandInput.parse(stored);
+        const includesIntent = Object.hasOwn(stored, 'intent');
+        if (idempotencyInput(oldInput, includesIntent) !== idempotencyInput(data, includesIntent))
+          throw new Error('Codex message ID reused with different input');
+        return false;
+      }
+      this.db
+        .prepare(
+          "INSERT INTO codex_commands(conversation_id,id,input,status) VALUES (?,?,?,'queued')",
+        )
+        .run(id, data.id, json);
+      if (supersedeCapacity) {
+        const recovery = this.capacityRecovery(id, b);
+        if (recovery && ['waiting', 'queued', 'running', 'exhausted'].includes(recovery.status))
+          this.stopCapacityRecovery(id, b, recovery.id, recovery.sourceCommandId);
+      }
+      return true;
+    })();
   }
   commands(id: string, b: AccountBinding): CodexCommand[] {
     this.read(id, b);
@@ -1065,12 +1077,12 @@ export class CodexConversationStore {
     const limit = 100;
     const queued = this.db
       .prepare(
-        "SELECT id, substr(json_extract(input, '$.prompt'), 1, 160) AS preview FROM codex_commands WHERE conversation_id=? AND status='queued' ORDER BY sequence LIMIT ?",
+        "SELECT id, substr(json_extract(input, '$.prompt'), 1, 160) AS preview FROM codex_commands WHERE conversation_id=? AND status='queued' AND NOT EXISTS (SELECT 1 FROM codex_capacity_continuations child WHERE child.conversation_id=codex_commands.conversation_id AND child.command_id=codex_commands.id AND child.ordinal>0) ORDER BY sequence LIMIT ?",
       )
       .all(id, limit + 1) as Array<{ id: string; preview: string }>;
     const cancelled = this.db
       .prepare(
-        "SELECT id FROM codex_commands WHERE conversation_id=? AND status='cancelled' ORDER BY sequence DESC LIMIT ?",
+        "SELECT id FROM codex_commands WHERE conversation_id=? AND status='cancelled' AND NOT EXISTS (SELECT 1 FROM codex_capacity_continuations child WHERE child.conversation_id=codex_commands.conversation_id AND child.command_id=codex_commands.id AND child.ordinal>0) ORDER BY sequence DESC LIMIT ?",
       )
       .all(id, limit + 1) as Array<{ id: string }>;
     return {
@@ -1086,7 +1098,7 @@ export class CodexConversationStore {
     this.read(id, b);
     const counts = this.db
       .prepare(
-        "SELECT SUM(status='queued') AS queued, SUM(status='interrupted' AND recovery_acknowledged=0) AS interrupted, SUM(status='failed' AND recovery_acknowledged=0) AS failed FROM codex_commands WHERE conversation_id=? AND NOT EXISTS (SELECT 1 FROM codex_capacity_continuations lineage JOIN codex_capacity_continuations resolved ON resolved.conversation_id=lineage.conversation_id AND resolved.source_command_id=lineage.source_command_id WHERE lineage.conversation_id=codex_commands.conversation_id AND lineage.command_id=codex_commands.id AND resolved.terminal='completed')",
+        "SELECT SUM(status='queued' AND NOT EXISTS (SELECT 1 FROM codex_capacity_continuations child WHERE child.conversation_id=codex_commands.conversation_id AND child.command_id=codex_commands.id AND child.ordinal>0)) AS queued, SUM(status='interrupted' AND recovery_acknowledged=0) AS interrupted, SUM(status='failed' AND recovery_acknowledged=0) AS failed FROM codex_commands WHERE conversation_id=? AND NOT EXISTS (SELECT 1 FROM codex_capacity_continuations lineage JOIN codex_capacity_continuations resolved ON resolved.conversation_id=lineage.conversation_id AND resolved.source_command_id=lineage.source_command_id WHERE lineage.conversation_id=codex_commands.conversation_id AND lineage.command_id=codex_commands.id AND resolved.terminal='completed')",
       )
       .get(id) as { queued: number | null; interrupted: number | null; failed: number | null };
     const latest = this.db
@@ -1126,6 +1138,7 @@ export class CodexConversationStore {
               status: capacity.status,
               attempts: capacity.attempts,
               maxAttempts: capacity.maxAttempts,
+              requiresInspection: this.capacityRequiresInspection(id, capacity.sourceCommandId),
               ...(capacity.nextRetryAt ? { nextRetryAt: capacity.nextRetryAt } : {}),
             },
           }
@@ -1166,6 +1179,14 @@ export class CodexConversationStore {
   ): 'cancelled' | 'not_queued' | 'not_found' {
     return this.db.transaction(() => {
       this.read(id, b);
+      if (
+        this.db
+          .prepare(
+            'SELECT 1 FROM codex_capacity_continuations WHERE conversation_id=? AND command_id=? AND ordinal>0',
+          )
+          .get(id, commandId)
+      )
+        return 'not_queued';
       const update = this.db
         .prepare(
           "UPDATE codex_commands SET status='cancelled' WHERE conversation_id=? AND id=? AND status='queued'",
@@ -1441,6 +1462,13 @@ export class CodexConversationStore {
       )
       .get(id, commandId) as CapacityContinuation | undefined;
   }
+  private capacityRequiresInspection(id: string, sourceCommandId: string): boolean {
+    return !!this.db
+      .prepare(
+        "SELECT 1 FROM codex_capacity_continuations WHERE conversation_id=? AND source_command_id=? AND ordinal>0 AND dispatched=1 AND (terminal IS NULL OR terminal NOT IN ('capacity','completed'))",
+      )
+      .get(id, sourceCommandId);
+  }
   queueCapacityRetry(
     id: string,
     b: AccountBinding,
@@ -1460,13 +1488,7 @@ export class CodexConversationStore {
         throw new Error('Capacity recovery exhausted');
       if (!manual && (recovery.status !== 'waiting' || now < (recovery.nextRetryAt ?? Infinity)))
         throw new Error('Capacity recovery must wait');
-      if (
-        this.db
-          .prepare(
-            "SELECT 1 FROM codex_capacity_continuations WHERE conversation_id=? AND source_command_id=? AND ordinal>0 AND dispatched=1 AND (terminal IS NULL OR terminal NOT IN ('capacity','completed'))",
-          )
-          .get(id, recovery.sourceCommandId)
-      )
+      if (this.capacityRequiresInspection(id, recovery.sourceCommandId))
         throw new Error('Capacity recovery requires inspection of an uncertain continuation');
       const source = this.commands(id, b).find((c) => c.id === recovery.latestCommandId);
       const sourceProof = this.db

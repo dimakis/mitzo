@@ -196,3 +196,34 @@ it('stops a waiting schedule on owner-scoped restart without resetting counts or
     f.store.queueCapacityRetry('chat', binding, stopped.id, 'source', 99_999, false),
   ).toThrow('wait');
 });
+it('hides synthetic children and refuses ordinary cancellation without changing the episode', () => {
+  const f = setup();
+  const child = f.store.queueCapacityRetry('chat', binding, f.episode.id, 'source', 31_000, false);
+  const before = f.store.capacityRecovery('chat', binding);
+  expect(f.store.queueOverview('chat', binding).queued.map((row) => row.id)).toEqual(['later']);
+  expect(f.store.queueSummary('chat', binding).queued).toBe(1);
+  expect(f.store.cancelQueued('chat', binding, child.id)).toBe('not_queued');
+  expect(f.store.capacityRecovery('chat', binding)).toEqual(before);
+  expect(f.store.commands('chat', binding).find((row) => row.id === child.id)?.status).toBe(
+    'queued',
+  );
+  f.store.stopCapacityRecovery('chat', binding, f.episode.id, 'source');
+  expect(f.store.cancelQueued('chat', binding, child.id)).toBe('not_queued');
+  expect(f.store.queueOverview('chat', binding).cancelledIds).not.toContain(child.id);
+});
+it('exposes the same uncertain-child inspection fence enforced by manual retry', () => {
+  const f = setup();
+  expect(f.store.queueSummary('chat', binding).capacityRecovery?.requiresInspection).toBe(false);
+  const child = f.store.queueCapacityRetry('chat', binding, f.episode.id, 'source', 31_000, false);
+  f.store.claimNext('chat', binding);
+  f.store.beginCapacityDispatch('chat', binding, child.id);
+  f.store.stopCapacityRecovery('chat', binding, f.episode.id, 'source');
+  f.reopen();
+  expect(f.store.queueSummary('chat', binding).capacityRecovery).toMatchObject({
+    status: 'stopped',
+    requiresInspection: true,
+  });
+  expect(() =>
+    f.store.queueCapacityRetry('chat', binding, f.episode.id, 'source', 99_000, true),
+  ).toThrow('uncertain');
+});

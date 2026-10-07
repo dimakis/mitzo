@@ -829,7 +829,6 @@ export class CodexConversation {
     if (this.opts.onActivity?.() === false)
       throw new Error('OpenShell lifecycle mutation is in progress');
     const commands = this.queue();
-    if (!commands.some((command) => command.id === input.id)) this.stopCapacitySchedule();
     const previousModel =
       commands.find((c) => c.id === input.id)?.model ??
       commands.at(-1)?.model ??
@@ -840,11 +839,17 @@ export class CodexConversation {
         ? null
         : input.reasoningEffort;
     this.validateModel(model, reasoningEffort);
-    this.opts.store.enqueue(this.opts.conversationId, this.binding!, {
-      ...input,
-      model,
-      reasoningEffort,
-    });
+    const saved = this.opts.store.enqueue(
+      this.opts.conversationId,
+      this.binding!,
+      {
+        ...input,
+        model,
+        reasoningEffort,
+      },
+      true,
+    );
+    if (saved) this.clearCapacityTimer();
     this.opts.onQueueChange?.();
     return { model, reasoningEffort };
   }
