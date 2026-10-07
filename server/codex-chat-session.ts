@@ -499,15 +499,8 @@ export async function openCodexChat(options: Options) {
     throw new Error('Native personal ChatGPT accounts require the isolated Symposium runtime');
   const service = getConnectionsRuntime()?.service;
   const configuredRuntime = openShellRuntimeConfig(process.env);
-  if (configuredRuntime) {
-    if (!options.resume)
-      store().reserveStartup(options.conversationId, options.binding, options.session.cwd!);
-    else {
-      store().assertStartupResumeSafe(options.conversationId, options.binding);
-      if (store().startupNeedsProvisioning(options.conversationId, options.binding))
-        options = { ...options, resume: false };
-    }
-  }
+  if (configuredRuntime && !options.resume)
+    store().reserveStartup(options.conversationId, options.binding, options.session.cwd!);
   if (service && configuredRuntime) {
     // Setup holds the connection reservation through sandbox verification and
     // thread registration. First-turn admission reacquires it; release setup
@@ -625,6 +618,30 @@ async function openCodexChatBound(
     : undefined;
   let managedOpenShell: OpenShellRuntime | undefined;
   try {
+    if (runtimeManager) {
+      store().assertStartupResumeSafe(options.conversationId, options.binding);
+      const provisioning = store().startupNeedsProvisioning(
+        options.conversationId,
+        options.binding,
+      );
+      if (provisioning && options.reattachOnly) {
+        // Queue attachment is observational. Keep the reserved startup for an
+        // explicit send instead of creating an unacknowledged provider thread.
+        const idle = new AsyncQueue<Record<string, unknown>>();
+        idle.close();
+        startupReservation?.();
+        return {
+          [Symbol.asyncIterator]: () => idle[Symbol.asyncIterator](),
+          setPermissionMode: async () => {},
+          interrupt: async () => {},
+          close: () => {},
+          stopTask: async () => {
+            throw new Error('Codex subagents are unavailable');
+          },
+        };
+      }
+      if (provisioning) options = { ...options, resume: false };
+    }
     managedOpenShell = runtimeManager
       ? await runtimeManager!.ensure(options.conversationId, options.session.abortController.signal)
       : undefined;
