@@ -6,6 +6,7 @@ import { SymposiumConversation } from '../SymposiumConversation';
 import { ChatInput } from '../ChatInput';
 import { SymposiumProfileProposals } from '../SymposiumProfileProposals';
 
+vi.mock('../SymposiumAccessRequests', () => ({ SymposiumAccessRequests: () => null }));
 vi.mock('../SessionTray', () => ({ SessionTray: () => null }));
 vi.mock('../SlashPicker', () => ({ SlashPicker: () => null }));
 

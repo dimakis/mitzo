@@ -1,3 +1,4 @@
+import { useNotifications } from './NotificationProvider';
 import { UiIcon } from './UiIcon';
 import { Link, useLocation } from 'react-router-dom';
 
@@ -8,16 +9,21 @@ const primary = [
   { label: 'Work', icon: 'work' as const, path: '/todos', end: false },
 ];
 const secondary = [
+  { label: 'Notifications', icon: 'bell' as const, path: '/notifications', end: false },
   { label: 'Agents', icon: 'agents' as const, path: '/tasks', end: false },
   { label: 'Calendar', icon: 'calendar' as const, path: '/calendar', end: false },
   { label: 'Files', icon: 'files' as const, path: '/files', end: false },
-  { label: 'Connections', icon: 'more' as const, path: '/connections-access', end: false },
+  { label: 'Connections', icon: 'connections' as const, path: '/connections-access', end: false },
 ];
 export function WorkspaceNav({ desktop = false }: { desktop?: boolean }) {
   const { pathname } = useLocation();
+  const notifications = useNotifications();
   const items = [
     ...primary,
     ...(desktop ? secondary : []),
+    ...(desktop
+      ? [{ label: 'Settings', icon: 'settings' as const, path: '/settings', end: false }]
+      : []),
     { label: 'More', icon: 'more' as const, path: '/more', end: false },
   ];
   return (
@@ -32,9 +38,17 @@ export function WorkspaceNav({ desktop = false }: { desktop?: boolean }) {
           (label === 'Connections' && pathname === '/connections') ||
           (!desktop &&
             label === 'More' &&
-            ['/tasks', '/calendar', '/files', '/focus', '/connections', '/connections-access'].some(
-              (p) => pathname === p || pathname.startsWith(p + '/'),
-            ));
+            [
+              '/notifications',
+              '/tasks',
+              '/calendar',
+              '/files',
+              '/focus',
+              '/connections',
+              '/connections-access',
+              '/backups',
+              '/settings',
+            ].some((p) => pathname === p || pathname.startsWith(p + '/')));
         return (
           <Link
             key={path}
@@ -46,6 +60,15 @@ export function WorkspaceNav({ desktop = false }: { desktop?: boolean }) {
           >
             {desktop && <UiIcon name={icon} />}
             <span className="workspace-nav-label">{label}</span>
+            {(label === 'Notifications' || (!desktop && label === 'More')) &&
+              !!notifications?.feed?.needsYou && (
+                <span
+                  className="notification-badge"
+                  aria-label={`${notifications.feed.needsYou} requests need attention`}
+                >
+                  {notifications.feed.needsYou > 99 ? '99+' : notifications.feed.needsYou}
+                </span>
+              )}
           </Link>
         );
       })}

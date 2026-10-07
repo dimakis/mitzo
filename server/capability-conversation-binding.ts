@@ -11,6 +11,10 @@ export interface LiveCapabilityConversationBinding {
   sandboxName?: string;
   /** Trusted lifecycle workdir; never supplied in capability tool input. */
   workspace?: string;
+  /** Controller-bound source type; host workspaces do not impersonate a sandbox. */
+  runtime?: 'host' | 'openshell';
+  runtimeOwnerId?: string;
+  gitStorageRoots?: readonly string[];
 }
 
 const bindings = new Map<string, Readonly<LiveCapabilityConversationBinding>>();

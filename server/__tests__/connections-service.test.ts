@@ -42,6 +42,43 @@ function jiraAdapter() {
 }
 
 describe('ConnectionsService', () => {
+  it('pins retained automatic connections to physical attachments while keeping new sandboxes current', async () => {
+    const existing = { id: 'existing', gatewayProviderName: 'mitzo-conn-existing' };
+    const added = { id: 'added', gatewayProviderName: 'mitzo-conn-added' };
+    const candidates = [existing, added] as import('../connections-store.js').Connection[];
+    const gateway = {
+      sandbox: vi.fn().mockResolvedValue({ name: 'retained' }),
+      sandboxProviders: vi.fn().mockResolvedValue(['account', existing.gatewayProviderName]),
+    };
+    const service = new ConnectionsService({} as never, gateway as never);
+    expect(
+      await service.retainedAutomaticConnections(
+        ['current', 'legacy'],
+        candidates,
+        AbortSignal.timeout(500),
+      ),
+    ).toEqual([existing]);
+    expect(gateway.sandboxProviders).toHaveBeenCalledWith('current', expect.any(AbortSignal));
+    gateway.sandbox.mockResolvedValueOnce(undefined).mockResolvedValueOnce({ name: 'legacy' });
+    expect(
+      await service.retainedAutomaticConnections(
+        ['current', 'legacy'],
+        candidates,
+        AbortSignal.timeout(500),
+      ),
+    ).toEqual([existing]);
+    expect(gateway.sandboxProviders).toHaveBeenLastCalledWith('legacy', expect.any(AbortSignal));
+    gateway.sandbox.mockResolvedValue(undefined);
+    expect(
+      await service.retainedAutomaticConnections(['new'], candidates, AbortSignal.timeout(500)),
+    ).toEqual(candidates);
+    gateway.sandbox.mockResolvedValue({ name: 'retained' });
+    gateway.sandboxProviders.mockRejectedValue(new Error('attachment read failed'));
+    await expect(
+      service.retainedAutomaticConnections(['current'], candidates, AbortSignal.timeout(500)),
+    ).rejects.toThrow('attachment read failed');
+  });
+
   it('drains custom attachments for revoke, quarantine, and assignment removal even after compatibility drift', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'connections-service-'));
     const store = new ConnectionStore(join(dir, 'db'));

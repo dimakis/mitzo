@@ -11,6 +11,7 @@ import type { EventEmitter } from 'node:events';
 import type { Readable, Writable } from 'node:stream';
 import { isAbsolute, posix } from 'node:path';
 import { codexRuntimeOverrides } from './codex-runtime-policy.js';
+import { createLogger } from './logger.js';
 
 export const SUPPORTED_CODEX_CLI_VERSION = readFileSync(
   new URL('../docs/spikes/openshell-codex/runtime-codex-version', import.meta.url),
@@ -43,6 +44,25 @@ interface RpcProcess extends EventEmitter {
   stderr: Readable;
   kill(): unknown;
 }
+const hostToolFailureMessages = {
+  invalid_tool_request:
+    'Mitzo rejected an invalid tool request. Correct the request format before retrying.',
+  tool_identity_mismatch:
+    'Mitzo rejected this tool request because its thread or turn identity is stale. No tool was executed. Reconnect the conversation before retrying.',
+  tool_unavailable:
+    'This tool is unavailable in the current Mitzo conversation. Check the exposed tools and connection grants. Do not bypass the missing grant with shell networking.',
+  tool_ledger_unavailable:
+    'Mitzo could not record this tool request safely. No tool was executed. Inspect conversation recovery before retrying.',
+} as const;
+
+/** Server-authored classes only: never expose provider arguments or exception text. */
+export class CodexHostToolRequestError extends Error {
+  constructor(readonly category: keyof typeof hostToolFailureMessages) {
+    super(hostToolFailureMessages[category]);
+    this.name = 'CodexHostToolRequestError';
+  }
+}
+
 export interface CodexLifecycleTransport {
   onNotification(method: string, params: JsonObject): void;
   onRequest(method: string, params: JsonObject, signal: AbortSignal): Promise<JsonObject>;
@@ -489,9 +509,32 @@ export class CodexAppServerClient {
         (result) => {
           if (!this.closed) this.write({ id, result });
         },
-        () => {
-          if (!this.closed)
+        (error: unknown) => {
+          if (this.closed) return;
+          if (method === 'item/tool/call') {
+            const known = error instanceof CodexHostToolRequestError;
+            createLogger('codex-app-server-client').warn('Codex host tool request rejected', {
+              failureClass: known ? error.category : 'tool_dispatch_failed',
+            });
+            // JSON-RPC errors are collapsed by Codex into "dynamic tool request
+            // failed". A failed tool result preserves our bounded diagnostic.
+            this.write({
+              id,
+              result: {
+                success: false,
+                contentItems: [
+                  {
+                    type: 'inputText',
+                    text: known
+                      ? hostToolFailureMessages[error.category]
+                      : 'Mitzo could not dispatch this tool request. No external action was confirmed. Inspect current state before retrying.',
+                  },
+                ],
+              },
+            });
+          } else {
             this.write({ id, error: { code: -32603, message: 'Host request failed' } });
+          }
         },
       )
       .catch(() => this.close())

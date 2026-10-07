@@ -1,0 +1,137 @@
+import { MemoryRouter } from 'react-router-dom';
+// @vitest-environment jsdom
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { afterEach, expect, it, vi } from 'vitest';
+import { BackupsView } from '../BackupsView';
+import { getBackups, backupAction } from '../../lib/backups-api';
+import type { BackupOverview } from '@mitzo/protocol';
+vi.mock('../../lib/backups-api', () => ({ getBackups: vi.fn(), backupAction: vi.fn() }));
+afterEach(() => {
+  cleanup();
+  vi.resetAllMocks();
+});
+const view: BackupOverview = {
+  ready: true,
+  busy: false,
+  setup: [],
+  runs: [],
+  lastCapture: null,
+  lastCloudUpload: null,
+  coverage: [
+    { name: 'Mitzo and Telos', supported: true, detail: 'Core stores' },
+    { name: 'LifeOps', supported: false, detail: 'Vault not captured' },
+  ],
+};
+it('blocks backups until setup is ready and names uncovered stores', async () => {
+  vi.mocked(getBackups).mockResolvedValue({
+    ...view,
+    ready: false,
+    setup: ['Confirm independent recovery.'],
+  });
+  render(
+    <MemoryRouter>
+      <BackupsView />
+    </MemoryRouter>,
+  );
+  await screen.findByText('Confirm independent recovery.');
+  expect((screen.getByRole('button', { name: 'Back up now' }) as HTMLButtonElement).disabled).toBe(
+    true,
+  );
+  expect(screen.getByText('Vault not captured')).toBeTruthy();
+  expect(backupAction).not.toHaveBeenCalled();
+});
+it('submits manual actions once and distinguishes pending upload from cloud protection', async () => {
+  vi.mocked(getBackups).mockResolvedValue({
+    ...view,
+    runs: [
+      {
+        id: 'run',
+        startedAt: '2026-10-06T12:00:00Z',
+        status: 'pending',
+        generation: 'generation',
+        bytes: 1024,
+      },
+    ],
+  });
+  vi.mocked(backupAction).mockResolvedValue();
+  render(
+    <MemoryRouter>
+      <BackupsView />
+    </MemoryRouter>,
+  );
+  await screen.findByText('Waiting for iCloud');
+  expect(screen.getByText('No confirmed upload')).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: 'Back up now' }));
+  await waitFor(() => expect(backupAction).toHaveBeenCalledWith('run'));
+  expect(backupAction).toHaveBeenCalledTimes(1);
+  fireEvent.click(screen.getByRole('button', { name: 'Check iCloud upload' }));
+  await waitFor(() => expect(backupAction).toHaveBeenCalledWith('refresh'));
+});
+it('retains failures visibly and disables actions while status is unavailable', async () => {
+  vi.mocked(getBackups).mockRejectedValue(Error('offline'));
+  render(
+    <MemoryRouter>
+      <BackupsView />
+    </MemoryRouter>,
+  );
+  await screen.findByRole('alert');
+  expect((screen.getByRole('button', { name: 'Back up now' }) as HTMLButtonElement).disabled).toBe(
+    true,
+  );
+});
+
+it('opens host setup from the destination card and rechecks without enabling backups', async () => {
+  vi.mocked(getBackups).mockResolvedValue({
+    ...view,
+    ready: false,
+    setup: ['Confirm independent recovery.'],
+  });
+  render(
+    <MemoryRouter>
+      <BackupsView />
+    </MemoryRouter>,
+  );
+  fireEvent.click(await screen.findByRole('button', { name: 'Set up backups' }));
+  expect(screen.getByRole('region', { name: 'Backup setup guide' })).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: 'Encryption and recovery' }));
+  expect(screen.getByText(/mitzo.backup/)).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: 'Check setup again' }));
+  await waitFor(() => expect(getBackups).toHaveBeenCalledTimes(2));
+  expect(backupAction).not.toHaveBeenCalled();
+  expect((screen.getByRole('button', { name: 'Back up now' }) as HTMLButtonElement).disabled).toBe(
+    true,
+  );
+});
+it('explains why upload verification is unavailable before an export', async () => {
+  vi.mocked(getBackups).mockResolvedValue(view);
+  render(
+    <MemoryRouter>
+      <BackupsView />
+    </MemoryRouter>,
+  );
+  await screen.findByText('Run a backup first to check its iCloud upload.');
+  expect(
+    screen.getByRole('button', { name: 'Check iCloud upload' }).getAttribute('aria-describedby'),
+  ).toBe('backup-action-help');
+});
+it('shows retained-lock instructions directly rather than telling the operator to wait', async () => {
+  vi.mocked(getBackups).mockResolvedValue({
+    ...view,
+    busy: true,
+    setup: ['Inspect the retained writer lock on the host.'],
+  });
+  render(
+    <MemoryRouter>
+      <BackupsView />
+    </MemoryRouter>,
+  );
+  await screen.findByText('Inspect the retained writer lock on the host.');
+  expect(
+    screen.getByText('Inspect the retained writer lock on the host.').closest('details'),
+  ).toBeNull();
+  expect(
+    screen.getByText(
+      'Backup storage is locked. Check the current run and host requirements before retrying.',
+    ),
+  ).toBeTruthy();
+});

@@ -1,3 +1,4 @@
+import type { AccountSignIn } from './account-profiles.js';
 /** Nonsecret read model. Actions only navigate to existing owning controls. */
 export type AccessResourceKind =
   | 'ai-account'
@@ -24,6 +25,7 @@ export interface AccessResource {
     state: 'current' | 'stale' | 'unavailable';
   };
   accountIdentity: string | null;
+  signIn?: AccountSignIn;
   verification: {
     state: 'verified' | 'stale' | 'unverified' | 'unavailable';
     verifiedAt: number | null;

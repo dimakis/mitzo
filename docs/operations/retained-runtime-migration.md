@@ -18,6 +18,31 @@ Production rollout still requires accepted source/review/CI and an active-turn d
 
 Offline regressions cover strict source/target identity, real archive/Git/provider preservation, source content equality under different image/physical identities, candidate attestation/native validation failure and cancellation cleanup, uncertain create replay, CAS concurrency, FIFO admission recovery, policy/account drift and exact capacity bounds. No live model calls are part of these tests.
 
+## SQLite maintenance lock recovery
+
+Migration candidate names use `mitzo-` plus twelve random hexadecimal characters
+to fit OpenShell's nineteen-character limit. A historical fifty-character UUID
+name may be replaced with a deterministic short name only after the exact CLI
+length validation rejection, while blocked at `checkpointed`, with a preserved
+checkpoint and no candidate. The generation transaction rechecks source ownership,
+provider thread and ambiguity, and saves the repaired name before retrying create.
+Uncertain creation failures, known candidates and later phases retain their names.
+
+The provider root may contain `.sqlite-maintenance.lock`. Capture accepts only a
+regular file at that exact name, leaves the source file intact and omits it from
+the archive as volatile process coordination. Symlinks and non-regular entries
+remain unsupported. The writer process and open-file checks still run before
+capture; the presence of a lock file never proves that a provider is idle.
+
+An older helper may have persisted this exact rejection as a non-retryable blocked
+migration. The corrected release permits a subsequent explicit send/resume to
+retry only when the saved diagnostic ends with the exact maintenance-lock error,
+the resume phase is `observed`, and no checkpoint or candidate exists. Recovery
+keeps the original identities and performs all normal source ownership, policy,
+thread and writer checks. Other unsupported files or later migration failures
+remain blocked. Startup errors pass through the public runtime sanitizer rather
+than exposing SSH commands or encoded helper source.
+
 ## Authored and effective policy identities
 
 The checkpoint policy SHA remains the canonical JSON digest of the original parsed

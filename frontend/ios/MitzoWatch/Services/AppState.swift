@@ -116,6 +116,17 @@ final class AppState: ObservableObject {
         }
     }
 
+    func loadNotifications() async throws -> NotificationFeed {
+        try await relayClient.requestNotifications()
+    }
+
+    func respondNotification(_ item: MitzoNotification, decision: NotificationResponse.Decision) async throws {
+        guard item.isActionable(), let sessionId = item.sessionId else {
+            throw RelayResponseError.serverRejected("This request is no longer active.")
+        }
+        try await relayClient.respondNotification(id: item.id, sessionId: sessionId, decision: decision)
+    }
+
     // MARK: - Active Chat
 
     func setActiveChatVM(_ vm: ChatViewModel?) {

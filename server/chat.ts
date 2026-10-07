@@ -1,3 +1,9 @@
+import { clearUrlAccessGrants } from './url-access-tool.js';
+import {
+  createGithubPublishingTool,
+  GITHUB_PUBLISHING_INSTRUCTIONS,
+  hostGithubPublishingSource,
+} from './github-publishing-tool.js';
 import { localHttpBaseUrl, localServerUsesTls } from './local-server-url.js';
 import { TELOS_ARTIFACT_INSTRUCTIONS } from './telos-artifact-tools.js';
 import { requireCustodianOrdinaryRuntime } from './custodian-ordinary-runtime.js';
@@ -5,6 +11,7 @@ import {
   createWebAccessSdkServer,
   webAccessSdkPermission,
   WEB_ACCESS_SDK_TOOL,
+  GITHUB_PUBLISH_SDK_TOOL,
 } from './web-access-sdk.js';
 import { createWebAccessTool } from './web-access-tool.js';
 import { WEB_ACCESS_INSTRUCTIONS } from './request-web-access.js';
@@ -34,6 +41,7 @@ import {
   openCodexChat,
   getCodexRuntime,
   trackCodexProviderAdmission,
+  publicCodexRuntimeError,
 } from './codex-chat-session.js';
 import {
   loadAccountProfiles,
@@ -571,7 +579,7 @@ export function resolveSshAuthSock(): string | null {
   }
 }
 
-function sdkEnv(): Record<string, string> {
+export function buildSdkChildEnvironment(): Record<string, string> {
   const env = { ...process.env } as Record<string, string>;
   env.CLAUDE_CODE_USE_VERTEX = process.env.CLAUDE_CODE_USE_VERTEX || '1';
   env.ANTHROPIC_VERTEX_PROJECT_ID = process.env.ANTHROPIC_VERTEX_PROJECT_ID || '';
@@ -595,6 +603,9 @@ function sdkEnv(): Record<string, string> {
   delete env.AUTH_PASSPHRASE;
   delete env.AUTH_SECRET;
   delete env.NTFY_AUTH_TOKEN;
+  // The approved publisher uses these on the controller; models must not inherit them.
+  delete env.GH_TOKEN;
+  delete env.GITHUB_TOKEN;
   return env;
 }
 
@@ -1156,7 +1167,7 @@ async function _startChatInner(
           };
         } else apiCredentialRef = profile.credentialRef;
         accountEnv = openShellRequested ? restrictedChildEnv() : nativeExecutionEnv();
-      } else accountEnv = profiles!.sdkEnv(accountBinding, sdkEnv());
+      } else accountEnv = profiles!.sdkEnv(accountBinding, buildSdkChildEnvironment());
     }
   } catch (err: unknown) {
     options.onStartupAdmission?.(err);
@@ -1458,7 +1469,7 @@ async function _startChatInner(
   }
 
   // Build session env with worktree paths for the agent (all repos including primary)
-  const sessionEnv = accountEnv ?? sdkEnv();
+  const sessionEnv = accountEnv ?? buildSdkChildEnvironment();
   sessionEnv.MITZO_SESSION_ID = wtId;
   sessionEnv.MITZO_AGENT_NAME = agentName;
   for (const [name, { path }] of repoWorktrees) {
@@ -1471,7 +1482,7 @@ async function _startChatInner(
   const allMcpServers = { ...mcpServers, ...taskMcp, ...telosMcp };
 
   // Load project hooks from .claude/settings.json (e.g. SessionStart boot context)
-  const hooks = loadProjectHooks(cwd);
+  const hooks = loadProjectHooks(cwd, sessionEnv);
 
   // Fetch boot context BEFORE building system prompt so it's part of the
   // system prompt append and survives SDK context compaction.
@@ -1619,6 +1630,9 @@ async function _startChatInner(
         mcpServers: allMcpServers,
         eventStore,
         onDemandCreate: buildOnDemandCreate(wtId, clientId),
+        publishingGitStorageRoots: [BASE_REPO, ...Object.values(getRepoConfig().repos)]
+          .filter(Boolean)
+          .map((root) => join(root, '.git')),
         onBootContext: (context) => {
           const message: BootContextMessage = { ...context, source: 'sandbox' };
           send(transport, { ...message, sessionId: conversationId });
@@ -1651,6 +1665,9 @@ async function _startChatInner(
         env: sessionEnv,
         mcpServers: allMcpServers,
         onDemandCreate: buildOnDemandCreate(wtId, clientId),
+        publishingGitStorageRoots: [BASE_REPO, ...Object.values(getRepoConfig().repos)]
+          .filter(Boolean)
+          .map((root) => join(root, '.git')),
       });
       if (!initialProviderAdmission) {
         throw new Error('Native provider startup is missing durable command admission');
@@ -1676,6 +1693,21 @@ async function _startChatInner(
           onDemandCreate: buildOnDemandCreate(wtId, clientId),
         }),
       );
+      const githubPublishing = createGithubPublishingTool(
+        () => session.sessionId ?? options.resume ?? newSdkSessionId ?? '',
+        registry,
+        () =>
+          hostGithubPublishingSource(
+            session,
+            [BASE_REPO, ...Object.values(getRepoConfig().repos)]
+              .filter(Boolean)
+              .map((root) => join(root, '.git')),
+          ),
+        session,
+      );
+      abortController.signal.addEventListener('abort', () => githubPublishing.close(), {
+        once: true,
+      });
       const webAccess = createWebAccessSdkServer(
         createWebAccessTool(
           () => session.sessionId ?? options.resume ?? newSdkSessionId ?? '',
@@ -1688,6 +1720,7 @@ async function _startChatInner(
             }),
         ),
         abortController.signal,
+        githubPublishing,
       );
       q = adaptSdkQuery(
         query({
@@ -1701,10 +1734,15 @@ async function _startChatInner(
             systemPrompt: {
               type: 'preset',
               preset: 'claude_code',
-              append: systemPromptAppend + WEB_ACCESS_INSTRUCTIONS,
+              append: systemPromptAppend + WEB_ACCESS_INSTRUCTIONS + GITHUB_PUBLISHING_INSTRUCTIONS,
             },
             permissionMode: MODE_TO_SDK[session.mode] as 'plan' | 'default',
-            allowedTools: [...mcpAllowed, ...extraTools, WEB_ACCESS_SDK_TOOL],
+            allowedTools: [
+              ...mcpAllowed,
+              ...extraTools,
+              WEB_ACCESS_SDK_TOOL,
+              GITHUB_PUBLISH_SDK_TOOL,
+            ],
             disallowedTools: ['WebSearch', 'WebFetch'],
             thinking: resolveThinking(options.model),
             ...(options.model ? { model: parseModelSpec(options.model).model } : {}),
@@ -1806,8 +1844,12 @@ async function _startChatInner(
         error: 'Session expired. Send your message again to start fresh.',
       });
     } else {
-      log.error('startChat failed after register, cleaning up', { clientId, error: message });
-      send(transport, { type: 'error', error: message });
+      const publicMessage =
+        accountBinding?.provider === 'openai-codex' || accountBinding?.provider === 'openai'
+          ? publicCodexRuntimeError(err instanceof Error ? err : new Error(message))
+          : message;
+      log.error('startChat failed after register, cleaning up', { clientId, error: publicMessage });
+      send(transport, { type: 'error', error: publicMessage });
     }
     if (newSdkSessionId) {
       // Retain its binding: the SDK may have written history before startup failed.
@@ -2170,7 +2212,10 @@ export async function sendToChat(
             : {}),
         });
       }
-      if (model) session.model = model;
+      if (model) {
+        if (model !== session.model) clearUrlAccessGrants(session);
+        session.model = model;
+      }
     };
     const failPreparedProviderCommand = (error: unknown): never => {
       if (!responses || !providerAdmission) throw error;
@@ -2241,11 +2286,11 @@ export async function sendToChat(
         selectionReasoningEffort = selection.reasoningEffort;
         acknowledge();
         commitSelection();
-        void codex.resumeAfterExplicitSend().catch(() =>
+        void codex.resumeAfterExplicitSend().catch((error: unknown) =>
           send(session.transport, {
             type: 'error',
             sessionId: session.sessionId,
-            error: 'Message saved. Mitzo could not reconnect yet.',
+            error: `Message saved. ${publicCodexRuntimeError(error instanceof Error ? error : new Error('Reconnect failed'))}`,
           }),
         );
       } catch {
@@ -2384,7 +2429,10 @@ export async function interruptChat(
         reasoningEffort,
       );
     }
-    if (model) session.model = model;
+    if (model) {
+      if (model !== session.model) clearUrlAccessGrants(session);
+      session.model = model;
+    }
     if (session.sessionId && (model || reasoningEffort !== undefined)) {
       eventStore.upsertSession({
         sessionId: session.sessionId,

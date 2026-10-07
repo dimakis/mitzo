@@ -1,3 +1,17 @@
+import { createGithubPublicationOperatorRouter } from './github-publication-operator-router.js';
+import { requestOperatorGithubPublication } from './github-publishing-tool.js';
+import { createHostBackupService } from './backup/host.js';
+import { createBackupRouter } from './backup/router.js';
+import { bindMitzoTelosCoreCapture } from './backup/mitzo-telos-binding.js';
+import { NotificationStore } from './notification-store.js';
+import { NotificationCenter, setNotificationCenter } from './notification-center.js';
+import { notificationRouter } from './notification-routes.js';
+import {
+  deliverNotification,
+  sendBadgeUpdate,
+  isConfigured as apnsConfigured,
+  getTokens as pushTokens,
+} from './apns.js';
 import { OPEN_SHELL_ARTIFACT_HELPER } from './openshell-artifact-reader.js';
 import { createTelosArtifactRouter, telosArtifactSaveJson } from './telos-artifact-routes.js';
 import { writeHostArtifact } from './host-artifact-writer.js';
@@ -35,6 +49,8 @@ import {
   type ReviewPublicationDependencies,
 } from './symposium-review-publication.js';
 import { SymposiumReviewStore } from './symposium-review-workflows.js';
+import { SymposiumAccessRequests } from './symposium-access-tools.js';
+import { createSymposiumAccessRouter } from './symposium-access-router.js';
 import {
   createSymposiumReviewRouter,
   type SymposiumInteractiveReviewHost,
@@ -110,7 +126,7 @@ import { execFileSync, execFile } from 'child_process';
 import { promisify } from 'util';
 import { createHash, randomUUID } from 'crypto';
 import { fileURLToPath } from 'url';
-import { createProxyMiddleware } from 'http-proxy-middleware';
+import { createVoiceProxy } from './voice-proxy.js';
 import {
   login,
   authenticateToken,
@@ -327,21 +343,11 @@ if (CORS_ALLOWED_ORIGINS.length > 0) {
 
 const YAPPER_TARGET = process.env.YAPPER_PROXY_TARGET || 'http://localhost:8700';
 
-export const yapperHttpProxy = createProxyMiddleware({
-  target: YAPPER_TARGET,
-  changeOrigin: true,
-  pathRewrite: { '^/api/yapper': '' },
-});
-
-export const yapperWsProxy = createProxyMiddleware({
-  target: YAPPER_TARGET.replace(/^http/, 'ws'),
-  changeOrigin: true,
-  ws: true,
-  pathRewrite: { '^/api/yapper-ws': '' },
-});
+export const yapperHttpProxy = createVoiceProxy(YAPPER_TARGET, '/api/yapper').http;
+export const yapperWsProxy = createVoiceProxy(YAPPER_TARGET, '/api/yapper-ws');
 
 app.use('/api/yapper', yapperHttpProxy);
-app.use('/api/yapper-ws', yapperWsProxy);
+app.use('/api/yapper-ws', yapperWsProxy.http);
 
 app.use(cookieParser());
 
@@ -427,6 +433,11 @@ app.use('/api/capability-operations', authMiddleware, (req, res, next) => {
 app.put('/api/files/write', authMiddleware, express.json({ limit: 60 * 1024 * 1024 + 64 * 1024 }));
 // Authenticate before accepting the expanded JSON envelope; decoded document bytes remain capped at 5 MiB.
 app.post('/api/internal/telos/artifacts/save', authMiddleware, telosArtifactSaveJson);
+app.post(
+  '/api/telos/items/:itemId/artifacts/upload',
+  operatorAuthMiddleware,
+  express.json({ limit: '8mb' }),
+);
 app.use(express.json({ limit: '10mb' }));
 
 const loginLimiter = rateLimit({
@@ -501,6 +512,19 @@ setTokenStorePath(join(mitzoDir, 'device-tokens.json'));
 
 export const sseRegistry = new SseRegistry();
 export const chatSseRegistry = new SessionSseRegistry();
+export const notificationCenter = new NotificationCenter(
+  new NotificationStore(join(mitzoDir, 'notifications.db')),
+  {
+    push: deliverNotification,
+    badge: sendBadgeUpdate,
+    changed: () => sseRegistry.broadcast('notifications_changed', {}),
+    configured: apnsConfigured,
+    devices: () => pushTokens().length,
+    sessionTitle: (id) => eventStore.getSession(id)?.summary ?? undefined,
+  },
+);
+setNotificationCenter(notificationCenter);
+if (process.env.NODE_ENV !== 'test') notificationCenter.start();
 
 export function setUpdateBroadcast(fn: () => void) {
   onUpdateAvailable = fn;
@@ -853,6 +877,9 @@ receiveCustodianEvents(broadcastDurableSymposiumEvent);
 const symposiumProfileStore = new SymposiumProfileStore(
   join(BASE_REPO || '.', '.mitzo', 'events.db'),
 );
+const symposiumAccessRequests = new SymposiumAccessRequests(
+  join(BASE_REPO || '.', '.mitzo', 'events.db'),
+);
 const symposiumProfileProposalStore = new SymposiumProfileProposalStore(
   join(BASE_REPO || '.', '.mitzo', 'events.db'),
 );
@@ -1068,6 +1095,7 @@ let symposiumRuntimeForSession: (sessionId: string) => SymposiumOrchestrator | n
       hostGrants: symposiumHostGrants,
       codexStore: getCodexConversationStore(),
       profileProposalStore: symposiumProfileProposalStore,
+      accessRequests: symposiumAccessRequests,
       profileCatalogStore: symposiumProfileStore,
       resolveProviderIdentity: createOpenShellProviderIdentityResolver(runtimeConfig),
       runtimeConfig,
@@ -1173,9 +1201,30 @@ const symposiumReviewStore = new SymposiumReviewStore(
   join(BASE_REPO || '.', '.mitzo', 'events.db'),
 );
 app.use(
+  '/api/sessions/:id/symposium/access-requests',
+  operatorAuthMiddleware,
+  createSymposiumAccessRouter(
+    symposiumAccessRequests,
+    (id) => eventStore.getSession(id)?.sessionType === 'symposium',
+  ),
+);
+app.use(
+  '/api/sessions/:id/github-publication',
+  operatorAuthMiddleware,
+  createGithubPublicationOperatorRouter({
+    hasOrdinarySession: (id) => {
+      const session = eventStore.getSession(id);
+      return !!session && session.sessionType !== 'symposium';
+    },
+    invoke: (id, input, signal) => requestOperatorGithubPublication(id, registry, input, signal),
+  }),
+);
+app.use(
   '/api/sessions/:id/symposium/publication',
   operatorAuthMiddleware,
   createPublicationRouter({
+    onPublicationCompleted: (sessionId, publication, operation) =>
+      symposiumAccessRequests.publicationCompleted(sessionId, publication, operation),
     registration: () => symposiumPublication,
     hasSession: (id) => eventStore.getSession(id)?.sessionType === 'symposium',
     approval: (req, session, conversationId) =>
@@ -1534,10 +1583,24 @@ app.post('/api/internal/task-tools/artifact', (req, res) => {
   });
 });
 
+const telosDatabasePath = () =>
+  process.env.TELOS_DB_PATH || join(BASE_REPO, 'command_center', 'data', 'smart_todo.db');
+/** Host-only capture capability. No route, scheduler or upload is enabled here. */
+export const captureMitzoTelosCoreBackup = bindMitzoTelosCoreCapture({
+  events: eventStore,
+  tasks: taskStore,
+  telosPath: telosDatabasePath,
+});
+
+app.use(
+  '/api/backups',
+  createBackupRouter(createHostBackupService(captureMitzoTelosCoreBackup), operatorAuthMiddleware),
+);
+
 app.use(
   createTelosArtifactRouter({
-    dbPath: () =>
-      process.env.TELOS_DB_PATH || join(BASE_REPO, 'command_center', 'data', 'smart_todo.db'),
+    operatorAuth: operatorAuthMiddleware,
+    dbPath: telosDatabasePath,
     verifyInternal: verifyInternalToken,
     sessionId: (clientId) => registry.get(clientId)?.sessionId,
     readFile: async (sessionId, requestedPath) => {
@@ -2116,13 +2179,14 @@ app.use(
   createConnectionsAccessRouter((auth) => {
     const runtime = getConnectionsRuntime();
     return {
-      accounts: () =>
-        loadAccountProfiles()
-          .catalog()
-          .map((account) => ({
-            ...account,
-            label: accountAliases.label(account.id, account.label),
-          })),
+      accounts: async (signal: AbortSignal) => {
+        const profiles = loadAccountProfiles();
+        await profiles.checkSignIn(signal);
+        return profiles.catalog().map((account) => ({
+          ...account,
+          label: accountAliases.label(account.id, account.label),
+        }));
+      },
       ...(runtime
         ? {
             managed: () => runtime.store.list('operator'),
@@ -3184,6 +3248,7 @@ app.post('/api/inbox', (req, res) => {
     res.status(500).json({ error: 'Failed to create inbox item' });
     return;
   }
+  notificationCenter.update(item.filename, item.title, item.preview, item.filename);
   res.status(201).json(item);
   broadcastInboxUpdate();
 });
@@ -3232,6 +3297,8 @@ app.delete('/api/inbox/:filename', (req, res) => {
   broadcastInboxUpdate();
 });
 
+app.use('/api/notifications', notificationRouter(notificationCenter));
+
 // --- Push notification device token registration ---
 
 app.post('/api/push/register', (req, res) => {
@@ -3241,6 +3308,8 @@ app.post('/api/push/register', (req, res) => {
     return;
   }
   registerToken(token);
+  notificationCenter.changed();
+  void notificationCenter.syncBadge();
   res.json({ ok: true });
 });
 

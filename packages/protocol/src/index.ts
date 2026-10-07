@@ -226,3 +226,12 @@ export type {
   SymposiumMembershipState,
   SymposiumReconciliationStatus,
 } from './symposium.js';
+
+export { NotificationKind, NotificationFilter, NotificationPreferences } from './notifications.js';
+export type {
+  MitzoNotification,
+  NotificationResolution,
+  NotificationFeed,
+} from './notifications.js';
+
+export type { BackupRunStatus, BackupRun, BackupOverview } from './backup.js';

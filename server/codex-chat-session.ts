@@ -1,3 +1,11 @@
+import {
+  createGithubPublishingTool,
+  githubPublishingDefinition,
+  GITHUB_PUBLISHING_INSTRUCTIONS,
+  REQUEST_GITHUB_PUBLISH,
+  hostGithubPublishingSource,
+} from './github-publishing-tool.js';
+import { KnowledgePublicationUnavailableError } from './knowledge-publication-bridge.js';
 import { prepareRetainedRuntimeMigration } from './openshell-runtime-migration-adapter.js';
 import {
   executeTelosArtifactTool,
@@ -47,6 +55,7 @@ import {
 import type { McpServerConfig } from './mcp-config.js';
 import {
   OpenShellRuntimeManager,
+  sandboxNameForConversation,
   openShellCodexRuntimeConfig,
   openShellRuntimeConfig,
   type OpenShellAccountRoute,
@@ -59,6 +68,7 @@ import { connectionTemplateRegistry } from './connections/registry.js';
 import { capabilityApprovalForConversation } from './connections/capabilities/approval.js';
 import {
   bindLiveCapabilityConversation,
+  getLiveCapabilityConversationBinding,
   clearLiveCapabilityConversationBinding,
 } from './capability-conversation-binding.js';
 import { sharedOpenShellLifecycleCoordinator } from './openshell-lifecycle.js';
@@ -188,6 +198,8 @@ function capabilityToolsForConversation(
 }
 /** Only transport safe, stable runtime diagnostics to the client. */
 export function publicCodexRuntimeError(error: Error): string {
+  if (error instanceof KnowledgePublicationUnavailableError)
+    return 'Knowledge publication is unavailable. Check the knowledge publisher before retrying. No provider turn was started.';
   if (
     /^(Retained migration|Migration |Runtime (source|image)|OpenShell migration|Runtime migration)/.test(
       error.message,
@@ -211,13 +223,16 @@ export function publicCodexRuntimeError(error: Error): string {
   }
 
   if (error instanceof ProviderFailureError) return error.failure.message;
+  if (error.message === 'Codex transport disconnected; recovery is available')
+    return 'The Codex connection was interrupted. The turn outcome is unknown; inspect saved work before continuing.';
   const message = error.message;
   if (
     message ===
       'OpenShell denied the provider request because its credential-bearing body could not be inspected.' ||
     message === 'The provider stream disconnected before completion.' ||
     message === 'The provider rejected the turn because its context is too large.' ||
-    message === 'The provider request timed out.'
+    message === 'The provider request timed out.' ||
+    message === 'Connection permissions changed. Start a new conversation.'
   )
     return message;
   return 'Codex turn failed. Inspect queued work before retrying.';
@@ -378,6 +393,7 @@ export function readCodexLifecycleQueue(conversationId: string, binding: Account
   return store().lifecycleQueue(conversationId, binding);
 }
 interface Options {
+  publishingGitStorageRoots?: readonly string[];
   resume?: boolean;
   conversationId: string;
   binding: AccountBinding;
@@ -441,25 +457,60 @@ export async function openCodexChat(options: Options) {
   if (options.profile.nativeAuth)
     throw new Error('Native personal ChatGPT accounts require the isolated Symposium runtime');
   const service = getConnectionsRuntime()?.service;
-  if (service && openShellRuntimeConfig(process.env))
-    // On-demand connections are supplied only as grant candidates. They are
-    // intentionally excluded from withAccountRuntime's automatic selection.
-    return service.withAccountRuntimes(
+  const configuredRuntime = openShellRuntimeConfig(process.env);
+  if (service && configuredRuntime) {
+    // Setup holds the connection reservation through sandbox verification and
+    // thread registration. First-turn admission reacquires it; release setup
+    // before sending so the non-reentrant service gate cannot wait on itself.
+    const query = await service.withAccountRuntimes(
       options.binding.accountId,
       (connections) =>
         openCodexChatBound(
           options,
           connections,
           service.onDemandForAccount(options.binding.accountId),
+          true,
         ),
       options.session.abortController.signal,
+      options.resume
+        ? async (candidates) => {
+            const routed = store().readArtifactRuntime(options.conversationId, options.binding);
+            const names = routed
+              ? [routed.runtime.sandboxName]
+              : [
+                  sandboxNameForConversation(
+                    options.conversationId,
+                    configuredRuntime.sandboxIdLength,
+                  ),
+                  `mitzo-${createHash('sha256').update(options.conversationId).digest('hex').slice(0, 24)}`,
+                ];
+            return service.retainedAutomaticConnections(
+              names,
+              candidates,
+              options.session.abortController.signal,
+            );
+          }
+        : undefined,
     );
+    try {
+      if (!options.reattachOnly) {
+        const runtime = getCodexRuntime(options.session);
+        if (!runtime) throw new Error('Codex conversation unavailable');
+        await sendInitialCodexTurn(options, runtime);
+      }
+      return query;
+    } catch (error) {
+      query.close();
+      throw error;
+    }
+  }
   return openCodexChatBound(options);
 }
 async function openCodexChatBound(
   options: Options,
   managedConnections: readonly Connection[] = [],
   onDemandConnections: readonly Connection[] = [],
+  deferInitialSend = false,
 ) {
   const managedConnection =
     managedConnections.find((connection) => connection.templateId === 'jira-readonly') ??
@@ -822,11 +873,26 @@ async function openCodexChatBound(
     options.binding?.accountId ?? '',
     managedCapabilityConnection,
   );
+  const githubPublishing = createGithubPublishingTool(
+    options.conversationId,
+    options.registry,
+    () =>
+      connectedOpenShell
+        ? managedOpenShell
+          ? {
+              runtime: 'openshell',
+              workspace: managedOpenShell.workdir,
+              sandboxName: managedOpenShell.sandboxName,
+            }
+          : undefined
+        : hostGithubPublishingSource(options.session, options.publishingGitStorageRoots),
+  );
   const events = new AsyncQueue<Record<string, unknown>>();
   let closed = false;
   function finish() {
     if (closed) return;
     closed = true;
+    githubPublishing.close();
     cancelTrackedProviderAdmissions(options.session);
     if (hooks)
       void hooks
@@ -838,7 +904,13 @@ async function openCodexChatBound(
     events.close();
     void mcp.close();
     runtimes.delete(options.session);
-    if (managedCapabilityConnection)
+    const livePublishingOwner = getLiveCapabilityConversationBinding(
+      options.conversationId,
+    )?.runtimeOwnerId;
+    if (
+      managedCapabilityConnection &&
+      (!livePublishingOwner || livePublishingOwner === githubPublishing.runtimeOwnerId)
+    )
       clearLiveCapabilityConversationBinding(options.conversationId, {
         connectionId: managedCapabilityConnection.id,
         connectionRevision: managedCapabilityConnection.revision,
@@ -847,6 +919,7 @@ async function openCodexChatBound(
   const baseSystemPrompt =
     options.systemPrompt +
     WEB_ACCESS_INSTRUCTIONS +
+    GITHUB_PUBLISHING_INSTRUCTIONS +
     `\nWhen the user asks you to build a reusable Symposium agent profile in this conversation, use ${SYMPOSIUM_PROPOSE_PROFILE_TOOL} to submit portable guidance for review. The tool only drafts a proposal; tell the user to edit and save it in Mitzo. Do not include credentials, transcript text, session or machine paths, account bindings, or runtime grants.\n` +
     (connectedOpenShell
       ? `\nOpenShell contains the provider loop and its built-in tools. Use those tools directly inside the supplied sandbox workspace. Current Mitzo mode: ${options.session.mode}. In Agent or Auto mode, a user request to edit that workspace is the required approval: execute it without asking again. ${TELOS_ARTIFACT_INSTRUCTIONS} Use ${TELOS_CREATE_OUTCOME_TOOL} for durable Telos capture; never use a sandbox-local todo script for persistent Telos work.${integrationTools.length ? ` Mitzo preflights explicit requests for grantable integrations before the turn begins. If you discover that you need a grantable service which the user did not request explicitly, call ${GRANT_INTEGRATION_TOOL} before using it. A CLI being installed does not mean its provider is attached, and a tunnel error from an unattached provider is not evidence of a gateway outage.` : ''}\n`
@@ -861,15 +934,18 @@ async function openCodexChatBound(
     profile: options.profile,
     storedBinding: options.binding,
     store: privateStorage,
+    deferToolSurfaceReplacement: !!runtimeManager,
     webSearchBackend: openShell ? 'openshell' : 'host',
     webSearchDeploymentRevision: openShell
       ? 'openshell-runtime-config-v1'
       : `codex-cli:${SUPPORTED_CODEX_CLI_VERSION}`,
     getMode: () => options.session.mode,
     systemPrompt: baseSystemPrompt + (startup.context ? `\n\n${startup.context}` : ''),
-    beforeComplete: async (signal) => {
-      await hooks?.run('Stop', { stop_hook_active: false }, signal);
-    },
+    beforeComplete: connectedOpenShell
+      ? undefined
+      : async (signal) => {
+          await hooks?.run('Stop', { stop_hook_active: false }, signal);
+        },
     ...(runtimeManager
       ? {
           prepareSystemPrompt: async (signal: AbortSignal) =>
@@ -908,11 +984,10 @@ async function openCodexChatBound(
                   options.binding.accountId,
                   async (current) => {
                     if (
-                      current.length !== managedConnections.length ||
-                      current.some(
-                        (connection) =>
-                          !managedConnections.some(
-                            (original) =>
+                      managedConnections.some(
+                        (original) =>
+                          !current.some(
+                            (connection) =>
                               original.id === connection.id &&
                               original.gatewayProviderId === connection.gatewayProviderId,
                           ),
@@ -922,6 +997,14 @@ async function openCodexChatBound(
                     await work();
                   },
                   signal,
+                  (candidates) =>
+                    candidates.filter((candidate) =>
+                      managedConnections.some(
+                        (original) =>
+                          original.id === candidate.id &&
+                          original.gatewayProviderId === candidate.gatewayProviderId,
+                      ),
+                    ),
                 )
             : undefined,
           beforeRuntimeAdmission: async (closeOwnedTransport: () => Promise<void>) => {
@@ -1013,13 +1096,19 @@ async function openCodexChatBound(
       loadAccountProfiles().validateModel(options.binding, model, reasoningEffort);
     },
     tools: connectedOpenShell
-      ? [...openShellHostTools, ...capabilityTools.definitions, webAccessDefinition]
+      ? [
+          ...openShellHostTools,
+          ...capabilityTools.definitions,
+          webAccessDefinition,
+          githubPublishingDefinition,
+        ]
       : [
           symposiumProposeProfileDefinition,
           ...nativeToolDefinitions,
           ...mcp.definitions,
           ...capabilityTools.definitions,
           webAccessDefinition,
+          githubPublishingDefinition,
         ],
     displayToolName: mcp.displayName,
     createClient: (callbacks) =>
@@ -1079,6 +1168,7 @@ async function openCodexChatBound(
         }
       : {}),
     executeTool: async (name, input, signal, callContext) => {
+      if (name === REQUEST_GITHUB_PUBLISH) return githubPublishing(input, signal, callContext);
       if (name === SYMPOSIUM_PROPOSE_PROFILE_TOOL) {
         signal.throwIfAborted();
         if (!options.eventStore.getSession(options.conversationId))
@@ -1265,6 +1355,12 @@ async function openCodexChatBound(
           },
         }
       : {}),
+    onTransportClosed: (diagnostic) => {
+      log.info('Codex transport closed', {
+        conversationId: options.conversationId,
+        ...diagnostic,
+      });
+    },
     onError: (error) => {
       log.warn('Codex runtime reported an error', {
         conversationId: options.conversationId,
@@ -1314,17 +1410,19 @@ async function openCodexChatBound(
       );
     }
     if (runtimeManager && managedOpenShell) {
-      const threadId = runtime.getThreadId();
-      if (!threadId) throw new Error('OpenShell provider thread was not initialized');
+      const threadId = runtime.getDurableThreadId();
       persistArtifactRuntime();
-      registerOpenShellLifecycle(
-        options.conversationId,
-        managedOpenShell,
-        options.binding,
-        selectedOpenShellAccountRoute(options),
-        threadId,
-        options.registry.findBySessionId(options.conversationId)?.clientId,
-      );
+      // New native threads are ephemeral until the first turn ACK. Keep the
+      // provisional ownership row until onThreadChanged registers that identity.
+      if (threadId)
+        registerOpenShellLifecycle(
+          options.conversationId,
+          managedOpenShell,
+          options.binding,
+          selectedOpenShellAccountRoute(options),
+          threadId,
+          options.registry.findBySessionId(options.conversationId)?.clientId,
+        );
     }
     signal.throwIfAborted();
     runtimes.set(options.session, runtime);
@@ -1332,15 +1430,7 @@ async function openCodexChatBound(
     // send reacquires this same coordinator for runtime and knowledge admission;
     // release setup first so neither callback waits on its own startup fence.
     startupReservation?.();
-    if (!options.reattachOnly)
-      await runtime.send({
-        id: options.messageId,
-        prompt: options.prompt,
-        intent: options.intent,
-        model: options.model,
-        reasoningEffort: options.reasoningEffort,
-        images: options.images,
-      });
+    if (!options.reattachOnly && !deferInitialSend) await sendInitialCodexTurn(options, runtime);
   } catch (error) {
     close();
     throw error;
@@ -1365,4 +1455,16 @@ async function openCodexChatBound(
       throw new Error('Codex subagents are unavailable');
     },
   };
+}
+
+async function sendInitialCodexTurn(options: Options, runtime: CodexConversation) {
+  options.session.abortController.signal.throwIfAborted();
+  await runtime.send({
+    id: options.messageId,
+    prompt: options.prompt,
+    intent: options.intent,
+    model: options.model,
+    reasoningEffort: options.reasoningEffort,
+    images: options.images,
+  });
 }

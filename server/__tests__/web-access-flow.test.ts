@@ -7,13 +7,22 @@ afterEach(() => {
   for (const registry of registries.splice(0)) registry.dispose();
 });
 describe('web request through real Mitzo approval cards', () => {
-  function fixture() {
+  function fixture(
+    provider: 'openai' | 'openai-codex' | 'google-vertex' | 'anthropic-vertex' = 'openai',
+  ) {
     const registry = new SessionRegistry();
     registries.push(registry);
     const events: Record<string, unknown>[] = [];
     const abort = new AbortController();
     registry.register('owner', {
       sessionId: 'chat',
+      accountBinding: {
+        accountId: 'selected',
+        accountLabel: 'Selected',
+        provider,
+        model: 'test',
+        profileRevision: '1',
+      },
       cwd: '/tmp',
       mode: 'auto',
       transport: {
@@ -72,4 +81,34 @@ describe('web request through real Mitzo approval cards', () => {
     expect(await pending).toMatchObject({ isError: true });
     expect(f.search).not.toHaveBeenCalled();
   });
+  it.each(['openai', 'openai-codex', 'google-vertex', 'anthropic-vertex'] as const)(
+    'shows a local URL access card on the %s route and grants only the approved origin',
+    async (provider) => {
+      const f = fixture(provider);
+      const pending = f.execute(
+        {
+          operation: 'request_access',
+          url: 'http://127.0.0.1:8123/',
+          reason: 'Read my Home Assistant instance',
+        },
+        f.abort.signal,
+      );
+      await vi.waitFor(() =>
+        expect(f.events.some((event) => event.type === 'permission_request')).toBe(true),
+      );
+      const card = f.events.find((event) => event.type === 'permission_request')!;
+      expect(card.title).toBe('Allow this session to read this website?');
+      expect(String(card.toolInput)).toContain('http://127.0.0.1:8123');
+      expect(String(card.toolInput)).toContain('127.0.0.1');
+      expect(resolvePending(card.permId as string, 'once', undefined, 'chat')).toBe(true);
+      expect(await pending).toMatchObject({ isError: false });
+      expect(f.search).not.toHaveBeenCalled();
+      expect(
+        await f.execute(
+          { operation: 'revoke_access', url: 'http://127.0.0.1:8123/', reason: 'Revoke approval' },
+          f.abort.signal,
+        ),
+      ).toMatchObject({ isError: false });
+    },
+  );
 });

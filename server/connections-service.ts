@@ -72,7 +72,7 @@ export class ConnectionsService {
     private readonly options: {
       gateway?: string;
       workspace?: string;
-      eligibleAccountIds?: () => string[];
+      eligibleAccountIds?: (templateId?: string) => string[];
     } = {},
   ) {}
   private async serial<T>(work: () => Promise<T>): Promise<T> {
@@ -113,6 +113,21 @@ export class ConnectionsService {
         // they are never selected by the automatic new-conversation path.
         (c.templateId !== 'custom-rest-readonly' || c.publicConfig.attachmentMode === 'automatic'),
     );
+  }
+  /** Under the account reservation: retained sandboxes keep their existing automatic grants. */
+  async retainedAutomaticConnections(
+    sandboxNames: readonly string[],
+    candidates: readonly Connection[],
+    signal: AbortSignal,
+  ): Promise<readonly Connection[]> {
+    for (const name of sandboxNames) {
+      if (!(await this.gateway.sandbox(name, signal))) continue;
+      const attached = new Set(await this.gateway.sandboxProviders(name, signal));
+      // Unknown or revoked attachments are deliberately not adopted here:
+      // verifyRuntimeSandbox rejects them before any sandbox mutation.
+      return candidates.filter((connection) => attached.has(connection.gatewayProviderName));
+    }
+    return candidates;
   }
   /** Candidate custom providers for explicit per-conversation grants only. */
   onDemandForAccount(accountId: string, ownerId = 'operator') {
@@ -207,11 +222,11 @@ export class ConnectionsService {
       actor: c.ownerId,
     });
   }
-  private validateAccounts(ids: string[]) {
+  private validateAccounts(ids: string[], templateId?: string) {
     if (
       new Set(ids).size !== ids.length ||
       (this.options.eligibleAccountIds &&
-        ids.some((id) => !this.options.eligibleAccountIds!().includes(id)))
+        ids.some((id) => !this.options.eligibleAccountIds!(templateId).includes(id)))
     )
       throw new Error('Account is not eligible');
   }
@@ -309,10 +324,16 @@ export class ConnectionsService {
     accountId: string,
     work: (connections: readonly Connection[]) => Promise<T>,
     signal = AbortSignal.timeout(120_000),
+    select?: (
+      candidates: readonly Connection[],
+    ) => readonly Connection[] | Promise<readonly Connection[]>,
   ) {
     return this.serial(async () => {
       signal.throwIfAborted();
-      const connections = this.resolveAutomaticForAccount(accountId);
+      const candidates = this.resolveAutomaticForAccount(accountId);
+      const connections = select ? await select(candidates) : candidates;
+      if (connections.some((connection) => !candidates.includes(connection)))
+        throw new Error('Selected connection is not eligible for this account');
       for (const connection of connections) await this.boundProvider(connection, signal);
       return work(connections);
     });
@@ -399,7 +420,7 @@ export class ConnectionsService {
   ) {
     return this.serial(async () => {
       const c = this.current(id, revision);
-      this.validateAccounts(accountIds);
+      this.validateAccounts(accountIds, c.templateId);
       const existing = this.store.pendingAssignments().find((x) => x.connectionId === id);
       if (actor !== c.ownerId || (c.status !== 'active' && !existing))
         throw new Error('Connection is not active');
@@ -422,7 +443,7 @@ export class ConnectionsService {
     signal: AbortSignal,
   ) {
     await this.drain(c, signal, removed);
-    this.validateAccounts(accountIds);
+    this.validateAccounts(accountIds, c.templateId);
     this.store.completeAssignment(c.id, accountIds, c.ownerId);
   }
   async createAndProvision(
@@ -430,7 +451,10 @@ export class ConnectionsService {
     credentials: Credentials | string,
     signal: AbortSignal,
   ) {
-    this.validateAccounts(input.desiredAccountIds);
+    this.validateAccounts(
+      input.desiredAccountIds,
+      'templateId' in input ? input.templateId : 'jira-readonly',
+    );
     if (!isGenericCreateInput(input)) {
       // Database callers from pre-registry releases remain supported during migration.
       const c = this.store.create(input);
@@ -590,7 +614,7 @@ export class ConnectionsService {
           c = this.change(c, { gatewayProviderId: p.id }, 'provision', 'provider_created');
         }
         const identity = await this.runProbe(c, signal);
-        this.validateAccounts(c.desiredAccountIds);
+        this.validateAccounts(c.desiredAccountIds, c.templateId);
         return this.change(
           c,
           {

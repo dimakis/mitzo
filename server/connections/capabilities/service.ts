@@ -1,3 +1,4 @@
+import { safeGithubSeedFailure } from '../../github-seeded-source.js';
 import { trackCapabilityOperation } from '../../capability-operation-owner.js';
 import { createHash } from 'node:crypto';
 import type { CapabilityTemplate, JsonValue } from '../types.js';
@@ -18,7 +19,9 @@ const secretKey = /(?:secret|token|password|credential|authorization|api[-_]?key
 const MAX_RESULT_BYTES = 32 * 1024;
 
 function failCode(error: unknown): string {
-  return error instanceof Error && error.name === 'AbortError' ? 'CANCELLED' : 'EXECUTION_FAILED';
+  return error instanceof Error && error.name === 'AbortError'
+    ? 'CANCELLED'
+    : (safeGithubSeedFailure(error)?.code ?? 'EXECUTION_FAILED');
 }
 function redactionTokens(values: readonly string[]): { long: string[]; short: string[] } {
   // Exact request values are secrets for this purpose. De-duplicate and sort
@@ -244,6 +247,11 @@ export class CapabilityService {
     const recovered: CapabilityOperation[] = [];
     for (const operation of this.options.store.pendingRecovery()) {
       if (this.options.ownsOperation && !this.options.ownsOperation(operation)) continue;
+      if (this.inFlight.has(operation.id)) {
+        const recovery = this.inFlight.get(operation.id);
+        recovered.push(recovery ? await recovery : operation);
+        continue;
+      }
       const template = this.options.getTemplate(
         operation.capabilityId,
         operation.capabilityVersion,
@@ -302,6 +310,11 @@ export class CapabilityService {
       if (this.options.ownsOperation && !this.options.ownsOperation(operation)) continue;
       if (operation.accountId !== accountId || operation.conversationId !== conversationId)
         continue;
+      if (this.inFlight.has(operation.id)) {
+        const recovery = this.inFlight.get(operation.id);
+        recovered.push(recovery ? await recovery : operation);
+        continue;
+      }
       const template = this.options.getTemplate(
         operation.capabilityId,
         operation.capabilityVersion,

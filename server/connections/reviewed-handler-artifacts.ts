@@ -7,7 +7,7 @@ import { createHash } from 'node:crypto';
  */
 export const reviewedHandlerImplementationRevision = 'v1.0.0';
 
-export const reviewedGithubPublicationImplementationRevision = 'v1.0.2';
+export const reviewedGithubPublicationImplementationRevision = 'v1.0.5';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -20,7 +20,7 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
   'policy-compiler.ts': '13a12a3182568a151247cb204792f15c374af9e5a7f401d51b954c6dd40fd538',
-  'registry.ts': '781064cc178937925c7f7e9f51cb591fe673f40ac1c3f603b1f2a8250bbf95bf',
+  'registry.ts': 'ef8e9b23dba7212f3a4c78582a717bc549c5f75af0e9ec38df48df4ffe702660',
   'iana-address-policy.ts': '899b0b5ad66f5cbe72224b34c29ff7a88e32c2a6f5b2987e4d18cfc64f862b4e',
   'iana-address-data.generated.ts':
     '58f91383fa17ab9612d24bc113d011ece63bfc06b4635ba99f108bb05aa34038',
@@ -28,7 +28,22 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   // reviewed: both the production executor and its OpenShell/Git transport
   // must match this revision before the registry can advertise the action.
   'capabilities/github-publish-pr.ts':
-    'a857440278dc54d94f67c23769c632c81fddac8cee383f1e6ea1908fa6d3fbcb',
+    '5c89cde9110fa132ea94cd5ec0dd531ce47d668450ab4a869ad5e420cd1929f9',
   'capabilities/github-publish-pr-transport.ts':
-    'd69f29d021880c64cbbf804fd75ffa2555aeebee7df6b30b1828898e12aefeb7',
+    'd333da15bfd6d9bc9f41ec68bd93a48b644415d5911080aa4c79f029b47831e8',
+  '../github-host-source.ts': '8e3ec9f30b300d7509124f59b969e5b059d5662b710a3a90f228cc86f08ac7e3',
+  '../github-publishing-tool.ts':
+    'db6746ef09c51d46617dc413b7faea8a0ab412b9c0c60870d18f8bd66fd94e11',
+  '../capability-conversation-binding.ts':
+    '147a328d161f167aeeb31bf0017d5fea25cc3f22933392249a228d7bd61e89aa',
+  '../connections-runtime.ts': '87326dcba90429b11fcf8e4a95243433a2c3e658b812aa99a8b22fbedae15be5',
+  'capabilities/operation-store.ts':
+    '1a235f11d5578880e6dfa7ecf5779e2a011e24430774fc17429d7d22359b93f2',
+  'capabilities/service.ts': '848e0998848d68e80ec53731b248a286f77f761905082092821f3ec9047ba36a',
+  '../github-seeded-source.ts': 'df6cd2643ac24cb5d85e136c3f82c400e8f50456a69993396e25808455613c92',
+  '../github-seed-baselines.ts': 'bb64d20a4a422de8e0c88979ee9dc8101d51fc2c63d8660eb5d991d08d496d2e',
+  '../github-seeded-publication.ts':
+    '2988fc88db971503bb8f857d0c86cf6134b6ab185cc72529b742c0e1544dd883',
+  '../github-publication-operator-router.ts':
+    '43a7f7edf9a9bb894be6843c6c3204a308227daeb495aef0f56ff707dace0a7b',
 });

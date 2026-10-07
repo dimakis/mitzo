@@ -4,6 +4,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { z } from 'zod';
+import {
+  projectSeededChange,
+  type SeededChangeInput,
+  GithubSeedPublicationError,
+} from '../../github-seeded-source.js';
 import type {
   GithubHostPublisher,
   GithubPullRequest,
@@ -46,7 +51,7 @@ function commandFailure(): never {
  * workspace; a symlinked `.git` is never trusted.
  */
 export const githubGitBoundaryScript =
-  'set -eu; root="$1"; repo="$2"; shift 2; ' +
+  'set -eu; unset GIT_DIR GIT_WORK_TREE GIT_OBJECT_DIRECTORY GIT_INDEX_FILE GIT_CONFIG_COUNT; export GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null GIT_NO_REPLACE_OBJECTS=1 GIT_NO_LAZY_FETCH=1 GIT_TERMINAL_PROMPT=0 GIT_ALTERNATE_OBJECT_DIRECTORIES=; root="$1"; repo="$2"; shift 2; ' +
   '[ -e "$root" ]; [ -e "$repo" ]; [ "$(realpath "$root")" = "$root" ]; [ "$(realpath "$repo")" = "$repo" ]; ' +
   'case "$repo" in "$root"|"$root"/*) ;; *) exit 1 ;; esac; ' +
   '[ ! -L "$repo/.git" ]; cd -P "$repo"; [ "$PWD" = "$repo" ]; ' +
@@ -55,7 +60,8 @@ export const githubGitBoundaryScript =
   '[ -e "$gitdir" ]; [ -e "$common" ]; gitdir=$(realpath "$gitdir"); common=$(realpath "$common"); ' +
   'case "$gitdir" in "$root"|"$root"/*) ;; *) exit 1 ;; esac; ' +
   'case "$common" in "$root"|"$root"/*) ;; *) exit 1 ;; esac; ' +
-  'exec /usr/bin/git "$@"';
+  'for storage in "$gitdir" "$common"; do for part in objects refs; do if [ -e "$storage/$part" ]; then [ -z "$(find "$storage/$part" -type l -print -quit)" ]; fi; done; if [ -e "$storage/objects/info/alternates" ]; then [ ! -s "$storage/objects/info/alternates" ]; fi; done; ' +
+  'exec /usr/bin/git -c core.hooksPath=/dev/null -c core.fsmonitor=false "$@"';
 
 /**
  * Controller transport for a retained OpenShell sandbox. Every executable and
@@ -66,6 +72,7 @@ export class OpenShellGithubSandboxTransport implements GithubSandboxTransport {
   constructor(
     private readonly run: OpenShellControlRunner,
     private readonly workspace: string,
+    private readonly workdir?: string,
   ) {}
   private async git(
     sandboxName: string,
@@ -73,10 +80,16 @@ export class OpenShellGithubSandboxTransport implements GithubSandboxTransport {
     args: readonly string[],
     signal: AbortSignal,
     maxOutputBytes = 128 * 1024,
+    script = githubGitBoundaryScript,
   ) {
     checked(sandboxName, safeSandbox, 'Sandbox identity is invalid');
     checked(repositoryPath, safePath, 'Repository path is invalid');
     checked(this.workspace, safeSandbox, 'OpenShell workspace is invalid');
+    const root = checked(
+      this.workdir ?? `/sandbox/workspaces/${this.workspace}`,
+      safePath,
+      'Sandbox workdir is invalid',
+    );
     try {
       return await this.run(
         [
@@ -92,9 +105,9 @@ export class OpenShellGithubSandboxTransport implements GithubSandboxTransport {
           '--',
           '/bin/sh',
           '-c',
-          githubGitBoundaryScript,
+          script,
           'mitzo-github-git',
-          `/sandbox/workspaces/${this.workspace}`,
+          root,
           repositoryPath,
           ...args,
         ],
@@ -103,6 +116,131 @@ export class OpenShellGithubSandboxTransport implements GithubSandboxTransport {
     } catch {
       return commandFailure();
     }
+  }
+  async origin(input: {
+    sandboxName: string;
+    repositoryPath: string;
+    signal: AbortSignal;
+    allowMissing?: boolean;
+  }): Promise<string> {
+    const script = githubGitBoundaryScript.replace(
+      'exec /usr/bin/git -c core.hooksPath=/dev/null -c core.fsmonitor=false "$@"',
+      'value=$(/usr/bin/git config --local --get remote.origin.url) || { [ "$?" = 1 ] || exit 1; }; printf "%s" "$value"',
+    );
+    const value = (
+      await this.git(input.sandboxName, input.repositoryPath, [], input.signal, 4096, script)
+    ).trim();
+    if (!value && !input.allowMissing)
+      throw new GithubSeedPublicationError(
+        'REPOSITORY_ORIGIN_MISSING',
+        'Repository has no origin remote',
+      );
+    return value;
+  }
+  async inspectSeed(input: { sandboxName: string; repositoryPath: string; signal: AbortSignal }) {
+    const read = async (...args: string[]) =>
+      (await this.git(input.sandboxName, input.repositoryPath, args, input.signal)).trim();
+    const roots = (await read('rev-list', '--max-parents=0', 'HEAD')).split('\n');
+    if (roots.length !== 1 || !/^[a-f0-9]{40}$/.test(roots[0]!))
+      throw new GithubSeedPublicationError(
+        'SEEDED_HISTORY_INVALID',
+        'Seeded workspace history has no unambiguous baseline',
+      );
+    const seedOid = roots[0]!;
+    const [status, originalSourceOid, sourceBranch, seedTreeOid, count, files] = await Promise.all([
+      read('-c', 'core.fsmonitor=false', 'status', '--porcelain=v1', '--untracked-files=all'),
+      read('rev-parse', 'HEAD'),
+      read('symbolic-ref', '--quiet', '--short', 'HEAD'),
+      read('rev-parse', seedOid + '^{tree}'),
+      read('rev-list', '--count', seedOid + '..HEAD'),
+      read(
+        '-c',
+        'core.quotepath=true',
+        'diff-tree',
+        '--root',
+        '--no-commit-id',
+        '-r',
+        '--name-only',
+        '--no-renames',
+        seedOid + '..HEAD',
+      ),
+    ]);
+    const commitsAhead = Number(count);
+    if (
+      !/^[a-f0-9]{40}$/.test(originalSourceOid) ||
+      !safeBranch.test(sourceBranch) ||
+      !Number.isSafeInteger(commitsAhead) ||
+      commitsAhead < 1
+    )
+      throw new GithubSeedPublicationError(
+        'SEEDED_HISTORY_INVALID',
+        'Seeded workspace has no committed task change',
+      );
+    return {
+      status,
+      seedOid,
+      seedTreeOid,
+      originalSourceOid,
+      sourceBranch,
+      commitsAhead,
+      changedFiles: [...new Set(lines(files))].sort(),
+    };
+  }
+  async exportSeedPatch(input: {
+    sandboxName: string;
+    repositoryPath: string;
+    seedOid: string;
+    originalSourceOid: string;
+    signal: AbortSignal;
+  }) {
+    if (![input.seedOid, input.originalSourceOid].every((v) => /^[a-f0-9]{40}$/.test(v)))
+      throw new GithubSeedPublicationError(
+        'SEEDED_SOURCE_INVALID',
+        'Seed commit selection is invalid',
+      );
+    const code = `import subprocess,sys,base64,selectors,time,os,signal
+repo,base,head=sys.argv[1:]; limit=4*1024*1024
+p=subprocess.Popen(['/usr/bin/git','-C',repo,'-c','core.hooksPath=/dev/null','diff','--binary','--full-index','--no-ext-diff','--no-textconv',base,head,'--'],stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,start_new_session=True)
+selector=selectors.DefaultSelector();selector.register(p.stdout,selectors.EVENT_READ);chunks=[];length=0;deadline=time.monotonic()+20
+try:
+ while selector.get_map():
+  if time.monotonic()>deadline: raise ValueError('deadline')
+  for key,_ in selector.select(0.1):
+   chunk=os.read(key.fileobj.fileno(),65536)
+   if not chunk: selector.unregister(key.fileobj);continue
+   length+=len(chunk)
+   if length>limit: raise ValueError('size')
+   chunks.append(chunk)
+ if p.wait(timeout=max(0.1,deadline-time.monotonic()))!=0 or length==0: raise ValueError('export')
+ sys.stdout.write(base64.b64encode(b''.join(chunks)).decode())
+finally:
+ selector.close()
+ if p.poll() is None: os.killpg(p.pid,signal.SIGKILL);p.wait(timeout=5)
+`;
+    const script = githubGitBoundaryScript.replace(
+      'exec /usr/bin/git -c core.hooksPath=/dev/null -c core.fsmonitor=false "$@"',
+      'exec /usr/bin/python3 -c "$1" "$2" "$3" "$4"',
+    );
+    const encoded = await this.git(
+      input.sandboxName,
+      input.repositoryPath,
+      [code, input.repositoryPath, input.seedOid, input.originalSourceOid],
+      input.signal,
+      6 * 1024 * 1024,
+      script,
+    );
+    if (!/^[A-Za-z0-9+/=]+$/.test(encoded))
+      throw new GithubSeedPublicationError(
+        'SEEDED_EXPORT_INVALID',
+        'Seeded change export is invalid',
+      );
+    const patch = Buffer.from(encoded, 'base64');
+    if (!patch.length || patch.length > 4 * 1024 * 1024)
+      throw new GithubSeedPublicationError(
+        'SEEDED_EXPORT_TOO_LARGE',
+        'Seeded change export exceeds its limit',
+      );
+    return patch;
   }
   async inspect(input: {
     sandboxName: string;
@@ -385,6 +523,15 @@ function sameGithubPullRequestUrl(left: string, right: string) {
 export class GitHubCliHostPublisher implements GithubHostPublisher {
   private readonly cleanupParents = new Set<string>();
   constructor(private readonly runHost: GithubHostCommandRunner = host) {}
+  projectSeedPatch(input: SeededChangeInput) {
+    return projectSeededChange(this.runHost, input);
+  }
+  async identity(signal: AbortSignal): Promise<string> {
+    const response = await this.runHost('gh', ['api', 'user'], signal);
+    return z
+      .object({ login: z.string().regex(/^[a-z\d](?:[a-z\d-]{0,37}[a-z\d])?$/i) })
+      .parse(JSON.parse(response.stdout)).login;
+  }
   async policy(input: { repository: string; sourceBranch: string; signal: AbortSignal }) {
     checked(input.repository, safeRepository, 'Repository is invalid');
     checked(input.sourceBranch, safeBranch, 'Source branch is invalid');

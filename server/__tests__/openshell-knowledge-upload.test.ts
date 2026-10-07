@@ -8,13 +8,19 @@ import {
   readdirSync,
   realpathSync,
   rmSync,
+  statSync,
+  symlinkSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it, vi } from 'vitest';
 import { canonicalJsonPayload } from '../../scripts/verify-openshell-production.mjs';
-import { OpenShellRuntimeManager, preparePublishedOpenShellSeed } from '../openshell-runtime.js';
+import {
+  OpenShellRuntimeManager,
+  prepareOpenShellSeed,
+  preparePublishedOpenShellSeed,
+} from '../openshell-runtime.js';
 
 let root = '';
 afterEach(() => {
@@ -23,7 +29,7 @@ afterEach(() => {
   vi.unstubAllEnvs();
 });
 
-function publication() {
+function publication(executable = false) {
   root = realpathSync(mkdtempSync(join(tmpdir(), 'knowledge-create-upload-')));
   vi.stubEnv('MITZO_CODEX_PRIVATE_DIR', join(root, 'private'));
   const seed = join(root, 'release', 'mgmt');
@@ -38,8 +44,9 @@ function publication() {
     ]),
   ]) {
     writeFileSync(join(seed, path), content);
-    chmodSync(join(seed, path), 0o644);
-    files[path] = { sha256: digest(content), mode: '0644' };
+    const mode = executable && path === 'memory/example.md' ? 0o755 : 0o644;
+    chmodSync(join(seed, path), mode);
+    files[path] = { sha256: digest(content), mode: mode.toString(8).padStart(4, '0') };
   }
   const payload = {
     startingCommit: source,
@@ -483,4 +490,47 @@ it('checks selected publication capacity before allocating any host upload snaps
   expect(readFileSync(join(prepared.seed, 'memory/example.md'), 'utf8')).toBe('Accepted A');
   prepared.cleanup();
   expect(readdirSync(join(root, 'private/knowledge-uploads'))).toEqual([]);
+});
+
+it.each([false, true])(
+  'freezes verified file bytes and modes under umask 077 (executable=%s)',
+  (executable) => {
+    const config = publication(executable);
+    const baseline = readFileSync(join(config.seed, '..', 'baseline.json'));
+    const files = JSON.parse(baseline.toString()).files as Record<string, { mode: string }>;
+    const before = Object.entries(files).map(([path]) => ({
+      path,
+      bytes: readFileSync(join(config.seed, path)),
+      mode: statSync(join(config.seed, path)).mode & 0o7777,
+    }));
+    const previous = process.umask(0o077);
+    let frozen: ReturnType<typeof prepareOpenShellSeed> | undefined;
+    try {
+      frozen = prepareOpenShellSeed(config);
+      expect(statSync(join(frozen.seed, '..')).mode & 0o777).toBe(0o700);
+      expect(readFileSync(join(frozen.seed, '..', 'baseline.json'))).toEqual(baseline);
+      for (const file of before) {
+        expect(readFileSync(join(frozen.seed, file.path))).toEqual(file.bytes);
+        expect(statSync(join(frozen.seed, file.path)).mode & 0o7777).toBe(file.mode);
+        expect(readFileSync(join(config.seed, file.path))).toEqual(file.bytes);
+        expect(statSync(join(config.seed, file.path)).mode & 0o7777).toBe(file.mode);
+      }
+      expect(process.umask()).toBe(0o077);
+    } finally {
+      process.umask(previous);
+      frozen?.cleanup();
+    }
+    expect(existsSync(frozen!.seed)).toBe(false);
+  },
+);
+
+it('refuses linked source knowledge without copying or changing its target', () => {
+  const config = publication();
+  const target = join(root, 'outside.md');
+  writeFileSync(target, 'Accepted A', { mode: 0o644 });
+  rmSync(join(config.seed, 'memory/example.md'));
+  symlinkSync(target, join(config.seed, 'memory/example.md'));
+  expect(() => prepareOpenShellSeed(config)).toThrow('unsafe symlink');
+  expect(readFileSync(target, 'utf8')).toBe('Accepted A');
+  expect(statSync(target).mode & 0o777).toBe(0o644);
 });

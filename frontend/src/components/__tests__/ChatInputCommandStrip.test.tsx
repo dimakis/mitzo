@@ -105,7 +105,7 @@ describe('ChatInput command strip', () => {
     expect(screen.queryByText('topic')).toBeNull();
     expect(document.activeElement).toBe(screen.getByRole('textbox'));
   });
-  it('keeps context information out of the action row and preserves expandable details', () => {
+  it('keeps the context wheel in the toolbar and preserves expandable details', () => {
     const { container } = render(
       <ChatInput
         onSend={noop}
@@ -122,10 +122,10 @@ describe('ChatInput command strip', () => {
       />,
     );
     const usage = screen.getByRole('button', { name: 'Token usage' });
-    expect(usage.closest('.composer-toolbar')).toBeNull();
-    expect(usage.closest('.composer-info')).toBeTruthy();
+    expect(usage.closest('.composer-toolbar')).toBeTruthy();
+    expect(container.querySelector('.composer-info')).toBeNull();
     fireEvent.click(usage);
-    expect(screen.getByText('Agent context').closest('.composer-info')).toBeTruthy();
+    expect(screen.getByText('Agent context').closest('.token-wheel-control')).toBeTruthy();
     expect(container.querySelector('.composer-toolbar')?.querySelector('textarea')).toBeNull();
   });
   it('keeps image attachment directly available while retaining the session tray source action', () => {

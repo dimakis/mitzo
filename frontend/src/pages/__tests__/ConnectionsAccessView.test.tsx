@@ -4,11 +4,15 @@ import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { ConnectionsAccessView } from '../ConnectionsAccessView';
 import { getConnectionsAccess } from '../../lib/connections-access-api';
+import { retainUnavailableAccounts } from '../../lib/connections-access-presentation';
 import type { ConnectionsAccessInventory } from '../../types/connections-access';
 import { act } from 'react';
 
 vi.mock('../../lib/connections-access-api', () => ({ getConnectionsAccess: vi.fn() }));
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.useRealTimers();
+});
 beforeEach(() => vi.resetAllMocks());
 
 it('keeps configured assignments separate from verification and observed conversation access', async () => {
@@ -671,4 +675,411 @@ it('replaces the linked model catalog during refresh and clears stale mode inspe
   expect(document.activeElement).toBe(
     within(dialog).getByRole('button', { name: 'Close details' }),
   );
+});
+
+function signInInventory(signIn?: ConnectionsAccessInventory['resources'][number]['signIn']) {
+  const inventory = linkedFacets();
+  const resource = inventory.resources[0];
+  delete resource.personalConnection;
+  inventory.resources = [
+    {
+      ...resource,
+      label: 'Host account',
+      owner: 'account-profiles',
+      accountIdentity: 'configured@example.test',
+      verification: { state: 'verified', verifiedAt: 1, reason: null },
+      signIn,
+    },
+  ];
+  return inventory;
+}
+const checkedSignIn = {
+  status: 'verified' as const,
+  source: 'host-account-read' as const,
+  checkedAt: Date.now(),
+  configuredIdentity: { email: 'configured@example.test', planType: 'pro' },
+  observedIdentity: { email: 'observed@example.test', planType: 'team' },
+  profileRevision: 'revision-1',
+  explanation: 'Host account identity was read without making a model call.',
+};
+async function renderSignIn(signIn?: ConnectionsAccessInventory['resources'][number]['signIn']) {
+  vi.mocked(getConnectionsAccess).mockResolvedValue(signInInventory(signIn));
+  render(
+    <MemoryRouter>
+      <ConnectionsAccessView />
+    </MemoryRouter>,
+  );
+  return screen.findByRole('article', { name: 'Host account' });
+}
+it('shows observed host sign-in separately from configured identity and access verification', async () => {
+  const row = await renderSignIn(checkedSignIn);
+  expect(within(row).getByText('Sign-in: Signed in')).toBeTruthy();
+  expect(within(row).getByText('observed@example.test')).toBeTruthy();
+  expect(within(row).getByText('Configured: configured@example.test')).toBeTruthy();
+  fireEvent.click(within(row).getByRole('button', { name: 'Manage Host account' }));
+  const dialog = within(screen.getByRole('dialog'));
+  expect(dialog.getByText('Sign-in')).toBeTruthy();
+  expect(dialog.getByText('Signed in')).toBeTruthy();
+  expect(dialog.getByText('Configured account')).toBeTruthy();
+  expect(dialog.getByText('configured@example.test')).toBeTruthy();
+  expect(dialog.getByText('Account plan')).toBeTruthy();
+  expect(dialog.getByText('team')).toBeTruthy();
+  expect(dialog.getByText('Last sign-in check')).toBeTruthy();
+  expect(dialog.getByText(new Date(checkedSignIn.checkedAt).toLocaleString())).toBeTruthy();
+  expect(dialog.getByText('Access verification')).toBeTruthy();
+});
+it('labels a live provider grant Connected without treating its configured email as observed', async () => {
+  const row = await renderSignIn({
+    ...checkedSignIn,
+    source: 'openshell-provider-grant',
+    observedIdentity: null,
+  });
+  expect(within(row).getByText('Sign-in: Connected')).toBeTruthy();
+  expect(within(row).getByText('Configured: configured@example.test')).toBeTruthy();
+  expect(within(row).queryByText('Signed in')).toBeNull();
+  fireEvent.click(within(row).getByRole('button', { name: 'Manage Host account' }));
+  const dialog = within(screen.getByRole('dialog'));
+  expect(dialog.getByText('Configured account')).toBeTruthy();
+  expect(dialog.queryByText('Account')).toBeNull();
+});
+it.each([
+  ['stale', 'Check is stale'],
+  ['failed', 'Check failed'],
+  ['not-checked', 'Not checked'],
+  ['unsupported', 'Unsupported'],
+] as const)('keeps %s sign-in independent of access verification', async (status, label) => {
+  const row = await renderSignIn({ ...checkedSignIn, status, observedIdentity: null });
+  expect(within(row).getByText(`Sign-in: ${label}`)).toBeTruthy();
+  expect(within(row).queryByText('Sign-in: Signed in')).toBeNull();
+  expect(within(row).queryByText('Signed out')).toBeNull();
+  fireEvent.click(within(row).getByRole('button', { name: 'Manage Host account' }));
+  const dialog = within(screen.getByRole('dialog'));
+  expect(dialog.getByText(label)).toBeTruthy();
+  expect(dialog.getByText(checkedSignIn.explanation)).toBeTruthy();
+  expect(dialog.getByText('Access verification')).toBeTruthy();
+});
+it('treats absent sign-in evidence as Not checked even if generic access was verified', async () => {
+  const row = await renderSignIn();
+  expect(within(row).getByText('Sign-in: Not checked')).toBeTruthy();
+  expect(within(row).getByText('Configured: configured@example.test')).toBeTruthy();
+  fireEvent.click(within(row).getByRole('button', { name: 'Manage Host account' }));
+  expect(within(screen.getByRole('dialog')).getByText('Not checked')).toBeTruthy();
+  expect(within(screen.getByRole('dialog')).queryByText('Signed out')).toBeNull();
+});
+
+it.each(['non-Codex API', 'personal identity'] as const)(
+  'preserves %s display when sign-in evidence is absent',
+  async (scenario) => {
+    const inventory = signInInventory();
+    inventory.resources[0].provider = scenario === 'non-Codex API' ? 'vertex' : 'openai-codex';
+    inventory.resources[0].kind =
+      scenario === 'personal identity' ? 'personal-connection' : 'ai-account';
+    vi.mocked(getConnectionsAccess).mockResolvedValue(inventory);
+    render(
+      <MemoryRouter>
+        <ConnectionsAccessView />
+      </MemoryRouter>,
+    );
+    const row = await screen.findByRole('article', { name: 'Host account' });
+    expect(within(row).getByText('configured@example.test')).toBeTruthy();
+    expect(within(row).queryByText('Configured: configured@example.test')).toBeNull();
+    expect(within(row).queryByText('Sign-in: Not checked')).toBeNull();
+    fireEvent.click(within(row).getByRole('button', { name: 'Manage Host account' }));
+    const dialog = within(screen.getByRole('dialog'));
+    expect(dialog.getByText('Account')).toBeTruthy();
+    expect(dialog.queryByText('Sign-in')).toBeNull();
+  },
+);
+
+it('marks previously verified sign-in stale when inventory refresh fails and recovers after a successful check', async () => {
+  const inventory = signInInventory({
+    ...checkedSignIn,
+    source: 'openshell-provider-grant',
+    observedIdentity: null,
+  });
+  vi.mocked(getConnectionsAccess)
+    .mockResolvedValueOnce(inventory)
+    .mockRejectedValueOnce(new Error('Unavailable'))
+    .mockResolvedValueOnce(inventory);
+  render(
+    <MemoryRouter>
+      <ConnectionsAccessView />
+    </MemoryRouter>,
+  );
+  const row = await screen.findByRole('article', { name: 'Host account' });
+  expect(within(row).getByText('Sign-in: Connected')).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: 'Refresh access' }));
+  await within(row).findByText('Sign-in: Check is stale');
+  expect(within(row).queryByText('Sign-in: Connected')).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+  await within(row).findByText('Sign-in: Connected');
+});
+
+it('expires displayed sign-in evidence after five minutes without making a new request', async () => {
+  vi.useFakeTimers({ toFake: ['Date', 'setInterval', 'clearInterval'] });
+  const row = await renderSignIn({ ...checkedSignIn, checkedAt: Date.now() });
+  expect(within(row).getByText('Sign-in: Signed in')).toBeTruthy();
+  await act(async () => vi.advanceTimersByTimeAsync(5 * 60_000 + 1000));
+  expect(within(row).getByText('Sign-in: Check is stale')).toBeTruthy();
+  expect(within(row).queryByText('Sign-in: Signed in')).toBeNull();
+  expect(getConnectionsAccess).toHaveBeenCalledTimes(1);
+});
+
+it('expires provider sign-in at its grant deadline while preserving the configured catalog', async () => {
+  vi.useFakeTimers({ toFake: ['Date', 'setInterval', 'clearInterval'] });
+  const row = await renderSignIn({
+    ...checkedSignIn,
+    checkedAt: Date.now(),
+    source: 'openshell-provider-grant',
+    observedIdentity: null,
+    expiresAt: Date.now() + 60_000,
+  });
+  expect(within(row).getByText('Sign-in: Connected')).toBeTruthy();
+  await act(async () => vi.advanceTimersByTimeAsync(60_000));
+  expect(within(row).getByText('Sign-in: Check is stale')).toBeTruthy();
+  expect(within(row).getByText('Configured: configured@example.test')).toBeTruthy();
+  fireEvent.click(within(row).getByRole('button', { name: 'Manage Host account' }));
+  expect(within(screen.getByRole('dialog')).getByText('Configured Luna')).toBeTruthy();
+  expect(getConnectionsAccess).toHaveBeenCalledTimes(1);
+});
+
+it.each([
+  ['account-profiles', 'accounts', 'AI accounts'],
+  ['symposium-account-profiles', 'symposiumAccounts', 'Symposium AI accounts'],
+] as const)(
+  'retains unavailable %s rows and an open drawer while replacing fresh service rows',
+  async (owner, sourceId, sourceLabel) => {
+    const current = signInInventory({
+      ...checkedSignIn,
+      checkedAt: Date.now(),
+      expiresAt: Date.now() + 60_000,
+    });
+    current.resources[0].owner = owner;
+    current.resources[0].personalConnection = {
+      resourceId: 'personal',
+      revision: 3,
+      state: 'current',
+    };
+    current.sources = [{ id: sourceId, state: 'available', reason: null }];
+    const latestService = {
+      ...current.resources[0],
+      id: 'service',
+      label: 'Latest Jira',
+      kind: 'managed-connection' as const,
+      section: 'services' as const,
+      owner: 'managed-connections',
+      provider: 'jira',
+      signIn: undefined,
+      personalConnection: undefined,
+    };
+    const partial = {
+      generatedAt: 2,
+      sources: [
+        { id: sourceId, state: 'unavailable', reason: 'Account source could not be read.' },
+        { id: 'managed', state: 'available', reason: null },
+      ],
+      resources: [latestService],
+    } satisfies ConnectionsAccessInventory;
+    vi.mocked(getConnectionsAccess)
+      .mockResolvedValueOnce(current)
+      .mockResolvedValueOnce(partial)
+      .mockResolvedValueOnce({ ...current, generatedAt: 3 });
+    render(
+      <MemoryRouter>
+        <ConnectionsAccessView />
+      </MemoryRouter>,
+    );
+    const row = await screen.findByRole('article', { name: 'Host account' });
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh access' }));
+    fireEvent.click(within(row).getByRole('button', { name: 'Manage Host account' }));
+    await screen.findByText(`${sourceLabel}: Source unavailable`);
+    const dialog = within(screen.getByRole('dialog', { name: 'Host account' }));
+    expect(dialog.getByText('Check is stale')).toBeTruthy();
+    expect(dialog.getByText(/Showing an older account/)).toBeTruthy();
+    expect(
+      dialog.getByText(new Date(current.resources[0].signIn!.checkedAt!).toLocaleString()),
+    ).toBeTruthy();
+    expect(dialog.getByText('Configured Luna')).toBeTruthy();
+    expect(dialog.getByText(/Personal account details could not be checked/)).toBeTruthy();
+    expect(screen.getByRole('article', { name: 'Latest Jira', hidden: true })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Close details' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh access' }));
+    await within(row).findByText('Sign-in: Signed in');
+  },
+);
+it.each(['available', 'not-configured'] as const)(
+  'removes prior account rows when its source is authoritatively %s',
+  async (state) => {
+    vi.mocked(getConnectionsAccess)
+      .mockResolvedValueOnce(signInInventory({ ...checkedSignIn, checkedAt: Date.now() }))
+      .mockResolvedValueOnce({
+        generatedAt: 2,
+        resources: [],
+        sources: [{ id: 'accounts', state, reason: null }],
+      });
+    render(
+      <MemoryRouter>
+        <ConnectionsAccessView />
+      </MemoryRouter>,
+    );
+    const row = await screen.findByRole('article', { name: 'Host account' });
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh access' }));
+    fireEvent.click(within(row).getByRole('button', { name: 'Manage Host account' }));
+    await vi.waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(screen.queryByRole('article', { name: 'Host account' })).toBeNull();
+  },
+);
+
+it('retains only exact account owners without duplicating an ID already in the newer response', () => {
+  const previous = signInInventory({ ...checkedSignIn, checkedAt: Date.now() });
+  previous.resources.push(
+    { ...previous.resources[0], id: 'unrelated', owner: 'another-account-service' },
+    {
+      ...previous.resources[0],
+      id: 'personal',
+      kind: 'personal-connection',
+      owner: 'account-profiles',
+    },
+  );
+  const newer = { ...previous.resources[0], label: 'Newer account' };
+  const next: ConnectionsAccessInventory = {
+    generatedAt: 2,
+    sources: [{ id: 'accounts', state: 'unavailable', reason: null }],
+    resources: [newer],
+  };
+  expect(retainUnavailableAccounts(previous, next)).toBe(next);
+  expect(next.resources).toEqual([newer]);
+});
+
+it.each(['failed', 'not-checked', 'unsupported'] as const)(
+  'preserves %s sign-in when retaining older configuration from an unavailable source',
+  (status) => {
+    const previous = signInInventory({
+      ...checkedSignIn,
+      status,
+      checkedAt: null,
+      observedIdentity: null,
+    });
+    const next: ConnectionsAccessInventory = {
+      generatedAt: 2,
+      resources: [],
+      sources: [{ id: 'accounts', state: 'unavailable', reason: null }],
+    };
+    const retained = retainUnavailableAccounts(previous, next).resources[0];
+    expect(retained.signIn).toEqual(previous.resources[0].signIn);
+  },
+);
+
+it.each(['available', 'not-configured'] as const)(
+  'removes cached Symposium catalogs when their source becomes %s',
+  async (state) => {
+    const current = signInInventory({ ...checkedSignIn, checkedAt: Date.now() });
+    current.resources[0].owner = 'symposium-account-profiles';
+    vi.mocked(getConnectionsAccess)
+      .mockResolvedValueOnce(current)
+      .mockResolvedValueOnce({
+        generatedAt: 2,
+        resources: [],
+        sources: [{ id: 'symposiumAccounts', state: 'unavailable', reason: null }],
+      })
+      .mockResolvedValueOnce({
+        generatedAt: 3,
+        resources: [],
+        sources: [{ id: 'symposiumAccounts', state, reason: null }],
+      });
+    render(
+      <MemoryRouter>
+        <ConnectionsAccessView />
+      </MemoryRouter>,
+    );
+    const row = await screen.findByRole('article', { name: 'Host account' });
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh access' }));
+    await within(row).findByText('Sign-in: Check is stale');
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh access' }));
+    fireEvent.click(within(row).getByRole('button', { name: 'Manage Host account' }));
+    await vi.waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(screen.queryByRole('article', { name: 'Host account' })).toBeNull();
+  },
+);
+
+it('describes a verified managed-service credential check without claiming effective access', async () => {
+  const inventory = signInInventory();
+  inventory.resources = [
+    {
+      ...inventory.resources[0],
+      id: 'managed-jira',
+      label: 'Jira credentials',
+      kind: 'managed-connection',
+      section: 'services',
+      owner: 'managed-connections',
+      provider: 'jira',
+      verification: { state: 'verified', verifiedAt: Date.now(), reason: null },
+      access: {
+        summary: 'Configured Jira read access',
+        desiredAccountIds: ['work'],
+        observedAttachments: null,
+        appliesTo: 'New conversations',
+      },
+    },
+  ];
+  vi.mocked(getConnectionsAccess).mockResolvedValue(inventory);
+  render(
+    <MemoryRouter>
+      <ConnectionsAccessView />
+    </MemoryRouter>,
+  );
+  const row = await screen.findByRole('article', { name: 'Jira credentials' });
+  expect(within(row).getByText('Credentials verified')).toBeTruthy();
+  expect(within(row).queryByText('Access verified')).toBeNull();
+  fireEvent.click(within(row).getByRole('button', { name: 'Manage Jira credentials' }));
+  const dialog = within(screen.getByRole('dialog'));
+  expect(dialog.getByText('Credential verification')).toBeTruthy();
+  expect(dialog.queryByText('Access verified')).toBeNull();
+  expect(dialog.queryByText('Access verification')).toBeNull();
+  expect(dialog.getByText(/Conversation attachments have not been observed/)).toBeTruthy();
+});
+
+it('groups account identity, sign-in evidence and access scope in separate named regions', async () => {
+  const row = await renderSignIn({ ...checkedSignIn, checkedAt: Date.now() });
+  fireEvent.click(within(row).getByRole('button', { name: 'Manage Host account' }));
+  const dialog = within(screen.getByRole('dialog', { name: 'Host account' }));
+  const account = within(dialog.getByRole('region', { name: 'Account details' }));
+  const signIn = within(dialog.getByRole('region', { name: 'Sign-in details' }));
+  const access = within(dialog.getByRole('region', { name: 'Access and scope' }));
+  expect(account.getByText('configured@example.test')).toBeTruthy();
+  expect(account.getByText('observed@example.test')).toBeTruthy();
+  expect(account.getByText('Ordinary chats')).toBeTruthy();
+  expect(signIn.getByText('Signed in')).toBeTruthy();
+  expect(signIn.getByText('Last sign-in check')).toBeTruthy();
+  expect(signIn.getByText(checkedSignIn.explanation)).toBeTruthy();
+  expect(access.getByText('Access verification')).toBeTruthy();
+  expect(access.getByText(/Conversation attachments have not been observed/)).toBeTruthy();
+  expect(account.queryByText('Signed in')).toBeNull();
+  expect(access.queryByText('Signed in')).toBeNull();
+});
+it('keeps service identity and credential checks accessible without an invented sign-in region', async () => {
+  const inventory = signInInventory();
+  inventory.resources[0].kind = 'managed-connection';
+  inventory.resources[0].section = 'services';
+  inventory.resources[0].provider = 'jira';
+  vi.mocked(getConnectionsAccess).mockResolvedValue(inventory);
+  render(
+    <MemoryRouter>
+      <ConnectionsAccessView />
+    </MemoryRouter>,
+  );
+  const row = await screen.findByRole('article', { name: 'Host account' });
+  fireEvent.click(within(row).getByRole('button', { name: 'Manage Host account' }));
+  const dialog = within(screen.getByRole('dialog'));
+  expect(
+    within(dialog.getByRole('region', { name: 'Account details' })).getByText(
+      'configured@example.test',
+    ),
+  ).toBeTruthy();
+  expect(
+    within(dialog.getByRole('region', { name: 'Access and scope' })).getByText(
+      'Credential verification',
+    ),
+  ).toBeTruthy();
+  expect(dialog.queryByRole('region', { name: 'Sign-in details' })).toBeNull();
 });

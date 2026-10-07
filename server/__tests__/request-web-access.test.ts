@@ -10,7 +10,7 @@ describe('account-independent web access boundary', () => {
   it('publishes an object parameter schema accepted by function-tool providers', () => {
     expect(webAccessDefinition.input_schema).toMatchObject({
       type: 'object',
-      properties: { operation: { enum: ['search', 'fetch'] } },
+      properties: { operation: { enum: ['search', 'fetch', 'request_access', 'revoke_access'] } },
     });
   });
   it('reports a known website refusal without confusing it with an approval denial', async () => {

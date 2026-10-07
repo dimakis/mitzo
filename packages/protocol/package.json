@@ -14,6 +14,11 @@
       "types": "./dist/event-store.d.ts",
       "import": "./dist/event-store.js",
       "default": "./dist/event-store.js"
+    },
+    "./database-backup": {
+      "types": "./dist/database-backup.d.ts",
+      "import": "./dist/database-backup.js",
+      "default": "./dist/database-backup.js"
     }
   },
   "files": [

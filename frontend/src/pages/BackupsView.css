@@ -1,0 +1,214 @@
+.backups-page {
+  max-width: 960px;
+  height: 100dvh;
+  min-height: 0;
+}
+.backups-page button {
+  min-height: 44px;
+  padding: 10px 14px;
+  border: 1px solid var(--workspace-line);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--workspace-text);
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+}
+.backups-page button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.backups-page button:focus-visible,
+.backup-details summary:focus-visible {
+  outline: 2px solid var(--workspace-accent);
+  outline-offset: 3px;
+}
+.backup-destination,
+.backup-panel {
+  padding: 20px;
+  border: 1px solid var(--workspace-line);
+  border-radius: var(--workspace-radius);
+}
+.backup-destination-heading {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.backup-destination-heading > div {
+  flex: 1;
+  min-width: 140px;
+}
+.backup-destination-heading h2 {
+  margin: 0;
+}
+.backup-destination-heading p {
+  margin: 4px 0 0;
+  font-size: 13px;
+}
+.backup-destination-icon {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: var(--workspace-panel);
+  color: var(--workspace-accent);
+}
+.backup-destination-copy {
+  font-size: 14px;
+  max-width: 60ch;
+  margin: 18px 0;
+}
+.backup-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 12px 0;
+}
+.backup-badge {
+  font-size: 12px;
+  color: var(--workspace-muted);
+  padding: 5px 9px;
+  border: 1px solid var(--workspace-line);
+  border-radius: 20px;
+}
+.backup-operation {
+  margin: 20px 0;
+}
+.backup-operation p {
+  font-size: 13px;
+  margin: 8px 0;
+}
+.backup-details {
+  font-size: 13px;
+}
+.backup-details summary {
+  cursor: pointer;
+  min-height: 44px;
+  padding: 12px 0;
+  color: var(--workspace-accent);
+}
+.backup-details li {
+  margin: 8px 0;
+}
+.backup-setup {
+  border-top: 1px solid var(--workspace-line);
+  margin-top: 20px;
+  padding-top: 16px;
+}
+.backup-setup h3 {
+  font-size: 16px;
+  margin: 0;
+}
+.backup-setup p {
+  font-size: 14px;
+}
+.backup-steps {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 20px 0;
+}
+.backup-steps button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1 1 160px;
+  text-align: left;
+  font-size: 12px;
+}
+.backup-steps button[aria-pressed='true'] {
+  border-color: var(--workspace-accent);
+  background: var(--workspace-panel);
+}
+.backup-steps span {
+  color: var(--workspace-accent);
+}
+.backup-step-content {
+  padding: 16px;
+  border-radius: 12px;
+  background: var(--workspace-panel);
+}
+.backup-step-content h4 {
+  margin: 0 0 8px;
+  font-size: 15px;
+}
+.backup-step-content p:last-child {
+  margin-bottom: 0;
+}
+.backup-step-content code {
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.backups-page .backup-text-button {
+  border: 0;
+  padding-left: 0;
+  color: var(--workspace-accent);
+}
+.backup-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  margin: 24px 0;
+}
+.backup-summary div {
+  padding: 12px 0;
+  border-bottom: 1px solid var(--workspace-line);
+}
+.backup-summary dt {
+  font-size: 12px;
+  color: var(--workspace-muted);
+}
+.backup-summary dd {
+  font-size: 14px;
+  margin: 8px 0 0;
+  overflow-wrap: anywhere;
+}
+.backup-coverage,
+.backup-runs {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.backup-coverage li,
+.backup-runs li {
+  padding: 16px 0;
+  border-top: 1px solid var(--workspace-line);
+}
+.backup-coverage li > div,
+.backup-runs li > div {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  justify-content: space-between;
+  flex-wrap: wrap;
+}
+.backup-coverage strong,
+.backup-runs strong {
+  font-size: 14px;
+  font-weight: 550;
+}
+.backup-coverage p,
+.backup-runs p,
+.backup-panel > p {
+  font-size: 13px;
+}
+.backup-runs time {
+  font-size: 12px;
+  color: var(--workspace-muted);
+}
+.backup-error {
+  color: var(--workspace-text);
+  font-weight: 600;
+}
+@media (max-width: 600px) {
+  .backup-summary {
+    grid-template-columns: 1fr;
+    gap: 0;
+  }
+  .backup-destination,
+  .backup-panel {
+    padding: 16px;
+  }
+}

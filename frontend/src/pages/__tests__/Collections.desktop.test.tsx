@@ -83,6 +83,15 @@ describe('desktop collections', () => {
       expect.objectContaining({ prompt: expect.stringContaining('Full second proposal') }),
     );
   });
+  it.each([true, false])('opens notification-linked Inbox detail (desktop=%s)', async (desktop) => {
+    render(
+      <MemoryRouter initialEntries={['/inbox?item=two.md']}>
+        <InboxView desktop={desktop} />
+      </MemoryRouter>,
+    );
+    expect(await screen.findByText('Full second proposal')).toBeVisible();
+    expect(screen.queryByText('Full first proposal')).toBeNull();
+  });
   it('labels the archive action honestly and reports a failed mutation', async () => {
     render(
       <MemoryRouter>

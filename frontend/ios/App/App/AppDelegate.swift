@@ -1,6 +1,7 @@
 import UIKit
 import UserNotifications
 import Capacitor
+import MitzoShared
 
 @UIApplicationMain
 class AppDelegate: UIResponder, UIApplicationDelegate {
@@ -42,24 +43,33 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
             options: [.customDismissAction]
         )
 
-        UNUserNotificationCenter.current().setNotificationCategories([sessionCategory])
+        let reviewAction = UNNotificationAction(
+            identifier: "REVIEW_PERMISSION_ACTION", title: "Review request", options: [.foreground]
+        )
+        let permissionCategory = UNNotificationCategory(
+            identifier: "SESSION_PERMISSION", actions: [reviewAction], intentIdentifiers: [], options: []
+        )
+        let updateCategory = UNNotificationCategory(
+            identifier: "NOTIFICATION_UPDATE", actions: [viewAction], intentIdentifiers: [], options: []
+        )
+        UNUserNotificationCenter.current().setNotificationCategories([sessionCategory, permissionCategory, updateCategory])
     }
 
-    func applicationWillResignActive(_ application: UIApplication) {
-        // Sent when the application is about to move from active to inactive state. This can occur for certain types of temporary interruptions (such as an incoming phone call or SMS message) or when the user quits the application and it begins the transition to the background state.
-        // Use this method to pause ongoing tasks, disable timers, and invalidate graphics rendering callbacks. Games should use this method to pause the game.
+    func application(_ application: UIApplication,
+                     configurationForConnecting connectingSceneSession: UISceneSession,
+                     options: UIScene.ConnectionOptions) -> UISceneConfiguration {
+        let configuration = UISceneConfiguration(name: "Default Configuration",
+                                                sessionRole: connectingSceneSession.role)
+        configuration.delegateClass = SceneDelegate.self
+        return configuration
     }
 
-    func applicationDidEnterBackground(_ application: UIApplication) {
+    func suspendWatchRelay() {
         watchRelay.suspend()
     }
 
-    func applicationWillEnterForeground(_ application: UIApplication) {
+    func reconnectWatchRelay() {
         watchRelay.reconnect()
-    }
-
-    func applicationDidBecomeActive(_ application: UIApplication) {
-        // Restart any tasks that were paused (or not yet started) while the application was inactive. If the application was previously in the background, optionally refresh the user interface.
     }
 
     func applicationWillTerminate(_ application: UIApplication) {
@@ -87,4 +97,35 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         NotificationCenter.default.post(name: .capacitorDidFailToRegisterForRemoteNotifications, object: error)
     }
 
+}
+
+// Kept in the App target's existing source file so archive and device builds
+// compile the same scene delegate without an additional project-file entry.
+class SceneDelegate: UIResponder, UIWindowSceneDelegate {
+    var window: UIWindow?
+    private var relayLifecycle = SceneForegroundReconnect()
+
+    func scene(_ scene: UIScene, willConnectTo session: UISceneSession,
+               options connectionOptions: UIScene.ConnectionOptions) {
+        // UIKit creates the window and Capacitor bridge from Main.storyboard.
+        SceneDelegateProxy.shared.scene(scene, willConnectTo: session, options: connectionOptions)
+    }
+
+    func scene(_ scene: UIScene, openURLContexts URLContexts: Set<UIOpenURLContext>) {
+        SceneDelegateProxy.shared.scene(scene, openURLContexts: URLContexts)
+    }
+
+    func scene(_ scene: UIScene, continue userActivity: NSUserActivity) {
+        SceneDelegateProxy.shared.scene(scene, continue: userActivity)
+    }
+
+    func sceneDidEnterBackground(_ scene: UIScene) {
+        relayLifecycle.didEnterBackground()
+        (UIApplication.shared.delegate as? AppDelegate)?.suspendWatchRelay()
+    }
+
+    func sceneWillEnterForeground(_ scene: UIScene) {
+        guard relayLifecycle.consumeForegroundReconnect() else { return }
+        (UIApplication.shared.delegate as? AppDelegate)?.reconnectWatchRelay()
+    }
 }

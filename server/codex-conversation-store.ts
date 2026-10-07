@@ -1,5 +1,6 @@
 import type { RuntimeMigration } from './openshell-runtime-migration.js';
 import Database from 'better-sqlite3';
+import { createHash } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import { chmodSync, closeSync, openSync } from 'node:fs';
 import type { AccountBinding } from '@mitzo/protocol';
@@ -210,6 +211,16 @@ export class CodexConversationStore {
         PRIMARY KEY(conversation_id,call_id),
         FOREIGN KEY(conversation_id,command_id) REFERENCES codex_commands(conversation_id,id));
       CREATE INDEX IF NOT EXISTS codex_commands_queue_status ON codex_commands(conversation_id,status,sequence);`);
+    this.db.exec(`CREATE TABLE IF NOT EXISTS codex_thread_acceptances (
+      conversation_id TEXT NOT NULL REFERENCES codex_conversations(id),
+      command_id TEXT NOT NULL, attempt INTEGER NOT NULL,
+      thread_id TEXT NOT NULL, turn_id TEXT NOT NULL, generation INTEGER NOT NULL,
+      ownership_pending INTEGER NOT NULL, accepted_at INTEGER NOT NULL, terminal_conflict INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY(conversation_id,command_id,attempt));`);
+    this.db.exec(`CREATE TABLE IF NOT EXISTS codex_pending_thread_dispatches (
+      conversation_id TEXT PRIMARY KEY REFERENCES codex_conversations(id),
+      parent_thread_id TEXT, thread_id TEXT NOT NULL,
+      command_id TEXT NOT NULL, attempt INTEGER NOT NULL);`);
     this.db.exec(`CREATE TABLE IF NOT EXISTS codex_knowledge_adoptions (
       conversation_id TEXT NOT NULL, command_id TEXT NOT NULL,
       attempt INTEGER NOT NULL, thread_id TEXT NOT NULL, turn_id TEXT NOT NULL,
@@ -497,6 +508,51 @@ export class CodexConversationStore {
       return this.readRuntimeMigration(id, binding)!;
     })();
   }
+  repairRejectedRuntimeMigrationName(id: string, binding: AccountBinding, generation: number) {
+    return this.db.transaction(() => {
+      const current = this.readRuntimeMigration(id, binding);
+      if (!current || current.generation !== generation)
+        throw new Error('Runtime migration generation changed');
+      // Only the legacy CLI's explicit pre-create validation rejection permits
+      // a name change. Uncertain creates and existing candidates keep their name.
+      if (
+        current.phase !== 'blocked' ||
+        current.resumePhase !== 'checkpointed' ||
+        !current.checkpoint ||
+        current.candidate ||
+        !/^mitzo-migrate-[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(
+          current.candidateName,
+        ) ||
+        !/name exceeds\s*\n\s*│ maximum length \(50 > 19\)"\s*$/.test(current.failure ?? '')
+      )
+        return current;
+      const conversation = this.read(id, binding);
+      if (
+        conversation.threadId !== current.identity.thread ||
+        conversation.threadGeneration !== current.threadGeneration ||
+        this.hasAmbiguousRuntimeActivity(id, binding) ||
+        !sameArtifactRuntimeIdentity(this.readArtifactRuntime(id, binding), current.source)
+      )
+        throw new Error('Runtime migration source ownership changed before name repair');
+      const next = {
+        ...current,
+        generation: generation + 1,
+        phase: 'checkpointed' as const,
+        candidateName: `mitzo-${createHash('sha256').update(current.candidateName).digest('hex').slice(0, 12)}`,
+        failure: undefined,
+        retryable: undefined,
+        retryNotBefore: undefined,
+        resumePhase: undefined,
+      };
+      const update = this.db
+        .prepare(
+          'UPDATE codex_runtime_migrations SET generation=?,data=? WHERE conversation_id=? AND binding=? AND generation=?',
+        )
+        .run(next.generation, JSON.stringify(next), id, this.key(binding), generation);
+      if (update.changes !== 1) throw new Error('Runtime migration generation changed');
+      return next;
+    })();
+  }
   advanceRuntimeMigration(
     id: string,
     binding: AccountBinding,
@@ -605,6 +661,193 @@ export class CodexConversationStore {
           throw new Error('Codex conversation owner is unavailable or changed');
       })
       .immediate();
+  }
+  /** A pre-RPC fence: a lost acknowledgment must never recreate/replay a child. */
+  beginThreadReplacementDispatch(
+    id: string,
+    b: AccountBinding,
+    parent: string | undefined,
+    thread: string,
+    command: CodexCommand,
+  ) {
+    this.db.transaction(() => {
+      if ((this.read(id, b).threadId ?? undefined) !== parent)
+        throw new Error('Codex provider thread generation changed');
+      const active = this.commands(id, b).find((c) => c.id === command.id);
+      if (active?.status !== 'running' || active.attempt !== command.attempt)
+        throw new Error('Codex replacement dispatch command changed');
+      this.db
+        .prepare(
+          'INSERT INTO codex_pending_thread_dispatches(conversation_id,parent_thread_id,thread_id,command_id,attempt) VALUES (?,?,?,?,?)',
+        )
+        .run(id, parent ?? null, thread, command.id, command.attempt);
+    })();
+  }
+  assertNoPendingThreadDispatch(id: string, b: AccountBinding) {
+    this.read(id, b);
+    if (
+      this.db
+        .prepare('SELECT 1 FROM codex_pending_thread_dispatches WHERE conversation_id=?')
+        .get(id)
+    )
+      throw new Error('Codex pending provider thread dispatch requires explicit recovery');
+  }
+  rejectThreadReplacementDispatch(
+    id: string,
+    b: AccountBinding,
+    thread: string,
+    command: CodexCommand,
+  ) {
+    this.db.transaction(() => {
+      this.read(id, b);
+      const deleted = this.db
+        .prepare(
+          'DELETE FROM codex_pending_thread_dispatches WHERE conversation_id=? AND thread_id=? AND command_id=? AND attempt=?',
+        )
+        .run(id, thread, command.id, command.attempt);
+      if (deleted.changes !== 1) throw new Error('Codex replacement rejection fence changed');
+    })();
+  }
+  acceptThreadReplacement(
+    id: string,
+    b: AccountBinding,
+    parent: string | undefined,
+    thread: string,
+    command: CodexCommand,
+    revision: string,
+    context?: string,
+    reason: 'tool_surface_change' | 'provider_transport_failure' = 'tool_surface_change',
+    turnId?: string,
+  ) {
+    this.db.transaction(() => {
+      if (!turnId) throw new Error('Codex replacement acknowledgment turn is missing');
+      const pending = this.db
+        .prepare('SELECT * FROM codex_pending_thread_dispatches WHERE conversation_id=?')
+        .get(id) as
+        | {
+            parent_thread_id: string | null;
+            thread_id: string;
+            command_id: string;
+            attempt: number;
+          }
+        | undefined;
+      if (
+        !pending ||
+        pending.parent_thread_id !== (parent ?? null) ||
+        pending.thread_id !== thread ||
+        pending.command_id !== command.id ||
+        pending.attempt !== command.attempt
+      )
+        throw new Error('Codex replacement acknowledgment changed');
+      const active = this.commands(id, b).find((c) => c.id === command.id);
+      if (active?.status !== 'running' || active.attempt !== command.attempt)
+        throw new Error('Codex replacement acknowledgment command changed');
+      if (parent) this.replaceThread(id, b, parent, thread, reason, undefined, revision, context);
+      else this.bindThread(id, b, thread, revision);
+      this.db
+        .prepare(
+          'INSERT INTO codex_thread_acceptances(conversation_id,command_id,attempt,thread_id,turn_id,generation,ownership_pending,accepted_at) VALUES (?,?,?,?,?,?,?,?)',
+        )
+        .run(
+          id,
+          command.id,
+          command.attempt,
+          thread,
+          turnId,
+          this.read(id, b).threadGeneration,
+          1,
+          Date.now(),
+        );
+      this.db
+        .prepare('DELETE FROM codex_pending_thread_dispatches WHERE conversation_id=?')
+        .run(id);
+    })();
+  }
+  readThreadAcceptances(id: string, b: AccountBinding) {
+    this.read(id, b);
+    const rows = this.db
+      .prepare(
+        'SELECT command_id AS commandId, attempt, thread_id AS threadId, turn_id AS turnId, generation, ownership_pending AS ownershipPending, accepted_at AS acceptedAt, terminal_conflict AS terminalConflict FROM codex_thread_acceptances WHERE conversation_id=? ORDER BY accepted_at',
+      )
+      .all(id) as Array<{
+      commandId: string;
+      attempt: number;
+      threadId: string;
+      turnId: string;
+      generation: number;
+      ownershipPending: number;
+      acceptedAt: number;
+      terminalConflict: number;
+    }>;
+    return rows.map((row) => ({
+      ...row,
+      ownershipPending: !!row.ownershipPending,
+      terminalConflict: !!row.terminalConflict,
+    }));
+  }
+  pendingThreadOwnership(id: string, b: AccountBinding) {
+    const current = this.read(id, b);
+    const pending = this.readThreadAcceptances(id, b).filter((row) => row.ownershipPending);
+    if (!pending.length) return undefined;
+    if (pending.some((row) => row.terminalConflict))
+      throw new Error(
+        'Codex accepted provider turn has conflicting terminal outcomes; inspect recovery',
+      );
+    if (
+      pending.length !== 1 ||
+      pending[0].threadId !== current.threadId ||
+      pending[0].generation !== current.threadGeneration
+    )
+      throw new Error('Codex accepted provider thread ownership identity changed');
+    return pending[0];
+  }
+  completeThreadOwnership(id: string, b: AccountBinding, thread: string) {
+    this.db.transaction(() => {
+      const pending = this.pendingThreadOwnership(id, b);
+      if (!pending || pending.threadId !== thread)
+        throw new Error('Codex provider thread ownership fence changed');
+      const changed = this.db
+        .prepare(
+          'UPDATE codex_thread_acceptances SET ownership_pending=0 WHERE conversation_id=? AND command_id=? AND attempt=? AND ownership_pending=1',
+        )
+        .run(id, pending.commandId, pending.attempt);
+      if (changed.changes !== 1) throw new Error('Codex provider thread ownership fence changed');
+    })();
+  }
+  recordAcceptedThreadConflict(
+    id: string,
+    b: AccountBinding,
+    command: Pick<CodexCommand, 'id' | 'attempt'>,
+    thread: string,
+    turn: string,
+  ) {
+    this.db.transaction(() => {
+      const current = this.read(id, b);
+      if (current.threadId !== thread)
+        throw new Error('Codex accepted provider thread identity changed');
+      const updated = this.db
+        .prepare(
+          'UPDATE codex_thread_acceptances SET terminal_conflict=1,ownership_pending=1 WHERE conversation_id=? AND command_id=? AND attempt=? AND thread_id=? AND turn_id=? AND generation=?',
+        )
+        .run(id, command.id, command.attempt, thread, turn, current.threadGeneration);
+      if (updated.changes !== 1)
+        throw new Error('Codex accepted provider terminal conflict differs');
+      this.db
+        .prepare(
+          "UPDATE codex_commands SET status='interrupted',ambiguous=1,recovery_acknowledged=0 WHERE conversation_id=? AND id=? AND attempt=?",
+        )
+        .run(id, command.id, command.attempt);
+      this.db.prepare('UPDATE codex_conversations SET recovery=1 WHERE id=?').run(id);
+      this.db
+        .prepare(
+          'UPDATE codex_thread_generations SET last_completed_turn_id=NULL WHERE conversation_id=? AND generation=? AND last_completed_turn_id=?',
+        )
+        .run(id, current.threadGeneration, turn);
+    })();
+  }
+  assertNoPendingThreadOwnership(id: string, b: AccountBinding) {
+    if (this.pendingThreadOwnership(id, b))
+      throw new Error('Codex accepted provider thread ownership requires recovery');
   }
   bindThread(id: string, b: AccountBinding, threadId: string, toolSurfaceRevision?: string) {
     this.db.transaction(() => {
@@ -889,9 +1132,22 @@ export class CodexConversationStore {
   ): 'queued' | 'not_found' | 'too_early' | 'not_retryable' | 'confirmation_required' {
     return this.db.transaction(() => {
       this.read(id, b);
+      // A pending replacement still owns this exact attempt. Retry must not
+      // mutate its identity before admission or ownership reconciliation.
+      if (
+        this.db
+          .prepare('SELECT 1 FROM codex_pending_thread_dispatches WHERE conversation_id=?')
+          .get(id) ||
+        this.db
+          .prepare(
+            'SELECT 1 FROM codex_thread_acceptances WHERE conversation_id=? AND ownership_pending=1',
+          )
+          .get(id)
+      )
+        return 'not_retryable';
       const row = this.db
         .prepare(
-          `SELECT id,retry_not_before,retryable,ambiguous
+          `SELECT id,attempt,retry_not_before,retryable,ambiguous
           FROM codex_commands
           WHERE conversation_id=? AND status='failed' AND recovery_acknowledged=0
           ORDER BY sequence DESC LIMIT 1`,
@@ -899,12 +1155,23 @@ export class CodexConversationStore {
         .get(id) as
         | {
             id: string;
+            attempt: number;
             retry_not_before: number | null;
             retryable: number | null;
             ambiguous: number | null;
           }
         | undefined;
       if (!row) return 'not_found';
+      // A durable native ACK is not a failed dispatch, including ledgers written
+      // by older transport callbacks. Ownership repair cannot authorize replay.
+      if (
+        this.db
+          .prepare(
+            'SELECT 1 FROM codex_thread_acceptances WHERE conversation_id=? AND command_id=? AND attempt=?',
+          )
+          .get(id, row.id, row.attempt)
+      )
+        return 'not_retryable';
       if (row.retryable !== 1) return 'not_retryable';
       if (row.retry_not_before && now < row.retry_not_before) return 'too_early';
       if (row.ambiguous === 1 && !confirmAmbiguous) return 'confirmation_required';
@@ -1009,7 +1276,9 @@ export class CodexConversationStore {
         return false;
       if (!this.commands(id, b).some((c) => c.id === commandId && c.status === 'running'))
         throw new Error('Codex command is not running');
-      this.db.prepare('INSERT INTO codex_tools VALUES (?,?,?)').run(id, commandId, callId);
+      this.db
+        .prepare('INSERT INTO codex_tools(conversation_id,command_id,call_id) VALUES (?,?,?)')
+        .run(id, commandId, callId);
       return true;
     })();
   }
@@ -1034,7 +1303,8 @@ export class CodexConversationStore {
   }
   acknowledgeRecovery(id: string, b: AccountBinding) {
     this.db.transaction(() => {
-      this.read(id, b);
+      this.assertNoPendingThreadDispatch(id, b);
+      this.assertNoPendingThreadOwnership(id, b);
       this.db
         .prepare(
           "UPDATE codex_commands SET recovery_acknowledged=1 WHERE conversation_id=? AND status IN ('interrupted','failed')",

@@ -634,6 +634,41 @@ describe('github.publish-pr capability', () => {
     await publisher.cleanup(rebuilt.cleanupDirectory!);
     await expect(stat(rebuilt.cleanupDirectory!)).rejects.toThrow();
   });
+  it('reads only the controller GitHub login for publishing identity verification', async () => {
+    const run = vi.fn().mockResolvedValue({ stdout: '{"login":"operator"}', stderr: '' });
+    const publisher = new GitHubCliHostPublisher(run);
+    expect(await publisher.identity(new AbortController().signal)).toBe('operator');
+    expect(run).toHaveBeenCalledWith('gh', ['api', 'user'], expect.any(AbortSignal));
+    run.mockResolvedValue({ stdout: '{"login":"Bearer SECRET"}', stderr: '' });
+    await expect(publisher.identity(new AbortController().signal)).rejects.toThrow();
+  });
+  it('keeps gateway workspace separate from the trusted sandbox workdir', async () => {
+    const run = vi.fn(async (args: readonly string[]) => {
+      const joined = args.join(' ');
+      if (joined.includes('status --porcelain')) return '';
+      if (joined.includes('symbolic-ref')) return 'feature/safe\n';
+      if (joined.includes('rev-parse HEAD')) return `${'a'.repeat(40)}\n`;
+      if (joined.includes('remote get-url')) return 'https://github.com/acme/widgets.git\n';
+      if (joined.includes('rev-list --count')) return '1\n';
+      return 'src/index.ts\n';
+    });
+    const transport = new OpenShellGithubSandboxTransport(
+      run,
+      'default',
+      '/sandbox/workspaces/mgmt',
+    );
+    await transport.inspect({
+      sandboxName: 'sandbox-1',
+      repositoryPath: '/sandbox/workspaces/mgmt',
+      baseBranch: 'main',
+      signal: new AbortController().signal,
+    });
+    for (const [args] of run.mock.calls) {
+      expect(args.slice(0, 3)).toEqual(['sandbox', '--workspace', 'default']);
+      expect(args).toContain('/sandbox/workspaces/mgmt');
+      expect(args).not.toContain('/sandbox/workspaces/default');
+    }
+  });
   it('binds sandbox path validation and every Git action in one control invocation', async () => {
     const run = vi.fn(async (args: readonly string[]) => {
       const joined = args.join(' ');
@@ -693,6 +728,8 @@ describe('github.publish-pr capability', () => {
     const workspace = await mkdtemp(join(tmpdir(), 'mitzo-github-workspace-'));
     const outside = await mkdtemp(join(tmpdir(), 'mitzo-github-outside-'));
     const repository = join(workspace, 'repo');
+    const gitBinary = (await exec('which', ['git'])).stdout.trim();
+    const hostBoundaryScript = githubGitBoundaryScript.replaceAll('/usr/bin/git', gitBinary);
     try {
       await exec('git', ['init', '--quiet', repository]);
       const canonicalWorkspace = await realpath(workspace);
@@ -700,7 +737,7 @@ describe('github.publish-pr capability', () => {
       await expect(
         exec('/bin/sh', [
           '-c',
-          githubGitBoundaryScript,
+          hostBoundaryScript,
           'mitzo-github-git',
           canonicalWorkspace,
           canonicalRepository,
@@ -715,7 +752,7 @@ describe('github.publish-pr capability', () => {
       await expect(
         exec('/bin/sh', [
           '-c',
-          githubGitBoundaryScript,
+          hostBoundaryScript,
           'mitzo-github-git',
           canonicalWorkspace,
           canonicalRepository,
@@ -730,7 +767,7 @@ describe('github.publish-pr capability', () => {
       await expect(
         exec('/bin/sh', [
           '-c',
-          githubGitBoundaryScript,
+          hostBoundaryScript,
           'mitzo-github-git',
           canonicalWorkspace,
           canonicalRepository,
@@ -1143,4 +1180,11 @@ describe('github.publish-pr capability', () => {
     expect(f.host.create).not.toHaveBeenCalled();
     expect(f.host.update).not.toHaveBeenCalled();
   });
+});
+it('does not report success if the remote feature branch no longer has the approved commit', async () => {
+  const f = fixture();
+  vi.mocked(f.host.readBranch).mockResolvedValue('b'.repeat(40));
+  await expect(
+    f.executor.verify(context(), { output: {}, externalResultId: f.pull.url }),
+  ).rejects.toThrow(/commit/);
 });

@@ -7670,3 +7670,22 @@ option {
   opacity: 0.5;
   cursor: wait;
 }
+
+.todo-output-upload {
+  display: grid;
+  gap: 0.6rem;
+  margin-bottom: 1rem;
+}
+.todo-output-upload label {
+  display: grid;
+  gap: 0.3rem;
+  min-width: 0;
+}
+.todo-output-upload input {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+}
+.todo-output-upload p {
+  margin: 0;
+}

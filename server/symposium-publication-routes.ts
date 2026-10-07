@@ -1,3 +1,4 @@
+import { createLogger } from '@mitzo/harness';
 import {
   custodianPublicationSignal,
   custodianRequestAuthority,
@@ -13,6 +14,7 @@ import {
 } from './connections-router.js';
 import type { PublicationRegistration } from './symposium-publication-registration.js';
 import type { CapabilityApproval } from './connections/capabilities/types.js';
+const log = createLogger('symposium-publication-routes');
 const id = z.string().min(1).max(256);
 const hash = z.string().regex(/^[a-f0-9]{64}$/);
 const selection = z.strictObject({
@@ -33,12 +35,31 @@ const principal = z.strictObject({
 export function createPublicationRouter(deps: {
   registration(): PublicationRegistration | undefined;
   hasSession(id: string): boolean;
+  onPublicationCompleted?(
+    sessionId: string,
+    publication: { repositoryPath: string; baseBranch: string },
+    operation: { id: string; status: string },
+  ): void;
   approval(
     req: express.Request,
     session: AuthSession,
     conversationId: string,
   ): CapabilityApproval | undefined;
 }) {
+  const observeCompletion = (
+    sessionId: string,
+    publication: { repositoryPath: string; baseBranch: string },
+    operation: { id: string; status: string },
+  ) => {
+    if (operation.status !== 'succeeded') return;
+    try {
+      deps.onPublicationCompleted?.(sessionId, publication, operation);
+    } catch {
+      log.warn('Successful publication advisory request cleanup unavailable', {
+        operationId: operation.id,
+      });
+    }
+  };
   const router = express.Router({ mergeParams: true });
   router.use((req, res, next) => {
     res.set('Cache-Control', 'no-store');
@@ -145,12 +166,17 @@ export function createPublicationRouter(deps: {
         credentialGeneration: id,
       })
       .parse(req.body);
-    return runtime.service.recoverExact(
+    const operation = await runtime.service.recoverExact(
       { ...selected, sessionId: String(req.params.id) },
       session.id,
       signal,
       recentUntil,
     );
+    const publication = z
+      .object({ repositoryPath: id, baseBranch: id })
+      .safeParse(operation.approvalInput);
+    if (publication.success) observeCompletion(String(req.params.id), publication.data, operation);
+    return operation;
   });
   route('/artifact', async (runtime, req, _session, signal) => {
     const input = z.strictObject({ recordId: id }).parse(req.body);
@@ -224,7 +250,7 @@ export function createPublicationRouter(deps: {
     )
       throw new Error('Publication grant owner mismatch');
     const artifact = await runtime.artifact.require(proof.grant.scope, signal);
-    return runtime.service.invoke(
+    const operation = await runtime.service.invoke(
       {
         grantId: input.grantId,
         bindingHash: input.bindingHash,
@@ -241,6 +267,12 @@ export function createPublicationRouter(deps: {
       signal,
       approval,
     );
+    observeCompletion(
+      String(req.params.id),
+      { repositoryPath: artifact.repositoryPath, baseBranch: input.baseBranch },
+      operation,
+    );
+    return operation;
   });
   return router;
 }

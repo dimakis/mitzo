@@ -85,7 +85,18 @@ it('redacts rejected host requests', async () => {
   reply({ id: 1, method: 'item/tool/call', params: {} });
   await vi.waitFor(() => expect(sent).toHaveLength(1));
   expect(JSON.stringify(sent)).not.toContain('private credential');
-  expect(sent[0]).toMatchObject({ id: 1, error: { code: -32603 } });
+  expect(sent[0]).toMatchObject({
+    id: 1,
+    result: {
+      success: false,
+      contentItems: [
+        {
+          type: 'inputText',
+          text: 'Mitzo could not dispatch this tool request. No external action was confirmed. Inspect current state before retrying.',
+        },
+      ],
+    },
+  });
   client.close();
 });
 

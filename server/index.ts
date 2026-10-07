@@ -1,3 +1,4 @@
+import { configuredGithubSeedBaselinePaths } from './github-seed-baselines.js';
 import { custodianControllerMode, custodianOwnerMode } from './symposium-custodian-mode.js';
 import { closeCapabilityOperationStores } from './capability-operation-owner.js';
 import { createSymposiumShutdown, settleSymposiumCleanup } from './symposium-shutdown.js';
@@ -172,7 +173,8 @@ function configureConnectionsRuntime(): void {
     }
     const runtime = createConnectionsRuntime({
       directory: join(BASE_REPO, '.mitzo'),
-      eligibleAccountIds: () => loadAccountProfiles().connectionEligibleIds(),
+      githubSeedBaselinePaths: configuredGithubSeedBaselinePaths(openShell.seed),
+      eligibleAccountIds: (templateId) => loadAccountProfiles().connectionEligibleIds(templateId),
       cli: openShell.cli,
       workspace: openShell.workspace,
       gateway: openShell.gateway,
@@ -186,8 +188,11 @@ function configureConnectionsRuntime(): void {
       ...(githubProfileFingerprint ? { githubProfileFingerprint } : {}),
       ...(customProbePolicy ? { customProbePolicy } : {}),
       resolveConversationBinding: (conversationId) => {
+        const live = registry.findBySessionId(conversationId, true)?.session;
         const accountId = eventStore.getSession(conversationId)?.accountBinding?.accountId;
-        return accountId ? { accountId } : undefined;
+        return accountId && live?.accountBinding?.accountId === accountId
+          ? { accountId }
+          : undefined;
       },
     });
     setAppConnectionsRuntime(runtime);

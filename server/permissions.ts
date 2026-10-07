@@ -1,4 +1,5 @@
 export {
+  onPermissionLifecycle,
   registerPending,
   resolvePending,
   removePending,

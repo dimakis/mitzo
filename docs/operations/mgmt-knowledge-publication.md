@@ -222,6 +222,50 @@ the next supported admission boundary. Local drafts and feature-branch commits d
 not become shared accepted knowledge automatically. A missed webhook is recovered
 by admission reconciliation or periodic publisher recovery.
 
+## Preserve enrollment during deployment
+
+`scripts/deploy.sh` checks persisted knowledge enrollment before builds, preflight or
+service changes. It reads the installed `com.mitzo.server` LaunchAgent's
+`WorkingDirectory/.env` and compares it with the candidate `.env` and candidate
+plist. The installed launcher must invoke one absolute `scripts/start.sh` directly,
+with its script root matching the plist's physical `WorkingDirectory`; an explicit
+`Program` must name that same launcher. Shell/node wrappers, extra launcher
+arguments and disagreeing directories fail safely. Candidate template paths are
+checked against the candidate release directory. A missing active `.env` is an
+empty environment, matching dotenv startup; other read errors still block.
+For the supported default dotenv loader, plist environment variables override
+dotenv values, matching daemon startup. Persisted dotenv path, encoding, precedence and vault-loading overrides
+(`DOTENV_CONFIG_PATH`, `DOTENV_CONFIG_ENCODING`, `DOTENV_CONFIG_OVERRIDE`,
+`DOTENV_CONFIG_DOTENV_KEY`, `DOTENV_KEY`) are rejected with a fixed diagnostic rather than
+guessing their effective enrollment; this check does not change those settings. Harmless `DOTENV_CONFIG_QUIET` and
+`DOTENV_CONFIG_DEBUG` logging preferences remain valid. A deployment-shell credential does not count as a credential available
+to the future daemon.
+
+An enrolled deployment must preserve the physical knowledge-config path and its
+parsed configuration. The selected publisher's `readTokenEnv` must be populated
+in candidate dotenv or plist settings; token rotation is allowed and values are
+never compared or printed. An absent installed plist is treated as a first
+deployment. Hosts already without enrollment remain valid. Malformed or unreadable
+active metadata blocks deployment with a fixed diagnostic, including when an
+operator requests an enrollment change. The guard uses Node, dotenv and Python 3's
+standard-library plist parser; it makes no network or provider calls.
+
+For an intentional disable or store/config change, review the candidate settings
+and run `npm run deploy -- --allow-knowledge-enrollment-change`. This explicit
+opt-out permits that configuration transition; it does not bypass credential
+presence checks for a still-enrolled candidate or runtime preflight. The deployment script accepts only that option; arguments that redirect active
+or candidate metadata are rejected before checks, builds or host actions. The
+option is per invocation and is not saved as a default.
+
+Keep enrollment configuration and credentials in private host configuration and
+copy the canonical active settings when staging subsequent releases. This guard
+compares installed settings currently on disk, not a historical snapshot of the
+running process. It cannot recover earlier bytes if a shared config or `.env` was
+already edited in place, or infer enrollment from a running service whose plist
+has been removed. Preserve those files and use the supported deployment path;
+manual plist replacement/restart does not run this guard. Deployment diagnostics
+report only a fixed state/code, with no paths, configuration values or credentials.
+
 ## Approval status identity provisioning
 
 The status writer requires a dedicated GitHub App installed on this repository, with commit-status write, pull-request read and issue read permissions. Set `CENTAUR_STATUS_APP_ID` as a repository variable. Put `CENTAUR_STATUS_APP_PRIVATE_KEY` **only** in the `centaur-status-writer` environment. Restrict that environment's deployment branches to the default branch (`main`); do not allow pull-request refs or feature branches. Do not duplicate the key in repository or organization secrets. Bind the required `Centaur final LGTM` status to this dedicated App's actual numeric application ID, never the GitHub Actions App or any source. Verify these settings and a real status before claiming enforcement. Until provisioned, the workflow fails closed and the guarded CLI remains the manual gate.

@@ -38,3 +38,15 @@ export function validateRuntimeMarkerEnvironment(
   encoded: unknown,
   targetPlatform: unknown,
 ): Record<string, string>;
+
+export function verifyKnowledgeGit(
+  config: Record<string, string | undefined>,
+  executionEnv?: NodeJS.ProcessEnv,
+): void;
+export function loadServiceGitEnvironment(
+  plistPath: string,
+  inheritedEnv?: NodeJS.ProcessEnv,
+  releaseEnv?: NodeJS.ProcessEnv,
+): NodeJS.ProcessEnv;
+
+export function main(argv?: string[], inheritedEnv?: NodeJS.ProcessEnv): void;

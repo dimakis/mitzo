@@ -1,11 +1,23 @@
 #!/bin/bash
 set -e
+# Do not forward path overrides to the deployment guard.
+enrollment_opt_out=()
+if [ "$#" -gt 1 ] || { [ "$#" -eq 1 ] && [ "$1" != "--allow-knowledge-enrollment-change" ]; }; then
+  echo '{"error":"unsupported_deployment_argument"}' >&2
+  exit 2
+fi
+if [ "$#" -eq 1 ]; then enrollment_opt_out=("--allow-knowledge-enrollment-change"); fi
 cd "$(dirname "$0")/.."
 
 ./scripts/assert-deployable.sh
 
 MITZO_HOME="$(pwd)"
 PLIST_DEST="$HOME/Library/LaunchAgents/com.mitzo.server.plist"
+
+# Compare persisted daemon settings, not credentials inherited only by this shell.
+node scripts/check-knowledge-enrollment.mjs \
+  --candidate-env .env --candidate-plist com.mitzo.server.plist \
+  --active-plist "$PLIST_DEST" "${enrollment_opt_out[@]}"
 
 echo "Building packages + server..."
 npm run build:server
@@ -26,7 +38,7 @@ if ! podman machine inspect --format '{{.State}}' 2>/dev/null | grep -qi '^runni
 fi
 
 echo "Validating OpenShell production bundle..."
-NODE_ENV=production node scripts/verify-openshell-production.mjs .env
+NODE_ENV=production node scripts/verify-openshell-production.mjs .env --service-plist com.mitzo.server.plist
 
 # Generate launchd plist from template (replaces __MITZO_HOME__ placeholder)
 echo "Installing launchd plist..."

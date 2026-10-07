@@ -1,3 +1,4 @@
+import { databaseBackupWatermark, backupOwnedDatabase } from '@mitzo/protocol/database-backup';
 import Database from 'better-sqlite3';
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
@@ -23,6 +24,7 @@ export interface TelosArtifactMetadata {
   sha256: string;
   size: number;
   sessionId: string;
+  sourceKind: 'user_upload' | 'session_artifact' | 'external_codex_report';
   sourcePath: string | null;
   createdAt: string;
   url: string;
@@ -50,6 +52,11 @@ function metadata(row: ArtifactRow): TelosArtifactMetadata {
     sha256: row.sha256,
     size: row.size,
     sessionId: row.session_id,
+    sourceKind: row.session_id.startsWith('user-upload:')
+      ? 'user_upload'
+      : row.session_id.startsWith('external-codex:')
+        ? 'external_codex_report'
+        : 'session_artifact',
     sourcePath: row.source_path,
     createdAt: row.created_at,
     url: `/api/telos/artifacts/${row.id}?revision=${row.revision}`,
@@ -85,10 +92,26 @@ export class TelosArtifactStore {
       throw error;
     }
   }
+  /** Captured only through the existing owner connection; source files remain live. */
+  backupWatermark(): string {
+    return databaseBackupWatermark(this.db);
+  }
+  backupSnapshot(destination: string): Promise<void> {
+    return backupOwnedDatabase(this.db, destination);
+  }
+
   close() {
     this.db.close();
   }
   /** Match the submitted request, not mutable workspace bytes, before reading a path. */
+  /** Shared task outputs are not a private LifeOps evidence vault. */
+  userUploadAllowed(itemId: string): boolean {
+    const item = this.db.prepare('SELECT * FROM items WHERE id=?').get(itemId) as
+      { profile?: string } | undefined;
+    if (!item) throw new Error('Telos item not found');
+    return !/^life[-_ ]?ops$/i.test(item.profile ?? '');
+  }
+
   retryReceipt(
     sessionId: string,
     requestId: string,
@@ -178,7 +201,11 @@ export class TelosArtifactStore {
             'SELECT * FROM telos_artifact_revisions WHERE id=? ORDER BY revision DESC LIMIT 1',
           )
           .get(id) as ArtifactRow | undefined;
+        // New authenticated operator requests represent explicit revision intent.
+        // Their retries were resolved above; agent saves retain content deduplication.
+        const explicitUpload = input.sessionId.startsWith('user-upload:') && !!input.requestId;
         if (
+          !explicitUpload &&
           previous?.sha256 === sha256 &&
           previous.title === input.title &&
           previous.session_id === input.sessionId &&

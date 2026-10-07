@@ -85,7 +85,53 @@ it('atomically switches only after attestation, strict origin restore and same-t
     targetImage: 'new-digest',
   });
   expect(f.store.read('chat', binding).threadId).toBe('same-thread');
+  expect(f.candidate.runtime.sandboxName).toMatch(/^mitzo-[a-f0-9]{12}$/);
 });
+it.each(['rejected', 'uncertain', 'candidate', 'later-phase'])(
+  'repairs a legacy candidate name only for pre-create rejection: %s',
+  async (variant) => {
+    const f = fixture();
+    f.adapters.create = vi.fn().mockRejectedValueOnce(new Error('create rejected'));
+    await expect(migrateRetainedRuntime(f.input)).rejects.toThrow('create rejected');
+    const record = f.store.readRuntimeMigration('chat', binding)!;
+    const legacy = {
+      ...record,
+      candidateName: 'mitzo-migrate-a3c37b00-fb91-4d00-8eeb-b53b04532cc6',
+      failure:
+        'Command failed: openshell sandbox create\nError: name exceeds\n  │ maximum length (50 > 19)"\n',
+    };
+    if (variant === 'uncertain') legacy.failure = 'connection closed';
+    if (variant === 'candidate') legacy.candidate = f.candidate;
+    if (variant === 'later-phase') legacy.resumePhase = 'candidate';
+    // Load a historical record without weakening the normal immutable-origin API.
+    const Database = (await import('better-sqlite3')).default;
+    const db = new Database(join(f.store.read('chat', binding).cwd, 'state.db'));
+    db.prepare('UPDATE codex_runtime_migrations SET data=? WHERE conversation_id=?').run(
+      JSON.stringify(legacy),
+      'chat',
+    );
+    db.close();
+    if (variant !== 'rejected') {
+      await expect(migrateRetainedRuntime(f.input)).rejects.toThrow('blocked; inspect');
+      expect(f.store.readRuntimeMigration('chat', binding)?.candidateName).toBe(
+        legacy.candidateName,
+      );
+      expect(f.adapters.create).toHaveBeenCalledTimes(1);
+      return;
+    }
+    f.adapters.create = vi.fn(async (name) => {
+      expect(name).toMatch(/^mitzo-[a-f0-9]{12}$/);
+      const saved = f.store.readRuntimeMigration('chat', binding)!;
+      expect(saved.candidateName).toBe(name);
+      expect(saved.checkpoint).toEqual(record.checkpoint);
+      expect(saved.identity).toEqual(record.identity);
+      f.candidate.runtime.sandboxName = name;
+      return f.candidate;
+    });
+    expect(await migrateRetainedRuntime(f.input)).toEqual(f.candidate);
+    expect(f.store.read('chat', binding).threadId).toBe('same-thread');
+  },
+);
 it.each(['capture', 'create', 'attest', 'restore', 'verifyRestored'] as const)(
   'retains original mapping and source when %s fails',
   async (step) => {
@@ -96,6 +142,54 @@ it.each(['capture', 'create', 'attest', 'restore', 'verifyRestored'] as const)(
     await expect(migrateRetainedRuntime(f.input)).rejects.toThrow('injected failure');
     expect(f.store.readArtifactRuntime('chat', binding)).toEqual(f.source);
     expect(f.store.readRuntimeMigration('chat', binding)?.phase).toBe('blocked');
+  },
+);
+it('recovers only the known maintenance-lock rejection before any checkpoint or candidate', async () => {
+  const f = fixture();
+  f.adapters.quiescent = vi
+    .fn()
+    .mockRejectedValueOnce(
+      new Error(
+        'Command failed: ssh checkpoint capture\ncheckpoint: unsupported provider state: .sqlite-maintenance.lock\n',
+      ),
+    )
+    .mockResolvedValue(undefined);
+  await expect(migrateRetainedRuntime(f.input)).rejects.toThrow('.sqlite-maintenance.lock');
+  expect(f.store.readRuntimeMigration('chat', binding)).toMatchObject({
+    phase: 'blocked',
+    resumePhase: 'observed',
+    retryable: false,
+  });
+  expect(await migrateRetainedRuntime(f.input)).toEqual(f.candidate);
+  expect(f.adapters.capture).toHaveBeenCalledTimes(1);
+  expect(f.adapters.quiescent).toHaveBeenCalledTimes(3);
+  expect(f.store.read('chat', binding).threadId).toBe('same-thread');
+});
+it.each(['other-file', 'checkpointed', 'candidate'])(
+  'keeps the maintenance-lock recovery closed for %s',
+  async (variant) => {
+    const f = fixture();
+    f.adapters.quiescent = vi
+      .fn()
+      .mockRejectedValueOnce(
+        new Error(
+          `checkpoint: unsupported provider state: ${variant === 'other-file' ? 'other-file' : '.sqlite-maintenance.lock'}\n`,
+        ),
+      );
+    await expect(migrateRetainedRuntime(f.input)).rejects.toThrow('unsupported provider state');
+    const record = f.store.readRuntimeMigration('chat', binding)!;
+    if (variant !== 'other-file')
+      f.store.advanceRuntimeMigration(
+        'chat',
+        binding,
+        record.generation,
+        variant === 'checkpointed'
+          ? { checkpoint: { path: '/saved', digest: 'saved' } }
+          : { candidate: f.candidate },
+      );
+    await expect(migrateRetainedRuntime(f.input)).rejects.toThrow('blocked; inspect');
+    expect(f.adapters.capture).not.toHaveBeenCalled();
+    expect(f.adapters.create).not.toHaveBeenCalled();
   },
 );
 it('rejects unknown image, policy mismatch and changed account profile before capture', async () => {
@@ -529,3 +623,31 @@ it('synchronous pending-source-policy fence blocks ownership commit after final 
   expect(f.store.readArtifactRuntime('chat', binding)).toEqual(f.source);
   expect(f.store.readRuntimeMigration('chat', binding)?.checkpoint?.digest).toBe('digest');
 });
+
+it('keeps committed migration history immutable across same-account model selection and reopen', async () => {
+  const f = fixture();
+  await migrateRetainedRuntime(f.input);
+  const selected = { ...f.candidate, route: { ...f.candidate.route, model: 'offline-next' } };
+  expect(await migrateRetainedRuntime({ ...f.input, source: selected })).toEqual(selected);
+  f.store.setArtifactRuntime('chat', binding, selected);
+  expect(await migrateRetainedRuntime({ ...f.input, source: selected })).toEqual(selected);
+  expect(f.store.readRuntimeMigration('chat', binding)?.candidate?.route.model).toBe('offline');
+  expect(f.adapters.create).toHaveBeenCalledTimes(1);
+  expect(f.adapters.capture).toHaveBeenCalledTimes(1);
+  expect(f.adapters.restore).toHaveBeenCalledTimes(1);
+});
+it.each(['provider', 'kind', 'providerId', 'providerType', 'grantId'])(
+  'still rejects committed routing authority drift in %s during model selection',
+  async (field) => {
+    const f = fixture();
+    await migrateRetainedRuntime(f.input);
+    const selected = {
+      ...f.candidate,
+      route: { ...f.candidate.route, model: 'offline-next', [field]: 'different' },
+    };
+    await expect(migrateRetainedRuntime({ ...f.input, source: selected })).rejects.toThrow(
+      'committed routing changed',
+    );
+    expect(f.adapters.create).toHaveBeenCalledTimes(1);
+  },
+);
