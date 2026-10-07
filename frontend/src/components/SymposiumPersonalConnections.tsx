@@ -54,6 +54,7 @@ export function SymposiumPersonalConnections({
   const [callbackId, setCallbackId] = useState<string | null>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [createdId, setCreatedId] = useState<string | null>(null);
+  const [creationUncertain, setCreationUncertain] = useState(false);
   const version = useRef(0);
   const mounted = useRef(false);
   const observedRevisions = useRef(new Map<string, number>());
@@ -241,15 +242,21 @@ export function SymposiumPersonalConnections({
     mutation.current = true;
     setBusy(true);
     setMessage('');
+    const creating = path === endpoint && mode === 'add';
+    let rejectedBeforeCreation = false;
     try {
       const response = await apiFetch(path, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
-      if (!response.ok) throw new Error('Request failed');
-      if (path === endpoint && mode === 'add') {
+      if (!response.ok) {
+        rejectedBeforeCreation = [400, 401, 403].includes(response.status);
+        throw new Error('Request failed');
+      }
+      if (creating) {
         const created = connectionSchema.parse(await response.json());
+        if (!mounted.current) return;
         setCreatedId(created.id);
       }
       if (!mounted.current) return;
@@ -258,8 +265,11 @@ export function SymposiumPersonalConnections({
       notifyAccountsChanged();
     } catch {
       if (!mounted.current) return;
+      if (creating && !rejectedBeforeCreation) setCreationUncertain(true);
       setMessage(
-        'Could not confirm the change. Check the refreshed account status before trying again.',
+        creating && !rejectedBeforeCreation
+          ? 'Account setup could not be confirmed. Check Connections before adding it again.'
+          : 'Could not confirm the change. Check the refreshed account status before trying again.',
       );
     } finally {
       await refresh();
@@ -295,10 +305,12 @@ export function SymposiumPersonalConnections({
             : 'Reconnect this saved account or review its supported models. Existing reviewers keep their account until you explicitly choose it again.'}
         </p>
       )}
-      <p>
-        Saved identities remain after Mitzo restarts. Accounts marked “Sign in required” need a
-        fresh sign-in before use.
-      </p>
+      {mode === 'all' && (
+        <p>
+          Saved identities remain after Mitzo restarts. Accounts marked “Sign in required” need a
+          fresh sign-in before use.
+        </p>
+      )}
       {error && (
         <>
           <p role="alert">{error}</p>
@@ -308,7 +320,7 @@ export function SymposiumPersonalConnections({
         </>
       )}
       {!loaded && !error && <p role="status">Loading personal accounts…</p>}
-      {message && <p role="status">{message}</p>}
+      {message && <p role={creationUncertain ? 'alert' : 'status'}>{message}</p>}
       {visibleConnections.map((connection) => (
         <section
           key={connection.id}
@@ -442,7 +454,7 @@ export function SymposiumPersonalConnections({
       {loaded && mode === 'all' && connections.length === 0 && (
         <p>No saved personal accounts yet.</p>
       )}
-      {(mode === 'all' || (mode === 'add' && !createdId)) && (
+      {(mode === 'all' || (mode === 'add' && !createdId && !creationUncertain)) && (
         <form
           onSubmit={(event) => {
             event.preventDefault();
@@ -484,7 +496,7 @@ export function SymposiumPersonalConnections({
           Continue pending sign-in
         </Link>
       )}
-      {mode === 'add' && createdId && (
+      {mode === 'add' && (createdId || creationUncertain) && (
         <Link className="workspace-text-link" to="/connections-access">
           Back to Connections
         </Link>

@@ -818,3 +818,21 @@ it('keeps another account’s pending sign-in reachable without mixing it into t
   expect(pending.getAttribute('href')).toBe('/connections?manage=personal&connection=personal-a');
   expect(screen.queryByRole('region', { name: 'Personal' })).toBeNull();
 });
+
+it('keeps an uncertain saved-slot creation from offering another account creation', async () => {
+  vi.mocked(apiFetch).mockImplementation(async (_url, init) => {
+    if (init?.method === 'POST') throw new Error('Response lost');
+    return response({ connections: rows });
+  });
+  render(
+    <MemoryRouter>
+      <SymposiumPersonalConnections mode="add" />
+    </MemoryRouter>,
+  );
+  await waitFor(() => expect(screen.queryByText('Loading personal accounts…')).toBeNull());
+  fireEvent.change(screen.getByLabelText('Account label'), { target: { value: 'Research' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Save and continue' }));
+  await screen.findByText(/Account setup could not be confirmed/);
+  expect(screen.queryByRole('button', { name: 'Save and continue' })).toBeNull();
+  expect(screen.getByRole('link', { name: 'Back to Connections' })).toBeTruthy();
+});
