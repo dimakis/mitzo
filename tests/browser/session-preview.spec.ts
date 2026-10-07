@@ -34,10 +34,15 @@ test('session hold previews history and keeps actions reachable in small viewpor
       });
     return route.fulfill({ json: {} });
   });
+  await page.clock.install();
   await page.goto('/sessions');
   const row = page.getByRole('link', { name: 'Open Review UI' });
+  // Wait for a stable row before dispatching synthetic touch input in Vite's
+  // StrictMode build; its initial effect cleanup cancels pending holds.
+  await row.scrollIntoViewIfNeeded();
   if (isMobile) {
     await row.dispatchEvent('touchstart', { touches: [{ clientX: 80, clientY: 200 }] });
+    await page.clock.runFor(500);
   } else {
     await row.click({ button: 'right' });
   }
