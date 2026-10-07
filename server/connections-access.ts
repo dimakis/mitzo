@@ -1,3 +1,4 @@
+import type { PublicCredentialConnection } from './credential-connections.js';
 import type { AccountProfiles } from './account-profiles.js';
 import type { Connection } from './connections-store.js';
 import type { PersonalConnection } from './symposium-personal-connections.js';
@@ -16,6 +17,7 @@ export interface ConnectionsAccessSources {
     signal: AbortSignal,
   ) => ReturnType<AccountProfiles['catalog']> | Promise<ReturnType<AccountProfiles['catalog']>>;
   managed?: () => Connection[];
+  keychain?: () => PublicCredentialConnection[];
   personal?: (signal: AbortSignal) => PersonalConnection[] | Promise<PersonalConnection[]>;
   google?: (signal: AbortSignal) => Promise<GoogleWorkspaceHealth>;
   legacy?: () => Promise<Array<{ name: string; type: string }>>;
@@ -82,6 +84,7 @@ export async function readConnectionsAccess(
     'personal',
     'google',
     'legacy',
+    ...(input.keychain ? ['keychain' as const] : []),
   ] as const;
   const reads = await Promise.all(
     keys.map(async (id) => {
@@ -212,6 +215,41 @@ export async function readConnectionsAccess(
     row.details = { endpoint: connection.endpoint };
     row.actions = [
       { id: 'connection-controls', label: 'Open service controls', href: '/connections' },
+    ];
+    result.resources.push(row);
+  }
+  for (const connection of value<PublicCredentialConnection[]>('keychain') ?? []) {
+    const row = base(
+      'keychain-connection',
+      'keychain-controller',
+      connection.id,
+      connection.label,
+      'Apple Keychain',
+    );
+    row.status = connection.status;
+    row.revision = connection.revision;
+    row.accountIdentity = connection.auth.kind === 'basic' ? connection.auth.username : null;
+    row.details.endpoint = connection.endpoint;
+    row.verification = {
+      state:
+        connection.status === 'disabled'
+          ? 'unavailable'
+          : connection.verifiedAt
+            ? 'verified'
+            : 'unverified',
+      verifiedAt: connection.verifiedAt,
+      reason: connection.verifiedAt
+        ? 'An authenticated read succeeded; access still requires session approval.'
+        : 'The saved credential has not been tested against this service.',
+    };
+    row.access.summary = `${connection.methods.join(', ')} on ${connection.paths.join(', ')} through the trusted Keychain provider`;
+    row.access.appliesTo = 'Explicit approval in each session';
+    row.actions = [
+      {
+        id: 'keychain-controls',
+        label: 'Manage Keychain connection',
+        href: '/connections#keychain-connections-heading',
+      },
     ];
     result.resources.push(row);
   }

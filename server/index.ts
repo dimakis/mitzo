@@ -1,4 +1,9 @@
 import { configuredGithubSeedBaselinePaths } from './github-seed-baselines.js';
+import {
+  keychainConnectionConfig,
+  createCredentialConnectionsRuntime,
+} from './credential-connections-runtime.js';
+import { setCredentialConnectionsRuntime as setAppCredentialConnectionsRuntime } from './app.js';
 import { custodianControllerMode, custodianOwnerMode } from './symposium-custodian-mode.js';
 import { closeCapabilityOperationStores } from './capability-operation-owner.js';
 import { createSymposiumShutdown, settleSymposiumCleanup } from './symposium-shutdown.js';
@@ -221,6 +226,14 @@ function configureConnectionsRuntime(): void {
   }
 }
 configureConnectionsRuntime();
+setAppCredentialConnectionsRuntime(null);
+try {
+  const config = keychainConnectionConfig(process.env);
+  if (config)
+    setAppCredentialConnectionsRuntime(createCredentialConnectionsRuntime(config).service);
+} catch {
+  log.error('Apple Keychain connections disabled: invalid signed helper configuration');
+}
 
 const nativeCommands = new NativeCommandRegistry();
 const connRegistry = new ConnectionRegistry();

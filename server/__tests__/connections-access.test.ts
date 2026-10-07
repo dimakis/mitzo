@@ -230,3 +230,30 @@ it('retains the catalog facet and unavailable relationship when personal reads f
   expect(inventory.resources[0]).toMatchObject({ personalConnection: { state: 'unavailable' } });
   expect(inventory.sources.find((source) => source.id === 'personal')!.state).toBe('unavailable');
 });
+
+it('includes Keychain HTTPS providers in the existing Connections overview without credential references', async () => {
+  const inventory = await readConnectionsAccess(
+    {
+      keychain: () => [
+        {
+          id: 'ha',
+          revision: 1,
+          label: 'Home Assistant',
+          endpoint: 'https://ha.example.com',
+          auth: { kind: 'bearer' },
+          paths: ['/api/'],
+          methods: ['GET'],
+          allowPrivateNetwork: false,
+          status: 'active',
+          verifiedAt: null,
+        },
+      ],
+    },
+    { now: 100 },
+  );
+  const row = inventory.resources.find((r) => r.kind === 'keychain-connection');
+  expect(row?.access.appliesTo).toBe('Explicit approval in each session');
+  expect(row?.details.endpoint).toBe('https://ha.example.com');
+  expect(inventory.sources.find((s) => s.id === 'keychain')?.state).toBe('available');
+  expect(JSON.stringify(row)).not.toContain('credentialRef');
+});

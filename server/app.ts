@@ -1,5 +1,11 @@
 import { createGithubPublicationOperatorRouter } from './github-publication-operator-router.js';
 import { requestOperatorGithubPublication } from './github-publishing-tool.js';
+import { createCredentialConnectionsRouter } from './credential-connections-router.js';
+import {
+  getCredentialConnectionsRuntime,
+  setCredentialConnectionsRuntime as setActiveCredentialConnectionsRuntime,
+} from './credential-connections-runtime.js';
+import type { CredentialConnections } from './credential-connections.js';
 import { createHostBackupService } from './backup/host.js';
 import { createBackupRouter } from './backup/router.js';
 import { bindMitzoTelosCoreCapture } from './backup/mitzo-telos-binding.js';
@@ -416,6 +422,20 @@ export function setConnectionsRuntime(runtime: ConnectionsRuntime | null): void 
       })
     : null;
 }
+let credentialConnectionsRouter: express.Router | null = null;
+export function setCredentialConnectionsRuntime(service: CredentialConnections | null) {
+  setActiveCredentialConnectionsRuntime(service);
+  credentialConnectionsRouter = service ? createCredentialConnectionsRouter(service) : null;
+}
+app.use('/api/credential-connections', operatorAuthMiddleware, (req, res, next) => {
+  if (!res.locals.authSession)
+    return res.status(401).json({ error: 'Browser authentication required' });
+  if (!credentialConnectionsRouter)
+    return res.status(503).json({
+      error: 'Apple Keychain connections require a signed Mac helper. Complete setup on the Mac.',
+    });
+  return credentialConnectionsRouter(req, res, next);
+});
 app.use('/api/connections', authMiddleware, (req, res, next) => {
   if (!connectionsRouter)
     return res.status(503).json({
@@ -2178,7 +2198,9 @@ app.use(
   operatorAuthMiddleware,
   createConnectionsAccessRouter((auth) => {
     const runtime = getConnectionsRuntime();
+    const keychain = getCredentialConnectionsRuntime();
     return {
+      ...(keychain ? { keychain: () => keychain.catalog() } : {}),
       accounts: async (signal: AbortSignal) => {
         const profiles = loadAccountProfiles();
         await profiles.checkSignIn(signal);

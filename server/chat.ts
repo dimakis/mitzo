@@ -1,3 +1,5 @@
+import { createCredentialSdkServer, credentialSdkPermission } from './credential-sdk-tools.js';
+import { CONNECTION_TOOL_INSTRUCTIONS } from './session-credential-tools.js';
 import { clearUrlAccessGrants } from './url-access-tool.js';
 import {
   createGithubPublishingTool,
@@ -1688,11 +1690,22 @@ async function _startChatInner(
       );
       options.onStartupAdmission?.();
     } else {
-      const decide = webAccessSdkPermission(
+      const existingDecision = webAccessSdkPermission(
         buildPermissionHandler(clientId, registry, {
           onDemandCreate: buildOnDemandCreate(wtId, clientId),
         }),
       );
+      const connectionServer = createCredentialSdkServer(
+        () => session.sessionId ?? options.resume ?? newSdkSessionId,
+        session,
+        registry,
+      );
+      const decide: ReturnType<typeof buildPermissionHandler> = (name, input, opts) => {
+        const keychain = credentialSdkPermission(name, input, clientId, registry, session);
+        return keychain && !opts.forcePrompt
+          ? Promise.resolve(keychain)
+          : existingDecision(name, input, opts);
+      };
       const githubPublishing = createGithubPublishingTool(
         () => session.sessionId ?? options.resume ?? newSdkSessionId ?? '',
         registry,
@@ -1734,7 +1747,11 @@ async function _startChatInner(
             systemPrompt: {
               type: 'preset',
               preset: 'claude_code',
-              append: systemPromptAppend + WEB_ACCESS_INSTRUCTIONS + GITHUB_PUBLISHING_INSTRUCTIONS,
+              append:
+                systemPromptAppend +
+                WEB_ACCESS_INSTRUCTIONS +
+                GITHUB_PUBLISHING_INSTRUCTIONS +
+                CONNECTION_TOOL_INSTRUCTIONS,
             },
             permissionMode: MODE_TO_SDK[session.mode] as 'plan' | 'default',
             allowedTools: [
@@ -1742,13 +1759,18 @@ async function _startChatInner(
               ...extraTools,
               WEB_ACCESS_SDK_TOOL,
               GITHUB_PUBLISH_SDK_TOOL,
+              'mcp__mitzo-connections__*',
             ],
             disallowedTools: ['WebSearch', 'WebFetch'],
             thinking: resolveThinking(options.model),
             ...(options.model ? { model: parseModelSpec(options.model).model } : {}),
             ...(resolvedResume ? { resume: resolvedResume } : {}),
             ...(newSdkSessionId ? { sessionId: newSdkSessionId } : {}),
-            mcpServers: { ...allMcpServers, 'mitzo-web-access': webAccess },
+            mcpServers: {
+              ...allMcpServers,
+              'mitzo-web-access': webAccess,
+              'mitzo-connections': connectionServer,
+            },
             hooks: buildSessionPermissionHooks(decide, hooks),
             canUseTool: decide,
           },

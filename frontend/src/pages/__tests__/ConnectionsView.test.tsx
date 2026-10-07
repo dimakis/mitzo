@@ -753,7 +753,11 @@ describe('ConnectionsView', () => {
   it('resets selected profiles when changing the template', async () => {
     await render();
     await chooseJiraToAssignments();
-    act(() => (container.querySelector('input[type="checkbox"]') as HTMLInputElement).click());
+    act(() =>
+      (
+        container.querySelector('.connections-profiles input[type="checkbox"]') as HTMLInputElement
+      ).click(),
+    );
     await act(async () => button('Back').click());
     await act(async () => button('Back').click());
     await act(async () => button('Back').click());
@@ -766,14 +770,19 @@ describe('ConnectionsView', () => {
     );
     await continueWizard();
     await continueWizard();
-    expect((container.querySelector('input[type="checkbox"]') as HTMLInputElement).checked).toBe(
-      false,
-    );
+    expect(
+      (container.querySelector('.connections-profiles input[type="checkbox"]') as HTMLInputElement)
+        .checked,
+    ).toBe(false);
   });
   it('resets the complete wizard when a refreshed catalog removes its selected template', async () => {
     await render();
     await chooseJiraToAssignments();
-    act(() => (container.querySelector('input[type="checkbox"]') as HTMLInputElement).click());
+    act(() =>
+      (
+        container.querySelector('.connections-profiles input[type="checkbox"]') as HTMLInputElement
+      ).click(),
+    );
     vi.mocked(connections.getConnectionTemplates).mockResolvedValue({
       ...templates,
       templates: templates.templates.filter(
@@ -796,9 +805,10 @@ describe('ConnectionsView', () => {
     );
     await continueWizard();
     await continueWizard();
-    expect((container.querySelector('input[type="checkbox"]') as HTMLInputElement).checked).toBe(
-      false,
-    );
+    expect(
+      (container.querySelector('.connections-profiles input[type="checkbox"]') as HTMLInputElement)
+        .checked,
+    ).toBe(false);
   });
   it('does not retain secret component state across unmount and re-entry', async () => {
     await render();
@@ -814,7 +824,11 @@ describe('ConnectionsView', () => {
   it('submits generic fields and one-shot credentials only after review, then clears the secret', async () => {
     await render();
     await chooseJiraToAssignments();
-    act(() => (container.querySelector('input[type="checkbox"]') as HTMLInputElement).click());
+    act(() =>
+      (
+        container.querySelector('.connections-profiles input[type="checkbox"]') as HTMLInputElement
+      ).click(),
+    );
     await continueWizard();
     expect(container.textContent).toContain('Effective access review');
     expect(container.textContent).toContain('Read Jira metadata.');
@@ -832,9 +846,10 @@ describe('ConnectionsView', () => {
     );
     expect(container.textContent).not.toContain('secret');
     await act(async () => button('Back').click());
-    expect((container.querySelector('input[type="checkbox"]') as HTMLInputElement).checked).toBe(
-      false,
-    );
+    expect(
+      (container.querySelector('.connections-profiles input[type="checkbox"]') as HTMLInputElement)
+        .checked,
+    ).toBe(false);
   });
   it('permits an explicitly unassigned connection when no profiles are eligible', async () => {
     vi.mocked(connections.getConnections).mockResolvedValue({
@@ -860,7 +875,11 @@ describe('ConnectionsView', () => {
     );
     await render();
     await chooseJiraToAssignments();
-    act(() => (container.querySelector('input[type="checkbox"]') as HTMLInputElement).click());
+    act(() =>
+      (
+        container.querySelector('.connections-profiles input[type="checkbox"]') as HTMLInputElement
+      ).click(),
+    );
     await continueWizard();
     await reauthorize();
     await act(async () => button('Verify and connect Jira').click());
@@ -875,7 +894,11 @@ describe('ConnectionsView', () => {
     });
     await render();
     await chooseJiraToAssignments();
-    act(() => (container.querySelector('input[type="checkbox"]') as HTMLInputElement).click());
+    act(() =>
+      (
+        container.querySelector('.connections-profiles input[type="checkbox"]') as HTMLInputElement
+      ).click(),
+    );
     await continueWizard();
     await reauthorize();
     await act(async () => button('Verify and connect Jira').click());
@@ -902,7 +925,11 @@ describe('ConnectionsView', () => {
     );
     await continueWizard();
     await continueWizard();
-    act(() => (container.querySelector('input[type="checkbox"]') as HTMLInputElement).click());
+    act(() =>
+      (
+        container.querySelector('.connections-profiles input[type="checkbox"]') as HTMLInputElement
+      ).click(),
+    );
     await continueWizard();
     await reauthorize();
     await act(async () => button('Verify and connect Jira v2').click());

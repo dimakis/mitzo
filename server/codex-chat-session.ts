@@ -1,4 +1,8 @@
 import {
+  sessionCredentialTools,
+  CONNECTION_TOOL_INSTRUCTIONS,
+} from './session-credential-tools.js';
+import {
   createGithubPublishingTool,
   githubPublishingDefinition,
   GITHUB_PUBLISHING_INSTRUCTIONS,
@@ -866,6 +870,36 @@ async function openCodexChatBound(
         startupReservation?.();
         throw error;
       });
+  const connectionTools = sessionCredentialTools(
+    options.conversationId,
+    options.session,
+    options.registry,
+    '',
+    {
+      providers: () => [
+        ...managedConnections.map((c) => ({
+          id: `openshell:${c.gatewayProviderName}`,
+          label: c.label,
+          endpoint: c.endpoint,
+          provider: c.gatewayProviderName,
+          transport: 'openshell',
+          access: 'attached',
+        })),
+        ...grantableProviders.map((provider) => ({
+          id: `openshell:${provider}`,
+          label:
+            onDemandConnections.find((c) => c.gatewayProviderName === provider)?.label ??
+            INTEGRATION_PROVIDER_LABELS[provider] ??
+            provider,
+          endpoint: onDemandConnections.find((c) => c.gatewayProviderName === provider)?.endpoint,
+          provider,
+          transport: 'openshell',
+          access: 'request_session_access',
+        })),
+      ],
+      request: requestIntegrationAccess,
+    },
+  );
   const managedCapabilityConnection = options.binding?.accountId
     ? (managedConnections.find((connection) => connection.templateId === 'github-readonly') ?? null)
     : null;
@@ -918,6 +952,7 @@ async function openCodexChatBound(
   }
   const baseSystemPrompt =
     options.systemPrompt +
+    CONNECTION_TOOL_INSTRUCTIONS +
     WEB_ACCESS_INSTRUCTIONS +
     GITHUB_PUBLISHING_INSTRUCTIONS +
     `\nWhen the user asks you to build a reusable Symposium agent profile in this conversation, use ${SYMPOSIUM_PROPOSE_PROFILE_TOOL} to submit portable guidance for review. The tool only drafts a proposal; tell the user to edit and save it in Mitzo. Do not include credentials, transcript text, session or machine paths, account bindings, or runtime grants.\n` +
@@ -1097,12 +1132,14 @@ async function openCodexChatBound(
     },
     tools: connectedOpenShell
       ? [
+          ...connectionTools.definitions,
           ...openShellHostTools,
           ...capabilityTools.definitions,
           webAccessDefinition,
           githubPublishingDefinition,
         ]
       : [
+          ...connectionTools.definitions,
           symposiumProposeProfileDefinition,
           ...nativeToolDefinitions,
           ...mcp.definitions,
@@ -1168,6 +1205,8 @@ async function openCodexChatBound(
         }
       : {}),
     executeTool: async (name, input, signal, callContext) => {
+      const keychainResult = await connectionTools.execute(name, input, signal);
+      if (keychainResult) return keychainResult;
       if (name === REQUEST_GITHUB_PUBLISH) return githubPublishing(input, signal, callContext);
       if (name === SYMPOSIUM_PROPOSE_PROFILE_TOOL) {
         signal.throwIfAborted();

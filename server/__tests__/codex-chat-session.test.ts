@@ -301,6 +301,9 @@ it('does not advertise unavailable host tools to an OpenShell runtime', async ()
   expect(mocks.conversationOptions?.systemPrompt).not.toContain('Mitzo supplies host tools');
   expect(mocks.conversationOptions?.runtimeConfig).toEqual({ web_search: 'disabled' });
   expect(mocks.conversationOptions?.tools).toEqual([
+    expect.objectContaining({ name: 'ListConnections' }),
+    expect.objectContaining({ name: 'RequestConnectionAccess' }),
+    expect.objectContaining({ name: 'ConnectionRequest' }),
     expect.objectContaining({ name: 'TelosCreateOutcome' }),
     expect.objectContaining({ name: 'TelosSaveArtifact' }),
     expect.objectContaining({ name: 'TelosFindArtifacts' }),
@@ -478,6 +481,9 @@ it('advertises reviewed per-chat provider grants to a managed OpenShell runtime'
       },
     );
     expect(mocks.conversationOptions?.tools).toEqual([
+      expect.objectContaining({ name: 'ListConnections' }),
+      expect.objectContaining({ name: 'RequestConnectionAccess' }),
+      expect.objectContaining({ name: 'ConnectionRequest' }),
       expect.objectContaining({ name: 'TelosCreateOutcome' }),
       expect.objectContaining({ name: 'TelosSaveArtifact' }),
       expect.objectContaining({ name: 'TelosFindArtifacts' }),
@@ -1810,4 +1816,27 @@ it('describes an active transport interruption without claiming a failed provide
   ).toBe(
     'The Codex connection was interrupted. The turn outcome is unknown; inspect saved work before continuing.',
   );
+});
+
+it('offers Keychain connection tools inside OpenShell alongside existing host capabilities', async () => {
+  vi.clearAllMocks();
+  vi.stubEnv('MITZO_OPENSHELL_SANDBOX_NAME', 'sandbox');
+  try {
+    const chat = await openCodexChat({
+      ...options(new AbortController()),
+      systemPrompt: 'base prompt',
+    });
+    const tools = mocks.conversationOptions?.tools as Array<{ name: string }>;
+    expect(tools.map((t) => t.name)).toEqual(
+      expect.arrayContaining([
+        'ListConnections',
+        'RequestConnectionAccess',
+        'ConnectionRequest',
+        'RequestWebAccess',
+      ]),
+    );
+    chat.close();
+  } finally {
+    vi.unstubAllEnvs();
+  }
 });

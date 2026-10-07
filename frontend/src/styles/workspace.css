@@ -358,7 +358,8 @@
   margin: 14px 0;
   font-size: 14px;
 }
-.connections-field input {
+.connections-field input,
+.connections-field select {
   min-height: 42px;
   padding: 9px 10px;
   border: 1px solid var(--workspace-line);
@@ -1305,4 +1306,10 @@
   justify-content: center;
   flex-wrap: wrap;
   gap: 10px;
+}
+
+.connections-form-fields {
+  border: 0;
+  padding: 0;
+  min-width: 0;
 }

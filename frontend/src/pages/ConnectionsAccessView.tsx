@@ -22,6 +22,7 @@ const sourceLabels: Record<ConnectionsAccessInventory['sources'][number]['id'], 
   personal: 'Personal accounts',
   google: 'Google Workspace',
   legacy: 'Operator-managed services',
+  keychain: 'Apple Keychain services',
 };
 const verificationLabels = {
   verified: 'Verified',

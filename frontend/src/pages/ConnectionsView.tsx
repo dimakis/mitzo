@@ -1,3 +1,4 @@
+import { CredentialConnectionsPanel } from '../components/CredentialConnectionsPanel';
 import { SymposiumPersonalConnections } from '../components/SymposiumPersonalConnections';
 import { GoogleWorkspaceControls } from '../components/GoogleWorkspaceControls';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -306,6 +307,7 @@ export function ConnectionsView() {
         description="Choose services for your AI accounts. Existing chats can request GitHub publishing after approval. Other service connections are checked when a chat connects; removal and revocation reduce access immediately."
       />
       <SymposiumPersonalConnections />
+      <CredentialConnectionsPanel />
       {message && (
         <p className="connections-notice" role="status">
           {message}
@@ -536,6 +538,7 @@ function PageState({ text, error, retry }: { text: string; error?: boolean; retr
     <main className="workspace-page connections-page">
       <WorkspacePageHeading title="Connections" />
       <SymposiumPersonalConnections />
+      <CredentialConnectionsPanel />
       <p role={error ? 'alert' : undefined}>{text}</p>
       {retry && (
         <button className="workspace-primary" onClick={() => void retry()}>
