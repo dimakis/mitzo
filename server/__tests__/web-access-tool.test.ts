@@ -41,6 +41,16 @@ describe('shared web access tool wiring', () => {
       rememberSessionGrant: false,
     });
   });
+  it('passes the owning conversation and controller tool-operation ID to search', async () => {
+    const f = fixture();
+    const input = { operation: 'search', query: 'Revenue', reason: 'Check guidance' };
+    approve.mockResolvedValue({ behavior: 'allow', updatedInput: input });
+    await f.execute(input, new AbortController().signal);
+    expect(f.search).toHaveBeenCalledWith('Revenue', expect.any(AbortSignal), {
+      parentSessionId: 'conversation',
+      operationId: approve.mock.calls[0][2].toolUseID,
+    });
+  });
   it('remembers only searches across tool recreation until the account or model changes', async () => {
     const f = fixture();
     const signal = new AbortController().signal;
@@ -53,6 +63,18 @@ describe('shared web access tool wiring', () => {
     const recreated = createWebAccessTool('conversation', f.registry, f.search);
     await recreated({ operation: 'search', query: 'Second', reason: 'Research' }, signal);
     expect(approve).toHaveBeenCalledTimes(1);
+    expect(f.search).toHaveBeenCalledTimes(2);
+    const firstExecution = f.search.mock.calls[0][2];
+    const secondExecution = f.search.mock.calls[1][2];
+    expect(firstExecution).toEqual({
+      parentSessionId: 'conversation',
+      operationId: approve.mock.calls[0][2].toolUseID,
+    });
+    expect(secondExecution).toEqual({
+      parentSessionId: 'conversation',
+      operationId: expect.any(String),
+    });
+    expect(secondExecution.operationId).not.toBe(firstExecution.operationId);
     await recreated({ operation: 'fetch', url: 'https://example.com', reason: 'Read' }, signal);
     expect(approve).toHaveBeenCalledTimes(2);
     expect(approve.mock.calls.at(-1)?.[2]).toMatchObject({ approvalScope: 'request' });

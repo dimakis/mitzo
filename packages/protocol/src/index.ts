@@ -242,3 +242,5 @@ export type {
 } from './notifications.js';
 
 export type { BackupRunStatus, BackupRun, BackupOverview } from './backup.js';
+
+export { isRegisteredConversation } from './conversation-identity.js';

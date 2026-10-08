@@ -762,6 +762,17 @@ describe('session routes', () => {
     expect(res.status).toBe(401);
   });
 
+  it('does not expose raw events for an unregistered conversation', async () => {
+    const { eventStore } = await import('../chat.js');
+    const reader = vi.mocked(eventStore.getEventsAfter);
+    reader.mockClear();
+    const res = await request(app)
+      .get('/api/sessions/unregistered/events?after=0')
+      .set('Cookie', authCookie);
+    expect(res.status).toBe(404);
+    expect(reader).not.toHaveBeenCalled();
+  });
+
   it('GET /api/sessions/:id/meta — returns session metadata', async () => {
     const res = await request(app).get('/api/sessions/s1/meta').set('Cookie', authCookie);
     expect(res.status).toBe(200);
