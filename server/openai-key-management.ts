@@ -126,7 +126,11 @@ export class OpenAIKeyManagement {
       completed?.binding === binding &&
       keychain.version === completed.id &&
       gateway.version === completed.gatewayVersion;
-    const needsAttention = !!pending || (!!completed && !ready);
+    const knownUnpairedKey =
+      !completed &&
+      (keychain.version !== null ||
+        (latest?.phase === 'aborted' && latest.keychainBeforeVersion !== null));
+    const needsAttention = !!pending || (!!completed && !ready) || knownUnpairedKey;
     const status: OpenAIKeyHealth = {
       accountId: account.id,
       label: account.label,
@@ -135,7 +139,11 @@ export class OpenAIKeyManagement {
       canSynchronize: pending
         ? pending.binding === binding && keychain.version === pending.id
         : true,
-      errorCode: needsAttention ? (pending?.errorCode ?? 'CREDENTIAL_DRIFT') : null,
+      errorCode: needsAttention
+        ? (pending?.errorCode ?? 'CREDENTIAL_DRIFT')
+        : latest?.phase === 'aborted' && latest.errorCode === 'NOT_APPLIED'
+          ? 'NOT_APPLIED'
+          : null,
       verifiedAt: ready ? completed!.verifiedAt : null,
     };
     return { status, keychain, gateway, pending, binding };
@@ -169,9 +177,17 @@ export class OpenAIKeyManagement {
   /** Called while ConnectionsService holds its admission gate. Legacy unadopted keys are unchanged. */
   async assertReady(accountId: string, signal: AbortSignal) {
     const latest = this.options.store.latest(accountId);
-    if (!latest || (latest.phase === 'aborted' && !this.options.store.completed(accountId))) return;
+    if (!latest) return;
     const account = this.account(accountId);
-    if ((await this.state(account, signal)).status.health !== 'ready')
+    const state = await this.state(account, signal);
+    const unchangedLegacy =
+      latest.phase === 'aborted' &&
+      !this.options.store.completed(accountId) &&
+      state.status.health === 'not_verified' &&
+      state.keychain.version === null &&
+      latest.keychainBeforeVersion === null &&
+      state.gateway.version === latest.gatewayVersion;
+    if (state.status.health !== 'ready' && !unchangedLegacy)
       throw new Error('OpenAI credentials need attention');
   }
   manages(accountId: string) {
@@ -251,11 +267,6 @@ export class OpenAIKeyManagement {
       if (selected.pending && selected.pending.binding !== selected.binding)
         throw new Error('Account binding changed; operator reconciliation is required');
       await this.validate(input.apiKey, signal);
-      if (selected.pending)
-        this.options.store.update(selected.pending.id, {
-          phase: 'aborted',
-          errorCode: 'SUPERSEDED',
-        });
       return this.install(selected, input.apiKey, signal);
     });
   }
@@ -270,12 +281,15 @@ export class OpenAIKeyManagement {
       (await this.options.gateway.inspect(account, signal)).version !== gateway.version
     )
       throw new Error('Connection changed; refresh and try again.');
-    const operation = this.options.store.begin({
-      accountId: account.id,
-      binding,
-      gatewayVersion: gateway.version,
-      keychainBeforeVersion: keychain.version,
-    });
+    const operation = this.options.store.begin(
+      {
+        accountId: account.id,
+        binding,
+        gatewayVersion: gateway.version,
+        keychainBeforeVersion: keychain.version,
+      },
+      selected.pending?.id,
+    );
     try {
       await this.options.gateway.pause(account, signal);
       const current = await this.options.keychain.read(account.credentialRef, signal);

@@ -99,6 +99,28 @@ function fixture() {
   };
 }
 describe('OpenAI key replacement and recovery', () => {
+  it('keeps the previous blocking intent if a superseding replacement fails before installation', async () => {
+    const f = fixture();
+    f.gateway.replace.mockRejectedValueOnce(new Error('offline'));
+    await f.replace();
+    const pendingId = f.store.pending()[0]!.id;
+    f.validateKey.mockImplementationOnce(async () => {
+      f.gateway.inspect.mockRejectedValueOnce(new Error('offline'));
+    });
+    await expect(f.replace('second-key')).rejects.toThrow();
+    expect(f.store.pending().map((operation) => operation.id)).toEqual([pendingId]);
+    await expect(f.manager.assertReady('work', signal())).rejects.toThrow('need attention');
+  });
+  it('keeps admission blocked when a superseding write aborts over an already unsynchronized key', async () => {
+    const f = fixture();
+    f.gateway.replace.mockRejectedValueOnce(new Error('offline'));
+    await f.replace();
+    f.keychain.write.mockRejectedValueOnce(new Error('locked'));
+    await f.replace('second-key');
+    await f.manager.recover(signal());
+    expect((await f.manager.list(signal()))[0]!.health).toBe('needs_attention');
+    await expect(f.manager.assertReady('work', signal())).rejects.toThrow('need attention');
+  });
   it('can supersede a partial update with an explicitly entered replacement when the saved key changed', async () => {
     const f = fixture();
     f.gateway.replace.mockRejectedValueOnce(new Error('offline'));

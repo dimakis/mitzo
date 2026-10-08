@@ -52,8 +52,15 @@ export class OpenAIKeyOperationStore {
   }
   begin(
     input: Pick<KeyOperation, 'accountId' | 'binding' | 'gatewayVersion' | 'keychainBeforeVersion'>,
+    supersedeId?: string,
   ): KeyOperation {
     return this.db.transaction(() => {
+      const pending = this.pending().find((operation) => operation.accountId === input.accountId);
+      if (pending) {
+        if (pending.id !== supersedeId || pending.binding !== input.binding)
+          throw new Error('Connection changed');
+        this.update(pending.id, { phase: 'aborted', errorCode: 'SUPERSEDED' });
+      } else if (supersedeId) throw new Error('Connection changed');
       const operation: KeyOperation = {
         ...input,
         id: randomUUID(),
