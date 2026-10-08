@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom';
 import { CredentialConnectionsPanel } from '../components/CredentialConnectionsPanel';
 import { SymposiumPersonalConnections } from '../components/SymposiumPersonalConnections';
 import { OpenAIKeyControls } from '../components/OpenAIKeyControls';
+import { OpenAIAccountEnrollment } from '../components/OpenAIAccountEnrollment';
 import { GoogleWorkspaceControls } from '../components/GoogleWorkspaceControls';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { WorkspacePageHeading } from '../components/WorkspacePageHeading';
@@ -137,7 +138,8 @@ export function ConnectionsView({ mode = 'add', connectionId }: ConnectionsViewP
       mode === 'manage' ||
       mode === 'google' ||
       mode === 'legacy' ||
-      mode === 'openai'
+      mode === 'openai' ||
+      mode === 'openai-add'
     )
       void refresh();
   }, [refresh, mode]);
@@ -337,19 +339,21 @@ export function ConnectionsView({ mode = 'add', connectionId }: ConnectionsViewP
   const managed =
     data?.connections.filter((item) => !connectionId || item.id === connectionId) ?? [];
   const title =
-    mode === 'openai'
-      ? 'Manage OpenAI API'
-      : mode === 'add'
-        ? 'Add connection'
-        : mode === 'personal'
-          ? 'Manage ChatGPT account'
-          : mode === 'google'
-            ? 'Manage Google Workspace'
-            : mode === 'keychain'
-              ? 'Apple Keychain connections'
-              : mode === 'legacy'
-                ? 'Provider details'
-                : 'Manage connection';
+    mode === 'openai-add'
+      ? 'Add OpenAI API account'
+      : mode === 'openai'
+        ? 'Manage OpenAI API'
+        : mode === 'add'
+          ? 'Add connection'
+          : mode === 'personal'
+            ? 'Manage ChatGPT account'
+            : mode === 'google'
+              ? 'Manage Google Workspace'
+              : mode === 'keychain'
+                ? 'Apple Keychain connections'
+                : mode === 'legacy'
+                  ? 'Provider details'
+                  : 'Manage connection';
   const identityFields = template?.connectionFields.filter((field) => field.kind === 'email') ?? [];
   const resourceFields = template?.connectionFields.filter((field) => field.kind !== 'email') ?? [];
   const stepValid =
@@ -475,6 +479,20 @@ export function ConnectionsView({ mode = 'add', connectionId }: ConnectionsViewP
                     Choose ChatGPT
                   </button>
                 </article>
+                {data?.openAIAccountsManaged && !loadError && !connectionsRefreshing && (
+                  <article className="access-row">
+                    <span className="access-row-icon accounts" aria-hidden="true">
+                      ✧
+                    </span>
+                    <div className="access-row-copy">
+                      <h3>OpenAI API</h3>
+                      <p>Add a new work account for new chats.</p>
+                    </div>
+                    <Link className="access-row-action" to="/connections?manage=openai-add">
+                      Choose OpenAI API
+                    </Link>
+                  </article>
+                )}
               </div>
             </section>
             <section className="access-section" aria-labelledby="add-services-heading">
@@ -665,6 +683,18 @@ export function ConnectionsView({ mode = 'add', connectionId }: ConnectionsViewP
               />
             ) : (
               <p>Google Workspace is not configured.</p>
+            ))}
+          {data &&
+            mode === 'openai-add' &&
+            (data.openAIAccountsManaged && !loadError ? (
+              <OpenAIAccountEnrollment
+                csrf={csrf}
+                expiresAt={csrfExpiresAt}
+                authorized={!!csrf && csrfExpiresAt > Date.now() && !connectionsRefreshing}
+                onReauthorizationNeeded={requireReauthorization}
+              />
+            ) : (
+              <p>Adding OpenAI API accounts is unavailable.</p>
             ))}
           {data &&
             mode === 'openai' &&

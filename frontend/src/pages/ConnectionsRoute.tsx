@@ -12,6 +12,7 @@ export function ConnectionsRoute() {
           requested === 'google' ||
           requested === 'legacy' ||
           requested === 'openai' ||
+          requested === 'openai-add' ||
           requested === 'keychain'
         ? requested
         : 'add';

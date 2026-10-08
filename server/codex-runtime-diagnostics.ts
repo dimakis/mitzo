@@ -2,6 +2,7 @@ import { CodexRequestError, CodexTransportError } from './codex-app-server-clien
 import { nativeFailureCategories } from './codex-native-diagnostics.js';
 import { ProviderFailureError, providerFailureTelemetry } from './provider-failure.js';
 import { CodexStartupError } from './codex-startup-error.js';
+import { RuntimePolicyAttestationError } from './openshell-runtime-policy.js';
 
 const requestMethods = new Set([
   'initialize',
@@ -19,6 +20,10 @@ const requestMethods = new Set([
 
 /** Only fixed diagnostics from typed errors; never relay upstream exception text. */
 export function codexRuntimeDiagnostic(error: Error): string | undefined {
+  if (error.message === 'OpenShell ChatGPT grant is expired, revoked, or requires sign-in')
+    return 'The selected ChatGPT connection needs a fresh sign-in. Reconnect that account before retrying.';
+  if (error instanceof RuntimePolicyAttestationError)
+    return 'The observed sandbox policy differs from the reviewed runtime contract. Check runtime configuration before retrying.';
   if (error.message === 'Codex startup provider initialization outcome is unverified')
     return 'Native chat initialization has an unverified outcome. Saved work is preserved; inspect recovery before retrying.';
   if (error.message === 'Codex conversation binding unavailable or changed')
@@ -53,6 +58,10 @@ export function codexRuntimeDiagnostic(error: Error): string | undefined {
 
 /** Shared by startup and running turns, with bounded fields safe for logs. */
 export function codexRuntimeErrorTelemetry(error: Error): Record<string, unknown> {
+  if (error.message === 'OpenShell ChatGPT grant is expired, revoked, or requires sign-in')
+    return { subscriptionSignInRequired: true };
+  if (error instanceof RuntimePolicyAttestationError)
+    return { runtimePolicyAttestationFailed: true };
   if (error instanceof CodexStartupError)
     return {
       ...(error.cause instanceof Error ? codexRuntimeErrorTelemetry(error.cause) : {}),

@@ -406,6 +406,54 @@ export class ConnectionsService {
       }
     }
   }
+  /** Controller authority for the exact retained automatic and approved on-demand bindings. */
+  async runtimePolicyContracts(
+    automaticConnections: readonly Connection[],
+    accountId: string,
+    signal: AbortSignal,
+    approvedGrantableProviders: readonly string[] = [],
+  ): Promise<{ name: string; id: string; type: string; policy: ProviderPolicy }[]> {
+    const selected = automaticConnections.map((connection) => {
+      const current = this.current(connection.id, connection.revision);
+      if (
+        current.status !== 'active' ||
+        current.verifiedAt === null ||
+        !current.gatewayProviderId ||
+        !current.desiredAccountIds.includes(accountId) ||
+        (current.templateId === 'custom-rest-readonly' &&
+          current.publicConfig.attachmentMode !== 'automatic')
+      )
+        throw new Error('Connection permissions changed. Start a new conversation.');
+      return current;
+    });
+    for (const name of approvedGrantableProviders.filter((name) =>
+      name.startsWith('mitzo-conn-'),
+    )) {
+      const connection = this.catalog().find(
+        (connection) => connection.gatewayProviderName === name,
+      );
+      if (!connection) throw new Error('Connection permissions changed. Start a new conversation.');
+      selected.push(
+        await this.authorizeOnDemandLocked(connection.id, connection.revision, accountId, signal),
+      );
+    }
+    if (
+      new Set(selected.map((connection) => connection.gatewayProviderName)).size !== selected.length
+    )
+      throw new Error('Managed connection runtime authority is ambiguous');
+    const contracts = [];
+    for (const connection of selected) {
+      const provider = await this.boundProvider(connection, signal);
+      if (!provider) throw new Error('Managed provider unavailable');
+      contracts.push({
+        name: provider.name,
+        id: provider.id,
+        type: provider.type,
+        policy: this.policyFor(connection),
+      });
+    }
+    return contracts;
+  }
   private async drain(c: Connection, signal: AbortSignal, removedAccounts?: string[]) {
     await this.boundProviderForCleanup(c, signal);
     for (const name of await this.gateway.attachments(c.gatewayProviderName, signal)) {

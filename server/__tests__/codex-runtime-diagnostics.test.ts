@@ -26,6 +26,18 @@ it('retains safe transport failure classes', () => {
   expect(codexRuntimeDiagnostic(error)).toMatch(/timed out/);
   expect(codexRuntimeErrorTelemetry(error)).toEqual({ transportErrorCategory: 'timeout' });
 });
+
+it('explains a rejected OpenShell subscription grant without relaying arbitrary exception text', () => {
+  const reason = 'OpenShell ChatGPT grant is expired, revoked, or requires sign-in';
+  const error = new Error(reason);
+  expect(codexRuntimeDiagnostic(error)).toBe(
+    'The selected ChatGPT connection needs a fresh sign-in. Reconnect that account before retrying.',
+  );
+  expect(codexRuntimeErrorTelemetry(error)).toEqual({ subscriptionSignInRequired: true });
+  const upstream = new Error(reason + ': Bearer sk-secret https://private.example');
+  expect(codexRuntimeDiagnostic(upstream)).toBeUndefined();
+  expect(codexRuntimeErrorTelemetry(upstream)).toEqual({});
+});
 it.each(['config/read', 'thread/turns/list'])('retains the known %s RPC method', (method) => {
   expect(codexRuntimeErrorTelemetry(new CodexRequestError(method, 'invalid_request'))).toEqual({
     requestMethod: method,

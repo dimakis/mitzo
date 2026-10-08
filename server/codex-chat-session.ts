@@ -218,7 +218,13 @@ export function publicCodexRuntimeError(error: Error): string {
   if (error instanceof CodexStartupError) {
     let cause = error.cause;
     while (cause instanceof CodexStartupError) cause = cause.cause;
-    const detail = cause instanceof Error ? publicCodexRuntimeError(cause) : undefined;
+    const causeDetail = cause instanceof Error ? publicCodexRuntimeError(cause) : undefined;
+    // A diagnostic from a preparation hook cannot prove dispatch never happened
+    // once the native turn/start boundary was crossed.
+    const detail =
+      error.phase === 'initial_turn_dispatch'
+        ? causeDetail?.replace(' No provider turn was started.', '')
+        : causeDetail;
     const inferredMigration =
       error.phase !== 'runtime_admission' &&
       detail?.startsWith('Retained sandbox migration is blocked.');
@@ -639,6 +645,15 @@ async function openCodexChatBound(
         account: selectedOpenShellAccountRoute(options),
         connectionAccountId: options.binding.accountId,
         enforceConnectionAttachments: !connectionService,
+        connectionRuntimePolicies: connectionService
+          ? (_name, signal, approvedGrantableProviders = []) =>
+              connectionService.runtimePolicyContracts(
+                managedConnections,
+                options.binding.accountId,
+                signal,
+                approvedGrantableProviders,
+              )
+          : undefined,
         verifyConnections: connectionService
           ? (name, signal, approvedGrantableProviders = []) =>
               connectionService.verifyRuntimeSandbox(
@@ -1602,6 +1617,7 @@ async function openCodexChatBound(
 }
 
 async function sendInitialCodexTurn(options: Options, runtime: CodexConversation) {
+  const dispatchCount = runtime.getTurnDispatchCount();
   try {
     options.session.abortController.signal.throwIfAborted();
     await runtime.send({
@@ -1613,6 +1629,11 @@ async function sendInitialCodexTurn(options: Options, runtime: CodexConversation
       images: options.images,
     });
   } catch (cause) {
-    throw new CodexStartupError('initial_turn_dispatch', cause);
+    throw new CodexStartupError(
+      runtime.getTurnDispatchCount() === dispatchCount
+        ? 'initial_turn_preparation'
+        : 'initial_turn_dispatch',
+      cause,
+    );
   }
 }

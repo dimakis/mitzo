@@ -413,6 +413,7 @@ export function setConnectionsRuntime(runtime: ConnectionsRuntime | null): void 
         capabilities: runtime.capabilities,
         googleWorkspace: runtime.googleWorkspace,
         openAIKeys: runtime.openAIKeys,
+        openAIAccounts: runtime.openAIAccounts,
       })
     : null;
   capabilityOperationsRouter = runtime

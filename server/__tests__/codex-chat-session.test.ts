@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   initialize: vi.fn(),
   close: vi.fn(),
   send: vi.fn(),
+  turnDispatchCount: 0,
   mcpClose: vi.fn(),
   connect: vi.fn(),
   permissionHandler: vi.fn(),
@@ -49,6 +50,7 @@ vi.mock('../codex-conversation-store.js', () => ({
 vi.mock('../codex-conversation.js', () => ({
   CodexConversation: class {
     constructor(options: { onClosed: () => void }) {
+      mocks.turnDispatchCount = 0;
       mocks.conversationOptions = options;
       mocks.close.mockImplementation(options.onClosed);
     }
@@ -59,6 +61,7 @@ vi.mock('../codex-conversation.js', () => ({
     setWebSearchGrant = mocks.setWebSearchGrant;
     getWebSearchGrant = mocks.getWebSearchGrant;
     close = mocks.close;
+    getTurnDispatchCount = () => mocks.turnDispatchCount;
     send = mocks.send;
   },
 }));
@@ -84,6 +87,8 @@ import {
 } from '../codex-chat-session.js';
 import { KnowledgePublicationUnavailableError } from '../knowledge-publication-bridge.js';
 import { CodexRequestError } from '../codex-app-server-client.js';
+import { CodexStartupError } from '../codex-startup-error.js';
+import { RuntimePolicyAttestationError } from '../openshell-runtime-policy.js';
 import { OpenShellRuntimeManager } from '../openshell-runtime.js';
 import * as migrationAdapter from '../openshell-runtime-migration-adapter.js';
 import * as lifecycleController from '../openshell-lifecycle-controller.js';
@@ -142,6 +147,15 @@ it('reports startup request failures without discarding their safe category', ()
   expect(publicCodexStartupError(error)).toMatch(/credentials or permissions/);
   expect(publicCodexStartupError(new Error('Bearer sk-secret'))).toBe(
     'Codex could not start this chat. Check runtime and account configuration before continuing.',
+  );
+});
+it('keeps fresh-sign-in advice when sandbox preparation rejects a subscription grant', () => {
+  const error = new CodexStartupError(
+    'sandbox_preparation',
+    new Error('OpenShell ChatGPT grant is expired, revoked, or requires sign-in'),
+  );
+  expect(publicCodexStartupError(error)).toBe(
+    `Chat startup failed during sandbox preparation. The selected ChatGPT connection needs a fresh sign-in. Reconnect that account before retrying. Reference: ${error.diagnosticId}`,
   );
 });
 it('scopes capability idempotency to the authoritative conversation identity', () => {
@@ -242,12 +256,29 @@ it('retains the failing initialization step while closing the runtime', async ()
   expect(mocks.mcpClose).toHaveBeenCalledOnce();
   expect(mocks.send).not.toHaveBeenCalled();
 });
+it('reports a first-send policy rejection as known preparation failure', async () => {
+  vi.clearAllMocks();
+  mocks.connect.mockResolvedValue({ definitions: [], close: mocks.mcpClose });
+  mocks.initialize.mockResolvedValueOnce(undefined);
+  const cause = new RuntimePolicyAttestationError('Runtime PRIVATE_COMMAND Bearer sk-secret');
+  mocks.send.mockRejectedValueOnce(cause);
+  const opening = openCodexChat(options(new AbortController()));
+  await expect(opening).rejects.toMatchObject({ phase: 'initial_turn_preparation', cause });
+  const error = await opening.catch((error) => error);
+  expect(publicCodexStartupError(error)).toContain('observed sandbox policy differs');
+  expect(publicCodexStartupError(error)).toContain('No provider turn was started.');
+  expect(publicCodexStartupError(error)).not.toMatch(/unknown|PRIVATE_COMMAND|sk-secret/);
+  expect(mocks.close).toHaveBeenCalledOnce();
+});
 it('retains uncertain-work advice when the first send fails after initialization', async () => {
   vi.clearAllMocks();
   mocks.connect.mockResolvedValue({ definitions: [], close: mocks.mcpClose });
   mocks.initialize.mockResolvedValueOnce(undefined);
   const cause = new Error('unknown failure after provider dispatch');
-  mocks.send.mockRejectedValueOnce(cause);
+  mocks.send.mockImplementationOnce(async () => {
+    mocks.turnDispatchCount += 1;
+    throw cause;
+  });
   const opening = openCodexChat(options(new AbortController()));
   await expect(opening).rejects.toMatchObject({ phase: 'initial_turn_dispatch', cause });
   const error = await opening.catch((error) => error);
