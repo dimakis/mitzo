@@ -188,7 +188,7 @@ function ResourceDetails({
             </div>
             <div>
               <dt>Model</dt>
-              <dd>{resource.lastSuccessfulUse.model}</dd>
+              <dd>{resource.lastSuccessfulUse.model ?? 'Model not recorded'}</dd>
             </div>
           </dl>
           <p className="workspace-muted">

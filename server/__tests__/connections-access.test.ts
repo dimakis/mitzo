@@ -153,6 +153,11 @@ it('reports successful account use as history without turning it into an authent
   );
   expect(inventory.resources[0].lastSuccessfulUse).toEqual({ model: 'luna', succeededAt: 100 });
   expect(inventory.resources[0].verification.state).toBe('unverified');
+  const withoutModel = await readConnectionsAccess(
+    { accounts: () => [{ ...account, lastSuccessfulUse: { model: null, succeededAt: 100 } }] },
+    { now: 200 },
+  );
+  expect(withoutModel.resources[0].lastSuccessfulUse).toEqual({ model: null, succeededAt: 100 });
   for (const lastSuccessfulUse of [
     { model: 'other', succeededAt: 100 },
     { model: 'luna', succeededAt: 300 },

@@ -112,3 +112,20 @@ it('shows service identity, repository scope and distinct additional GitHub acce
   expect(screen.getByRole('article', { name: 'GitHub · additional connection' })).toBeTruthy();
   expect(screen.queryByText('Verification is stale')).toBeNull();
 });
+
+it('shows completed account use without inventing a model when the provider does not report it', async () => {
+  vi.mocked(getConnectionsAccess).mockResolvedValue({
+    generatedAt: Date.now(),
+    sources: [],
+    resources: [{ ...account, lastSuccessfulUse: { model: null, succeededAt: 100 } }],
+  });
+  render(
+    <MemoryRouter>
+      <ConnectionsAccessView />
+    </MemoryRouter>,
+  );
+  const row = await screen.findByRole('article', { name: 'Work Vertex' });
+  expect(within(row).getByText(/Last used successfully/)).toBeTruthy();
+  fireEvent.click(within(row).getByRole('button', { name: 'Manage Work Vertex' }));
+  expect(within(screen.getByRole('dialog')).getByText('Model not recorded')).toBeTruthy();
+});

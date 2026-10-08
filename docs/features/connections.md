@@ -26,12 +26,13 @@ login or permissions guarantee. Account details keep configuration, sign-in and
 access evidence separate. Reserved `.invalid` placeholder email addresses are
 not displayed as account identities.
 
-Successful ordinary-chat results record primary observed model IDs against the
-exact account ID, provider and routing revision in `.mitzo/account-use.db`.
-Failed results, interrupted requests, subagent models and synthetic rendering
-events do not establish this evidence. A runtime that does not report an observed
-provider model retains its setup and sign-in evidence without invented model-use
-history. Only models still in the current account catalog are shown. Changing
+Successful ordinary-chat results record completed account use against the exact
+account ID, provider and routing revision in `.mitzo/account-use.db`.
+Failed results, interrupted requests and subagent models do not establish this
+evidence. Model IDs are recorded only from primary Claude SDK provider events;
+synthetic rendering and native-adapter model selections are not observations.
+Other runtimes retain completed account-use history with **Model not recorded**
+in the details, rather than an invented provider model. Only models still in the current account catalog are shown. Changing
 the account's routing revision prevents old evidence from being attributed to
 the replacement route. The store retains at most 1,000 account-route/model
 records, contains no prompts, credentials or emails, and survives restart.

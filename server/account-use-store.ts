@@ -4,9 +4,10 @@ import { join, resolve } from 'node:path';
 import type { AccountBinding } from '@mitzo/protocol';
 
 export interface SuccessfulAccountUse {
-  model: string;
+  model: string | null;
   succeededAt: number;
 }
+export type AccountUseBinding = Omit<AccountBinding, 'model'> & { model: string | null };
 type Route = Pick<AccountBinding, 'accountId' | 'provider' | 'profileRevision'>;
 
 /** Historical evidence only. Contains no prompts, credentials or account emails. */
@@ -21,7 +22,7 @@ export class AccountUseStore {
       model TEXT NOT NULL, succeeded_at INTEGER NOT NULL,
       PRIMARY KEY (account_id, provider, profile_revision, model))`);
   }
-  record(binding: AccountBinding, succeededAt = Date.now()): void {
+  record(binding: AccountUseBinding, succeededAt = Date.now()): void {
     if (!Number.isSafeInteger(succeededAt) || succeededAt < 0)
       throw new Error('Invalid use timestamp');
     this.db.transaction(() => {
@@ -35,7 +36,7 @@ export class AccountUseStore {
           binding.accountId,
           binding.provider,
           binding.profileRevision,
-          binding.model,
+          binding.model ?? '',
           succeededAt,
         );
       this.db.exec(`DELETE FROM account_use WHERE rowid IN (
@@ -43,6 +44,7 @@ export class AccountUseStore {
     })();
   }
   latest(route: Route, allowedModels: readonly string[]): SuccessfulAccountUse | undefined {
+    if (!allowedModels.length) return undefined;
     const rows = this.db
       .prepare(
         `SELECT model, succeeded_at FROM account_use
@@ -52,8 +54,8 @@ export class AccountUseStore {
       model: string;
       succeeded_at: number;
     }>;
-    const row = rows.find((row) => allowedModels.includes(row.model));
-    return row && { model: row.model, succeededAt: row.succeeded_at };
+    const row = rows.find((row) => !row.model || allowedModels.includes(row.model));
+    return row && { model: row.model || null, succeededAt: row.succeeded_at };
   }
   close(): void {
     this.db.close();

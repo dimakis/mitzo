@@ -28,6 +28,8 @@ it('persists successful use for the exact account route and currently allowed mo
     expect(store.latest(binding, [])).toBeUndefined();
     store.record(binding, 50);
     expect(store.latest(binding, ['luna'])?.succeededAt).toBe(100);
+    store.record({ ...binding, model: null }, 300);
+    expect(store.latest(binding, ['luna'])).toEqual({ model: null, succeededAt: 300 });
   } finally {
     store.close();
     rmSync(directory, { recursive: true, force: true });

@@ -50,6 +50,7 @@ test('Connections describes account evidence and service scope without contradic
         id: 'personal',
         label: 'Personal ChatGPT',
         provider: 'openai-codex',
+        lastSuccessfulUse: { model: null, succeededAt: now - 600_000 },
         signIn: {
           status: 'verified',
           source: 'openshell-provider-grant',
@@ -148,4 +149,9 @@ test('Connections describes account evidence and service scope without contradic
     dialog.getByText('Repository reads · PR publishing after approval', { exact: true }),
   ).toBeVisible();
   expect(await dialog.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
+  await dialog.getByRole('button', { name: 'Close details' }).click();
+  await page.getByRole('button', { name: 'Manage Personal ChatGPT' }).click();
+  await expect(
+    page.getByRole('dialog').getByText('Model not recorded', { exact: true }),
+  ).toBeVisible();
 });

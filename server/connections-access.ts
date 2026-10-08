@@ -200,7 +200,8 @@ export async function readConnectionsAccess(
         Number.isSafeInteger(account.lastSuccessfulUse.succeededAt) &&
         account.lastSuccessfulUse.succeededAt >= 0 &&
         account.lastSuccessfulUse.succeededAt <= now &&
-        account.models.some((model) => model.id === account.lastSuccessfulUse!.model)
+        (account.lastSuccessfulUse.model === null ||
+          account.models.some((model) => model.id === account.lastSuccessfulUse!.model))
       )
         row.lastSuccessfulUse = { ...account.lastSuccessfulUse };
       row.verification.reason = account.signIn

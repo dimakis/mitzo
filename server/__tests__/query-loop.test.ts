@@ -137,11 +137,11 @@ describe('runQueryLoop', () => {
   const clientId = 'test-client';
   let abortController: AbortController;
 
-  it('records only successful provider results with a primary observed model, not selected or subagent models', async () => {
+  it('separates completed account use from selected, synthetic and subagent models', async () => {
     const binding = {
       accountId: 'work',
       accountLabel: 'Work',
-      provider: 'openai',
+      provider: 'anthropic-vertex',
       profileRevision: 'route-1',
       model: 'selected-but-unused',
     };
@@ -179,8 +179,42 @@ describe('runQueryLoop', () => {
       undefined,
       { onSuccessfulAccountUse },
     );
-    expect(onSuccessfulAccountUse).toHaveBeenCalledExactlyOnceWith({ ...binding, model: 'luna' });
+    expect(onSuccessfulAccountUse.mock.calls.map(([use]) => use)).toEqual([
+      { ...binding, model: null },
+      { ...binding, model: 'luna' },
+    ]);
   });
+
+  it.each(['openai', 'openai-codex', 'google-vertex'])(
+    'keeps %s adapter model selections separate from provider model observations',
+    async (provider) => {
+      const binding = {
+        accountId: 'work',
+        accountLabel: 'Work',
+        provider,
+        profileRevision: 'route-1',
+        model: 'configured-model',
+      };
+      registry.get(clientId)!.accountBinding = binding;
+      const onSuccessfulAccountUse = vi.fn();
+      await runQueryLoop(
+        eventStream([
+          {
+            type: 'stream_event',
+            event: { type: 'message_start', message: { model: 'configured-model', usage: {} } },
+          },
+          { type: 'result', session_id: 'sess-use', is_error: false },
+        ]),
+        clientId,
+        registry,
+        abortController,
+        undefined,
+        undefined,
+        { onSuccessfulAccountUse },
+      );
+      expect(onSuccessfulAccountUse).toHaveBeenCalledExactlyOnceWith({ ...binding, model: null });
+    },
+  );
 
   beforeEach(() => {
     transport = fakeTransport();
