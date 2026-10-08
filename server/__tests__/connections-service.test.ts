@@ -1002,3 +1002,37 @@ describe('ConnectionsService', () => {
     rmSync(dir, { recursive: true, force: true });
   });
 });
+
+it('reports the exact saved connection when new-connection provisioning fails', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'connections-create-recovery-'));
+  const store = new ConnectionStore(join(dir, 'db'));
+  const gateway = {
+    ...jiraAdapter(),
+    verifyCompatibility: vi.fn().mockResolvedValue(undefined),
+    get: vi.fn().mockResolvedValue(undefined),
+    provision: vi.fn().mockRejectedValue(new Error('Provider failed')),
+  };
+  const service = new ConnectionsService(store, gateway as never);
+  try {
+    const failure = await service
+      .createAndProvision(
+        {
+          ownerId: 'operator',
+          templateId: 'jira-readonly',
+          templateVersion: 1,
+          label: 'Research',
+          fields: { email: 'person@example.test' },
+          desiredAccountIds: [],
+        },
+        { token: 'one-shot' },
+        AbortSignal.timeout(500),
+      )
+      .catch((error: unknown) => error);
+    expect(failure).toMatchObject({ connectionId: store.list('operator')[0]?.id });
+    expect(store.list('operator')).toHaveLength(1);
+    expect(gateway.provision).toHaveBeenCalledOnce();
+  } finally {
+    store.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

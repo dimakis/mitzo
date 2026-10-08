@@ -1,164 +1,64 @@
+import { Link } from 'react-router-dom';
 import { SymposiumPersonalConnections } from '../components/SymposiumPersonalConnections';
 import { GoogleWorkspaceControls } from '../components/GoogleWorkspaceControls';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { WorkspacePageHeading } from '../components/WorkspacePageHeading';
 import {
   createConnection,
-  deleteConnection,
+  ConnectionCreationFailure,
   getConnectionAudit,
-  getConnectionCapabilityGrants,
   getConnectionTemplates,
   getConnections,
   reauthorize,
-  retryConnection,
-  revokeConnection,
-  rotateConnection,
-  setConnectionCapabilityGrant,
-  testConnection,
-  updateAssignments,
 } from '../lib/connections-api';
+import {
+  scopeFieldValid,
+  scopeValid,
+  scopeValues,
+  secretValid,
+  templateKey,
+} from '../lib/connections-form';
+import {
+  Assignments,
+  Authentication,
+  Review,
+  Scope,
+  ServiceCatalog,
+} from '../components/ConnectionSetupFields';
+import { ConnectionCard } from '../components/ConnectionManagement';
 import type {
   ConnectionAuditEntry,
-  ConnectionCapabilityGrant,
-  ConnectionCapability,
-  ConnectionCredentialField,
-  ConnectionTemplate,
   ConnectionsCatalog,
+  ConnectionTemplate,
   ConnectionTemplateCatalog,
   ManagedConnection,
+  ConnectionsViewProps,
 } from '../types/connections';
 
-type WizardStep = 'service' | 'authenticate' | 'scope' | 'capabilities' | 'assignments' | 'review';
-const steps: WizardStep[] = [
-  'service',
-  'authenticate',
-  'scope',
-  'capabilities',
-  'assignments',
-  'review',
-];
+type WizardStep = 'service' | 'authenticate' | 'assignments' | 'review';
+const steps: WizardStep[] = ['authenticate', 'assignments', 'review'];
 const stepLabel: Record<WizardStep, string> = {
-  service: 'Service',
-  authenticate: 'Authenticate',
-  scope: 'Scope',
-  capabilities: 'Capabilities',
-  assignments: 'Assignments',
+  service: 'Choose a connection',
+  authenticate: 'Connect',
+  assignments: 'Access',
   review: 'Review',
 };
-const riskCopy = {
-  'read-only': 'Read-only sandbox egress',
-  'bounded-write': 'Bounded write access',
-  'operator-defined': 'Operator-defined reviewed access',
-} as const;
-const jiraFallbackCredentials: ConnectionCredentialField[] = [
-  {
-    key: 'token',
-    label: 'Replacement API token',
-    description: 'One-shot Jira API token for this existing reviewed connection.',
-    style: 'basic',
-    secret: true,
-    required: true,
-  },
-];
-const time = (value: number | null) =>
-  value ? new Date(value).toLocaleString() : 'Not yet verified';
-export const connectionErrorMessage = (code: string) =>
-  ({
-    JIRA_AUTH_REJECTED:
-      'Jira rejected the token. Check that it is for redhat.atlassian.net and that the Atlassian account email matches the token.',
-    JIRA_PERMISSION_DENIED:
-      'Jira denied the identity check. Give the scoped token the Jira read permission needed for /myself and confirm the account has site access.',
-    JIRA_HTTP_ERROR:
-      'Jira returned an unexpected response. Retry, then check the selected site and token if it continues.',
-    JIRA_NETWORK_FAILED: 'Could not reach Jira. Retry the connection.',
-    ACCOUNT_ALREADY_ASSIGNED:
-      'This work profile is already assigned to another connection. Remove the old connection or choose a different work profile.',
-  })[code] ?? code;
-const status = (connection: ManagedConnection) =>
-  connection.errorCode
-    ? `${connection.status.replaceAll('_', ' ')}: ${connectionErrorMessage(connection.errorCode)}`
-    : connection.status.replaceAll('_', ' ');
-const secretValid = (fields: ConnectionCredentialField[], values: Record<string, string>) =>
-  fields.every((field) => !field.required || Boolean(values[field.key]));
-const scopeFieldValid = (field: ConnectionTemplate['connectionFields'][number], value: string) => {
-  const trimmed = value.trim();
-  if (!trimmed) return !field.required;
-  if (field.kind === 'email') return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed);
-  if (field.kind === 'url') {
-    try {
-      const url = new URL(trimmed);
-      return url.protocol === 'https:';
-    } catch {
-      return false;
-    }
-  }
-  return true;
-};
-const customScopeValid = (values: Record<string, string>) => {
-  const methods = (values.methods ?? '').split('\n').filter(Boolean);
-  const paths = (values.paths ?? '').split('\n').filter(Boolean);
-  const protocol = values.protocol;
-  const credentialStyle = values.credentialStyle;
-  const credentialLocation = values.credentialLocation;
-  const credentialName = values.credentialName;
-  const credentialsValid =
-    (credentialStyle === 'bearer-token' &&
-      credentialLocation === 'header' &&
-      credentialName === 'authorization') ||
-    (credentialStyle === 'api-token' &&
-      ((credentialLocation === 'header' && credentialName === 'x-api-key') ||
-        (credentialLocation === 'query' && ['api_key', 'access_token'].includes(credentialName))));
-  return (
-    credentialsValid &&
-    (protocol === 'rest'
-      ? methods.length > 0 && methods.every((method) => ['GET', 'HEAD', 'OPTIONS'].includes(method))
-      : protocol === 'graphql' &&
-        methods.length === 1 &&
-        methods[0] === 'GRAPHQL_QUERY' &&
-        paths.length === 1 &&
-        paths[0] === '/graphql')
-  );
-};
-const scopeValid = (template: ConnectionTemplate, values: Record<string, string>) =>
-  template.connectionFields.every((field) => scopeFieldValid(field, values[field.key] ?? '')) &&
-  (template.id !== 'custom-rest-readonly' || customScopeValid(values));
-const scopeValues = (template: ConnectionTemplate, values: Record<string, string>) =>
-  Object.fromEntries(
-    template.connectionFields
-      .map((field) => [
-        field.key,
-        field.kind === 'string-list' || field.kind === 'enum-list'
-          ? field.kind === 'enum-list' && singleChoiceCustomFields.has(field.key)
-            ? (values[field.key] ?? '').trim()
-            : (values[field.key] ?? '')
-                .split('\n')
-                .map((v) => v.trim())
-                .filter(Boolean)
-          : (values[field.key] ?? '').trim(),
-      ])
-      .filter(([, value]) => (Array.isArray(value) ? value.length : value)),
-  );
-const templateKey = (template: Pick<ConnectionTemplate, 'id' | 'version'>) =>
-  `${template.id}@${template.version}`;
-const singleChoiceCustomFields = new Set([
-  'port',
-  'protocol',
-  'credentialStyle',
-  'credentialLocation',
-  'credentialName',
-  'attachmentMode',
-]);
-
-export function ConnectionsView() {
+export function ConnectionsView({ mode = 'add', connectionId }: ConnectionsViewProps = {}) {
   const [data, setData] = useState<ConnectionsCatalog | null>(null);
   const [connectionRefreshEpoch, setConnectionRefreshEpoch] = useState(0);
   const [templates, setTemplates] = useState<ConnectionTemplateCatalog | null>(null);
   const [loadError, setLoadError] = useState('');
+  const [connectionsRefreshing, setConnectionsRefreshing] = useState(false);
   const [templateError, setTemplateError] = useState('');
   const [message, setMessage] = useState('');
+  const [failed, setFailed] = useState(false);
   const [csrf, setCsrf] = useState('');
   const [csrfExpiresAt, setCsrfExpiresAt] = useState(0);
+  const [authorizationOpen, setAuthorizationOpen] = useState(false);
   const [passphrase, setPassphrase] = useState('');
+  const [personalChosen, setPersonalChosen] = useState(false);
+  const [personalCreationUncertain, setPersonalCreationUncertain] = useState(false);
+  const [personalCreationBusy, setPersonalCreationBusy] = useState(false);
   const [selectedTemplateKey, setSelectedTemplateKey] = useState('');
   const [label, setLabel] = useState('');
   const [scope, setScope] = useState<Record<string, string>>({});
@@ -166,10 +66,15 @@ export function ConnectionsView() {
   const [accounts, setAccounts] = useState<string[]>([]);
   const [step, setStep] = useState<WizardStep>('service');
   const [busy, setBusy] = useState<string | null>(null);
+  const [created, setCreated] = useState<ManagedConnection | null>(null);
+  const [recovery, setRecovery] = useState<ConnectionCreationFailure | null>(null);
   const [audit, setAudit] = useState<Record<string, ConnectionAuditEntry[]>>({});
   const [rotateId, setRotateId] = useState<string | null>(null);
   const [rotationCredentials, setRotationCredentials] = useState<Record<string, string>>({});
   const stepHeading = useRef<HTMLHeadingElement>(null);
+  const authorizationField = useRef<HTMLInputElement>(null);
+  const inFlight = useRef(false);
+  const mounted = useRef(false);
   const refreshGeneration = useRef(0);
   const latestConnectionRefresh = useRef<Promise<void>>(Promise.resolve());
   const resetWizard = useCallback(() => {
@@ -179,21 +84,27 @@ export function ConnectionsView() {
     setCredentials({});
     setAccounts([]);
     setStep('service');
+    setAuthorizationOpen(false);
+    setPassphrase('');
   }, []);
   const refresh = useCallback(async () => {
     const generation = ++refreshGeneration.current;
-    setLoadError('');
+    setConnectionsRefreshing(true);
     setTemplateError('');
     const connectionsRefresh = getConnections().then(
       (value) => {
         if (generation === refreshGeneration.current) {
           setData(value);
+          setLoadError('');
+          setConnectionsRefreshing(false);
           setConnectionRefreshEpoch((current) => current + 1);
         }
       },
       (reason) => {
-        if (generation === refreshGeneration.current)
+        if (generation === refreshGeneration.current) {
           setLoadError(reason instanceof Error ? reason.message : 'Unable to load connections.');
+          setConnectionsRefreshing(false);
+        }
       },
     );
     latestConnectionRefresh.current = connectionsRefresh;
@@ -209,39 +120,59 @@ export function ConnectionsView() {
       },
     );
     await connectionsRefresh;
-    // A refresh superseded while this one was in flight must reconcile before a
-    // mutation becomes available again. Template loading remains deliberately
-    // independent so a hung setup catalog never disables existing controls.
     if (generation !== refreshGeneration.current) await latestConnectionRefresh.current;
   }, []);
   useEffect(() => {
-    void refresh();
-  }, [refresh]);
-  useEffect(
-    () => () => {
-      setCredentials({});
-      setRotationCredentials({});
-    },
-    [],
-  );
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      refreshGeneration.current += 1;
+    };
+  }, []);
+  useEffect(() => {
+    if (mode === 'add' || mode === 'manage' || mode === 'google' || mode === 'legacy')
+      void refresh();
+  }, [refresh, mode]);
   useEffect(() => {
     stepHeading.current?.focus();
-  }, [step]);
+  }, [step, personalChosen, created, recovery]);
+  useEffect(() => {
+    if (authorizationOpen) authorizationField.current?.focus();
+  }, [authorizationOpen]);
   useEffect(() => {
     if (
       selectedTemplateKey &&
       templates &&
-      !templates.templates.some((item) => templateKey(item) === selectedTemplateKey)
+      !templates.templates.some(
+        (item) => templateKey(item) === selectedTemplateKey && item.available,
+      )
     ) {
       resetWizard();
+      setMessage('This service is no longer available. Choose another connection.');
+      setFailed(true);
     }
   }, [resetWizard, selectedTemplateKey, templates]);
   const setupTemplates = templateError ? null : templates;
   const template = useMemo(
     () =>
-      setupTemplates?.templates.find((item) => templateKey(item) === selectedTemplateKey) ?? null,
+      setupTemplates?.templates.find(
+        (item) => templateKey(item) === selectedTemplateKey && item.available,
+      ) ?? null,
     [selectedTemplateKey, setupTemplates],
   );
+  useEffect(() => {
+    if (!data || !template) return;
+    const eligible = data.eligibleAccountsByTemplate?.[template.id] ?? data.eligibleAccounts;
+    if (!accounts.some((id) => !eligible.includes(id))) return;
+    setAccounts(accounts.filter((id) => eligible.includes(id)));
+    setAuthorizationOpen(false);
+    setPassphrase('');
+    setMessage(
+      (current) =>
+        `${current ? `${current} ` : ''}Eligible AI accounts changed. Review access before connecting.`,
+    );
+    setStep(secretValid(template.credentialFields, credentials) ? 'assignments' : 'authenticate');
+  }, [data, template, accounts, credentials]);
   const run = async (
     name: string,
     action: () => Promise<unknown>,
@@ -249,8 +180,11 @@ export function ConnectionsView() {
     onFailure?: () => void,
     onSuccess?: () => void,
   ): Promise<boolean> => {
+    if (inFlight.current) return false;
+    inFlight.current = true;
     setBusy(name);
     setMessage('');
+    setFailed(false);
     try {
       await action();
       setMessage(success);
@@ -259,24 +193,51 @@ export function ConnectionsView() {
       return true;
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'The request failed. Refresh and retry.');
+      setFailed(true);
       onFailure?.();
       await refresh();
       return false;
     } finally {
+      inFlight.current = false;
       setBusy(null);
     }
   };
   const requireReauthorization = () => {
+    if (connectionsRefreshing || loadError) {
+      setMessage('Refresh connection details before changing access.');
+      setFailed(true);
+      return false;
+    }
     if (csrf && csrfExpiresAt > Date.now()) return true;
     setCsrf('');
     setCsrfExpiresAt(0);
-    setMessage('Reauthorize with your passphrase before changing managed access.');
+    setAuthorizationOpen(true);
+    setPassphrase('');
+    setMessage('Confirm your identity, then retry the change.');
+    setFailed(false);
     return false;
   };
+  const authorizeChanges = () =>
+    void run(
+      'reauthorize',
+      async () => {
+        const next = await reauthorize(passphrase);
+        if (next.expiresAt <= Date.now())
+          throw new Error('Authorization expired. Enter your passphrase again.');
+        setCsrf(next.csrf);
+        setCsrfExpiresAt(next.expiresAt);
+        setPassphrase('');
+        setAuthorizationOpen(false);
+      },
+      'Identity confirmed. You can retry the change.',
+    );
   const toggle = (id: string, values: string[], setter: (next: string[]) => void) =>
     setter(values.includes(id) ? values.filter((value) => value !== id) : [...values, id]);
   const chooseTemplate = (next: ConnectionTemplate) => {
     if (!next.available) return;
+    resetWizard();
+    setMessage('');
+    setFailed(false);
     setSelectedTemplateKey(templateKey(next));
     setLabel(next.label);
     setScope(
@@ -293,93 +254,289 @@ export function ConnectionsView() {
           }
         : {},
     );
-    setCredentials({});
-    setAccounts([]);
     setStep('authenticate');
   };
-  if (!data && !loadError) return <PageState text="Loading connections…" />;
-  if (!data) return <PageState text={loadError} error retry={refresh} />;
+  const submit = async (authorize = false) => {
+    if (
+      inFlight.current ||
+      !template ||
+      !data ||
+      connectionsRefreshing ||
+      loadError ||
+      !label.trim() ||
+      !secretValid(template.credentialFields, credentials) ||
+      !scopeValid(template, scope)
+    )
+      return;
+    if (!authorize && !requireReauthorization()) return;
+    inFlight.current = true;
+    setMessage('');
+    setFailed(false);
+    const generation = refreshGeneration.current;
+    let submitted = false;
+    try {
+      let proof = csrf;
+      if (authorize) {
+        setBusy('reauthorize');
+        const next = await reauthorize(passphrase);
+        if (!mounted.current) return;
+        setPassphrase('');
+        if (next.expiresAt <= Date.now())
+          throw new Error('Authorization expired. Enter your passphrase again.');
+        proof = next.csrf;
+        setCsrf(proof);
+        setCsrfExpiresAt(next.expiresAt);
+      }
+      if (generation !== refreshGeneration.current)
+        throw new Error('Connection details changed. Review setup and try again.');
+      setAuthorizationOpen(false);
+      setBusy('create');
+      const oneShot = credentials;
+      setCredentials({});
+      submitted = true;
+      const connection = await createConnection({
+        templateId: template.id,
+        templateVersion: template.version,
+        label: label.trim(),
+        fields: scopeValues(template, scope),
+        credentials: oneShot,
+        accountIds: accounts,
+        csrf: proof,
+      });
+      setCreated(connection);
+      setAccounts([]);
+    } catch (error) {
+      setMessage(
+        error instanceof Error ? error.message : 'Connection could not be verified. Try again.',
+      );
+      setFailed(true);
+      setPassphrase('');
+      if (error instanceof ConnectionCreationFailure && error.authorizationRequired) {
+        setCsrf('');
+        setCsrfExpiresAt(0);
+      }
+      if (submitted) {
+        setCredentials({});
+        if (error instanceof ConnectionCreationFailure && !error.retrySetup) setRecovery(error);
+        else setStep('authenticate');
+      }
+    } finally {
+      if (mounted.current) await refresh();
+      inFlight.current = false;
+      if (mounted.current) setBusy(null);
+    }
+  };
+  const managed =
+    data?.connections.filter((item) => !connectionId || item.id === connectionId) ?? [];
+  const title =
+    mode === 'add'
+      ? 'Add connection'
+      : mode === 'personal'
+        ? 'Manage ChatGPT account'
+        : mode === 'google'
+          ? 'Manage Google Workspace'
+          : mode === 'legacy'
+            ? 'Provider details'
+            : 'Manage connection';
+  const identityFields = template?.connectionFields.filter((field) => field.kind === 'email') ?? [];
+  const resourceFields = template?.connectionFields.filter((field) => field.kind !== 'email') ?? [];
+  const stepValid =
+    template &&
+    (step === 'authenticate'
+      ? label.trim() &&
+        secretValid(template.credentialFields, credentials) &&
+        identityFields.every((field) => scopeFieldValid(field, scope[field.key] ?? ''))
+      : scopeValid(template, scope));
   return (
-    <main className="workspace-page connections-page">
+    <main className="workspace-page connections-page connections-focused-page">
+      <Link className="connections-back workspace-text-link" to="/connections-access">
+        Connections
+      </Link>
       <WorkspacePageHeading
-        title="Connections"
-        description="Choose services for your AI accounts. Existing chats can request GitHub publishing after approval. Other service connections are checked when a chat connects; removal and revocation reduce access immediately."
+        title={title}
+        description={
+          mode === 'add' && step === 'service' && !personalChosen && !created
+            ? 'Choose an AI account or a service to connect to Mitzo.'
+            : undefined
+        }
       />
-      <SymposiumPersonalConnections />
       {message && (
-        <p className="connections-notice" role="status">
+        <p className="connections-notice" role={failed ? 'alert' : 'status'}>
           {message}
         </p>
       )}
-      <Reauthorization
-        busy={busy}
-        passphrase={passphrase}
-        onPassphrase={setPassphrase}
-        onSubmit={() =>
-          void run(
-            'reauthorize',
-            async () => {
-              const next = await reauthorize(passphrase);
-              setCsrf(next.csrf);
-              setCsrfExpiresAt(next.expiresAt);
-              setPassphrase('');
-            },
-            'Reauthorization is active for five minutes.',
-          )
-        }
-      />
-      {data.googleWorkspaceManaged && (
-        <GoogleWorkspaceControls
-          csrf={csrf}
-          authorized={!!csrf && csrfExpiresAt > Date.now()}
-          onReauthorizationNeeded={() => {
-            requireReauthorization();
-          }}
-        />
-      )}
-      <section className="today-section connections-card" aria-labelledby="add-connection-heading">
-        <h2 id="add-connection-heading">Add connection</h2>
-        <p className="workspace-muted">
-          Choose a reviewed service, then verify its effective access before activation.
-        </p>
-        {setupTemplates ? (
+      {mode === 'add' ? (
+        recovery ? (
+          <section className="connections-complete" aria-label="Connection recovery">
+            <h2 ref={stepHeading} tabIndex={-1}>
+              Review connection status
+            </h2>
+            <p>
+              {recovery.connectionId
+                ? 'A saved connection needs review. Open it to check its status and finish setup.'
+                : 'Check Connections before adding this service again. It may have been saved even though the result could not be confirmed.'}
+            </p>
+            <div className="connections-wizard-actions">
+              {recovery.connectionId && (
+                <Link
+                  className="workspace-primary"
+                  to={`/connections?manage=service&connection=${encodeURIComponent(recovery.connectionId)}`}
+                >
+                  Review saved connection
+                </Link>
+              )}
+              <Link className="workspace-text-link" to="/connections-access">
+                Back to Connections
+              </Link>
+            </div>
+          </section>
+        ) : created ? (
+          <section className="connections-complete" aria-label="Connection result">
+            <h2 ref={stepHeading} tabIndex={-1}>
+              {created.status === 'active'
+                ? `${created.label} connected`
+                : `${created.label} needs attention`}
+            </h2>
+            <p>
+              {created.status === 'active'
+                ? 'Credentials verified. Review access in Connections before using this service in a chat.'
+                : 'Open the connection to review its status and finish recovery.'}
+            </p>
+            <p className="workspace-muted">
+              {created.desiredAccountIds.length
+                ? 'Service access is checked when a chat connects. Existing chats can request approved GitHub publishing separately.'
+                : 'No AI accounts are assigned yet. Open Manage access when you’re ready.'}
+            </p>
+            <div className="connections-wizard-actions">
+              <Link
+                className="workspace-primary"
+                to={`/connections-access?connected=${encodeURIComponent(created.id)}`}
+              >
+                Back to Connections
+              </Link>
+              <Link
+                className="workspace-text-link"
+                to={`/connections?manage=service&connection=${encodeURIComponent(created.id)}`}
+              >
+                Manage access
+              </Link>
+            </div>
+          </section>
+        ) : personalChosen ? (
           <>
-            <ol className="connections-steps" aria-label="Connection setup steps">
-              {steps.map((item) => (
-                <li key={item} aria-current={step === item ? 'step' : undefined}>
-                  {stepLabel[item]}
-                </li>
-              ))}
-            </ol>
-            <h3 className="connections-step-heading" ref={stepHeading} tabIndex={-1}>
+            <button
+              className="workspace-text-link"
+              disabled={personalCreationBusy}
+              onClick={() => setPersonalChosen(false)}
+            >
+              Choose another connection
+            </button>
+            <SymposiumPersonalConnections
+              mode="add"
+              creationBlocked={personalCreationUncertain}
+              onCreationUncertain={() => setPersonalCreationUncertain(true)}
+              onCreationPendingChange={setPersonalCreationBusy}
+            />
+          </>
+        ) : step === 'service' ? (
+          <>
+            <section className="access-section" aria-labelledby="add-accounts-heading">
+              <div className="access-section-heading">
+                <h2 id="add-accounts-heading">AI accounts</h2>
+              </div>
+              <div className="access-row-group">
+                <article className="access-row">
+                  <span className="access-row-icon accounts" aria-hidden="true">
+                    ✧
+                  </span>
+                  <div className="access-row-copy">
+                    <h3>ChatGPT</h3>
+                    <p>Use a personal ChatGPT subscription.</p>
+                  </div>
+                  <button
+                    className="access-row-action"
+                    onClick={() => {
+                      setMessage('');
+                      setPersonalChosen(true);
+                    }}
+                  >
+                    Choose ChatGPT
+                  </button>
+                </article>
+              </div>
+            </section>
+            <section className="access-section" aria-labelledby="add-services-heading">
+              <div className="access-section-heading">
+                <h2 id="add-services-heading">Services</h2>
+              </div>
+              {setupTemplates ? (
+                <ServiceCatalog templates={setupTemplates.templates} onChoose={chooseTemplate} />
+              ) : (
+                <div className="access-source-notice" role={templateError ? 'alert' : 'status'}>
+                  <p>{templateError || 'Loading services…'}</p>
+                  {templateError && (
+                    <button className="workspace-text-link" onClick={() => void refresh()}>
+                      Retry setup
+                    </button>
+                  )}
+                </div>
+              )}
+            </section>
+          </>
+        ) : template ? (
+          <section className="connections-setup" aria-label={`Connect ${template.label}`}>
+            <p className="connections-progress">
+              Step {steps.indexOf(step) + 1} of {steps.length} · {stepLabel[step]}
+            </p>
+            <h2 className="connections-step-heading" ref={stepHeading} tabIndex={-1}>
               {stepLabel[step]}
-            </h3>
-            {step === 'service' && (
-              <ServiceCatalog templates={setupTemplates.templates} onChoose={chooseTemplate} />
+            </h2>
+            {loadError && (
+              <p className="connections-notice" role="alert">
+                {loadError} <button onClick={() => void refresh()}>Retry access</button>
+              </p>
             )}
-            {template && step === 'authenticate' && (
-              <Authentication
-                template={template}
-                label={label}
-                onLabel={setLabel}
-                credentials={credentials}
-                onCredentials={setCredentials}
-              />
+            {step === 'authenticate' && (
+              <>
+                <Authentication
+                  template={template}
+                  label={label}
+                  onLabel={setLabel}
+                  credentials={credentials}
+                  onCredentials={setCredentials}
+                />
+                {!!identityFields.length && (
+                  <Scope
+                    template={{ ...template, connectionFields: identityFields }}
+                    values={scope}
+                    onValues={setScope}
+                  />
+                )}
+              </>
             )}
-            {template && step === 'scope' && (
-              <Scope template={template} values={scope} onValues={setScope} />
+            {step === 'assignments' && (
+              <>
+                {!!resourceFields.length && (
+                  <Scope
+                    template={{ ...template, connectionFields: resourceFields }}
+                    values={scope}
+                    onValues={setScope}
+                  />
+                )}
+                {data ? (
+                  <Assignments
+                    accounts={
+                      data.eligibleAccountsByTemplate?.[template.id] ?? data.eligibleAccounts
+                    }
+                    selected={accounts}
+                    onToggle={(id) => toggle(id, accounts, setAccounts)}
+                  />
+                ) : (
+                  <p role="status">Loading eligible AI accounts…</p>
+                )}
+              </>
             )}
-            {template && step === 'capabilities' && (
-              <CapabilityNotice hasCapabilities={template.capabilityTemplates.length > 0} />
-            )}
-            {template && step === 'assignments' && (
-              <Assignments
-                accounts={data.eligibleAccountsByTemplate?.[template.id] ?? data.eligibleAccounts}
-                selected={accounts}
-                onToggle={(id) => toggle(id, accounts, setAccounts)}
-              />
-            )}
-            {template && step === 'review' && (
+            {step === 'review' && (
               <Review
                 template={template}
                 label={label}
@@ -387,185 +544,229 @@ export function ConnectionsView() {
                 accounts={accounts}
               />
             )}
-            {template && (
-              <div className="connections-wizard-actions">
-                {step !== 'service' && (
+            {step === 'review' && authorizationOpen && (
+              <Reauthorization
+                busy={busy}
+                passphrase={passphrase}
+                onPassphrase={setPassphrase}
+                inputRef={authorizationField}
+                actionLabel={`Authorize and connect ${template.label}`}
+                onSubmit={() => void submit(true)}
+                onCancel={() => {
+                  setAuthorizationOpen(false);
+                  setPassphrase('');
+                }}
+              />
+            )}
+            <div className="connections-wizard-actions" hidden={authorizationOpen}>
+              <button
+                disabled={busy !== null}
+                onClick={() => {
+                  setAuthorizationOpen(false);
+                  setPassphrase('');
+                  if (step === 'authenticate') resetWizard();
+                  else setStep(steps[steps.indexOf(step) - 1]!);
+                }}
+              >
+                Back
+              </button>
+              {step !== 'review' ? (
+                <button
+                  className="workspace-primary"
+                  disabled={
+                    busy !== null ||
+                    !stepValid ||
+                    (step === 'assignments' && (!data || !!loadError || connectionsRefreshing))
+                  }
+                  onClick={() => setStep(steps[steps.indexOf(step) + 1]!)}
+                >
+                  Continue
+                </button>
+              ) : (
+                !authorizationOpen && (
                   <button
-                    type="button"
-                    disabled={busy !== null}
-                    onClick={() => setStep(steps[Math.max(0, steps.indexOf(step) - 1)]!)}
-                  >
-                    Back
-                  </button>
-                )}
-                {step !== 'review' ? (
-                  <button
-                    type="button"
                     className="workspace-primary"
-                    disabled={
-                      busy !== null ||
-                      (step === 'authenticate' &&
-                        (!label.trim() || !secretValid(template.credentialFields, credentials))) ||
-                      (step === 'scope' && !scopeValid(template, scope))
-                    }
-                    onClick={() => setStep(steps[steps.indexOf(step) + 1] ?? step)}
-                  >
-                    Continue
-                  </button>
-                ) : (
-                  <button
-                    className="workspace-primary"
-                    disabled={
-                      busy === 'create' ||
-                      !label.trim() ||
-                      !secretValid(template.credentialFields, credentials) ||
-                      !scopeValid(template, scope)
-                    }
-                    onClick={() => {
-                      const oneShot = credentials;
-                      setCredentials({});
-                      if (!requireReauthorization()) return;
-                      void run(
-                        'create',
-                        () =>
-                          createConnection({
-                            templateId: template.id,
-                            templateVersion: template.version,
-                            label: label.trim(),
-                            fields: scopeValues(template, scope),
-                            credentials: oneShot,
-                            accountIds: accounts,
-                            csrf,
-                          }),
-                        `${template.label} connection verified and activated.`,
-                        () => setCredentials({}),
-                        () => setAccounts([]),
-                      );
-                    }}
+                    disabled={busy !== null || !data || !!loadError || connectionsRefreshing}
+                    onClick={() => void submit()}
                   >
                     {busy === 'create'
                       ? 'Verifying connection…'
                       : `Verify and connect ${template.label}`}
                   </button>
-                )}
-              </div>
-            )}
-          </>
-        ) : (
-          <p className="connections-notice" role="alert">
-            {templateError || 'Connection setup is temporarily unavailable.'}{' '}
-            <button type="button" onClick={() => void refresh()}>
-              Retry setup
-            </button>
-          </p>
-        )}
-      </section>
-      <section className="today-section" aria-labelledby="managed-heading">
-        <h2 id="managed-heading">External service connections</h2>
-        {data.connections.length === 0 ? (
-          <p>No managed connections.</p>
-        ) : (
-          data.connections.map((connection) => (
-            <ConnectionCard
-              key={connection.id}
-              connection={connection}
-              template={templates?.templates.find(
-                (item) =>
-                  item.id === connection.templateId && item.version === connection.templateVersion,
+                )
               )}
-              accounts={
-                data.eligibleAccountsByTemplate?.[connection.templateId] ?? data.eligibleAccounts
-              }
-              capabilityCatalog={templates?.capabilities ?? []}
-              refreshEpoch={connectionRefreshEpoch}
-              csrf={csrf}
+            </div>
+          </section>
+        ) : (
+          <div role="alert" className="access-source-notice">
+            <p>{templateError || 'This service is unavailable.'}</p>
+            <button onClick={() => void refresh()}>Retry setup</button>
+            <button onClick={resetWizard}>Choose another connection</button>
+          </div>
+        )
+      ) : mode === 'personal' ? (
+        <SymposiumPersonalConnections mode="manage" connectionId={connectionId} />
+      ) : (
+        <>
+          {loadError && (
+            <p className="connections-notice" role="alert">
+              {loadError} <button onClick={() => void refresh()}>Retry</button>
+            </p>
+          )}
+          {!data && !loadError && <p role="status">Loading connection…</p>}
+          {authorizationOpen && (
+            <Reauthorization
               busy={busy}
-              audit={audit[connection.id]}
-              rotateOpen={rotateId === connection.id}
-              rotationCredentials={rotationCredentials}
-              requireReauthorization={requireReauthorization}
-              onRotateOpen={() => {
-                setRotateId(connection.id);
-                setRotationCredentials({});
-              }}
-              onRotationCredentials={setRotationCredentials}
-              onRotateClose={() => {
-                setRotateId(null);
-                setRotationCredentials({});
-              }}
-              onAction={run}
-              onAudit={async (id) => {
-                setBusy(`audit:${id}`);
-                try {
-                  const entries = await getConnectionAudit(id);
-                  setAudit((current) => ({ ...current, [id]: entries }));
-                } catch (error) {
-                  setMessage(
-                    error instanceof Error ? error.message : 'Unable to load audit history.',
-                  );
-                } finally {
-                  setBusy(null);
-                }
+              passphrase={passphrase}
+              onPassphrase={setPassphrase}
+              inputRef={authorizationField}
+              onSubmit={authorizeChanges}
+              onCancel={() => {
+                setAuthorizationOpen(false);
+                setPassphrase('');
               }}
             />
-          ))
-        )}
-      </section>
-      <section className="today-section">
-        <h2>Operator-managed legacy services</h2>
-        <p>
-          {data.legacy.length
-            ? data.legacy
-                .filter(
-                  (service) => !data.googleWorkspaceManaged || service.id !== 'google-workspace',
-                )
-                .map((service) => `${service.label} (${service.management})`)
-                .join(', ') || 'None reported.'
-            : 'None reported.'}
-        </p>
-        <p className="workspace-muted">
-          These providers are managed by the operator and are not changed here.
-        </p>
-      </section>
-    </main>
-  );
-}
-
-function PageState({ text, error, retry }: { text: string; error?: boolean; retry?: () => void }) {
-  return (
-    <main className="workspace-page connections-page">
-      <WorkspacePageHeading title="Connections" />
-      <SymposiumPersonalConnections />
-      <p role={error ? 'alert' : undefined}>{text}</p>
-      {retry && (
-        <button className="workspace-primary" onClick={() => void retry()}>
-          Retry
-        </button>
+          )}
+          {data &&
+            mode === 'google' &&
+            (data.googleWorkspaceManaged ? (
+              <GoogleWorkspaceControls
+                csrf={csrf}
+                authorized={!!csrf && csrfExpiresAt > Date.now()}
+                onReauthorizationNeeded={requireReauthorization}
+              />
+            ) : (
+              <p>Google Workspace is not configured.</p>
+            ))}
+          {data && mode === 'manage' && (
+            <>
+              {connectionsRefreshing && <p role="status">Refreshing connection details…</p>}
+              <button className="workspace-text-link" onClick={() => void refresh()}>
+                Refresh connection
+              </button>
+              {templateError && <p className="workspace-muted">{templateError}</p>}
+              {!managed.length && (
+                <p>
+                  This connection is no longer available. Return to Connections to refresh its
+                  status.
+                </p>
+              )}
+              {managed.map((connection) => (
+                <ConnectionCard
+                  key={connection.id}
+                  connection={connection}
+                  template={templates?.templates.find(
+                    (item) =>
+                      item.id === connection.templateId &&
+                      item.version === connection.templateVersion,
+                  )}
+                  accounts={
+                    data.eligibleAccountsByTemplate?.[connection.templateId] ??
+                    data.eligibleAccounts
+                  }
+                  capabilityCatalog={templates?.capabilities ?? []}
+                  refreshEpoch={connectionRefreshEpoch}
+                  csrf={csrf}
+                  busy={busy ?? (loadError || connectionsRefreshing ? 'refresh-required' : null)}
+                  audit={audit[connection.id]}
+                  rotateOpen={rotateId === connection.id}
+                  rotationCredentials={rotationCredentials}
+                  requireReauthorization={requireReauthorization}
+                  onRotateOpen={() => {
+                    setRotateId(connection.id);
+                    setRotationCredentials({});
+                  }}
+                  onRotationCredentials={setRotationCredentials}
+                  onRotateClose={() => {
+                    setRotateId(null);
+                    setRotationCredentials({});
+                  }}
+                  onAction={run}
+                  onAudit={async (id) => {
+                    if (inFlight.current) return;
+                    inFlight.current = true;
+                    setBusy(`audit:${id}`);
+                    try {
+                      const entries = await getConnectionAudit(id);
+                      setAudit((current) => ({ ...current, [id]: entries }));
+                    } catch (error) {
+                      setFailed(true);
+                      setMessage(
+                        error instanceof Error ? error.message : 'Unable to load audit history.',
+                      );
+                    } finally {
+                      inFlight.current = false;
+                      setBusy(null);
+                    }
+                  }}
+                />
+              ))}
+              {!!managed.length && (
+                <button
+                  className="workspace-text-link"
+                  disabled={busy !== null}
+                  onClick={() => {
+                    setAuthorizationOpen(true);
+                    setPassphrase('');
+                  }}
+                >
+                  Authorize changes
+                </button>
+              )}
+            </>
+          )}
+          {data && mode === 'legacy' && (
+            <section className="access-section">
+              <h2>Managed by your operator</h2>
+              <p>
+                {data.legacy
+                  .filter((item) => !connectionId || item.id === connectionId)
+                  .map((item) => item.label)
+                  .join(', ') || 'No provider reported.'}
+              </p>
+              <p className="workspace-muted">
+                Ask your Mitzo operator to change this service’s configuration.
+              </p>
+            </section>
+          )}
+        </>
       )}
     </main>
   );
 }
+
 function Reauthorization({
   busy,
   passphrase,
   onPassphrase,
   onSubmit,
+  onCancel,
+  inputRef,
+  actionLabel = 'Reauthorize',
 }: {
   busy: string | null;
   passphrase: string;
   onPassphrase: (value: string) => void;
   onSubmit: () => void;
+  onCancel: () => void;
+  inputRef: React.RefObject<HTMLInputElement | null>;
+  actionLabel?: string;
 }) {
   return (
-    <section className="today-section connections-card" aria-labelledby="reauthorize-heading">
-      <h2 id="reauthorize-heading">Recent reauthorization</h2>
-      <p className="workspace-muted">
-        Required before creating, testing, assigning, rotating, or revoking a managed external
-        connection. Personal ChatGPT sign-in uses the separate OpenAI flow above.
-      </p>
+    <form
+      className="connections-authorization"
+      aria-labelledby="reauthorize-heading"
+      onSubmit={(event) => {
+        event.preventDefault();
+        onSubmit();
+      }}
+    >
+      <h2 id="reauthorize-heading">Confirm it’s you</h2>
+      <p className="workspace-muted">Enter your Mitzo passphrase to authorize this change.</p>
       <label className="connections-field">
         Passphrase
         <input
+          ref={inputRef}
           aria-label="Passphrase"
           type="password"
           autoComplete="current-password"
@@ -573,851 +774,23 @@ function Reauthorization({
           onChange={(event) => onPassphrase(event.target.value)}
         />
       </label>
-      <button
-        className="workspace-primary"
-        disabled={busy === 'reauthorize' || !passphrase}
-        onClick={onSubmit}
-      >
-        {busy === 'reauthorize' ? 'Reauthorizing…' : 'Reauthorize'}
-      </button>
-    </section>
-  );
-}
-function ServiceCatalog({
-  templates,
-  onChoose,
-}: {
-  templates: ConnectionTemplate[];
-  onChoose: (template: ConnectionTemplate) => void;
-}) {
-  return (
-    <div className="connections-catalog" role="list" aria-label="Reviewed connection services">
-      {templates.map((template) => (
-        <article
-          className="connections-template"
-          role="listitem"
-          key={`${template.id}@${template.version}`}
-        >
-          <div>
-            <h3>{template.label}</h3>
-            <p>{template.description}</p>
-            <p className="workspace-muted">
-              {template.category.replaceAll('-', ' ')} ·{' '}
-              <strong className={`connections-risk connections-risk--${template.risk}`}>
-                {riskCopy[template.risk]}
-              </strong>
-            </p>
-            <p className="workspace-muted">
-              Authentication:{' '}
-              {template.credentialFields
-                .map((field) => field.style.replaceAll('-', ' '))
-                .join(', ') || 'none'}{' '}
-              · Capabilities: {template.capabilityTemplates.length || 'none'}
-            </p>
-            {!template.available && (
-              <p className="workspace-muted">
-                Forthcoming: this gateway does not yet support this reviewed template version.
-              </p>
-            )}
-          </div>
-          <button
-            className="workspace-primary"
-            type="button"
-            disabled={!template.available}
-            onClick={() => onChoose(template)}
-          >
-            {template.available ? `Choose ${template.label}` : 'Coming soon'}
-          </button>
-        </article>
-      ))}
-    </div>
-  );
-}
-function SecretField({
-  field,
-  value,
-  onChange,
-  prefix = '',
-}: {
-  field: ConnectionCredentialField;
-  value: string;
-  onChange: (value: string) => void;
-  prefix?: string;
-}) {
-  const name = `${prefix}${field.label}`;
-  return (
-    <label className="connections-field">
-      {name}
-      <input
-        aria-label={name}
-        type="password"
-        autoComplete="off"
-        required={field.required}
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-      />
-      <small>{field.description}</small>
-    </label>
-  );
-}
-function Authentication({
-  template,
-  label,
-  onLabel,
-  credentials,
-  onCredentials,
-}: {
-  template: ConnectionTemplate;
-  label: string;
-  onLabel: (value: string) => void;
-  credentials: Record<string, string>;
-  onCredentials: (next: Record<string, string>) => void;
-}) {
-  const labelInvalid = !label.trim();
-  return (
-    <div>
-      <h3>Authenticate with {template.label}</h3>
-      <label className="connections-field">
-        Connection label
-        <input
-          aria-label="Connection label"
-          aria-invalid={labelInvalid}
-          aria-describedby={labelInvalid ? 'connection-label-error' : undefined}
-          maxLength={100}
-          value={label}
-          onChange={(event) => onLabel(event.target.value)}
-        />
-      </label>
-      {labelInvalid && (
-        <p id="connection-label-error" role="alert">
-          Enter a connection label before continuing.
-        </p>
-      )}
-      <p className="workspace-muted">
-        Secrets are one-shot gateway inputs. They are cleared after submission succeeds or fails,
-        when this service changes, and when you leave this page.
-      </p>
-      {template.credentialFields.map((field) => (
-        <SecretField
-          key={field.key}
-          field={field}
-          value={credentials[field.key] ?? ''}
-          onChange={(value) => onCredentials({ ...credentials, [field.key]: value })}
-        />
-      ))}
-      <ProviderGuidance guidance={template.guidance} />
-    </div>
-  );
-}
-function ProviderGuidance({
-  guidance,
-}: {
-  guidance?: { body: string; href: string; linkLabel: string };
-}) {
-  if (!guidance) return null;
-  const href = safeHelpUrl(guidance.href);
-  return (
-    <p className="workspace-muted">
-      {guidance.body}{' '}
-      {href && (
-        <a href={href} target="_blank" rel="noreferrer">
-          {guidance.linkLabel}
-        </a>
-      )}
-    </p>
-  );
-}
-function safeHelpUrl(value: string) {
-  try {
-    const url = new URL(value);
-    return url.protocol === 'https:' ? url.toString() : null;
-  } catch {
-    return null;
-  }
-}
-function Scope({
-  template,
-  values,
-  onValues,
-}: {
-  template: ConnectionTemplate;
-  values: Record<string, string>;
-  onValues: (next: Record<string, string>) => void;
-}) {
-  const updateCustomChoice = (key: string, choice: string) => {
-    const next = { ...values, [key]: choice };
-    if (template.id !== 'custom-rest-readonly') return onValues(next);
-    if (key === 'protocol') {
-      if (choice === 'graphql')
-        Object.assign(next, { methods: 'GRAPHQL_QUERY', paths: '/graphql' });
-      else Object.assign(next, { methods: 'GET', paths: '' });
-    }
-    if (key === 'credentialStyle')
-      Object.assign(
-        next,
-        choice === 'bearer-token'
-          ? { credentialLocation: 'header', credentialName: 'authorization' }
-          : { credentialLocation: 'header', credentialName: 'x-api-key' },
-      );
-    if (key === 'credentialLocation' && next.credentialStyle === 'bearer-token')
-      Object.assign(next, { credentialLocation: 'header', credentialName: 'authorization' });
-    if (key === 'credentialLocation' && next.credentialStyle === 'api-token')
-      Object.assign(next, { credentialName: choice === 'header' ? 'x-api-key' : 'api_key' });
-    onValues(next);
-  };
-  if (!template.connectionFields.length)
-    return (
-      <div>
-        <h3>Scope</h3>
-        <p className="workspace-muted">
-          This reviewed template has no browser-configurable scope. Sandbox egress remains
-          constrained by the template.
-        </p>
-      </div>
-    );
-  return (
-    <div>
-      <h3>Scope</h3>
-      {template.connectionFields.map((field) => (
-        <div className="connections-field" key={field.key}>
-          {field.kind === 'enum-list' ? (
-            <fieldset className="connections-profiles">
-              <legend>
-                {field.label}
-                <small>{field.description}</small>
-              </legend>
-              {field.choices?.map((choice) => (
-                <label className="connections-profile-option" key={choice}>
-                  <input
-                    type={singleChoiceCustomFields.has(field.key) ? 'radio' : 'checkbox'}
-                    name={
-                      singleChoiceCustomFields.has(field.key)
-                        ? `connection-${field.key}`
-                        : undefined
-                    }
-                    checked={
-                      singleChoiceCustomFields.has(field.key)
-                        ? values[field.key] === choice
-                        : (values[field.key] ?? '').split('\n').includes(choice)
-                    }
-                    onChange={() => {
-                      if (singleChoiceCustomFields.has(field.key)) {
-                        updateCustomChoice(field.key, choice);
-                        return;
-                      }
-                      const next = new Set((values[field.key] ?? '').split('\n').filter(Boolean));
-                      if (next.has(choice)) next.delete(choice);
-                      else next.add(choice);
-                      onValues({ ...values, [field.key]: [...next].join('\n') });
-                    }}
-                  />{' '}
-                  {choice}
-                </label>
-              ))}
-            </fieldset>
-          ) : (
-            <>
-              <label htmlFor={`connection-field-${field.key}`}>{field.label}</label>
-              {field.kind === 'string-list' ? (
-                <textarea
-                  id={`connection-field-${field.key}`}
-                  aria-label={field.label}
-                  required={field.required}
-                  rows={4}
-                  value={values[field.key] ?? ''}
-                  onChange={(event) => onValues({ ...values, [field.key]: event.target.value })}
-                />
-              ) : (
-                <input
-                  id={`connection-field-${field.key}`}
-                  aria-label={field.label}
-                  type={field.kind === 'email' ? 'email' : field.kind === 'url' ? 'url' : 'text'}
-                  required={field.required}
-                  value={values[field.key] ?? ''}
-                  onChange={(event) => onValues({ ...values, [field.key]: event.target.value })}
-                />
-              )}
-              <small>
-                {field.description}
-                {field.kind === 'string-list' ? ' Enter one value per line.' : ''}
-              </small>
-            </>
-          )}
-        </div>
-      ))}
-    </div>
-  );
-}
-function CapabilityNotice({ hasCapabilities }: { hasCapabilities: boolean }) {
-  return (
-    <div>
-      <h3>Capabilities</h3>
-      <p className="workspace-muted">
-        {hasCapabilities
-          ? 'No mutation capability is enabled during setup. After verification, grant a reviewed capability to specific assigned profiles from the connection card. Each use requires approval and is audited.'
-          : 'This service exposes no reviewed mutation capabilities.'}
-      </p>
-    </div>
-  );
-}
-function Assignments({
-  accounts,
-  selected,
-  onToggle,
-}: {
-  accounts: string[];
-  selected: string[];
-  onToggle: (id: string) => void;
-}) {
-  return (
-    <div>
-      <h3>Assignments</h3>
-      <fieldset className="connections-profiles">
-        <legend>Eligible profiles for new conversations</legend>
-        {accounts.length ? (
-          accounts.map((id) => (
-            <label className="connections-profile-option" key={id}>
-              <input
-                type="checkbox"
-                checked={selected.includes(id)}
-                onChange={() => onToggle(id)}
-              />{' '}
-              {id}
-            </label>
-          ))
-        ) : (
-          <p className="workspace-muted">
-            No profiles are currently eligible. You can create this connection unassigned and assign
-            a profile later.
-          </p>
-        )}
-      </fieldset>
-      <p className="workspace-muted">
-        Retained sandboxes do not gain this connection automatically.
-      </p>
-    </div>
-  );
-}
-function Review({
-  template,
-  label,
-  scope,
-  accounts,
-}: {
-  template: ConnectionTemplate;
-  label: string;
-  scope: Record<string, string | string[]>;
-  accounts: string[];
-}) {
-  return (
-    <div className="connections-review">
-      <h3>Effective access review</h3>
-      <p>
-        <strong>{label}</strong> uses {template.label} v{template.version} with{' '}
-        <strong className={`connections-risk connections-risk--${template.risk}`}>
-          {riskCopy[template.risk]}
-        </strong>
-        .
-      </p>
-      <dl>
-        <dt>Sandbox data access</dt>
-        <dd>{template.description}</dd>
-        <dt>Configured scope</dt>
-        <dd>
-          {Object.entries(scope).length
-            ? Object.entries(scope)
-                .map(([key, value]) => `${key}: ${Array.isArray(value) ? value.join(', ') : value}`)
-                .join('; ')
-            : 'Template-defined only'}
-        </dd>
-        <dt>Mutation capabilities</dt>
-        <dd>None enabled during setup. Grants can be configured after verification.</dd>
-        <dt>Assigned profiles</dt>
-        <dd>{accounts.join(', ') || 'None'}</dd>
-      </dl>
-      <p className="workspace-muted">
-        A candidate provider is verified before activation. Secret values are intentionally not
-        shown.
-      </p>
-      {template.id === 'custom-rest-readonly' && <CustomPolicyPreview scope={scope} />}
-    </div>
-  );
-}
-
-function CustomPolicyPreview({ scope }: { scope: Record<string, string | string[]> }) {
-  const endpoint = typeof scope.endpoint === 'string' ? scope.endpoint : '';
-  const port = typeof scope.port === 'string' ? scope.port : '443';
-  const protocol = typeof scope.protocol === 'string' ? scope.protocol : 'rest';
-  const methods = Array.isArray(scope.methods) ? scope.methods : [];
-  const paths = Array.isArray(scope.paths) ? scope.paths : [];
-  const rules = methods.flatMap((method) => paths.map((path) => `${method} ${path}`));
-  return (
-    <details className="connections-policy-preview">
-      <summary>Technical policy preview</summary>
-      <p>
-        HTTPS {endpoint || 'endpoint'}:{port} · {protocol} inspection · redirects denied · all
-        A/AAAA answers are pinned before provisioning and checked before every use.
-      </p>
-      <p>Effective rules: {rules.join(', ') || 'none'}.</p>
-      <p>
-        Warnings: wildcard hosts/paths are denied; credentials are one-shot and never forwarded on
-        redirects.
-      </p>
-    </details>
-  );
-}
-
-function CapabilityGrants({
-  connection,
-  references,
-  catalog,
-  refreshEpoch,
-  csrf,
-  busy,
-  requireReauthorization,
-  onAction,
-}: {
-  connection: ManagedConnection;
-  references: Array<{ id: string; version: number }>;
-  catalog: ConnectionCapability[];
-  refreshEpoch: number;
-  csrf: string;
-  busy: string | null;
-  requireReauthorization: () => boolean;
-  onAction: (name: string, action: () => Promise<unknown>, success: string) => Promise<boolean>;
-}) {
-  const [open, setOpen] = useState(false);
-  const [grants, setGrants] = useState<ConnectionCapabilityGrant[]>([]);
-  const [selected, setSelected] = useState<Record<string, string[]>>({});
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-  const generation = useRef(0);
-  const dirtyKeys = useRef(new Set<string>());
-  // A response refresh creates new arrays even when assignments did not change.
-  // Keep an in-progress grant selection through reauthorization in that case.
-  const assignmentKey = connection.desiredAccountIds.join('\u0000');
-  const load = useCallback(async () => {
-    const request = ++generation.current;
-    setLoading(true);
-    setError('');
-    try {
-      const next = await getConnectionCapabilityGrants(connection.id);
-      if (request !== generation.current) return;
-      setGrants(next);
-      const assigned = new Set(assignmentKey ? assignmentKey.split('\u0000') : []);
-      const persisted = Object.fromEntries(
-        next
-          .filter(
-            (grant) =>
-              grant.connectionRevision === connection.revision && grant.status === 'active',
-          )
-          .map((grant) => [
-            templateKey({ id: grant.capabilityId, version: grant.capabilityVersion }),
-            grant.accountIds.filter((id) => assigned.has(id)),
-          ]),
-      );
-      setSelected((previous) => ({
-        ...persisted,
-        ...Object.fromEntries(
-          [...dirtyKeys.current]
-            .filter((key) => key in previous)
-            .map((key) => [key, previous[key]]),
-        ),
-      }));
-    } catch (reason) {
-      if (request === generation.current)
-        setError(reason instanceof Error ? reason.message : 'Unable to load capability grants.');
-    } finally {
-      if (request === generation.current) setLoading(false);
-    }
-  }, [connection.id, connection.revision, assignmentKey]);
-  useEffect(() => {
-    dirtyKeys.current.clear();
-  }, [connection.id, connection.revision, assignmentKey]);
-  useEffect(() => {
-    if (open) void load();
-    return () => {
-      generation.current += 1;
-    };
-  }, [open, load, refreshEpoch]);
-  if (!references.length) return null;
-  return (
-    <section
-      className="connections-capabilities"
-      aria-label={`Capabilities for ${connection.label}`}
-    >
-      <h3>Controller capabilities</h3>
-      <p className="workspace-muted">
-        A grant authorizes a profile to request this action. Each use still requires approval and is
-        audited.
-      </p>
-      <button type="button" onClick={() => setOpen(!open)}>
-        {open ? 'Hide capability grants' : 'Manage capability grants'}
-      </button>
-      {open && (
-        <>
-          {loading && <p role="status">Loading grants…</p>}
-          {error && <p role="alert">{error}</p>}
-          {!loading &&
-            !error &&
-            references.map((reference) => {
-              const key = templateKey(reference);
-              const capability = catalog.find(
-                (item) => item.id === reference.id && item.version === reference.version,
-              );
-              const current = grants.find(
-                (item) =>
-                  item.connectionRevision === connection.revision &&
-                  item.capabilityId === reference.id &&
-                  item.capabilityVersion === reference.version,
-              );
-              const active = current?.status === 'active';
-              const assigned = connection.desiredAccountIds;
-              const values = selected[key] ?? [];
-              const save = async (status: 'active' | 'revoked', accountIds: string[]) => {
-                if (!requireReauthorization()) return;
-                const saved = await onAction(
-                  `grant:${connection.id}:${key}`,
-                  () =>
-                    setConnectionCapabilityGrant({
-                      id: connection.id,
-                      revision: connection.revision,
-                      capabilityId: reference.id,
-                      capabilityVersion: reference.version,
-                      accountIds,
-                      status,
-                      csrf,
-                    }),
-                  status === 'active'
-                    ? 'Capability grant updated for new conversations.'
-                    : 'Capability grant revoked.',
-                );
-                if (saved) dirtyKeys.current.delete(key);
-                await load();
-              };
-              return (
-                <div className="connections-capability" key={key}>
-                  <h4>{capability?.label ?? `${reference.id} v${reference.version}`}</h4>
-                  {capability?.description && <p>{capability.description}</p>}
-                  <p className="workspace-muted">
-                    {active ? `Active for: ${current.accountIds.join(', ')}` : 'No active grant.'}
-                  </p>
-                  <fieldset className="connections-profiles">
-                    <legend>Profiles allowed to request this capability</legend>
-                    {assigned.map((id) => (
-                      <label className="connections-profile-option" key={id}>
-                        <input
-                          type="checkbox"
-                          checked={values.includes(id)}
-                          disabled={busy !== null || connection.status !== 'active'}
-                          onChange={() => {
-                            dirtyKeys.current.add(key);
-                            setSelected((previous) => ({
-                              ...previous,
-                              [key]: values.includes(id)
-                                ? values.filter((value) => value !== id)
-                                : [...values, id],
-                            }));
-                          }}
-                        />{' '}
-                        {id}
-                      </label>
-                    ))}
-                    {!assigned.length && (
-                      <p className="workspace-muted">
-                        Assign a profile before enabling this capability.
-                      </p>
-                    )}
-                  </fieldset>
-                  <button
-                    type="button"
-                    disabled={
-                      busy !== null ||
-                      connection.status !== 'active' ||
-                      !values.length ||
-                      (active &&
-                        values.length === current.accountIds.length &&
-                        values.every((id) => current.accountIds.includes(id)))
-                    }
-                    onClick={() => void save('active', values)}
-                  >
-                    Save grant
-                  </button>{' '}
-                  {active && (
-                    <button
-                      type="button"
-                      className="connections-danger"
-                      disabled={busy !== null}
-                      onClick={() => void save('revoked', current.accountIds)}
-                    >
-                      Revoke grant
-                    </button>
-                  )}
-                </div>
-              );
-            })}
-        </>
-      )}
-    </section>
-  );
-}
-
-function ConnectionCard({
-  connection,
-  template,
-  accounts,
-  capabilityCatalog,
-  refreshEpoch,
-  csrf,
-  busy,
-  audit,
-  rotateOpen,
-  rotationCredentials,
-  requireReauthorization,
-  onRotateOpen,
-  onRotationCredentials,
-  onRotateClose,
-  onAction,
-  onAudit,
-}: {
-  connection: ManagedConnection;
-  template?: ConnectionTemplate;
-  accounts: string[];
-  capabilityCatalog: ConnectionCapability[];
-  refreshEpoch: number;
-  csrf: string;
-  busy: string | null;
-  audit?: ConnectionAuditEntry[];
-  rotateOpen: boolean;
-  rotationCredentials: Record<string, string>;
-  requireReauthorization: () => boolean;
-  onRotateOpen: () => void;
-  onRotationCredentials: (next: Record<string, string>) => void;
-  onRotateClose: () => void;
-  onAction: (
-    name: string,
-    action: () => Promise<unknown>,
-    success: string,
-    onFailure?: () => void,
-  ) => Promise<boolean>;
-  onAudit: (id: string) => Promise<void>;
-}) {
-  const [removalOpen, setRemovalOpen] = useState(false);
-  const [removalError, setRemovalError] = useState('');
-  const credentialFields =
-    connection.credentialFields ??
-    template?.credentialFields ??
-    (connection.templateId === 'jira-readonly' && connection.templateVersion === 1
-      ? jiraFallbackCredentials
-      : []);
-  return (
-    <article className="workspace-record connections-record">
-      <div>
-        <strong>{connection.label}</strong>
-        <small>
-          {template ? `${template.label} v${connection.templateVersion}` : connection.templateId} ·{' '}
-          {connection.identity ?? 'Identity not verified'} · last tested{' '}
-          {time(connection.verifiedAt)}
-        </small>
-        <small>
-          {connection.endpoint} · {status(connection)}
-        </small>
-        {Object.keys(connection.publicConfig).length > 0 && (
-          <small>
-            Effective scope:{' '}
-            {Object.entries(connection.publicConfig)
-              .map(([key, value]) => `${key}: ${Array.isArray(value) ? value.join(', ') : value}`)
-              .join('; ')}
-          </small>
-        )}
-        <fieldset className="connections-profiles">
-          <legend>Profiles with access</legend>
-          {accounts.map((id) => (
-            <label className="connections-profile-option" key={id}>
-              <input
-                type="checkbox"
-                checked={connection.desiredAccountIds.includes(id)}
-                disabled={busy !== null}
-                onChange={() => {
-                  if (!requireReauthorization()) return;
-                  const next = connection.desiredAccountIds.includes(id)
-                    ? connection.desiredAccountIds.filter((value) => value !== id)
-                    : [...connection.desiredAccountIds, id];
-                  void onAction(
-                    `assign:${connection.id}`,
-                    () =>
-                      updateAssignments({
-                        id: connection.id,
-                        revision: connection.revision,
-                        accountIds: next,
-                        csrf,
-                      }),
-                    'Assignments updated for new conversations.',
-                  );
-                }}
-              />{' '}
-              {id}
-            </label>
-          ))}
-        </fieldset>
-        <CapabilityGrants
-          connection={connection}
-          references={connection.capabilityTemplates ?? template?.capabilityTemplates ?? []}
-          catalog={capabilityCatalog}
-          refreshEpoch={refreshEpoch}
-          csrf={csrf}
-          busy={busy}
-          requireReauthorization={requireReauthorization}
-          onAction={onAction}
-        />
-      </div>
-      <div className="connections-actions">
-        <button
-          disabled={busy !== null || connection.status === 'revoked'}
-          onClick={() => {
-            if (requireReauthorization())
-              void onAction(
-                `test:${connection.id}`,
-                () => testConnection({ id: connection.id, revision: connection.revision, csrf }),
-                'Identity test completed.',
-              );
-          }}
-        >
-          Test identity
+      <div className="connections-wizard-actions">
+        <button className="workspace-primary" disabled={busy !== null || !passphrase}>
+          {busy === 'reauthorize'
+            ? 'Authorizing…'
+            : busy === 'create'
+              ? 'Verifying connection…'
+              : actionLabel}
         </button>
         <button
-          disabled={busy !== null || connection.status === 'revoked' || !credentialFields.length}
-          onClick={onRotateOpen}
-        >
-          {connection.status === 'needs_attention' ? 'Retry credentials' : 'Rotate credentials'}
-        </button>
-        <button
-          className="connections-danger"
-          disabled={busy !== null || connection.status === 'revoked'}
-          onClick={() => {
-            if (requireReauthorization())
-              void onAction(
-                `revoke:${connection.id}`,
-                () => revokeConnection({ id: connection.id, revision: connection.revision, csrf }),
-                'Revocation confirmed. Revoke the upstream credential separately if needed.',
-              );
-          }}
-        >
-          Revoke
-        </button>
-        <button
-          className="connections-danger"
+          className="workspace-text-link"
+          type="button"
           disabled={busy !== null}
-          onClick={() => {
-            setRemovalError('');
-            setRemovalOpen(true);
-          }}
+          onClick={onCancel}
         >
-          Remove connection
-        </button>
-        <button
-          disabled={busy === `audit:${connection.id}`}
-          onClick={() => void onAudit(connection.id)}
-        >
-          Show audit
+          Cancel
         </button>
       </div>
-      {removalOpen && (
-        <section className="connections-remove-confirm" aria-label={`Remove ${connection.label}`}>
-          <p>
-            Removing this connection revokes managed access before it is removed from this list.
-            This does not revoke the upstream credential.
-          </p>
-          {removalError && <p role="alert">{removalError}</p>}
-          <button
-            className="connections-danger"
-            disabled={busy !== null}
-            onClick={() => {
-              if (!requireReauthorization()) {
-                setRemovalError('Reauthorize with your passphrase, then confirm removal.');
-                return;
-              }
-              setRemovalError('');
-              void onAction(
-                `delete:${connection.id}`,
-                () => deleteConnection({ id: connection.id, revision: connection.revision, csrf }),
-                'Connection removed from this list after managed access was revoked.',
-                () => setRemovalError('Connection removal failed. Refresh and retry.'),
-              );
-            }}
-          >
-            Confirm removal
-          </button>
-          <button type="button" disabled={busy !== null} onClick={() => setRemovalOpen(false)}>
-            Cancel
-          </button>
-        </section>
-      )}
-      {rotateOpen && (
-        <form
-          className="connections-rotate"
-          onSubmit={(event) => {
-            event.preventDefault();
-            if (!secretValid(credentialFields, rotationCredentials)) return;
-            const oneShot = rotationCredentials;
-            onRotationCredentials({});
-            if (!requireReauthorization()) return;
-            onRotateClose();
-            void onAction(
-              `rotate:${connection.id}`,
-              () =>
-                connection.status === 'needs_attention'
-                  ? retryConnection({
-                      id: connection.id,
-                      revision: connection.revision,
-                      credentials: oneShot,
-                      csrf,
-                    })
-                  : rotateConnection({
-                      id: connection.id,
-                      revision: connection.revision,
-                      credentials: oneShot,
-                      csrf,
-                    }),
-              connection.status === 'needs_attention'
-                ? 'Connection verified and activated.'
-                : 'Credential rotation completed.',
-              () => onRotationCredentials({}),
-            );
-          }}
-        >
-          {credentialFields.map((field) => (
-            <SecretField
-              key={field.key}
-              prefix="Replacement "
-              field={field}
-              value={rotationCredentials[field.key] ?? ''}
-              onChange={(value) =>
-                onRotationCredentials({ ...rotationCredentials, [field.key]: value })
-              }
-            />
-          ))}
-          <button
-            className="workspace-primary"
-            disabled={busy !== null || !secretValid(credentialFields, rotationCredentials)}
-          >
-            Verify and rotate
-          </button>
-          <button type="button" onClick={onRotateClose}>
-            Cancel
-          </button>
-        </form>
-      )}
-      {audit && (
-        <ol className="connections-audit" aria-label={`${connection.label} audit history`}>
-          {audit.map((entry) => (
-            <li key={entry.id}>
-              {new Date(entry.createdAt).toLocaleString()}: {entry.operation} {entry.outcome}
-              {entry.affectedRefs.length ? ` (${entry.affectedRefs.join(', ')})` : ''}
-            </li>
-          ))}
-        </ol>
-      )}
-    </article>
+    </form>
   );
 }
