@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.0';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.6';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.4';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.5';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -43,11 +43,19 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../openai-key-management.ts': '536bffc8e2f8f8a73326ffe753ffd60b794b3f45072bb74b82d6ab7226946ead',
   '../openai-key-operation-store.ts':
     'dcd4bfc37e6098f194e19c9a797ca70eed189b19568c0272c778ecdec49f00a9',
+  '../openai-enrollment-models.ts':
+    '11a318042fbd8f7aecc09563c80456bfff424813a3d12a05d01bc768a0358263',
+  '../openai-account-enrollment.ts':
+    '610827421850db26976f2e9a6c8552ea984e0b9bbd61621573fdb0f8fb0847f6',
+  '../openai-account-enrollment-keychain.ts':
+    '2e75b1031b0006ef98334deef8a53890627af337c0fef8602de6e15b72c3b9d5',
+  '../openai-provider-enrollment-gateway.ts':
+    '55f91240860c2f15d60a9fa491374cf74f30e06a4dbf75ec5ce6f321b9815991',
   '../openai-key-gateway.ts': 'c4c19388fd0bcf794ba1c2f85b9e8227668c575ba4047a8f9cd68470d023c5b6',
   '../keychain-rotation-credentials.ts':
     'c2d94ede80f5950b45568dc41c5d10c20802d4504dbcd0b6657e8de04de72d4a',
   '../openai-key-controller.ts': '721a1c6a513fc5380e4a2222927cda025bf8cbd7e8d49d8c5d526470e2cff217',
-  '../connections-router.ts': '944eeccf74aabe0684f63373272cabd861b3b596d512147d7c82b9ac87ae87bd',
+  '../connections-router.ts': 'db03601e5f09080ad370621d2fcbd5879f744c9b272a930b296c20cd47f82979',
   '../connections-service.ts': '1aae9d2c0da483ae798ba03d5804bfb0e81316f3f69666c6595befec3179c314',
   // Admission shares compiled connection authority with gateway provisioning.
   'runtime-profiles.ts': '3632545ca52fbfad7442de08c03d5f9808b50b5bfdef92f9cd72b8fa8ab5140b',
@@ -56,7 +64,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'efecd458bf61fecd8198ecd330e0227e2c600ab21d6d2890cd2bac254e22b75f',
   '../openshell-runtime.ts': '71e650b8114df6264ce0a5b81ae32a1907ee3562c177c9d0d59c1f4825849b0c',
   '../codex-chat-session.ts': '8c11ec22ceac62890318d28e20b97175c1aba5afd4ff89ba2c74e43a3baadd78',
-  '../connections-runtime.ts': '66f85dfb95ebc829a9813988c363222aa9416e879e585fccc3083d40885efdc7',
+  '../connections-runtime.ts': '8c8670d2337dee78cc72c7a9e1f229ca8a61046ad19c30f97b774edb76d586f8',
   'capabilities/operation-store.ts':
     '1a235f11d5578880e6dfa7ecf5779e2a011e24430774fc17429d7d22359b93f2',
   'capabilities/service.ts': '848e0998848d68e80ec53731b248a286f77f761905082092821f3ec9047ba36a',

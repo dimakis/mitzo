@@ -1,4 +1,5 @@
 import { protectCodexProfileRoots } from './codex-private-path.js';
+import { readReadyOpenAIAccountProfiles } from './openai-account-enrollment.js';
 import { cachedModels, CatalogModel, refreshModels, readCodexModels } from './model-catalog.js';
 import { CredentialReferenceSchema } from './credentials.js';
 import { CodexAppServerClient } from './codex-app-server-client.js';
@@ -11,7 +12,7 @@ import {
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { isAbsolute, join } from 'node:path';
+import { dirname, isAbsolute, join } from 'node:path';
 import { z } from 'zod';
 import type { AccountBinding } from '@mitzo/protocol';
 import type { CodexAccountProfile } from './codex-account.js';
@@ -221,6 +222,7 @@ export class AccountProfiles {
     config: unknown,
     private options: {
       codexEnabled?: boolean;
+      enrolledOpenAIAccountIds?: ReadonlySet<string>;
       modelDiscoveryTimeoutMs?: number;
       signInTimeoutMs?: number;
       /** Supplied only by the retained personal registry, never profile JSON. */
@@ -239,6 +241,10 @@ export class AccountProfiles {
         typeof profile.credentialRef === 'string' ? [profile.credentialRef] : [],
       ),
     );
+  }
+
+  isEnrolledOpenAIAccount(id: string): boolean {
+    return this.options.enrolledOpenAIAccountIds?.has(id) ?? false;
   }
 
   privateCodexRoots(): string[] {
@@ -775,10 +781,15 @@ export class AccountProfiles {
     return this.apiProfile(binding).credentialRef;
   }
 
-  /** Private controller view, including host-only consumers to detect shared credentials. */
+  /** All configured identities remain reserved, independently of credential mutation eligibility. */
+  configuredAccountIds(): readonly string[] {
+    return this.profiles.map((profile) => profile.id);
+  }
+
+  /** Legacy rotation only; fresh enrolled custody has its own immutable readiness authority. */
   openAIKeyManagementAccounts(): import('./openai-key-management.js').ManagedOpenAIAccount[] {
     return this.profiles.flatMap((profile) =>
-      profile.provider === 'openai'
+      profile.provider === 'openai' && !this.isEnrolledOpenAIAccount(profile.id)
         ? [
             {
               id: profile.id,
@@ -858,18 +869,45 @@ export class AccountProfiles {
   }
 }
 
+/** Generated custody coordinates can only originate in the retained registry. */
+function claimsEnrolledOpenAIResources(value: unknown): boolean {
+  if (!value || typeof value !== 'object') return false;
+  const profile = value as Record<string, unknown>;
+  const reference =
+    profile.credentialRef && typeof profile.credentialRef === 'object'
+      ? (profile.credentialRef as Record<string, unknown>)
+      : undefined;
+  const uuid = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
+  return (
+    (typeof profile.id === 'string' && new RegExp('^openai-' + uuid + '$', 'i').test(profile.id)) ||
+    (typeof profile.sandboxProvider === 'string' &&
+      new RegExp('^mitzo-openai-' + uuid + '$', 'i').test(profile.sandboxProvider)) ||
+    (typeof reference?.service === 'string' &&
+      reference.service.startsWith('mitzo.openai.enrollment.'))
+  );
+}
+
 /** A file contains profiles and credential references, never credential values. */
 export function loadAccountProfiles(): AccountProfiles {
   if (process.env.MITZO_ACCOUNT_PROFILES_FILE) {
     try {
-      return new AccountProfiles(
-        JSON.parse(readFileSync(process.env.MITZO_ACCOUNT_PROFILES_FILE, 'utf8')),
-        {
-          codexEnabled:
-            process.env.MITZO_CODEX_ENABLED === '1' ||
-            (process.env.MITZO_CODEX_DEV_ENABLED === '1' && process.env.NODE_ENV !== 'production'),
-        },
+      const configured: unknown = JSON.parse(
+        readFileSync(process.env.MITZO_ACCOUNT_PROFILES_FILE, 'utf8'),
       );
+      if (!Array.isArray(configured)) throw new Error('Invalid account profiles');
+      if (configured.some(claimsEnrolledOpenAIResources))
+        throw new Error('Enrolled OpenAI resources require their retained registry');
+      const registryPath = process.env.MITZO_OPENAI_ACCOUNT_ENROLLMENT_DB;
+      if (registryPath && !isAbsolute(registryPath))
+        throw new Error('Enrollment registry must be absolute');
+      if (registryPath) protectCodexProfileRoots([dirname(registryPath)]);
+      const enrolled = registryPath ? readReadyOpenAIAccountProfiles(registryPath, configured) : [];
+      return new AccountProfiles([...configured, ...enrolled], {
+        enrolledOpenAIAccountIds: new Set(enrolled.map((profile) => profile.id)),
+        codexEnabled:
+          process.env.MITZO_CODEX_ENABLED === '1' ||
+          (process.env.MITZO_CODEX_DEV_ENABLED === '1' && process.env.NODE_ENV !== 'production'),
+      });
     } catch {
       // Raw parser/schema errors may contain credential material from an invalid profile.
       throw new Error(
@@ -877,6 +915,10 @@ export function loadAccountProfiles(): AccountProfiles {
       );
     }
   }
+  if (process.env.MITZO_OPENAI_ACCOUNT_ENROLLMENT_DB)
+    throw new Error(
+      'Cannot load account profiles. Enrollment requires MITZO_ACCOUNT_PROFILES_FILE.',
+    );
   // Existing Vertex project configuration supplies a visible, explicitly selected billing
   // profile; catalog presence alone never launches a request. Set CLAUDE_CODE_USE_VERTEX=0 to hide it.
   const projectId = process.env.ANTHROPIC_VERTEX_PROJECT_ID;

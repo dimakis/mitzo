@@ -7,6 +7,7 @@ import type {
   ManagedConnection,
   GoogleWorkspaceHealth,
   OpenAIKeyHealth,
+  EnrolledOpenAIAccount,
 } from '../types/connections';
 
 type Reauthorization = { csrf: string; expiresAt: number };
@@ -41,6 +42,25 @@ function json(method: string, body: unknown, csrf?: string): RequestInit {
 }
 export async function getConnections(): Promise<ConnectionsCatalog> {
   return bodyOrError<ConnectionsCatalog>(await apiFetch('/api/connections'));
+}
+export async function getOpenAIAccounts(): Promise<{
+  enabled: boolean;
+  accounts: EnrolledOpenAIAccount[];
+}> {
+  return bodyOrError(await apiFetch('/api/connections/openai-accounts'));
+}
+export async function enrollOpenAIAccount(input: {
+  csrf: string;
+  requestId: string;
+  label: string;
+  projectLabel: string;
+  apiKey: string;
+  billingConfirmed: true;
+}): Promise<EnrolledOpenAIAccount> {
+  const result = await bodyOrError<{ account: EnrolledOpenAIAccount }>(
+    await apiFetch('/api/connections/openai-accounts', json('POST', input, input.csrf)),
+  );
+  return result.account;
 }
 export async function getOpenAIKeyStatus(): Promise<OpenAIKeyHealth[]> {
   return (

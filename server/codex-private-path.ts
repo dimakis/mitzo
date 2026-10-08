@@ -48,6 +48,9 @@ export function privateCodexRoots(extraRoots: string[] = []): string[] {
       ? [process.env.MITZO_KEYCHAIN_CONNECTIONS_DIR]
       : []),
     ...(process.env.MITZO_ACCOUNT_PROFILES_FILE ? [process.env.MITZO_ACCOUNT_PROFILES_FILE] : []),
+    ...(process.env.MITZO_OPENAI_ACCOUNT_ENROLLMENT_DB
+      ? [dirname(process.env.MITZO_OPENAI_ACCOUNT_ENROLLMENT_DB)]
+      : []),
   ].map(canonical);
 }
 
