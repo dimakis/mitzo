@@ -3843,7 +3843,7 @@ it.each([undefined, 'none', 'concise', 'detailed'] as const)(
   },
 );
 
-it.each(['none', 'concise', 'detailed'])(
+it.each([undefined, null, 'none', 'auto', 'concise', 'detailed'])(
   'preserves inherited %s summaries on an explicit OpenShell runtime',
   async (summary) => {
     const args: Parameters<typeof setup> = [];
@@ -3851,7 +3851,14 @@ it.each(['none', 'concise', 'detailed'])(
     args[22] = { model_reasoning_summary: summary };
     const { requests } = await setup(...args);
     expect(requests.find((r) => r.method === 'thread/start')?.params.config).toMatchObject({
-      model_reasoning_summary: summary,
+      model_reasoning_summary: summary ?? 'auto',
     });
   },
 );
+
+it('rejects invalid inherited reasoning summary settings on an explicit runtime', async () => {
+  const args: Parameters<typeof setup> = [];
+  args[21] = { web_search: 'disabled' };
+  args[22] = { model_reasoning_summary: 'unsupported' };
+  await expect(setup(...args)).rejects.toThrow();
+});

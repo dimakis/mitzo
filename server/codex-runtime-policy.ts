@@ -10,7 +10,8 @@ export function codexRuntimeOverrides(
     .object({
       mcp_servers: z.record(z.string(), z.unknown()).optional(),
       model_providers: z.record(z.string(), z.unknown()).optional(),
-      model_reasoning_summary: z.enum(['none', 'auto', 'concise', 'detailed']).optional(),
+      // config/read returns null when the preference is unset.
+      model_reasoning_summary: z.enum(['none', 'auto', 'concise', 'detailed']).nullish(),
     })
     .safeParse(configuration);
   if (!parsed.success) throw new Error('Cannot inspect Codex runtime configuration');
