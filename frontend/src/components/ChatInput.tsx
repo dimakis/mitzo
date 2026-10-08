@@ -427,8 +427,8 @@ export function ChatInput({
               />
             )}
           </div>
-          {tokenState && <TokenBar tokenState={tokenState} />}
           <div className="composer-actions">
+            {tokenState && <TokenBar tokenState={tokenState} />}
             {micProps && <MicButton {...micProps} />}
             {running ? (
               <>

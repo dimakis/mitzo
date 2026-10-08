@@ -43,11 +43,11 @@ describe('TokenBar', () => {
     expect(screen.getByText(/143k/).className).toBe('sr-only');
   });
 
-  it('applies green color class for low context usage', () => {
+  it('uses the app accent for low context usage', () => {
     const { container } = render(
       <TokenBar tokenState={makeState({ agentContext: 50000, turnIndex: 1 })} />,
     );
-    expect(container.querySelector('.token-bar--green')).toBeTruthy();
+    expect(container.querySelector('.token-bar--normal')).toBeTruthy();
   });
 
   it('applies yellow color class for medium context usage', () => {

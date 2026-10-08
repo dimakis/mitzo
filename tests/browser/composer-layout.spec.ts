@@ -31,6 +31,10 @@ async function composerAssets(running = false) {
     format: 'iife',
     jsx: 'automatic',
     define: { 'import.meta.env': '{}' },
+    alias: {
+      '@mitzo/client': `${process.cwd()}/packages/client/src/index.ts`,
+      '@mitzo/protocol': `${process.cwd()}/packages/protocol/src/index.ts`,
+    },
   });
   return {
     js: result.outputFiles.find((file) => file.path.endsWith('.js'))!.text,
@@ -93,3 +97,53 @@ test('running controls stay reachable with a draft at 320px', async ({ page }) =
     true,
   );
 });
+
+for (const width of [320, 390, 768, 1280]) {
+  for (const theme of ['dark', 'light']) {
+    for (const running of [false, true]) {
+      test(`context wheel joins the actions at ${width}px in ${theme}, running=${running}`, async ({
+        page,
+      }) => {
+        const assets = await composerAssets(running);
+        await page.setViewportSize({ width, height: 640 });
+        await page.route('**/*', (route) => route.abort());
+        await page.setContent(
+          `<html data-theme="${theme}"><meta name="viewport" content="width=device-width, initial-scale=1.0"><style>${assets.css}</style><div id="root"></div></html>`,
+        );
+        await page.addScriptTag({ content: assets.js });
+        const wheel = page.getByRole('button', { name: 'Token usage', exact: true });
+        const mic = page.getByRole('button', { name: 'Record voice message', exact: true });
+        await expect(wheel).toBeVisible();
+        const wheelBounds = (await wheel.boundingBox())!;
+        const micBounds = (await mic.boundingBox())!;
+        expect(micBounds.x - (wheelBounds.x + wheelBounds.width)).toBeGreaterThanOrEqual(0);
+        expect(micBounds.x - (wheelBounds.x + wheelBounds.width)).toBeLessThanOrEqual(6);
+        expect(
+          Math.abs(wheelBounds.y + wheelBounds.height / 2 - (micBounds.y + micBounds.height / 2)),
+        ).toBeLessThanOrEqual(1);
+        const palette = await wheel.evaluate((el) => {
+          const probe = document.createElement('span');
+          probe.style.color = 'var(--workspace-accent)';
+          el.append(probe);
+          const accent = getComputedStyle(probe).color;
+          probe.remove();
+          return { accent, wheel: getComputedStyle(el).color };
+        });
+        expect(palette.wheel).toBe(palette.accent);
+        if (running) {
+          await page.getByRole('textbox').fill('Follow up');
+          const updatedWheel = (await wheel.boundingBox())!;
+          const updatedMic = (await mic.boundingBox())!;
+          expect(updatedMic.x - (updatedWheel.x + updatedWheel.width)).toBeLessThanOrEqual(6);
+        }
+        await wheel.click();
+        const details = (await page.locator('.token-bar-detail').boundingBox())!;
+        expect(details.x).toBeGreaterThanOrEqual(0);
+        expect(details.x + details.width).toBeLessThanOrEqual(width);
+        expect(
+          await page.locator('.chat-input').evaluate((el) => el.scrollWidth <= el.clientWidth),
+        ).toBe(true);
+      });
+    }
+  }
+}
