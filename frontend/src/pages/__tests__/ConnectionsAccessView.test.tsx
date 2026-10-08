@@ -534,6 +534,38 @@ it('returns focus to an attached page control when refresh removes the drawer op
   expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Refresh access' }));
 });
 
+it('preserves the drawer opener when inventory completion effects are still pending', async () => {
+  let resolve!: (value: ConnectionsAccessInventory) => void;
+  vi.mocked(getConnectionsAccess).mockImplementation(
+    () => new Promise((complete) => (resolve = complete)),
+  );
+  render(
+    <MemoryRouter>
+      <ConnectionsAccessView />
+    </MemoryRouter>,
+  );
+  const trigger = screen.getByRole('button', { name: 'View Public page reads' });
+  let opened = false;
+  // Open after the inventory commit, before its passive loading effect runs.
+  const observer = new MutationObserver(() => {
+    const refresh = screen.queryByRole<HTMLButtonElement>('button', { name: 'Refresh access' });
+    if (refresh && !refresh.disabled && !opened) {
+      opened = true;
+      refresh.focus();
+      trigger.click();
+    }
+  });
+  observer.observe(document.body, { attributes: true, childList: true, subtree: true });
+  try {
+    resolve({ generatedAt: 1, resources: [], sources: [] });
+    await screen.findByRole('dialog', { name: 'Public page reads' });
+    fireEvent.keyDown(screen.getByRole('button', { name: 'Close details' }), { key: 'Escape' });
+    await waitFor(() => expect(document.activeElement).toBe(trigger));
+  } finally {
+    observer.disconnect();
+  }
+});
+
 it('keeps technical identifiers collapsed until details are requested', async () => {
   vi.mocked(getConnectionsAccess).mockResolvedValue(linkedFacets());
   render(
