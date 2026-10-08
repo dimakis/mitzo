@@ -10,12 +10,13 @@ import {
   type SessionRegistry,
 } from '@mitzo/harness';
 import {
+  ApprovedUrlRedirect,
   canonicalApprovalUrl,
   resolveApprovedUrl,
   fetchApprovedUrl,
   type ApprovedUrlTarget,
 } from './approved-url-fetch.js';
-import { REQUEST_WEB_ACCESS, withWebAbort } from './request-web-access.js';
+import { REQUEST_WEB_ACCESS, withWebAbort, WebAccessError } from './request-web-access.js';
 const Input = z
   .object({
     operation: z.enum(['request_access', 'revoke_access']),
@@ -56,8 +57,8 @@ export function createUrlAccessTool(
     owner()?.clientId === clientId &&
     effectivePermissionMode(session) !== 'ask' &&
     checkSkillPolicy(registry, clientId, REQUEST_WEB_ACCESS) !== 'deny';
-  return {
-    async request(input: unknown, signal: AbortSignal) {
+  const tool = {
+    async request(input: unknown, signal: AbortSignal, redirectedFrom?: string) {
       try {
         signal.throwIfAborted();
         const parsed = Input.safeParse(input);
@@ -103,8 +104,13 @@ export function createUrlAccessTool(
             forcePrompt: true,
             allowSessionGrant: false,
             approvalScope: 'request',
-            title: 'Allow this session to read this website?',
+            title: redirectedFrom
+              ? 'Approve redirected destination?'
+              : 'Allow this session to read this website?',
             description:
+              (redirectedFrom
+                ? `The approved page at ${new URL(redirectedFrom).origin} moved to ${url.origin}. Approve the destination to continue this read. `
+                : '') +
               'Allows credential-free reads through Mitzo’s web tool on the exact origin and resolved addresses shown below. Includes private or local destinations when explicitly shown. Other origins and credentials require separate access.',
           },
         );
@@ -173,31 +179,89 @@ export function createUrlAccessTool(
       }
       if (!allowed(current.clientId, current.session))
         return { content: 'Session permissions changed; URL reads are unavailable', isError: true };
+      const chain = [{ origin: url.origin, grant }];
+      const chainCurrent = () => {
+        if (
+          chain.some(
+            ({ grant }) =>
+              !isDeepStrictEqual(grant.account, current.session.accountBinding) ||
+              grant.model !== current.session.model,
+          )
+        ) {
+          clearUrlAccessGrants(current.session);
+          return false;
+        }
+        return (
+          allowed(current.clientId, current.session) &&
+          chain.every(
+            ({ origin, grant }) =>
+              grants.get(current.session)?.get(origin) === grant && grant.expires > deps.now(),
+          )
+        );
+      };
+      let activeGrant = grant;
       try {
-        signal.throwIfAborted();
-        const content = await deps.fetch(url.href, grant.target, signal);
-        signal.throwIfAborted();
-        if (
-          !isDeepStrictEqual(grant.account, current.session.accountBinding) ||
-          grant.model !== current.session.model
-        )
-          grants.get(current.session)?.delete(url.origin);
-        if (
-          grants.get(current.session)?.get(url.origin) !== grant ||
-          grant.expires <= deps.now() ||
-          !allowed(current.clientId, current.session) ||
-          !isDeepStrictEqual(grant.account, current.session.accountBinding) ||
-          grant.model !== current.session.model
-        )
-          return { content: 'Session permissions changed during URL read', isError: true };
-        return { content, isError: false };
-      } catch {
+        for (let hop = 0; hop <= 3; hop++) {
+          signal.throwIfAborted();
+          if (!chainCurrent())
+            return { content: 'Session permissions changed during URL read', isError: true };
+          try {
+            const content = await deps.fetch(url.href, activeGrant.target, signal);
+            signal.throwIfAborted();
+            if (!chainCurrent())
+              return { content: 'Session permissions changed during URL read', isError: true };
+            return { content, isError: false };
+          } catch (error) {
+            signal.throwIfAborted();
+            if (!(error instanceof ApprovedUrlRedirect)) throw error;
+            if (!chainCurrent())
+              return { content: 'Session permissions changed during URL read', isError: true };
+            if (hop === 3)
+              return { content: 'Approved read reached the redirect limit.', isError: true };
+            const destination = canonicalApprovalUrl(error.url);
+            // Never reuse the source grant for a new origin, including private hosts.
+            const decision = await tool.request(
+              {
+                operation: 'request_access',
+                url: destination.href,
+                reason: 'Continue the approved website read after a redirect',
+              },
+              signal,
+              url.href,
+            );
+            signal.throwIfAborted();
+            const destinationGrant = grants.get(current.session)?.get(destination.origin);
+            if (!decision.isError && destinationGrant) {
+              // Explicit reapproval may replace a prior origin's grant. Keep
+              // its expiry fence and track the newly accepted grant identity.
+              for (const entry of chain.filter(({ origin }) => origin === destination.origin)) {
+                if (entry.grant.expires <= deps.now())
+                  return { content: 'Session permissions changed during URL read', isError: true };
+                entry.grant = destinationGrant;
+              }
+            }
+            if (!chainCurrent())
+              return { content: 'Session permissions changed during URL read', isError: true };
+            if (decision.isError) return decision;
+            if (!destinationGrant)
+              return { content: 'URL access changed during approval; retry', isError: true };
+            url = destination;
+            activeGrant = destinationGrant;
+            chain.push({ origin: url.origin, grant: activeGrant });
+          }
+        }
+        return { content: 'Approved read reached the redirect limit.', isError: true };
+      } catch (error) {
         return {
-          content:
-            'Approved URL read failed. Check website reachability or authorization; request access again if its resolved destination changed.',
+          content: signal.aborted
+            ? 'Web access interrupted'
+            : error instanceof WebAccessError
+              ? error.message
+              : 'Approved read could not connect securely to the website. Retry the read.',
           isError: true,
         };
       }
     },
   };
+  return tool;
 }

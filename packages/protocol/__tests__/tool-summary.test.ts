@@ -286,3 +286,15 @@ describe('getRawInput', () => {
     expect(result).not.toHaveProperty('prompt');
   });
 });
+
+it.each(['RequestWebAccess', 'mcp__mitzo-web-access__RequestWebAccess'])(
+  'preserves parseable %s inputs beyond the short display summary',
+  (name) => {
+    const input = {
+      operation: 'fetch',
+      url: 'https://example.com/search?q=' + 'x'.repeat(300),
+      reason: 'why'.repeat(200),
+    };
+    expect(JSON.parse(summarizeToolInput(name, input))).toEqual(input);
+  },
+);
