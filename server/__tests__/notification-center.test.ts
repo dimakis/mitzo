@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
+import { buildPermissionHandler, SessionRegistry, permissionDisplayInput } from '@mitzo/harness';
 import { registerPending, resolvePending, removePending } from '../permissions.js';
 import { NotificationStore } from '../notification-store.js';
 import { NotificationCenter, nextDeliveryAt } from '../notification-center.js';
@@ -166,6 +167,149 @@ describe('central notification delivery', () => {
     center.close();
     store.close();
   });
+  it.each([
+    ['search', 'session', 'SESSION_SEARCH_PERMISSION'],
+    ['fetch', 'request', 'SESSION_APPROVAL'],
+    ['grant', 'conversation', 'SESSION_PERMISSION'],
+  ] as const)(
+    'selects actions appropriate to %s approval scope',
+    async (operation, approvalScope, category) => {
+      const { store, center, push } = setup();
+      store.setPreferences({ sensitivePreviews: true });
+      const permId = `category-${operation}`;
+      registerPending(permId, 'RequestWebAccess', vi.fn(), {}, 'unknown', 's1', {
+        permId,
+        toolName: 'RequestWebAccess',
+        toolInput: JSON.stringify({ operation }),
+        sessionId: 's1',
+        approvalScope,
+      });
+      await center.flush();
+      expect(push.mock.calls[0][0].category).toBe(category);
+      removePending(permId);
+      center.close();
+      store.close();
+    },
+  );
+  it.each([false, true])(
+    'quick approval requires the full request to be disclosed (previews: %s)',
+    async (previews) => {
+      const { store, center, push } = setup();
+      store.setPreferences({ sensitivePreviews: previews });
+      const toolInput = permissionDisplayInput('Bash', { command: 'echo exact-command' })!;
+      registerPending(
+        'visible-command',
+        'Bash',
+        vi.fn(),
+        { command: toolInput },
+        'elevated',
+        's1',
+        {
+          permId: 'visible-command',
+          toolName: 'Bash',
+          toolInput,
+          sessionId: 's1',
+          approvalScope: 'request',
+        },
+      );
+      await center.flush();
+      const message = push.mock.calls[0][0];
+      expect(message.category).toBe(previews ? 'SESSION_APPROVAL' : 'SESSION_PERMISSION');
+      if (previews) {
+        expect(message.body).toContain(toolInput);
+        expect(message.data).toMatchObject({ approvalInput: toolInput, approvalToolName: 'Bash' });
+      } else {
+        expect(message.body).not.toContain(toolInput);
+        expect(message.data.approvalInput).toBeUndefined();
+      }
+      removePending('visible-command');
+      center.close();
+      store.close();
+    },
+  );
+  it.each([
+    {},
+    { timeout: 600000 },
+    { dangerouslyDisableSandbox: true },
+    { description: 'omitted details' },
+  ])('checks all original Bash fields before quick approval (%j)', async (extra) => {
+    const { store, center, push } = setup();
+    const registry = new SessionRegistry();
+    const abort = new AbortController();
+    store.setPreferences({ sensitivePreviews: true });
+    registry.register('owner', {
+      sessionId: 's1',
+      mode: 'agent',
+      sessionAllowList: new Set(),
+      abortController: abort,
+      transport: { isOpen: () => true, send: vi.fn() },
+    });
+    const command = 'printf "exact command\\n"';
+    const pending = buildPermissionHandler('owner', registry)(
+      'Bash',
+      { command, ...extra },
+      {
+        signal: abort.signal,
+        toolUseID: 'real-bash',
+        forcePrompt: true,
+        approvalScope: 'request',
+      },
+    );
+    try {
+      await vi.waitFor(() => expect(store.feed('needs').needsYou).toBe(1));
+      await center.flush();
+      const quick = Object.keys(extra).length === 0;
+      expect(push.mock.calls[0][0].category).toBe(
+        quick ? 'SESSION_APPROVAL' : 'SESSION_PERMISSION',
+      );
+      if (quick)
+        expect(push.mock.calls[0][0].data).toMatchObject({
+          approvalInput: command,
+          approvalToolName: 'Bash',
+        });
+      else expect(push.mock.calls[0][0].data.approvalInput).toBeUndefined();
+      if (quick) expect(push.mock.calls[0][0].body).toContain(command);
+      const item = store.feed('needs').items[0];
+      resolvePending(item.permId!, 'once');
+      expect(await pending).toMatchObject({
+        behavior: 'allow',
+        updatedInput: { command, ...extra },
+      });
+    } finally {
+      abort.abort();
+      await pending;
+      registry.dispose();
+      center.close();
+      store.close();
+    }
+  });
+  it.each(['oversized', 'unknown'])(
+    'keeps %s requests review-only even with previews enabled',
+    async (kind) => {
+      const { store, center, push } = setup();
+      store.setPreferences({ sensitivePreviews: true });
+      registerPending(
+        'review-only',
+        kind === 'unknown' ? 'CustomGrant' : 'Bash',
+        vi.fn(),
+        {},
+        'elevated',
+        's1',
+        {
+          permId: 'review-only',
+          toolName: kind === 'unknown' ? 'CustomGrant' : 'Bash',
+          toolInput: kind === 'oversized' ? 'x'.repeat(2000) : '{}',
+          sessionId: 's1',
+        },
+      );
+      await center.flush();
+      expect(push.mock.calls[0][0].category).toBe('SESSION_PERMISSION');
+      expect(push.mock.calls[0][0].data.approvalInput).toBeUndefined();
+      removePending('review-only');
+      center.close();
+      store.close();
+    },
+  );
   it('captures and resolves permissions from any client without duplicate pushes', async () => {
     const { store, center, push } = setup();
     const resolve = vi.fn();

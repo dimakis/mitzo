@@ -36,6 +36,16 @@ async function authorize() {
   await waitFor(() => expect(api.reauthorizeKeychain).toHaveBeenCalledWith('password'));
   await screen.findByText('Keychain changes authorized.');
 }
+it('limits focused management to its connection and hides the setup form', async () => {
+  vi.mocked(api.getCredentialConnections).mockResolvedValue([
+    homeAssistant,
+    { ...homeAssistant, id: 'other', label: 'Other service' },
+  ]);
+  render(<CredentialConnectionsPanel connectionId="ha" />);
+  await screen.findByRole('heading', { name: 'Home Assistant' });
+  expect(screen.queryByRole('heading', { name: 'Other service' })).toBeNull();
+  expect(screen.queryByLabelText('Service address')).toBeNull();
+});
 it('saves a Home Assistant connection securely and clears secret fields on failure', async () => {
   vi.mocked(api.createCredentialConnection).mockRejectedValue(
     new Error('Unlock Apple Keychain on the Mac, then retry'),

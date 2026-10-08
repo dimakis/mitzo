@@ -30,6 +30,12 @@ vi.mock('../codex-conversation-store.js', () => ({
       mocks.store();
     }
     recoverAtStartup() {}
+    reserveStartup() {}
+    assertStartupResumeSafe() {}
+    startupNeedsProvisioning() {
+      return false;
+    }
+    markStartupProviderInitializing() {}
     readArtifactRuntime() {
       return null;
     }
@@ -70,11 +76,14 @@ import {
   managedJiraConnectionEnv,
   openCodexChat,
   publicCodexRuntimeError,
+  publicCodexStartupError,
+  ordinaryRuntimeServiceProviders,
   selectedOpenShellAccountRoute,
   waitForCodexRuntime,
   waitForCodexRuntimeBySessionId,
 } from '../codex-chat-session.js';
 import { KnowledgePublicationUnavailableError } from '../knowledge-publication-bridge.js';
+import { CodexRequestError } from '../codex-app-server-client.js';
 import { OpenShellRuntimeManager } from '../openshell-runtime.js';
 import * as migrationAdapter from '../openshell-runtime-migration-adapter.js';
 import * as lifecycleController from '../openshell-lifecycle-controller.js';
@@ -88,6 +97,24 @@ import { SymposiumProfileStore } from '../symposium-profiles.js';
 afterEach(() => {
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
+});
+it('uses assigned GitHub credentials instead of the legacy fallback on a new runtime', () => {
+  const managed = [
+    { templateId: 'github-readonly', gatewayProviderName: 'mitzo-conn-github' },
+    { templateId: 'jira-readonly', gatewayProviderName: 'mitzo-conn-jira' },
+  ];
+  expect(ordinaryRuntimeServiceProviders(['github', 'google-workspace'], managed)).toEqual([
+    'google-workspace',
+    'mitzo-conn-github',
+    'mitzo-conn-jira',
+  ]);
+  expect(ordinaryRuntimeServiceProviders(['github'], managed.slice(1))).toEqual([
+    'github',
+    'mitzo-conn-jira',
+  ]);
+  // Retained selection excludes a newly assigned connection absent from that
+  // physical sandbox, so an existing legacy GitHub binding stays selected.
+  expect(ordinaryRuntimeServiceProviders(['github'], [])).toEqual(['github']);
 });
 
 it('forwards only recognized sanitized Codex diagnostics', () => {
@@ -108,6 +135,14 @@ it('reports connection admission rejection without claiming a provider turn fail
   expect(
     publicCodexRuntimeError(new Error('Connection permissions changed. Start a new conversation.')),
   ).toBe('Connection permissions changed. Start a new conversation.');
+});
+it('reports startup request failures without discarding their safe category', () => {
+  const error = new CodexRequestError('thread/start', 'authentication', 401);
+  expect(publicCodexRuntimeError(error)).toMatch(/credentials or permissions/);
+  expect(publicCodexStartupError(error)).toMatch(/credentials or permissions/);
+  expect(publicCodexStartupError(new Error('Bearer sk-secret'))).toBe(
+    'Codex could not start this chat. Check runtime and account configuration before continuing.',
+  );
 });
 it('scopes capability idempotency to the authoritative conversation identity', () => {
   const binding = {
@@ -189,12 +224,40 @@ it('does not open MCP processes if private storage is unavailable', async () => 
     throw new Error('storage unavailable');
   });
   mocks.connect.mockResolvedValue({ definitions: [], close: mocks.mcpClose });
-  await expect(openCodexChat(options(new AbortController()))).rejects.toThrow(
-    'storage unavailable',
-  );
+  const opening = openCodexChat(options(new AbortController()));
+  await expect(opening).rejects.toThrow('storage unavailable');
+  await expect(opening).rejects.toMatchObject({ phase: 'conversation_storage' });
   expect(mocks.connect).not.toHaveBeenCalled();
 });
+it('retains the failing initialization step while closing the runtime', async () => {
+  vi.clearAllMocks();
+  mocks.connect.mockResolvedValue({ definitions: [], close: mocks.mcpClose });
+  const cause = new CodexRequestError('thread/start', 'authentication', 401);
+  mocks.initialize.mockRejectedValueOnce(cause);
+  await expect(openCodexChat(options(new AbortController()))).rejects.toMatchObject({
+    phase: 'conversation_initialization',
+    cause,
+  });
+  expect(mocks.close).toHaveBeenCalledOnce();
+  expect(mocks.mcpClose).toHaveBeenCalledOnce();
+  expect(mocks.send).not.toHaveBeenCalled();
+});
+it('retains uncertain-work advice when the first send fails after initialization', async () => {
+  vi.clearAllMocks();
+  mocks.connect.mockResolvedValue({ definitions: [], close: mocks.mcpClose });
+  mocks.initialize.mockResolvedValueOnce(undefined);
+  const cause = new Error('unknown failure after provider dispatch');
+  mocks.send.mockRejectedValueOnce(cause);
+  const opening = openCodexChat(options(new AbortController()));
+  await expect(opening).rejects.toMatchObject({ phase: 'initial_turn_dispatch', cause });
+  const error = await opening.catch((error) => error);
+  expect(publicCodexStartupError(error)).toMatch(/outcome may be unknown/);
+  expect(publicCodexStartupError(error)).toMatch(/inspect saved work/);
+  expect(publicCodexStartupError(error)).not.toMatch(/configuration|runtime admission/);
+  expect(mocks.close).toHaveBeenCalledOnce();
+});
 it('closes an initialization aborted before the first turn starts', async () => {
+  vi.clearAllMocks();
   const abort = new AbortController();
   mocks.connect.mockResolvedValue({ definitions: [], close: mocks.mcpClose });
   mocks.initialize.mockImplementationOnce(async () => {

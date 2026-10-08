@@ -1,0 +1,12 @@
+# Disposable successor of the measured 0.156.1 image; existing seats are untouched.
+ARG OPENSHELL_BASE_IMAGE
+FROM ${OPENSHELL_BASE_IMAGE}
+USER root
+RUN echo '876fe6bb5f7af7d1e4eda629be0d8ba042f6f24a7bb07475f6a995849f50c068  /usr/bin/codex' | sha256sum -c - \
+    && echo 'b22553f5085d1b2ad5b1d5e935bb8974e2e76d925df1fc30fa83f67bfe216623  /usr/bin/codex-code-mode-host' | sha256sum -c - \
+    && rm /usr/bin/codex /usr/bin/codex-code-mode-host \
+    && npm install --global --ignore-scripts --no-audit --no-fund @openai/codex@0.159.1 \
+    && codex --version \
+    && sha256sum /usr/lib/node_modules/@openai/codex/package.json \
+       /usr/lib/node_modules/@openai/codex/node_modules/@openai/codex-linux-arm64/vendor/aarch64-unknown-linux-musl/bin/codex \
+       /usr/lib/node_modules/@openai/codex/node_modules/@openai/codex-linux-arm64/vendor/aarch64-unknown-linux-musl/bin/codex-code-mode-host

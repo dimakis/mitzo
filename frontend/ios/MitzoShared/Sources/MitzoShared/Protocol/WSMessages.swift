@@ -217,6 +217,7 @@ public enum PermissionDecision: String, Codable, Sendable {
 }
 
 public enum ApprovalScope: String, Codable, Sendable {
+    case request
     case session
     case conversation
 }

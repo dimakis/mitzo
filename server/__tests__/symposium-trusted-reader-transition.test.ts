@@ -1,0 +1,825 @@
+import { createHash } from 'node:crypto';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import Database from 'better-sqlite3';
+import { afterEach, expect, it } from 'vitest';
+import { AccountBindingSchema, type SeatConfig, type SymposiumConfig } from '@mitzo/protocol';
+import { AccountProfiles } from '../account-profiles.js';
+import { EventStore } from '../event-store.js';
+import { SqliteArtifactLeaseHost } from '../symposium-artifact-host.js';
+import { SymposiumOrchestrator } from '../symposium-orchestrator.js';
+import { SymposiumReviewStore } from '../symposium-review-workflows.js';
+import { createSealedReaderReviewTransition } from '../symposium-trusted-reader-transition.js';
+import { canonicalReviewJson, reviewRecordHash } from '../symposium-review-records.js';
+import { ARTIFACT_REVIEW_BATCH_PAGES } from '../symposium-artifact-git-export.js';
+
+const sha = (value: string) => createHash('sha256').update(value).digest('hex');
+function pageContext(content: string, path = 'marker.txt') {
+  return canonicalReviewJson({
+    version: 3,
+    scope: 'sealed-changed-path-pages',
+    sourceOid: commit,
+    baseOid: 'c'.repeat(40),
+    sourceBranch: 'feature',
+    baseBranch: 'main',
+    committedTreeDigest: treeDigest,
+    manifestDigest: 'e'.repeat(64),
+    trackedFileCount: 0,
+    changedPathCount: 1,
+    evidenceSha256: 'd'.repeat(64),
+    pageIndex: 0,
+    pageCount: 1,
+    segments: [
+      {
+        path,
+        status: 'present',
+        baseMode: null,
+        mode: '100644',
+        sha256: sha(content),
+        bytes: Buffer.byteLength(content),
+        representation: 'content',
+        diffSha256: sha(''),
+        diffBytes: 0,
+        selectedSha256: sha(content),
+        selectedBytes: Buffer.byteLength(content),
+        segmentIndex: 0,
+        segmentCount: 1,
+        data: content,
+        segmentSha256: sha(content),
+      },
+    ],
+  });
+}
+const commit = 'a'.repeat(40);
+const treeDigest = 'b'.repeat(64);
+const profile = new AccountProfiles([
+  {
+    id: 'work',
+    label: 'Work',
+    provider: 'openai',
+    credentialRef: { provider: 'keychain', service: 'mitzo', account: 'work' },
+    sandboxProvider: 'openai-work',
+    sandboxProviderId: 'object',
+    models: [{ id: 'gpt-test', label: 'Test' }],
+  },
+]);
+const reviewer: SeatConfig = {
+  id: 'reviewer',
+  name: 'Reviewer',
+  role: 'reviewer',
+  model: 'gpt-test',
+  systemPrompt: 'Review only.',
+  color: '#223344',
+  accountBinding: AccountBindingSchema.parse(profile.resolve('work', 'gpt-test')),
+  profileBinding: { profileId: 'reviewer', profileRevision: '1' },
+  contextGrant: { grantId: 'context', revision: 1, classification: 'work', sourceRefs: [] },
+  authorityGrant: {
+    grantId: 'authority',
+    revision: 1,
+    filesystem: 'read',
+    tools: 'read',
+    network: 'restricted',
+  },
+  isolationRequest: { trustDomainId: 'shared', revision: 1, placement: 'reuse-compatible' },
+};
+const config: SymposiumConfig = {
+  version: 2,
+  revision: 4,
+  state: 'active',
+  anchorSeatId: 'reviewer',
+  activeSeatCap: 3,
+  seats: [reviewer],
+  turnRules: { mode: 'directed', maxTurns: 10 },
+  interceptMode: 'manual',
+};
+const roots: string[] = [];
+afterEach(() => {
+  for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
+});
+
+function fixture() {
+  const root = mkdtempSync(join(tmpdir(), 'mitzo-reader-transition-'));
+  roots.push(root);
+  const events = new EventStore(join(root, 'events.db'));
+  const reviewPath = join(root, 'reviews.db');
+  const reviews = new SymposiumReviewStore(reviewPath);
+  events.upsertSession({ sessionId: 'symposium', accountBinding: reviewer.accountBinding });
+  events.setSymposiumConfig('symposium', config);
+  events.transitionSymposiumMembership({
+    sessionId: 'symposium',
+    seatId: 'reviewer',
+    action: 'admit',
+    expectedGeneration: 0,
+    configRevision: 4,
+    actor: 'owner',
+    reason: 'initial',
+    idempotencyKey: 'initial',
+    occurredAt: 1,
+  });
+  events.markSymposiumMembershipReconciled('symposium', 'reviewer', 1, 'confirmed');
+  const selection = {
+    sessionId: 'symposium',
+    expectedConfigRevision: 4,
+    idempotencyKey: 'seal-1',
+    custody: { workspaceId: 'workspace', gatewayLaunchDigest: 'c'.repeat(64) },
+    artifact: {
+      driver: 'podman' as const,
+      volumeName: 'volume',
+      volumeGeneration: 'generation-1',
+      leaseRevision: 'lease-1',
+      leaseTokenHash: 'd'.repeat(64),
+    },
+  };
+  const seal = events.beginSymposiumArtifactSeal(selection);
+  reviews.create({
+    workflowId: 'workflow',
+    owner: 'user',
+    sessionId: 'symposium',
+    implementation: {
+      version: 1,
+      resultId: 'result',
+      attemptId: 'initial',
+      inputRevision: 'source',
+      inputHash: treeDigest,
+      artifactRevision: commit,
+      artifactHash: treeDigest,
+      summary: 'done',
+      evidenceRefs: ['commit'],
+      completedAt: 1,
+    },
+    implementer: {
+      seatId: 'coder',
+      role: 'coder',
+      selectionId: 'coder',
+      policyRevision: 'config-4',
+      profileId: 'coder',
+      profileRevision: 1,
+      accountId: 'coder',
+      model: 'gpt-test',
+    },
+    reviewer: {
+      seatId: 'reviewer',
+      role: 'reviewer',
+      selectionId: 'reviewer',
+      policyRevision: 'config-4',
+      profileId: 'reviewer',
+      profileRevision: 1,
+      accountId: reviewer.accountBinding!.accountId,
+      model: 'gpt-test',
+    },
+    acceptanceCriteria: ['works'],
+    limits: {
+      version: 1,
+      mode: 'application',
+      maxHostTurns: 4,
+      maxReviewCycles: 2,
+      deadlineAt: Date.now() + 60000,
+      noProgressLimit: 2,
+    },
+  });
+  const labels = {
+    'openshell.ai/sandbox-attachable': 'true',
+    'openshell.ai/sandbox-attachable-workspace': 'workspace',
+    'mitzo.symposium.purpose': 'artifacts',
+    'mitzo.symposium.session': 'symposium',
+    'mitzo.symposium.workspace': 'workspace',
+    'mitzo.symposium.generation': 'generation-1',
+  };
+  const leasePath = join(root, 'leases.db');
+  const leaseHost = new SqliteArtifactLeaseHost(
+    leasePath,
+    { verifyGateway: async () => {}, verifyMount: async () => {} },
+    async () => ({ Name: 'volume', Driver: 'local', Labels: labels, Options: {} }),
+  );
+  const db = new Database(leasePath);
+  db.prepare('INSERT INTO symposium_artifact_pending_retention VALUES(?,?,?,?)').run(
+    'podman',
+    'volume',
+    JSON.stringify(seal),
+    JSON.stringify({
+      kind: 'pending_artifact_retention',
+      status: 'pending_unsealed',
+      fenceId: seal.fenceId,
+      intent: seal,
+      writerSandboxName: 'writer',
+      writerSandboxId: 'writer-id',
+      retainedAt: 1,
+    }),
+  );
+  db.close();
+  const runtime = new SymposiumOrchestrator({
+    store: events,
+    executors: {},
+    idFactory: () => 'delivery-1',
+  });
+  const context = { owner: 'user', sessionId: 'symposium' };
+  let loseStageResponse = false;
+  let reviewContext = pageContext('tested');
+  let reviewPageTexts = [reviewContext];
+  const exportedPageBatches: number[] = [];
+  const releasedReviewStreams: string[] = [];
+  let releaseReadyCount = 0;
+  let failExportAfterReady = false;
+  let failRelease = false;
+  let malformedPagesDigest = false;
+  let failAfterFirstRetain = false;
+  let contextRevision = commit;
+  const completedSeal = {
+    kind: 'completed_artifact_seal' as const,
+    version: 1 as const,
+    fenceId: seal.fenceId,
+    sessionId: 'symposium',
+    custodyDigest: selection.custody.gatewayLaunchDigest,
+    intentDigest: sha(JSON.stringify(seal)),
+    retentionDigest: 'e'.repeat(64),
+    revocationDigest: 'f'.repeat(64),
+    repositoryPath: '.',
+    git: {
+      version: 1 as const,
+      commit,
+      tree: commit,
+      entries: 0,
+      bytes: 0,
+      manifestDigest: 'e'.repeat(64),
+      committedTreeDigest: treeDigest,
+    },
+    verifier: { id: 'fake', image: 'fake', codeDigest: 'f'.repeat(64) },
+    completedAt: 1,
+  };
+  const owner = createSealedReaderReviewTransition({
+    events,
+    reviews,
+    leaseHost,
+    sourceFence: () => seal.fenceId,
+    requireCompletedSeal: async () => completedSeal,
+    baseBranch: () => 'main',
+    exportReviewContext: async ({ fenceId, operationId, baseBranch, page = 0 }) => {
+      exportedPageBatches.push(page);
+      if (fenceId !== seal.fenceId || baseBranch !== 'main')
+        throw new Error('Context selector changed');
+      const pagesSha256 = malformedPagesDigest
+        ? 'invalid'
+        : sha(canonicalReviewJson(reviewPageTexts));
+      const pageReceipts = reviewPageTexts
+        .slice(page, page + ARTIFACT_REVIEW_BATCH_PAGES)
+        .map((context, index) => ({
+          context,
+          receipt: {
+            jobId: '11111111-1111-4111-8111-111111111111',
+            operationId,
+            sealFenceId: seal.fenceId,
+            sealDigest: reviewRecordHash(canonicalReviewJson(completedSeal)),
+            artifactRevision: contextRevision,
+            artifactHash: treeDigest,
+            baseOid: 'c'.repeat(40),
+            sourceOid: commit,
+            contextSha256: sha(context),
+            pageIndex: page + index,
+            pageCount: reviewPageTexts.length,
+            evidenceSha256: 'd'.repeat(64),
+            pagesSha256,
+            completedAt: 1,
+          },
+        }));
+      if (failExportAfterReady) {
+        failExportAfterReady = false;
+        throw new Error('lost completed stream response');
+      }
+      return {
+        context: reviewPageTexts[page],
+        pages: pageReceipts,
+        receipt: pageReceipts[0].receipt,
+      };
+    },
+    retainReviewPages: (input) => {
+      reviews.retainReviewPages(input);
+      if (failAfterFirstRetain && input.startPageIndex === 0) {
+        failAfterFirstRetain = false;
+        throw new Error('simulated crash after first durable batch');
+      }
+    },
+    assertRetainedReviewPagesComplete: (input) => reviews.assertRetainedReviewPagesComplete(input),
+    releaseCompletedReviewStream: (input) => {
+      releasedReviewStreams.push(input.pagesSha256);
+      if (failRelease) {
+        failRelease = false;
+        throw new Error('stream release failed');
+      }
+    },
+    releaseReadyReviewStream: () => {
+      releaseReadyCount++;
+    },
+    markReviewPromptPageDelivered: () => {},
+    currentArtifact: () => ({ revision: commit, hash: treeDigest }),
+    verifyReviewer: () => true,
+    runtime: () => ({
+      recordProviderAdmission: runtime.recordProviderAdmission.bind(runtime),
+      stageDelivery(input) {
+        const staged = runtime.stageDelivery(input);
+        if (loseStageResponse) {
+          loseStageResponse = false;
+          throw new Error('lost stage response');
+        }
+        return staged;
+      },
+    }),
+  });
+  return {
+    events,
+    reviews,
+    reviewPath,
+    leaseHost,
+    runtime,
+    owner,
+    context,
+    setLoseStageResponse: () => {
+      loseStageResponse = true;
+    },
+    failAfterFirstRetain: () => {
+      failAfterFirstRetain = true;
+    },
+    failExportAfterReady: () => {
+      failExportAfterReady = true;
+    },
+    failRelease: () => {
+      failRelease = true;
+    },
+    setMalformedPagesDigest: () => {
+      malformedPagesDigest = true;
+    },
+    releasedReviewStreams,
+    getReleaseReadyCount: () => releaseReadyCount,
+    setReviewContext: (value: string) => {
+      try {
+        const parsed = JSON.parse(value);
+        const file = parsed.version === 2 && parsed.files?.[0];
+        reviewContext =
+          file?.complete &&
+          parsed.omittedPathCount === 0 &&
+          parsed.changedPathCount === 1 &&
+          file.representation === 'content'
+            ? pageContext(file.content, file.path)
+            : value;
+      } catch {
+        reviewContext = value;
+      }
+      reviewPageTexts = [reviewContext];
+    },
+    setReviewPages: (pages: string[]) => {
+      reviewPageTexts = pages;
+    },
+    setContextRevision: (value: string) => {
+      contextRevision = value;
+    },
+    exportedPageBatches,
+  };
+}
+
+it('charges first review before reader admission and recovers an exact staged delivery after lost response', async () => {
+  const f = fixture();
+  try {
+    expect(f.events.getLatestSymposiumAdmission('symposium', 'reviewer', 4)).toBeUndefined();
+    const prep = await f.owner.transition.prepare({
+      context: f.context,
+      workflowId: 'workflow',
+      attemptId: 'review-1',
+      kind: 'review',
+      selection: f.reviews.get('workflow')!.reviewer,
+      artifactRevision: commit,
+      artifactHash: treeDigest,
+      policy: f.reviews.get('workflow')!.limits as any,
+    });
+    expect(f.reviews.reserveApplicationPreparation(prep)).toMatchObject({ kind: 'prepared' });
+    expect(f.reviews.get('workflow')).toMatchObject({ hostTurns: 1, reviewCycles: 1 });
+    expect(f.events.getActiveSymposiumConfig('symposium').revision).toBe(4);
+    f.setLoseStageResponse();
+    await expect(f.owner.transition.apply(f.context, prep)).rejects.toThrow(/lost stage response/);
+    expect(f.releasedReviewStreams).toHaveLength(1);
+    expect(f.events.getSymposiumDelivery('delivery-1')!.originalContent).toContain(
+      '"data":"tested"',
+    );
+    expect(f.events.getSymposiumApplicationDeliveryControl('delivery-1')).toMatchObject({
+      workflowId: prep.workflowId,
+      attemptId: prep.attemptId,
+      policyReservationId: prep.policyReservationId,
+    });
+    expect(f.events.getActiveSymposiumConfig('symposium').revision).toBe(5);
+    expect(f.events.getLatestSymposiumAdmission('symposium', 'reviewer', 5)).toMatchObject({
+      decision: 'admitted',
+      membershipGeneration: 2,
+    });
+    const readerBinding = f.events.getSymposiumSealedReaderAdmission(
+      'symposium',
+      prep.transitionId,
+    )!.binding;
+    expect(() => f.owner.assertReaderAdmissionCurrent(readerBinding)).toThrow(
+      /charged preparation/,
+    );
+    expect(f.owner.assertReaderAdmissionStaged(readerBinding)).toBe(true);
+    const completed = await f.owner.transition.apply(f.context, prep);
+    expect(f.releasedReviewStreams).toHaveLength(2);
+    expect(completed.attempt.binding).toMatchObject({
+      deliveryId: 'delivery-1',
+      configRevision: 5,
+      membershipGeneration: 2,
+    });
+    expect(
+      f.reviews.completeApplicationPreparation(completed.attempt, completed.proof),
+    ).toMatchObject({ kind: 'admitted' });
+    expect(f.reviews.applicationAttemptForClaim(completed.attempt.binding.claimToken)).toEqual(
+      completed.attempt,
+    );
+    expect(f.owner.assertReaderAdmissionCurrent(readerBinding)).toBe(true);
+    expect(f.reviews.get('workflow')).toMatchObject({ hostTurns: 1, reviewCycles: 1 });
+    expect(
+      f.runtime.stageDelivery({
+        sessionId: 'symposium',
+        sourceSeatId: null,
+        recipientSeatIds: ['reviewer'],
+        originalContent: f.events.getSymposiumDelivery('delivery-1')!.originalContent,
+        idempotencyKey: 'review-workflow-review-1',
+      }).deliveryId,
+    ).toBe('delivery-1');
+  } finally {
+    f.leaseHost.close();
+    f.reviews.close();
+    f.events.close();
+  }
+});
+
+it('rejects mismatched or oversized sealed context before reader admission', async () => {
+  const f = fixture();
+  try {
+    const prep = await f.owner.transition.prepare({
+      context: f.context,
+      workflowId: 'workflow',
+      attemptId: 'review-1',
+      kind: 'review',
+      selection: f.reviews.get('workflow')!.reviewer,
+      artifactRevision: commit,
+      artifactHash: treeDigest,
+      policy: f.reviews.get('workflow')!.limits as any,
+    });
+    f.reviews.reserveApplicationPreparation(prep);
+    f.setContextRevision('f'.repeat(40));
+    await expect(f.owner.transition.apply(f.context, prep)).rejects.toThrow(
+      'Exact bounded sealed review page required',
+    );
+    expect(f.releasedReviewStreams).toEqual([sha(canonicalReviewJson([pageContext('tested')]))]);
+    expect(f.events.getActiveSymposiumConfig('symposium').revision).toBe(4);
+    expect(f.events.getLatestSymposiumAdmission('symposium', 'reviewer', 5)).toBeUndefined();
+    f.setContextRevision(commit);
+    f.setReviewContext('x'.repeat(48 * 1024 + 1));
+    await expect(f.owner.transition.apply(f.context, prep)).rejects.toThrow(
+      /Unexpected token|not valid JSON/,
+    );
+    expect(f.releasedReviewStreams).toHaveLength(2);
+    expect(f.events.getActiveSymposiumConfig('symposium').revision).toBe(4);
+  } finally {
+    f.leaseHost.close();
+    f.reviews.close();
+    f.events.close();
+  }
+});
+
+it('releases a ready stream after a lost export response or malformed returned digest', async () => {
+  const f = fixture();
+  try {
+    const prep = await f.owner.transition.prepare({
+      context: f.context,
+      workflowId: 'workflow',
+      attemptId: 'review-1',
+      kind: 'review',
+      selection: f.reviews.get('workflow')!.reviewer,
+      artifactRevision: commit,
+      artifactHash: treeDigest,
+      policy: f.reviews.get('workflow')!.limits as any,
+    });
+    f.reviews.reserveApplicationPreparation(prep);
+    f.failExportAfterReady();
+    await expect(f.owner.transition.apply(f.context, prep)).rejects.toThrow(
+      'lost completed stream response',
+    );
+    expect(f.getReleaseReadyCount()).toBe(1);
+    f.setMalformedPagesDigest();
+    await expect(f.owner.transition.apply(f.context, prep)).rejects.toThrow(
+      'Complete sealed review pages required',
+    );
+    expect(f.getReleaseReadyCount()).toBe(2);
+    expect(f.events.getActiveSymposiumConfig('symposium').revision).toBe(4);
+    expect(f.events.getLatestSymposiumAdmission('symposium', 'reviewer', 5)).toBeUndefined();
+  } finally {
+    f.leaseHost.close();
+    f.reviews.close();
+    f.events.close();
+  }
+});
+
+it('aborts before reader admission when exact stream release fails', async () => {
+  const f = fixture();
+  try {
+    const prep = await f.owner.transition.prepare({
+      context: f.context,
+      workflowId: 'workflow',
+      attemptId: 'review-1',
+      kind: 'review',
+      selection: f.reviews.get('workflow')!.reviewer,
+      artifactRevision: commit,
+      artifactHash: treeDigest,
+      policy: f.reviews.get('workflow')!.limits as any,
+    });
+    f.reviews.reserveApplicationPreparation(prep);
+    f.failRelease();
+    await expect(f.owner.transition.apply(f.context, prep)).rejects.toThrow(
+      'stream release failed',
+    );
+    expect(f.events.getActiveSymposiumConfig('symposium').revision).toBe(4);
+    expect(f.events.getLatestSymposiumAdmission('symposium', 'reviewer', 5)).toBeUndefined();
+    expect(f.releasedReviewStreams).toHaveLength(2); // strict call plus failure cleanup
+    await f.owner.transition.apply(f.context, prep);
+    expect(f.events.getActiveSymposiumConfig('symposium').revision).toBe(5);
+  } finally {
+    f.leaseHost.close();
+    f.reviews.close();
+    f.events.close();
+  }
+});
+
+it('refuses partial review evidence before any reader admission', async () => {
+  const f = fixture();
+  try {
+    const prep = await f.owner.transition.prepare({
+      context: f.context,
+      workflowId: 'workflow',
+      attemptId: 'review-1',
+      kind: 'review',
+      selection: f.reviews.get('workflow')!.reviewer,
+      artifactRevision: commit,
+      artifactHash: treeDigest,
+      policy: f.reviews.get('workflow')!.limits as any,
+    });
+    f.reviews.reserveApplicationPreparation(prep);
+    const complete = {
+      version: 2,
+      sourceOid: commit,
+      baseOid: 'c'.repeat(40),
+      baseBranch: 'main',
+      committedTreeDigest: treeDigest,
+      manifestDigest: 'e'.repeat(64),
+      trackedFileCount: 0,
+      changedPathCount: 1,
+      omittedPathCount: 0,
+      files: [
+        {
+          path: 'marker.txt',
+          status: 'present',
+          representation: 'content',
+          complete: true,
+          content: 'tested',
+          diff: null,
+          contentTruncated: false,
+          diffTruncated: false,
+        },
+      ],
+    };
+    for (const partial of [
+      { ...complete, changedPathCount: 2, omittedPathCount: 1 },
+      { ...complete, files: [{ ...complete.files[0], complete: false, contentTruncated: true }] },
+      { ...complete, files: [{ ...complete.files[0], complete: false, diffTruncated: true }] },
+    ]) {
+      f.setReviewContext(JSON.stringify(partial));
+      await expect(f.owner.transition.apply(f.context, prep)).rejects.toThrow(
+        'Exact bounded sealed review page required',
+      );
+      expect(f.events.getActiveSymposiumConfig('symposium').revision).toBe(4);
+      expect(f.events.getLatestSymposiumAdmission('symposium', 'reviewer', 5)).toBeUndefined();
+    }
+  } finally {
+    f.leaseHost.close();
+    f.reviews.close();
+    f.events.close();
+  }
+});
+
+it('admits a complete 25 KiB changed-file representation', async () => {
+  const f = fixture();
+  try {
+    const prep = await f.owner.transition.prepare({
+      context: f.context,
+      workflowId: 'workflow',
+      attemptId: 'review-1',
+      kind: 'review',
+      selection: f.reviews.get('workflow')!.reviewer,
+      artifactRevision: commit,
+      artifactHash: treeDigest,
+      policy: f.reviews.get('workflow')!.limits as any,
+    });
+    f.reviews.reserveApplicationPreparation(prep);
+    const content = 'M'.repeat(25 * 1024);
+    f.setReviewContext(
+      JSON.stringify({
+        version: 2,
+        sourceOid: commit,
+        baseOid: 'c'.repeat(40),
+        baseBranch: 'main',
+        committedTreeDigest: treeDigest,
+        manifestDigest: 'e'.repeat(64),
+        trackedFileCount: 0,
+        changedPathCount: 1,
+        omittedPathCount: 0,
+        files: [
+          {
+            path: 'medium.txt',
+            status: 'present',
+            representation: 'content',
+            complete: true,
+            content,
+            diff: null,
+            contentTruncated: false,
+            diffTruncated: false,
+          },
+        ],
+      }),
+    );
+    const admitted = await f.owner.transition.apply(f.context, prep);
+    expect(admitted.attempt.binding).toMatchObject({ deliveryId: 'delivery-1' });
+    expect(f.events.getLatestSymposiumAdmission('symposium', 'reviewer', 5)).toMatchObject({
+      decision: 'admitted',
+    });
+    expect(f.events.getSymposiumDelivery('delivery-1')?.originalContent).toContain(content);
+  } finally {
+    f.leaseHost.close();
+    f.reviews.close();
+    f.events.close();
+  }
+});
+
+it('admits complete ordered pages and rejects a missing final segment before admission', async () => {
+  const f = fixture();
+  try {
+    const prep = await f.owner.transition.prepare({
+      context: f.context,
+      workflowId: 'workflow',
+      attemptId: 'review-1',
+      kind: 'review',
+      selection: f.reviews.get('workflow')!.reviewer,
+      artifactRevision: commit,
+      artifactHash: treeDigest,
+      policy: f.reviews.get('workflow')!.limits as any,
+    });
+    f.reviews.reserveApplicationPreparation(prep);
+    const original = JSON.parse(pageContext('tested'));
+    const segment = original.segments[0];
+    const pages = ['te', 'sted'].map((data, pageIndex) =>
+      canonicalReviewJson({
+        ...original,
+        pageIndex,
+        pageCount: 2,
+        segments: [
+          { ...segment, data, segmentIndex: pageIndex, segmentCount: 2, segmentSha256: sha(data) },
+        ],
+      }),
+    );
+    const bad = JSON.parse(pages[1]);
+    bad.segments[0].segmentIndex = 2;
+    f.setReviewPages([pages[0], canonicalReviewJson(bad)]);
+    await expect(f.owner.transition.apply(f.context, prep)).rejects.toThrow(/segment/);
+    expect(f.events.getActiveSymposiumConfig('symposium').revision).toBe(4);
+    expect(f.events.getLatestSymposiumAdmission('symposium', 'reviewer', 5)).toBeUndefined();
+    f.setReviewPages(pages);
+    const admitted = await f.owner.transition.apply(f.context, prep);
+    expect(admitted.attempt.binding.deliveryId).toBe('delivery-1');
+    expect(f.events.getSymposiumDelivery('delivery-1')!.originalContent).toContain('page 0');
+  } finally {
+    f.leaseHost.close();
+    f.reviews.close();
+    f.events.close();
+  }
+});
+
+it('fetches a second sealed helper batch before admitting the reviewer', async () => {
+  const f = fixture();
+  try {
+    const prep = await f.owner.transition.prepare({
+      context: f.context,
+      workflowId: 'workflow',
+      attemptId: 'review-1',
+      kind: 'review',
+      selection: f.reviews.get('workflow')!.reviewer,
+      artifactRevision: commit,
+      artifactHash: treeDigest,
+      policy: f.reviews.get('workflow')!.limits as any,
+    });
+    f.reviews.reserveApplicationPreparation(prep);
+    const content = 'x'.repeat(ARTIFACT_REVIEW_BATCH_PAGES + 1);
+    const original = JSON.parse(pageContext(content));
+    const segment = original.segments[0];
+    const pages = [...content].map((data, pageIndex) =>
+      canonicalReviewJson({
+        ...original,
+        pageIndex,
+        pageCount: content.length,
+        segments: [
+          {
+            ...segment,
+            data,
+            segmentIndex: pageIndex,
+            segmentCount: content.length,
+            segmentSha256: sha(data),
+          },
+        ],
+      }),
+    );
+    f.setReviewPages(pages);
+    f.failAfterFirstRetain();
+    await expect(f.owner.transition.apply(f.context, prep)).rejects.toThrow(
+      'simulated crash after first durable batch',
+    );
+    expect(f.releasedReviewStreams).toEqual([sha(canonicalReviewJson(pages))]);
+    const db = new Database(f.reviewPath);
+    const retained = db
+      .prepare(
+        'SELECT COUNT(*) AS count FROM symposium_review_context_pages WHERE workflow_id=? AND attempt_id=?',
+      )
+      .get('workflow', 'review-1') as { count: number };
+    expect(retained.count).toBe(ARTIFACT_REVIEW_BATCH_PAGES);
+    db.close();
+    await f.owner.transition.apply(f.context, prep);
+    expect(f.releasedReviewStreams).toEqual([
+      sha(canonicalReviewJson(pages)),
+      sha(canonicalReviewJson(pages)),
+    ]);
+    expect(f.exportedPageBatches).toEqual([
+      0,
+      ARTIFACT_REVIEW_BATCH_PAGES,
+      0,
+      ARTIFACT_REVIEW_BATCH_PAGES,
+      ARTIFACT_REVIEW_BATCH_PAGES,
+    ]);
+    f.reviews.assertRetainedReviewPagesComplete({
+      sessionId: 'symposium',
+      workflowId: 'workflow',
+      attemptId: 'review-1',
+      sealFenceId: prep.seal.fenceId,
+      evidenceSha256: 'd'.repeat(64),
+      pageCount: pages.length,
+    });
+  } finally {
+    f.leaseHost.close();
+    f.reviews.close();
+    f.events.close();
+  }
+});
+
+it('binds a delta review to one charged reader transition after a lost stage response', async () => {
+  const f = fixture();
+  try {
+    // The workflow lifecycle is covered elsewhere; place this fixture at the delta boundary.
+    const db = new Database(f.reviewPath);
+    const row = db
+      .prepare('SELECT state FROM symposium_review_workflows WHERE workflow_id=?')
+      .get('workflow') as { state: string };
+    const state = JSON.parse(row.state);
+    state.status = 'awaiting_delta_review';
+    db.prepare('UPDATE symposium_review_workflows SET state=? WHERE workflow_id=?').run(
+      JSON.stringify(state),
+      'workflow',
+    );
+    db.close();
+    const prep = await f.owner.transition.prepare({
+      context: f.context,
+      workflowId: 'workflow',
+      attemptId: 'delta-1',
+      kind: 'delta',
+      selection: f.reviews.get('workflow')!.reviewer,
+      artifactRevision: commit,
+      artifactHash: treeDigest,
+      policy: f.reviews.get('workflow')!.limits as any,
+    });
+    expect(f.reviews.reserveApplicationPreparation(prep)).toMatchObject({ kind: 'prepared' });
+    f.setLoseStageResponse();
+    await expect(f.owner.transition.apply(f.context, prep)).rejects.toThrow(/lost stage response/);
+    expect(f.reviews.reserveApplicationPreparation(prep)).toMatchObject({
+      kind: 'already_prepared',
+    });
+    const completed = await f.owner.transition.apply(f.context, prep);
+    expect(completed.attempt.kind).toBe('delta');
+    expect(
+      f.reviews.completeApplicationPreparation(completed.attempt, completed.proof),
+    ).toMatchObject({ kind: 'admitted' });
+    expect(f.events.getActiveSymposiumConfig('symposium').revision).toBe(5);
+    expect(f.events.getLatestSymposiumMembership('symposium', 'reviewer')).toMatchObject({
+      generation: 2,
+      action: 'sealed_reader',
+    });
+    expect(f.events.getLatestSymposiumAdmission('symposium', 'reviewer', 5)).toMatchObject({
+      decision: 'admitted',
+    });
+    expect(f.reviews.get('workflow')).toMatchObject({ hostTurns: 1, reviewCycles: 0 });
+  } finally {
+    f.leaseHost.close();
+    f.reviews.close();
+    f.events.close();
+  }
+});

@@ -1,11 +1,11 @@
 import express from 'express';
 import request from 'supertest';
-import { afterEach, expect, it } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
 import { SymposiumReviewStore } from '../symposium-review-workflows.js';
 import { createSymposiumReviewRouter } from '../symposium-review-routes.js';
 const stores: SymposiumReviewStore[] = [];
 afterEach(() => stores.splice(0).forEach((store) => store.close()));
-function fixture(owner?: string) {
+function fixture(owner?: string, host?: { criterionChecks(): unknown[] }) {
   const store = new SymposiumReviewStore(':memory:');
   stores.push(store);
   const app = express();
@@ -18,7 +18,7 @@ function fixture(owner?: string) {
     '/api/sessions/:id/symposium/reviews',
     createSymposiumReviewRouter({
       store,
-      getHost: () => null,
+      getHost: () => (host as never) ?? null,
       hasSession: (id) => id === 'session',
     }),
   );
@@ -42,8 +42,32 @@ it('reports missing native review authority without creating a workflow or dispa
   expect(response.body.code).toBe('trusted_review_host_unavailable');
   expect((await request(app).get('/api/sessions/session/symposium/reviews')).body).toEqual({
     available: false,
+    stopAvailable: false,
+    cleanupAvailable: false,
+    applicationRun: {
+      available: false,
+      initialArtifact: null,
+      reason: 'Trusted initial artifact unavailable',
+    },
     workflows: [],
+    criterionChecks: [],
   });
+});
+it('discovers only host-registered checks through the authenticated review route', async () => {
+  const host = {
+    criterionChecks: () => [
+      { id: 'marker', criterion: 'Marker exists', kind: 'file-sha256', path: 'marker.txt' },
+    ],
+  };
+  expect(
+    (await request(fixture(undefined, host).app).get('/api/sessions/session/symposium/reviews'))
+      .status,
+  ).toBe(403);
+  const response = await request(fixture('owner', host).app).get(
+    '/api/sessions/session/symposium/reviews',
+  );
+  expect(response.status).toBe(200);
+  expect(response.body.criterionChecks).toEqual(host.criterionChecks());
 });
 it('rejects caller fabricated findings and owner identities', async () => {
   const { app } = fixture('owner');
@@ -66,4 +90,397 @@ it('rejects actions without the artifact the user actually inspected', async () 
         .send({ action: 'review' })
     ).status,
   ).toBe(400);
+});
+
+function existingApplicationRun(
+  store: SymposiumReviewStore,
+  owner = 'user',
+  sessionId = 'session',
+) {
+  const hash = 'a'.repeat(64);
+  const selection = (seatId: string, role: string) => ({
+    seatId,
+    role,
+    selectionId: seatId,
+    policyRevision: 'config-1',
+    profileId: seatId,
+    profileRevision: 1,
+    accountId: seatId,
+    model: 'offline',
+  });
+  return store.create({
+    workflowId: 'stop-workflow',
+    owner,
+    sessionId,
+    implementation: {
+      version: 1,
+      resultId: 'result',
+      attemptId: 'initial',
+      inputRevision: 'source',
+      inputHash: hash,
+      artifactRevision: 'current',
+      artifactHash: hash,
+      summary: 'ready',
+      evidenceRefs: ['current'],
+      completedAt: 1,
+    },
+    implementer: selection('coder', 'coder'),
+    reviewer: selection('reviewer', 'reviewer'),
+    acceptanceCriteria: ['works'],
+    limits: {
+      version: 1,
+      mode: 'application',
+      maxHostTurns: 3,
+      maxReviewCycles: 1,
+      deadlineAt: Date.now() + 60000,
+      noProgressLimit: 1,
+    },
+  });
+}
+const stopInput = {
+  action: 'stop',
+  expectedArtifactRevision: 'current',
+  expectedArtifactHash: 'a'.repeat(64),
+};
+const stopUrl = '/api/sessions/session/symposium/reviews/stop-workflow/actions';
+
+it('allows authenticated Stop without an available host and exposes its durable control', async () => {
+  const { app, store } = fixture('owner');
+  existingApplicationRun(store);
+  const status = await request(app).get('/api/sessions/session/symposium/reviews');
+  expect(status.body).toMatchObject({ available: false, stopAvailable: true });
+  const stopped = await request(app).post(stopUrl).send(stopInput);
+  expect(stopped.status).toBe(200);
+  expect(store.get('stop-workflow')).toMatchObject({
+    status: 'decision_required',
+    decisionCode: 'user_stop',
+  });
+  expect(stopped.body).toMatchObject({ status: 'decision_required', decisionCode: 'user_stop' });
+  expect(stopped.body.applicationAttempts).toEqual([]);
+});
+
+it('persists Stop for a stale inspected artifact while execution remains revision-fenced', async () => {
+  const refreshArtifact = vi.fn(async () => {});
+  const host = {
+    criterionChecks: () => [],
+    refreshArtifact,
+    currentArtifact: () => ({ revision: 'current', hash: 'a'.repeat(64) }),
+  };
+  const { app, store } = fixture('owner', host);
+  existingApplicationRun(store);
+  const stale = {
+    ...stopInput,
+    expectedArtifactRevision: 'old',
+    expectedArtifactHash: 'b'.repeat(64),
+  };
+  const execution = await request(app)
+    .post(stopUrl)
+    .send({ ...stale, action: 'review' });
+  expect(execution.status).toBe(409);
+  expect(execution.body.code).toBe('artifact_changed');
+  const stopped = await request(app).post(stopUrl).send(stale);
+  expect(stopped.status).toBe(200);
+  expect(store.get('stop-workflow')).toMatchObject({
+    status: 'decision_required',
+    decisionCode: 'user_stop',
+  });
+  expect(refreshArtifact).not.toHaveBeenCalled();
+});
+
+it.each([
+  [undefined, 'user', 'session', 403],
+  ['authenticated', 'other-owner', 'session', 409],
+  ['authenticated', 'user', 'other-session', 409],
+] as const)(
+  'does not let Stop bypass interactive or workflow scope: %s / %s / %s',
+  async (login, owner, sessionId, code) => {
+    const { app, store } = fixture(login);
+    existingApplicationRun(store, owner, sessionId);
+    expect((await request(app).post(stopUrl).send(stopInput)).status).toBe(code);
+    expect(store.get('stop-workflow')?.decisionCode).toBeUndefined();
+  },
+);
+
+it('recovers one retained charged preparation by its exact attempt ID', async () => {
+  const store = new SymposiumReviewStore(':memory:');
+  stores.push(store);
+  const hash = 'a'.repeat(64);
+  const selection = (seatId: string, role: string) => ({
+    seatId,
+    role,
+    selectionId: seatId,
+    policyRevision: 'config-1',
+    profileId: seatId,
+    profileRevision: 1,
+    accountId: seatId,
+    model: 'offline',
+  });
+  store.create({
+    workflowId: 'workflow',
+    owner: 'user',
+    sessionId: 'session',
+    implementation: {
+      version: 1,
+      resultId: 'result',
+      attemptId: 'initial',
+      inputRevision: 'source',
+      inputHash: hash,
+      artifactRevision: 'commit',
+      artifactHash: hash,
+      summary: 'ready',
+      evidenceRefs: ['commit'],
+      completedAt: 1,
+    },
+    implementer: selection('coder', 'coder'),
+    reviewer: selection('reviewer', 'reviewer'),
+    acceptanceCriteria: ['works'],
+    limits: {
+      version: 1,
+      mode: 'application',
+      maxHostTurns: 3,
+      maxReviewCycles: 1,
+      deadlineAt: Date.now() + 60000,
+      noProgressLimit: 1,
+    },
+  });
+  const preparation = {
+    workflowId: 'workflow',
+    attemptId: 'retained-attempt',
+    policyReservationId: 'policy',
+    kind: 'review' as const,
+    actorSeatId: 'reviewer',
+    artifactRevision: 'commit',
+    artifactHash: hash,
+    transitionId: 'reader',
+    seal: {
+      fenceId: 'fence',
+      artifactGenerationId: 'generation',
+      volumeName: 'volume',
+      sealDigest: hash,
+      artifactRevision: 'commit',
+      artifactHash: hash,
+    },
+    from: { configRevision: 1, membershipGeneration: 1 },
+    to: { configRevision: 2, membershipGeneration: 2 },
+    expectedSelection: {
+      accountId: 'reviewer',
+      model: 'offline',
+      profileId: 'reviewer',
+      profileRevision: '1',
+      accountProfileRevision: '1',
+    },
+  };
+  store.reserveApplicationPreparation(preparation);
+  const attempt = {
+    workflowId: 'workflow',
+    attemptId: 'retained-attempt',
+    policyReservationId: 'policy',
+    kind: 'review' as const,
+    actorSeatId: 'reviewer',
+    artifactRevision: 'commit',
+    artifactHash: hash,
+    binding: {
+      claimToken: 'claim',
+      contentHash: hash,
+      deliveryId: 'delivery',
+      membershipGeneration: 2,
+      configRevision: 2,
+      accountId: 'reviewer',
+      model: 'offline',
+      profileId: 'reviewer',
+      profileRevision: '1',
+      accountProfileRevision: '1',
+      authorityGrant: { grantId: 'authority', revision: 1 },
+      contextGrant: { grantId: 'context', revision: 1 },
+    },
+  };
+  const dispatch = vi.fn(async () => {
+    if (dispatch.mock.calls.length === 1) throw new Error('simulated crash before native dispatch');
+    expect(store.consumeApplicationDispatch(attempt)).toMatchObject({
+      kind: 'dispatch_authorized',
+    });
+  });
+  const host = {
+    currentArtifact: () => ({ revision: 'commit', hash }),
+    refreshArtifact: async () => {},
+    prepareApplicationTransition: vi.fn(async () => preparation),
+    completeApplicationTransition: vi.fn(async () => ({
+      attempt,
+      proof: { transitionId: 'reader', sealDigest: hash },
+    })),
+    dispatch,
+    completedReview: () => null,
+  };
+  const app = express();
+  app.use(express.json());
+  app.use((_req, res, next) => {
+    res.locals.authSession = { id: 'owner' };
+    next();
+  });
+  app.use(
+    '/api/sessions/:id/symposium/reviews',
+    createSymposiumReviewRouter({
+      store,
+      getHost: () => host as never,
+      hasSession: () => true,
+    }),
+  );
+  const recover = () =>
+    request(app).post('/api/sessions/session/symposium/reviews/workflow/actions').send({
+      action: 'recover',
+      attemptId: 'retained-attempt',
+      kind: 'review',
+      expectedArtifactRevision: 'commit',
+      expectedArtifactHash: hash,
+    });
+  const crashed = await recover();
+  expect(crashed.body.error).toBe('simulated crash before native dispatch');
+  expect(store.get('workflow')?.applicationAttempts[0]).toMatchObject({ dispatched: false });
+  const response = await recover();
+  expect(response.body).toMatchObject({
+    code: 'host_review_result_required',
+    attemptId: 'retained-attempt',
+  });
+  expect(dispatch).toHaveBeenCalledTimes(2);
+  expect(host.prepareApplicationTransition).toHaveBeenCalledWith(
+    expect.objectContaining({ attemptId: 'retained-attempt' }),
+  );
+  expect(store.get('workflow')).toMatchObject({
+    hostTurns: 1,
+    applicationPreparations: [{ status: 'bound' }],
+    applicationAttempts: [{ dispatched: true }],
+  });
+  const alreadyDispatched = await recover();
+  expect(alreadyDispatched.body.code).toBe('host_review_result_required');
+  expect(dispatch).toHaveBeenCalledTimes(2);
+});
+
+it('requires trusted reconciliation of a stopped bound preparation through the authenticated route', async () => {
+  const hash = 'a'.repeat(64);
+  let disposition: 'applied_no_dispatch' | null = null;
+  const dispatch = vi.fn();
+  const { app, store } = fixture('owner', {
+    currentArtifact: () => ({ revision: 'commit', hash }),
+    refreshArtifact: async () => {},
+    settleStoppedApplicationPreparation: async () => disposition,
+    dispatch,
+  } as never);
+  const selection = (seatId: string, role: string) => ({
+    seatId,
+    role,
+    selectionId: seatId,
+    policyRevision: 'config-1',
+    profileId: seatId,
+    profileRevision: 1,
+    accountId: seatId,
+    model: 'offline',
+  });
+  store.create({
+    workflowId: 'workflow',
+    owner: 'user',
+    sessionId: 'session',
+    implementation: {
+      version: 1,
+      resultId: 'result',
+      attemptId: 'initial',
+      inputRevision: 'source',
+      inputHash: hash,
+      artifactRevision: 'commit',
+      artifactHash: hash,
+      summary: 'ready',
+      evidenceRefs: ['commit'],
+      completedAt: 1,
+    },
+    implementer: selection('coder', 'coder'),
+    reviewer: selection('reviewer', 'reviewer'),
+    acceptanceCriteria: ['works'],
+    limits: {
+      version: 1,
+      mode: 'application',
+      maxHostTurns: 3,
+      maxReviewCycles: 1,
+      deadlineAt: Date.now() + 60000,
+      noProgressLimit: 1,
+    },
+  });
+  const preparation = {
+    workflowId: 'workflow',
+    attemptId: 'retained-attempt',
+    policyReservationId: 'policy',
+    kind: 'review' as const,
+    actorSeatId: 'reviewer',
+    artifactRevision: 'commit',
+    artifactHash: hash,
+    transitionId: 'reader',
+    seal: {
+      fenceId: 'fence',
+      artifactGenerationId: 'generation',
+      volumeName: 'volume',
+      sealDigest: hash,
+      artifactRevision: 'commit',
+      artifactHash: hash,
+    },
+    from: { configRevision: 1, membershipGeneration: 1 },
+    to: { configRevision: 2, membershipGeneration: 2 },
+    expectedSelection: {
+      accountId: 'reviewer',
+      model: 'offline',
+      profileId: 'reviewer',
+      profileRevision: '1',
+      accountProfileRevision: '1',
+    },
+  };
+  store.reserveApplicationPreparation(preparation);
+  store.completeApplicationPreparation(
+    {
+      workflowId: 'workflow',
+      attemptId: 'retained-attempt',
+      policyReservationId: 'policy',
+      kind: 'review',
+      actorSeatId: 'reviewer',
+      artifactRevision: 'commit',
+      artifactHash: hash,
+      binding: {
+        claimToken: 'claim',
+        deliveryId: 'delivery',
+        contentHash: hash,
+        membershipGeneration: 2,
+        configRevision: 2,
+        accountId: 'reviewer',
+        model: 'offline',
+        profileId: 'reviewer',
+        profileRevision: '1',
+        accountProfileRevision: '1',
+        authorityGrant: { grantId: 'authority', revision: 1 },
+        contextGrant: { grantId: 'context', revision: 1 },
+      },
+    },
+    { transitionId: 'reader', sealDigest: hash },
+  );
+  store.stopApplication('workflow', 'user', 'user_stop');
+  const recover = () =>
+    request(app).post('/api/sessions/session/symposium/reviews/workflow/actions').send({
+      action: 'recover',
+      attemptId: 'retained-attempt',
+      kind: 'review',
+      expectedArtifactRevision: 'commit',
+      expectedArtifactHash: hash,
+    });
+  expect((await recover()).body.code).toBe('preparation_uncertain');
+  disposition = 'applied_no_dispatch';
+  const response = await recover();
+  expect(response.status).toBe(200);
+  expect(response.body.applicationPreparations).toEqual([
+    expect.objectContaining({
+      attemptId: 'retained-attempt',
+      status: 'settled',
+      disposition: 'applied_no_dispatch',
+    }),
+  ]);
+  expect(store.getApplicationPreparation('workflow', 'retained-attempt')).toMatchObject({
+    status: 'settled',
+    disposition: 'applied_no_dispatch',
+  });
+  expect(store.get('workflow')?.applicationAttempts[0].settled).toBe(true);
+  expect(dispatch).not.toHaveBeenCalled();
 });

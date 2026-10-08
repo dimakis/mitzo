@@ -25,6 +25,7 @@ export function NewSymposium() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [draft, setDraft] = useState<string | null>(null);
+  const [quarantined, setQuarantined] = useState(false);
   const retry = useRef<{ payload: string; key: string } | null>(null);
   async function create() {
     if (
@@ -54,8 +55,10 @@ export function NewSymposium() {
       if (!response.ok) throw new Error(result.error || 'Could not create Symposium');
       if (typeof result.sessionId !== 'string' || !result.sessionId)
         throw new Error('Created session identity is unavailable');
-      if (result.artifacts && result.artifacts.state !== 'ready') setDraft(result.sessionId);
-      else navigate(`/chat/${encodeURIComponent(result.sessionId)}`);
+      if (result.artifacts && result.artifacts.state !== 'ready') {
+        setQuarantined(result.artifacts.nextAction === 'operator_reconcile_retained_artifact');
+        setDraft(result.sessionId);
+      } else navigate(`/chat/${encodeURIComponent(result.sessionId)}`);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Could not create Symposium');
     } finally {
@@ -63,7 +66,7 @@ export function NewSymposium() {
     }
   }
   async function retryArtifacts() {
-    if (!draft || busy) return;
+    if (!draft || busy || quarantined) return;
     setBusy(true);
     setError('');
     try {
@@ -72,6 +75,7 @@ export function NewSymposium() {
         { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' },
       );
       const result = await response.json();
+      if (result.nextAction === 'operator_reconcile_retained_artifact') setQuarantined(true);
       if (!response.ok || result.state !== 'ready')
         throw new Error('Shared files are still unavailable. Your draft is saved.');
       navigate(`/chat/${encodeURIComponent(draft)}`);
@@ -99,9 +103,16 @@ export function NewSymposium() {
               <h3>Your draft is saved</h3>
               <p role="status">Draft created. Shared files are not ready yet.</p>
               {error && <p role="alert">{error}</p>}
-              <button type="button" disabled={busy} onClick={() => void retryArtifacts()}>
-                Retry shared files
-              </button>
+              {quarantined ? (
+                <p role="alert">
+                  Shared files are quarantined. Preserve this host and ask an operator to reconcile
+                  the retained shared files before continuing.
+                </p>
+              ) : (
+                <button type="button" disabled={busy} onClick={() => void retryArtifacts()}>
+                  Retry shared files
+                </button>
+              )}
               <button
                 type="button"
                 disabled={busy}

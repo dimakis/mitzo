@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { MemoryRouter } from 'react-router-dom';
 import { afterEach, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, within, waitFor } from '@testing-library/react';
 import { apiFetch } from '../../lib/api-fetch';
@@ -8,7 +9,8 @@ afterEach(() => {
   cleanup();
   vi.resetAllMocks();
 });
-const response = (body: unknown, ok = true) => ({ ok, json: async () => body }) as Response;
+const response = (body: unknown, ok = true, status = ok ? 200 : 500) =>
+  ({ ok, status, json: async () => body }) as Response;
 const rows = [
   {
     id: 'personal-a',
@@ -274,6 +276,41 @@ it.each(['pending', 'reconciliation_required'])(
     expect(vi.mocked(apiFetch).mock.calls.some(([, init]) => init?.method === 'POST')).toBe(false);
   },
 );
+it.each([
+  ['failed', 422, /Model discovery failed; cleanup is confirmed/],
+  ['reconciliation_required', 409, /cleanup could not be confirmed/],
+] as const)(
+  'handles a validated %s HTTP failure without inventing cleanup uncertainty',
+  async (status, code, message) => {
+    vi.mocked(apiFetch).mockImplementation(async (url) =>
+      url.endsWith('/models/refresh')
+        ? response({ status, inference: false }, false, code)
+        : response({ connections: rows }),
+    );
+    render(<SymposiumPersonalConnections />);
+    const personal = within(await screen.findByRole('region', { name: 'Personal' }));
+    fireEvent.click(personal.getByRole('button', { name: 'Refresh supported models' }));
+    await screen.findByText(message);
+    expect(screen.queryByText(/supported models are ready/)).toBeNull();
+    expect(screen.queryByText(/cleanup may still be pending/)).toBeNull();
+  },
+);
+
+it.each([
+  [422, { status: 'complete', inference: false, modelCount: 1 }],
+  [409, { status: 'failed', inference: false }],
+  [422, { status: 'failed', inference: true }],
+] as const)('keeps an invalid HTTP %i discovery response uncertain', async (code, body) => {
+  vi.mocked(apiFetch).mockImplementation(async (url) =>
+    url.endsWith('/models/refresh') ? response(body, false, code) : response({ connections: rows }),
+  );
+  render(<SymposiumPersonalConnections />);
+  const personal = within(await screen.findByRole('region', { name: 'Personal' }));
+  fireEvent.click(personal.getByRole('button', { name: 'Refresh supported models' }));
+  await screen.findByText(/cleanup may still be pending/);
+  expect(screen.queryByText(/cleanup is confirmed/)).toBeNull();
+});
+
 it('does not report success on failed or unconfirmed model discovery', async () => {
   vi.mocked(apiFetch).mockImplementation(async (url) =>
     response(
@@ -730,4 +767,90 @@ it('retains a pending callback across connecting revisions and fences late statu
     '/api/symposium/personal/login',
     expect.objectContaining({ method: 'POST' }),
   );
+});
+
+it('shows only the new slot in account setup while preserving global sign-in safeguards', async () => {
+  let created = false;
+  const added = { id: 'new-slot', label: 'Research', revision: 1, state: 'disconnected' };
+  vi.mocked(apiFetch).mockImplementation(async (_url, init) => {
+    if (init?.method === 'POST') {
+      created = true;
+      return response(added);
+    }
+    return response({ connections: created ? [...rows, added] : rows });
+  });
+  render(
+    <MemoryRouter>
+      <SymposiumPersonalConnections mode="add" />
+    </MemoryRouter>,
+  );
+  await screen.findByRole('button', { name: 'Save and continue' });
+  await waitFor(() =>
+    expect(
+      (screen.getByRole('button', { name: 'Save and continue' }) as HTMLButtonElement).disabled,
+    ).toBe(true),
+  );
+  expect(screen.queryByText('one@example.test')).toBeNull();
+  fireEvent.change(screen.getByLabelText('Account label'), { target: { value: 'Research' } });
+  await waitFor(() =>
+    expect(
+      (screen.getByRole('button', { name: 'Save and continue' }) as HTMLButtonElement).disabled,
+    ).toBe(false),
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Save and continue' }));
+  await screen.findByRole('region', { name: 'Research' });
+  expect(screen.queryByText('one@example.test')).toBeNull();
+  expect(screen.queryByLabelText('Account label')).toBeNull();
+  expect(screen.getByRole('button', { name: 'Connect' })).toBeTruthy();
+  expect(screen.getByRole('link', { name: 'Back to Connections' })).toBeTruthy();
+});
+
+it('keeps another account’s pending sign-in reachable without mixing it into the new-account form', async () => {
+  vi.mocked(apiFetch).mockResolvedValue(
+    response({ connections: [{ ...rows[0], state: 'connecting' }, rows[1]] }),
+  );
+  render(
+    <MemoryRouter>
+      <SymposiumPersonalConnections mode="add" />
+    </MemoryRouter>,
+  );
+  const pending = await screen.findByRole('link', { name: 'Continue pending sign-in' });
+  expect(pending.getAttribute('href')).toBe('/connections?manage=personal&connection=personal-a');
+  expect(screen.queryByRole('region', { name: 'Personal' })).toBeNull();
+});
+
+it('keeps an uncertain saved-slot creation from offering another account creation', async () => {
+  vi.mocked(apiFetch).mockImplementation(async (_url, init) => {
+    if (init?.method === 'POST') throw new Error('Response lost');
+    return response({ connections: rows });
+  });
+  render(
+    <MemoryRouter>
+      <SymposiumPersonalConnections mode="add" />
+    </MemoryRouter>,
+  );
+  await waitFor(() => expect(screen.queryByText('Loading personal accounts…')).toBeNull());
+  fireEvent.change(screen.getByLabelText('Account label'), { target: { value: 'Research' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Save and continue' }));
+  await screen.findByText(/Account setup could not be confirmed/);
+  expect(screen.queryByRole('button', { name: 'Save and continue' })).toBeNull();
+  expect(screen.getByRole('link', { name: 'Back to Connections' })).toBeTruthy();
+});
+
+it('treats a personal creation HTTP 400 as uncertain because persistence may already have happened', async () => {
+  vi.mocked(apiFetch).mockImplementation(async (_url, init) =>
+    init?.method === 'POST'
+      ? response({ error: 'Persistence failure' }, false, 400)
+      : response({ connections: rows }),
+  );
+  render(
+    <MemoryRouter>
+      <SymposiumPersonalConnections mode="add" />
+    </MemoryRouter>,
+  );
+  await waitFor(() => expect(screen.queryByText('Loading personal accounts…')).toBeNull());
+  fireEvent.change(screen.getByLabelText('Account label'), { target: { value: 'Research' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Save and continue' }));
+  await screen.findByText(/Account setup could not be confirmed/);
+  expect(screen.queryByRole('button', { name: 'Save and continue' })).toBeNull();
 });

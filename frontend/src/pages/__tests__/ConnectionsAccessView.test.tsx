@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { ConnectionsAccessView } from '../ConnectionsAccessView';
@@ -505,7 +505,7 @@ it.each(['Manage Personal account', 'View Public page reads'])(
     fireEvent.click(trigger);
     fireEvent.keyDown(screen.getByRole('button', { name: 'Close details' }), { key: 'Escape' });
     expect(screen.queryByRole('dialog')).toBeNull();
-    expect(document.activeElement).toBe(trigger);
+    await waitFor(() => expect(document.activeElement).toBe(trigger));
   },
 );
 
@@ -1082,4 +1082,46 @@ it('keeps service identity and credential checks accessible without an invented 
     ),
   ).toBeTruthy();
   expect(dialog.queryByRole('region', { name: 'Sign-in details' })).toBeNull();
+});
+
+it('reveals the created service on return without claiming current chat access', async () => {
+  vi.mocked(getConnectionsAccess).mockResolvedValue({
+    generatedAt: Date.now(),
+    sources: [{ id: 'managed', state: 'available', reason: null }],
+    resources: [
+      {
+        id: 'managed-new',
+        nativeId: 'new-service',
+        kind: 'managed-connection',
+        section: 'services',
+        provider: 'jira',
+        label: 'Research Jira',
+        owner: 'managed-connections',
+        gateway: 'primary',
+        workspace: null,
+        revision: 1,
+        status: 'active',
+        accountIdentity: 'me@example.com',
+        verification: { state: 'verified', verifiedAt: Date.now(), reason: null },
+        access: {
+          summary: 'Read issues',
+          desiredAccountIds: ['work'],
+          observedAttachments: null,
+          appliesTo: 'New conversations',
+        },
+        actions: [],
+        details: {},
+      },
+    ],
+  });
+  render(
+    <MemoryRouter initialEntries={['/connections-access?connected=new-service']}>
+      <ConnectionsAccessView />
+    </MemoryRouter>,
+  );
+  const row = await screen.findByRole('article', { name: 'Research Jira' });
+  await waitFor(() => expect(row.getAttribute('data-new-connection')).toBe('true'));
+  expect(document.activeElement).toBe(row);
+  expect(screen.getByRole('status').textContent).toContain('Research Jira is listed below');
+  expect(screen.queryByText('Chat access verified')).toBeNull();
 });

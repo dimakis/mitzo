@@ -10,6 +10,31 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 const response = (body: unknown) => ({ ok: true, json: async () => body }) as Response;
+
+it('explains the optional workspace copy before opening and only reads readiness when expanded', async () => {
+  vi.mocked(apiFetch).mockResolvedValue(
+    response({ repositories: ['repo'], artifact: { available: true, state: 'empty' } }),
+  );
+  render(<SymposiumSourceImportPanel sessionId="session" />);
+  const toggle = screen.getByRole('button', { name: 'Add repository to shared workspace' });
+  expect(toggle.getAttribute('aria-expanded')).toBe('false');
+  expect(
+    screen.getByText('Optional for code tasks. You can chat without adding a repository.'),
+  ).toBeTruthy();
+  expect(vi.mocked(apiFetch)).not.toHaveBeenCalled();
+  await userEvent.click(toggle);
+  expect(toggle.getAttribute('aria-expanded')).toBe('true');
+  await screen.findByText(
+    /Copies committed files and their Git history into the agents’ shared workspace/,
+  );
+  expect(screen.getByText(/Uncommitted local changes are excluded/)).toBeTruthy();
+  expect(screen.getByText(/does not fetch from or publish to GitHub/)).toBeTruthy();
+  expect(vi.mocked(apiFetch)).toHaveBeenCalledTimes(1);
+  await userEvent.click(toggle);
+  expect(toggle.getAttribute('aria-expanded')).toBe('false');
+  expect(screen.queryByLabelText('Configured local repository')).toBeNull();
+  expect(vi.mocked(apiFetch)).toHaveBeenCalledTimes(1);
+});
 it.each([false, true])(
   'requires preview, committed-history consent and fresh app auth (expired %s)',
   async (expired) => {
@@ -39,7 +64,9 @@ it.each([false, true])(
             : response({ repositories: ['repo'], artifact: { available: true, state: 'empty' } }),
     );
     render(<SymposiumSourceImportPanel sessionId="session" />);
-    await userEvent.click(screen.getByRole('button', { name: 'Import local repository' }));
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Add repository to shared workspace' }),
+    );
     await userEvent.selectOptions(
       await screen.findByLabelText('Configured local repository'),
       'repo',
@@ -97,7 +124,7 @@ it.each([
     response({ repositories: ['repo'], artifact: { available: false, state } }),
   );
   render(<SymposiumSourceImportPanel sessionId="session" />);
-  await userEvent.click(screen.getByRole('button', { name: 'Import local repository' }));
+  await userEvent.click(screen.getByRole('button', { name: 'Add repository to shared workspace' }));
   await screen.findByText(new RegExp(message));
   expect(screen.queryByRole('button', { name: 'Import approved history' })).toBeNull();
   expect(
@@ -105,4 +132,166 @@ it.each([
       /retained for inspection; automatic retry and restart recovery are unavailable/,
     ),
   ).toBeTruthy();
+});
+
+it('recovers only the retained imported seal with fresh app authorization and exact status identities', async () => {
+  const pending = {
+    repositories: ['repo'],
+    expectedRevision: 4,
+    artifact: {
+      available: false,
+      state: 'imported',
+      admissionIssued: false,
+      volumeGeneration: 'volume-gen',
+      receipt: { operationId: 'import-1' },
+      sourceSeal: { state: 'pending', operationId: 'import-1' },
+    },
+  };
+  let completed = false;
+  vi.mocked(apiFetch).mockImplementation(async (url) => {
+    if (String(url).endsWith('/reauthorize'))
+      return response({ csrf: 'recent-csrf', expiresAt: Date.now() + 60_000 });
+    if (String(url).endsWith('/seal/recover')) {
+      completed = true;
+      return response({ seal: { state: 'complete', operationId: 'import-1' } });
+    }
+    return response(
+      completed
+        ? {
+            ...pending,
+            artifact: {
+              ...pending.artifact,
+              sourceSeal: { state: 'complete', operationId: 'import-1' },
+            },
+          }
+        : pending,
+    );
+  });
+  render(<SymposiumSourceImportPanel sessionId="session" />);
+  await userEvent.click(screen.getByRole('button', { name: 'Add repository to shared workspace' }));
+  await screen.findByText(/source seal is pending/i);
+  expect(screen.queryByRole('button', { name: 'Import approved history' })).toBeNull();
+  const recover = screen.getByRole('button', { name: 'Recover retained source seal' });
+  expect(recover.hasAttribute('disabled')).toBe(true);
+  await userEvent.type(screen.getByLabelText('App passphrase for source seal recovery'), 'secret');
+  await userEvent.click(recover);
+  await screen.findByText(/source seal completed/i);
+  const calls = vi.mocked(apiFetch).mock.calls;
+  const recovery = calls.find(([url]) => String(url).endsWith('/seal/recover'))!;
+  expect(recovery[1]!.headers).toMatchObject({ 'x-csrf-token': 'recent-csrf' });
+  expect(JSON.parse(recovery[1]!.body as string)).toEqual({
+    expectedRevision: 4,
+    expectedGeneration: 'volume-gen',
+    operationId: 'import-1',
+  });
+  expect(calls.some(([url]) => String(url).endsWith('/import'))).toBe(false);
+  expect(screen.queryByRole('button', { name: 'Recover retained source seal' })).toBeNull();
+});
+
+it('starts retained seal recovery when import completed before the seal receipt was created', async () => {
+  const imported = {
+    expectedRevision: 7,
+    artifact: {
+      available: false,
+      state: 'imported',
+      admissionIssued: false,
+      volumeGeneration: 'retained-gen',
+      receipt: { operationId: 'import-before-seal' },
+      sourceSeal: null,
+    },
+  };
+  vi.mocked(apiFetch).mockImplementation(async (url) =>
+    String(url).endsWith('/reauthorize')
+      ? response({ csrf: 'recent-csrf', expiresAt: Date.now() + 60_000 })
+      : String(url).endsWith('/seal/recover')
+        ? response({ seal: { state: 'complete', operationId: 'import-before-seal' } })
+        : response(imported),
+  );
+  render(<SymposiumSourceImportPanel sessionId="session" />);
+  await userEvent.click(screen.getByRole('button', { name: 'Add repository to shared workspace' }));
+  await userEvent.type(
+    await screen.findByLabelText('App passphrase for source seal recovery'),
+    'secret',
+  );
+  await userEvent.click(screen.getByRole('button', { name: 'Recover retained source seal' }));
+  await screen.findByText(/source seal completed/i);
+  const calls = vi.mocked(apiFetch).mock.calls;
+  const recovery = calls.find(([url]) => String(url).endsWith('/seal/recover'))!;
+  expect(recovery[1]!.headers).toMatchObject({ 'x-csrf-token': 'recent-csrf' });
+  expect(JSON.parse(recovery[1]!.body as string)).toEqual({
+    expectedRevision: 7,
+    expectedGeneration: 'retained-gen',
+    operationId: 'import-before-seal',
+  });
+  expect(calls.some(([url]) => String(url).endsWith('/import'))).toBe(false);
+});
+
+it('does not offer seal recovery when the imported status lacks matching retained identities', async () => {
+  vi.mocked(apiFetch).mockResolvedValue(
+    response({
+      expectedRevision: 4,
+      artifact: {
+        available: false,
+        state: 'imported',
+        volumeGeneration: 'volume-gen',
+        receipt: { operationId: 'import-1' },
+        sourceSeal: { state: 'pending', operationId: 'different' },
+      },
+    }),
+  );
+  render(<SymposiumSourceImportPanel sessionId="session" />);
+  await userEvent.click(screen.getByRole('button', { name: 'Add repository to shared workspace' }));
+  await screen.findByText(/already been imported/i);
+  expect(screen.queryByRole('button', { name: 'Recover retained source seal' })).toBeNull();
+});
+
+it.each(['complete', 'uncertain'])(
+  'does not offer retained seal recovery for an incompatible %s seal state',
+  async (sealState) => {
+    vi.mocked(apiFetch).mockResolvedValue(
+      response({
+        expectedRevision: 4,
+        artifact: {
+          available: false,
+          state: 'imported',
+          volumeGeneration: 'volume-gen',
+          receipt: { operationId: 'import-1' },
+          sourceSeal: { state: sealState, operationId: 'import-1' },
+        },
+      }),
+    );
+    render(<SymposiumSourceImportPanel sessionId="session" />);
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Add repository to shared workspace' }),
+    );
+    await screen.findByText(/already been imported/i);
+    expect(screen.queryByRole('button', { name: 'Recover retained source seal' })).toBeNull();
+  },
+);
+
+it('keeps a pending seal recoverable when recent authorization expires', async () => {
+  vi.mocked(apiFetch).mockImplementation(async (url) =>
+    String(url).endsWith('/reauthorize')
+      ? response({ csrf: 'expired', expiresAt: Date.now() - 1 })
+      : response({
+          expectedRevision: 4,
+          artifact: {
+            available: false,
+            state: 'imported',
+            volumeGeneration: 'volume-gen',
+            receipt: { operationId: 'import-1' },
+            sourceSeal: { state: 'pending', operationId: 'import-1' },
+          },
+        }),
+  );
+  render(<SymposiumSourceImportPanel sessionId="session" />);
+  await userEvent.click(screen.getByRole('button', { name: 'Add repository to shared workspace' }));
+  await screen.findByText(/source seal is pending/i);
+  await userEvent.type(screen.getByLabelText('App passphrase for source seal recovery'), 'secret');
+  await userEvent.click(screen.getByRole('button', { name: 'Recover retained source seal' }));
+  await screen.findByText(/Recent app authorization expired/);
+  expect(
+    vi.mocked(apiFetch).mock.calls.some(([url]) => String(url).endsWith('/seal/recover')),
+  ).toBe(false);
+  expect(screen.getByRole('button', { name: 'Recover retained source seal' })).toBeTruthy();
 });

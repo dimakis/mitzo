@@ -375,7 +375,7 @@ git('fsck','--strict','--no-reflogs',manifest['baseOid'])
 if git('rev-parse',manifest['baseOid']+'^{tree}').decode().strip()!=manifest['treeOid']: raise ValueError('tree identity')
 if int(git('rev-list','--count',manifest['baseOid']))!=manifest['historyCommits']: raise ValueError('history identity')
 # Materialize blobs ourselves: no checkout filters, submodules, hooks, or user commands.
-entries=git('ls-tree','-r','-z','--full-tree',manifest['baseOid']).split(b'\0'); total=0; count=0
+entries=git('ls-tree','-r','-z','--full-tree',manifest['baseOid']).split(b'\0'); total=0; count=0; physical_manifest=[]
 for entry in entries:
  if not entry: continue
  meta,raw=entry.split(b'\t',1);mode,kind,oid=meta.decode().split();path=raw.decode('utf-8','strict')
@@ -385,11 +385,16 @@ for entry in entries:
  destination=root+'/'+path;os.makedirs(os.path.dirname(destination),exist_ok=True)
  with open(destination,'xb') as out: out.write(data)
  os.chmod(destination,0o755 if mode=='100755' else 0o644)
+ physical_manifest.append({'path':path,'mode':mode,'oid':oid,'bytes':len(data),'sha256':hashlib.sha256(data).hexdigest()})
 git('read-tree',manifest['baseOid'])
 git('update-ref','refs/remotes/origin/'+manifest['baseBranch'],manifest['baseOid'])
 git('symbolic-ref','refs/remotes/origin/HEAD','refs/remotes/origin/'+manifest['baseBranch'])
 git('update-ref','refs/heads/'+manifest['featureBranch'],manifest['baseOid'])
 git('symbolic-ref','HEAD','refs/heads/'+manifest['featureBranch'])
 git('config','--local','remote.origin.url','https://github.com/'+manifest['targetRepository']+'.git')
-print(json.dumps({'commit':manifest['baseOid'],'tree':manifest['treeOid'],'featureBranch':manifest['featureBranch'],'bundleSha256':manifest['bundleSha256'],'files':count,'bytes':total},sort_keys=True))
+physical_manifest.sort(key=lambda x:x['path'].encode('utf-8'))
+tree_manifest=[{'mode':item['mode'],'oid':item['oid'],'path':item['path']} for item in physical_manifest]
+tree_digest=hashlib.sha256(b'mitzo-committed-tree-v1\0'+json.dumps(tree_manifest,sort_keys=True,separators=(',',':'),ensure_ascii=False).encode('utf-8')).hexdigest()
+git_proof={'version':1,'commit':manifest['baseOid'],'tree':manifest['treeOid'],'entries':count,'bytes':total,'committedTreeDigest':tree_digest,'manifestDigest':hashlib.sha256(json.dumps(physical_manifest,sort_keys=True,separators=(',',':')).encode()).hexdigest()}
+print(json.dumps({'commit':manifest['baseOid'],'tree':manifest['treeOid'],'featureBranch':manifest['featureBranch'],'bundleSha256':manifest['bundleSha256'],'files':count,'bytes':total,'git':git_proof},sort_keys=True))
 `;

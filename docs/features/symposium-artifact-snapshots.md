@@ -3,8 +3,9 @@
 This dormant host prerequisite captures regular-file manifests from an existing
 Symposium artifact volume. It has no HTTP route and is not installed in dispatch,
 completion, or admission. It does not create a `WorkResult`, a `ReviewReceipt`, a
-Git commit, or evidence of token-budget enforcement. The current hard-cap gate is
-unchanged.
+Git commit, or evidence of token-budget enforcement. Current review prerequisites
+follow the [integrated application-policy contract](symposium-integrated-acceptance.md#application-policy-contract);
+guaranteed native token/spend caps and mandatory final usage totals are deferred.
 
 `createOwnedArtifactSnapshotObserver` binds an observer to the retained owned
 OpenShell gateway and the existing SQLite artifact lease host. The lease host owns

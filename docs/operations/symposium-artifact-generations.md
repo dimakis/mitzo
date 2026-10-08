@@ -50,6 +50,18 @@ possible after revocation. Unknown create/start/removal outcomes quarantine the
 operation; there is no blind retry, name-based deletion, volume adoption or
 quarantine promotion API. Failures retain exact names/IDs and any observed exit.
 
+Semantic case creation reserves an exclusive private directory and an absent
+`--cidfile` path before dispatch. The original create's trusted stdout CID must
+match the native-created file before its inode, owner and content are captured,
+permissions frozen to 0600, and the receipt durably recorded before start.
+A file appearing after lost stdout grants no identity or cleanup authority.
+Failed capture retains any trusted stdout CID and the original reservation in
+quarantine; it does not start, adopt, drain, replace or automatically remove the
+helper. Existing version 1 witnesses remain retained evidence, without automatic
+migration or recovery of a missing CID. Unverifiable legacy owners stay alive
+and retain their handles for explicit operator disposition. Read-only diagnostics
+may describe this uncertainty but cannot promote it to successful evidence.
+
 Successful copy reaches `verified` only after helper removal, child inspection,
 no unaccounted child mount and fresh completed-parent validation. Activation
 rechecks authority, retained lineage/copy evidence, physical absence and the parent,
@@ -63,8 +75,11 @@ The session-wide seal fence remains closed, and the review workflow artifact is
 not advanced. Generation-aware session mapping/admission, successor fence
 capabilities, fresh per-generation sandboxes and historical cleanup remain future
 work. Pointer movement must not be treated as writer ownership migration or a
-complete accepted-fix lifecycle. Real native hard-budget enforcement and final
-usage accounting remain required; this change does not relax them.
+complete accepted-fix lifecycle. This describes the original ledger-only slice;
+current workflow prerequisites follow the
+[integrated acceptance contract](../features/symposium-integrated-acceptance.md#application-policy-contract).
+Persisted application limits remain required, while guaranteed native token/spend
+caps and mandatory final usage totals are deferred.
 
 Reopening in the same custody retains receipts and uncertainties. A new gateway
 custody cannot adopt the old operation. Downgrading to code unaware of these new

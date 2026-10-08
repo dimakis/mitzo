@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { SessionTransport } from '../../packages/harness/src/session-transport.js';
 import { ConnectionRegistry } from '../../packages/harness/src/connection-registry.js';
 import { runQueryLoop } from '../query-loop.js';
+import { classifyProviderFailure } from '../provider-failure.js';
 import * as notificationCenter from '../notification-center.js';
 import { CodexSessionEvents } from '../codex-session-events.js';
 import type { SessionRegistry } from '../session-registry.js';
@@ -1119,17 +1120,14 @@ describe('runQueryLoop', () => {
     it('persists a provider failure before its failed terminal event', async () => {
       const session = registry.get(clientId)!;
       session.sessionId = 'sess-provider-failure';
-      const failure = {
-        category: 'overloaded',
-        code: 'server_is_overloaded',
-        retryable: true,
-        ambiguous: true,
-        attempt: 1,
-        correlationId: 'turn-overloaded',
-        retryAfterMs: 5_000,
-        message:
-          'OpenAI is temporarily overloaded. This turn is saved and can be retried when capacity is available.',
-      };
+      const failure = classifyProviderFailure(
+        {
+          codex_error_info: 'server_overloaded',
+          message: 'Selected model is at capacity. Please try a different model. Bearer sk-private',
+        },
+        { correlationId: 'turn-overloaded' },
+      );
+      expect(failure).toMatchObject({ category: 'overloaded', code: 'server_overloaded' });
 
       await runQueryLoop(
         eventStream([
@@ -1158,6 +1156,7 @@ describe('runQueryLoop', () => {
         providerFailure: failure,
       });
       expect(failureEvent!.seq).toBeLessThan(terminalEvent!.seq);
+      expect(JSON.stringify(stored)).not.toContain('sk-private');
       expect(transport.sent).toContainEqual(
         expect.objectContaining({ type: 'error', providerFailure: failure }),
       );

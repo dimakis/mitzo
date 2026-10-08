@@ -1,5 +1,6 @@
-/** Opt-in credential-free exporter → owned copier → SQLite proof. Seal/custody and
- * authenticated fix authority are isolated fixtures, not native-review/app evidence. */
+/** Opt-in credential-free exporter → owned copier → physical fix/reviewer → SQLite record.
+ * Seal/custody, interactive fix authority, native results and reviewer output are
+ * isolated fixtures, not a completed live application run. */
 import { expect, it } from 'vitest';
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, writeFileSync } from 'node:fs';
@@ -26,11 +27,13 @@ import { SymposiumReviewStore } from '../symposium-review-workflows.js';
 import { withOwnedArtifactSuccessor } from '../symposium-owned-successor.js';
 import { successorCopierContract } from '../symposium-artifact-successor-copy.js';
 import { canonicalReviewJson, reviewRecordHash } from '../symposium-review-records.js';
+import { ARTIFACT_GIT_EXPORT } from '../symposium-artifact-git-export.js';
+import { SymposiumReviewCoordinator } from '../symposium-review-coordinator.js';
 import type { ArtifactGenerationRequest } from '../symposium-artifact-generations.js';
 const digest = (v: unknown) => reviewRecordHash(canonicalReviewJson(v));
 const physical = process.env.MITZO_SUCCESSOR_PHYSICAL_CONTRACT === '1';
 it.skipIf(!physical)(
-  'copies a disposable sealed parent through production exporters and owned generation stores',
+  'copies a sealed parent, commits a fix, checks from read-only review, and exports the durable record',
   async () => {
     const sourceReceipt = () => {
       execFileSync('git', ['diff', '--quiet', 'HEAD']);
@@ -175,7 +178,17 @@ it.skipIf(!physical)(
       // physical copy, verification, cleanup and generation transitions below are production code.
       class FixtureSealer extends PhysicalArtifactSealer {
         override async requireCompleted() {
-          const rows = JSON.parse(await command(['ps', '--all', '--no-trunc', '--format', 'json']));
+          const rows = JSON.parse(
+            await command([
+              'ps',
+              '--all',
+              '--no-trunc',
+              '--filter',
+              `volume=${mapping.volumeName}`,
+              '--format',
+              'json',
+            ]),
+          );
           for (const row of rows) {
             const [detail] = JSON.parse(await command(['inspect', row.Id ?? row.ID]));
             if (detail.Mounts.some((m: { Name?: string }) => m.Name === mapping.volumeName))
@@ -187,6 +200,8 @@ it.skipIf(!physical)(
       sealer = new FixtureSealer({
         store: {
           getSymposiumArtifactSealIntent: () => intent,
+          getSymposiumArtifactSealByFence: (fenceId: string) =>
+            fenceId === seal.fenceId ? intent : null,
           withSymposiumArtifactSealSnapshot: (_value: unknown, run: () => void) => run(),
         } as never,
         leaseHost,
@@ -328,6 +343,8 @@ it.skipIf(!physical)(
         leaseHost,
         sessionArtifacts,
         sealer,
+        sourceOwner: owner,
+        sourceProof: { assertNoNativeClaims: () => {}, command },
       };
       const copied = await withOwnedArtifactSuccessor(
         deps,
@@ -361,6 +378,108 @@ it.skipIf(!physical)(
       expect(
         JSON.parse(await helper(mapping.volumeName, true, ARTIFACT_GIT_VERIFIER, ['.'])),
       ).toEqual(git);
+      // The native writer and reviewer below are credential-free physical stand-ins.
+      // Their results are fed to the real durable workflow, not presented as a live provider run.
+      await helper(
+        copied.volumeName,
+        false,
+        `import subprocess,pathlib\nr='${target}'\np=pathlib.Path(r+'/feature.txt')\np.write_text('FIXED\\n')\nsubprocess.check_call(['git','-C',r,'add','feature.txt'])\nsubprocess.check_call(['git','-C',r,'-c','user.name=Contract','-c','user.email=contract@example.invalid','-c','commit.gpgsign=false','commit','-qm','fix'])\n`,
+      );
+      const fixed = JSON.parse(await helper(copied.volumeName, true, ARTIFACT_GIT_VERIFIER, ['.']));
+      expect(fixed.commit).not.toBe(git.commit);
+      expect(fixed.committedTreeDigest).not.toBe(git.committedTreeDigest);
+      const checked = JSON.parse(
+        await helper(copied.volumeName, true, ARTIFACT_GIT_EXPORT, [
+          '.',
+          JSON.stringify({ kind: 'check', checkPath: 'feature.txt', expected: fixed }),
+        ]),
+      );
+      const expectedFileHash = createHash('sha256').update('FIXED\n').digest('hex');
+      expect(checked).toMatchObject({ proof: fixed, observedSha256: expectedFileHash });
+      const fixResult = {
+        version: 1 as const,
+        resultId: 'physical-fix-fixture',
+        attemptId: 'fix',
+        inputRevision: git.commit,
+        inputHash: git.committedTreeDigest,
+        artifactRevision: fixed.commit,
+        artifactHash: fixed.committedTreeDigest,
+        summary: 'Credential-free physical writer fixture',
+        evidenceRefs: ['physical-child-git-commit'],
+        completedAt: Date.now(),
+      };
+      expect(
+        reviews.recordFix({
+          workflowId: 'workflow',
+          implementerSeatId: 'writer',
+          result: fixResult,
+          usage: { attemptId: 'fix', tokens: 0, costUsd: 0 },
+        }),
+      ).toMatchObject({ status: 'awaiting_delta_review' });
+      reviews.admitAttempt({
+        workflowId: 'workflow',
+        attemptId: 'delta',
+        enforcementId: 'fixture-only-no-provider',
+        kind: 'review',
+        actorSeatId: 'reviewer',
+        artifactRevision: fixed.commit,
+        artifactHash: fixed.committedTreeDigest,
+        maxTokens: 1,
+        maxCostUsd: 0,
+      });
+      expect(
+        reviews.recordReview({
+          workflowId: 'workflow',
+          reviewId: 'delta',
+          reviewerSeatId: 'reviewer',
+          kind: 'delta',
+          artifactRevision: fixed.commit,
+          artifactHash: fixed.committedTreeDigest,
+          findings: [],
+          resolvedFingerprints: findingFingerprints,
+          usage: { attemptId: 'delta', tokens: 0, costUsd: 0 },
+        }),
+      ).toMatchObject({ status: 'awaiting_evidence' });
+      const evidenceId = 'physical-criterion-fixture';
+      const evidence = {
+        version: 1 as const,
+        evidenceId,
+        resultId: fixResult.resultId,
+        criterion: 'fixture criterion',
+        verdict: 'verified' as const,
+        artifactRevision: fixed.commit,
+        evidenceRefs: [`podman-readonly:${checked.observedSha256}`],
+        checkedAt: Date.now(),
+      };
+      expect(() =>
+        reviews.recordEvidence(
+          'workflow',
+          { ...evidence, evidenceId: 'stale-parent-evidence', resultId: 'result' },
+          fixed.committedTreeDigest,
+          'host',
+        ),
+      ).toThrow(/stale result/i);
+      reviews.recordEvidence('workflow', evidence, fixed.committedTreeDigest, 'host');
+      const record = new SymposiumReviewCoordinator(reviews, {
+        currentArtifact: () => ({ revision: fixed.commit, hash: fixed.committedTreeDigest }),
+      } as never).exportRecord({ owner: 'fixture-owner', sessionId }, 'workflow');
+      expect(record).toMatchObject({
+        kind: 'verified',
+        artifactRevision: fixed.commit,
+        artifactHash: fixed.committedTreeDigest,
+        record: { snapshot: { workflowId: 'workflow' } },
+      });
+      const reopened = new SymposiumReviewStore(join(root, 'reviews.db'));
+      try {
+        expect(reopened.get('workflow')).toMatchObject({
+          status: 'verified',
+          fixes: [{ attemptId: 'fix' }],
+          findings: [{ status: 'fixed' }],
+        });
+        expect(reopened.finalize('workflow')).toMatchObject({ kind: 'verified' });
+      } finally {
+        reopened.close();
+      }
       const retained = db
         .prepare(
           'SELECT generation_id,state,helper_id,physical_json,receipt_json FROM symposium_artifact_generations WHERE generation_id=?',
@@ -382,13 +501,16 @@ it.skipIf(!physical)(
             seal,
             exportReceipt: exported.receipt,
             copied,
+            fixed,
+            checked,
+            record,
             retained,
             exactFixtureHelpers: helpers,
             cleanupComplete: true,
             modelCalls: 0,
             applicationCredentials: false,
             simulatedBoundary:
-              'prior seal/revocation and authenticated fix/native-budget authority; no application writer admission',
+              'prior seal/revocation, interactive fix authority, provider-native writer result and reviewer output; no application writer admission',
           },
           null,
           2,

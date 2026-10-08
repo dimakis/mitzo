@@ -3,6 +3,7 @@ import type { OwnedSymposiumGateway } from '../symposium-owned-gateway.js';
 import type { SubscriptionProvisioningHost } from '../symposium-subscription-provisioner.js';
 const mocked = vi.hoisted(() => ({
   publish: vi.fn(),
+  identityCurrent: vi.fn(),
   host: undefined as SubscriptionProvisioningHost | undefined,
   finish: undefined as ((value: unknown) => void) | undefined,
   fail: undefined as ((error: Error) => void) | undefined,
@@ -20,6 +21,10 @@ vi.mock('../symposium-subscription-provisioner.js', () => ({
         publishBinding: mocked.publish,
       };
     }
+    captureLaunchIdentity = () => ({
+      accountId: 'synthetic-real-account',
+      assertCurrent: mocked.identityCurrent,
+    });
     invalidate = vi.fn();
     verifyPrivateAuth = vi.fn();
     assertPrivateAuth = vi.fn();
@@ -77,11 +82,47 @@ function fixture() {
   return { gateway, run, options };
 }
 beforeEach(() => {
+  mocked.identityCurrent.mockReset();
   mocked.host = undefined;
   mocked.finish = undefined;
   mocked.fail = undefined;
 });
 describe('subscription host adapter', () => {
+  it('retains private launch identity only while the exact seat proof remains current', async () => {
+    const f = fixture();
+    const adapter = createSymposiumSubscriptionHost(f.options, f.run);
+    const login = await adapter.beginLogin();
+    const binding = await mocked.host!.installProfile({
+      subject: 's',
+      accountId: 'synthetic-real-account',
+      email: 'e',
+      planType: 'pro',
+      provider: 'new-provider',
+      providerId: 'provider-id',
+    });
+    mocked.finish!({ binding });
+    await login.completed;
+    const input = {
+      execution: { seat: { accountBinding: binding } },
+      route: {
+        kind: 'chatgpt-subscription-native',
+        model: binding.model,
+        profile: { model: binding.model },
+      },
+    } as Parameters<typeof adapter.assertPrivateAuth>[0];
+    const identity = adapter.captureLaunchIdentity(input);
+    expect(identity.accountId).toBe('synthetic-real-account');
+    identity.assertCurrent();
+    expect(mocked.identityCurrent).toHaveBeenCalledOnce();
+    expect(JSON.stringify(adapter.currentProfiles.catalog())).not.toContain(identity.accountId);
+    expect(JSON.stringify(adapter.activeDefinition)).not.toContain(identity.accountId);
+    f.options.seatProof.assertCurrent.mockImplementation(() => {
+      throw new Error('Seat replaced');
+    });
+    expect(() => identity.assertCurrent()).toThrow('Seat replaced');
+    expect(mocked.identityCurrent).toHaveBeenCalledOnce();
+  });
+
   it('has no personal catalog before completed authorization; exact selection is preserved', async () => {
     const f = fixture();
     const adapter = createSymposiumSubscriptionHost(f.options, f.run);
@@ -252,6 +293,7 @@ it('publishes discovered catalog under a fresh revision without rebinding a save
   mocked.finish!({ binding });
   await login.completed;
   const saved = { ...binding };
+  expect(adapter.currentProfiles.catalog()[0].modelDiscovery.stale).toBe(true);
   adapter.captureDiscovery().publish(
     [
       { id: 'gpt-5.6-luna', label: 'Luna' },
@@ -269,4 +311,15 @@ it('publishes discovered catalog under a fresh revision without rebinding a save
       profileRevision: adapter.currentProfiles.resolve('personal', saved.model).profileRevision,
     }),
   );
+  expect(adapter.currentProfiles.catalog()[0].modelDiscovery.stale).toBe(false);
+  const discoveredRevision = adapter.currentProfiles.resolve(
+    'personal',
+    saved.model,
+  ).profileRevision;
+  adapter.captureDiscovery().invalidateCatalog();
+  expect(adapter.currentProfiles.catalog()[0].modelDiscovery.stale).toBe(true);
+  expect(adapter.currentProfiles.resolve('personal', saved.model).profileRevision).toBe(
+    discoveredRevision,
+  );
+  expect(adapter.currentProfiles.resolve('personal', 'another-model').model).toBe('another-model');
 });

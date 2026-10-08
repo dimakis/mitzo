@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { z } from 'zod';
 import type { MitzoMode } from '@mitzo/protocol';
 import { apiFetch } from '../lib/api-fetch';
@@ -142,7 +142,8 @@ export function WebSearchConsent({
     }
   }, [sessionId, running, consent, error, connected, connectionId]);
 
-  useEffect(() => {
+  // Install refresh listeners before a newly visible grant can receive focus.
+  useLayoutEffect(() => {
     if (!sessionId || !connected || !connectionId || !canRefresh || saving) return;
     const refresh = () => setReload((value) => value + 1);
     const refreshWhenVisible = () => {

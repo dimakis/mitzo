@@ -35,6 +35,30 @@ const artifactRuntime = {
   },
   route: { kind: 'api' as const, provider: 'account-provider', model: 'test-model' },
 };
+it('durably reserves undispatched startup and stops treating it as fresh before provider initialization', () => {
+  const { path } = setup();
+  let s = new CodexConversationStore(path);
+  s.reserveStartup('new', binding, '/workspace');
+  expect(s.startupNeedsProvisioning('new', binding)).toBe(true);
+  s.close();
+  s = new CodexConversationStore(path);
+  expect(s.startupNeedsProvisioning('new', binding)).toBe(true);
+  expect(() =>
+    s.startupNeedsProvisioning('new', { ...binding, profileRevision: 'changed' }),
+  ).toThrow();
+  s.markStartupProviderInitializing('new', binding);
+  expect(s.startupNeedsProvisioning('new', binding)).toBe(false);
+  expect(() => s.assertStartupResumeSafe('new', binding)).toThrow(/unverified/);
+  s.bindThread('new', binding, 'acknowledged-thread');
+  expect(() => s.assertStartupResumeSafe('new', binding)).not.toThrow();
+  s.reserveStartup('new', binding, '/workspace');
+  expect(s.startupNeedsProvisioning('new', binding)).toBe(false);
+  s.create('legacy', binding, '/workspace');
+  s.reserveStartup('legacy', binding, '/workspace');
+  expect(s.startupNeedsProvisioning('legacy', binding)).toBe(false);
+  expect(() => s.startupNeedsProvisioning('missing', binding)).toThrow();
+  s.close();
+});
 it('retains verified artifact runtime and workspace across store restart, excluding unknown secrets', () => {
   const { path } = setup();
   let s = new CodexConversationStore(path);
@@ -292,6 +316,38 @@ it('records tool claims before execution and never repeats an uncertain effect',
   expect(() => s.claimTool('c', binding, 'one', 'call-2')).toThrow('running');
   s.close();
 });
+it('reopens an exact tool result after a crash before reviewer coverage is marked', () => {
+  const { path } = setup();
+  let s = new CodexConversationStore(path);
+  s.create('c', binding, '/workspace');
+  s.enqueue('c', binding, { id: 'review-claim', prompt: 'review' });
+  s.claimNext('c', binding);
+  const identity = {
+    turnId: 'turn-1',
+    toolName: 'SymposiumReadSealedReviewPage',
+    requestHash: 'a'.repeat(64),
+  };
+  expect(s.claimTool('c', binding, 'review-claim', 'call-1', identity)).toBe(true);
+  s.recordToolResult('c', binding, 'review-claim', 'call-1', identity, {
+    content: '{"pageIndex":1}',
+    isError: false,
+  });
+  // Simulate a process loss before the separate page-coverage write.
+  s.close();
+  s = new CodexConversationStore(path);
+  expect(s.replayToolResult('c', binding, 'review-claim', 'call-1', identity)).toEqual({
+    content: '{"pageIndex":1}',
+    isError: false,
+  });
+  expect(() =>
+    s.replayToolResult('c', binding, 'review-claim', 'call-1', {
+      ...identity,
+      requestHash: 'b'.repeat(64),
+    }),
+  ).toThrow(/identity/);
+  s.close();
+});
+
 it('claims host tools after reopening a ledger with additional nullable tool columns', () => {
   const { path } = setup();
   let s = new CodexConversationStore(path);
@@ -307,7 +363,9 @@ it('claims host tools after reopening a ledger with additional nullable tool col
     'result_content TEXT',
     'result_is_error INTEGER',
   ]) {
-    db.exec(`ALTER TABLE codex_tools ADD COLUMN ${column}`);
+    const columns = db.prepare('PRAGMA table_info(codex_tools)').all() as { name: string }[];
+    if (!columns.some((existing) => existing.name === column.split(' ')[0]))
+      db.exec(`ALTER TABLE codex_tools ADD COLUMN ${column}`);
   }
   db.close();
   s = new CodexConversationStore(path);

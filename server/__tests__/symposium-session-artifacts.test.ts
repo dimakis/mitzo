@@ -1,4 +1,5 @@
 import Database from 'better-sqlite3';
+import { createHash } from 'node:crypto';
 import { afterEach, expect, it, vi } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -79,7 +80,10 @@ it('never adopts a preexisting collision on subsequent retries', async () => {
     options: {},
     labels: {},
   }));
-  expect((await f.store.ensure('session')).state).toBe('recovery_required');
+  expect(await f.store.ensure('session')).toEqual({
+    state: 'recovery_required',
+    nextAction: 'operator_reconcile_retained_artifact',
+  });
   const db = new Database(join(f.root, 'db'));
   const row = db
     .prepare('SELECT volume_name,generation FROM symposium_session_artifacts')
@@ -95,7 +99,23 @@ it('never adopts a preexisting collision on subsequent retries', async () => {
       volumeGeneration: row.generation,
     }),
   });
-  expect((await f.store.ensure('session')).state).toBe('recovery_required');
+  expect(await f.store.ensure('session')).toEqual({
+    state: 'recovery_required',
+    nextAction: 'operator_reconcile_retained_artifact',
+  });
+  expect(f.host.create).not.toHaveBeenCalled();
+});
+it('reports the quarantine next action only after its ledger transition wins', async () => {
+  const f = fixture();
+  f.host.inspect.mockImplementation(async (name) => {
+    const db = new Database(join(f.root, 'db'));
+    db.prepare(
+      "UPDATE symposium_session_artifacts SET state='uncertain', revision=revision+1 WHERE session_id=?",
+    ).run('session');
+    db.close();
+    return { name, driver: 'local', options: {}, labels: {} };
+  });
+  expect(await f.store.ensure('session')).toEqual({ state: 'recovery_required' });
   expect(f.host.create).not.toHaveBeenCalled();
 });
 it('reopens same custody without recreating and rejects a different owner', async () => {
@@ -419,6 +439,118 @@ it('serializes source import against admission and permanently records permissio
     admissionIssued: true,
   });
   expect(() => f.store.completeSourceImport({ ...claim, token: 'wrong' }, {})).toThrow(/claim/);
+});
+
+it('durably fences original source admission before an imported generation can be sealed', async () => {
+  const f = fixture();
+  await f.store.ensure('source');
+  const mapping = f.store.getReady('source')!;
+  const claim = f.store.beginSourceImport('source', {
+    operationId: 'import-op',
+    expectedGeneration: mapping.volumeGeneration,
+    source: {},
+  });
+  const helper = f.store.sourceImportHelperReceipt(claim);
+  helper.intent(`${mapping.volumeName}-import`);
+  helper.created('a'.repeat(64));
+  helper.removed();
+  const receipt = {
+    commit: 'b'.repeat(40),
+    tree: 'c'.repeat(40),
+    featureBranch: 'change',
+    bundleSha256: 'd'.repeat(64),
+    files: 1,
+    bytes: 3,
+    git: {
+      version: 1,
+      commit: 'b'.repeat(40),
+      tree: 'c'.repeat(40),
+      entries: 1,
+      bytes: 3,
+      manifestDigest: 'e'.repeat(64),
+      committedTreeDigest: 'f'.repeat(64),
+    },
+    terminal: { helperId: 'a'.repeat(64), exitCode: 0 },
+    importer: 'g'.repeat(64),
+    operationId: 'import-op',
+    manifest: {
+      baseOid: 'b'.repeat(40),
+      treeOid: 'c'.repeat(40),
+      baseBranch: 'main',
+      featureBranch: 'change',
+      targetRepository: 'owner/repo',
+    },
+  };
+  f.store.completeSourceImport(claim, receipt);
+  expect(f.store.sourceSealStatus('source')).toMatchObject({
+    state: 'pending',
+    operationId: 'import-op',
+    sourceReceipt: receipt,
+  });
+  const pending = f.store.beginSourceSeal('source', 'import-op');
+  expect(pending).toMatchObject({
+    sessionId: 'source',
+    volumeGeneration: mapping.volumeGeneration,
+    sourceReceipt: receipt,
+  });
+  expect(() => f.store.claimAdmission('source')).toThrow(/source seal/);
+  const reopened = new SymposiumSessionArtifacts(
+    join(f.root, 'db'),
+    'workspace',
+    'custody',
+    f.custody,
+    f.host,
+  );
+  cleanup.push(() => reopened.close());
+  expect(reopened.beginSourceSeal('source', 'import-op')).toEqual(pending);
+  expect(() => reopened.claimAdmission('source')).toThrow(/source seal/);
+  expect(() => reopened.beginSourceSeal('source', 'other')).toThrow(/source seal/);
+  const proof = reopened.sourceSealHelperReceipt('source', 'import-op');
+  proof.verifier('pinned-image', '8'.repeat(64));
+  expect(() => proof.verifier('pinned-image', '8'.repeat(64))).not.toThrow();
+  expect(() => proof.verifier('changed-image', '8'.repeat(64))).toThrow(/identity changed/);
+  proof.intent(`${mapping.volumeName}-source-seal`);
+  expect(() => proof.intent(`${mapping.volumeName}-source-seal`)).not.toThrow();
+  proof.created('9'.repeat(64));
+  expect(() => proof.created('9'.repeat(64))).not.toThrow();
+  expect(() => proof.created('a'.repeat(64))).toThrow(/identity changed/);
+  proof.observed(receipt.git);
+  expect(() => proof.observed(receipt.git)).not.toThrow();
+  const bundle = Buffer.from('source-bundle');
+  const exportReceipt = {
+    proof: receipt.git,
+    bundleSha256: createHash('sha256').update(bundle).digest('hex'),
+    bytes: bundle.length,
+    selection: {
+      sourceRef: 'refs/heads/change',
+      sourceOid: receipt.commit,
+      baseRef: 'refs/remotes/origin/main',
+      baseOid: receipt.commit,
+      defaultBranch: 'main',
+      originUrl: 'https://github.com/owner/repo.git',
+    },
+  };
+  proof.exported(exportReceipt, bundle);
+  expect(() => proof.exported(exportReceipt, bundle)).not.toThrow();
+  expect(() => proof.exported(exportReceipt, Buffer.from('other-bundle'))).toThrow(
+    /evidence changed/,
+  );
+  expect(() => reopened.completeSourceSeal('source', 'import-op')).toThrow(/physical completion/);
+  proof.terminal('9'.repeat(64), 0);
+  expect(() => proof.terminal('9'.repeat(64), 0)).not.toThrow();
+  proof.removed();
+  expect(() => proof.removed()).not.toThrow();
+  const completed = reopened.completeSourceSeal('source', 'import-op');
+  expect(reopened.completeSourceSeal('source', 'import-op')).toEqual(completed);
+  expect(completed).toMatchObject({
+    state: 'complete',
+    helperId: '9'.repeat(64),
+    git: receipt.git,
+    verifier: { image: 'pinned-image', codeDigest: '8'.repeat(64) },
+  });
+  expect(f.store.sourceSealStatus('source')).toEqual(completed);
+  expect(f.store.sourceSealExport('source')).toEqual({ receipt: exportReceipt, bundle });
+  expect(() => f.store.claimAdmission('source')).toThrow(/source seal/);
 });
 
 it('keeps interrupted source import fenced after reopening and rejects stale volume selection', async () => {

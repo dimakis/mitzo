@@ -17,7 +17,7 @@ vi.mock('../chat.js', () => ({
   reattachChat: vi.fn().mockReturnValue(true),
   rekeyChat: vi.fn().mockReturnValue(true),
   BASE_REPO: '/tmp/test-repo',
-  discoverSession: vi.fn().mockResolvedValue(null),
+  importSdkConversation: vi.fn().mockResolvedValue(null),
 }));
 
 vi.mock('../app.js', () => ({
@@ -52,7 +52,7 @@ import {
   isActive,
   reattachChat,
   rekeyChat,
-  discoverSession,
+  importSdkConversation,
 } from '../chat.js';
 import { setSkillPolicy, clearSkillPolicy } from '../skill-policy.js';
 import { resolveSlashCommand } from '../slash-commands.js';
@@ -849,6 +849,68 @@ describe('handleUnwatch', () => {
 // ─── handleSwitchSession ─────────────────────────────────────────────────────
 
 describe('handleSwitchSession', () => {
+  it.each(['removed', 'closed'])(
+    'restores approval ownership after switching away and reconnecting with a %s owner',
+    async (oldOwner) => {
+      vi.mocked(reattachChat).mockClear();
+      vi.mocked(denyPendingBySession).mockClear();
+      const eventStore = mockEventStore();
+      eventStore.getSession.mockReturnValue({ sessionId: 'sess-1', mode: 'agent' });
+      const sessionReg = mockSessionRegistry();
+      const session = { ownerConnectionId: 'old-conn', mode: 'agent' };
+      sessionReg.findBySessionId.mockReturnValue({ clientId: 'old-conn:sess-1', session });
+      sessionReg.isActive.mockReturnValue(true);
+      const ctx = createContext({
+        eventStore: eventStore as unknown as V2HandlerContext['eventStore'],
+        sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
+      });
+      if (oldOwner === 'closed')
+        ctx.connRegistry.register('old-conn', { ...mockTransport(), isOpen: () => false });
+      const transport = mockTransport();
+      ctx.connRegistry.register('new-conn', transport);
+      ctx.connRegistry.setActive('new-conn', 'sess-2');
+      vi.mocked(getPendingSessionId).mockReturnValueOnce('sess-1');
+      vi.mocked(resolvePending).mockReturnValueOnce(true);
+
+      await handleSwitchSession('new-conn', { type: 'switch_session', sessionId: 'sess-1' }, ctx);
+      expect(session.ownerConnectionId).toBe('new-conn');
+      expect(reattachChat).toHaveBeenCalledWith('old-conn:sess-1', transport);
+      expect(denyPendingBySession).not.toHaveBeenCalled();
+      expect(
+        handlePermissionResponseV2(
+          'new-conn',
+          {
+            type: 'permission_response',
+            sessionId: 'sess-1',
+            permId: 'p1',
+            decision: 'once',
+          },
+          ctx,
+        ),
+      ).toBe(true);
+      vi.mocked(resolvePending).mockClear();
+    },
+  );
+
+  it('keeps another connected owner when an observer opens the session', async () => {
+    vi.mocked(reattachChat).mockClear();
+    const eventStore = mockEventStore();
+    eventStore.getSession.mockReturnValue({ sessionId: 'sess-1' });
+    const sessionReg = mockSessionRegistry();
+    const session = { ownerConnectionId: 'owner' };
+    sessionReg.findBySessionId.mockReturnValue({ clientId: 'owner:sess-1', session });
+    sessionReg.isActive.mockReturnValue(true);
+    const ctx = createContext({
+      eventStore: eventStore as unknown as V2HandlerContext['eventStore'],
+      sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
+    });
+    ctx.connRegistry.register('owner', mockTransport());
+    ctx.connRegistry.register('observer', mockTransport());
+    await handleSwitchSession('observer', { type: 'switch_session', sessionId: 'sess-1' }, ctx);
+    expect(session.ownerConnectionId).toBe('owner');
+    expect(reattachChat).not.toHaveBeenCalled();
+  });
+
   it('starts a newly watched session at the REST history boundary instead of syncing from zero', async () => {
     const eventStore = mockEventStore();
     eventStore.getSession.mockReturnValue({ sessionId: 'long-session', mode: 'agent' });
@@ -917,18 +979,17 @@ describe('handleSwitchSession', () => {
     }
   });
 
-  it('scopes unexpected discovery errors to the requested session', async () => {
+  it('does not import provider history while switching to an unknown ID', async () => {
     const ctx = createContext();
     const transport = mockTransport();
     ctx.connRegistry.register('c1', transport);
-    vi.mocked(discoverSession).mockRejectedValueOnce(new Error('Discovery unavailable'));
-    await expect(
-      handleSwitchSession('c1', { type: 'switch_session', sessionId: 'selected' }, ctx),
-    ).rejects.toThrow('Discovery unavailable');
+    vi.mocked(importSdkConversation).mockRejectedValueOnce(new Error('Discovery unavailable'));
+    await handleSwitchSession('c1', { type: 'switch_session', sessionId: 'selected' }, ctx);
+    expect(importSdkConversation).not.toHaveBeenCalled();
     expect(transport.sent).toContainEqual({
       type: 'error',
       sessionId: 'selected',
-      error: 'Discovery unavailable',
+      error: 'Session not found: selected',
     });
   });
 
@@ -982,14 +1043,15 @@ describe('handleSwitchSession', () => {
     expect(transport.sent[0]).toEqual(expect.objectContaining({ type: 'session_cleared' }));
   });
 
-  it('sends error for unknown session when SDK discovery also fails', async () => {
+  it('leaves unknown sessions unsubscribed and reports the requested ID', async () => {
     const ctx = createContext();
     const transport = mockTransport();
     ctx.connRegistry.register('c1', transport);
 
     await handleSwitchSession('c1', { type: 'switch_session', sessionId: 'nope' }, ctx);
 
-    expect(discoverSession).toHaveBeenCalledWith('nope');
+    expect(importSdkConversation).not.toHaveBeenCalled();
+    expect(ctx.connRegistry.get('c1')!.watchedSessions.size).toBe(0);
     expect(transport.sent[0]).toEqual(
       expect.objectContaining({
         type: 'error',
@@ -999,10 +1061,9 @@ describe('handleSwitchSession', () => {
     );
   });
 
-  it('falls back to SDK discovery when EventStore misses, then succeeds', async () => {
+  it('opens an external conversation only after explicit import registers it', async () => {
     const eventStore = mockEventStore();
-    // First call: not found. Second call (after backfill): found.
-    eventStore.getSession.mockReturnValueOnce(null).mockReturnValueOnce(null);
+    eventStore.getSession.mockReturnValue(null);
 
     const discoveredMeta = {
       sessionId: 'orphan-1',
@@ -1017,7 +1078,7 @@ describe('handleSwitchSession', () => {
       totalCostUsd: 0,
     };
 
-    (discoverSession as ReturnType<typeof vi.fn>).mockResolvedValueOnce(discoveredMeta);
+    (importSdkConversation as ReturnType<typeof vi.fn>).mockResolvedValueOnce(discoveredMeta);
 
     const ctx = createContext({
       eventStore: eventStore as unknown as V2HandlerContext['eventStore'],
@@ -1027,7 +1088,11 @@ describe('handleSwitchSession', () => {
 
     await handleSwitchSession('c1', { type: 'switch_session', sessionId: 'orphan-1' }, ctx);
 
-    expect(discoverSession).toHaveBeenCalledWith('orphan-1');
+    expect(importSdkConversation).not.toHaveBeenCalled();
+    expect(transport.sent[0].type).toBe('error');
+    eventStore.getSession.mockReturnValue(discoveredMeta);
+    transport.sent.length = 0;
+    await handleSwitchSession('c1', { type: 'switch_session', sessionId: 'orphan-1' }, ctx);
     expect(ctx.connRegistry.get('c1')!.activeSession).toBe('orphan-1');
     expect(transport.sent[0]).toEqual(
       expect.objectContaining({
@@ -1995,6 +2060,7 @@ describe('handlePermissionResponseV2', () => {
       sessionId: 'sess-1',
       permId: 'p1',
       error: 'Permission response was invalid or expired. Review the prompt and try again.',
+      pendingPermissions: [],
     });
     expect(resolved).toBe(false);
   });
@@ -2524,6 +2590,7 @@ describe('dispatchV2Message', () => {
       sessionId: 'sess-1',
       permId: 'p1',
       error: 'Permission response was invalid or expired. Review the prompt and try again.',
+      pendingPermissions: [],
     });
   });
 

@@ -1,0 +1,13 @@
+# Disposable identity-bootstrap successor; old images/helpers remain immutable.
+ARG OPENSHELL_BASE_IMAGE=sha256:8d228fc4836797a00e09b48166cbeb35e0847aba76b5ef9ff796e0d1c9ae081a
+FROM ${OPENSHELL_BASE_IMAGE}
+USER root
+RUN echo '22c787768933ff4d97e62e2d4613e1671e18b6a2cc999f0666be544acecffa45  /usr/bin/codex' | sha256sum -c - \
+    && echo 'd2f036fd6adc398a1f87a2458c3726558c2eb5660e73dc2b4b4a6b25241c6178  /usr/bin/codex-code-mode-host' | sha256sum -c - \
+    && echo 'ffb14857502305d354143e475ad8b417aa733857254b6d3e34b66023e444adfb  /usr/local/bin/symposium-subscription-app-server' | sha256sum -c -
+COPY docs/spikes/openshell-codex/symposium-subscription-identity-app-server /usr/local/bin/symposium-subscription-app-server
+RUN chown root:root /usr/local/bin/symposium-subscription-app-server \
+    && chmod 0755 /usr/local/bin/symposium-subscription-app-server \
+    && /usr/bin/codex --version \
+    && sha256sum /usr/local/bin/symposium-subscription-app-server
+USER sandbox

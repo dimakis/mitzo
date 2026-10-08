@@ -90,6 +90,14 @@ export function PermissionBanner({
   );
   const complete = questions?.every((q) => answers[q.id].length > 0);
   const heading = questions ? 'A question for you' : title || displayName || toolName;
+  let sessionSearch = false;
+  if (toolName === 'RequestWebAccess' && approvalScope === 'session' && !questions) {
+    try {
+      sessionSearch = JSON.parse(toolInput).operation === 'search';
+    } catch {
+      // Unknown input retains the ordinary approval description.
+    }
+  }
   const server = toolName.startsWith('mcp__') ? toolName.split('__')[1] : undefined;
   const tierClass =
     tier === 'elevated'
@@ -191,9 +199,11 @@ export function PermissionBanner({
                 ? 'This integration remains available to this conversation across reconnects and Mitzo restarts, until its sandbox is deleted or access is revoked.'
                 : approvalScope === 'request'
                   ? 'This approval covers only the displayed request. Another request needs its own approval.'
-                  : server
-                    ? `Session allowance covers all ${server} tools.`
-                    : 'Session allowance covers this tool until the task ends.'}
+                  : sessionSearch
+                    ? 'Allow searches on this account and model until the session ends. Website access stays separate.'
+                    : server
+                      ? `Session allowance covers all ${server} tools.`
+                      : 'Session allowance covers this tool until the task ends.'}
             </p>
           </>
         )}
@@ -227,7 +237,7 @@ export function PermissionBanner({
                 disabled={remaining === 0}
                 onClick={() => onRespond(permId, 'always', toolName)}
               >
-                Allow for session
+                {sessionSearch ? 'Allow searches for this session' : 'Allow for session'}
               </button>
             )}
           </>

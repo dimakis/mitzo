@@ -27,6 +27,16 @@ const sandbox = {
 const claim = { claimToken: 'claim-1', sessionId: 'session-1', sandbox };
 
 describe('durable native attempt registry', () => {
+  it('retains historical session claim presence after a preparation is closed', async () => {
+    const registry = new SymposiumAttemptRegistry(registryPath());
+    expect(registry.hasSessionClaims('session-1')).toBe(false);
+    registry.prepare(claim);
+    expect(registry.hasSessionClaims('session-1')).toBe(true);
+    await registry.recover(claim.claimToken);
+    expect(registry.pendingPreparations()).toEqual([]);
+    expect(registry.hasSessionClaims('session-1')).toBe(true);
+    registry.close();
+  });
   it('reserves before launch and keeps a sandbox quarantined after restart', () => {
     const path = registryPath();
     const first = new SymposiumAttemptRegistry(path);
@@ -152,4 +162,44 @@ describe('durable native attempt registry', () => {
     expect(() => reopened.assertSandboxAvailable('same-name')).toThrow('quarantined');
     reopened.close();
   });
+});
+it('retains exact successor binding across preparation and launch reservation without inheritance', () => {
+  const path = registryPath(),
+    registry = new SymposiumAttemptRegistry(path);
+  const artifact = {
+    version: 1 as const,
+    transitionId: 'transition',
+    artifactGenerationId: 'child',
+    pointerRevision: 1,
+    bindingDigest: 'a'.repeat(64),
+  };
+  registry.prepare({ ...claim, artifact });
+  expect(registry.pendingPreparations()[0]?.artifact).toEqual(artifact);
+  expect(() =>
+    registry.reserve({ ...claim, artifact: { ...artifact, artifactGenerationId: 'other' } }),
+  ).toThrow();
+  registry.reserve({ ...claim, artifact });
+  registry.close();
+  const reopened = new SymposiumAttemptRegistry(path);
+  expect(reopened.pending()[0]?.artifact).toEqual(artifact);
+  reopened.close();
+});
+it('retains exact sealed reviewer binding across preparation and restart', () => {
+  const path = registryPath(),
+    registry = new SymposiumAttemptRegistry(path);
+  const artifact = {
+    version: 1 as const,
+    kind: 'sealed_reader' as const,
+    readerAdmissionId: 'reader-1',
+    artifactGenerationId: 'parent',
+    sealFenceId: 'fence-1',
+    bindingDigest: 'b'.repeat(64),
+  };
+  registry.prepare({ ...claim, artifact });
+  expect(registry.pendingPreparations()[0]?.artifact).toEqual(artifact);
+  registry.reserve({ ...claim, artifact });
+  registry.close();
+  const reopened = new SymposiumAttemptRegistry(path);
+  expect(reopened.pending()[0]?.artifact).toEqual(artifact);
+  reopened.close();
 });

@@ -1,4 +1,5 @@
 import { storedEventToClientMessage } from '@mitzo/protocol';
+import { isDeepStrictEqual } from 'node:util';
 import type { EventStore } from './event-store.js';
 import type { SymposiumSeatExecution } from './symposium-orchestrator.js';
 
@@ -80,7 +81,7 @@ export class SymposiumNativeEventSink {
       attempt.seatId !== execution.seat.id ||
       this.store.getSymposiumDelivery(attempt.deliveryId)?.sessionId !== execution.sessionId ||
       !attempt.provenance ||
-      JSON.stringify(attempt.provenance) !== JSON.stringify(execution.provenance)
+      !isDeepStrictEqual(attempt.provenance, execution.provenance)
     )
       return;
     if (native.type === 'symposium_attempt_released') {

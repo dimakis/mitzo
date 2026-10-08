@@ -223,3 +223,31 @@ it('keeps a pending draft accessible and retries its shared files without creati
   expect(vi.mocked(apiFetch).mock.calls[1][0]).toBe('/api/symposium/sessions/pending/artifacts');
   expect(apiFetch).toHaveBeenCalledTimes(2);
 });
+
+it('keeps a quarantined draft accessible and directs the operator without offering a retry', async () => {
+  vi.mocked(apiFetch).mockResolvedValue({
+    ok: true,
+    json: async () => ({
+      sessionId: 'quarantined',
+      artifacts: {
+        state: 'recovery_required',
+        nextAction: 'operator_reconcile_retained_artifact',
+      },
+    }),
+  } as Response);
+  render(
+    <MemoryRouter>
+      <NewSymposium />
+      <Location />
+    </MemoryRouter>,
+  );
+  await userEvent.click(screen.getByRole('button', { name: 'New Symposium' }));
+  await userEvent.click(screen.getByRole('button', { name: 'Select owned work Luna' }));
+  await userEvent.click(screen.getByRole('button', { name: 'Select saved builder' }));
+  await userEvent.click(screen.getByRole('button', { name: 'Create Symposium draft' }));
+  expect(await screen.findByRole('button', { name: 'Open draft' })).toBeTruthy();
+  expect(screen.getByText(/ask an operator to reconcile the retained shared files/i)).toBeTruthy();
+  expect(screen.queryByRole('button', { name: 'Retry shared files' })).toBeNull();
+  expect(screen.getByLabelText('Location').textContent).toBe('/');
+  expect(apiFetch).toHaveBeenCalledTimes(1);
+});

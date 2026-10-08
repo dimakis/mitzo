@@ -1,3 +1,6 @@
+import type { SqliteArtifactLeaseHost } from './symposium-artifact-host.js';
+import type { EventStore } from './event-store.js';
+import type { ArtifactReaderReferenceV1 } from '@mitzo/protocol';
 import { REVIEWED_SYMPOSIUM_OWNED_RUNTIME } from './symposium-owned-runtime-contract.js';
 /** Host-owned admission for an OpenShell 0.1.0 named artifact volume.
  * The caller must obtain volume metadata and lease decisions from the host,
@@ -27,6 +30,8 @@ export interface ArtifactLeaseRequest {
   volumeGeneration: string;
   driver: ArtifactDriver;
   access: ArtifactAccess;
+  /** Distinguishes one admitted read-only sealed reader from a prior reviewer lease. */
+  readerAdmissionId?: string;
 }
 
 export interface ArtifactLease {
@@ -66,6 +71,11 @@ function assertRequest(request: ArtifactLeaseRequest): void {
   if (!VOLUME.test(request.volumeName)) throw new Error('Invalid artifact volume name');
   if (request.driver !== 'docker' && request.driver !== 'podman')
     throw new Error('Unsupported artifact volume driver');
+  if (
+    request.readerAdmissionId &&
+    (request.access !== 'reviewer' || !ID.test(request.readerAdmissionId))
+  )
+    throw new Error('Invalid sealed reader lease identity');
   if (request.access !== 'writer' && request.access !== 'reviewer')
     throw new Error('Unsupported artifact access');
 }
@@ -165,4 +175,18 @@ export async function artifactDriverConfigForLease(
   )
     throw new Error('Artifact lease drift');
   return config;
+}
+
+/** Reuse the exact confirmed read-only lease. Never calls generic reserve on a sealed volume. */
+export async function acquireConfirmedSealedReaderLease(
+  host: SqliteArtifactLeaseHost,
+  store: EventStore,
+  sessionId: string,
+  reference: ArtifactReaderReferenceV1,
+): Promise<ArtifactLease> {
+  const lease = await host.requireConfirmedSealedReaderLease(store, sessionId, reference);
+  const config = await artifactDriverConfigForLease(host, lease);
+  if (config.podman?.mounts.length !== 1 || config.podman.mounts[0].read_only !== true)
+    throw new Error('Confirmed reader must retain one read-only mount');
+  return lease;
 }

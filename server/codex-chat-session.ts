@@ -40,11 +40,7 @@ import {
 import { createWebAccessTool } from './web-access-tool.js';
 import { connectCodexMcpTools } from './codex-mcp-tools.js';
 import { AsyncQueue } from './async-queue.js';
-import {
-  CodexAppServerClient,
-  CodexRequestError,
-  SUPPORTED_CODEX_CLI_VERSION,
-} from './codex-app-server-client.js';
+import { CodexAppServerClient, SUPPORTED_CODEX_CLI_VERSION } from './codex-app-server-client.js';
 import { CodexConversation } from './codex-conversation.js';
 import {
   CodexConversationStore,
@@ -87,7 +83,9 @@ import {
 import { requestedIntegrationProviders } from './integration-intent.js';
 import { createLogger } from './logger.js';
 import { canonicalJson } from './connections/capabilities/input-validation.js';
-import { providerFailureTelemetry, ProviderFailureError } from './provider-failure.js';
+import { ProviderFailureError } from './provider-failure.js';
+import { codexRuntimeDiagnostic, codexRuntimeErrorTelemetry } from './codex-runtime-diagnostics.js';
+import { CodexStartupError, duringCodexStartup } from './codex-startup-error.js';
 import type { EventStore } from './event-store.js';
 import { codexRolloverHistory } from './codex-rollover-context.js';
 import type { ProviderDispatchAdmission } from './provider-execution.js';
@@ -105,6 +103,21 @@ import {
   symposiumProposeProfileDefinition,
   SYMPOSIUM_PROPOSE_PROFILE_TOOL,
 } from './symposium-profile-tool.js';
+
+/** Assigned GitHub connections replace the legacy credential fallback. Retained
+ * runtimes supply only their already attached managed connections here. */
+export function ordinaryRuntimeServiceProviders(
+  configured: readonly string[],
+  managed: readonly Pick<Connection, 'templateId' | 'gatewayProviderName'>[],
+): string[] {
+  const managedGithub = managed.some((connection) => connection.templateId === 'github-readonly');
+  return [
+    ...new Set([
+      ...configured.filter((provider) => provider !== 'github' || !managedGithub),
+      ...managed.map((connection) => connection.gatewayProviderName),
+    ]),
+  ];
+}
 
 const runtimes = new WeakMap<ManagedSession, CodexConversation>();
 interface PendingProviderAdmission {
@@ -202,6 +215,24 @@ function capabilityToolsForConversation(
 }
 /** Only transport safe, stable runtime diagnostics to the client. */
 export function publicCodexRuntimeError(error: Error): string {
+  if (error instanceof CodexStartupError) {
+    let cause = error.cause;
+    while (cause instanceof CodexStartupError) cause = cause.cause;
+    const detail = cause instanceof Error ? publicCodexRuntimeError(cause) : undefined;
+    const inferredMigration =
+      error.phase !== 'runtime_admission' &&
+      detail?.startsWith('Retained sandbox migration is blocked.');
+    const explanation =
+      error.resourceErrorCode() ||
+      inferredMigration ||
+      !detail ||
+      detail === 'Codex turn failed. Inspect queued work before retrying.'
+        ? undefined
+        : detail;
+    return `${error.publicMessage(explanation)} Reference: ${error.diagnosticId}`;
+  }
+  const diagnostic = codexRuntimeDiagnostic(error);
+  if (diagnostic) return diagnostic;
   if (error instanceof KnowledgePublicationUnavailableError)
     return 'Knowledge publication is unavailable. Check the knowledge publisher before retrying. No provider turn was started.';
   if (
@@ -240,6 +271,12 @@ export function publicCodexRuntimeError(error: Error): string {
   )
     return message;
   return 'Codex turn failed. Inspect queued work before retrying.';
+}
+export function publicCodexStartupError(error: Error): string {
+  const diagnostic = publicCodexRuntimeError(error);
+  return diagnostic === 'Codex turn failed. Inspect queued work before retrying.'
+    ? 'Codex could not start this chat. Check runtime and account configuration before continuing.'
+    : diagnostic;
 }
 let privateStore: CodexConversationStore | undefined;
 function store() {
@@ -357,11 +394,31 @@ export function cancelCodexQueuedCommand(
     ? live.cancelQueued(commandId)
     : store().cancelQueued(conversationId, binding, commandId);
 }
+type CodexQueueStatus = Pick<
+  ReturnType<CodexConversationStore['queueSummary']>,
+  'queued' | 'interrupted' | 'failed'
+> &
+  Partial<
+    Pick<
+      ReturnType<CodexConversationStore['queueSummary']>,
+      | 'model'
+      | 'reasoningEffort'
+      | 'retryAvailableAt'
+      | 'retryable'
+      | 'requiresRetryConfirmation'
+      | 'capacityRecovery'
+    >
+  > & {
+    paused: boolean;
+    connected: boolean;
+    recovering: boolean;
+    recoveryPhase?: ReturnType<CodexConversation['getRecoveryPhase']>;
+  };
 export function readCodexQueue(
   conversationId: string,
   binding: AccountBinding,
   session?: ManagedSession,
-) {
+): CodexQueueStatus | undefined {
   if (binding.provider !== 'openai-codex' && binding.provider !== 'openai') return undefined;
   try {
     const live = session ? getCodexRuntime(session) : undefined;
@@ -379,6 +436,7 @@ export function readCodexQueue(
       retryAvailableAt: summary.retryAvailableAt,
       retryable: summary.retryable,
       requiresRetryConfirmation: summary.requiresRetryConfirmation,
+      ...(summary.capacityRecovery ? { capacityRecovery: summary.capacityRecovery } : {}),
     };
   } catch {
     return {
@@ -390,6 +448,21 @@ export function readCodexQueue(
       failed: 0,
     };
   }
+}
+export function readCodexCapacityRecovery(conversationId: string, binding: AccountBinding) {
+  return store().capacityRecovery(conversationId, binding);
+}
+export async function stopCodexCapacityRecovery(
+  conversationId: string,
+  binding: AccountBinding,
+  recoveryId: string,
+  sourceCommandId: string,
+  session?: ManagedSession,
+) {
+  const runtime = session ? getCodexRuntime(session) : undefined;
+  if (runtime) return runtime.stopCapacityRetry(recoveryId, sourceCommandId);
+  store().stopCapacityRecovery(conversationId, binding, recoveryId, sourceCommandId);
+  return 'stopped' as const;
 }
 /** Authoritative lifecycle snapshot. Errors deliberately escape to the caller,
  * where they become a preservation blocker. */
@@ -458,10 +531,15 @@ export function managedJiraConnectionEnv(connection: Connection) {
 }
 /** Shared chat adapter. Execution remains gated by the account catalog and unsupported capabilities fail explicitly. */
 export async function openCodexChat(options: Options) {
+  return duringCodexStartup('runtime_admission', () => openCodexChatAdmitted(options));
+}
+async function openCodexChatAdmitted(options: Options) {
   if (options.profile.nativeAuth)
     throw new Error('Native personal ChatGPT accounts require the isolated Symposium runtime');
   const service = getConnectionsRuntime()?.service;
   const configuredRuntime = openShellRuntimeConfig(process.env);
+  if (configuredRuntime && !options.resume)
+    store().reserveStartup(options.conversationId, options.binding, options.session.cwd!);
   if (service && configuredRuntime) {
     // Setup holds the connection reservation through sandbox verification and
     // thread registration. First-turn admission reacquires it; release setup
@@ -550,10 +628,10 @@ async function openCodexChatBound(
     ? new OpenShellRuntimeManager({
         ...configuredRuntime,
         ...(routedRuntime ? { sandboxNameOverride: routedRuntime.runtime.sandboxName } : {}),
-        serviceProviders: [
-          ...configuredRuntime.serviceProviders,
-          ...managedConnections.map((connection) => connection.gatewayProviderName),
-        ],
+        serviceProviders: ordinaryRuntimeServiceProviders(
+          configuredRuntime.serviceProviders,
+          managedConnections,
+        ),
         grantableServiceProviders: [
           ...configuredRuntime.grantableServiceProviders,
           ...onDemandConnections.map((connection) => connection.gatewayProviderName),
@@ -579,8 +657,34 @@ async function openCodexChatBound(
     : undefined;
   let managedOpenShell: OpenShellRuntime | undefined;
   try {
+    if (runtimeManager) {
+      store().assertStartupResumeSafe(options.conversationId, options.binding);
+      const provisioning = store().startupNeedsProvisioning(
+        options.conversationId,
+        options.binding,
+      );
+      if (provisioning && options.reattachOnly) {
+        // Queue attachment is observational. Keep the reserved startup for an
+        // explicit send instead of creating an unacknowledged provider thread.
+        const idle = new AsyncQueue<Record<string, unknown>>();
+        idle.close();
+        startupReservation?.();
+        return {
+          [Symbol.asyncIterator]: () => idle[Symbol.asyncIterator](),
+          setPermissionMode: async () => {},
+          interrupt: async () => {},
+          close: () => {},
+          stopTask: async () => {
+            throw new Error('Codex subagents are unavailable');
+          },
+        };
+      }
+      if (provisioning) options = { ...options, resume: false };
+    }
     managedOpenShell = runtimeManager
-      ? await runtimeManager!.ensure(options.conversationId, options.session.abortController.signal)
+      ? await duringCodexStartup('sandbox_preparation', () =>
+          runtimeManager!.ensure(options.conversationId, options.session.abortController.signal),
+        )
       : undefined;
   } catch (error) {
     startupReservation?.();
@@ -812,7 +916,7 @@ async function openCodexChatBound(
     privateStorage = store();
   } catch (error) {
     startupReservation?.();
-    throw error;
+    throw new CodexStartupError('conversation_storage', error);
   }
   function persistArtifactRuntime() {
     if (!runtimeManager || !managedOpenShell) return;
@@ -850,7 +954,7 @@ async function openCodexChatBound(
   } catch (error) {
     dispose();
     startupReservation?.();
-    throw error;
+    throw new CodexStartupError('context_preparation', error);
   }
   const mcp = connectedOpenShell
     ? {
@@ -963,6 +1067,8 @@ async function openCodexChatBound(
       ? '\nThis sandbox has verified read-only Jira access to https://redhat.atlassian.net. Use the scoped API base in JIRA_URL (not the browser site URL). Use the provider-approved /usr/bin/python3 or curl with JIRA_URL, JIRA_EMAIL, and the gateway-managed JIRA_API_TOKEN placeholder for Basic authorization. Never print credential values. Writes are denied by the gateway policy.\n'
       : '');
   let pendingKnowledge: Omit<KnowledgeAdoptionSelection, 'contextSha256'> | undefined;
+  if (configuredRuntime)
+    store().markStartupProviderInitializing(options.conversationId, options.binding);
   const runtime: CodexConversation = new CodexConversation({
     conversationId: options.conversationId,
     cwd: options.session.cwd!,
@@ -970,6 +1076,7 @@ async function openCodexChatBound(
     storedBinding: options.binding,
     store: privateStorage,
     deferToolSurfaceReplacement: !!runtimeManager,
+    enableCapacityRecovery: true,
     webSearchBackend: openShell ? 'openshell' : 'host',
     webSearchDeploymentRevision: openShell
       ? 'openshell-runtime-config-v1'
@@ -1148,10 +1255,15 @@ async function openCodexChatBound(
           githubPublishingDefinition,
         ],
     displayToolName: mcp.displayName,
-    createClient: (callbacks) =>
-      connectedOpenShell
-        ? CodexAppServerClient.launchOpenShell(openShellClient!, process.env, callbacks)
-        : CodexAppServerClient.launch(options.profile.credentialRef!, process.env, callbacks),
+    createClient: (callbacks) => {
+      try {
+        return connectedOpenShell
+          ? CodexAppServerClient.launchOpenShell(openShellClient!, process.env, callbacks)
+          : CodexAppServerClient.launch(options.profile.credentialRef!, process.env, callbacks);
+      } catch (cause) {
+        throw new CodexStartupError('runtime_connection', cause);
+      }
+    },
     ...(openShell
       ? {
           runtimeCwd: openShell.workdir,
@@ -1403,14 +1515,7 @@ async function openCodexChatBound(
     onError: (error) => {
       log.warn('Codex runtime reported an error', {
         conversationId: options.conversationId,
-        ...(error instanceof CodexRequestError
-          ? {
-              requestMethod: error.method,
-              requestErrorCategory: error.category,
-              ...(error.code === undefined ? {} : { requestErrorCode: error.code }),
-            }
-          : {}),
-        ...(error instanceof ProviderFailureError ? providerFailureTelemetry(error.failure) : {}),
+        ...codexRuntimeErrorTelemetry(error),
         error: publicCodexRuntimeError(error),
       });
       // Failed provider turns are emitted by the query loop as durable v2 error
@@ -1431,7 +1536,7 @@ async function openCodexChatBound(
   signal.addEventListener('abort', close, { once: true });
   try {
     signal.throwIfAborted();
-    await runtime.initialize();
+    await duringCodexStartup('conversation_initialization', () => runtime.initialize());
     if (managedCapabilityConnection && options.binding?.accountId) {
       bindLiveCapabilityConversation(options.conversationId, {
         accountId: options.binding.accountId,
@@ -1497,13 +1602,17 @@ async function openCodexChatBound(
 }
 
 async function sendInitialCodexTurn(options: Options, runtime: CodexConversation) {
-  options.session.abortController.signal.throwIfAborted();
-  await runtime.send({
-    id: options.messageId,
-    prompt: options.prompt,
-    intent: options.intent,
-    model: options.model,
-    reasoningEffort: options.reasoningEffort,
-    images: options.images,
-  });
+  try {
+    options.session.abortController.signal.throwIfAborted();
+    await runtime.send({
+      id: options.messageId,
+      prompt: options.prompt,
+      intent: options.intent,
+      model: options.model,
+      reasoningEffort: options.reasoningEffort,
+      images: options.images,
+    });
+  } catch (cause) {
+    throw new CodexStartupError('initial_turn_dispatch', cause);
+  }
 }

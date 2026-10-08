@@ -1,7 +1,26 @@
+import { createHash } from 'node:crypto';
+import { TurnInputWriteSchema, type TurnInputWrite } from './codex-turn-input-receipt.js';
 import type Database from 'better-sqlite3';
 import { z } from 'zod';
-import { AccountBindingSchema, SymposiumProvenanceSchema } from '@mitzo/protocol';
+import {
+  AccountBindingSchema,
+  SymposiumProvenanceSchema,
+  type SymposiumProvenance,
+} from '@mitzo/protocol';
 const id = z.string().min(1);
+const turnInputReceiptSchema = TurnInputWriteSchema.safeExtend({
+  claimToken: z.string().min(1).max(256),
+  sessionId: z.string().min(1).max(256),
+  seatId: z.string().min(1).max(256),
+  eligibilityIdentitySha256: z.string().regex(/^[a-f0-9]{64}$/),
+});
+/** Exactly the source history qualifier: capture time and config revision are excluded. */
+function eligibilityIdentitySha256(provenance: SymposiumProvenance) {
+  const identity = { ...provenance } as Record<string, unknown>;
+  delete identity.capturedAt;
+  delete identity.configRevision;
+  return createHash('sha256').update(JSON.stringify(identity)).digest('hex');
+}
 const identitySchema = z
   .strictObject({
     claimToken: id,
@@ -41,7 +60,11 @@ export interface NativeTurnObservation {
 export class SymposiumNativeObservations {
   constructor(
     private readonly db: Database.Database,
-    private readonly reserved: (claim: string, session: string) => void,
+    private readonly reserved: (
+      claim: string,
+      session: string,
+      provenance: SymposiumProvenance,
+    ) => void,
   ) {
     db.exec(`CREATE TABLE IF NOT EXISTS symposium_native_observations (
       claim_token TEXT PRIMARY KEY,
@@ -52,15 +75,84 @@ export class SymposiumNativeObservations {
       usage_status TEXT NOT NULL DEFAULT 'unknown' CHECK(usage_status = 'unknown'),
       observed_usage TEXT CHECK(observed_usage IS NULL)
     )`);
+    db.exec(`CREATE TABLE IF NOT EXISTS symposium_native_turn_inputs (
+      claim_token TEXT PRIMARY KEY,
+      receipt_json TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    )`);
     db.exec(
       `CREATE TABLE IF NOT EXISTS symposium_native_terminal_conflicts (claim_token TEXT PRIMARY KEY, observed_status TEXT NOT NULL, observed_at INTEGER NOT NULL)`,
     );
   }
+  /** Private host write facts only; no provider reception or consumption is inferred. */
+  recordTurnInput(
+    claimToken: string,
+    sessionId: string,
+    provenance: SymposiumProvenance,
+    input: TurnInputWrite,
+  ): void {
+    const metadata = TurnInputWriteSchema.parse(input);
+    if (metadata.commandId !== claimToken) throw new Error('Native input command identity changed');
+    const receipt = turnInputReceiptSchema.parse({
+      ...metadata,
+      claimToken,
+      sessionId,
+      seatId: provenance.seatId,
+      eligibilityIdentitySha256: eligibilityIdentitySha256(provenance),
+    });
+    this.db.transaction(() => {
+      this.reserved(claimToken, sessionId, provenance);
+      const previous = this.getTurnInput(claimToken);
+      const { boundary, ...facts } = receipt;
+      if (previous) {
+        const { boundary: previousBoundary, ...previousFacts } = previous;
+        if (JSON.stringify(facts) !== JSON.stringify(previousFacts))
+          throw new Error('Native input receipt identity changed');
+        if (boundary === previousBoundary) return;
+        if (
+          !(
+            previousBoundary === 'prepared' && ['write_queued', 'write_failed'].includes(boundary)
+          ) &&
+          !(
+            previousBoundary === 'write_queued' &&
+            ['write_completed', 'write_failed'].includes(boundary)
+          )
+        )
+          throw new Error('Native input receipt boundary changed');
+        this.db
+          .prepare(
+            'UPDATE symposium_native_turn_inputs SET receipt_json = ?, updated_at = ? WHERE claim_token = ?',
+          )
+          .run(JSON.stringify(receipt), Date.now(), claimToken);
+      } else {
+        if (boundary !== 'prepared') throw new Error('Native input receipt was not prepared');
+        this.db
+          .prepare(
+            'INSERT INTO symposium_native_turn_inputs (claim_token, receipt_json, created_at, updated_at) VALUES (?, ?, ?, ?)',
+          )
+          .run(claimToken, JSON.stringify(receipt), Date.now(), Date.now());
+      }
+    })();
+  }
+  getTurnInput(claimToken: string): z.infer<typeof turnInputReceiptSchema> | undefined {
+    const row = this.db
+      .prepare('SELECT receipt_json FROM symposium_native_turn_inputs WHERE claim_token = ?')
+      .get(claimToken) as { receipt_json: string } | undefined;
+    return row ? turnInputReceiptSchema.parse(JSON.parse(row.receipt_json)) : undefined;
+  }
   accept(input: NativeObservationIdentity): void {
     const identity = identitySchema.parse(input);
+    const turnInput = this.getTurnInput(identity.claimToken);
+    if (
+      turnInput &&
+      (turnInput.threadId !== identity.providerThreadId ||
+        turnInput.eligibilityIdentitySha256 !== eligibilityIdentitySha256(input.provenance))
+    )
+      throw new Error('Native accepted input identity changed');
     const encoded = JSON.stringify(identity);
     this.db.transaction(() => {
-      this.reserved(identity.claimToken, identity.sessionId);
+      this.reserved(identity.claimToken, identity.sessionId, identity.provenance);
       const previous = this.get(identity.claimToken);
       if (previous) {
         if (JSON.stringify(previous.identity) !== encoded)

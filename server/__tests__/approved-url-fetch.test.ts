@@ -109,6 +109,50 @@ it('does not retry certificate failures on another approved address', async () =
       resolve: async () => target,
       read,
     }),
-  ).rejects.toThrow('certificate rejected');
+  ).rejects.toThrow('Approved read could not connect securely to the website. Retry the read.');
   expect(read).toHaveBeenCalledOnce();
+});
+
+it.each([
+  [
+    { status: 403, type: 'text/plain', body: '' },
+    'The website refused the approved read (HTTP 403).',
+  ],
+  [
+    { status: 200, type: 'text/html', body: 'x'.repeat(131073) },
+    'Approved read exceeded the 128 KB page limit.',
+  ],
+  [
+    { status: 200, type: 'application/octet-stream', body: 'binary' },
+    'Approved read returned an unsupported format or compression.',
+  ],
+])('preserves specific bounded granted-read outcomes', async (response, message) => {
+  const target = {
+    url: 'https://example.com/',
+    origin: 'https://example.com',
+    addresses: [{ address: '203.0.113.1', family: 4 }],
+  };
+  await expect(
+    fetchApprovedUrl(target.url, target, new AbortController().signal, {
+      resolve: async () => target,
+      read: async () => response,
+    }),
+  ).rejects.toThrow(message);
+});
+it('reports a granted read timeout with a safe fixed error', async () => {
+  const signal = new AbortController();
+  signal.abort(new DOMException('Timeout', 'TimeoutError'));
+  const timeout = vi.spyOn(AbortSignal, 'timeout').mockReturnValue(signal.signal);
+  const target = {
+    url: 'https://example.com/',
+    origin: 'https://example.com',
+    addresses: [{ address: '203.0.113.1', family: 4 }],
+  };
+  try {
+    await expect(
+      fetchApprovedUrl(target.url, target, new AbortController().signal),
+    ).rejects.toThrow('Approved read timed out. Retry the read.');
+  } finally {
+    timeout.mockRestore();
+  }
 });

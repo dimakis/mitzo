@@ -14,6 +14,9 @@ const paths = {
     'M6 3v12m0-7h7a5 5 0 0 0 5-5M3 18a3 3 0 1 0 6 0a3 3 0 1 0-6 0M15 3a3 3 0 1 0 6 0a3 3 0 1 0-6 0',
   connections:
     'M10 13a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-2 2M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l2-2',
+  edit: 'm16 3 5 5-12 12-6 1 1-6ZM14 5l5 5',
+  copy: 'M9 9h12v12H9ZM15 9V3H3v12h6',
+  trash: 'M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7m4-7v7',
   more: 'M5 11h1v2H5Zm6 0h1v2h-1Zm6 0h1v2h-1Z',
   panel: 'M3 4h18v16H3ZM9 4v16',
   up: 'm6 15 6-6 6 6',

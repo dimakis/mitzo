@@ -52,16 +52,24 @@ public actor MitzoAPIClient {
         }
         let result: NotificationResponseResult = try await get(
             path: "/api/notifications/\(id)/respond", method: "POST",
-            body: JSONEncoder().encode(response)
+            body: JSONEncoder().encode(response), timeout: 10
         )
         guard result.ok else { throw APIError.invalidResponse }
+    }
+
+    public func getNotification(id: String) async throws -> MitzoNotification {
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_:"))
+        guard !id.isEmpty, id.unicodeScalars.allSatisfy({ allowed.contains($0) }) else {
+            throw APIError.invalidResponse
+        }
+        return try await get(path: "/api/notifications/\(id)", timeout: 10)
     }
 
     private struct NotificationResponseResult: Decodable { let ok: Bool }
 
     // MARK: - Generic Request
 
-    private func get<T: Decodable>(path: String, query: [URLQueryItem]? = nil, method: String = "GET", body: Data? = nil) async throws -> T {
+    private func get<T: Decodable>(path: String, query: [URLQueryItem]? = nil, method: String = "GET", body: Data? = nil, timeout: TimeInterval = 60) async throws -> T {
         var components = URLComponents(url: baseURL.appendingPathComponent(path), resolvingAgainstBaseURL: false)!
         components.queryItems = query
 
@@ -70,6 +78,7 @@ public actor MitzoAPIClient {
         }
 
         var request = URLRequest(url: url)
+        request.timeoutInterval = timeout
         request.httpMethod = method
         request.httpBody = body
         if body != nil { request.setValue("application/json", forHTTPHeaderField: "Content-Type") }

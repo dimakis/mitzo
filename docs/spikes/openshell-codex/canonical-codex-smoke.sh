@@ -8,6 +8,7 @@ tar -C "$source_dir" -cf - normalize-symposium-codex.py symposium-seat-landlock.
     --name "symposium-canonical-codex-smoke-$$" --user 0 --entrypoint /bin/sh "$image" -ec '
       mkdir /smoke; tar -C /smoke -xf -
       check=/smoke/normalize-symposium-codex.py
+      test ! -e /usr/bin/codex-code-mode-host
       if python3 "$check" --check; then echo "npm shim unexpectedly accepted" >&2; exit 1; fi
       gcc -O2 -Wall -Wextra -Werror /smoke/symposium-seat-landlock.c -o /usr/local/bin/test-seat-landlock
       seat=/sandbox/.symposium-seats/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
@@ -18,6 +19,8 @@ tar -C "$source_dir" -cf - normalize-symposium-codex.py symposium-seat-landlock.
       python3 "$check" --install
       python3 "$check" --check
       python3 "$check" --install
+      test -x /usr/bin/codex-code-mode-host
+      test "$(sha256sum /usr/bin/codex-code-mode-host | cut -d " " -f 1)" = d677dedf8179ca28ceb869a2e0b60d3ffad3d26f6e7738f7617d34500128a369
       /usr/local/bin/test-seat-landlock "$seat" /sandbox/workspaces/mgmt read /usr/bin/codex --version
       /usr/local/bin/test-seat-landlock "$seat" /sandbox/workspaces/mgmt write /usr/bin/codex --version
       python3 - <<"PY"
@@ -40,6 +43,9 @@ finally:
 PY
       printf invalid >> /usr/bin/codex
       if python3 "$check" --check; then echo "mutated binary accepted" >&2; exit 1; fi
+      cp /usr/lib/node_modules/@openai/codex/node_modules/@openai/codex-linux-arm64/vendor/aarch64-unknown-linux-musl/bin/codex /usr/bin/codex
+      printf invalid >> /usr/bin/codex-code-mode-host
+      if python3 "$check" --check; then echo "mutated code-mode host accepted" >&2; exit 1; fi
       printf invalid >> /usr/lib/node_modules/@openai/codex/package.json
       if python3 "$check" --install; then echo "unreviewed package accepted" >&2; exit 1; fi
       echo "Canonical native Codex regression passed"

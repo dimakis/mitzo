@@ -69,6 +69,34 @@ describe('notification API', () => {
     expect(response.body.title).toBe('Older result');
     s.close();
   });
+  it.each(['search', 'fetch', 'shell'])(
+    'restricts session notification grants to search, not %s',
+    async (operation) => {
+      const s = await setup();
+      const resolver = vi.fn();
+      const permId = `session-${operation}`;
+      const input = { operation, query: 'Pricing', reason: 'Research' };
+      registerPending(permId, 'RequestWebAccess', resolver, input, 'unknown', 's1', {
+        permId,
+        toolName: 'RequestWebAccess',
+        toolInput: JSON.stringify(input),
+        sessionId: 's1',
+        approvalScope: operation === 'search' ? 'session' : 'request',
+      });
+      const response = await request(s.app)
+        .post(`/api/notifications/permission:${permId}/respond`)
+        .set('Authorization', `Bearer ${s.token}`)
+        .send({ sessionId: 's1', decision: 'always' });
+      expect(response.status).toBe(operation === 'search' ? 200 : 400);
+      if (operation === 'search')
+        expect(resolver).toHaveBeenCalledWith(
+          expect.objectContaining({ decisionClassification: 'user_permanent' }),
+        );
+      else expect(resolver).not.toHaveBeenCalled();
+      removePending(permId);
+      s.close();
+    },
+  );
   it('requires session review for conversation-scoped grants', async () => {
     const s = await setup();
     const resolver = vi.fn();

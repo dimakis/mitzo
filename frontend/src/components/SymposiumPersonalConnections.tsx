@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { z } from 'zod';
 import { apiFetch } from '../lib/api-fetch';
 import { invalidateSymposiumAccountCatalog } from '../lib/symposium-account-catalog';
@@ -36,9 +37,19 @@ const stateLabels: Record<Connection['state'], string> = {
 export function SymposiumPersonalConnections({
   onAccountsChanged,
   disabled = false,
+  mode = 'all',
+  connectionId,
+  creationBlocked = false,
+  onCreationUncertain,
+  onCreationPendingChange,
 }: {
   disabled?: boolean;
   onAccountsChanged?(): void;
+  mode?: 'all' | 'add' | 'manage';
+  connectionId?: string;
+  creationBlocked?: boolean;
+  onCreationUncertain?(): void;
+  onCreationPendingChange?(pending: boolean): void;
 }) {
   const [connections, setConnections] = useState<Connection[]>([]);
   const [loaded, setLoaded] = useState(false);
@@ -48,6 +59,8 @@ export function SymposiumPersonalConnections({
   const [busy, setBusy] = useState(false);
   const [callbackId, setCallbackId] = useState<string | null>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
+  const [createdId, setCreatedId] = useState<string | null>(null);
+  const [creationUncertain, setCreationUncertain] = useState(false);
   const version = useRef(0);
   const mounted = useRef(false);
   const observedRevisions = useRef(new Map<string, number>());
@@ -187,7 +200,6 @@ export function SymposiumPersonalConnections({
           body: JSON.stringify({ expectedRevision: connection.revision }),
         },
       );
-      if (!response.ok) throw new Error('Unconfirmed');
       const result = z
         .object({
           status: z.enum(['complete', 'failed', 'reconciled', 'reconciliation_required']),
@@ -195,6 +207,12 @@ export function SymposiumPersonalConnections({
           modelCount: z.number().int().nonnegative().optional(),
         })
         .parse(await response.json());
+      if (
+        !response.ok &&
+        !(response.status === 422 && result.status === 'failed') &&
+        !(response.status === 409 && result.status === 'reconciliation_required')
+      )
+        throw new Error('Unconfirmed');
       if (!mounted.current) return;
       if (result.status === 'complete' && result.modelCount !== undefined) {
         setMessage(
@@ -203,6 +221,10 @@ export function SymposiumPersonalConnections({
       } else if (result.status === 'reconciliation_required') {
         setMessage(
           'Model discovery cleanup could not be confirmed. This connection needs recovery on the Mac before another account operation.',
+        );
+      } else if (result.status === 'failed') {
+        setMessage(
+          'Model discovery failed; cleanup is confirmed. The previous catalog remains available but is marked stale. Review connection status before retrying.',
         );
       } else {
         setMessage(
@@ -226,25 +248,41 @@ export function SymposiumPersonalConnections({
     mutation.current = true;
     setBusy(true);
     setMessage('');
+    const creating = path === endpoint && mode === 'add';
+    if (creating) onCreationPendingChange?.(true);
+    let rejectedBeforeCreation = false;
     try {
       const response = await apiFetch(path, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
-      if (!response.ok) throw new Error('Request failed');
+      if (!response.ok) {
+        rejectedBeforeCreation = [401, 403].includes(response.status);
+        throw new Error('Request failed');
+      }
+      if (creating) {
+        const created = connectionSchema.parse(await response.json());
+        if (!mounted.current) return;
+        setCreatedId(created.id);
+      }
       if (!mounted.current) return;
       setMessage(success);
       if (path === endpoint) setLabel('');
       notifyAccountsChanged();
     } catch {
+      if (creating && !rejectedBeforeCreation) onCreationUncertain?.();
       if (!mounted.current) return;
+      if (creating && !rejectedBeforeCreation) setCreationUncertain(true);
       setMessage(
-        'Could not confirm the change. Check the refreshed account status before trying again.',
+        creating && !rejectedBeforeCreation
+          ? 'Account setup could not be confirmed. Check Connections before adding it again.'
+          : 'Could not confirm the change. Check the refreshed account status before trying again.',
       );
     } finally {
       await refresh();
       mutation.current = false;
+      if (creating) onCreationPendingChange?.(false);
       if (mounted.current) setBusy(false);
     }
   }
@@ -252,18 +290,37 @@ export function SymposiumPersonalConnections({
     activeId ??
     callbackId ??
     connections.find((item) => item.state === 'connecting' || item.state === 'disconnecting')?.id;
+  const visibleConnections = connections.filter((connection) =>
+    mode === 'add' ? connection.id === createdId : !connectionId || connection.id === connectionId,
+  );
+  const uncertainCreation = creationUncertain || creationBlocked;
   return (
-    <section className="personal-connections" aria-label="Personal ChatGPT accounts">
-      <h2>Personal ChatGPT accounts</h2>
-      <p>
-        Save separate accounts on this Mac, then explicitly choose an account and model for each
-        reviewer. Reconnect changes only that saved connection; existing seats need an explicit
-        rebind.
-      </p>
-      <p>
-        Saved identities remain after Mitzo restarts. Accounts marked “Sign in required” need a
-        fresh sign-in before use.
-      </p>
+    <section
+      className={`personal-connections${mode !== 'all' ? ' personal-connections-focused' : ''}`}
+      aria-label="Personal ChatGPT accounts"
+    >
+      <h2>{mode === 'add' ? 'Connect ChatGPT' : 'Personal ChatGPT accounts'}</h2>
+      {mode === 'all' ? (
+        <>
+          <p>
+            Save separate accounts on this Mac, then explicitly choose an account and model for each
+            reviewer. Reconnect changes only that saved connection; existing seats need an explicit
+            rebind.
+          </p>
+        </>
+      ) : (
+        <p className="workspace-muted">
+          {mode === 'add'
+            ? 'Name this account, then sign in to ChatGPT. Choose its account and model when adding a reviewer.'
+            : 'Reconnect this saved account or review its supported models. Existing reviewers keep their account until you explicitly choose it again.'}
+        </p>
+      )}
+      {mode === 'all' && (
+        <p>
+          Saved identities remain after Mitzo restarts. Accounts marked “Sign in required” need a
+          fresh sign-in before use.
+        </p>
+      )}
       {error && (
         <>
           <p role="alert">{error}</p>
@@ -273,8 +330,13 @@ export function SymposiumPersonalConnections({
         </>
       )}
       {!loaded && !error && <p role="status">Loading personal accounts…</p>}
-      {message && <p role="status">{message}</p>}
-      {connections.map((connection) => (
+      {(message || uncertainCreation) && (
+        <p role={uncertainCreation ? 'alert' : 'status'}>
+          {message ||
+            'Account setup could not be confirmed. Check Connections before adding it again.'}
+        </p>
+      )}
+      {visibleConnections.map((connection) => (
         <section
           key={connection.id}
           className="personal-connection-card"
@@ -282,7 +344,7 @@ export function SymposiumPersonalConnections({
         >
           <div>
             <h3>{connection.label}</h3>
-            <p>Connection version {connection.revision}</p>
+            {mode === 'all' && <p>Connection version {connection.revision}</p>}
             <p>{connection.account?.email ?? 'No verified account yet'}</p>
             {connection.account && <span>{connection.account.planType}</span>}
             <p className="personal-connection-status">{stateLabels[connection.state]}</p>
@@ -399,39 +461,61 @@ export function SymposiumPersonalConnections({
           )}
         </section>
       ))}
-      {loaded && connections.length === 0 && <p>No saved personal accounts yet.</p>}
-      <form
-        onSubmit={(event) => {
-          event.preventDefault();
-          if (label.trim())
-            void mutate(
-              endpoint,
-              { label: label.trim() },
-              'Saved account added. Choose Connect when ready to sign in.',
-            );
-        }}
-      >
-        <label>
-          Account label
-          <input
-            disabled={disabled}
-            value={label}
-            maxLength={120}
-            onChange={(event) => setLabel(event.target.value)}
-            placeholder="For example, Personal or Research"
-          />
-        </label>
-        <button
-          disabled={disabled || !loaded || busy || discoveryBlocked || !!error || !label.trim()}
-          type="submit"
+      {loaded && mode === 'manage' && !visibleConnections.length && (
+        <p>
+          This saved account is no longer available. Return to Connections to refresh its status.
+        </p>
+      )}
+      {loaded && mode === 'all' && connections.length === 0 && (
+        <p>No saved personal accounts yet.</p>
+      )}
+      {(mode === 'all' || (mode === 'add' && !createdId && !uncertainCreation)) && (
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (label.trim())
+              void mutate(
+                endpoint,
+                { label: label.trim() },
+                'Saved account added. Choose Connect when ready to sign in.',
+              );
+          }}
         >
-          Add personal account
-        </button>
-      </form>
+          <label>
+            Account label
+            <input
+              disabled={disabled}
+              value={label}
+              maxLength={120}
+              onChange={(event) => setLabel(event.target.value)}
+              placeholder="For example, Personal or Research"
+            />
+          </label>
+          <button
+            disabled={disabled || !loaded || busy || discoveryBlocked || !!error || !label.trim()}
+            type="submit"
+          >
+            {mode === 'add' ? 'Save and continue' : 'Add personal account'}
+          </button>
+        </form>
+      )}
       <button type="button" disabled={disabled || busy} onClick={() => void refresh()}>
         Refresh personal accounts
       </button>
       {pendingId && <p>Finish or cancel the pending sign-in before connecting another account.</p>}
+      {mode !== 'all' && pendingId && !visibleConnections.some((item) => item.id === pendingId) && (
+        <Link
+          className="workspace-text-link"
+          to={`/connections?manage=personal&connection=${encodeURIComponent(pendingId)}`}
+        >
+          Continue pending sign-in
+        </Link>
+      )}
+      {mode === 'add' && (createdId || uncertainCreation) && (
+        <Link className="workspace-text-link" to="/connections-access">
+          Back to Connections
+        </Link>
+      )}
     </section>
   );
 }

@@ -732,9 +732,20 @@ describe('session_takeover', () => {
     );
   });
 
-  it('ignores a takeover notice replayed from durable session history', () => {
+  it('honors a sequenced live takeover from an older server', () => {
     const r = parseServerMessage(
       { type: 'session_takeover', sessionId: 'sess-1', seq: 42 },
+      makeState({ currentSessionId: 'sess-1' }),
+      makeCallbacks(),
+      POOL_KEY,
+    );
+    expect(r.messagesActions).toContainEqual({ type: 'SESSION_STATE_CHANGED', state: 'idle' });
+    expect(r.messagesActions).toContainEqual({ type: 'CLEAR_PERMISSIONS' });
+  });
+
+  it('ignores a takeover notice replayed from durable session history', () => {
+    const r = parseServerMessage(
+      { type: 'session_takeover', sessionId: 'sess-1', seq: 42, replayed: true },
       makeState({ currentSessionId: 'sess-1' }),
       makeCallbacks(),
       POOL_KEY,

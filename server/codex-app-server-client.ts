@@ -1,4 +1,9 @@
 import {
+  summarizeTurnStartFrame,
+  type TurnInputWriteObserver,
+} from './codex-turn-input-receipt.js';
+import { nativeRoutingMessages, type NativeRoutingFailure } from './codex-native-diagnostics.js';
+import {
   validateOpenShellCliEnvironment,
   type OpenShellCliEnvironment,
 } from './openshell-cli-environment.js';
@@ -76,6 +81,7 @@ interface Pending {
 }
 
 export type CodexRequestErrorCategory =
+  | NativeRoutingFailure
   | 'thread_state'
   | 'provider_transport'
   | 'context_limit'
@@ -84,7 +90,9 @@ export type CodexRequestErrorCategory =
   | 'invalid_request'
   | 'unknown';
 
-function requestErrorCategory(message: string): CodexRequestErrorCategory {
+function requestErrorCategory(message: string, method: string): CodexRequestErrorCategory {
+  if (method === 'account/read' && Object.hasOwn(nativeRoutingMessages, message))
+    return nativeRoutingMessages[message as keyof typeof nativeRoutingMessages];
   if (/(?:active turn|turn.*(?:running|in progress)|thread.*busy)/i.test(message))
     return 'thread_state';
   if (/(?:stream.*disconnect|connection.*(?:closed|lost)|transport)/i.test(message))
@@ -107,6 +115,20 @@ export class CodexRequestError extends Error {
   ) {
     super('Codex request failed; check configuration and retry');
     this.name = 'CodexRequestError';
+  }
+}
+
+/** Local transport failures carry only a fixed reason, never a provider frame. */
+export class CodexTransportError extends Error {
+  constructor(readonly category: 'timeout' | 'connection' | 'protocol') {
+    super(
+      {
+        timeout: 'Codex request timed out; retry explicitly',
+        connection: 'Codex connection closed',
+        protocol: 'Invalid Codex protocol',
+      }[category],
+    );
+    this.name = 'CodexTransportError';
   }
 }
 
@@ -330,6 +352,7 @@ export class CodexAppServerClient {
   private readonly maxFrameBytes: number;
   private readonly timeoutMs: number;
   private readonly loginOnly: boolean;
+  private readonly observeTurnStartWrite?: TurnInputWriteObserver;
 
   constructor(
     private child: RpcProcess,
@@ -338,9 +361,12 @@ export class CodexAppServerClient {
       maxFrameBytes?: number;
       lifecycle?: CodexLifecycleTransport;
       loginOnly?: boolean;
+      /** Trusted opt-in metadata observer; prepared persistence must succeed before write. */
+      observeTurnStartWrite?: TurnInputWriteObserver;
     } = {},
   ) {
     this.lifecycle = options.lifecycle;
+    this.observeTurnStartWrite = options.observeTurnStartWrite;
     this.loginOnly = options.loginOnly ?? false;
     this.timeoutMs = options.timeoutMs ?? 30_000;
     this.maxFrameBytes = options.maxFrameBytes ?? 4 * 1024 * 1024;
@@ -416,7 +442,7 @@ export class CodexAppServerClient {
   }
 
   request(method: string, params: JsonObject): Promise<unknown> {
-    if (this.closed) return Promise.reject(new Error('Codex connection closed'));
+    if (this.closed) return Promise.reject(new CodexTransportError('connection'));
     if (!this.ready) return Promise.reject(new Error('Codex connection not initialized'));
     const allowed = this.loginOnly
       ? ['account/read', 'account/login/start', 'account/login/cancel']
@@ -443,7 +469,7 @@ export class CodexAppServerClient {
     return this.sendRequest(method, params);
   }
 
-  close(error = new Error('Codex connection closed')) {
+  close(error: Error = new CodexTransportError('connection')) {
     if (this.closed) return;
     this.closed = true;
     this.ready = false;
@@ -460,11 +486,11 @@ export class CodexAppServerClient {
   }
 
   private sendRequest(method: string, params: JsonObject): Promise<unknown> {
-    if (this.closed) return Promise.reject(new Error('Codex connection closed'));
+    if (this.closed) return Promise.reject(new CodexTransportError('connection'));
     const id = ++this.sequence;
     return new Promise((resolve, reject) => {
       const timer = setTimeout(
-        () => this.close(new Error('Codex request timed out; retry explicitly')),
+        () => this.close(new CodexTransportError('timeout')),
         this.timeoutMs,
       );
       this.pending.set(id, { method, resolve, reject, timer });
@@ -477,8 +503,40 @@ export class CodexAppServerClient {
   }
 
   private write(value: JsonObject) {
-    if (this.closed) throw new Error('Codex connection closed');
-    this.child.stdin.write(JSON.stringify(value) + '\n');
+    if (this.closed) throw new CodexTransportError('connection');
+    const frame = JSON.stringify(value) + '\n';
+    if (!this.observeTurnStartWrite || value.method !== 'turn/start') {
+      this.child.stdin.write(frame);
+      return;
+    }
+    const metadata = summarizeTurnStartFrame(frame);
+    const observe = this.observeTurnStartWrite;
+    observe({ ...metadata, boundary: 'prepared' });
+    let queued = false;
+    let completed = false;
+    let failed = false;
+    const finish = () => {
+      if (!queued || !completed) return;
+      try {
+        observe({ ...metadata, boundary: failed ? 'write_failed' : 'write_completed' });
+      } catch {
+        this.close();
+      }
+    };
+    try {
+      this.child.stdin.write(frame, (error) => {
+        completed = true;
+        failed = Boolean(error);
+        finish();
+        if (error) this.close();
+      });
+    } catch {
+      observe({ ...metadata, boundary: 'write_failed' });
+      throw new CodexTransportError('connection');
+    }
+    observe({ ...metadata, boundary: 'write_queued' });
+    queued = true;
+    finish();
   }
 
   private handleHostRequest(id: string | number, method: string, params: JsonObject) {
@@ -575,19 +633,22 @@ export class CodexAppServerClient {
           request.reject(
             new CodexRequestError(
               request.method,
-              requestErrorCategory(parsed.success ? (parsed.data.message ?? '') : ''),
+              requestErrorCategory(
+                parsed.success ? (parsed.data.message ?? '') : '',
+                request.method,
+              ),
               parsed.success ? parsed.data.code : undefined,
             ),
           );
         } else if ('result' in message) request.resolve(message.result);
         else {
-          request.reject(new Error('Invalid Codex protocol'));
+          request.reject(new CodexTransportError('protocol'));
           throw new Error();
         }
       }
       if (this.buffer.length > this.maxFrameBytes) throw new Error();
     } catch {
-      this.close(new Error('Invalid Codex protocol'));
+      this.close(new CodexTransportError('protocol'));
     }
   }
 }

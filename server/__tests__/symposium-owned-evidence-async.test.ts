@@ -75,7 +75,10 @@ it('real worker keeps event loop responsive during a slow CLI, fails closed, and
     expect(settled).toBe(false);
     await rejected;
     expect(f.custody.verifyCustodyAsync.mock.calls.length).toBeGreaterThanOrEqual(2);
-    await expect(collect(selection)).rejects.toThrow('Evidence could not be verified');
+    await expect(collect(selection)).rejects.toMatchObject({
+      message: 'Evidence could not be verified',
+      phase: 'gate',
+    });
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -134,6 +137,52 @@ it('quarantines an abnormal worker exit instead of claiming cleanup or starting 
   }
 });
 
+it('returns only an allowlisted worker phase after a clean exit and never forwards raw diagnostics', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'evidence-phase-'));
+  try {
+    const f = fixture(root);
+    const collect = createOwnedEvidenceCollector(
+      f.config,
+      'https://localhost:1234',
+      f.physical,
+      f.custody,
+      (_source, options) =>
+        new Worker(
+          `const {parentPort}=require('node:worker_threads'); parentPort.postMessage({error:true, phase:'verify-image', message:'secret /private/path'});`,
+          { ...options, eval: true },
+        ),
+    );
+    await expect(collect(selection)).rejects.toMatchObject({
+      message: 'Evidence could not be verified',
+      phase: 'verify-image',
+    });
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it('ignores unrecognized worker phases and retains uncertain cleanup quarantine', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'evidence-phase-invalid-'));
+  try {
+    const f = fixture(root);
+    const collect = createOwnedEvidenceCollector(
+      f.config,
+      'https://localhost:1234',
+      f.physical,
+      f.custody,
+      (_source, options) =>
+        new Worker(
+          `const {parentPort}=require('node:worker_threads'); parentPort.postMessage({error:true, phase:'secret /private/path', cleanupUncertain:true});`,
+          { ...options, eval: true },
+        ),
+    );
+    await expect(collect(selection)).rejects.toThrow('operator recovery');
+    await expect(collect(selection)).rejects.toThrow('operator recovery');
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 it('finishes cleanup after an HTTP client disconnect instead of terminating the worker', async () => {
   const { default: express } = await import('express');
   const { default: request } = await import('supertest');
@@ -164,6 +213,101 @@ it('finishes cleanup after an HTTP client disconnect instead of terminating the 
     await vi.waitFor(() => expect(f.custody.verifyCustodyAsync).toHaveBeenCalled());
     client.abort();
     await vi.waitFor(() => expect(existsSync(cleaned)).toBe(true));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it('forwards trusted full-build selection to its original worker and rejects request overrides', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'evidence-build-forward-'));
+  try {
+    const f = fixture(root);
+    let seen: unknown;
+    const collect = createOwnedEvidenceCollector(
+      f.config,
+      'https://localhost:1234',
+      f.physical,
+      f.custody,
+      (_source, options) => {
+        seen = options.workerData.buildSelection;
+        return new Worker(
+          `require('node:worker_threads').parentPort.postMessage({error:true,phase:'gate'});`,
+          { ...options, eval: true },
+        );
+      },
+      'local-854b-b20-v1',
+    );
+    await expect(collect(selection)).rejects.toMatchObject({ phase: 'gate' });
+    expect(seen).toBe('local-854b-b20-v1');
+    await expect(collect({ ...selection, buildSelection: 'local-854b-b20-v1' })).rejects.toThrow();
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it('actual worker serialization excludes original trusted runtime observer without mutating host config', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'evidence-runtime-observer-'));
+  try {
+    const f = fixture(root);
+    const observeRuntime = vi.fn();
+    f.config.observeRuntime = observeRuntime;
+    let wireConfig: unknown;
+    const collect = createOwnedEvidenceCollector(
+      f.config,
+      'https://localhost:1234',
+      f.physical,
+      f.custody,
+      (_source, options) => {
+        wireConfig = options.workerData.config;
+        return new Worker(
+          `const {workerData,parentPort}=require('node:worker_threads');
+          if(Object.hasOwn(workerData.config,'observeRuntime'))throw Error('Trusted callback crossed worker wire');
+          parentPort.postMessage({candidate:{fixture:true}});`,
+          { ...options, eval: true },
+        );
+      },
+    );
+    expect(await collect(selection)).toEqual({ fixture: true });
+    expect(wireConfig).not.toHaveProperty('observeRuntime');
+    expect(wireConfig).toMatchObject({
+      cli: f.config.cli,
+      workspace: f.config.workspace,
+      cliEnvironment: f.config.cliEnvironment,
+    });
+    expect(f.config.observeRuntime).toBe(observeRuntime);
+    f.config.observeRuntime({
+      kind: 'ensure-phase',
+      phase: 'sandbox-current',
+      stage: 'start',
+      elapsedMs: 0,
+      error: 'none',
+    });
+    expect(observeRuntime).toHaveBeenCalledOnce();
+    expect(f.custody.verifyCustodyAsync.mock.calls.length).toBeGreaterThanOrEqual(3);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it('worker serialization still refuses unrelated function fields instead of broad callback filtering', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'evidence-unknown-function-'));
+  try {
+    const f = fixture(root);
+    f.config.observeRuntime = vi.fn();
+    Object.assign(f.config, { unknownWireCallback: () => {} });
+    const collect = createOwnedEvidenceCollector(
+      f.config,
+      'https://localhost:1234',
+      f.physical,
+      f.custody,
+      (_source, options) =>
+        new Worker(
+          `require('node:worker_threads').parentPort.postMessage({candidate:{fixture:true}});`,
+          { ...options, eval: true },
+        ),
+    );
+    await expect(collect(selection)).rejects.toMatchObject({ name: 'DataCloneError' });
+    expect(f.config.observeRuntime).toBeTypeOf('function');
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

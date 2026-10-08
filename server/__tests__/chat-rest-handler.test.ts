@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import express from 'express';
+import type { Server } from 'node:http';
 import { EventStore } from '../event-store.js';
 import request from 'supertest';
 import { SessionSseRegistry } from '../session-sse-registry.js';
@@ -8,6 +9,10 @@ import { createChatRestRouter } from '../chat-rest-handler.js';
 import { ConnectionRegistry, SessionRegistry } from '@mitzo/harness';
 import type { V2HandlerContext } from '../ws-handler-v2.js';
 import { ExecutionAdmissionError } from '@mitzo/protocol/event-store';
+import {
+  claimTransportConnection,
+  releaseTransportConnection,
+} from '../transport-auth-ownership.js';
 
 // ─── Mock the handler functions ──────────────────────────────────────────────
 
@@ -70,6 +75,8 @@ function buildApp(sseRegistry: SessionSseRegistry, connRegistry: ConnectionRegis
   app.use((req, res, next) => {
     const id = req.headers['x-test-auth'];
     if (typeof id === 'string') res.locals.authSession = { id };
+    else if (req.path.startsWith('/api/chat/web-search-consent'))
+      res.locals.authSession = { id: 'consent-login' };
     next();
   });
   app.use('/api/chat', createChatRestRouter(sseRegistry, ctx));
@@ -82,11 +89,12 @@ describe('chat-rest-handler', () => {
   let sseRegistry: SessionSseRegistry;
   let connRegistry: ConnectionRegistry;
   let testApp: express.Express;
+  let testServer: Server;
   let eventStore: EventStore;
   let handlerContext: V2HandlerContext;
   const CONNECTION_ID = 'conn-test-123';
 
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.clearAllMocks();
     sseRegistry = new SessionSseRegistry();
     connRegistry = new ConnectionRegistry();
@@ -96,17 +104,26 @@ describe('chat-rest-handler', () => {
     sseRegistry.add(CONNECTION_ID, res);
     const transport = new SseTransport(CONNECTION_ID, sseRegistry);
     connRegistry.register(CONNECTION_ID, transport);
+    claimTransportConnection(CONNECTION_ID, 'consent-login');
 
     const { app, ctx } = buildApp(sseRegistry, connRegistry);
     testApp = app;
     handlerContext = ctx;
     eventStore = ctx.eventStore;
+    // Reuse one explicit loopback listener for every request in this fixture.
+    testServer = testApp.listen(0, '127.0.0.1');
+    await new Promise<void>((resolve) => testServer.once('listening', resolve));
   });
 
-  afterEach(() => {
+  afterEach(async () => {
+    for (const id of [CONNECTION_ID, 'conn-takeover', 'conn-watcher'])
+      releaseTransportConnection(id, 'consent-login');
     eventStore.close();
     sseRegistry.destroy();
     connRegistry.dispose();
+    await new Promise<void>((resolve, reject) => {
+      testServer.close((error) => (error ? reject(error) : resolve()));
+    });
   });
 
   // ─── Header validation ──────────────────────────────────────────────────
@@ -114,7 +131,7 @@ describe('chat-rest-handler', () => {
   it('returns a liveness nonce through the existing SSE connection', async () => {
     const transport = connRegistry.get(CONNECTION_ID)!.transport;
     const send = vi.spyOn(transport, 'send');
-    const response = await request(testApp)
+    const response = await request(testServer)
       .post('/api/chat/probe')
       .set('X-Connection-ID', CONNECTION_ID)
       .send({ nonce: 'probe-1' });
@@ -125,7 +142,7 @@ describe('chat-rest-handler', () => {
   it('rejects a POST authenticated by a different login than the SSE stream', async () => {
     sseRegistry.add(CONNECTION_ID, mockResponse(), 'login-one');
 
-    const response = await request(testApp)
+    const response = await request(testServer)
       .post('/api/chat/probe')
       .set('X-Connection-ID', CONNECTION_ID)
       .set('X-Test-Auth', 'login-two')
@@ -141,7 +158,7 @@ describe('chat-rest-handler', () => {
     sseRegistry.add('stale-connection', staleResponse, 'login-one');
     connRegistry.register('stale-connection', new SseTransport('stale-connection', sseRegistry));
 
-    const response = await request(testApp)
+    const response = await request(testServer)
       .post('/api/chat/stop')
       .set('X-Connection-ID', 'stale-connection')
       .set('X-Test-Auth', 'login-two')
@@ -154,7 +171,7 @@ describe('chat-rest-handler', () => {
   it('rejects REST control requests that present a WebSocket connection ID', async () => {
     connRegistry.register('ws-connection', new SseTransport('ws-connection', sseRegistry));
 
-    const response = await request(testApp)
+    const response = await request(testServer)
       .post('/api/chat/stop')
       .set('X-Connection-ID', 'ws-connection')
       .set('X-Test-Auth', 'different-login')
@@ -175,7 +192,7 @@ describe('chat-rest-handler', () => {
       });
       transport.send({ v: 2, type: 'message_start', messageId: 'm', seq });
     });
-    const response = await request(testApp).post('/api/chat/send').send({
+    const response = await request(testServer).post('/api/chat/send').send({
       type: 'send',
       sessionId: null,
       prompt: 'hello',
@@ -188,8 +205,8 @@ describe('chat-rest-handler', () => {
 
   it('accepts the first prompt with no SSE stream and deduplicates a retry', async () => {
     const message = { type: 'send', sessionId: null, prompt: 'hello', clientMsgId: 'msg-1' };
-    const first = await request(testApp).post('/api/chat/send').send(message);
-    const second = await request(testApp)
+    const first = await request(testServer).post('/api/chat/send').send(message);
+    const second = await request(testServer)
       .post('/api/chat/send')
       .set('X-Connection-ID', 'expired')
       .send(message);
@@ -206,7 +223,7 @@ describe('chat-rest-handler', () => {
   });
 
   it('rejects requests with unknown connection (requireConnection path)', async () => {
-    const res = await request(testApp)
+    const res = await request(testServer)
       .post('/api/chat/stop')
       .set('X-Connection-ID', 'conn-nonexistent')
       .send({ type: 'stop', sessionId: 'sess-1' });
@@ -219,7 +236,7 @@ describe('chat-rest-handler', () => {
   it('rejects ordinary REST send and interrupt to Symposium before dispatch', async () => {
     vi.spyOn(eventStore, 'getSession').mockReturnValue({ symposiumConfig: '{}' } as never);
     for (const type of ['send', 'interrupt']) {
-      const response = await request(testApp)
+      const response = await request(testServer)
         .post(`/api/chat/${type}`)
         .set('X-Connection-ID', CONNECTION_ID)
         .send({ type, sessionId: 'symposium', clientMsgId: `blocked-${type}`, prompt: 'hello' });
@@ -231,7 +248,7 @@ describe('chat-rest-handler', () => {
   });
 
   it('POST /send calls handleSendV2 and returns 202', async () => {
-    const res = await request(testApp)
+    const res = await request(testServer)
       .post('/api/chat/send')
       .set('X-Connection-ID', CONNECTION_ID)
       .send({
@@ -259,7 +276,7 @@ describe('chat-rest-handler', () => {
   it('records and rejects an asynchronous send admission failure', async () => {
     vi.mocked(handleSendV2).mockRejectedValueOnce(new Error('queue unavailable'));
 
-    const res = await request(testApp)
+    const res = await request(testServer)
       .post('/api/chat/send')
       .set('X-Connection-ID', CONNECTION_ID)
       .send({
@@ -282,7 +299,7 @@ describe('chat-rest-handler', () => {
       ),
     );
 
-    const res = await request(testApp)
+    const res = await request(testServer)
       .post('/api/chat/send')
       .set('X-Connection-ID', CONNECTION_ID)
       .send({
@@ -304,7 +321,7 @@ describe('chat-rest-handler', () => {
   // ─── POST /api/chat/stop ────────────────────────────────────────────────
 
   it('POST /stop calls handleStopV2', async () => {
-    const res = await request(testApp)
+    const res = await request(testServer)
       .post('/api/chat/stop')
       .set('X-Connection-ID', CONNECTION_ID)
       .send({ type: 'stop', sessionId: 'sess-1' });
@@ -317,7 +334,7 @@ describe('chat-rest-handler', () => {
   // ─── POST /api/chat/interrupt ───────────────────────────────────────────
 
   it('POST /interrupt calls handleInterruptV2', async () => {
-    const res = await request(testApp)
+    const res = await request(testServer)
       .post('/api/chat/interrupt')
       .set('X-Connection-ID', CONNECTION_ID)
       .send({
@@ -341,7 +358,7 @@ describe('chat-rest-handler', () => {
 
   it('POST /interrupt reports asynchronous handler failures', async () => {
     vi.mocked(handleInterruptV2).mockRejectedValueOnce(new Error('fingerprint conflict'));
-    const res = await request(testApp)
+    const res = await request(testServer)
       .post('/api/chat/interrupt')
       .set('X-Connection-ID', CONNECTION_ID)
       .send({
@@ -362,7 +379,7 @@ describe('chat-rest-handler', () => {
         'clientMsgId is already admitted for a different request fingerprint',
       ),
     );
-    const res = await request(testApp)
+    const res = await request(testServer)
       .post('/api/chat/interrupt')
       .set('X-Connection-ID', CONNECTION_ID)
       .send({
@@ -383,7 +400,7 @@ describe('chat-rest-handler', () => {
   // ─── POST /api/chat/permission ──────────────────────────────────────────
 
   it('POST /permission calls handlePermissionResponseV2', async () => {
-    const res = await request(testApp)
+    const res = await request(testServer)
       .post('/api/chat/permission')
       .set('X-Connection-ID', CONNECTION_ID)
       .send({
@@ -398,7 +415,7 @@ describe('chat-rest-handler', () => {
   });
 
   it('POST /permission returns a retryable rejection for schema-invalid answers', async () => {
-    const res = await request(testApp)
+    const res = await request(testServer)
       .post('/api/chat/permission')
       .set('X-Connection-ID', CONNECTION_ID)
       .send({
@@ -421,7 +438,7 @@ describe('chat-rest-handler', () => {
 
   it('POST /permission returns a retryable rejection when the request expired', async () => {
     vi.mocked(handlePermissionResponseV2).mockReturnValueOnce(false);
-    const res = await request(testApp)
+    const res = await request(testServer)
       .post('/api/chat/permission')
       .set('X-Connection-ID', CONNECTION_ID)
       .send({
@@ -460,7 +477,7 @@ describe('chat-rest-handler', () => {
       queryInstance: { getWebSearchGrant, setWebSearchGrant },
     } as never);
     try {
-      const current = await request(testApp)
+      const current = await request(testServer)
         .get('/api/chat/web-search-consent/sess-1')
         .set('X-Connection-ID', CONNECTION_ID);
       expect(current.status).toBe(200);
@@ -471,7 +488,7 @@ describe('chat-rest-handler', () => {
         updatedAt: null,
       });
 
-      const updated = await request(testApp)
+      const updated = await request(testServer)
         .post('/api/chat/web-search-consent')
         .set('X-Connection-ID', CONNECTION_ID)
         .send({ sessionId: 'sess-1', expectedRevision: 0, grant: 'allowed' });
@@ -480,24 +497,25 @@ describe('chat-rest-handler', () => {
       expect(setWebSearchGrant).toHaveBeenCalledWith(0, 'allowed');
 
       const takeoverConnection = 'conn-takeover';
+      claimTransportConnection(takeoverConnection, 'consent-login');
       sseRegistry.add(takeoverConnection, mockResponse());
       connRegistry.register(takeoverConnection, new SseTransport(takeoverConnection, sseRegistry));
       sessions.get(`${CONNECTION_ID}:sess-1`)!.ownerConnectionId = takeoverConnection;
 
-      const oldOwner = await request(testApp)
+      const oldOwner = await request(testServer)
         .get('/api/chat/web-search-consent/sess-1')
         .set('X-Connection-ID', CONNECTION_ID);
       expect(oldOwner.status).toBe(404);
-      const oldOwnerUpdate = await request(testApp)
+      const oldOwnerUpdate = await request(testServer)
         .post('/api/chat/web-search-consent')
         .set('X-Connection-ID', CONNECTION_ID)
         .send({ sessionId: 'sess-1', expectedRevision: 0, grant: 'allowed' });
       expect(oldOwnerUpdate.status).toBe(404);
-      const newOwnerRead = await request(testApp)
+      const newOwnerRead = await request(testServer)
         .get('/api/chat/web-search-consent/sess-1')
         .set('X-Connection-ID', takeoverConnection);
       expect(newOwnerRead.status).toBe(200);
-      const currentOwner = await request(testApp)
+      const currentOwner = await request(testServer)
         .post('/api/chat/web-search-consent')
         .set('X-Connection-ID', takeoverConnection)
         .send({ sessionId: 'sess-1', expectedRevision: 0, grant: 'allowed' });
@@ -526,17 +544,18 @@ describe('chat-rest-handler', () => {
       },
     } as never);
     const watcher = 'conn-watcher';
+    claimTransportConnection(watcher, 'consent-login');
     sseRegistry.add(watcher, mockResponse());
     connRegistry.register(watcher, new SseTransport(watcher, sseRegistry));
     connRegistry.watch(watcher, 'sess-1');
     try {
-      const read = await request(testApp)
+      const read = await request(testServer)
         .get('/api/chat/web-search-consent/sess-1')
         .set('X-Connection-ID', watcher);
       expect(read.status).toBe(200);
       expect(read.body.grant).toBe('unresolved');
 
-      const update = await request(testApp)
+      const update = await request(testServer)
         .post('/api/chat/web-search-consent')
         .set('X-Connection-ID', watcher)
         .send({ sessionId: 'sess-1', expectedRevision: 0, grant: 'allowed' });
@@ -544,6 +563,111 @@ describe('chat-rest-handler', () => {
       expect(sessions.get(`${CONNECTION_ID}:sess-1`)?.ownerConnectionId).toBeUndefined();
       expect(setWebSearchGrant).toHaveBeenCalledWith(0, 'allowed');
     } finally {
+      sessions.dispose();
+    }
+  });
+
+  it('denies another login even after it watches the exact target session', async () => {
+    const sessions = new SessionRegistry();
+    handlerContext.sessionRegistry = sessions;
+    const getWebSearchGrant = vi.fn();
+    const setWebSearchGrant = vi.fn();
+    sessions.register(`${CONNECTION_ID}:sess-1`, {
+      sessionId: 'sess-1',
+      mode: 'agent',
+      abortController: new AbortController(),
+      queryInstance: { getWebSearchGrant, setWebSearchGrant },
+    } as never);
+    const watcher = 'conn-other-login';
+    claimTransportConnection(watcher, 'other-login');
+    connRegistry.register(watcher, new SseTransport(watcher, sseRegistry));
+    connRegistry.watch(watcher, 'sess-1');
+    try {
+      const read = await request(testServer)
+        .get('/api/chat/web-search-consent/sess-1')
+        .set('X-Connection-ID', watcher)
+        .set('X-Test-Auth', 'other-login');
+      const update = await request(testServer)
+        .post('/api/chat/web-search-consent')
+        .set('X-Connection-ID', watcher)
+        .set('X-Test-Auth', 'other-login')
+        .send({ sessionId: 'sess-1', expectedRevision: 0, grant: 'allowed' });
+      expect(read.status).toBe(404);
+      expect(update.status).toBe(404);
+      expect(getWebSearchGrant).not.toHaveBeenCalled();
+      expect(setWebSearchGrant).not.toHaveBeenCalled();
+    } finally {
+      releaseTransportConnection(watcher, 'other-login');
+      sessions.dispose();
+    }
+  });
+
+  it('serves the authenticated WebSocket owner without an SSE stream', async () => {
+    const sessions = new SessionRegistry();
+    handlerContext.sessionRegistry = sessions;
+    sseRegistry.remove(CONNECTION_ID);
+    const getWebSearchGrant = vi.fn(() => ({ grant: 'unresolved', revision: 0, updatedAt: null }));
+    const setWebSearchGrant = vi.fn(async () => ({
+      grant: 'allowed',
+      revision: 1,
+      updatedAt: 123,
+    }));
+    sessions.register(`${CONNECTION_ID}:sess-1`, {
+      sessionId: 'sess-1',
+      mode: 'agent',
+      abortController: new AbortController(),
+      queryInstance: { getWebSearchGrant, setWebSearchGrant },
+    } as never);
+    try {
+      const read = await request(testServer)
+        .get('/api/chat/web-search-consent/sess-1')
+        .set('X-Connection-ID', CONNECTION_ID);
+      const update = await request(testServer)
+        .post('/api/chat/web-search-consent')
+        .set('X-Connection-ID', CONNECTION_ID)
+        .send({ sessionId: 'sess-1', expectedRevision: 0, grant: 'allowed' });
+      expect(read.status).toBe(200);
+      expect(update.status).toBe(200);
+      expect(setWebSearchGrant).toHaveBeenCalledWith(0, 'allowed');
+      const stolen = await request(testServer)
+        .post('/api/chat/web-search-consent')
+        .set('X-Connection-ID', CONNECTION_ID)
+        .set('X-Test-Auth', 'other-login')
+        .send({ sessionId: 'sess-1', expectedRevision: 1, grant: 'denied' });
+      expect(stolen.status).toBe(403);
+      expect(setWebSearchGrant).toHaveBeenCalledTimes(1);
+    } finally {
+      sessions.dispose();
+    }
+  });
+
+  it('rechecks the owner login before executing a queued watcher grant', async () => {
+    const sessions = new SessionRegistry();
+    handlerContext.sessionRegistry = sessions;
+    const setWebSearchGrant = vi.fn();
+    sessions.register(`${CONNECTION_ID}:sess-1`, {
+      sessionId: 'sess-1',
+      mode: 'agent',
+      abortController: new AbortController(),
+      queryInstance: { setWebSearchGrant },
+    } as never);
+    const watcher = 'conn-watcher';
+    claimTransportConnection(watcher, 'consent-login');
+    connRegistry.register(watcher, new SseTransport(watcher, sseRegistry));
+    connRegistry.watch(watcher, 'sess-1');
+    vi.mocked(serializeSessionPermissionChange).mockImplementationOnce(async (_session, action) => {
+      claimTransportConnection(CONNECTION_ID, 'other-login');
+      return action();
+    });
+    try {
+      const update = await request(testServer)
+        .post('/api/chat/web-search-consent')
+        .set('X-Connection-ID', watcher)
+        .send({ sessionId: 'sess-1', expectedRevision: 0, grant: 'allowed' });
+      expect(update.status).toBe(409);
+      expect(setWebSearchGrant).not.toHaveBeenCalled();
+    } finally {
+      releaseTransportConnection(CONNECTION_ID, 'other-login');
       sessions.dispose();
     }
   });
@@ -562,7 +686,7 @@ describe('chat-rest-handler', () => {
       },
     } as never);
     try {
-      const response = await request(testApp)
+      const response = await request(testServer)
         .post('/api/chat/web-search-consent')
         .set('X-Connection-ID', CONNECTION_ID)
         .send({ sessionId: 'sess-1', expectedRevision: 0, grant: 'allowed' });
@@ -588,7 +712,7 @@ describe('chat-rest-handler', () => {
       queryInstance: { setWebSearchGrant },
     } as never);
     try {
-      const response = await request(testApp)
+      const response = await request(testServer)
         .post('/api/chat/web-search-consent')
         .set('X-Connection-ID', CONNECTION_ID)
         .send({ sessionId: 'sess-1', expectedRevision: 0, grant: 'denied' });
@@ -615,7 +739,7 @@ describe('chat-rest-handler', () => {
       return action();
     });
     try {
-      const response = await request(testApp)
+      const response = await request(testServer)
         .post('/api/chat/web-search-consent')
         .set('X-Connection-ID', CONNECTION_ID)
         .send({ sessionId: 'sess-1', expectedRevision: 0, grant: 'allowed' });
@@ -638,7 +762,7 @@ describe('chat-rest-handler', () => {
       queryInstance: { setWebSearchGrant },
     } as never);
     try {
-      const response = await request(testApp)
+      const response = await request(testServer)
         .post('/api/chat/web-search-consent')
         .set('X-Connection-ID', CONNECTION_ID)
         .send({ sessionId: 'sess-1', expectedRevision: 0, grant: 'allowed' });
@@ -664,7 +788,7 @@ describe('chat-rest-handler', () => {
       return action();
     });
     try {
-      const response = await request(testApp)
+      const response = await request(testServer)
         .post('/api/chat/web-search-consent')
         .set('X-Connection-ID', CONNECTION_ID)
         .send({ sessionId: 'sess-1', expectedRevision: 0, grant: 'allowed' });
@@ -678,7 +802,7 @@ describe('chat-rest-handler', () => {
   // ─── POST /api/chat/mode ───────────────────────────────────────────────
 
   it('POST /mode calls handleSetModeV2', async () => {
-    const res = await request(testApp)
+    const res = await request(testServer)
       .post('/api/chat/mode')
       .set('X-Connection-ID', CONNECTION_ID)
       .send({
@@ -701,7 +825,7 @@ describe('chat-rest-handler', () => {
         }),
     );
     let responded = false;
-    const response = request(testApp)
+    const response = request(testServer)
       .post('/api/chat/mode')
       .set('X-Connection-ID', CONNECTION_ID)
       .send({ type: 'set_mode', sessionId: 'sess-1', mode: 'agent' })
@@ -722,7 +846,7 @@ describe('chat-rest-handler', () => {
 
   it('POST /mode catches rejected asynchronous handlers', async () => {
     vi.mocked(handleSetModeV2).mockRejectedValueOnce(new Error('provider unavailable'));
-    const response = await request(testApp)
+    const response = await request(testServer)
       .post('/api/chat/mode')
       .set('X-Connection-ID', CONNECTION_ID)
       .send({ type: 'set_mode', sessionId: 'sess-1', mode: 'agent' });
@@ -767,7 +891,7 @@ describe('chat-rest-handler', () => {
           throw new Error('Disk full');
         });
       try {
-        const response = await request(testApp)
+        const response = await request(testServer)
           .post('/api/chat/mode')
           .set('X-Connection-ID', CONNECTION_ID)
           .send({ type: 'set_mode', sessionId: 'sess-1', mode: 'agent' });
@@ -790,7 +914,7 @@ describe('chat-rest-handler', () => {
   // ─── POST /api/chat/watch + unwatch ─────────────────────────────────────
 
   it('POST /watch calls handleWatch', async () => {
-    const res = await request(testApp)
+    const res = await request(testServer)
       .post('/api/chat/watch')
       .set('X-Connection-ID', CONNECTION_ID)
       .send({ type: 'watch', sessionId: 'sess-1' });
@@ -800,7 +924,7 @@ describe('chat-rest-handler', () => {
   });
 
   it('POST /unwatch calls handleUnwatch', async () => {
-    const res = await request(testApp)
+    const res = await request(testServer)
       .post('/api/chat/unwatch')
       .set('X-Connection-ID', CONNECTION_ID)
       .send({ type: 'unwatch', sessionId: 'sess-1' });
@@ -812,7 +936,7 @@ describe('chat-rest-handler', () => {
   // ─── POST /api/chat/switch ──────────────────────────────────────────────
 
   it('POST /switch calls handleSwitchSession', async () => {
-    const res = await request(testApp)
+    const res = await request(testServer)
       .post('/api/chat/switch')
       .set('X-Connection-ID', CONNECTION_ID)
       .send({ type: 'switch_session', sessionId: 'sess-1' });
@@ -824,7 +948,7 @@ describe('chat-rest-handler', () => {
   // ─── POST /api/chat/suspend ─────────────────────────────────────────────
 
   it('POST /suspend calls handleSessionSuspend', async () => {
-    const res = await request(testApp)
+    const res = await request(testServer)
       .post('/api/chat/suspend')
       .set('X-Connection-ID', CONNECTION_ID)
       .send({
@@ -839,7 +963,7 @@ describe('chat-rest-handler', () => {
   // ─── POST /api/chat/close ──────────────────────────────────────────────
 
   it('POST /close calls handleSessionClose', async () => {
-    const res = await request(testApp)
+    const res = await request(testServer)
       .post('/api/chat/close')
       .set('X-Connection-ID', CONNECTION_ID)
       .send({ type: 'session_close', sessionId: 'sess-1' });
@@ -851,7 +975,7 @@ describe('chat-rest-handler', () => {
   // ─── POST /api/chat/reconnect ──────────────────────────────────────────
 
   it('POST /reconnect calls handleReconnect', async () => {
-    const res = await request(testApp)
+    const res = await request(testServer)
       .post('/api/chat/reconnect')
       .set('X-Connection-ID', CONNECTION_ID)
       .send({
@@ -877,7 +1001,7 @@ describe('chat-rest-handler', () => {
   });
 
   it('POST /reconnect rejects missing sessions array', async () => {
-    const res = await request(testApp)
+    const res = await request(testServer)
       .post('/api/chat/reconnect')
       .set('X-Connection-ID', CONNECTION_ID)
       .send({});
@@ -893,7 +1017,7 @@ describe('chat-rest-handler', () => {
       throw new Error('SDK crashed');
     });
 
-    const res = await request(testApp)
+    const res = await request(testServer)
       .post('/api/chat/stop')
       .set('X-Connection-ID', CONNECTION_ID)
       .send({ type: 'stop', sessionId: 'sess-1' });

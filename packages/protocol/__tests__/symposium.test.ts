@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { EventStore } from '../src/event-store.js';
 import {
   AccountBindingSchema,
+  SymposiumProfileDefinitionSchema,
   SymposiumConfigSchema,
   SymposiumProvenanceSchema,
   type SymposiumConfig,
@@ -1035,4 +1036,20 @@ describe('explicit primary routing transfer', () => {
     });
     expect(() => store.transferSymposiumAnchor(input)).toThrow(/admitted/);
   });
+});
+
+it('accepts catalog profiles with custom role guidance without granting runtime authority', () => {
+  const definition = SymposiumProfileDefinitionSchema.parse({
+    name: 'Domain specialist',
+    role: 'domain-specialist',
+    instructions: 'Explain tradeoffs',
+    expectedOutput: 'Recommendation',
+    acceptanceCriteria: ['Identify uncertainty'],
+    modelPolicyRole: 'specialist',
+  });
+  expect(definition.role).toBe('domain-specialist');
+  expect(definition).not.toHaveProperty('authorityGrant');
+  expect(
+    SymposiumProfileDefinitionSchema.safeParse({ ...definition, role: 'unsafe role' }).success,
+  ).toBe(false);
 });

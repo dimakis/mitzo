@@ -4,7 +4,10 @@ import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createOwnedEvidenceCollector } from '../symposium-owned-evidence-async.js';
-import { REVIEWED_SYMPOSIUM_CLAUDE_RUNTIME } from '../symposium-owned-runtime-contract.js';
+import {
+  REVIEWED_SYMPOSIUM_CLAUDE_RUNTIME,
+  REVIEWED_SYMPOSIUM_OWNED_RUNTIME,
+} from '../symposium-owned-runtime-contract.js';
 import type { OpenShellRuntimeConfig } from '../openshell-runtime.js';
 const build = REVIEWED_SYMPOSIUM_CLAUDE_RUNTIME.build;
 const selected = {
@@ -33,7 +36,8 @@ const prelude = `
 const crypto=require('node:crypto'), cp=require('node:child_process'), fs=require('node:fs');
 const fixture=require('node:worker_threads').workerData.fixture;
 const hash=crypto.createHash;
-crypto.createHash=(algorithm)=>{const parts=[];return {update(value){parts.push(Buffer.from(value));return this;},digest(format){const bytes=Buffer.concat(parts),key=bytes.toString();return key==='fixture-cli'?fixture.build.cliSha256:fixture.build.nativeArtifacts[key]??hash(algorithm).update(bytes).digest(format);}};};
+let currentImage=fixture.build.image;
+crypto.createHash=(algorithm)=>{const parts=[];return {update(value){parts.push(Buffer.from(value));return this;},digest(format){const bytes=Buffer.concat(parts),key=bytes.toString();return key==='fixture-cli'?fixture.build.cliSha256:(currentImage===fixture.helper.image?fixture.helper:fixture.build).nativeArtifacts[key]??hash(algorithm).update(bytes).digest(format);}};};
 cp.spawnSync=(exe,args)=>{let output;
  if(exe===fixture.cli){
   if(args[0]==='--version')output='openshell '+fixture.build.version;
@@ -42,9 +46,10 @@ cp.spawnSync=(exe,args)=>{let output;
   else if(args[0]==='provider')output={providers:fixture.providers.map(p=>({...p,workspace:'workspace'})),next_page_token:''};
   else throw Error('unexpected synthetic CLI');
  }else{
-  if(args[0]==='image')output=[{Id:fixture.build.image,Digest:'sha256:'+fixture.build.imageDigest}];
+  if(args[0]==='image'){const build=args[2]===fixture.helper.image?fixture.helper:fixture.build;output=[{Id:build.image,Digest:'sha256:'+build.imageDigest}];}
+  else if(args[0]==='create'){currentImage=args.at(-1);output='';}
   else if(args[0]==='cp'){fs.writeFileSync(args[2],args[1].split(':').slice(1).join(':'));output='';}
-  else if(['create','rm'].includes(args[0]))output='';
+  else if(args[0]==='rm')output='';
   else if(args[0]==='volume')output=[{Name:'artifacts',Driver:'local',Options:{},Labels:{'mitzo.symposium.purpose':'artifacts','mitzo.symposium.session':'session','mitzo.symposium.workspace':'workspace','mitzo.symposium.generation':'generation','openshell.ai/sandbox-attachable':'true','openshell.ai/sandbox-attachable-workspace':'workspace'}}];
   else throw Error('unexpected synthetic Podman');
  }
@@ -80,7 +85,12 @@ function fixture(overrideSource?: string) {
       ...options,
       workerData: {
         ...options!.workerData,
-        fixture: { build, cli: config.cli, providers: selected.providerInstances },
+        fixture: {
+          build,
+          helper: REVIEWED_SYMPOSIUM_OWNED_RUNTIME.build,
+          cli: config.cli,
+          providers: selected.providerInstances,
+        },
       },
       eval: true,
     });

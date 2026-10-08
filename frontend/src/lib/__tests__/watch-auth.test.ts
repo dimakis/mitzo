@@ -4,11 +4,13 @@ const mocks = vi.hoisted(() => ({
   platform: 'web',
   saveToken: vi.fn().mockResolvedValue(undefined),
   clearToken: vi.fn().mockResolvedValue(undefined),
+  configureNotificationServer: vi.fn().mockResolvedValue(undefined),
   registerPlugin: vi.fn(),
 }));
 mocks.registerPlugin.mockImplementation(() => ({
   saveToken: mocks.saveToken,
   clearToken: mocks.clearToken,
+  configureNotificationServer: mocks.configureNotificationServer,
 }));
 
 vi.mock('@capacitor/core', () => ({
@@ -42,6 +44,15 @@ it('registers the native bridge lazily and reuses it on iOS', async () => {
   await watch.clearWatchToken();
   expect(mocks.registerPlugin).toHaveBeenCalledTimes(1);
   expect(mocks.registerPlugin).toHaveBeenCalledWith('WatchAuthBridge');
+});
+
+it('persists the configured API origin for native background actions only on iOS', async () => {
+  const watch = await import('../watch-auth');
+  await watch.configureNativeNotificationServer('https://stage.example');
+  expect(mocks.configureNotificationServer).not.toHaveBeenCalled();
+  mocks.platform = 'ios';
+  await watch.configureNativeNotificationServer('https://stage.example');
+  expect(mocks.configureNotificationServer).toHaveBeenCalledWith({ url: 'https://stage.example' });
 });
 
 it('serializes watch mutations so a later clear wins over an in-flight save', async () => {

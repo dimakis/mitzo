@@ -59,9 +59,12 @@ export function createCustodianProxy(
         const auth = res.locals.authSession as AuthSession;
         const csrf = req.header('x-csrf-token') ?? '';
         if (
-          ['source.import', 'director.authorizeRecovery', 'publication.recover'].includes(
-            selected.operation,
-          ) &&
+          [
+            'source.import',
+            'source.sealRecover',
+            'director.authorizeRecovery',
+            'publication.recover',
+          ].includes(selected.operation) &&
           !requireRecentConnectionAuthorization(res, csrf)
         )
           return;

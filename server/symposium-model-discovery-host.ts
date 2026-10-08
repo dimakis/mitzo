@@ -1,3 +1,10 @@
+import {
+  subscriptionIdentityRequired,
+  subscriptionIdentityFrame,
+  createSubscriptionIdentityClient,
+  assertSubscriptionRoutingIdentity,
+  type SubscriptionLaunchIdentity,
+} from './symposium-subscription-identity.js';
 import { REVIEWED_SYMPOSIUM_OWNED_RUNTIME } from './symposium-owned-runtime-contract.js';
 import { isPodmanSandboxNamespace } from './symposium-podman-namespace.js';
 import { discoveryClaimLabel } from './symposium-model-discovery.js';
@@ -34,6 +41,7 @@ export interface DiscoveryHostOptions {
   configPins: Array<{ path: string; sha256: string; mode: number }>;
   /** Attest the running owned gateway, its effective config/TLS and exact selected provider custody. */
   attestGateway(config: DiscoveryConfig): Promise<void>;
+  launchIdentity?(): SubscriptionLaunchIdentity;
 }
 function jsonCommand(
   command: string,
@@ -206,7 +214,7 @@ export function createDiscoveryHostOperations(
     await unlink(options.journal);
     await syncDirectory(dirname(options.journal));
   };
-  return {
+  const operations: DiscoveryOperations = {
     async withExclusiveAttempt(operation) {
       privateDirectory(dirname(options.journal));
       const path = `${options.journal}.lock`;
@@ -364,6 +372,12 @@ export function createDiscoveryHostOperations(
       return inventory(['provider', ...base, 'list'], 'providers');
     },
     async openClient(receipt) {
+      const identityRequired = subscriptionIdentityRequired(config.workloadImage);
+      if (identityRequired && !options.launchIdentity)
+        throw new Error('Verified discovery launch identity is unavailable');
+      const identity = identityRequired ? options.launchIdentity!() : undefined;
+      identity?.assertCurrent();
+      if (identity) subscriptionIdentityFrame(identity, receipt.claim);
       const spec = ssh(receipt.name, [
         '/usr/local/bin/symposium-attempt-controller',
         'run',
@@ -381,10 +395,25 @@ export function createDiscoveryHostOperations(
       child.kill = (() =>
         terminateOpenShellProcess({ pid: child.pid, kill: killChild })) as typeof child.kill;
       // No lifecycle: CodexAppServerClient itself rejects thread/turn/inference requests.
-      const client = new CodexAppServerClient(child, { timeoutMs: 30000 });
+      const client = identity
+        ? createSubscriptionIdentityClient(
+            child,
+            identity,
+            receipt.claim,
+            () => operations.cancel(receipt),
+            { timeoutMs: 30000 },
+          )
+        : new CodexAppServerClient(child, { timeoutMs: 30000 });
       return {
         initialize: () => client.initialize(),
-        request: (method, params) => client.request(method, params),
+        request: async (method, params) => {
+          identity?.assertCurrent();
+          const result = await client.request(method, params);
+          identity?.assertCurrent();
+          if (identity && method === 'account/read')
+            assertSubscriptionRoutingIdentity(result, identity);
+          return result;
+        },
         close: () => {
           client.close();
         },
@@ -433,4 +462,5 @@ export function createDiscoveryHostOperations(
     },
     wait: () => new Promise((resolve) => setTimeout(resolve, 1000)),
   };
+  return operations;
 }

@@ -6,6 +6,7 @@ import { Capacitor, registerPlugin } from '@capacitor/core';
 interface WatchAuthBridgePlugin {
   saveToken(options: { token: string }): Promise<void>;
   clearToken(): Promise<void>;
+  configureNotificationServer(options: { url: string }): Promise<void>;
 }
 
 let watchAuthBridge: WatchAuthBridgePlugin | undefined;
@@ -27,6 +28,17 @@ export async function saveTokenToWatch(token: string): Promise<void> {
       await bridge().saveToken({ token });
     } catch {
       // Plugin not available or save failed — non-fatal
+    }
+  });
+}
+
+export async function configureNativeNotificationServer(url: string): Promise<void> {
+  if (!Capacitor.isNativePlatform() || Capacitor.getPlatform() !== 'ios' || !url) return;
+  await enqueueWatchMutation(async () => {
+    try {
+      await bridge().configureNotificationServer({ url });
+    } catch (error) {
+      console.warn('Could not configure background approval server:', error);
     }
   });
 }

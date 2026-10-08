@@ -1,4 +1,9 @@
 import { credentialSdkBoundary } from './credential-sdk-boundary.js';
+import { randomUUID } from 'node:crypto';
+import { mkdirSync, rmSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
+import type { EventStore } from './event-store.js';
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
 import type { GeminiOptions } from './gemini-session.js';
@@ -147,7 +152,14 @@ export async function searchGemini(
   });
 }
 
-type SdkSearchOptions = { env: Record<string, string>; cwd: string; model: string };
+type SdkSearchOptions = {
+  env: Record<string, string>;
+  model: string;
+  parentSessionId: string;
+  operationId: string;
+  executionStore: Pick<EventStore, 'registerInternalSdkExecution'>;
+  workspaceRoot?: string;
+};
 type SdkQuery = (options: Parameters<typeof query>[0]) => AsyncIterable<unknown>;
 /** Uses the existing SDK account environment; exposes no file, shell, MCP or browser tools. */
 export async function searchSdk(
@@ -163,12 +175,31 @@ export async function searchSdk(
   const sdkBoundary = credentialSdkBoundary();
   const searchCalls = new Set<string>();
   const successfulSearches = new Set<string>();
+  const sessionId = randomUUID();
+  const cwd = join(
+    route.workspaceRoot ?? join(homedir(), '.mitzo', 'private', 'sdk-tools'),
+    sessionId,
+  );
   try {
     signal.throwIfAborted();
+    mkdirSync(cwd, { recursive: true, mode: 0o700 });
+    route.executionStore.registerInternalSdkExecution({
+      sdkSessionId: sessionId,
+      parentSessionId: route.parentSessionId,
+      operationId: route.operationId,
+      purpose: 'web_search',
+      cwd,
+    });
+    const env = Object.fromEntries(
+      Object.entries(route.env).filter(([key]) => !key.startsWith('MITZO_')),
+    );
     for await (const raw of sdkQuery({
       prompt: queryText,
       options: {
-        ...route,
+        env,
+        cwd,
+        model: route.model,
+        sessionId,
         ...(sdkBoundary ? { spawnClaudeCodeProcess: sdkBoundary.spawnClaudeCodeProcess } : {}),
         systemPrompt: SEARCH_INSTRUCTIONS,
         abortController: abort,
@@ -189,6 +220,7 @@ export async function searchSdk(
       const message = z
         .object({
           type: z.string(),
+          session_id: z.string().optional(),
           subtype: z.string().optional(),
           result: z.string().optional(),
           message: z
@@ -207,6 +239,8 @@ export async function searchSdk(
         })
         .safeParse(raw);
       if (!message.success) continue;
+      if (message.data.session_id && message.data.session_id !== sessionId)
+        throw new Error('SDK search execution identity changed');
       for (const part of message.data.message?.content ?? []) {
         if (
           message.data.type === 'assistant' &&
@@ -240,5 +274,6 @@ export async function searchSdk(
   } finally {
     signal.removeEventListener('abort', cancel);
     abort.abort();
+    rmSync(cwd, { recursive: true, force: true });
   }
 }

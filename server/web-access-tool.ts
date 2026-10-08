@@ -1,4 +1,9 @@
 import { createUrlAccessTool } from './url-access-tool.js';
+import {
+  hasWebSearchGrant,
+  saveWebSearchGrant,
+  webSearchGrantRevision,
+} from './web-search-grants.js';
 import { randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import {
@@ -10,11 +15,16 @@ import {
 import { executeWebAccess, REQUEST_WEB_ACCESS, WebAccessInput } from './request-web-access.js';
 import { fetchPublicPage } from './public-web-fetch.js';
 
+export interface WebSearchExecutionOwner {
+  parentSessionId: string;
+  operationId: string;
+}
+
 /** Every runtime uses the same permission and session identity boundary. */
 export function createWebAccessTool(
   conversation: string | (() => string),
   registry: SessionRegistry,
-  search: (query: string, signal: AbortSignal) => Promise<string>,
+  search: (query: string, signal: AbortSignal, owner: WebSearchExecutionOwner) => Promise<string>,
 ) {
   const urlAccess = createUrlAccessTool(conversation, registry);
   return async (input: unknown, signal: AbortSignal) => {
@@ -27,37 +37,66 @@ export function createWebAccessTool(
       const granted = await urlAccess.fetch(parsed.data.url, signal);
       if (granted) return granted;
     }
+    const operationId = randomUUID();
     const conversationId = typeof conversation === 'function' ? conversation() : conversation;
     const owner = registry.findBySessionId(conversationId);
     if (!owner) return { content: 'Session unavailable', isError: true };
     const { clientId, session } = owner;
     const binding = structuredClone(session.accountBinding);
     const model = session.model;
+    // Retire stale bindings before capturing the pending approval generation.
+    const searchAllowed = hasWebSearchGrant(session);
+    const searchRevision = webSearchGrantRevision(session);
     const isCurrent = () =>
       registry.get(clientId) === session &&
       registry.findBySessionId(conversationId)?.session === session &&
       registry.findBySessionId(conversationId)?.clientId === clientId &&
       isDeepStrictEqual(session.accountBinding, binding) &&
       session.model === model &&
+      webSearchGrantRevision(session) === searchRevision &&
       effectivePermissionMode(session) !== 'ask' &&
       checkSkillPolicy(registry, clientId, REQUEST_WEB_ACCESS) !== 'deny';
     return executeWebAccess(input, signal, {
       isCurrent,
-      approve: (request, signal) =>
-        buildPermissionHandler(clientId, registry)(REQUEST_WEB_ACCESS, request, {
-          signal,
-          toolUseID: randomUUID(),
-          forcePrompt: true,
-          allowSessionGrant: false,
-          approvalScope: 'request',
-          title:
-            request.operation === 'search' ? 'Allow this web search?' : 'Allow this website read?',
-          description:
-            request.operation === 'search'
-              ? 'Runs this query using the selected account and model. Provider search and model charges may apply. Approval covers this request only.'
-              : 'Reads this public HTTPS URL without credentials. Approval covers this origin and read only; shell networking and authenticated browsing remain restricted.',
-        }),
-      search,
+      approve: async (request, signal, redirectedFrom) => {
+        if (request.operation === 'search' && searchAllowed)
+          return { behavior: 'allow', updatedInput: request };
+        const decision = await buildPermissionHandler(clientId, registry)(
+          REQUEST_WEB_ACCESS,
+          request,
+          {
+            signal,
+            toolUseID: operationId,
+            forcePrompt: true,
+            allowSessionGrant: false,
+            rememberSessionGrant: false,
+            approvalScope: request.operation === 'search' ? 'session' : 'request',
+            title: redirectedFrom
+              ? 'Approve redirected destination?'
+              : request.operation === 'search'
+                ? 'Allow this web search?'
+                : 'Allow this website read?',
+            description: redirectedFrom
+              ? `The approved page at ${new URL(redirectedFrom).origin} moved to ${request.operation === 'fetch' ? new URL(request.url).origin : ''}. Approve the destination to continue this read. Approval covers this request only.`
+              : request.operation === 'search'
+                ? 'Runs searches using the selected account and model. Provider search and model charges may apply. Allow once, or allow searches until this session ends. Changing the account or model requires new consent.'
+                : 'Reads this public HTTPS URL without credentials. Approval covers this origin and read only; shell networking and authenticated browsing remain restricted.',
+          },
+        );
+        if (
+          request.operation === 'search' &&
+          decision.behavior === 'allow' &&
+          decision.decisionClassification === 'user_permanent' &&
+          !signal.aborted &&
+          isCurrent() &&
+          isDeepStrictEqual(decision.updatedInput, request)
+        )
+          saveWebSearchGrant(session);
+        return decision;
+      },
+      search: (query, signal) =>
+        search(query, signal, { parentSessionId: conversationId, operationId }),
+
       fetchPage: fetchPublicPage,
     });
   };

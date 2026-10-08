@@ -12,6 +12,7 @@ import {
   ownedEvidenceHandler,
 } from '../symposium-owned-evidence.js';
 import { TESTED_SYMPOSIUM_NATIVE_BUILD } from '../symposium-production-gate.js';
+import { OwnedEvidenceVerificationError } from '../symposium-owned-evidence-diagnostic.js';
 
 describe('owned admission evidence candidate', () => {
   it('measures local inputs and verifies all existing gates before returning; never installs evidence', () => {
@@ -99,6 +100,12 @@ it('candidate endpoint rejects caller authority and reports unavailable or faile
   const failed = await request(app).post('/evidence').send(selection);
   expect(failed.status).toBe(409);
   expect(failed.text).not.toContain('private diagnostics');
+  state.collect.mockRejectedValueOnce(new OwnedEvidenceVerificationError('verify-image'));
+  const phased = await request(app).post('/evidence').send(selection);
+  expect(phased.body).toEqual({
+    error: 'Evidence could not be verified. Check the explicit selection and owned host.',
+    phase: 'verify-image',
+  });
   state.collect.mockResolvedValue({ candidateFixture: true } as never);
   const result = await request(app).post('/evidence').send(selection);
   expect(result.headers['cache-control']).toBe('no-store');

@@ -13,7 +13,17 @@ Expand **Workspace** in chat to choose the account and model. **Make default for
 
 Telos **Open in Chat** and **Start Session** open a launch preview with Workspace expanded. Review the account and model, then select **Send launch prompt**. The chat follows the session created for that launch and keeps its Telos context and task identity. The preview stays available until delivery is confirmed through the HTTP receipt or a matching persisted WebSocket user-message echo; a failed send can be retried with the same task context.
 
+Codex provider failures show sanitized, actionable messages for known capacity, account, context and connection failures. Known native capacity failures schedule up to five continuations from saved progress, 30 seconds apart, using the same account, model and provider thread. **Try again** runs one attempt immediately within that budget; after exhaustion it explicitly starts a new five-attempt cycle. **Stop retries** cancels waiting work and interrupts only its active continuation. A new user message supersedes pending retries. Each continuation is a new native turn with fresh standard admission and acknowledgment-bound context delivery; it does not replay the original prompt or replace completed tool results. Restart stops the retry schedule until a manual **Try again**; uncertain dispatched work remains held for inspection.
+
+Codex startup failures distinguish known account, workspace-routing, transport and request errors. A resume with an unavailable or changed native conversation binding reports that binding problem and preserves saved messages; it does not automatically create replacement provider history. Startup exceptions identify the failing step when available and show a **Reference** shared with the server log. Recognized storage, permission and connection error codes receive specific explanations. Unknown startup failures do not imply queued work or prove that a provider turn ran. First-send failures retain advice to inspect uncertain work. Logs retain the session ID, bounded failure categories, recognized RPC methods, allowlisted resource codes, command exit status/signals and application source locations. Commands, stderr, upstream exception text and private paths remain excluded. Inspect conversation recovery before retrying uncertain work.
+
+Ordinary OpenShell Codex chats reserve their account-bound native ledger before provisioning. If provisioning fails before provider initialization, a later send finishes that reserved startup under the same chat ID. Once provider initialization begins, an unacknowledged thread outcome blocks ordinary resume; existing legacy history is never marked undispatched automatically.
+
+Accounts with multiple managed connections can provision new sandboxes without exceeding the gateway's 63-character label-value limit. Oversized provider-policy fingerprints use a stable bounded hash; valid historical labels and connection assignments are preserved. New runtimes prefer an assigned managed GitHub connection over the legacy GitHub fallback, avoiding duplicate `GITHUB_TOKEN` credentials. Retained runtimes keep their existing automatic grants; conflicting GitHub attachments require recovery before startup.
+
 ## Features
+
+Experimental [Symposium conversations](docs/features/symposium-integrated-acceptance.md) combine implementer and independently configured read-only reviewer seats with selected context, attributed results and explicit Stop controls. Provider sign-in, physical runtime admission and live workflow acceptance remain required. Use the [canonical singleton staging procedure](docs/operations/symposium-singleton-staging.md) for qualification; production activation is separate.
 
 The dormant [Symposium artifact snapshot observer](docs/features/symposium-artifact-snapshots.md) records bounded host observations; it does not yet enable automated review or publication.
 
@@ -21,7 +31,9 @@ The dormant [Symposium artifact snapshot observer](docs/features/symposium-artif
 
 [Fresh Symposium artifacts](docs/operations/symposium-artifact-initialization.md) initialize an empty owned Git workspace before admission, retaining initializer identity and cleanup receipts. An opt-in credential-free physical contract checks native writer and read-only reviewer access; full application acceptance and restart recovery remain separate gates.
 
-[Native subscription continuity](docs/operations/symposium-attempt-continuity.md) carries all eligible completed seat text into explicitly recorded replacement threads across isolated attempt homes, within a strict 64 KiB bound.
+[Native subscription continuity](docs/operations/symposium-attempt-continuity.md) carries eligible completed seat text into replacement threads as quoted history in supported text input, within a strict 64 KiB bound including framing and escaping. The current request remains separate.
+
+[Symposium mount verification](docs/operations/symposium-mount-diagnostics.md) reports bounded failure stages for configuration, physical listing, selection, inspection, identity, mount proof and image checks, while retaining the existing admission requirements.
 
 Vertex readiness validates the pinned CLI’s blank failure-code column and empty-error `-` marker without accepting diagnostic text.
 
@@ -29,10 +41,10 @@ Symposium director status resolves the verified runtime once per request and reu
 
 [Local Symposium source import](docs/operations/symposium-local-source.md) previews and explicitly imports bounded committed history from a configured local repository before any seat admission permission is issued. It uses fresh app authorization and a credential-free networkless helper; oversized, unsupported and uncertain imports remain fenced. Native budget, review and publication still require their own authority.
 
-- **Streaming chat** with thinking blocks, tool pills, and markdown
+- **Streaming chat** with thinking blocks, tool pills, and markdown. Claude SDK/Vertex chats request visible thinking summaries explicitly; Opus 4.7+ uses adaptive thinking even at maximum effort. Codex app-server routes opt into reasoning summaries automatically unless an explicit runtime preference overrides them. Direct OpenAI API chats request summaries for supported reasoning models as well. Summaries start expanded and collapse after at least 30 seconds following completion, with extra reading time for longer summaries; manually toggled summaries retain your choice. Summary availability depends on the selected model; these are readable summaries rather than raw reasoning.
 - **Session settings at a glance** — a single session header shows the account profile, model, and thinking level even when collapsed. Expand it for account, permission, web access, and reviewer controls; Outputs / Sources is beside the composer. The summary wraps compactly on mobile.
 - **Live token usage** — the chat token bar shows context and session totals for OpenAI Responses turns after the provider reports usage at completion.
-- **Request web access** — ordinary ChatGPT/Codex (host or OpenShell), OpenAI API, Gemini/Vertex and Claude SDK chats can ask the user for web search or URL access. `request_access` shows the exact HTTP(S) origin and resolved addresses, including local/private hosts and custom ports, and enables credential-free reads through the web tool for 15 minutes. `fetch` reuses that approval; `revoke_access` removes it. Redirects to another origin and changed destination addresses require separate approval. Ungranted `fetch` keeps the single public HTTPS read flow. Search uses the selected account/model without fallback. See [request web access](docs/features/request-web-access.md).
+- **Request web access** — ordinary ChatGPT/Codex (host or OpenShell), OpenAI API, Gemini/Vertex and Claude SDK chats can ask the user for web search or URL access. `request_access` shows the exact HTTP(S) origin and resolved addresses, including local/private hosts and custom ports, and enables credential-free reads through the web tool for 15 minutes. `fetch` reuses that approval; `revoke_access` removes it. Redirects to another origin pause the same read and ask for destination approval, including reads using a 15-minute grant; changed destination addresses still require renewed access. Web rows show readable destinations (including schemes and query strings), distinguish access grants from completed reads, and separate approval from fetch outcomes such as blocked access, timeouts or oversized pages. Ungranted `fetch` keeps the single public HTTPS read flow. Search uses the selected account/model without fallback. See [request web access](docs/features/request-web-access.md).
 - **Approved GitHub publishing** — ordinary Codex subscription, OpenShell, API-key, Gemini/Vertex and Claude SDK chats expose `RequestGithubPublish`. It resolves the workspace’s GitHub repository and selects the matching active managed connection for the current AI account. Access approval is remembered per repository and account, then it asks approval for the exact feature branch, source commit and pull request. Host and OpenShell workspaces use separate validated source transports; GitHub write credentials stay on the controller and are removed from legacy and account-selected Claude SDK child environments and project hook expansion and execution. Connections now includes host-only and Vertex accounts for GitHub assignments. A managed connection and controller publishing authorization remain required; the legacy read-only provider alone does not grant publishing. Adding a connection preserves existing OpenShell Codex conversations: retained sandboxes keep their current read attachments, while the controller can select the new publishing connection after approval. New chats receive the current automatic connections; revoked or replaced retained attachments still block admission.
 - **Symposium access requests** — admitted Codex/API/subscription and Vertex seats expose website access and publication request tools. Website requests show the seat, account, exact origin and resolved addresses for user approval; bounded reads remain scoped to the executing claim. Publication requests open the existing sealed-artifact review workflow and never grant direct GitHub writes. Vertex uses a credential-free, bounded stdio/file bridge inside the claim’s private HOME. The broker activates only after a verified model receipt and drains before attempt cleanup.
 - **Three modes** — Ask (read-only), Agent (file edits allowed), Auto (shell too). Switch mid-chat.
@@ -45,21 +57,22 @@ Symposium director status resolves the verified runtime once per request and reu
 - **Document editor** — Markdown and HTML source, preview and split views; Markdown formatting, undo/redo, keyboard shortcuts, unsaved draft recovery within the current browser tab, and a layout that follows the mobile keyboard. Saves preserve drafts on errors and detect changes made by agents or other editors. Review the latest saved version before choosing whether to use it or keep your draft for the next save. Vertex and host OpenAI files use the host workspace; API-key and subscription OpenShell documents save in the verified conversation workspace without host fallback. Sandbox editing requires the original document content and an available workspace.
 - **Markdown diagrams** — Mermaid fences render in chat, Files, inline previews and document previews, with theme-aware SVG, copy controls, and readable source for invalid or incomplete diagrams. Expanded chat previews stay open across message and navigation updates.
 - **HTML artifacts** — preview and edit self-contained `.html` prototypes from Files or expandable chat links in a sandboxed, no-network renderer
+- **Conversation ownership** — Chats contains controller-created conversations and explicitly imported CLI histories. Use Chats → conversation options → Import CLI conversation to select external history; background recovery refreshes registered chats without importing provider files. Internal web searches have durable parent/tool ownership and separate working directories, and cannot become chats even if the SDK saves their messages or titles.
 - **Task board** — recursive multi-session task orchestration with spec mode, completion summaries, and verification hooks
 - **Mobile Telos collection** — long handover titles stay within two lines while the detail page retains the full summary. The collection uses the Connections style, with search, sorting, profile filters and 44px mobile actions; desktop Work keeps its single workspace heading and compact action bar.
 - **Durable Telos capture** — agents can create approved outcomes and save versioned task documents in live Telos. `TelosSaveArtifact`, `TelosFindArtifacts`, and `TelosReadArtifact` provide upload and historical retrieval through trusted host tools/MCP; session instructions teach agents to recover prior work and retain persistence receipts. Documents and item links live in the canonical Telos SQLite store outside the sandbox; code remains in Git and reusable guidance belongs in knowledge. [Operating contract](docs/operations/telos-artifacts.md).
 - **Work outputs** — each Telos work detail shows its latest saved file revisions before milestones and reference material. Markdown, archives, images and other file bytes use the same durable store (5 MiB per file); Download and Share target the exact listed revision without an active agent session. Native clients use Share. A saved output is not automatically reviewed or delivered. Folder snapshots and external destination tracking are subsequent slices.
 - **Upload work files** — the Outputs upload drawer accepts non-sensitive documents and images up to 5 MiB. Choose file or use Camera to request rear-camera capture on supported phones, review the selection, then upload explicitly. Reusing a filename retains immutable revisions; failed uploads preserve the selection for retry. Credentials and private financial or health evidence require private case storage, not this shared output store.
 - **Worktree sandbox** — opt-in git worktree isolation per session, multi-repo support via `.mitzo.json`
-- **Session resilience** — phone sleeps, WS drops, session survives. Reattach on reconnect. Message snapshot recovery for iOS silent drops. Session opening coordinates live replay with the restored history cursor; expired approvals clear locally so later requests remain accessible.
+- **Session resilience** — phone sleeps, WS drops, session survives. Reattach on reconnect. Message snapshot recovery for iOS silent drops. Session opening coordinates live replay with the restored history cursor; expired approvals clear locally so later requests remain accessible. Returning after reconnecting reclaims a disconnected session owner and reconciles approval cards with the server’s live requests.
 - **Durable inactivity closeout** — automatic closeout is admitted once per detach episode before runtime dispatch. Exact retries and restart recovery never repeat paid provider work. See [closeout admission](docs/design/closeout-admission.md).
 - **Closeout live canary** — an opt-in Luna-only harness validates one durable closeout attempt against an isolated controller and explicit billing account. See [closeout live canary](docs/operations/closeout-live-canary.md).
 - **iOS app** — native wrapper via Capacitor with push notifications and home-screen install. Xcode 27 builds use a single storyboard-backed UIKit scene, required to launch on iOS 27; scene callbacks preserve Capacitor links and watch relay background/foreground handling.
 - **Auto-rename sessions** — sessions get meaningful names via LLM summarization after every few prompts
 - **Quick actions** — one-tap commands via `.mitzo.json`
-- **Notifications center** — shared desktop/mobile feed for approvals, questions, session completions, and new Inbox arrivals, with native iPhone/Apple Watch delivery
+- **Notifications center** — shared desktop/mobile feed for approvals, questions, session completions, and new Inbox arrivals, with native iPhone/Apple Watch delivery. Native device enrollment retries after login and app resume; partial listener setup resumes without duplicating callbacks. Enable **Show sensitive details** to see complete eligible requests and allow once or deny from an expanded iOS banner without opening Mitzo; search banners also offer session-wide consent bound to the selected account and model.
 - **Image attachments** — send photos/screenshots from your camera
-- **Session history** — resume past conversations, swipe to dismiss
+- **Session history** — resume past conversations, swipe to dismiss. Hold a conversation to preview its latest saved messages above an action menu; release keeps the preview open. Open, rename, copy the session ID, or delete the conversation without first entering chat. Scrolling cancels the hold. Desktop users can right-click or press Shift+F10; Preview conversation is also available in row details. Escape, Close, or a tap outside returns to the list.
 - **Managed Connections** — attach reviewed Jira, GitHub, and bounded custom REST providers to eligible accounts; publish GitHub pull requests through an approved controller operation
 
 ## Quick start
@@ -78,19 +91,21 @@ Access from your phone: install [Tailscale](https://tailscale.com/download) on s
 
 Apple Keychain HTTPS connections support Home Assistant and custom APIs with tokens, API keys or username/password authentication. Add them from the existing connection management page; agents discover them and request approval for each session. Credentials stay in Keychain and are supplied only by the trusted request client. A signed Mac helper and explicit configuration are required; this feature is disabled by default. Apple Passwords records are not automatically browsed or synced. See [Keychain setup and session access](docs/keychain-connections.md).
 
-**Connections** is the global overview of configured AI accounts and services. Compact rows open account and service details, configured models, and read-only Ask/Agent/Auto policy explanations. Mode availability is not inferred from a provider label; runtime and model compatibility remain unchecked unless reported by an authoritative source. Configured assignments, past verification, and effective conversation access remain separate. Detail drawers use the overview’s grouped cards, icon and account-use badge, with separate account, sign-in, and access sections. Labels and values stack on mobile; model and mode details use the same spacing and typography. Close or Escape returns focus to the row that opened the drawer. **Add connection** opens the existing management controls. Website access distinguishes provider search, public page reads, and sandbox network policies; effective network access depends on each sandbox’s base rules, attached connections, and chat-specific grants.
+**Connections** is the global overview of configured AI accounts and services. Compact rows open account and service details, configured models, and read-only Ask/Agent/Auto policy explanations. Mode availability is not inferred from a provider label; runtime and model compatibility remain unchecked unless reported by an authoritative source. Configured assignments, past verification, and effective conversation access remain separate. Detail drawers use the overview’s grouped cards, icon and account-use badge, with separate account, sign-in, and access sections. Labels and values stack on mobile; model and mode details use the same spacing and typography. Close or Escape returns focus to the row that opened the drawer. **Add connection** opens a compact AI-account and service chooser with the same row styling. Management actions open only the selected resource, keeping existing-account controls out of setup. Website access distinguishes provider search, public page reads, and sandbox network policies; effective network access depends on each sandbox’s base rules, attached connections, and chat-specific grants.
 
 For ordinary ChatGPT accounts, **Sign-in** is separate from effective access. An OpenShell account shows **Connected** only after a read-only check of its bound provider and current, unexpired subscription grant. Its email and plan are labelled **Configured** because the broker does not report the host login identity. A host account can show **Signed in** after its existing account discovery verifies the reported email and plan. Checks age after five minutes (or earlier grant expiry); failed checks and failed overview refreshes are explicit. Loading the overview does not start a chat, create a sandbox, refresh credentials, or call a model.
 
 Connections are optional and require the reviewed OpenShell gateway setup. Enable `MITZO_CONNECTIONS_ENABLED=1` and configure the provider probe policies from [`infra/openshell/production.env.example`](infra/openshell/production.env.example). The [Connections acceptance guide](docs/connections-live-acceptance.md) lists the gateway requirements and checks to run before enabling providers in production.
 
-Open **More → Connections → Add connection** to choose a provider, enter its one-shot credential, review the exact scope, and assign eligible accounts. For GitHub, enter the repositories as `owner/repository` pairs and the allowed base branches. The GitHub sandbox provider remains read-only. Publishing a committed feature branch and creating or updating a pull request uses the separate `github.publish-pr` operation with an explicit approval. Set a controller-only `GH_TOKEN` or `GITHUB_TOKEN` to enable that operation; it is never injected into the sandbox. Custom REST is an advanced, bounded provider and remains unavailable until its reviewed gateway probe and DNS policy are configured.
+Open **More → Connections → Add connection** to choose **ChatGPT** or an available service. Service setup has three steps: **Connect** for credentials and account identity, **Access** for resources and eligible AI accounts, and **Review** before verification. Mitzo requests its passphrase when the final action needs authorization. A rejected or expired authorization preserves the transient credential; actual submission clears it. Successful setup returns to the inventory with the new service revealed. If verification saved a connection before failing, review that exact record rather than creating another; an uncertain response directs you to check Connections first. For GitHub, enter the repositories as `owner/repository` pairs and the allowed base branches. The GitHub sandbox provider remains read-only. Publishing a committed feature branch and creating or updating a pull request uses the separate `github.publish-pr` operation with an explicit approval. Set a controller-only `GH_TOKEN` or `GITHUB_TOKEN` to enable that operation; it is never injected into the sandbox. Custom REST is an advanced, bounded provider and remains unavailable until its reviewed gateway probe and DNS policy are configured.
 
-After a connection is verified, expand **Manage capability grants** on its card, select the assigned profiles allowed to request a reviewed capability, and save the grant. Reauthorization is required to save or revoke a grant. A grant permits a profile to request the action; each invocation still needs explicit approval and is recorded in the capability operation audit. The setup wizard enables no mutation capability on its own.
+After a connection is verified, open its management controls and expand **Manage approved actions**, select the assigned AI accounts allowed to request a reviewed capability, and save the grant. Reauthorization is required to save or revoke a grant. A grant permits a profile to request the action; each invocation still needs explicit approval and is recorded in the capability operation audit. The setup wizard enables no mutation capability on its own.
 
 For the existing Google Workspace provider, enable `MITZO_GOOGLE_WORKSPACE_MANAGEMENT_ENABLED=true` to show Google health and recovery controls in Connections. The controller must have `gws` installed with a working local Google sign-in. **Review Google account** shows that identity before **Reconnect Google** replaces the gateway's expired authorization. Both actions require recent Mitzo reauthorization. Credentials stay in the controller and encrypted gateway storage; the browser and chats receive only status and the reviewed account email. This recovery imports Drive and read-only Calendar consent; Gmail requires separate authorization. A revoked local Google grant must first be reauthorized through `gws`; this panel does not yet provide a new Google OAuth sign-in flow.
 
 The reviewed Google profile allows Slides reads, presentation creation, and `batchUpdate` edits while preserving read-only enforcement for Drive, Docs, Sheets, and Gmail. Apply the reviewed profile to OpenShell as part of rollout: rebuilding Mitzo does not update an already registered gateway profile. Token status is checked separately from attachment, so an expired or revoked grant is never shown as healthy merely because the provider is attached. See the [Google management CLI contract](docs/google-workspace-cli-contract.md) for the primary gateway response shapes and the separate owned-gateway requirements.
+
+Personal-account setup displays only the new saved slot, then offers its separate ChatGPT sign-in. Existing pending sign-ins remain reachable from setup; uncertain slot creation requires checking Connections before creating another.
 
 If the service template catalog is temporarily unavailable, existing connections remain manageable. You can test, revoke, or rotate their credentials; new connection setup resumes when the catalog is available again. Credential rotation uses nonsecret form metadata returned with each existing connection, so it does not depend on loading the setup catalog.
 
@@ -153,25 +168,28 @@ not activate a seat or satisfy the separate runtime admission gate. See the
 Ordinary chat send/interrupt routes cannot execute a configured Symposium, and
 converting an existing ordinary conversation requires stopping it first.
 
-Use **Add reviewer** in an existing conversation to choose a saved profile,
-account/model, and an explicit review package (objective, acceptance criteria,
-repository instructions, relevant diff/source, tests, and selected decisions).
-Independent review is the default and includes no earlier conversation. Optional
+Use **Add agent** in an existing conversation to define custom guidance, a role
+label, expected output and acceptance criteria without first saving a profile.
+Optionally load a saved profile revision as an editable copy of its guidance.
+Choose the account/model/thinking level and read-only or read/write permissions
+separately; profile guidance does not grant authority. Independent context is the
+default and includes no earlier conversation. Optional
 context choices are an operator-written summary, selected shared excerpts, or
 all proven shared excerpts. Only delivered broadcasts to every active member at
 creation are eligible; private asides, queued inputs, and legacy turns without
 audience proof are excluded. Edited deliveries contribute their delivered text.
-The three setup sections explain the reviewer profile/account, the request and
-conversation context, and sharing consent. After adding a reviewer, use **Go to
-review approvals** to open and refresh this conversation's team panel, including
-when it is already open. Requests appear before
-team configuration, with agent names and **Needs approval** or **Approved — ready
-to send** status. Choose **Approve** (or **Edit and approve**), then **Send approved
-request** to start the review. Use **Open review findings** for the results.
-The package is queued for approval, never automatically dispatched. **Queue
-message for approval** creates a follow-up for explicitly selected agents. Advanced
-context import is in a collapsed disclosure. Context source grants default to empty; a reference does not itself load conversation
-history. Shared workspace access remains governed by the read-only host grant.
+The package is queued for approval, never automatically dispatched. Approve,
+Send and Stop are available in the conversation. Stop applies to all recipients
+of the named delivery and stays available during sending or a failed status
+refresh. Uncertain sends are not automatically repeated; cancellation records
+do not establish physical provider cleanup. Context
+source grants default to empty; a reference does not itself load conversation
+history. Shared workspace access remains governed by the host-issued grant.
+
+Each agent has a stable color accent alongside its name. **All** is a read-only
+combined timeline; write in a named agent's stream. Type `@` or choose **Switch
+agent** to select a recipient and switch streams. Drafts stay with their agent,
+and recipient selection never dispatches a message automatically.
 
 Adding a reviewer can prepare a stopped ordinary conversation's isolated roster,
 but admission still requires the verified runtime. Roster changes revalidate
@@ -180,7 +198,8 @@ their membership generations or sandbox identity. A partially completed setup
 remains visible in Review team & approvals. Removing the last reviewer simplifies the
 composer while preserving durable membership history and isolated routing; it
 never switches the session back to ordinary execution. The development-only
-`ui-preview.html` includes read-only reviewer choices for visual checks.
+`ui-preview.html` includes isolated simulated Add agent and delivery controls for
+visual checks, with no model calls.
 
 Portable profiles save immutable revisions of guidance, expected output, and
 acceptance criteria. Select an exact revision for a seat, or export/import its
@@ -265,8 +284,11 @@ Interactive callers cannot submit fabricated findings, usage, or verification:
 the coordinator reads those facts from completed trusted host receipts.
 
 This interface is wired into the application, but native review/fix execution
-remains unavailable until a trusted adapter supplies enforced token budgets,
-terminal usage, structured results, and artifact-bound verification. The panel
+remains gated on trusted structured results, artifact-bound verification and
+persisted application limits for host turns, review cycles, deadlines, user stop,
+no progress and explicit continuation. Guaranteed native token/spend caps and
+mandatory final usage totals are deferred; missing usage stays explicitly partial
+or unknown. The panel
 reports the missing capability rather than falling back to ordinary chat. Mocked
 integration coverage establishes the workflow boundaries, not live production
 readiness. Reviewer and Claude admission require independent host attestation
@@ -279,7 +301,9 @@ writer/session/grant authority, and a mandatory completed host publication seal.
 It revalidates those bindings after approval and uses read-only recovery for an
 ambiguous external outcome. It is **not installed in the live host**: a pending
 seal intent or unfenced Git observation cannot satisfy its seal contract. Trusted
-hard-budget review execution and physical seal completion remain prerequisites.
+review execution under persisted application limits and physical seal completion
+remain prerequisites. Guaranteed native token/spend caps and mandatory final
+usage totals are deferred under the [current acceptance contract](docs/features/symposium-integrated-acceptance.md#application-policy-contract).
 
 ### Symposium OpenShell 0.1 per-seat runtime
 
@@ -301,6 +325,19 @@ Exact release receipts allow cleanup to finish after a crash without releasing a
 replacement lease. Cleanup uses the retained sandbox and original lease identity even
 after seat removal, suspension, or role changes; current authority is still required
 for new admission.
+
+Retained seal cleanup can reclaim a newly witnessed lifecycle fence only after
+its original process is absent in the same kernel boot and PID namespace. The
+transfer preserves the original token in a durable recovery record and keeps the
+seal's admission fence intact. Live or reused PIDs, unknown ownership, old fences
+without a process witness, and changed boot domains remain quarantined. This
+cleanup path does not restore a lost custodian or adopt its gateway.
+
+An authenticated `check-state` review action reports a quarantined semantic
+check's original operation, artifact binding and retained journal states. It
+preserves unknown container identities and witness availability for operator
+disposition. Reading this report leaves cleanup, execution and semantic evidence
+permissions closed.
 
 Production remains disabled by default. A trusted server bootstrap must install
 matching host attestation for the selected CLI, gateway, images, policy, provider
@@ -601,6 +638,12 @@ npm run lint         # eslint
 npm run format:check # prettier
 ```
 
+CI runs the full source test suite without compiled test copies. New PR commits
+cancel superseded code-validation runs; description edits rerun only the
+documentation gate. Browser and native checks follow their changed-file
+dependencies, with both checks retained for shared tooling, unknown paths,
+incomplete diffs, and every push to main.
+
 Production artifacts are staged with
 `./scripts/stage-openshell-release.sh <mgmt-repo> <new-seed-output>`. It requires
 clean Mitzo and MGMT checkouts at current `origin/main`, then builds and verifies
@@ -734,7 +777,7 @@ Symposium's [reusable reviewer profiles](docs/features/symposium.md#profiles-and
 
 Symposium account selection also includes [guided personal subscription login](docs/operations/symposium-owned-gateway.md#in-app-personal-account-setup), with explicit local/SSH callback preparation, phone guidance and credential-free login status receipts.
 
-Personal ChatGPT [device sign-in](docs/operations/symposium-device-auth.md) is available from **Connections → Personal ChatGPT accounts**
+Personal ChatGPT [device sign-in](docs/operations/symposium-device-auth.md) is available from **Connections → Add connection → ChatGPT** or an existing personal account’s management controls
 and Symposium reviewer setup. Enable device-code authentication in ChatGPT
 Settings → Security, request a code, then open OpenAI on the phone or computer.
 The running Mac host completes the connection; the UI shows verified account
@@ -834,8 +877,9 @@ required and remains unavailable in the current application.
 The [sealed publication service](docs/operations/symposium-sealed-publication-authority.md)
 binds an explicitly selected operator GitHub identity to a completed seal and forced
 Create PR approval. Explicit private credential references now enable operator selection
-and the completed-seal bridge in the review panel. Native hard-budget/final-usage review
-receipts and an authorized initial repository/base import remain prerequisites; this
+and the completed-seal bridge in the review panel. Trusted review receipts under
+persisted application limits and an authorized initial repository/base import
+remain prerequisites; this
 registration increment does not make fresh empty artifacts publishable.
 
 Dormant [pending native review evidence](docs/operations/symposium-review-attempt-staging.md)
@@ -844,6 +888,7 @@ stores immutable linkage and bounded untrusted findings without enabling dispatc
 Pending failed-seat cleanup supports [scoped fresh app reauthorization](docs/operations/symposium-native-create-receipts.md#fresh-app-authentication-for-a-pending-cleanup) in the Director UI and operator API while the original host retains custody. Authorization and cleanup require separate explicit actions; this does not provide restart recovery.
 
 - [Local Symposium custodian](docs/operations/symposium-local-custodian.md): optional fresh-fixture owner process survives app loss, fences epochs and drains exact workloads before explicit restoration; custodian death remains quarantined.
+- [Staging lifecycle](docs/operations/symposium-staging-lifecycle.md): use `scripts/start-staging-custodian.mjs` for registered fresh trials. Capacity and retention deadlines fence new launches; only the original owner's verified terminal retirement releases a slot. Legacy environments require separate ownership qualification and approval.
 
 [Selected Work Vertex provisioning](docs/operations/symposium-work-vertex.md) binds an explicit ADC snapshot and verified principal to a fresh gateway-owned provider. The reviewed native variant and retained owner require fresh provider readiness and a separately verified policy for each Vertex seat.
 
@@ -892,7 +937,9 @@ The optional Symposium custodian rejects ordinary OpenAI/Codex host fallback: co
 Supervised Symposium publication now retains configured publication credential references and
 uses the current browser permission queue through the custodian channel. It still requires a
 trusted review record, completed seal and explicit per-operation approval; this does not enable
-native trusted review dispatch without its separate budget and final-usage guarantees.
+native trusted review dispatch without its separate application-policy, artifact
+and account/model acceptance gates. Native token/spend caps and mandatory final
+usage totals are deferred; see the [current acceptance contract](docs/features/symposium-integrated-acceptance.md#application-policy-contract).
 
 An uncertain sealed publication can be verified after fresh app authentication while its original
 custodian and credential handle remain retained. The explicit exact-operation action performs
@@ -908,6 +955,18 @@ and immutable incremental export to iCloud Drive. It is not enabled in productio
 Live store fences, independent recovery keys, upload verification, scheduling and
 replacement-machine acceptance must be configured before claiming protection. See
 [the implementation and rollout contract](docs/operations/icloud-ecosystem-backup.md).
+
+### Canonical Symposium staging on macOS
+
+Symposium development targets the one persistent staging app at
+`http://mitzo-staging.localhost:3190`. Reuse that environment for conversations and
+seats rather than creating a backend/custodian per session. It currently runs
+ordinary main with providers disabled; Symposium activation requires the reviewed
+integration candidate and retained-owner configuration. Follow the
+[singleton staging contract](docs/operations/symposium-singleton-staging.md).
+For an accepted owned release, `scripts/prepare-staging-service.mjs ... 3190 --canonical` prepares the fixed `com.mitzo.staging` identity and rechecks the capacity-one registration at launch. Preparation does not activate it.
+The ordinary staging deployment controller cannot replace an active Symposium
+custodian; owned custody and original-owner drain must be qualified first.
 
 The Mitzo/Telos core capture binds the running event/task owners and canonical Telos
 owner, including DB-only relationships and saved artifact bytes. It validates all
@@ -932,3 +991,11 @@ Dependency security checks remain enabled. The Node-only `node-forge` RSA verifi
 Voice HTTP and WebSocket forwarding uses a fixed-route proxy without the recursive glob/brace parser. Raw audio bodies, path/query forwarding, TLS certificate verification and unavailable-service errors are covered by regression tests.
 
 Installs require Node 24 and npm 11.18.0 or newer so workspace security overrides are applied. CI and release creation select npm 11.18.0 explicitly; the Mac’s global npm is unchanged. MCP SDK, proxy address handling, source maps and KaTeX are updated to patched releases, and both root and standalone MCP-server audits pass without exceptions.
+
+### Canonical staging on the configured macOS host
+
+Reuse the singleton `com.mitzo.staging` service at `http://mitzo-staging.localhost:3190`.
+The [operating procedure](docs/operations/canonical-staging.md) describes integrity/freshness
+checks, exact-commit preparation, plan/apply updates, private audit/snapshots and uncertain
+shutdown handling. Staging operations keep production and retained diagnostic resources
+outside their scope; provider setup is separate.

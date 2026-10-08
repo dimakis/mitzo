@@ -9,12 +9,14 @@ vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
   query: vi.fn(),
   listSessions: vi.fn().mockResolvedValue([]),
   getSessionInfo: (...args: unknown[]) => mockGetSessionInfo(...args),
-  getSessionMessages: vi.fn().mockResolvedValue([]),
+  getSessionMessages: vi.fn().mockResolvedValue([{ type: 'user' }]),
   renameSession: vi.fn(),
 }));
 
 const mockEventStore = {
   upsertSession: mockUpsertSession,
+  getInternalSdkExecution: vi.fn().mockReturnValue(null),
+  isSessionHidden: vi.fn().mockReturnValue(false),
   getSession: mockGetSession,
   getKnownSessionIds: mockGetKnownSessionIds,
   listSessions: vi.fn().mockReturnValue([]),
@@ -40,20 +42,86 @@ vi.mock('@mitzo/protocol/event-store', () => ({
 }));
 
 vi.mock('../repo-config.js', () => ({
-  loadRepoConfig: vi.fn().mockReturnValue({ repos: {}, roots: [] }),
+  loadRepoConfig: vi
+    .fn()
+    .mockReturnValue({ repos: { configured: '/configured-sdk-history' }, roots: [] }),
 }));
 
 vi.mock('../mcp-config.js', () => ({
   loadMcpServers: vi.fn().mockReturnValue({}),
 }));
 
-beforeEach(() => {
+beforeEach(async () => {
   vi.clearAllMocks();
+  mockGetSession.mockReset();
+  mockGetSessionInfo.mockReset();
+  mockEventStore.getInternalSdkExecution.mockReset().mockReturnValue(null);
+  mockEventStore.isSessionHidden.mockReset().mockReturnValue(false);
+  const sdk = await import('@anthropic-ai/claude-agent-sdk');
+  vi.mocked(sdk.listSessions).mockReset().mockResolvedValue([]);
+  vi.mocked(sdk.getSessionMessages)
+    .mockReset()
+    .mockResolvedValue([{ type: 'user' }] as never);
   mockEventStore.getSessionEvents.mockReturnValue([]);
   mockEventStore.getSessionEventsThroughCursor.mockReturnValue([]);
 });
 
-describe('discoverSession', () => {
+describe('importSdkConversation', () => {
+  it('preserves an already registered active conversation without consulting provider history', async () => {
+    const active = {
+      sessionId: 'active-mitzo',
+      conversationSource: 'mitzo',
+      isActive: true,
+      summary: 'Controller title',
+      cwd: '/controller/worktree',
+      accountBinding: { accountId: 'selected-account', provider: 'anthropic' },
+    };
+    mockGetSession.mockReturnValue(active);
+    mockGetSessionInfo.mockResolvedValue({
+      sessionId: active.sessionId,
+      summary: 'Provider title',
+      cwd: '/provider/worktree',
+      lastModified: Date.now(),
+    });
+    const { importSdkConversation } = await import('../chat.js');
+    expect(await importSdkConversation(active.sessionId)).toBe(active);
+    expect(mockGetSessionInfo).not.toHaveBeenCalled();
+    expect(mockUpsertSession).not.toHaveBeenCalled();
+  });
+
+  it.each(['registered', 'hidden', 'internal'] as const)(
+    'does not adopt history whose ownership becomes %s while provider history is loading',
+    async (state) => {
+      const active = {
+        sessionId: 'racing-history',
+        conversationSource: 'mitzo',
+        isActive: true,
+        summary: 'Registered during provider lookup',
+      };
+      mockGetSession.mockReturnValue(null);
+      mockGetSessionInfo.mockResolvedValue({
+        sessionId: active.sessionId,
+        summary: 'External SDK title',
+        cwd: '/external/worktree',
+        lastModified: Date.now(),
+      });
+      const sdk = await import('@anthropic-ai/claude-agent-sdk');
+      vi.mocked(sdk.getSessionMessages).mockImplementation(async () => {
+        if (state === 'registered') mockGetSession.mockReturnValue(active);
+        if (state === 'hidden') mockEventStore.isSessionHidden.mockReturnValue(true);
+        if (state === 'internal')
+          mockEventStore.getInternalSdkExecution.mockReturnValue({ parentSessionId: 'parent' });
+        return [{ type: 'user' }] as never;
+      });
+      const { importSdkConversation } = await import('../chat.js');
+      expect(await importSdkConversation(active.sessionId)).toBe(
+        state === 'registered' ? active : null,
+      );
+      expect(sdk.getSessionMessages).toHaveBeenCalled();
+      expect(mockUpsertSession).not.toHaveBeenCalled();
+    },
+  );
+
   it('returns backfilled SessionMeta when SDK finds the session', async () => {
     mockGetSessionInfo.mockResolvedValue({
       sessionId: 'sess-orphan',
@@ -75,10 +143,10 @@ describe('discoverSession', () => {
       totalCostUsd: 0,
     });
 
-    const { discoverSession } = await import('../chat.js');
-    const result = await discoverSession('sess-orphan');
+    const { importSdkConversation } = await import('../chat.js');
+    const result = await importSdkConversation('sess-orphan');
 
-    expect(mockGetSessionInfo).toHaveBeenCalledWith('sess-orphan');
+    expect(mockGetSessionInfo).toHaveBeenCalledWith('sess-orphan', { dir: expect.any(String) });
     expect(mockUpsertSession).toHaveBeenCalledWith(
       expect.objectContaining({
         sessionId: 'sess-orphan',
@@ -90,13 +158,42 @@ describe('discoverSession', () => {
     expect(result!.sessionId).toBe('sess-orphan');
   });
 
+  it('does not backfill a title-only record as a conversation', async () => {
+    mockGetSessionInfo.mockResolvedValue({ sessionId: 'ghost', summary: 'Pricing inquiry' });
+    const sdk = await import('@anthropic-ai/claude-agent-sdk');
+    vi.mocked(sdk.getSessionMessages).mockResolvedValue([]);
+    const { importSdkConversation } = await import('../chat.js');
+    expect(await importSdkConversation('ghost')).toBeNull();
+    expect(mockUpsertSession).not.toHaveBeenCalled();
+  });
+
+  it('does not import an internal execution even if the SDK has a complete transcript', async () => {
+    mockEventStore.getInternalSdkExecution.mockReturnValueOnce({ parentSessionId: 'parent' });
+    mockGetSessionInfo.mockResolvedValue({ sessionId: 'helper', firstPrompt: 'Search prompt' });
+    const { importSdkConversation } = await import('../chat.js');
+    expect(await importSdkConversation('helper')).toBeNull();
+    expect(mockGetSessionInfo).not.toHaveBeenCalled();
+    expect(mockUpsertSession).not.toHaveBeenCalled();
+  });
+  it('requires actual history even when a stale SDK index advertises a first prompt', async () => {
+    mockGetSessionInfo.mockResolvedValue({
+      sessionId: 'stale-index',
+      firstPrompt: 'Old prompt',
+      lastModified: Date.now(),
+    });
+    const sdk = await import('@anthropic-ai/claude-agent-sdk');
+    vi.mocked(sdk.getSessionMessages).mockResolvedValue([]);
+    const { importSdkConversation } = await import('../chat.js');
+    expect(await importSdkConversation('stale-index')).toBeNull();
+    expect(mockUpsertSession).not.toHaveBeenCalled();
+  });
   it('returns null when SDK does not find the session', async () => {
     mockGetSessionInfo.mockResolvedValue(undefined);
 
-    const { discoverSession } = await import('../chat.js');
-    const result = await discoverSession('sess-gone');
+    const { importSdkConversation } = await import('../chat.js');
+    const result = await importSdkConversation('sess-gone');
 
-    expect(mockGetSessionInfo).toHaveBeenCalledWith('sess-gone');
+    expect(mockGetSessionInfo).toHaveBeenCalledWith('sess-gone', { dir: expect.any(String) });
     expect(mockUpsertSession).not.toHaveBeenCalled();
     expect(result).toBeNull();
   });
@@ -104,55 +201,30 @@ describe('discoverSession', () => {
   it('returns null and logs warning when SDK throws', async () => {
     mockGetSessionInfo.mockRejectedValue(new Error('SDK exploded'));
 
-    const { discoverSession } = await import('../chat.js');
-    const result = await discoverSession('sess-boom');
+    const { importSdkConversation } = await import('../chat.js');
+    const result = await importSdkConversation('sess-boom');
 
     expect(result).toBeNull();
     expect(mockUpsertSession).not.toHaveBeenCalled();
   });
 });
 
-describe('getSessions reconciliation', () => {
-  it('backfills EventStore for sessions the SDK knows but EventStore does not', async () => {
-    const mockListSessions = (await import('@anthropic-ai/claude-agent-sdk'))
-      .listSessions as ReturnType<typeof vi.fn>;
-    mockListSessions.mockResolvedValue([
+describe('registered conversation recovery', () => {
+  it('keeps unknown provider histories out of the chat registry', async () => {
+    const sdk = await import('@anthropic-ai/claude-agent-sdk');
+    vi.mocked(sdk.listSessions).mockResolvedValue([
       {
-        sessionId: 'sess-known',
-        summary: 'Known',
+        sessionId: 'external',
+        summary: 'External',
+        firstPrompt: 'Full transcript',
         lastModified: 1000,
-        cwd: '/projects/foo',
-        gitBranch: 'main',
-      },
-      {
-        sessionId: 'sess-orphan',
-        summary: 'Orphan',
-        lastModified: 2000,
-        cwd: '/projects/bar',
-        gitBranch: 'feat',
       },
     ]);
-    mockGetKnownSessionIds.mockReturnValue(new Set(['sess-known']));
-
+    mockGetSession.mockReturnValue(null);
+    mockEventStore.listSessions.mockReturnValue([]);
     const { getSessions } = await import('../chat.js');
-    const result = await getSessions();
-
-    expect(mockGetKnownSessionIds).toHaveBeenCalled();
-    expect(mockUpsertSession).toHaveBeenCalledTimes(1);
-    expect(mockUpsertSession).toHaveBeenCalledWith(
-      expect.objectContaining({
-        sessionId: 'sess-orphan',
-        summary: 'Orphan',
-        cwd: '/projects/bar',
-        branch: 'feat',
-        isActive: false,
-      }),
-    );
-
-    // Backfilled sessions should appear in the returned list
-    const ids = result.sessions.map((s: { id: string }) => s.id);
-    expect(ids).toContain('sess-orphan');
-    expect(ids).toContain('sess-known');
+    expect((await getSessions()).sessions).toEqual([]);
+    expect(mockUpsertSession).not.toHaveBeenCalled();
   });
 });
 

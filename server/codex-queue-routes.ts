@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { z } from 'zod';
 import type { AccountBinding } from '@mitzo/protocol';
 import type { CodexConversationStore } from './codex-conversation-store.js';
 
@@ -20,6 +21,18 @@ interface Dependencies {
   ): Promise<
     'queued' | 'not_found' | 'unavailable' | 'too_early' | 'not_retryable' | 'confirmation_required'
   >;
+  capacityRetry?(
+    sessionId: string,
+    binding: AccountBinding,
+    recoveryId: string,
+    sourceCommandId: string,
+  ): Promise<'queued' | 'unavailable'>;
+  capacityStop?(
+    sessionId: string,
+    binding: AccountBinding,
+    recoveryId: string,
+    sourceCommandId: string,
+  ): Promise<'stopped' | 'unavailable'>;
   reattach(
     sessionId: string,
     binding: AccountBinding,
@@ -40,6 +53,46 @@ export function createCodexQueueRouter(deps: Dependencies) {
       res.status(409).json({ error: 'Cannot read this queue. Check the conversation account.' });
     }
   });
+  for (const [path, method] of [
+    ['capacity-retry', 'capacityRetry'],
+    ['capacity-stop', 'capacityStop'],
+  ] as const) {
+    router.post(`/:id/codex-queue/${path}`, async (req, res) => {
+      const binding = deps.binding(req.params.id);
+      if (!binding) {
+        res.status(404).json({ error: 'Codex conversation not found' });
+        return;
+      }
+      const parsed = z
+        .object({ recoveryId: z.string().uuid(), sourceCommandId: z.string().min(1).max(200) })
+        .strict()
+        .safeParse(req.body);
+      if (!parsed.success) {
+        res.status(400).json({ error: 'A valid saved recovery identity is required.' });
+        return;
+      }
+      try {
+        const operation = deps[method];
+        const status = operation
+          ? await operation(
+              req.params.id,
+              binding,
+              parsed.data.recoveryId,
+              parsed.data.sourceCommandId,
+            )
+          : 'unavailable';
+        if (status === 'unavailable') {
+          res.status(409).json({ error: 'Reconnect this task before continuing saved work.' });
+          return;
+        }
+        res.json({ ok: true, status });
+      } catch {
+        res
+          .status(409)
+          .json({ error: 'This recovery is no longer available. Refresh the saved work status.' });
+      }
+    });
+  }
   router.post('/:id/codex-queue/retry', async (req, res) => {
     const binding = deps.binding(req.params.id);
     if (!binding) {

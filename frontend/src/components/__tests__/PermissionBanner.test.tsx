@@ -232,6 +232,29 @@ describe('PermissionBanner', () => {
     expect(onRespond).toHaveBeenCalledWith('p1', 'once', 'GrantIntegrationAccess');
   });
 
+  it('describes session search consent with its account, model and website limits', () => {
+    const onRespond = vi.fn();
+    render(
+      <PermissionBanner
+        {...defaultProps}
+        toolName="RequestWebAccess"
+        approvalScope="session"
+        toolInput={JSON.stringify({ operation: 'search', query: 'Pricing' })}
+        onRespond={onRespond}
+      />,
+    );
+    expect(
+      screen.getByText(
+        'Allow searches on this account and model until the session ends. Website access stays separate.',
+      ),
+    ).toBeTruthy();
+    expect(
+      screen.queryByText('Session allowance covers this tool until the task ends.'),
+    ).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Allow for session' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Allow searches for this session' }));
+    expect(onRespond).toHaveBeenCalledWith('p1', 'always', 'RequestWebAccess');
+  });
   it('offers only a one-time approval for exact web requests', () => {
     render(
       <PermissionBanner {...defaultProps} toolName="RequestWebAccess" approvalScope="request" />,

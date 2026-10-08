@@ -567,3 +567,19 @@ describe('ChatArea', () => {
     expect(el.scrollTop).toBe(600);
   });
 });
+
+it('keeps additional delivery cards inside the transcript scroll container', () => {
+  render(
+    <ChatArea
+      messages={[]}
+      current={null}
+      running={false}
+      permission={null}
+      onPermissionRespond={() => {}}
+      afterMessages={<section aria-label="Delivery history">Expanded receipt</section>}
+    />,
+  );
+  expect(
+    screen.getByRole('region', { name: 'Delivery history' }).closest('.chat-messages'),
+  ).toBeTruthy();
+});

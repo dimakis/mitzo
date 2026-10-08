@@ -16,20 +16,8 @@ export type SeatProfileSeed = {
   role: string;
   profileBinding?: { profileId: string; profileRevision: string };
 };
-const roles: SymposiumProfileDefinition['role'][] = [
-  'planner',
-  'architect',
-  'coder',
-  'reviewer',
-  'research',
-  'synthesis',
-];
 const roleForSeat = (role: string): SymposiumProfileDefinition['role'] =>
-  role === 'implementer' || role === 'coder'
-    ? 'coder'
-    : roles.includes(role as SymposiumProfileDefinition['role'])
-      ? (role as SymposiumProfileDefinition['role'])
-      : 'synthesis';
+  role === 'implementer' ? 'coder' : role;
 const seedDefinition = (seat: SeatProfileSeed): SymposiumProfileDefinition => ({
   name: seat.name,
   role: roleForSeat(seat.role),
@@ -213,18 +201,12 @@ function ProposalEditor({
       </label>
       <label>
         Role
-        <select
+        <input
           value={definition.role}
-          onChange={(event) =>
-            update('role', event.target.value as SymposiumProfileDefinition['role'])
-          }
-        >
-          {roles.map((role) => (
-            <option key={role} value={role}>
-              {role}
-            </option>
-          ))}
-        </select>
+          onChange={(event) => update('role', event.target.value)}
+          pattern="[a-z][a-z0-9_-]{0,63}"
+          placeholder="agent, reviewer, writer…"
+        />
       </label>
       <label>
         Instructions
@@ -274,6 +256,7 @@ function ProposalEditor({
           busy ||
           !catalog ||
           !profileId.trim() ||
+          !/^[a-z][a-z0-9_-]{0,63}$/.test(definition.role) ||
           !definition.instructions.trim() ||
           !definition.expectedOutput.trim() ||
           definition.acceptanceCriteria.length === 0 ||

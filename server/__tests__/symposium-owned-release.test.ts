@@ -1,5 +1,16 @@
 import { execFileSync } from 'node:child_process';
-import { afterEach, expect, it } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
+const operator = vi.hoisted(() => ({ home: undefined as string | undefined }));
+vi.mock('node:os', async (load) => {
+  const actual = await load<typeof import('node:os')>();
+  return {
+    ...actual,
+    userInfo: () => ({
+      ...actual.userInfo(),
+      ...(operator.home ? { homedir: operator.home } : {}),
+    }),
+  };
+});
 import {
   realpathSync,
   mkdtempSync,
@@ -11,6 +22,7 @@ import {
   linkSync,
   chmodSync,
   readFileSync,
+  renameSync,
 } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -18,14 +30,18 @@ import { createHash } from 'node:crypto';
 import {
   prepareOwnedRelease,
   verifyOwnedRelease,
+  verifyRetainedOwnedRelease,
   claimOwnedLaunch,
   renderOwnedPlist,
 } from '../symposium-owned-release.js';
 import { REVIEWED_SYMPOSIUM_CLAUDE_RUNTIME as reviewed } from '../symposium-owned-runtime-contract.js';
 const roots: string[] = [];
-afterEach(() => roots.splice(0).forEach((root) => rmSync(root, { recursive: true, force: true })));
+afterEach(() => {
+  operator.home = undefined;
+  roots.splice(0).forEach((root) => rmSync(root, { recursive: true, force: true }));
+});
 const hash = (v: string) => createHash('sha256').update(v).digest('hex');
-function fixture() {
+function fixture(template = false) {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'owned-release-')));
   roots.push(root);
   for (const p of [
@@ -91,6 +107,7 @@ function fixture() {
   git(['init', '-q']);
   git(['config', 'user.name', 'Offline']);
   git(['config', 'user.email', 'offline@example.invalid']);
+  if (template) writeFileSync(join(root, 'release/.env.example'), 'PUBLIC_TEMPLATE=value\n');
   git(['add', '.']);
   git(['-c', 'commit.gpgsign=false', 'commit', '-qm', 'fixture']);
   const head = git(['rev-parse', 'HEAD']),
@@ -466,3 +483,64 @@ it.each(['tls', 'jwt'] as const)(
     expect(observed).toEqual([]);
   },
 );
+
+it('checks immutable retained inputs while allowing owned state to develop without granting a fresh launch', () => {
+  const f = fixture();
+  const plan = prepareOwnedRelease(f.input, f.digest);
+  writeFileSync(join(f.input.repositoryPath, 'task.txt'), 'owned task');
+  writeFileSync(join(f.config.gateway.stateParent, 'gateway.db'), 'owned state');
+  writeFileSync(f.config.attestationPath, 'runtime evidence');
+  expect(() => verifyOwnedRelease(plan, f.digest)).toThrow();
+  expect(() => verifyRetainedOwnedRelease(plan, f.digest)).not.toThrow();
+  writeFileSync(f.config.runtime.policy, 'drift');
+  expect(() => verifyRetainedOwnedRelease(plan, f.digest)).toThrow();
+});
+
+it('accepts the tracked unchanged public dotenv example, never an untracked or edited lookalike', () => {
+  const f = fixture(true);
+  expect(() => prepareOwnedRelease(f.input, f.digest)).not.toThrow();
+  writeFileSync(join(f.input.releaseRoot, '.env.example'), 'edited-template');
+  expect(() => prepareOwnedRelease(f.input, f.digest)).toThrow();
+  const untracked = fixture();
+  writeFileSync(join(untracked.input.releaseRoot, '.env.example'), 'private-untracked');
+  expect(() => prepareOwnedRelease(untracked.input, untracked.digest)).toThrow();
+});
+
+it('refuses dotenv templates hidden by index flags or hard-linked to private files', () => {
+  const hidden = fixture(true);
+  execFileSync('git', ['update-index', '--skip-worktree', '.env.example'], {
+    cwd: hidden.input.releaseRoot,
+  });
+  expect(() => prepareOwnedRelease(hidden.input, hidden.digest)).toThrow();
+  const aliased = fixture(true);
+  unlinkSync(join(aliased.input.releaseRoot, '.env.example'));
+  linkSync(aliased.config.gateway.tls.serverKey, join(aliased.input.releaseRoot, '.env.example'));
+  expect(() => prepareOwnedRelease(aliased.input, aliased.digest)).toThrow();
+});
+
+it('requires and preserves an independently selected baseline through canonical preparation and retained verification', () => {
+  const f = fixture();
+  operator.home = f.root;
+  const git = (args: string[]) =>
+    execFileSync('git', args, { cwd: f.input.releaseRoot, encoding: 'utf8' }).trim();
+  const baseline = git(['rev-parse', 'HEAD']);
+  git(['remote', 'add', 'origin', 'https://github.com/dimakis/mitzo.git']);
+  const releases = join(f.root, '.local/share/mitzo-staging/releases');
+  mkdirSync(releases, { recursive: true, mode: 0o700 });
+  const release = join(releases, baseline.slice(0, 12));
+  renameSync(f.input.releaseRoot, release);
+  // Fixture workspace links were absolute; preserve their intended release-local targets.
+  for (const pkg of ['protocol', 'harness', 'client']) {
+    const link = join(release, 'node_modules/@mitzo', pkg);
+    unlinkSync(link);
+    symlinkSync(join(release, 'packages', pkg), link);
+  }
+  const input = { ...f.input, releaseRoot: release };
+  expect(() => prepareOwnedRelease(input, f.digest)).toThrow();
+  const plan = prepareOwnedRelease({ ...input, acceptedMainBaseline: baseline }, f.digest);
+  expect(plan.acceptedMainBaseline).toBe(baseline);
+  expect(() => verifyOwnedRelease(plan, f.digest)).not.toThrow();
+  expect(() =>
+    verifyRetainedOwnedRelease({ ...plan, acceptedMainBaseline: 'a'.repeat(40) }, f.digest),
+  ).toThrow();
+});

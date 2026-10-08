@@ -762,6 +762,17 @@ describe('session routes', () => {
     expect(res.status).toBe(401);
   });
 
+  it('does not expose raw events for an unregistered conversation', async () => {
+    const { eventStore } = await import('../chat.js');
+    const reader = vi.mocked(eventStore.getEventsAfter);
+    reader.mockClear();
+    const res = await request(app)
+      .get('/api/sessions/unregistered/events?after=0')
+      .set('Cookie', authCookie);
+    expect(res.status).toBe(404);
+    expect(reader).not.toHaveBeenCalled();
+  });
+
   it('GET /api/sessions/:id/meta — returns session metadata', async () => {
     const res = await request(app).get('/api/sessions/s1/meta').set('Cookie', authCookie);
     expect(res.status).toBe(200);
@@ -1779,6 +1790,23 @@ describe('mounted personal device login ownership', () => {
       1,
       expect.any(Function),
     );
+    for (const [status, code] of [
+      ['failed', 422],
+      ['reconciliation_required', 409],
+    ] as const) {
+      personalConnections.discoverModels.mockResolvedValueOnce({
+        status,
+        inference: false,
+        models: [],
+      });
+      const failedDiscovery = await request(app)
+        .post(endpoint)
+        .set('Cookie', first)
+        .send({ expectedRevision: 1 });
+      expect(failedDiscovery.status).toBe(code);
+      expect(failedDiscovery.body).toMatchObject({ status, inference: false });
+      expect(failedDiscovery.headers['cache-control']).toBe('no-store');
+    }
     personalConnections.discoverModels.mockRejectedValueOnce(new Error('private token'));
     const rejectedDiscovery = await request(app)
       .post(endpoint)

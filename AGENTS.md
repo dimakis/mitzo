@@ -2,6 +2,10 @@
 
 Read `CLAUDE.md` for repository commands, architecture, test discipline, and workflow. Preserve other sessions' branches, task files, provider history, and sandbox ownership.
 
+## Canonical staging
+
+For live Mitzo testing on the configured macOS host, reuse `http://mitzo-staging.localhost:3190` and `com.mitzo.staging`. Read [the operating procedure](docs/operations/canonical-staging.md) and run `~/.local/share/mitzo-staging/bin/mitzo-staging check` first. Do not create additional staging backends, custodians or background previews, borrow production configuration, or use production as a test fallback. Staging changes use the audited exact-commit plan/apply command; a lock or uncertain drain requires investigation, never forced restart or automatic rollback. Provider setup and retained diagnostic resources remain separate. Production deployment is a separate explicit user action.
+
 ## Required merge gate
 
 Green CI is insufficient to merge. Require Centaur's final LGTM and `merge` recommendation for the exact current PR head, with zero new or unresolved blocking findings. Missing, stale, dismissed, `fix`, and `human_decision` reviews block merge. Pushing a fix does not verify it. If the automatic review limit is reached, request an explicit final Centaur review. Recheck after every push, and use `--match-head-commit` when merging. Never bypass the gate with an admin merge. MGMT provides `python -m mgmt_lib.pr_merge_gate OWNER/REPO NUMBER [--merge]` for this check.
@@ -21,3 +25,7 @@ Host configuration selects the knowledge store and pinned format adapter. Contex
 Enrolled ordinary OpenShell Codex chats refresh knowledge before sandbox creation and before each safe turn. An active turn keeps its selected version. Use the published knowledge root supplied in application context for shared instructions and retrieval; it supersedes older accepted knowledge copied into the writable task checkout. Keep edits and observations in the task workspace and submit them through the store's normal acceptance process. A local commit must reach the configured accepted remote ref before other chats can select it.
 
 Publication preserves task branches, dirty worktrees, checkpoints and provider history. Do not pull, reset or rebase task roots to refresh shared knowledge. Selection is not delivery: an adoption receipt is recorded only after the provider acknowledges the exact turn and context, including source, bundle, sandbox and runtime identities. Missing configuration retains legacy behavior; incompatible runtime/publication or failed reconciliation blocks enrolled admission. Host, Responses, Claude and Symposium enrollment require separate implementation. See `docs/operations/mgmt-knowledge-publication.md` for configuration and rollout.
+
+## Canonical Symposium staging
+
+Use the existing staging URL http://mitzo-staging.localhost:3190 and private root ~/.local/share/mitzo-staging. Do not create a staging backend/custodian for each conversation. Read docs/operations/symposium-singleton-staging.md before preparing activation; the current ordinary stage is not yet Symposium-ready. Provider configuration, source acceptance and retained original-owner shutdown remain required. Production is excluded.

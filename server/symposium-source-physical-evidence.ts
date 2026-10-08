@@ -26,7 +26,15 @@ export async function assertSourceVolume(input: {
   )
     throw Error('Source volume ownership changed');
   const rows: unknown = JSON.parse(
-    await command(['ps', '--all', '--no-trunc', '--format', 'json']),
+    await command([
+      'ps',
+      '--all',
+      '--no-trunc',
+      '--filter',
+      `volume=${mapping.volumeName}`,
+      '--format',
+      'json',
+    ]),
   );
   if (
     !Array.isArray(rows) ||
@@ -43,6 +51,10 @@ export async function assertSourceVolume(input: {
       detail.length !== 1 ||
       detail[0].Id !== id ||
       !Array.isArray(detail[0].Mounts) ||
+      !detail[0].Mounts.some(
+        (mount: { Type?: string; Name?: string }) =>
+          mount.Type === 'volume' && mount.Name === mapping.volumeName,
+      ) ||
       detail[0].Mounts.some(
         (mount: { Type?: string; Name?: string }) =>
           !mount.Type ||

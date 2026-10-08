@@ -1,3 +1,5 @@
+import { userInfo } from 'node:os';
+import { assertCanonicalOwnedSource } from './symposium-canonical-source.js';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 /** Static release preparation only. Never imports the host/bootstrap/auth owners. */
@@ -16,6 +18,7 @@ import {
 } from 'node:fs';
 import { dirname, isAbsolute, join, relative } from 'node:path';
 import { OwnedSymposiumConfigSchema } from './symposium-owned-config-schema.js';
+import { reviewedStagingOwnedRuntime } from './symposium-staging-runtime-contract.js';
 import { reviewedSymposiumOwnedRuntime } from './symposium-owned-runtime-contract.js';
 const sha = (value: Buffer | string) => createHash('sha256').update(value).digest('hex');
 function fail(): never {
@@ -144,6 +147,9 @@ function verifyCompiledResolution(root: string) {
   }
 }
 export interface OwnedReleaseInput {
+  /** Independently selected accepted baseline; required for canonical releases.
+   * Never populate this from editable release.txt. Retained plans preserve the pin. */
+  acceptedMainBaseline?: string;
   releaseRoot: string;
   configPath: string;
   repositoryPath: string;
@@ -159,40 +165,95 @@ export interface OwnedReleasePlan extends OwnedReleaseInput {
   sourceTree: string;
   buildSha256: string;
   inputsSha256: string;
-  runtime: ReturnType<typeof reviewedSymposiumOwnedRuntime>['build'];
+  runtime: ReturnType<typeof reviewedStagingOwnedRuntime>['build'];
   admissionVerified: false;
 }
-function inspect(input: OwnedReleaseInput, digest: (path: string) => string) {
+function inspect(input: OwnedReleaseInput, digest: (path: string) => string, fresh = true) {
   pathMetadata(input.releaseRoot, true);
   if (
-    readdirSync(input.releaseRoot).some((name) => name.startsWith('.env')) ||
+    readdirSync(input.releaseRoot).some(
+      (name) => name.startsWith('.env') && name !== '.env.example',
+    ) ||
     entryExists(join(input.releaseRoot, 'certs'))
   )
     fail();
+  if (entryExists(join(input.releaseRoot, '.env.example'))) {
+    const template = lstatSync(join(input.releaseRoot, '.env.example'));
+    // Metadata only: never read a private alias as a public template. The source
+    // guard below checks tracked content; hidden index flags cannot exempt it.
+    if (!template.isFile() || template.isSymbolicLink() || template.nlink !== 1) fail();
+    let tracked: string;
+    try {
+      tracked = execFileSync(
+        '/usr/bin/git',
+        [
+          '-c',
+          'core.fsmonitor=false',
+          '-c',
+          'core.hooksPath=/dev/null',
+          'ls-files',
+          '-v',
+          '--error-unmatch',
+          '--',
+          '.env.example',
+        ],
+        {
+          cwd: input.releaseRoot,
+          encoding: 'utf8',
+          timeout: 15000,
+          maxBuffer: 65536,
+          env: {
+            PATH: '/usr/bin:/bin',
+            HOME: input.planDirectory,
+            GIT_CONFIG_NOSYSTEM: '1',
+            GIT_CONFIG_GLOBAL: '/dev/null',
+          },
+          stdio: ['ignore', 'pipe', 'pipe'],
+        },
+      ).trim();
+    } catch {
+      fail();
+    }
+    if (tracked !== 'H .env.example') fail();
+  }
   pathMetadata(input.planDirectory, true, true);
   pathMetadata(input.repositoryPath, true, true);
   pathMetadata(input.configPath, false, true);
-  if (readdirSync(input.repositoryPath).length) fail();
-  const sourceGuard = execFileSync(
-    '/bin/bash',
-    [join(input.releaseRoot, 'scripts/assert-deployable.sh'), '--offline'],
-    {
-      encoding: 'utf8',
-      timeout: 15000,
-      maxBuffer: 65536,
-      env: {
-        PATH: '/usr/bin:/bin',
-        HOME: input.planDirectory,
-        GIT_CONFIG_NOSYSTEM: '1',
-        GIT_CONFIG_GLOBAL: '/dev/null',
+  if (fresh && readdirSync(input.repositoryPath).length) fail();
+  const canonicalRoot = join(userInfo().homedir, '.local/share/mitzo-staging');
+  let sourceCommit: string | undefined, sourceTree: string | undefined;
+  const canonicalRelease =
+    input.releaseRoot.startsWith(join(canonicalRoot, 'releases') + '/') &&
+    /^[a-f0-9]{12}$/.test(relative(join(canonicalRoot, 'releases'), input.releaseRoot));
+  if (canonicalRelease) {
+    if (!input.acceptedMainBaseline) fail();
+    ({ sourceCommit, sourceTree } = assertCanonicalOwnedSource(
+      input.releaseRoot,
+      canonicalRoot,
+      input.acceptedMainBaseline,
+    ));
+  } else {
+    const sourceGuard = execFileSync(
+      '/bin/bash',
+      [join(input.releaseRoot, 'scripts/assert-deployable.sh'), '--offline'],
+      {
+        encoding: 'utf8',
+        timeout: 15000,
+        maxBuffer: 65536,
+        env: {
+          PATH: '/usr/bin:/bin',
+          HOME: input.planDirectory,
+          GIT_CONFIG_NOSYSTEM: '1',
+          GIT_CONFIG_GLOBAL: '/dev/null',
+        },
+        stdio: ['ignore', 'pipe', 'pipe'],
       },
-      stdio: ['ignore', 'pipe', 'pipe'],
-    },
-  );
-  const sourceCommit = /^DEPLOYMENT_COMMIT=([a-f0-9]{40})$/m.exec(sourceGuard)?.[1];
-  const sourceTree = /^source_tree=([a-f0-9]{40})$/m.exec(
-    bytes(join(input.releaseRoot, 'release.txt'), 65536).toString('utf8'),
-  )?.[1];
+    );
+    sourceCommit = /^DEPLOYMENT_COMMIT=([a-f0-9]{40})$/m.exec(sourceGuard)?.[1];
+    sourceTree = /^source_tree=([a-f0-9]{40})$/m.exec(
+      bytes(join(input.releaseRoot, 'release.txt'), 65536).toString('utf8'),
+    )?.[1];
+  }
   if (!sourceCommit || !sourceTree) fail();
   const raw = bytes(input.configPath, 1024 * 1024),
     config = OwnedSymposiumConfigSchema.parse(JSON.parse(raw.toString('utf8')));
@@ -245,7 +306,9 @@ function inspect(input: OwnedReleaseInput, digest: (path: string) => string) {
     mutableDirectories.some((path) => overlaps(config.runtime.seed, path))
   )
     fail();
-  const reviewed = reviewedSymposiumOwnedRuntime(config.gateway.workloadImage).build;
+  const reviewed = (canonicalRelease ? reviewedStagingOwnedRuntime : reviewedSymposiumOwnedRuntime)(
+    config.gateway.workloadImage,
+  ).build;
   if (
     config.gateway.cliSha256 !== reviewed.cliSha256 ||
     config.gateway.executableSha256 !== reviewed.gatewaySha256 ||
@@ -257,13 +320,13 @@ function inspect(input: OwnedReleaseInput, digest: (path: string) => string) {
     fail();
   if (
     config.artifacts.length ||
-    entryExists(config.attestationPath) ||
+    (fresh && entryExists(config.attestationPath)) ||
     !config.runtime.createDetached ||
     config.runtime.sandboxIdLength !== 13
   )
     fail();
   pathMetadata(config.gateway.stateParent, true, true);
-  if (readdirSync(config.gateway.stateParent).length) fail();
+  if (fresh && readdirSync(config.gateway.stateParent).length) fail();
   pathMetadata(config.podman.environment.HOME, true, true);
   for (const path of [...Object.values(config.gateway.tls), ...Object.values(config.gateway.jwt)])
     pathMetadata(path, false, true);
@@ -339,7 +402,11 @@ export function prepareOwnedRelease(
     admissionVerified: false,
   };
 }
-export function verifyOwnedRelease(plan: OwnedReleasePlan, digest = fileDigest): void {
+function verifyRelease(
+  plan: OwnedReleasePlan,
+  digest: (path: string) => string,
+  fresh: boolean,
+): void {
   if (
     plan.schemaVersion !== 1 ||
     plan.mode !== 'owned-custodian' ||
@@ -347,7 +414,7 @@ export function verifyOwnedRelease(plan: OwnedReleasePlan, digest = fileDigest):
     plan.admissionVerified !== false
   )
     fail();
-  const actual = inspect(plan, digest);
+  const actual = inspect(plan, digest, fresh);
   const accounts = join(plan.planDirectory, 'empty-accounts.json');
   pathMetadata(accounts, false, true);
   if (bytes(accounts, 16).toString('utf8') !== '[]\n') fail();
@@ -362,6 +429,15 @@ export function verifyOwnedRelease(plan: OwnedReleasePlan, digest = fileDigest):
     'runtime',
   ] as const)
     if (JSON.stringify(plan[key]) !== JSON.stringify(actual[key])) fail();
+}
+/** Fresh launch keeps the original empty-state checks. */
+export function verifyOwnedRelease(plan: OwnedReleasePlan, digest = fileDigest): void {
+  verifyRelease(plan, digest, true);
+}
+/** Read-only immutable input verification for the already retained owner.
+ * This does not admit a new launch or reconstruct native capabilities. */
+export function verifyRetainedOwnedRelease(plan: OwnedReleasePlan, digest = fileDigest): void {
+  verifyRelease(plan, digest, false);
 }
 export function claimOwnedLaunch(plan: OwnedReleasePlan, digest = fileDigest) {
   verifyOwnedRelease(plan, digest);

@@ -1,13 +1,16 @@
 import Database from 'better-sqlite3';
 import type { ArtifactInitializerReceipt } from './symposium-artifact-initializer.js';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import type { ArtifactVolumeEvidence } from './symposium-artifact-lease.js';
 export type SessionArtifactMapping = {
   sessionId: string;
   volumeName: string;
   volumeGeneration: string;
 };
-export type SessionArtifactPreparation = { state: 'ready' | 'pending' | 'recovery_required' };
+export type SessionArtifactPreparation = {
+  state: 'ready' | 'pending' | 'recovery_required';
+  nextAction?: 'operator_reconcile_retained_artifact';
+};
 const id = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/;
 export function artifactVolumeLabels(
   workspace: string,
@@ -48,6 +51,7 @@ type Row = {
   initialization_contract: string | null;
   admission_issued: number;
   source_import_json: string | null;
+  source_seal_json: string | null;
   initializer_name: string | null;
   initializer_id: string | null;
   initializer_removed: number;
@@ -84,6 +88,10 @@ export class SymposiumSessionArtifacts {
    session_id TEXT PRIMARY KEY, workspace TEXT NOT NULL, custody TEXT NOT NULL,
    volume_name TEXT NOT NULL UNIQUE, generation TEXT NOT NULL, revision INTEGER NOT NULL DEFAULT 0, state TEXT NOT NULL
    CHECK(state IN ('reserved','creating','ready','uncertain','quarantined')))`);
+    this.db.exec(`CREATE TABLE IF NOT EXISTS symposium_source_seal_exports (
+      session_id TEXT PRIMARY KEY, operation_id TEXT NOT NULL,
+      receipt_json TEXT NOT NULL, bundle BLOB NOT NULL
+    )`);
     const columns = this.db.pragma('table_info(symposium_session_artifacts)') as { name: string }[];
     if (!columns.some((column) => column.name === 'initialization_contract'))
       this.db.exec(
@@ -101,6 +109,7 @@ export class SymposiumSessionArtifacts {
     for (const [name, definition] of [
       ['admission_issued', 'INTEGER NOT NULL DEFAULT 1'],
       ['source_import_json', 'TEXT'],
+      ['source_seal_json', 'TEXT'],
     ]) {
       if (!columns.some((column) => column.name === name))
         this.db.exec(`ALTER TABLE symposium_session_artifacts ADD COLUMN ${name} ${definition}`);
@@ -162,7 +171,257 @@ export class SymposiumSessionArtifacts {
       admissionIssued: !!row.admission_issued,
       volumeGeneration: row.generation,
       receipt: source?.receipt ?? null,
+      sourceSeal: row.source_seal_json ? JSON.parse(row.source_seal_json) : null,
     };
+  }
+  /** Persist a permanent pre-admission fence before physical source verification.
+   * A pending attempt is never reconstructed from a later clean volume inspection. */
+  beginSourceSeal(sessionId: string, operationId: string) {
+    if (!/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/.test(operationId))
+      throw new Error('Invalid source seal operation');
+    return this.db
+      .transaction(() => {
+        const row = this.read(sessionId);
+        if (!row) throw new Error('Source seal mapping unavailable');
+        this.assertOwner(row);
+        const existing = row.source_seal_json ? JSON.parse(row.source_seal_json) : null;
+        if (existing) {
+          if (existing.operationId !== operationId)
+            throw new Error('source seal operation changed');
+          return existing;
+        }
+        const source = row.source_import_json ? JSON.parse(row.source_import_json) : null;
+        const receipt = source?.receipt;
+        if (
+          row.admission_issued ||
+          !this.getReady(sessionId) ||
+          !receipt ||
+          receipt.git?.version !== 1 ||
+          receipt.git.commit !== receipt.commit ||
+          receipt.git.tree !== receipt.tree ||
+          receipt.git.entries !== receipt.files ||
+          receipt.git.bytes !== receipt.bytes ||
+          !/^[a-f0-9]{64}$/.test(receipt.git.manifestDigest) ||
+          !/^[a-f0-9]{64}$/.test(receipt.git.committedTreeDigest) ||
+          receipt.terminal?.exitCode !== 0 ||
+          !/^[a-f0-9]{64}$/.test(receipt.terminal.helperId)
+        )
+          throw new Error('Source seal requires exact imported, unadmitted Git proof');
+        const pending = {
+          version: 1 as const,
+          state: 'pending' as const,
+          sessionId,
+          operationId,
+          workspace: row.workspace,
+          custody: row.custody,
+          volumeName: row.volume_name,
+          volumeGeneration: row.generation,
+          sourceReceipt: receipt,
+        };
+        this.db
+          .prepare(
+            'UPDATE symposium_session_artifacts SET source_seal_json=?,revision=revision+1 WHERE session_id=?',
+          )
+          .run(JSON.stringify(pending), sessionId);
+        return pending;
+      })
+      .immediate();
+  }
+  sourceSealStatus(sessionId: string) {
+    const row = this.read(sessionId);
+    if (!row) return null;
+    this.assertOwner(row);
+    return row.source_seal_json ? JSON.parse(row.source_seal_json) : null;
+  }
+  private updateSourceSeal(
+    sessionId: string,
+    operationId: string,
+    update: (value: Record<string, unknown>) => void,
+  ) {
+    this.db
+      .transaction(() => {
+        const row = this.read(sessionId);
+        if (!row) throw new Error('source seal mapping unavailable');
+        this.assertOwner(row);
+        const value = row.source_seal_json ? JSON.parse(row.source_seal_json) : null;
+        if (!value || value.operationId !== operationId || value.state !== 'pending')
+          throw new Error('source seal helper claim changed');
+        update(value);
+        this.db
+          .prepare('UPDATE symposium_session_artifacts SET source_seal_json=? WHERE session_id=?')
+          .run(JSON.stringify(value), sessionId);
+      })
+      .immediate();
+  }
+  sourceSealHelperReceipt(sessionId: string, operationId: string) {
+    return {
+      verifier: (image: string, codeDigest: string) =>
+        this.updateSourceSeal(sessionId, operationId, (value) => {
+          if (!image || !/^[a-f0-9]{64}$/.test(codeDigest))
+            throw new Error('source seal verifier identity changed');
+          if (value.verifier) {
+            if (JSON.stringify(value.verifier) !== JSON.stringify({ image, codeDigest }))
+              throw new Error('source seal verifier identity changed');
+            return;
+          }
+          if (value.helperName) throw new Error('source seal verifier identity changed');
+          value.verifier = { image, codeDigest };
+        }),
+      intent: (name: string) =>
+        this.updateSourceSeal(sessionId, operationId, (value) => {
+          if (
+            name !== `${value.volumeName}-source-seal` ||
+            !value.verifier ||
+            (value.helperName && value.helperName !== name)
+          )
+            throw new Error('source seal helper intent changed');
+          value.helperName = name;
+        }),
+      created: (helperId: string) =>
+        this.updateSourceSeal(sessionId, operationId, (value) => {
+          if (
+            !value.helperName ||
+            !/^[a-f0-9]{64}$/.test(helperId) ||
+            (value.helperId && value.helperId !== helperId)
+          )
+            throw new Error('source seal helper identity changed');
+          value.helperId = helperId;
+        }),
+      observed: (git: unknown) =>
+        this.updateSourceSeal(sessionId, operationId, (value) => {
+          if (!value.helperId || (value.git && JSON.stringify(value.git) !== JSON.stringify(git)))
+            throw new Error('source seal proof changed');
+          const imported = (value.sourceReceipt as { git?: unknown }).git;
+          if (JSON.stringify(git) !== JSON.stringify(imported))
+            throw new Error('source seal Git proof differs from import');
+          value.git = git;
+        }),
+      exported: (
+        receipt: {
+          proof: unknown;
+          selection: Record<string, unknown>;
+          bundleSha256: string;
+          bytes: number;
+        },
+        bundle: Buffer,
+      ) =>
+        this.db
+          .transaction(() => {
+            const row = this.read(sessionId);
+            if (!row) throw new Error('source seal mapping unavailable');
+            this.assertOwner(row);
+            const value = row.source_seal_json ? JSON.parse(row.source_seal_json) : null;
+            const manifest = value?.sourceReceipt?.manifest;
+            if (
+              !value ||
+              value.operationId !== operationId ||
+              value.state !== 'pending' ||
+              !value.git ||
+              JSON.stringify(receipt.proof) !== JSON.stringify(value.git) ||
+              !Buffer.isBuffer(bundle) ||
+              !bundle.length ||
+              bundle.length > 8 * 1024 * 1024 ||
+              receipt.bytes !== bundle.length ||
+              receipt.bundleSha256 !== createHash('sha256').update(bundle).digest('hex') ||
+              receipt.selection.sourceRef !== `refs/heads/${manifest?.featureBranch}` ||
+              receipt.selection.sourceOid !== value.sourceReceipt.commit ||
+              receipt.selection.baseRef !== `refs/remotes/origin/${manifest?.baseBranch}` ||
+              receipt.selection.baseOid !== value.sourceReceipt.commit ||
+              receipt.selection.defaultBranch !== manifest?.baseBranch ||
+              receipt.selection.originUrl !== `https://github.com/${manifest?.targetRepository}.git`
+            )
+              throw new Error('source seal export evidence changed');
+            const existing = this.db
+              .prepare(
+                'SELECT operation_id,receipt_json,bundle FROM symposium_source_seal_exports WHERE session_id=?',
+              )
+              .get(sessionId) as
+              { operation_id: string; receipt_json: string; bundle: Buffer } | undefined;
+            if (existing) {
+              if (
+                existing.operation_id !== operationId ||
+                existing.receipt_json !== JSON.stringify(receipt) ||
+                !existing.bundle.equals(bundle)
+              )
+                throw new Error('source seal export evidence changed');
+              return;
+            }
+            this.db
+              .prepare('INSERT INTO symposium_source_seal_exports VALUES(?,?,?,?)')
+              .run(sessionId, operationId, JSON.stringify(receipt), bundle);
+          })
+          .immediate(),
+      terminal: (helperId: string, exitCode: number) =>
+        this.updateSourceSeal(sessionId, operationId, (value) => {
+          if (
+            value.helperId !== helperId ||
+            exitCode !== 0 ||
+            !value.git ||
+            (value.terminal &&
+              JSON.stringify(value.terminal) !== JSON.stringify({ helperId, exitCode: 0 }))
+          )
+            throw new Error('source seal terminal proof changed');
+          value.terminal = { helperId, exitCode: 0 };
+        }),
+      removed: () =>
+        this.updateSourceSeal(sessionId, operationId, (value) => {
+          if (!value.terminal) throw new Error('source seal cleanup changed');
+          value.helperRemoved = true;
+        }),
+    };
+  }
+  completeSourceSeal(sessionId: string, operationId: string) {
+    return this.db
+      .transaction(() => {
+        const row = this.read(sessionId);
+        if (!row) throw new Error('source seal mapping unavailable');
+        this.assertOwner(row);
+        const value = row.source_seal_json ? JSON.parse(row.source_seal_json) : null;
+        if (
+          !value ||
+          value.operationId !== operationId ||
+          !['pending', 'complete'].includes(value.state) ||
+          !value.helperId ||
+          !value.helperRemoved ||
+          !value.git ||
+          !value.verifier ||
+          value.terminal?.helperId !== value.helperId ||
+          value.terminal?.exitCode !== 0 ||
+          !this.db
+            .prepare(
+              'SELECT 1 FROM symposium_source_seal_exports WHERE session_id=? AND operation_id=?',
+            )
+            .get(sessionId, operationId) ||
+          row.admission_issued
+        )
+          throw new Error('source seal physical completion unavailable');
+        if (value.state === 'complete') return value;
+        value.state = 'complete';
+        this.db
+          .prepare('UPDATE symposium_session_artifacts SET source_seal_json=? WHERE session_id=?')
+          .run(JSON.stringify(value), sessionId);
+        return value;
+      })
+      .immediate();
+  }
+  sourceSealExport(sessionId: string) {
+    const seal = this.sourceSealStatus(sessionId);
+    if (seal?.state !== 'complete') throw new Error('Completed source seal required for export');
+    const row = this.db
+      .prepare(
+        'SELECT operation_id,receipt_json,bundle FROM symposium_source_seal_exports WHERE session_id=?',
+      )
+      .get(sessionId) as { operation_id: string; receipt_json: string; bundle: Buffer } | undefined;
+    if (!row || row.operation_id !== seal.operationId)
+      throw new Error('Retained source export unavailable');
+    const receipt = JSON.parse(row.receipt_json);
+    if (
+      row.bundle.length !== receipt.bytes ||
+      createHash('sha256').update(row.bundle).digest('hex') !== receipt.bundleSha256 ||
+      JSON.stringify(receipt.proof) !== JSON.stringify(seal.git)
+    )
+      throw new Error('Retained source export integrity changed');
+    return { receipt, bundle: row.bundle };
   }
   /** Permanent issuance marker: an already returned descriptor can never race a later import. */
   claimAdmission(sessionId: string): SessionArtifactMapping {
@@ -171,6 +430,8 @@ export class SymposiumSessionArtifacts {
         const mapping = this.getReady(sessionId);
         if (!mapping)
           throw new Error('Artifact source import or preparation mapping is incomplete');
+        if (this.read(sessionId)?.source_seal_json)
+          throw new Error('Original source seal fences direct artifact admission');
         this.db
           .prepare('UPDATE symposium_session_artifacts SET admission_issued=1 WHERE session_id=?')
           .run(sessionId);
@@ -263,10 +524,62 @@ export class SymposiumSessionArtifacts {
     });
   }
   completeSourceImport(claim: SessionArtifactMapping & { token: string }, receipt: unknown): void {
-    this.updateSourceImport(claim, (value) => {
-      if (!value.helperRemoved) throw new Error('Source helper cleanup receipt required');
-      value.receipt = receipt;
-    });
+    this.db
+      .transaction(() => {
+        const row = this.read(claim.sessionId);
+        if (!row) throw new Error('Source import claim changed');
+        this.assertOwner(row);
+        const source = row.source_import_json ? JSON.parse(row.source_import_json) : null;
+        if (
+          row.generation !== claim.volumeGeneration ||
+          row.volume_name !== claim.volumeName ||
+          source?.token !== claim.token ||
+          source.receipt ||
+          row.admission_issued ||
+          !source.helperRemoved ||
+          row.source_seal_json
+        )
+          throw new Error('Source import claim changed or cleanup unavailable');
+        source.receipt = receipt;
+        const candidate = receipt as Record<string, unknown> | null;
+        let seal: Record<string, unknown> | null = null;
+        if (candidate?.git !== undefined) {
+          const git = candidate.git as Record<string, unknown>;
+          const manifest = candidate.manifest as Record<string, unknown> | undefined;
+          if (
+            git?.version !== 1 ||
+            git.commit !== candidate.commit ||
+            git.tree !== candidate.tree ||
+            git.entries !== candidate.files ||
+            git.bytes !== candidate.bytes ||
+            !/^[a-f0-9]{64}$/.test(String(git.manifestDigest)) ||
+            !/^[a-f0-9]{64}$/.test(String(git.committedTreeDigest)) ||
+            manifest?.baseOid !== candidate.commit ||
+            manifest?.treeOid !== candidate.tree ||
+            manifest?.featureBranch !== candidate.featureBranch ||
+            !/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/.test(String(candidate.operationId)) ||
+            (candidate.terminal as Record<string, unknown> | undefined)?.exitCode !== 0
+          )
+            throw new Error('Exact imported Git source seal proof required');
+          seal = {
+            version: 1,
+            state: 'pending',
+            sessionId: claim.sessionId,
+            operationId: candidate.operationId,
+            workspace: row.workspace,
+            custody: row.custody,
+            volumeName: row.volume_name,
+            volumeGeneration: row.generation,
+            sourceReceipt: candidate,
+          };
+        }
+        this.db
+          .prepare(
+            'UPDATE symposium_session_artifacts SET source_import_json=?,source_seal_json=?,revision=revision+1 WHERE session_id=?',
+          )
+          .run(JSON.stringify(source), seal ? JSON.stringify(seal) : null, claim.sessionId);
+      })
+      .immediate();
   }
   initializationReceipt(sessionId: string) {
     const mapping = this.getReady(sessionId);
@@ -322,9 +635,10 @@ export class SymposiumSessionArtifacts {
       .immediate();
     this.assertOwner(row);
     const mapping = this.mapping(row);
+    if (row.state === 'quarantined')
+      return { state: 'recovery_required', nextAction: 'operator_reconcile_retained_artifact' };
     if (row.source_import_json && !JSON.parse(row.source_import_json).receipt)
       return { state: 'recovery_required' };
-    if (row.state === 'quarantined') return { state: 'recovery_required' };
     let revision = row.revision;
     let creationStarted = false;
     const ready = () => {
@@ -374,12 +688,16 @@ export class SymposiumSessionArtifacts {
       }
       // A name collision before our first create is never adopted, even if labels match.
       if (volume) {
-        this.db
-          .prepare(
-            "UPDATE symposium_session_artifacts SET state='quarantined', revision=revision+1 WHERE session_id=? AND revision=? AND state='reserved'",
-          )
-          .run(sessionId, revision);
-        return { state: 'recovery_required' };
+        const quarantined =
+          this.db
+            .prepare(
+              "UPDATE symposium_session_artifacts SET state='quarantined', revision=revision+1 WHERE session_id=? AND revision=? AND state='reserved'",
+            )
+            .run(sessionId, revision).changes === 1 ||
+          this.read(sessionId)?.state === 'quarantined';
+        return quarantined
+          ? { state: 'recovery_required', nextAction: 'operator_reconcile_retained_artifact' }
+          : { state: 'recovery_required' };
       }
       const claimed = this.db
         .prepare(

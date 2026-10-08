@@ -391,6 +391,18 @@ export class MitzoConnection {
         }
         return;
       }
+      // Older servers finish replay without an authoritative snapshot.
+      const completedReplaySessions =
+        msg.type === 'reconnected'
+          ? [...this.replayingSessions]
+          : msg.type === 'session_resumed' && typeof msg.sessionId === 'string'
+            ? [msg.sessionId]
+            : [];
+      for (const sessionId of completedReplaySessions) {
+        this.replayingSessions.delete(sessionId);
+        this.replaySeenSeq.delete(sessionId);
+        // Keep chained delivery fenced until its authoritative snapshot.
+      }
       if (msg.type === 'session_reconnect_snapshot' && typeof msg.sessionId === 'string')
         this.appliedDelivery.releaseReplay(msg.sessionId);
       if (
@@ -399,6 +411,10 @@ export class MitzoConnection {
         typeof msg.prevSessionSeq === 'number'
       )
         this.appliedDelivery.holdReplay(msg.sessionId);
+      // A legacy server may sequence a live takeover. Only a takeover received
+      // within this session's reconnect replay boundary is historical.
+      if (msg.type === 'session_takeover' && typeof msg.sessionId === 'string')
+        msg.replayed = typeof msg.seq === 'number' && this.replayingSessions.has(msg.sessionId);
       if (this.appliedDelivery.receive(msg)) return;
 
       const sequencedSessionId =

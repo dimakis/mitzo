@@ -1,0 +1,8 @@
+ARG OPENSHELL_BASE_IMAGE
+FROM ${OPENSHELL_BASE_IMAGE}
+USER root
+RUN npm install --global --ignore-scripts --no-audit --no-fund @openai/codex@0.155.1 \
+    && codex --version \
+    && sha256sum /usr/lib/node_modules/@openai/codex/package.json \
+       /usr/lib/node_modules/@openai/codex/node_modules/@openai/codex-linux-arm64/vendor/aarch64-unknown-linux-musl/bin/codex \
+       /usr/lib/node_modules/@openai/codex/node_modules/@openai/codex-linux-arm64/vendor/aarch64-unknown-linux-musl/bin/codex-code-mode-host

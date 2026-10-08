@@ -213,8 +213,9 @@ export function parseServerMessage(
 
     case 'session_takeover':
       // Takeover is a connection-local control message. Older servers could
-      // persist it with a sequence number; replay must not affect this client.
-      if (typeof msg.seq === 'number') break;
+      // persist live notices with a sequence number. The transport identifies
+      // actual reconnect replay independently of that durable sequence.
+      if (msg.replayed === true) break;
       // Server unwatches the old client after takeover, so no subsequent
       // session_state_changed event will arrive — clear running inline.
       result.messagesActions.push({ type: 'SESSION_STATE_CHANGED', state: 'idle' });
@@ -226,6 +227,12 @@ export function parseServerMessage(
       break;
 
     case 'session_switched': {
+      if (Array.isArray(msg.pendingPermissions)) {
+        result.messagesActions.push({
+          type: 'PERMISSION_SNAPSHOT',
+          permissions: msg.pendingPermissions as PermissionRequest[],
+        });
+      }
       const tokens = msg.tokens as Record<string, unknown> | undefined;
       if (tokens) {
         callbacks.onTokensHydrated?.(tokens);
@@ -484,6 +491,12 @@ export function parseServerMessage(
       break;
 
     case 'permission_response_rejected':
+      if (Array.isArray(msg.pendingPermissions)) {
+        result.messagesActions.push({
+          type: 'PERMISSION_SNAPSHOT',
+          permissions: msg.pendingPermissions as PermissionRequest[],
+        });
+      }
       result.messagesActions.push({
         type: 'PERMISSION_REJECTED',
         permId: msg.permId as string,

@@ -56,6 +56,54 @@ const providerList = (sandbox: string, providers: string[]) =>
     : `No providers attached to sandbox ${sandbox}.`;
 
 describe('OpenShell runtime lifecycle', () => {
+  it('creates a sandbox with multiple managed connections using a stable Kubernetes-safe policy label', async () => {
+    const connections = [
+      'mitzo-conn-11111111-1111-4111-8111-111111111111',
+      'mitzo-conn-22222222-2222-4222-8222-222222222222',
+    ];
+    const createWith = async (providers: string[]) => {
+      let created = false;
+      let policy = '';
+      const run = vi.fn(async (args: readonly string[]) => {
+        if (args.includes('get')) {
+          if (!created) throw new Error('sandbox not found');
+          return ready('Ready', policy);
+        }
+        if (args.includes('create')) {
+          const labels = args.filter((_, i) => args[i - 1] === '--label');
+          for (const label of labels) {
+            const value = label.slice(label.indexOf('=') + 1);
+            if (value.length > 63) throw new Error('gateway rejected label value longer than 63');
+            expect(value).toMatch(/^[A-Za-z0-9](?:[A-Za-z0-9_.-]*[A-Za-z0-9])?$/);
+          }
+          policy = labels
+            .find((label) => label.startsWith('mitzo.provider_policy='))!
+            .split('=')[1];
+          created = true;
+          return ready('Ready', policy);
+        }
+        if (args.includes('list')) return providerList('sandbox', ['openai-work', ...providers]);
+        return '{}';
+      });
+      await new OpenShellRuntimeManager({ ...config, serviceProviders: providers }, run).ensure(
+        'conversation',
+        new AbortController().signal,
+      );
+      return policy;
+    };
+    const policy = await createWith(['github', ...connections]);
+    expect(policy.length).toBeLessThanOrEqual(63);
+    expect(await createWith([...connections].reverse().concat('github', connections[0]))).toBe(
+      policy,
+    );
+    expect(
+      await createWith([
+        'github',
+        ...connections,
+        'mitzo-conn-33333333-3333-4333-8333-333333333333',
+      ]),
+    ).not.toBe(policy);
+  });
   it('requires OpenShell 0.1 and physical attestation for an artifact mount', async () => {
     const artifactDriverConfig = {
       podman: {
@@ -125,91 +173,108 @@ describe('OpenShell runtime lifecycle', () => {
     },
   );
 
-  it('passes a lease-bound driver config only on 0.1 create and attests physical mount', async () => {
-    const commands: string[][] = [];
-    const sandboxName = sandboxNameForConversation('conversation');
-    const artifactDriverConfig = {
-      podman: {
-        mounts: [
-          {
-            type: 'volume' as const,
-            source: 'artifacts-1',
-            target: '/sandbox/workspaces/mgmt',
-            read_only: true,
-          },
-        ],
-      },
-    };
-    let created = false;
-    const beforeSandboxCreate = vi.fn();
-    const run = vi.fn(async (args: readonly string[]) => {
-      commands.push([...args]);
-      if (args[0] === 'sandbox' && args.includes('provider') && args.includes('list'))
-        return JSON.stringify({
-          providers: [{ name: 'openai-work', type: 'openai' }],
-          next_page_token: '',
-        });
-      if (args[0] === 'provider' && !created) expect(beforeSandboxCreate).not.toHaveBeenCalled();
-      if (args[0] === 'provider')
-        return JSON.stringify({
-          providers: [
+  it.each(['stable', 'drift'] as const)(
+    'passes a lease-bound driver config and rejects post-mount identity %s',
+    async (result) => {
+      const commands: string[][] = [];
+      const sandboxName = sandboxNameForConversation('conversation');
+      const artifactDriverConfig = {
+        podman: {
+          mounts: [
             {
-              name: 'openai-work',
-              id: 'provider-id',
-              type: 'openai',
-              workspace: 'mitzo',
+              type: 'volume' as const,
+              source: 'artifacts-1',
+              target: '/sandbox/workspaces/mgmt',
+              read_only: true,
             },
           ],
-          next_page_token: '',
-        });
-      if (args.includes('get')) {
-        if (!created) throw new Error('sandbox not found');
-        return JSON.stringify({
-          name: sandboxName,
-          id: 'physical-id',
-          workspace: 'mitzo',
-          phase: 'Ready',
-          labels: {
-            'mitzo.conversation': owner,
-            'mitzo.account_provider': 'openai-work',
-            'mitzo.provider_policy': 'state-v2-none',
-          },
-        });
-      }
-      if (args.includes('create')) {
-        expect(beforeSandboxCreate).toHaveBeenCalledOnce();
-        created = true;
+        },
+      };
+      let created = false;
+      let attested = false;
+      const beforeSandboxCreate = vi.fn();
+      const run = vi.fn(async (args: readonly string[]) => {
+        commands.push([...args]);
+        if (args[0] === 'sandbox' && args.includes('provider') && args.includes('list'))
+          return JSON.stringify({
+            providers: [{ name: 'openai-work', type: 'openai' }],
+            next_page_token: '',
+          });
+        if (args[0] === 'provider' && !created) expect(beforeSandboxCreate).not.toHaveBeenCalled();
+        if (args[0] === 'provider')
+          return JSON.stringify({
+            providers: [
+              {
+                name: 'openai-work',
+                id: 'provider-id',
+                type: 'openai',
+                workspace: 'mitzo',
+              },
+            ],
+            next_page_token: '',
+          });
+        if (args.includes('get')) {
+          if (!created) throw new Error('sandbox not found');
+          return JSON.stringify({
+            name: sandboxName,
+            id: attested && result === 'drift' ? 'replacement-id' : 'physical-id',
+            workspace: 'mitzo',
+            phase: 'Ready',
+            labels: {
+              'mitzo.conversation': owner,
+              'mitzo.account_provider': 'openai-work',
+              'mitzo.provider_policy': 'state-v2-none',
+            },
+          });
+        }
+        if (args.includes('create')) {
+          expect(beforeSandboxCreate).toHaveBeenCalledOnce();
+          created = true;
+          return '{}';
+        }
+        if (args.includes('list')) return JSON.stringify({ providers: [], next_page_token: '' });
         return '{}';
+      });
+      const verifyArtifactMount = vi.fn(async () => {
+        attested = true;
+      });
+      const manager = new OpenShellRuntimeManager(
+        {
+          ...config,
+          beforeSandboxCreate,
+          cliContract: 'v0.1',
+          serviceProviders: [],
+          grantableServiceProviders: [],
+          accountProviderBindings: [{ name: 'openai-work', type: 'openai', id: 'provider-id' }],
+          verifyAccountProviderUnion: () => undefined,
+          artifactDriverConfig,
+          verifyArtifactMount,
+        },
+        run,
+      );
+      if (result === 'drift') {
+        await expect(
+          manager.ensure('conversation', new AbortController().signal),
+        ).rejects.toMatchObject({
+          code: 'SEAT_MOUNT_POSTCHECK_FAILED',
+          cause: { message: 'Artifact sandbox changed during mount attestation' },
+        });
+        expect(verifyArtifactMount).toHaveBeenCalledOnce();
+        expect(beforeSandboxCreate).toHaveBeenCalledOnce();
+        return;
       }
-      if (args.includes('list')) return JSON.stringify({ providers: [], next_page_token: '' });
-      return '{}';
-    });
-    const verifyArtifactMount = vi.fn(async () => {});
-    const manager = new OpenShellRuntimeManager(
-      {
-        ...config,
-        beforeSandboxCreate,
-        cliContract: 'v0.1',
-        serviceProviders: [],
-        grantableServiceProviders: [],
-        accountProviderBindings: [{ name: 'openai-work', type: 'openai', id: 'provider-id' }],
-        verifyAccountProviderUnion: () => undefined,
+      await manager.ensure('conversation', new AbortController().signal);
+      const create = commands.find((args) => args.includes('create'))!;
+      expect(create[create.indexOf('--driver-config-json') + 1]).toBe(
+        JSON.stringify(artifactDriverConfig),
+      );
+      expect(verifyArtifactMount).toHaveBeenCalledWith(
+        sandboxName,
+        'physical-id',
         artifactDriverConfig,
-        verifyArtifactMount,
-      },
-      run,
-    );
-    await manager.ensure('conversation', new AbortController().signal);
-    const create = commands.find((args) => args.includes('create'))!;
-    expect(create[create.indexOf('--driver-config-json') + 1]).toBe(
-      JSON.stringify(artifactDriverConfig),
-    );
-    expect(verifyArtifactMount).toHaveBeenCalledWith(
-      sandboxName,
-      'physical-id',
-      artifactDriverConfig,
-    );
-  });
+      );
+    },
+  );
   it('uses 0.1 workspace, pagination, and exactly one pinned account attachment', async () => {
     const commands: string[][] = [];
     const sandboxName = sandboxNameForConversation('conversation');

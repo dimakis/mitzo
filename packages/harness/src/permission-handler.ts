@@ -135,6 +135,8 @@ export function buildPermissionHandler(
       forcePrompt?: boolean;
       /** Allow a forced prompt to honor an explicit session-wide grant. */
       allowSessionGrant?: boolean;
+      /** The caller may store a narrower account-bound consent instead of a tool-wide grant. */
+      rememberSessionGrant?: boolean;
       approvalScope?: 'session' | 'conversation' | 'request';
       /**
        * A server-owned control-plane approval (for example, attaching a
@@ -247,7 +249,11 @@ export function buildPermissionHandler(
             result = { behavior: 'deny', message: 'Tool not allowed by active skill policy' };
           }
         }
-        if (result.behavior === 'allow' && result.decisionClassification === 'user_permanent') {
+        if (
+          opts.rememberSessionGrant !== false &&
+          result.behavior === 'allow' &&
+          result.decisionClassification === 'user_permanent'
+        ) {
           addToAllowList(session.sessionAllowList, toolName);
         }
         const resolved = { type: resolutionEvent, permId, sessionId: session.sessionId };

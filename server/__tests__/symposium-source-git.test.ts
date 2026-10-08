@@ -8,6 +8,9 @@ import {
   exportLocalSource,
   SOURCE_GIT_IMPORTER,
 } from '../symposium-source-git.js';
+import { ARTIFACT_GIT_VERIFIER_CORE } from '../symposium-artifact-git-verifier.js';
+import { ARTIFACT_GIT_EXPORT } from '../symposium-artifact-git-export.js';
+import { SYMPOSIUM_ARTIFACT_TARGET } from '../symposium-artifact-lease.js';
 const roots: string[] = [];
 afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
@@ -71,7 +74,59 @@ it('imports selected committed history and exact publication refs into pristine 
     commit: plan.baseOid,
     tree: plan.treeOid,
     featureBranch: 'symposium/change',
+    git: {
+      version: 1,
+      commit: plan.baseOid,
+      tree: plan.treeOid,
+      entries: 2,
+    },
   });
+  expect(proof.git.committedTreeDigest).toMatch(/^[a-f0-9]{64}$/);
+  expect(proof.git.manifestDigest).toMatch(/^[a-f0-9]{64}$/);
+  const independentlyVerified = JSON.parse(
+    execFileSync(
+      'python3',
+      [
+        '-I',
+        '-B',
+        '-c',
+        ARTIFACT_GIT_VERIFIER_CORE.replace(SYMPOSIUM_ARTIFACT_TARGET, target) +
+          '\nprint(json.dumps(proof,sort_keys=True))\n',
+        '.',
+      ],
+      { encoding: 'utf8' },
+    ),
+  );
+  expect(proof.git).toEqual(independentlyVerified);
+  const exportedInitial = JSON.parse(
+    execFileSync(
+      'python3',
+      [
+        '-I',
+        '-B',
+        '-c',
+        ARTIFACT_GIT_EXPORT.replace(SYMPOSIUM_ARTIFACT_TARGET, target),
+        '.',
+        JSON.stringify({
+          kind: 'successor',
+          expected: proof.git,
+          baseBranch: 'main',
+          sourceBranch: 'symposium/change',
+          sourceOid: plan.baseOid,
+          maxBytes: 8 * 1024 * 1024,
+        }),
+      ],
+      { encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 },
+    ),
+  );
+  expect(exportedInitial.proof).toEqual(proof.git);
+  expect(exportedInitial.selection).toMatchObject({
+    sourceOid: plan.baseOid,
+    baseOid: plan.baseOid,
+    sourceRef: 'refs/heads/symposium/change',
+    baseRef: 'refs/remotes/origin/main',
+  });
+  expect(Buffer.from(exportedInitial.bundle, 'base64')).toHaveLength(exportedInitial.bytes);
   const git = (...args: string[]) =>
     execFileSync('git', ['-C', target, ...args], { encoding: 'utf8' }).trim();
   expect(git('rev-parse', 'HEAD')).toBe(plan.baseOid);

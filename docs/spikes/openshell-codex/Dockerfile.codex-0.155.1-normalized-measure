@@ -1,0 +1,9 @@
+ARG MEASUREMENT_IMAGE
+FROM ${MEASUREMENT_IMAGE}
+USER root
+COPY docs/spikes/openshell-codex/normalize-symposium-codex-0.155.1-measure.py /usr/local/bin/normalize-symposium-codex.py
+RUN /usr/bin/python3 -I /usr/local/bin/normalize-symposium-codex.py --install \
+    && /usr/bin/python3 -I /usr/local/bin/normalize-symposium-codex.py --check \
+    && /usr/bin/codex --version \
+    && sha256sum /usr/bin/codex /usr/bin/codex-code-mode-host
+USER sandbox

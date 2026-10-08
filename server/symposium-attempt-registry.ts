@@ -1,6 +1,18 @@
+import { artifactAdmissionDigest } from './event-store.js';
+import {
+  ArtifactAdmissionReferenceV1Schema,
+  ArtifactReaderReferenceV1Schema,
+  type ArtifactAdmissionReferenceV1,
+  type ArtifactReaderReferenceV1,
+} from '@mitzo/protocol';
 import { SymposiumCompletionCheckpoints } from './symposium-completion-checkpoints.js';
 import { SymposiumNativeObservations } from './symposium-native-observations.js';
 import Database from 'better-sqlite3';
+import { z } from 'zod';
+const ArtifactWorkReferenceSchema = z.union([
+  ArtifactAdmissionReferenceV1Schema,
+  ArtifactReaderReferenceV1Schema,
+]);
 import { dirname } from 'node:path';
 import { chmodSync, lstatSync, statSync } from 'node:fs';
 import {
@@ -16,6 +28,7 @@ type AttemptState = 'reserved' | 'uncertain' | 'confirmed';
 interface AttemptRow extends ControlledAttemptSandbox {
   claimToken: string;
   sessionId: string;
+  artifact?: ArtifactAdmissionReferenceV1 | ArtifactReaderReferenceV1;
   state: AttemptState;
 }
 
@@ -69,9 +82,24 @@ export class SymposiumAttemptRegistry {
     }>;
     if (!columns.some((column) => column.name === 'transport_route'))
       this.db.exec('ALTER TABLE symposium_native_attempts ADD COLUMN transport_route TEXT');
-    this.observations = new SymposiumNativeObservations(this.db, (claim, session) => {
+    for (const table of ['symposium_native_attempts', 'symposium_native_preparations']) {
+      if (
+        !(this.db.pragma(`table_info(${table})`) as Array<{ name: string }>).some(
+          (column) => column.name === 'artifact_json',
+        )
+      )
+        this.db.exec(`ALTER TABLE ${table} ADD COLUMN artifact_json TEXT`);
+    }
+    this.observations = new SymposiumNativeObservations(this.db, (claim, session, provenance) => {
       const attempt = this.get(claim);
-      if (!attempt || attempt.sessionId !== session)
+      if (
+        !attempt ||
+        attempt.sessionId !== session ||
+        artifactAdmissionDigest(attempt.artifact ?? null) !==
+          artifactAdmissionDigest(
+            'version' in provenance && provenance.version === 3 ? provenance.artifact : null,
+          )
+      )
         throw new Error('Native observation requires the exact reserved session claim');
     });
     this.checkpoints = new SymposiumCompletionCheckpoints(this.db, this.observations, (token) =>
@@ -80,29 +108,49 @@ export class SymposiumAttemptRegistry {
   }
 
   /** Registered before asynchronous setup. Every native launch must pass reserve(). */
-  prepare(input: { claimToken: string; sessionId: string }) {
+  prepare(input: {
+    claimToken: string;
+    sessionId: string;
+    artifact?: ArtifactAdmissionReferenceV1 | ArtifactReaderReferenceV1;
+  }) {
     if (!input.claimToken || !input.sessionId) throw new Error('Invalid native attempt identity');
     this.db.transaction(() => {
       if (this.get(input.claimToken)) throw new Error('Native attempt claim already exists');
       const existing = this.db
         .prepare(
-          'SELECT session_id AS sessionId, closed FROM symposium_native_preparations WHERE claim_token = ?',
+          'SELECT session_id AS sessionId, closed, artifact_json AS artifactJson FROM symposium_native_preparations WHERE claim_token = ?',
         )
-        .get(input.claimToken) as { sessionId: string; closed: number } | undefined;
+        .get(input.claimToken) as
+        { sessionId: string; closed: number; artifactJson: string | null } | undefined;
       if (existing) {
-        if (existing.closed || existing.sessionId !== input.sessionId)
+        if (
+          existing.closed ||
+          existing.sessionId !== input.sessionId ||
+          artifactAdmissionDigest(
+            existing.artifactJson ? JSON.parse(existing.artifactJson) : null,
+          ) !== artifactAdmissionDigest(input.artifact ?? null)
+        )
           throw new Error('Native attempt preparation is closed or belongs to another session');
         return;
       }
       this.db
         .prepare(
-          'INSERT INTO symposium_native_preparations (claim_token, session_id) VALUES (?, ?)',
+          'INSERT INTO symposium_native_preparations (claim_token, session_id, artifact_json) VALUES (?, ?, ?)',
         )
-        .run(input.claimToken, input.sessionId);
+        .run(
+          input.claimToken,
+          input.sessionId,
+          input.artifact ? JSON.stringify(ArtifactWorkReferenceSchema.parse(input.artifact)) : null,
+        );
     })();
   }
 
-  reserve(input: { claimToken: string; sessionId: string; sandbox: ControlledAttemptSandbox }) {
+  reserve(input: {
+    claimToken: string;
+    sessionId: string;
+    sandbox: ControlledAttemptSandbox;
+    artifact?: ArtifactAdmissionReferenceV1 | ArtifactReaderReferenceV1;
+  }) {
     if (!input.claimToken || !input.sessionId || !input.sandbox.sandboxName)
       throw new Error('Invalid native attempt identity');
     const route =
@@ -117,18 +165,26 @@ export class SymposiumAttemptRegistry {
     this.db.transaction(() => {
       const preparation = this.db
         .prepare(
-          'SELECT session_id AS sessionId, closed FROM symposium_native_preparations WHERE claim_token = ?',
+          'SELECT session_id AS sessionId, closed, artifact_json AS artifactJson FROM symposium_native_preparations WHERE claim_token = ?',
         )
-        .get(input.claimToken) as { sessionId: string; closed: number } | undefined;
-      if (preparation && (preparation.closed || preparation.sessionId !== input.sessionId))
+        .get(input.claimToken) as
+        { sessionId: string; closed: number; artifactJson: string | null } | undefined;
+      if (
+        preparation &&
+        (preparation.closed ||
+          preparation.sessionId !== input.sessionId ||
+          artifactAdmissionDigest(
+            preparation.artifactJson ? JSON.parse(preparation.artifactJson) : null,
+          ) !== artifactAdmissionDigest(input.artifact ?? null))
+      )
         throw new Error('Native attempt preparation is closed or belongs to another session');
       this.assertSandboxAvailable(input.sandbox.sandboxName);
       const now = Date.now();
       this.db
         .prepare(
           `INSERT INTO symposium_native_attempts
-           (claim_token, session_id, sandbox_name, workdir, state, created_at, updated_at, transport_route)
-           VALUES (?, ?, ?, ?, 'reserved', ?, ?, ?)`,
+           (claim_token, session_id, sandbox_name, workdir, state, created_at, updated_at, transport_route, artifact_json)
+           VALUES (?, ?, ?, ?, 'reserved', ?, ?, ?, ?)`,
         )
         .run(
           input.claimToken,
@@ -138,6 +194,7 @@ export class SymposiumAttemptRegistry {
           now,
           now,
           route,
+          input.artifact ? JSON.stringify(ArtifactWorkReferenceSchema.parse(input.artifact)) : null,
         );
       // Commit the unknown process state before any transport side effect.
       this.db
@@ -150,6 +207,7 @@ export class SymposiumAttemptRegistry {
     claimToken: string;
     sessionId: string;
     sandbox: ControlledAttemptSandbox;
+    artifact?: ArtifactAdmissionReferenceV1 | ArtifactReaderReferenceV1;
     access: 'read' | 'write';
     command: readonly string[];
   }): ControlledAttemptProcess {
@@ -182,7 +240,7 @@ export class SymposiumAttemptRegistry {
     const row = this.db
       .prepare(
         `SELECT claim_token AS claimToken, session_id AS sessionId,
-                sandbox_name AS sandboxName, workdir, state, transport_route AS transportRoute
+                sandbox_name AS sandboxName, workdir, state, transport_route AS transportRoute, artifact_json AS artifactJson
          FROM symposium_native_attempts WHERE claim_token = ?`,
       )
       .get(claimToken);
@@ -209,7 +267,16 @@ export class SymposiumAttemptRegistry {
   }
 
   private decodeRow(value: unknown): AttemptRow {
-    const { transportRoute, ...row } = value as AttemptRow & { transportRoute: string | null };
+    const { transportRoute, artifactJson, ...raw } = value as AttemptRow & {
+      transportRoute: string | null;
+      artifactJson: string | null;
+    };
+    const row = {
+      ...raw,
+      ...(artifactJson
+        ? { artifact: ArtifactWorkReferenceSchema.parse(JSON.parse(artifactJson)) }
+        : {}),
+    };
     if (!transportRoute) return row;
     const route = JSON.parse(transportRoute);
     return {
@@ -218,15 +285,42 @@ export class SymposiumAttemptRegistry {
     };
   }
 
+  pendingPreparations(): Array<{
+    claimToken: string;
+    sessionId: string;
+    artifact?: ArtifactAdmissionReferenceV1 | ArtifactReaderReferenceV1;
+  }> {
+    const rows = this.db
+      .prepare(
+        'SELECT claim_token AS claimToken,session_id AS sessionId,artifact_json AS artifactJson FROM symposium_native_preparations WHERE closed=0',
+      )
+      .all() as Array<{ claimToken: string; sessionId: string; artifactJson: string | null }>;
+    return rows.map(({ artifactJson, ...row }) => ({
+      ...row,
+      ...(artifactJson
+        ? { artifact: ArtifactWorkReferenceSchema.parse(JSON.parse(artifactJson)) }
+        : {}),
+    }));
+  }
   pending(): AttemptRow[] {
     return this.db
       .prepare(
         `SELECT claim_token AS claimToken, session_id AS sessionId,
-                sandbox_name AS sandboxName, workdir, state, transport_route AS transportRoute
+                sandbox_name AS sandboxName, workdir, state, transport_route AS transportRoute, artifact_json AS artifactJson
          FROM symposium_native_attempts WHERE state != 'confirmed'`,
       )
       .all()
       .map((row) => this.decodeRow(row));
+  }
+
+  /** Historical absence proof for sealing a source before any native work. */
+  hasSessionClaims(sessionId: string): boolean {
+    return !!this.db
+      .prepare(
+        `SELECT 1 FROM symposium_native_attempts WHERE session_id=?
+      UNION SELECT 1 FROM symposium_native_preparations WHERE session_id=? LIMIT 1`,
+      )
+      .get(sessionId, sessionId);
   }
 
   /** A failed probe retains the quarantine; callers must not infer sandbox safety. */

@@ -46,6 +46,7 @@ import {
 import type { SessionSseRegistry } from './session-sse-registry.js';
 import { SseTransport } from './sse-transport.js';
 import { effectivePermissionMode } from '@mitzo/harness';
+import { isTransportConnectionOwnedBy } from './transport-auth-ownership.js';
 import { createLogger } from './logger.js';
 import { ExecutionAdmissionError } from '@mitzo/protocol/event-store';
 import { z } from 'zod';
@@ -123,12 +124,40 @@ export function createChatRestRouter(
 ): Router {
   const router = Router();
 
+  function canManageConsent(connectionId: string, sessionId: string, authSessionId: string) {
+    if (!isTransportConnectionOwnedBy(connectionId, authSessionId)) return false;
+    const found = ctx.sessionRegistry.findBySessionId(sessionId);
+    if (!found) return false;
+    const ownerConnection = found.session.ownerConnectionId ?? getOwnerConnection(found.clientId);
+    if (ownerConnection === connectionId) return true;
+    // Watching is a subscription, not authority. Only another tab of the
+    // current owner's authenticated login may manage this conversation.
+    return (
+      ctx.connRegistry.get(connectionId)?.watchedSessions.has(sessionId) === true &&
+      isTransportConnectionOwnedBy(ownerConnection, authSessionId)
+    );
+  }
+
   // A connection ID is not a credential. Bind every operation targeting an
   // registered SSE stream to the same login session that created that stream.
   // Ownership survives the brief writableEnded→close-handler cleanup window.
   router.use((req, res, next) => {
     const connectionId = req.headers['x-connection-id'];
     const authSessionId = res.locals.authSession?.id as string | undefined;
+    // Consent is transport-independent, but still bound to the authenticated
+    // login that established this exact WS or SSE connection.
+    if (req.path === '/web-search-consent' || req.path.startsWith('/web-search-consent/')) {
+      if (
+        typeof connectionId !== 'string' ||
+        !authSessionId ||
+        !isTransportConnectionOwnedBy(connectionId, authSessionId)
+      ) {
+        res.status(403).json({ ok: false, error: 'Connection belongs to another login' });
+        return;
+      }
+      next();
+      return;
+    }
     if (
       typeof connectionId === 'string' &&
       ctx.connRegistry.get(connectionId) &&
@@ -363,12 +392,9 @@ export function createChatRestRouter(
     if (!connectionId) return;
     if (!requireConnection(connectionId, ctx.connRegistry, res)) return;
     const found = ctx.sessionRegistry.findBySessionId(String(req.params.sessionId));
-    const ownerConnection =
-      found?.session.ownerConnectionId ?? (found ? getOwnerConnection(found.clientId) : null);
     if (
       !found ||
-      (ownerConnection !== connectionId &&
-        !ctx.connRegistry.get(connectionId)?.watchedSessions.has(String(req.params.sessionId))) ||
+      !canManageConsent(connectionId, String(req.params.sessionId), res.locals.authSession.id) ||
       !found.session.queryInstance?.getWebSearchGrant
     ) {
       res.status(404).json({ ok: false, error: 'Codex conversation not found' });
@@ -384,12 +410,9 @@ export function createChatRestRouter(
     const msg = validateBody(WebSearchConsent, req.body, res);
     if (!msg) return;
     const found = ctx.sessionRegistry.findBySessionId(msg.sessionId);
-    const ownerConnection =
-      found?.session.ownerConnectionId ?? (found ? getOwnerConnection(found.clientId) : null);
     if (
       !found ||
-      (ownerConnection !== connectionId &&
-        !ctx.connRegistry.get(connectionId)?.watchedSessions.has(msg.sessionId)) ||
+      !canManageConsent(connectionId, msg.sessionId, res.locals.authSession.id) ||
       !found.session.queryInstance?.setWebSearchGrant
     ) {
       res.status(404).json({ ok: false, error: 'Codex conversation not found' });
@@ -401,12 +424,8 @@ export function createChatRestRouter(
           throw new Error('Session changed during web-search consent update');
         if (msg.grant === 'allowed' && effectivePermissionMode(found.session) === 'ask')
           throw new Error('Switch to Agent or Auto before allowing web search');
-        const currentOwner = found.session.ownerConnectionId ?? getOwnerConnection(found.clientId);
-        if (
-          currentOwner !== connectionId &&
-          !ctx.connRegistry.get(connectionId)?.watchedSessions.has(msg.sessionId)
-        )
-          throw new Error('Connection no longer watches this conversation');
+        if (!canManageConsent(connectionId, msg.sessionId, res.locals.authSession.id))
+          throw new Error('Connection no longer authorized for this conversation');
         const query = found.session.queryInstance;
         if (!query?.setWebSearchGrant)
           throw new Error('Codex conversation unavailable during web-search consent update');

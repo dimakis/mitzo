@@ -4,7 +4,7 @@ import { CredentialConnectionCard } from './CredentialConnectionCard';
 import { getCredentialConnections, reauthorizeKeychain } from '../lib/credential-connections-api';
 import type { CredentialConnection } from '../types/credential-connections';
 
-export function CredentialConnectionsPanel() {
+export function CredentialConnectionsPanel({ connectionId }: { connectionId?: string } = {}) {
   const [connections, setConnections] = useState<CredentialConnection[] | null>(null);
   const [loadError, setLoadError] = useState('');
   const [message, setMessage] = useState('');
@@ -116,16 +116,23 @@ export function CredentialConnectionsPanel() {
               Authorize Keychain changes
             </button>
           </details>
-          <CredentialConnectionForm busy={busy} csrf={csrf} run={run} />
-          {connections.map((connection) => (
-            <CredentialConnectionCard
-              key={connection.id}
-              connection={connection}
-              busy={busy}
-              csrf={csrf}
-              run={run}
-            />
-          ))}
+          {!connectionId && <CredentialConnectionForm busy={busy} csrf={csrf} run={run} />}
+          {connectionId && !connections.some((connection) => connection.id === connectionId) && (
+            <p>
+              This connection is no longer available. Return to Connections to refresh its status.
+            </p>
+          )}
+          {connections
+            .filter((connection) => !connectionId || connection.id === connectionId)
+            .map((connection) => (
+              <CredentialConnectionCard
+                key={connection.id}
+                connection={connection}
+                busy={busy}
+                csrf={csrf}
+                run={run}
+              />
+            ))}
         </>
       )}
     </section>

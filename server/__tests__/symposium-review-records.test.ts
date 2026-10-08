@@ -239,7 +239,7 @@ it('requires re-verification after artifact changes and preserves the old record
   verified();
   const first = store.exportVerifiedRecord(scope);
   const next = {
-    ...store.get('flow')!.implementation,
+    ...store.get('flow')!.implementation!,
     resultId: 'result2',
     attemptId: 'build2',
     inputRevision: 'commit',

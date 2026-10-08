@@ -81,6 +81,84 @@ it('treats a silent controller as lost and rejects arbitrary messages', async ()
   expect(drain).toHaveBeenCalledOnce();
 });
 
+it('observes the authoritative original epoch once before ready, with a live original connection guard', async () => {
+  const [parent] = pair();
+  const controller = new SymposiumCustodianController({
+    pause: vi.fn(),
+    resume: vi.fn(),
+    drain: async () => {},
+    invalidate: vi.fn(),
+    dispatch: async () => ({ status: 200, body: {} }),
+  });
+  let guard: (() => void) | undefined;
+  const observed = vi.fn((epoch: number, current: () => void) => {
+    expect(epoch).toBe(1);
+    current();
+    guard = current;
+  });
+  const sent = vi.spyOn(parent, 'send');
+  const stopped = serveCustodianController(parent, controller, {
+    heartbeatMs: 100,
+    observeReady: observed,
+  });
+  try {
+    parent.emit('message', { kind: 'hello' });
+    parent.emit('message', { kind: 'hello' });
+    expect(observed).toHaveBeenCalledOnce();
+    expect(sent).toHaveBeenCalledWith({ kind: 'ready', epoch: 1 }, expect.any(Function));
+    expect(observed.mock.invocationCallOrder[0]).toBeLessThan(sent.mock.invocationCallOrder[0]);
+  } finally {
+    parent.emit('disconnect');
+    await stopped;
+  }
+  expect(() => guard!()).toThrow('unavailable');
+});
+it('failed original ready observer never sends readiness or restarts the connection', async () => {
+  const [parent] = pair();
+  const drain = vi.fn(async () => {});
+  const controller = new SymposiumCustodianController({
+    pause: vi.fn(),
+    resume: vi.fn(),
+    drain,
+    invalidate: vi.fn(),
+    dispatch: async () => ({ status: 200, body: {} }),
+  });
+  const sent = vi.spyOn(parent, 'send');
+  const stopped = serveCustodianController(parent, controller, {
+    heartbeatMs: 100,
+    observeReady() {
+      throw Error('synthetic observer refusal');
+    },
+  });
+  const expected = expect(stopped).rejects.toThrow('Original controller observation failed');
+  parent.emit('message', { kind: 'hello' });
+  parent.emit('disconnect');
+  await expected;
+  expect(sent).not.toHaveBeenCalled();
+  expect(drain).toHaveBeenCalledOnce();
+});
+
+it('rejects asynchronous ready observers rather than issuing readiness before their result', async () => {
+  const [parent] = pair();
+  const controller = new SymposiumCustodianController({
+    pause: vi.fn(),
+    resume: vi.fn(),
+    drain: async () => {},
+    invalidate: vi.fn(),
+    dispatch: async () => ({ status: 200, body: {} }),
+  });
+  const send = vi.spyOn(parent, 'send');
+  const stopped = serveCustodianController(parent, controller, {
+    observeReady: async () => {
+      throw Error('synthetic unexpected async rejection');
+    },
+  });
+  const rejected = expect(stopped).rejects.toThrow('Original controller observation failed');
+  parent.emit('message', { kind: 'hello' });
+  await rejected;
+  expect(send).not.toHaveBeenCalled();
+});
+
 it.each(['personal.list', 'account.catalog'] as const)(
   'releases aborted %s reads from client capacity and ignores late owner responses',
   async (operation) => {

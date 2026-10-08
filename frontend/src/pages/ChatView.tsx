@@ -1,6 +1,6 @@
 import { usePendingLaunch } from '../hooks/usePendingLaunch';
 import { SymposiumReviewEntry } from '../components/SymposiumReviewPanel';
-import { AddReviewerSheet } from '../components/AddReviewerSheet';
+import { AddAgentSheet } from '../components/AddReviewerSheet';
 import { NewSymposium } from '../components/NewSymposium';
 import { PermissionModePicker } from '../components/PermissionModePicker';
 import { StatusBar } from '../components/StatusBar';
@@ -82,7 +82,20 @@ export function ChatView() {
 
   // Local model state — persisted to localStorage, sent in payload
   const [modelState, setModelState] = useState(getPreferredModel);
-  const [workspaceSummary, setWorkspaceSummary] = useState<WorkspaceSummary | null>(null);
+  const [summaryForSession, setSummaryForSession] = useState<{
+    sessionId: string | null;
+    summary: WorkspaceSummary | null;
+  } | null>(null);
+  const workspaceSummary =
+    summaryForSession?.sessionId === activeSessionId ? summaryForSession.summary : null;
+  const setWorkspaceSummary = useCallback(
+    (summary: WorkspaceSummary | null) => {
+      setSummaryForSession({ sessionId: activeSessionId, summary });
+    },
+    [activeSessionId],
+  );
+  const isSymposium = workspaceSummary?.sessionType === 'symposium';
+  const ordinaryControls = !activeSessionId || workspaceSummary?.sessionType === 'chat';
   const [accountSelection, setAccountSelection] = useState<AccountSelection | null>(null);
   const setModel = useCallback(
     (id: string) => {
@@ -258,7 +271,17 @@ export function ChatView() {
         <WorkspaceControls
           attention={!!launch}
           summary={workspaceSummary}
-          status={!connected ? 'Reconnecting' : messages.running ? 'Working' : 'Ready'}
+          status={
+            isSymposium
+              ? 'Agent chat'
+              : activeSessionId && !ordinaryControls
+                ? 'Loading conversation settings'
+                : !connected
+                  ? 'Reconnecting'
+                  : messages.running
+                    ? 'Working'
+                    : 'Ready'
+          }
         >
           <div className="chat-account-bar">
             <AccountModelPicker
@@ -280,7 +303,7 @@ export function ChatView() {
               </span>
             )}
 
-            {!keyboardOpen && (
+            {!keyboardOpen && ordinaryControls && (
               <>
                 <PermissionModePicker
                   mode={mode}
@@ -290,7 +313,9 @@ export function ChatView() {
                 {activeSessionId && (
                   <button
                     className="session-close-btn"
-                    onClick={storeCloseSession}
+                    onClick={() => {
+                      if (ordinaryControls) storeCloseSession();
+                    }}
                     title="Close session"
                   >
                     &times;
@@ -318,22 +343,18 @@ export function ChatView() {
           )}
 
           <div className="workspace-session-settings">
-            <WebSearchConsent
-              key={activeSessionId ?? 'new'}
-              sessionId={activeSessionId}
-              mode={mode}
-              connected={connected}
-              connectionId={connectionId}
-              running={messages.running}
-            />
-            {activeSessionId && (
-              <p className="symposium-review-help">
-                AI review · Add a read-only reviewer, approve and send its request, then read the
-                findings.
-              </p>
+            {ordinaryControls && (
+              <WebSearchConsent
+                key={activeSessionId ?? 'new'}
+                sessionId={activeSessionId}
+                mode={mode}
+                connected={connected}
+                connectionId={connectionId}
+                running={messages.running}
+              />
             )}
             <div className="workspace-session-actions">
-              {activeSessionId && <AddReviewerSheet sessionId={activeSessionId} />}
+              {activeSessionId && <AddAgentSheet sessionId={activeSessionId} />}
               {activeSessionId && (
                 <SymposiumReviewEntry key={activeSessionId} sessionId={activeSessionId} />
               )}

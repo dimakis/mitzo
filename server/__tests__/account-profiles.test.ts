@@ -894,6 +894,33 @@ describe('native personal ChatGPT selection', () => {
     expect(() => rotated.resume(binding)).toThrow('configuration changed');
   });
 
+  it('reports the bootstrap catalog stale until an owned native discovery revision is published', () => {
+    const bootstrap = new AccountProfiles([native], { codexEnabled: true });
+    expect(bootstrap.catalog()[0].modelDiscovery.stale).toBe(true);
+    const discovered = new AccountProfiles([{ ...native, nativeCatalogRevision: 7 }], {
+      codexEnabled: true,
+    });
+    expect(discovered.catalog()[0].modelDiscovery.stale).toBe(false);
+  });
+
+  it('marks a failed refresh stale without changing the authorized native selection', () => {
+    const fresh = { ...native, nativeCatalogRevision: 7, nativeCatalogStale: false };
+    const authorized = new AccountProfiles([fresh], { codexEnabled: true });
+    const binding = authorized.resolve(native.id, 'luna');
+    const failed = new AccountProfiles([{ ...fresh, nativeCatalogStale: true }], {
+      codexEnabled: true,
+    });
+    expect(failed.catalog()[0].modelDiscovery.stale).toBe(true);
+    expect(failed.catalog()[0].models).toEqual(authorized.catalog()[0].models);
+    expect(failed.resolve(native.id, 'luna')).toEqual(binding);
+    expect(failed.resume(binding)).toEqual(binding);
+    const renewed = new AccountProfiles([{ ...fresh, nativeCatalogRevision: 8 }], {
+      codexEnabled: true,
+    });
+    expect(renewed.catalog()[0].modelDiscovery.stale).toBe(false);
+    expect(renewed.resolve(native.id, 'luna').profileRevision).not.toBe(binding.profileRevision);
+  });
+
   it.each([
     { credentialRef: '/host/login' },
     { sandboxGrantId: 'compat-grant' },

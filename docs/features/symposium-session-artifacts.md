@@ -46,5 +46,8 @@ Transient inspection errors preserve an already-ready mapping for cleanup; fresh
 runtime admission still performs its existing physical verification. Contradictory
 physical evidence invalidates readiness for new admission. Existing seat shutdown
 uses a cleanup-only retained identity, still requiring the exact sandbox deletion
-and lease-release proofs; it does not require the volume to remain admissible. Native review terminal receipts, hard token-budget evidence
-and attended runtime acceptance remain separate work.
+and lease-release proofs; it does not require the volume to remain admissible. Native
+review terminal receipts, persisted application-policy integration and attended
+runtime acceptance remain separate gates. Guaranteed native token/spend caps and
+mandatory final usage totals are deferred under the
+[current acceptance contract](symposium-integrated-acceptance.md#application-policy-contract).

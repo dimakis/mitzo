@@ -2,7 +2,16 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { EventEmitter } from 'node:events';
 import { execFileSync, type ChildProcess } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  linkSync,
+  lstatSync,
+  symlinkSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import type { SymposiumHostIssuer } from '../symposium-host-issuer.js';
@@ -15,7 +24,10 @@ const roots: string[] = [];
 afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
-function fixture(san = 'DNS:localhost,IP:127.0.0.1,DNS:host.containers.internal') {
+function fixture(
+  san = 'DNS:localhost,IP:127.0.0.1,DNS:host.containers.internal',
+  ca: boolean | 'leaf' = false,
+) {
   const root = mkdtempSync(join(tmpdir(), 'symposium-owned-test-'));
   roots.push(root);
   chmodSync(root, 0o700);
@@ -63,6 +75,16 @@ function fixture(san = 'DNS:localhost,IP:127.0.0.1,DNS:host.containers.internal'
       '/CN=localhost',
       '-addext',
       `subjectAltName=${san}`,
+      ...(ca
+        ? [
+            '-addext',
+            `basicConstraints=critical,CA:${ca === true ? 'TRUE' : 'FALSE'}`,
+            '-addext',
+            ca === true
+              ? 'keyUsage=critical,keyCertSign,cRLSign'
+              : 'keyUsage=critical,digitalSignature',
+          ]
+        : []),
       '-keyout',
       options.tls.serverKey,
       '-out',
@@ -98,7 +120,7 @@ function fixture(san = 'DNS:localhost,IP:127.0.0.1,DNS:host.containers.internal'
     ),
     listenerPid: vi.fn<() => number | null>().mockReturnValueOnce(null).mockReturnValue(4321),
   };
-  return { options, child, operations };
+  return { options, child, issuer, operations };
 }
 
 describe('owned upstream gateway evidence', () => {
@@ -284,6 +306,79 @@ it('async custody verifies files and process again after asynchronous listener o
   }
 });
 
+it('rechecks full async custody after an owned token rotation during listener observation', async () => {
+  const f = fixture();
+  let complete!: (pid: number) => void;
+  const listenerPidAsync = vi
+    .fn()
+    .mockImplementationOnce(
+      () =>
+        new Promise<number>((resolve) => {
+          complete = resolve;
+        }),
+    )
+    .mockResolvedValue(4321);
+  const gateway = await OwnedSymposiumGateway.launch(f.options, {
+    ...f.operations,
+    listenerPidAsync,
+  });
+  try {
+    const pending = gateway.verifyCustodyAsync();
+    await vi.waitFor(() => expect(listenerPidAsync).toHaveBeenCalledTimes(1));
+    f.issuer.tokenBundle.mockReturnValue({
+      access_token: 'rotated-host-only',
+      expires_at: Math.floor(Date.now() / 1000) + 300,
+      issuer: f.issuer.url,
+      client_id: 'symposium-host',
+    });
+    (gateway as unknown as { refreshManagementToken(): void }).refreshManagementToken();
+    complete(4321);
+    await expect(pending).resolves.toBeUndefined();
+    expect(listenerPidAsync).toHaveBeenCalledTimes(2);
+  } finally {
+    gateway.stop();
+  }
+});
+
+it('still rejects static launch-material drift when an owned token rotates', async () => {
+  const f = fixture();
+  let complete!: (pid: number) => void;
+  const listenerPidAsync = vi
+    .fn()
+    .mockImplementationOnce(
+      () =>
+        new Promise<number>((resolve) => {
+          complete = resolve;
+        }),
+    )
+    .mockResolvedValue(4321);
+  const gateway = await OwnedSymposiumGateway.launch(f.options, {
+    ...f.operations,
+    listenerPidAsync,
+  });
+  try {
+    const pending = gateway.verifyCustodyAsync();
+    const rejected = expect(pending).rejects.toThrow('Owned gateway launch material changed');
+    await vi.waitFor(() => expect(listenerPidAsync).toHaveBeenCalledTimes(1));
+    f.issuer.tokenBundle.mockReturnValue({
+      access_token: 'rotated-host-only',
+      expires_at: Math.floor(Date.now() / 1000) + 300,
+      issuer: f.issuer.url,
+      client_id: 'symposium-host',
+    });
+    (gateway as unknown as { refreshManagementToken(): void }).refreshManagementToken();
+    const [, args] = f.operations.start.mock.calls[0];
+    chmodSync(args[1], 0o600);
+    writeFileSync(args[1], 'changed');
+    chmodSync(args[1], 0o400);
+    complete(4321);
+    await rejected;
+    expect(listenerPidAsync).toHaveBeenCalledTimes(1);
+  } finally {
+    gateway.stop();
+  }
+});
+
 it('awaits exact gateway child exit and issuer shutdown rather than accepting SIGTERM as proof', async () => {
   const f = fixture();
   const gateway = await OwnedSymposiumGateway.launch(f.options, f.operations);
@@ -311,4 +406,202 @@ it('reports aborted child-exit observation as incomplete and removes the waiter'
   await rejected;
   expect(f.child.listenerCount('exit')).toBe(before);
   expect(f.child.exitCode).toBeNull();
+});
+
+describe('trusted owned upstream proxy configuration', () => {
+  it('preserves exact frozen public and private modes under restrictive umask', async () => {
+    const f = fixture(undefined, true);
+    const ca = readFileSync(f.options.tls.serverCert);
+    f.options.upstreamProxy = {
+      url: 'http://proxy.example:18443',
+      caBundle: f.options.tls.serverCert,
+      caBundleSha256: createHash('sha256').update(ca).digest('hex'),
+    };
+    const previous = process.umask(0o077);
+    try {
+      const owned = await OwnedSymposiumGateway.launch(f.options, f.operations);
+      expect(lstatSync(join(owned.stateDirectory, 'upstream-proxy-ca.pem')).mode & 0o777).toBe(
+        0o444,
+      );
+      expect(lstatSync(owned.stateDirectory).mode & 0o777).toBe(0o700);
+      for (const name of Object.keys(f.options.tls))
+        expect(lstatSync(join(owned.stateDirectory, `${name}.pem`)).mode & 0o777).toBe(0o400);
+      for (const name of Object.keys(f.options.jwt))
+        expect(lstatSync(join(owned.stateDirectory, `${name}.jwt`)).mode & 0o777).toBe(0o400);
+      expect(() => owned.verifyCustody()).not.toThrow();
+      owned.stop();
+    } finally {
+      process.umask(previous);
+    }
+  });
+  it('freezes the pinned public CA and writes only source-supported proxy fields', async () => {
+    const f = fixture(undefined, true);
+    const ca = readFileSync(f.options.tls.serverCert);
+    f.options.upstreamProxy = {
+      url: 'http://proxy.example:18443',
+      caBundle: f.options.tls.serverCert,
+      caBundleSha256: createHash('sha256').update(ca).digest('hex'),
+    };
+    const owned = await OwnedSymposiumGateway.launch(f.options, f.operations);
+    const config = readFileSync(f.operations.start.mock.calls[0][1][1], 'utf8');
+    expect(config).toContain('https_proxy = "http://proxy.example:18443"');
+    const frozen = join(owned.stateDirectory, 'upstream-proxy-ca.pem');
+    expect(config).toContain(`proxy_ca_bundle = ${JSON.stringify(frozen)}`);
+    expect(readFileSync(frozen)).toEqual(ca);
+    // A public-only CA file bind must be readable by the distinct supervisor UID.
+    expect(lstatSync(frozen).mode & 0o777).toBe(0o444);
+    expect(lstatSync(owned.stateDirectory).mode & 0o777).toBe(0o700);
+    for (const name of Object.keys(f.options.tls))
+      expect(lstatSync(join(owned.stateDirectory, `${name}.pem`)).mode & 0o777).toBe(0o400);
+    for (const name of Object.keys(f.options.jwt))
+      expect(lstatSync(join(owned.stateDirectory, `${name}.jwt`)).mode & 0o777).toBe(0o400);
+    for (const drift of [0o400, 0o600]) {
+      chmodSync(frozen, drift);
+      expect(() => owned.verifyCustody()).toThrow();
+      chmodSync(frozen, 0o444);
+      expect(() => owned.verifyCustody()).not.toThrow();
+    }
+    expect(config).toContain('enable_bind_mounts = false');
+    expect(config).not.toMatch(/no_proxy|proxy_auth_file|proxy_connect_by_hostname|insecure/);
+    writeFileSync(f.options.tls.serverCert, 'changed original source');
+    expect(() => owned.verifyCustody()).not.toThrow();
+    chmodSync(frozen, 0o600);
+    writeFileSync(frozen, 'changed owned copy');
+    chmodSync(frozen, 0o400);
+    expect(() => owned.verifyCustody()).toThrow();
+    owned.stop();
+  });
+  it.each([
+    'http://user:secret@proxy.example:18443',
+    'http://proxy.example:18443/path',
+    'http://proxy.example:18443?token=x',
+    'http://proxy.example:18443#x',
+    'http://proxy.example',
+    'socks5://proxy.example:18443',
+  ])('rejects unsupported proxy URI before issuer or gateway start: %s', async (url) => {
+    const f = fixture(undefined, true);
+    f.options.upstreamProxy = {
+      url,
+      caBundle: f.options.tls.serverCert,
+      caBundleSha256: createHash('sha256')
+        .update(readFileSync(f.options.tls.serverCert))
+        .digest('hex'),
+    };
+    await expect(OwnedSymposiumGateway.launch(f.options, f.operations)).rejects.toThrow();
+    expect(f.operations.startIssuer).not.toHaveBeenCalled();
+    expect(f.operations.start).not.toHaveBeenCalled();
+  });
+  it('rejects changed CA digest before issuer or gateway start', async () => {
+    const f = fixture(undefined, true);
+    f.options.upstreamProxy = {
+      url: 'https://proxy.example:18443',
+      caBundle: f.options.tls.serverCert,
+      caBundleSha256: '0'.repeat(64),
+    };
+    await expect(OwnedSymposiumGateway.launch(f.options, f.operations)).rejects.toThrow();
+    expect(f.operations.startIssuer).not.toHaveBeenCalled();
+  });
+});
+
+it.each(['leaf', 'expired', 'symlink', 'hardlink', 'oversized', 'private-key'] as const)(
+  'rejects unsafe proxy CA %s before effects',
+  async (kind) => {
+    const f = fixture(undefined, kind === 'leaf' ? 'leaf' : true);
+    let caBundle = f.options.tls.serverCert;
+    if (kind === 'symlink' || kind === 'hardlink') {
+      caBundle = join(f.options.stateParent, 'alias.pem');
+      if (kind === 'symlink') symlinkSync(f.options.tls.serverCert, caBundle);
+      else linkSync(f.options.tls.serverCert, caBundle);
+    }
+    if (kind === 'oversized') writeFileSync(caBundle, Buffer.alloc(128 * 1024 + 1));
+    if (kind === 'private-key') caBundle = f.options.tls.serverKey;
+    f.options.upstreamProxy = {
+      url: 'https://proxy.example:18443',
+      caBundle,
+      caBundleSha256: createHash('sha256').update(readFileSync(caBundle)).digest('hex'),
+    };
+    const clock =
+      kind === 'expired'
+        ? vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 3 * 86400000)
+        : undefined;
+    try {
+      await expect(OwnedSymposiumGateway.launch(f.options, f.operations)).rejects.toThrow();
+      expect(f.operations.startIssuer).not.toHaveBeenCalled();
+      expect(f.operations.start).not.toHaveBeenCalled();
+    } finally {
+      clock?.mockRestore();
+    }
+  },
+);
+
+describe('trusted paired-supervisor network selection', () => {
+  it.each([undefined, 'symposium'])(
+    'emits the selector only for explicit same-network opt-in: %s',
+    async (supervisorNetwork) => {
+      const f = fixture();
+      const owned = await OwnedSymposiumGateway.launch(
+        { ...f.options, supervisorNetwork },
+        f.operations,
+      );
+      const config = readFileSync(f.operations.start.mock.calls[0][1][1], 'utf8');
+      expect(config).toContain('network_name = "symposium"');
+      if (supervisorNetwork === undefined) expect(config).not.toContain('supervisor_network_name');
+      else expect(config).toContain('supervisor_network_name = "symposium"');
+      expect(config).toContain('enable_bind_mounts = false');
+      expect(() => owned.verifyCustody()).not.toThrow();
+      owned.stop();
+    },
+  );
+  it.each([
+    'foreign',
+    'host',
+    'none',
+    'bridge',
+    'private',
+    'pasta',
+    'slirp4netns',
+    'container:other',
+    '',
+    '-bad',
+    'with space',
+    'a,b',
+  ])(
+    'rejects invalid or foreign selection before issuer/process launch: %s',
+    async (supervisorNetwork) => {
+      const f = fixture();
+      const options = {
+        ...f.options,
+        supervisorNetwork,
+        network: supervisorNetwork === 'foreign' ? 'symposium' : supervisorNetwork,
+      };
+      await expect(OwnedSymposiumGateway.launch(options, f.operations)).rejects.toThrow();
+      expect(f.operations.startIssuer).not.toHaveBeenCalled();
+      expect(f.operations.start).not.toHaveBeenCalled();
+    },
+  );
+});
+
+// Source-shaped creation hook: baseline launch silently ignores this argument.
+it('retains the exact newly created gateway before listener discovery', async () => {
+  const { options, operations, child } = fixture();
+  const record = vi.fn((role, original, current) => {
+    expect(role).toBe('gateway');
+    expect(original).toBe(child);
+    expect(operations.listenerPid).toHaveBeenCalledTimes(1); // Existing preflight vacant-port check only.
+    current();
+  });
+  const owner = await OwnedSymposiumGateway.launch(options, operations, record);
+  expect(record).toHaveBeenCalledTimes(1);
+  owner.stop();
+});
+
+it('fences the original gateway if its creation journal cannot be retained', async () => {
+  const { options, operations, child, issuer } = fixture();
+  await expect(
+    OwnedSymposiumGateway.launch(options, operations, () => {
+      throw Error('original journal uncertain');
+    }),
+  ).rejects.toThrow('original journal uncertain');
+  expect(child.kill).toHaveBeenCalled();
+  expect(issuer.stop).toHaveBeenCalled();
 });

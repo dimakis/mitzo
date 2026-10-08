@@ -59,3 +59,36 @@ it('fails closed when recent approval is absent instead of inventing it from the
   delete (request.authorization as { recentUntil?: number }).recentUntil;
   expect((await dispatchCustodianHttp(app, request, () => {})).status).toBe(403);
 });
+it('dispatches source seal recovery to the retained semantic handler with recent authority', async () => {
+  const app = express();
+  app.use(express.json(), authMiddleware);
+  app.post('/api/sessions/:id/symposium/source/seal/recover', (req, res) => {
+    if (!requireRecentConnectionAuthorization(res, '')) return;
+    res.json({
+      sessionId: req.params.id,
+      operationId: req.body.operationId,
+      owner: res.locals.authSession.id,
+    });
+  });
+  const result = await dispatchCustodianHttp(
+    app,
+    {
+      ...command(),
+      operation: 'source.sealRecover',
+      body: {
+        expectedRevision: 4,
+        expectedGeneration: 'volume-gen',
+        operationId: 'import-1',
+      },
+    },
+    () => {},
+  );
+  expect(result).toEqual({
+    status: 200,
+    body: {
+      sessionId: 's1',
+      operationId: 'import-1',
+      owner: 'jti-from-verified-controller',
+    },
+  });
+});

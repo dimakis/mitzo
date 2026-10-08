@@ -1,3 +1,7 @@
+import {
+  REVIEWED_SYMPOSIUM_CODEX_01591_RUNTIME,
+  REVIEWED_SYMPOSIUM_CODEX_01591_IDENTITY_RUNTIME,
+} from '../symposium-owned-runtime-contract.js';
 import { afterEach, expect, it, vi } from 'vitest';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -5,7 +9,7 @@ import { join } from 'node:path';
 import { open } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { EventEmitter } from 'node:events';
-import { PassThrough } from 'node:stream';
+import { PassThrough, Writable } from 'node:stream';
 import { execFile, spawn } from 'node:child_process';
 import { runSymposiumModelDiscovery } from '../symposium-model-discovery.js';
 import { guardDiscoveryOperations } from '../symposium-discovery-custody.js';
@@ -37,7 +41,7 @@ function fixture() {
     writeFileSync(join(root, name), 'fixture', { mode: 0o600 });
   const config = {
     cliSha256: digest,
-    workloadImage: `sha256:${'a'.repeat(64)}`,
+    workloadImage: REVIEWED_SYMPOSIUM_CODEX_01591_RUNTIME.build.image as string,
     policySha256: digest,
     podmanUrl: 'unix:///private/mock-podman.sock',
     gateway: 'owned',
@@ -508,3 +512,73 @@ it('accepts explicit empty Podman namespace but rejects omitted namespace', () =
     }),
   ).toThrow('Explicit discovery');
 });
+
+it('rejects missing identity metadata before discovery transport dispatch on the successor', async () => {
+  const { config, options } = fixture();
+  config.workloadImage = REVIEWED_SYMPOSIUM_CODEX_01591_IDENTITY_RUNTIME.build.image;
+  await expect(
+    createDiscoveryHostOperations(config, options).openClient(inventoryReceipt),
+  ).rejects.toThrow('launch identity');
+  expect(spawn).not.toHaveBeenCalled();
+});
+
+it.each(['synthetic-receipt-account', 'different-account', undefined])(
+  'sends claim-bound discovery metadata and checks native routing (%s)',
+  async (routingAccount) => {
+    const { config, options } = fixture();
+    config.workloadImage = REVIEWED_SYMPOSIUM_CODEX_01591_IDENTITY_RUNTIME.build.image;
+    const frames: Array<Record<string, unknown>> = [];
+    const child = Object.assign(new EventEmitter(), {
+      stdin: undefined as unknown as Writable,
+      stdout: new PassThrough(),
+      stderr: new PassThrough(),
+      kill: vi.fn(),
+    });
+    child.stdin = new Writable({
+      write(chunk, _encoding, done) {
+        const frame = JSON.parse(chunk.toString());
+        frames.push(frame);
+        if (frame.id) {
+          const result =
+            frame.method === 'account/read'
+              ? {
+                  account: { type: 'chatgpt' },
+                  ...(routingAccount
+                    ? { workspaceRouting: { chatgptAccountId: routingAccount } }
+                    : {}),
+                }
+              : {};
+          queueMicrotask(() => child.stdout.write(JSON.stringify({ id: frame.id, result }) + '\n'));
+        }
+        done();
+      },
+    });
+    const killChild = child.kill;
+    vi.mocked(spawn).mockReturnValue(child as never);
+    const identity = { accountId: 'synthetic-receipt-account', assertCurrent: vi.fn() };
+    const client = await createDiscoveryHostOperations(config, {
+      ...options,
+      launchIdentity: () => identity,
+    }).openClient(inventoryReceipt);
+    await client.initialize();
+    const account = client.request('account/read', { refreshToken: false });
+    if (routingAccount === identity.accountId)
+      await expect(account).resolves.toMatchObject({
+        workspaceRouting: { chatgptAccountId: identity.accountId },
+      });
+    else await expect(account).rejects.toThrow('workspace identity');
+    expect(frames[0]).toEqual({
+      version: 1,
+      claim: inventoryReceipt.claim,
+      accountId: identity.accountId,
+    });
+    expect(frames.map((frame) => frame.method)).toEqual([
+      undefined,
+      'initialize',
+      'initialized',
+      'account/read',
+    ]);
+    client.close();
+    expect(killChild).toHaveBeenCalled();
+  },
+);

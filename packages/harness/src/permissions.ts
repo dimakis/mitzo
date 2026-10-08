@@ -52,6 +52,19 @@ export function registerPending(
   if (request) notifyLifecycle({ type: 'requested', request });
 }
 
+/** Verify the display covers every parameter of the live Bash execution. */
+export function isCompletePendingBashCommand(request: PermissionRequest): boolean {
+  const entry = pending.get(request.permId);
+  return (
+    !!entry &&
+    entry.toolName === 'Bash' &&
+    entry.sessionId === request.sessionId &&
+    Object.keys(entry.toolInput).length === 1 &&
+    Object.hasOwn(entry.toolInput, 'command') &&
+    entry.toolInput.command === request.toolInput
+  );
+}
+
 export function resolvePending(
   permId: string,
   decision: 'once' | 'always' | 'deny',

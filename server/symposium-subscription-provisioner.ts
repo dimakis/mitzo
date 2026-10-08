@@ -2,6 +2,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { createServer } from 'node:http';
 import { createRemoteJWKSet, jwtVerify, type JWTPayload } from 'jose';
 import type { AccountBinding } from '@mitzo/protocol';
+import type { SubscriptionLaunchIdentity } from './symposium-subscription-identity.js';
 import type { VerifySymposiumSubscriptionAuth } from './symposium-subscription-native.js';
 
 const issuer = 'https://auth.openai.com';
@@ -399,6 +400,10 @@ export class SymposiumSubscriptionProvisioner {
     };
     return {
       provider: { name: receipt.provider, id: receipt.providerId },
+      launchIdentity: (): SubscriptionLaunchIdentity => {
+        assertCurrent();
+        return { accountId: receipt.identity.accountId, assertCurrent };
+      },
       binding: { ...receipt.binding },
       account: { email: receipt.identity.email, planType: receipt.identity.planType },
       assertCurrent,
@@ -411,6 +416,22 @@ export class SymposiumSubscriptionProvisioner {
           throw new Error('Catalog account changed');
         receipt.binding = { ...binding };
         this.generation++;
+      },
+    };
+  }
+
+  captureLaunchIdentity(
+    input: Parameters<VerifySymposiumSubscriptionAuth>[0],
+  ): SubscriptionLaunchIdentity {
+    this.assertPrivateAuth(input);
+    const receipt = this.receipt!;
+    const generation = this.generation;
+    return {
+      accountId: receipt.identity.accountId,
+      assertCurrent: () => {
+        this.assertPrivateAuth(input);
+        if (this.receipt !== receipt || this.generation !== generation)
+          throw new Error('Subscription authorization receipt changed');
       },
     };
   }

@@ -25,7 +25,12 @@ const plan = selection.extend({
 export function createSymposiumSourceRouter(deps: {
   repositories(): Record<string, string>;
   getSession: EventStore['getSession'];
-  getHost(): SymposiumSourceHost | undefined;
+  getHost():
+    | (SymposiumSourceHost & {
+        seal?: (sessionId: string, operationId: string, signal: AbortSignal) => Promise<unknown>;
+        requireSeal?: (sessionId: string) => { receipt: unknown };
+      })
+    | undefined;
 }) {
   const router = Router({ mergeParams: true });
   router.post('/reauthorize', ...recentAppReauthorizationHandlers());
@@ -130,6 +135,55 @@ export function createSymposiumSourceRouter(deps: {
           authorize,
         ),
       );
+    } catch (error) {
+      if (!res.headersSent) res.status(409).json({ error: sourceImportPublicError(error) });
+    } finally {
+      unregister();
+    }
+  });
+  router.post('/seal/recover', requireSameOriginJson, async (req, res) => {
+    if (!requireRecentConnectionAuthorization(res, req.header('x-csrf-token') ?? '')) return;
+    const parsed = z
+      .strictObject({
+        expectedRevision: z.number().int().positive(),
+        expectedGeneration: z.string().min(1).max(128),
+        operationId: z.string().min(1).max(200),
+      })
+      .safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: 'Exact retained source seal recovery required' });
+      return;
+    }
+    const auth = res.locals.authSession as AuthSession;
+    const abort = new AbortController();
+    let invalidated = false;
+    const unregister = registerAuthSession(auth, () => {
+      invalidated = true;
+      abort.abort();
+    });
+    try {
+      const id = (req.params as { id: string }).id;
+      const host = deps.getHost();
+      if (!host?.seal) throw Error('Owned source seal recovery unavailable');
+      if (session(id).revision !== parsed.data.expectedRevision)
+        throw Error('Source session revision changed');
+      const state = host.status(id);
+      if (
+        state.state !== 'imported' ||
+        state.admissionIssued ||
+        state.volumeGeneration !== parsed.data.expectedGeneration ||
+        state.receipt?.operationId !== parsed.data.operationId ||
+        (state.sourceSeal && state.sourceSeal.operationId !== parsed.data.operationId)
+      )
+        throw Error('Retained imported source operation changed');
+      if (invalidated) throw Error('App authentication expired or revoked');
+      const seal =
+        state.sourceSeal?.state === 'complete'
+          ? host.requireSeal?.(id).receipt
+          : await host.seal(id, parsed.data.operationId, abort.signal);
+      if (!seal) throw Error('Retained completed source seal unavailable');
+      if (invalidated) throw Error('App authentication expired or revoked');
+      res.json({ seal });
     } catch (error) {
       if (!res.headersSent) res.status(409).json({ error: sourceImportPublicError(error) });
     } finally {

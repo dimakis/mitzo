@@ -42,6 +42,23 @@ function jiraAdapter() {
 }
 
 describe('ConnectionsService', () => {
+  it('holds a retained runtime with conflicting GitHub attachments without changing its grants', async () => {
+    const github = { templateId: 'github-readonly', gatewayProviderName: 'mitzo-conn-github' };
+    const gateway = {
+      sandbox: vi.fn().mockResolvedValue({ name: 'retained' }),
+      sandboxProviders: vi
+        .fn()
+        .mockResolvedValue(['account', 'github', github.gatewayProviderName]),
+    };
+    const service = new ConnectionsService({} as never, gateway as never);
+    await expect(
+      service.retainedAutomaticConnections(
+        ['retained'],
+        [github] as import('../connections-store.js').Connection[],
+        AbortSignal.timeout(500),
+      ),
+    ).rejects.toThrow('Retained sandbox has conflicting GitHub credential attachments');
+  });
   it('pins retained automatic connections to physical attachments while keeping new sandboxes current', async () => {
     const existing = { id: 'existing', gatewayProviderName: 'mitzo-conn-existing' };
     const added = { id: 'added', gatewayProviderName: 'mitzo-conn-added' };
@@ -984,4 +1001,38 @@ describe('ConnectionsService', () => {
     store.close();
     rmSync(dir, { recursive: true, force: true });
   });
+});
+
+it('reports the exact saved connection when new-connection provisioning fails', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'connections-create-recovery-'));
+  const store = new ConnectionStore(join(dir, 'db'));
+  const gateway = {
+    ...jiraAdapter(),
+    verifyCompatibility: vi.fn().mockResolvedValue(undefined),
+    get: vi.fn().mockResolvedValue(undefined),
+    provision: vi.fn().mockRejectedValue(new Error('Provider failed')),
+  };
+  const service = new ConnectionsService(store, gateway as never);
+  try {
+    const failure = await service
+      .createAndProvision(
+        {
+          ownerId: 'operator',
+          templateId: 'jira-readonly',
+          templateVersion: 1,
+          label: 'Research',
+          fields: { email: 'person@example.test' },
+          desiredAccountIds: [],
+        },
+        { token: 'one-shot' },
+        AbortSignal.timeout(500),
+      )
+      .catch((error: unknown) => error);
+    expect(failure).toMatchObject({ connectionId: store.list('operator')[0]?.id });
+    expect(store.list('operator')).toHaveLength(1);
+    expect(gateway.provision).toHaveBeenCalledOnce();
+  } finally {
+    store.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

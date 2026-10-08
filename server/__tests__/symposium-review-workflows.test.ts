@@ -2,9 +2,104 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { SymposiumReviewStore } from '../symposium-review-workflows.js';
+import { createHash } from 'node:crypto';
+import Database from 'better-sqlite3';
+import { isApplicationPolicy, SymposiumReviewStore } from '../symposium-review-workflows.js';
 import { AccountProfiles } from '../account-profiles.js';
 import { ExecutionPolicySchema } from '@mitzo/protocol';
+
+it('requires a sequential provider-echoed chain after durable issuance and survives replay', () => {
+  const db = new Database(join(directory, 'events.db'));
+  const insert = db.prepare(`INSERT INTO symposium_review_context_pages
+    (workflow_id,attempt_id,page_index,session_id,seal_fence_id,evidence_sha256,page_count,context,receipt,accessed)
+    VALUES ('workflow','attempt',?,'session','fence',?,3,?,?,?)`);
+  for (const pageIndex of [0, 1, 2]) {
+    const context = `page-${pageIndex}`;
+    const contextSha256 = createHash('sha256').update(context).digest('hex');
+    insert.run(
+      pageIndex,
+      hash('e'),
+      context,
+      JSON.stringify({ contextSha256 }),
+      pageIndex === 0 ? 1 : 0,
+    );
+  }
+  db.close();
+  const page0Sha256 = createHash('sha256').update('page-0').digest('hex');
+  const page1Sha256 = createHash('sha256').update('page-1').digest('hex');
+  const page2Sha256 = createHash('sha256').update('page-2').digest('hex');
+  expect(reviews.hasCompleteReviewPageCoverage('workflow', 'attempt')).toBe(false);
+  reviews.markReviewPageDelivered({
+    workflowId: 'workflow',
+    attemptId: 'attempt',
+    pageIndex: 1,
+    contextSha256: page1Sha256,
+  });
+  reviews.markReviewPageDelivered({
+    workflowId: 'workflow',
+    attemptId: 'attempt',
+    pageIndex: 2,
+    contextSha256: page2Sha256,
+  });
+  expect(reviews.hasCompleteReviewPageCoverage('workflow', 'attempt')).toBe(true);
+  expect(reviews.hasCompleteReviewPageCoverage('workflow', 'attempt', undefined, true)).toBe(false);
+  expect(() =>
+    reviews.issueReviewPageChallenge({
+      workflowId: 'workflow',
+      attemptId: 'attempt',
+      pageIndex: 2,
+      contextSha256: page2Sha256,
+      previousChallenge: hash('f'),
+    }),
+  ).toThrow('Sequential');
+  const firstChallenge = reviews.issueReviewPageChallenge({
+    workflowId: 'workflow',
+    attemptId: 'attempt',
+    pageIndex: 1,
+    contextSha256: page1Sha256,
+    previousChallenge: page0Sha256,
+  });
+  expect(firstChallenge).toMatch(/^[a-f0-9]{64}$/);
+  expect(reviews.hasCompleteReviewPageCoverage('workflow', 'attempt', firstChallenge, true)).toBe(
+    false,
+  );
+  const lastChallenge = reviews.issueReviewPageChallenge({
+    workflowId: 'workflow',
+    attemptId: 'attempt',
+    pageIndex: 2,
+    contextSha256: page2Sha256,
+    previousChallenge: firstChallenge,
+  });
+  expect(lastChallenge).toMatch(/^[a-f0-9]{64}$/);
+  expect(lastChallenge).not.toBe(firstChallenge);
+  expect(reviews.hasCompleteReviewPageCoverage('workflow', 'attempt', firstChallenge, true)).toBe(
+    false,
+  );
+  reviews.close();
+  reviews = new SymposiumReviewStore(join(directory, 'events.db'));
+  expect(
+    reviews.issueReviewPageChallenge({
+      workflowId: 'workflow',
+      attemptId: 'attempt',
+      pageIndex: 1,
+      contextSha256: page1Sha256,
+      previousChallenge: page0Sha256,
+    }),
+  ).toBe(firstChallenge);
+  expect(
+    reviews.issueReviewPageChallenge({
+      workflowId: 'workflow',
+      attemptId: 'attempt',
+      pageIndex: 2,
+      contextSha256: page2Sha256,
+      previousChallenge: firstChallenge,
+    }),
+  ).toBe(lastChallenge);
+  expect(reviews.hasCompleteReviewPageCoverage('workflow', 'attempt', hash('f'), true)).toBe(false);
+  expect(reviews.hasCompleteReviewPageCoverage('workflow', 'attempt', lastChallenge, true)).toBe(
+    true,
+  );
+});
 
 const hash = (letter: string) => letter.repeat(64);
 const implementation = {
@@ -65,6 +160,7 @@ afterEach(() => {
 
 const recordReview = (input: Parameters<SymposiumReviewStore['recordReview']>[0]) => {
   const state = reviews.get(input.workflowId)!;
+  if (isApplicationPolicy(state.limits)) throw new Error('Native test');
   const existing = state.reservations.find((entry) => entry.attemptId === input.usage.attemptId);
   const admission = reviews.admitAttempt({
     workflowId: input.workflowId,
@@ -76,7 +172,7 @@ const recordReview = (input: Parameters<SymposiumReviewStore['recordReview']>[0]
     artifactHash: input.artifactHash,
     maxTokens:
       existing?.maxTokens ??
-      Math.max(1, Math.min(input.usage.tokens, state.limits.maxTokens - state.tokensUsed)),
+      Math.max(1, Math.min(input.usage.tokens ?? 0, state.limits.maxTokens - state.tokensUsed)),
     maxCostUsd:
       existing?.maxCostUsd ??
       (input.usage.costUsd === null
@@ -98,7 +194,7 @@ const recordFix = (input: Parameters<SymposiumReviewStore['recordFix']>[0]) => {
     actorSeatId: input.implementerSeatId,
     artifactRevision: input.result.inputRevision,
     artifactHash: input.result.inputHash,
-    maxTokens: Math.max(input.usage.tokens, 1),
+    maxTokens: Math.max(input.usage.tokens ?? 0, 1),
     maxCostUsd: input.usage.costUsd,
   });
   if (admission.kind === 'decision_required') throw new Error(`Fix admission: ${admission.code}`);
@@ -1038,7 +1134,7 @@ it('binds successor authority to the existing exact workflow authorization and c
     assertSuccessorFixAuthority(authority, { ...request, authorityRevision: 3 }),
   ).toThrow();
   expect(() =>
-    assertSuccessorFixAuthority(authority, { ...request, fixAttemptId: 'unreserved' }),
+    assertSuccessorFixAuthority(authority, { ...request, fixAttemptId: 'unreserved' } as never),
   ).toThrow();
   expect(() =>
     assertSuccessorFixAuthority(

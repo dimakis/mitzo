@@ -106,3 +106,44 @@ it('does not retry an unknown conversation', async () => {
   await request(app).post('/api/sessions/other/codex-queue/retry').expect(404);
   expect(retry).not.toHaveBeenCalled();
 });
+
+it('requires exact recovery identity for authenticated capacity controls and hides unsafe diagnostics', async () => {
+  const recoveryId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+  const capacityRetry = vi.fn(async () => 'queued' as const);
+  const capacityStop = vi.fn(async () => 'stopped' as const);
+  const app = express();
+  app.use(express.json());
+  app.use(
+    '/api/sessions',
+    createCodexQueueRouter({
+      binding: (id) => (id === 'known' ? binding : undefined),
+      overview: () => ({ queued: [], cancelledIds: [], hasMore: false }),
+      cancel: () => 'not_found',
+      retry: async () => 'not_found',
+      reattach: async () => 'unavailable',
+      capacityRetry,
+      capacityStop,
+    }),
+  );
+  await request(app)
+    .post('/api/sessions/known/codex-queue/capacity-retry')
+    .send({ recoveryId, sourceCommandId: 'source' })
+    .expect(200);
+  expect(capacityRetry).toHaveBeenCalledExactlyOnceWith('known', binding, recoveryId, 'source');
+  await request(app)
+    .post('/api/sessions/unknown/codex-queue/capacity-stop')
+    .send({ recoveryId, sourceCommandId: 'source' })
+    .expect(404);
+  expect(capacityStop).not.toHaveBeenCalled();
+  await request(app)
+    .post('/api/sessions/known/codex-queue/capacity-stop')
+    .send({ recoveryId })
+    .expect(400);
+  expect(capacityStop).not.toHaveBeenCalled();
+  capacityStop.mockRejectedValueOnce(new Error('private credential sk-secret'));
+  const response = await request(app)
+    .post('/api/sessions/known/codex-queue/capacity-stop')
+    .send({ recoveryId, sourceCommandId: 'source' })
+    .expect(409);
+  expect(JSON.stringify(response.body)).not.toMatch(/credential|sk-secret/);
+});

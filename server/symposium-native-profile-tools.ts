@@ -37,6 +37,7 @@ export interface SymposiumNativeProfileTools {
   tools: CodexConversationOptions['tools'];
   instructions: string;
   executeTool: CodexConversationOptions['executeTool'];
+  onToolResultDurable?: CodexConversationOptions['onToolResultDurable'];
 }
 
 /** Host-bound proposal capability. Saving a catalog revision remains an operator action. */
