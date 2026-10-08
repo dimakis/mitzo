@@ -112,3 +112,34 @@ it('tests via a temporary administrative grant without authorizing any agent ses
   expect(JSON.stringify(result.body)).not.toContain('private-token');
   expect(service.catalog('agent-a')[0].access).toBe('approval_required');
 });
+
+it('reauthorizes dashboard scope changes, revokes old grants, and rejects stale or invalid changes', async () => {
+  const { app, service, vault } = setup();
+  const c = await service.create(connection, { secret: 'private-token' });
+  service.grant('chat-a', c.id, 1);
+  const route = `/api/credential-connections/${c.id}/dashboard-access`;
+  expect(
+    (
+      await request(app)
+        .post(route)
+        .set('x-browser', 'yes')
+        .send({ revision: 1, access: 'read-write' })
+    ).status,
+  ).toBe(403);
+  const auth = await request(app)
+    .post('/api/credential-connections/reauthorize')
+    .set('x-browser', 'yes')
+    .send({ passphrase: 'correct' });
+  const send = (body: unknown) =>
+    request(app).post(route).set('x-browser', 'yes').set('x-csrf-token', auth.body.csrf).send(body);
+  const result = await send({ revision: 1, access: 'read-write' });
+  expect(result.status).toBe(200);
+  expect(result.body.connection).toMatchObject({
+    revision: 2,
+    homeAssistantDashboards: 'read-write',
+  });
+  expect(service.sessions(c.id)).toEqual([]);
+  expect(vault.read).not.toHaveBeenCalled();
+  expect((await send({ revision: 1, access: 'disabled' })).status).toBe(409);
+  expect((await send({ revision: 2, access: 'all-commands' })).status).toBe(400);
+});

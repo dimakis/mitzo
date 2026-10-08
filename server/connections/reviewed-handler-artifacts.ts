@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.0';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.6';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.4';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.5';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -22,6 +22,22 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  // Keychain HTTP/WebSocket credential custody and exact-session approval handlers.
+  '../home-assistant-dashboard.ts':
+    'bd1716da0ba1b4d119e3376847de90e49165acedfacda33173e34ffcd6fe7524',
+  '../credential-connections.ts':
+    '911b122ca40ec248f6fa87ec7b9a34f88f25dbef5f94505c4ab6537408ff4c41',
+  '../credential-connections-router.ts':
+    '3e4f8c0d4ee485e62bf35fde99e78596dd1999f5d6748df3d0588f37ea14ee00',
+  '../credential-connection-tools.ts':
+    '3fd4386a76fc027ff9a6944f374279abdf3e59803bfe9ae20171f8f0dcb7d793',
+  '../credential-connections-runtime.ts':
+    '89a1cdf4bd50c73a0aecfb966303fb37e0f524da9fb977478602c9c198a51b4d',
+  '../credential-http.ts': 'fb584d92840e2ee34167fd354d7249cfb3144b321f0d3a0a4aad3015231fa22d',
+  '../credential-redaction.ts': '817dda948c419deb064bc4c5298e034e5a0343972b4bf724fb6aaa869cf34403',
+  '../credential-sdk-tools.ts': '0855e3a96e79de5f293ad7c72a35a145a014a48578723cc88acea33db628a80c',
+  '../session-credential-tools.ts':
+    '1fd3b0564d53fa8ddb6875c100bdf0bad50f0532421cc1973d00c07116056402',
   'policy-compiler.ts': '13a12a3182568a151247cb204792f15c374af9e5a7f401d51b954c6dd40fd538',
   'registry.ts': 'cccbb1c67d559eda923c4d0beac5e0203918e3ab2970ab90a1937bb32a09d8a4',
   'iana-address-policy.ts': '899b0b5ad66f5cbe72224b34c29ff7a88e32c2a6f5b2987e4d18cfc64f862b4e',

@@ -29,6 +29,7 @@ it('exposes the same discovery, session approval and request tools to SDK sessio
     'ListConnections',
     'RequestConnectionAccess',
     'ConnectionRequest',
+    'HomeAssistantDashboard',
   ]);
   const result = await mocked.tools[0].handler({});
   expect(JSON.stringify(result)).toContain('connections');
@@ -159,5 +160,25 @@ it('does not dispatch SDK discovery or access requests when the per-call signal 
     expect(connection).not.toHaveBeenCalled();
   } finally {
     runtime.mockRestore();
+  }
+});
+
+it('blocks dashboard saves in Ask mode while allowing dashboard reads', () => {
+  const registry = new SessionRegistry();
+  registry.register('client', { mode: 'ask', abortController: new AbortController() } as never);
+  const session = registry.get('client')!;
+  for (const operation of ['list', 'read', 'save']) {
+    const result = credentialSdkPermission(
+      'mcp__mitzo-connections__HomeAssistantDashboard',
+      {
+        connectionId: 'ha',
+        operation,
+        ...(operation === 'save' ? { config: '{}', expectedConfigHash: 'a'.repeat(64) } : {}),
+      },
+      'client',
+      registry,
+      session,
+    );
+    expect(result?.behavior).toBe(operation === 'save' ? 'deny' : 'allow');
   }
 });

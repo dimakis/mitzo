@@ -8,6 +8,7 @@ import {
   requireSameOriginJson,
 } from './connections-router.js';
 import { CredentialConnections, ConnectionInputSchema } from './credential-connections.js';
+import { DashboardAccessSchema } from './home-assistant-dashboard.js';
 import { VaultReferenceSchema } from './keychain-vault.js';
 
 const secret = z.string().min(1).max(16_384);
@@ -72,6 +73,21 @@ export function createCredentialConnectionsRouter(service: CredentialConnections
           AbortSignal.timeout(30_000),
         ),
       );
+    } catch (error) {
+      return failure(res, error);
+    }
+  });
+  router.post('/:id/dashboard-access', (req, res) => {
+    const body = revision.extend({ access: DashboardAccessSchema }).strict().safeParse(req.body);
+    if (!body.success) return res.status(400).json({ error: 'Invalid dashboard access request' });
+    try {
+      return res.json({
+        connection: service.updateDashboardAccess(
+          req.params.id,
+          body.data.revision,
+          body.data.access,
+        ),
+      });
     } catch (error) {
       return failure(res, error);
     }

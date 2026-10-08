@@ -13,7 +13,7 @@ import {
 import { getCredentialConnectionsRuntime } from './credential-connections-runtime.js';
 
 export const CONNECTION_TOOL_INSTRUCTIONS =
-  '\nFor authenticated service access, first call ListConnections to discover configured connections and their permissions, then RequestConnectionAccess if needed and ConnectionRequest. Mitzo asks for approval scoped to this session and injects credentials privately. Never search workspace files for tokens or request passwords in chat. If a connection is missing, direct the user to Connections. HTTP reachability alone is not proof of authenticated access.\n';
+  '\nFor authenticated service access, first call ListConnections to discover configured connections and their permissions, then RequestConnectionAccess if needed and ConnectionRequest. Mitzo asks for approval scoped to this session and injects credentials privately. Never search workspace files for tokens or request passwords in chat. If a connection is missing, direct the user to Connections. For Home Assistant dashboards, use HomeAssistantDashboard over the approved WebSocket connection: read before saving, preserve unrelated views/cards, and supply the returned configHash as expectedConfigHash. Dashboard saves verify the read-back result; after an unconfirmed save, read again rather than retrying automatically. HTTP reachability alone is not proof of authenticated access.\n';
 export function sessionCredentialTools(
   sessionId: string,
   session: ManagedSession,
@@ -44,7 +44,7 @@ export function sessionCredentialTools(
       !session.abortController.signal.aborted &&
       checkSkillPolicy(registry, current.clientId, toolPrefix + name) !== 'deny' &&
       !(
-        name === 'ConnectionRequest' &&
+        (name === 'ConnectionRequest' || name === 'HomeAssistantDashboard') &&
         effectivePermissionMode(session) === 'ask' &&
         method &&
         !['GET', 'HEAD'].includes(method)
@@ -79,7 +79,14 @@ export function sessionCredentialTools(
           input,
         );
       if (!parsed.success) return { content: 'Invalid connection tool input', isError: true };
-      const method = 'method' in parsed.data ? parsed.data.method : undefined;
+      const method =
+        'operation' in parsed.data
+          ? parsed.data.operation === 'save'
+            ? 'POST'
+            : 'GET'
+          : 'method' in parsed.data
+            ? parsed.data.method
+            : undefined;
       if (!stillAllowed(name, method)) return unavailable();
       if (name === 'ListConnections')
         return {

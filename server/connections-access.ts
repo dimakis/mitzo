@@ -330,7 +330,7 @@ export async function readConnectionsAccess(
         ? 'An authenticated read succeeded; access still requires session approval.'
         : 'The saved credential has not been tested against this service.',
     };
-    row.access.summary = `${connection.methods.join(', ')} on ${connection.paths.join(', ')} through the trusted Keychain provider`;
+    row.access.summary = `${connection.methods.join(', ')} on ${connection.paths.join(', ')} through the trusted Keychain provider · HA dashboard WebSocket: ${connection.homeAssistantDashboards ?? 'disabled'} · HA dashboard WebSocket: ${connection.homeAssistantDashboards ?? 'disabled'}`;
     row.access.appliesTo = 'Explicit approval in each session';
     row.actions = [
       {

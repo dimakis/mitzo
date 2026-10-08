@@ -1,20 +1,16 @@
+import { redactCredentialResponse } from './credential-redaction.js';
+import {
+  DashboardAccessSchema,
+  validateDashboardRequest,
+  sendDashboardRequest,
+  DashboardRequestError,
+  MAX_DASHBOARD_RESPONSE_BYTES,
+  type DashboardSender,
+} from './home-assistant-dashboard.js';
 import Database from 'better-sqlite3';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import type { CredentialVault, VaultReference } from './keychain-vault.js';
-
-function normalizedJsonNumber(value: string): string | undefined {
-  const match = /^(-?)(0|[1-9]\d*)(?:\.(\d+))?(?:[eE]([+-]?\d+))?$/.exec(value);
-  if (!match) return undefined;
-  const fraction = match[3] ?? '';
-  const digits = `${match[2]}${fraction}`.replace(/^0+/, '');
-  if (!digits) return '0';
-  const coefficient = digits.replace(/0+$/, '');
-  // Compare exact decimal values without floating-point rounding or overflow.
-  const exponent =
-    BigInt(match[4] ?? '0') - BigInt(fraction.length) + BigInt(digits.length - coefficient.length);
-  return `${match[1]}${coefficient}e${exponent}`;
-}
 
 const header = z
   .string()
@@ -87,6 +83,7 @@ export const ConnectionInputSchema = z
       .min(1)
       .max(6),
     allowPrivateNetwork: z.boolean().default(false),
+    homeAssistantDashboards: DashboardAccessSchema.default('disabled'),
   })
   .strict();
 export type CredentialConnectionInput = z.infer<typeof ConnectionInputSchema>;
@@ -106,7 +103,10 @@ export const publicCredentialConnection = ({
   credentialRef: _ref,
   ownsCredential: _owns,
   ...connection
-}: CredentialConnection): PublicCredentialConnection => connection;
+}: CredentialConnection): PublicCredentialConnection => ({
+  ...connection,
+  homeAssistantDashboards: connection.homeAssistantDashboards ?? 'disabled',
+});
 
 /** Metadata and exact-session grants only. No credential values or request bodies enter SQLite. */
 export class CredentialConnectionStore {
@@ -223,12 +223,30 @@ export function requestTarget(
   return target;
 }
 
+export function dashboardRequestTarget(
+  c: Pick<CredentialConnectionInput, 'endpoint' | 'paths' | 'auth' | 'homeAssistantDashboards'>,
+  operation: string,
+): URL {
+  const access = c.homeAssistantDashboards ?? 'disabled';
+  if (
+    c.auth.kind !== 'bearer' ||
+    !['read', 'read-write'].includes(access) ||
+    (operation === 'save' && access !== 'read-write')
+  )
+    throw new Error('Enable the required Home Assistant dashboard access in Connections');
+  const url = requestTarget(c, '/api/websocket');
+  url.protocol = 'wss:';
+  return url;
+}
+
 export class CredentialConnections {
+  private dashboardWrites = new Set<string>();
   private active = new Map<string, Set<AbortController>>();
   constructor(
     private store: CredentialConnectionStore,
     private vault: CredentialVault,
     private send: ConnectionSender,
+    private sendDashboard: DashboardSender = sendDashboardRequest,
   ) {}
   catalog(session?: string) {
     return this.store.list().map((c) => ({
@@ -250,6 +268,7 @@ export class CredentialConnections {
   }
   async create(input: unknown, source: { secret: string } | { existing: VaultReference }) {
     const parsed = ConnectionInputSchema.parse(input);
+    if (parsed.homeAssistantDashboards !== 'disabled') dashboardRequestTarget(parsed, 'read');
     const id = randomUUID();
     const credentialRef =
       'secret' in source
@@ -341,6 +360,95 @@ export class CredentialConnections {
       );
     if (!shared) await this.vault.remove(ref).catch(() => {});
   }
+  updateDashboardAccess(id: string, revision: number, input: unknown) {
+    const c = this.connection(id, revision);
+    const homeAssistantDashboards = DashboardAccessSchema.parse(input);
+    if (homeAssistantDashboards !== 'disabled')
+      dashboardRequestTarget({ ...c, homeAssistantDashboards }, 'read');
+    if ((c.homeAssistantDashboards ?? 'disabled') === homeAssistantDashboards)
+      return publicCredentialConnection(c);
+    const updated = { ...c, homeAssistantDashboards, revision: revision + 1 };
+    if (!this.store.replaceAtRevision(updated, revision))
+      throw new Error('Connection changed; refresh and try again');
+    this.store.revokeAll(id);
+    this.cancel(id);
+    return publicCredentialConnection(updated);
+  }
+  async dashboardRequest(
+    session: string,
+    id: string,
+    input: unknown,
+    signal: AbortSignal,
+    stillAllowed: () => boolean = () => true,
+  ) {
+    const c = this.connection(id);
+    const request = validateDashboardRequest(input);
+    const url = dashboardRequestTarget(c, request.operation);
+    const check = () => {
+      signal.throwIfAborted();
+      if (
+        !stillAllowed() ||
+        this.connection(id).revision !== c.revision ||
+        !this.store.hasGrant(session, c)
+      )
+        throw new Error('Session approval required');
+    };
+    check();
+    const writeKey = JSON.stringify([id, request.urlPath ?? 'lovelace']);
+    if (request.operation === 'save' && this.dashboardWrites.has(writeKey))
+      throw new Error('A dashboard update is already running; read again when it finishes');
+    if (request.operation === 'save') this.dashboardWrites.add(writeKey);
+    const controller = new AbortController();
+    const key = `${session}:${id}`;
+    const controllers = this.active.get(key) ?? new Set();
+    controllers.add(controller);
+    this.active.set(key, controllers);
+    const combined = AbortSignal.any([signal, controller.signal, AbortSignal.timeout(30_000)]);
+    try {
+      combined.throwIfAborted();
+      check();
+      const secret = await this.vault.read(c.credentialRef);
+      combined.throwIfAborted();
+      check();
+      if (!secret || /[\r\n]/.test(secret)) throw new Error('Credential unavailable');
+      const body = await this.sendDashboard(
+        {
+          url,
+          token: secret,
+          allowPrivateNetwork: c.allowPrivateNetwork,
+          request,
+          check: () => {
+            combined.throwIfAborted();
+            check();
+          },
+        },
+        combined,
+      );
+      combined.throwIfAborted();
+      check();
+      const redacted = redactCredentialResponse(body, secret, {
+        Authorization: `Bearer ${secret}`,
+      });
+      if (Buffer.byteLength(redacted) > MAX_DASHBOARD_RESPONSE_BYTES)
+        throw new Error('Dashboard response too large');
+      return redacted;
+    } catch (error) {
+      if (
+        error instanceof DashboardRequestError ||
+        (error instanceof Error && error.name === 'KeychainUnavailableError')
+      )
+        throw error;
+      // eslint-disable-next-line preserve-caught-error -- Transport/Keychain failures can carry credentials.
+      throw new Error(
+        'Dashboard request failed; if a save was attempted, read the dashboard before retrying',
+      );
+    } finally {
+      if (request.operation === 'save') this.dashboardWrites.delete(writeKey);
+      controllers.delete(controller);
+      if (!controllers.size) this.active.delete(key);
+    }
+  }
+
   async request(
     session: string,
     id: string,
@@ -397,55 +505,7 @@ export class CredentialConnections {
       );
       combined.throwIfAborted();
       check();
-      const values = [
-        ...new Set([
-          secret,
-          encodeURIComponent(secret),
-          Buffer.from(secret).toString('base64'),
-          ...Object.values(headers).flatMap((value) => [
-            value,
-            value.replace(/^(Basic|Bearer) /, ''),
-          ]),
-        ]),
-      ].sort((a, b) => b.length - a.length);
-      const redact = (text: string) => {
-        for (const value of values) text = text.split(value).join('[redacted]');
-        return text;
-      };
-      // Decode each JSON string before redacting: quote/backslash, Unicode and
-      // slash escapes can otherwise hide echoed secrets in both keys and values.
-      const decoded = response.body.replace(
-        // eslint-disable-next-line no-control-regex -- JSON strings exclude unescaped control characters.
-        /"(?:[^"\\\x00-\x1f]|\\(?:["\\/bfnrt]|u[0-9a-fA-F]{4}))*"/g,
-        (token) => {
-          const text = JSON.parse(token) as string;
-          const safe = redact(text);
-          return safe === text ? token : JSON.stringify(safe);
-        },
-      );
-      let body: string;
-      try {
-        // In valid JSON, punctuation is structural rather than an echoed secret
-        // (for example a password consisting of a quote). Keep it intact.
-        JSON.parse(response.body);
-        const numbers = new Set(
-          values.map(normalizedJsonNumber).filter((value) => value !== undefined),
-        );
-        body = decoded.replace(
-          // Match whole strings too, so their contents cannot be changed here.
-          // eslint-disable-next-line no-control-regex -- JSON strings exclude unescaped control characters.
-          /"(?:[^"\\\x00-\x1f]|\\(?:["\\/bfnrt]|u[0-9a-fA-F]{4}))*"|-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?|true|false|null/g,
-          (token) => {
-            const number = normalizedJsonNumber(token);
-            return (number !== undefined && numbers.has(number)) ||
-              (['true', 'false', 'null'].includes(token) && values.includes(token))
-              ? '"[redacted]"'
-              : token;
-          },
-        );
-      } catch {
-        body = redact(decoded);
-      }
+      const body = redactCredentialResponse(response.body, secret, headers);
       return { status: response.status, body };
     } catch (error) {
       if (error instanceof Error && error.name === 'KeychainUnavailableError') throw error;

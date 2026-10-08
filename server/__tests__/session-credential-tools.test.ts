@@ -150,3 +150,19 @@ it('uses prefixed skill restrictions and keeps access scoped to session despite 
     )?.isError,
   ).toBe(false);
 });
+
+it('blocks dashboard saves in Ask mode before discovering credentials or requesting approval', async () => {
+  const { session, providers, tools } = setup();
+  session.pendingPermissionModes = new Map([[Symbol(), 'ask']]);
+  providers.mockClear();
+  expect(
+    (
+      await tools.execute(
+        'HomeAssistantDashboard',
+        { connectionId: 'ha', operation: 'save', config: '{}', expectedConfigHash: 'a'.repeat(64) },
+        new AbortController().signal,
+      )
+    )?.isError,
+  ).toBe(true);
+  expect(providers).not.toHaveBeenCalled();
+});

@@ -3,6 +3,7 @@ import type {
   CredentialConnection,
   CredentialConnectionEnrollment,
   ConnectionSessionAccess,
+  DashboardAccess,
 } from '../types/credential-connections';
 const base = '/api/credential-connections';
 async function request<T>(path: string, method = 'GET', body?: unknown, csrf?: string): Promise<T> {
@@ -79,4 +80,20 @@ export function revokeConnectionSession(
     { revision },
     csrf,
   );
+}
+
+export async function updateDashboardAccess(
+  id: string,
+  revision: number,
+  access: DashboardAccess,
+  csrf: string,
+) {
+  return (
+    await request<{ connection: CredentialConnection }>(
+      `/${encodeURIComponent(id)}/dashboard-access`,
+      'POST',
+      { revision, access },
+      csrf,
+    )
+  ).connection;
 }

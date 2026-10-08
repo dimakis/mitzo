@@ -1,6 +1,6 @@
 # Apple Keychain service connections
 
-Keychain HTTPS connections are a provider type in Mitzo's existing Connections overview and management page. They support Home Assistant and custom HTTPS APIs authenticated by a bearer token, HTTP Basic username/password, an API-key header, or a password header. The authentication mapping, destination, allowed paths and methods are configured explicitly. Existing managed OpenShell, Google Workspace and personal account connections keep their owning controls.
+Keychain HTTPS connections and bounded Home Assistant dashboard WebSocket operations are a provider type in Mitzo's existing Connections overview and management page. They support Home Assistant and custom HTTPS APIs authenticated by a bearer token, HTTP Basic username/password, an API-key header, or a password header. The authentication mapping, destination, allowed paths and methods are configured explicitly. Existing managed OpenShell, Google Workspace and personal account connections keep their owning controls.
 
 The Mac's Keychain remains the credential source of truth. These connections use a trusted host HTTP client, rather than copying credentials into OpenShell. Neither model tool inputs/results, session workspaces, browser storage nor SQLite contain credential values. SQLite stores metadata, pinned Keychain references and exact conversation grants. The host temporarily resolves a credential after checking a grant and injects it into its approved request. Responses are bounded and known raw, URL-encoded and authentication representations are redacted. Only connect services you trust to receive that credential.
 
@@ -16,6 +16,20 @@ The Mac's Keychain remains the credential source of truth. These connections use
 `ListConnections` also includes managed OpenShell providers in OpenShell sessions. Requests for those providers reuse their existing reviewed attachment and session approval flow. They are used through their own sandbox clients; Keychain HTTPS requests use the dedicated host client.
 
 **Session access** lists grants and lets the operator revoke one session. **Disable and revoke all access** invalidates every grant immediately. In-flight requests are cancelled where possible; cancellation cannot undo an already accepted external write. Rotation saves a new Keychain item and invalidates all grants, including approvals pending on the old revision. Linked items are never changed or deleted. Changes to an externally linked credential fail closed and require explicit re-enrollment; Mitzo does not silently adopt a changed or re-created item. Disabling a connection retains its Keychain item.
+
+## Home Assistant dashboards over WebSocket
+
+For an existing Home Assistant connection, select **Dashboard API access → Read and update dashboards** and save after authorizing setup. New connections expose the same choice. Dashboard access defaults to disabled, including connections enrolled before this feature. It requires bearer authentication and an allowed path prefix covering `/api/websocket`. Changing the scope increments the connection revision, revokes existing grants and cancels in-flight requests. Each chat must approve the new scope. This approval is separate from setup authorization.
+
+Agents use `HomeAssistantDashboard` with `operation: "list"`, `"read"` or `"save"`. Authentication uses the connection's Keychain token in HA's private authentication exchange; the agent cannot select another WebSocket URL or send arbitrary commands. The only application commands are `lovelace/dashboards/list`, `lovelace/config` and `lovelace/config/save`. Omit `urlPath` for the default dashboard, or use the exact path returned by listing dashboards. Dashboard updates require an HA administrator account and a storage-mode dashboard; YAML-backed dashboards must be updated at their owning source.
+
+A read returns the complete configuration and `configHash`. Preserve unrelated views and cards when editing. A save supplies the full configuration as a JSON string plus that hash as `expectedConfigHash`. Mitzo reads the dashboard immediately before writing and refuses a stale hash, then reads back the saved configuration before reporting success. Saves to the same dashboard through this controller cannot overlap. HA does not provide an atomic conditional-save API: another writer can still race between the check and save. The read-back check detects an unexpected final configuration but cannot undo an external concurrent edit.
+
+The controller establishes a bounded WSS connection for each operation, verifies TLS, refuses redirects and applies the existing checked DNS/address policy. It rechecks session permissions and the connection revision before every authentication/command frame and before returning results. Configurations are limited to 128 KiB, each response frame and final redacted result to 256 KiB, and operations to 30 seconds. Known credential representations are redacted using the same code as HTTPS responses. No configuration or authentication frames are persisted by the connection service.
+
+Ask mode permits list/read but blocks saves. A dropped connection or failed verification after sending a save is reported as **unconfirmed**, because the write may already have applied. Neither the transport nor the tool automatically reconnects or repeats a save. Read the dashboard again to settle that outcome before proposing another update.
+
+References: [HA WebSocket authentication and command protocol](https://developers.home-assistant.io/docs/api/websocket/) and [HA Lovelace command implementation](https://github.com/home-assistant/core/blob/dev/homeassistant/components/lovelace/websocket.py).
 
 ## Apple Passwords
 

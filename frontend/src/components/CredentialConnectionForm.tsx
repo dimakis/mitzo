@@ -4,6 +4,7 @@ import type {
   ConnectionAuth,
   ConnectionMethod,
   ConnectionRun,
+  DashboardAccess,
 } from '../types/credential-connections';
 const methods: ConnectionMethod[] = ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE'];
 export function CredentialConnectionForm({
@@ -26,6 +27,8 @@ export function CredentialConnectionForm({
   const [keychainAccount, setKeychainAccount] = useState('');
   const [paths, setPaths] = useState('/api/');
   const [selectedMethods, setSelectedMethods] = useState<ConnectionMethod[]>(['GET', 'HEAD']);
+  const [homeAssistantDashboards, setHomeAssistantDashboards] =
+    useState<DashboardAccess>('disabled');
   const [allowPrivateNetwork, setAllowPrivateNetwork] = useState(false);
   return (
     <form
@@ -52,6 +55,7 @@ export function CredentialConnectionForm({
             .filter(Boolean),
           methods: selectedMethods,
           allowPrivateNetwork,
+          homeAssistantDashboards: kind === 'bearer' ? homeAssistantDashboards : 'disabled',
         };
         void run(
           () =>
@@ -83,6 +87,7 @@ export function CredentialConnectionForm({
               setHeaderName('X-API-Key');
               setPaths(home ? '/api/' : '/');
               setSelectedMethods(['GET', 'HEAD']);
+              setHomeAssistantDashboards('disabled');
             }}
             defaultValue="home-assistant"
           >
@@ -202,6 +207,23 @@ export function CredentialConnectionForm({
               />
             </label>
           </>
+        )}
+        {kind === 'bearer' && (
+          <label className="connections-field">
+            Home Assistant dashboard API
+            <select
+              value={homeAssistantDashboards}
+              onChange={(e) => setHomeAssistantDashboards(e.target.value as DashboardAccess)}
+            >
+              <option value="disabled">Disabled</option>
+              <option value="read">Read dashboards</option>
+              <option value="read-write">Read and update dashboards</option>
+            </select>
+            <span>
+              Uses Home Assistant's WebSocket API. Updates require an HA administrator account. Each
+              chat approves this scope.
+            </span>
+          </label>
         )}
         <details>
           <summary>Allowed requests</summary>

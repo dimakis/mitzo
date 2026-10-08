@@ -10,6 +10,7 @@ vi.mock('../../lib/credential-connections-api', () => ({
   reauthorizeKeychain: vi.fn(),
   createCredentialConnection: vi.fn(),
   rotateCredentialConnection: vi.fn(),
+  updateDashboardAccess: vi.fn(),
   testCredentialConnection: vi.fn(),
   disableCredentialConnection: vi.fn(),
   getConnectionSessions: vi.fn(),
@@ -359,4 +360,33 @@ it('disables a connection and revokes all access without retaining cached sessio
   await screen.findByRole('button', { name: 'Replace credential and enable' });
   expect(screen.queryByRole('button', { name: 'Revoke session-a' })).toBeNull();
   expect(api.disableCredentialConnection).toHaveBeenCalledWith('ha', 1, 'csrf');
+});
+
+it('requires setup authorization to expand dashboard access and clears revoked session rows', async () => {
+  vi.mocked(api.getCredentialConnections).mockResolvedValue([homeAssistant]);
+  vi.mocked(api.getConnectionSessions).mockResolvedValue([{ sessionId: 'session-a', revision: 1 }]);
+  render(<CredentialConnectionsPanel />);
+  await screen.findByLabelText('Dashboard API access for Home Assistant');
+  fireEvent.change(screen.getByLabelText('Dashboard API access for Home Assistant'), {
+    target: { value: 'read-write' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Save dashboard access' }));
+  await screen.findByText('Authorize Keychain changes before continuing.');
+  expect(api.updateDashboardAccess).not.toHaveBeenCalled();
+  await authorize();
+  fireEvent.click(screen.getByRole('button', { name: 'Session access' }));
+  await screen.findByRole('button', { name: 'Revoke session-a' });
+  vi.mocked(api.updateDashboardAccess).mockImplementation(async () => {
+    const updated = {
+      ...homeAssistant,
+      revision: 2,
+      homeAssistantDashboards: 'read-write' as const,
+    };
+    vi.mocked(api.getCredentialConnections).mockResolvedValue([updated]);
+    return updated;
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Save dashboard access' }));
+  await screen.findByText('Dashboard access updated. Each chat needs fresh approval.');
+  expect(api.updateDashboardAccess).toHaveBeenCalledWith('ha', 1, 'read-write', 'csrf');
+  expect(screen.queryByRole('button', { name: 'Revoke session-a' })).toBeNull();
 });

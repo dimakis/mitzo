@@ -2,6 +2,7 @@ export type ConnectionAuth =
   | { kind: 'bearer' }
   | { kind: 'basic'; username: string }
   | { kind: 'api-key' | 'password'; headerName: string };
+export type DashboardAccess = 'disabled' | 'read' | 'read-write';
 export type ConnectionMethod = 'GET' | 'HEAD' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 export interface CredentialConnectionInput {
   label: string;
@@ -10,6 +11,7 @@ export interface CredentialConnectionInput {
   paths: string[];
   methods: ConnectionMethod[];
   allowPrivateNetwork: boolean;
+  homeAssistantDashboards?: DashboardAccess;
 }
 export interface CredentialConnection extends CredentialConnectionInput {
   id: string;

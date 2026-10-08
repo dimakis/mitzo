@@ -21,9 +21,12 @@ function setup(stillAllowed: (name: string, method?: string) => boolean = () => 
       paths: ['/api/'],
       methods: ['GET'],
       revision: 1,
+      auth: { kind: 'bearer' },
+      homeAssistantDashboards: 'read-write',
     })),
     grant: vi.fn(),
     request: vi.fn(async () => ({ status: 200, body: 'ok' })),
+    dashboardRequest: vi.fn(async () => '{"operation":"read","config":{},"configHash":"fixture"}'),
   };
   const approve = vi.fn(
     async (_name: string, input: Record<string, unknown>, _options: unknown) => ({
@@ -196,4 +199,52 @@ it('does not grant if skill permission is withdrawn while approval is pending', 
   );
   expect(result?.isError).toBe(true);
   expect(service.grant).not.toHaveBeenCalled();
+});
+
+it('includes dashboard scope in forced session approval and only sends validated dashboard operations', async () => {
+  const { tools, service, approve } = setup();
+  const result = await tools.execute(
+    'HomeAssistantDashboard',
+    { connectionId: 'ha', operation: 'read' },
+    new AbortController().signal,
+  );
+  expect(result?.isError).toBe(false);
+  expect(approve.mock.calls[0][2]).toMatchObject({
+    forcePrompt: true,
+    approvalScope: 'conversation',
+    description: expect.stringContaining('HA dashboard WebSocket: read-write'),
+  });
+  expect(service.dashboardRequest).toHaveBeenCalledWith(
+    'session-a',
+    'ha',
+    { operation: 'read' },
+    expect.any(AbortSignal),
+    expect.any(Function),
+  );
+  for (const input of [
+    { connectionId: 'ha', operation: 'read', secret: 'bad' },
+    { connectionId: 'ha', operation: 'auth' },
+    { connectionId: 'ha', operation: 'save', config: '{}' },
+  ]) {
+    expect(
+      (await tools.execute('HomeAssistantDashboard', input, new AbortController().signal))?.isError,
+    ).toBe(true);
+  }
+  expect(service.dashboardRequest).toHaveBeenCalledTimes(1);
+});
+it('rejects dashboard writes in read-only session mode before prompting or sending', async () => {
+  const { tools, approve, service } = setup(
+    (name, method) => name !== 'HomeAssistantDashboard' || method !== 'POST',
+  );
+  expect(
+    (
+      await tools.execute(
+        'HomeAssistantDashboard',
+        { connectionId: 'ha', operation: 'save', config: '{}', expectedConfigHash: 'a'.repeat(64) },
+        new AbortController().signal,
+      )
+    )?.isError,
+  ).toBe(true);
+  expect(approve).not.toHaveBeenCalled();
+  expect(service.dashboardRequest).not.toHaveBeenCalled();
 });
