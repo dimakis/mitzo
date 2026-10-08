@@ -9,8 +9,8 @@ export const reviewedHandlerImplementationRevision = 'v1.0.0';
 
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.6';
 
-/** Credential synchronization changes runtime wiring without changing existing provider policies. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.3';
+/** Runtime admission changes without changing existing provider policy semantics. */
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.4';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -48,7 +48,14 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'c2d94ede80f5950b45568dc41c5d10c20802d4504dbcd0b6657e8de04de72d4a',
   '../openai-key-controller.ts': '721a1c6a513fc5380e4a2222927cda025bf8cbd7e8d49d8c5d526470e2cff217',
   '../connections-router.ts': '944eeccf74aabe0684f63373272cabd861b3b596d512147d7c82b9ac87ae87bd',
-  '../connections-service.ts': '8d3e89345787d9b732c98d4636e86f1b56ed1c0fffb6f5288e0d29cbf24f1ce6',
+  '../connections-service.ts': '1aae9d2c0da483ae798ba03d5804bfb0e81316f3f69666c6595befec3179c314',
+  // Admission shares compiled connection authority with gateway provisioning.
+  'runtime-profiles.ts': '3632545ca52fbfad7442de08c03d5f9808b50b5bfdef92f9cd72b8fa8ab5140b',
+  '../connections-gateway.ts': '8cc83813dff18a0cafba0fad53f3c5de987c8af631f8439029590285501849a1',
+  '../openshell-runtime-policy.ts':
+    'efecd458bf61fecd8198ecd330e0227e2c600ab21d6d2890cd2bac254e22b75f',
+  '../openshell-runtime.ts': '71e650b8114df6264ce0a5b81ae32a1907ee3562c177c9d0d59c1f4825849b0c',
+  '../codex-chat-session.ts': '8c11ec22ceac62890318d28e20b97175c1aba5afd4ff89ba2c74e43a3baadd78',
   '../connections-runtime.ts': '66f85dfb95ebc829a9813988c363222aa9416e879e585fccc3083d40885efdc7',
   'capabilities/operation-store.ts':
     '1a235f11d5578880e6dfa7ecf5779e2a011e24430774fc17429d7d22359b93f2',

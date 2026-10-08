@@ -7,6 +7,7 @@ const phases = {
   context_preparation: 'context preparation',
   runtime_connection: 'runtime connection',
   conversation_initialization: 'conversation initialization',
+  initial_turn_preparation: 'first turn preparation',
   initial_turn_dispatch: 'initial turn dispatch',
 } as const;
 const errorCodes = new Map([
@@ -60,7 +61,7 @@ export class CodexStartupError extends Error {
     const explanation =
       detail ??
       `${resourceReason ? resourceReason + ' ' : ''}Check runtime and account configuration before continuing.`;
-    return `Chat startup failed during ${phases[this.phase]}. ${explanation}`;
+    return `Chat startup failed during ${phases[this.phase]}. ${explanation}${this.phase === 'initial_turn_preparation' ? ' No provider turn was started.' : ''}`;
   }
 
   telemetry(): Record<string, unknown> {

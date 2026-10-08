@@ -3862,3 +3862,42 @@ it('rejects invalid inherited reasoning summary settings on an explicit runtime'
   args[22] = { model_reasoning_summary: 'unsupported' };
   await expect(setup(...args)).rejects.toThrow();
 });
+
+it('counts native dispatch only after runtime admission and turn preparation succeed', async () => {
+  const args: Parameters<typeof setup> = [];
+  args[15] = async () => {
+    throw new Error('policy mismatch PRIVATE_COMMAND');
+  };
+  const { c, requests } = await setup(...args);
+  await expect(c.send({ id: 'pre-dispatch', prompt: 'first' })).rejects.toThrow('policy mismatch');
+  expect(c.getTurnDispatchCount()).toBe(0);
+  expect(requests.filter(({ method }) => method === 'turn/start')).toHaveLength(0);
+  expect(c.queue()).toMatchObject([{ id: 'pre-dispatch', status: 'queued' }]);
+  expect(c.isPaused()).toBe(true);
+});
+
+it('counts a turn/start attempt even when its response is lost', async () => {
+  const { c, rpc } = await setup();
+  const request = rpc.request.getMockImplementation()!;
+  rpc.request.mockImplementation(async (method, params) => {
+    if (method === 'turn/start') throw new Error('lost native ACK');
+    return request(method, params);
+  });
+  await expect(c.send({ id: 'uncertain-dispatch', prompt: 'first' })).rejects.toThrow(
+    'lost native ACK',
+  );
+  expect(c.getTurnDispatchCount()).toBe(1);
+});
+
+it('keeps preparation failures ahead of the native dispatch counter', async () => {
+  const args: Parameters<typeof setup> = [];
+  args[13] = async () => {
+    throw new Error('context preparation failed');
+  };
+  const { c, requests } = await setup(...args);
+  await expect(c.send({ id: 'preparation-failed', prompt: 'first' })).rejects.toThrow(
+    'context preparation failed',
+  );
+  expect(c.getTurnDispatchCount()).toBe(0);
+  expect(requests.filter(({ method }) => method === 'turn/start')).toHaveLength(0);
+});

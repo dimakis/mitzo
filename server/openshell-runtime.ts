@@ -450,6 +450,19 @@ export interface BoundOpenShellRuntimeConfig extends OpenShellRuntimeConfig {
   verifyAccountProviderUnion?: () => void;
   connectionAccountId?: string;
   enforceConnectionAttachments?: boolean;
+  /** Trusted connection-store/compiler authority, never inferred from gateway exports. */
+  connectionRuntimePolicies?: (
+    name: string,
+    signal: AbortSignal,
+    approvedGrantableProviders?: readonly string[],
+  ) => Promise<
+    readonly {
+      name: string;
+      id: string;
+      type: string;
+      policy: import('./connections/types.js').ProviderPolicy;
+    }[]
+  >;
   /**
    * The third argument is the durable, explicitly approved subset of
    * grantable providers for this retained sandbox. Callers must treat it as
@@ -1018,6 +1031,14 @@ export class OpenShellRuntimeManager {
       throw new Error('Runtime provider attachment contract differs');
     await this.verifyAccountProvider(signal);
     await this.verifyManagedConnections(owned.name, signal, granted);
+    const connectionContracts =
+      (await this.config.connectionRuntimePolicies?.(owned.name, signal, granted)) ?? [];
+    if (
+      new Set(connectionContracts.map((contract) => contract.name)).size !==
+        connectionContracts.length ||
+      connectionContracts.some((contract) => !expected.has(contract.name))
+    )
+      throw new Error('Runtime managed connection authority differs');
     const inventory = await this.accountProviderInventory(signal);
     // CLI provider inventory omits profile_workspace. Its scoped catalog lists
     // both workspace definitions and platform fallbacks: attest every possible
@@ -1055,7 +1076,17 @@ export class OpenShellRuntimeManager {
         provider.type !== 'mitzo-openai-keychain-spike'
       )
         throw new Error('Runtime ordinary API account profile is unsupported');
-      providers.push({ ...provider, profile });
+      const connection = connectionContracts.find((contract) => contract.name === name);
+      if (
+        (name.startsWith('mitzo-conn-') && !connection) ||
+        (connection && (connection.id !== provider.id || connection.type !== provider.type))
+      )
+        throw new Error('Runtime managed connection binding differs');
+      providers.push({
+        ...provider,
+        profile,
+        ...(connection ? { connectionPolicy: connection.policy } : {}),
+      });
     }
     const attestation = attestEffectiveRuntimePolicy(
       verifiedOpenShellPolicy(this.config),
@@ -1143,6 +1174,10 @@ export class OpenShellRuntimeManager {
       runtimePolicyHash(after.policy) !== runtimePolicyHash(detail.policy)
     )
       throw new Error('Runtime effective policy changed during attestation');
+    const afterConnectionContracts =
+      (await this.config.connectionRuntimePolicies?.(owned.name, signal, granted)) ?? [];
+    if (runtimePolicyHash(afterConnectionContracts) !== runtimePolicyHash(connectionContracts))
+      throw new Error('Runtime managed connection authority changed during attestation');
     return {
       resourceVersion: String(detail.resource_version),
       policy: detail.policy as unknown,

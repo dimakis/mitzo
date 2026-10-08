@@ -909,6 +909,11 @@ export class CodexConversation {
     );
     return admission;
   }
+  private turnDispatchCount = 0;
+  /** Monotonic across reconnects; incremented only at the native turn/start boundary. */
+  getTurnDispatchCount() {
+    return this.turnDispatchCount;
+  }
   async send(
     input: CodexCommandInput,
     onEnqueued?: (selection: { model: string; reasoningEffort?: string | null }) => void,
@@ -1645,6 +1650,7 @@ export class CodexConversation {
         this.opts.store.beginCapacityDispatch(this.opts.conversationId, this.binding!, command.id);
         this.capacityAdmissionDeadlines.delete(command.id);
       }
+      this.turnDispatchCount += 1;
       const result = z.object({ turn: z.object({ id: z.string().min(1) }) }).parse(
         await this.client.request('turn/start', {
           threadId: this.threadId,

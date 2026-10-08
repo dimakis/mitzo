@@ -1,3 +1,8 @@
+import {
+  reviewedConnectionRuntimeProfile,
+  reviewedGithubRuntimeProfile,
+} from './connections/runtime-profiles.js';
+import type { ProviderPolicy } from './connections/types.js';
 import { createHash } from 'node:crypto';
 import { lstatSync, readFileSync, realpathSync } from 'node:fs';
 import { load } from 'js-yaml';
@@ -8,6 +13,8 @@ export interface RuntimePolicyProvider {
   id: string;
   type: string;
   profile: unknown;
+  /** Independently compiled managed connection authority, never derived from an export. */
+  connectionPolicy?: ProviderPolicy;
   /** Only the complete catalog verifier supplies an alternate selector scope. */
   profileScope?: 'workspace' | 'platform';
 }
@@ -94,7 +101,29 @@ export function sameRuntimePolicyAuthority(
     };
   return runtimePolicyHash(authority(a)) === runtimePolicyHash(authority(b));
 }
+export class RuntimePolicyAttestationError extends Error {
+  constructor(message = 'Runtime policy attestation failed', options?: ErrorOptions) {
+    super(message, options);
+    this.name = 'RuntimePolicyAttestationError';
+  }
+}
 export function attestEffectiveRuntimePolicy(
+  base: unknown,
+  observed: unknown,
+  providers: RuntimePolicyProvider[],
+): RuntimePolicyAttestation {
+  try {
+    return attestEffectiveRuntimePolicyUnchecked(base, observed, providers);
+  } catch (error) {
+    throw new RuntimePolicyAttestationError(
+      error instanceof Error && error.message.startsWith('Runtime ')
+        ? error.message
+        : 'Runtime provider profile differs from reviewed definition',
+      { cause: error },
+    );
+  }
+}
+function attestEffectiveRuntimePolicyUnchecked(
   base: unknown,
   observed: unknown,
   providers: RuntimePolicyProvider[],
@@ -115,7 +144,12 @@ export function attestEffectiveRuntimePolicy(
     )
       throw new Error('Runtime provider identity is invalid');
     identities.add(provider.name);
-    const reviewed = reviewedRuntimeProfile(provider.type);
+    const reviewed =
+      reviewedConnectionRuntimeProfile(
+        provider.type,
+        provider.profile,
+        provider.connectionPolicy,
+      ) ?? reviewedRuntimeProfile(provider.type);
     const profile = structuredClone(provider.profile);
     if (!object(reviewed) || !object(profile))
       throw new Error('Runtime provider profile is unavailable');
@@ -136,6 +170,8 @@ export function attestEffectiveRuntimePolicy(
     delete profile.scope;
     delete profile.resource_version;
     delete reviewed.resource_version;
+    delete reviewed.source;
+    delete reviewed.scope;
     const definition = normalized(profile, true);
     if (runtimePolicyHash(definition) !== runtimePolicyHash(normalized(reviewed, true)))
       throw new Error('Runtime provider profile differs from reviewed definition');
@@ -180,6 +216,7 @@ export function attestEffectiveRuntimePolicy(
 }
 
 export function reviewedRuntimeProfile(type: string): unknown {
+  if (type === 'github') return reviewedGithubRuntimeProfile();
   const pins: Record<string, [string, string]> = {
     'mitzo-openai-keychain-spike': [
       '../docs/spikes/openshell-codex/openai-keychain-spike-profile.yaml',
@@ -192,10 +229,6 @@ export function reviewedRuntimeProfile(type: string): unknown {
     'openai-codex-oauth': [
       '../infra/openshell/providers/openai-codex-oauth-reviewed-profile.json',
       '705c95d56909f8cf971afef2ea0e9d411cdb718e6d7aec197cd99f391471b0e4',
-    ],
-    github: [
-      '../infra/openshell/providers/github-reviewed-profile.json',
-      '596409689258f387f8fb819dc445ba45b9f0e1cff81c809f18594a45a027ea7a',
     ],
   };
   const pin = pins[type];
