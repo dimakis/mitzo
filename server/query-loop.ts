@@ -1095,7 +1095,7 @@ async function _runQueryLoopInner(
             }
 
             if (isParent) {
-              observeTokenModel(apiMsg?.model);
+              if (msg.renderer_only !== true) observeTokenModel(apiMsg?.model);
               if (msgContext > 0) {
                 latestInputTokens = msgInput;
                 latestCacheReadTokens = msgCacheRead;

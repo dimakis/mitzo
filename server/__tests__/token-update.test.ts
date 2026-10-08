@@ -285,6 +285,36 @@ describe('token_update emission', () => {
     ).toBe(true);
   });
 
+  it('does not discover limits from renderer-only model selections', async () => {
+    const resolveTokenLimits = vi
+      .fn()
+      .mockResolvedValue({
+        model: 'selected-only',
+        source: 'catalog',
+        contextWindow: 1000000,
+        stale: false,
+      });
+    await runQueryLoop(
+      eventStream([
+        {
+          type: 'stream_event',
+          renderer_only: true,
+          event: {
+            type: 'message_start',
+            message: { model: 'selected-only', usage: { input_tokens: 0, output_tokens: 0 } },
+          },
+        },
+      ]),
+      clientId,
+      registry,
+      abortController,
+      undefined,
+      undefined,
+      { resolveTokenLimits },
+    );
+    expect(resolveTokenLimits).not.toHaveBeenCalled();
+  });
+
   it('includes all token types in session total', async () => {
     const events: Record<string, unknown>[] = [
       {
