@@ -23,10 +23,14 @@ describe('TokenBar', () => {
     expect(container.querySelector('.token-bar')).toBeNull();
   });
 
-  it('shows desktop context counts alongside the accessible occupancy summary', () => {
+  it('keeps the control icon-only and reveals figures only when pressed', () => {
     render(<TokenBar tokenState={makeState({ agentContext: 87204, turnIndex: 1 })} />);
-    // Should show formatted token count
-    expect(screen.getByText('Context 87k / 200k').className).toBe('token-bar-label');
+    expect(document.querySelector('.token-bar-label')).toBeNull();
+    expect(screen.queryByText('87,204 / 200,000')).toBeNull();
+    const button = screen.getByRole('button', { name: 'Token usage' });
+    expect(button.title).toBe('Token usage — press for details');
+    fireEvent.click(button);
+    expect(screen.getByText('87,204 / 200,000')).toBeTruthy();
     expect(screen.getByText(/Context 87k\/200k/).className).toBe('sr-only');
     expect(document.querySelector('.token-wheel')).toBeTruthy();
   });
@@ -193,7 +197,8 @@ describe('measured native usage', () => {
       />,
     );
     expect(screen.getByRole('button', { name: 'Token usage' })).toBeTruthy();
-    expect(screen.getByText('Context 12k / 128k').className).toBe('token-bar-label');
+    expect(document.querySelector('.token-bar-label')).toBeNull();
+    expect(screen.queryByText('12,300 / 128,000')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Token usage' }));
     expect(screen.getByText('Session tokens (reported so far)')).toBeTruthy();
     expect(screen.getByText('24,600')).toBeTruthy();

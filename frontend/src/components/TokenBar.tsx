@@ -53,7 +53,7 @@ export function TokenBar({ tokenState }: Props) {
         aria-label="Token usage"
         aria-expanded={expanded}
         aria-describedby={summaryId}
-        title={`${summary} — tap for details`}
+        title="Token usage — press for details"
       >
         <svg className="token-wheel" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true">
           <circle
@@ -86,11 +86,6 @@ export function TokenBar({ tokenState }: Props) {
             </text>
           )}
         </svg>
-        <span className="token-bar-label">
-          {hasCount
-            ? `Context ${formatTokens(agentContext)}${hasContext ? ` / ${formatTokens(ceiling)}` : ''}`
-            : 'Context —'}
-        </span>
         <span id={summaryId} className="sr-only">
           {summary}
           {sessionTotal > 0 ? `; Session ${formatTokens(sessionTotal)}` : ''}
