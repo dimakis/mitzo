@@ -188,6 +188,10 @@ function configureConnectionsRuntime(): void {
       gatewayInsecure: openShell.gatewayInsecure,
       legacyProviders: [...openShell.serviceProviders, ...openShell.grantableServiceProviders],
       openAIKeyAccounts: () => loadAccountProfiles().openAIKeyManagementAccounts(),
+      ...(process.env.MITZO_OPENAI_ACCOUNT_ENROLLMENT_DB
+        ? { openAIEnrollmentDatabase: process.env.MITZO_OPENAI_ACCOUNT_ENROLLMENT_DB }
+        : {}),
+      openAIAccountEnrollmentEnabled: process.env.MITZO_OPENAI_ACCOUNT_ENROLLMENT_ENABLED === '1',
       ...(process.env.MITZO_OPENAI_KEY_MANAGEMENT_ACCOUNT_IDS
         ? {
             managedOpenAIAccountIds: process.env.MITZO_OPENAI_KEY_MANAGEMENT_ACCOUNT_IDS.split(',')

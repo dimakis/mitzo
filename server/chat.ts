@@ -1194,6 +1194,11 @@ async function _startChatInner(
         accountEnv = nativeExecutionEnv();
       } else if (accountBinding.provider === 'openai') {
         const profile = profiles!.apiProfile(accountBinding);
+        if (
+          profiles!.isEnrolledOpenAIAccount(accountBinding.accountId) &&
+          !getConnectionsRuntime()?.openAIEnrollmentAuthority?.manages(accountBinding.accountId)
+        )
+          throw new Error('OpenAI account enrollment controller is unavailable');
         assertOpenAIKeyController(
           accountBinding.accountId,
           join(BASE_REPO, '.mitzo'),
@@ -1724,13 +1729,22 @@ async function _startChatInner(
         apiKey,
         gemini,
         ...(accountBinding?.provider === 'openai' &&
-        getConnectionsRuntime()?.openAIKeys?.manages(accountBinding.accountId)
+        (getConnectionsRuntime()?.openAIKeys?.manages(accountBinding.accountId) ||
+          getConnectionsRuntime()?.openAIEnrollmentAuthority?.manages(accountBinding.accountId))
           ? {
               getApiKey: async (signal?: AbortSignal) => {
                 loadAccountProfiles().resume(accountBinding!);
-                const manager = getConnectionsRuntime()?.openAIKeys;
+                const runtime = getConnectionsRuntime();
+                const manager = runtime?.openAIEnrollmentAuthority?.manages(
+                  accountBinding!.accountId,
+                )
+                  ? runtime.openAIEnrollmentAuthority
+                  : runtime?.openAIKeys;
                 if (!manager) throw new Error('OpenAI credential management is unavailable');
-                return manager.resolveKey(accountBinding!.accountId, signal);
+                return manager.resolveKey(
+                  accountBinding!.accountId,
+                  signal ?? AbortSignal.timeout(30000),
+                );
               },
             }
           : {}),

@@ -16,6 +16,13 @@ import { createHash } from 'node:crypto';
 import { GoogleWorkspaceManagement } from './google-workspace-management.js';
 import { OpenAIKeyManagement, type ManagedOpenAIAccount } from './openai-key-management.js';
 import { OpenAIKeyOperationStore } from './openai-key-operation-store.js';
+import {
+  OpenAIAccountEnrollment,
+  OpenAIAccountEnrollmentStore,
+} from './openai-account-enrollment.js';
+import { OpenAIEnrollmentKeychainCredentials } from './openai-account-enrollment-keychain.js';
+import { OpenShellOpenAIEnrollmentGateway } from './openai-provider-enrollment-gateway.js';
+import { discoverOpenAIEnrollmentModels } from './openai-enrollment-models.js';
 import { KeychainRotationCredentials } from './keychain-rotation-credentials.js';
 import { OpenShellOpenAIKeyGateway, validateOpenAIKey } from './openai-key-gateway.js';
 import type { CommandRunner } from './connections-gateway.js';
@@ -64,6 +71,10 @@ export interface ConnectionsRuntime {
   >;
   googleWorkspace?: GoogleWorkspaceManagement;
   openAIKeys?: OpenAIKeyManagement;
+  /** Browser enrollment; omitted when new enrollments are disabled. */
+  openAIAccounts?: OpenAIAccountEnrollment;
+  /** Retained custody checks remain active independently of the browser switch. */
+  openAIEnrollmentAuthority?: OpenAIAccountEnrollment;
   assertOpenAIKeyReady?: (accountId: string, signal: AbortSignal) => Promise<void>;
   closeOpenAIKeyManagement?: () => void;
 }
@@ -100,6 +111,8 @@ export function createConnectionsRuntime(options: {
   /** Explicit server-owned enrollment; no credential/account adoption happens by default. */
   openAIKeyAccounts?: () => ManagedOpenAIAccount[];
   managedOpenAIAccountIds?: readonly string[];
+  openAIEnrollmentDatabase?: string;
+  openAIAccountEnrollmentEnabled?: boolean;
   /** Authoritative conversation metadata, injected by server startup. */
   resolveConversationBinding?: (conversationId: string) => { accountId: string } | undefined;
   /** Tests may replace a reviewed built-in executor with a deterministic fake. */
@@ -184,12 +197,15 @@ export function createConnectionsRuntime(options: {
     customProbePolicy: options.customProbePolicy,
   });
   let openAIKeys: OpenAIKeyManagement | undefined;
+  let openAIEnrollment: OpenAIAccountEnrollment | undefined;
   const service = new ConnectionsService(store, gateway, {
     gateway: gatewayBinding,
     workspace: options.workspace,
     eligibleAccountIds: options.eligibleAccountIds,
-    accountCredentialReady: (id, signal) =>
-      openAIKeys?.assertReady(id, signal) ?? Promise.resolve(),
+    accountCredentialReady: async (id, signal) => {
+      await openAIKeys?.assertReady(id, signal);
+      if (openAIEnrollment?.manages(id)) await openAIEnrollment.assertReady(id, signal);
+    },
   });
   const keyJournalPath = join(options.directory, 'openai-key-operations.db');
   if (
@@ -209,6 +225,27 @@ export function createConnectionsRuntime(options: {
       workspace: options.workspace,
       gate: (work) => service.withCredentialMutation(work),
     });
+  }
+  if (options.openAIEnrollmentDatabase) {
+    if (options.openAIAccountEnrollmentEnabled && process.platform !== 'darwin')
+      throw new Error('OpenAI account enrollment requires macOS');
+    if (!options.openAIAccountEnrollmentEnabled && !existsSync(options.openAIEnrollmentDatabase))
+      throw new Error('Retained OpenAI enrollment registry is missing');
+    const enrollmentStore = new OpenAIAccountEnrollmentStore(options.openAIEnrollmentDatabase);
+    enrollmentStore.recoverInterrupted();
+    openAIEnrollment = new OpenAIAccountEnrollment({
+      store: enrollmentStore,
+      gateway: new OpenShellOpenAIEnrollmentGateway(runGateway, options.workspace),
+      discoverModels: discoverOpenAIEnrollmentModels,
+      keychain: new OpenAIEnrollmentKeychainCredentials(),
+      validateKey: validateOpenAIKey,
+      gatewayBinding,
+      workspace: options.workspace,
+      gate: (work) => service.withCredentialMutation(work),
+      existingAccountIds: () => (options.openAIKeyAccounts?.() ?? []).map((account) => account.id),
+    });
+  } else if (options.openAIAccountEnrollmentEnabled) {
+    throw new Error('OpenAI enrollment requires a private registry path');
   }
   const capabilityStore = capabilityOperationStore(options.directory);
   // This transport executes only code-owned OpenShell/git argument shapes. It
@@ -505,12 +542,21 @@ export function createConnectionsRuntime(options: {
     eligibleAccountIds: options.eligibleAccountIds,
     gateway: gatewayBinding,
     workspace: options.workspace,
-    ...(openAIKeys
+    ...(openAIKeys || openAIEnrollment
       ? {
-          assertOpenAIKeyReady: (id: string, signal: AbortSignal) =>
-            openAIKeys!.assertReady(id, signal),
-          closeOpenAIKeyManagement: () => openAIKeys!.close(),
+          assertOpenAIKeyReady: async (id: string, signal: AbortSignal) => {
+            await openAIKeys?.assertReady(id, signal);
+            if (openAIEnrollment?.manages(id)) await openAIEnrollment.assertReady(id, signal);
+          },
+          closeOpenAIKeyManagement: () => {
+            openAIKeys?.close();
+            openAIEnrollment?.close();
+          },
         }
+      : {}),
+    ...(openAIEnrollment ? { openAIEnrollmentAuthority: openAIEnrollment } : {}),
+    ...(openAIEnrollment && options.openAIAccountEnrollmentEnabled
+      ? { openAIAccounts: openAIEnrollment }
       : {}),
     ...(openAIKeys?.enabled ? { openAIKeys } : {}),
     ...(process.env.MITZO_GOOGLE_WORKSPACE_MANAGEMENT_ENABLED === 'true'

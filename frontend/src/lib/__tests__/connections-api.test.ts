@@ -1,6 +1,6 @@
 import { beforeEach, expect, it, vi } from 'vitest';
 import { apiFetch } from '../api-fetch';
-import { createConnection } from '../connections-api';
+import { createConnection, enrollOpenAIAccount, getOpenAIAccounts } from '../connections-api';
 vi.mock('../api-fetch', () => ({ apiFetch: vi.fn() }));
 const input = {
   templateId: 'jira-readonly',
@@ -12,6 +12,44 @@ const input = {
   csrf: 'proof',
 };
 beforeEach(() => vi.resetAllMocks());
+it('enrolls a new OpenAI account with an explicit operation ID, billing consent and CSRF proof', async () => {
+  const account = { id: 'new-work', label: 'Work API', projectLabel: 'Research', state: 'ready' };
+  vi.mocked(apiFetch).mockResolvedValue(new Response(JSON.stringify({ account }), { status: 201 }));
+  const enrollment = {
+    csrf: 'proof',
+    requestId: 'operation-id',
+    label: 'Work API',
+    projectLabel: 'Research',
+    apiKey: 'ONE_SHOT_KEY',
+    billingConfirmed: true as const,
+  };
+  await expect(enrollOpenAIAccount(enrollment)).resolves.toEqual(account);
+  expect(apiFetch).toHaveBeenCalledWith(
+    '/api/connections/openai-accounts',
+    expect.objectContaining({
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-csrf-token': 'proof' },
+      body: JSON.stringify(enrollment),
+    }),
+  );
+});
+it('reads enrollment capability and public account state without credentials', async () => {
+  const status = {
+    enabled: true,
+    accounts: [
+      {
+        id: 'new-work',
+        requestId: 'op',
+        label: 'Work API',
+        projectLabel: 'Research',
+        state: 'needs_attention',
+      },
+    ],
+  };
+  vi.mocked(apiFetch).mockResolvedValue(new Response(JSON.stringify(status)));
+  await expect(getOpenAIAccounts()).resolves.toEqual(status);
+  expect(apiFetch).toHaveBeenCalledWith('/api/connections/openai-accounts');
+});
 it('keeps a durable saved connection reference on verification failure', async () => {
   vi.mocked(apiFetch).mockResolvedValue(
     new Response(
