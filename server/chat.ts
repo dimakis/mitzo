@@ -28,6 +28,7 @@ import {
 } from './session-permission-policy.js';
 import { credentials } from './credentials.js';
 import { getConnectionsRuntime } from './connections-runtime.js';
+import { assertOpenAIKeyController } from './openai-key-controller.js';
 import {
   getResponsesRuntime,
   openResponsesChat,
@@ -1180,6 +1181,11 @@ async function _startChatInner(
         };
         accountEnv = nativeExecutionEnv();
       } else if (accountBinding.provider === 'openai') {
+        assertOpenAIKeyController(
+          accountBinding.accountId,
+          join(BASE_REPO, '.mitzo'),
+          !!getConnectionsRuntime()?.assertOpenAIKeyReady,
+        );
         if (options.images?.length)
           throw new Error('OpenAI API image attachments are not yet supported');
         const profile = profiles!.apiProfile(accountBinding);

@@ -358,6 +358,17 @@
   margin: 14px 0;
   font-size: 14px;
 }
+.connections-key-confirmation {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 14px 0;
+  font-size: 14px;
+}
+.connections-key-confirmation input {
+  flex: 0 0 auto;
+  margin-top: 3px;
+}
 .connections-field input {
   min-height: 42px;
   padding: 9px 10px;

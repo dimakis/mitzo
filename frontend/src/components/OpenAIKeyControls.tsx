@@ -73,6 +73,12 @@ function OpenAIKeyCard({
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
   useEffect(() => {
+    setMode(null);
+    setApiKey('');
+    setSameProject(false);
+    setMessage('');
+  }, [account.revision]);
+  useEffect(() => {
     if (!authorized) {
       setMode(null);
       setApiKey('');
@@ -143,6 +149,9 @@ function OpenAIKeyCard({
         </p>
       )}
       {message && <p role="alert">{message}</p>}
+      {account.errorCode === 'NOT_APPLIED' && (
+        <p role="alert">The last replacement did not complete. Enter the key again to retry.</p>
+      )}
       {!mode && (
         <div className="connections-actions">
           <button disabled={busy || !account.revision} onClick={() => open('replace')}>
@@ -178,7 +187,7 @@ function OpenAIKeyCard({
               />
             </label>
           )}
-          <label className="connections-field">
+          <label className="connections-key-confirmation">
             <input
               type="checkbox"
               checked={sameProject}
