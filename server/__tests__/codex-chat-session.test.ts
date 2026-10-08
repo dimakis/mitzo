@@ -141,7 +141,7 @@ it('reports startup request failures without discarding their safe category', ()
   expect(publicCodexRuntimeError(error)).toMatch(/credentials or permissions/);
   expect(publicCodexStartupError(error)).toMatch(/credentials or permissions/);
   expect(publicCodexStartupError(new Error('Bearer sk-secret'))).toBe(
-    'Codex could not start this chat. Inspect conversation recovery before retrying.',
+    'Codex could not start this chat. Check runtime and account configuration before continuing.',
   );
 });
 it('scopes capability idempotency to the authoritative conversation identity', () => {
@@ -224,10 +224,23 @@ it('does not open MCP processes if private storage is unavailable', async () => 
     throw new Error('storage unavailable');
   });
   mocks.connect.mockResolvedValue({ definitions: [], close: mocks.mcpClose });
-  await expect(openCodexChat(options(new AbortController()))).rejects.toThrow(
-    'storage unavailable',
-  );
+  const opening = openCodexChat(options(new AbortController()));
+  await expect(opening).rejects.toThrow('storage unavailable');
+  await expect(opening).rejects.toMatchObject({ phase: 'conversation_storage' });
   expect(mocks.connect).not.toHaveBeenCalled();
+});
+it('retains the failing initialization step while closing the runtime', async () => {
+  vi.clearAllMocks();
+  mocks.connect.mockResolvedValue({ definitions: [], close: mocks.mcpClose });
+  const cause = new CodexRequestError('thread/start', 'authentication', 401);
+  mocks.initialize.mockRejectedValueOnce(cause);
+  await expect(openCodexChat(options(new AbortController()))).rejects.toMatchObject({
+    phase: 'conversation_initialization',
+    cause,
+  });
+  expect(mocks.close).toHaveBeenCalledOnce();
+  expect(mocks.mcpClose).toHaveBeenCalledOnce();
+  expect(mocks.send).not.toHaveBeenCalled();
 });
 it('closes an initialization aborted before the first turn starts', async () => {
   const abort = new AbortController();

@@ -1859,12 +1859,17 @@ async function _startChatInner(
           : message;
       log.error('startChat failed after register, cleaning up', {
         clientId,
+        sessionId: newSdkSessionId ?? session.sessionId,
         ...(accountBinding?.provider === 'openai-codex' || accountBinding?.provider === 'openai'
           ? codexRuntimeErrorTelemetry(err instanceof Error ? err : new Error(message))
           : {}),
         error: publicMessage,
       });
-      send(transport, { type: 'error', error: publicMessage });
+      send(transport, {
+        type: 'error',
+        ...(session.sessionId ? { sessionId: session.sessionId } : {}),
+        error: publicMessage,
+      });
     }
     if (newSdkSessionId) {
       // Retain its binding: the SDK may have written history before startup failed.
