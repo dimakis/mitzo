@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom';
+import { CredentialConnectionsPanel } from '../components/CredentialConnectionsPanel';
 import { SymposiumPersonalConnections } from '../components/SymposiumPersonalConnections';
 import { OpenAIKeyControls } from '../components/OpenAIKeyControls';
 import { GoogleWorkspaceControls } from '../components/GoogleWorkspaceControls';
@@ -344,9 +345,11 @@ export function ConnectionsView({ mode = 'add', connectionId }: ConnectionsViewP
           ? 'Manage ChatGPT account'
           : mode === 'google'
             ? 'Manage Google Workspace'
-            : mode === 'legacy'
-              ? 'Provider details'
-              : 'Manage connection';
+            : mode === 'keychain'
+              ? 'Apple Keychain connections'
+              : mode === 'legacy'
+                ? 'Provider details'
+                : 'Manage connection';
   const identityFields = template?.connectionFields.filter((field) => field.kind === 'email') ?? [];
   const resourceFields = template?.connectionFields.filter((field) => field.kind !== 'email') ?? [];
   const stepValid =
@@ -477,6 +480,20 @@ export function ConnectionsView({ mode = 'add', connectionId }: ConnectionsViewP
             <section className="access-section" aria-labelledby="add-services-heading">
               <div className="access-section-heading">
                 <h2 id="add-services-heading">Services</h2>
+              </div>
+              <div className="access-row-group">
+                <article className="access-row">
+                  <span className="access-row-icon" aria-hidden="true">
+                    ⌘
+                  </span>
+                  <div className="access-row-copy">
+                    <h3>Apple Keychain</h3>
+                    <p>Connect an HTTPS service with a token or password.</p>
+                  </div>
+                  <Link className="access-row-action" to="/connections?manage=keychain">
+                    Choose Apple Keychain
+                  </Link>
+                </article>
               </div>
               {setupTemplates ? (
                 <ServiceCatalog templates={setupTemplates.templates} onChoose={chooseTemplate} />
@@ -615,6 +632,8 @@ export function ConnectionsView({ mode = 'add', connectionId }: ConnectionsViewP
         )
       ) : mode === 'personal' ? (
         <SymposiumPersonalConnections mode="manage" connectionId={connectionId} />
+      ) : mode === 'keychain' ? (
+        <CredentialConnectionsPanel connectionId={connectionId} />
       ) : (
         <>
           {loadError && (

@@ -1,3 +1,4 @@
+import { credentialSdkBoundary } from './credential-sdk-boundary.js';
 import { randomUUID } from 'node:crypto';
 import { mkdirSync, rmSync } from 'node:fs';
 import { homedir } from 'node:os';
@@ -171,6 +172,7 @@ export async function searchSdk(
   const abort = new AbortController();
   const cancel = () => abort.abort();
   signal.addEventListener('abort', cancel, { once: true });
+  const sdkBoundary = credentialSdkBoundary();
   const searchCalls = new Set<string>();
   const successfulSearches = new Set<string>();
   const sessionId = randomUUID();
@@ -198,6 +200,7 @@ export async function searchSdk(
         cwd,
         model: route.model,
         sessionId,
+        ...(sdkBoundary ? { spawnClaudeCodeProcess: sdkBoundary.spawnClaudeCodeProcess } : {}),
         systemPrompt: SEARCH_INSTRUCTIONS,
         abortController: abort,
         settingSources: [],

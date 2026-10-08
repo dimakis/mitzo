@@ -1,4 +1,8 @@
 import {
+  sessionCredentialTools,
+  CONNECTION_TOOL_INSTRUCTIONS,
+} from './session-credential-tools.js';
+import {
   createGithubPublishingTool,
   githubPublishingDefinition,
   GITHUB_PUBLISHING_INSTRUCTIONS,
@@ -128,6 +132,11 @@ interface Options {
 /** API execution uses the shared interaction policy and a private continuation store. */
 export async function openResponsesChat(options: Options) {
   const signal = options.session.abortController.signal;
+  const connectionTools = sessionCredentialTools(
+    options.conversationId,
+    options.session,
+    options.registry,
+  );
   signal.throwIfAborted();
   const privateStorage = options.store ?? store();
   const { hooks, dispose } = createNativeHooks(
@@ -173,6 +182,7 @@ export async function openResponsesChat(options: Options) {
     store: privateStorage,
     systemPrompt:
       options.systemPrompt +
+      CONNECTION_TOOL_INSTRUCTIONS +
       HOST_TOOL_INSTRUCTIONS +
       WEB_ACCESS_INSTRUCTIONS +
       GITHUB_PUBLISHING_INSTRUCTIONS +
@@ -181,6 +191,7 @@ export async function openResponsesChat(options: Options) {
     selectedModel: options.selectedModel,
     reasoningEffort: options.reasoningEffort ?? undefined,
     tools: [
+      ...connectionTools.definitions,
       ...nativeToolDefinitions,
       ...mcp.definitions,
       webAccessDefinition,
@@ -192,6 +203,8 @@ export async function openResponsesChat(options: Options) {
         block.input,
         signal,
         async (input, forcePrompt) => {
+          const keychainResult = await connectionTools.execute(block.name, input, signal);
+          if (keychainResult) return keychainResult;
           if (block.name === REQUEST_GITHUB_PUBLISH)
             return githubPublishing(input, signal, { turnId: publishingTurnId, callId: block.id });
           if (block.name === REQUEST_WEB_ACCESS) {
