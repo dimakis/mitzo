@@ -24,7 +24,7 @@ export function reviewedHandlerSourceFingerprint(source: string) {
 export const reviewedHandlerSourceArtifacts = Object.freeze({
   // Keychain HTTP/WebSocket credential custody and exact-session approval handlers.
   '../home-assistant-dashboard.ts':
-    '767708c222adf1a8dd7b0e301bd38bfe5a0546945505f6c55e80ac627a0199cb',
+    'aaee0cd70be342a0e28641758d5ff88efc60c73a55a49199ef431a65a6bdd51e',
   '../credential-connections.ts':
     '683267cc520828b4e3492fbec40b93982fa344971a0e5ac2d72ea9661f2a8fff',
   '../credential-connections-router.ts':
@@ -56,7 +56,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../capability-conversation-binding.ts':
     '147a328d161f167aeeb31bf0017d5fea25cc3f22933392249a228d7bd61e89aa',
   // Secret custody and its browser/admission boundaries share the runtime review contract.
-  '../openai-key-management.ts': '536bffc8e2f8f8a73326ffe753ffd60b794b3f45072bb74b82d6ab7226946ead',
+  '../openai-key-management.ts': '1ec5481e02e9803007d7452abd0b6167e94e54249bc633a1b5edc47054129d3b',
   '../openai-key-operation-store.ts':
     'dcd4bfc37e6098f194e19c9a797ca70eed189b19568c0272c778ecdec49f00a9',
   '../openai-enrollment-models.ts':

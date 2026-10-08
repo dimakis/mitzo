@@ -130,7 +130,7 @@ it('reauthorizes dashboard scope changes, revokes old grants, and rejects stale 
     .post('/api/credential-connections/reauthorize')
     .set('x-browser', 'yes')
     .send({ passphrase: 'correct' });
-  const send = (body: unknown) =>
+  const send = (body: Record<string, unknown>) =>
     request(app).post(route).set('x-browser', 'yes').set('x-csrf-token', auth.body.csrf).send(body);
   const result = await send({ revision: 1, access: 'read-write' });
   expect(result.status).toBe(200);

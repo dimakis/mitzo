@@ -7,6 +7,7 @@ import {
   validateDashboardRequest,
   type DashboardSocketFactory,
   type DashboardSocketOptions,
+  type DashboardSender,
 } from '../home-assistant-dashboard.js';
 import { CredentialConnections, CredentialConnectionStore } from '../credential-connections.js';
 
@@ -220,7 +221,7 @@ function serviceFixture() {
     read: vi.fn(async () => 'fixture-private-token'),
     remove: vi.fn(),
   };
-  const send = vi.fn(async () => '{}');
+  const send = vi.fn<DashboardSender>(async () => '{}');
   const service = new CredentialConnections(store, vault, vi.fn(), send);
   const connection = {
     label: 'Home Assistant',
@@ -327,7 +328,7 @@ it('cancels active dashboard calls when access is changed and rejects concurrent
   });
   f.send.mockImplementation(
     (_input, signal) =>
-      new Promise((_resolve, reject) => {
+      new Promise<string>((_resolve, reject) => {
         started();
         signal.addEventListener('abort', () => reject(new Error('cancelled')), { once: true });
       }),
@@ -402,4 +403,12 @@ it('returns a redacted read as non-editable without the unredacted configuration
     configHash: null,
     config: { secret: '[redacted]' },
   });
+});
+
+it('rejects dashboard numbers that would change during JSON serialization', () => {
+  for (const config of ['{"views":[],"number":1e400}', '{"views":[],"number":9007199254740993}']) {
+    expect(() =>
+      validateDashboardRequest({ operation: 'save', config, expectedConfigHash: 'a'.repeat(64) }),
+    ).toThrow('safely representable');
+  }
 });

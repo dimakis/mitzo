@@ -40,6 +40,11 @@ export class DashboardRequestError extends Error {
 
 function canonical(value: unknown, depth = 0): string {
   if (depth > 64) throw new Error('Dashboard configuration is too deeply nested');
+  if (
+    typeof value === 'number' &&
+    (!Number.isFinite(value) || (Number.isInteger(value) && !Number.isSafeInteger(value)))
+  )
+    throw new Error('Dashboard numbers must be safely representable');
   if (Array.isArray(value)) return '[' + value.map((v) => canonical(v, depth + 1)).join(',') + ']';
   if (value !== null && typeof value === 'object') {
     return (
