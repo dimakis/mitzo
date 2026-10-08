@@ -15,6 +15,7 @@ public class WatchAuthBridge: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "saveToken", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "clearToken", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "setNotificationBadge", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "configureNotificationServer", returnType: CAPPluginReturnPromise),
     ]
 
     @objc func setNotificationBadge(_ call: CAPPluginCall) {
@@ -36,6 +37,18 @@ public class WatchAuthBridge: CAPPlugin, CAPBridgedPlugin {
     }
 
     private let authManager = AuthManager()
+
+    @objc func configureNotificationServer(_ call: CAPPluginCall) {
+        guard let value = call.getString("url"), let url = URL(string: value),
+              ["http", "https"].contains(url.scheme ?? ""), url.host != nil,
+              url.user == nil, url.password == nil, url.query == nil, url.fragment == nil,
+              url.path.isEmpty || url.path == "/" else {
+            call.reject("Invalid notification server origin")
+            return
+        }
+        UserDefaults.standard.set(url.absoluteString, forKey: "mitzo_notification_server_url")
+        call.resolve()
+    }
 
     @objc func saveToken(_ call: CAPPluginCall) {
         guard let token = call.getString("token") else {

@@ -50,7 +50,7 @@ describe('web request through real Mitzo approval cards', () => {
         expect(f.events.some((event) => event.type === 'permission_request')).toBe(true),
       );
       const card = f.events.find((event) => event.type === 'permission_request')!;
-      expect(card.approvalScope).toBe('request');
+      expect(card.approvalScope).toBe('session');
       expect(card.title).toBe('Allow this web search?');
       expect(f.search).not.toHaveBeenCalled();
       expect(resolvePending(card.permId as string, decision, undefined, 'chat')).toBe(true);
@@ -62,12 +62,18 @@ describe('web request through real Mitzo approval cards', () => {
           { operation: 'search', query: 'Another query', reason: 'Verify' },
           f.abort.signal,
         );
-        await vi.waitFor(() =>
-          expect(f.events.filter((event) => event.type === 'permission_request')).toHaveLength(2),
-        );
-        f.abort.abort();
-        await next;
-        expect(f.search).toHaveBeenCalledTimes(1);
+        if (decision === 'always') {
+          expect(await next).toMatchObject({ isError: false });
+          expect(f.events.filter((event) => event.type === 'permission_request')).toHaveLength(1);
+          expect(f.search).toHaveBeenCalledTimes(2);
+        } else {
+          await vi.waitFor(() =>
+            expect(f.events.filter((event) => event.type === 'permission_request')).toHaveLength(2),
+          );
+          f.abort.abort();
+          await next;
+          expect(f.search).toHaveBeenCalledTimes(1);
+        }
       }
     },
   );

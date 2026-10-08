@@ -21,6 +21,7 @@ import { isCapacitor, registerCapacitorLifecycle } from './lib/capacitor';
 import { parseChatTransportPreference, shouldUseSseTransport } from './lib/chat-transport';
 import { configureKeyboard } from './lib/keyboard';
 import { initPushNotifications } from './lib/push';
+import { configureNativeNotificationServer } from './lib/watch-auth';
 import { ensureEventBusConnected } from './lib/event-bus-singleton';
 import { getPreferredModel } from './lib/model-preference';
 
@@ -90,6 +91,7 @@ configureKeyboard();
 
 // Register for push notifications (no-op in browser)
 initPushNotifications();
+void configureNativeNotificationServer(getApiBaseUrl());
 
 // Expose on window for console debugging during testing
 if (typeof window !== 'undefined') {
