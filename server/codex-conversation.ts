@@ -1104,7 +1104,8 @@ export class CodexConversation {
       return codexRuntimeOverrides(configuration, this.opts.profile.workspaceId);
     const inherited = z
       .object({
-        model_reasoning_summary: z.enum(['none', 'auto', 'concise', 'detailed']).optional(),
+        // config/read returns null when the preference is unset.
+        model_reasoning_summary: z.enum(['none', 'auto', 'concise', 'detailed']).nullish(),
       })
       .parse(configuration);
     return {

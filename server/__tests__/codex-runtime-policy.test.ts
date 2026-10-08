@@ -47,3 +47,19 @@ it('requests detailed reasoning summaries unless Codex configuration selects ano
     codexRuntimeOverrides({ model_reasoning_summary: 'concise' }).model_reasoning_summary,
   ).toBe('concise');
 });
+
+it('defaults an unset nullable reasoning summary while preserving runtime restrictions', () => {
+  const config = codexRuntimeOverrides({
+    model_reasoning_summary: null,
+    mcp_servers: { work: { command: 'private-secret' } },
+  });
+  expect(config.model_reasoning_summary).toBe('detailed');
+  expect(config['mcp_servers.work.enabled']).toBe(false);
+  expect(config['features.shell_tool']).toBe(false);
+});
+
+it('rejects an invalid reasoning summary value', () => {
+  expect(() => codexRuntimeOverrides({ model_reasoning_summary: 'unsupported' })).toThrow(
+    'Cannot inspect Codex runtime configuration',
+  );
+});
