@@ -1,4 +1,5 @@
 import type { AccountSignIn } from './account-profiles.js';
+import type { SuccessfulAccountUse } from './account-use-store.js';
 /** Nonsecret read model. Actions only navigate to existing owning controls. */
 export type AccessResourceKind =
   | 'ai-account'
@@ -18,6 +19,7 @@ export interface AccessResource {
   label: string;
   provider: string;
   status: string;
+  errorCode?: string | null;
   revision: number | null;
   /** Catalog facet provenance; facet identity itself is never replaced. */
   personalConnection?: {
@@ -27,6 +29,7 @@ export interface AccessResource {
   };
   accountIdentity: string | null;
   signIn?: AccountSignIn;
+  lastSuccessfulUse?: SuccessfulAccountUse;
   verification: {
     state: 'verified' | 'stale' | 'unverified' | 'unavailable';
     verifiedAt: number | null;
@@ -40,6 +43,10 @@ export interface AccessResource {
   };
   actions: Array<{ id: string; label: string; href: string }>;
   details: {
+    serviceName?: string;
+    configuredIdentity?: string;
+    scope?: Record<string, string | string[]>;
+    permissions?: string[];
     billing?: string;
     models?: Array<{ id: string; label: string }>;
     expiresAt?: number | null;

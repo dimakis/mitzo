@@ -60,7 +60,7 @@ it('keeps configured assignments separate from verification and observed convers
   fireEvent.click(within(row).getByRole('button', { name: 'Manage Jira' }));
   const card = screen.getByRole('dialog', { name: 'Jira' });
   expect(within(card).getByText('Configured')).toBeTruthy();
-  expect(within(card).getByText('Not verified')).toBeTruthy();
+  expect(within(card).getByText('Not checked')).toBeTruthy();
   expect(within(card).getByText('work')).toBeTruthy();
   expect(within(card).getByText(/Conversation attachments have not been observed/)).toBeTruthy();
   expect(within(card).getByRole('link', { name: 'Manage Jira' }).getAttribute('href')).toBe(
@@ -82,7 +82,7 @@ it('retains working resource groups when a source is unavailable and explains we
     </MemoryRouter>,
   );
   expect(await screen.findByText('Management service unavailable.')).toBeTruthy();
-  for (const name of ['AI accounts', 'Services', 'Website access'])
+  for (const name of ['AI accounts', 'Services', 'How web access works'])
     expect(screen.getByRole('heading', { name })).toBeTruthy();
   fireEvent.click(screen.getByRole('button', { name: 'View Public page reads' }));
   expect(screen.getByText(/One approved website read/)).toBeTruthy();
@@ -270,7 +270,7 @@ it('names an unavailable Symposium catalog separately from ordinary AI accounts'
       <ConnectionsAccessView />
     </MemoryRouter>,
   );
-  expect(await screen.findByText('Symposium AI accounts: Source unavailable')).toBeTruthy();
+  expect(await screen.findByText("Couldn't load Symposium AI accounts. Retry.")).toBeTruthy();
   expect(screen.getByRole('button', { name: 'Refresh access' })).toBeTruthy();
 });
 
@@ -350,11 +350,11 @@ it('presents proven lifecycle and catalog facets once without losing their ident
   expect(cards).toHaveLength(1);
   fireEvent.click(within(cards[0]).getByRole('button', { name: 'Manage Personal account' }));
   const card = within(screen.getByRole('dialog'));
-  expect(card.getByText('Connected')).toBeTruthy();
+  expect(card.getByText('Set up')).toBeTruthy();
   expect(card.getByText('signed-in@example.test')).toBeTruthy();
   expect(card.getByText('ChatGPT pro')).toBeTruthy();
   expect(card.getByText('Configured Luna')).toBeTruthy();
-  expect(card.getByText('Not verified')).toBeTruthy();
+  expect(card.getByText('Not checked')).toBeTruthy();
   expect(card.getByText('catalog')).toBeTruthy();
   expect(card.getByRole('link', { name: 'Open personal account controls' })).toBeTruthy();
 });
@@ -418,7 +418,7 @@ it('rejects mismatched revisions even if a presentation link claims it is curren
 });
 
 it.each(['account-profiles', 'symposium-account-profiles'] as const)(
-  'labels standalone %s model lists as configured with unverified support',
+  'labels standalone %s model lists as catalog entries with separate successful-use evidence',
   async (owner) => {
     const inventory = linkedFacets();
     const standalone = { ...inventory.resources[0], owner };
@@ -437,13 +437,13 @@ it.each(['account-profiles', 'symposium-account-profiles'] as const)(
     expect(card.getAllByText('Configured Luna')).toHaveLength(1);
     expect(
       card.getAllByText(
-        'Configured catalog; model support and effective access have not been checked.',
+        "Models listed here come from this account's catalog. Successful use is shown separately when recorded.",
       ),
     ).toHaveLength(1);
     expect(card.queryByText('Available models')).toBeNull();
   },
 );
-it('keeps the grouped configured catalog and support disclaimer without duplicate model lists', async () => {
+it('keeps the grouped catalog and successful-use explanation without duplicate model lists', async () => {
   const inventory = linkedFacets();
   inventory.resources[1].details.models = inventory.resources[0].details.models;
   vi.mocked(getConnectionsAccess).mockResolvedValue(inventory);
@@ -459,7 +459,7 @@ it('keeps the grouped configured catalog and support disclaimer without duplicat
   expect(card.getAllByText('Configured Luna')).toHaveLength(1);
   expect(
     card.getAllByText(
-      'Configured catalog; model support and effective access have not been checked.',
+      "Models listed here come from this account's catalog. Successful use is shown separately when recorded.",
     ),
   ).toHaveLength(1);
   expect(card.queryByText('Available models')).toBeNull();
@@ -734,7 +734,7 @@ it('labels a live provider grant Connected without treating its configured email
     source: 'openshell-provider-grant',
     observedIdentity: null,
   });
-  expect(within(row).getByText('Sign-in: Connected')).toBeTruthy();
+  expect(within(row).getByText('Connection check: Connection valid')).toBeTruthy();
   expect(within(row).getByText('Configured: configured@example.test')).toBeTruthy();
   expect(within(row).queryByText('Signed in')).toBeNull();
   fireEvent.click(within(row).getByRole('button', { name: 'Manage Host account' }));
@@ -743,10 +743,10 @@ it('labels a live provider grant Connected without treating its configured email
   expect(dialog.queryByText('Account')).toBeNull();
 });
 it.each([
-  ['stale', 'Check is stale'],
-  ['failed', 'Check failed'],
+  ['stale', 'Last sign-in check passed'],
+  ['failed', "Couldn't check sign-in"],
   ['not-checked', 'Not checked'],
-  ['unsupported', 'Unsupported'],
+  ['unsupported', 'Not checked'],
 ] as const)('keeps %s sign-in independent of access verification', async (status, label) => {
   const row = await renderSignIn({ ...checkedSignIn, status, observedIdentity: null });
   expect(within(row).getByText(`Sign-in: ${label}`)).toBeTruthy();
@@ -807,12 +807,12 @@ it('marks previously verified sign-in stale when inventory refresh fails and rec
     </MemoryRouter>,
   );
   const row = await screen.findByRole('article', { name: 'Host account' });
-  expect(within(row).getByText('Sign-in: Connected')).toBeTruthy();
+  expect(within(row).getByText('Connection check: Connection valid')).toBeTruthy();
   fireEvent.click(screen.getByRole('button', { name: 'Refresh access' }));
-  await within(row).findByText('Sign-in: Check is stale');
-  expect(within(row).queryByText('Sign-in: Connected')).toBeNull();
+  await within(row).findByText('Connection check: Last connection check passed');
+  expect(within(row).queryByText('Connection check: Connection valid')).toBeNull();
   fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
-  await within(row).findByText('Sign-in: Connected');
+  await within(row).findByText('Connection check: Connection valid');
 });
 
 it('expires displayed sign-in evidence after five minutes without making a new request', async () => {
@@ -820,7 +820,7 @@ it('expires displayed sign-in evidence after five minutes without making a new r
   const row = await renderSignIn({ ...checkedSignIn, checkedAt: Date.now() });
   expect(within(row).getByText('Sign-in: Signed in')).toBeTruthy();
   await act(async () => vi.advanceTimersByTimeAsync(5 * 60_000 + 1000));
-  expect(within(row).getByText('Sign-in: Check is stale')).toBeTruthy();
+  expect(within(row).getByText('Sign-in: Last sign-in check passed')).toBeTruthy();
   expect(within(row).queryByText('Sign-in: Signed in')).toBeNull();
   expect(getConnectionsAccess).toHaveBeenCalledTimes(1);
 });
@@ -834,9 +834,9 @@ it('expires provider sign-in at its grant deadline while preserving the configur
     observedIdentity: null,
     expiresAt: Date.now() + 60_000,
   });
-  expect(within(row).getByText('Sign-in: Connected')).toBeTruthy();
+  expect(within(row).getByText('Connection check: Connection valid')).toBeTruthy();
   await act(async () => vi.advanceTimersByTimeAsync(60_000));
-  expect(within(row).getByText('Sign-in: Check is stale')).toBeTruthy();
+  expect(within(row).getByText('Connection check: Connection check expired')).toBeTruthy();
   expect(within(row).getByText('Configured: configured@example.test')).toBeTruthy();
   fireEvent.click(within(row).getByRole('button', { name: 'Manage Host account' }));
   expect(within(screen.getByRole('dialog')).getByText('Configured Luna')).toBeTruthy();
@@ -892,9 +892,9 @@ it.each([
     const row = await screen.findByRole('article', { name: 'Host account' });
     fireEvent.click(screen.getByRole('button', { name: 'Refresh access' }));
     fireEvent.click(within(row).getByRole('button', { name: 'Manage Host account' }));
-    await screen.findByText(`${sourceLabel}: Source unavailable`);
+    await screen.findByText(`Couldn't load ${sourceLabel}. Retry.`);
     const dialog = within(screen.getByRole('dialog', { name: 'Host account' }));
-    expect(dialog.getByText('Check is stale')).toBeTruthy();
+    expect(dialog.getByText('Last sign-in check passed')).toBeTruthy();
     expect(dialog.getByText(/Showing an older account/)).toBeTruthy();
     expect(
       dialog.getByText(new Date(current.resources[0].signIn!.checkedAt!).toLocaleString()),
@@ -994,7 +994,7 @@ it.each(['available', 'not-configured'] as const)(
     );
     const row = await screen.findByRole('article', { name: 'Host account' });
     fireEvent.click(screen.getByRole('button', { name: 'Refresh access' }));
-    await within(row).findByText('Sign-in: Check is stale');
+    await within(row).findByText('Sign-in: Last sign-in check passed');
     fireEvent.click(screen.getByRole('button', { name: 'Refresh access' }));
     fireEvent.click(within(row).getByRole('button', { name: 'Manage Host account' }));
     await vi.waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
@@ -1029,7 +1029,7 @@ it('describes a verified managed-service credential check without claiming effec
     </MemoryRouter>,
   );
   const row = await screen.findByRole('article', { name: 'Jira credentials' });
-  expect(within(row).getByText('Credentials verified')).toBeTruthy();
+  expect(within(row).getByText(/Last successful credential check:/)).toBeTruthy();
   expect(within(row).queryByText('Access verified')).toBeNull();
   fireEvent.click(within(row).getByRole('button', { name: 'Manage Jira credentials' }));
   const dialog = within(screen.getByRole('dialog'));

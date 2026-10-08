@@ -3,26 +3,51 @@ import type { AccountProfiles } from './account-profiles.js';
 import type { Connection } from './connections-store.js';
 import type { PersonalConnection } from './symposium-personal-connections.js';
 import type { GoogleWorkspaceHealth } from './google-workspace-management.js';
+import type { CapabilityGrant } from './connections/capabilities/types.js';
+import type { SuccessfulAccountUse } from './account-use-store.js';
 import type {
   AccessResource,
   AccessResourceKind,
   ConnectionsAccessInventory,
 } from './connections-access-types.js';
 
+export interface LegacyAccessProvider {
+  name: string;
+  type: string;
+  id?: string;
+  workspace?: string;
+}
+type AccountAccessProfile = ReturnType<AccountProfiles['catalog']>[number] & {
+  lastSuccessfulUse?: SuccessfulAccountUse;
+};
+type ManagedAccessConnection = Connection & {
+  capabilityGrants?: readonly CapabilityGrant[];
+  publishingEnabled?: boolean;
+};
 export interface ConnectionsAccessSources {
-  accounts?: (
-    signal: AbortSignal,
-  ) => ReturnType<AccountProfiles['catalog']> | Promise<ReturnType<AccountProfiles['catalog']>>;
+  accounts?: (signal: AbortSignal) => AccountAccessProfile[] | Promise<AccountAccessProfile[]>;
   symposiumAccounts?: (
     signal: AbortSignal,
-  ) => ReturnType<AccountProfiles['catalog']> | Promise<ReturnType<AccountProfiles['catalog']>>;
-  managed?: () => Connection[];
+  ) => AccountAccessProfile[] | Promise<AccountAccessProfile[]>;
+  managed?: () => ManagedAccessConnection[];
   keychain?: () => PublicCredentialConnection[];
   personal?: (signal: AbortSignal) => PersonalConnection[] | Promise<PersonalConnection[]>;
   google?: (signal: AbortSignal) => Promise<GoogleWorkspaceHealth>;
-  legacy?: () => Promise<Array<{ name: string; type: string }>>;
+  legacy?: () => Promise<LegacyAccessProvider[]>;
   gateway?: string;
   workspace?: string;
+}
+
+function serviceName(provider: string): string | undefined {
+  return (
+    {
+      'github-readonly': 'GitHub',
+      github: 'GitHub',
+      'jira-readonly': 'Jira',
+      jira: 'Jira',
+      'google-workspace': 'Google Workspace',
+    } as Record<string, string>
+  )[provider];
 }
 export function inventoryIdentity(
   kind: AccessResourceKind,
@@ -73,7 +98,7 @@ function base(
 /** Each source has an independent deadline; failures never export exception text. */
 export async function readConnectionsAccess(
   input: ConnectionsAccessSources,
-  options: { now?: number; freshnessMs?: number; timeoutMs?: number } = {},
+  options: { now?: number; timeoutMs?: number } = {},
 ): Promise<ConnectionsAccessInventory> {
   const now = options.now ?? Date.now();
   const result: ConnectionsAccessInventory = { generatedAt: now, resources: [], sources: [] };
@@ -124,7 +149,7 @@ export async function readConnectionsAccess(
   const value = <T>(id: (typeof keys)[number]) =>
     reads.find((r) => r.id === id)?.value as T | undefined;
   for (const source of ['accounts', 'symposiumAccounts'] as const) {
-    for (const account of value<ReturnType<AccountProfiles['catalog']>>(source) ?? []) {
+    for (const account of value<AccountAccessProfile[]>(source) ?? []) {
       const row = base(
         'ai-account',
         source === 'accounts' ? 'account-profiles' : 'symposium-account-profiles',
@@ -173,13 +198,24 @@ export async function readConnectionsAccess(
         billing: account.billing,
         models: account.models.map((model) => ({ id: model.id, label: model.label })),
       };
+      if (
+        account.lastSuccessfulUse &&
+        Number.isSafeInteger(account.lastSuccessfulUse.succeededAt) &&
+        account.lastSuccessfulUse.succeededAt >= 0 &&
+        account.lastSuccessfulUse.succeededAt <= now &&
+        (account.lastSuccessfulUse.model === null ||
+          account.models.some((model) => model.id === account.lastSuccessfulUse!.model))
+      )
+        row.lastSuccessfulUse = { ...account.lastSuccessfulUse };
       row.verification.reason = account.signIn
         ? 'Effective conversation access has not been checked.'
         : 'Configured account profile only. Credential controls are unavailable here; sign-in and effective access have not been checked.';
       result.resources.push(row);
     }
   }
-  const managed = (value<Connection[]>('managed') ?? []).filter((c) => !c.archivedAt);
+  const managed = (
+    value<ReturnType<NonNullable<ConnectionsAccessSources['managed']>>>('managed') ?? []
+  ).filter((c) => !c.archivedAt);
   for (const connection of managed) {
     const row = base(
       'managed-connection',
@@ -191,20 +227,22 @@ export async function readConnectionsAccess(
       connection.workspace,
     );
     row.status = connection.status;
+    row.errorCode = connection.errorCode;
     row.revision = connection.revision;
     row.accountIdentity = connection.identity;
+    const verifiedAt =
+      connection.verifiedAt !== null &&
+      Number.isFinite(connection.verifiedAt) &&
+      connection.verifiedAt <= now
+        ? connection.verifiedAt
+        : null;
     row.verification = {
-      state:
-        connection.status === 'active' &&
-        connection.verifiedAt !== null &&
-        connection.verifiedAt <= now
-          ? now - connection.verifiedAt <= (options.freshnessMs ?? 5 * 60_000)
-            ? 'verified'
-            : 'stale'
-          : 'unverified',
-      verifiedAt: connection.verifiedAt,
+      state: verifiedAt !== null ? 'verified' : 'unverified',
+      verifiedAt,
       reason:
-        'Verification describes the credential check; conversation attachments are not checked.',
+        verifiedAt !== null
+          ? 'The last credential check passed at the recorded time. Current conversation access has not been checked.'
+          : 'No successful credential check has been recorded. Current conversation access has not been checked.',
     };
     row.access = {
       summary: 'Managed service permissions',
@@ -212,7 +250,38 @@ export async function readConnectionsAccess(
       observedAttachments: null,
       appliesTo: 'New conversations only',
     };
-    row.details = { endpoint: connection.endpoint };
+    const permissions =
+      connection.templateId === 'github-readonly'
+        ? ['Repository reads']
+        : connection.templateId === 'jira-readonly'
+          ? ['Jira reads']
+          : connection.templateId === 'custom-rest-readonly'
+            ? ['API reads']
+            : [];
+    if (
+      connection.status === 'active' &&
+      connection.publishingEnabled &&
+      connection.capabilityGrants?.some(
+        (grant) =>
+          grant.connectionId === connection.id &&
+          grant.connectionRevision === connection.revision &&
+          grant.status === 'active' &&
+          grant.capabilityId === 'github.publish-pr' &&
+          grant.capabilityVersion === 1 &&
+          grant.accountIds.some((id) => connection.desiredAccountIds.includes(id)),
+      )
+    )
+      permissions.push('PR publishing after approval');
+    row.details = {
+      endpoint: connection.endpoint,
+      serviceName: serviceName(connection.templateId),
+      configuredIdentity:
+        typeof connection.publicConfig.email === 'string'
+          ? connection.publicConfig.email
+          : connection.submittedEmail || undefined,
+      scope: { ...connection.publicConfig },
+      permissions,
+    };
     row.actions = [
       {
         id: 'connection-controls',
@@ -284,7 +353,7 @@ export async function readConnectionsAccess(
   const gateway = input.gateway ?? null,
     workspace = input.workspace ?? null;
   const google = value<GoogleWorkspaceHealth>('google');
-  if (google) {
+  if (google && google.health !== 'not_configured') {
     const row = base(
       'google-workspace',
       'google-workspace-management',
@@ -310,7 +379,14 @@ export async function readConnectionsAccess(
       ? 'Reviewed Google reads and bounded Slides editing'
       : 'Google permissions could not be checked';
     row.access.appliesTo = 'New conversations only';
-    row.details = { expiresAt: google.expiresAt };
+    row.details = {
+      serviceName: 'Google Workspace',
+      expiresAt: google.expiresAt,
+      permissions:
+        google.health === 'ready'
+          ? ['Google reads', ...(google.slidesEditing ? ['Slides editing'] : [])]
+          : [],
+    };
     row.actions = [
       {
         id: 'google-controls',
@@ -325,21 +401,29 @@ export async function readConnectionsAccess(
       source.reason = 'Google access could not be checked. Retry later.';
     }
   }
-  for (const provider of value<Array<{ name: string; type: string }>>('legacy') ?? []) {
+  for (const provider of value<LegacyAccessProvider[]>('legacy') ?? []) {
     // Labels alone are not identity; match only authoritative primary scope.
     if (
       gateway !== null &&
       workspace !== null &&
-      (managed.some(
+      (managed.filter(
         (c) =>
           c.gateway === gateway &&
           c.workspace === workspace &&
-          c.gatewayProviderName === provider.name,
-      ) ||
+          c.gatewayProviderName === provider.name &&
+          provider.id !== undefined &&
+          c.gatewayProviderId === provider.id &&
+          provider.workspace !== undefined &&
+          provider.workspace === c.workspace,
+      ).length === 1 ||
         (google &&
           google.health !== 'not_configured' &&
           google.health !== 'unavailable' &&
-          provider.name === 'google-workspace'))
+          provider.name === 'google-workspace' &&
+          google.providerIdentity !== undefined &&
+          provider.id === google.providerIdentity.id &&
+          provider.workspace === google.providerIdentity.workspace &&
+          google.providerIdentity.workspace === workspace))
     )
       continue;
     const row = base(
@@ -349,10 +433,11 @@ export async function readConnectionsAccess(
       provider.name,
       provider.type,
       gateway,
-      workspace,
+      provider.workspace ?? workspace,
     );
     row.status = 'operator-managed';
     row.access.summary = 'Operator-managed policy; permissions not checked';
+    row.details.serviceName = serviceName(provider.name) ?? serviceName(provider.type);
     row.actions = [
       {
         id: 'legacy-details',

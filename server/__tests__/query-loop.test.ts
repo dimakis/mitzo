@@ -137,6 +137,90 @@ describe('runQueryLoop', () => {
   const clientId = 'test-client';
   let abortController: AbortController;
 
+  it('separates completed account use from selected, synthetic and subagent models', async () => {
+    const binding = {
+      accountId: 'work',
+      accountLabel: 'Work',
+      provider: 'anthropic-vertex',
+      profileRevision: 'route-1',
+      model: 'selected-but-unused',
+    };
+    registry.get(clientId)!.accountBinding = binding;
+    const onSuccessfulAccountUse = vi.fn();
+    await runQueryLoop(
+      eventStream([
+        {
+          type: 'stream_event',
+          renderer_only: true,
+          event: { type: 'message_start', message: { model: 'selected-but-unused', usage: {} } },
+        },
+        { type: 'result', session_id: 'sess-use', is_error: false },
+        {
+          type: 'stream_event',
+          event: { type: 'message_start', message: { model: 'luna', usage: {} } },
+        },
+        {
+          type: 'stream_event',
+          parent_tool_use_id: 'subagent',
+          event: { type: 'message_start', message: { model: 'other-model', usage: {} } },
+        },
+        { type: 'result', session_id: 'sess-use', is_error: false },
+        {
+          type: 'stream_event',
+          event: { type: 'message_start', message: { model: 'failed-model', usage: {} } },
+        },
+        { type: 'result', session_id: 'sess-use', is_error: true },
+        { type: 'result', session_id: 'sess-use', is_error: false },
+      ]),
+      clientId,
+      registry,
+      abortController,
+      undefined,
+      undefined,
+      { onSuccessfulAccountUse },
+    );
+    expect(onSuccessfulAccountUse.mock.calls.map(([use]) => use)).toEqual([
+      { ...binding, model: null },
+      { ...binding, model: 'luna' },
+    ]);
+  });
+
+  it.each(['openai', 'openai-codex', 'google-vertex'])(
+    'keeps %s adapter model selections separate from provider model observations',
+    async (provider) => {
+      const binding = {
+        accountId: 'work',
+        accountLabel: 'Work',
+        provider,
+        profileRevision: 'route-1',
+        model: 'configured-model',
+      };
+      registry.get(clientId)!.accountBinding = binding;
+      const onSuccessfulAccountUse = vi.fn();
+      await runQueryLoop(
+        eventStream([
+          {
+            type: 'stream_event',
+            event: { type: 'message_start', message: { model: 'configured-model', usage: {} } },
+          },
+          { type: 'result', session_id: 'sess-use', is_error: false },
+          {
+            type: 'stream_event',
+            event: { type: 'message_start', message: { model: 'configured-model', usage: {} } },
+          },
+          { type: 'result', session_id: 'sess-use', is_error: false, account_use_cancelled: true },
+        ]),
+        clientId,
+        registry,
+        abortController,
+        undefined,
+        undefined,
+        { onSuccessfulAccountUse },
+      );
+      expect(onSuccessfulAccountUse).toHaveBeenCalledExactlyOnceWith({ ...binding, model: null });
+    },
+  );
+
   beforeEach(() => {
     transport = fakeTransport();
     registry = fakeRegistry(transport);
