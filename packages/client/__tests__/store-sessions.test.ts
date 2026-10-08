@@ -223,3 +223,21 @@ describe('conversation history selection', () => {
     },
   );
 });
+
+it('does not replace native observed usage with unmeasured durable metadata', async () => {
+  const transport = mockTransport();
+  (transport.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
+    ok: true,
+    json: () => Promise.resolve({ numTurns: 2, totalTokens: 0 }),
+  });
+  const store = createMitzoStore(makeOptions(transport));
+  store.setState((s) => ({
+    sessions: { ...s.sessions, active: 's1' },
+    tokens: { ...s.tokens, sessionTotal: 24600, sessionTotalStatus: 'observed' },
+  }));
+  await store.getState().fetchSessionMeta('s1');
+  expect(store.getState().tokens).toMatchObject({
+    sessionTotal: 24600,
+    sessionTotalStatus: 'observed',
+  });
+});

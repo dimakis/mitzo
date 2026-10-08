@@ -511,3 +511,99 @@ it('leaves native usage unknown when a cumulative update precedes completion and
   expect(events.at(-1)).toMatchObject({ usage_status: 'unknown' });
   expect(events.at(-1)).not.toHaveProperty('usage');
 });
+
+function measuredUsage(input = 12000, output = 300) {
+  return {
+    inputTokens: input,
+    cachedInputTokens: 4000,
+    cacheWriteInputTokens: 0,
+    outputTokens: output,
+    reasoningOutputTokens: 100,
+    totalTokens: input + output,
+  };
+}
+it('forwards native observed usage, including late updates, without certifying turn billing', () => {
+  const events: Record<string, unknown>[] = [];
+  const mapper = new CodexSessionEvents('app', 'provider', 'model', (e) => events.push(e));
+  mapper.notification('turn/started', { threadId: 'provider', turn: { id: 'turn' } });
+  const snapshot = {
+    threadId: 'provider',
+    turnId: 'turn',
+    tokenUsage: {
+      last: measuredUsage(),
+      total: measuredUsage(24000, 600),
+      modelContextWindow: 128000,
+    },
+  };
+  mapper.notification('thread/tokenUsage/updated', snapshot);
+  expect(events.at(-1)).toMatchObject({
+    type: 'provider_usage',
+    agentContext: 12300,
+    contextCeiling: 128000,
+    sessionTotal: 24600,
+    sessionTotalStatus: 'observed',
+  });
+  mapper.notification('turn/completed', {
+    threadId: 'provider',
+    turn: { id: 'turn', status: 'completed' },
+  });
+  expect(events.at(-1)).toMatchObject({ type: 'result', usage_status: 'unknown' });
+  expect(events.at(-1)).not.toHaveProperty('usage');
+  mapper.notification('thread/tokenUsage/updated', snapshot);
+  expect(events.at(-1)?.type).toBe('provider_usage');
+  expect(
+    events
+      .filter((e) => e.type === 'provider_usage')
+      .every((e) => !('threadId' in e) && !('turnId' in e)),
+  ).toBe(true);
+});
+it('preserves measured context when the provider does not report its ceiling', () => {
+  const events: Record<string, unknown>[] = [];
+  const mapper = new CodexSessionEvents('app', 'provider', 'model', (e) => events.push(e));
+  mapper.notification('thread/tokenUsage/updated', {
+    threadId: 'provider',
+    turnId: 'turn',
+    tokenUsage: {
+      last: measuredUsage(),
+      total: measuredUsage(),
+      modelContextWindow: null,
+    },
+  });
+  expect(events.at(-1)).toMatchObject({
+    type: 'provider_usage',
+    agentContext: 12300,
+    contextCeiling: 0,
+  });
+});
+it('ignores malformed and foreign usage snapshots', () => {
+  const events: Record<string, unknown>[] = [];
+  const mapper = new CodexSessionEvents('app', 'provider', 'model', (e) => events.push(e));
+  for (const threadId of ['provider', 'other']) {
+    mapper.notification('thread/tokenUsage/updated', {
+      threadId,
+      turnId: 'turn',
+      tokenUsage: {
+        last: measuredUsage(),
+        total: threadId === 'provider' ? { ...measuredUsage(), totalTokens: -1 } : measuredUsage(),
+        modelContextWindow: 128000,
+      },
+    });
+  }
+  expect(events).toEqual([]);
+});
+
+it('ignores a previous turn usage update after a new turn starts', () => {
+  const events: Record<string, unknown>[] = [];
+  const mapper = new CodexSessionEvents('app', 'provider', 'model', (e) => events.push(e));
+  mapper.notification('turn/started', { threadId: 'provider', turn: { id: 'new' } });
+  mapper.notification('thread/tokenUsage/updated', {
+    threadId: 'provider',
+    turnId: 'old',
+    tokenUsage: {
+      last: measuredUsage(),
+      total: measuredUsage(),
+      modelContextWindow: 128000,
+    },
+  });
+  expect(events.filter((e) => e.type === 'provider_usage')).toEqual([]);
+});

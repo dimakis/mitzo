@@ -620,6 +620,8 @@ export function parseServerMessage(
       };
       if (msg.contextCeiling != null) tu.contextCeiling = msg.contextCeiling as number;
       if (msg.sessionTotal != null) tu.sessionTotal = msg.sessionTotal as number;
+      if (msg.sessionTotalStatus === 'observed' || msg.sessionTotalStatus === 'unknown')
+        tu.sessionTotalStatus = msg.sessionTotalStatus;
       if (msg.numTurns != null) tu.numTurns = msg.numTurns as number;
       if (msg.numCompactions != null) tu.numCompactions = msg.numCompactions as number;
       result.tokensUpdate = tu;

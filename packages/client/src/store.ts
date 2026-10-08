@@ -883,7 +883,9 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
           set((s) => ({
             tokens: {
               ...s.tokens,
-              sessionTotal: meta.totalTokens ?? s.tokens.sessionTotal,
+              sessionTotal: s.tokens.sessionTotalStatus
+                ? s.tokens.sessionTotal
+                : (meta.totalTokens ?? s.tokens.sessionTotal),
               numTurns: meta.numTurns ?? s.tokens.numTurns,
               turnIndex: meta.numTurns ?? s.tokens.turnIndex,
             },
@@ -1157,11 +1159,12 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       store.setState((s) => ({
         tokens: {
           ...s.tokens,
-          sessionTotal:
-            ((tokens.input as number) ?? 0) +
-            ((tokens.output as number) ?? 0) +
-            ((tokens.cacheRead as number) ?? 0) +
-            ((tokens.cacheCreation as number) ?? 0),
+          sessionTotal: s.tokens.sessionTotalStatus
+            ? s.tokens.sessionTotal
+            : ((tokens.input as number) ?? 0) +
+              ((tokens.output as number) ?? 0) +
+              ((tokens.cacheRead as number) ?? 0) +
+              ((tokens.cacheCreation as number) ?? 0),
         },
       }));
     },
