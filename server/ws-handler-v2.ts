@@ -76,7 +76,6 @@ import {
   isActive,
   reattachChat,
   BASE_REPO,
-  discoverSession,
 } from './chat.js';
 import { setSkillPolicy, clearSkillPolicy } from './skill-policy.js';
 import { resolveSlashCommand } from './slash-commands.js';
@@ -517,7 +516,7 @@ export async function handleSwitchSession(
   return withSpanAsync(
     'ws.switch_session',
     { 'ws.connectionId': connectionId, 'ws.sessionId': msg.sessionId ?? 'null' },
-    async (span) => {
+    async () => {
       if (msg.sessionId === null) {
         const prev = ctx.connRegistry.get(connectionId)?.activeSession;
         if (prev) {
@@ -528,12 +527,7 @@ export async function handleSwitchSession(
         return;
       }
 
-      let sessionMeta = ctx.eventStore.getSession(msg.sessionId);
-
-      if (!sessionMeta) {
-        span.setAttribute('ws.discovery', 'sdk_fallback');
-        sessionMeta = await discoverSession(msg.sessionId);
-      }
+      const sessionMeta = ctx.eventStore.getSession(msg.sessionId);
 
       if (!sessionMeta) {
         ctx.connRegistry.get(connectionId)?.transport.send({

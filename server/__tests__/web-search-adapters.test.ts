@@ -1,7 +1,24 @@
+import { EventStore } from '../event-store.js';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type { query } from '@anthropic-ai/claude-agent-sdk';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
 import { searchOpenAI, searchGemini, searchSdk } from '../web-search-adapters.js';
+const executionStore = new EventStore(':memory:');
+executionStore.upsertSession({ sessionId: 'parent' });
+const workspaceRoot = mkdtempSync(join(tmpdir(), 'sdk-search-test-'));
+const owner = {
+  executionStore,
+  parentSessionId: 'parent',
+  operationId: 'tool-call',
+  workspaceRoot,
+};
 afterEach(() => vi.unstubAllGlobals());
+afterAll(() => {
+  executionStore.close();
+  rmSync(workspaceRoot, { recursive: true, force: true });
+});
 describe('selected-account native search adapters', () => {
   it('uses only the explicit OpenAI key/model and requires hosted search', async () => {
     const fetch = vi.fn().mockResolvedValue(
@@ -129,7 +146,7 @@ describe('selected-account native search adapters', () => {
       await searchSdk(
         'Revenue',
         new AbortController().signal,
-        { env, cwd: '/tmp', model: 'selected-claude' },
+        { ...owner, env, model: 'selected-claude' },
         sdk,
       ),
     ).toContain('source');
@@ -141,7 +158,92 @@ describe('selected-account native search adapters', () => {
       mcpServers: {},
       settingSources: [],
       maxTurns: 3,
+      persistSession: false,
     });
+  });
+  it('registers owned execution before SDK startup and isolates storage and session environment', async () => {
+    const env = {
+      ANTHROPIC_API_KEY: 'explicit-account',
+      MITZO_SESSION_ID: 'parent-task',
+      MITZO_REPO_MGMT: '/parent/workspace',
+      CLAUDE_CONFIG_DIR: '/selected/account',
+    };
+    const sdk = vi.fn((request: Parameters<typeof query>[0]) => {
+      const id = request.options!.sessionId!;
+      expect(executionStore.getInternalSdkExecution(id)).toMatchObject({
+        parentSessionId: 'parent',
+        operationId: 'tool-call',
+        purpose: 'web_search',
+        cwd: request.options!.cwd,
+      });
+      expect(executionStore.getSession(id)).toBeNull();
+      expect(() => executionStore.upsertSession({ sessionId: id })).toThrow();
+      expect(request.options!.cwd).toContain(workspaceRoot);
+      expect(request.options!.env).toMatchObject({
+        ANTHROPIC_API_KEY: 'explicit-account',
+        CLAUDE_CONFIG_DIR: '/selected/account',
+      });
+      expect(request.options!.env).not.toHaveProperty('MITZO_SESSION_ID');
+      expect(request.options!.env).not.toHaveProperty('MITZO_REPO_MGMT');
+      return (async function* () {
+        yield {
+          type: 'assistant',
+          session_id: id,
+          message: { content: [{ type: 'tool_use', name: 'WebSearch', id: 'search' }] },
+        };
+        yield {
+          type: 'user',
+          session_id: id,
+          message: { content: [{ type: 'tool_result', tool_use_id: 'search' }] },
+        };
+        yield {
+          type: 'result',
+          session_id: id,
+          subtype: 'success',
+          result: 'Answer https://example.com',
+        };
+      })();
+    });
+    expect(
+      await searchSdk(
+        'query',
+        new AbortController().signal,
+        { ...owner, env, model: 'selected-claude' },
+        sdk,
+      ),
+    ).toContain('Answer');
+    expect(env.MITZO_SESSION_ID).toBe('parent-task');
+  });
+  it('does not dispatch when durable ownership cannot be recorded', async () => {
+    const sdk = vi.fn();
+    const failed = {
+      registerInternalSdkExecution() {
+        throw new Error('Ownership unavailable');
+      },
+    };
+    await expect(
+      searchSdk(
+        'query',
+        new AbortController().signal,
+        { ...owner, executionStore: failed, env: {}, model: 'selected-claude' },
+        sdk,
+      ),
+    ).rejects.toThrow('Ownership unavailable');
+    expect(sdk).not.toHaveBeenCalled();
+  });
+  it('rejects SDK events belonging to a different execution', async () => {
+    const sdk = () =>
+      (async function* () {
+        yield { type: 'system', session_id: 'unexpected' };
+      })();
+    await expect(
+      searchSdk(
+        'query',
+        new AbortController().signal,
+        { ...owner, env: {}, model: 'selected-claude' },
+        sdk,
+      ),
+    ).rejects.toThrow(/identity/i);
   });
   it('rejects a failed SDK search even if the model returns a plausible answer', async () => {
     const sdk = () =>
@@ -159,7 +261,7 @@ describe('selected-account native search adapters', () => {
         yield { type: 'result', subtype: 'success', result: 'Guess [source](https://example.com)' };
       })();
     await expect(
-      searchSdk('q', new AbortController().signal, { env: {}, cwd: '/tmp', model: 'model' }, sdk),
+      searchSdk('q', new AbortController().signal, { ...owner, env: {}, model: 'model' }, sdk),
     ).rejects.toThrow();
   });
 });
