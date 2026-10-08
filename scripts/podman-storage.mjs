@@ -108,7 +108,7 @@ export async function runStorageCommand(
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
-  const controller = new AbortController();
+  const controller = new globalThis.AbortController();
   for (const event of ['SIGINT', 'SIGTERM']) process.once(event, () => controller.abort());
   try {
     const result = await runStorageCommand(process.argv.slice(2), { signal: controller.signal });

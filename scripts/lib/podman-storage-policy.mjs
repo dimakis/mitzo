@@ -231,7 +231,7 @@ export async function applyImages(plan, adapter, { now = Date.now, signal } = {}
     store: plan.store,
     candidates: plan.candidates,
   });
-  const expected = structuredClone(plan.snapshot);
+  const expected = globalThis.structuredClone(plan.snapshot);
   for (const candidate of plan.candidates) {
     if (signal?.aborted) {
       result.blockers.push('cancelled');

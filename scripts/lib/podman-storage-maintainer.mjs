@@ -4,6 +4,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import process from 'node:process';
+import { Buffer } from 'node:buffer';
 import { digest, imageId } from './podman-storage-policy.mjs';
 
 // One fixed authority directory per host account, shared by aliases and backends.
@@ -94,10 +95,19 @@ export async function withStoreLock(home, store, action, signal) {
     if (error.code === 'EEXIST')
       throw Error(
         'Store maintenance locked; inspect original operation; no automatic lock stealing',
+        { cause: error },
       );
     throw error;
   }
   const token = randomUUID();
+  const release = async () => {
+    await fd.close();
+    // A replaced lock is evidence to investigate, never something to remove.
+    if ((await readJson(lock)).token !== token)
+      throw Error('Maintenance lock changed; operator recovery required');
+    await unlink(lock);
+    await syncDirectory(path);
+  };
   try {
     await fd.writeFile(JSON.stringify({ token, pid: process.pid, startedAt: Date.now(), store }));
     await fd.sync();
@@ -105,12 +115,7 @@ export async function withStoreLock(home, store, action, signal) {
     signal?.throwIfAborted();
     return await action();
   } finally {
-    await fd.close();
-    // A replaced lock is evidence to investigate, never something to remove.
-    if ((await readJson(lock)).token !== token)
-      throw Error('Maintenance lock changed; operator recovery required');
-    await unlink(lock);
-    await syncDirectory(path);
+    await release();
   }
 }
 export async function readState(home, store) {

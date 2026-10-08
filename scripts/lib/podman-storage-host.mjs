@@ -1,6 +1,7 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import process from 'node:process';
+import { URL } from 'node:url';
 import { digest, imageId } from './podman-storage-policy.mjs';
 
 const exec = promisify(execFile);
@@ -72,7 +73,10 @@ export async function collectStore(
   selection,
   { run = runCommand, platform = process.platform, enrollment = null, signal } = {},
 ) {
-  const bounded = AbortSignal.any([AbortSignal.timeout(120000), ...(signal ? [signal] : [])]);
+  const bounded = globalThis.AbortSignal.any([
+    globalThis.AbortSignal.timeout(120000),
+    ...(signal ? [signal] : []),
+  ]);
   const command = (exe, args) => run(exe, args, bounded);
   const s = {
     collectedAt: Date.now(),
