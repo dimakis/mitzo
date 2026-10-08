@@ -1,0 +1,174 @@
+import { describe, expect, it, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { load } from 'js-yaml';
+import { KeychainRotationCredentials } from '../keychain-rotation-credentials.js';
+import { OpenShellOpenAIKeyGateway, validateOpenAIKey } from '../openai-key-gateway.js';
+import type { ManagedOpenAIAccount } from '../openai-key-management.js';
+const account: ManagedOpenAIAccount = {
+  id: 'work',
+  label: 'Work API',
+  providerName: 'work-api',
+  providerId: 'provider-id',
+  credentialRef: { provider: 'keychain', service: 'service', account: 'work' },
+};
+const signal = () => AbortSignal.timeout(5000);
+const profile = () =>
+  load(
+    readFileSync(
+      new URL(
+        '../../docs/spikes/openshell-codex/openai-keychain-spike-profile.yaml',
+        import.meta.url,
+      ),
+      'utf8',
+    ),
+  ) as Record<string, unknown>;
+describe('Keychain rotation adapter', () => {
+  it('uses stdin for the key and writes an atomic version marker rather than secret argv', async () => {
+    const run = vi.fn(async () => '{"ok":true}');
+    const adapter = new KeychainRotationCredentials(run);
+    await adapter.write(
+      account.credentialRef,
+      'NEW_PRIVATE_KEY',
+      '890456d2-8b5d-43d6-b8b8-48c1c99837c0',
+      signal(),
+    );
+    const input = JSON.parse(run.mock.calls[0]![0]);
+    expect(input).toEqual({
+      action: 'write',
+      service: 'service',
+      account: 'work',
+      value: 'NEW_PRIVATE_KEY',
+      version: '890456d2-8b5d-43d6-b8b8-48c1c99837c0',
+    });
+    await expect(
+      adapter.read({ ...account.credentialRef, provider: 'other' }, signal()),
+    ).rejects.toThrow('Keychain unavailable');
+    expect(run).toHaveBeenCalledTimes(1);
+  });
+  it('accepts only the versioned helper contract and never returns native errors', async () => {
+    const run = vi.fn(async () => '{"value":"PRIVATE_KEY","version":null}');
+    const adapter = new KeychainRotationCredentials(run);
+    expect(await adapter.read(account.credentialRef, signal())).toEqual({
+      value: 'PRIVATE_KEY',
+      version: null,
+    });
+    run.mockRejectedValueOnce(new Error('PRIVATE_KEY in stderr'));
+    await expect(adapter.read(account.credentialRef, signal())).rejects.toThrow(
+      /^Keychain unavailable$/,
+    );
+    run.mockResolvedValueOnce('{"value":"PRIVATE_KEY","version":"unknown-metadata"}');
+    await expect(adapter.read(account.credentialRef, signal())).rejects.toThrow(
+      /^Keychain unavailable$/,
+    );
+  });
+});
+function gatewayFixture() {
+  let version = 10;
+  let providerId = account.providerId;
+  let policy = profile();
+  const run = vi.fn(async (args: readonly string[], _options: unknown) => {
+    if (args[1] === 'profile') return JSON.stringify(policy);
+    if (args[1] === 'update') {
+      version++;
+      return '';
+    }
+    return JSON.stringify([
+      {
+        id: providerId,
+        name: account.providerName,
+        workspace: 'default',
+        type: 'mitzo-openai-keychain-spike',
+        resource_version: version,
+        credential_keys: ['OPENAI_API_KEY'],
+        config_keys: [],
+      },
+    ]);
+  });
+  const sandboxes = {
+    attachments: vi.fn(async () => ['retained-chat']),
+    stopSandbox: vi.fn(async () => {}),
+    sandboxStopped: vi.fn(async () => true),
+  };
+  const gateway = new OpenShellOpenAIKeyGateway(run, 'default', sandboxes);
+  return {
+    gateway,
+    run,
+    sandboxes,
+    driftId: () => {
+      providerId = 'wrong-id';
+    },
+    driftPolicy: () => {
+      policy = { ...policy, binaries: ['/usr/bin/sh'] };
+    },
+  };
+}
+describe('OpenShell OpenAI credential adapter', () => {
+  it('pins provider identity and policy, stops retained workloads, and passes only a key name in argv', async () => {
+    const f = gatewayFixture();
+    expect(await f.gateway.inspect(account, signal())).toEqual({ version: '10' });
+    await f.gateway.pause(account, signal());
+    expect(f.sandboxes.stopSandbox).toHaveBeenCalledWith('retained-chat', expect.any(AbortSignal));
+    expect(await f.gateway.replace(account, 'PRIVATE_KEY', signal())).toEqual({ version: '11' });
+    const update = f.run.mock.calls.find(([args]) => args[1] === 'update')!;
+    expect(update[0]).toEqual([
+      'provider',
+      'update',
+      'work-api',
+      '--workspace',
+      'default',
+      '--credential',
+      'OPENAI_API_KEY',
+    ]);
+    expect(update[1]).toMatchObject({ env: { OPENAI_API_KEY: 'PRIVATE_KEY' } });
+    expect(JSON.stringify(update[0])).not.toContain('PRIVATE_KEY');
+  });
+  it('refuses provider substitution and policy changes before credentials are submitted', async () => {
+    for (const drift of ['driftId', 'driftPolicy'] as const) {
+      const f = gatewayFixture();
+      f[drift]();
+      await expect(f.gateway.replace(account, 'PRIVATE_KEY', signal())).rejects.toThrow(
+        'OpenAI provider binding changed',
+      );
+      expect(f.run.mock.calls.some(([args]) => args[1] === 'update')).toBe(false);
+    }
+  });
+  it('refuses credential replacement when a retained sandbox cannot be confirmed stopped', async () => {
+    const f = gatewayFixture();
+    f.sandboxes.sandboxStopped.mockResolvedValueOnce(false);
+    await expect(f.gateway.pause(account, signal())).rejects.toThrow(
+      'OpenAI chats could not be paused',
+    );
+  });
+});
+describe('non-inference OpenAI validation', () => {
+  it('checks the exact requested model with no generation, tools, redirects or account fallback', async () => {
+    const request = vi.fn(
+      async () => new Response(JSON.stringify({ id: 'gpt-6-luna' }), { status: 200 }),
+    );
+    await validateOpenAIKey('PRIVATE_KEY', signal(), request);
+    expect(request).toHaveBeenCalledWith(
+      'https://api.openai.com/v1/models/gpt-6-luna',
+      expect.objectContaining({
+        method: 'GET',
+        redirect: 'error',
+        headers: { Authorization: 'Bearer PRIVATE_KEY' },
+      }),
+    );
+    expect(request).toHaveBeenCalledTimes(1);
+  });
+  it('redacts rejected project keys, unavailable models and malformed responses', async () => {
+    for (const response of [
+      new Response('PRIVATE_KEY', { status: 401 }),
+      new Response('{}', { status: 404 }),
+      new Response('{"id":"gpt-6-astra"}', { status: 200 }),
+    ]) {
+      await expect(
+        validateOpenAIKey(
+          'PRIVATE_KEY',
+          signal(),
+          vi.fn(async () => response),
+        ),
+      ).rejects.toThrow('OpenAI key validation failed');
+    }
+  });
+});
