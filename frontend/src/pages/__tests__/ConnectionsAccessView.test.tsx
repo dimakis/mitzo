@@ -734,7 +734,7 @@ it('labels a live provider grant Connected without treating its configured email
     source: 'openshell-provider-grant',
     observedIdentity: null,
   });
-  expect(within(row).getByText('Sign-in: Connection valid')).toBeTruthy();
+  expect(within(row).getByText('Connection check: Connection valid')).toBeTruthy();
   expect(within(row).getByText('Configured: configured@example.test')).toBeTruthy();
   expect(within(row).queryByText('Signed in')).toBeNull();
   fireEvent.click(within(row).getByRole('button', { name: 'Manage Host account' }));
@@ -807,12 +807,12 @@ it('marks previously verified sign-in stale when inventory refresh fails and rec
     </MemoryRouter>,
   );
   const row = await screen.findByRole('article', { name: 'Host account' });
-  expect(within(row).getByText('Sign-in: Connection valid')).toBeTruthy();
+  expect(within(row).getByText('Connection check: Connection valid')).toBeTruthy();
   fireEvent.click(screen.getByRole('button', { name: 'Refresh access' }));
-  await within(row).findByText('Sign-in: Last sign-in check passed');
-  expect(within(row).queryByText('Sign-in: Connection valid')).toBeNull();
+  await within(row).findByText('Connection check: Last connection check passed');
+  expect(within(row).queryByText('Connection check: Connection valid')).toBeNull();
   fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
-  await within(row).findByText('Sign-in: Connection valid');
+  await within(row).findByText('Connection check: Connection valid');
 });
 
 it('expires displayed sign-in evidence after five minutes without making a new request', async () => {
@@ -834,9 +834,9 @@ it('expires provider sign-in at its grant deadline while preserving the configur
     observedIdentity: null,
     expiresAt: Date.now() + 60_000,
   });
-  expect(within(row).getByText('Sign-in: Connection valid')).toBeTruthy();
+  expect(within(row).getByText('Connection check: Connection valid')).toBeTruthy();
   await act(async () => vi.advanceTimersByTimeAsync(60_000));
-  expect(within(row).getByText('Sign-in: Connection check expired')).toBeTruthy();
+  expect(within(row).getByText('Connection check: Connection check expired')).toBeTruthy();
   expect(within(row).getByText('Configured: configured@example.test')).toBeTruthy();
   fireEvent.click(within(row).getByRole('button', { name: 'Manage Host account' }));
   expect(within(screen.getByRole('dialog')).getByText('Configured Luna')).toBeTruthy();

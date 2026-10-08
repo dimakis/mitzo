@@ -5,8 +5,10 @@ import {
   connectionTitle,
   connectionStatus,
   serviceIdentity,
+  expireAccountSignIns,
+  retainUnavailableAccounts,
 } from '../connections-access-presentation';
-import type { AccessResource } from '../../types/connections-access';
+import type { AccessResource, ConnectionsAccessInventory } from '../../types/connections-access';
 
 const resource: AccessResource = {
   id: 'work',
@@ -34,7 +36,7 @@ const resource: AccessResource = {
 it('treats an old passed sign-in check as history and a timed-out check as uncertainty', () => {
   const signIn = {
     status: 'stale' as const,
-    source: 'openshell-provider-grant' as const,
+    source: 'host-account-read' as const,
     checkedAt: 100,
     configuredIdentity: { email: 'brokered-subscription@local.invalid', planType: 'pro' },
     observedIdentity: null,
@@ -51,6 +53,66 @@ it('treats an old passed sign-in check as history and a timed-out check as uncer
   ).toBe("Couldn't check sign-in");
   expect(connectionStatus({ ...resource, status: 'reauth_required' })).toBe('Reconnect required');
 });
+it('describes historical and failed provider-grant checks as connection evidence', () => {
+  const grant: AccessResource = {
+    ...resource,
+    signIn: {
+      status: 'verified',
+      source: 'openshell-provider-grant',
+      checkedAt: Date.now() - 5 * 60_000,
+      configuredIdentity: { email: '', planType: '' },
+      observedIdentity: null,
+      profileRevision: 'route',
+      explanation: 'Provider grant is valid.',
+    },
+  };
+  const inventory: ConnectionsAccessInventory = {
+    generatedAt: Date.now(),
+    sources: [],
+    resources: [grant],
+  };
+  const expired = expireAccountSignIns(inventory).resources[0];
+  expect(accountSignInLabel(expired)).toBe('Last connection check passed');
+  expect(expired.signIn?.explanation).toBe(
+    'The last connection check passed at the recorded time. Refresh to check again.',
+  );
+  const retained = retainUnavailableAccounts(inventory, {
+    ...inventory,
+    resources: [],
+    sources: [{ id: 'accounts', state: 'unavailable', reason: 'Unavailable' }],
+  }).resources[0];
+  expect(accountSignInLabel(retained)).toBe('Last connection check passed');
+  expect(retained.signIn?.explanation).toBe(
+    'Account source is unavailable. Showing an older connection check.',
+  );
+  expect(
+    accountSignInLabel({
+      ...grant,
+      signIn: { ...grant.signIn!, status: 'failed' },
+    }),
+  ).toBe("Couldn't check connection");
+});
+it.each(['712020:opaque-account-id', 'arbitrary-id', 'person-looking-id'])(
+  'keeps Jira provider ID %s out of the displayed identity',
+  (accountIdentity) => {
+    const jira = {
+      ...resource,
+      kind: 'managed-connection' as const,
+      section: 'services' as const,
+      accountIdentity,
+      details: { serviceName: 'Jira', configuredIdentity: 'person@example.com' },
+    };
+    expect(serviceIdentity(jira)).toBe('Configured account: person@example.com');
+    expect(serviceIdentity({ ...jira, details: { serviceName: 'Jira' } })).toBeNull();
+    expect(
+      serviceIdentity({
+        ...jira,
+        details: { serviceName: 'Jira', configuredIdentity: 'placeholder@local.invalid' },
+      }),
+    ).toBeNull();
+    expect(serviceIdentity({ ...jira, details: { serviceName: 'GitHub' } })).toBe(accountIdentity);
+  },
+);
 it('keeps enablement, credential checks and usage distinct', () => {
   expect(connectionStatus(resource)).toBe('Set up');
   expect(

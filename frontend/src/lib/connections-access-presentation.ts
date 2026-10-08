@@ -41,6 +41,11 @@ export function connectionsAccessCards(inventory: ConnectionsAccessInventory): A
     .map((resource) => ({ resource, catalog: paired.get(resource.id) }));
 }
 
+/** Provider grants check connection validity, not the account's sign-in. */
+export function accountCheckLabel(resource: AccessResource): string {
+  return resource.signIn?.source === 'openshell-provider-grant' ? 'Connection check' : 'Sign-in';
+}
+
 /** Authentication evidence is independent of generic access verification. */
 export function accountSignInLabel(resource: AccessResource): string {
   const signIn = resource.signIn;
@@ -59,9 +64,13 @@ export function accountSignInLabel(resource: AccessResource): string {
         return 'Signed in';
       return 'Not checked';
     case 'stale':
-      return 'Last sign-in check passed';
+      return signIn.source === 'openshell-provider-grant'
+        ? 'Last connection check passed'
+        : 'Last sign-in check passed';
     case 'failed':
-      return "Couldn't check sign-in";
+      return signIn.source === 'openshell-provider-grant'
+        ? "Couldn't check connection"
+        : "Couldn't check sign-in";
     case 'unsupported':
       return 'Not checked';
     default:
@@ -103,6 +112,8 @@ export function connectionStatus(resource: AccessResource): string {
 export function serviceIdentity(resource: AccessResource): string | null {
   const identity = displayIdentity(resource.accountIdentity);
   const configured = displayIdentity(resource.details.configuredIdentity);
+  if (resource.details.serviceName === 'Jira')
+    return configured ? `Configured account: ${configured}` : null;
   const opaque =
     identity &&
     /^(?:\d+:)?[a-f\d]{8}-[a-f\d]{4}-[a-f\d]{4}-[a-f\d]{4}-[a-f\d]{12}$/i.test(identity);
@@ -171,7 +182,10 @@ export function expireAccountSignIns(
       signIn: {
         ...signIn,
         status: 'stale',
-        explanation: 'The last sign-in check passed at the recorded time. Refresh to check again.',
+        explanation:
+          signIn.source === 'openshell-provider-grant'
+            ? 'The last connection check passed at the recorded time. Refresh to check again.'
+            : 'The last sign-in check passed at the recorded time. Refresh to check again.',
       },
     };
   });
@@ -210,7 +224,10 @@ export function retainUnavailableAccounts(
           ? {
               ...resource.signIn,
               status: 'stale',
-              explanation: 'Account source is unavailable. Showing an older sign-in check.',
+              explanation:
+                resource.signIn.source === 'openshell-provider-grant'
+                  ? 'Account source is unavailable. Showing an older connection check.'
+                  : 'Account source is unavailable. Showing an older sign-in check.',
             }
           : resource.signIn,
       verification: {

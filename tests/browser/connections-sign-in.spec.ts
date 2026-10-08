@@ -71,7 +71,7 @@ test('shows broker connection evidence, configured identity and access scope sep
   });
   await page.goto('/connections-access');
   const row = page.getByRole('article', { name: 'Work Codex' });
-  await expect(row.getByText('Sign-in: Connection valid', { exact: true })).toBeVisible();
+  await expect(row.getByText('Connection check: Connection valid', { exact: true })).toBeVisible();
   await expect(row.getByText('Configured: configured@example.test', { exact: true })).toBeVisible();
   await expect(row.getByText('Set up', { exact: true })).toBeVisible();
   await expect(row.getByText('Signed in', { exact: true })).toHaveCount(0);
@@ -81,11 +81,11 @@ test('shows broker connection evidence, configured identity and access scope sep
   });
   await row.getByRole('button', { name: 'Manage Work Codex' }).click();
   const dialog = page.getByRole('dialog', { name: 'Work Codex' });
-  await expect(dialog.getByText('Sign-in', { exact: true })).toBeVisible();
+  await expect(dialog.getByText('Connection check', { exact: true })).toBeVisible();
   await expect(dialog.getByText('Connection valid', { exact: true })).toBeVisible();
   await expect(dialog.getByText('Configured account', { exact: true })).toBeVisible();
   await expect(dialog.getByText('configured@example.test', { exact: true })).toBeVisible();
-  await expect(dialog.getByText('Last sign-in check', { exact: true })).toBeVisible();
+  await expect(dialog.getByText('Last connection check', { exact: true })).toBeVisible();
   await expect(dialog.getByText('Access verification', { exact: true })).toBeVisible();
   await expect(
     dialog.getByText('Effective conversation access has not been checked.', { exact: true }),
@@ -95,7 +95,7 @@ test('shows broker connection evidence, configured identity and access scope sep
   await expect(accountDetails.getByText('configured@example.test', { exact: true })).toBeVisible();
   await expect(
     dialog
-      .getByRole('region', { name: 'Sign-in details' })
+      .getByRole('region', { name: 'Connection check details' })
       .getByText('Connection valid', { exact: true }),
   ).toBeVisible();
   await expect(
@@ -125,11 +125,13 @@ test('shows broker connection evidence, configured identity and access scope sep
   sourceUnavailable = true;
   await page.getByRole('button', { name: 'Refresh access' }).click();
   await expect(page.getByText("Couldn't load AI accounts. Retry.", { exact: true })).toBeVisible();
-  await expect(row.getByText('Sign-in: Last sign-in check passed', { exact: true })).toBeVisible();
+  await expect(
+    row.getByText('Connection check: Last connection check passed', { exact: true }),
+  ).toBeVisible();
   await row.getByRole('button', { name: 'Manage Work Codex' }).click();
-  await expect(dialog.getByText('Last sign-in check passed', { exact: true })).toBeVisible();
+  await expect(dialog.getByText('Last connection check passed', { exact: true })).toBeVisible();
   await expect(dialog.getByText(/Showing an older account/)).toBeVisible();
   await expect(dialog.getByText('configured@example.test', { exact: true })).toBeVisible();
-  await expect(dialog.getByText('Last sign-in check', { exact: true })).toBeVisible();
+  await expect(dialog.getByText('Last connection check', { exact: true })).toBeVisible();
   await expect(dialog.getByText('Connection valid', { exact: true })).toHaveCount(0);
 });

@@ -90,7 +90,7 @@ test('Connections describes account evidence and service scope without contradic
         endpoint: 'https://example.atlassian.net',
         publicConfig: { email: 'person@example.test' },
         gatewayProviderName: 'managed-jira',
-        identity: '712020:01234567-1234-1234-1234-123456789012',
+        identity: '712020:opaque-account-id',
       },
     ],
     legacy: async () => [

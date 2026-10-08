@@ -5,6 +5,7 @@ import { ConnectionsModeDetails } from '../components/ConnectionsModeDetails';
 import { WorkspacePageHeading } from '../components/WorkspacePageHeading';
 import { getConnectionsAccess } from '../lib/connections-access-api';
 import {
+  accountCheckLabel,
   accountSignInIdentity,
   accountSignInLabel,
   hasAccountSignIn,
@@ -47,6 +48,7 @@ function ResourceDetails({
 }) {
   const isAccount = hasAccountSignIn(resource);
   const identity = accountSignInIdentity(resource);
+  const checkLabel = accountCheckLabel(resource);
   return (
     <div className="access-resource-content">
       <section className="access-detail-card" aria-label="Account details">
@@ -94,11 +96,11 @@ function ResourceDetails({
         </dl>
       </section>
       {isAccount && (
-        <section className="access-detail-card" aria-label="Sign-in details">
-          <h3>Sign-in details</h3>
+        <section className="access-detail-card" aria-label={`${checkLabel} details`}>
+          <h3>{checkLabel} details</h3>
           <dl className="access-resource-facts">
             <div>
-              <dt>Sign-in</dt>
+              <dt>{checkLabel}</dt>
               <dd>
                 <span>{accountSignInLabel(resource)}</span>
                 <p className="workspace-muted">
@@ -108,7 +110,7 @@ function ResourceDetails({
             </div>
             {resource.signIn?.checkedAt != null && (
               <div>
-                <dt>Last sign-in check</dt>
+                <dt>{checkLabel === 'Sign-in' ? 'Last sign-in check' : 'Last connection check'}</dt>
                 <dd>{new Date(resource.signIn.checkedAt).toLocaleString()}</dd>
               </div>
             )}
@@ -460,7 +462,9 @@ export function ConnectionsAccessView() {
                           ...resource.signIn,
                           status: 'stale',
                           explanation:
-                            'Current sign-in could not be refreshed. Showing an older check.',
+                            resource.signIn.source === 'openshell-provider-grant'
+                              ? 'Current connection check could not be refreshed. Showing an older check.'
+                              : 'Current sign-in could not be refreshed. Showing an older check.',
                         },
                       }
                     : resource,
@@ -592,7 +596,9 @@ export function ConnectionsAccessView() {
                             {hasAccountSignIn(resource) ? (
                               <>
                                 <span>{connectionStatus(resource)}</span>
-                                <small>Sign-in: {accountSignInLabel(resource)}</small>
+                                <small>
+                                  {accountCheckLabel(resource)}: {accountSignInLabel(resource)}
+                                </small>
                               </>
                             ) : (
                               <>
