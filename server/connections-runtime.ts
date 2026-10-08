@@ -11,7 +11,7 @@ import { loadGithubSeedBaselines, selectGithubSeedBaseline } from './github-seed
 import { GithubSeedPublicationError } from './github-seeded-source.js';
 import { promisify } from 'node:util';
 import { join } from 'node:path';
-import { mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { GoogleWorkspaceManagement } from './google-workspace-management.js';
 import { OpenAIKeyManagement, type ManagedOpenAIAccount } from './openai-key-management.js';
@@ -62,6 +62,8 @@ export interface ConnectionsRuntime {
   legacyProviders: () => Promise<Array<{ name: string; type: string }>>;
   googleWorkspace?: GoogleWorkspaceManagement;
   openAIKeys?: OpenAIKeyManagement;
+  assertOpenAIKeyReady?: (accountId: string, signal: AbortSignal) => Promise<void>;
+  closeOpenAIKeyManagement?: () => void;
 }
 let activeRuntime: ConnectionsRuntime | null = null;
 export function setConnectionsRuntime(runtime: ConnectionsRuntime | null) {
@@ -187,12 +189,17 @@ export function createConnectionsRuntime(options: {
     accountCredentialReady: (id, signal) =>
       openAIKeys?.assertReady(id, signal) ?? Promise.resolve(),
   });
-  if (options.openAIKeyAccounts && options.managedOpenAIAccountIds?.length) {
-    if (process.platform !== 'darwin') throw new Error('OpenAI Keychain management requires macOS');
+  const keyJournalPath = join(options.directory, 'openai-key-operations.db');
+  if (
+    options.openAIKeyAccounts &&
+    (options.managedOpenAIAccountIds?.length || existsSync(keyJournalPath))
+  ) {
+    if (options.managedOpenAIAccountIds?.length && process.platform !== 'darwin')
+      throw new Error('OpenAI Keychain management requires macOS');
     openAIKeys = new OpenAIKeyManagement({
       accounts: options.openAIKeyAccounts,
-      managedAccountIds: options.managedOpenAIAccountIds,
-      store: new OpenAIKeyOperationStore(join(options.directory, 'openai-key-operations.db')),
+      managedAccountIds: options.managedOpenAIAccountIds ?? [],
+      store: new OpenAIKeyOperationStore(keyJournalPath),
       keychain: new KeychainRotationCredentials(),
       gateway: new OpenShellOpenAIKeyGateway(runGateway, options.workspace, gateway),
       validateKey: validateOpenAIKey,
@@ -496,7 +503,14 @@ export function createConnectionsRuntime(options: {
     eligibleAccountIds: options.eligibleAccountIds,
     gateway: gatewayBinding,
     workspace: options.workspace,
-    ...(openAIKeys ? { openAIKeys } : {}),
+    ...(openAIKeys
+      ? {
+          assertOpenAIKeyReady: (id: string, signal: AbortSignal) =>
+            openAIKeys!.assertReady(id, signal),
+          closeOpenAIKeyManagement: () => openAIKeys!.close(),
+        }
+      : {}),
+    ...(openAIKeys?.enabled ? { openAIKeys } : {}),
     ...(process.env.MITZO_GOOGLE_WORKSPACE_MANAGEMENT_ENABLED === 'true'
       ? {
           googleWorkspace: new GoogleWorkspaceManagement({

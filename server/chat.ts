@@ -1302,7 +1302,14 @@ async function _startChatInner(
   }
   if (apiCredentialRef) {
     try {
-      apiKey = await credentials.resolve(apiCredentialRef);
+      const runtime = getConnectionsRuntime();
+      if (runtime?.assertOpenAIKeyReady && accountBinding) {
+        const selectedReference = apiCredentialRef;
+        apiKey = await runtime.service.withCredentialMutation(async () => {
+          await runtime.assertOpenAIKeyReady!(accountBinding.accountId, AbortSignal.timeout(30000));
+          return credentials.resolve(selectedReference);
+        });
+      } else apiKey = await credentials.resolve(apiCredentialRef);
     } catch (err: unknown) {
       if (initialProviderAdmission) {
         eventStore.transitionExecution(

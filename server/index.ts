@@ -181,12 +181,12 @@ function configureConnectionsRuntime(): void {
       ...(openShell.gatewayEndpoint ? { gatewayEndpoint: openShell.gatewayEndpoint } : {}),
       gatewayInsecure: openShell.gatewayInsecure,
       legacyProviders: [...openShell.serviceProviders, ...openShell.grantableServiceProviders],
+      openAIKeyAccounts: () => loadAccountProfiles().openAIKeyManagementAccounts(),
       ...(process.env.MITZO_OPENAI_KEY_MANAGEMENT_ACCOUNT_IDS
         ? {
             managedOpenAIAccountIds: process.env.MITZO_OPENAI_KEY_MANAGEMENT_ACCOUNT_IDS.split(',')
               .map((id) => id.trim())
               .filter(Boolean),
-            openAIKeyAccounts: () => loadAccountProfiles().openAIKeyManagementAccounts(),
           }
         : {}),
       profilePath,
