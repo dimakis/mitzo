@@ -501,7 +501,11 @@ async function _runQueryLoopInner(
 
         log.debug('sdk event', { clientId, type: msg.type });
 
-        if (!msg.parent_tool_use_id && currentSession.accountBinding) {
+        if (
+          !msg.parent_tool_use_id &&
+          msg.renderer_only !== true &&
+          currentSession.accountBinding
+        ) {
           const message =
             msg.type === 'stream_event'
               ? (msg.event as { type?: string; message?: { model?: unknown } })

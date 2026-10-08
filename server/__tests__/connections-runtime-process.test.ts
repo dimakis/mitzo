@@ -35,7 +35,7 @@ process.stdin.on('end', () => {
       legacyProviders: ['legacy'],
     });
     await expect(runtime.legacyProviders()).resolves.toEqual([
-      { name: 'legacy', type: 'jira-readonly' },
+      { name: 'legacy', type: 'jira-readonly', id: 'provider-1', workspace: 'default' },
     ]);
     runtime.store.close();
   });

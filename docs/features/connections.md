@@ -28,8 +28,10 @@ not displayed as account identities.
 
 Successful ordinary-chat results record primary observed model IDs against the
 exact account ID, provider and routing revision in `.mitzo/account-use.db`.
-Failed results, interrupted requests and subagent models do not establish this
-evidence. Only models still in the current account catalog are shown. Changing
+Failed results, interrupted requests, subagent models and synthetic rendering
+events do not establish this evidence. A runtime that does not report an observed
+provider model retains its setup and sign-in evidence without invented model-use
+history. Only models still in the current account catalog are shown. Changing
 the account's routing revision prevents old evidence from being attributed to
 the replacement route. The store retains at most 1,000 account-route/model
 records, contains no prompts, credentials or emails, and survives restart.
@@ -52,8 +54,8 @@ only when a current active grant includes an assigned account and the publishing
 executor is enabled. Each publication retains its existing approval flow.
 
 The inventory reconciles a managed connection and provider listing only within
-the same gateway/workspace and a unique matching provider reference. Provider
-IDs and observed workspaces must agree when supplied. Service labels alone never
+the same gateway/workspace and a unique matching provider reference. The live
+provider ID and observed workspace must be present and match the managed record. Service labels alone never
 merge records. A distinct or uncertain GitHub provider is labelled **additional
 connection**; unknown identities and permissions remain explicitly unchecked.
 Google Workspace's unused management integration does not create an extra row or

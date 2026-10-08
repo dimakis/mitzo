@@ -355,8 +355,10 @@ export async function readConnectionsAccess(
           c.gateway === gateway &&
           c.workspace === workspace &&
           c.gatewayProviderName === provider.name &&
-          (provider.id === undefined || c.gatewayProviderId === provider.id) &&
-          (provider.workspace === undefined || provider.workspace === c.workspace),
+          provider.id !== undefined &&
+          c.gatewayProviderId === provider.id &&
+          provider.workspace !== undefined &&
+          provider.workspace === c.workspace,
       ).length === 1 ||
         (google &&
           google.health !== 'not_configured' &&

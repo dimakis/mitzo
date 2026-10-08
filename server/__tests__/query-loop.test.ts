@@ -151,6 +151,12 @@ describe('runQueryLoop', () => {
       eventStream([
         {
           type: 'stream_event',
+          renderer_only: true,
+          event: { type: 'message_start', message: { model: 'selected-but-unused', usage: {} } },
+        },
+        { type: 'result', session_id: 'sess-use', is_error: false },
+        {
+          type: 'stream_event',
           event: { type: 'message_start', message: { model: 'luna', usage: {} } },
         },
         {

@@ -14,7 +14,7 @@ const connection = {
   templateId: 'jira-readonly',
   templateVersion: 1,
   publicConfig: {},
-  gatewayProviderId: null,
+  gatewayProviderId: 'provider-same',
   submittedEmail: '',
   errorCode: null,
   createdAt: 0,
@@ -57,7 +57,7 @@ const sources = () => ({
     } satisfies PersonalConnection,
   ],
   legacy: async () => [
-    { name: 'managed-jira', type: 'jira' },
+    { name: 'managed-jira', type: 'jira', id: 'provider-same', workspace: 'default' },
     { name: 'other', type: 'custom' },
   ],
   gateway: 'primary',
@@ -238,6 +238,7 @@ it('reconciles provider records only when their current identifiers and workspac
     ['provider-1', 'default', 0],
     ['replacement', 'default', 1],
     ['provider-1', 'other', 1],
+    [undefined, undefined, 1],
   ] as const) {
     const inventory = await readConnectionsAccess({
       ...sources(),
