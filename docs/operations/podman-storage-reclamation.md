@@ -44,6 +44,11 @@ whose graph root cannot be inspected through machine SSH remain blocked.
 On Linux use `{ "local": true }`. Commands explicitly use `--remote=false` and
 measure the local graph-root filesystem. Remote Linux stores are not supported
 by this delivery. There is no fallback to a default connection or host root.
+After inspection, inventory and deletion bind the remote URL and SSH identity
+directly, or the local graph root and storage driver, rather than resolving a
+mutable connection alias/configuration again. External machine replacement or
+store reconfiguration must also respect the maintenance window; this host lock
+cannot fence unrelated native administration tools.
 
 Every measurement has a timestamp. Inventory has a two-minute collection bound,
 and individual subprocesses have a fifteen-second bound. All containers are

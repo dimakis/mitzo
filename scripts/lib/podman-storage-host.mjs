@@ -33,6 +33,32 @@ function prefix(selection) {
     return ['--connection', selection.connection];
   throw Error('Select an explicit local store or machine connection');
 }
+function verifiedPrefix(selection, store) {
+  prefix(selection);
+  if (selection.local) {
+    if (
+      store?.connection !== 'local' ||
+      !/^\/[A-Za-z0-9_./-]+$/.test(store.graphRoot ?? '') ||
+      !/^[a-z0-9_-]+$/.test(store.graphDriver ?? '')
+    )
+      throw Error('Removal requires a verified local store');
+    return ['--remote=false', '--root', store.graphRoot, '--storage-driver', store.graphDriver];
+  }
+  if (
+    store?.connection !== selection.connection ||
+    store.machine?.name !== selection.machine ||
+    !store.machine?.keyPath?.startsWith('/')
+  )
+    throw Error('Removal requires a verified machine endpoint');
+  const uri = new URL(store.machine.uri);
+  if (
+    uri.protocol !== 'ssh:' ||
+    uri.password ||
+    !['127.0.0.1', 'localhost', '[::1]'].includes(uri.hostname)
+  )
+    throw Error('Invalid verified machine endpoint');
+  return ['--url', store.machine.uri, '--identity', store.machine.keyPath];
+}
 function dfRow(text) {
   const rows = text.trim().split('\n');
   if (rows.length !== 2) throw Error('Ambiguous filesystem measurement');
@@ -92,7 +118,7 @@ export async function collectStore(
     },
   };
   try {
-    const p = prefix(selection);
+    let p = prefix(selection);
     if ((platform !== 'linux' && selection.local) || (platform === 'linux' && !selection.local))
       throw Error('Linux uses an explicit local store; macOS requires a selected machine');
     const podman = (args) => command('podman', [...p, ...args]);
@@ -127,6 +153,7 @@ export async function collectStore(
         !m.Created ||
         !m.ConfigDir?.Path ||
         uri.protocol !== 'ssh:' ||
+        uri.password ||
         !['127.0.0.1', 'localhost', '[::1]'].includes(uri.hostname) ||
         Number(uri.port) !== m.SSHConfig?.Port ||
         c.Identity !== m.SSHConfig?.IdentityPath ||
@@ -170,6 +197,8 @@ export async function collectStore(
       graphDriver: info.store.graphDriverName,
       rootless: info.host.security.rootless,
     };
+    // From here on, a connection alias/config change cannot retarget inventory.
+    p = verifiedPrefix(selection, s.store);
     s.telemetry.guest = await measureFilesystem(root, guest);
     if (selection.local)
       s.telemetry.host = {
@@ -227,10 +256,11 @@ export async function collectStore(
   return s;
 }
 
-export async function removeImage(selection, id, run = runCommand, signal) {
+export async function removeImage(selection, id, run = runCommand, signal, store) {
   if (!imageId.test(id)) throw Error('Removal requires an immutable image ID');
+  const args = [...verifiedPrefix(selection, store), 'image', 'rm', '--no-prune', id];
   try {
-    await run('podman', [...prefix(selection), 'image', 'rm', '--no-prune', id], signal);
+    await run('podman', args, signal);
     return { code: 0 };
   } catch (error) {
     return {

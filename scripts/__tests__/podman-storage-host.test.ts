@@ -115,11 +115,43 @@ describe('selected store guest telemetry', () => {
   });
   it('accepts only exact immutable IDs and passes no-prune without force', async () => {
     const f = fake();
-    await removeImage(selection, image, f.run);
+    const store = {
+      connection: 'selected',
+      machine: { name: 'vm', uri: 'ssh://core@127.0.0.1:1000/run/podman.sock', keyPath: '/key' },
+    };
+    await removeImage(selection, image, f.run, undefined, store);
     expect(f.calls).toEqual([
-      ['podman', ['--connection', 'selected', 'image', 'rm', '--no-prune', image]],
+      [
+        'podman',
+        ['--url', store.machine.uri, '--identity', '/key', 'image', 'rm', '--no-prune', image],
+      ],
     ]);
     await expect(removeImage(selection, 'runtime:latest', f.run)).rejects.toThrow();
+    await expect(removeImage(selection, image, f.run)).rejects.toThrow('verified');
+  });
+  it('binds local deletion to the verified graph root and driver', async () => {
+    const f = fake('linux');
+    await removeImage({ local: true }, image, f.run, undefined, {
+      connection: 'local',
+      graphRoot: '/verified/store',
+      graphDriver: 'overlay',
+    });
+    expect(f.calls).toEqual([
+      [
+        'podman',
+        [
+          '--remote=false',
+          '--root',
+          '/verified/store',
+          '--storage-driver',
+          'overlay',
+          'image',
+          'rm',
+          '--no-prune',
+          image,
+        ],
+      ],
+    ]);
   });
   it('rejects invalid filesystem statistics', async () => {
     await expect(measureFilesystem('/store', async () => 'bad df')).rejects.toThrow();

@@ -95,7 +95,7 @@ export async function runStorageCommand(
         plan,
         {
           collect: snapshot,
-          remove: (id, abort) => remove(selection, id, undefined, abort),
+          remove: (id, abort) => remove(selection, id, undefined, abort, plan.store),
           audit: (event) => appendAudit(home, store, event),
         },
         { signal },
