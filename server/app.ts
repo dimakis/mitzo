@@ -405,6 +405,7 @@ export function setConnectionsRuntime(runtime: ConnectionsRuntime | null): void 
         legacyProviders: runtime.legacyProviders,
         capabilities: runtime.capabilities,
         googleWorkspace: runtime.googleWorkspace,
+        openAIKeys: runtime.openAIKeys,
       })
     : null;
   capabilityOperationsRouter = runtime

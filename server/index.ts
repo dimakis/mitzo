@@ -181,6 +181,14 @@ function configureConnectionsRuntime(): void {
       ...(openShell.gatewayEndpoint ? { gatewayEndpoint: openShell.gatewayEndpoint } : {}),
       gatewayInsecure: openShell.gatewayInsecure,
       legacyProviders: [...openShell.serviceProviders, ...openShell.grantableServiceProviders],
+      ...(process.env.MITZO_OPENAI_KEY_MANAGEMENT_ACCOUNT_IDS
+        ? {
+            managedOpenAIAccountIds: process.env.MITZO_OPENAI_KEY_MANAGEMENT_ACCOUNT_IDS.split(',')
+              .map((id) => id.trim())
+              .filter(Boolean),
+            openAIKeyAccounts: () => loadAccountProfiles().openAIKeyManagementAccounts(),
+          }
+        : {}),
       profilePath,
       probeImage,
       probePolicy,
@@ -204,6 +212,9 @@ function configureConnectionsRuntime(): void {
       });
     });
     const reconcile = () => {
+      void runtime.openAIKeys?.recover(AbortSignal.timeout(120_000)).catch(() => {
+        log.warn('OpenAI key synchronization needs attention');
+      });
       // Reconciliation can need Podman's 45-second stop/delete timeout while
       // draining a quarantined sandbox, plus gateway polling overhead.
       void runtime.service.reconcile(AbortSignal.timeout(120_000)).catch((error) => {

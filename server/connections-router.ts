@@ -3,6 +3,7 @@ import express from 'express';
 import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import { z } from 'zod';
 import type { GoogleWorkspaceManagement } from './google-workspace-management.js';
+import type { OpenAIKeyManagement } from './openai-key-management.js';
 import { randomUUID } from 'node:crypto';
 import type { Connection } from './connections-store.js';
 import { ConnectionStore, RevisionConflictError } from './connections-store.js';
@@ -210,6 +211,7 @@ export function createConnectionsRouter(options: {
   legacyProviders: () => Promise<Array<{ name: string; type: string }>>;
   capabilities?: CapabilityService;
   googleWorkspace?: GoogleWorkspaceManagement;
+  openAIKeys?: OpenAIKeyManagement;
 }) {
   const router = express.Router();
   const limiter = (limit: number, message: string) =>
@@ -248,6 +250,7 @@ export function createConnectionsRouter(options: {
       ),
       appliesTo: 'new conversations only',
       ...(options.googleWorkspace ? { googleWorkspaceManaged: true } : {}),
+      ...(options.openAIKeys ? { openAIKeysManaged: true } : {}),
     });
   });
   router.get('/templates', (_req, res) => {
@@ -264,6 +267,70 @@ export function createConnectionsRouter(options: {
       return res.status(503).json({ error: 'Google management is not configured' });
     return res.json(await options.googleWorkspace.status(AbortSignal.timeout(30_000)));
   });
+  router.get('/openai-keys', async (_req, res) => {
+    if (!options.openAIKeys)
+      return res.status(503).json({ error: 'OpenAI key management is not configured' });
+    try {
+      return res.json({ accounts: await options.openAIKeys.list(AbortSignal.timeout(30000)) });
+    } catch {
+      return res.status(503).json({ error: 'OpenAI connection status is unavailable' });
+    }
+  });
+  for (const action of ['replace', 'synchronize'] as const) {
+    router.post(
+      `/openai-keys/:accountId/${action}`,
+      mutate,
+      requireSameOriginJson,
+      express.json({ limit: '20kb' }),
+      async (req, res) => {
+        const common = z.object({
+          csrf: z.string().min(1),
+          revision: z.string().min(1).max(128),
+          sameProject: z.literal(true),
+        });
+        const schema =
+          action === 'replace'
+            ? common.extend({ apiKey: z.string().min(1).max(16384) }).strict()
+            : common.strict();
+        const parsed = schema.safeParse(req.body);
+        if (!parsed.success) return res.status(400).json({ error: 'Invalid OpenAI key request' });
+        // Model/custodian authority cannot replace inference credentials. Require this browser's reauthorization.
+        if (!recentAuthorizationExpiry(res, parsed.data.csrf))
+          return res.status(403).json({ error: 'Recent browser reauthorization required' });
+        if (!options.openAIKeys)
+          return res.status(503).json({ error: 'OpenAI key management is not configured' });
+        const input = {
+          accountId: String(req.params.accountId),
+          revision: parsed.data.revision,
+          sameProject: parsed.data.sameProject,
+        };
+        try {
+          const signal = AbortSignal.timeout(120000);
+          return res.json(
+            action === 'replace'
+              ? await options.openAIKeys.replace(
+                  {
+                    ...input,
+                    apiKey:
+                      'apiKey' in parsed.data && typeof parsed.data.apiKey === 'string'
+                        ? parsed.data.apiKey
+                        : '',
+                  },
+                  signal,
+                )
+              : await options.openAIKeys.synchronize(input, signal),
+          );
+        } catch {
+          return res
+            .status(422)
+            .json({
+              error:
+                'OpenAI key replacement could not be confirmed. Check the work project and Luna 6 access, then refresh the connection status.',
+            });
+        }
+      },
+    );
+  }
   for (const action of ['preview', 'reconnect', 'refresh'] as const) {
     router.post(
       `/google-workspace/${action}`,

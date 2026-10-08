@@ -56,6 +56,7 @@ export class OpenAIKeyManagement {
       gatewayBinding: string;
       workspace: string;
       gate?: <T>(work: () => Promise<T>) => Promise<T>;
+      managedAccountIds?: readonly string[];
     },
   ) {}
   private async serial<T>(work: () => Promise<T>): Promise<T> {
@@ -83,7 +84,13 @@ export class OpenAIKeyManagement {
   private account(id: string) {
     const accounts = this.options.accounts();
     const account = accounts.find((item) => item.id === id);
-    if (!account || account.credentialRef.provider !== 'keychain')
+    if (
+      !account ||
+      account.credentialRef.provider !== 'keychain' ||
+      !account.providerName ||
+      !account.providerId ||
+      (this.options.managedAccountIds && !this.options.managedAccountIds.includes(id))
+    )
       throw new Error('OpenAI account is not configured for key replacement');
     if (
       accounts.some(
@@ -136,6 +143,11 @@ export class OpenAIKeyManagement {
     return this.serial(async () => {
       const results: OpenAIKeyHealth[] = [];
       for (const configured of this.options.accounts()) {
+        if (
+          this.options.managedAccountIds &&
+          !this.options.managedAccountIds.includes(configured.id)
+        )
+          continue;
         try {
           results.push((await this.state(this.account(configured.id), signal)).status);
         } catch {
@@ -155,7 +167,8 @@ export class OpenAIKeyManagement {
   }
   /** Called while ConnectionsService holds its admission gate. Legacy unadopted keys are unchanged. */
   async assertReady(accountId: string, signal: AbortSignal) {
-    if (!this.options.store.latest(accountId)) return;
+    const latest = this.options.store.latest(accountId);
+    if (!latest || (latest.phase === 'aborted' && !this.options.store.completed(accountId))) return;
     const account = this.account(accountId);
     if ((await this.state(account, signal)).status.health !== 'ready')
       throw new Error('OpenAI credentials need attention');
