@@ -117,6 +117,13 @@ describe('explicit image retention', () => {
         .map((x) => x.id),
     ).toEqual([id(2), id(1)]);
   });
+  it('blocks cleanup when a latest retained build output is missing', () => {
+    const s = fixture();
+    s.images = s.images.filter((image) => image.id !== id(8));
+    const p = planImages(s, now);
+    expect(p.candidates).toEqual([]);
+    expect(p.blockers).toContain(`missing protected image: ${id(8)}`);
+  });
 });
 
 describe('revalidated exact-ID application', () => {
@@ -179,7 +186,35 @@ describe('revalidated exact-ID application', () => {
     const r = await applyImages(planImages(a.s, now), a, { now: () => now });
     expect(r.status).toBe('partial');
     expect(r.outcomes[0].status).toBe('skipped');
-    expect(r.outcomes[1].status).toBe('failed');
+    expect(r.outcomes).toHaveLength(1);
+  });
+  it.each([1, 2])(
+    'stops after concurrent disappearance following removal exit %s',
+    async (code) => {
+      const a = adapter();
+      a.remove = async (image) => {
+        a.removed.push(image);
+        // A different actor deleted the image after this removal was refused/failed.
+        a.s.images = a.s.images.filter((x) => x.id !== image);
+        return { code };
+      };
+      const r = await applyImages(planImages(a.s, now), a, { now: () => now });
+      expect(a.removed).toEqual([id(1)]);
+      expect(r.status).toBe('partial');
+      expect(r.outcomes).toHaveLength(1);
+      expect(r.outcomes[0].status).toBe(code === 2 ? 'skipped' : 'failed');
+    },
+  );
+  it('stops when a successful removal cannot be confirmed absent', async () => {
+    const a = adapter();
+    a.remove = async (image) => {
+      a.removed.push(image);
+      return { code: 0 };
+    };
+    const r = await applyImages(planImages(a.s, now), a, { now: () => now });
+    expect(a.removed).toEqual([id(1)]);
+    expect(r.status).toBe('partial');
+    expect(r.outcomes[0].status).toBe('failed');
   });
   it('cancels bounded work and refuses mutation when audit fails', async () => {
     const a = adapter();
@@ -219,6 +254,22 @@ describe('revalidated exact-ID application', () => {
     expect(r.status).toBe('partial');
     expect(a.removed).toEqual([id(1)]);
     expect(r.blockers).toContain('collection failed: read interrupted');
+  });
+  it('reports incomplete final inventory as partial despite available guest telemetry', async () => {
+    const a = adapter();
+    const p = planImages(a.s, now);
+    const collect = a.collect;
+    let calls = 0;
+    a.collect = async () => {
+      const s = await collect();
+      if (++calls === p.candidates.length * 2 + 1) s.complete = false;
+      return s;
+    };
+    const r = await applyImages(p, a, { now: () => now });
+    expect(a.removed).toEqual(p.candidates.map((x) => x.id));
+    expect(r.after.guest.status).toBe('available');
+    expect(r.status).toBe('partial');
+    expect(r.blockers).toContain('final inventory incomplete');
   });
   it('stops a long run when the original plan expires between removals', async () => {
     const a = adapter();

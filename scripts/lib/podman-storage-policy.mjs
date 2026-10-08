@@ -115,7 +115,7 @@ export function planImages(s, now = Date.now()) {
       .filter((b) => b.owner === p.owner && b.family === p.family && b.state === 'succeeded')
       .sort((a, b) => b.completedAt - a.completedAt || a.operation.localeCompare(b.operation));
     for (const b of recent.slice(0, keep))
-      for (const id of b.images ?? []) if (images.has(id)) protect(id, 'latest successful builds');
+      for (const id of b.images ?? []) protect(id, 'latest successful builds');
   }
   for (const i of images.values()) {
     const records = owned.get(i.id);
@@ -200,7 +200,9 @@ export async function applyImages(plan, adapter, { now = Date.now, signal } = {}
   };
   const finish = async () => {
     try {
-      result.after = (await adapter.collect()).telemetry;
+      const final = await adapter.collect();
+      result.after = final.telemetry;
+      if (!final.complete) result.blockers.push('final inventory incomplete');
     } catch {
       result.blockers.push('final measurement unavailable');
     }
@@ -284,7 +286,8 @@ export async function applyImages(plan, adapter, { now = Date.now, signal } = {}
         code: removal.code,
         detail: removal.detail,
       };
-      if (absent) expected.images = expected.images.filter((i) => i.id !== candidate.id);
+      if (outcome.status === 'removed')
+        expected.images = expected.images.filter((i) => i.id !== candidate.id);
     } catch (error) {
       outcome = {
         id: candidate.id,
@@ -294,6 +297,10 @@ export async function applyImages(plan, adapter, { now = Date.now, signal } = {}
     }
     result.outcomes.push(outcome);
     await adapter.audit({ event: 'outcome', ...outcome });
+    if (outcome.status !== 'removed') {
+      result.blockers.push('removal not confirmed; replan required');
+      break;
+    }
   }
   if (!plan.candidates.length) {
     const s = await adapter.collect();
