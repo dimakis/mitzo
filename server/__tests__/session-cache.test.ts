@@ -44,9 +44,10 @@ vi.mock('@mitzo/protocol/event-store', () => ({
 }));
 
 vi.mock('../repo-config.js', () => ({
-  loadRepoConfig: vi
-    .fn()
-    .mockReturnValue({ repos: { configured: '/configured-sdk-history' }, roots: [] }),
+  loadRepoConfig: vi.fn().mockReturnValue({
+    repos: { configured: '/configured-sdk-history', second: '/second-sdk-history' },
+    roots: [],
+  }),
 }));
 
 vi.mock('../mcp-config.js', () => ({
@@ -59,6 +60,86 @@ beforeEach(() => {
 });
 
 describe('SDK discovery admission', () => {
+  it.each(['registered', 'title-only'] as const)(
+    'finds older external history beyond 100 newer %s provider records',
+    async (kind) => {
+      const records = [
+        ...Array.from({ length: 100 }, (_, index) => ({
+          sessionId: `${kind}-${index}`,
+          summary: 'Newer excluded provider record',
+          lastModified: 2000 - index,
+        })),
+        { sessionId: 'older-external', summary: 'Older genuine CLI history', lastModified: 1000 },
+      ];
+      // Model the SDK's provider-record cap rather than returning every fixture regardless.
+      mockListSessions.mockImplementation(async ({ limit, offset = 0 }) =>
+        records.slice(offset, limit === undefined ? undefined : offset + limit),
+      );
+      mockGetSession.mockImplementation((id: string) =>
+        kind === 'registered' && id.startsWith('registered-')
+          ? { sessionId: id, conversationSource: 'mitzo' }
+          : null,
+      );
+      mockGetSessionMessages.mockImplementation(async (id: string) =>
+        id === 'older-external' ? [{ type: 'user', message: { content: 'Real CLI prompt' } }] : [],
+      );
+      const { listImportableSdkConversations } = await import('../chat.js');
+      expect(await listImportableSdkConversations()).toEqual([
+        { id: 'older-external', summary: 'Older genuine CLI history', lastModified: 1000 },
+      ]);
+      expect(mockUpsertSession).not.toHaveBeenCalled();
+    },
+  );
+
+  it('caps the final newest candidates at 100 after excluding provider records and deduplicating projects', async () => {
+    const records = [
+      ...Array.from({ length: 100 }, (_, index) => ({
+        sessionId: `registered-${index}`,
+        summary: 'Registered conversation',
+        lastModified: 3000 - index,
+      })),
+      ...Array.from({ length: 150 }, (_, index) => ({
+        sessionId: `external-${index}`,
+        summary: 'External history',
+        lastModified: 2000 - index,
+      })),
+    ];
+    mockListSessions.mockImplementation(async ({ limit, offset = 0 }) =>
+      records.slice(offset, limit === undefined ? undefined : offset + limit),
+    );
+    mockGetSession.mockImplementation((id: string) =>
+      id.startsWith('registered-') ? { sessionId: id, conversationSource: 'mitzo' } : null,
+    );
+    const { listImportableSdkConversations } = await import('../chat.js');
+    const candidates = await listImportableSdkConversations();
+    expect(candidates.map(({ id }) => id)).toEqual(
+      Array.from({ length: 100 }, (_, index) => `external-${index}`),
+    );
+    expect(mockUpsertSession).not.toHaveBeenCalled();
+    expect(mockGetSessionMessages).not.toHaveBeenCalledWith('external-100', expect.anything());
+  });
+
+  it('compares each project candidate window before applying the global newest-100 cap', async () => {
+    const histories = (prefix: string, timestamp: number) =>
+      Array.from({ length: 100 }, (_, index) => ({
+        sessionId: `${prefix}-${index}`,
+        summary: 'Real external history',
+        lastModified: timestamp - index,
+      }));
+    const older = histories('older-project', 1000);
+    const newer = histories('newer-project', 2000);
+    mockListSessions.mockImplementation(async ({ dir, limit, offset = 0 }) => {
+      const records = dir === '/second-sdk-history' ? newer : older;
+      return records.slice(offset, limit === undefined ? undefined : offset + limit);
+    });
+    mockGetSession.mockReturnValue(null);
+    const { listImportableSdkConversations } = await import('../chat.js');
+    expect((await listImportableSdkConversations()).map(({ id }) => id)).toEqual(
+      newer.map(({ sessionId }) => sessionId),
+    );
+    expect(mockUpsertSession).not.toHaveBeenCalled();
+  });
+
   it('does not turn unknown full transcripts into chats through either list path', async () => {
     mockListSessions.mockResolvedValue([
       {

@@ -3046,34 +3046,51 @@ export async function getSessions(offset = 0, limit = SESSION_PAGE_SIZE) {
 
 /** Unregistered SDK histories are candidates for deliberate import, never chats. */
 export async function listImportableSdkConversations() {
+  const candidateLimit = 100;
   const seen = new Map<
     string,
     { id: string; summary: string; lastModified: number; cwd?: string }
   >();
   for (const dir of getSessionDirs().filter(Boolean)) {
     try {
-      for (const info of await listSessions({ dir, limit: 100, includeWorktrees: true })) {
-        if (
-          eventStore.getInternalSdkExecution(info.sessionId) ||
-          eventStore.isSessionHidden(info.sessionId) ||
-          isRegisteredConversation(eventStore.getSession(info.sessionId)) ||
-          !(await hasSdkConversation(info, dir))
-        )
-          continue;
-        const previous = seen.get(info.sessionId);
-        if (!previous || info.lastModified > previous.lastModified)
-          seen.set(info.sessionId, {
-            id: info.sessionId,
-            summary: info.summary,
-            lastModified: info.lastModified,
-            cwd: info.cwd,
-          });
+      const projectCandidates = new Set<string>();
+      // Excluded SDK records cannot consume the candidate budget. Each project
+      // contributes its newest eligible window before the global sort and cap.
+      for (let offset = 0; projectCandidates.size < candidateLimit; offset += candidateLimit) {
+        const page = await listSessions({
+          dir,
+          limit: candidateLimit,
+          offset,
+          includeWorktrees: true,
+        });
+        for (const info of page) {
+          if (
+            eventStore.getInternalSdkExecution(info.sessionId) ||
+            eventStore.isSessionHidden(info.sessionId) ||
+            isRegisteredConversation(eventStore.getSession(info.sessionId)) ||
+            !(await hasSdkConversation(info, dir))
+          )
+            continue;
+          projectCandidates.add(info.sessionId);
+          const previous = seen.get(info.sessionId);
+          if (!previous || info.lastModified > previous.lastModified)
+            seen.set(info.sessionId, {
+              id: info.sessionId,
+              summary: info.summary,
+              lastModified: info.lastModified,
+              cwd: info.cwd,
+            });
+          if (projectCandidates.size === candidateLimit) break;
+        }
+        if (page.length < candidateLimit) break;
       }
     } catch {
       /* A configured project may have no SDK history. */
     }
   }
-  return [...seen.values()].sort((a, b) => b.lastModified - a.lastModified).slice(0, 100);
+  return [...seen.values()]
+    .sort((a, b) => b.lastModified - a.lastModified)
+    .slice(0, candidateLimit);
 }
 
 /**
