@@ -148,6 +148,24 @@ it('reports the recorded credential check without declaring an enabled connectio
   });
 });
 
+it.each([null, 300, Number.NaN, Number.POSITIVE_INFINITY])(
+  'does not claim a successful service check without a valid historical timestamp (%s)',
+  async (verifiedAt) => {
+    const inventory = await readConnectionsAccess(
+      {
+        managed: () => [{ ...connection, verifiedAt }],
+      },
+      { now: 200 },
+    );
+    expect(inventory.resources[0].verification).toEqual({
+      state: 'unverified',
+      verifiedAt: null,
+      reason:
+        'No successful credential check has been recorded. Current conversation access has not been checked.',
+    });
+  },
+);
+
 it('reports successful account use as history without turning it into an authentication check', async () => {
   const inventory = await readConnectionsAccess(
     { accounts: () => [{ ...account, lastSuccessfulUse: { model: 'luna', succeededAt: 100 } }] },

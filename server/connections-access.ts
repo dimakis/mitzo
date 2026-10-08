@@ -227,16 +227,19 @@ export async function readConnectionsAccess(
     row.errorCode = connection.errorCode;
     row.revision = connection.revision;
     row.accountIdentity = connection.identity;
+    const verifiedAt =
+      connection.verifiedAt !== null &&
+      Number.isFinite(connection.verifiedAt) &&
+      connection.verifiedAt <= now
+        ? connection.verifiedAt
+        : null;
     row.verification = {
-      state:
-        connection.status === 'active' &&
-        connection.verifiedAt !== null &&
-        connection.verifiedAt <= now
-          ? 'verified'
-          : 'unverified',
-      verifiedAt: connection.verifiedAt,
+      state: connection.status === 'active' && verifiedAt !== null ? 'verified' : 'unverified',
+      verifiedAt,
       reason:
-        'The last credential check passed at the recorded time. Current conversation access has not been checked.',
+        verifiedAt !== null
+          ? 'The last credential check passed at the recorded time. Current conversation access has not been checked.'
+          : 'No successful credential check has been recorded. Current conversation access has not been checked.',
     };
     row.access = {
       summary: 'Managed service permissions',
