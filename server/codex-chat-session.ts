@@ -81,6 +81,7 @@ import { createLogger } from './logger.js';
 import { canonicalJson } from './connections/capabilities/input-validation.js';
 import { ProviderFailureError } from './provider-failure.js';
 import { codexRuntimeDiagnostic, codexRuntimeErrorTelemetry } from './codex-runtime-diagnostics.js';
+import { CodexStartupError, duringCodexStartup } from './codex-startup-error.js';
 import type { EventStore } from './event-store.js';
 import { codexRolloverHistory } from './codex-rollover-context.js';
 import type { ProviderDispatchAdmission } from './provider-execution.js';
@@ -210,6 +211,22 @@ function capabilityToolsForConversation(
 }
 /** Only transport safe, stable runtime diagnostics to the client. */
 export function publicCodexRuntimeError(error: Error): string {
+  if (error instanceof CodexStartupError) {
+    let cause = error.cause;
+    while (cause instanceof CodexStartupError) cause = cause.cause;
+    const detail = cause instanceof Error ? publicCodexRuntimeError(cause) : undefined;
+    const inferredMigration =
+      error.phase !== 'runtime_admission' &&
+      detail?.startsWith('Retained sandbox migration is blocked.');
+    const explanation =
+      error.resourceErrorCode() ||
+      inferredMigration ||
+      !detail ||
+      detail === 'Codex turn failed. Inspect queued work before retrying.'
+        ? undefined
+        : detail;
+    return `${error.publicMessage(explanation)} Reference: ${error.diagnosticId}`;
+  }
   const diagnostic = codexRuntimeDiagnostic(error);
   if (diagnostic) return diagnostic;
   if (error instanceof KnowledgePublicationUnavailableError)
@@ -254,7 +271,7 @@ export function publicCodexRuntimeError(error: Error): string {
 export function publicCodexStartupError(error: Error): string {
   const diagnostic = publicCodexRuntimeError(error);
   return diagnostic === 'Codex turn failed. Inspect queued work before retrying.'
-    ? 'Codex could not start this chat. Inspect conversation recovery before retrying.'
+    ? 'Codex could not start this chat. Check runtime and account configuration before continuing.'
     : diagnostic;
 }
 let privateStore: CodexConversationStore | undefined;
@@ -510,6 +527,9 @@ export function managedJiraConnectionEnv(connection: Connection) {
 }
 /** Shared chat adapter. Execution remains gated by the account catalog and unsupported capabilities fail explicitly. */
 export async function openCodexChat(options: Options) {
+  return duringCodexStartup('runtime_admission', () => openCodexChatAdmitted(options));
+}
+async function openCodexChatAdmitted(options: Options) {
   if (options.profile.nativeAuth)
     throw new Error('Native personal ChatGPT accounts require the isolated Symposium runtime');
   const service = getConnectionsRuntime()?.service;
@@ -658,7 +678,9 @@ async function openCodexChatBound(
       if (provisioning) options = { ...options, resume: false };
     }
     managedOpenShell = runtimeManager
-      ? await runtimeManager!.ensure(options.conversationId, options.session.abortController.signal)
+      ? await duringCodexStartup('sandbox_preparation', () =>
+          runtimeManager!.ensure(options.conversationId, options.session.abortController.signal),
+        )
       : undefined;
   } catch (error) {
     startupReservation?.();
@@ -890,7 +912,7 @@ async function openCodexChatBound(
     privateStorage = store();
   } catch (error) {
     startupReservation?.();
-    throw error;
+    throw new CodexStartupError('conversation_storage', error);
   }
   function persistArtifactRuntime() {
     if (!runtimeManager || !managedOpenShell) return;
@@ -928,7 +950,7 @@ async function openCodexChatBound(
   } catch (error) {
     dispose();
     startupReservation?.();
-    throw error;
+    throw new CodexStartupError('context_preparation', error);
   }
   const mcp = connectedOpenShell
     ? {
@@ -1196,10 +1218,15 @@ async function openCodexChatBound(
           githubPublishingDefinition,
         ],
     displayToolName: mcp.displayName,
-    createClient: (callbacks) =>
-      connectedOpenShell
-        ? CodexAppServerClient.launchOpenShell(openShellClient!, process.env, callbacks)
-        : CodexAppServerClient.launch(options.profile.credentialRef!, process.env, callbacks),
+    createClient: (callbacks) => {
+      try {
+        return connectedOpenShell
+          ? CodexAppServerClient.launchOpenShell(openShellClient!, process.env, callbacks)
+          : CodexAppServerClient.launch(options.profile.credentialRef!, process.env, callbacks);
+      } catch (cause) {
+        throw new CodexStartupError('runtime_connection', cause);
+      }
+    },
     ...(openShell
       ? {
           runtimeCwd: openShell.workdir,
@@ -1470,7 +1497,7 @@ async function openCodexChatBound(
   signal.addEventListener('abort', close, { once: true });
   try {
     signal.throwIfAborted();
-    await runtime.initialize();
+    await duringCodexStartup('conversation_initialization', () => runtime.initialize());
     if (managedCapabilityConnection && options.binding?.accountId) {
       bindLiveCapabilityConversation(options.conversationId, {
         accountId: options.binding.accountId,
@@ -1536,13 +1563,17 @@ async function openCodexChatBound(
 }
 
 async function sendInitialCodexTurn(options: Options, runtime: CodexConversation) {
-  options.session.abortController.signal.throwIfAborted();
-  await runtime.send({
-    id: options.messageId,
-    prompt: options.prompt,
-    intent: options.intent,
-    model: options.model,
-    reasoningEffort: options.reasoningEffort,
-    images: options.images,
-  });
+  try {
+    options.session.abortController.signal.throwIfAborted();
+    await runtime.send({
+      id: options.messageId,
+      prompt: options.prompt,
+      intent: options.intent,
+      model: options.model,
+      reasoningEffort: options.reasoningEffort,
+      images: options.images,
+    });
+  } catch (cause) {
+    throw new CodexStartupError('initial_turn_dispatch', cause);
+  }
 }
