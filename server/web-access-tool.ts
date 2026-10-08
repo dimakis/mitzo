@@ -58,7 +58,7 @@ export function createWebAccessTool(
       checkSkillPolicy(registry, clientId, REQUEST_WEB_ACCESS) !== 'deny';
     return executeWebAccess(input, signal, {
       isCurrent,
-      approve: async (request, signal) => {
+      approve: async (request, signal, redirectedFrom) => {
         if (request.operation === 'search' && searchAllowed)
           return { behavior: 'allow', updatedInput: request };
         const decision = await buildPermissionHandler(clientId, registry)(
@@ -71,12 +71,14 @@ export function createWebAccessTool(
             allowSessionGrant: false,
             rememberSessionGrant: false,
             approvalScope: request.operation === 'search' ? 'session' : 'request',
-            title:
-              request.operation === 'search'
+            title: redirectedFrom
+              ? 'Approve redirected destination?'
+              : request.operation === 'search'
                 ? 'Allow this web search?'
                 : 'Allow this website read?',
-            description:
-              request.operation === 'search'
+            description: redirectedFrom
+              ? `The approved page at ${new URL(redirectedFrom).origin} moved to ${request.operation === 'fetch' ? new URL(request.url).origin : ''}. Approve the destination to continue this read. Approval covers this request only.`
+              : request.operation === 'search'
                 ? 'Runs searches using the selected account and model. Provider search and model charges may apply. Allow once, or allow searches until this session ends. Changing the account or model requires new consent.'
                 : 'Reads this public HTTPS URL without credentials. Approval covers this origin and read only; shell networking and authenticated browsing remain restricted.',
           },
@@ -94,6 +96,7 @@ export function createWebAccessTool(
       },
       search: (query, signal) =>
         search(query, signal, { parentSessionId: conversationId, operationId }),
+
       fetchPage: fetchPublicPage,
     });
   };

@@ -30,6 +30,14 @@ The same search choices appear in the notification details screen. iOS controls 
 
 Search uses the conversation's selected account and model. Provider search and model charges may apply. Mitzo never selects another account or substitutes a model after a rejection. Provider/model combinations without hosted search return an explicit failure; website reads remain independent of hosted-search support.
 
+## Read outcomes and redirects
+
+Web rows show the destination, including the HTTP/HTTPS scheme and query string, or the search query instead of the internal tool name and JSON. Web input summaries remain complete, bounded JSON so long URLs and reasons survive streaming and history restore. Details retain the original request.
+
+Access grants show **Access granted · 15 minutes**; revocations show **Access revoked**. A grant does not itself read a page. Reads and searches show **Read complete** and **Search complete**. Errors distinguish successful approval from a failed read: website refusal (HTTP status), timeout, page-size limit, unsupported format, address lookup and connection failure. Fixed error messages reach both the UI and the agent; raw transport errors remain private.
+
+An ungranted public HTTPS read that redirects to another origin asks for explicit approval of the new destination within the same tool call. Each destination is validated and the session/account/model boundary is checked after approval. The public-only HTTPS restrictions remain in force. A redirect never authorizes a different account, authenticated browsing or arbitrary networking.
+
 ## Session URL approval
 
 Use `request_access` when the agent needs a website that its normal networking cannot reach:
@@ -44,7 +52,7 @@ Use `request_access` when the agent needs a website that its normal networking c
 
 The user receives the exact origin, resolved destination addresses and a 15-minute credential-free read scope. The approval covers this session and AI account; a model/account change, expiry or `revoke_access` invalidates it. `fetch` can then read paths on the approved origin through Mitzo. HTTP, HTTPS, literal IP addresses, local/private networks and custom ports are supported after this explicit approval. Embedded URL credentials and other schemes are rejected. TLS certificates remain verified. No cookies, authentication, proxy environment or arbitrary shell networking are granted.
 
-Each read resolves and pins the destination again. An unapproved address or another redirect origin stops the read and requires a new access request. Pending name resolution and reads cancel with the session. Reads accept bounded text responses only. Grants are held by the live session, are not shared between accounts, and disappear when the live session is replaced or the process restarts; reconnecting a transport to the same live session does not expand them. To revoke an origin, call the same tool with `operation: "revoke_access"`, the URL and a reason.
+Each read resolves and pins the destination again. An unapproved address stops the read and requires renewed access. A redirect to another origin pauses the current tool call and presents an explicit destination approval with that origin and its resolved addresses. Approval continues the read under the destination grant; it never widens the source grant. The original grant must remain valid throughout the read, including during destination approval. Denial, revocation, expiry, account/model changes or cancellation stop continuation. Redirect chains are bounded to three destination approvals. Pending name resolution and reads cancel with the session. Reads accept bounded text responses only. Grants are held by the live session, are not shared between accounts, and disappear when the live session is replaced or the process restarts; reconnecting a transport to the same live session does not expand them. To revoke an origin, call the same tool with `operation: "revoke_access"`, the URL and a reason.
 
 | Route                           | Search execution                                                                                                                                                                                                                                        |
 | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

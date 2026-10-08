@@ -11,6 +11,11 @@ export const WebAccessToolFields = {
 };
 /** Only fixed, server-authored errors may cross the tool-result boundary. */
 export class WebAccessError extends Error {}
+export class WebAccessRedirect extends WebAccessError {
+  constructor(readonly url: string) {
+    super(`The website redirected to ${url}. Request a separate approval for that URL.`);
+  }
+}
 export const WebAccessInput = z.discriminatedUnion('operation', [
   z
     .object({ operation: z.literal('search'), query: z.string().trim().min(1).max(2000), reason })
@@ -33,6 +38,7 @@ interface WebAccessDependencies {
   approve(
     input: WebAccessRequest,
     signal: AbortSignal,
+    redirectedFrom?: string,
   ): Promise<{
     behavior: 'allow' | 'deny';
     updatedInput?: Record<string, unknown>;
@@ -66,21 +72,50 @@ export async function executeWebAccess(
     if (!parsed.success) return { content: 'Invalid web access request', isError: true };
     if (!deps.isCurrent())
       return { content: 'Session permissions changed; retry the request', isError: true };
-    const decision = await deps.approve(parsed.data, signal);
-    signal.throwIfAborted();
-    if (decision.behavior !== 'allow')
-      return { content: decision.message ?? 'Web access declined', isError: true };
-    if (!isDeepStrictEqual(decision.updatedInput, parsed.data) || !deps.isCurrent())
-      return { content: 'Web access request changed during approval; retry', isError: true };
-    const operationSignal = AbortSignal.any([signal, AbortSignal.timeout(90_000)]);
-    const content = await withWebAbort(
-      parsed.data.operation === 'search'
-        ? deps.search(parsed.data.query, operationSignal)
-        : deps.fetchPage(parsed.data.url, operationSignal),
-      operationSignal,
-    );
-    signal.throwIfAborted();
-    return { content, isError: false };
+    let request = parsed.data;
+    let redirectedFrom: string | undefined;
+    for (let hop = 0; hop <= 3; hop++) {
+      if (!deps.isCurrent())
+        return { content: 'Session permissions changed; retry the request', isError: true };
+      const decision = redirectedFrom
+        ? await deps.approve(request, signal, redirectedFrom)
+        : await deps.approve(request, signal);
+      signal.throwIfAborted();
+      if (decision.behavior !== 'allow')
+        return { content: decision.message ?? 'Web access declined', isError: true };
+      if (!isDeepStrictEqual(decision.updatedInput, request) || !deps.isCurrent())
+        return { content: 'Web access request changed during approval; retry', isError: true };
+      const operationSignal = AbortSignal.any([signal, AbortSignal.timeout(90_000)]);
+      try {
+        const content = await withWebAbort(
+          request.operation === 'search'
+            ? deps.search(request.query, operationSignal)
+            : deps.fetchPage(request.url, operationSignal),
+          operationSignal,
+        );
+        signal.throwIfAborted();
+        return { content, isError: false };
+      } catch (error) {
+        if (error instanceof WebAccessRedirect && request.operation === 'fetch') {
+          // Validate the destination again and prompt before any connection to it.
+          const destination = new URL(error.url);
+          if (
+            destination.protocol !== 'https:' ||
+            destination.username ||
+            destination.password ||
+            destination.port
+          )
+            throw new WebAccessError(
+              'Redirect destination requires a public HTTPS URL without credentials.',
+            );
+          redirectedFrom = request.url;
+          request = { ...request, url: destination.href };
+          continue;
+        }
+        throw error;
+      }
+    }
+    throw new WebAccessError('Approved read reached the redirect limit.');
   } catch (error) {
     return {
       content: signal.aborted
