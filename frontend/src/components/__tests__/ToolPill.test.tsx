@@ -357,7 +357,7 @@ it('shows the destination instead of JSON in the collapsed website row', () => {
       />,
     ),
   );
-  expect(screen.getByText('claude.com/pricing')).toBeTruthy();
+  expect(screen.getByText('https://claude.com/pricing')).toBeTruthy();
 });
 it('names searches and origin grants separately from reads', () => {
   const { rerender } = render(
@@ -439,7 +439,7 @@ it('keeps long exact destinations and queries when the tool summary is truncated
       />,
     ),
   );
-  expect(screen.getByText('example.com/search?q=' + 'x'.repeat(300))).toBeTruthy();
+  expect(screen.getByText('https://example.com/search?q=' + 'x'.repeat(300))).toBeTruthy();
 });
 it('distinguishes exact query destinations in legacy inputs', () => {
   render(
@@ -459,5 +459,26 @@ it('distinguishes exact query destinations in legacy inputs', () => {
       />,
     ),
   );
-  expect(screen.getByText('example.com/search?q=one')).toBeTruthy();
+  expect(screen.getByText('https://example.com/search?q=one')).toBeTruthy();
+});
+
+it.each(['http:', 'https:'])('keeps the %s scheme visible in exact web destinations', (scheme) => {
+  render(
+    wrap(
+      <ToolPill
+        block={{
+          blockId: 'web',
+          blockType: 'tool_use',
+          content: '',
+          toolName: 'RequestWebAccess',
+          toolInput: JSON.stringify({
+            operation: 'fetch',
+            url: scheme + '//example.com/search?q=one',
+          }),
+          toolResult: 'page',
+        }}
+      />,
+    ),
+  );
+  expect(screen.getByText(scheme + '//example.com/search?q=one')).toBeTruthy();
 });

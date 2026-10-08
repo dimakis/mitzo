@@ -70,7 +70,11 @@ export function webAccessSummary(input: string) {
         : request.operation === 'revoke_access'
           ? 'Revoke website access'
           : 'Website read';
-    return { name, target: url.host + (url.pathname === '/' ? '' : url.pathname) + url.search };
+    return {
+      name,
+      target:
+        url.protocol + '//' + url.host + (url.pathname === '/' ? '' : url.pathname) + url.search,
+    };
   } catch {
     return fallback;
   }

@@ -24,7 +24,7 @@ Search uses the conversation's selected account and model. Provider search and m
 
 ## Read outcomes and redirects
 
-Web rows show the destination, including the query string, or the search query instead of the internal tool name and JSON. Web input summaries remain complete, bounded JSON so long URLs and reasons survive streaming and history restore. Details retain the original request.
+Web rows show the destination, including the HTTP/HTTPS scheme and query string, or the search query instead of the internal tool name and JSON. Web input summaries remain complete, bounded JSON so long URLs and reasons survive streaming and history restore. Details retain the original request.
 
 Access grants show **Access granted · 15 minutes**; revocations show **Access revoked**. A grant does not itself read a page. Reads and searches show **Read complete** and **Search complete**. Errors distinguish successful approval from a failed read: website refusal (HTTP status), timeout, page-size limit, unsupported format, address lookup and connection failure. Fixed error messages reach both the UI and the agent; raw transport errors remain private.
 
