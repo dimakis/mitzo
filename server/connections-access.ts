@@ -252,7 +252,7 @@ export async function readConnectionsAccess(
       {
         id: 'keychain-controls',
         label: 'Manage Keychain connection',
-        href: '/connections#keychain-connections-heading',
+        href: `/connections?manage=keychain&connection=${encodeURIComponent(connection.id)}`,
       },
     ];
     result.resources.push(row);
