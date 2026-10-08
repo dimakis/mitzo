@@ -665,7 +665,220 @@ describe('EventStore', () => {
     });
   });
 
+  it('keeps an unadmitted legacy file record out of chats until explicit import', () => {
+    store.upsertSession({
+      sessionId: 'legacy-auto',
+      conversationSource: 'legacy',
+      isActive: false,
+    });
+    expect(store.getSession('legacy-auto')).toBeNull();
+    expect(store.listSessions()).toEqual([]);
+    store.upsertSession({
+      sessionId: 'legacy-auto',
+      conversationSource: 'external_import',
+      isActive: false,
+    });
+    expect(store.getSession('legacy-auto')?.conversationSource).toBe('external_import');
+  });
+
+  describe('internal SDK execution ownership', () => {
+    it('cannot admit an internal execution through prompt tracking or transport startup', () => {
+      store.upsertSession({ sessionId: 'parent' });
+      store.registerInternalSdkExecution({
+        sdkSessionId: 'helper',
+        parentSessionId: 'parent',
+        operationId: 'tool-call',
+        purpose: 'web_search',
+        cwd: '/private/tool-workspace',
+      });
+      expect(() => store.incrementPromptCount('helper')).toThrow(/internal/i);
+      expect(() => store.reserveOrdinaryStartup(['helper'])).toThrow(/internal/i);
+      expect(() => store.insertSendCommand('input', 'helper', { prompt: 'Resume search' })).toThrow(
+        /internal/i,
+      );
+      expect(store.getKnownSessionIds(['parent', 'helper'])).toEqual(new Set(['parent']));
+      expect(store.getSession('helper')).toBeNull();
+    });
+
+    it('does not steal identities already reserved for controller startup or event streams', () => {
+      store.upsertSession({ sessionId: 'parent' });
+      const identity = {
+        sdkSessionId: 'starting',
+        parentSessionId: 'parent',
+        operationId: 'tool-call',
+        purpose: 'web_search' as const,
+        cwd: '/private/tool-workspace',
+      };
+      const release = store.reserveOrdinaryStartup(['starting']);
+      try {
+        expect(() => store.registerInternalSdkExecution(identity)).toThrow(/collid/i);
+      } finally {
+        release();
+      }
+      store.append('event-only', 'user_message', { text: 'Controller input' });
+      expect(() =>
+        store.registerInternalSdkExecution({ ...identity, sdkSessionId: 'event-only' }),
+      ).toThrow(/collid/i);
+    });
+
+    it('keeps immutable parent ownership outside the chat registry after reopening', () => {
+      const root = mkdtempSync(join(tmpdir(), 'internal-sdk-owner-'));
+      const path = join(root, 'events.db');
+      let owned = new EventStore(path);
+      const identity = {
+        sdkSessionId: 'helper',
+        parentSessionId: 'parent',
+        operationId: 'tool-call',
+        purpose: 'web_search' as const,
+        cwd: '/private/tool-workspace',
+      };
+      try {
+        owned.upsertSession({ sessionId: 'parent', initialPrompt: 'Research' });
+        owned.registerInternalSdkExecution(identity);
+        owned.close();
+        owned = new EventStore(path);
+        expect(owned.getInternalSdkExecution('helper')).toMatchObject(identity);
+        expect(owned.getSession('helper')).toBeNull();
+        expect(owned.listSessions().map((s) => s.sessionId)).toEqual(['parent']);
+        expect(() =>
+          owned.upsertSession({ sessionId: 'helper', initialPrompt: 'A full saved transcript' }),
+        ).toThrow(/internal/i);
+        expect(() => owned.append('helper', 'user_message', { text: 'Search' })).toThrow(
+          /internal/i,
+        );
+        expect(() =>
+          owned.registerInternalSdkExecution({ ...identity, parentSessionId: 'other' }),
+        ).toThrow();
+      } finally {
+        owned.close();
+        rmSync(root, { recursive: true, force: true });
+      }
+    });
+    it('requires an existing conversation parent and refuses conversation-ID collisions', () => {
+      store.upsertSession({ sessionId: 'conversation' });
+      const identity = {
+        sdkSessionId: 'helper',
+        parentSessionId: 'missing',
+        operationId: 'tool-call',
+        purpose: 'web_search' as const,
+        cwd: '/private/tool-workspace',
+      };
+      expect(() => store.registerInternalSdkExecution(identity)).toThrow();
+      expect(() =>
+        store.registerInternalSdkExecution({
+          ...identity,
+          sdkSessionId: 'conversation',
+          parentSessionId: 'conversation',
+        }),
+      ).toThrow();
+      expect(store.getInternalSdkExecution('helper')).toBeNull();
+      expect(store.getSession('conversation')).not.toBeNull();
+    });
+  });
+
+  it('filters unadmitted legacy records before chat, attention, and search limits', () => {
+    store.upsertSession({ sessionId: 'real', isActive: false, updatedAt: 1 });
+    store.append('real', 'user_message', { text: 'needle' });
+    store.updateLastSpeaker('real', 'assistant');
+    for (let i = 0; i < 15; i++) {
+      const sessionId = `legacy-${i}`;
+      store.upsertSession({
+        sessionId,
+        conversationSource: 'legacy',
+        isActive: false,
+        updatedAt: 100 + i,
+      });
+      store.append(sessionId, 'block_delta', { delta: 'needle in a provider artifact' });
+      store.updateLastSpeaker(sessionId, 'assistant');
+    }
+    expect(store.listSessions(1).map((s) => s.sessionId)).toEqual(['real']);
+    expect(store.getAttentionSessions().map((s) => s.sessionId)).toEqual(['real']);
+    expect(store.searchSessions('needle', 1).map((s) => s.sessionId)).toEqual(['real']);
+    expect(store.getKnownSessionIds(['real', 'legacy-1'])).toEqual(new Set(['real']));
+    expect(store.captureReconnectState('legacy-1', 0)).toMatchObject({
+      session: null,
+      events: [],
+      cursor: 0,
+    });
+    expect(() => store.beginExecution('legacy-1')).toThrow(/unknown|unregistered/i);
+  });
+
+  it('durably preserves admitted legacy conversations when recovery clears active state', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'legacy-conversation-owner-'));
+    const file = join(directory, 'events.db');
+    let owned = new EventStore(file);
+    try {
+      owned.upsertSession({
+        sessionId: 'legacy-active',
+        conversationSource: 'legacy',
+        isActive: true,
+      });
+      owned.setSessionState('legacy-active', 'ACTIVE');
+      owned.upsertSession({
+        sessionId: 'artifact',
+        conversationSource: 'legacy',
+        isActive: false,
+        sdkTranscriptVerified: true,
+      });
+      const db = (owned as unknown as { db: { exec(sql: string): void } }).db;
+      db.exec('ALTER TABLE sessions DROP COLUMN conversation_source');
+      owned.close();
+      owned = new EventStore(file);
+      owned.recoverStaleSessions();
+      expect(owned.getSession('legacy-active')).toMatchObject({
+        conversationSource: 'mitzo',
+        isActive: false,
+      });
+      expect(owned.getSession('artifact')).toBeNull();
+      owned.close();
+      owned = new EventStore(file);
+      expect(owned.getSession('legacy-active')?.conversationSource).toBe('mitzo');
+    } finally {
+      owned.close();
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it('deduplicates search matches before limiting conversations', () => {
+    store.upsertSession({ sessionId: 'older' });
+    store.append('older', 'user_message', { text: 'needle' });
+    store.upsertSession({ sessionId: 'noisy' });
+    for (let i = 0; i < 10; i++) store.append('noisy', 'block_delta', { delta: 'needle' });
+    expect(store.searchSessions('needle', 2).map((s) => s.sessionId)).toEqual(['noisy', 'older']);
+  });
+
   describe('upsertSession', () => {
+    it('persists verified SDK history across reopen without changing usage or prompts', () => {
+      const root = mkdtempSync(join(tmpdir(), 'verified-sdk-history-'));
+      const path = join(root, 'events.db');
+      let persisted = new EventStore(path);
+      try {
+        persisted.upsertSession({ sessionId: 'imported', isActive: false, updatedAt: 123 });
+        expect(persisted.getSession('imported')?.sdkTranscriptVerified).toBe(false);
+        persisted.upsertSession({
+          sessionId: 'imported',
+          sdkTranscriptVerified: true,
+          updatedAt: 123,
+        });
+        persisted.upsertSession({ sessionId: 'verified-new', sdkTranscriptVerified: true });
+        persisted.close();
+        persisted = new EventStore(path);
+        expect(persisted.getSession('imported')).toMatchObject({
+          sdkTranscriptVerified: true,
+          initialPrompt: null,
+          numTurns: 0,
+          promptCount: 0,
+          updatedAt: 123,
+        });
+        expect(persisted.getSession('verified-new')?.sdkTranscriptVerified).toBe(true);
+        persisted.upsertSession({ sessionId: 'imported', summary: 'Renamed', updatedAt: 123 });
+        expect(persisted.getSession('imported')?.sdkTranscriptVerified).toBe(true);
+      } finally {
+        persisted.close();
+        rmSync(root, { recursive: true, force: true });
+      }
+    });
+
     it('creates a new session row', () => {
       store.upsertSession({ sessionId: 'sess-1', summary: 'Test session' });
       const session = store.getSession('sess-1');
