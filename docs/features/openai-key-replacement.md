@@ -36,10 +36,12 @@ searches. Known unsynchronized accounts cannot start or resume provider work. Re
 enrollment or disabling Connections does not bypass previously recorded account fences.
 
 After interruption, recovery can complete a proven Keychain commit whose gateway update
-has not started and whose bindings and gateway revision are unchanged. A started or
-uncertain gateway update remains **needs attention** until an attended **Retry
+has not started and whose bindings and gateway revision are unchanged. The write sends the journaled provider version as a gateway compare-and-swap;
+concurrent updates reject it. A started or uncertain gateway update remains **needs attention** until an attended **Retry
 synchronization**. Recovery never claims success from a resource-version change alone.
-An explicitly entered replacement can supersede a pending operation within the same
+A completed receipt invalidated by an external Keychain edit requires fresh key entry;
+Mitzo does not copy that unrecognized saved secret to the gateway. An explicitly
+entered replacement can supersede a pending operation within the same
 binding; the supersession and new blocking intent are one SQLite transaction.
 
 ## Enrollment and acceptance
@@ -50,6 +52,19 @@ controller configured, an operator may enroll exact account IDs through
 an existing Keychain reference, `sandboxProvider`, and pinned `sandboxProviderId`.
 The current adapter accepts the reviewed `mitzo-openai-keychain-spike` policy only.
 Shared provider or Keychain references across configured accounts are refused.
+
+The configured OpenShell CLI must expose `provider update --expected-resource-version`
+and forward it as nonzero provider metadata to the gateway's compare-and-swap.
+Mitzo checks that capability before offering a replacement and never falls back to
+an unconditional write. The installed `0.0.116-mitzo.2` CLI does not expose it and
+requires a separately reviewed CLI update before enrollment.
+
+Profile export uses OpenShell's canonical false defaults: its `profiles.rs` at
+commit `b4c459f92446167afcb0a2dcf7d9fa6c8945e59c` uses `serde(default,
+skip_serializing_if = "is_false")` for `request_body_credential_rewrite` and
+`allow_uninspected_credentials`. Omitted values normalize to false; explicit true,
+null or nonboolean values are rejected. Requiring explicit false fields would
+reject the canonical export of the reviewed policy.
 
 System Python and normal macOS Keychain authorization must be available. A locked,
 inaccessible or ambiguous item remains unavailable; the helper does not create items or

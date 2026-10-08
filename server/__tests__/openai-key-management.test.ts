@@ -319,3 +319,21 @@ describe('OpenAI key replacement and recovery', () => {
     expect((await f.replace()).health).toBe('ready');
   });
 });
+
+it('requires fresh key entry after a completed receipt is invalidated by an external Keychain edit', async () => {
+  const f = fixture();
+  await f.replace();
+  f.driftKeychain();
+  const state = (await f.manager.list(signal()))[0]!;
+  expect(state.health).toBe('needs_attention');
+  expect(state.canSynchronize).toBe(false);
+  const writes = f.gateway.replace.mock.calls.length;
+  await expect(
+    f.manager.synchronize(
+      { accountId: 'work', revision: state.revision, sameProject: true },
+      signal(),
+    ),
+  ).rejects.toThrow('Replacement key must be entered again');
+  expect(f.gateway.replace).toHaveBeenCalledTimes(writes);
+  expect((await f.replace('attended-key')).health).toBe('ready');
+});

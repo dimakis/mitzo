@@ -28,6 +28,7 @@ export interface OpenAIKeyGateway {
   replace(
     account: ManagedOpenAIAccount,
     value: string,
+    expectedVersion: string,
     signal: AbortSignal,
   ): Promise<{ version: string }>;
 }
@@ -139,7 +140,9 @@ export class OpenAIKeyManagement {
       health: ready ? 'ready' : needsAttention ? 'needs_attention' : 'not_verified',
       canSynchronize: pending
         ? pending.binding === binding && keychain.version === pending.id
-        : true,
+        : completed
+          ? completed.binding === binding && keychain.version === completed.id
+          : keychain.version === null && keychain.managed !== true,
       errorCode: needsAttention
         ? (pending?.errorCode ?? 'CREDENTIAL_DRIFT')
         : latest?.phase === 'aborted' && latest.errorCode === 'NOT_APPLIED'
@@ -251,7 +254,12 @@ export class OpenAIKeyManagement {
     const before = await this.options.gateway.inspect(account, signal);
     if (before.version !== operation.gatewayVersion) throw new Error('Gateway changed');
     this.options.store.update(operation.id, { phase: 'gateway_started' });
-    const after = await this.options.gateway.replace(account, value, signal);
+    const after = await this.options.gateway.replace(
+      account,
+      value,
+      operation.gatewayVersion,
+      signal,
+    );
     if (after.version === before.version) throw new Error('Gateway replacement not acknowledged');
     const confirmed = await this.options.gateway.inspect(account, signal);
     const saved = await this.options.keychain.read(account.credentialRef, signal);

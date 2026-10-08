@@ -40,10 +40,10 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../capability-conversation-binding.ts':
     '147a328d161f167aeeb31bf0017d5fea25cc3f22933392249a228d7bd61e89aa',
   // Secret custody and its browser/admission boundaries share the runtime review contract.
-  '../openai-key-management.ts': '2c82c64d797053fc2e23b290a61c53635cc3001a07c1abf5ab0f4330f28f12cc',
+  '../openai-key-management.ts': '40060c8deeac2255c5d079d661ac2a29f1101ca8b5cdec828f1e82da737e77cc',
   '../openai-key-operation-store.ts':
     'b257f487cef1bb92e7368030c7d7e6a851a5bef5f73be220e2801457cb61d3e3',
-  '../openai-key-gateway.ts': '2057d0a71afdcff06b9f4f915816ffbeced447a567e3280470a007fcd2313bc7',
+  '../openai-key-gateway.ts': 'c4c19388fd0bcf794ba1c2f85b9e8227668c575ba4047a8f9cd68470d023c5b6',
   '../keychain-rotation-credentials.ts':
     'c2d94ede80f5950b45568dc41c5d10c20802d4504dbcd0b6657e8de04de72d4a',
   '../openai-key-controller.ts': '4be89d1cb3b75270d6e3d257b5d35f569e26c726e8c23c3fb697ea0cff71c6ee',

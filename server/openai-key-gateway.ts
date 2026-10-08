@@ -31,8 +31,10 @@ const Profile = z
           protocol: z.literal('rest'),
           access: z.literal('read-write'),
           enforcement: z.literal('enforce'),
-          request_body_credential_rewrite: z.literal(false).optional(),
-          allow_uninspected_credentials: z.literal(false).optional(),
+          // OpenShell exports omit default false booleans (serde skip_serializing_if=is_false).
+          // Normalize that canonical wire form; any explicit true/nonboolean remains rejected.
+          request_body_credential_rewrite: z.literal(false).default(false),
+          allow_uninspected_credentials: z.literal(false).default(false),
         })
         .strict(),
     ]),
@@ -77,6 +79,8 @@ export class OpenShellOpenAIKeyGateway implements OpenAIKeyGateway {
   }
   async inspect(account: ManagedOpenAIAccount, signal: AbortSignal) {
     try {
+      const updateHelp = await this.command(['provider', 'update', '--help'], signal);
+      if (!/--expected-resource-version\s+</.test(updateHelp)) throw new Error();
       const inventory = z
         .array(z.object({ name: z.string() }).passthrough())
         .parse(
@@ -129,8 +133,14 @@ export class OpenShellOpenAIKeyGateway implements OpenAIKeyGateway {
       throw new Error('OpenAI chats could not be paused');
     }
   }
-  async replace(account: ManagedOpenAIAccount, value: string, signal: AbortSignal) {
+  async replace(
+    account: ManagedOpenAIAccount,
+    value: string,
+    expectedVersion: string,
+    signal: AbortSignal,
+  ) {
     const before = await this.inspect(account, signal);
+    if (before.version !== expectedVersion) throw new Error('OpenAI provider binding changed');
     try {
       await this.command(
         [
@@ -139,6 +149,8 @@ export class OpenShellOpenAIKeyGateway implements OpenAIKeyGateway {
           account.providerName,
           '--workspace',
           this.workspace,
+          '--expected-resource-version',
+          expectedVersion,
           '--credential',
           'OPENAI_API_KEY',
         ],
