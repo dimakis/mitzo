@@ -1,3 +1,6 @@
+import { credentialSdkBoundary } from './credential-sdk-boundary.js';
+import { createCredentialSdkServer, credentialSdkPermission } from './credential-sdk-tools.js';
+import { CONNECTION_TOOL_INSTRUCTIONS } from './session-credential-tools.js';
 import { isRegisteredConversation } from '@mitzo/protocol';
 import { clearUrlAccessGrants } from './url-access-tool.js';
 import { codexRuntimeDiagnostic, codexRuntimeErrorTelemetry } from './codex-runtime-diagnostics.js';
@@ -350,6 +353,7 @@ export async function fetchBootContext(
   agentName: string,
   contexginUrl: string = process.env.CONTEXGIN_URL || 'http://localhost:8321',
   repoRoot: string = BASE_REPO,
+  allowLocalExecutableFallback = true,
 ): Promise<BootContextMessage> {
   try {
     const url = `${contexginUrl}/api/agents/${encodeURIComponent(agentName)}/context`;
@@ -363,7 +367,9 @@ export async function fetchBootContext(
         status: res.status,
         body: body.slice(0, 200),
       });
-      return localBootContextFallback(repoRoot);
+      return allowLocalExecutableFallback
+        ? localBootContextFallback(repoRoot)
+        : { ...FALLBACK_BOOT_CONTEXT };
     }
 
     const data = (await res.json()) as Record<string, unknown>;
@@ -373,7 +379,9 @@ export async function fetchBootContext(
       log.warn('ContexGin response missing boot field, trying local fallback', {
         keys: Object.keys(data),
       });
-      return localBootContextFallback(repoRoot);
+      return allowLocalExecutableFallback
+        ? localBootContextFallback(repoRoot)
+        : { ...FALLBACK_BOOT_CONTEXT };
     }
 
     const bootTokens = typeof boot.tokens === 'number' ? boot.tokens : 0;
@@ -412,7 +420,9 @@ export async function fetchBootContext(
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     log.info('ContexGin not reachable, trying local fallback', { error: msg });
-    return localBootContextFallback(repoRoot);
+    return allowLocalExecutableFallback
+      ? localBootContextFallback(repoRoot)
+      : { ...FALLBACK_BOOT_CONTEXT };
   }
 }
 
@@ -1518,8 +1528,11 @@ async function _startChatInner(
   const telosMcp = supportsHostTaskTools(openShellSelected) ? buildTelosMcpServer(clientId) : null;
   const allMcpServers = { ...mcpServers, ...taskMcp, ...telosMcp };
 
+  const sdkCredentialBoundary =
+    !codexProfile && !apiCredentialRef && !gemini ? credentialSdkBoundary() : undefined;
+
   // Load project hooks from .claude/settings.json (e.g. SessionStart boot context)
-  const hooks = loadProjectHooks(cwd, sessionEnv);
+  const hooks = sdkCredentialBoundary ? undefined : loadProjectHooks(cwd, sessionEnv);
 
   // Fetch boot context BEFORE building system prompt so it's part of the
   // system prompt append and survives SDK context compaction.
@@ -1529,7 +1542,7 @@ async function _startChatInner(
   const bootContextMsg: BootContextMessage = openShellSelected
     ? { ...FALLBACK_BOOT_CONTEXT, source: 'sandbox', scope: 'sandbox' }
     : await Promise.race([
-        fetchBootContext(agentName),
+        fetchBootContext(agentName, undefined, undefined, !sdkCredentialBoundary),
         new Promise<Awaited<ReturnType<typeof fetchBootContext>>>((resolve) => {
           raceTimer = setTimeout(() => resolve({ ...FALLBACK_BOOT_CONTEXT }), 2000);
         }),
@@ -1723,11 +1736,22 @@ async function _startChatInner(
       );
       options.onStartupAdmission?.();
     } else {
-      const decide = webAccessSdkPermission(
+      const existingDecision = webAccessSdkPermission(
         buildPermissionHandler(clientId, registry, {
           onDemandCreate: buildOnDemandCreate(wtId, clientId),
         }),
       );
+      const connectionServer = createCredentialSdkServer(
+        () => session.sessionId ?? options.resume ?? newSdkSessionId,
+        session,
+        registry,
+      );
+      const decide: ReturnType<typeof buildPermissionHandler> = (name, input, opts) => {
+        const keychain = credentialSdkPermission(name, input, clientId, registry, session);
+        return keychain && !opts.forcePrompt
+          ? Promise.resolve(keychain)
+          : existingDecision(name, input, opts);
+      };
       const githubPublishing = createGithubPublishingTool(
         () => session.sessionId ?? options.resume ?? newSdkSessionId ?? '',
         registry,
@@ -1766,18 +1790,29 @@ async function _startChatInner(
             env: sessionEnv,
             abortController,
             includePartialMessages: true,
-            settingSources: ['project'],
+            settingSources: sdkCredentialBoundary ? [] : ['project'],
+            ...(sdkCredentialBoundary
+              ? {
+                  strictMcpConfig: true,
+                  spawnClaudeCodeProcess: sdkCredentialBoundary.spawnClaudeCodeProcess,
+                }
+              : {}),
             systemPrompt: {
               type: 'preset',
               preset: 'claude_code',
-              append: systemPromptAppend + WEB_ACCESS_INSTRUCTIONS + GITHUB_PUBLISHING_INSTRUCTIONS,
+              append:
+                systemPromptAppend +
+                WEB_ACCESS_INSTRUCTIONS +
+                GITHUB_PUBLISHING_INSTRUCTIONS +
+                CONNECTION_TOOL_INSTRUCTIONS,
             },
             permissionMode: MODE_TO_SDK[session.mode] as 'plan' | 'default',
             allowedTools: [
-              ...mcpAllowed,
+              ...(sdkCredentialBoundary ? [] : mcpAllowed),
               ...extraTools,
               WEB_ACCESS_SDK_TOOL,
               GITHUB_PUBLISH_SDK_TOOL,
+              'mcp__mitzo-connections__*',
             ],
             disallowedTools: ['WebSearch', 'WebFetch'],
             thinking: resolveThinking(options.model),
@@ -1785,7 +1820,11 @@ async function _startChatInner(
             ...(options.model ? { model: parseModelSpec(options.model).model } : {}),
             ...(resolvedResume ? { resume: resolvedResume } : {}),
             ...(newSdkSessionId ? { sessionId: newSdkSessionId } : {}),
-            mcpServers: { ...allMcpServers, 'mitzo-web-access': webAccess },
+            mcpServers: {
+              ...(sdkCredentialBoundary ? {} : allMcpServers),
+              'mitzo-web-access': webAccess,
+              'mitzo-connections': connectionServer,
+            },
             hooks: buildSessionPermissionHooks(decide, hooks),
             canUseTool: decide,
           },
