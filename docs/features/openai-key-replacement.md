@@ -22,7 +22,7 @@ An atomic Keychain update writes the secret and an operation receipt together, p
 the existing item's access controls. The receipt includes an integrity check kept inside
 Keychain so a password-only external edit invalidates readiness. The native helper rejects
 duplicate items, malformed coordinates and unfamiliar metadata. Values pass through its
-stdin and the gateway CLI's environment, never credential-bearing command arguments or
+stdin and the authenticated gateway API, never credential-bearing command arguments or
 temporary credential files. Errors do not forward native or upstream response bodies.
 
 `openai-key-operations.db` contains only operation IDs, configuration fingerprints,
@@ -59,11 +59,31 @@ an existing Keychain reference, `sandboxProvider`, and pinned `sandboxProviderId
 The current adapter accepts the reviewed `mitzo-openai-keychain-spike` policy only.
 Shared provider or Keychain references across configured accounts are refused.
 
-The configured OpenShell CLI must expose `provider update --expected-resource-version`
-and forward it as nonzero provider metadata to the gateway's compare-and-swap.
-Mitzo checks that capability before offering a replacement and never falls back to
-an unconditional write. The installed `0.0.116-mitzo.2` CLI does not expose it and
-requires a separately reviewed CLI update before enrollment.
+Credential writes use Mitzo's direct gRPC adapter for OpenShell's existing conditional
+`UpdateProvider` API. The CLI still supplies inventory, reviewed profile export and
+sandbox draining; it needs no conditional-update flag or patched binary. CLI and API
+provider identity/version observations must agree before candidate validation and writes.
+
+Set the controller-only `MITZO_OPENAI_KEY_GATEWAY_API_PROTOCOL=openshell-v1` after
+reviewing the selected gateway's protocol. This adapter pins the v1 wire contract at
+OpenShell commit `b4c459f92446167afcb0a2dcf7d9fa6c8945e59c`. It does not guess a different
+schema or retry a conflict against a newly read version. Unsupported contracts stay
+unavailable before Keychain changes.
+
+The first adapter supports registered HTTPS/mTLS gateways. It reads the controller's
+`$HOME/.config/openshell/gateways/<configured gateway>/metadata.json` and existing
+`mtls/{ca.crt,tls.crt,tls.key}` files, using the same HOME as the CLI runner. An explicit
+configured gateway endpoint must match that registration. It rejects writable/unowned,
+linked, oversized or changing files, nonprivate keys, invalid or expired client
+certificates, and mismatched key/certificate pairs. Endpoint and TLS material are pinned
+for the controller instance: restart after independently reviewed registration or
+certificate changes. Certificate validation stays enabled. System-only registrations,
+custom XDG locations, plaintext, OIDC and edge-token authentication require separate
+adapter support; there is no credential or destination fallback.
+
+Requests have bounded message sizes and deadlines; cancellation closes the request
+and client. Authentication, candidate keys and raw gRPC failures remain in the controller
+and never enter CLI arguments/environment, temporary files or browser status responses.
 
 Profile export uses OpenShell's canonical false defaults: its `profiles.rs` at
 commit `b4c459f92446167afcb0a2dcf7d9fa6c8945e59c` uses `serde(default,

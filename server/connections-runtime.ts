@@ -24,6 +24,7 @@ import { OpenAIEnrollmentKeychainCredentials } from './openai-account-enrollment
 import { OpenShellOpenAIEnrollmentGateway } from './openai-provider-enrollment-gateway.js';
 import { discoverOpenAIEnrollmentModels } from './openai-enrollment-models.js';
 import { KeychainRotationCredentials } from './keychain-rotation-credentials.js';
+import { OpenShellProviderKeyApi } from './openshell-key-api.js';
 import { OpenShellOpenAIKeyGateway, validateOpenAIKey } from './openai-key-gateway.js';
 import type { CommandRunner } from './connections-gateway.js';
 import { ConnectionStore } from './connections-store.js';
@@ -220,7 +221,18 @@ export function createConnectionsRuntime(options: {
       managedAccountIds: options.managedOpenAIAccountIds ?? [],
       store: new OpenAIKeyOperationStore(keyJournalPath),
       keychain: new KeychainRotationCredentials(),
-      gateway: new OpenShellOpenAIKeyGateway(runGateway, options.workspace, gateway),
+      gateway: new OpenShellOpenAIKeyGateway(
+        runGateway,
+        options.workspace,
+        gateway,
+        new OpenShellProviderKeyApi({
+          home: process.env.HOME ?? '',
+          gateway: gatewayName,
+          endpoint: options.gatewayEndpoint,
+          workspace: options.workspace,
+          protocol: process.env.MITZO_OPENAI_KEY_GATEWAY_API_PROTOCOL,
+        }),
+      ),
       validateKey: validateOpenAIKey,
       gatewayBinding,
       workspace: options.workspace,
