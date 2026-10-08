@@ -1,6 +1,7 @@
 import { CodexRequestError, CodexTransportError } from './codex-app-server-client.js';
 import { nativeFailureCategories } from './codex-native-diagnostics.js';
 import { ProviderFailureError, providerFailureTelemetry } from './provider-failure.js';
+import { CodexStartupError } from './codex-startup-error.js';
 
 const requestMethods = new Set([
   'initialize',
@@ -52,6 +53,11 @@ export function codexRuntimeDiagnostic(error: Error): string | undefined {
 
 /** Shared by startup and running turns, with bounded fields safe for logs. */
 export function codexRuntimeErrorTelemetry(error: Error): Record<string, unknown> {
+  if (error instanceof CodexStartupError)
+    return {
+      ...(error.cause instanceof Error ? codexRuntimeErrorTelemetry(error.cause) : {}),
+      ...error.telemetry(),
+    };
   if (error.message === 'Codex conversation binding unavailable or changed')
     return { conversationBindingUnavailable: true };
   if (error instanceof ProviderFailureError) return providerFailureTelemetry(error.failure);
