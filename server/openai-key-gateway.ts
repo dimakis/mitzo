@@ -155,7 +155,7 @@ export class OpenShellOpenAIKeyGateway implements OpenAIKeyGateway {
   }
 }
 
-/** Availability/auth check only: it never makes an inference call or falls back to another model. */
+/** The attended save flow discloses this bounded Luna 6 low check and its billing account. */
 export async function validateOpenAIKey(
   value: string,
   signal: AbortSignal,
@@ -170,6 +170,42 @@ export async function validateOpenAIKey(
     });
     if (!response.ok) throw new Error();
     z.object({ id: z.literal('gpt-6-luna') }).parse(await response.json());
+    const probe = await request('https://api.openai.com/v1/responses', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${value}`, 'Content-Type': 'application/json' },
+      redirect: 'error',
+      signal: AbortSignal.any([signal, AbortSignal.timeout(30000)]),
+      body: JSON.stringify({
+        model: 'gpt-6-luna',
+        reasoning: { effort: 'low' },
+        store: false,
+        max_output_tokens: 256,
+        instructions: 'Reply with exactly MITZO_KEY_OK. Do not add any other text.',
+        input: 'Verify this API credential.',
+      }),
+    });
+    if (!probe.ok) throw new Error();
+    const result = z
+      .object({
+        status: z.literal('completed'),
+        output: z.array(
+          z.object({
+            type: z.string(),
+            content: z
+              .array(z.object({ type: z.string(), text: z.string().optional() }))
+              .optional(),
+          }),
+        ),
+      })
+      .parse(await probe.json());
+    const text = result.output
+      .filter((item) => item.type === 'message')
+      .flatMap((item) => item.content ?? [])
+      .filter((item) => item.type === 'output_text')
+      .map((item) => item.text ?? '')
+      .join('')
+      .trim();
+    if (text !== 'MITZO_KEY_OK') throw new Error();
   } catch {
     throw new Error('OpenAI key validation failed');
   }

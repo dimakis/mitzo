@@ -321,12 +321,10 @@ export function createConnectionsRouter(options: {
               : await options.openAIKeys.synchronize(input, signal),
           );
         } catch {
-          return res
-            .status(422)
-            .json({
-              error:
-                'OpenAI key replacement could not be confirmed. Check the work project and Luna 6 access, then refresh the connection status.',
-            });
+          return res.status(422).json({
+            error:
+              'OpenAI key replacement could not be confirmed. Check the work project and Luna 6 access, then refresh the connection status.',
+          });
         }
       },
     );

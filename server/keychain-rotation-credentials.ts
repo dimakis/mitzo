@@ -45,18 +45,27 @@ def marker_version(marker, value):
 try:
     request = json.loads(sys.stdin.buffer.read(65537))
     for key in ['service', 'account']:
-        if not isinstance(request.get(key), str) or not 0 < len(request[key]) <= 256: raise ValueError()
+        if not isinstance(request.get(key), str) or not 0 < len(request[key]) <= 256 or '\x00' in request[key]: raise ValueError()
     query = dictionary({
         const(S,'kSecClass'): const(S,'kSecClassGenericPassword'),
         const(S,'kSecAttrService'): string(None,request['service'].encode(),0x08000100),
         const(S,'kSecAttrAccount'): string(None,request['account'].encode(),0x08000100),
         const(S,'kSecMatchLimit'): const(S,'kSecMatchLimitAll'),
         const(S,'kSecReturnAttributes'): const(F,'kCFBooleanTrue'),
-        const(S,'kSecReturnData'): const(F,'kCFBooleanTrue'),
         const(S,'kSecReturnPersistentRef'): const(F,'kCFBooleanTrue')})
     result = P()
     if copy(query,ctypes.byref(result)) != 0 or array_count(result) != 1: raise ValueError()
-    item = array_get(result,0)
+    candidate = array_get(result,0)
+    persistent_ref = dict_get(candidate,const(S,'kSecValuePersistentRef'))
+    if not persistent_ref: raise ValueError()
+    # macOS forbids returning secret data with MatchLimitAll. Read the uniquely identified item.
+    single = dictionary({const(S,'kSecClass'):const(S,'kSecClassGenericPassword'),
+        const(S,'kSecValuePersistentRef'):persistent_ref,
+        const(S,'kSecReturnAttributes'):const(F,'kCFBooleanTrue'),
+        const(S,'kSecReturnData'):const(F,'kCFBooleanTrue')})
+    current = P()
+    if copy(single,ctypes.byref(current)) != 0: raise ValueError()
+    item = current.value
     existing_value = get_bytes(dict_get(item,const(S,'kSecValueData')))
     marker = get_bytes(dict_get(item,const(S,'kSecAttrGeneric')))
     prefix = b'mitzo-openai-key-v1:'
@@ -64,14 +73,12 @@ try:
     if request['action'] == 'read':
         value = existing_value.decode('utf8')
         if not value or len(value) > 16384: raise ValueError()
-        print(json.dumps({'value':value,'version':version}))
+        print(json.dumps({'value':value,'version':version,'managed':bool(marker)}))
     elif request['action'] == 'write':
         if request['expectedVersion'] != version: raise ValueError()
         value = request['value']; version = request['version']
         if not isinstance(value,str) or not 0 < len(value) <= 16384 or str(uuid.UUID(version)) != version: raise ValueError()
-        persistent_ref = dict_get(item,const(S,'kSecValuePersistentRef'))
-        if not persistent_ref: raise ValueError()
-        target_fields = {const(S,'kSecValuePersistentRef'):persistent_ref}
+        target_fields = {const(S,'kSecClass'):const(S,'kSecClassGenericPassword'),const(S,'kSecValuePersistentRef'):persistent_ref}
         if marker: target_fields[const(S,'kSecAttrGeneric')] = bytes_ref(marker)
         target = dictionary(target_fields)
         attributes = dictionary({const(S,'kSecValueData'):bytes_ref(value.encode()),
@@ -103,9 +110,12 @@ const nativeRun: Run = (stdin, signal) =>
     child.stdin?.on('error', () => reject(new Error('Keychain unavailable')));
     child.stdin?.end(stdin);
   });
-const Secret = z
+const SecretValue = z
   .object({ value: z.string().min(1).max(16384), version: z.uuid().nullable() })
   .strict();
+const Secret = SecretValue.extend({ managed: z.boolean() }).refine(
+  (value) => value.version === null || value.managed,
+);
 export class KeychainRotationCredentials implements VersionedKeychain {
   constructor(private readonly run: Run = nativeRun) {}
   private async request(
@@ -142,7 +152,7 @@ export class KeychainRotationCredentials implements VersionedKeychain {
     expectedVersion: string | null = null,
   ) {
     try {
-      Secret.parse({ value, version });
+      SecretValue.parse({ value, version });
       z.object({ ok: z.literal(true) })
         .strict()
         .parse(await this.request(reference, 'write', signal, { value, version, expectedVersion }));

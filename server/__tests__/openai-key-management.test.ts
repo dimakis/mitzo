@@ -25,7 +25,10 @@ function fixture() {
   const path = join(directory, 'operations.db');
   const store = new OpenAIKeyOperationStore(path);
   stores.push(store);
-  let saved = { value: 'old-key', version: null as string | null };
+  let saved: { value: string; version: string | null; managed?: boolean } = {
+    value: 'old-key',
+    version: null,
+  };
   let gatewayVersion = '10';
   let gatewayKey = 'old-key';
   let accounts = [structuredClone(account)];
@@ -94,11 +97,49 @@ function fixture() {
       gatewayVersion = '99';
     },
     driftKeychain: () => {
-      saved = { value: 'changed-externally', version: null };
+      saved = { value: 'changed-externally', version: null, managed: true };
     },
   };
 }
 describe('OpenAI key replacement and recovery', () => {
+  it('does not mistake an invalidated Keychain receipt for an untouched legacy key after a write interruption', async () => {
+    const f = fixture();
+    const update = f.store.update.bind(f.store);
+    let interrupted = false;
+    vi.spyOn(f.store, 'update').mockImplementation((id, fields) => {
+      if (!interrupted && fields.phase === 'keychain_written') {
+        interrupted = true;
+        throw new Error('interrupted');
+      }
+      return update(id, fields);
+    });
+    await f.replace();
+    f.driftKeychain();
+    await f.manager.recover(signal());
+    expect(f.store.pending()).toHaveLength(1);
+    expect(f.gateway.replace).not.toHaveBeenCalled();
+    await expect(f.manager.resolveKey('work', signal())).rejects.toThrow('need attention');
+  });
+  it('revalidates the account after draining and never writes into a changed credential binding', async () => {
+    const f = fixture();
+    f.gateway.pause.mockImplementationOnce(async () => {
+      f.setAccounts([
+        { ...account, credentialRef: { ...account.credentialRef, account: 'different' } },
+      ]);
+    });
+    const result = await f.replace();
+    expect(f.keychain.write).not.toHaveBeenCalled();
+    expect(f.gateway.replace).not.toHaveBeenCalled();
+    expect(result.health).toBe('needs_attention');
+    expect(result.canSynchronize).toBe(false);
+  });
+  it('returns the same verified Keychain snapshot for host requests without a second unchecked read', async () => {
+    const f = fixture();
+    await f.replace();
+    f.keychain.read.mockClear();
+    expect(await f.manager.resolveKey('work', signal())).toBe('new-key');
+    expect(f.keychain.read).toHaveBeenCalledTimes(1);
+  });
   it('keeps the previous blocking intent if a superseding replacement fails before installation', async () => {
     const f = fixture();
     f.gateway.replace.mockRejectedValueOnce(new Error('offline'));

@@ -178,7 +178,8 @@ it('routes API accounts through the referenced secret store without passing keys
     expect(openResponsesChat).toHaveBeenCalledOnce();
     const options = vi.mocked(openResponsesChat).mock.calls[0][0];
     expect(options.apiKey).toBe('private-work-key');
-    expect(JSON.stringify(options.env)).not.toContain('key');
+    expect(JSON.stringify(options.env)).not.toContain('private-work-key');
+    expect(options.env).not.toHaveProperty('OPENAI_API_KEY');
     expect(options.env.PATH).toBe(`${join(root, 'notebooks/.venv/bin')}:${process.env.PATH}`);
     expect(options.conversationId).toBe('test-api-app');
     await expect(chat.renameSessionById('test-api-app', 'Work task')).resolves.toBeUndefined();

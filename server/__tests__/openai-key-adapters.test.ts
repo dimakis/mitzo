@@ -68,11 +68,12 @@ print(json.dumps([marker_version(request['marker'].encode(),value.encode()) for 
     expect(run).toHaveBeenCalledTimes(1);
   });
   it('accepts only the versioned helper contract and never returns native errors', async () => {
-    const run = vi.fn(async () => '{"value":"PRIVATE_KEY","version":null}');
+    const run = vi.fn(async () => '{"value":"PRIVATE_KEY","version":null,"managed":false}');
     const adapter = new KeychainRotationCredentials(run);
     expect(await adapter.read(account.credentialRef, signal())).toEqual({
       value: 'PRIVATE_KEY',
       version: null,
+      managed: false,
     });
     run.mockRejectedValueOnce(new Error('PRIVATE_KEY in stderr'));
     await expect(adapter.read(account.credentialRef, signal())).rejects.toThrow(
@@ -162,11 +163,20 @@ describe('OpenShell OpenAI credential adapter', () => {
     );
   });
 });
-describe('non-inference OpenAI validation', () => {
-  it('checks the exact requested model with no generation, tools, redirects or account fallback', async () => {
-    const request = vi.fn(
-      async () => new Response(JSON.stringify({ id: 'gpt-6-luna' }), { status: 200 }),
-    );
+describe('bounded Luna-only OpenAI validation', () => {
+  it('checks availability and then performs one low-effort Luna request without tools or fallback', async () => {
+    const request = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ id: 'gpt-6-luna' }), { status: 200 }))
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            status: 'completed',
+            output: [{ type: 'message', content: [{ type: 'output_text', text: 'MITZO_KEY_OK' }] }],
+          }),
+          { status: 200 },
+        ),
+      );
     await validateOpenAIKey('PRIVATE_KEY', signal(), request);
     expect(request).toHaveBeenCalledWith(
       'https://api.openai.com/v1/models/gpt-6-luna',
@@ -176,7 +186,28 @@ describe('non-inference OpenAI validation', () => {
         headers: { Authorization: 'Bearer PRIVATE_KEY' },
       }),
     );
-    expect(request).toHaveBeenCalledTimes(1);
+    expect(request).toHaveBeenCalledTimes(2);
+    const [url, init] = request.mock.calls[1]!;
+    expect(url).toBe('https://api.openai.com/v1/responses');
+    expect(init.method).toBe('POST');
+    expect(init.redirect).toBe('error');
+    expect(JSON.parse(init.body)).toMatchObject({
+      model: 'gpt-6-luna',
+      reasoning: { effort: 'low' },
+      store: false,
+      max_output_tokens: 256,
+    });
+    expect(JSON.parse(init.body)).not.toHaveProperty('tools');
+    expect(init.body).not.toContain('PRIVATE_KEY');
+  });
+  it('rejects keys that can list models but cannot complete an inference request', async () => {
+    const request = vi
+      .fn()
+      .mockResolvedValueOnce(new Response('{"id":"gpt-6-luna"}', { status: 200 }))
+      .mockResolvedValueOnce(new Response('PRIVATE_KEY in upstream rejection', { status: 403 }));
+    await expect(validateOpenAIKey('PRIVATE_KEY', signal(), request)).rejects.toThrow(
+      'OpenAI key validation failed',
+    );
   });
   it('redacts rejected project keys, unavailable models and malformed responses', async () => {
     for (const response of [

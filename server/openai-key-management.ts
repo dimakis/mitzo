@@ -13,7 +13,7 @@ export interface VersionedKeychain {
   read(
     reference: CredentialReference,
     signal: AbortSignal,
-  ): Promise<{ value: string; version: string | null }>;
+  ): Promise<{ value: string; version: string | null; managed?: boolean }>;
   write(
     reference: CredentialReference,
     value: string,
@@ -129,6 +129,7 @@ export class OpenAIKeyManagement {
     const knownUnpairedKey =
       !completed &&
       (keychain.version !== null ||
+        keychain.managed === true ||
         (latest?.phase === 'aborted' && latest.keychainBeforeVersion !== null));
     const needsAttention = !!pending || (!!completed && !ready) || knownUnpairedKey;
     const status: OpenAIKeyHealth = {
@@ -146,7 +147,7 @@ export class OpenAIKeyManagement {
           : null,
       verifiedAt: ready ? completed!.verifiedAt : null,
     };
-    return { status, keychain, gateway, pending, binding };
+    return { status, keychain, gateway, pending, binding, latest, completed };
   }
   async list(signal: AbortSignal): Promise<OpenAIKeyHealth[]> {
     return this.serial(async () => {
@@ -176,15 +177,24 @@ export class OpenAIKeyManagement {
   }
   /** Called while ConnectionsService holds its admission gate. Legacy unadopted keys are unchanged. */
   async assertReady(accountId: string, signal: AbortSignal) {
-    const latest = this.options.store.latest(accountId);
-    if (!latest) return;
+    if (!this.options.store.latest(accountId)) return;
     const account = this.account(accountId);
     const state = await this.state(account, signal);
+    this.checkReady(state);
+  }
+  private checkReady(state: Awaited<ReturnType<OpenAIKeyManagement['state']>>) {
+    const latest = state.latest;
+    if (!latest) {
+      if (state.status.health !== 'not_verified')
+        throw new Error('OpenAI credentials need attention');
+      return;
+    }
     const unchangedLegacy =
       latest.phase === 'aborted' &&
-      !this.options.store.completed(accountId) &&
+      !state.completed &&
       state.status.health === 'not_verified' &&
       state.keychain.version === null &&
+      state.keychain.managed !== true &&
       latest.keychainBeforeVersion === null &&
       state.gateway.version === latest.gatewayVersion;
     if (state.status.health !== 'ready' && !unchangedLegacy)
@@ -205,9 +215,10 @@ export class OpenAIKeyManagement {
   /** Host consumers participate in the same mutation fence and read the canonical item per request. */
   resolveKey(accountId: string, signal = AbortSignal.timeout(30000)): Promise<string> {
     return this.serial(async () => {
-      await this.assertReady(accountId, signal);
       const account = this.account(accountId);
-      return (await this.options.keychain.read(account.credentialRef, signal)).value;
+      const state = await this.state(account, signal);
+      this.checkReady(state);
+      return state.keychain.value;
     });
   }
   private async selected(input: Selection, signal: AbortSignal) {
@@ -293,7 +304,11 @@ export class OpenAIKeyManagement {
     try {
       await this.options.gateway.pause(account, signal);
       const current = await this.options.keychain.read(account.credentialRef, signal);
-      if (current.version !== keychain.version || current.value !== keychain.value)
+      if (
+        current.version !== keychain.version ||
+        current.value !== keychain.value ||
+        this.binding(this.account(account.id)) !== binding
+      )
         throw new Error('Keychain changed');
       await this.options.keychain.write(
         account.credentialRef,
@@ -307,7 +322,7 @@ export class OpenAIKeyManagement {
     } catch {
       this.options.store.update(operation.id, { errorCode: 'SYNC_PENDING' });
     }
-    return (await this.state(account, signal)).status;
+    return (await this.state(this.account(account.id), signal)).status;
   }
   async synchronize(input: Selection, signal: AbortSignal): Promise<OpenAIKeyHealth> {
     return this.serial(async () => {
@@ -331,7 +346,7 @@ export class OpenAIKeyManagement {
       } catch {
         this.options.store.update(operation.id, { errorCode: 'SYNC_PENDING' });
       }
-      return (await this.state(selected.account, signal)).status;
+      return (await this.state(this.account(selected.account.id), signal)).status;
     });
   }
   async recover(signal: AbortSignal) {
@@ -344,7 +359,8 @@ export class OpenAIKeyManagement {
           if (state.gateway.version !== operation.gatewayVersion) continue;
           if (
             operation.phase === 'prepared' &&
-            state.keychain.version === operation.keychainBeforeVersion
+            state.keychain.version === operation.keychainBeforeVersion &&
+            (operation.keychainBeforeVersion !== null || state.keychain.managed !== true)
           ) {
             this.options.store.update(operation.id, { phase: 'aborted', errorCode: 'NOT_APPLIED' });
           } else if (

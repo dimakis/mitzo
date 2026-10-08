@@ -196,9 +196,9 @@ function OpenAIKeyCard({
             This key belongs to the same work OpenAI project.
           </label>
           <p className="workspace-muted">
-            Checks the key and Luna 6 availability before saving. Affected sandbox chats pause
-            during the update. Key validation cannot independently identify the billing project;
-            confirm it above.
+            Runs one brief gpt-6-luna test with low reasoning, billed to {account.label}, before
+            saving. Affected sandbox chats pause during the update. Confirm the billing project
+            above.
           </p>
           <button
             className="workspace-primary"
