@@ -277,7 +277,11 @@ export async function readConnectionsAccess(
       permissions,
     };
     row.actions = [
-      { id: 'connection-controls', label: 'Open service controls', href: '/connections' },
+      {
+        id: 'connection-controls',
+        label: 'Manage service',
+        href: `/connections?manage=service&connection=${encodeURIComponent(connection.id)}`,
+      },
     ];
     result.resources.push(row);
   }
@@ -297,7 +301,11 @@ export async function readConnectionsAccess(
     row.details = connection.account ? { billing: `ChatGPT ${connection.account.planType}` } : {};
     row.access.summary = 'Personal ChatGPT connection';
     row.actions = [
-      { id: 'personal-controls', label: 'Open personal account controls', href: '/connections' },
+      {
+        id: 'personal-controls',
+        label: 'Manage account',
+        href: `/connections?manage=personal&connection=${encodeURIComponent(connection.id)}`,
+      },
     ];
     result.resources.push(row);
   }
@@ -338,7 +346,13 @@ export async function readConnectionsAccess(
           ? ['Google reads', ...(google.slidesEditing ? ['Slides editing'] : [])]
           : [],
     };
-    row.actions = [{ id: 'google-controls', label: 'Open Google controls', href: '/connections' }];
+    row.actions = [
+      {
+        id: 'google-controls',
+        label: 'Manage Google Workspace',
+        href: '/connections?manage=google',
+      },
+    ];
     result.resources.push(row);
     if (google.health === 'unavailable') {
       const source = result.sources.find((s) => s.id === 'google')!;
@@ -383,7 +397,13 @@ export async function readConnectionsAccess(
     row.status = 'operator-managed';
     row.access.summary = 'Operator-managed policy; permissions not checked';
     row.details.serviceName = serviceName(provider.name) ?? serviceName(provider.type);
-    row.actions = [{ id: 'legacy-details', label: 'Open provider details', href: '/connections' }];
+    row.actions = [
+      {
+        id: 'legacy-details',
+        label: 'Provider details',
+        href: `/connections?manage=legacy&connection=${encodeURIComponent(provider.name)}`,
+      },
+    ];
     result.resources.push(row);
   }
   return result;

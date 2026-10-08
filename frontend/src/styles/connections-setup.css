@@ -1,0 +1,244 @@
+/* Setup shares the inventory's rows, surfaces and restrained accent. */
+.connections-focused-page > .access-section,
+.connections-setup,
+.connections-complete,
+.connections-focused-page > .connections-record,
+.connections-focused-page > .connections-authorization,
+.connections-focused-page > .personal-connections {
+  max-width: 760px;
+}
+.connections-back {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  margin-bottom: 8px;
+  text-decoration: none;
+}
+.connections-back::before {
+  content: '‹';
+  font-size: 24px;
+  margin-right: 8px;
+}
+.connections-focused-page .connections-catalog {
+  display: block;
+}
+.connections-focused-page .connections-template {
+  border: 0;
+  border-bottom: 1px solid var(--workspace-line);
+  border-radius: 0;
+  background: transparent;
+}
+.connections-focused-page .connections-template:last-child {
+  border-bottom: 0;
+}
+.connections-unavailable {
+  color: var(--workspace-muted);
+  font-size: 12px;
+  flex-shrink: 0;
+}
+.connections-empty {
+  padding: 16px 20px;
+}
+.connections-progress {
+  color: var(--workspace-muted);
+  font-size: 12px;
+  margin: 26px 0 8px;
+}
+.connections-setup > h2,
+.connections-complete h2,
+.connections-record h2 {
+  margin: 0 0 20px;
+  font-size: 22px;
+  font-weight: 500;
+  letter-spacing: -0.025em;
+}
+.connections-setup h3,
+.connections-authorization h2 {
+  margin: 0 0 14px;
+  font-size: 16px;
+  font-weight: 500;
+}
+.connections-setup h3:not(:first-child) {
+  margin-top: 20px;
+}
+.connections-setup .connections-field {
+  margin: 18px 0;
+  font-size: 14px;
+}
+.connections-setup .connections-field small {
+  font-size: 12px;
+  color: var(--workspace-muted);
+  line-height: 1.5;
+}
+.connections-setup input,
+.connections-setup textarea,
+.connections-authorization input {
+  min-height: 44px;
+  font-size: 16px;
+}
+.connections-setup .connections-field label,
+.connections-setup .connections-field > small {
+  display: block;
+}
+.connections-focused-page .connections-profiles {
+  border: 0;
+  padding: 0;
+  margin: 18px 0;
+  min-width: 0;
+}
+.connections-focused-page .connections-profiles legend {
+  font-size: 12px;
+  color: var(--workspace-muted);
+  margin-bottom: 10px;
+}
+.connections-focused-page .connections-profile-option {
+  min-height: 44px;
+  padding: 8px 0;
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+.connections-focused-page .connections-profile-option input {
+  min-height: 0;
+  flex-shrink: 0;
+  accent-color: var(--workspace-accent);
+}
+.connections-review dl {
+  display: block;
+  margin: 20px 0;
+}
+.connections-review dt {
+  font-size: 12px;
+  color: var(--workspace-muted);
+  margin: 16px 0 4px;
+}
+.connections-review dd {
+  font-size: 14px;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.connections-focused-page .connections-wizard-actions {
+  margin-top: 24px;
+  gap: 12px;
+  align-items: center;
+}
+.connections-wizard-actions a.workspace-primary {
+  padding: 12px 18px;
+  color: var(--workspace-bg);
+  text-decoration: none;
+  border-radius: 8px;
+}
+.connections-authorization {
+  margin: 24px 0;
+  padding: 20px;
+  border: 1px solid var(--workspace-line);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--workspace-bg) 78%, var(--workspace-panel));
+}
+.connections-focused-page .connections-record {
+  display: block;
+  margin: 22px 0;
+  padding-bottom: 22px;
+}
+.connections-technical,
+.connections-destructive-actions {
+  margin: 20px 0;
+  font-size: 13px;
+}
+.connections-technical summary,
+.connections-destructive-actions summary {
+  min-height: 44px;
+  display: list-item;
+  align-content: center;
+  color: var(--workspace-muted);
+}
+.connections-technical dl {
+  overflow-wrap: anywhere;
+}
+.connections-technical dd {
+  margin: 4px 0 12px;
+}
+.connections-focused-page .connections-actions button,
+.connections-focused-page .connections-remove-confirm button {
+  min-height: 44px;
+}
+.personal-connections-focused {
+  border: 0;
+  padding: 0;
+  margin: 24px 0;
+}
+.personal-connections-focused h2 {
+  font-size: 22px;
+  font-weight: 500;
+}
+.personal-connections-focused .personal-connection-card {
+  border-top: 0;
+}
+.personal-connections-focused input {
+  font-size: 16px;
+}
+.connections-focused-page button:focus-visible,
+.connections-focused-page a:focus-visible,
+.connections-focused-page summary:focus-visible {
+  outline: 2px solid var(--workspace-accent);
+  outline-offset: 4px;
+}
+.connections-focused-page h2[tabindex='-1']:focus {
+  outline: 0;
+}
+.access-row[data-new-connection='true'] {
+  background: color-mix(in srgb, var(--workspace-accent) 10%, transparent);
+}
+@media (max-width: 600px) {
+  .connections-focused-page .access-row {
+    grid-template-columns: 34px minmax(0, 1fr);
+    gap: 4px 12px;
+  }
+  .connections-focused-page .access-row-icon {
+    grid-row: 1;
+  }
+  .connections-focused-page .access-row-action,
+  .connections-focused-page .connections-unavailable {
+    grid-column: 2;
+    grid-row: 2;
+    justify-self: start;
+    padding-left: 0;
+  }
+  .connections-focused-page .access-row-copy p {
+    font-size: 13px;
+  }
+  .connections-focused-page .access-row-action {
+    min-height: 44px;
+    font-size: 13px;
+  }
+  .connections-authorization {
+    padding: 16px;
+  }
+}
+.connections-focused-page .connections-wizard-actions[hidden] {
+  display: none;
+}
+@media (max-width: 520px) {
+  .connections-authorization .connections-wizard-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}
+.connections-focused-page .connections-wizard-actions {
+  justify-content: space-between;
+}
+.connections-focused-page .connections-wizard-actions > button {
+  flex: 0 1 auto;
+}
+.connections-authorization .connections-wizard-actions .workspace-text-link {
+  background: transparent;
+  border-color: transparent;
+  color: var(--workspace-muted);
+}
+.connections-focused-page .connections-capabilities h3 {
+  font-size: 16px;
+  font-weight: 500;
+  margin: 0 0 10px;
+}
+.connections-focused-page .connections-capabilities .workspace-muted {
+  font-size: 13px;
+}

@@ -10,6 +10,7 @@ interface ContentBlock {
   input?: Record<string, unknown>;
   content?: string | Array<ContentItem>;
   tool_use_id?: string;
+  is_error?: boolean;
 }
 
 interface ContentItem {
@@ -25,6 +26,7 @@ interface ParsedToolCall {
 }
 
 interface ParsedToolResult {
+  isError: boolean;
   toolId: string;
   result: string;
 }
@@ -76,6 +78,7 @@ export function parseContentBlocks(blocks: ContentBlock[]): ParsedContent {
       const rt = extractToolResultText(block.content);
       toolResults.push({
         toolId: block.tool_use_id || '',
+        isError: block.is_error === true,
         result: rt.slice(0, TOOL_RESULT_MAX_CHARS),
       });
     }

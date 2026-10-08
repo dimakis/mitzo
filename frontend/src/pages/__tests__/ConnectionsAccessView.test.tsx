@@ -1083,3 +1083,45 @@ it('keeps service identity and credential checks accessible without an invented 
   ).toBeTruthy();
   expect(dialog.queryByRole('region', { name: 'Sign-in details' })).toBeNull();
 });
+
+it('reveals the created service on return without claiming current chat access', async () => {
+  vi.mocked(getConnectionsAccess).mockResolvedValue({
+    generatedAt: Date.now(),
+    sources: [{ id: 'managed', state: 'available', reason: null }],
+    resources: [
+      {
+        id: 'managed-new',
+        nativeId: 'new-service',
+        kind: 'managed-connection',
+        section: 'services',
+        provider: 'jira',
+        label: 'Research Jira',
+        owner: 'managed-connections',
+        gateway: 'primary',
+        workspace: null,
+        revision: 1,
+        status: 'active',
+        accountIdentity: 'me@example.com',
+        verification: { state: 'verified', verifiedAt: Date.now(), reason: null },
+        access: {
+          summary: 'Read issues',
+          desiredAccountIds: ['work'],
+          observedAttachments: null,
+          appliesTo: 'New conversations',
+        },
+        actions: [],
+        details: {},
+      },
+    ],
+  });
+  render(
+    <MemoryRouter initialEntries={['/connections-access?connected=new-service']}>
+      <ConnectionsAccessView />
+    </MemoryRouter>,
+  );
+  const row = await screen.findByRole('article', { name: 'Research Jira' });
+  await waitFor(() => expect(row.getAttribute('data-new-connection')).toBe('true'));
+  expect(document.activeElement).toBe(row);
+  expect(screen.getByRole('status').textContent).toContain('Research Jira is listed below');
+  expect(screen.queryByText('Chat access verified')).toBeNull();
+});

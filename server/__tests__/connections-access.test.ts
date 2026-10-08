@@ -85,7 +85,9 @@ describe('nonsecret Connections & access inventory', () => {
       result.resources.filter((r) => r.kind === 'legacy-provider').map((r) => r.nativeId),
     ).toEqual(['other']);
     expect(
-      result.resources.flatMap((r) => r.actions).every((action) => action.href === '/connections'),
+      result.resources
+        .flatMap((r) => r.actions)
+        .every((action) => action.href.startsWith('/connections?manage=')),
     ).toBe(true);
     expect(JSON.stringify(result)).not.toMatch(/SECRET|credentialRef|\/private\/secret/);
     expect(
@@ -395,4 +397,20 @@ it('retains the catalog facet and unavailable relationship when personal reads f
   expect(inventory.resources).toHaveLength(1);
   expect(inventory.resources[0]).toMatchObject({ personalConnection: { state: 'unavailable' } });
   expect(inventory.sources.find((source) => source.id === 'personal')!.state).toBe('unavailable');
+});
+
+it('routes management actions to the owning resource instead of the add chooser', async () => {
+  const result = await readConnectionsAccess({
+    ...sources(),
+    managed: () => [{ ...connection, id: 'service/a&b' }],
+    google: async () => ({ health: 'ready', expiresAt: 10000, slidesEditing: true }),
+  });
+  const action = (kind: string) =>
+    result.resources.find((row) => row.kind === kind)!.actions[0].href;
+  expect(action('managed-connection')).toBe(
+    '/connections?manage=service&connection=service%2Fa%26b',
+  );
+  expect(action('personal-connection')).toBe('/connections?manage=personal&connection=same');
+  expect(action('google-workspace')).toBe('/connections?manage=google');
+  expect(action('legacy-provider')).toBe('/connections?manage=legacy&connection=other');
 });

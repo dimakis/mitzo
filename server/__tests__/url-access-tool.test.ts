@@ -5,6 +5,8 @@ vi.mock('@mitzo/harness', async (original) => ({
   ...(await original<typeof import('@mitzo/harness')>()),
   buildPermissionHandler: () => approve,
 }));
+import { WebAccessError } from '../request-web-access.js';
+import { ApprovedUrlRedirect } from '../approved-url-fetch.js';
 import { createUrlAccessTool, clearUrlAccessGrants } from '../url-access-tool.js';
 beforeEach(() => {
   approve.mockReset();
@@ -199,4 +201,110 @@ it('invalidates all URL approvals at a model-selection transition without a fetc
   clearUrlAccessGrants(f.session);
   expect(await f.tool.fetch(input.url, new AbortController().signal)).toBeUndefined();
   expect(f.fetch).not.toHaveBeenCalled();
+});
+
+it.each(['allow', 'deny'] as const)(
+  'continues a granted-origin redirect only after explicit destination %s',
+  async (behavior) => {
+    const f = fixture();
+    const source = {
+      operation: 'request_access',
+      url: 'http://localhost:8123/start',
+      reason: 'Read local page',
+    };
+    approve.mockImplementation(async (_name, input) => ({
+      behavior: 'allow',
+      updatedInput: input,
+    }));
+    await f.tool.request(source, new AbortController().signal);
+    approve.mockImplementation(async (_name, input) => ({ behavior, updatedInput: input }));
+    f.fetch
+      .mockRejectedValueOnce(new ApprovedUrlRedirect('http://localhost:9999/destination?q=one'))
+      .mockResolvedValue('destination page');
+    const result = await f.tool.fetch(source.url, new AbortController().signal);
+    expect(approve).toHaveBeenCalledTimes(2);
+    expect(approve.mock.calls[1][1]).toMatchObject({
+      url: 'http://localhost:9999/destination?q=one',
+      origin: 'http://localhost:9999',
+      resolvedAddresses: ['127.0.0.1'],
+    });
+    expect(approve.mock.calls[1][2].title).toBe('Approve redirected destination?');
+    expect(f.fetch).toHaveBeenCalledTimes(behavior === 'allow' ? 2 : 1);
+    expect(result?.isError).toBe(behavior === 'deny');
+    if (behavior === 'allow') expect(f.fetch.mock.calls[1][1].origin).toBe('http://localhost:9999');
+  },
+);
+it.each(['revoked', 'expired', 'account', 'cancelled'])(
+  'stops a redirected read when the source is %s during approval',
+  async (change) => {
+    const f = fixture();
+    const abort = new AbortController();
+    const input = { operation: 'request_access', url: 'https://example.com/', reason: 'why' };
+    approve.mockImplementation(async (_name, input) => ({
+      behavior: 'allow',
+      updatedInput: input,
+    }));
+    await f.tool.request(input, abort.signal);
+    f.fetch.mockRejectedValueOnce(new ApprovedUrlRedirect('https://other.example/'));
+    approve.mockImplementation(async (_name, payload) => {
+      if (change === 'revoked')
+        await f.tool.request({ ...input, operation: 'revoke_access' }, abort.signal);
+      if (change === 'expired') f.expire();
+      if (change === 'account') f.session.accountBinding!.accountId = 'other';
+      if (change === 'cancelled') abort.abort();
+      return { behavior: 'allow', updatedInput: payload };
+    });
+    expect(await f.tool.fetch(input.url, abort.signal)).toMatchObject({ isError: true });
+    expect(f.fetch).toHaveBeenCalledOnce();
+  },
+);
+
+it('retires a source grant when a changed account is observed after a pending read', async () => {
+  const f = fixture();
+  approve.mockImplementation(async (_name, input) => ({ behavior: 'allow', updatedInput: input }));
+  const input = { operation: 'request_access', url: 'https://example.com/', reason: 'why' };
+  await f.tool.request(input, new AbortController().signal);
+  f.fetch.mockImplementation(async () => {
+    f.session.accountBinding!.accountId = 'other';
+    return 'page';
+  });
+  expect(await f.tool.fetch(input.url, new AbortController().signal)).toMatchObject({
+    isError: true,
+  });
+  f.session.accountBinding!.accountId = 'a';
+  expect(await f.tool.fetch(input.url, new AbortController().signal)).toBeUndefined();
+});
+
+it('continues an A to B to A redirect after explicit reapproval of A', async () => {
+  const f = fixture();
+  approve.mockImplementation(async (_name, input) => ({ behavior: 'allow', updatedInput: input }));
+  const input = { operation: 'request_access', url: 'https://example.com/start', reason: 'why' };
+  await f.tool.request(input, new AbortController().signal);
+  f.fetch
+    .mockRejectedValueOnce(new ApprovedUrlRedirect('https://other.example/'))
+    .mockRejectedValueOnce(new ApprovedUrlRedirect('https://example.com/final'))
+    .mockResolvedValue('final page');
+  expect(await f.tool.fetch(input.url, new AbortController().signal)).toEqual({
+    isError: false,
+    content: 'final page',
+  });
+  expect(approve).toHaveBeenCalledTimes(3);
+  expect(f.fetch).toHaveBeenCalledTimes(3);
+});
+
+it('returns only fixed granted read errors to the UI and agent', async () => {
+  const f = fixture();
+  approve.mockImplementation(async (_name, input) => ({ behavior: 'allow', updatedInput: input }));
+  const input = { operation: 'request_access', url: 'https://example.com/', reason: 'why' };
+  await f.tool.request(input, new AbortController().signal);
+  f.fetch.mockRejectedValueOnce(
+    new WebAccessError('The website refused the approved read (HTTP 403).'),
+  );
+  expect(await f.tool.fetch(input.url, new AbortController().signal)).toEqual({
+    content: 'The website refused the approved read (HTTP 403).',
+    isError: true,
+  });
+  f.fetch.mockRejectedValueOnce(new Error('secret credential'));
+  const result = await f.tool.fetch(input.url, new AbortController().signal);
+  expect(result?.content).not.toContain('secret');
 });
