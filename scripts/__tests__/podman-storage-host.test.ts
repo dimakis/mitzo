@@ -36,6 +36,10 @@ function fake(platform = 'darwin') {
     if (exe === 'cat' || args.includes('cat')) return 'guest-machine-id\n';
     if (exe === 'stat' || args.includes('stat')) return 'fs-id\n';
     if (exe === 'findmnt' || args.includes('findmnt')) return '/dev/vda4\n';
+    if (exe === 'df' && platform === 'darwin' && args.includes('-i'))
+      return args.includes('-P')
+        ? 'Filesystem 1024-blocks Used Available Capacity Mounted on\n/dev/vda4 1000 900 100 90% /guest\n'
+        : 'Filesystem 1024-blocks Used Available Capacity iused ifree %iused Mounted on\n/dev/vda4 1000 900 100 90% 100 900 10% /guest\n';
     if (exe === 'df' || args.includes('df'))
       return args.includes('-i')
         ? 'Filesystem Inodes IUsed IFree IUse% Mounted\n/dev/vda4 1000 100 900 10% /guest\n'
@@ -57,6 +61,7 @@ describe('selected store guest telemetry', () => {
     expect(s.complete).toBe(true);
     expect(s.telemetry.guest.freeBytes).toBe(102400);
     expect(s.telemetry.guest.freeInodes).toBe(900);
+    expect(s.telemetry.host.freeInodes).toBe(900);
     expect(s.store.graphRoot).toBe('/guest/store');
     expect(s.store.machineId).toBe('guest-machine-id');
     expect(f.calls).toContainEqual([
@@ -155,6 +160,38 @@ describe('selected store guest telemetry', () => {
   });
   it('rejects invalid filesystem statistics', async () => {
     await expect(measureFilesystem('/store', async () => 'bad df')).rejects.toThrow();
+  });
+  it('parses actual macOS inode columns without portable mode suppressing them', async () => {
+    const calls: string[][] = [];
+    const blocks =
+      'Filesystem   1024-blocks      Used Available Capacity  Mounted on\n/dev/disk3s5   971350180 870695904  31623248    97% /System/Volumes/Data\n';
+    const inodes =
+      'Filesystem   1024-blocks      Used Available Capacity  iused     ifree %iused  Mounted on\n/dev/disk3s5   971350180 870695904  31623248    97% 20821239 316232480    6%   /System/Volumes/Data\n';
+    const measured = await measureFilesystem(
+      '/vm/disk.raw',
+      async (_exe, args) => {
+        calls.push(args);
+        return args.includes('-i') && !args.includes('-P') ? inodes : blocks;
+      },
+      { platform: 'darwin' },
+    );
+    expect(measured.freeBytes).toBe(31623248 * 1024);
+    expect(measured.freeInodes).toBe(316232480);
+    expect(measured.totalInodes).toBe(20821239 + 316232480);
+    expect(calls).toContainEqual(['-k', '-i', '--', '/vm/disk.raw']);
+  });
+  it('rejects macOS block-only output as missing inode evidence', async () => {
+    const output =
+      'Filesystem 1024-blocks Used Available Capacity Mounted on\n/dev/disk3s5 1000 900 100 90% /Data\n';
+    await expect(
+      measureFilesystem('/vm/disk.raw', async () => output, { platform: 'darwin' }),
+    ).rejects.toThrow('inode');
+  });
+  it('keeps Linux guest inode parsing distinct from the Mac host', async () => {
+    const f = fake('linux');
+    const measured = await measureFilesystem('/guest/store', f.run, { platform: 'linux' });
+    expect(measured.freeInodes).toBe(900);
+    expect(f.calls).toContainEqual(['df', ['-i', '-P', '--', '/guest/store']]);
   });
   it('refuses guest paths that would be interpreted by machine SSH shell joining', async () => {
     const f = fake();

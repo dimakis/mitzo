@@ -76,11 +76,43 @@ function dfRow(text) {
     throw Error('Invalid filesystem measurement');
   return { source: parts[0], total, available };
 }
-export async function measureFilesystem(path, run = runCommand) {
+function inodeRow(text, platform) {
+  const rows = text.trim().split('\n');
+  if (rows.length !== 2) throw Error('Ambiguous inode measurement');
+  const header = rows[0].trim().split(/\s+/);
+  if (platform === 'linux') {
+    if (header.slice(0, 4).join(' ') !== 'Filesystem Inodes IUsed IFree')
+      throw Error('Missing Linux inode columns');
+    return dfRow(text);
+  }
+  if (platform !== 'darwin') throw Error('Unsupported inode measurement platform');
+  const usedColumn = header.indexOf('iused');
+  const freeColumn = header.indexOf('ifree');
+  if (usedColumn < 0 || freeColumn !== usedColumn + 1) throw Error('Missing macOS inode columns');
+  const parts = rows[1].trim().split(/\s+/);
+  const used = Number(parts[usedColumn]);
+  const available = Number(parts[freeColumn]);
+  const total = used + available;
+  if (
+    !parts[0] ||
+    ![used, available, total].every(Number.isSafeInteger) ||
+    used < 0 ||
+    available < 0 ||
+    total <= 0
+  )
+    throw Error('Invalid macOS inode measurement');
+  return { source: parts[0], total, available };
+}
+export async function measureFilesystem(
+  path,
+  run = runCommand,
+  { platform = process.platform } = {},
+) {
   if (typeof path !== 'string' || !path.startsWith('/') || /[\n\r\0]/.test(path))
     throw Error('Invalid filesystem path');
   const bytes = dfRow(await run('df', ['-k', '-P', '--', path]));
-  const inodes = dfRow(await run('df', ['-i', '-P', '--', path]));
+  const inodeArgs = platform === 'darwin' ? ['-k', '-i', '--', path] : ['-i', '-P', '--', path];
+  const inodes = inodeRow(await run('df', inodeArgs), platform);
   if (bytes.source !== inodes.source) throw Error('Filesystem changed during measurement');
   return {
     status: 'available',
@@ -171,7 +203,9 @@ export async function collectStore(
       guest = (exe, args) => command('podman', ['machine', 'ssh', selection.machine, exe, ...args]);
       if (selection.hostBackingPath) {
         try {
-          s.telemetry.host = await measureFilesystem(selection.hostBackingPath, command);
+          s.telemetry.host = await measureFilesystem(selection.hostBackingPath, command, {
+            platform,
+          });
         } catch (error) {
           s.telemetry.host = { status: 'unavailable', reason: error.message };
         }
@@ -199,7 +233,7 @@ export async function collectStore(
     };
     // From here on, a connection alias/config change cannot retarget inventory.
     p = verifiedPrefix(selection, s.store);
-    s.telemetry.guest = await measureFilesystem(root, guest);
+    s.telemetry.guest = await measureFilesystem(root, guest, { platform: 'linux' });
     if (selection.local)
       s.telemetry.host = {
         status: 'not-applicable',
