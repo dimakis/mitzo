@@ -35,6 +35,22 @@ account/inference provider attached at sandbox creation. The separately configur
 service-provider list accepts only Mitzo's reviewed non-inference allowlist. Raw
 credential values are never accepted by the runtime configuration.
 
+Managed Connections and ordinary runtime admission share the reviewed profile
+adapters in `server/connections/runtime-profiles.ts`. A template is attachable
+only when both its registry contract and runtime adapter are supported. Runtime
+attestation obtains connection policy from the current connection store and
+reviewed compiler, binds it to the exact gateway provider name, ID and type, and
+rechecks that authority after observing the effective sandbox policy. Gateway
+exports are observations, never the source of permission authority. Custom REST
+profiles retain their compiled endpoint, credential mapping and DNS constraints;
+an explicitly approved on-demand attachment is checked against its current binding.
+
+First-turn preparation and provider dispatch are separate diagnostic boundaries.
+A rejected policy or other preparation failure before native `turn/start` is
+reported as preparation failure with no provider turn started. Once dispatch has
+been attempted, failure retains the unknown-outcome warning and existing recovery
+rules. Public policy diagnostics use a fixed message rather than gateway output.
+
 Runtime recovery has two distinct durable strategies. An SSH/app-server exit marks
 in-flight work interrupted, retains queued work, creates a fresh transport after
 explicit recovery acknowledgement, and resumes the exact persisted provider thread.

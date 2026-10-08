@@ -252,7 +252,10 @@ describe('OpenShellConnectionGateway', () => {
     ).toBe(true);
   });
   it('requires and verifies the reviewed effective built-in GitHub profile before use', async () => {
-    const profile = 'id: github\nendpoints:\n  - host: api.github.com\n';
+    const profile = readFileSync(
+      resolve('infra/openshell/providers/github-reviewed-profile.json'),
+      'utf8',
+    );
     const runner = vi.fn().mockResolvedValue(profile);
     const gateway = new OpenShellConnectionGateway(runner, {
       workspace: 'default',
@@ -276,7 +279,7 @@ describe('OpenShellConnectionGateway', () => {
       'yaml',
     ]);
     const broadened = new OpenShellConnectionGateway(
-      vi.fn().mockResolvedValue(`${profile}binaries:\n  - /bin/sh\n`),
+      vi.fn().mockResolvedValue(JSON.stringify({ ...JSON.parse(profile), binaries: ['/bin/sh'] })),
       {
         workspace: 'default',
         probeImage: 'image',
@@ -290,6 +293,25 @@ describe('OpenShellConnectionGateway', () => {
         signal,
       ),
     ).rejects.toThrow('differs');
+  });
+  it('rejects configured GitHub bytes fingerprints whose materialization differs from runtime authority', async () => {
+    const profile = JSON.parse(
+      readFileSync(resolve('infra/openshell/providers/github-reviewed-profile.json'), 'utf8'),
+    );
+    profile.binaries.push('/bin/sh');
+    const exported = JSON.stringify(profile);
+    const gateway = new OpenShellConnectionGateway(vi.fn().mockResolvedValue(exported), {
+      workspace: 'default',
+      probeImage: 'image',
+      githubProbePolicy: 'policy',
+      githubProfileFingerprint: githubProfileFingerprint(exported),
+    });
+    await expect(
+      gateway.verifyCompatibility(
+        { templateId: 'github-readonly', templateVersion: 1, policy: githubPolicy },
+        signal,
+      ),
+    ).rejects.toThrow('reviewed');
   });
   it.each([
     { label: 'missing', credentialKeys: [] },

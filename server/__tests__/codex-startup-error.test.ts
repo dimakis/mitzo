@@ -3,6 +3,8 @@ import { CodexStartupError } from '../codex-startup-error.js';
 import { CodexRequestError } from '../codex-app-server-client.js';
 import { publicCodexStartupError } from '../codex-chat-session.js';
 import { codexRuntimeErrorTelemetry } from '../codex-runtime-diagnostics.js';
+import { RuntimePolicyAttestationError } from '../openshell-runtime-policy.js';
+import { KnowledgePublicationUnavailableError } from '../knowledge-publication-bridge.js';
 
 it('identifies sandbox preparation failures without inventing queued work', () => {
   const cause = Object.assign(new Error('ssh PRIVATE_COMMAND: no space left. Bearer sk-secret'), {
@@ -105,4 +107,44 @@ it('keeps the resource reason when first send wraps an existing runtime failure'
     startupErrorCode: 'ENOSPC',
     diagnosticId: error.diagnosticId,
   });
+});
+
+it('identifies a known first-turn preparation rejection without claiming an unknown outcome', () => {
+  const error = new CodexStartupError(
+    'initial_turn_preparation',
+    new Error('PRIVATE_COMMAND Bearer sk-secret'),
+  );
+  expect(publicCodexStartupError(error)).toContain('first turn preparation');
+  expect(publicCodexStartupError(error)).toContain('No provider turn was started.');
+  expect(publicCodexStartupError(error)).not.toMatch(
+    /unknown|inspect saved work|PRIVATE_COMMAND|sk-secret/,
+  );
+  expect(codexRuntimeErrorTelemetry(error)).toMatchObject({
+    startupPhase: 'initial_turn_preparation',
+    diagnosticId: error.diagnosticId,
+  });
+});
+
+it('reports an attestation rejection with a safe stable policy diagnostic', () => {
+  const cause = new RuntimePolicyAttestationError(
+    'Runtime policy PRIVATE_COMMAND Bearer sk-secret',
+  );
+  const error = new CodexStartupError('initial_turn_preparation', cause);
+  const message = publicCodexStartupError(error);
+  expect(message).toContain('observed sandbox policy differs from the reviewed runtime contract');
+  expect(message).toContain('No provider turn was started.');
+  expect(message).not.toMatch(/PRIVATE_COMMAND|sk-secret|unknown/);
+  expect(codexRuntimeErrorTelemetry(error)).toMatchObject({ runtimePolicyAttestationFailed: true });
+  expect(JSON.stringify(codexRuntimeErrorTelemetry(error))).not.toMatch(
+    /PRIVATE_COMMAND|sk-secret/,
+  );
+});
+
+it('never repeats a no-turn claim inside an uncertain dispatch failure', () => {
+  const error = new CodexStartupError(
+    'initial_turn_dispatch',
+    new KnowledgePublicationUnavailableError(),
+  );
+  expect(publicCodexStartupError(error)).toContain('outcome may be unknown');
+  expect(publicCodexStartupError(error)).not.toContain('No provider turn was started');
 });

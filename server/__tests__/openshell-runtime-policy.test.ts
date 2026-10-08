@@ -1,6 +1,12 @@
+import { readFileSync } from 'node:fs';
+import { load } from 'js-yaml';
+import { connectionTemplateRegistry } from '../connections/registry.js';
+import { renderCustomRestProfile } from '../connections-gateway.js';
+import { supportsConnectionRuntimeTemplate } from '../connections/runtime-profiles.js';
 import { expect, it } from 'vitest';
 import { attestEffectiveRuntimePolicy, runtimePolicyHash } from '../openshell-runtime-policy.js';
-import { base, fixture } from './fixtures/effective-runtime-policy.js';
+import { base, fixture, type Profile } from './fixtures/effective-runtime-policy.js';
+import type { RuntimePolicyProvider } from '../openshell-runtime-policy.js';
 it('attests the actual canary serializer/profile materialization without losing base or credential inspection', () => {
   const f = fixture();
   const result = attestEffectiveRuntimePolicy(base, f.observed, f.providers);
@@ -148,4 +154,120 @@ it('attests the reviewed endpointless ordinary subscription provider without add
   expect(f.observed.network_policies._provider_mitzo_keychain_v2).toEqual({
     name: '_provider_mitzo_keychain_v2',
   });
+});
+
+function managedFixture(
+  type: string,
+  profile: Profile,
+  connectionPolicy?: ReturnType<typeof connectionTemplateRegistry.compileProviderPolicy>,
+) {
+  const f = fixture();
+  const exported: Profile = { ...profile, resource_version: 7, source: 'user', scope: 'workspace' };
+  const name = 'mitzo-conn-managed';
+  const key = '_provider_mitzo_conn_managed';
+  f.observed.network_policies[key] = {
+    name: key,
+    endpoints: structuredClone(exported.endpoints) as Record<string, unknown>[],
+    binaries: (exported.binaries as string[]).map((path) => ({ path })),
+  };
+  const providers: (RuntimePolicyProvider & { profile: Profile })[] = [
+    ...f.providers,
+    { name, id: 'managed-provider-id', type, profile: exported, connectionPolicy },
+  ];
+  return { observed: f.observed, providers };
+}
+it('attests automatic Jira using the same reviewed connection compiler contract', () => {
+  const profile = load(
+    readFileSync(
+      new URL('../../infra/openshell/providers/mitzo-jira-readonly.yaml', import.meta.url),
+      'utf8',
+    ),
+  ) as Profile;
+  const f = managedFixture('jira-readonly', profile);
+  expect(attestEffectiveRuntimePolicy(base, f.observed, f.providers).providers[1]).toMatchObject({
+    type: 'jira-readonly',
+    source: 'user',
+    scope: 'workspace',
+    resourceVersion: 7,
+  });
+  const endpoints = f.providers[1].profile.endpoints as {
+    rules: { allow: { method: string } }[];
+  }[];
+  endpoints[0].rules[0].allow.method = 'POST';
+  f.observed.network_policies._provider_mitzo_conn_managed.endpoints = structuredClone(endpoints);
+  expect(() => attestEffectiveRuntimePolicy(base, f.observed, f.providers)).toThrow();
+});
+it('attests generated custom connections only against independently supplied compiled policy', () => {
+  const policy = connectionTemplateRegistry.compileProviderPolicy({
+    templateId: 'custom-rest-readonly',
+    templateVersion: 1,
+    fields: {
+      endpoint: 'https://api.github.com',
+      port: '443',
+      protocol: 'rest',
+      methods: ['GET'],
+      paths: ['/v1/**'],
+      credentialStyle: 'api-token',
+      credentialLocation: 'query',
+      credentialName: 'api_key',
+      binaries: ['curl'],
+      attachmentMode: 'automatic',
+      dnsPin: ['93.184.216.34'],
+    },
+  });
+  const rendered = renderCustomRestProfile(policy);
+  const profile = load(rendered.yaml) as Profile;
+  const f = managedFixture(rendered.id, profile, policy);
+  expect(attestEffectiveRuntimePolicy(base, f.observed, f.providers).providers).toHaveLength(2);
+  for (const field of ['allowed_ips', 'rules', 'allow_uninspected_credentials']) {
+    const drifted = managedFixture(rendered.id, structuredClone(profile), policy);
+    const endpoint = (drifted.providers[1].profile.endpoints as Record<string, unknown>[])[0];
+    endpoint[field] =
+      field === 'allowed_ips'
+        ? ['8.8.8.8']
+        : field === 'rules'
+          ? [{ allow: { method: 'POST', path: '/v1/**' } }]
+          : true;
+    drifted.observed.network_policies._provider_mitzo_conn_managed.endpoints = structuredClone(
+      drifted.providers[1].profile.endpoints,
+    ) as Record<string, unknown>[];
+    expect(() => attestEffectiveRuntimePolicy(base, drifted.observed, drifted.providers)).toThrow();
+  }
+  const badPolicy = {
+    ...policy,
+    endpoints: policy.endpoints.map((endpoint) => ({
+      ...endpoint,
+      allowedBinaries: [...endpoint.allowedBinaries, '/usr/bin/unknown'],
+    })),
+  };
+  const mismatched = managedFixture(rendered.id, profile, badPolicy);
+  expect(() =>
+    attestEffectiveRuntimePolicy(base, mismatched.observed, mismatched.providers),
+  ).toThrow();
+  delete f.providers[1].connectionPolicy;
+  expect(() => attestEffectiveRuntimePolicy(base, f.observed, f.providers)).toThrow();
+});
+
+it('keeps every registered connection template bound to a reviewed runtime adapter', () => {
+  for (const template of connectionTemplateRegistry.providerTemplates()) {
+    expect(supportsConnectionRuntimeTemplate(template.id, template.version)).toBe(true);
+    expect(supportsConnectionRuntimeTemplate(template.id, template.version + 1)).toBe(false);
+  }
+  expect(supportsConnectionRuntimeTemplate('unreviewed-new-template', 1)).toBe(false);
+});
+it('accepts only documented false Jira protobuf defaults while preserving exact layer checks', () => {
+  const profile = load(
+    readFileSync(
+      new URL('../../infra/openshell/providers/mitzo-jira-readonly.yaml', import.meta.url),
+      'utf8',
+    ),
+  ) as Profile;
+  const endpoints = profile.endpoints as Record<string, unknown>[];
+  endpoints[0].request_body_credential_rewrite = false;
+  endpoints[0].allow_uninspected_credentials = false;
+  const f = managedFixture('jira-readonly', profile);
+  expect(attestEffectiveRuntimePolicy(base, f.observed, f.providers).providers).toHaveLength(2);
+  (f.providers[1].profile.endpoints as Record<string, unknown>[])[0].allow_uninspected_credentials =
+    true;
+  expect(() => attestEffectiveRuntimePolicy(base, f.observed, f.providers)).toThrow();
 });

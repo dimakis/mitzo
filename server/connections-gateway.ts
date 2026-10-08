@@ -1,10 +1,22 @@
+import {
+  customEndpoint,
+  customRestProfileId,
+  renderCustomRestProfile,
+  validateCustomRestProfileYaml,
+  validateJiraProfileYaml,
+  supportsConnectionRuntimeTemplate,
+  validateGithubRuntimeProfileYaml,
+} from './connections/runtime-profiles.js';
+export {
+  customRestProfileId,
+  renderCustomRestProfile,
+  validateCustomRestProfileYaml,
+  validateJiraProfileYaml,
+} from './connections/runtime-profiles.js';
 import { createHash, randomUUID } from 'node:crypto';
-import { isIP } from 'node:net';
-import { isDeepStrictEqual } from 'node:util';
 import { readFileSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { dump, load } from 'js-yaml';
 import { z } from 'zod';
 import { isValidEmailAddress } from './connections/email.js';
 import type { ProviderPolicy } from './connections/types.js';
@@ -42,103 +54,6 @@ const Provider = z.object({
   type: z.string().min(1),
   credential_keys: z.array(z.string()).optional(),
 });
-const JiraProfile = z
-  .object({
-    id: z.literal('jira-readonly'),
-    // Gateway import may advance the durable resource version; policy semantics do not change.
-    resource_version: z.number().int().positive(),
-    display_name: z.string().min(1),
-    description: z.string().min(1),
-    category: z.literal('data'),
-    inference_capable: z.literal(false),
-    credentials: z
-      .array(
-        z
-          .object({
-            name: z.literal('api_token'),
-            description: z.string().min(1),
-            env_vars: z.tuple([z.literal('JIRA_API_TOKEN')]),
-            required: z.literal(true),
-            auth_style: z.literal('basic'),
-            header_name: z.literal('authorization'),
-            // OpenShell serializes its default rather than skipping this field.
-            query_param: z.literal('').optional(),
-          })
-          .strict(),
-      )
-      .length(1),
-    endpoints: z
-      .array(
-        z
-          .object({
-            host: z.literal('api.atlassian.com'),
-            port: z.literal(443),
-            protocol: z.literal('rest'),
-            enforcement: z.literal('enforce'),
-            tls: z.literal('terminate'),
-            rules: z.tuple([
-              z
-                .object({
-                  allow: z
-                    .object({
-                      method: z.literal('GET'),
-                      path: z.literal(
-                        '/ex/jira/2b9e35e3-6bd3-4cec-b838-f4249ee02432/rest/api/2/**',
-                      ),
-                    })
-                    .strict(),
-                })
-                .strict(),
-              z
-                .object({
-                  allow: z
-                    .object({
-                      method: z.literal('HEAD'),
-                      path: z.literal(
-                        '/ex/jira/2b9e35e3-6bd3-4cec-b838-f4249ee02432/rest/api/2/**',
-                      ),
-                    })
-                    .strict(),
-                })
-                .strict(),
-              z
-                .object({
-                  allow: z
-                    .object({
-                      method: z.literal('GET'),
-                      path: z.literal(
-                        '/ex/jira/2b9e35e3-6bd3-4cec-b838-f4249ee02432/rest/api/3/**',
-                      ),
-                    })
-                    .strict(),
-                })
-                .strict(),
-              z
-                .object({
-                  allow: z
-                    .object({
-                      method: z.literal('HEAD'),
-                      path: z.literal(
-                        '/ex/jira/2b9e35e3-6bd3-4cec-b838-f4249ee02432/rest/api/3/**',
-                      ),
-                    })
-                    .strict(),
-                })
-                .strict(),
-            ]),
-          })
-          .strict(),
-      )
-      .length(1),
-    binaries: z
-      .array(z.enum(['/usr/bin/python3', '/usr/bin/curl', '/usr/local/bin/curl']))
-      .length(3)
-      .refine((value) => new Set(value).size === 3, 'Jira profile binaries must be unique'),
-    // Gateway metadata is not policy input, but must remain a bounded scalar projection.
-    source: z.string().max(256).optional(),
-    scope: z.string().max(256).optional(),
-  })
-  .strict();
 const ProfileList = z.array(z.object({ id: z.string().min(1) }).passthrough());
 const ProbeSandboxName = /^mzp-[a-f0-9]{15}$/;
 const CleanupProbeSandboxName = /^(?:mzp-[a-f0-9]{15}|mitzo-probe-[a-f0-9]{16})$/;
@@ -149,14 +64,6 @@ export function githubProfileFingerprint(value: string) {
   return createHash('sha256').update(value.replace(/\r\n/g, '\n')).digest('hex');
 }
 
-/** The profile is a security policy, so approximate matches are unsafe. */
-export function validateJiraProfileYaml(value: string): void {
-  try {
-    JiraProfile.parse(load(value));
-  } catch {
-    throw new Error('Reviewed Jira profile differs from required policy');
-  }
-}
 export interface CommandRunner {
   (
     args: readonly string[],
@@ -320,167 +227,6 @@ function assertPinnedDnsSupported(policy: ProviderPolicy) {
   }
 }
 
-const customPathLiteralSegment = /^[A-Za-z0-9._~:@!$&'()+,;=-]+$/;
-function isCanonicalCustomPath(path: string) {
-  if (path === '/') return true;
-  const segments = path.slice(1).split('/');
-  return (
-    path.startsWith('/') &&
-    !path.endsWith('/') &&
-    segments.every(
-      (segment, index) =>
-        (segment === '**' && index === segments.length - 1) ||
-        (segment !== '**' && customPathLiteralSegment.test(segment)),
-    )
-  );
-}
-function customEndpoint(policy: ProviderPolicy) {
-  if (
-    policy.templateId !== CUSTOM_REST_TEMPLATE_ID ||
-    policy.templateVersion !== 1 ||
-    policy.endpoints.length !== 1
-  )
-    throw new Error('Invalid custom REST policy');
-  const endpoint = policy.endpoints[0]!;
-  const host = endpoint.host.toLowerCase();
-  if (
-    !endpoint.dns ||
-    endpoint.dns.mode !== 'pinned-public-only' ||
-    endpoint.dns.hostname !== endpoint.host ||
-    endpoint.dns.verifyAt !== 'provision-and-every-use' ||
-    endpoint.dns.rejectRebinding !== true ||
-    endpoint.host !== host ||
-    host.endsWith('.') ||
-    host === 'localhost' ||
-    host.endsWith('.localhost') ||
-    host.endsWith('.local') ||
-    host.endsWith('.internal') ||
-    host.includes('*') ||
-    isIP(host) !== 0 ||
-    !/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/.test(
-      host,
-    ) ||
-    endpoint.redirects !== 'deny' ||
-    endpoint.tls !== 'terminate' ||
-    ![443, 8443].includes(endpoint.port) ||
-    !['rest', 'graphql'].includes(endpoint.protocol) ||
-    !endpoint.allowedBinaries.includes('/usr/bin/curl') ||
-    endpoint.allowedBinaries.some(
-      (path) => !['/usr/bin/curl', '/usr/bin/jq', '/usr/bin/python3'].includes(path),
-    ) ||
-    endpoint.rules.length === 0 ||
-    endpoint.rules.length > 24 ||
-    endpoint.rules.some(
-      (rule) =>
-        !isCanonicalCustomPath(rule.path) ||
-        (endpoint.protocol === 'rest' && !['GET', 'HEAD', 'OPTIONS'].includes(rule.method)) ||
-        (endpoint.protocol === 'graphql' &&
-          (rule.method !== 'GRAPHQL_QUERY' || rule.path !== '/graphql')),
-    )
-  )
-    throw new Error('Invalid custom REST policy');
-  return endpoint;
-}
-
-/** Stable, code-owned profile identifier. User input cannot name a profile. */
-export function customRestProfileId(policy: ProviderPolicy) {
-  const endpoint = customEndpoint(policy);
-  const pinnedIps = policy.publicConfig.dnsPin;
-  if (
-    !Array.isArray(pinnedIps) ||
-    pinnedIps.length === 0 ||
-    pinnedIps.some((ip) => typeof ip !== 'string')
-  )
-    throw new Error('Custom endpoint DNS pin is unavailable');
-  const digest = createHash('sha256')
-    .update(
-      JSON.stringify({
-        host: endpoint.host,
-        port: endpoint.port,
-        protocol: endpoint.protocol,
-        allowedIps: pinnedIps,
-        rules: endpoint.rules,
-        binaries: endpoint.allowedBinaries,
-        credentialStyle: policy.publicConfig.credentialStyle,
-        credentialLocation: policy.publicConfig.credentialLocation,
-        credentialName: policy.publicConfig.credentialName,
-      }),
-    )
-    .digest('hex')
-    .slice(0, 20);
-  return `mitzo-custom-rest-${digest}`;
-}
-
-/** Generated only from a compiled policy; browser YAML is never parsed or imported. */
-export function renderCustomRestProfile(policy: ProviderPolicy) {
-  const endpoint = customEndpoint(policy);
-  const pinnedIps = policy.publicConfig.dnsPin;
-  if (
-    !Array.isArray(pinnedIps) ||
-    pinnedIps.length === 0 ||
-    pinnedIps.some((ip) => typeof ip !== 'string')
-  )
-    throw new Error('Custom endpoint DNS pin is unavailable');
-  const style = policy.publicConfig.credentialStyle;
-  const location = policy.publicConfig.credentialLocation;
-  const name = policy.publicConfig.credentialName;
-  if (
-    (style !== 'bearer-token' && style !== 'api-token') ||
-    (location !== 'header' && location !== 'query') ||
-    typeof name !== 'string' ||
-    !['authorization', 'x-api-key', 'api_key', 'access_token'].includes(name) ||
-    (style === 'bearer-token' && (location !== 'header' || name !== 'authorization')) ||
-    (location === 'header' && name !== 'authorization' && name !== 'x-api-key') ||
-    (location === 'query' && name !== 'api_key' && name !== 'access_token')
-  )
-    throw new Error('Invalid custom credential mapping');
-  const profile = {
-    id: customRestProfileId(policy),
-    resource_version: 1,
-    display_name: 'Mitzo custom REST read-only',
-    description: 'Mitzo-generated bounded custom API policy',
-    category: 'data',
-    inference_capable: false,
-    credentials: [
-      {
-        name: 'api_token',
-        description: 'One-shot custom API token',
-        env_vars: ['MITZO_CUSTOM_API_TOKEN'],
-        required: true,
-        auth_style: style === 'bearer-token' ? 'bearer' : 'api_key',
-        ...(location === 'header' ? { header_name: name } : { query_param: name }),
-      },
-    ],
-    endpoints: [
-      {
-        host: endpoint.host,
-        port: endpoint.port,
-        protocol: endpoint.protocol,
-        // The egress proxy checks this exact allowlist at connect time, so a
-        // resolver answer changing after controller verification cannot
-        // redirect a credential-bearing request.
-        allowed_ips: pinnedIps,
-        enforcement: 'enforce',
-        tls: 'terminate',
-        rules: endpoint.rules.map((rule) => ({ allow: rule })),
-      },
-    ],
-    binaries: endpoint.allowedBinaries,
-  };
-  return { id: profile.id, yaml: dump(profile, { noRefs: true, lineWidth: -1, sortKeys: false }) };
-}
-
-/** Existing deterministic IDs are not proof that gateway state still matches policy. */
-export function validateCustomRestProfileYaml(value: string, policy: ProviderPolicy): void {
-  try {
-    const expected = load(renderCustomRestProfile(policy).yaml);
-    const actual = load(value);
-    if (!isDeepStrictEqual(actual, expected)) throw new Error('mismatch');
-  } catch {
-    throw new Error('Installed custom REST profile differs from compiled policy');
-  }
-}
-
 function safeOutput(value: string) {
   try {
     return Provider.array()
@@ -519,7 +265,7 @@ export class OpenShellConnectionGateway implements ConnectionGateway {
     },
   ) {}
   supportsTemplate(templateId: string, templateVersion: number) {
-    if (templateVersion !== 1) return false;
+    if (!supportsConnectionRuntimeTemplate(templateId, templateVersion)) return false;
     if (templateId === JIRA_TEMPLATE_ID) return true;
     if (templateId === CUSTOM_REST_TEMPLATE_ID)
       return (
@@ -693,6 +439,7 @@ export class OpenShellConnectionGateway implements ConnectionGateway {
           ],
           actualSignal,
         );
+        validateGithubRuntimeProfileYaml(exported);
         if (githubProfileFingerprint(exported) !== expected)
           throw new Error('Effective GitHub profile differs from reviewed policy');
         return;
