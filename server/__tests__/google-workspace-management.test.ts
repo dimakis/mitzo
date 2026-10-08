@@ -363,7 +363,10 @@ describe('Google Workspace management', () => {
           });
         return original(args, options);
       });
-      expect((await service.status(AbortSignal.timeout(1000))).health).toBe('unavailable');
+      const status = await service.status(AbortSignal.timeout(1000));
+      expect(status.health).toBe('unavailable');
+      if (failure === 'replaced' || failure === 'changed_revision')
+        expect(status.providerIdentity).toBeUndefined();
     },
   );
   it.each(['rotate', 'reconnect'])(
@@ -450,7 +453,11 @@ describe('Google Workspace management', () => {
   it('reports refresh health and Slides access without secret material', async () => {
     const { service } = fixture();
     const result = await service.status(AbortSignal.timeout(1000));
-    expect(result).toMatchObject({ health: 'ready', slidesEditing: true });
+    expect(result).toMatchObject({
+      health: 'ready',
+      slidesEditing: true,
+      providerIdentity: { id: 'google-id', workspace: 'default' },
+    });
     expect(JSON.stringify(result)).not.toContain('SECRET');
   });
   it('rejects an account switch before updating the gateway', async () => {

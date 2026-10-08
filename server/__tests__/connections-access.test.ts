@@ -256,6 +256,51 @@ it('reconciles provider records only when their current identifiers and workspac
   }
 });
 
+it.each([
+  ['google-id', 'default', 'default', 0],
+  ['replacement-id', 'default', 'default', 1],
+  [undefined, 'default', 'default', 1],
+  ['google-id', undefined, 'default', 1],
+  ['google-id', 'other', 'default', 1],
+  ['google-id', 'default', 'other', 1],
+] as const)(
+  'reconciles Google only with the policy-checked provider ID and workspace (%s, %s, %s)',
+  async (id, workspace, checkedWorkspace, legacyCount) => {
+    const inventory = await readConnectionsAccess({
+      gateway: 'primary',
+      workspace: 'default',
+      google: async () => ({
+        health: 'ready',
+        expiresAt: null,
+        slidesEditing: true,
+        providerIdentity: { id: 'google-id', workspace: checkedWorkspace },
+      }),
+      legacy: async () => [
+        { name: 'google-workspace', type: 'mitzo-google-workspace-spike', id, workspace },
+      ],
+    });
+    expect(inventory.resources.filter((row) => row.kind === 'legacy-provider')).toHaveLength(
+      legacyCount,
+    );
+  },
+);
+it('keeps a Google provider separate when health omitted its checked identity', async () => {
+  const inventory = await readConnectionsAccess({
+    gateway: 'primary',
+    workspace: 'default',
+    google: async () => ({ health: 'ready', expiresAt: null, slidesEditing: true }),
+    legacy: async () => [
+      {
+        name: 'google-workspace',
+        type: 'mitzo-google-workspace-spike',
+        id: 'google-id',
+        workspace: 'default',
+      },
+    ],
+  });
+  expect(inventory.resources.filter((row) => row.kind === 'legacy-provider')).toHaveLength(1);
+});
+
 it('includes the current Symposium catalog with owner-scoped identity even when native account IDs match', async () => {
   const inventory = await readConnectionsAccess({
     ...sources(),

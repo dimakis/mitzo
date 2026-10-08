@@ -179,6 +179,8 @@ export interface GoogleWorkspaceHealth {
   health: 'ready' | 'needs_sign_in' | 'unavailable' | 'not_configured';
   expiresAt: number | null;
   slidesEditing: boolean;
+  /** The stable provider whose policy was checked by this observation. */
+  providerIdentity?: { id: string; workspace: string };
 }
 export class GoogleWorkspaceManagement {
   private busy = false;
@@ -272,6 +274,9 @@ export class GoogleWorkspaceManagement {
         expiresAt: current?.expires_at_ms ?? null,
         // Both observations verified all read boundaries and bounded Slides rules.
         slidesEditing: true,
+        ...(before.id === after.id && before.resource_version === after.resource_version
+          ? { providerIdentity: { id: after.id, workspace: after.workspace } }
+          : {}),
       };
     } catch {
       return { health: 'unavailable', expiresAt: null, slidesEditing: false };

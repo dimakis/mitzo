@@ -365,7 +365,10 @@ export async function readConnectionsAccess(
           google.health !== 'not_configured' &&
           google.health !== 'unavailable' &&
           provider.name === 'google-workspace' &&
-          (provider.workspace === undefined || provider.workspace === workspace)))
+          google.providerIdentity !== undefined &&
+          provider.id === google.providerIdentity.id &&
+          provider.workspace === google.providerIdentity.workspace &&
+          google.providerIdentity.workspace === workspace))
     )
       continue;
     const row = base(

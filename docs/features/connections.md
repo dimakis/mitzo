@@ -63,7 +63,9 @@ provider ID and observed workspace must be present and match the managed record.
 merge records. A distinct or uncertain GitHub provider is labelled **additional
 connection**; unknown identities and permissions remain explicitly unchecked.
 Google Workspace's unused management integration does not create an extra row or
-warning alongside an existing configured Google provider.
+warning alongside an existing configured Google provider. Its management row can
+replace a provider listing only when the policy-checked provider ID and workspace
+match that listing; a provider replaced between reads stays separate.
 
 Unused inventory integrations produce no warning cards. A configured source
 that fails to load still offers retry, preserving older account evidence where
