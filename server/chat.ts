@@ -4066,13 +4066,13 @@ export interface RawSdkMessage {
 export function reconstructMessages(rawMessages: RawSdkMessage[]): RestoredMessage[] {
   let blockCounter = 0;
 
-  const toolResultMap = new Map<string, string>();
+  const toolResultMap = new Map<string, { result: string; isError: boolean }>();
   for (const m of rawMessages) {
     const content = m.message?.content;
     if (!Array.isArray(content)) continue;
     const parsed = parseContentBlocks(content);
     for (const tr of parsed.toolResults) {
-      toolResultMap.set(tr.toolId, tr.result);
+      toolResultMap.set(tr.toolId, { result: tr.result, isError: tr.isError });
     }
   }
 
@@ -4112,7 +4112,10 @@ export function reconstructMessages(rawMessages: RawSdkMessage[]): RestoredMessa
           toolName: tc.toolName,
           toolId: tc.toolId,
           toolInput: tc.input,
-          toolResult: toolResultMap.get(tc.toolId),
+          toolResult: toolResultMap.get(tc.toolId)?.result,
+          ...(toolResultMap.has(tc.toolId)
+            ? { toolError: toolResultMap.get(tc.toolId)!.isError }
+            : {}),
         });
       }
     } else {

@@ -60,6 +60,16 @@ export function getRawInput(
 
 export function summarizeToolInput(toolName: string, input: Record<string, unknown>): string {
   switch (toolName) {
+    case 'RequestWebAccess':
+    case 'mcp__mitzo-web-access__RequestWebAccess':
+      // Keep valid JSON for web presentation and restored history. Bound fields
+      // before serialization; slicing serialized JSON corrupts long requests.
+      return JSON.stringify({
+        operation: typeof input.operation === 'string' ? input.operation.slice(0, 20) : undefined,
+        url: typeof input.url === 'string' ? input.url.slice(0, 4000) : undefined,
+        query: typeof input.query === 'string' ? input.query.slice(0, 2000) : undefined,
+        reason: typeof input.reason === 'string' ? input.reason.slice(0, 1000) : undefined,
+      });
     case 'Read':
       return `${input.file_path || ''}`;
     case 'Write':

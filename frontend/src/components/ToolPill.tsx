@@ -5,6 +5,7 @@ import { getToolStatus, type ToolBlock } from '../lib/tool-status';
 import { SubagentCard } from './SubagentCard';
 import { CodeBlock } from './CodeBlock';
 import { artifactViewerUrl } from '../lib/file-paths';
+import { webAccessOutcome, webAccessSummary } from '../lib/web-access-outcome';
 import { GoogleSearchResult } from './GoogleSearchResult';
 
 interface Props {
@@ -138,6 +139,8 @@ export function ToolPill({ block, sessionId }: Props) {
   const detailId = useId();
   const { done, hasError } = getToolStatus(block);
   const input = block.toolInput || '';
+  const webOutcome = webAccessOutcome(block);
+  const webSummary = webAccessSummary(input);
 
   const handlePopOut = useCallback(
     (filePath: string) => {
@@ -153,7 +156,7 @@ export function ToolPill({ block, sessionId }: Props) {
     >
       <button
         type="button"
-        className="tool-pill-header"
+        className={`tool-pill-header${webOutcome ? ' tool-pill-header--web' : ''}`}
         onClick={() => setExpanded((e) => !e)}
         aria-expanded={expanded}
         aria-controls={detailId}
@@ -161,10 +164,16 @@ export function ToolPill({ block, sessionId }: Props) {
         <span
           className={`tool-pill-dot ${done ? (hasError ? 'tool-pill-dot--error' : 'tool-pill-dot--done') : 'tool-pill-dot--pending'}`}
         />
-        <span className="tool-pill-name">{block.toolName}</span>
-        <span className="tool-pill-input">{input}</span>
-        {!done && <span className="tool-pill-status">Running...</span>}
-        {done && hasError && <span className="tool-pill-status">Failed</span>}
+        <span className="tool-pill-name">{webOutcome ? webSummary.name : block.toolName}</span>
+        <span className="tool-pill-input">{webOutcome ? webSummary.target : input}</span>
+        {webOutcome ? (
+          <span className="tool-pill-status">{webOutcome}</span>
+        ) : (
+          <>
+            {!done && <span className="tool-pill-status">Running...</span>}
+            {done && hasError && <span className="tool-pill-status">Failed</span>}
+          </>
+        )}
         <span className="tool-pill-chevron">{expanded ? '▾' : '▸'}</span>
       </button>
       {['RequestWebAccess', 'mcp__mitzo-web-access__RequestWebAccess'].includes(
