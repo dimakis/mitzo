@@ -27,6 +27,7 @@ import {
   SESSION_PERMISSION_INSTRUCTIONS,
 } from './session-permission-policy.js';
 import { credentials } from './credentials.js';
+import { getConnectionsRuntime } from './connections-runtime.js';
 import {
   getResponsesRuntime,
   openResponsesChat,
@@ -1689,6 +1690,17 @@ async function _startChatInner(
         binding: accountBinding!,
         apiKey,
         gemini,
+        ...(accountBinding?.provider === 'openai' &&
+        getConnectionsRuntime()?.openAIKeys?.manages(accountBinding.accountId)
+          ? {
+              getApiKey: async (signal?: AbortSignal) => {
+                loadAccountProfiles().resume(accountBinding!);
+                const manager = getConnectionsRuntime()?.openAIKeys;
+                if (!manager) throw new Error('OpenAI credential management is unavailable');
+                return manager.resolveKey(accountBinding!.accountId, signal);
+              },
+            }
+          : {}),
         selectedModel: options.model,
         reasoningEffort: options.reasoningEffort,
         session,

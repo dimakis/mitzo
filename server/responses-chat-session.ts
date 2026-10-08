@@ -105,6 +105,7 @@ interface Options {
   conversationId: string;
   binding: AccountBinding;
   apiKey?: string;
+  getApiKey?: (signal?: AbortSignal) => Promise<string>;
   selectedModel?: string;
   reasoningEffort?: string | null;
   gemini?: GeminiOptions;
@@ -167,6 +168,7 @@ export async function openResponsesChat(options: Options) {
     conversationId: options.conversationId,
     binding: options.binding,
     apiKey: options.apiKey,
+    getApiKey: options.getApiKey,
     gemini: options.gemini,
     store: privateStorage,
     systemPrompt:
@@ -193,10 +195,18 @@ export async function openResponsesChat(options: Options) {
           if (block.name === REQUEST_GITHUB_PUBLISH)
             return githubPublishing(input, signal, { turnId: publishingTurnId, callId: block.id });
           if (block.name === REQUEST_WEB_ACCESS) {
-            return createWebAccessTool(options.conversationId, options.registry, (query, signal) =>
-              options.gemini
-                ? searchGemini(query, signal, options.gemini, runner.getSelectedModel())
-                : searchOpenAI(query, signal, options.apiKey!, runner.getSelectedModel()),
+            return createWebAccessTool(
+              options.conversationId,
+              options.registry,
+              async (query, signal) =>
+                options.gemini
+                  ? searchGemini(query, signal, options.gemini, runner.getSelectedModel())
+                  : searchOpenAI(
+                      query,
+                      signal,
+                      options.getApiKey ? await options.getApiKey(signal) : options.apiKey!,
+                      runner.getSelectedModel(),
+                    ),
             )(input, signal);
           }
           const owner = options.registry.findBySessionId(options.conversationId);

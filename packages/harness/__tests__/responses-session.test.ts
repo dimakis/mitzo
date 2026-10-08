@@ -50,6 +50,33 @@ async function collect(session: ResponsesSession, messages = prompt) {
 afterEach(() => vi.unstubAllGlobals());
 
 describe('ResponsesSession', () => {
+  it('refreshes an enrolled credential on each request and never falls back after resolver failure', async () => {
+    const fetcher = vi.fn().mockImplementation(async () => response(textEvents()));
+    vi.stubGlobal('fetch', fetcher);
+    const getApiKey = vi
+      .fn()
+      .mockResolvedValueOnce('current-key')
+      .mockResolvedValueOnce('replacement-key')
+      .mockRejectedValueOnce(new Error('synchronization pending'));
+    const session = new ResponsesSession(config, {
+      accountId: 'work',
+      apiKey: 'startup-key',
+      getApiKey,
+    });
+    await collect(session);
+    await collect(session, [
+      ...session.checkpoint().history,
+      { role: 'user', content: 'Continue.' },
+    ]);
+    expect(fetcher.mock.calls.map(([, init]) => init.headers.Authorization)).toEqual([
+      'Bearer current-key',
+      'Bearer replacement-key',
+    ]);
+    await expect(
+      collect(session, [...session.checkpoint().history, { role: 'user', content: 'Next.' }]),
+    ).rejects.toThrow('synchronization pending');
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
   it('requires explicit API credentials and rejects Anthropic thinking options', () => {
     expect(() => new ResponsesSession(config, { accountId: 'personal', apiKey: '' })).toThrow(
       /API key/,

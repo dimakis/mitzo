@@ -45,6 +45,8 @@ export interface ResponsesSessionOptions {
   accountId: string;
   /** Explicit API credential resolved by the server; never inferred from another account. */
   apiKey: string;
+  /** Enrolled rotation uses a fresh, account-bound secret for every request. Failure never falls back. */
+  getApiKey?: (signal?: AbortSignal) => Promise<string>;
   checkpoint?: ResponsesCheckpoint;
 }
 
@@ -377,11 +379,15 @@ export class ResponsesSession implements ModelSession {
     let failed = false;
     let responseReceived = false;
     try {
+      const apiKey = this.options.getApiKey
+        ? await this.options.getApiKey(this.config.signal)
+        : this.options.apiKey;
+      if (!apiKey.trim()) throw new Error('OpenAI API credential unavailable');
       const response = await fetch('https://api.openai.com/v1/responses', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${this.options.apiKey}`,
+          Authorization: `Bearer ${apiKey}`,
         },
         signal: this.config.signal,
         body: JSON.stringify({

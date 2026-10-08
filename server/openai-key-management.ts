@@ -173,6 +173,20 @@ export class OpenAIKeyManagement {
     if ((await this.state(account, signal)).status.health !== 'ready')
       throw new Error('OpenAI credentials need attention');
   }
+  manages(accountId: string) {
+    return (
+      this.options.managedAccountIds?.includes(accountId) ??
+      this.options.accounts().some((account) => account.id === accountId)
+    );
+  }
+  /** Host consumers participate in the same mutation fence and read the canonical item per request. */
+  resolveKey(accountId: string, signal = AbortSignal.timeout(30000)): Promise<string> {
+    return this.serial(async () => {
+      await this.assertReady(accountId, signal);
+      const account = this.account(accountId);
+      return (await this.options.keychain.read(account.credentialRef, signal)).value;
+    });
+  }
   private async selected(input: Selection, signal: AbortSignal) {
     if (!input.sameProject) throw new Error('Confirm the same work project');
     const account = this.account(input.accountId);
