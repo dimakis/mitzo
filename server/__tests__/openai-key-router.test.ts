@@ -28,7 +28,7 @@ describe('OpenAI credential management routes', () => {
         openAIKeys: manager as never,
       }),
     );
-    const post = (body: unknown) =>
+    const post = (body: Record<string, unknown>) =>
       request(app)
         .post('/api/connections/openai-keys/work/replace')
         .set('x-browser', 'yes')

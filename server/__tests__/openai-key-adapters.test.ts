@@ -45,7 +45,9 @@ print(json.dumps([marker_version(request['marker'].encode(),value.encode()) for 
     expect(JSON.parse(result.stdout)).toEqual([version, null]);
   });
   it('uses stdin for the key and writes an atomic version marker rather than secret argv', async () => {
-    const run = vi.fn(async () => '{"ok":true}');
+    const run = vi.fn<(stdin: string, signal: AbortSignal) => Promise<string>>(
+      async () => '{"ok":true}',
+    );
     const adapter = new KeychainRotationCredentials(run);
     await adapter.write(
       account.credentialRef,
