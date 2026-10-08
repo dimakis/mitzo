@@ -20,6 +20,8 @@ const requestMethods = new Set([
 
 /** Only fixed diagnostics from typed errors; never relay upstream exception text. */
 export function codexRuntimeDiagnostic(error: Error): string | undefined {
+  if (error.message === 'OpenShell ChatGPT grant is expired, revoked, or requires sign-in')
+    return 'The selected ChatGPT connection needs a fresh sign-in. Reconnect that account before retrying.';
   if (error instanceof RuntimePolicyAttestationError)
     return 'The observed sandbox policy differs from the reviewed runtime contract. Check runtime configuration before retrying.';
   if (error.message === 'Codex startup provider initialization outcome is unverified')
@@ -56,6 +58,8 @@ export function codexRuntimeDiagnostic(error: Error): string | undefined {
 
 /** Shared by startup and running turns, with bounded fields safe for logs. */
 export function codexRuntimeErrorTelemetry(error: Error): Record<string, unknown> {
+  if (error.message === 'OpenShell ChatGPT grant is expired, revoked, or requires sign-in')
+    return { subscriptionSignInRequired: true };
   if (error instanceof RuntimePolicyAttestationError)
     return { runtimePolicyAttestationFailed: true };
   if (error instanceof CodexStartupError)

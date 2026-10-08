@@ -87,6 +87,7 @@ import {
 } from '../codex-chat-session.js';
 import { KnowledgePublicationUnavailableError } from '../knowledge-publication-bridge.js';
 import { CodexRequestError } from '../codex-app-server-client.js';
+import { CodexStartupError } from '../codex-startup-error.js';
 import { RuntimePolicyAttestationError } from '../openshell-runtime-policy.js';
 import { OpenShellRuntimeManager } from '../openshell-runtime.js';
 import * as migrationAdapter from '../openshell-runtime-migration-adapter.js';
@@ -146,6 +147,15 @@ it('reports startup request failures without discarding their safe category', ()
   expect(publicCodexStartupError(error)).toMatch(/credentials or permissions/);
   expect(publicCodexStartupError(new Error('Bearer sk-secret'))).toBe(
     'Codex could not start this chat. Check runtime and account configuration before continuing.',
+  );
+});
+it('keeps fresh-sign-in advice when sandbox preparation rejects a subscription grant', () => {
+  const error = new CodexStartupError(
+    'sandbox_preparation',
+    new Error('OpenShell ChatGPT grant is expired, revoked, or requires sign-in'),
+  );
+  expect(publicCodexStartupError(error)).toBe(
+    `Chat startup failed during sandbox preparation. The selected ChatGPT connection needs a fresh sign-in. Reconnect that account before retrying. Reference: ${error.diagnosticId}`,
   );
 });
 it('scopes capability idempotency to the authoritative conversation identity', () => {
