@@ -73,14 +73,13 @@ export class OpenShellOpenAIKeyGateway implements OpenAIKeyGateway {
       ConnectionGateway,
       'attachments' | 'stopSandbox' | 'sandboxStopped'
     >,
+    private readonly api: Pick<OpenAIKeyGateway, 'inspect' | 'replace'>,
   ) {}
   private command(args: string[], signal: AbortSignal, env: Record<string, string> = {}) {
     return this.run(args, { signal, env, timeoutMs: 30000 });
   }
   async inspect(account: ManagedOpenAIAccount, signal: AbortSignal) {
     try {
-      const updateHelp = await this.command(['provider', 'update', '--help'], signal);
-      if (!/--expected-resource-version\s+</.test(updateHelp)) throw new Error();
       const inventory = z
         .array(z.object({ name: z.string() }).passthrough())
         .parse(
@@ -117,6 +116,8 @@ export class OpenShellOpenAIKeyGateway implements OpenAIKeyGateway {
           ),
         ),
       );
+      const api = await this.api.inspect(account, signal);
+      if (api.version !== provider.resource_version) throw new Error();
       return { version: provider.resource_version };
     } catch {
       throw new Error('OpenAI provider binding changed');
@@ -141,27 +142,17 @@ export class OpenShellOpenAIKeyGateway implements OpenAIKeyGateway {
   ) {
     const before = await this.inspect(account, signal);
     if (before.version !== expectedVersion) throw new Error('OpenAI provider binding changed');
+    let acknowledged: { version: string };
     try {
-      await this.command(
-        [
-          'provider',
-          'update',
-          account.providerName,
-          '--workspace',
-          this.workspace,
-          '--expected-resource-version',
-          expectedVersion,
-          '--credential',
-          'OPENAI_API_KEY',
-        ],
-        signal,
-        { OPENAI_API_KEY: value },
-      );
+      acknowledged = await this.api.replace(account, value, expectedVersion, signal);
     } catch {
       throw new Error('OpenAI gateway update could not be confirmed');
     }
     const after = await this.inspect(account, signal);
-    if (BigInt(after.version) !== BigInt(before.version) + 1n)
+    if (
+      after.version !== acknowledged.version ||
+      BigInt(after.version) !== BigInt(before.version) + 1n
+    )
       throw new Error('OpenAI gateway update could not be confirmed');
     return after;
   }
