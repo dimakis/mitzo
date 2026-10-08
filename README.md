@@ -1012,3 +1012,16 @@ The [operating procedure](docs/operations/canonical-staging.md) describes integr
 checks, exact-commit preparation, plan/apply updates, private audit/snapshots and uncertain
 shutdown handling. Staging operations keep production and retained diagnostic resources
 outside their scope; provider setup is separate.
+
+### Host Podman image maintenance
+
+`node scripts/podman-storage.mjs status|plan|apply --selection FILE` provides
+explicit image retention and guest bytes/inode telemetry, with a separate
+measurement of the host filesystem backing the selected VM. Cleanup requires
+reviewed store, producer and protection enrollment; it preserves container image
+ancestry, retained checkpoint/custodian images, supervisor/rollback pins and
+unclassified data. Exact-ID removal uses no force or recursive parent pruning.
+Managed producers and pin updates share the host maintenance lock and durable
+audit. See [storage reclamation operations](docs/operations/podman-storage-reclamation.md)
+for enrollment, plan/output arguments and real-run acceptance. Periodic cleanup,
+allocation admission and conversation-retention activation are separate changes.
