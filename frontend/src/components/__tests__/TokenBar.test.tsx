@@ -12,6 +12,15 @@ function makeState(overrides: Partial<TokenState> = {}): TokenState {
     numTurns: 0,
     turnIndex: 0,
     numCompactions: 0,
+    tokenLimits:
+      (overrides.contextCeiling ?? 200000) > 0
+        ? {
+            model: 'reported-model',
+            source: 'runtime',
+            contextWindow: overrides.contextCeiling ?? 200000,
+            stale: false,
+          }
+        : null,
     ...overrides,
   };
 }
@@ -132,6 +141,18 @@ describe('TokenBar', () => {
 
 describe('context wheel', () => {
   afterEach(cleanup);
+
+  it('retains legacy replayed counts without trusting a ceiling that has no capacity evidence', () => {
+    const { container } = render(
+      <TokenBar
+        tokenState={makeState({ agentContext: 12000, turnIndex: 1, tokenLimits: undefined })}
+      />,
+    );
+    expect(container.querySelector('.token-wheel-fill')).toBeNull();
+    expect(container.querySelector('.token-bar--unknown')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Token usage' }));
+    expect(screen.getByText('12,000 / limit not reported')).toBeTruthy();
+  });
 
   it.each([
     [50000, 75],

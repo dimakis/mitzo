@@ -313,6 +313,70 @@ describe('token_update emission', () => {
     expect(resolveTokenLimits).not.toHaveBeenCalled();
   });
 
+  it.each(['model', 'account'])(
+    'clears occupancy immediately on a zero-usage %s transition',
+    async (change) => {
+      let before: Record<string, unknown> | undefined;
+      let whilePending: Record<string, unknown> | undefined;
+      const resolveTokenLimits = vi
+        .fn()
+        .mockResolvedValueOnce({
+          model: 'old',
+          source: 'catalog',
+          contextWindow: 100000,
+          stale: false,
+        })
+        .mockImplementation(() => new Promise(() => {}));
+      async function* events() {
+        registry.get(clientId)!.accountBinding = {
+          accountId: 'first',
+          accountLabel: 'First',
+          provider: 'openai',
+          profileRevision: 'a',
+          model: 'old',
+        };
+        yield {
+          type: 'stream_event',
+          event: {
+            type: 'message_start',
+            message: { model: 'old', usage: { input_tokens: 1000 } },
+          },
+        };
+        await Promise.resolve();
+        before = transport.sent.filter((e) => e.type === 'token_update').at(-1);
+        if (change === 'account')
+          registry.get(clientId)!.accountBinding = {
+            accountId: 'second',
+            accountLabel: 'Second',
+            provider: 'openai',
+            profileRevision: 'b',
+            model: 'old',
+          };
+        yield {
+          type: 'stream_event',
+          event: {
+            type: 'message_start',
+            message: {
+              model: change === 'model' ? 'new' : 'old',
+              usage: { input_tokens: 0, output_tokens: 0 },
+            },
+          },
+        };
+        whilePending = transport.sent.filter((e) => e.type === 'token_update').at(-1);
+        yield { type: 'result', session_id: 's' };
+      }
+      await runQueryLoop(events(), clientId, registry, abortController, undefined, undefined, {
+        resolveTokenLimits,
+      });
+      expect(before).toMatchObject({
+        agentContext: 1000,
+        contextCeiling: 100000,
+        tokenLimits: { model: 'old' },
+      });
+      expect(whilePending).toMatchObject({ agentContext: 0, contextCeiling: 0, tokenLimits: null });
+    },
+  );
+
   it('includes all token types in session total', async () => {
     const events: Record<string, unknown>[] = [
       {

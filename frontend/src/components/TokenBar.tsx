@@ -41,7 +41,14 @@ export function TokenBar({ tokenState }: Props) {
   if (tokenState.turnIndex === 0 && !tokenState.agentContext && !tokenState.sessionTotal)
     return null;
 
-  const ceiling = tokenState.contextCeiling ?? 0;
+  // Legacy replay events can carry the former hardcoded ceiling. Capacity must
+  // come from evidence for the model, independently of the measured count.
+  const capacities = [
+    tokenState.tokenLimits?.contextWindow,
+    tokenState.tokenLimits?.inputTokenLimit,
+  ].filter((value): value is number => Number.isSafeInteger(value) && (value ?? 0) > 0);
+  const ceiling =
+    tokenState.tokenLimits?.source !== 'unknown' && capacities.length ? Math.min(...capacities) : 0;
   const agentContext = tokenState.agentContext ?? 0;
   const sessionTotal = tokenState.sessionTotal ?? 0;
   const numCompactions = tokenState.numCompactions ?? 0;

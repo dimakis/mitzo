@@ -378,6 +378,13 @@ async function _runQueryLoopInner(
       tokenLimits = null;
       contextCeiling = 0;
       agentContextTokens = 0;
+      emitTokenUpdate({
+        agentContext: 0,
+        contextCeiling: 0,
+        turnIndex,
+        ...nativeUsageFields(),
+        ...compactionFields(),
+      });
     }
     if (nativeUsage || tokenLimits?.source === 'runtime') return;
     const generation = limitGeneration;
