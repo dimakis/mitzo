@@ -67,7 +67,10 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '2e75b1031b0006ef98334deef8a53890627af337c0fef8602de6e15b72c3b9d5',
   '../openai-provider-enrollment-gateway.ts':
     '55f91240860c2f15d60a9fa491374cf74f30e06a4dbf75ec5ce6f321b9815991',
-  '../openai-key-gateway.ts': 'c4c19388fd0bcf794ba1c2f85b9e8227668c575ba4047a8f9cd68470d023c5b6',
+  '../openshell-key-api.ts': '45164e44c19a0d1c845a847ea3ccae625445d75c3d09fa32ca5ec86dd53e26a3',
+  '../openshell-key-api-protocol.ts':
+    '3ebca322e76e76771aaffbccabeda9ea1bb2945d672d9f9879d2665b584ca423',
+  '../openai-key-gateway.ts': '995b4baf93843de1bc3e12b8a6be34d40f3937a5ffaea8b4f6cef2a64ab475c1',
   '../keychain-rotation-credentials.ts':
     'c2d94ede80f5950b45568dc41c5d10c20802d4504dbcd0b6657e8de04de72d4a',
   '../openai-key-controller.ts': '721a1c6a513fc5380e4a2222927cda025bf8cbd7e8d49d8c5d526470e2cff217',
@@ -80,7 +83,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'efecd458bf61fecd8198ecd330e0227e2c600ab21d6d2890cd2bac254e22b75f',
   '../openshell-runtime.ts': '71e650b8114df6264ce0a5b81ae32a1907ee3562c177c9d0d59c1f4825849b0c',
   '../codex-chat-session.ts': '8c11ec22ceac62890318d28e20b97175c1aba5afd4ff89ba2c74e43a3baadd78',
-  '../connections-runtime.ts': '8c8670d2337dee78cc72c7a9e1f229ca8a61046ad19c30f97b774edb76d586f8',
+  '../connections-runtime.ts': 'dbe641704a1d761d73740260fb28057054fdb34a64513fa77292d2fdb1954a84',
   'capabilities/operation-store.ts':
     '1a235f11d5578880e6dfa7ecf5779e2a011e24430774fc17429d7d22359b93f2',
   'capabilities/service.ts': '848e0998848d68e80ec53731b248a286f77f761905082092821f3ec9047ba36a',

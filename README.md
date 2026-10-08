@@ -111,7 +111,7 @@ After a connection is verified, open its management controls and expand **Manage
 
 When new-account enrollment is enabled, **Add connection → OpenAI API** accepts a masked key for an explicitly declared project. Setup validates with one brief `gpt-6-luna` low-reasoning request billed to that key's project, discovers supported API chat models, and creates a separate account for new conversations. Existing chats keep their original account. Interrupted setup retains its status without automatically repeating charges or credential writes. See [OpenAI account enrollment](docs/features/openai-account-enrollment.md) for configuration and acceptance requirements.
 
-For an enrolled OpenAI API account, **Manage API key** accepts one masked replacement after recent Mitzo reauthorization and confirmation of the same work project. It validates access with one brief `gpt-6-luna` low-reasoning request billed to the selected account, then synchronizes the existing Keychain item and pinned OpenShell provider. Attached sandbox chats pause; incomplete synchronization blocks affected account admission until recovery. The configured OpenShell CLI must support version-conditional provider updates; an older CLI refuses replacement before any key is changed. Enrollment defaults closed through `MITZO_OPENAI_KEY_MANAGEMENT_ACCOUNT_IDS` and currently supports the reviewed `mitzo-openai-keychain-spike` provider policy. See [OpenAI key replacement](docs/features/openai-key-replacement.md) for custody, recovery and separate staging acceptance requirements.
+For an enrolled OpenAI API account, **Manage API key** accepts one masked replacement after recent Mitzo reauthorization and confirmation of the same work project. It validates access with one brief `gpt-6-luna` low-reasoning request billed to the selected account, then synchronizes the existing Keychain item and pinned OpenShell provider. Attached sandbox chats pause; incomplete synchronization blocks affected account admission until recovery. Credential updates use Mitzo’s direct adapter for the existing OpenShell API, with `MITZO_OPENAI_KEY_GATEWAY_API_PROTOCOL=openshell-v1` and the controller’s registered HTTPS/mTLS gateway. The CLI continues inventory and sandbox draining; it requires no patch. Enrollment defaults closed through `MITZO_OPENAI_KEY_MANAGEMENT_ACCOUNT_IDS` and currently supports the reviewed `mitzo-openai-keychain-spike` provider policy. See [OpenAI key replacement](docs/features/openai-key-replacement.md) for custody, recovery and separate staging acceptance requirements.
 
 For the existing Google Workspace provider, enable `MITZO_GOOGLE_WORKSPACE_MANAGEMENT_ENABLED=true` to show Google health and recovery controls in Connections. The controller must have `gws` installed with a working local Google sign-in. **Review Google account** shows that identity before **Reconnect Google** replaces the gateway's expired authorization. Both actions require recent Mitzo reauthorization. Credentials stay in the controller and encrypted gateway storage; the browser and chats receive only status and the reviewed account email. This recovery imports Drive and read-only Calendar consent; Gmail requires separate authorization. A revoked local Google grant must first be reauthorized through `gws`; this panel does not yet provide a new Google OAuth sign-in flow.
 
@@ -1012,3 +1012,16 @@ The [operating procedure](docs/operations/canonical-staging.md) describes integr
 checks, exact-commit preparation, plan/apply updates, private audit/snapshots and uncertain
 shutdown handling. Staging operations keep production and retained diagnostic resources
 outside their scope; provider setup is separate.
+
+### Host Podman image maintenance
+
+`node scripts/podman-storage.mjs status|plan|apply --selection FILE` provides
+explicit image retention and guest bytes/inode telemetry, with a separate
+measurement of the host filesystem backing the selected VM. Cleanup requires
+reviewed store, producer and protection enrollment; it preserves container image
+ancestry, retained checkpoint/custodian images, supervisor/rollback pins and
+unclassified data. Exact-ID removal uses no force or recursive parent pruning.
+Managed producers and pin updates share the host maintenance lock and durable
+audit. See [storage reclamation operations](docs/operations/podman-storage-reclamation.md)
+for enrollment, plan/output arguments and real-run acceptance. Periodic cleanup,
+allocation admission and conversation-retention activation are separate changes.

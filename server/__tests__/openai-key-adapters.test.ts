@@ -91,19 +91,12 @@ function gatewayFixture() {
   let version = 10;
   let providerId = account.providerId;
   let policy = profile();
-  let casSupported = true;
+  let apiSupported = true;
+  let apiDrift = false;
   let concurrentUpdate = false;
   const run = vi.fn(async (args: readonly string[], _options: unknown) => {
-    if (args[1] === 'update' && args.includes('--help'))
-      return casSupported ? '--expected-resource-version <VERSION>' : 'update';
     if (args[1] === 'profile') return JSON.stringify(policy);
-    if (args[1] === 'update') {
-      if (concurrentUpdate) version++;
-      if (args[args.indexOf('--expected-resource-version') + 1] !== String(version))
-        throw new Error('conflict');
-      version++;
-      return '';
-    }
+    if (args[1] === 'update') throw new Error('CLI updates are forbidden');
     return JSON.stringify([
       {
         id: providerId,
@@ -121,13 +114,36 @@ function gatewayFixture() {
     stopSandbox: vi.fn(async () => {}),
     sandboxStopped: vi.fn(async () => true),
   };
-  const gateway = new OpenShellOpenAIKeyGateway(run, 'default', sandboxes);
+  const api = {
+    inspect: vi.fn(async () => {
+      if (!apiSupported) throw new Error('unavailable');
+      return { version: apiDrift ? '99' : String(version) };
+    }),
+    replace: vi.fn(
+      async (
+        _account: ManagedOpenAIAccount,
+        _value: string,
+        expectedVersion: string,
+        _signal: AbortSignal,
+      ) => {
+        if (concurrentUpdate) version++;
+        if (expectedVersion !== String(version)) throw new Error('conflict');
+        version++;
+        return { version: String(version) };
+      },
+    ),
+  };
+  const gateway = new OpenShellOpenAIKeyGateway(run, 'default', sandboxes, api);
   return {
     gateway,
     run,
     sandboxes,
-    disableCAS: () => {
-      casSupported = false;
+    api,
+    driftApi: () => {
+      apiDrift = true;
+    },
+    disableAPI: () => {
+      apiSupported = false;
     },
     raceUpdate: () => {
       concurrentUpdate = true;
@@ -144,7 +160,7 @@ function gatewayFixture() {
   };
 }
 describe('OpenShell OpenAI credential adapter', () => {
-  it('pins provider identity and policy, stops retained workloads, and passes only a key name in argv', async () => {
+  it('pins provider identity and policy, stops retained workloads, and keeps credential writes out of CLI argv/env', async () => {
     const f = gatewayFixture();
     expect(await f.gateway.inspect(account, signal())).toEqual({ version: '10' });
     await f.gateway.pause(account, signal());
@@ -152,22 +168,16 @@ describe('OpenShell OpenAI credential adapter', () => {
     expect(await f.gateway.replace(account, 'PRIVATE_KEY', '10', signal())).toEqual({
       version: '11',
     });
-    const update = f.run.mock.calls.find(
-      ([args]) => args[1] === 'update' && !args.includes('--help'),
-    )!;
-    expect(update[0]).toEqual([
-      'provider',
-      'update',
-      'work-api',
-      '--workspace',
-      'default',
-      '--expected-resource-version',
+    expect(f.api.replace).toHaveBeenCalledWith(
+      account,
+      'PRIVATE_KEY',
       '10',
-      '--credential',
-      'OPENAI_API_KEY',
-    ]);
-    expect(update[1]).toMatchObject({ env: { OPENAI_API_KEY: 'PRIVATE_KEY' } });
-    expect(JSON.stringify(update[0])).not.toContain('PRIVATE_KEY');
+      expect.any(AbortSignal),
+    );
+    expect(
+      f.run.mock.calls.every(([, options]) => !JSON.stringify(options).includes('PRIVATE_KEY')),
+    ).toBe(true);
+    expect(f.run.mock.calls.some(([args]) => args[1] === 'update')).toBe(false);
   });
   it('refuses provider substitution and policy changes before credentials are submitted', async () => {
     for (const drift of ['driftId', 'driftPolicy'] as const) {
@@ -252,9 +262,9 @@ describe('bounded Luna-only OpenAI validation', () => {
   });
 });
 
-it('requires a CAS-capable CLI before a replacement can be offered', async () => {
+it('requires the conditional API before a replacement can be offered', async () => {
   const f = gatewayFixture();
-  f.disableCAS();
+  f.disableAPI();
   await expect(f.gateway.inspect(account, signal())).rejects.toThrow(
     'OpenAI provider binding changed',
   );
@@ -266,9 +276,8 @@ it('pins the gateway write to the journaled version and rejects a concurrent upd
   await expect(f.gateway.replace(account, 'PRIVATE_KEY', '10', signal())).rejects.toThrow(
     'could not be confirmed',
   );
-  expect(f.run.mock.calls.find(([args]) => args.includes('--credential'))![0]).toContain(
-    '--expected-resource-version',
-  );
+  expect(f.api.replace).toHaveBeenCalledTimes(1);
+  expect(f.api.replace).toHaveBeenCalledWith(account, 'PRIVATE_KEY', '10', expect.any(AbortSignal));
 });
 it('normalizes OpenShell omitted false policy defaults but rejects enabled or malformed safety flags', async () => {
   for (const flag of ['request_body_credential_rewrite', 'allow_uninspected_credentials']) {
@@ -285,4 +294,13 @@ it('normalizes OpenShell omitted false policy defaults but rejects enabled or ma
       );
     }
   }
+});
+
+it('rejects differing CLI/API gateway observations before dispatching a credential', async () => {
+  const f = gatewayFixture();
+  f.driftApi();
+  await expect(f.gateway.replace(account, 'PRIVATE_KEY', '10', signal())).rejects.toThrow(
+    'OpenAI provider binding changed',
+  );
+  expect(f.api.replace).not.toHaveBeenCalled();
 });
