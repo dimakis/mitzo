@@ -242,7 +242,22 @@ it('retains the failing initialization step while closing the runtime', async ()
   expect(mocks.mcpClose).toHaveBeenCalledOnce();
   expect(mocks.send).not.toHaveBeenCalled();
 });
+it('retains uncertain-work advice when the first send fails after initialization', async () => {
+  vi.clearAllMocks();
+  mocks.connect.mockResolvedValue({ definitions: [], close: mocks.mcpClose });
+  mocks.initialize.mockResolvedValueOnce(undefined);
+  const cause = new Error('unknown failure after provider dispatch');
+  mocks.send.mockRejectedValueOnce(cause);
+  const opening = openCodexChat(options(new AbortController()));
+  await expect(opening).rejects.toMatchObject({ phase: 'initial_turn_dispatch', cause });
+  const error = await opening.catch((error) => error);
+  expect(publicCodexStartupError(error)).toMatch(/outcome may be unknown/);
+  expect(publicCodexStartupError(error)).toMatch(/inspect saved work/);
+  expect(publicCodexStartupError(error)).not.toMatch(/configuration|runtime admission/);
+  expect(mocks.close).toHaveBeenCalledOnce();
+});
 it('closes an initialization aborted before the first turn starts', async () => {
+  vi.clearAllMocks();
   const abort = new AbortController();
   mocks.connect.mockResolvedValue({ definitions: [], close: mocks.mcpClose });
   mocks.initialize.mockImplementationOnce(async () => {

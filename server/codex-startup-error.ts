@@ -7,6 +7,7 @@ const phases = {
   context_preparation: 'context preparation',
   runtime_connection: 'runtime connection',
   conversation_initialization: 'conversation initialization',
+  initial_turn_dispatch: 'initial turn dispatch',
 } as const;
 const errorCodes = new Map([
   ['ENOSPC', 'Sandbox or host storage is full.'],
@@ -50,9 +51,14 @@ export class CodexStartupError extends Error {
     return typeof code === 'string' && errorCodes.has(code) ? code : undefined;
   }
 
-  publicMessage(): string {
+  publicMessage(detail?: string): string {
+    if (this.phase === 'initial_turn_dispatch')
+      return `The first turn could not be confirmed. ${detail ? detail + ' ' : ''}Its outcome may be unknown; inspect saved work before continuing.`;
     const code = this.resourceErrorCode();
-    return `Chat startup failed during ${phases[this.phase]}. ${code ? errorCodes.get(code) + ' ' : ''}Check runtime and account configuration before continuing.`;
+    const explanation =
+      detail ??
+      `${code ? errorCodes.get(code) + ' ' : ''}Check runtime and account configuration before continuing.`;
+    return `Chat startup failed during ${phases[this.phase]}. ${explanation}`;
   }
 
   telemetry(): Record<string, unknown> {

@@ -69,6 +69,7 @@ it('links a startup error to safe logged diagnostics and the saved session', asy
   const chat = await import('../chat.js');
   const sessionId = 'aaaaaaaa-bbbb-4ccc-8ddd-121212121212';
   const send = vi.fn();
+  const onStartupAdmission = vi.fn();
   try {
     await chat.startChat({ send, isOpen: () => true }, 'error-reference', 'hello', {
       cwd: root,
@@ -77,6 +78,7 @@ it('links a startup error to safe logged diagnostics and the saved session', asy
       model: 'luna',
       accountProfiles: profiles,
       initialSessionId: sessionId,
+      onStartupAdmission,
     });
     const errors = send.mock.calls
       .map(([message]) => message)
@@ -99,6 +101,11 @@ it('links a startup error to safe logged diagnostics and the saved session', asy
     expect(JSON.stringify([errors, logError.mock.calls])).not.toMatch(
       /PRIVATE_COMMAND|sk-secret|queued work/,
     );
+    expect(onStartupAdmission).toHaveBeenCalledOnce();
+    const admittedError = onStartupAdmission.mock.calls[0][0];
+    expect(admittedError.message).toContain(failure.diagnosticId);
+    expect(admittedError.stack).not.toMatch(/PRIVATE_COMMAND|sk-secret/);
+    expect(admittedError.cause).toBeUndefined();
     expect(chat.registry.get('error-reference')).toBeUndefined();
     expect(chat.eventStore.getSession(sessionId)?.state).toBe('ENDED');
   } finally {

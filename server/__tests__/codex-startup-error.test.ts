@@ -50,6 +50,7 @@ it('preserves typed account diagnostics and their RPC details inside a startup p
     new CodexRequestError('thread/start', 'authentication', 401),
   );
   expect(publicCodexStartupError(error)).toMatch(/credentials or permissions/);
+  expect(publicCodexStartupError(error)).toContain('conversation initialization');
   expect(codexRuntimeErrorTelemetry(error)).toEqual({
     startupPhase: 'conversation_initialization',
     diagnosticId: error.diagnosticId,

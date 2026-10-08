@@ -212,18 +212,20 @@ function capabilityToolsForConversation(
 /** Only transport safe, stable runtime diagnostics to the client. */
 export function publicCodexRuntimeError(error: Error): string {
   if (error instanceof CodexStartupError) {
-    const detail = error.cause instanceof Error ? publicCodexRuntimeError(error.cause) : undefined;
+    let cause = error.cause;
+    while (cause instanceof CodexStartupError) cause = cause.cause;
+    const detail = cause instanceof Error ? publicCodexRuntimeError(cause) : undefined;
     const inferredMigration =
       error.phase !== 'runtime_admission' &&
       detail?.startsWith('Retained sandbox migration is blocked.');
-    const message =
+    const explanation =
       error.resourceErrorCode() ||
       inferredMigration ||
       !detail ||
       detail === 'Codex turn failed. Inspect queued work before retrying.'
-        ? error.publicMessage()
+        ? undefined
         : detail;
-    return `${message} Reference: ${error.diagnosticId}`;
+    return `${error.publicMessage(explanation)} Reference: ${error.diagnosticId}`;
   }
   const diagnostic = codexRuntimeDiagnostic(error);
   if (diagnostic) return diagnostic;
@@ -1561,13 +1563,17 @@ async function openCodexChatBound(
 }
 
 async function sendInitialCodexTurn(options: Options, runtime: CodexConversation) {
-  options.session.abortController.signal.throwIfAborted();
-  await runtime.send({
-    id: options.messageId,
-    prompt: options.prompt,
-    intent: options.intent,
-    model: options.model,
-    reasoningEffort: options.reasoningEffort,
-    images: options.images,
-  });
+  try {
+    options.session.abortController.signal.throwIfAborted();
+    await runtime.send({
+      id: options.messageId,
+      prompt: options.prompt,
+      intent: options.intent,
+      model: options.model,
+      reasoningEffort: options.reasoningEffort,
+      images: options.images,
+    });
+  } catch (cause) {
+    throw new CodexStartupError('initial_turn_dispatch', cause);
+  }
 }
