@@ -16,26 +16,19 @@ export interface LegacyAccessProvider {
   id?: string;
   workspace?: string;
 }
+type AccountAccessProfile = ReturnType<AccountProfiles['catalog']>[number] & {
+  lastSuccessfulUse?: SuccessfulAccountUse;
+};
+type ManagedAccessConnection = Connection & {
+  capabilityGrants?: readonly CapabilityGrant[];
+  publishingEnabled?: boolean;
+};
 export interface ConnectionsAccessSources {
-  accounts?: (signal: AbortSignal) =>
-    | Array<
-        ReturnType<AccountProfiles['catalog']>[number] & {
-          lastSuccessfulUse?: SuccessfulAccountUse;
-        }
-      >
-    | Promise<
-        Array<
-          ReturnType<AccountProfiles['catalog']>[number] & {
-            lastSuccessfulUse?: SuccessfulAccountUse;
-          }
-        >
-      >;
+  accounts?: (signal: AbortSignal) => AccountAccessProfile[] | Promise<AccountAccessProfile[]>;
   symposiumAccounts?: (
     signal: AbortSignal,
-  ) => ReturnType<AccountProfiles['catalog']> | Promise<ReturnType<AccountProfiles['catalog']>>;
-  managed?: () => Array<
-    Connection & { capabilityGrants?: readonly CapabilityGrant[]; publishingEnabled?: boolean }
-  >;
+  ) => AccountAccessProfile[] | Promise<AccountAccessProfile[]>;
+  managed?: () => ManagedAccessConnection[];
   personal?: (signal: AbortSignal) => PersonalConnection[] | Promise<PersonalConnection[]>;
   google?: (signal: AbortSignal) => Promise<GoogleWorkspaceHealth>;
   legacy?: () => Promise<LegacyAccessProvider[]>;
@@ -103,7 +96,7 @@ function base(
 /** Each source has an independent deadline; failures never export exception text. */
 export async function readConnectionsAccess(
   input: ConnectionsAccessSources,
-  options: { now?: number; freshnessMs?: number; timeoutMs?: number } = {},
+  options: { now?: number; timeoutMs?: number } = {},
 ): Promise<ConnectionsAccessInventory> {
   const now = options.now ?? Date.now();
   const result: ConnectionsAccessInventory = { generatedAt: now, resources: [], sources: [] };
@@ -153,13 +146,7 @@ export async function readConnectionsAccess(
   const value = <T>(id: (typeof keys)[number]) =>
     reads.find((r) => r.id === id)?.value as T | undefined;
   for (const source of ['accounts', 'symposiumAccounts'] as const) {
-    for (const account of value<
-      Array<
-        ReturnType<AccountProfiles['catalog']>[number] & {
-          lastSuccessfulUse?: SuccessfulAccountUse;
-        }
-      >
-    >(source) ?? []) {
+    for (const account of value<AccountAccessProfile[]>(source) ?? []) {
       const row = base(
         'ai-account',
         source === 'accounts' ? 'account-profiles' : 'symposium-account-profiles',

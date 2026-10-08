@@ -132,7 +132,9 @@ test('Connections describes account evidence and service scope without contradic
     path: test.info().outputPath('connections-evidence.png'),
     fullPage: true,
   });
-  await page.getByRole('heading', { name: 'Services', exact: true }).scrollIntoViewIfNeeded();
+  await page
+    .getByRole('heading', { name: 'Services', exact: true })
+    .evaluate((element) => element.scrollIntoView({ block: 'start' }));
   await page.screenshot({
     path: test.info().outputPath('connections-services.png'),
     fullPage: true,

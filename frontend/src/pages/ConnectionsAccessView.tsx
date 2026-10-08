@@ -615,7 +615,7 @@ export function ConnectionsAccessView() {
                             {resource.section === 'services' &&
                               resource.verification.verifiedAt !== null && (
                                 <small>
-                                  Last credential check:{' '}
+                                  Last successful credential check:{' '}
                                   {new Date(resource.verification.verifiedAt).toLocaleString()}
                                 </small>
                               )}

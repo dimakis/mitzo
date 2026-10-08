@@ -418,7 +418,7 @@ it('rejects mismatched revisions even if a presentation link claims it is curren
 });
 
 it.each(['account-profiles', 'symposium-account-profiles'] as const)(
-  'labels standalone %s model lists as configured with unverified support',
+  'labels standalone %s model lists as catalog entries with separate successful-use evidence',
   async (owner) => {
     const inventory = linkedFacets();
     const standalone = { ...inventory.resources[0], owner };
@@ -437,13 +437,13 @@ it.each(['account-profiles', 'symposium-account-profiles'] as const)(
     expect(card.getAllByText('Configured Luna')).toHaveLength(1);
     expect(
       card.getAllByText(
-        'Configured catalog; model support and effective access have not been checked.',
+        "Models listed here come from this account's catalog. Successful use is shown separately when recorded.",
       ),
     ).toHaveLength(1);
     expect(card.queryByText('Available models')).toBeNull();
   },
 );
-it('keeps the grouped configured catalog and support disclaimer without duplicate model lists', async () => {
+it('keeps the grouped catalog and successful-use explanation without duplicate model lists', async () => {
   const inventory = linkedFacets();
   inventory.resources[1].details.models = inventory.resources[0].details.models;
   vi.mocked(getConnectionsAccess).mockResolvedValue(inventory);
@@ -459,7 +459,7 @@ it('keeps the grouped configured catalog and support disclaimer without duplicat
   expect(card.getAllByText('Configured Luna')).toHaveLength(1);
   expect(
     card.getAllByText(
-      'Configured catalog; model support and effective access have not been checked.',
+      "Models listed here come from this account's catalog. Successful use is shown separately when recorded.",
     ),
   ).toHaveLength(1);
   expect(card.queryByText('Available models')).toBeNull();
@@ -1029,7 +1029,7 @@ it('describes a verified managed-service credential check without claiming effec
     </MemoryRouter>,
   );
   const row = await screen.findByRole('article', { name: 'Jira credentials' });
-  expect(within(row).getByText(/Last credential check:/)).toBeTruthy();
+  expect(within(row).getByText(/Last successful credential check:/)).toBeTruthy();
   expect(within(row).queryByText('Access verified')).toBeNull();
   fireEvent.click(within(row).getByRole('button', { name: 'Manage Jira credentials' }));
   const dialog = within(screen.getByRole('dialog'));

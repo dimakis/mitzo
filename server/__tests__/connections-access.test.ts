@@ -66,7 +66,7 @@ const sources = () => ({
 
 describe('nonsecret Connections & access inventory', () => {
   it('keeps identity boundaries and does not confuse model discovery with account verification', async () => {
-    const result = await readConnectionsAccess(sources(), { now: 1_000, freshnessMs: 500 });
+    const result = await readConnectionsAccess(sources(), { now: 1_000 });
     expect(new Set(result.resources.map((r) => r.id)).size).toBe(result.resources.length);
     const account = result.resources.find((r) => r.kind === 'ai-account')!;
     expect(account.status).toBe('configured');
