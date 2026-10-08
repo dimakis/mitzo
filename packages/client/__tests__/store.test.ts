@@ -2945,6 +2945,55 @@ it('advances the permission queue locally when expiry denial loses to server tim
   expect(store.getState().messages.permissionQueue).toEqual([]);
 });
 
+it('reconciles a rejected dead card with live approvals instead of trapping the session', async () => {
+  const store = createReadyStore();
+  await store.getState().switchSession('test-session');
+  const request = (permId: string) => ({
+    permId,
+    sessionId: 'test-session',
+    toolName: 'Bash',
+    toolInput: 'pwd',
+  });
+  store.getState().dispatchMessages({ type: 'PERMISSION_REQUEST', payload: request('dead') });
+  lastWs.simulateMessage({
+    type: 'permission_response_rejected',
+    sessionId: 'test-session',
+    permId: 'dead',
+    error: 'Request expired',
+    pendingPermissions: [request('live')],
+  });
+  expect(store.getState().messages.permission?.permId).toBe('live');
+  expect(store.getState().messages.permission?.responseError).toBeUndefined();
+  lastWs.simulateMessage({
+    type: 'session_switched',
+    sessionId: 'test-session',
+    pendingPermissions: [],
+  });
+  expect(store.getState().messages.permission).toBeNull();
+});
+
+it('retains a rejected live question and its validation error', async () => {
+  const store = createReadyStore();
+  await store.getState().switchSession('test-session');
+  const request = {
+    permId: 'live',
+    sessionId: 'test-session',
+    toolName: 'AskUserQuestion',
+    toolInput: '',
+  };
+  lastWs.simulateMessage({
+    type: 'permission_response_rejected',
+    sessionId: 'test-session',
+    permId: 'live',
+    error: 'Complete all questions',
+    pendingPermissions: [request],
+  });
+  expect(store.getState().messages.permission).toMatchObject({
+    permId: 'live',
+    responseError: 'Complete all questions',
+  });
+});
+
 it('reports launch delivery for the matching HTTP acknowledgement only', () => {
   const store = createReadyStore();
   const onDelivery = vi.fn();

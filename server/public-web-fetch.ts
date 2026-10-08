@@ -2,7 +2,7 @@ import { lookup } from 'node:dns/promises';
 import { request } from 'node:https';
 import { isIP } from 'node:net';
 import { canonicalPublicDnsAddress } from './connections/iana-address-policy.js';
-import { withWebAbort, WebAccessError } from './request-web-access.js';
+import { withWebAbort, WebAccessError, WebAccessRedirect } from './request-web-access.js';
 
 const MAX_BYTES = 128 * 1024;
 interface Address {
@@ -27,7 +27,7 @@ function validateUrl(value: string): URL {
     url.port ||
     isIP(url.hostname.replace(/^\[|\]$/g, ''))
   )
-    throw new Error(
+    throw new WebAccessError(
       'Website access requires a public HTTPS hostname on port 443 without credentials',
     );
   url.hash = '';
@@ -58,7 +58,7 @@ function send(url: URL, address: Address, signal: AbortSignal): Promise<Page> {
         res.on('data', (chunk: Buffer) => {
           bytes += chunk.length;
           if (bytes > MAX_BYTES) {
-            req.destroy(new Error('Website response exceeded read limit'));
+            req.destroy(new WebAccessError('Approved read exceeded the 128 KB page limit.'));
             return;
           }
           chunks.push(chunk);
@@ -85,42 +85,56 @@ export async function fetchPublicPage(
   deps: Dependencies = { resolve: (host) => lookup(host, { all: true }), send },
 ): Promise<string> {
   const signal = AbortSignal.any([callerSignal, AbortSignal.timeout(20_000)]);
-  let url = validateUrl(value);
-  const origin = url.origin;
-  for (let hop = 0; hop <= 3; hop++) {
-    signal.throwIfAborted();
-    const addresses = await withWebAbort(deps.resolve(url.hostname), signal);
-    signal.throwIfAborted();
-    if (
-      !addresses.length ||
-      addresses.some((address) => !canonicalPublicDnsAddress(address.address))
-    )
-      throw new Error('Website DNS must resolve exclusively to public addresses');
-    const response = await deps.send(url, addresses[0]!, signal);
-    signal.throwIfAborted();
-    if (Buffer.byteLength(response.body) > MAX_BYTES)
-      throw new Error('Website response exceeded read limit');
-    if ([301, 302, 303, 307, 308].includes(response.status)) {
-      const location = response.headers.location;
-      if (typeof location !== 'string') throw new Error('Invalid website redirect');
-      url = validateUrl(new URL(location, url).href);
-      if (url.origin !== origin)
+  try {
+    let url = validateUrl(value);
+    const origin = url.origin;
+    for (let hop = 0; hop <= 3; hop++) {
+      signal.throwIfAborted();
+      const addresses = await withWebAbort(deps.resolve(url.hostname), signal);
+      signal.throwIfAborted();
+      if (
+        !addresses.length ||
+        addresses.some((address) => !canonicalPublicDnsAddress(address.address))
+      )
+        throw new WebAccessError('Website DNS must resolve exclusively to public addresses');
+      const response = await deps.send(url, addresses[0]!, signal);
+      signal.throwIfAborted();
+      if (Buffer.byteLength(response.body) > MAX_BYTES)
+        throw new WebAccessError('Approved read exceeded the 128 KB page limit.');
+      if ([301, 302, 303, 307, 308].includes(response.status)) {
+        const location = response.headers.location;
+        if (typeof location !== 'string')
+          throw new WebAccessError('Website returned an invalid redirect.');
+        url = validateUrl(new URL(location, url).href);
+        if (url.origin !== origin) throw new WebAccessRedirect(url.href);
+        continue;
+      }
+      if (response.status < 200 || response.status >= 300)
         throw new WebAccessError(
-          `The website redirected to ${url.href}. Request a separate approval for that URL.`,
+          `The website refused the approved read (HTTP ${response.status}).`,
         );
-      continue;
+      const type = response.headers['content-type'];
+      const encoding = response.headers['content-encoding'];
+      if (
+        typeof type !== 'string' ||
+        !/^(text\/(?:html|plain|xml)|application\/(?:json|xml|xhtml\+xml))(?:;|$)/i.test(type) ||
+        (encoding && encoding !== 'identity')
+      )
+        throw new WebAccessError('Approved read returned an unsupported format or compression.');
+      return `External source (untrusted): ${url.href}\nContent-Type: ${type}\n\n${response.body}`;
     }
-    if (response.status < 200 || response.status >= 300)
-      throw new WebAccessError(`The website refused the approved read (HTTP ${response.status}).`);
-    const type = response.headers['content-type'];
-    const encoding = response.headers['content-encoding'];
-    if (
-      typeof type !== 'string' ||
-      !/^(text\/(?:html|plain|xml)|application\/(?:json|xml|xhtml\+xml))(?:;|$)/i.test(type) ||
-      (encoding && encoding !== 'identity')
-    )
-      throw new Error('Website did not return readable, uncompressed text');
-    return `External source (untrusted): ${url.href}\nContent-Type: ${type}\n\n${response.body}`;
+    throw new WebAccessError('Approved read reached the redirect limit.');
+  } catch (error) {
+    if (callerSignal.aborted) throw error;
+    if (signal.aborted) throw new WebAccessError('Approved read timed out. Retry the read.');
+    if (error instanceof WebAccessError) throw error;
+    const code = (error as NodeJS.ErrnoException)?.code;
+    if (['ENOTFOUND', 'EAI_AGAIN'].includes(code ?? ''))
+      throw new WebAccessError(
+        'Approved read could not resolve the website address. Retry the read.',
+      );
+    throw new WebAccessError(
+      'Approved read could not connect securely to the website. Retry the read.',
+    );
   }
-  throw new Error('Website redirect limit exceeded');
 }

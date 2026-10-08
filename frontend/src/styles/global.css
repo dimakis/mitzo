@@ -7935,3 +7935,20 @@ option {
 .todo-output-upload p {
   margin: 0;
 }
+
+/* Give web outcomes their own line so they remain readable on phones. */
+.tool-pill-header--web {
+  display: grid;
+  grid-template-columns: 6px auto minmax(0, 1fr) auto;
+}
+.tool-pill-header--web .tool-pill-status {
+  grid-column: 2 / 4;
+  grid-row: 2;
+  white-space: normal;
+  text-align: left;
+  opacity: 1;
+}
+.tool-pill-header--web .tool-pill-chevron {
+  grid-column: 4;
+  grid-row: 1 / 3;
+}

@@ -103,3 +103,8 @@ export interface ConnectionsCatalog {
   eligibleAccountsByTemplate?: Record<string, string[]>;
   appliesTo: string;
 }
+
+export interface ConnectionsViewProps {
+  mode?: 'add' | 'manage' | 'personal' | 'google' | 'legacy';
+  connectionId?: string;
+}

@@ -35,6 +35,30 @@ const artifactRuntime = {
   },
   route: { kind: 'api' as const, provider: 'account-provider', model: 'test-model' },
 };
+it('durably reserves undispatched startup and stops treating it as fresh before provider initialization', () => {
+  const { path } = setup();
+  let s = new CodexConversationStore(path);
+  s.reserveStartup('new', binding, '/workspace');
+  expect(s.startupNeedsProvisioning('new', binding)).toBe(true);
+  s.close();
+  s = new CodexConversationStore(path);
+  expect(s.startupNeedsProvisioning('new', binding)).toBe(true);
+  expect(() =>
+    s.startupNeedsProvisioning('new', { ...binding, profileRevision: 'changed' }),
+  ).toThrow();
+  s.markStartupProviderInitializing('new', binding);
+  expect(s.startupNeedsProvisioning('new', binding)).toBe(false);
+  expect(() => s.assertStartupResumeSafe('new', binding)).toThrow(/unverified/);
+  s.bindThread('new', binding, 'acknowledged-thread');
+  expect(() => s.assertStartupResumeSafe('new', binding)).not.toThrow();
+  s.reserveStartup('new', binding, '/workspace');
+  expect(s.startupNeedsProvisioning('new', binding)).toBe(false);
+  s.create('legacy', binding, '/workspace');
+  s.reserveStartup('legacy', binding, '/workspace');
+  expect(s.startupNeedsProvisioning('legacy', binding)).toBe(false);
+  expect(() => s.startupNeedsProvisioning('missing', binding)).toThrow();
+  s.close();
+});
 it('retains verified artifact runtime and workspace across store restart, excluding unknown secrets', () => {
   const { path } = setup();
   let s = new CodexConversationStore(path);

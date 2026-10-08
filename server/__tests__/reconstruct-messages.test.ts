@@ -1368,3 +1368,36 @@ describe('replayEventsToMessages — user_message events', () => {
     expect(result[0].messageId).toBe('umsg-initial');
   });
 });
+
+it.each(['fetch', 'search'])('restores the error flag for a failed legacy web %s', (operation) => {
+  const messages = reconstructMessages([
+    {
+      type: 'assistant',
+      message: {
+        id: 'a',
+        content: [
+          {
+            type: 'tool_use',
+            id: 'web',
+            name: 'RequestWebAccess',
+            input: { operation, url: 'https://example.com/', query: 'q', reason: 'why' },
+          },
+        ],
+      },
+    },
+    {
+      type: 'user',
+      message: {
+        content: [
+          {
+            type: 'tool_result',
+            tool_use_id: 'web',
+            content: 'Approved read timed out. Retry the read.',
+            is_error: true,
+          },
+        ],
+      },
+    },
+  ]);
+  expect(messages[0].blocks[0]).toMatchObject({ toolError: true });
+});

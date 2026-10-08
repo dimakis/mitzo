@@ -16,6 +16,36 @@ function fakeTransport(): SessionTransport & { sent: Record<string, unknown>[] }
 }
 
 describe('buildPermissionHandler', () => {
+  it('returns a session decision without adding a broad tool grant when the caller owns consent', async () => {
+    const registry = new SessionRegistry();
+    const transport = fakeTransport();
+    registry.register('client', {
+      transport,
+      abortController: new AbortController(),
+      mode: 'agent',
+      sessionAllowList: new Set(),
+    });
+    const result = buildPermissionHandler('client', registry)(
+      'RequestWebAccess',
+      { operation: 'search' },
+      {
+        signal: new AbortController().signal,
+        toolUseID: 'search',
+        forcePrompt: true,
+        allowSessionGrant: false,
+        rememberSessionGrant: false,
+        approvalScope: 'session',
+      },
+    );
+    await Promise.resolve();
+    resolvePending(transport.sent[0].permId as string, 'always');
+    expect(await result).toMatchObject({
+      behavior: 'allow',
+      decisionClassification: 'user_permanent',
+    });
+    expect(registry.get('client')!.sessionAllowList.size).toBe(0);
+    registry.dispose();
+  });
   let registry: SessionRegistry;
 
   beforeEach(() => {

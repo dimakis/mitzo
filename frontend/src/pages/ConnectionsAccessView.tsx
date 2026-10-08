@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { ConnectionsModeDetails } from '../components/ConnectionsModeDetails';
 import { WorkspacePageHeading } from '../components/WorkspacePageHeading';
 import { getConnectionsAccess } from '../lib/connections-access-api';
@@ -345,6 +345,10 @@ function AccessDrawer({
   );
 }
 export function ConnectionsAccessView() {
+  const [params] = useSearchParams();
+  const connectedId = params.get('connected');
+  const connectedRow = useRef<HTMLElement>(null);
+  const revealedId = useRef<string | null>(null);
   const opener = useRef<HTMLButtonElement | null>(null);
   const refreshButton = useRef<HTMLButtonElement>(null);
   const addConnection = useRef<HTMLAnchorElement>(null);
@@ -354,10 +358,21 @@ export function ConnectionsAccessView() {
   const [error, setError] = useState(false);
   const [attempt, setAttempt] = useState(0);
   const [loading, setLoading] = useState(true);
+  const connectedResources =
+    inventory?.resources.filter(
+      (resource) => resource.kind === 'managed-connection' && resource.nativeId === connectedId,
+    ) ?? [];
+  const connected = connectedResources.length === 1 ? connectedResources[0] : undefined;
   const selection = inventory
     ? connectionsAccessCards(inventory).find(({ resource }) => resource.id === selectedResourceId)
     : undefined;
   const drawerOpen = Boolean(selection || website);
+  useEffect(() => {
+    if (!connected || revealedId.current === connected.id || !connectedRow.current) return;
+    revealedId.current = connected.id;
+    connectedRow.current.focus();
+    connectedRow.current.scrollIntoView?.({ block: 'center' });
+  }, [connected]);
   useEffect(() => {
     if (drawerOpen || !opener.current) return;
     if (!opener.current.isConnected && loading) return;
@@ -438,6 +453,11 @@ export function ConnectionsAccessView() {
             <span aria-hidden="true">+</span> Add connection
           </Link>
         </div>
+        {connected && (
+          <p role="status" className="access-source-notice">
+            {connected.label} is listed below. Manage it to review access.
+          </p>
+        )}
         {error ? (
           <div role="alert" className="access-source-notice">
             <p>
@@ -501,6 +521,9 @@ export function ConnectionsAccessView() {
                       return (
                         <article
                           key={resource.id}
+                          ref={resource.id === connected?.id ? connectedRow : undefined}
+                          tabIndex={resource.id === connected?.id ? -1 : undefined}
+                          data-new-connection={resource.id === connected?.id ? 'true' : undefined}
                           className="access-row"
                           aria-label={resource.label}
                         >

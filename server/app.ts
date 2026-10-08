@@ -1,3 +1,4 @@
+import { createSdkConversationImportRouter } from './sdk-conversation-import-routes.js';
 import {
   CAPACITY_REATTACH_READY_TIMEOUT_MS,
   retryCapacityAfterReattachment,
@@ -173,6 +174,8 @@ import {
 } from './auth.js';
 import {
   getSessions,
+  listImportableSdkConversations,
+  importSdkConversation,
   getSessionsCached,
   reconcileSessionsBackground,
   getMessages,
@@ -2608,6 +2611,14 @@ app.get('/api/sessions/search', (req, res) => {
   }
 });
 
+app.use(
+  '/api/sessions',
+  createSdkConversationImportRouter({
+    list: () => listImportableSdkConversations(),
+    adopt: (id) => importSdkConversation(id),
+  }),
+);
+
 app.get('/api/sessions', async (req, res) => {
   const offset = Math.max(0, parseInt(req.query.offset as string) || 0);
   const limit = Math.min(Math.max(1, parseInt(req.query.limit as string) || 20), 100);
@@ -2884,6 +2895,10 @@ app.get('/api/sessions/:id/events', (req, res) => {
   const afterSeq = parseInt(req.query.after as string, 10);
   if (isNaN(afterSeq)) {
     res.status(400).json({ error: 'after query parameter is required (number)' });
+    return;
+  }
+  if (!eventStore.getSession(req.params.id)) {
+    res.status(404).json({ error: 'Conversation not registered' });
     return;
   }
   const events = eventStore.getEventsAfter(req.params.id, afterSeq);

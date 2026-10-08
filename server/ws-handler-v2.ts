@@ -76,7 +76,6 @@ import {
   isActive,
   reattachChat,
   BASE_REPO,
-  discoverSession,
 } from './chat.js';
 import { setSkillPolicy, clearSkillPolicy } from './skill-policy.js';
 import { resolveSlashCommand } from './slash-commands.js';
@@ -517,7 +516,7 @@ export async function handleSwitchSession(
   return withSpanAsync(
     'ws.switch_session',
     { 'ws.connectionId': connectionId, 'ws.sessionId': msg.sessionId ?? 'null' },
-    async (span) => {
+    async () => {
       if (msg.sessionId === null) {
         const prev = ctx.connRegistry.get(connectionId)?.activeSession;
         if (prev) {
@@ -528,12 +527,7 @@ export async function handleSwitchSession(
         return;
       }
 
-      let sessionMeta = ctx.eventStore.getSession(msg.sessionId);
-
-      if (!sessionMeta) {
-        span.setAttribute('ws.discovery', 'sdk_fallback');
-        sessionMeta = await discoverSession(msg.sessionId);
-      }
+      const sessionMeta = ctx.eventStore.getSession(msg.sessionId);
 
       if (!sessionMeta) {
         ctx.connRegistry.get(connectionId)?.transport.send({
@@ -571,10 +565,36 @@ export async function handleSwitchSession(
       }
       ctx.connRegistry.setActive(connectionId, msg.sessionId);
 
+      // A session switched away from is absent from the reconnect handshake.
+      // Reclaim its disconnected driver before replaying actionable approvals.
+      const found = ctx.sessionRegistry.findBySessionId(msg.sessionId);
+      const storedState = ctx.eventStore.getSessionState(msg.sessionId);
+      if (
+        found &&
+        ctx.sessionRegistry.isActive(found.clientId) &&
+        storedState !== 'ENDED' &&
+        storedState !== 'CLOSING' &&
+        storedState !== null
+      ) {
+        const owner = found.session.ownerConnectionId ?? getOwnerConnection(found.clientId);
+        const ownerOpen = ctx.connRegistry.get(owner)?.transport.isOpen() === true;
+        if (
+          !ownerOpen ||
+          (owner === connectionId && !ctx.sessionRegistry.isAttached(found.clientId))
+        ) {
+          const transport = ctx.connRegistry.get(connectionId)?.transport;
+          if (transport && reattachChat(found.clientId, transport)) {
+            found.session.ownerConnectionId = connectionId;
+            if (owner !== connectionId) ctx.connRegistry.unwatch(owner, msg.sessionId);
+          }
+        }
+      }
+
       // Cross-reference registry with durable state to avoid reporting
       ctx.connRegistry.get(connectionId)?.transport.send({
         type: 'session_switched',
         sessionId: msg.sessionId,
+        pendingPermissions: getPendingRequestsBySession(msg.sessionId),
         mode: ctx.sessionRegistry.findBySessionId(msg.sessionId)?.session.mode ?? sessionMeta.mode,
         cwd: sessionMeta.cwd,
         branch: sessionMeta.branch,
@@ -1372,6 +1392,7 @@ function sendPermissionResponseRejected(
       sessionId,
       permId,
       error: PERMISSION_RESPONSE_REJECTED_MESSAGE,
+      ...(sessionId ? { pendingPermissions: getPendingRequestsBySession(sessionId) } : {}),
     });
   } catch (error) {
     log.warn('permission response error delivery failed', {

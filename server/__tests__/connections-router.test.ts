@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { ConnectionStore } from '../connections-store.js';
 import { RevisionConflictError } from '../connections-store.js';
+import { ConnectionCreationFailed } from '../connections-service.js';
 import { createConnectionsRouter } from '../connections-router.js';
 vi.mock('../auth.js', () => ({ verifyPassphrase: (value: string) => value === 'correct' }));
 describe('connections router', () => {
@@ -342,6 +343,23 @@ describe('connections router', () => {
       });
     expect(failedCreate.status).toBe(422);
     expect(JSON.stringify(failedCreate.body)).not.toContain('SENTINEL_DO_NOT_LEAK');
+    expect(failedCreate.body.savedConnectionId).toBeNull();
+    service.createAndProvision.mockRejectedValue(
+      new ConnectionCreationFailed(connection.id, new Error('SENTINEL_DO_NOT_LEAK')),
+    );
+    const savedFailure = await request(app)
+      .post('/api/connections')
+      .set('x-browser', 'yes')
+      .set('x-csrf-token', csrf)
+      .send({
+        label: 'Jira',
+        email: 'person@example.com',
+        token: 'SENTINEL_DO_NOT_LEAK',
+        accountIds: ['work'],
+      });
+    expect(savedFailure.status).toBe(422);
+    expect(savedFailure.body.savedConnectionId).toBe(connection.id);
+    expect(JSON.stringify(savedFailure.body)).not.toContain('SENTINEL_DO_NOT_LEAK');
     service.createAndProvision.mockResolvedValue(connection);
     const genericCreate = await request(app)
       .post('/api/connections')

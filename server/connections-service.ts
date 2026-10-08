@@ -28,6 +28,17 @@ export interface GenericConnectionCreateInput {
 }
 type Credentials = Record<string, string>;
 
+/** Provisioning failed after durable creation; recovery must reuse this record. */
+export class ConnectionCreationFailed extends Error {
+  constructor(
+    readonly connectionId: string,
+    cause: unknown,
+  ) {
+    super(cause instanceof Error ? cause.message : 'Connection verification failed', { cause });
+    this.name = 'ConnectionCreationFailed';
+  }
+}
+
 function endpointFromPolicy(policy: ProviderPolicy) {
   const first = policy.endpoints[0];
   if (!first) throw new Error('Provider policy has no endpoints');
@@ -125,7 +136,15 @@ export class ConnectionsService {
       const attached = new Set(await this.gateway.sandboxProviders(name, signal));
       // Unknown or revoked attachments are deliberately not adopted here:
       // verifyRuntimeSandbox rejects them before any sandbox mutation.
-      return candidates.filter((connection) => attached.has(connection.gatewayProviderName));
+      const selected = candidates.filter((connection) =>
+        attached.has(connection.gatewayProviderName),
+      );
+      if (
+        attached.has('github') &&
+        selected.some((connection) => connection.templateId === 'github-readonly')
+      )
+        throw new Error('Retained sandbox has conflicting GitHub credential attachments');
+      return selected;
     }
     return candidates;
   }
@@ -458,7 +477,7 @@ export class ConnectionsService {
     if (!isGenericCreateInput(input)) {
       // Database callers from pre-registry releases remain supported during migration.
       const c = this.store.create(input);
-      return this.provision(c, legacyCredentials(credentials), signal);
+      return this.provisionCreated(c, legacyCredentials(credentials), signal);
     }
     const template = connectionTemplateRegistry.getProviderTemplate(
       input.templateId,
@@ -492,7 +511,19 @@ export class ConnectionsService {
       workspace: input.workspace,
       desiredAccountIds: input.desiredAccountIds,
     });
-    return this.provision(c, supplied, signal, policy);
+    return this.provisionCreated(c, supplied, signal, policy);
+  }
+  private async provisionCreated(
+    c: Connection,
+    credentials: Credentials,
+    signal: AbortSignal,
+    policy?: ProviderPolicy,
+  ) {
+    try {
+      return await this.provision(c, credentials, signal, policy);
+    } catch (cause) {
+      throw new ConnectionCreationFailed(c.id, cause);
+    }
   }
   private async runProbe(c: Connection, signal: AbortSignal) {
     const sandboxName = `mzp-${randomUUID().replaceAll('-', '').slice(0, 15)}`;
