@@ -6,7 +6,7 @@ import type { VersionedKeychain } from './openai-key-management.js';
 /** The native API updates an existing item's secret and recovery marker together, preserving ACLs.
  * Neither security's password argv nor a temporary credential file is used. */
 export const KEYCHAIN_ROTATION_HELPER = String.raw`
-import ctypes, json, sys, uuid
+import ctypes, hashlib, hmac, json, sys, uuid
 F = ctypes.CDLL('/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation')
 S = ctypes.CDLL('/System/Library/Frameworks/Security.framework/Security')
 P = ctypes.c_void_p
@@ -35,6 +35,13 @@ def get_bytes(value):
     size = data_length(value)
     if size < 0 or size > 65536: raise ValueError()
     return ctypes.string_at(data_bytes(value), size)
+def marker_version(marker, value):
+    if not marker: return None
+    prefix = b'mitzo-openai-key-v1:'
+    if not marker.startswith(prefix): raise ValueError()
+    version, fingerprint = marker[len(prefix):].decode('ascii').split(':')
+    if str(uuid.UUID(version)) != version or len(fingerprint) != 64: raise ValueError()
+    return version if hmac.compare_digest(fingerprint,hashlib.sha256(value).hexdigest()) else None
 try:
     request = json.loads(sys.stdin.buffer.read(65537))
     for key in ['service', 'account']:
@@ -50,25 +57,25 @@ try:
     result = P()
     if copy(query,ctypes.byref(result)) != 0 or array_count(result) != 1: raise ValueError()
     item = array_get(result,0)
+    existing_value = get_bytes(dict_get(item,const(S,'kSecValueData')))
     marker = get_bytes(dict_get(item,const(S,'kSecAttrGeneric')))
     prefix = b'mitzo-openai-key-v1:'
-    version = None
-    if marker:
-        if not marker.startswith(prefix): raise ValueError()
-        version = marker[len(prefix):].decode('ascii')
-        if str(uuid.UUID(version)) != version: raise ValueError()
+    version = marker_version(marker,existing_value)
     if request['action'] == 'read':
-        value = get_bytes(dict_get(item,const(S,'kSecValueData'))).decode('utf8')
+        value = existing_value.decode('utf8')
         if not value or len(value) > 16384: raise ValueError()
         print(json.dumps({'value':value,'version':version}))
     elif request['action'] == 'write':
+        if request['expectedVersion'] != version: raise ValueError()
         value = request['value']; version = request['version']
         if not isinstance(value,str) or not 0 < len(value) <= 16384 or str(uuid.UUID(version)) != version: raise ValueError()
         persistent_ref = dict_get(item,const(S,'kSecValuePersistentRef'))
         if not persistent_ref: raise ValueError()
-        target = dictionary({const(S,'kSecValuePersistentRef'):persistent_ref})
+        target_fields = {const(S,'kSecValuePersistentRef'):persistent_ref}
+        if marker: target_fields[const(S,'kSecAttrGeneric')] = bytes_ref(marker)
+        target = dictionary(target_fields)
         attributes = dictionary({const(S,'kSecValueData'):bytes_ref(value.encode()),
-            const(S,'kSecAttrGeneric'):bytes_ref(prefix + version.encode('ascii'))})
+            const(S,'kSecAttrGeneric'):bytes_ref(prefix + version.encode('ascii') + b':' + hashlib.sha256(value.encode()).hexdigest().encode('ascii'))})
         if update(target,attributes) != 0: raise ValueError()
         print('{"ok":true}')
     else: raise ValueError()
@@ -105,7 +112,7 @@ export class KeychainRotationCredentials implements VersionedKeychain {
     reference: CredentialReference,
     action: 'read' | 'write',
     signal: AbortSignal,
-    extra: Record<string, string> = {},
+    extra: Record<string, string | null> = {},
   ) {
     try {
       const ref = CredentialReferenceSchema.parse(reference);
@@ -127,12 +134,18 @@ export class KeychainRotationCredentials implements VersionedKeychain {
       throw new Error('Keychain unavailable');
     }
   }
-  async write(reference: CredentialReference, value: string, version: string, signal: AbortSignal) {
+  async write(
+    reference: CredentialReference,
+    value: string,
+    version: string,
+    signal: AbortSignal,
+    expectedVersion: string | null = null,
+  ) {
     try {
       Secret.parse({ value, version });
       z.object({ ok: z.literal(true) })
         .strict()
-        .parse(await this.request(reference, 'write', signal, { value, version }));
+        .parse(await this.request(reference, 'write', signal, { value, version, expectedVersion }));
     } catch {
       throw new Error('Keychain unavailable');
     }

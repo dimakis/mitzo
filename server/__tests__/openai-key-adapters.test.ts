@@ -1,7 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { load } from 'js-yaml';
-import { KeychainRotationCredentials } from '../keychain-rotation-credentials.js';
+import {
+  KEYCHAIN_ROTATION_HELPER,
+  KeychainRotationCredentials,
+} from '../keychain-rotation-credentials.js';
 import { OpenShellOpenAIKeyGateway, validateOpenAIKey } from '../openai-key-gateway.js';
 import type { ManagedOpenAIAccount } from '../openai-key-management.js';
 const account: ManagedOpenAIAccount = {
@@ -23,6 +28,22 @@ const profile = () =>
     ),
   ) as Record<string, unknown>;
 describe('Keychain rotation adapter', () => {
+  it('invalidates its recovery marker when an operator changes only the saved secret', () => {
+    const version = '890456d2-8b5d-43d6-b8b8-48c1c99837c0';
+    const marker = `mitzo-openai-key-v1:${version}:${createHash('sha256').update('original-key').digest('hex')}`;
+    const script = `import ast,json,sys,hashlib,hmac,uuid
+request=json.load(sys.stdin)
+tree=ast.parse(request['program'])
+fn=next(node for node in tree.body if isinstance(node,ast.FunctionDef) and node.name=='marker_version')
+exec(compile(ast.Module(body=[fn],type_ignores=[]),'<marker-check>','exec'))
+print(json.dumps([marker_version(request['marker'].encode(),value.encode()) for value in ['original-key','changed-key']]))`;
+    const result = spawnSync('/usr/bin/python3', ['-I', '-c', script], {
+      input: JSON.stringify({ program: KEYCHAIN_ROTATION_HELPER, marker }),
+      encoding: 'utf8',
+    });
+    expect(result.status).toBe(0);
+    expect(JSON.parse(result.stdout)).toEqual([version, null]);
+  });
   it('uses stdin for the key and writes an atomic version marker rather than secret argv', async () => {
     const run = vi.fn(async () => '{"ok":true}');
     const adapter = new KeychainRotationCredentials(run);
@@ -39,6 +60,7 @@ describe('Keychain rotation adapter', () => {
       account: 'work',
       value: 'NEW_PRIVATE_KEY',
       version: '890456d2-8b5d-43d6-b8b8-48c1c99837c0',
+      expectedVersion: null,
     });
     await expect(
       adapter.read({ ...account.credentialRef, provider: 'other' }, signal()),

@@ -93,9 +93,41 @@ function fixture() {
     driftGateway: () => {
       gatewayVersion = '99';
     },
+    driftKeychain: () => {
+      saved = { value: 'changed-externally', version: null };
+    },
   };
 }
 describe('OpenAI key replacement and recovery', () => {
+  it('can supersede a partial update with an explicitly entered replacement when the saved key changed', async () => {
+    const f = fixture();
+    f.gateway.replace.mockRejectedValueOnce(new Error('offline'));
+    await f.replace();
+    f.driftKeychain();
+    expect((await f.manager.list(signal()))[0]!.canSynchronize).toBe(false);
+    expect((await f.replace('explicit-replacement')).health).toBe('ready');
+    expect(f.gatewayKey()).toBe('explicit-replacement');
+  });
+  it('restores committed intent from SQLite after closing and reopening the process-local store', async () => {
+    const f = fixture();
+    f.gateway.replace.mockRejectedValueOnce(new Error('offline'));
+    await f.replace();
+    f.store.close();
+    const reopened = new OpenAIKeyOperationStore(f.path);
+    stores.push(reopened);
+    const restarted = new OpenAIKeyManagement({ ...f.options, store: reopened });
+    expect((await restarted.list(signal()))[0]!.health).toBe('needs_attention');
+    await expect(restarted.resolveKey('work', signal())).rejects.toThrow('need attention');
+    await restarted.synchronize(
+      {
+        accountId: 'work',
+        revision: (await restarted.list(signal()))[0]!.revision,
+        sameProject: true,
+      },
+      signal(),
+    );
+    expect(await restarted.resolveKey('work', signal())).toBe('new-key');
+  });
   it('validates before either write, pauses affected chats, and confirms both copies', async () => {
     const f = fixture();
     expect((await f.manager.list(signal()))[0]!.health).toBe('not_verified');

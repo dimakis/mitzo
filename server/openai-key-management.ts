@@ -19,6 +19,7 @@ export interface VersionedKeychain {
     value: string,
     version: string,
     signal: AbortSignal,
+    expectedVersion?: string | null,
   ): Promise<void>;
 }
 export interface OpenAIKeyGateway {
@@ -179,6 +180,12 @@ export class OpenAIKeyManagement {
       this.options.accounts().some((account) => account.id === accountId)
     );
   }
+  get enabled() {
+    return !this.options.managedAccountIds || this.options.managedAccountIds.length > 0;
+  }
+  close() {
+    this.options.store.close();
+  }
   /** Host consumers participate in the same mutation fence and read the canonical item per request. */
   resolveKey(accountId: string, signal = AbortSignal.timeout(30000)): Promise<string> {
     return this.serial(async () => {
@@ -241,9 +248,14 @@ export class OpenAIKeyManagement {
   ): Promise<OpenAIKeyHealth> {
     return this.serial(async () => {
       const selected = await this.selected(input, signal);
-      if (selected.pending)
-        throw new Error('Complete pending synchronization before replacing the key');
+      if (selected.pending && selected.pending.binding !== selected.binding)
+        throw new Error('Account binding changed; operator reconciliation is required');
       await this.validate(input.apiKey, signal);
+      if (selected.pending)
+        this.options.store.update(selected.pending.id, {
+          phase: 'aborted',
+          errorCode: 'SUPERSEDED',
+        });
       return this.install(selected, input.apiKey, signal);
     });
   }
@@ -266,7 +278,16 @@ export class OpenAIKeyManagement {
     });
     try {
       await this.options.gateway.pause(account, signal);
-      await this.options.keychain.write(account.credentialRef, value, operation.id, signal);
+      const current = await this.options.keychain.read(account.credentialRef, signal);
+      if (current.version !== keychain.version || current.value !== keychain.value)
+        throw new Error('Keychain changed');
+      await this.options.keychain.write(
+        account.credentialRef,
+        value,
+        operation.id,
+        signal,
+        keychain.version,
+      );
       this.options.store.update(operation.id, { phase: 'keychain_written' });
       await this.finish(operation, account, value, signal);
     } catch {
@@ -314,7 +335,7 @@ export class OpenAIKeyManagement {
             this.options.store.update(operation.id, { phase: 'aborted', errorCode: 'NOT_APPLIED' });
           } else if (
             state.keychain.version === operation.id &&
-            operation.phase !== 'gateway_started'
+            (operation.phase === 'prepared' || operation.phase === 'keychain_written')
           ) {
             await this.options.gateway.pause(account, signal);
             await this.finish(operation, account, state.keychain.value, signal);
