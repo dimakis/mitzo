@@ -196,6 +196,8 @@ async function setup(
     ) => void;
   },
   enableCapacityRecovery = false,
+  runtimeConfig?: Record<string, unknown>,
+  inheritedConfig: Record<string, unknown> = {},
 ) {
   const dir = mkdtempSync(join(tmpdir(), 'mitzo-codex-'));
   const store = existingStore ?? new CodexConversationStore(join(dir, 'private.db'));
@@ -222,7 +224,7 @@ async function setup(
     close: vi.fn(),
     request: vi.fn(async (method: string, params: Record<string, unknown>): Promise<unknown> => {
       requests.push({ method, params });
-      if (method === 'config/read') return { config: {} };
+      if (method === 'config/read') return { config: inheritedConfig };
       if (method === 'account/read')
         return { account: { type: 'chatgpt', email: 'test@example.com', planType: 'test' } };
       if (method === 'thread/turns/list')
@@ -282,6 +284,7 @@ async function setup(
     reconnectGuard,
     deferToolSurfaceReplacement,
     enableCapacityRecovery,
+    runtimeConfig,
     onThreadChanged,
     onProviderDispatch,
     onProviderComplete,
@@ -3825,3 +3828,30 @@ it('persists the exact delayed child ACK after new intent stops its future retri
     vi.useRealTimers();
   }
 });
+
+it.each([undefined, 'none', 'concise', 'detailed'] as const)(
+  'requests Codex reasoning summaries for an explicit runtime (override: %s)',
+  async (summary) => {
+    const args: Parameters<typeof setup> = [];
+    args[21] = { web_search: 'disabled', ...(summary ? { model_reasoning_summary: summary } : {}) };
+    const { requests } = await setup(...args);
+    const thread = requests.find((r) => r.method === 'thread/start');
+    expect(thread?.params.config).toMatchObject({
+      model_reasoning_summary: summary ?? 'auto',
+      web_search: 'disabled',
+    });
+  },
+);
+
+it.each(['none', 'concise', 'detailed'])(
+  'preserves inherited %s summaries on an explicit OpenShell runtime',
+  async (summary) => {
+    const args: Parameters<typeof setup> = [];
+    args[21] = { web_search: 'disabled' };
+    args[22] = { model_reasoning_summary: summary };
+    const { requests } = await setup(...args);
+    expect(requests.find((r) => r.method === 'thread/start')?.params.config).toMatchObject({
+      model_reasoning_summary: summary,
+    });
+  },
+);

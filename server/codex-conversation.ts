@@ -466,9 +466,7 @@ export class CodexConversation {
       }),
     );
     await this.observeStartupConfig(configResponse.config, startupGeneration);
-    const runtimeConfig =
-      this.opts.runtimeConfig ??
-      codexRuntimeOverrides(configResponse.config, this.opts.profile.workspaceId);
+    const runtimeConfig = this.runtimeConfiguration(configResponse.config);
     const modelProvider = this.opts.modelProvider ?? 'openai';
     const threadOptions = this.threadOptions(runtimeConfig, modelProvider, state);
     await this.repairThreadOwnership(this.client, threadOptions);
@@ -1040,9 +1038,7 @@ export class CodexConversation {
         }),
       );
       await this.observeStartupConfig(configResponse.config, startupGeneration);
-      const runtimeConfig =
-        this.opts.runtimeConfig ??
-        codexRuntimeOverrides(configResponse.config, this.opts.profile.workspaceId);
+      const runtimeConfig = this.runtimeConfiguration(configResponse.config);
       const modelProvider = this.opts.modelProvider ?? 'openai';
       const state = this.opts.store.read(this.opts.conversationId, this.binding);
       this.opts.store.assertNoPendingThreadDispatch(this.opts.conversationId, this.binding);
@@ -1103,6 +1099,20 @@ export class CodexConversation {
     }
   }
 
+  private runtimeConfiguration(configuration: unknown): Record<string, unknown> {
+    if (!this.opts.runtimeConfig)
+      return codexRuntimeOverrides(configuration, this.opts.profile.workspaceId);
+    const inherited = z
+      .object({
+        model_reasoning_summary: z.enum(['none', 'auto', 'concise', 'detailed']).optional(),
+      })
+      .parse(configuration);
+    return {
+      model_reasoning_summary: inherited.model_reasoning_summary ?? 'auto',
+      ...this.opts.runtimeConfig,
+    };
+  }
+
   private threadOptions(
     runtimeConfig: Record<string, unknown>,
     modelProvider: string,
@@ -1130,7 +1140,13 @@ export class CodexConversation {
       model: this.binding!.model,
       modelProvider,
       cwd: this.opts.runtimeCwd ?? this.opts.cwd,
-      config: { ...runtimeConfig, web_search: policy.effective },
+      config: {
+        // Explicit OpenShell/native runtime configs bypass codexRuntimeOverrides.
+        // Opt in on every route, while retaining an explicit summary preference.
+        model_reasoning_summary: 'auto',
+        ...runtimeConfig,
+        web_search: policy.effective,
+      },
       approvalPolicy: 'never',
       sandbox: 'read-only',
       developerInstructions: this.opts.systemPrompt,
@@ -1180,9 +1196,7 @@ export class CodexConversation {
         }),
       );
       await this.observeStartupConfig(configResponse.config, startupGeneration);
-      const runtimeConfig =
-        this.opts.runtimeConfig ??
-        codexRuntimeOverrides(configResponse.config, this.opts.profile.workspaceId);
+      const runtimeConfig = this.runtimeConfiguration(configResponse.config);
       const modelProvider = this.opts.modelProvider ?? 'openai';
       const state = this.opts.store.read(this.opts.conversationId, this.binding);
       this.mapper?.beginReconnectReplay();
