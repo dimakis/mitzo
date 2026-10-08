@@ -29,6 +29,8 @@ export interface ConnectionsAccessSources {
   symposiumAccounts?: (
     signal: AbortSignal,
   ) => AccountAccessProfile[] | Promise<AccountAccessProfile[]>;
+  /** Server-owned enrollment only; presence is not proof of credential health. */
+  canManageOpenAIKey?: (accountId: string) => boolean;
   managed?: () => ManagedAccessConnection[];
   keychain?: () => PublicCredentialConnection[];
   personal?: (signal: AbortSignal) => PersonalConnection[] | Promise<PersonalConnection[]>;
@@ -207,9 +209,22 @@ export async function readConnectionsAccess(
           account.models.some((model) => model.id === account.lastSuccessfulUse!.model))
       )
         row.lastSuccessfulUse = { ...account.lastSuccessfulUse };
-      row.verification.reason = account.signIn
-        ? 'Effective conversation access has not been checked.'
-        : 'Configured account profile only. Credential controls are unavailable here; sign-in and effective access have not been checked.';
+      const keyManaged =
+        source === 'accounts' &&
+        account.provider === 'openai' &&
+        input.canManageOpenAIKey?.(account.id);
+      if (keyManaged)
+        row.actions = [
+          {
+            id: 'openai-key-controls',
+            label: 'Manage API key',
+            href: `/connections?manage=openai&connection=${encodeURIComponent(account.id)}`,
+          },
+        ];
+      row.verification.reason =
+        account.signIn || keyManaged
+          ? 'Effective conversation access has not been checked.'
+          : 'Configured account profile only. Credential controls are unavailable here; sign-in and effective access have not been checked.';
       result.resources.push(row);
     }
   }

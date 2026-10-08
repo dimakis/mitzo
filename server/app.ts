@@ -412,6 +412,7 @@ export function setConnectionsRuntime(runtime: ConnectionsRuntime | null): void 
         legacyProviders: runtime.legacyProviders,
         capabilities: runtime.capabilities,
         googleWorkspace: runtime.googleWorkspace,
+        openAIKeys: runtime.openAIKeys,
       })
     : null;
   capabilityOperationsRouter = runtime
@@ -2511,6 +2512,8 @@ app.use(
       },
       ...(runtime
         ? {
+            canManageOpenAIKey: (accountId: string) =>
+              runtime.openAIKeys?.manages(accountId) ?? false,
             managed: () =>
               runtime.store.list('operator').map((connection) => ({
                 ...connection,

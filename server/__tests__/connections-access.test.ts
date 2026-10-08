@@ -461,6 +461,37 @@ it('routes management actions to the owning resource instead of the add chooser'
   expect(action('legacy-provider')).toBe('/connections?manage=legacy&connection=other');
 });
 
+it('offers key controls only for server-enrolled primary OpenAI accounts without claiming verification', async () => {
+  const inventory = await readConnectionsAccess(
+    {
+      accounts: () => [
+        { ...account, lastSuccessfulUse: { model: 'luna', succeededAt: 100 } },
+        { ...account, id: 'other' },
+        { ...account, id: 'codex', provider: 'openai-codex' as const },
+      ],
+      symposiumAccounts: () => [account],
+      canManageOpenAIKey: (id) => ['same', 'codex'].includes(id),
+    },
+    { now: 200 },
+  );
+  const enrolled = inventory.resources.find(
+    (row) => row.owner === 'account-profiles' && row.nativeId === 'same',
+  )!;
+  expect(enrolled.actions).toEqual([
+    {
+      id: 'openai-key-controls',
+      label: 'Manage API key',
+      href: '/connections?manage=openai&connection=same',
+    },
+  ]);
+  expect(enrolled.verification.state).toBe('unverified');
+  expect(enrolled.lastSuccessfulUse).toEqual({ model: 'luna', succeededAt: 100 });
+  expect(enrolled.verification.reason).not.toContain('controls are unavailable');
+  expect(
+    inventory.resources.filter((row) => row !== enrolled).every((row) => row.actions.length === 0),
+  ).toBe(true);
+  expect(JSON.stringify(inventory)).not.toContain('credentialRef');
+});
 it.each(['rotating', 'needs_attention'] as const)(
   'retains the historical credential check independently of service status %s',
   async (status) => {

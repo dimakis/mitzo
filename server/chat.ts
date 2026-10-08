@@ -30,6 +30,9 @@ import {
   SESSION_PERMISSION_INSTRUCTIONS,
 } from './session-permission-policy.js';
 import { credentials } from './credentials.js';
+import { getConnectionsRuntime } from './connections-runtime.js';
+import { assertOpenAIKeyController } from './openai-key-controller.js';
+import { openAIKeyResourceBindings } from './openai-key-operation-store.js';
 import {
   getResponsesRuntime,
   openResponsesChat,
@@ -1190,9 +1193,19 @@ async function _startChatInner(
         };
         accountEnv = nativeExecutionEnv();
       } else if (accountBinding.provider === 'openai') {
+        const profile = profiles!.apiProfile(accountBinding);
+        assertOpenAIKeyController(
+          accountBinding.accountId,
+          join(BASE_REPO, '.mitzo'),
+          !!getConnectionsRuntime()?.assertOpenAIKeyReady,
+          openAIKeyResourceBindings({
+            credentialRef: profile.credentialRef,
+            providerName: profile.sandboxProvider,
+            providerId: profile.sandboxProviderId,
+          }),
+        );
         if (options.images?.length)
           throw new Error('OpenAI API image attachments are not yet supported');
-        const profile = profiles!.apiProfile(accountBinding);
         if (openShellRequested) {
           if (!profile.sandboxProvider)
             throw new Error('The selected API account has no OpenShell provider binding');
@@ -1312,7 +1325,14 @@ async function _startChatInner(
   }
   if (apiCredentialRef) {
     try {
-      apiKey = await credentials.resolve(apiCredentialRef);
+      const runtime = getConnectionsRuntime();
+      if (runtime?.assertOpenAIKeyReady && accountBinding) {
+        const selectedReference = apiCredentialRef;
+        apiKey = await runtime.service.withCredentialMutation(async () => {
+          await runtime.assertOpenAIKeyReady!(accountBinding.accountId, AbortSignal.timeout(30000));
+          return credentials.resolve(selectedReference);
+        });
+      } else apiKey = await credentials.resolve(apiCredentialRef);
     } catch (err: unknown) {
       if (initialProviderAdmission) {
         eventStore.transitionExecution(
@@ -1703,6 +1723,17 @@ async function _startChatInner(
         binding: accountBinding!,
         apiKey,
         gemini,
+        ...(accountBinding?.provider === 'openai' &&
+        getConnectionsRuntime()?.openAIKeys?.manages(accountBinding.accountId)
+          ? {
+              getApiKey: async (signal?: AbortSignal) => {
+                loadAccountProfiles().resume(accountBinding!);
+                const manager = getConnectionsRuntime()?.openAIKeys;
+                if (!manager) throw new Error('OpenAI credential management is unavailable');
+                return manager.resolveKey(accountBinding!.accountId, signal);
+              },
+            }
+          : {}),
         selectedModel: options.model,
         reasoningEffort: options.reasoningEffort,
         session,

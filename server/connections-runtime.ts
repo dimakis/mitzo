@@ -11,9 +11,13 @@ import { loadGithubSeedBaselines, selectGithubSeedBaseline } from './github-seed
 import { GithubSeedPublicationError } from './github-seeded-source.js';
 import { promisify } from 'node:util';
 import { join } from 'node:path';
-import { mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { GoogleWorkspaceManagement } from './google-workspace-management.js';
+import { OpenAIKeyManagement, type ManagedOpenAIAccount } from './openai-key-management.js';
+import { OpenAIKeyOperationStore } from './openai-key-operation-store.js';
+import { KeychainRotationCredentials } from './keychain-rotation-credentials.js';
+import { OpenShellOpenAIKeyGateway, validateOpenAIKey } from './openai-key-gateway.js';
 import type { CommandRunner } from './connections-gateway.js';
 import { ConnectionStore } from './connections-store.js';
 import { ConnectionsService } from './connections-service.js';
@@ -59,6 +63,9 @@ export interface ConnectionsRuntime {
     Array<{ name: string; type: string; id: string; workspace: string }>
   >;
   googleWorkspace?: GoogleWorkspaceManagement;
+  openAIKeys?: OpenAIKeyManagement;
+  assertOpenAIKeyReady?: (accountId: string, signal: AbortSignal) => Promise<void>;
+  closeOpenAIKeyManagement?: () => void;
 }
 let activeRuntime: ConnectionsRuntime | null = null;
 export function setConnectionsRuntime(runtime: ConnectionsRuntime | null) {
@@ -90,6 +97,9 @@ export function createConnectionsRuntime(options: {
   customRestEnabled?: boolean;
   publicDnsResolver?: import('./connections-gateway.js').PublicDnsResolver;
   customProbePolicy?: string;
+  /** Explicit server-owned enrollment; no credential/account adoption happens by default. */
+  openAIKeyAccounts?: () => ManagedOpenAIAccount[];
+  managedOpenAIAccountIds?: readonly string[];
   /** Authoritative conversation metadata, injected by server startup. */
   resolveConversationBinding?: (conversationId: string) => { accountId: string } | undefined;
   /** Tests may replace a reviewed built-in executor with a deterministic fake. */
@@ -173,11 +183,33 @@ export function createConnectionsRuntime(options: {
         : undefined,
     customProbePolicy: options.customProbePolicy,
   });
+  let openAIKeys: OpenAIKeyManagement | undefined;
   const service = new ConnectionsService(store, gateway, {
     gateway: gatewayBinding,
     workspace: options.workspace,
     eligibleAccountIds: options.eligibleAccountIds,
+    accountCredentialReady: (id, signal) =>
+      openAIKeys?.assertReady(id, signal) ?? Promise.resolve(),
   });
+  const keyJournalPath = join(options.directory, 'openai-key-operations.db');
+  if (
+    options.openAIKeyAccounts &&
+    (options.managedOpenAIAccountIds?.length || existsSync(keyJournalPath))
+  ) {
+    if (options.managedOpenAIAccountIds?.length && process.platform !== 'darwin')
+      throw new Error('OpenAI Keychain management requires macOS');
+    openAIKeys = new OpenAIKeyManagement({
+      accounts: options.openAIKeyAccounts,
+      managedAccountIds: options.managedOpenAIAccountIds ?? [],
+      store: new OpenAIKeyOperationStore(keyJournalPath),
+      keychain: new KeychainRotationCredentials(),
+      gateway: new OpenShellOpenAIKeyGateway(runGateway, options.workspace, gateway),
+      validateKey: validateOpenAIKey,
+      gatewayBinding,
+      workspace: options.workspace,
+      gate: (work) => service.withCredentialMutation(work),
+    });
+  }
   const capabilityStore = capabilityOperationStore(options.directory);
   // This transport executes only code-owned OpenShell/git argument shapes. It
   // is separate from provider provisioning because bundle export needs a
@@ -473,6 +505,14 @@ export function createConnectionsRuntime(options: {
     eligibleAccountIds: options.eligibleAccountIds,
     gateway: gatewayBinding,
     workspace: options.workspace,
+    ...(openAIKeys
+      ? {
+          assertOpenAIKeyReady: (id: string, signal: AbortSignal) =>
+            openAIKeys!.assertReady(id, signal),
+          closeOpenAIKeyManagement: () => openAIKeys!.close(),
+        }
+      : {}),
+    ...(openAIKeys?.enabled ? { openAIKeys } : {}),
     ...(process.env.MITZO_GOOGLE_WORKSPACE_MANAGEMENT_ENABLED === 'true'
       ? {
           googleWorkspace: new GoogleWorkspaceManagement({

@@ -6,6 +6,7 @@ import { createRoot } from 'react-dom/client';
 import { fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { ConnectionsRoute } from '../ConnectionsRoute';
 import { ConnectionsView } from '../ConnectionsView';
 import { connectionErrorMessage } from '../../lib/connections-form';
 import { apiFetch } from '../../lib/api-fetch';
@@ -17,6 +18,7 @@ vi.mock('../../lib/api-fetch', () => ({ apiFetch: vi.fn() }));
 vi.mock('../../lib/connections-api', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../lib/connections-api')>()),
   getConnections: vi.fn(),
+  getOpenAIKeyStatus: vi.fn(),
   getConnectionTemplates: vi.fn(),
   reauthorize: vi.fn(),
   createConnection: vi.fn(),
@@ -1031,4 +1033,48 @@ it('opens personal account setup only after ChatGPT is selected', async () => {
   expect(button('Save and continue')).toBeUndefined();
   await act(async () => button('Choose ChatGPT').click());
   expect(button('Save and continue')).toBeTruthy();
+});
+
+it('opens enrolled API controls from the account management link and requires recent authorization before key entry', async () => {
+  vi.mocked(connections.getConnections).mockResolvedValue({ ...catalog, openAIKeysManaged: true });
+  vi.mocked(connections.getOpenAIKeyStatus).mockResolvedValue([
+    {
+      accountId: 'work',
+      label: 'Work OpenAI API',
+      health: 'not_verified',
+      revision: 'v1',
+      canSynchronize: true,
+      errorCode: null,
+      verifiedAt: null,
+    },
+    {
+      accountId: 'other',
+      label: 'Other OpenAI API',
+      health: 'not_verified',
+      revision: 'v2',
+      canSynchronize: true,
+      errorCode: null,
+      verifiedAt: null,
+    },
+  ]);
+  await act(async () =>
+    root.render(
+      <MemoryRouter initialEntries={['/connections?manage=openai&connection=work']}>
+        <ConnectionsRoute />
+      </MemoryRouter>,
+    ),
+  );
+  await flush();
+  expect(container.textContent).toContain('Manage OpenAI API');
+  expect(container.textContent).toContain('Work OpenAI API');
+  expect(container.textContent).not.toContain('Other OpenAI API');
+  expect(container.textContent).not.toContain('Choose ChatGPT');
+  expect(container.querySelector('input[type=password]')).toBeNull();
+  await act(async () => button('Replace API key').click());
+  expect(input('Passphrase')).toBeTruthy();
+  expect(container.querySelectorAll('input[type=password]')).toHaveLength(1);
+  await reauthorize();
+  await act(async () => button('Replace API key').click());
+  expect(container.querySelector('input[type=password]')).toBeTruthy();
+  expect(container.textContent).toContain('gpt-6-luna');
 });

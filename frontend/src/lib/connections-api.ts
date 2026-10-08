@@ -6,6 +6,7 @@ import type {
   ConnectionTemplateCatalog,
   ManagedConnection,
   GoogleWorkspaceHealth,
+  OpenAIKeyHealth,
 } from '../types/connections';
 
 type Reauthorization = { csrf: string; expiresAt: number };
@@ -40,6 +41,39 @@ function json(method: string, body: unknown, csrf?: string): RequestInit {
 }
 export async function getConnections(): Promise<ConnectionsCatalog> {
   return bodyOrError<ConnectionsCatalog>(await apiFetch('/api/connections'));
+}
+export async function getOpenAIKeyStatus(): Promise<OpenAIKeyHealth[]> {
+  return (
+    await bodyOrError<{ accounts: OpenAIKeyHealth[] }>(
+      await apiFetch('/api/connections/openai-keys'),
+    )
+  ).accounts;
+}
+type OpenAIKeySelection = {
+  accountId: string;
+  revision: string;
+  sameProject: boolean;
+  csrf: string;
+};
+export async function replaceOpenAIKey(
+  input: OpenAIKeySelection & { apiKey: string },
+): Promise<OpenAIKeyHealth> {
+  const { accountId, ...body } = input;
+  return bodyOrError(
+    await apiFetch(
+      `/api/connections/openai-keys/${encodeURIComponent(accountId)}/replace`,
+      json('POST', body, input.csrf),
+    ),
+  );
+}
+export async function synchronizeOpenAIKey(input: OpenAIKeySelection): Promise<OpenAIKeyHealth> {
+  const { accountId, ...body } = input;
+  return bodyOrError(
+    await apiFetch(
+      `/api/connections/openai-keys/${encodeURIComponent(accountId)}/synchronize`,
+      json('POST', body, input.csrf),
+    ),
+  );
 }
 export async function getGoogleWorkspaceStatus(): Promise<GoogleWorkspaceHealth> {
   return bodyOrError(await apiFetch('/api/connections/google-workspace'));

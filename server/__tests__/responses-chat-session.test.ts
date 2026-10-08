@@ -71,6 +71,7 @@ it('runs successive user turns with a private credential and closes its input qu
   input.push({ message: { content: 'first' } });
   input.push({ message: { content: 'second' } });
   input.close();
+  const getApiKey = vi.fn(async () => 'refreshed-test-key');
   const chat = await openResponsesChat({
     conversationId: 'app',
     binding: {
@@ -81,6 +82,7 @@ it('runs successive user turns with a private credential and closes its input qu
       profileRevision: 'revision',
     },
     apiKey: 'private-test-key',
+    getApiKey,
     session: registry.get('client')!,
     registry,
     input,
@@ -95,6 +97,7 @@ it('runs successive user turns with a private credential and closes its input qu
   expect(events[0]).toMatchObject({ type: 'system', session_id: 'app' });
   expect(JSON.stringify(events)).not.toContain('private-test-key');
   expect(calls.options[0].apiKey).toBe('private-test-key');
+  expect(calls.options[0].getApiKey).toBe(getApiKey);
   expect(calls.options[0].tools).toEqual(
     expect.arrayContaining([
       expect.objectContaining({ name: 'AskUserQuestion' }),

@@ -775,6 +775,23 @@ export class AccountProfiles {
     return this.apiProfile(binding).credentialRef;
   }
 
+  /** Private controller view, including host-only consumers to detect shared credentials. */
+  openAIKeyManagementAccounts(): import('./openai-key-management.js').ManagedOpenAIAccount[] {
+    return this.profiles.flatMap((profile) =>
+      profile.provider === 'openai'
+        ? [
+            {
+              id: profile.id,
+              label: profile.label,
+              credentialRef: profile.credentialRef,
+              providerName: profile.sandboxProvider ?? '',
+              providerId: profile.sandboxProviderId ?? '',
+            },
+          ]
+        : [],
+    );
+  }
+
   apiProfile(binding: AccountBinding) {
     this.resume(binding);
     const profile = this.profiles.find((p) => p.id === binding.accountId);

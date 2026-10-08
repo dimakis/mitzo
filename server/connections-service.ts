@@ -84,6 +84,7 @@ export class ConnectionsService {
       gateway?: string;
       workspace?: string;
       eligibleAccountIds?: (templateId?: string) => string[];
+      accountCredentialReady?: (accountId: string, signal: AbortSignal) => Promise<void>;
     } = {},
   ) {}
   private async serial<T>(work: () => Promise<T>): Promise<T> {
@@ -101,6 +102,10 @@ export class ConnectionsService {
   }
   catalog(ownerId = 'operator') {
     return this.store.list(ownerId);
+  }
+  /** Controller credential operations share the runtime admission/rotation gate. */
+  withCredentialMutation<T>(work: () => Promise<T>): Promise<T> {
+    return this.serial(work);
   }
   /** The gateway, not the browser, is authoritative for provisionable templates. */
   supportsTemplate(templateId: string, templateVersion: number) {
@@ -334,6 +339,7 @@ export class ConnectionsService {
   ) {
     return this.serial(async () => {
       signal.throwIfAborted();
+      await this.options.accountCredentialReady?.(accountId, signal);
       const c = this.resolveForAccount(accountId);
       if (c) await this.boundProvider(c, signal);
       return work(c);
@@ -349,6 +355,7 @@ export class ConnectionsService {
   ) {
     return this.serial(async () => {
       signal.throwIfAborted();
+      await this.options.accountCredentialReady?.(accountId, signal);
       const candidates = this.resolveAutomaticForAccount(accountId);
       const connections = select ? await select(candidates) : candidates;
       if (connections.some((connection) => !candidates.includes(connection)))

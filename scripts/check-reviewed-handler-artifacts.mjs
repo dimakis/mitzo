@@ -3,6 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
 import {
   reviewedHandlerImplementationRevision,
+  reviewedConnectionsRuntimeImplementationRevision,
   reviewedHandlerSourceArtifacts,
   reviewedHandlerSourceFingerprint,
 } from '../dist/connections/reviewed-handler-artifacts.js';
@@ -31,5 +32,5 @@ if (mismatches.length > 0)
       'Bump the reviewed implementation/template version and regenerate the reviewed artifact.',
   );
 process.stdout.write(
-  `Reviewed handler artifacts verified for ${reviewedHandlerImplementationRevision}.\n`,
+  `Reviewed handler artifacts verified for ${reviewedHandlerImplementationRevision}; Connections runtime ${reviewedConnectionsRuntimeImplementationRevision}.\n`,
 );

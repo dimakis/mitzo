@@ -19,6 +19,7 @@ interface NativeResponsesOptions extends Omit<
   conversationId: string;
   binding: AccountBinding;
   apiKey?: string;
+  getApiKey?: (signal?: AbortSignal) => Promise<string>;
   gemini?: GeminiOptions;
   store: NativeResponsesStore;
   maxTurns?: number;
@@ -186,6 +187,7 @@ export class NativeResponsesRunner {
         : new ResponsesSession(config, {
             accountId: opts.binding.accountId,
             apiKey: opts.apiKey!,
+            getApiKey: opts.getApiKey,
             checkpoint,
           });
       for await (const event of runAgenticLoop(session, state.history, {
