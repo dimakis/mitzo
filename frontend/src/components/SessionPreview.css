@@ -1,0 +1,136 @@
+.session-preview {
+  position: fixed;
+  inset: 0;
+  margin: auto;
+  width: min(100% - 32px, 520px);
+  max-height: calc(100dvh - 32px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+.session-preview::backdrop {
+  background: rgb(0 0 0 / 55%);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+.session-preview-stack {
+  display: grid;
+  gap: 12px;
+  animation: session-preview-in 160ms ease-out;
+}
+.session-preview-card,
+.session-preview-actions {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 24px;
+  overflow: hidden;
+  box-shadow: 0 12px 40px var(--shadow);
+}
+.session-preview-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px 20px;
+  border-bottom: 1px solid var(--border);
+}
+.session-preview-header h2 {
+  font-size: var(--text-base);
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+.session-preview-header p,
+.session-preview-speaker,
+.session-preview-actions p {
+  color: var(--text-dim);
+  font-size: var(--text-xs);
+  margin-top: 4px;
+}
+.session-preview-header button {
+  flex-shrink: 0;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  color: var(--text);
+  font-size: 26px;
+}
+.session-preview-messages {
+  max-height: min(42dvh, 420px);
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: 18px 20px;
+  font-size: var(--text-md);
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+.session-preview-message + .session-preview-message {
+  margin-top: 20px;
+}
+.session-preview-message--user {
+  padding: 12px;
+  background: var(--hover);
+  border-radius: 12px;
+}
+.session-preview-message > :not(.session-preview-speaker) + * {
+  margin-top: 8px;
+}
+.session-preview-message ul,
+.session-preview-message ol {
+  padding-left: 20px;
+}
+.session-preview-message pre {
+  white-space: pre-wrap;
+}
+.session-preview-message h1,
+.session-preview-message h2,
+.session-preview-message h3 {
+  font-size: var(--text-base);
+}
+.session-preview-actions {
+  width: min(100%, 340px);
+  padding: 6px;
+}
+.session-preview-actions button {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  min-height: 48px;
+  padding: 12px 16px;
+  text-align: left;
+  color: var(--text);
+  border-radius: 18px;
+}
+.session-preview-actions button:hover,
+.session-preview-header button:hover {
+  background: var(--hover);
+}
+.session-preview-actions .session-preview-delete {
+  color: var(--danger);
+  border-top: 1px solid var(--border);
+}
+.session-preview-actions p {
+  padding: 0 16px 8px;
+}
+.session-item-navigation {
+  -webkit-touch-callout: none;
+  user-select: none;
+}
+@keyframes session-preview-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .session-preview-stack {
+    animation: none;
+  }
+}
