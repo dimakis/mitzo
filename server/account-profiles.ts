@@ -342,7 +342,9 @@ export class AccountProfiles {
       profileRevision,
       explanation: profile.nativeAuth
         ? 'Native ChatGPT sign-in must be checked by its isolated personal connection.'
-        : 'Sign-in has not been checked. The identity is configured, not observed.',
+        : profile.credentialRef
+          ? 'Sign-in has not been checked. The identity is configured, not observed.'
+          : 'Connection has not been checked. The identity is configured, not observed.',
     };
   }
 
@@ -407,8 +409,8 @@ export class AccountProfiles {
                 observedIdentity: null,
                 expiresAt: null,
                 explanation: checkSignal.aborted
-                  ? 'Sign-in check timed out or was cancelled. Retry later.'
-                  : 'The configured subscription provider and grant could not be verified. Check sign-in and retry.',
+                  ? 'Connection check timed out or was cancelled. Retry later.'
+                  : 'The configured subscription provider and grant could not be verified. Check the connection settings and retry.',
               },
               generation,
             );

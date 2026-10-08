@@ -41,25 +41,100 @@ export function connectionsAccessCards(inventory: ConnectionsAccessInventory): A
     .map((resource) => ({ resource, catalog: paired.get(resource.id) }));
 }
 
+/** Provider grants check connection validity, not the account's sign-in. */
+export function accountCheckLabel(resource: AccessResource): string {
+  return resource.signIn?.source === 'openshell-provider-grant' ? 'Connection check' : 'Sign-in';
+}
+
 /** Authentication evidence is independent of generic access verification. */
 export function accountSignInLabel(resource: AccessResource): string {
   const signIn = resource.signIn;
   if (!signIn) return 'Not checked';
+  if (
+    signIn.expiresAt != null &&
+    signIn.expiresAt > 0 &&
+    signIn.expiresAt <= Date.now() &&
+    (signIn.status === 'verified' || signIn.status === 'stale')
+  )
+    return 'Connection check expired';
   switch (signIn.status) {
     case 'verified':
-      if (signIn.source === 'openshell-provider-grant') return 'Connected';
+      if (signIn.source === 'openshell-provider-grant') return 'Connection valid';
       if (signIn.source === 'host-account-read' || signIn.source === 'isolated-native-auth')
         return 'Signed in';
       return 'Not checked';
     case 'stale':
-      return 'Check is stale';
+      return signIn.source === 'openshell-provider-grant'
+        ? 'Last connection check passed'
+        : 'Last sign-in check passed';
     case 'failed':
-      return 'Check failed';
+      return signIn.source === 'openshell-provider-grant'
+        ? "Couldn't check connection"
+        : "Couldn't check sign-in";
     case 'unsupported':
-      return 'Unsupported';
+      return 'Not checked';
     default:
       return 'Not checked';
   }
+}
+
+/** Reserved placeholder addresses are configuration internals, never an identity. */
+function displayIdentity(value: string | null | undefined): string | null {
+  const text = value?.trim();
+  return text && !/@[^@]*\.invalid$/i.test(text) ? text : null;
+}
+
+export function connectionTitle(resource: AccessResource, resources: AccessResource[]): string {
+  if (resource.kind !== 'legacy-provider' || !resource.details.serviceName) return resource.label;
+  const other = resources.some(
+    (row) => row.id !== resource.id && row.details.serviceName === resource.details.serviceName,
+  );
+  return `${resource.details.serviceName}${other ? ' · additional connection' : ''}`;
+}
+
+export function connectionStatus(resource: AccessResource): string {
+  if (
+    ['reauth_required', 'needs_sign_in'].includes(resource.status) ||
+    (resource.status === 'needs_attention' &&
+      ['JIRA_AUTH_REJECTED', 'GITHUB_AUTH_REJECTED', 'CUSTOM_REST_AUTH_REJECTED'].includes(
+        resource.errorCode ?? '',
+      ))
+  )
+    return 'Reconnect required';
+  if (resource.section === 'accounts' && ['configured', 'connected'].includes(resource.status))
+    return 'Set up';
+  if (resource.kind === 'legacy-provider') return 'Set up';
+  if (resource.status === 'active' || resource.status === 'ready') return 'Connection enabled';
+  const text = resource.status.replace(/[_-]/g, ' ');
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+export function serviceIdentity(resource: AccessResource): string | null {
+  const identity = displayIdentity(resource.accountIdentity);
+  const configured = displayIdentity(resource.details.configuredIdentity);
+  if (resource.details.serviceName === 'Jira')
+    return configured ? `Configured account: ${configured}` : null;
+  const opaque =
+    identity &&
+    /^(?:\d+:)?[a-f\d]{8}-[a-f\d]{4}-[a-f\d]{4}-[a-f\d]{4}-[a-f\d]{12}$/i.test(identity);
+  if (identity && !opaque) return identity;
+  return configured ? `Configured account: ${configured}` : null;
+}
+
+export function serviceScope(resource: AccessResource): string[] {
+  const labels: Record<string, string> = {
+    allowedRepositories: 'PR repositories',
+    allowedBaseBranches: 'PR base branches',
+    repositories: 'Repositories',
+    endpoint: 'Site',
+    allowedMethods: 'Methods',
+    allowedPaths: 'Paths',
+  };
+  return Object.entries(resource.details.scope ?? {})
+    .filter(([key]) => key !== 'email')
+    .map(
+      ([key, value]) => `${labels[key] ?? key}: ${Array.isArray(value) ? value.join(', ') : value}`,
+    );
 }
 
 export function accountSignInIdentity(resource: AccessResource) {
@@ -67,11 +142,14 @@ export function accountSignInIdentity(resource: AccessResource) {
   const observed =
     signIn?.status === 'verified' &&
     (signIn.source === 'host-account-read' || signIn.source === 'isolated-native-auth')
-      ? signIn.observedIdentity
+      ? signIn.observedIdentity && {
+          ...signIn.observedIdentity,
+          email: displayIdentity(signIn.observedIdentity.email) ?? '',
+        }
       : null;
   return {
     observed,
-    configuredEmail: signIn?.configuredIdentity.email ?? resource.accountIdentity,
+    configuredEmail: displayIdentity(signIn?.configuredIdentity.email ?? resource.accountIdentity),
     configuredPlan: signIn?.configuredIdentity.planType ?? null,
   };
 }
@@ -104,7 +182,10 @@ export function expireAccountSignIns(
       signIn: {
         ...signIn,
         status: 'stale',
-        explanation: 'The sign-in check is out of date. Refresh access to check again.',
+        explanation:
+          signIn.source === 'openshell-provider-grant'
+            ? 'The last connection check passed at the recorded time. Refresh to check again.'
+            : 'The last sign-in check passed at the recorded time. Refresh to check again.',
       },
     };
   });
@@ -143,7 +224,10 @@ export function retainUnavailableAccounts(
           ? {
               ...resource.signIn,
               status: 'stale',
-              explanation: 'Account source is unavailable. Showing an older sign-in check.',
+              explanation:
+                resource.signIn.source === 'openshell-provider-grant'
+                  ? 'Account source is unavailable. Showing an older connection check.'
+                  : 'Account source is unavailable. Showing an older sign-in check.',
             }
           : resource.signIn,
       verification: {

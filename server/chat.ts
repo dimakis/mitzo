@@ -200,6 +200,7 @@ import { withSpan, withSpanAsync } from './tracing.js';
 import { ExecutionAdmissionError } from '@mitzo/protocol/event-store';
 import { admitCloseout, type CloseoutAdmission } from './closeout-admission.js';
 import type { ProviderAttemptToken, SymposiumProvenance } from '@mitzo/protocol';
+import { getAccountUseStore } from './account-use-store.js';
 import { buildClientCapabilitiesPrompt, SymposiumProvenanceSchema } from '@mitzo/protocol';
 
 const log = createLogger('chat');
@@ -1937,6 +1938,7 @@ async function _startChatInner(
               inputUuid,
             );
         },
+        onSuccessfulAccountUse: (binding) => getAccountUseStore().record(binding),
       },
     );
   } catch (err: unknown) {

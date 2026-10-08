@@ -7,10 +7,10 @@ import { createHash } from 'node:crypto';
  */
 export const reviewedHandlerImplementationRevision = 'v1.0.0';
 
-export const reviewedGithubPublicationImplementationRevision = 'v1.0.5';
+export const reviewedGithubPublicationImplementationRevision = 'v1.0.6';
 
 /** Credential synchronization changes runtime wiring without changing existing provider policies. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.2';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.3';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -23,7 +23,7 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
   'policy-compiler.ts': '13a12a3182568a151247cb204792f15c374af9e5a7f401d51b954c6dd40fd538',
-  'registry.ts': 'ef8e9b23dba7212f3a4c78582a717bc549c5f75af0e9ec38df48df4ffe702660',
+  'registry.ts': 'cccbb1c67d559eda923c4d0beac5e0203918e3ab2970ab90a1937bb32a09d8a4',
   'iana-address-policy.ts': '899b0b5ad66f5cbe72224b34c29ff7a88e32c2a6f5b2987e4d18cfc64f862b4e',
   'iana-address-data.generated.ts':
     '58f91383fa17ab9612d24bc113d011ece63bfc06b4635ba99f108bb05aa34038',
@@ -49,7 +49,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../openai-key-controller.ts': '721a1c6a513fc5380e4a2222927cda025bf8cbd7e8d49d8c5d526470e2cff217',
   '../connections-router.ts': '944eeccf74aabe0684f63373272cabd861b3b596d512147d7c82b9ac87ae87bd',
   '../connections-service.ts': '8d3e89345787d9b732c98d4636e86f1b56ed1c0fffb6f5288e0d29cbf24f1ce6',
-  '../connections-runtime.ts': '8bd5cb4c1772347cdd635ebab68d04b7d5cc70eaa6bd0159242dd7850ef15e8e',
+  '../connections-runtime.ts': '66f85dfb95ebc829a9813988c363222aa9416e879e585fccc3083d40885efdc7',
   'capabilities/operation-store.ts':
     '1a235f11d5578880e6dfa7ecf5779e2a011e24430774fc17429d7d22359b93f2',
   'capabilities/service.ts': '848e0998848d68e80ec53731b248a286f77f761905082092821f3ec9047ba36a',

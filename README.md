@@ -23,6 +23,8 @@ Accounts with multiple managed connections can provision new sandboxes without e
 
 ## Features
 
+- **Connections with clear account evidence** — setup, authentication checks and last successful use are shown separately. Services show identity, configured permissions and scope; older credential checks do not imply a broken connection. Distinct GitHub providers are labelled, unused integrations produce no warning cards, and web access is explained separately. See [Connections](docs/features/connections.md).
+
 Experimental [Symposium conversations](docs/features/symposium-integrated-acceptance.md) combine implementer and independently configured read-only reviewer seats with selected context, attributed results and explicit Stop controls. Provider sign-in, physical runtime admission and live workflow acceptance remain required. Use the [canonical singleton staging procedure](docs/operations/symposium-singleton-staging.md) for qualification; production activation is separate.
 
 The dormant [Symposium artifact snapshot observer](docs/features/symposium-artifact-snapshots.md) records bounded host observations; it does not yet enable automated review or publication.

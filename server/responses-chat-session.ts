@@ -366,7 +366,7 @@ export async function openResponsesChat(options: Options) {
               if (event.type === 'result') {
                 if (interrupted || signal.aborted) {
                   terminalize('cancelled', 'interrupted');
-                  yield { ...event };
+                  yield { ...event, account_use_cancelled: true };
                   continue;
                 }
                 const result = event as typeof event & {
@@ -379,6 +379,11 @@ export async function openResponsesChat(options: Options) {
                   isError ? (failure?.ambiguous ? 'ambiguous' : 'failed') : 'completed',
                 );
                 await hooks.run('Stop', { stop_hook_active: false }, signal);
+                if (interrupted || signal.aborted) {
+                  terminalizeExecution('interrupted');
+                  yield { ...event, account_use_cancelled: true };
+                  continue;
+                }
                 terminalizeExecution(isError ? 'failed' : 'completed');
               }
               yield { ...event };

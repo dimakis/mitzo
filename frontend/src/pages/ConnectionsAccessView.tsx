@@ -5,6 +5,7 @@ import { ConnectionsModeDetails } from '../components/ConnectionsModeDetails';
 import { WorkspacePageHeading } from '../components/WorkspacePageHeading';
 import { getConnectionsAccess } from '../lib/connections-access-api';
 import {
+  accountCheckLabel,
   accountSignInIdentity,
   accountSignInLabel,
   hasAccountSignIn,
@@ -12,6 +13,10 @@ import {
   connectionsAccessCards,
   retainUnavailableAccounts,
   accountResourceSource,
+  connectionTitle,
+  connectionStatus,
+  serviceIdentity,
+  serviceScope,
 } from '../lib/connections-access-presentation';
 import type { AccessResource, ConnectionsAccessInventory } from '../types/connections-access';
 
@@ -19,25 +24,21 @@ const sourceLabels: Record<ConnectionsAccessInventory['sources'][number]['id'], 
   accounts: 'AI accounts',
   symposiumAccounts: 'Symposium AI accounts',
   managed: 'Managed services',
-  personal: 'Personal accounts',
+  personal: 'Personal ChatGPT accounts',
   google: 'Google Workspace',
   legacy: 'Operator-managed services',
   keychain: 'Apple Keychain services',
 };
 const verificationLabels = {
-  verified: 'Verified',
-  stale: 'Verification is stale',
-  unverified: 'Not verified',
-  unavailable: 'Verification unavailable',
+  verified: 'Last check passed',
+  stale: 'Last check passed',
+  unverified: 'Not checked',
+  unavailable: "Couldn't check",
 };
 function verificationLabel(resource: AccessResource) {
   return resource.kind === 'managed-connection' && resource.verification.state === 'verified'
-    ? 'Credentials verified'
+    ? 'Last credential check passed'
     : verificationLabels[resource.verification.state];
-}
-function readableStatus(status: string) {
-  const text = status.replace(/[_-]/g, ' ');
-  return text.charAt(0).toUpperCase() + text.slice(1);
 }
 function ResourceDetails({
   resource,
@@ -48,6 +49,7 @@ function ResourceDetails({
 }) {
   const isAccount = hasAccountSignIn(resource);
   const identity = accountSignInIdentity(resource);
+  const checkLabel = accountCheckLabel(resource);
   return (
     <div className="access-resource-content">
       <section className="access-detail-card" aria-label="Account details">
@@ -55,7 +57,7 @@ function ResourceDetails({
         <dl className="access-resource-facts">
           <div>
             <dt>Provider</dt>
-            <dd>{resource.provider}</dd>
+            <dd>{resource.details.serviceName ?? resource.provider}</dd>
           </div>
           {runtimeLabel(resource) && (
             <div>
@@ -85,17 +87,21 @@ function ResourceDetails({
           ) : (
             <div>
               <dt>Account</dt>
-              <dd>{resource.accountIdentity ?? 'Identity not reported'}</dd>
+              <dd>
+                {resource.section === 'services'
+                  ? (serviceIdentity(resource) ?? 'Account not checked')
+                  : (identity.configuredEmail ?? 'Account not checked')}
+              </dd>
             </div>
           )}
         </dl>
       </section>
       {isAccount && (
-        <section className="access-detail-card" aria-label="Sign-in details">
-          <h3>Sign-in details</h3>
+        <section className="access-detail-card" aria-label={`${checkLabel} details`}>
+          <h3>{checkLabel} details</h3>
           <dl className="access-resource-facts">
             <div>
-              <dt>Sign-in</dt>
+              <dt>{checkLabel}</dt>
               <dd>
                 <span>{accountSignInLabel(resource)}</span>
                 <p className="workspace-muted">
@@ -105,7 +111,7 @@ function ResourceDetails({
             </div>
             {resource.signIn?.checkedAt != null && (
               <div>
-                <dt>Last sign-in check</dt>
+                <dt>{checkLabel === 'Sign-in' ? 'Last sign-in check' : 'Last connection check'}</dt>
                 <dd>{new Date(resource.signIn.checkedAt).toLocaleString()}</dd>
               </div>
             )}
@@ -119,6 +125,24 @@ function ResourceDetails({
             <dt>Access</dt>
             <dd>{resource.access.summary}</dd>
           </div>
+          {resource.details.permissions?.length ? (
+            <div>
+              <dt>Configured permissions</dt>
+              <dd>{resource.details.permissions.join(' · ')}</dd>
+            </div>
+          ) : null}
+          {serviceScope(resource).map((scope) => (
+            <div key={scope}>
+              <dt>Scope</dt>
+              <dd>{scope}</dd>
+            </div>
+          ))}
+          {resource.details.endpoint && (
+            <div>
+              <dt>Site</dt>
+              <dd>{resource.details.endpoint}</dd>
+            </div>
+          )}
           <div>
             <dt>Applies to</dt>
             <dd>{resource.access.appliesTo}</dd>
@@ -133,7 +157,7 @@ function ResourceDetails({
           </div>
           <div>
             <dt>Status</dt>
-            <dd>{readableStatus(resource.status)}</dd>
+            <dd>{connectionStatus(resource)}</dd>
           </div>
           <div>
             <dt>
@@ -157,12 +181,32 @@ function ResourceDetails({
           not establish current conversation access.
         </p>
       </section>
+      {resource.lastSuccessfulUse && (
+        <section className="access-detail-card" aria-label="Successful use">
+          <h3>Successful use</h3>
+          <dl className="access-resource-facts">
+            <div>
+              <dt>Last used successfully</dt>
+              <dd>{new Date(resource.lastSuccessfulUse.succeededAt).toLocaleString()}</dd>
+            </div>
+            <div>
+              <dt>Model</dt>
+              <dd>{resource.lastSuccessfulUse.model ?? 'Model not recorded'}</dd>
+            </div>
+          </dl>
+          <p className="workspace-muted">
+            A completed request through this account. This is historical evidence, not a current
+            authentication check.
+          </p>
+        </section>
+      )}
       {resource.section === 'accounts' && (
         <ConnectionsModeDetails resource={resource} catalog={catalog} />
       )}
       {(catalog?.details.models || resource.details.models) && (
         <p className="workspace-muted">
-          Configured catalog; model support and effective access have not been checked.
+          Models listed here come from this account's catalog. Successful use is shown separately
+          when recorded.
         </p>
       )}
       {resource.personalConnection && resource.personalConnection.state !== 'current' && (
@@ -200,6 +244,12 @@ function ResourceDetails({
             <dt>Resource ID</dt>
             <dd>{resource.nativeId}</dd>
           </div>
+          {resource.section === 'services' && resource.accountIdentity && (
+            <div>
+              <dt>Provider account ID</dt>
+              <dd>{resource.accountIdentity}</dd>
+            </div>
+          )}
           {catalog && (
             <>
               <div>
@@ -428,7 +478,9 @@ export function ConnectionsAccessView() {
                           ...resource.signIn,
                           status: 'stale',
                           explanation:
-                            'Current sign-in could not be refreshed. Showing an older check.',
+                            resource.signIn.source === 'openshell-provider-grant'
+                              ? 'Current connection check could not be refreshed. Showing an older check.'
+                              : 'Current sign-in could not be refreshed. Showing an older check.',
                         },
                       }
                     : resource,
@@ -487,17 +539,14 @@ export function ConnectionsAccessView() {
         {inventory && (
           <>
             {inventory.sources
-              .filter((source) => source.state !== 'available')
+              .filter((source) => source.state === 'unavailable')
               .map((source) => (
                 <div
                   key={source.id}
                   className="access-source-notice"
                   role={source.state === 'unavailable' ? 'status' : undefined}
                 >
-                  <strong>
-                    {sourceLabels[source.id]}:{' '}
-                    {source.state === 'unavailable' ? 'Source unavailable' : 'Not configured'}
-                  </strong>
+                  <strong>Couldn't load {sourceLabels[source.id]}. Retry.</strong>
                   {source.reason && <p>{source.reason}</p>}
                 </div>
               ))}
@@ -519,6 +568,7 @@ export function ConnectionsAccessView() {
                   <div className="access-row-group">
                     {resources.map(({ resource }) => {
                       const identity = accountSignInIdentity(resource);
+                      const title = connectionTitle(resource, inventory.resources);
                       return (
                         <article
                           key={resource.id}
@@ -526,14 +576,14 @@ export function ConnectionsAccessView() {
                           tabIndex={resource.id === connected?.id ? -1 : undefined}
                           data-new-connection={resource.id === connected?.id ? 'true' : undefined}
                           className="access-row"
-                          aria-label={resource.label}
+                          aria-label={title}
                         >
                           <span className={`access-row-icon ${section}`} aria-hidden="true">
                             {section === 'accounts' ? '✧' : '↗'}
                           </span>
                           <div className="access-row-copy">
                             <h3>
-                              {resource.label}
+                              {title}
                               {runtimeLabel(resource) && (
                                 <span className="access-runtime-badge">
                                   {runtimeLabel(resource)}
@@ -543,30 +593,70 @@ export function ConnectionsAccessView() {
                             {hasAccountSignIn(resource) ? (
                               <>
                                 {identity.observed?.email && <p>{identity.observed.email}</p>}
-                                <p>
-                                  Configured: {identity.configuredEmail ?? 'Identity not reported'}
-                                </p>
+                                {identity.configuredEmail && (
+                                  <p>Configured: {identity.configuredEmail}</p>
+                                )}
                               </>
                             ) : (
-                              <p>{resource.accountIdentity ?? resource.provider}</p>
+                              <p>
+                                {resource.section === 'services'
+                                  ? (serviceIdentity(resource) ?? 'Account not checked')
+                                  : (identity.configuredEmail ?? resource.provider)}
+                              </p>
+                            )}
+                            {resource.section === 'services' && (
+                              <>
+                                {serviceScope(resource).map((scope) => (
+                                  <p key={scope}>{scope}</p>
+                                ))}
+                                {resource.details.endpoint && !serviceScope(resource).length && (
+                                  <p>{resource.details.endpoint}</p>
+                                )}
+                                <p>
+                                  {resource.details.permissions?.length
+                                    ? resource.details.permissions.join(' · ')
+                                    : 'Permissions not checked'}
+                                </p>
+                              </>
                             )}
                           </div>
                           <span className="access-row-status">
                             {hasAccountSignIn(resource) ? (
                               <>
-                                <span>Sign-in: {accountSignInLabel(resource)}</span>
-                                <small>Access: {verificationLabel(resource)}</small>
+                                <span>{connectionStatus(resource)}</span>
+                                <small>
+                                  {accountCheckLabel(resource)}: {accountSignInLabel(resource)}
+                                </small>
                               </>
                             ) : (
                               <>
-                                {readableStatus(resource.status)}
-                                <small>{verificationLabel(resource)}</small>
+                                <span>{connectionStatus(resource)}</span>
+                                {resource.section === 'accounts' && !resource.lastSuccessfulUse && (
+                                  <small>
+                                    {resource.provider === 'openai-codex'
+                                      ? 'Sign-in not checked'
+                                      : 'Credentials not checked'}
+                                  </small>
+                                )}
                               </>
                             )}
+                            {resource.lastSuccessfulUse && (
+                              <small>
+                                Last used successfully:{' '}
+                                {new Date(resource.lastSuccessfulUse.succeededAt).toLocaleString()}
+                              </small>
+                            )}
+                            {resource.section === 'services' &&
+                              resource.verification.verifiedAt !== null && (
+                                <small>
+                                  Last successful credential check:{' '}
+                                  {new Date(resource.verification.verifiedAt).toLocaleString()}
+                                </small>
+                              )}
                           </span>
                           <button
                             className="access-row-action"
-                            aria-label={`Manage ${resource.label}`}
+                            aria-label={`Manage ${title}`}
                             onClick={(event) => {
                               opener.current = event.currentTarget;
                               setSelectedResourceId(resource.id);
@@ -589,22 +679,23 @@ export function ConnectionsAccessView() {
             })}
           </>
         )}
-        <section className="today-section access-section" aria-label="Website access">
+        <section
+          className="today-section access-section access-web-guide"
+          aria-label="How web access works"
+        >
           <div className="access-section-heading">
-            <h2>Website access</h2>
-            <span className="workspace-muted">Separate access boundaries</span>
+            <h2>How web access works</h2>
           </div>
-          <div className="access-row-group">
+          <p className="workspace-muted">
+            These options explain web access inside a chat. They are not connection status checks.
+          </p>
+          <div className="access-web-options">
             {websiteAccess.map((item) => (
-              <article key={item.label} className="access-row">
-                <span className="access-row-icon websites" aria-hidden="true">
-                  ◎
-                </span>
+              <div key={item.label} className="access-web-option">
                 <div className="access-row-copy">
                   <h3>{item.label}</h3>
                   <p>{item.subtitle}</p>
                 </div>
-                <span className="access-website-summary">{item.summary}</span>
                 <button
                   className="access-row-action"
                   aria-label={`View ${item.label}`}
@@ -615,18 +706,14 @@ export function ConnectionsAccessView() {
                 >
                   View <span aria-hidden="true">›</span>
                 </button>
-              </article>
+              </div>
             ))}
           </div>
         </section>
-        <p className="access-page-note workspace-muted">
-          Configured accounts and services do not establish current conversation access. Review
-          details for verification and scope.
-        </p>
       </main>
       {selection && (
         <AccessDrawer
-          title={selection.resource.label}
+          title={connectionTitle(selection.resource, inventory?.resources ?? [])}
           resource={selection.resource}
           onClose={() => setSelectedResourceId(null)}
         >

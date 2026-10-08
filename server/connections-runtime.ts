@@ -59,7 +59,9 @@ export interface ConnectionsRuntime {
   eligibleAccountIds: (templateId?: string) => string[];
   gateway: string;
   workspace: string;
-  legacyProviders: () => Promise<Array<{ name: string; type: string }>>;
+  legacyProviders: () => Promise<
+    Array<{ name: string; type: string; id: string; workspace: string }>
+  >;
   googleWorkspace?: GoogleWorkspaceManagement;
   openAIKeys?: OpenAIKeyManagement;
   assertOpenAIKeyReady?: (accountId: string, signal: AbortSignal) => Promise<void>;
@@ -552,7 +554,12 @@ export function createConnectionsRuntime(options: {
       if (!configured.size) return [];
       return (await gateway.list(AbortSignal.timeout(15_000)))
         .filter((provider) => configured.has(provider.name))
-        .map((provider) => ({ name: provider.name, type: provider.type }));
+        .map((provider) => ({
+          name: provider.name,
+          type: provider.type,
+          id: provider.id,
+          workspace: provider.workspace,
+        }));
     },
   };
 }

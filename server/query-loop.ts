@@ -21,7 +21,8 @@ import { createGoal, reportUsage, deriveGoalTitle } from './goal-client.js';
 import { tracer } from './tracing.js';
 import { context, trace, SpanStatusCode, type Span } from '@opentelemetry/api';
 import { ProgressTracker } from './progress-tracker.js';
-import type { ProviderFailure } from '@mitzo/protocol';
+import type { ProviderFailure, AccountBinding } from '@mitzo/protocol';
+import type { AccountUseBinding } from './account-use-store.js';
 import { providerFailureTelemetry } from './provider-failure.js';
 const log = createLogger('query-loop');
 
@@ -200,6 +201,8 @@ export interface QueryLoopOptions {
   onUserInput?: (clientId: string, inputUuid: string) => void;
   /** Called after the SDK emits a terminal result, paired with its echoed parent input UUID. */
   onResult?: (clientId: string, result: { is_error?: boolean }, inputUuid?: string) => void;
+  /** Historical completed use; a model is included only when observed from the provider. */
+  onSuccessfulAccountUse?: (binding: AccountUseBinding) => void;
 }
 
 export async function runQueryLoop(
@@ -307,6 +310,8 @@ async function _runQueryLoopInner(
   // use that echo to complete durable work for the active turn.
   let parentInputCorrelationAmbiguous = false;
   let parentTurnActive = false;
+  const primaryModels = new Map<string, AccountBinding>();
+  let turnAccountBinding: AccountUseBinding | undefined;
   let resolvedGoalId: string | undefined;
   let goalCreationPromise: Promise<string | null> | undefined;
   let goalTitle: string | undefined;
@@ -498,6 +503,31 @@ async function _runQueryLoopInner(
 
         log.debug('sdk event', { clientId, type: msg.type });
 
+        if (!msg.parent_tool_use_id && currentSession.accountBinding) {
+          const message =
+            msg.type === 'stream_event'
+              ? (msg.event as { type?: string; message?: { model?: unknown } })
+              : msg.type === 'assistant'
+                ? { type: 'message_start', message: msg.message as { model?: unknown } }
+                : undefined;
+          if (message?.type === 'message_start' || msg.type === 'provider_turn_start') {
+            turnAccountBinding ??= { ...currentSession.accountBinding, model: null };
+          }
+          // Native adapters may synthesize model names from their selection.
+          // Only the raw Claude SDK stream establishes model provenance here;
+          // other runtimes still establish completed account use with no model.
+          if (
+            msg.renderer_only !== true &&
+            currentSession.accountBinding.provider === 'anthropic-vertex' &&
+            message?.type === 'message_start' &&
+            typeof message.message?.model === 'string' &&
+            message.message.model
+          ) {
+            const model = message.message.model;
+            primaryModels.set(model, { ...currentSession.accountBinding, model });
+          }
+        }
+
         if (msg.type === 'assistant') {
           const parentToolUseId = msg.parent_tool_use_id as string | undefined;
 
@@ -617,6 +647,24 @@ async function _runQueryLoopInner(
           // Extract usage data from SDK result event
           const result = msg as SdkResultEvent;
           const isError = result.is_error === true;
+          if (
+            !isError &&
+            !result.provider_failure &&
+            msg.account_use_cancelled !== true &&
+            !msg.parent_tool_use_id &&
+            !abortController.signal.aborted
+          ) {
+            try {
+              for (const binding of primaryModels.values())
+                options?.onSuccessfulAccountUse?.(binding);
+              if (!primaryModels.size && turnAccountBinding)
+                options?.onSuccessfulAccountUse?.(turnAccountBinding);
+            } catch {
+              log.warn('could not record successful account use', { clientId });
+            }
+          }
+          primaryModels.clear();
+          turnAccountBinding = undefined;
           const providerFailure = isError ? result.provider_failure : undefined;
           caughtError ||= isError;
           if (isError) {
