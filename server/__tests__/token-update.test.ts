@@ -241,6 +241,50 @@ describe('token_update emission', () => {
     });
   });
 
+  it('discards metadata when the provider account changes under the same model ID', async () => {
+    let resolve!: (value: {
+      model: string;
+      source: 'catalog';
+      contextWindow: number;
+      stale: boolean;
+    }) => void;
+    const load = () =>
+      new Promise<{ model: string; source: 'catalog'; contextWindow: number; stale: boolean }>(
+        (r) => {
+          resolve = r;
+        },
+      );
+    async function* events() {
+      registry.get(clientId)!.accountBinding = {
+        accountId: 'first',
+        accountLabel: 'First',
+        provider: 'openai',
+        profileRevision: 'a',
+        model: 'same',
+      };
+      yield {
+        type: 'stream_event',
+        event: { type: 'message_start', message: { model: 'same', usage: { input_tokens: 1000 } } },
+      };
+      registry.get(clientId)!.accountBinding = {
+        accountId: 'second',
+        accountLabel: 'Second',
+        provider: 'google-vertex',
+        profileRevision: 'b',
+        model: 'same',
+      };
+      resolve({ model: 'same', source: 'catalog', contextWindow: 1000000, stale: false });
+      await Promise.resolve();
+      yield { type: 'result', session_id: 's' };
+    }
+    await runQueryLoop(events(), clientId, registry, abortController, undefined, undefined, {
+      resolveTokenLimits: load,
+    });
+    expect(
+      transport.sent.filter((e) => e.type === 'token_update').every((e) => e.contextCeiling === 0),
+    ).toBe(true);
+  });
+
   it('includes all token types in session total', async () => {
     const events: Record<string, unknown>[] = [
       {

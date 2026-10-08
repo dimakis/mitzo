@@ -334,6 +334,7 @@ async function _runQueryLoopInner(
   let contextCeiling = 0;
   let tokenLimits: ModelTokenLimits | null = null;
   let tokenModel: string | undefined;
+  let tokenScope: string | undefined;
   let limitGeneration = 0;
   let loopFinished = false;
   let nativeUsage = false;
@@ -358,9 +359,20 @@ async function _runQueryLoopInner(
   const sessionStartedAt = Date.now(); // wall-clock start for fallback duration
   const compactionFields = () => (numCompactions > 0 ? { numCompactions } : {});
 
+  function modelLimitScope(model: string) {
+    const binding = currentOwnerSession()?.accountBinding;
+    return JSON.stringify([
+      binding?.provider ?? 'anthropic',
+      binding?.accountId,
+      binding?.profileRevision,
+      model,
+    ]);
+  }
   function observeTokenModel(model: unknown) {
     if (typeof model !== 'string' || !model || model.length > 256) return;
-    if (model !== tokenModel) {
+    const scope = modelLimitScope(model);
+    if (scope !== tokenScope) {
+      tokenScope = scope;
       tokenModel = model;
       limitGeneration++;
       tokenLimits = null;
@@ -379,6 +391,7 @@ async function _runQueryLoopInner(
           abortController.signal.aborted ||
           !currentOwnerSession() ||
           generation !== limitGeneration ||
+          modelLimitScope(model) !== scope ||
           tokenLimits?.source === 'runtime'
         )
           return;
