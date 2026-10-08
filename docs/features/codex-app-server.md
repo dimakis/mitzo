@@ -87,6 +87,10 @@ Codex-native execution; see [unified permissions](../design/unified-chat-permiss
 `require_approval: true`; configured permission policy remains authoritative.
 Native Codex requestUserInput requests also use the shared question cards.
 Only provider reasoning summaries are displayed, never raw private reasoning.
+Codex `config/read` can return `null` for an unset reasoning-summary preference.
+Mitzo treats this as unset: explicit OpenShell routes default to `auto`, and host
+routes default to `detailed`. Explicit `none`, `auto`, `concise`, or `detailed`
+preferences remain authoritative; unsupported values still block admission.
 Resumed provider threads retain their original dynamic tool catalog: start a new
 chat to obtain newly introduced tools.
 
