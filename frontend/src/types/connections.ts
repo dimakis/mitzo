@@ -96,6 +96,7 @@ export interface ConnectionCapabilityGrant {
 }
 
 export interface ConnectionsCatalog {
+  openAIKeysManaged?: boolean;
   googleWorkspaceManaged?: boolean;
   connections: ManagedConnection[];
   legacy: Array<{ id: string; label: string; management: string }>;
@@ -105,6 +106,16 @@ export interface ConnectionsCatalog {
 }
 
 export interface ConnectionsViewProps {
-  mode?: 'add' | 'manage' | 'personal' | 'google' | 'legacy';
+  mode?: 'add' | 'manage' | 'personal' | 'google' | 'legacy' | 'openai';
   connectionId?: string;
+}
+
+export interface OpenAIKeyHealth {
+  accountId: string;
+  label: string;
+  health: 'not_verified' | 'ready' | 'needs_attention' | 'unavailable';
+  revision: string;
+  canSynchronize: boolean;
+  errorCode: string | null;
+  verifiedAt: number | null;
 }

@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom';
 import { SymposiumPersonalConnections } from '../components/SymposiumPersonalConnections';
+import { OpenAIKeyControls } from '../components/OpenAIKeyControls';
 import { GoogleWorkspaceControls } from '../components/GoogleWorkspaceControls';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { WorkspacePageHeading } from '../components/WorkspacePageHeading';
@@ -130,7 +131,13 @@ export function ConnectionsView({ mode = 'add', connectionId }: ConnectionsViewP
     };
   }, []);
   useEffect(() => {
-    if (mode === 'add' || mode === 'manage' || mode === 'google' || mode === 'legacy')
+    if (
+      mode === 'add' ||
+      mode === 'manage' ||
+      mode === 'google' ||
+      mode === 'legacy' ||
+      mode === 'openai'
+    )
       void refresh();
   }, [refresh, mode]);
   useEffect(() => {
@@ -329,15 +336,17 @@ export function ConnectionsView({ mode = 'add', connectionId }: ConnectionsViewP
   const managed =
     data?.connections.filter((item) => !connectionId || item.id === connectionId) ?? [];
   const title =
-    mode === 'add'
-      ? 'Add connection'
-      : mode === 'personal'
-        ? 'Manage ChatGPT account'
-        : mode === 'google'
-          ? 'Manage Google Workspace'
-          : mode === 'legacy'
-            ? 'Provider details'
-            : 'Manage connection';
+    mode === 'openai'
+      ? 'Manage OpenAI API'
+      : mode === 'add'
+        ? 'Add connection'
+        : mode === 'personal'
+          ? 'Manage ChatGPT account'
+          : mode === 'google'
+            ? 'Manage Google Workspace'
+            : mode === 'legacy'
+              ? 'Provider details'
+              : 'Manage connection';
   const identityFields = template?.connectionFields.filter((field) => field.kind === 'email') ?? [];
   const resourceFields = template?.connectionFields.filter((field) => field.kind !== 'email') ?? [];
   const stepValid =
@@ -637,6 +646,17 @@ export function ConnectionsView({ mode = 'add', connectionId }: ConnectionsViewP
               />
             ) : (
               <p>Google Workspace is not configured.</p>
+            ))}
+          {data &&
+            mode === 'openai' &&
+            (data.openAIKeysManaged ? (
+              <OpenAIKeyControls
+                csrf={csrf}
+                authorized={!!csrf && csrfExpiresAt > Date.now()}
+                onReauthorizationNeeded={requireReauthorization}
+              />
+            ) : (
+              <p>OpenAI API key management is not configured.</p>
             ))}
           {data && mode === 'manage' && (
             <>
