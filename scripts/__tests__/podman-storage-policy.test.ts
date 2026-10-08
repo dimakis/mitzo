@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { planImages, applyImages } from '../lib/podman-storage-policy.mjs';
+import { planImages, applyImages, digest } from '../lib/podman-storage-policy.mjs';
 
 const id = (n: number) => `sha256:${n.toString(16).padStart(64, '0')}`;
 const now = Date.parse('2026-10-08T12:00:00Z');
@@ -219,5 +219,66 @@ describe('revalidated exact-ID application', () => {
     expect(r.status).toBe('partial');
     expect(a.removed).toEqual([id(1)]);
     expect(r.blockers).toContain('collection failed: read interrupted');
+  });
+  it('stops a long run when the original plan expires between removals', async () => {
+    const a = adapter();
+    const remove = a.remove;
+    let time = now;
+    a.remove = async (image) => {
+      const result = await remove(image);
+      time = now + 16 * 60000;
+      return result;
+    };
+    const r = await applyImages(planImages(a.s, now), a, { now: () => time });
+    expect(a.removed).toEqual([id(1)]);
+    expect(r.status).toBe('partial');
+    expect(r.blockers).toContain('plan expired; replan required');
+  });
+  it.each(['collection', 'audit'])(
+    'does not start deletion when slow %s crosses plan expiry',
+    async (stage) => {
+      const a = adapter();
+      let time = now;
+      if (stage === 'collection') {
+        const collect = a.collect;
+        a.collect = async () => {
+          const s = await collect();
+          time = now + 16 * 60000;
+          return s;
+        };
+      } else
+        a.audit = async (event) => {
+          if (event.event === 'removing') time = now + 16 * 60000;
+        };
+      const r = await applyImages(planImages(a.s, now), a, { now: () => time });
+      expect(a.removed).toEqual([]);
+      expect(r.status).toBe('blocked');
+      expect(r.blockers).toContain('plan expired; replan required');
+    },
+  );
+  it.each([undefined, 'not-a-time'])('refuses a plan with an invalid expiry %s', async (expiry) => {
+    const a = adapter();
+    const p = planImages(a.s, now);
+    p.expiresAt = expiry;
+    const content = { ...p };
+    delete content.seal;
+    p.seal = digest(content);
+    const r = await applyImages(p, a, { now: () => now });
+    expect(a.removed).toEqual([]);
+    expect(r.status).toBe('blocked');
+  });
+  it('does not submit a removal when cancellation arrives during its audit', async () => {
+    const a = adapter();
+    const controller = new AbortController();
+    a.audit = async (event) => {
+      if (event.event === 'removing') controller.abort();
+    };
+    const r = await applyImages(planImages(a.s, now), a, {
+      now: () => now,
+      signal: controller.signal,
+    });
+    expect(a.removed).toEqual([]);
+    expect(r.status).toBe('blocked');
+    expect(r.blockers).toContain('cancelled');
   });
 });

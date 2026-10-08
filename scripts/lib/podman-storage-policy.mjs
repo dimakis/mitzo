@@ -217,8 +217,10 @@ export async function applyImages(plan, adapter, { now = Date.now, signal } = {}
     seal !== digest(content) ||
     plan.version !== 1 ||
     !Number.isFinite(plan.createdAt) ||
+    !Number.isFinite(plan.expiresAt) ||
+    plan.expiresAt <= plan.createdAt ||
     now() < plan.createdAt ||
-    now() > plan.expiresAt ||
+    now() >= plan.expiresAt ||
     plan.expiresAt - plan.createdAt > 15 * 60000 ||
     signal?.aborted
   ) {
@@ -232,11 +234,20 @@ export async function applyImages(plan, adapter, { now = Date.now, signal } = {}
     candidates: plan.candidates,
   });
   const expected = globalThis.structuredClone(plan.snapshot);
-  for (const candidate of plan.candidates) {
+  const stopExecution = () => {
     if (signal?.aborted) {
       result.blockers.push('cancelled');
-      break;
+      return true;
     }
+    const currentTime = now();
+    if (currentTime < plan.createdAt || currentTime >= plan.expiresAt) {
+      result.blockers.push('plan expired; replan required');
+      return true;
+    }
+    return false;
+  };
+  for (const candidate of plan.candidates) {
+    if (stopExecution()) break;
     let s;
     try {
       s = await adapter.collect();
@@ -247,6 +258,7 @@ export async function applyImages(plan, adapter, { now = Date.now, signal } = {}
       break;
     }
     result.before ??= s.telemetry;
+    if (stopExecution()) break;
     const fresh = planImages(s, now());
     if (
       fresh.blockers.length ||
@@ -257,6 +269,9 @@ export async function applyImages(plan, adapter, { now = Date.now, signal } = {}
       break;
     }
     await adapter.audit({ event: 'removing', id: candidate.id });
+    // Collection and audit can outlive the authorization window or cancellation.
+    // An already accepted removal is still reconciled; only new submissions stop.
+    if (stopExecution()) break;
     let outcome;
     try {
       const removal = await adapter.remove(candidate.id, signal);
@@ -284,6 +299,7 @@ export async function applyImages(plan, adapter, { now = Date.now, signal } = {}
     const s = await adapter.collect();
     result.before = s.telemetry;
     result.blockers.push(...planImages(s, now()).blockers, ...plan.blockers);
+    stopExecution();
   }
   result.status =
     result.blockers.length || result.outcomes.some((o) => o.status !== 'removed')
