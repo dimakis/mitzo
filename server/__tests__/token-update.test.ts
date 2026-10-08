@@ -286,14 +286,12 @@ describe('token_update emission', () => {
   });
 
   it('does not discover limits from renderer-only model selections', async () => {
-    const resolveTokenLimits = vi
-      .fn()
-      .mockResolvedValue({
-        model: 'selected-only',
-        source: 'catalog',
-        contextWindow: 1000000,
-        stale: false,
-      });
+    const resolveTokenLimits = vi.fn().mockResolvedValue({
+      model: 'selected-only',
+      source: 'catalog',
+      contextWindow: 1000000,
+      stale: false,
+    });
     await runQueryLoop(
       eventStream([
         {
