@@ -734,6 +734,7 @@ fetches only current `origin/main`, refuses every other commit, creates a
 self-contained detached release clone, records full commit/tree/base provenance
 in `release.txt`, and only then builds and updates launchd. `scripts/deploy.sh`
 fails closed when those invariants are absent.
+Runtime settings are loaded from the release's `.env` before server components initialize.
 For releases built from a clean automation checkout, set `MITZO_RUNTIME_ROOT`
 to the canonical installation that owns `.env` and `certs`; runtime material
 is never taken from the feature checkout. Paths for checked-in stack locks,

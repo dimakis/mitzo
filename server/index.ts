@@ -1,3 +1,5 @@
+// Load runtime configuration before bootstrap dependencies validate or capture it.
+import 'dotenv/config';
 import { configuredGithubSeedBaselinePaths } from './github-seed-baselines.js';
 import {
   keychainConnectionConfig,
@@ -9,7 +11,6 @@ import { closeCapabilityOperationStores } from './capability-operation-owner.js'
 import { createSymposiumShutdown, settleSymposiumCleanup } from './symposium-shutdown.js';
 import { bootstrapConfiguredSymposiumHost } from './symposium-owned-config.js';
 import { loadAccountProfiles } from './account-profiles.js';
-import 'dotenv/config';
 import dns from 'node:dns';
 
 // Force IPv4-first DNS resolution. Works around undici's broken happy-eyeballs
