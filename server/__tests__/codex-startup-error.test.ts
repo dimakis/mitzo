@@ -79,3 +79,30 @@ it('does not tell users to inspect a queue for an unclassified startup failure',
     /queue|recovery/,
   );
 });
+
+it.each([
+  ['ENOSPC', 'storage is full'],
+  ['EACCES', 'could not access a required file'],
+  ['ECONNREFUSED', 'not accepting connections'],
+])('explains a first-send %s failure while preserving uncertain-work advice', (code, reason) => {
+  const cause = Object.assign(new Error('PRIVATE_COMMAND Bearer sk-secret'), { code });
+  const error = new CodexStartupError('initial_turn_dispatch', cause);
+  expect(publicCodexStartupError(error)).toContain(reason);
+  expect(publicCodexStartupError(error)).toMatch(/outcome may be unknown; inspect saved work/);
+  expect(publicCodexStartupError(error)).not.toMatch(/PRIVATE_COMMAND|sk-secret/);
+});
+
+it('keeps the resource reason when first send wraps an existing runtime failure', () => {
+  const cause = Object.assign(new Error('PRIVATE_COMMAND'), { code: 'ENOSPC' });
+  const error = new CodexStartupError(
+    'initial_turn_dispatch',
+    new CodexStartupError('runtime_connection', cause),
+  );
+  expect(publicCodexStartupError(error)).toContain('storage is full');
+  expect(publicCodexStartupError(error)).toMatch(/inspect saved work/);
+  expect(codexRuntimeErrorTelemetry(error)).toMatchObject({
+    startupPhase: 'initial_turn_dispatch',
+    startupErrorCode: 'ENOSPC',
+    diagnosticId: error.diagnosticId,
+  });
+});

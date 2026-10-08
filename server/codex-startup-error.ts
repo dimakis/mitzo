@@ -46,18 +46,20 @@ export class CodexStartupError extends Error {
   }
 
   resourceErrorCode(): string | undefined {
+    if (this.cause instanceof CodexStartupError) return this.cause.resourceErrorCode();
     if (!(this.cause instanceof Error) || !('code' in this.cause)) return undefined;
     const code = this.cause.code;
     return typeof code === 'string' && errorCodes.has(code) ? code : undefined;
   }
 
   publicMessage(detail?: string): string {
-    if (this.phase === 'initial_turn_dispatch')
-      return `The first turn could not be confirmed. ${detail ? detail + ' ' : ''}Its outcome may be unknown; inspect saved work before continuing.`;
     const code = this.resourceErrorCode();
+    const resourceReason = code ? errorCodes.get(code) : undefined;
+    if (this.phase === 'initial_turn_dispatch')
+      return `The first turn could not be confirmed. ${(detail ?? resourceReason) ? (detail ?? resourceReason) + ' ' : ''}Its outcome may be unknown; inspect saved work before continuing.`;
     const explanation =
       detail ??
-      `${code ? errorCodes.get(code) + ' ' : ''}Check runtime and account configuration before continuing.`;
+      `${resourceReason ? resourceReason + ' ' : ''}Check runtime and account configuration before continuing.`;
     return `Chat startup failed during ${phases[this.phase]}. ${explanation}`;
   }
 
