@@ -1,11 +1,14 @@
 // @vitest-environment jsdom
-import { describe, it, expect, afterEach } from 'vitest';
-import { render, screen, fireEvent, cleanup } from '@testing-library/react';
+import { describe, it, expect, afterEach, vi } from 'vitest';
+import { render, screen, fireEvent, cleanup, act } from '@testing-library/react';
 import { MemoryRouter, useLocation } from 'react-router-dom';
 import { SubagentCard } from '../SubagentCard';
 import type { FinishedBlock } from '../../types/chat';
 
-afterEach(() => cleanup());
+afterEach(() => {
+  cleanup();
+  vi.useRealTimers();
+});
 
 function wrap(ui: React.ReactElement) {
   return <MemoryRouter>{ui}</MemoryRouter>;
@@ -195,4 +198,41 @@ describe('SubagentCard', () => {
 
     expect(container.querySelector('.tool-pill--agent')).toBeTruthy();
   });
+});
+
+it('keeps running subagent thinking expanded until its block completes', () => {
+  vi.useFakeTimers();
+  const block = {
+    blockId: 'b1',
+    blockType: 'thinking' as const,
+    content: 'Still considering',
+    done: false,
+  };
+  const subagent = {
+    messageId: 'sub',
+    blocks: new Map([['b1', block]]),
+    blockOrder: ['b1'],
+    running: true as const,
+  };
+  const { rerender } = render(wrap(<SubagentCard subagent={subagent} />));
+  fireEvent.click(screen.getByRole('button', { name: /Agent/ }));
+  act(() => {
+    vi.advanceTimersByTime(120_000);
+  });
+  expect(screen.getByText('Still considering')).toBeTruthy();
+  rerender(
+    wrap(
+      <SubagentCard
+        subagent={{ ...subagent, blocks: new Map([['b1', { ...block, done: true }]]) }}
+      />,
+    ),
+  );
+  act(() => {
+    vi.advanceTimersByTime(29_999);
+  });
+  expect(screen.getByText('Still considering')).toBeTruthy();
+  act(() => {
+    vi.advanceTimersByTime(1);
+  });
+  expect(screen.queryByText('Still considering')).toBeNull();
 });

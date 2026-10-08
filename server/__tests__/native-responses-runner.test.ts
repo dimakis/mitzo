@@ -249,7 +249,7 @@ describe('durable native Responses turns', () => {
 
     const request = JSON.parse(fetchMock.mock.calls[1][1].body);
     expect(request.model).toBe('other-model');
-    expect(request.reasoning).toEqual({ effort: 'high' });
+    expect(request.reasoning).toEqual({ effort: 'high', summary: 'auto' });
     expect(request.input).toContainEqual(expect.objectContaining({ role: 'assistant' }));
   });
   it('clears a prior thinking override when the model default is selected', async () => {
@@ -265,7 +265,10 @@ describe('durable native Responses turns', () => {
     });
     await collect(instance.run('second', undefined, 'message-default'));
 
-    expect(JSON.parse(fetchMock.mock.calls[0][1].body).reasoning).toEqual({ effort: 'high' });
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).reasoning).toEqual({
+      effort: 'high',
+      summary: 'auto',
+    });
     expect(JSON.parse(fetchMock.mock.calls[1][1].body)).not.toHaveProperty('reasoning');
   });
   it('clears the prior thinking override when a changed model omits thinking options', async () => {
@@ -274,7 +277,10 @@ describe('durable native Responses turns', () => {
     instance.prepare('message-other-model', 'second', { model: 'other-model' });
     await collect(instance.run('second', undefined, 'message-other-model'));
 
-    expect(JSON.parse(fetchMock.mock.calls[0][1].body).reasoning).toEqual({ effort: 'high' });
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).reasoning).toEqual({
+      effort: 'high',
+      summary: 'auto',
+    });
     const changedRequest = JSON.parse(fetchMock.mock.calls[1][1].body);
     expect(changedRequest.model).toBe('other-model');
     expect(changedRequest).not.toHaveProperty('reasoning');
@@ -289,8 +295,14 @@ describe('durable native Responses turns', () => {
     instance.prepare('message-closeout', 'second');
     await collect(instance.run('second', undefined, 'message-closeout'));
 
-    expect(JSON.parse(fetchMock.mock.calls[0][1].body).reasoning).toEqual({ effort: 'high' });
-    expect(JSON.parse(fetchMock.mock.calls[1][1].body).reasoning).toEqual({ effort: 'high' });
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).reasoning).toEqual({
+      effort: 'high',
+      summary: 'auto',
+    });
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body).reasoning).toEqual({
+      effort: 'high',
+      summary: 'auto',
+    });
   });
   it('never replays an uncertain side effect after interruption', async () => {
     fetchMock.mockResolvedValueOnce(response(true));
