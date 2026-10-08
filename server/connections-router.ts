@@ -6,7 +6,7 @@ import type { GoogleWorkspaceManagement } from './google-workspace-management.js
 import { randomUUID } from 'node:crypto';
 import type { Connection } from './connections-store.js';
 import { ConnectionStore, RevisionConflictError } from './connections-store.js';
-import { ConnectionsService } from './connections-service.js';
+import { ConnectionCreationFailed, ConnectionsService } from './connections-service.js';
 import {
   ConnectionAssignmentsBody,
   ConnectionCapabilitiesBody,
@@ -362,8 +362,19 @@ export function createConnectionsRouter(options: {
           AbortSignal.timeout(120_000),
         );
         return res.status(201).json({ connection: publicConnection(c) });
-      } catch {
-        return res.status(422).json({ error: 'Connection verification failed' });
+      } catch (failure) {
+        const saved =
+          failure instanceof ConnectionCreationFailed
+            ? options.store.get(failure.connectionId)
+            : null;
+        return res.status(422).json({
+          error: 'Connection verification failed',
+          ...(failure instanceof ConnectionCreationFailed
+            ? saved?.ownerId === OWNER
+              ? { savedConnectionId: saved.id }
+              : {}
+            : { savedConnectionId: null }),
+        });
       }
     },
   );

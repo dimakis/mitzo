@@ -1,18 +1,21 @@
 // @vitest-environment jsdom
 import { act } from 'react';
+import { MemoryRouter } from 'react-router-dom';
 import { readFileSync } from 'node:fs';
 import { createRoot } from 'react-dom/client';
 import { fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { connectionErrorMessage, ConnectionsView } from '../ConnectionsView';
+import { ConnectionsView } from '../ConnectionsView';
+import { connectionErrorMessage } from '../../lib/connections-form';
 import { apiFetch } from '../../lib/api-fetch';
 import * as connections from '../../lib/connections-api';
 import type { ConnectionTemplateCatalog, ConnectionsCatalog } from '../../types/connections';
 
 vi.mock('../../lib/api-fetch', () => ({ apiFetch: vi.fn() }));
 
-vi.mock('../../lib/connections-api', () => ({
+vi.mock('../../lib/connections-api', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../lib/connections-api')>()),
   getConnections: vi.fn(),
   getConnectionTemplates: vi.fn(),
   reauthorize: vi.fn(),
@@ -272,17 +275,21 @@ const continueWizard = async () => {
   await act(async () => button('Continue').click());
 };
 const reauthorize = async () => {
+  if (!input('Passphrase')) await act(async () => button('Authorize changes').click());
   act(() => fireEvent.change(input('Passphrase'), { target: { value: 'pass' } }));
   await act(async () => button('Reauthorize').click());
+};
+const connectService = async (name = 'Jira') => {
+  await act(async () => button(`Verify and connect ${name}`).click());
+  act(() => fireEvent.change(input('Passphrase'), { target: { value: 'pass' } }));
+  await act(async () => button(`Authorize and connect ${name}`).click());
 };
 const chooseJiraToAssignments = async () => {
   await act(async () => button('Choose Jira').click());
   act(() => fireEvent.change(input('API token'), { target: { value: 'secret' } }));
-  await continueWizard();
   act(() =>
     fireEvent.change(input('Atlassian account email'), { target: { value: 'me@example.com' } }),
   );
-  await continueWizard();
   await continueWizard();
 };
 
@@ -312,8 +319,14 @@ afterEach(() => {
   document.body.removeChild(container);
   vi.restoreAllMocks();
 });
-const render = async () => {
-  act(() => root.render(<ConnectionsView />));
+const render = async (mode: 'add' | 'manage' = 'manage') => {
+  act(() =>
+    root.render(
+      <MemoryRouter>
+        <ConnectionsView key={mode} mode={mode} />
+      </MemoryRouter>,
+    ),
+  );
   await flush();
 };
 
@@ -360,7 +373,7 @@ describe('ConnectionsView', () => {
       };
     });
     await render();
-    await act(async () => button('Manage capability grants').click());
+    await act(async () => button('Manage approved actions').click());
     expect(container.textContent).toContain('Publish pull request');
     const profile = container.querySelector(
       '.connections-capability input[type="checkbox"]',
@@ -417,7 +430,7 @@ describe('ConnectionsView', () => {
       },
     ]);
     await render();
-    await act(async () => button('Manage capability grants').click());
+    await act(async () => button('Manage approved actions').click());
     expect(container.textContent).toContain('github.publish-pr v1');
     expect(button('Revoke grant')).toBeTruthy();
   });
@@ -450,7 +463,7 @@ describe('ConnectionsView', () => {
         : [],
     );
     await render();
-    await act(async () => button('Manage capability grants').click());
+    await act(async () => button('Manage approved actions').click());
     expect(container.textContent).toContain('No active grant.');
     active = true;
     await reauthorize();
@@ -471,7 +484,7 @@ describe('ConnectionsView', () => {
       connections: [{ ...github, revision, desiredAccountIds: [...github.desiredAccountIds] }],
     }));
     await render();
-    await act(async () => button('Manage capability grants').click());
+    await act(async () => button('Manage approved actions').click());
     const profile = container.querySelector(
       '.connections-capability input[type="checkbox"]',
     ) as HTMLInputElement;
@@ -506,7 +519,7 @@ describe('ConnectionsView', () => {
     );
     await render();
     await reauthorize();
-    await act(async () => button('Manage capability grants').click());
+    await act(async () => button('Manage approved actions').click());
     const profile = container.querySelector(
       '.connections-capability input[type="checkbox"]',
     ) as HTMLInputElement;
@@ -517,17 +530,16 @@ describe('ConnectionsView', () => {
     expect(profile.checked).toBe(true);
     expect(button('Save grant').disabled).toBe(false);
   });
-  it('shows reviewed catalog cards with category, authentication, and risk summaries', async () => {
-    await render();
-    expect(container.textContent).toContain('Read-only sandbox egress');
-    expect(container.textContent).toContain('Operator-defined reviewed access');
-    expect(container.textContent).toContain('Authentication: bearer token');
-    expect(container.textContent).toContain('GitHub (operator-managed)');
+  it('shows compact service choices with a useful description', async () => {
+    await render('add');
+    expect(container.textContent).toContain('Read selected repositories.');
+    expect(container.textContent).not.toContain('Authentication: bearer token');
+    expect(container.textContent).not.toContain('GitHub (operator-managed)');
   });
   it('does not expose wizard navigation until a service is explicitly chosen', async () => {
-    await render();
+    await render('add');
     expect(button('Continue')).toBeUndefined();
-    expect(container.querySelector('[aria-current="step"]')?.textContent).toBe('Service');
+    expect(container.textContent).not.toContain('Step 1 of');
   });
   it('keeps existing connection controls available when the setup catalog fails', async () => {
     vi.mocked(connections.getConnectionTemplates).mockRejectedValue(
@@ -609,7 +621,7 @@ describe('ConnectionsView', () => {
     await reauthorize();
     await act(async () => button('Test identity').click());
     expect(button('Test identity').disabled).toBe(true);
-    await act(async () => button('Retry setup').click());
+    await act(async () => button('Refresh connection').click());
     older.resolve({
       ...catalog,
       connections: [{ ...catalog.connections[0], label: 'Older state' }],
@@ -644,22 +656,27 @@ describe('ConnectionsView', () => {
     );
   });
   it('uses native keyboard-focusable service controls to progress through the wizard', async () => {
-    await render();
+    await render('add');
     const choose = button('Choose Jira');
     const user = userEvent.setup();
     choose.focus();
     expect(document.activeElement).toBe(choose);
     await user.keyboard('{Enter}');
-    expect(container.textContent).toContain('Authenticate with Jira');
-    expect(container.querySelector('[aria-current="step"]')?.textContent).toBe('Authenticate');
-    expect(document.activeElement?.textContent).toBe('Authenticate');
+    expect(container.textContent).toContain('Jira');
+    expect(container.querySelector('.connections-progress')?.textContent).toBe(
+      'Step 1 of 3 · Connect',
+    );
+    expect(document.activeElement?.textContent).toBe('Connect');
   });
   it('validates required fields, clears secrets on template change, and never renders the old secret', async () => {
-    await render();
+    await render('add');
     await act(async () => button('Choose Jira').click());
     const continueButton = button('Continue');
     expect(continueButton.disabled).toBe(true);
     act(() => fireEvent.change(input('API token'), { target: { value: 'first-secret' } }));
+    act(() =>
+      fireEvent.change(input('Atlassian account email'), { target: { value: 'me@example.com' } }),
+    );
     expect(continueButton.disabled).toBe(false);
     await act(async () => button('Back').click());
     await act(async () => button('Choose Jira v2').click());
@@ -667,7 +684,7 @@ describe('ConnectionsView', () => {
     expect(container.textContent).not.toContain('first-secret');
   });
   it('blocks Authenticate with accessible label validation and renders reviewed provider guidance', async () => {
-    await render();
+    await render('add');
     await act(async () => button('Choose Jira').click());
     act(() => fireEvent.change(input('Connection label'), { target: { value: '  ' } }));
     expect(input('Connection label').getAttribute('aria-invalid')).toBe('true');
@@ -686,10 +703,9 @@ describe('ConnectionsView', () => {
         template.id === 'custom-rest-readonly' ? { ...template, available: true } : template,
       ),
     });
-    await render();
+    await render('add');
     await act(async () => button('Choose Jira').click());
     act(() => fireEvent.change(input('API token'), { target: { value: 'secret' } }));
-    await continueWizard();
     act(() =>
       fireEvent.change(input('Atlassian account email'), { target: { value: 'not-an-email' } }),
     );
@@ -699,7 +715,6 @@ describe('ConnectionsView', () => {
     );
     expect(button('Continue').disabled).toBe(false);
 
-    await act(async () => button('Back').click());
     await act(async () => button('Back').click());
     await act(async () => button('Choose Custom REST API').click());
     act(() => fireEvent.change(input('Access token'), { target: { value: 'secret' } }));
@@ -725,7 +740,7 @@ describe('ConnectionsView', () => {
         template.id === 'custom-rest-readonly' ? { ...template, available: true } : template,
       ),
     });
-    await render();
+    await render('add');
     await act(async () => button('Choose Custom REST API').click());
     act(() => fireEvent.change(input('Access token'), { target: { value: 'secret' } }));
     await continueWizard();
@@ -751,27 +766,23 @@ describe('ConnectionsView', () => {
     expect(button('Continue').disabled).toBe(true);
   });
   it('resets selected profiles when changing the template', async () => {
-    await render();
+    await render('add');
     await chooseJiraToAssignments();
     act(() => (container.querySelector('input[type="checkbox"]') as HTMLInputElement).click());
     await act(async () => button('Back').click());
     await act(async () => button('Back').click());
-    await act(async () => button('Back').click());
-    await act(async () => button('Back').click());
     await act(async () => button('Choose Jira v2').click());
     act(() => fireEvent.change(input('API token'), { target: { value: 'v2-secret' } }));
-    await continueWizard();
     act(() =>
       fireEvent.change(input('Atlassian account email'), { target: { value: 'me@example.com' } }),
     );
-    await continueWizard();
     await continueWizard();
     expect((container.querySelector('input[type="checkbox"]') as HTMLInputElement).checked).toBe(
       false,
     );
   });
   it('resets the complete wizard when a refreshed catalog removes its selected template', async () => {
-    await render();
+    await render('add');
     await chooseJiraToAssignments();
     act(() => (container.querySelector('input[type="checkbox"]') as HTMLInputElement).click());
     vi.mocked(connections.getConnectionTemplates).mockResolvedValue({
@@ -780,12 +791,12 @@ describe('ConnectionsView', () => {
         (item) => item.id !== 'jira-readonly' || item.version !== 1,
       ),
     });
-    await reauthorize();
-    await act(async () => button('Test identity').click());
-    await flush();
-    expect(container.querySelector('[aria-current="step"]')?.textContent).toBe('Service');
+    await continueWizard();
+    vi.mocked(connections.reauthorize).mockRejectedValue(new Error('Refresh setup'));
+    await connectService();
+    expect(button('Choose Jira v2')).toBeTruthy();
     expect(container.textContent).toContain('Choose Jira v2');
-    expect(container.textContent).not.toContain('Authenticate with Jira');
+    expect(button('Choose Jira')).toBeUndefined();
     await act(async () => button('Choose Jira v2').click());
     expect(input('API token').value).toBe('');
     act(() => fireEvent.change(input('API token'), { target: { value: 'v2-token' } }));
@@ -795,32 +806,30 @@ describe('ConnectionsView', () => {
       fireEvent.change(input('Atlassian account email'), { target: { value: 'me@example.com' } }),
     );
     await continueWizard();
-    await continueWizard();
     expect((container.querySelector('input[type="checkbox"]') as HTMLInputElement).checked).toBe(
       false,
     );
   });
   it('does not retain secret component state across unmount and re-entry', async () => {
-    await render();
+    await render('add');
     await act(async () => button('Choose Jira').click());
     act(() => fireEvent.change(input('API token'), { target: { value: 'transient-secret' } }));
     act(() => root.unmount());
     root = createRoot(container);
-    await render();
+    await render('add');
     await act(async () => button('Choose Jira').click());
     expect(input('API token').value).toBe('');
     expect(container.textContent).not.toContain('transient-secret');
   });
   it('submits generic fields and one-shot credentials only after review, then clears the secret', async () => {
-    await render();
+    await render('add');
     await chooseJiraToAssignments();
     act(() => (container.querySelector('input[type="checkbox"]') as HTMLInputElement).click());
     await continueWizard();
-    expect(container.textContent).toContain('Effective access review');
-    expect(container.textContent).toContain('Read Jira metadata.');
+    expect(container.textContent).toContain('Review');
+    expect(container.textContent).toContain('Read-only access');
     expect(container.textContent).not.toContain('secret');
-    await reauthorize();
-    await act(async () => button('Verify and connect Jira').click());
+    await connectService();
     expect(connections.createConnection).toHaveBeenCalledWith(
       expect.objectContaining({
         templateId: 'jira-readonly',
@@ -831,25 +840,22 @@ describe('ConnectionsView', () => {
       }),
     );
     expect(container.textContent).not.toContain('secret');
-    await act(async () => button('Back').click());
-    expect((container.querySelector('input[type="checkbox"]') as HTMLInputElement).checked).toBe(
-      false,
-    );
+    expect(container.textContent).toContain('Jira connected');
+    expect(input('API token')).toBeNull();
   });
   it('permits an explicitly unassigned connection when no profiles are eligible', async () => {
     vi.mocked(connections.getConnections).mockResolvedValue({
       ...catalog,
       eligibleAccounts: [],
     });
-    await render();
+    await render('add');
     await chooseJiraToAssignments();
     expect(container.textContent).toContain('create this connection unassigned');
     expect(button('Continue').disabled).toBe(false);
     await continueWizard();
-    expect(container.textContent).toContain('Assigned profiles');
-    expect(container.textContent).toContain('None');
-    await reauthorize();
-    await act(async () => button('Verify and connect Jira').click());
+    expect(container.textContent).toContain('AI accounts with access');
+    expect(container.textContent).toContain('No AI accounts selected');
+    await connectService();
     expect(connections.createConnection).toHaveBeenCalledWith(
       expect.objectContaining({ accountIds: [] }),
     );
@@ -858,54 +864,48 @@ describe('ConnectionsView', () => {
     vi.mocked(connections.createConnection).mockRejectedValue(
       new Error('Connection verification failed'),
     );
-    await render();
+    await render('add');
     await chooseJiraToAssignments();
     act(() => (container.querySelector('input[type="checkbox"]') as HTMLInputElement).click());
     await continueWizard();
-    await reauthorize();
-    await act(async () => button('Verify and connect Jira').click());
+    await connectService();
     expect(container.textContent).toContain('Connection verification failed');
-    expect(container.textContent).not.toContain('secret');
+    expect(input('API token').value).toBe('');
     expect(vi.mocked(connections.getConnections).mock.calls.length).toBeGreaterThan(1);
   });
-  it('clears create credentials before rejecting an expired reauthorization', async () => {
+  it('preserves create credentials when authorization expires before submission', async () => {
     vi.mocked(connections.reauthorize).mockResolvedValue({
       csrf: 'c'.repeat(32),
       expiresAt: Date.now() - 1,
     });
-    await render();
+    await render('add');
     await chooseJiraToAssignments();
     act(() => (container.querySelector('input[type="checkbox"]') as HTMLInputElement).click());
     await continueWizard();
-    await reauthorize();
-    await act(async () => button('Verify and connect Jira').click());
+    await connectService();
+    await act(async () => button('Cancel').click());
     expect(connections.createConnection).not.toHaveBeenCalled();
     await act(async () => button('Back').click());
     await act(async () => button('Back').click());
-    await act(async () => button('Back').click());
-    await act(async () => button('Back').click());
-    expect(input('API token').value).toBe('');
+    expect(input('API token').value).toBe('secret');
   });
   it('shows unsupported templates as forthcoming and prevents them entering the wizard', async () => {
-    await render();
-    expect(container.textContent).toContain('Forthcoming: this gateway does not yet support');
-    expect(button('Coming soon').disabled).toBe(true);
+    await render('add');
+    expect(container.textContent).toContain('Coming soon');
+    expect(button('Coming soon')).toBeUndefined();
     expect(container.textContent).not.toContain('Authenticate with GitHub');
   });
   it('keeps template versions distinct in selection and connection-card metadata', async () => {
-    await render();
+    await render('add');
     await act(async () => button('Choose Jira v2').click());
     act(() => fireEvent.change(input('API token'), { target: { value: 'v2-secret' } }));
-    await continueWizard();
     act(() =>
       fireEvent.change(input('Atlassian account email'), { target: { value: 'me@example.com' } }),
     );
     await continueWizard();
-    await continueWizard();
     act(() => (container.querySelector('input[type="checkbox"]') as HTMLInputElement).click());
     await continueWizard();
-    await reauthorize();
-    await act(async () => button('Verify and connect Jira v2').click());
+    await connectService('Jira v2');
     expect(connections.createConnection).toHaveBeenCalledWith(
       expect.objectContaining({ templateId: 'jira-readonly', templateVersion: 2 }),
     );
@@ -913,6 +913,8 @@ describe('ConnectionsView', () => {
       ...catalog,
       connections: [{ ...catalog.connections[0], templateVersion: 2 }],
     });
+    await render('manage');
+    await reauthorize();
     await act(async () => button('Test identity').click());
     expect(container.textContent).toContain('Jira v2 v2');
   });
@@ -957,7 +959,7 @@ describe('ConnectionsView', () => {
     expect(container.textContent).toContain('Rotation failed');
     expect(container.textContent).not.toContain('rotate-secret');
   });
-  it('clears rotation credentials before rejecting expired reauthorization', async () => {
+  it('preserves rotation credentials when authorization expires before submission', async () => {
     vi.mocked(connections.reauthorize).mockResolvedValue({
       csrf: 'c'.repeat(32),
       expiresAt: Date.now() - 1,
@@ -969,7 +971,7 @@ describe('ConnectionsView', () => {
       fireEvent.change(input('Replacement API token'), { target: { value: 'rotate-secret' } }),
     );
     await act(async () => button('Verify and rotate').click());
-    expect(input('Replacement API token').value).toBe('');
+    expect(input('Replacement API token').value).toBe('rotate-secret');
     expect(connections.rotateConnection).not.toHaveBeenCalled();
   });
   it('keeps retry and removal behind the existing Jira lifecycle safeguards', async () => {
@@ -1024,16 +1026,9 @@ describe('ConnectionsView', () => {
   });
 });
 
-it('offers saved personal account management from Connections without a conversation', async () => {
-  await act(async () => root.render(<ConnectionsView />));
-  expect(
-    Array.from(container.querySelectorAll('button')).some(
-      (item) => item.textContent === 'Add personal account',
-    ),
-  ).toBe(true);
-  expect(
-    Array.from(container.querySelectorAll('button')).some(
-      (item) => item.textContent === 'Connect ChatGPT',
-    ),
-  ).toBe(false);
+it('opens personal account setup only after ChatGPT is selected', async () => {
+  await render('add');
+  expect(button('Save and continue')).toBeUndefined();
+  await act(async () => button('Choose ChatGPT').click());
+  expect(button('Save and continue')).toBeTruthy();
 });

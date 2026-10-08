@@ -10,6 +10,18 @@ import type {
 
 type Reauthorization = { csrf: string; expiresAt: number };
 
+export class ConnectionCreationFailure extends Error {
+  constructor(
+    message: string,
+    readonly connectionId: string | null,
+    readonly retrySetup: boolean,
+    readonly authorizationRequired = false,
+  ) {
+    super(message);
+    this.name = 'ConnectionCreationFailure';
+  }
+}
+
 async function bodyOrError<T>(response: Response): Promise<T> {
   const body: unknown = await response.json().catch(() => ({}));
   const error =
@@ -68,11 +80,54 @@ export async function createConnection(input: {
   csrf: string;
 }): Promise<ManagedConnection> {
   const { csrf, ...body } = input;
-  return (
-    await bodyOrError<{ connection: ManagedConnection }>(
-      await apiFetch('/api/connections', json('POST', body, csrf)),
-    )
-  ).connection;
+  let response: Response;
+  try {
+    response = await apiFetch('/api/connections', json('POST', body, csrf));
+  } catch {
+    throw new ConnectionCreationFailure(
+      'Could not confirm connection setup. Check Connections before adding it again.',
+      null,
+      false,
+    );
+  }
+  const decoded: unknown = await response.json().catch(() => null);
+  const result =
+    decoded && typeof decoded === 'object' ? (decoded as Record<string, unknown>) : null;
+  if (!response.ok) {
+    const message = typeof result?.error === 'string' ? result.error : 'Connection setup failed';
+    const saved =
+      response.status === 422 &&
+      typeof result?.savedConnectionId === 'string' &&
+      result.savedConnectionId.length
+        ? result.savedConnectionId
+        : null;
+    const retrySetup =
+      [400, 401, 403].includes(response.status) ||
+      (response.status === 422 && result?.savedConnectionId === null);
+    throw new ConnectionCreationFailure(
+      message,
+      saved,
+      retrySetup,
+      [401, 403].includes(response.status),
+    );
+  }
+  const value = result?.connection;
+  const connection = value && typeof value === 'object' ? (value as Record<string, unknown>) : null;
+  if (
+    !connection ||
+    typeof connection.id !== 'string' ||
+    !connection.id ||
+    typeof connection.label !== 'string' ||
+    typeof connection.status !== 'string' ||
+    !Array.isArray(connection.desiredAccountIds)
+  ) {
+    throw new ConnectionCreationFailure(
+      'Could not confirm connection setup. Check Connections before adding it again.',
+      null,
+      false,
+    );
+  }
+  return connection as unknown as ManagedConnection;
 }
 export async function retryConnection(input: {
   id: string;
