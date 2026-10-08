@@ -244,3 +244,5 @@ export type {
 export type { BackupRunStatus, BackupRun, BackupOverview } from './backup.js';
 
 export { isRegisteredConversation } from './conversation-identity.js';
+
+export { ModelTokenLimitsSchema, type ModelTokenLimits } from './token-limits.js';
