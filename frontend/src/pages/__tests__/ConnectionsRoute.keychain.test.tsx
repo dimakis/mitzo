@@ -22,6 +22,16 @@ vi.mock('../../components/OpenAIKeyControls', () => ({
   OpenAIKeyControls: ({ accountId }: { accountId?: string }) => <p>OpenAI controls: {accountId}</p>,
 }));
 afterEach(cleanup);
+it('recognizes the enrollment route without exposing existing key replacement controls', async () => {
+  render(
+    <MemoryRouter initialEntries={['/connections?manage=openai-add']}>
+      <ConnectionsRoute />
+    </MemoryRouter>,
+  );
+  expect(await screen.findByText('Adding OpenAI API accounts is unavailable.')).toBeTruthy();
+  expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Add OpenAI API account');
+  expect(screen.queryByText(/OpenAI controls/)).toBeNull();
+});
 
 it('keeps OpenAI account management separate from Keychain service management', async () => {
   render(

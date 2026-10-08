@@ -4,6 +4,10 @@ import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import { z } from 'zod';
 import type { GoogleWorkspaceManagement } from './google-workspace-management.js';
 import type { OpenAIKeyManagement } from './openai-key-management.js';
+import {
+  OpenAIEnrollmentUnresolvedError,
+  type OpenAIAccountEnrollment,
+} from './openai-account-enrollment.js';
 import { randomUUID } from 'node:crypto';
 import type { Connection } from './connections-store.js';
 import { ConnectionStore, RevisionConflictError } from './connections-store.js';
@@ -212,6 +216,7 @@ export function createConnectionsRouter(options: {
   capabilities?: CapabilityService;
   googleWorkspace?: GoogleWorkspaceManagement;
   openAIKeys?: OpenAIKeyManagement;
+  openAIAccounts?: OpenAIAccountEnrollment;
 }) {
   const router = express.Router();
   const limiter = (limit: number, message: string) =>
@@ -251,6 +256,7 @@ export function createConnectionsRouter(options: {
       appliesTo: 'new conversations only',
       ...(options.googleWorkspace ? { googleWorkspaceManaged: true } : {}),
       ...(options.openAIKeys ? { openAIKeysManaged: true } : {}),
+      ...(options.openAIAccounts ? { openAIAccountsManaged: true } : {}),
     });
   });
   router.get('/templates', (_req, res) => {
@@ -267,6 +273,62 @@ export function createConnectionsRouter(options: {
       return res.status(503).json({ error: 'Google management is not configured' });
     return res.json(await options.googleWorkspace.status(AbortSignal.timeout(30_000)));
   });
+  router.get('/openai-accounts', (_req, res) => {
+    if (!options.openAIAccounts)
+      return res.status(503).json({ error: 'OpenAI account setup is not configured' });
+    try {
+      return res.json({ enabled: true, accounts: options.openAIAccounts.list() });
+    } catch {
+      return res.status(503).json({ error: 'OpenAI account status is unavailable' });
+    }
+  });
+  router.post(
+    '/openai-accounts',
+    mutate,
+    requireSameOriginJson,
+    express.json({ limit: '20kb' }),
+    async (req, res) => {
+      const parsed = z
+        .object({
+          csrf: z.string().min(1),
+          requestId: z.uuid(),
+          label: z.string().trim().min(1).max(120),
+          projectLabel: z.string().trim().min(1).max(120),
+          apiKey: z.string().min(1).max(16384),
+          billingConfirmed: z.literal(true),
+        })
+        .strict()
+        .safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ error: 'Invalid OpenAI account request' });
+      if (!recentAuthorizationExpiry(res, parsed.data.csrf))
+        return res.status(403).json({ error: 'Recent browser reauthorization required' });
+      if (!options.openAIAccounts)
+        return res.status(503).json({ error: 'OpenAI account setup is not configured' });
+      const input = {
+        requestId: parsed.data.requestId,
+        label: parsed.data.label,
+        projectLabel: parsed.data.projectLabel,
+        apiKey: parsed.data.apiKey,
+        billingConfirmed: parsed.data.billingConfirmed,
+      };
+      // Do not retain credential input on the request while the provider check runs.
+      req.body = undefined;
+      try {
+        const account = await options.openAIAccounts.enroll(input, AbortSignal.timeout(120000));
+        return res.status(201).json({ account });
+      } catch (error) {
+        if (error instanceof OpenAIEnrollmentUnresolvedError)
+          return res.status(409).json({
+            error:
+              'A previous enrollment needs attention. Reconcile its saved operation before adding another account.',
+          });
+        return res.status(422).json({
+          error:
+            'OpenAI account setup could not be confirmed. Check the enrollment status before trying again.',
+        });
+      }
+    },
+  );
   router.get('/openai-keys', async (_req, res) => {
     if (!options.openAIKeys)
       return res.status(503).json({ error: 'OpenAI key management is not configured' });

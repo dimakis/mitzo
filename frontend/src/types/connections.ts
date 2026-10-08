@@ -96,6 +96,7 @@ export interface ConnectionCapabilityGrant {
 }
 
 export interface ConnectionsCatalog {
+  openAIAccountsManaged?: boolean;
   openAIKeysManaged?: boolean;
   googleWorkspaceManaged?: boolean;
   connections: ManagedConnection[];
@@ -106,8 +107,17 @@ export interface ConnectionsCatalog {
 }
 
 export interface ConnectionsViewProps {
-  mode?: 'add' | 'manage' | 'personal' | 'google' | 'legacy' | 'openai' | 'keychain';
+  mode?: 'add' | 'manage' | 'personal' | 'google' | 'legacy' | 'openai' | 'openai-add' | 'keychain';
   connectionId?: string;
+}
+
+export interface EnrolledOpenAIAccount {
+  id: string;
+  requestId?: string;
+  label: string;
+  /** User-declared purpose; not a verified project identifier. */
+  projectLabel: string;
+  state: string;
 }
 
 export interface OpenAIKeyHealth {

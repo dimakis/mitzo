@@ -1,4 +1,16 @@
 /* Setup shares the inventory's rows, surfaces and restrained accent. */
+.connections-focused-page > .openai-account-enrollment {
+  max-width: 760px;
+}
+.openai-account-enrollment .connections-key-confirmation input[type='checkbox'] {
+  width: 20px;
+  height: 20px;
+  flex: 0 0 20px;
+}
+.openai-account-enrollment .connections-key-confirmation span {
+  flex: 1;
+  min-width: 0;
+}
 .connections-focused-page > .access-section,
 .connections-setup,
 .connections-complete,

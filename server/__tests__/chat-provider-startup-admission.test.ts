@@ -50,16 +50,19 @@ vi.mock('../session-index.js', async (original) => ({
   registerSession: vi.fn(),
 }));
 
-function profiles() {
-  return new AccountProfiles([
-    {
-      id: 'work-api',
-      label: 'Work API',
-      provider: 'openai',
-      credentialRef: { provider: 'keychain', service: 'mitzo', account: 'work' },
-      models: [{ id: 'gpt-test', label: 'GPT Test', reasoningEfforts: ['high'] }],
-    },
-  ]);
+function profiles(enrolled = false) {
+  return new AccountProfiles(
+    [
+      {
+        id: 'work-api',
+        label: 'Work API',
+        provider: 'openai',
+        credentialRef: { provider: 'keychain', service: 'mitzo', account: 'work' },
+        models: [{ id: 'gpt-test', label: 'GPT Test', reasoningEfforts: ['high'] }],
+      },
+    ],
+    enrolled ? { enrolledOpenAIAccountIds: new Set(['work-api']) } : {},
+  );
 }
 
 function stubBootContext() {
@@ -79,11 +82,149 @@ afterEach(() => {
   native.construct.mockReset();
   native.connect.mockClear();
   native.googleToken.mockClear();
-  native.credentialResolve.mockClear();
+  native.credentialResolve.mockReset().mockResolvedValue('private-test-key');
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
+
+it.each(['enrolled', 'managed'] as const)(
+  'dispatches the exact verified %s key without a second generic credential read',
+  async (custody) => {
+    vi.resetModules();
+    const root = await mkdtemp(join(tmpdir(), 'mitzo-verified-startup-key-'));
+    await writeFile(join(root, '.mitzo.json'), '{}');
+    vi.stubEnv('REPO_PATH', root);
+    vi.stubEnv('WORKTREE_ENABLED', 'false');
+    vi.stubEnv('MITZO_CODEX_PRIVATE_DIR', join(root, 'private'));
+    stubBootContext();
+    native.credentialResolve.mockResolvedValue('changed-unverified-key');
+    let held = false;
+    const withCredentialMutation = vi.fn(async <T>(work: () => Promise<T>) => {
+      if (held) throw new Error('Nested credential gate');
+      held = true;
+      try {
+        return await work();
+      } finally {
+        held = false;
+      }
+    });
+    const resolveKey = vi.fn(async () =>
+      withCredentialMutation(async () => 'verified-account-key'),
+    );
+    const controller = { manages: (id: string) => id === 'work-api', resolveKey };
+    const runtime = await import('../connections-runtime.js');
+    runtime.setConnectionsRuntime({
+      service: { withCredentialMutation },
+      assertOpenAIKeyReady: vi.fn(async () => {}),
+      ...(custody === 'enrolled'
+        ? { openAIEnrollmentAuthority: controller }
+        : { openAIKeys: controller }),
+    } as never);
+    const chat = await import('../chat.js');
+    try {
+      const running = chat.startChat(
+        { send() {}, isOpen: () => true },
+        'verified-startup',
+        'use verified key',
+        {
+          cwd: root,
+          isolation: false,
+          accountId: 'work-api',
+          model: 'gpt-test',
+          accountProfiles: profiles(custody === 'enrolled'),
+          clientMsgId: 'verified-key-command',
+        },
+      );
+      await vi.waitFor(() => expect(native.prompts).toEqual(['use verified key']));
+      chat.stopChat('verified-startup');
+      await running;
+      expect(native.construct.mock.calls[0]?.[0].apiKey).toBe('verified-account-key');
+      expect(resolveKey).toHaveBeenCalledOnce();
+      expect(withCredentialMutation).toHaveBeenCalledOnce();
+      expect(native.credentialResolve).not.toHaveBeenCalled();
+    } finally {
+      runtime.setConnectionsRuntime(null);
+      chat.registry.dispose();
+      chat.eventStore.close();
+      await rm(root, { recursive: true, force: true });
+    }
+  },
+);
+
+it.each(['failed-marker', 'missing-controller'] as const)(
+  'blocks enrolled native startup after %s without falling back to a generic key',
+  async (scenario) => {
+    vi.resetModules();
+    const root = await mkdtemp(join(tmpdir(), 'mitzo-invalid-startup-marker-'));
+    await writeFile(join(root, '.mitzo.json'), '{}');
+    vi.stubEnv('REPO_PATH', root);
+    vi.stubEnv('WORKTREE_ENABLED', 'false');
+    vi.stubEnv('MITZO_CODEX_PRIVATE_DIR', join(root, 'private'));
+    stubBootContext();
+    const resolveKey = vi.fn(async () => {
+      throw new Error('OpenAI enrolled account needs attention');
+    });
+    const runtime = await import('../connections-runtime.js');
+    runtime.setConnectionsRuntime({
+      openAIEnrollmentAuthority: { manages: () => true, resolveKey },
+      service: { withCredentialMutation: async <T>(work: () => Promise<T>) => work() },
+      assertOpenAIKeyReady: async () => {},
+    } as never);
+    const chat = await import('../chat.js');
+    if (scenario === 'missing-controller') {
+      const upsert = chat.eventStore.upsertSession.bind(chat.eventStore);
+      vi.spyOn(chat.eventStore, 'upsertSession').mockImplementationOnce((input) => {
+        upsert(input);
+        // Durable admission follows the first custody check, but precedes the
+        // startup credential read. Simulate the controller becoming unavailable.
+        runtime.setConnectionsRuntime(null);
+      });
+    }
+    const sent = vi.fn();
+    try {
+      const running = chat.startChat(
+        { send: sent, isOpen: () => true },
+        'bad-marker-startup',
+        'never dispatch',
+        {
+          cwd: root,
+          isolation: false,
+          accountId: 'work-api',
+          model: 'gpt-test',
+          accountProfiles: profiles(true),
+          clientMsgId: 'bad-marker-command',
+        },
+      );
+      await vi.waitFor(() =>
+        expect(
+          sent.mock.calls.some(([message]) => message.type === 'error') ||
+            native.prompts.length > 0,
+        ).toBe(true),
+      );
+      chat.stopChat('bad-marker-startup');
+      await running;
+      expect(resolveKey).toHaveBeenCalledTimes(scenario === 'failed-marker' ? 1 : 0);
+      expect(native.credentialResolve).not.toHaveBeenCalled();
+      expect(native.construct).not.toHaveBeenCalled();
+      expect(native.prompts).toEqual([]);
+      expect(sent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'error',
+          error:
+            scenario === 'failed-marker'
+              ? 'OpenAI enrolled account needs attention'
+              : 'OpenAI account enrollment controller is unavailable',
+        }),
+      );
+    } finally {
+      runtime.setConnectionsRuntime(null);
+      chat.registry.dispose();
+      chat.eventStore.close();
+      await rm(root, { recursive: true, force: true });
+    }
+  },
+);
 
 it('uses the same admitted startup lifecycle for Google Vertex and preflights retries before auth', async () => {
   vi.resetModules();

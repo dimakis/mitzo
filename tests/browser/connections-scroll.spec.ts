@@ -160,3 +160,102 @@ test('Add connection opens a focused chooser and authorizes only after access re
   await page.getByRole('button', { name: 'Back', exact: true }).click();
   await expect(page.getByLabel('API token', { exact: true })).toHaveValue('fixture-token');
 });
+
+test('new OpenAI API enrollment requires identity and billing consent without changing existing chats', async ({
+  page,
+}) => {
+  await page.routeWebSocket('**/*', (socket) => socket.close());
+  const accounts: Array<{
+    id: string;
+    requestId: string;
+    label: string;
+    projectLabel: string;
+    state: string;
+  }> = [];
+  let submissions = 0;
+  await page.route('**/api/**', async (route) => {
+    const path = new URL(route.request().url()).pathname;
+    if (path === '/api/connections')
+      return route.fulfill({
+        json: {
+          connections: [],
+          legacy: [],
+          eligibleAccounts: [],
+          openAIAccountsManaged: true,
+          appliesTo: 'new conversations only',
+        },
+      });
+    if (path === '/api/connections/templates')
+      return route.fulfill({ json: { templates: [], capabilities: [] } });
+    if (path === '/api/connections/reauthorize')
+      return route.fulfill({ json: { csrf: 'fixture-csrf', expiresAt: Date.now() + 60000 } });
+    if (path === '/api/connections/openai-accounts') {
+      if (route.request().method() === 'GET')
+        return route.fulfill({ json: { enabled: true, accounts } });
+      const input = route.request().postDataJSON();
+      expect(input).toMatchObject({
+        csrf: 'fixture-csrf',
+        label: 'Work Research',
+        projectLabel: 'Research work project',
+        apiKey: 'fixture-one-shot-key',
+        billingConfirmed: true,
+      });
+      expect(input.requestId).toMatch(/^[a-f0-9-]{36}$/);
+      submissions += 1;
+      const account = {
+        id: 'fixture-new-work',
+        requestId: input.requestId,
+        label: input.label,
+        projectLabel: input.projectLabel,
+        state: 'ready',
+      };
+      accounts.push(account);
+      return route.fulfill({ status: 201, json: { account } });
+    }
+    return route.fulfill({ json: {} });
+  });
+  await page.goto('/connections');
+  await page.getByRole('link', { name: 'Choose OpenAI API' }).click();
+  await expect(
+    page.getByRole('heading', { name: 'Add OpenAI API account', exact: true }),
+  ).toBeVisible();
+  await expect(page.getByLabel('API key', { exact: true })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Confirm identity to add an account' }).click();
+  await page.getByLabel('Passphrase', { exact: true }).fill('fixture-passphrase');
+  await page.getByRole('button', { name: 'Reauthorize', exact: true }).click();
+  await page.getByLabel('Account label', { exact: true }).fill('Work Research');
+  await page
+    .getByLabel('Intended work project name', { exact: true })
+    .fill('Research work project');
+  await page.getByLabel('API key', { exact: true }).fill('fixture-one-shot-key');
+  await expect(page.getByLabel('API key', { exact: true })).toHaveAttribute('type', 'password');
+  await expect(page.getByText(/gpt-6-luna/)).toContainText('newly entered key’s project');
+  await expect(page.getByText(/does not verify the key’s project identity/)).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Validate and add account' })).toBeDisabled();
+  await page.getByRole('checkbox').check();
+  const checkbox = await page.getByRole('checkbox').boundingBox();
+  expect(checkbox?.width).toBeLessThanOrEqual(24);
+  const consent = await page
+    .getByText('I authorize this validation charge to the project associated with this key.', {
+      exact: true,
+    })
+    .boundingBox();
+  expect(consent).not.toBeNull();
+  expect(consent!.x + consent!.width).toBeLessThanOrEqual(page.viewportSize()!.width);
+  await page.screenshot({
+    path: test.info().outputPath('openai-account-enrollment.png'),
+    fullPage: true,
+  });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
+    true,
+  );
+  await page.getByRole('button', { name: 'Validate and add account' }).click();
+  await expect(page.getByText('Work Research is ready for new chats.')).toBeVisible();
+  await expect(page.getByLabel('API key', { exact: true })).toHaveCount(0);
+  await expect(page.getByText(/Existing tasks keep their current account/)).toBeVisible();
+  expect(submissions).toBe(1);
+  await page.screenshot({
+    path: test.info().outputPath('openai-account-enrolled.png'),
+    fullPage: true,
+  });
+});
