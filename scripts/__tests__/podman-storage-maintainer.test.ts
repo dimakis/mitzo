@@ -127,6 +127,42 @@ describe('host store maintenance authority', () => {
     expect((await readState(home, store)).builds[0].state).toBe('uncertain');
     await expect(managedBuild(home, store, recipe, async () => [id])).rejects.toThrow('unresolved');
   });
+  it('keeps a cancelled build uncertain even when its callback returns output IDs', async () => {
+    const home = await root();
+    await enrollStore(home, store, {
+      version: 1,
+      review: 'review',
+      store,
+      producers: [{ owner: 'owner', family: 'family', coordinated: true, review: 'review' }],
+      builds: [],
+    });
+    const recipe = {
+      owner: 'owner',
+      family: 'family',
+      review: 'approved',
+      reproducible: true,
+      inputsDigest: 'sha256:inputs',
+    };
+    const controller = new AbortController();
+    await expect(
+      managedBuild(
+        home,
+        store,
+        recipe,
+        async () => {
+          controller.abort(Error('cancelled build'));
+          return [id];
+        },
+        controller.signal,
+      ),
+    ).rejects.toThrow('cancelled build');
+    expect((await readState(home, store)).builds[0].state).toBe('uncertain');
+    const [scope] = await readdir(home);
+    const audit = await readFile(join(home, scope, 'audit.jsonl'), 'utf8');
+    expect(audit).toContain('build-uncertain');
+    expect(audit).not.toContain('build-completed');
+    await expect(managedBuild(home, store, recipe, async () => [id])).rejects.toThrow('unresolved');
+  });
   it('pin updates cannot discard recorded build custody or an unresolved operation', async () => {
     const home = await root();
     const e = {

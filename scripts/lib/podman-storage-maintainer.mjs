@@ -247,6 +247,7 @@ export async function managedBuild(home, store, recipe, build, signal) {
       try {
         signal?.throwIfAborted();
         const outputs = await build(signal);
+        signal?.throwIfAborted();
         if (!Array.isArray(outputs) || !outputs.length || outputs.some((id) => !imageId.test(id)))
           throw Error('Producer returned no exact output identity');
         record.images = [...new Set(outputs)];
