@@ -650,6 +650,7 @@ async function _runQueryLoopInner(
           if (
             !isError &&
             !result.provider_failure &&
+            msg.account_use_cancelled !== true &&
             !msg.parent_tool_use_id &&
             !abortController.signal.aborted
           ) {

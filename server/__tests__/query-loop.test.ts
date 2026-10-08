@@ -204,6 +204,11 @@ describe('runQueryLoop', () => {
             event: { type: 'message_start', message: { model: 'configured-model', usage: {} } },
           },
           { type: 'result', session_id: 'sess-use', is_error: false },
+          {
+            type: 'stream_event',
+            event: { type: 'message_start', message: { model: 'configured-model', usage: {} } },
+          },
+          { type: 'result', session_id: 'sess-use', is_error: false, account_use_cancelled: true },
         ]),
         clientId,
         registry,

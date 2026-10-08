@@ -343,7 +343,7 @@ export async function openResponsesChat(options: Options) {
               if (event.type === 'result') {
                 if (interrupted || signal.aborted) {
                   terminalize('cancelled', 'interrupted');
-                  yield { ...event };
+                  yield { ...event, account_use_cancelled: true };
                   continue;
                 }
                 const result = event as typeof event & {

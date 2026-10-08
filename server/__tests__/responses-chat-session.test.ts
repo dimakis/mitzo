@@ -977,14 +977,18 @@ it('records cancellation when the runner emits a result after interrupt', async 
       mcpServers: {},
       store: {} as never,
     });
+    const emitted: Record<string, unknown>[] = [];
     const draining = (async () => {
-      for await (const event of chat) void event;
+      for await (const event of chat) emitted.push(event);
     })();
     await vi.waitFor(() => expect(calls.releaseInterruptedRun).toBeTypeOf('function'));
     await chat.interrupt();
     input.close();
     await draining;
 
+    expect(emitted.find((event) => event.type === 'result')).toMatchObject({
+      account_use_cancelled: true,
+    });
     expect(eventStore.getProviderAttempts(admission.token)).toMatchObject([
       { phase: 'TERMINAL', terminalReason: 'cancelled' },
     ]);
