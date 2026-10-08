@@ -1010,7 +1010,10 @@ it.each(['interrupt', 'abort'] as const)(
     const originalRun = NativeHooks.prototype.run;
     let releaseStop!: () => void;
     let stopStarted = false;
-    const hook = vi.spyOn(NativeHooks.prototype, 'run').mockImplementation(function (...args) {
+    const hook = vi.spyOn(NativeHooks.prototype, 'run').mockImplementation(function (
+      this: InstanceType<typeof NativeHooks>,
+      ...args
+    ) {
       if (args[0] !== 'Stop') return originalRun.apply(this, args);
       stopStarted = true;
       return new Promise((resolve) => {
