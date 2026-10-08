@@ -248,3 +248,57 @@ it('keeps unknown structured tags and details private with an actionable fallbac
   expect(failure.message).toMatch(/Unrecognized provider failure.*chat and time/);
   expect(JSON.stringify(failure)).not.toMatch(/sk-private|private.invalid/);
 });
+
+const projectMessage =
+  'The selected account’s project is unavailable or archived. Check its project configuration before starting a new turn.';
+const nativeProjectMessage =
+  'unexpected status 401 Unauthorized: The project you are requesting has been archived and is no longer accessible, url: https://private.invalid/v1/responses, Bearer sk-private, auth error: 401, auth error code: not_authorized_invalid_project';
+it.each([
+  { code: 'not_authorized_invalid_project', message: 'Bearer sk-private' },
+  { error: { code: 'not_authorized_invalid_project', message: 'PRIVATE_PROJECT' } },
+  { message: nativeProjectMessage },
+  nativeProjectMessage,
+  { codexErrorInfo: 'unauthorized', message: nativeProjectMessage },
+])('retains a specific safe unavailable-project diagnostic', (value) => {
+  const failure = classifyProviderFailure(value, { correlationId: 'project-turn', attempt: 2 });
+  expect(failure).toEqual({
+    category: 'authentication',
+    code: 'not_authorized_invalid_project',
+    retryable: false,
+    ambiguous: false,
+    attempt: 2,
+    correlationId: 'project-turn',
+    message: projectMessage,
+  });
+  expect(providerFailureTelemetry(failure)).toMatchObject({
+    providerFailureCode: 'not_authorized_invalid_project',
+  });
+  expect(JSON.stringify({ failure, telemetry: providerFailureTelemetry(failure) })).not.toMatch(
+    /sk-private|private.invalid|PRIVATE_PROJECT|Bearer/,
+  );
+});
+it.each([
+  'Unauthorized: see not_authorized_invalid_project in documentation',
+  'Unauthorized, auth error code: not_authorized_invalid_project_extra',
+  'Unauthorized, auth error code: not_authorized_invalid_project-other',
+  'Unauthorized, ' + 'x'.repeat(2000) + ', auth error code: not_authorized_invalid_project',
+])('does not infer a project code from mentions, near matches or unbounded text', (message) => {
+  const failure = classifyProviderFailure({ message }, { correlationId: 'generic-auth' });
+  expect(failure.category).toBe('authentication');
+  expect(failure).not.toHaveProperty('code');
+  expect(failure.message).toBe(
+    'The provider rejected the configured account credentials or permissions.',
+  );
+});
+it('preserves unrelated authoritative native failure categories over project text', () => {
+  const failure = classifyProviderFailure(
+    { codexErrorInfo: 'server_overloaded', message: nativeProjectMessage },
+    { correlationId: 'capacity-turn' },
+  );
+  expect(failure).toMatchObject({
+    category: 'overloaded',
+    code: 'server_overloaded',
+    retryable: true,
+    ambiguous: true,
+  });
+});
