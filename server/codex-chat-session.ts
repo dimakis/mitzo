@@ -36,11 +36,7 @@ import {
 import { createWebAccessTool } from './web-access-tool.js';
 import { connectCodexMcpTools } from './codex-mcp-tools.js';
 import { AsyncQueue } from './async-queue.js';
-import {
-  CodexAppServerClient,
-  CodexRequestError,
-  SUPPORTED_CODEX_CLI_VERSION,
-} from './codex-app-server-client.js';
+import { CodexAppServerClient, SUPPORTED_CODEX_CLI_VERSION } from './codex-app-server-client.js';
 import { CodexConversation } from './codex-conversation.js';
 import {
   CodexConversationStore,
@@ -83,7 +79,8 @@ import {
 import { requestedIntegrationProviders } from './integration-intent.js';
 import { createLogger } from './logger.js';
 import { canonicalJson } from './connections/capabilities/input-validation.js';
-import { providerFailureTelemetry, ProviderFailureError } from './provider-failure.js';
+import { ProviderFailureError } from './provider-failure.js';
+import { codexRuntimeDiagnostic, codexRuntimeErrorTelemetry } from './codex-runtime-diagnostics.js';
 import type { EventStore } from './event-store.js';
 import { codexRolloverHistory } from './codex-rollover-context.js';
 import type { ProviderDispatchAdmission } from './provider-execution.js';
@@ -101,6 +98,21 @@ import {
   symposiumProposeProfileDefinition,
   SYMPOSIUM_PROPOSE_PROFILE_TOOL,
 } from './symposium-profile-tool.js';
+
+/** Assigned GitHub connections replace the legacy credential fallback. Retained
+ * runtimes supply only their already attached managed connections here. */
+export function ordinaryRuntimeServiceProviders(
+  configured: readonly string[],
+  managed: readonly Pick<Connection, 'templateId' | 'gatewayProviderName'>[],
+): string[] {
+  const managedGithub = managed.some((connection) => connection.templateId === 'github-readonly');
+  return [
+    ...new Set([
+      ...configured.filter((provider) => provider !== 'github' || !managedGithub),
+      ...managed.map((connection) => connection.gatewayProviderName),
+    ]),
+  ];
+}
 
 const runtimes = new WeakMap<ManagedSession, CodexConversation>();
 interface PendingProviderAdmission {
@@ -198,6 +210,8 @@ function capabilityToolsForConversation(
 }
 /** Only transport safe, stable runtime diagnostics to the client. */
 export function publicCodexRuntimeError(error: Error): string {
+  const diagnostic = codexRuntimeDiagnostic(error);
+  if (diagnostic) return diagnostic;
   if (error instanceof KnowledgePublicationUnavailableError)
     return 'Knowledge publication is unavailable. Check the knowledge publisher before retrying. No provider turn was started.';
   if (
@@ -236,6 +250,12 @@ export function publicCodexRuntimeError(error: Error): string {
   )
     return message;
   return 'Codex turn failed. Inspect queued work before retrying.';
+}
+export function publicCodexStartupError(error: Error): string {
+  const diagnostic = publicCodexRuntimeError(error);
+  return diagnostic === 'Codex turn failed. Inspect queued work before retrying.'
+    ? 'Codex could not start this chat. Inspect conversation recovery before retrying.'
+    : diagnostic;
 }
 let privateStore: CodexConversationStore | undefined;
 function store() {
@@ -494,6 +514,8 @@ export async function openCodexChat(options: Options) {
     throw new Error('Native personal ChatGPT accounts require the isolated Symposium runtime');
   const service = getConnectionsRuntime()?.service;
   const configuredRuntime = openShellRuntimeConfig(process.env);
+  if (configuredRuntime && !options.resume)
+    store().reserveStartup(options.conversationId, options.binding, options.session.cwd!);
   if (service && configuredRuntime) {
     // Setup holds the connection reservation through sandbox verification and
     // thread registration. First-turn admission reacquires it; release setup
@@ -582,10 +604,10 @@ async function openCodexChatBound(
     ? new OpenShellRuntimeManager({
         ...configuredRuntime,
         ...(routedRuntime ? { sandboxNameOverride: routedRuntime.runtime.sandboxName } : {}),
-        serviceProviders: [
-          ...configuredRuntime.serviceProviders,
-          ...managedConnections.map((connection) => connection.gatewayProviderName),
-        ],
+        serviceProviders: ordinaryRuntimeServiceProviders(
+          configuredRuntime.serviceProviders,
+          managedConnections,
+        ),
         grantableServiceProviders: [
           ...configuredRuntime.grantableServiceProviders,
           ...onDemandConnections.map((connection) => connection.gatewayProviderName),
@@ -611,6 +633,30 @@ async function openCodexChatBound(
     : undefined;
   let managedOpenShell: OpenShellRuntime | undefined;
   try {
+    if (runtimeManager) {
+      store().assertStartupResumeSafe(options.conversationId, options.binding);
+      const provisioning = store().startupNeedsProvisioning(
+        options.conversationId,
+        options.binding,
+      );
+      if (provisioning && options.reattachOnly) {
+        // Queue attachment is observational. Keep the reserved startup for an
+        // explicit send instead of creating an unacknowledged provider thread.
+        const idle = new AsyncQueue<Record<string, unknown>>();
+        idle.close();
+        startupReservation?.();
+        return {
+          [Symbol.asyncIterator]: () => idle[Symbol.asyncIterator](),
+          setPermissionMode: async () => {},
+          interrupt: async () => {},
+          close: () => {},
+          stopTask: async () => {
+            throw new Error('Codex subagents are unavailable');
+          },
+        };
+      }
+      if (provisioning) options = { ...options, resume: false };
+    }
     managedOpenShell = runtimeManager
       ? await runtimeManager!.ensure(options.conversationId, options.session.abortController.signal)
       : undefined;
@@ -964,6 +1010,8 @@ async function openCodexChatBound(
       ? '\nThis sandbox has verified read-only Jira access to https://redhat.atlassian.net. Use the scoped API base in JIRA_URL (not the browser site URL). Use the provider-approved /usr/bin/python3 or curl with JIRA_URL, JIRA_EMAIL, and the gateway-managed JIRA_API_TOKEN placeholder for Basic authorization. Never print credential values. Writes are denied by the gateway policy.\n'
       : '');
   let pendingKnowledge: Omit<KnowledgeAdoptionSelection, 'contextSha256'> | undefined;
+  if (configuredRuntime)
+    store().markStartupProviderInitializing(options.conversationId, options.binding);
   const runtime: CodexConversation = new CodexConversation({
     conversationId: options.conversationId,
     cwd: options.session.cwd!,
@@ -1401,14 +1449,7 @@ async function openCodexChatBound(
     onError: (error) => {
       log.warn('Codex runtime reported an error', {
         conversationId: options.conversationId,
-        ...(error instanceof CodexRequestError
-          ? {
-              requestMethod: error.method,
-              requestErrorCategory: error.category,
-              ...(error.code === undefined ? {} : { requestErrorCode: error.code }),
-            }
-          : {}),
-        ...(error instanceof ProviderFailureError ? providerFailureTelemetry(error.failure) : {}),
+        ...codexRuntimeErrorTelemetry(error),
         error: publicCodexRuntimeError(error),
       });
       // Failed provider turns are emitted by the query loop as durable v2 error

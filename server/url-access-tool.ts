@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { clearWebSearchGrant } from './web-search-grants.js';
 import { isDeepStrictEqual } from 'node:util';
 import { z } from 'zod';
 import {
@@ -33,6 +34,7 @@ const revisions = new WeakMap<ManagedSession, Map<string, number>>();
 const grants = new WeakMap<ManagedSession, Map<string, Grant>>();
 /** Model selection changes permanently retire existing approvals, including pending cards. */
 export function clearUrlAccessGrants(session: ManagedSession) {
+  clearWebSearchGrant(session);
   grants.delete(session);
   const versions = revisions.get(session);
   for (const [origin, revision] of versions ?? []) versions!.set(origin, revision + 1);

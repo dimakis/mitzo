@@ -398,6 +398,7 @@ export interface SessionSearchResult {
 }
 
 export interface SessionMeta {
+  conversationSource?: 'mitzo' | 'external_import' | 'legacy';
   /** Persisted mode; adding/removing seats retains the session identity. */
   sessionType?: SessionType;
   /** Serialized SymposiumConfig; null when the capability is inactive. */
@@ -418,6 +419,8 @@ export interface SessionMeta {
   promptCount: number;
   manuallyRenamed: boolean;
   initialPrompt: string | null;
+  /** SDK history was checked and contains conversation messages. */
+  sdkTranscriptVerified?: boolean;
   wtId: string | null;
   inputTokens: number;
   outputTokens: number;

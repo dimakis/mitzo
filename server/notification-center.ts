@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { permissionNotificationCategory } from './notification-actions.js';
 import type {
   MitzoNotification,
   NotificationPreferences,
@@ -238,7 +239,12 @@ export class NotificationCenter {
         if (at === null || at > Date.now()) continue;
         if (!this.deps.configured() || this.deps.devices() === 0) continue;
         const prefs = this.store.preferences();
-        const result = await this.deps.push({
+        const category = item.permId
+          ? permissionNotificationCategory(item.request, prefs.sensitivePreviews)
+          : undefined;
+        const quickApproval =
+          category === 'SESSION_APPROVAL' || category === 'SESSION_SEARCH_PERMISSION';
+        const message: NotificationPush = {
           title:
             prefs.sensitivePreviews || item.kind === 'test'
               ? `Mitzo: ${item.title}`
@@ -247,20 +253,37 @@ export class NotificationCenter {
                 : item.kind === 'question'
                   ? 'Mitzo has a question'
                   : 'Mitzo update',
-          body:
-            prefs.sensitivePreviews || item.kind === 'test'
+          body: quickApproval
+            ? `${item.body}\n${item.request!.toolName}\n${item.request!.toolInput}`
+            : prefs.sensitivePreviews || item.kind === 'test'
               ? item.body
               : 'Open Mitzo to review this notification.',
           badge: this.store.feed('needs').needsYou,
-          data: { notificationId: item.id, type: item.kind, sessionId: item.sessionId },
+          data: {
+            notificationId: item.id,
+            type: item.kind,
+            sessionId: item.sessionId,
+            ...(quickApproval
+              ? { approvalInput: item.request!.toolInput, approvalToolName: item.request!.toolName }
+              : {}),
+          },
           category: item.permId
-            ? 'SESSION_PERMISSION'
+            ? category!
             : item.kind === 'session'
               ? 'SESSION_UPDATE'
               : 'NOTIFICATION_UPDATE',
           threadId: item.sessionId,
           deliveredDevices: this.store.deliveredDevices(item.id),
-        });
+        };
+        // Leave room for the APNs envelope; never truncate a request while
+        // retaining buttons that imply its full details have been displayed.
+        if (quickApproval && Buffer.byteLength(JSON.stringify(message), 'utf8') > 3000) {
+          message.category = 'SESSION_PERMISSION';
+          message.body = item.body;
+          delete message.data.approvalInput;
+          delete message.data.approvalToolName;
+        }
+        const result = await this.deps.push(message);
         const { status } = result;
         if (status === 'unavailable') continue;
         this.store.delivery(

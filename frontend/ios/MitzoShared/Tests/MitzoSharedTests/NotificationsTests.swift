@@ -12,12 +12,12 @@ import Testing
     #expect(item.request?.toolInput == "npm test")
 }
 
-@Test func notificationResponsesCannotEncodePersistentGrants() throws {
+@Test func notificationResponsesEncodeExplicitSessionConsent() throws {
     let response = NotificationResponse(sessionId: "s1", decision: .once)
     let data = try JSONEncoder().encode(response)
     let object = try JSONSerialization.jsonObject(with: data) as! [String: Any]
     #expect(object["decision"] as? String == "once")
-    #expect(NotificationResponse.Decision(rawValue: "always") == nil)
+    #expect(NotificationResponse.Decision(rawValue: "always") == .session)
     #expect(object["sessionId"] as? String == "s1")
 }
 
