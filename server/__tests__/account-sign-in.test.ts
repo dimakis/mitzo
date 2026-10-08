@@ -44,6 +44,9 @@ it('invalidates successful evidence after a failed recheck and sanitizes errors'
   await accounts.checkSignIn(new AbortController().signal);
   await accounts.checkSignIn(new AbortController().signal);
   expect(accounts.catalog()[0].signIn?.status).toBe('failed');
+  expect(accounts.catalog()[0].signIn?.explanation).toBe(
+    'The configured subscription provider and grant could not be verified. Check the connection settings and retry.',
+  );
   expect(JSON.stringify(accounts.catalog())).not.toContain('SECRET');
 });
 it('does not carry evidence across profile changes and ages successful evidence', async () => {
@@ -104,7 +107,9 @@ it('preserves configured catalog when authentication times out before the invent
       status: 'failed',
       observedIdentity: null,
     });
-    expect(accounts.catalog()[0].signIn?.explanation).toContain('timed out');
+    expect(accounts.catalog()[0].signIn?.explanation).toBe(
+      'Connection check timed out or was cancelled. Retry later.',
+    );
   } finally {
     vi.useRealTimers();
   }
@@ -273,4 +278,42 @@ it('reports sign-in evidence without contradicting it in conversation access ver
   expect(row.verification.state).toBe('unverified');
   expect(row.verification.reason).toBe('Effective conversation access has not been checked.');
   expect(JSON.stringify(row)).not.toMatch(/sign-in[^.]*not been checked/i);
+});
+
+it('describes unchecked provider grants as connection checks while preserving host sign-in wording', () => {
+  const accounts = new AccountProfiles(
+    [
+      { ...profile, id: 'unchecked-grant-wording' },
+      {
+        ...profile,
+        id: 'unchecked-host-wording',
+        credentialRef: '/unchecked/login',
+        sandboxProvider: undefined,
+        sandboxProviderType: undefined,
+        sandboxProviderId: undefined,
+        sandboxGrantId: undefined,
+      },
+    ],
+    { codexEnabled: true },
+  );
+  expect(accounts.catalog()[0].signIn?.explanation).toBe(
+    'Connection has not been checked. The identity is configured, not observed.',
+  );
+  expect(accounts.catalog()[1].signIn?.explanation).toBe(
+    'Sign-in has not been checked. The identity is configured, not observed.',
+  );
+});
+it('preserves connection-check wording when a provider-grant check is cancelled', async () => {
+  const controller = new AbortController();
+  controller.abort();
+  const accounts = new AccountProfiles([{ ...profile, id: 'cancelled-grant-wording' }], {
+    codexEnabled: true,
+  });
+  await accounts.checkSignIn(controller.signal);
+  const inventory = await readConnectionsAccess({ accounts: () => accounts.catalog() });
+  expect(inventory.resources[0].signIn).toMatchObject({
+    status: 'failed',
+    source: 'openshell-provider-grant',
+    explanation: 'Connection check timed out or was cancelled. Retry later.',
+  });
 });
