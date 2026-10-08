@@ -1003,6 +1003,99 @@ it('records cancellation when the runner emits a result after interrupt', async 
   }
 });
 
+it.each(['interrupt', 'abort'] as const)(
+  'marks account use cancelled when %s occurs during the Stop hook',
+  async (cancellation) => {
+    const { NativeHooks } = await import('../native-hooks.js');
+    const originalRun = NativeHooks.prototype.run;
+    let releaseStop!: () => void;
+    let stopStarted = false;
+    const hook = vi.spyOn(NativeHooks.prototype, 'run').mockImplementation(function (...args) {
+      if (args[0] !== 'Stop') return originalRun.apply(this, args);
+      stopStarted = true;
+      return new Promise((resolve) => {
+        releaseStop = () => resolve({ context: '', forcePrompt: false });
+      });
+    });
+    const registry = new SessionRegistry();
+    const eventStore = new EventStore(':memory:');
+    const abort = new AbortController();
+    registry.register('client', {
+      transport: { send: () => {}, isOpen: () => true },
+      abortController: abort,
+      mode: 'agent',
+      sessionId: 'app',
+      cwd: '/tmp',
+      sessionAllowList: new Set(),
+    });
+    eventStore.upsertSession({ sessionId: 'app' });
+    const admission = admitProviderDispatch({
+      store: eventStore,
+      request: {
+        sessionId: 'app',
+        clientMsgId: 'message-stop-interrupt',
+        effectivePrompt: 'completed-before-stop',
+        model: 'test',
+      },
+      prepare: () => {},
+    });
+    const input = new AsyncQueue<{
+      message: { content: string };
+      providerAdmission: typeof admission;
+    }>();
+    input.push({ message: { content: 'completed-before-stop' }, providerAdmission: admission });
+
+    try {
+      const chat = await openResponsesChat({
+        conversationId: 'app',
+        binding: {
+          accountId: 'work',
+          accountLabel: 'Work',
+          provider: 'openai',
+          model: 'test',
+          profileRevision: 'revision',
+        },
+        apiKey: 'private-test-key',
+        session: registry.get('client')!,
+        registry,
+        input,
+        eventStore,
+        systemPrompt: 'context',
+        env: { PATH: '/usr/bin:/bin' },
+        mcpServers: {},
+        store: {} as never,
+      });
+      const emitted: Record<string, unknown>[] = [];
+      const draining = (async () => {
+        for await (const event of chat) emitted.push(event);
+      })();
+      await vi.waitFor(() => expect(stopStarted).toBe(true));
+      const pendingInterrupt = cancellation === 'interrupt' ? chat.interrupt() : undefined;
+      if (cancellation === 'abort') abort.abort();
+      releaseStop();
+      await pendingInterrupt;
+      input.close();
+      await draining;
+
+      expect(emitted.find((event) => event.type === 'result')).toMatchObject({
+        account_use_cancelled: true,
+      });
+      expect(eventStore.getProviderAttempts(admission.token)).toMatchObject([
+        { phase: 'TERMINAL', terminalReason: 'completed' },
+      ]);
+      expect(eventStore.getSession('app')).toMatchObject({
+        executionPhase: 'TERMINAL',
+        executionTerminalReason: 'interrupted',
+      });
+    } finally {
+      releaseStop?.();
+      hook.mockRestore();
+      eventStore.close();
+      registry.dispose();
+    }
+  },
+);
+
 it('interrupts the runtime even when queued cancellation persistence fails', async () => {
   const registry = new SessionRegistry();
   const eventStore = new EventStore(':memory:');

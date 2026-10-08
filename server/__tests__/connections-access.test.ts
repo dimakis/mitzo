@@ -432,3 +432,30 @@ it('routes management actions to the owning resource instead of the add chooser'
   expect(action('google-workspace')).toBe('/connections?manage=google');
   expect(action('legacy-provider')).toBe('/connections?manage=legacy&connection=other');
 });
+
+it.each(['rotating', 'needs_attention'] as const)(
+  'retains the historical credential check independently of service status %s',
+  async (status) => {
+    const inventory = await readConnectionsAccess(
+      {
+        managed: () => [
+          {
+            ...connection,
+            status,
+            errorCode: status === 'needs_attention' ? 'rotation_failed' : null,
+          },
+        ],
+      },
+      { now: 200 },
+    );
+    expect(inventory.resources[0]).toMatchObject({
+      status,
+      verification: {
+        state: 'verified',
+        verifiedAt: 100,
+        reason:
+          'The last credential check passed at the recorded time. Current conversation access has not been checked.',
+      },
+    });
+  },
+);

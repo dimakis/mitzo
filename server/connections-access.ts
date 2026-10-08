@@ -234,7 +234,7 @@ export async function readConnectionsAccess(
         ? connection.verifiedAt
         : null;
     row.verification = {
-      state: connection.status === 'active' && verifiedAt !== null ? 'verified' : 'unverified',
+      state: verifiedAt !== null ? 'verified' : 'unverified',
       verifiedAt,
       reason:
         verifiedAt !== null
