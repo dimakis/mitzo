@@ -651,6 +651,7 @@ export function ConnectionsView({ mode = 'add', connectionId }: ConnectionsViewP
             mode === 'openai' &&
             (data.openAIKeysManaged ? (
               <OpenAIKeyControls
+                accountId={connectionId}
                 csrf={csrf}
                 authorized={!!csrf && csrfExpiresAt > Date.now()}
                 onReauthorizationNeeded={requireReauthorization}

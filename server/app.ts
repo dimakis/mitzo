@@ -2476,6 +2476,8 @@ app.use(
       },
       ...(runtime
         ? {
+            canManageOpenAIKey: (accountId: string) =>
+              runtime.openAIKeys?.manages(accountId) ?? false,
             managed: () => runtime.store.list('operator'),
             legacy: runtime.legacyProviders,
             gateway: runtime.gateway,

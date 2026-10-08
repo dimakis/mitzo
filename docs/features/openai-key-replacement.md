@@ -1,6 +1,6 @@
 # OpenAI API key replacement in Connections
 
-Enrolled accounts appear in **More → Connections → OpenAI API accounts**. The operator
+Enrolled accounts appear in **More → Connections → the enrolled AI account → Manage API key**. The operator
 reauthorizes, selects **Replace API key**, enters a masked replacement once, and confirms
 that it belongs to the same work OpenAI project. The browser clears the key before waiting
 for the response and does not put it in browser storage.

@@ -47,8 +47,8 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../keychain-rotation-credentials.ts':
     'c2d94ede80f5950b45568dc41c5d10c20802d4504dbcd0b6657e8de04de72d4a',
   '../openai-key-controller.ts': '4be89d1cb3b75270d6e3d257b5d35f569e26c726e8c23c3fb697ea0cff71c6ee',
-  '../connections-router.ts': 'f4df4aca83baf65d934e747692e5541ea4d117ff9295dc16e362f80b6e88b9d3',
-  '../connections-service.ts': '8815bc174ab94bf0a9bef1778931402c5a223e4545eaf8ceabc12b491a63a409',
+  '../connections-router.ts': '944eeccf74aabe0684f63373272cabd861b3b596d512147d7c82b9ac87ae87bd',
+  '../connections-service.ts': '8d3e89345787d9b732c98d4636e86f1b56ed1c0fffb6f5288e0d29cbf24f1ce6',
   '../connections-runtime.ts': '8bd5cb4c1772347cdd635ebab68d04b7d5cc70eaa6bd0159242dd7850ef15e8e',
   'capabilities/operation-store.ts':
     '1a235f11d5578880e6dfa7ecf5779e2a011e24430774fc17429d7d22359b93f2',

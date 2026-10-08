@@ -3,10 +3,12 @@ import { getOpenAIKeyStatus, replaceOpenAIKey, synchronizeOpenAIKey } from '../l
 import type { OpenAIKeyHealth } from '../types/connections';
 
 export function OpenAIKeyControls({
+  accountId,
   csrf,
   authorized,
   onReauthorizationNeeded,
 }: {
+  accountId?: string;
   csrf: string;
   authorized: boolean;
   onReauthorizationNeeded: () => void;
@@ -32,21 +34,29 @@ export function OpenAIKeyControls({
         Replace a key once to keep host API calls and sandbox chats synchronized.
       </p>
       {error && <p role="alert">{error}</p>}
-      {accounts.map((account) => (
-        <OpenAIKeyCard
-          key={account.accountId}
-          account={account}
-          csrf={csrf}
-          authorized={authorized}
-          onReauthorizationNeeded={onReauthorizationNeeded}
-          onUpdated={(result) =>
-            setAccounts((previous) =>
-              previous.map((item) => (item.accountId === result.accountId ? result : item)),
-            )
-          }
-          refresh={refresh}
-        />
-      ))}
+      {!error &&
+        accountId &&
+        accounts.length > 0 &&
+        !accounts.some((account) => account.accountId === accountId) && (
+          <p>This account is no longer enrolled. Return to Connections to refresh its status.</p>
+        )}
+      {accounts
+        .filter((account) => !accountId || account.accountId === accountId)
+        .map((account) => (
+          <OpenAIKeyCard
+            key={account.accountId}
+            account={account}
+            csrf={csrf}
+            authorized={authorized}
+            onReauthorizationNeeded={onReauthorizationNeeded}
+            onUpdated={(result) =>
+              setAccounts((previous) =>
+                previous.map((item) => (item.accountId === result.accountId ? result : item)),
+              )
+            }
+            refresh={refresh}
+          />
+        ))}
       <button onClick={() => void refresh()}>Check OpenAI status</button>
     </section>
   );
