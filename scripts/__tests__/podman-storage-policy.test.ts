@@ -195,4 +195,29 @@ describe('revalidated exact-ID application', () => {
     );
     expect(a.removed).toEqual([]);
   });
+  it('reports final telemetry failure as partial even after every image was removed', async () => {
+    const a = adapter();
+    const collect = a.collect;
+    a.collect = async () => {
+      const s = await collect();
+      if (s.images.length === 2) s.telemetry = { guest: { status: 'unavailable' } };
+      return s;
+    };
+    const r = await applyImages(planImages(a.s, now), a, { now: () => now });
+    expect(r.status).toBe('partial');
+    expect(r.blockers).toContain('final guest measurement unavailable');
+  });
+  it('returns an audited partial result when collection fails between removals', async () => {
+    const a = adapter();
+    const collect = a.collect;
+    let calls = 0;
+    a.collect = async () => {
+      if (++calls === 3) throw Error('read interrupted');
+      return collect();
+    };
+    const r = await applyImages(planImages(a.s, now), a, { now: () => now });
+    expect(r.status).toBe('partial');
+    expect(a.removed).toEqual([id(1)]);
+    expect(r.blockers).toContain('collection failed: read interrupted');
+  });
 });

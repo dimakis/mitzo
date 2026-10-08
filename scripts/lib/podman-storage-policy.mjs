@@ -204,6 +204,10 @@ export async function applyImages(plan, adapter, { now = Date.now, signal } = {}
     } catch {
       result.blockers.push('final measurement unavailable');
     }
+    if (result.after?.guest?.status !== 'available')
+      result.blockers.push('final guest measurement unavailable');
+    if (result.blockers.length && result.status === 'complete')
+      result.status = result.outcomes.length ? 'partial' : 'blocked';
     result.finishedAt = now();
     await adapter.audit({ event: 'finished', ...result });
     return result;
@@ -233,7 +237,15 @@ export async function applyImages(plan, adapter, { now = Date.now, signal } = {}
       result.blockers.push('cancelled');
       break;
     }
-    const s = await adapter.collect();
+    let s;
+    try {
+      s = await adapter.collect();
+    } catch (error) {
+      result.blockers.push(
+        `collection failed: ${error instanceof Error ? error.message : 'unknown'}`,
+      );
+      break;
+    }
     result.before ??= s.telemetry;
     const fresh = planImages(s, now());
     if (
