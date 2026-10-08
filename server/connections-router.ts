@@ -4,7 +4,10 @@ import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import { z } from 'zod';
 import type { GoogleWorkspaceManagement } from './google-workspace-management.js';
 import type { OpenAIKeyManagement } from './openai-key-management.js';
-import type { OpenAIAccountEnrollment } from './openai-account-enrollment.js';
+import {
+  OpenAIEnrollmentUnresolvedError,
+  type OpenAIAccountEnrollment,
+} from './openai-account-enrollment.js';
 import { randomUUID } from 'node:crypto';
 import type { Connection } from './connections-store.js';
 import { ConnectionStore, RevisionConflictError } from './connections-store.js';
@@ -313,7 +316,12 @@ export function createConnectionsRouter(options: {
       try {
         const account = await options.openAIAccounts.enroll(input, AbortSignal.timeout(120000));
         return res.status(201).json({ account });
-      } catch {
+      } catch (error) {
+        if (error instanceof OpenAIEnrollmentUnresolvedError)
+          return res.status(409).json({
+            error:
+              'A previous enrollment needs attention. Reconcile its saved operation before adding another account.',
+          });
         return res.status(422).json({
           error:
             'OpenAI account setup could not be confirmed. Check the enrollment status before trying again.',

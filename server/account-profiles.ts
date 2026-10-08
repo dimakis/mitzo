@@ -781,10 +781,15 @@ export class AccountProfiles {
     return this.apiProfile(binding).credentialRef;
   }
 
-  /** Private controller view, including host-only consumers to detect shared credentials. */
+  /** All configured identities remain reserved, independently of credential mutation eligibility. */
+  configuredAccountIds(): readonly string[] {
+    return this.profiles.map((profile) => profile.id);
+  }
+
+  /** Legacy rotation only; fresh enrolled custody has its own immutable readiness authority. */
   openAIKeyManagementAccounts(): import('./openai-key-management.js').ManagedOpenAIAccount[] {
     return this.profiles.flatMap((profile) =>
-      profile.provider === 'openai'
+      profile.provider === 'openai' && !this.isEnrolledOpenAIAccount(profile.id)
         ? [
             {
               id: profile.id,

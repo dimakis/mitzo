@@ -74,6 +74,15 @@ const Record = z
   })
   .strict();
 type EnrollmentRecord = z.infer<typeof Record>;
+/** A different browser request cannot bypass retained, uncertain side effects. */
+export class OpenAIEnrollmentUnresolvedError extends Error {
+  constructor() {
+    super(
+      'An earlier OpenAI enrollment is unresolved. Check its status and reconcile the saved operation before submitting another key.',
+    );
+    this.name = 'OpenAIEnrollmentUnresolvedError';
+  }
+}
 const publicAccount = (row: EnrollmentRecord): OpenAIEnrollmentAccount => ({
   id: row.accountId,
   requestId: row.requestId,
@@ -168,32 +177,37 @@ export class OpenAIAccountEnrollmentStore {
     },
     existingIds: readonly string[],
   ) {
-    return this.db.transaction(() => {
-      const prior = this.db
-        .prepare('SELECT metadata FROM openai_account_enrollments WHERE request_id=?')
-        .get(input.requestId) as { metadata: string } | undefined;
-      if (prior) {
-        const row = this.parse(prior.metadata);
-        if (row.label !== input.label || row.projectLabel !== input.projectLabel)
-          throw new Error('Enrollment request changed');
-        return { row, created: false };
-      }
-      const operationId = randomUUID();
-      const row: EnrollmentRecord = {
-        ...input,
-        operationId,
-        accountId: 'openai-' + operationId,
-        phase: 'reserved',
-        provider: null,
-        models: null,
-        errorCode: null,
-      };
-      if (existingIds.includes(row.accountId)) throw new Error('Enrollment account already exists');
-      this.db
-        .prepare('INSERT INTO openai_account_enrollments VALUES (?, ?, ?)')
-        .run(row.requestId, row.accountId, JSON.stringify(row));
-      return { row, created: true };
-    })();
+    return this.db
+      .transaction(() => {
+        const prior = this.db
+          .prepare('SELECT metadata FROM openai_account_enrollments WHERE request_id=?')
+          .get(input.requestId) as { metadata: string } | undefined;
+        if (prior) {
+          const row = this.parse(prior.metadata);
+          if (row.label !== input.label || row.projectLabel !== input.projectLabel)
+            throw new Error('Enrollment request changed');
+          return { row, created: false };
+        }
+        if (this.rows().some((row) => row.phase !== 'ready' && row.phase !== 'failed'))
+          throw new OpenAIEnrollmentUnresolvedError();
+        const operationId = randomUUID();
+        const row: EnrollmentRecord = {
+          ...input,
+          operationId,
+          accountId: 'openai-' + operationId,
+          phase: 'reserved',
+          provider: null,
+          models: null,
+          errorCode: null,
+        };
+        if (existingIds.includes(row.accountId))
+          throw new Error('Enrollment account already exists');
+        this.db
+          .prepare('INSERT INTO openai_account_enrollments VALUES (?, ?, ?)')
+          .run(row.requestId, row.accountId, JSON.stringify(row));
+        return { row, created: true };
+      })
+      .immediate();
   }
   update(
     row: EnrollmentRecord,

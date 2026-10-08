@@ -1113,6 +1113,7 @@ async function _startChatInner(
   let accountBinding;
   let codexProfile: CodexAccountProfile | undefined;
   let apiKey: string | undefined;
+  let enrolledOpenAIAccount = false;
   let apiCredentialRef: Parameters<typeof credentials.resolve>[0] | undefined;
   let gemini: GeminiOptions | undefined;
   let accountEnv: Record<string, string> | undefined;
@@ -1194,8 +1195,9 @@ async function _startChatInner(
         accountEnv = nativeExecutionEnv();
       } else if (accountBinding.provider === 'openai') {
         const profile = profiles!.apiProfile(accountBinding);
+        enrolledOpenAIAccount = profiles!.isEnrolledOpenAIAccount(accountBinding.accountId);
         if (
-          profiles!.isEnrolledOpenAIAccount(accountBinding.accountId) &&
+          enrolledOpenAIAccount &&
           !getConnectionsRuntime()?.openAIEnrollmentAuthority?.manages(accountBinding.accountId)
         )
           throw new Error('OpenAI account enrollment controller is unavailable');
@@ -1331,7 +1333,23 @@ async function _startChatInner(
   if (apiCredentialRef) {
     try {
       const runtime = getConnectionsRuntime();
-      if (runtime?.assertOpenAIKeyReady && accountBinding) {
+      if (
+        accountBinding &&
+        enrolledOpenAIAccount &&
+        !runtime?.openAIEnrollmentAuthority?.manages(accountBinding.accountId)
+      )
+        throw new Error('OpenAI account enrollment controller is unavailable');
+      const manager =
+        accountBinding && runtime?.openAIEnrollmentAuthority?.manages(accountBinding.accountId)
+          ? runtime.openAIEnrollmentAuthority
+          : accountBinding && runtime?.openAIKeys?.manages(accountBinding.accountId)
+            ? runtime.openAIKeys
+            : undefined;
+      if (manager && accountBinding) {
+        // resolveKey holds the custody gate and returns the exact marker-verified
+        // value. A separate generic lookup could observe a later unverified key.
+        apiKey = await manager.resolveKey(accountBinding.accountId, AbortSignal.timeout(30000));
+      } else if (runtime?.assertOpenAIKeyReady && accountBinding) {
         const selectedReference = apiCredentialRef;
         apiKey = await runtime.service.withCredentialMutation(async () => {
           await runtime.assertOpenAIKeyReady!(accountBinding.accountId, AbortSignal.timeout(30000));

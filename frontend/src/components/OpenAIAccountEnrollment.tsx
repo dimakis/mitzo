@@ -26,9 +26,14 @@ export function OpenAIAccountEnrollment({
   const mounted = useRef(false);
   const pending = useRef(false);
   const requestId = useRef<string | null>(null);
-  const retrySafe = accounts.some(
-    (account) => account.requestId === requestId.current && account.state === 'failed',
+  const unresolved = accounts.some(
+    (account) => account.state === 'connecting' || account.state === 'needs_attention',
   );
+  const retrySafe =
+    !unresolved &&
+    accounts.some(
+      (account) => account.requestId === requestId.current && account.state === 'failed',
+    );
   const refresh = useCallback(async () => {
     try {
       const status = await getOpenAIAccounts();
@@ -49,13 +54,13 @@ export function OpenAIAccountEnrollment({
     };
   }, [refresh]);
   useEffect(() => {
-    if (!authorized || enabled === false) {
+    if (!authorized || enabled === false || unresolved) {
       setApiKey('');
       setBillingConfirmed(false);
     }
-  }, [authorized, enabled]);
+  }, [authorized, enabled, unresolved]);
   const submit = async () => {
-    if (pending.current || reviewRequired || created || !enabled) return;
+    if (pending.current || reviewRequired || unresolved || created || !enabled) return;
     if (!authorized || (expiresAt !== undefined && expiresAt <= Date.now())) {
       setApiKey('');
       setBillingConfirmed(false);
@@ -114,6 +119,11 @@ export function OpenAIAccountEnrollment({
         <p>Adding OpenAI API accounts is unavailable.</p>
       ) : created ? (
         <p role="status">{created.label} is ready for new chats.</p>
+      ) : unresolved ? (
+        <p role="status">
+          A previous enrollment must be reviewed before adding another account. Check its status and
+          ask the operator to reconcile the saved operation.
+        </p>
       ) : reviewRequired ? (
         <h3>Review enrollment status</h3>
       ) : !authorized ? (

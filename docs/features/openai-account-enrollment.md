@@ -15,7 +15,8 @@ account profiles, API replies, error messages, or enrollment metadata.
 A successful setup creates a separate account. Select it explicitly when starting a new chat.
 Existing accounts, saved keys, provider bindings, and conversation billing remain unchanged.
 Use this flow for a different project; the separate same-project key replacement flow is not
-required and is not enabled by this feature.
+required and is not enabled by this feature. Enrolled accounts are excluded from that
+replacement flow even if their IDs are listed in its operator configuration.
 
 ## Configuration
 
@@ -45,13 +46,15 @@ The journal stores a request ID and nonsecret resource metadata before validatio
 the same request returns its recorded state without making another validation call or
 creating another provider. A failure before storage permits an explicit attempt with a new
 key. Once storage may have changed, an uncertain operation remains **needs attention**;
-refresh its status instead of submitting another setup. Restart marks unfinished operations
+refresh its status instead of submitting another setup. The server blocks all new enrollment
+requests while any saved operation is unresolved, including after a page reload or a new request
+ID. Existing ready accounts remain usable. Restart marks unfinished operations
 for inspection and never replays credential writes or adopts a provider from its name alone.
 
 An account enters the catalog only after confirmed Keychain storage and provider creation.
 Admission then verifies the exact Keychain operation marker, provider ID and resource version,
-and the controller gateway/workspace identity. Host requests resolve the canonical key through
-the same admission gate. External credential edits or changed provider identity block use.
+and the controller gateway/workspace identity. Host requests use the exact verified key returned through
+the admission gate, without a second credential lookup. External credential edits or changed provider identity block use.
 Pending resources are retained for attended reconciliation; there is no automatic deletion.
 
 ## Acceptance and activation

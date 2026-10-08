@@ -111,6 +111,7 @@ export function createConnectionsRuntime(options: {
   /** Explicit server-owned enrollment; no credential/account adoption happens by default. */
   openAIKeyAccounts?: () => ManagedOpenAIAccount[];
   managedOpenAIAccountIds?: readonly string[];
+  configuredAccountIds?: () => readonly string[];
   openAIEnrollmentDatabase?: string;
   openAIAccountEnrollmentEnabled?: boolean;
   /** Authoritative conversation metadata, injected by server startup. */
@@ -242,7 +243,9 @@ export function createConnectionsRuntime(options: {
       gatewayBinding,
       workspace: options.workspace,
       gate: (work) => service.withCredentialMutation(work),
-      existingAccountIds: () => (options.openAIKeyAccounts?.() ?? []).map((account) => account.id),
+      existingAccountIds: () =>
+        options.configuredAccountIds?.() ??
+        (options.openAIKeyAccounts?.() ?? []).map((account) => account.id),
     });
   } else if (options.openAIAccountEnrollmentEnabled) {
     throw new Error('OpenAI enrollment requires a private registry path');

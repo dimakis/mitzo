@@ -139,3 +139,24 @@ it('clears an entered key when authorization is lost and when the form unmounts'
   await mount();
   expect((screen.getByLabelText('API key') as HTMLInputElement).value).toBe('');
 });
+it.each(['connecting', 'needs_attention'])(
+  'blocks fresh setup after reload while another enrollment is %s',
+  async (state) => {
+    vi.mocked(api.getOpenAIAccounts).mockResolvedValue({
+      enabled: true,
+      accounts: [{ ...account, requestId: 'previous-browser-request', state }],
+    });
+    await mount();
+    expect(screen.queryByLabelText('API key')).toBeNull();
+    expect(screen.getByText(/previous enrollment must be reviewed/)).toBeTruthy();
+    expect(api.enrollOpenAIAccount).not.toHaveBeenCalled();
+  },
+);
+it('allows a fresh setup when previous enrollments are ready or failed', async () => {
+  vi.mocked(api.getOpenAIAccounts).mockResolvedValue({
+    enabled: true,
+    accounts: [account, { ...account, id: 'failed', state: 'failed' }],
+  });
+  await mount();
+  expect(screen.getByLabelText('API key')).toBeTruthy();
+});

@@ -329,3 +329,79 @@ it('accepts the same 120-character labels as the browser and router', async () =
     ),
   ).rejects.toThrow('Invalid OpenAI enrollment request');
 });
+
+it.each(['reserved', 'keychain_created', 'provider_creating', 'needs_attention'] as const)(
+  'fences a new browser request while a durable %s enrollment is unresolved',
+  async (phase) => {
+    const f = fixture();
+    const reserved = f.store.reserve(
+      {
+        requestId: f.input.requestId,
+        label: f.input.label,
+        projectLabel: f.input.projectLabel,
+        controllerBinding: 'a'.repeat(64),
+      },
+      [],
+    ).row;
+    f.store.update(reserved, { phase });
+    // A fresh store/service represents page reload and controller restart.
+    const reopened = new OpenAIAccountEnrollmentStore(f.path);
+    try {
+      const service = new OpenAIAccountEnrollment({ ...f.options, store: reopened });
+      await expect(
+        service.enroll({ ...f.input, requestId: randomUUID() }, AbortSignal.timeout(1000)),
+      ).rejects.toThrow('An earlier OpenAI enrollment is unresolved');
+      expect(await service.enroll(f.input, AbortSignal.timeout(1000))).toMatchObject({
+        requestId: f.input.requestId,
+        state: phase === 'needs_attention' ? 'needs_attention' : 'connecting',
+      });
+      expect(service.list()).toHaveLength(1);
+      expect(f.validateKey).not.toHaveBeenCalled();
+      expect(f.keychain.create).not.toHaveBeenCalled();
+      expect(f.gateway.create).not.toHaveBeenCalled();
+    } finally {
+      reopened.close();
+    }
+  },
+);
+
+it('permits an explicit new key after known prewrite failure and a separate account after readiness', async () => {
+  const f = fixture();
+  f.validateKey.mockRejectedValueOnce(new Error('invalid test key'));
+  expect((await f.service.enroll(f.input, AbortSignal.timeout(1000))).state).toBe('failed');
+  expect(
+    (await f.service.enroll({ ...f.input, requestId: randomUUID() }, AbortSignal.timeout(1000)))
+      .state,
+  ).toBe('ready');
+  expect(
+    (await f.service.enroll({ ...f.input, requestId: randomUUID() }, AbortSignal.timeout(1000)))
+      .state,
+  ).toBe('ready');
+  expect(f.validateKey).toHaveBeenCalledTimes(3);
+  expect(f.keychain.create).toHaveBeenCalledTimes(2);
+  expect(f.gateway.create).toHaveBeenCalledTimes(2);
+});
+
+it('blocks a second controller request while the first validation is still in flight', async () => {
+  const f = fixture();
+  let release!: () => void;
+  const validation = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  f.validateKey.mockImplementationOnce(() => validation);
+  const first = f.service.enroll(f.input, AbortSignal.timeout(1000));
+  const reopened = new OpenAIAccountEnrollmentStore(f.path);
+  try {
+    const second = new OpenAIAccountEnrollment({ ...f.options, store: reopened });
+    await expect(
+      second.enroll({ ...f.input, requestId: randomUUID() }, AbortSignal.timeout(1000)),
+    ).rejects.toThrow('An earlier OpenAI enrollment is unresolved');
+    expect(f.validateKey).toHaveBeenCalledOnce();
+    expect(f.keychain.create).not.toHaveBeenCalled();
+    expect(f.gateway.create).not.toHaveBeenCalled();
+  } finally {
+    release();
+    reopened.close();
+  }
+  expect((await first).state).toBe('ready');
+});
