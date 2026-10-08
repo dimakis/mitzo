@@ -607,3 +607,23 @@ it('ignores a previous turn usage update after a new turn starts', () => {
   });
   expect(events.filter((e) => e.type === 'provider_usage')).toEqual([]);
 });
+
+it.each([undefined, 0, -1, Infinity, 'not reported'])(
+  'keeps measured native usage when capacity is unavailable: %s',
+  (modelContextWindow) => {
+    const events: Record<string, unknown>[] = [];
+    const mapper = new CodexSessionEvents('app', 'provider', 'new-model', (e) => events.push(e));
+    mapper.notification('thread/tokenUsage/updated', {
+      threadId: 'provider',
+      turnId: 'turn',
+      tokenUsage: { last: measuredUsage(), total: measuredUsage(), modelContextWindow },
+    });
+    expect(events.at(-1)).toMatchObject({
+      type: 'provider_usage',
+      agentContext: 12300,
+      sessionTotal: 12300,
+      contextCeiling: 0,
+      model: 'new-model',
+    });
+  },
+);
