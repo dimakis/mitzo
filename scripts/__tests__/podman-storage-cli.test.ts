@@ -2,7 +2,7 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { runStorageCommand } from '../podman-storage.mjs';
+import { runStorageCommand, storageExitCode } from '../podman-storage.mjs';
 import { enrollStore } from '../lib/podman-storage-maintainer.mjs';
 const id = (n: number) => `sha256:${n.toString(16).padStart(64, '0')}`;
 describe('operator storage command', () => {
@@ -112,5 +112,13 @@ describe('operator storage command', () => {
   it('requires explicit selection and refuses unrelated commands', async () => {
     await expect(runStorageCommand(['status'])).rejects.toThrow('Usage');
     await expect(runStorageCommand(['prune', '--selection', 'x'])).rejects.toThrow('Usage');
+  });
+  it('returns exit 2 for nested status blockers as well as flat plan and partial outcomes', () => {
+    expect(storageExitCode({ plan: { blockers: ['missing enrollment'] } })).toBe(2);
+    expect(storageExitCode({ blockers: ['partial inventory'] })).toBe(2);
+    expect(storageExitCode({ status: 'partial' })).toBe(2);
+    expect(storageExitCode({ status: 'blocked' })).toBe(2);
+    expect(storageExitCode({ plan: { blockers: [] } })).toBe(0);
+    expect(storageExitCode({ status: 'complete', blockers: [] })).toBe(0);
   });
 });

@@ -17,6 +17,14 @@ import {
 
 const usage =
   'Usage: node scripts/podman-storage.mjs status|plan|apply|enroll --selection FILE [--output PLAN | --plan PLAN | --reviewed ENROLLMENT]';
+export function storageExitCode(result) {
+  return result.status === 'blocked' ||
+    result.status === 'partial' ||
+    result.blockers?.length ||
+    result.plan?.blockers?.length
+    ? 2
+    : 0;
+}
 export async function runStorageCommand(
   argv,
   { home = maintenanceHome(), collect = collectStore, remove = removeImage, signal } = {},
@@ -113,8 +121,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
   try {
     const result = await runStorageCommand(process.argv.slice(2), { signal: controller.signal });
     process.stdout.write(JSON.stringify(result, null, 2) + '\n');
-    if (result.status === 'blocked' || result.status === 'partial' || result.blockers?.length)
-      process.exitCode = 2;
+    process.exitCode = storageExitCode(result);
   } catch (error) {
     process.stderr.write(
       `${error instanceof Error ? error.message : 'Storage operation failed'}\n`,
