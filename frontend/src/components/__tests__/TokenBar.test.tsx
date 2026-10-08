@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
-import { describe, it, expect, afterEach } from 'vitest';
-import { render, screen, fireEvent, cleanup } from '@testing-library/react';
+import { describe, it, expect, afterEach, vi } from 'vitest';
+import { act, render, screen, fireEvent, cleanup } from '@testing-library/react';
 import { TokenBar } from '../TokenBar';
 import type { TokensState as TokenState } from '@mitzo/client';
 
@@ -243,4 +243,37 @@ it('keeps limit provenance in pressed details and does not use stale capacities 
   expect(screen.getByText('64,000')).toBeTruthy();
   expect(screen.getByText('new-model')).toBeTruthy();
   cleanup();
+});
+
+it('expires a catalog limit while the chat remains open', () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(1000);
+  try {
+    const { container } = render(
+      <TokenBar
+        tokenState={makeState({
+          agentContext: 1000,
+          turnIndex: 1,
+          contextCeiling: 64000,
+          tokenLimits: {
+            model: 'm',
+            source: 'catalog',
+            sourceName: 'Models.dev',
+            contextWindow: 64000,
+            checkedAt: 1000,
+            expiresAt: 2000,
+            stale: false,
+          },
+        })}
+      />,
+    );
+    expect(container.querySelector('.token-wheel-fill')).toBeTruthy();
+    act(() => vi.advanceTimersByTime(1001));
+    expect(container.querySelector('.token-wheel-fill')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Token usage' }));
+    expect(screen.getByText('Models.dev (stale)')).toBeTruthy();
+  } finally {
+    cleanup();
+    vi.useRealTimers();
+  }
 });

@@ -9,6 +9,7 @@ export const ModelTokenLimitsSchema = z.object({
   contextWindow: limit.optional(),
   inputTokenLimit: limit.optional(),
   outputTokenLimit: limit.optional(),
+  expiresAt: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).optional(),
   checkedAt: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).optional(),
   stale: z.boolean().default(false),
 });

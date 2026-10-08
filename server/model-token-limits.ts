@@ -18,8 +18,9 @@ const unknown = (model: string, checkedAt?: number): ModelTokenLimits => ({
   ...(checkedAt !== undefined ? { checkedAt } : {}),
 });
 
-export function tokenLimitCeiling(limits?: ModelTokenLimits): number {
-  if (!limits || limits.stale) return 0;
+export function tokenLimitCeiling(limits?: ModelTokenLimits, now = Date.now()): number {
+  if (!limits || limits.stale || (limits.expiresAt !== undefined && limits.expiresAt <= now))
+    return 0;
   const values = [limits.contextWindow, limits.inputTokenLimit].filter(
     (value): value is number => value !== undefined,
   );
@@ -142,6 +143,7 @@ export class ModelTokenLimitCatalog {
       ...(input ? { inputTokenLimit: input } : {}),
       ...(output ? { outputTokenLimit: output } : {}),
       checkedAt: this.checkedAt,
+      expiresAt: this.checkedAt !== undefined ? this.checkedAt + this.ttl : undefined,
       stale: this.checkedAt === undefined || this.now() - this.checkedAt >= this.ttl,
     };
   }

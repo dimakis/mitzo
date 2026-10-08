@@ -14,6 +14,7 @@ interface Props {
 }
 
 export function TokenBar({ tokenState }: Props) {
+  const [, refreshExpiry] = useState(0);
   const [expanded, setExpanded] = useState(false);
   const summaryId = useId();
 
@@ -26,6 +27,16 @@ export function TokenBar({ tokenState }: Props) {
     return () => document.removeEventListener('keydown', dismiss);
   }, [expanded]);
 
+  const expiry = tokenState.tokenLimits?.expiresAt;
+  useEffect(() => {
+    if (expiry === undefined || expiry <= Date.now()) return;
+    const timer = setTimeout(
+      () => refreshExpiry((value) => value + 1),
+      Math.min(expiry - Date.now() + 1, 2 ** 31 - 1),
+    );
+    return () => clearTimeout(timer);
+  }, [expiry]);
+
   // Don't render until we have data
   if (tokenState.turnIndex === 0 && !tokenState.agentContext && !tokenState.sessionTotal)
     return null;
@@ -36,8 +47,8 @@ export function TokenBar({ tokenState }: Props) {
   const numCompactions = tokenState.numCompactions ?? 0;
   // Zero is also the initial/restored sentinel; it does not prove an empty window.
   const hasCount = Number.isFinite(agentContext) && agentContext > 0;
-  const hasContext =
-    hasCount && Number.isFinite(ceiling) && ceiling > 0 && !tokenState.tokenLimits?.stale;
+  const stale = !!tokenState.tokenLimits?.stale || (expiry !== undefined && expiry <= Date.now());
+  const hasContext = hasCount && Number.isFinite(ceiling) && ceiling > 0 && !stale;
   const ratio = hasContext ? Math.min(1, agentContext / ceiling) : 0;
   const color = hasContext ? getContextColor(ratio) : 'unknown';
   const summary = hasContext
@@ -150,7 +161,7 @@ export function TokenBar({ tokenState }: Props) {
                       catalog: 'Catalog',
                       unknown: 'Not reported',
                     }[tokenState.tokenLimits.source]}
-                  {tokenState.tokenLimits.stale ? ' (stale)' : ''}
+                  {stale ? ' (stale)' : ''}
                 </span>
               </div>
               {tokenState.tokenLimits.checkedAt !== undefined && (

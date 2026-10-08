@@ -1,9 +1,10 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   ModelTokenLimitCatalog,
   providerTokenLimits,
   runtimeTokenLimits,
   tokenLimitCeiling,
+  loadModelTokenLimitCatalog,
 } from '../model-token-limits.js';
 
 const feed = (context = 128000) => ({
@@ -133,4 +134,47 @@ describe('dynamic model token limits', () => {
     expect(tokenLimitCeiling(limits)).toBe(64000);
     expect(runtimeTokenLimits('new-model', NaN)).toBeUndefined();
   });
+});
+
+afterEach(() => vi.unstubAllGlobals());
+it('fetches only fixed public metadata without credentials, redirects, or account parameters', async () => {
+  const fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify(feed())));
+  vi.stubGlobal('fetch', fetch);
+  const previous = process.env.MITZO_MODEL_LIMITS_CATALOG_FILE;
+  delete process.env.MITZO_MODEL_LIMITS_CATALOG_FILE;
+  try {
+    expect(await loadModelTokenLimitCatalog()).toEqual(feed());
+    expect(fetch).toHaveBeenCalledWith(
+      'https://models.dev/api.json',
+      expect.objectContaining({
+        redirect: 'error',
+        credentials: 'omit',
+        signal: expect.any(AbortSignal),
+      }),
+    );
+    expect(Object.keys(fetch.mock.calls[0][1])).not.toContain('headers');
+  } finally {
+    process.env.MITZO_MODEL_LIMITS_CATALOG_FILE = previous;
+  }
+});
+it('rejects oversized public catalog bodies', async () => {
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(' '.repeat(16 * 1024 * 1024 + 1))));
+  const previous = process.env.MITZO_MODEL_LIMITS_CATALOG_FILE;
+  delete process.env.MITZO_MODEL_LIMITS_CATALOG_FILE;
+  try {
+    await expect(loadModelTokenLimitCatalog()).rejects.toThrow('size limit');
+  } finally {
+    process.env.MITZO_MODEL_LIMITS_CATALOG_FILE = previous;
+  }
+});
+it('exposes an expiry for catalog observations, including saved/replayed ones', async () => {
+  const catalog = new ModelTokenLimitCatalog(
+    async () => feed(),
+    () => 100,
+    1000,
+  );
+  const limits = await catalog.resolve('openai', 'new-model');
+  expect(limits).toMatchObject({ checkedAt: 100, expiresAt: 1100 });
+  expect(tokenLimitCeiling(limits, 1099)).toBe(128000);
+  expect(tokenLimitCeiling(limits, 1100)).toBe(0);
 });
