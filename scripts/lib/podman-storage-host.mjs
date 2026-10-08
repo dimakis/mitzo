@@ -95,8 +95,8 @@ export async function collectStore(
     const info = JSON.parse(await podman(['info', '--format', 'json']));
     const root = info.store?.graphRoot;
     if (
-      !root?.startsWith('/') ||
-      /[\r\n\0]/.test(root) ||
+      typeof root !== 'string' ||
+      !/^\/[A-Za-z0-9_./-]+$/.test(root) ||
       !info.store.graphDriverName ||
       typeof info.host?.security?.rootless !== 'boolean'
     )

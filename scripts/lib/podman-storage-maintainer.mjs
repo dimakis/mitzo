@@ -212,8 +212,9 @@ export async function managedBuild(home, store, recipe, build, signal) {
     store,
     async () => {
       const state = await readState(home, store);
+      if (!state || digest(state.store) !== digest(store))
+        throw Error('Enrolled store identity changed');
       if (
-        !state ||
         !recipe.review ||
         recipe.reproducible !== true ||
         !recipe.inputsDigest ||

@@ -124,4 +124,20 @@ describe('selected store guest telemetry', () => {
   it('rejects invalid filesystem statistics', async () => {
     await expect(measureFilesystem('/store', async () => 'bad df')).rejects.toThrow();
   });
+  it('refuses guest paths that would be interpreted by machine SSH shell joining', async () => {
+    const f = fake();
+    const original = f.run;
+    f.run = async (exe, args) => {
+      const text = await original(exe, args);
+      if (args.includes('info')) {
+        const v = JSON.parse(text);
+        v.store.graphRoot = '/store;touch /tmp/unplanned';
+        return JSON.stringify(v);
+      }
+      return text;
+    };
+    const s = await collectStore(selection, { ...f, enrollment: null });
+    expect(s.complete).toBe(false);
+    expect(f.calls.some(([, args]) => args.some((arg) => arg.includes('touch')))).toBe(false);
+  });
 });

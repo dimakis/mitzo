@@ -152,4 +152,34 @@ describe('host store maintenance authority', () => {
     await enrollStore(home, store, { ...e, review: 'pin revision' });
     expect((await readState(home, store)).builds[0].images).toEqual([id]);
   });
+  it('refuses producer execution when the complete enrolled store identity changes', async () => {
+    const home = await root();
+    await enrollStore(home, store, {
+      version: 1,
+      review: 'review',
+      store,
+      producers: [{ owner: 'owner', family: 'family', coordinated: true, review: 'review' }],
+      builds: [],
+    });
+    const changed = { ...store, machine: { created: 'replacement' } };
+    let invoked = false;
+    await expect(
+      managedBuild(
+        home,
+        changed,
+        {
+          owner: 'owner',
+          family: 'family',
+          review: 'review',
+          reproducible: true,
+          inputsDigest: 'digest',
+        },
+        async () => {
+          invoked = true;
+          return [id];
+        },
+      ),
+    ).rejects.toThrow('store');
+    expect(invoked).toBe(false);
+  });
 });
