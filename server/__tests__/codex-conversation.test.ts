@@ -3901,3 +3901,43 @@ it('keeps preparation failures ahead of the native dispatch counter', async () =
   expect(c.getTurnDispatchCount()).toBe(0);
   expect(requests.filter(({ method }) => method === 'turn/start')).toHaveLength(0);
 });
+
+it('preserves unavailable-project diagnostics through terminal results without retrying', async () => {
+  const { c, callbacks, events, onError, requests } = await setup();
+  await c.send({ id: 'project-failed', prompt: 'hello' });
+  callbacks.onNotification('turn/completed', {
+    threadId: 'provider-thread',
+    turn: {
+      id: 'turn-1',
+      status: 'failed',
+      error: {
+        message:
+          'unexpected status 401 Unauthorized, url: https://private.invalid, Bearer sk-private, auth error: 401, auth error code: not_authorized_invalid_project',
+      },
+    },
+  });
+  expect(events).toContainEqual(
+    expect.objectContaining({
+      type: 'result',
+      is_error: true,
+      provider_failure: expect.objectContaining({
+        category: 'authentication',
+        code: 'not_authorized_invalid_project',
+        retryable: false,
+        ambiguous: false,
+        correlationId: 'turn-1',
+        message:
+          'The selected account’s project is unavailable or archived. Check its project configuration before starting a new turn.',
+      }),
+    }),
+  );
+  expect(onError.mock.calls[0]?.[0]).toMatchObject({
+    failure: expect.objectContaining({ code: 'not_authorized_invalid_project' }),
+  });
+  expect(await c.retryLatestFailed()).toBe('not_retryable');
+  expect(c.isPaused()).toBe(true);
+  expect(requests.filter(({ method }) => method === 'turn/start')).toHaveLength(1);
+  expect(JSON.stringify({ events, errors: onError.mock.calls })).not.toMatch(
+    /sk-private|private.invalid|Bearer/,
+  );
+});
