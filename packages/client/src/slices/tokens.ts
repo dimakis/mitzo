@@ -1,6 +1,9 @@
+import type { ModelTokenLimits } from '@mitzo/protocol';
+
 export interface TokensState {
   agentContext: number;
   contextCeiling: number;
+  tokenLimits?: ModelTokenLimits | null;
   sessionTotal: number;
   /** Observed native snapshots are display evidence, not finalized turn billing. */
   sessionTotalStatus?: 'observed' | 'unknown';
@@ -9,7 +12,8 @@ export interface TokensState {
   numCompactions: number;
 }
 
-export const DEFAULT_CONTEXT_CEILING = 200_000;
+// Zero means unreported; there is no universal model capacity.
+export const DEFAULT_CONTEXT_CEILING = 0;
 
 export const INITIAL_TOKENS_STATE: TokensState = {
   agentContext: 0,

@@ -20,7 +20,10 @@ const unknown = (model: string, checkedAt?: number): ModelTokenLimits => ({
 
 export function tokenLimitCeiling(limits?: ModelTokenLimits): number {
   if (!limits || limits.stale) return 0;
-  return limits.contextWindow ?? limits.inputTokenLimit ?? 0;
+  const values = [limits.contextWindow, limits.inputTokenLimit].filter(
+    (value): value is number => value !== undefined,
+  );
+  return values.length ? Math.min(...values) : 0;
 }
 export function runtimeTokenLimits(
   model: string,

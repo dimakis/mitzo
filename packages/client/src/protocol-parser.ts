@@ -20,7 +20,7 @@ import type {
   ClientSessionState,
   PermissionRequest,
 } from '@mitzo/protocol';
-import { SymposiumProvenanceSchema } from '@mitzo/protocol';
+import { SymposiumProvenanceSchema, ModelTokenLimitsSchema } from '@mitzo/protocol';
 import type { MessagesAction } from './slices/messages.js';
 import type { WsMsg } from './server-messages.js';
 import type { Task, LoopStatus } from './slices/tasks.js';
@@ -618,6 +618,10 @@ export function parseServerMessage(
         agentContext: msg.agentContext as number,
         turnIndex: msg.turnIndex as number,
       };
+      if (Object.hasOwn(msg, 'tokenLimits')) {
+        const limits = ModelTokenLimitsSchema.safeParse(msg.tokenLimits);
+        tu.tokenLimits = limits.success ? limits.data : null;
+      }
       if (msg.contextCeiling != null) tu.contextCeiling = msg.contextCeiling as number;
       if (msg.sessionTotal != null) tu.sessionTotal = msg.sessionTotal as number;
       if (msg.sessionTotalStatus === 'observed' || msg.sessionTotalStatus === 'unknown')

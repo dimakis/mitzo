@@ -216,3 +216,31 @@ describe('measured native usage', () => {
     expect(screen.getAllByText('Not reported')).toHaveLength(2);
   });
 });
+
+it('keeps limit provenance in pressed details and does not use stale capacities for occupancy', () => {
+  const { container } = render(
+    <TokenBar
+      tokenState={makeState({
+        agentContext: 12000,
+        turnIndex: 1,
+        contextCeiling: 1000000,
+        tokenLimits: {
+          model: 'new-model',
+          source: 'catalog',
+          sourceName: 'Models.dev',
+          contextWindow: 1000000,
+          outputTokenLimit: 64000,
+          checkedAt: 100,
+          stale: true,
+        },
+      })}
+    />,
+  );
+  expect(container.querySelector('.token-wheel-fill')).toBeNull();
+  expect(screen.queryByText('Models.dev (stale)')).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Token usage' }));
+  expect(screen.getByText('Models.dev (stale)')).toBeTruthy();
+  expect(screen.getByText('64,000')).toBeTruthy();
+  expect(screen.getByText('new-model')).toBeTruthy();
+  cleanup();
+});

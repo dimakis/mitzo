@@ -1282,3 +1282,23 @@ it('retains native usage provenance in partial token updates', () => {
     sessionTotalStatus: 'observed',
   });
 });
+
+it('hydrates validated model limit evidence and supports explicitly clearing it', () => {
+  const limits = {
+    model: 'new-model',
+    source: 'catalog',
+    contextWindow: 1000000,
+    checkedAt: 100,
+    stale: false,
+  };
+  const parse = (tokenLimits: unknown) =>
+    parseServerMessage(
+      { type: 'token_update', agentContext: 1000, turnIndex: 1, tokenLimits },
+      makeState(),
+      makeCallbacks(),
+      POOL_KEY,
+    ).tokensUpdate;
+  expect(parse(limits)?.tokenLimits).toEqual(limits);
+  expect(parse(null)?.tokenLimits).toBeNull();
+  expect(parse({ ...limits, contextWindow: -1 })?.tokenLimits).toBeNull();
+});

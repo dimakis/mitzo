@@ -4,7 +4,6 @@ import { extractToolResultText, extractToolResultImages } from './content-blocks
 import { storeImage } from './image-store.js';
 import {
   TOOL_RESULT_MAX_CHARS,
-  CONTEXT_CEILING_TOKENS,
   QUERY_FIRST_EVENT_TIMEOUT_MS,
   TRACE_CONTENT_MAX_CHARS,
 } from './constants.js';
@@ -22,6 +21,12 @@ import { tracer } from './tracing.js';
 import { context, trace, SpanStatusCode, type Span } from '@opentelemetry/api';
 import { ProgressTracker } from './progress-tracker.js';
 import type { ProviderFailure, AccountBinding } from '@mitzo/protocol';
+import { ModelTokenLimitsSchema, type ModelTokenLimits } from '@mitzo/protocol';
+import {
+  resolveModelTokenLimits,
+  runtimeTokenLimits,
+  tokenLimitCeiling,
+} from './model-token-limits.js';
 import type { AccountUseBinding } from './account-use-store.js';
 import { providerFailureTelemetry } from './provider-failure.js';
 const log = createLogger('query-loop');
@@ -85,6 +90,7 @@ function send(transport: SessionTransport, data: Record<string, unknown>) {
 
 /** Shape of the SDK result event — fields we extract for usage tracking. */
 interface SdkResultEvent {
+  modelUsage?: Record<string, { contextWindow?: unknown; maxOutputTokens?: unknown }>;
   is_error?: boolean;
   provider_failure?: ProviderFailure;
   usage?: {
@@ -184,6 +190,8 @@ function v2(type: string, rest: Record<string, unknown> = {}): Record<string, un
 }
 
 export interface QueryLoopOptions {
+  /** Optional metadata lookup; never delays model event processing. */
+  resolveTokenLimits?: (provider: string, model: string) => Promise<ModelTokenLimits>;
   initialClientMsgId?: string;
   initialImages?: string[];
   initialContextBlocks?: string[];
@@ -323,11 +331,15 @@ async function _runQueryLoopInner(
 
   // Token tracking state for live token_update events
   let agentContextTokens = 0; // full context window size (input + cached) from parent message_start
-  let contextCeiling = CONTEXT_CEILING_TOKENS;
+  let contextCeiling = 0;
+  let tokenLimits: ModelTokenLimits | null = null;
+  let tokenModel: string | undefined;
+  let limitGeneration = 0;
+  let loopFinished = false;
   let nativeUsage = false;
   let observedSessionTokens: number | undefined;
   const emitTokenUpdate = (data: Record<string, unknown>) =>
-    emit(nativeUsage ? v2('token_update', data) : { type: 'token_update', ...data });
+    emit(v2('token_update', { ...data, tokenLimits }));
   const nativeUsageFields = () =>
     nativeUsage
       ? {
@@ -345,6 +357,47 @@ async function _runQueryLoopInner(
   let latestCacheCreationTokens = 0;
   const sessionStartedAt = Date.now(); // wall-clock start for fallback duration
   const compactionFields = () => (numCompactions > 0 ? { numCompactions } : {});
+
+  function observeTokenModel(model: unknown) {
+    if (typeof model !== 'string' || !model || model.length > 256) return;
+    if (model !== tokenModel) {
+      tokenModel = model;
+      limitGeneration++;
+      tokenLimits = null;
+      contextCeiling = 0;
+      agentContextTokens = 0;
+    }
+    if (nativeUsage || tokenLimits?.source === 'runtime') return;
+    const generation = limitGeneration;
+    const provider = currentOwnerSession()?.accountBinding?.provider ?? 'anthropic';
+    const resolve = options?.resolveTokenLimits ?? resolveModelTokenLimits;
+    // Catalog fetches cannot delay text, tools, or provider turn completion.
+    void resolve(provider, model)
+      .then((evidence) => {
+        if (
+          loopFinished ||
+          abortController.signal.aborted ||
+          !currentOwnerSession() ||
+          generation !== limitGeneration ||
+          tokenLimits?.source === 'runtime'
+        )
+          return;
+        const parsed = ModelTokenLimitsSchema.safeParse(evidence);
+        if (!parsed.success || parsed.data.model !== tokenModel) return;
+        tokenLimits = parsed.data;
+        contextCeiling = tokenLimitCeiling(tokenLimits);
+        emitTokenUpdate({
+          agentContext: agentContextTokens,
+          contextCeiling,
+          turnIndex,
+          ...nativeUsageFields(),
+          ...compactionFields(),
+        });
+      })
+      .catch(() => {
+        /* Metadata failure leaves capacity explicitly unknown. */
+      });
+  }
 
   // Track last-reported cumulative usage to compute deltas (SDK reports cumulative totals).
   let lastReportedUsage = {
@@ -650,6 +703,7 @@ async function _runQueryLoopInner(
           doneSent = false;
           turnIndex++;
           nativeUsage = true;
+          observeTokenModel(msg.model);
           if (observedSessionTokens === undefined) contextCeiling = 0;
           emitTokenUpdate({
             agentContext: agentContextTokens,
@@ -660,6 +714,14 @@ async function _runQueryLoopInner(
           });
         } else if (msg.type === 'provider_usage') {
           nativeUsage = true;
+          observeTokenModel(msg.model);
+          tokenLimits = tokenModel
+            ? (runtimeTokenLimits(tokenModel, msg.contextCeiling) ?? {
+                model: tokenModel,
+                source: 'unknown',
+                stale: false,
+              })
+            : null;
           agentContextTokens = msg.agentContext as number;
           contextCeiling = msg.contextCeiling as number;
           observedSessionTokens = msg.sessionTotal as number;
@@ -679,6 +741,18 @@ async function _runQueryLoopInner(
 
           // Extract usage data from SDK result event
           const result = msg as SdkResultEvent;
+          if (tokenModel && result.modelUsage && Object.hasOwn(result.modelUsage, tokenModel)) {
+            const usage = result.modelUsage[tokenModel];
+            const reported = runtimeTokenLimits(
+              tokenModel,
+              usage?.contextWindow,
+              usage?.maxOutputTokens,
+            );
+            if (reported) {
+              tokenLimits = reported;
+              contextCeiling = tokenLimitCeiling(reported);
+            }
+          }
           const isError = result.is_error === true;
           if (
             !isError &&
@@ -1008,6 +1082,7 @@ async function _runQueryLoopInner(
             }
 
             if (isParent) {
+              observeTokenModel(apiMsg?.model);
               if (msgContext > 0) {
                 latestInputTokens = msgInput;
                 latestCacheReadTokens = msgCacheRead;
@@ -1633,6 +1708,7 @@ async function _runQueryLoopInner(
         }
       }
     } finally {
+      loopFinished = true;
       clearTimeout(firstEventTimer);
       if (!firstEventReceived) {
         reportFirstEventOutcome(

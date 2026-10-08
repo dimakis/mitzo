@@ -36,7 +36,8 @@ export function TokenBar({ tokenState }: Props) {
   const numCompactions = tokenState.numCompactions ?? 0;
   // Zero is also the initial/restored sentinel; it does not prove an empty window.
   const hasCount = Number.isFinite(agentContext) && agentContext > 0;
-  const hasContext = hasCount && Number.isFinite(ceiling) && ceiling > 0;
+  const hasContext =
+    hasCount && Number.isFinite(ceiling) && ceiling > 0 && !tokenState.tokenLimits?.stale;
   const ratio = hasContext ? Math.min(1, agentContext / ceiling) : 0;
   const color = hasContext ? getContextColor(ratio) : 'unknown';
   const summary = hasContext
@@ -115,6 +116,51 @@ export function TokenBar({ tokenState }: Props) {
                 : sessionTotal.toLocaleString()}
             </span>
           </div>
+          {tokenState.tokenLimits && (
+            <>
+              <div className="token-bar-detail-row">
+                <span>Model</span>
+                <span>{tokenState.tokenLimits.model}</span>
+              </div>
+              {tokenState.tokenLimits.contextWindow && (
+                <div className="token-bar-detail-row">
+                  <span>Model window</span>
+                  <span>{tokenState.tokenLimits.contextWindow.toLocaleString()}</span>
+                </div>
+              )}
+              {tokenState.tokenLimits.inputTokenLimit && (
+                <div className="token-bar-detail-row">
+                  <span>Maximum input</span>
+                  <span>{tokenState.tokenLimits.inputTokenLimit.toLocaleString()}</span>
+                </div>
+              )}
+              {tokenState.tokenLimits.outputTokenLimit && (
+                <div className="token-bar-detail-row">
+                  <span>Maximum output</span>
+                  <span>{tokenState.tokenLimits.outputTokenLimit.toLocaleString()}</span>
+                </div>
+              )}
+              <div className="token-bar-detail-row">
+                <span>Limit source</span>
+                <span>
+                  {tokenState.tokenLimits.sourceName ??
+                    {
+                      runtime: 'Runtime',
+                      provider: 'Provider',
+                      catalog: 'Catalog',
+                      unknown: 'Not reported',
+                    }[tokenState.tokenLimits.source]}
+                  {tokenState.tokenLimits.stale ? ' (stale)' : ''}
+                </span>
+              </div>
+              {tokenState.tokenLimits.checkedAt !== undefined && (
+                <div className="token-bar-detail-row">
+                  <span>Last checked</span>
+                  <span>{new Date(tokenState.tokenLimits.checkedAt).toLocaleString()}</span>
+                </div>
+              )}
+            </>
+          )}
           {tokenState.numTurns > 0 && (
             <div className="token-bar-detail-row">
               <span>Turns</span>
